@@ -1,0 +1,285 @@
+use itertools::Itertools;
+
+use crate::games::chess::moves::ChessMoveFlags::*;
+use crate::games::chess::pieces::ColoredChessPiece;
+use crate::games::chess::pieces::UncoloredChessPiece::*;
+use crate::games::chess::squares::{
+    ChessSquare, A_FILE_NO, B_FILE_NO, C_FILE_NO, E_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
+};
+use crate::games::chess::CastleRight::*;
+use crate::games::chess::{ChessMove, Chessboard};
+use crate::games::Color::*;
+use crate::games::{sup_distance, Board, Color, ColoredPiece, ColoredPieceType, GridSize, Move};
+use crate::general::bitboards::{Bitboard, ChessBitboard};
+use crate::general::move_list::EagerNonAllocMoveList;
+
+// for some reason, Chessboard::MoveList can be ambiguous? This should fix that
+pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, 256>;
+
+enum SliderMove {
+    Bishop,
+    Rook,
+}
+
+impl Chessboard {
+    pub(super) fn is_move_pseudolegal_impl(&self, mov: ChessMove) -> bool {
+        let piece = mov.piece(self);
+        if piece.is_empty() || piece.color().unwrap() != self.active_player {
+            return false;
+        }
+        let mut list = ChessMoveList::default();
+        match piece.uncolored_piece_type() {
+            Pawn => self.gen_pawn_moves(&mut list),
+            Knight => {
+                return self
+                    .gen_single_knight_attacks(mov.from_square().index())
+                    .is_bit_set_at(mov.to_square().index());
+            }
+            Bishop => self.gen_slider_moves(SliderMove::Bishop, &mut list),
+            Rook => self.gen_slider_moves(SliderMove::Rook, &mut list),
+            Queen => {
+                self.gen_slider_moves(SliderMove::Rook, &mut list);
+                self.gen_slider_moves(SliderMove::Bishop, &mut list);
+            }
+            King => self.gen_king_moves(&mut list),
+            Empty => panic!(),
+        }
+        list.contains(&mov)
+    }
+
+    // used for castling
+    pub(super) fn is_in_check_on_square(&self, us: Color, square: ChessSquare) -> bool {
+        let them = us.other();
+        let idx = square.index();
+        let attacks = self.gen_single_knight_attacks(idx);
+        if (attacks & self.colored_piece_bb(them, Knight)).has_set_bit() {
+            return true;
+        }
+        let bb = ChessBitboard::single_piece(idx);
+        let blockers = self.occupied_bb() & !bb;
+        let attacks = bb.bishop_attacks(blockers, GridSize::chess());
+        if (attacks & (self.colored_piece_bb(them, Bishop) | self.colored_piece_bb(them, Queen)))
+            .has_set_bit()
+        {
+            return true;
+        }
+        let attacks = bb.rook_attacks(blockers, GridSize::chess());
+        if (attacks & (self.colored_piece_bb(them, Rook) | self.colored_piece_bb(them, Queen)))
+            .has_set_bit()
+        {
+            return true;
+        }
+        let their_pawns = self.colored_piece_bb(them, Pawn);
+        let pawn_attacks = match us {
+            White => {
+                ((their_pawns & !ChessBitboard::file(A_FILE_NO, GridSize::chess())) >> 9)
+                    | ((their_pawns & !ChessBitboard::file(H_FILE_NO, GridSize::chess())) >> 7)
+            }
+            Black => {
+                ((their_pawns & !ChessBitboard::file(H_FILE_NO, GridSize::chess())) << 9)
+                    | ((their_pawns & !ChessBitboard::file(A_FILE_NO, GridSize::chess())) << 7)
+            }
+        };
+        if pawn_attacks.is_bit_set_at(idx) {
+            return true;
+        }
+        // this can't happen in a legal position, but it can happen in pseudolegal movegen
+        sup_distance(self.king_square(us), self.king_square(them)) <= 1
+    }
+
+    pub(super) fn gen_all_pseudolegal_moves(&self) -> ChessMoveList {
+        let mut list = ChessMoveList::default();
+        self.gen_slider_moves(SliderMove::Bishop, &mut list);
+        self.gen_slider_moves(SliderMove::Rook, &mut list);
+        self.gen_knight_moves(&mut list);
+        self.gen_king_moves(&mut list);
+        self.gen_pawn_moves(&mut list);
+        list
+    }
+
+    fn gen_pawn_moves(&self, list: &mut ChessMoveList) {
+        let color = self.active_player;
+        let pawns = self.colored_piece_bb(color, Pawn);
+        let occupied = self.occupied_bb();
+        let free = !occupied;
+        let opponent = self.colored_bb(color.other());
+        let regular_pawn_moves;
+        let double_pawn_moves;
+        let left_pawn_captures;
+        let right_pawn_captures;
+        let capturable = opponent
+            | self
+                .ep_square
+                .map(|s| ChessBitboard::single_piece(s.index()))
+                .unwrap_or_default();
+        if color == White {
+            regular_pawn_moves = ((pawns << 8) & free, 8);
+            double_pawn_moves = (
+                ((pawns & ChessBitboard::rank(1, GridSize::chess())) << 16) & (free << 8) & free,
+                16,
+            );
+            right_pawn_captures = (
+                ((pawns & !ChessBitboard::file(H_FILE_NO, GridSize::chess())) << 9) & capturable,
+                9,
+            );
+            left_pawn_captures = (
+                ((pawns & !ChessBitboard::file(A_FILE_NO, GridSize::chess())) << 7) & capturable,
+                7,
+            );
+        } else {
+            regular_pawn_moves = ((pawns >> 8) & free, -8);
+            double_pawn_moves = (
+                ((pawns & ChessBitboard::rank(6, GridSize::chess())) >> 16) & (free >> 8) & free,
+                -16,
+            );
+            right_pawn_captures = (
+                ((pawns & !ChessBitboard::file(A_FILE_NO, GridSize::chess())) >> 9) & capturable,
+                -9,
+            );
+            left_pawn_captures = (
+                ((pawns & !ChessBitboard::file(H_FILE_NO, GridSize::chess())) >> 7) & capturable,
+                -7,
+            );
+        }
+        for move_type in [
+            right_pawn_captures,
+            left_pawn_captures,
+            regular_pawn_moves,
+            double_pawn_moves,
+        ] {
+            let mut bb = move_type.0;
+            while bb.has_set_bit() {
+                let idx = bb.pop_lsb();
+                let from = ChessSquare::new((idx as isize - move_type.1) as usize);
+                let to = ChessSquare::new(idx);
+                let mut flag = Normal;
+                if to == self.ep_square.unwrap_or(ChessSquare::unchecked(64)) {
+                    flag = EnPassant;
+                } else if to.rank() == 0 || to.rank() == 7 {
+                    for flag in [PromoQueen, PromoKnight, PromoRook, PromoBishop] {
+                        list.add_move(ChessMove::new(from, to, flag));
+                    }
+                    continue;
+                }
+                list.add_move(ChessMove::new(from, to, flag));
+            }
+        }
+    }
+
+    fn gen_king_moves(&self, list: &mut ChessMoveList) {
+        let color = self.active_player;
+        let king = self.colored_piece_bb(color, King);
+        let king_not_a_file = king & !ChessBitboard::file(A_FILE_NO, GridSize::chess());
+        let king_not_h_file = king & !ChessBitboard::file(H_FILE_NO, GridSize::chess());
+        let moves = (king << 8)
+            | (king >> 8)
+            | (king_not_a_file >> 1)
+            | (king_not_a_file << 7)
+            | (king_not_a_file >> 9)
+            | (king_not_h_file << 1)
+            | (king_not_h_file >> 7)
+            | (king_not_h_file << 9);
+        let mut moves = moves & !self.colored_bb(color);
+        let king_square = ChessSquare::new(king.trailing_zeros());
+        while moves.has_set_bit() {
+            let target = moves.pop_lsb();
+            list.add_move(ChessMove::new(
+                king_square,
+                ChessSquare::new(target),
+                Normal,
+            ));
+        }
+        let king_rank = king_square.rank();
+        // Since this is pseudolegal movegen, we only check if the king ends up in check / moves
+        // over a square where it would be check when playing the move.
+        if self.flags.can_castle(color, Queenside)
+            && (0b1110 << (king_rank * NUM_COLUMNS) & self.occupied_bb().0 == 0)
+        {
+            debug_assert_eq!(king_square.file(), E_FILE_NO);
+            debug_assert_eq!(king_square.rank() % 7, 0);
+            debug_assert_eq!(
+                self.piece_on(self.rook_start_square(color, Queenside))
+                    .symbol,
+                ColoredChessPiece::new(color, Rook)
+            );
+            list.add_move(ChessMove::new(
+                king_square,
+                ChessSquare::from_rank_file(king_rank, C_FILE_NO),
+                Castle,
+            ));
+        }
+        if self.flags.can_castle(color, Kingside)
+            && (0b110_0000 << (king_rank * NUM_COLUMNS) & self.occupied_bb().0 == 0)
+        {
+            debug_assert_eq!(king_square.file(), E_FILE_NO);
+            debug_assert_eq!(king_square.rank(), color as usize * 7);
+            debug_assert_eq!(
+                self.piece_on(self.rook_start_square(color, Kingside))
+                    .symbol,
+                ColoredChessPiece::new(color, Rook)
+            );
+            list.add_move(ChessMove::new(
+                king_square,
+                ChessSquare::from_rank_file(king_rank, G_FILE_NO),
+                Castle,
+            ));
+        }
+    }
+
+    fn gen_knight_moves(&self, list: &mut ChessMoveList) {
+        let mut knights = self.colored_piece_bb(self.active_player, Knight);
+        while knights.has_set_bit() {
+            let square_idx = knights.pop_lsb();
+            let mut attacks = self.gen_single_knight_attacks(square_idx);
+            while attacks.has_set_bit() {
+                let to = ChessSquare::new(attacks.pop_lsb());
+                list.add_move(ChessMove::new(ChessSquare::new(square_idx), to, Normal));
+            }
+        }
+    }
+
+    fn gen_single_knight_attacks(&self, square_idx: usize) -> ChessBitboard {
+        let this_knight = ChessBitboard(1 << square_idx);
+        let not_a_file = this_knight & !ChessBitboard::file(A_FILE_NO, GridSize::chess());
+        let mut moves = (not_a_file << 15) | (not_a_file >> 17);
+        let not_h_file = this_knight & !ChessBitboard::file(H_FILE_NO, GridSize::chess());
+        moves |= (not_h_file >> 15) | (not_h_file << 17);
+        let not_ab_file = not_a_file & !ChessBitboard::file(B_FILE_NO, GridSize::chess());
+        moves |= (not_ab_file << 6) | (not_ab_file >> 10);
+        let not_gh_file = not_h_file & !ChessBitboard::file(G_FILE_NO, GridSize::chess());
+        moves |= (not_gh_file >> 6) | (not_gh_file << 10);
+        moves & !self.colored_bb(self.active_player)
+    }
+
+    fn gen_slider_moves(&self, slider_move: SliderMove, list: &mut ChessMoveList) {
+        let color = self.active_player;
+        let non_queens = self.colored_piece_bb(
+            color,
+            match slider_move {
+                SliderMove::Bishop => Bishop,
+                SliderMove::Rook => Rook,
+            },
+        );
+        let queens = self.colored_piece_bb(color, Queen);
+        let mut pieces = non_queens | queens;
+        let blockers = self.occupied_bb();
+        while pieces.has_set_bit() {
+            let idx = pieces.pop_lsb();
+            let this_piece = ChessBitboard(1 << idx);
+            let mut attacks = match slider_move {
+                SliderMove::Bishop => {
+                    this_piece.bishop_attacks(blockers ^ this_piece, GridSize::chess())
+                }
+                SliderMove::Rook => {
+                    this_piece.rook_attacks(blockers ^ this_piece, GridSize::chess())
+                }
+            };
+            attacks &= !self.colored_bb(color);
+            let from = ChessSquare::new(idx);
+            while attacks.has_set_bit() {
+                let to = ChessSquare::new(attacks.pop_lsb());
+                list.add_move(ChessMove::new(from, to, Normal));
+            }
+        }
+    }
+}
