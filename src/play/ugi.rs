@@ -538,9 +538,19 @@ impl<B: Board> UGI<B> {
             )
         };
         let mut opts = self.engine.get_options();
-        if opts.is_empty() {
+        if opts.iter().find(|opt| opt.name == "Hash").is_none() {
             opts.push(EngineOptionType {
                 name: "Hash".to_string(),
+                typ: EngineUciOptionType::Spin,
+                default: Some("1".to_string()),
+                min: Some("1".to_string()),
+                max: Some("1".to_string()),
+                vars: vec![],
+            })
+        }
+        if opts.iter().find(|opt| opt.name == "Threads").is_none() {
+            opts.push(EngineOptionType {
+                name: "Threads".to_string(),
                 typ: EngineUciOptionType::Spin,
                 default: Some("1".to_string()),
                 min: Some("1".to_string()),
