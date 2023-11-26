@@ -420,11 +420,11 @@ pub fn run_bench<B: Board>(engine: AnyMutEngineRef<B>, mut depth: usize) -> Stri
         sum.depth = sum.depth.max(res.depth);
     }
     format!(
-        "depth {0}, nodes {1}, time {2}ms, nps {3}k",
+        "depth {0}, time {2}ms, {1} nodes, {3} nps",
         sum.depth,
         sum.nodes,
         sum.time.as_millis(),
-        ((sum.nodes as f64 / sum.time.as_millis() as f64).round())
+        ((sum.nodes as f64 / sum.time.as_millis() as f64 * 1000.0).round())
             .to_string()
             .red()
     )

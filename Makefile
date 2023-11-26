@@ -11,6 +11,9 @@ all: motors
 
 motors: release
 
+bench: release
+	./motors bench
+
 release:
 	cargo rustc --release -- --emit link=${EXE}
 

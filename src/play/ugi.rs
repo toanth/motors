@@ -20,8 +20,8 @@ use crate::play::{
 };
 use crate::search::perft::{perft, split_perft};
 use crate::search::{
-    run_bench, Engine, EngineOptionType, InfoCallback, SearchInfo, SearchLimit, SearchResult,
-    Searcher,
+    run_bench, Engine, EngineOptionType, EngineUciOptionType, InfoCallback, SearchInfo,
+    SearchLimit, SearchResult, Searcher,
 };
 use crate::ui::no_graphic::NoGraphics;
 use crate::ui::Message::Warning;
@@ -532,14 +532,23 @@ impl<B: Board> UGI<B> {
                 .collect::<Vec<String>>()
                 .join("");
             format!(
-                "name {name} type {typ}{default}{min}{max}{vars}",
+                "option name {name} type {typ}{default}{min}{max}{vars}",
                 name = opt.name,
                 typ = opt.typ.to_str()
             )
         };
-        self.engine
-            .get_options()
-            .iter()
+        let mut opts = self.engine.get_options();
+        if opts.is_empty() {
+            opts.push(EngineOptionType {
+                name: "Hash".to_string(),
+                typ: EngineUciOptionType::Spin,
+                default: Some("1".to_string()),
+                min: Some("1".to_string()),
+                max: Some("1".to_string()),
+                vars: vec![],
+            })
+        }
+        opts.iter()
             .map(|opt| opt_to_string(opt))
             .collect::<Vec<String>>()
             .join("\n")
