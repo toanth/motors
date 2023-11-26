@@ -37,7 +37,7 @@ pub fn get_move<B: Board, U: UI<B>>(ui: &mut U, board: &B) -> B::Move {
 }
 
 #[derive(Default, Debug, Copy, Clone)]
-pub enum Display {
+pub enum DisplayType {
     #[default]
     Unicode,
     Ascii,
@@ -48,11 +48,11 @@ pub enum Display {
 
 #[derive(Debug, Default)]
 pub struct TextUI {
-    typ: Display,
+    typ: DisplayType,
 }
 
 impl TextUI {
-    pub fn new(typ: Display) -> Self {
+    pub fn new(typ: DisplayType) -> Self {
         Self { typ }
     }
 }
@@ -122,11 +122,11 @@ fn match_to_uci<B: Board>(m: &dyn MatchManager<B>) -> String {
 impl<B: Board> Graphics<B> for TextUI {
     fn show(&mut self, m: &dyn MatchManager<B>) {
         let message = match self.typ {
-            Display::Ascii => m.board().as_ascii_diagram(),
-            Display::Unicode => m.board().as_unicode_diagram(),
-            Display::Fen => m.board().as_fen(),
-            Display::Pgn => match_to_pgn(m),
-            Display::Uci => match_to_uci(m),
+            DisplayType::Ascii => m.board().as_ascii_diagram(),
+            DisplayType::Unicode => m.board().as_unicode_diagram(),
+            DisplayType::Fen => m.board().as_fen(),
+            DisplayType::Pgn => match_to_pgn(m),
+            DisplayType::Uci => match_to_uci(m),
         };
         println!("{message}");
     }

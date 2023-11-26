@@ -1,5 +1,6 @@
 use std::io::stdin;
 use std::mem::discriminant;
+use std::ops::DerefMut;
 use std::str::SplitWhitespace;
 use std::time::Duration;
 
@@ -7,20 +8,20 @@ use colored::Colorize;
 use itertools::Itertools;
 
 use crate::games::Color::White;
-use crate::games::{Board, Color, CreateEngine, CreateGraphics, EngineList, GraphicsList, Move};
+use crate::games::{Board, Color, Move};
 use crate::general::common::parse_int;
 use crate::play::run_match::play;
 use crate::play::ugi::SearchType::{Bench, Normal, Perft, SplitPerft};
 use crate::play::MatchStatus::*;
 use crate::play::{
-    default_engine, game_list, AbstractMatchManager, AdjudicationReason, AnyEngine, AnyMatch,
-    CompletionList, CreatableMatchManager, GameOverReason, GameResult, MatchManager, MatchResult,
-    MatchStatus,
+    default_engine, set_engine_from_str, set_graphics_from_str, set_match_from_str,
+    set_position_from_str, AbstractMatchManager, AdjudicationReason, AnyEngine, AnyMatch,
+    CreatableMatchManager, GameOverReason, GameResult, MatchManager, MatchResult, MatchStatus,
 };
 use crate::search::perft::{perft, split_perft};
 use crate::search::{
-    BenchResult, Engine, EngineOptionType, InfoCallback, SearchInfo, SearchLimit, SearchResult,
-    Searcher, MAX_DEPTH,
+    run_bench, Engine, EngineOptionType, InfoCallback, SearchInfo, SearchLimit, SearchResult,
+    Searcher,
 };
 use crate::ui::no_graphic::NoGraphics;
 use crate::ui::Message::Warning;
@@ -94,15 +95,23 @@ pub struct UGI<B: Board> {
 }
 
 impl<B: Board> AbstractMatchManager for UGI<B> {
+    fn run(&mut self) -> MatchResult {
+        self.ugi_loop()
+    }
+
+    fn next_match(&mut self) -> Option<AnyMatch> {
+        self.next_match.take()
+    }
+
+    fn set_next_match(&mut self, next: Option<AnyMatch>) {
+        self.next_match = next;
+    }
+
     fn active_player(&self) -> Option<Color> {
         match self.status {
             Ongoing => Some(self.board.active_player()),
             _ => None,
         }
-    }
-
-    fn run(&mut self) -> MatchResult {
-        self.ugi_loop()
     }
 
     fn abort(&mut self) -> Result<MatchStatus, String> {
@@ -115,14 +124,6 @@ impl<B: Board> AbstractMatchManager for UGI<B> {
 
     fn game_name(&self) -> String {
         B::game_name()
-    }
-
-    fn next_match(&mut self) -> Option<AnyMatch> {
-        self.next_match.take()
-    }
-
-    fn set_next_match(&mut self, next: Option<AnyMatch>) {
-        self.next_match = next;
     }
 }
 
@@ -149,6 +150,25 @@ impl<B: Board> MatchManager<B> for UGI<B> {
 
     fn graphics(&self) -> GraphicsHandle<B> {
         self.graphics.clone()
+    }
+
+    fn set_graphics(&mut self, graphics: GraphicsHandle<B>) {
+        self.graphics = graphics;
+        self.graphics.borrow_mut().show(self);
+    }
+
+    /// all of this will be refactored soon
+    fn searcher(&self, _idx: usize) -> &dyn Searcher<B> {
+        self.engine.as_ref()
+    }
+
+    fn set_engine(&mut self, _: usize, engine: AnyEngine<B>) {
+        self.engine = engine;
+        self.engine.set_info_callback(Self::info_callback());
+    }
+
+    fn set_board(&mut self, board: B) {
+        self.board = board;
     }
 }
 
@@ -387,34 +407,10 @@ impl<B: Board> UGI<B> {
             Normal => format_search_result(self.engine.search(self.board, self.limit)),
             Perft => format!("{0}", perft(self.limit.depth, self.board)),
             SplitPerft => format!("{0}", split_perft(self.limit.depth, self.board)),
-            Bench => self.handle_bench(self.limit.depth),
+            Bench => run_bench(self.engine.deref_mut(), self.limit.depth),
         };
         self.write(result_message.as_str());
         Ok(Ongoing)
-    }
-
-    fn handle_bench(&mut self, mut depth: usize) -> String {
-        if depth == MAX_DEPTH {
-            depth = 5; // Default value
-        }
-        let mut sum = BenchResult::default();
-        for position in B::bench_positions() {
-            self.engine.forget();
-            let res = self.engine.bench(position, depth);
-            sum.nodes += res.nodes;
-            sum.time += res.time;
-            sum.depth = sum.depth.max(res.depth);
-        }
-        format!(
-            "depth {0}, nodes {1}, time {2}ms, nps {3}k",
-            sum.depth,
-            sum.nodes,
-            sum.time.as_millis(),
-            ((sum.nodes as f64 / sum.time.as_millis() as f64).round())
-                .to_string()
-                .red()
-        )
-        // self.board.b
     }
 
     fn handle_position(&mut self, mut words: SplitWhitespace) -> Result<MatchStatus, String> {
@@ -422,23 +418,16 @@ impl<B: Board> UGI<B> {
         let position_word = words
             .next()
             .ok_or_else(|| "Missing position after 'position' command".to_string())?;
-        self.board = match position_word {
+        match position_word {
             "fen" => {
                 let mut s = words.remainder().unwrap_or_default();
-                let board = B::read_fen_and_advance_input(&mut s)?;
+                self.board = B::read_fen_and_advance_input(&mut s)?;
                 words = s.split_whitespace();
-                board
             }
-            "startpos" => B::startpos(self.board.settings()),
+            "startpos" => self.board = B::startpos(self.board.settings()),
             name => {
-                let name_selection = CompletionList {
-                    typ: "position",
-                    list: B::name_to_fen_map(),
-                    set_elem: |_, fen: String| B::from_fen(fen.as_str()),
-                    manager: self,
-                };
-                name_selection.handle_name(name)?
-            } //B::from_name(name).ok_or_else(|| format!("Unrecognized position '{name}'"))?,
+                set_position_from_str(self, name)?;
+            }
         };
         self.status = NotStarted;
         self.initial_pos = self.board;
@@ -507,46 +496,16 @@ impl<B: Board> UGI<B> {
         res
     }
 
-    fn handle_ui(&mut self, words: SplitWhitespace) -> Result<MatchStatus, String> {
-        let graphics_selection = CompletionList {
-            typ: "ui",
-            list: B::GraphicsList::list_graphics(),
-            set_elem: |this: &mut Self, graphics: CreateGraphics<B>| {
-                this.graphics = graphics("");
-                this.graphics.borrow_mut().show(this);
-                Ok(this.status)
-            },
-            manager: self,
-        };
-        graphics_selection.handle_input(words)
+    fn handle_ui(&mut self, mut words: SplitWhitespace) -> Result<MatchStatus, String> {
+        set_graphics_from_str(self, words.next().unwrap_or_default())
     }
 
-    fn handle_engine(&mut self, words: SplitWhitespace) -> Result<MatchStatus, String> {
-        let engine_selection = CompletionList {
-            typ: "engine",
-            list: B::EngineList::list_engines(),
-            set_elem: |this: &mut Self, engine: CreateEngine<B>| {
-                this.engine = engine("");
-                this.engine.set_info_callback(Self::info_callback());
-                Ok(this.status)
-            },
-            manager: self,
-        };
-        engine_selection.handle_input(words)
+    fn handle_engine(&mut self, mut words: SplitWhitespace) -> Result<MatchStatus, String> {
+        set_engine_from_str(self, words.next().unwrap_or_default())
     }
 
-    fn handle_game(&mut self, words: SplitWhitespace) -> Result<MatchStatus, String> {
-        let games = game_list::<Self>();
-        let game_selection = CompletionList {
-            typ: "game",
-            list: games,
-            set_elem: |this: &mut UGI<B>, new_game: AnyMatch| {
-                this.next_match = Some(new_game);
-                this.abort()
-            },
-            manager: self,
-        };
-        game_selection.handle_input(words)
+    fn handle_game(&mut self, mut words: SplitWhitespace) -> Result<MatchStatus, String> {
+        set_match_from_str(self, words.next().unwrap_or_default())
     }
 
     fn write_options(&self) -> String {

@@ -2,9 +2,11 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::{Duration, Instant};
 
+use colored::Colorize;
 use rand::thread_rng;
 
 use crate::games::Board;
+use crate::play::AnyMutEngineRef;
 
 pub mod generic_negamax;
 pub mod human;
@@ -403,4 +405,27 @@ fn stop_engine<B: Board>(
         }),
         score,
     ))
+}
+
+pub fn run_bench<B: Board>(engine: AnyMutEngineRef<B>, mut depth: usize) -> String {
+    if depth == MAX_DEPTH {
+        depth = 5; // Default value
+    }
+    let mut sum = BenchResult::default();
+    for position in B::bench_positions() {
+        engine.forget();
+        let res = engine.bench(position, depth);
+        sum.nodes += res.nodes;
+        sum.time += res.time;
+        sum.depth = sum.depth.max(res.depth);
+    }
+    format!(
+        "depth {0}, nodes {1}, time {2}ms, nps {3}k",
+        sum.depth,
+        sum.nodes,
+        sum.time.as_millis(),
+        ((sum.nodes as f64 / sum.time.as_millis() as f64).round())
+            .to_string()
+            .red()
+    )
 }

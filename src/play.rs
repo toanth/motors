@@ -1,6 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
-use std::str::SplitWhitespace;
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
@@ -30,21 +29,21 @@ pub mod ugi;
 pub mod run_match;
 
 pub trait AbstractMatchManager: Debug {
-    fn active_player(&self) -> Option<Color>;
-
     /// This does not only run a match, but also deals with options, such as handling UCI options
     /// Doesn't run asynchronously, so when this function returns the game has ended.
     fn run(&mut self) -> MatchResult;
+
+    fn next_match(&mut self) -> Option<AnyMatch>;
+
+    fn set_next_match(&mut self, next: Option<AnyMatch>);
+
+    fn active_player(&self) -> Option<Color>;
 
     fn abort(&mut self) -> Result<MatchStatus, String>;
 
     fn match_status(&self) -> MatchStatus;
 
     fn game_name(&self) -> String;
-
-    fn next_match(&mut self) -> Option<AnyMatch>;
-
-    fn set_next_match(&mut self, next: Option<AnyMatch>);
 }
 
 pub trait MatchManager<B: Board>: AbstractMatchManager {
@@ -63,6 +62,15 @@ pub trait MatchManager<B: Board>: AbstractMatchManager {
     fn move_hist(&self) -> &[B::Move];
 
     fn graphics(&self) -> GraphicsHandle<B>;
+
+    fn set_graphics(&mut self, graphics: GraphicsHandle<B>);
+
+    fn searcher(&self, _idx: usize) -> &dyn Searcher<B>;
+
+    /// Should also set the engine's info callback
+    fn set_engine(&mut self, idx: usize, engine: AnyEngine<B>);
+
+    fn set_board(&mut self, board: B);
 }
 
 /// Is not object safe because it contains methods that don't start with `&mut self`, and a GAT.
@@ -175,6 +183,10 @@ pub struct MatchResult {
 pub type AnySearcher<B> = Box<dyn Searcher<B>>;
 
 pub type AnyEngine<B> = Box<dyn Engine<B>>;
+
+pub type AnyEngineRef<'a, B> = &'a dyn Engine<B>;
+
+pub type AnyMutEngineRef<'a, B> = &'a mut dyn Engine<B>;
 
 /// `AnyMatch` is a type-erased `MatchManager`, and almost the only thing that isn't generic over the Game.
 /// Pretty much the entire program is spent inside the match manager.
@@ -336,160 +348,6 @@ fn player_res_to_match_res(game_over: GameOver, is_p1: bool) -> MatchResult {
     }
 }
 
-// TODO: Rework the built-in match manager, use UGI exclusively to communicate with players to support external engines
-#[derive(Debug)]
-pub struct BuiltInMatch<B: Board> {
-    board: B,
-    move_hist: Vec<B::Move>,
-    status: MatchStatus,
-    p1: Player<B>,
-    p2: Player<B>,
-    graphics: GraphicsHandle<B>,
-    next_match: Option<AnyMatch>,
-}
-
-impl<B: Board> AbstractMatchManager for BuiltInMatch<B> {
-    fn active_player(&self) -> Option<Color> {
-        if let MatchStatus::Ongoing = self.status {
-            Some(self.board.active_player())
-        } else {
-            None
-        }
-    }
-
-    fn match_status(&self) -> MatchStatus {
-        self.status
-    }
-
-    /// Runs the entire game in this function.
-    /// TODO: Another implementation would be to run this asynchronously, but I don't want to deal with multithreading right now
-    fn run(&mut self) -> MatchResult {
-        self.graphics.borrow_mut().show(self);
-        loop {
-            let res = make_move(
-                self.board,
-                &mut self.p1,
-                self.graphics.clone(),
-                &mut self.move_hist,
-            );
-            if res.is_err() {
-                return player_res_to_match_res(res.err().unwrap(), true);
-            }
-            self.make_move(res.unwrap());
-
-            let res = make_move(
-                self.board,
-                &mut self.p2,
-                self.graphics.clone(),
-                &mut self.move_hist,
-            );
-            if res.is_err() {
-                return player_res_to_match_res(res.err().unwrap(), false);
-            }
-            self.make_move(res.unwrap());
-        }
-    }
-
-    fn abort(&mut self) -> Result<MatchStatus, String> {
-        self.status = MatchStatus::aborted();
-        Ok(self.status)
-    }
-
-    fn game_name(&self) -> String {
-        B::game_name()
-    }
-
-    fn next_match(&mut self) -> Option<AnyMatch> {
-        self.next_match.take()
-    }
-
-    fn set_next_match(&mut self, next: Option<AnyMatch>) {
-        self.next_match = next;
-    }
-}
-
-impl<B: Board> MatchManager<B> for BuiltInMatch<B> {
-    fn board(&self) -> B {
-        self.board
-    }
-
-    fn graphics(&self) -> GraphicsHandle<B> {
-        self.graphics.clone()
-    }
-
-    fn move_hist(&self) -> &[B::Move] {
-        self.move_hist.as_slice()
-    }
-
-    fn format_info(&self, info: SearchInfo<B>) -> String {
-        format!(
-            "After {0} milliseconds: Move {1}, score {2}",
-            info.time.as_millis(),
-            info.best_move,
-            info.score.0
-        )
-    }
-
-    fn initial_pos(&self) -> B {
-        B::startpos(self.board.settings())
-    }
-
-    fn move_history(&self) -> &[B::Move] {
-        self.move_hist.as_slice()
-    }
-}
-
-impl<B: Board> CreatableMatchManager for BuiltInMatch<B> {
-    type ForGame<C: Board> = BuiltInMatch<C>;
-
-    fn with_engine_and_ui<C: Board>(engine: AnyEngine<C>, ui: UIHandle<C>) -> Self::ForGame<C> {
-        let player_1 = Player::human(ui.clone());
-        let limit = SearchLimit::per_move(Duration::from_millis(1_000));
-        let player_2 = Player::new(engine, limit);
-        <Self::ForGame<C>>::new(C::Settings::default(), player_1, player_2, ui)
-    }
-}
-
-impl<B: Board> Default for BuiltInMatch<B> {
-    fn default() -> Self {
-        Self::with_engine_and_ui(default_engine(), to_ui_handle(TextUI::default()))
-    }
-}
-
-impl<B: Board> BuiltInMatch<B> {
-    pub fn new(
-        game_settings: B::Settings,
-        player_1: Player<B>,
-        player_2: Player<B>,
-        graphics: GraphicsHandle<B>,
-    ) -> Self {
-        Self::from_position(B::startpos(game_settings), player_1, player_2, graphics)
-    }
-
-    pub fn from_position(
-        pos: B,
-        p1: Player<B>,
-        p2: Player<B>,
-        graphics: GraphicsHandle<B>,
-    ) -> Self {
-        BuiltInMatch {
-            board: pos,
-            move_hist: vec![],
-            status: MatchStatus::NotStarted,
-            p1,
-            p2,
-            graphics,
-            next_match: None,
-        }
-    }
-
-    fn make_move(&mut self, move_res: MoveRes<B>) {
-        self.board = move_res.board;
-        self.move_hist.push(move_res.mov);
-        self.graphics.borrow_mut().show(self);
-    }
-}
-
 pub struct DefaultEngineList {}
 
 pub fn generic_engines<B: Board>() -> Vec<(String, CreateEngine<B>)> {
@@ -509,54 +367,111 @@ impl<B: Board> EngineList<B> for DefaultEngineList {
     }
 }
 
-struct CompletionList<'a, F, T, U, R>
-where
-    F: Fn(&mut T, U) -> Result<R, String>,
-    T: AbstractMatchManager,
-{
-    typ: &'static str,
-    list: Vec<(String, U)>,
-    set_elem: F,
-    manager: &'a mut T,
+pub fn select_from_name_with_err<T, F: Fn(&str, String) -> String>(
+    name: &str,
+    mut list: Vec<(String, T)>,
+    err_msg: F,
+) -> Result<T, String> {
+    let idx = list.iter().find_position(|(key, _value)| key == name);
+    if idx.is_none() {
+        let list = Iterator::intersperse(
+            list.iter().map(|(key, _val)| key.bold().to_string()),
+            ", ".to_string(),
+        )
+        .collect::<String>();
+        return Err(err_msg(name, list));
+    }
+    let idx = idx.unwrap().0;
+    Ok(list.swap_remove(idx).1)
 }
 
-impl<'a, F, T, U, R> CompletionList<'a, F, T, U, R>
-where
-    F: Fn(&mut T, U) -> Result<R, String>,
-    T: AbstractMatchManager,
-{
-    fn handle_input(self, mut words: SplitWhitespace) -> Result<R, String> {
-        let name = words
-            .next()
-            .ok_or_else(|| format!("Missing {} name", self.typ))?;
-        let rest = words.remainder().unwrap_or_default();
-        if !rest.trim().is_empty() {
-            return Err(format!("Additional input after {0}: '{rest}'", self.typ));
-        }
-        self.handle_name(name)
-    }
-
-    fn handle_name(mut self, name: &str) -> Result<R, String> {
-        let idx = self.list.iter().find_position(|(key, _value)| key == name);
-        if idx.is_none() {
-            let list = Iterator::intersperse(
-                self.list.iter().map(|(key, _val)| key.bold().to_string()),
-                ", ".to_string(),
+pub fn select_from_name<T>(
+    name: &str,
+    list: Vec<(String, T)>,
+    typ: &str,
+    game_name: &str,
+) -> Result<T, String> {
+    let err_func = |name: &str, list| {
+        let game_name = game_name.bold();
+        let name = name.red();
+        format!(
+            "Couldn't find {typ} '{name}' for the current game ({game_name}). Valid {typ} names are {0}.",
+            list,
             )
-            .collect::<String>();
-            let game_name = self.manager.game_name().bold();
-            let name = name.red();
-            return Err(format!(
-                    "Couldn't find {typ} '{name}' for the current game ({game_name}). Valid {typ} names are {0}.",
-                    list,
-                    typ = self.typ,)
-            );
-        }
-        let set_elem = self.set_elem;
-        let idx = idx.unwrap().0;
-        return set_elem(self.manager, self.list.swap_remove(idx).1);
-    }
+    };
+    select_from_name_with_err(name, list, err_func)
 }
+
+pub fn set_graphics_from_str<B: Board>(
+    manager: &mut dyn MatchManager<B>,
+    name: &str,
+) -> Result<MatchStatus, String> {
+    let create_graphics = select_from_name(
+        name,
+        B::GraphicsList::list_graphics(),
+        "graphics",
+        &B::game_name(),
+    )?;
+    let graphics = create_graphics("");
+    manager.set_graphics(graphics);
+    Ok(manager.match_status())
+}
+
+pub fn set_engine_from_str<B: Board>(
+    manager: &mut dyn MatchManager<B>,
+    name: &str,
+) -> Result<MatchStatus, String> {
+    let create_engine = select_from_name(
+        name,
+        B::EngineList::list_engines(),
+        "engine",
+        &B::game_name(),
+    )?;
+    manager.set_engine(0, create_engine(""));
+    Ok(manager.match_status())
+}
+
+pub fn set_match_from_str<B: Board, M: MatchManager<B> + CreatableMatchManager>(
+    manager: &mut M,
+    name: &str,
+) -> Result<MatchStatus, String> {
+    let created_match = select_from_name(name, game_list::<M>(), "engine", &B::game_name())?;
+    manager.set_next_match(Some(created_match));
+    manager.abort()
+}
+
+pub fn set_position_from_str<B: Board, M: MatchManager<B>>(
+    manager: &mut M,
+    name: &str,
+) -> Result<MatchStatus, String> {
+    let fen = select_from_name(name, B::name_to_fen_map(), "position", &B::game_name())?;
+    manager.set_board(B::from_fen(&fen)?);
+    Ok(manager.match_status())
+}
+
+////// TODO: Refactor Player, also use in UCI mode: Split MatchManager trait into MatchManager struct and Player,
+////// where a MatchManager controls the match like cutechess, but a Player controls only one single searcher.
+////// Use Player struct in UCI mode as well, use adapters for different input format -- the extra additions like printing the board / game
+////// should be handled by the Player. Very clear border between parsing UCI (input adapter of Player),
+////// and sending commands to the player through normal functions.
+////// Rough idea (to be iterated upon and eventually implemented in separate branch):
+////// Player determines which commands are accepted and send to the searcher or answered directly (like printing the board),
+////// decoupled from input parsing. A player contains an optional fallback that handles otherwise unrecognized inputs
+////// MatchManager doesn't need to be a trait anymore because there's only one (generic) struct implementing it,
+////// Player also has only one implementation, which is supposed to be minimal and fast, but optional extensions that enable stuff like remembering moves.
+////// Output and Input are completely decoupled, the player doesn't know anything about either one (they always exist, can be different per player).
+////// Input and output layer are stateless.
+////// So in this model, each player has a UI, unlike the UCI model, where UI and match management are bundled together.
+////// A player holds a MatchWriter and a list of graphics, there is also one MatchReader and a list of UIs,
+////// but the player isn't aware of them, it simply receives commands from them.
+////// There's a trait for Writer that is satisfied both by the MatchWriter and the UIs, and a trait for Reader
+////// that is satisfied both by the MatchReader and (some of) the UIs.
+////// The readers should all run in their own thread.
+////// It probably makes sense to have a PlayManager struct that has a player and also holds the UI.
+////// The MatchManager can be called Organizer.
+////// The UCI model bundles the UI and the match manager together, but that doesn't always make sense
+////// (the player should be able to do debug printing) and I need to implement the UI for games other than chess anyway,
+////// so I can't rely on an external program like cutechess or similar to handle the UI part.
 
 pub fn default_engine<B: Board>() -> AnyEngine<B> {
     let engine_list = B::EngineList::list_engines();

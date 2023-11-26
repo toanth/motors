@@ -8,7 +8,7 @@ use crate::games::{Board, CreateGraphics, GraphicsList, RectangularBoard, Rectan
 use crate::play::MatchManager;
 use crate::ui::no_graphic::NoGraphics;
 use crate::ui::pretty::PrettyUI;
-use crate::ui::text_ui::Display::{Ascii, Fen, Pgn, Uci, Unicode};
+use crate::ui::text_ui::DisplayType::{Ascii, Fen, Pgn, Uci, Unicode};
 use crate::ui::text_ui::TextUI;
 
 pub mod no_graphic;
