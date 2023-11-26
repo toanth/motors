@@ -2,18 +2,20 @@
 # A makefile is necessary for OpenBench, but this project uses cargo.
 # Therefore, all that this makefile does is to execute `cargo build --release`
 
-EXE = target/release/motors
+EXE = motors
 CC = cargo
 
 .PHONY: all clean
 
 all: motors
 
-motors:
-	cargo build --release
+motors: release
+
+release:
+	cargo rustc --release -- --emit link=${EXE}
 
 debug:
-	cargo build
+	rustc -- --emit link=${EXE}
 
 clean:
 	rm -rf target/
