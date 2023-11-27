@@ -476,21 +476,20 @@ impl Board for MNKBoard {
             return false;
         }
         let last_move = self.last_move.unwrap();
-        let pos = ExtendedBitboard::single_piece(self.to_idx(last_move.target));
-        let player = self
-            .piece_on(last_move.target)
-            .uncolored_piece_type()
-            .color();
+        let square = last_move.target;
+        let player = self.piece_on(square).uncolored_piece_type().color();
         if player.is_none() {
             return false;
         }
         let player = player.unwrap();
         let player_bb = self.player_bb(player);
         let blockers = !self.player_bb(player);
-        debug_assert!((blockers & pos).is_zero());
+        debug_assert!(
+            (blockers & ExtendedBitboard::single_piece(self.to_idx(last_move.target))).is_zero()
+        );
 
         for dir in SliderAttacks::iter() {
-            if (pos.slider_attacks(blockers, self.size(), dir) & player_bb)
+            if (ExtendedBitboard::slider_attacks(square, blockers, self.size(), dir) & player_bb)
                 .to_primitive()
                 .count_ones()
                 >= self.k() - 1

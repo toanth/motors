@@ -2,7 +2,7 @@ use strum::IntoEnumIterator;
 
 use crate::eval::Eval;
 use crate::games::mnk::MNKBoard;
-use crate::games::{Board, GridSize};
+use crate::games::{Board, GridSize, Size};
 use crate::general::bitboards::{Bitboard, ExtendedBitboard, SliderAttacks};
 use crate::general::common::pop_lsb128;
 use crate::search::Score;
@@ -15,13 +15,15 @@ fn eval_player(bb: ExtendedBitboard, size: GridSize) -> i32 {
     let blockers = !bb;
     let mut res = 0;
     while remaining.0 != 0 {
-        let square = ExtendedBitboard(1 << pop_lsb128(&mut remaining.0));
+        let idx = pop_lsb128(&mut remaining.0) as usize;
 
         for dir in SliderAttacks::iter() {
             // TODO: Don't bitand with bb, bitand with !other_bb?
-            let run = (square.slider_attacks(blockers, size, dir) & bb)
-                .to_primitive()
-                .count_ones();
+            let run =
+                (ExtendedBitboard::slider_attacks(size.to_coordinates(idx), blockers, size, dir)
+                    & bb)
+                    .to_primitive()
+                    .count_ones();
             res += 1 << run;
         }
     }

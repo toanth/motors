@@ -10,7 +10,8 @@ use derive_more::{
 use num::{One, PrimInt, Unsigned, Zero};
 use strum_macros::EnumIter;
 
-use crate::games::{GridCoordinates, GridSize, RectangularSize, Size};
+use crate::games::chess::squares::{ChessSquare, ChessboardSize};
+use crate::games::{GridCoordinates, RectangularCoordinates, RectangularSize, Size};
 use crate::general::common::{pop_lsb128, pop_lsb64};
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
@@ -102,26 +103,30 @@ const DIAGONALS: [[u128; 128]; MAX_WIDTH] = compute_diagonal_bbs();
 
 const ANTI_DIAGONALS: [[u128; 128]; MAX_WIDTH] = compute_anti_diagonal_bbs();
 
-//
-// const fn compute_diag_bb_chessboard(square: GridCoordinates) -> ChessBitboard {
-//     let mut row = square.row();
-//     let mut column = square.column();
-//     let offset = min(row, column);
-//     row -= offset;
-//     column -= offset;
-//     let mut res = 0;
-//     while max(row, column) < 8 && min(row, column) >= 0 {
-//         res |= 1 << (8 * row + column);
-//         row += 1;
-//         column += 1;
-//     }
-//     res
-// }
-//
-// fn compute_anti_diag_bb(square: GridCoordinates) -> ChessBitboard {
-//     let square = GridCoordinates::new(7 - square.row(), square.column());
-//     flip_vertical(compute_diag_bb(square))
-// }
+const fn gen_single_knight_attacks(square_idx: usize) -> u64 {
+    let this_knight: u64 = 1 << square_idx;
+    let a_file = 0x0101_0101_0101_0101;
+    let not_a_file = this_knight & !a_file;
+    let mut moves = (not_a_file << 15) | (not_a_file >> 17);
+    let not_h_file = this_knight & !(a_file << 7);
+    moves |= (not_h_file >> 15) | (not_h_file << 17);
+    let not_ab_file = not_a_file & !(a_file << 1);
+    moves |= (not_ab_file << 6) | (not_ab_file >> 10);
+    let not_gh_file = not_h_file & !(a_file << 6);
+    moves |= (not_gh_file >> 6) | (not_gh_file << 10);
+    moves
+}
+const fn gen_knights() -> [u64; 64] {
+    let mut res: [u64; 64] = [0; 64];
+    let mut i = 0;
+    while i < 64 {
+        res[i] = gen_single_knight_attacks(i);
+        i += 1;
+    }
+    res
+}
+
+pub const KNIGHTS: [u64; 64] = gen_knights();
 
 #[derive(
     Copy,
@@ -142,14 +147,6 @@ const ANTI_DIAGONALS: [[u128; 128]; MAX_WIDTH] = compute_anti_diagonal_bbs();
     ShrAssign,
 )]
 
-// + BitAnd<usize>
-// + BitOrAssign
-// + BitXor<Output = Self>
-// + BitXorAssign
-// + Shl<usize, Output = Self>
-// + ShlAssign<usize>
-// + Shr<usize, Output = Self>
-// + ShrAssign<usize>
 pub struct ChessBitboard(pub u64);
 
 impl Sub for ChessBitboard {
@@ -213,7 +210,7 @@ pub enum SliderAttacks {
 
 // This seems like a lot of boilerplate code.
 // Maybe there's a better way?
-pub trait Bitboard:
+pub trait Bitboard<C: RectangularCoordinates>:
     Copy
     + Clone
     + Debug
@@ -232,6 +229,8 @@ pub trait Bitboard:
     + ShlAssign<usize>
     + Shr<usize, Output = Self>
     + ShrAssign<usize>
+where
+    C::Size: RectangularSize<C>,
 {
     type Primitive: Unsigned + PrimInt;
 
@@ -270,42 +269,42 @@ pub trait Bitboard:
         self.to_primitive().trailing_zeros() as usize
     }
 
-    fn rank_0(size: GridSize) -> Self {
+    fn rank_0(size: C::Size) -> Self {
         Self::from_primitive((Self::Primitive::one() << size.width().0) - Self::Primitive::one())
     }
 
-    fn file_0(size: GridSize) -> Self {
+    fn file_0(size: C::Size) -> Self {
         Self::from_u128(STEPS[size.width().0])
     }
 
-    fn rank(i: usize, size: GridSize) -> Self {
-        debug_assert!(i < size.height().0);
-        Self::rank_0(size) << (i * size.width().0)
+    fn rank(idx: usize, size: C::Size) -> Self {
+        debug_assert!(idx < size.height().0);
+        Self::rank_0(size) << (idx * size.width().0)
     }
 
-    fn file(i: usize, size: GridSize) -> Self {
-        debug_assert!(i < size.width().0);
-        Self::file_0(size) << i
+    fn file(idx: usize, size: C::Size) -> Self {
+        debug_assert!(idx < size.height().0);
+        Self::file_0(size) << idx
     }
 
-    fn diag_for_sq(sq: usize, size: GridSize) -> Self {
-        debug_assert!(sq < size.num_squares());
-        Self::from_u128(DIAGONALS[size.width().0][sq])
+    fn diag_for_sq(sq: C, size: C::Size) -> Self {
+        debug_assert!(size.valid_coordinates(sq));
+        Self::from_u128(DIAGONALS[size.width().0][size.to_idx(sq)])
     }
 
-    fn anti_diag_for_sq(sq: usize, size: GridSize) -> Self {
-        debug_assert!(sq < size.num_squares());
-        Self::from_u128(ANTI_DIAGONALS[size.width().0][sq])
+    fn anti_diag_for_sq(sq: C, size: C::Size) -> Self {
+        debug_assert!(size.valid_coordinates(sq));
+        Self::from_u128(ANTI_DIAGONALS[size.width().0][size.to_idx(sq)])
     }
 
-    fn piece_coordinates(self, size: GridSize) -> GridCoordinates {
+    fn piece_coordinates(self, size: C::Size) -> C {
         debug_assert!(self.is_single_piece());
         let idx = self.trailing_zeros();
         size.to_coordinates(idx)
     }
 
     /// TODO: The following two methods are likely very slow. Find something faster
-    fn flip_left_right(self, size: GridSize) -> Self {
+    fn flip_left_right(self, size: C::Size) -> Self {
         let width = size.width().0;
         let mut bb = self;
         let file_mask = Self::file_0(size);
@@ -321,7 +320,7 @@ pub trait Bitboard:
         }
         bb
     }
-    fn flip_up_down(self, size: GridSize) -> Self {
+    fn flip_up_down(self, size: C::Size) -> Self {
         let mut bb = self;
         let rank_mask = Self::rank_0(size);
         // flip ranks linearly
@@ -337,17 +336,17 @@ pub trait Bitboard:
         bb
     }
 
-    fn get_piece_file(self, size: GridSize) -> usize {
+    fn get_piece_file(self, size: C::Size) -> usize {
         debug_assert!(self.is_single_piece());
         self.trailing_zeros() % size.width().0
     }
 
-    fn get_piece_rank(self, size: GridSize) -> usize {
+    fn get_piece_rank(self, size: C::Size) -> usize {
         debug_assert!(self.is_single_piece());
         self.trailing_zeros() / size.width().0
     }
 
-    fn hyperbola_quintessence<F>(self, blockers: Self, reverse: F, ray: Self) -> Self
+    fn hyperbola_quintessence<F>(idx: usize, blockers: Self, reverse: F, ray: Self) -> Self
     where
         F: Fn(Self) -> Self,
     {
@@ -355,78 +354,87 @@ pub trait Bitboard:
         // let forward = (blocker & ray) - (self << 1);
         // let forward = blockers - forward;
         // let mask = forward - 1;
-        debug_assert!(self.is_single_piece());
-        debug_assert!(!(self & ray).is_zero());
+        let piece = Self::single_piece(idx);
+        debug_assert!(!(piece & ray).is_zero());
         let blockers = blockers & ray;
         let reversed_blockers = reverse(blockers);
-        let forward = blockers - self;
-        let backward = reversed_blockers - reverse(self);
+        let forward = blockers - piece;
+        let backward = reversed_blockers - reverse(piece);
         let backward = reverse(backward);
         (forward ^ backward) & ray
     }
 
     fn hyperbola_quintessence_non_horizontal(
-        self,
+        square: C,
         blockers: Self,
         ray: Self,
-        size: GridSize,
+        size: C::Size,
     ) -> Self {
-        self.hyperbola_quintessence(blockers, |x| x.flip_up_down(size), ray)
+        Self::hyperbola_quintessence(size.to_idx(square), blockers, |x| x.flip_up_down(size), ray)
     }
 
-    fn horizontal_attacks(self, blockers: Self, size: GridSize) -> Self {
-        let rank = Self::rank_0(size) << (size.width.0 * self.get_piece_rank(size));
-        self.hyperbola_quintessence(blockers, |x| x.flip_left_right(size), rank)
-    }
-
-    fn vertical_attacks(self, blockers: Self, size: GridSize) -> Self {
-        let file = Self::file_0(size) << self.get_piece_file(size);
-        self.hyperbola_quintessence_non_horizontal(blockers, file, size)
-    }
-
-    fn diagonal_attacks(self, blockers: Self, size: GridSize) -> Self {
-        self.hyperbola_quintessence_non_horizontal(
+    fn horizontal_attacks(square: C, blockers: Self, size: C::Size) -> Self {
+        let rank = Self::rank(square.row(), size);
+        Self::hyperbola_quintessence(
+            size.to_idx(square),
             blockers,
-            Self::diag_for_sq(self.trailing_zeros(), size),
+            |x| x.flip_left_right(size),
+            rank,
+        )
+    }
+
+    fn vertical_attacks(square: C, blockers: Self, size: C::Size) -> Self {
+        let file = Self::file(square.column(), size);
+        Self::hyperbola_quintessence_non_horizontal(square, blockers, file, size)
+    }
+
+    fn diagonal_attacks(square: C, blockers: Self, size: C::Size) -> Self {
+        Self::hyperbola_quintessence_non_horizontal(
+            square,
+            blockers,
+            Self::diag_for_sq(square, size),
             size,
         )
     }
 
-    fn anti_diagonal_attacks(self, blockers: Self, size: GridSize) -> Self {
-        self.hyperbola_quintessence_non_horizontal(
+    fn anti_diagonal_attacks(square: C, blockers: Self, size: C::Size) -> Self {
+        Self::hyperbola_quintessence_non_horizontal(
+            square,
             blockers,
-            Self::anti_diag_for_sq(self.trailing_zeros(), size),
+            Self::anti_diag_for_sq(square, size),
             size,
         )
     }
 
-    fn slider_attacks(self, blockers: Self, size: GridSize, dir: SliderAttacks) -> Self {
+    fn slider_attacks(square: C, blockers: Self, size: C::Size, dir: SliderAttacks) -> Self {
         match dir {
-            SliderAttacks::Horizontal => self.horizontal_attacks(blockers, size),
-            SliderAttacks::Vertical => self.vertical_attacks(blockers, size),
-            SliderAttacks::Diagonal => self.diagonal_attacks(blockers, size),
-            SliderAttacks::AntiDiagonal => self.anti_diagonal_attacks(blockers, size),
+            SliderAttacks::Horizontal => Self::horizontal_attacks(square, blockers, size),
+            SliderAttacks::Vertical => Self::vertical_attacks(square, blockers, size),
+            SliderAttacks::Diagonal => Self::diagonal_attacks(square, blockers, size),
+            SliderAttacks::AntiDiagonal => Self::anti_diagonal_attacks(square, blockers, size),
         }
     }
 
-    fn rook_attacks(self, blockers: Self, size: GridSize) -> Self {
-        self.vertical_attacks(blockers, size) | self.horizontal_attacks(blockers, size)
+    fn rook_attacks(square: C, blockers: Self, size: C::Size) -> Self {
+        Self::vertical_attacks(square, blockers, size)
+            | Self::horizontal_attacks(square, blockers, size)
     }
 
-    fn bishop_attacks(self, blockers: Self, size: GridSize) -> Self {
-        self.diagonal_attacks(blockers, size) | self.anti_diagonal_attacks(blockers, size)
+    fn bishop_attacks(square: C, blockers: Self, size: C::Size) -> Self {
+        Self::diagonal_attacks(square, blockers, size)
+            | Self::anti_diagonal_attacks(square, blockers, size)
     }
 
-    fn queen_attacks(self, blockers: Self, size: GridSize) -> Self {
-        self.rook_attacks(blockers, size) | self.bishop_attacks(blockers, size)
+    fn queen_attacks(square: C, blockers: Self, size: C::Size) -> Self {
+        Self::rook_attacks(square, blockers, size) | Self::bishop_attacks(square, blockers, size)
     }
 
-    fn attacks(self, blockers: Self, size: GridSize, direction: Direction) -> Self {
+    fn attacks(square: C, blockers: Self, size: C::Size, direction: Direction) -> Self {
         match direction {
-            Direction::Horizontal => self.horizontal_attacks(blockers, size),
-            Direction::Vertical => self.vertical_attacks(blockers, size),
-            Direction::Diagonal => self.diagonal_attacks(blockers, size),
-            Direction::AntiDiagonal => self.anti_diagonal_attacks(blockers, size),
+            Direction::Horizontal => Self::horizontal_attacks(square, blockers, size),
+            Direction::Vertical => Self::vertical_attacks(square, blockers, size),
+            Direction::Diagonal => Self::diagonal_attacks(square, blockers, size),
+            Direction::AntiDiagonal => Self::anti_diagonal_attacks(square, blockers, size),
         }
     }
 }
@@ -439,7 +447,7 @@ impl BitAnd<usize> for ChessBitboard {
     }
 }
 
-impl Bitboard for ChessBitboard {
+impl Bitboard<ChessSquare> for ChessBitboard {
     type Primitive = u64;
 
     fn from_u128(value: u128) -> Self {
@@ -462,15 +470,15 @@ impl Bitboard for ChessBitboard {
         self.0.is_power_of_two()
     }
 
-    fn rank_0(_: GridSize) -> Self {
+    fn rank_0(_: ChessboardSize) -> Self {
         FIRST_RANK
     }
 
-    fn file_0(_: GridSize) -> Self {
+    fn file_0(_: ChessboardSize) -> Self {
         A_FILE
     }
 
-    fn flip_left_right(self, _: GridSize) -> ChessBitboard {
+    fn flip_left_right(self, _: ChessboardSize) -> ChessBitboard {
         const FLIP_DUOS: ChessBitboard = ChessBitboard(0x5555_5555_5555_5555);
         const FLIP_NIBBLES: ChessBitboard = ChessBitboard(0x3333_3333_3333_3333);
         const FLIP_BYTES: ChessBitboard = ChessBitboard(0x0f0f_0f0f_0f0f_0f0f);
@@ -482,35 +490,19 @@ impl Bitboard for ChessBitboard {
         ((bb >> 4) & FLIP_BYTES) | ((bb & FLIP_BYTES) << 4)
     }
 
-    fn flip_up_down(self, _: GridSize) -> Self {
+    fn flip_up_down(self, _: ChessboardSize) -> Self {
         Self(self.0.swap_bytes())
     }
 
-    fn get_piece_file(self, _: GridSize) -> usize {
+    fn get_piece_file(self, _: ChessboardSize) -> usize {
         debug_assert!(self.0.is_power_of_two());
         self.0.trailing_zeros() as usize % 8
     }
 
-    fn get_piece_rank(self, _: GridSize) -> usize {
+    fn get_piece_rank(self, _: ChessboardSize) -> usize {
         debug_assert!(self.0.is_power_of_two());
         self.0.trailing_zeros() as usize / 8
     }
-}
-
-pub fn flip_up_down_chessboard(bb: ChessBitboard) -> ChessBitboard {
-    bb.flip_up_down(Default::default())
-}
-
-pub fn flip_left_right_chessboard(bb: ChessBitboard) -> ChessBitboard {
-    bb.flip_left_right(Default::default())
-}
-
-pub fn get_file_chessboard(piece: ChessBitboard) -> usize {
-    piece.get_piece_file(Default::default())
-}
-
-pub fn get_rank_chessboard(piece: ChessBitboard) -> usize {
-    piece.get_piece_rank(Default::default())
 }
 
 impl BitAnd<usize> for ExtendedBitboard {
@@ -521,7 +513,7 @@ impl BitAnd<usize> for ExtendedBitboard {
     }
 }
 
-impl Bitboard for ExtendedBitboard {
+impl Bitboard<GridCoordinates> for ExtendedBitboard {
     type Primitive = u128;
 
     fn from_u128(val: u128) -> Self {
@@ -595,7 +587,8 @@ mod tests {
             let row = i / 8;
             let expected = (0xff_u128 - (1 << (i % 8))) << (row * 8);
             assert_eq!(
-                ExtendedBitboard(1 << i).hyperbola_quintessence(
+                ExtendedBitboard::hyperbola_quintessence(
+                    i,
                     ExtendedBitboard(0),
                     |x| ExtendedBitboard(x.0.reverse_bits()),
                     ExtendedBitboard(0xff) << (row * 8)
@@ -606,46 +599,51 @@ mod tests {
         }
 
         assert_eq!(
-            ExtendedBitboard(0b_0000_1000).hyperbola_quintessence(
+            ExtendedBitboard::hyperbola_quintessence(
+                3,
                 ExtendedBitboard(0b_0100_0001),
                 |x| ExtendedBitboard(x.0.reverse_bits()),
-                ExtendedBitboard(0xff)
+                ExtendedBitboard(0xff),
             ),
             ExtendedBitboard(0b_0111_0111)
         );
 
         assert_eq!(
-            ExtendedBitboard(0x0000_1000_0000).hyperbola_quintessence(
+            ExtendedBitboard::hyperbola_quintessence(
+                28,
                 ExtendedBitboard(0x1234_4000_0fed),
                 |x| ExtendedBitboard(x.0.reverse_bits()),
-                ExtendedBitboard(0xffff_ffff_ffff)
+                ExtendedBitboard(0xffff_ffff_ffff),
             ),
             ExtendedBitboard(0x0000_6fff_f800)
         );
 
         assert_eq!(
-            ExtendedBitboard(0x0000_0000_1000_0000).hyperbola_quintessence(
+            ExtendedBitboard::hyperbola_quintessence(
+                28,
                 ExtendedBitboard(0x0110_0200_0001_1111),
                 |x| ExtendedBitboard(x.0.reverse_bits()),
-                ExtendedBitboard(0x1111_1111_1111_1111)
+                ExtendedBitboard(0x1111_1111_1111_1111),
             ),
             ExtendedBitboard(0x0011_1111_0111_0000)
         );
 
         assert_eq!(
-            ExtendedBitboard(0x0000_0001_0000).hyperbola_quintessence(
+            ExtendedBitboard::hyperbola_quintessence(
+                16,
                 ExtendedBitboard(0xfffe_d002_a912),
                 |x| ExtendedBitboard(x.0.swap_bytes()),
-                ExtendedBitboard(0x0101_0101_0101)
+                ExtendedBitboard(0x0101_0101_0101),
             ),
             ExtendedBitboard(0x0101_0100_0100)
         );
 
         assert_eq!(
-            ExtendedBitboard(0x0000_0010_0000).hyperbola_quintessence(
+            ExtendedBitboard::hyperbola_quintessence(
+                20,
                 ExtendedBitboard(0xffff_ffef_ffff),
                 |x| ExtendedBitboard(x.0.swap_bytes()),
-                ExtendedBitboard(0x_ffff_ffff_ffff)
+                ExtendedBitboard(0x_ffff_ffff_ffff),
             ),
             ExtendedBitboard(0)
         );

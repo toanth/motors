@@ -21,8 +21,8 @@ use crate::games::chess::squares::{ChessSquare, ChessboardSize, F_FILE_NO, NUM_S
 use crate::games::Color::{Black, White};
 use crate::games::{
     board_to_string, legal_moves_slow, position_fen_part, read_position_fen, AbstractPieceType,
-    Board, Color, ColoredPiece, ColoredPieceType, CreateEngine, EngineList, GridSize, Move,
-    RectangularSize, Settings, Size, UncoloredPieceType,
+    Board, Color, ColoredPiece, ColoredPieceType, CreateEngine, EngineList, Move, RectangularSize,
+    Settings, Size, UncoloredPieceType,
 };
 use crate::general::bitboards::{Bitboard, ChessBitboard};
 use crate::general::move_list::MoveList;
@@ -349,8 +349,7 @@ impl Board for Chessboard {
                 return Err(format!("The {color} player does not have exactly one king"));
             }
             if (self.colored_piece_bb(color, Pawn)
-                & (ChessBitboard::rank(0, GridSize::chess())
-                    | ChessBitboard::rank(7, GridSize::chess())))
+                & (ChessBitboard::rank(0, self.size()) | ChessBitboard::rank(7, self.size())))
             .has_set_bit()
             {
                 return Err(format!(

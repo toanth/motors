@@ -33,58 +33,13 @@ mod common {
 mod bitboards {
 
     mod chessboard {
-        use crate::games::GridSize;
+        use crate::games::chess::squares::{ChessSquare, ChessboardSize};
         use crate::general::bitboards::{
-            flip_left_right_chessboard, flip_up_down_chessboard, get_file_chessboard,
-            get_rank_chessboard, Bitboard, ChessBitboard,
+            // flip_left_right_chessboard, flip_up_down_chessboard, get_file_chessboard,
+            // get_rank_chessboard,
+            Bitboard,
+            ChessBitboard,
         };
-
-        #[test]
-        fn flip_up_down_chessboard_test() {
-            let bb = ChessBitboard(0x0123456789abcdef);
-            assert_eq!(
-                flip_up_down_chessboard(bb),
-                ChessBitboard(0xefcdab8967452301)
-            );
-            assert_eq!(
-                bb,
-                flip_up_down_chessboard(ChessBitboard(0xefcdab8967452301))
-            );
-            assert_eq!(
-                flip_up_down_chessboard(ChessBitboard(0x1)),
-                ChessBitboard(0x0100_0000_0000_0000)
-            );
-        }
-
-        #[test]
-        fn flip_left_right_chessboard_test() {
-            assert_eq!(
-                flip_left_right_chessboard(ChessBitboard(0x1002)),
-                ChessBitboard(0x0840)
-            );
-            let bb = ChessBitboard(0x1234fedc5678ba90);
-            assert_eq!(
-                flip_left_right_chessboard(bb),
-                ChessBitboard(0x482c7f3b6a1e5d09)
-            );
-            assert_eq!(
-                flip_left_right_chessboard(ChessBitboard(0x482c7f3b6a1e5d09)),
-                bb
-            );
-        }
-
-        #[test]
-        fn get_file_chessboard_test() {
-            assert_eq!(get_file_chessboard(ChessBitboard(0x4)), 2);
-            assert_eq!(get_file_chessboard(ChessBitboard(0x80)), 7);
-            assert_eq!(get_file_chessboard(ChessBitboard(0x0000_0040)), 6);
-        }
-
-        #[test]
-        fn get_rank_chessboard_test() {
-            assert_eq!(get_rank_chessboard(ChessBitboard(0x400)), 1);
-            assert_eq!(get_rank_chessboard(ChessBitboard(0x4000_0000_0000_0000)), 7);
-        }
 
         #[test]
         fn is_single_piece_test() {
@@ -109,91 +64,91 @@ mod bitboards {
         #[test]
         fn diag_test() {
             assert_eq!(
-                ChessBitboard::diag_for_sq(0, GridSize::chess()),
+                ChessBitboard::diag_for_sq(ChessSquare::new(0), ChessboardSize::default()),
                 ChessBitboard(0x8040201008040201)
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(1, GridSize::chess()),
+                ChessBitboard::diag_for_sq(ChessSquare::new(1), ChessboardSize::default()),
                 ChessBitboard(0x80402010080402)
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(7, GridSize::chess()),
+                ChessBitboard::diag_for_sq(ChessSquare::new(7), ChessboardSize::default()),
                 ChessBitboard(0x80)
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(8, GridSize::chess()),
+                ChessBitboard::diag_for_sq(ChessSquare::new(8), ChessboardSize::default()),
                 ChessBitboard(0x4020100804020100)
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(9, GridSize::chess()),
-                ChessBitboard::diag_for_sq(0, GridSize::chess())
+                ChessBitboard::diag_for_sq(ChessSquare::new(9), ChessboardSize::default()),
+                ChessBitboard::diag_for_sq(ChessSquare::new(0), ChessboardSize::default())
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(15, GridSize::chess()),
+                ChessBitboard::diag_for_sq(ChessSquare::new(15), ChessboardSize::default()),
                 ChessBitboard(0x8040)
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(10, GridSize::chess()),
-                ChessBitboard::diag_for_sq(1, GridSize::chess())
+                ChessBitboard::diag_for_sq(ChessSquare::new(10), ChessboardSize::default()),
+                ChessBitboard::diag_for_sq(ChessSquare::new(1), ChessboardSize::default())
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(12, GridSize::chess()),
-                ChessBitboard::diag_for_sq(3, GridSize::chess())
+                ChessBitboard::diag_for_sq(ChessSquare::new(12), ChessboardSize::default()),
+                ChessBitboard::diag_for_sq(ChessSquare::new(3), ChessboardSize::default())
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(17, GridSize::chess()),
-                ChessBitboard::diag_for_sq(8, GridSize::chess())
+                ChessBitboard::diag_for_sq(ChessSquare::new(17), ChessboardSize::default()),
+                ChessBitboard::diag_for_sq(ChessSquare::new(8), ChessboardSize::default())
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(42, GridSize::chess()),
-                ChessBitboard::diag_for_sq(33, GridSize::chess())
+                ChessBitboard::diag_for_sq(ChessSquare::new(42), ChessboardSize::default()),
+                ChessBitboard::diag_for_sq(ChessSquare::new(33), ChessboardSize::default())
             );
         }
 
         #[test]
         fn anti_diag_test() {
             assert_eq!(
-                ChessBitboard::anti_diag_for_sq(0, GridSize::chess()),
+                ChessBitboard::anti_diag_for_sq(ChessSquare::new(0), ChessboardSize::default()),
                 ChessBitboard(1)
             );
             assert_eq!(
-                ChessBitboard::anti_diag_for_sq(7, GridSize::chess()),
+                ChessBitboard::anti_diag_for_sq(ChessSquare::new(7), ChessboardSize::default()),
                 ChessBitboard(0x0102_0408_1020_4080)
             );
             assert_eq!(
-                ChessBitboard::anti_diag_for_sq(14, GridSize::chess()),
-                ChessBitboard::anti_diag_for_sq(7, GridSize::chess())
+                ChessBitboard::anti_diag_for_sq(ChessSquare::new(14), ChessboardSize::default()),
+                ChessBitboard::anti_diag_for_sq(ChessSquare::new(7), ChessboardSize::default())
             );
             assert_eq!(
-                ChessBitboard::anti_diag_for_sq(8, GridSize::chess()),
+                ChessBitboard::anti_diag_for_sq(ChessSquare::new(8), ChessboardSize::default()),
                 ChessBitboard(0x0102)
             );
             assert_eq!(
-                ChessBitboard::anti_diag_for_sq(15, GridSize::chess()),
+                ChessBitboard::anti_diag_for_sq(ChessSquare::new(15), ChessboardSize::default()),
                 ChessBitboard(0x0204_0810_2040_8000)
             );
             assert_eq!(
-                ChessBitboard::anti_diag_for_sq(42, GridSize::chess()),
-                ChessBitboard::anti_diag_for_sq(35, GridSize::chess())
+                ChessBitboard::anti_diag_for_sq(ChessSquare::new(42), ChessboardSize::default()),
+                ChessBitboard::anti_diag_for_sq(ChessSquare::new(35), ChessboardSize::default())
             );
         }
 
         #[test]
         fn flip_left_right_test() {
             assert_eq!(
-                ChessBitboard(0).flip_left_right(GridSize::chess()),
+                ChessBitboard(0).flip_left_right(ChessboardSize::default()),
                 ChessBitboard(0)
             );
             assert_eq!(
-                ChessBitboard(1).flip_left_right(GridSize::chess()),
+                ChessBitboard(1).flip_left_right(ChessboardSize::default()),
                 ChessBitboard(0x80)
             );
             assert_eq!(
-                ChessBitboard(0x0003_4010_00e0).flip_left_right(GridSize::chess()),
+                ChessBitboard(0x0003_4010_00e0).flip_left_right(ChessboardSize::default()),
                 ChessBitboard(0x00c0_0208_0007)
             );
             assert_eq!(
-                ChessBitboard(0xffff_ffff_ffff_fffe).flip_left_right(GridSize::chess()),
+                ChessBitboard(0xffff_ffff_ffff_fffe).flip_left_right(ChessboardSize::default()),
                 ChessBitboard(0xffff_ffff_ffff_ff7f)
             );
         }
@@ -201,26 +156,26 @@ mod bitboards {
         #[test]
         fn flip_up_down_test() {
             assert_eq!(
-                ChessBitboard(0).flip_up_down(GridSize::chess()),
+                ChessBitboard(0).flip_up_down(ChessboardSize::default()),
                 ChessBitboard(0)
             );
             assert_eq!(
-                ChessBitboard(1).flip_up_down(GridSize::chess()),
+                ChessBitboard(1).flip_up_down(ChessboardSize::default()),
                 ChessBitboard(0x0100_0000_0000_0000)
             );
             assert_eq!(
-                ChessBitboard(0x0340_1000_e000_00ac).flip_up_down(GridSize::chess()),
+                ChessBitboard(0x0340_1000_e000_00ac).flip_up_down(ChessboardSize::default()),
                 ChessBitboard(0xac00_00e0_0010_4003)
             );
             assert_eq!(
-                ChessBitboard(0xffff_ffff_ffff_fffe).flip_up_down(GridSize::chess()),
+                ChessBitboard(0xffff_ffff_ffff_fffe).flip_up_down(ChessboardSize::default()),
                 ChessBitboard(0xfeff_ffff_ffff_ffff)
             );
         }
     }
 
     mod extended_board {
-        use crate::games::{GridSize, Height, Width};
+        use crate::games::{GridCoordinates, GridSize, Height, RectangularCoordinates, Width};
         use crate::general::bitboards::{Bitboard, ExtendedBitboard};
 
         const LARGER_THAN_64_BIT: u128 = 1 << 64;
@@ -256,29 +211,45 @@ mod bitboards {
         #[test]
         fn diag_test() {
             assert_eq!(
-                ExtendedBitboard::diag_for_sq(0, GridSize::new(Height(1), Width(2)))
-                    & ExtendedBitboard(0b11),
+                ExtendedBitboard::diag_for_sq(
+                    GridCoordinates::from_row_column(0, 0),
+                    GridSize::new(Height(1), Width(2))
+                ) & ExtendedBitboard(0b11),
                 ExtendedBitboard(1)
             );
             assert_eq!(
-                ExtendedBitboard::diag_for_sq(0, GridSize::new(Height(3), Width(2))),
+                ExtendedBitboard::diag_for_sq(
+                    GridCoordinates::from_row_column(0, 0),
+                    GridSize::new(Height(3), Width(2))
+                ),
                 ExtendedBitboard(0b001001)
             );
             assert_eq!(
-                ExtendedBitboard::diag_for_sq(1, GridSize::new(Height(3), Width(2))),
+                ExtendedBitboard::diag_for_sq(
+                    GridCoordinates::from_row_column(0, 1),
+                    GridSize::new(Height(3), Width(2))
+                ),
                 ExtendedBitboard(0b10)
             );
             assert_eq!(
-                ExtendedBitboard::diag_for_sq(7, GridSize::new(Height(11), Width(8))),
+                ExtendedBitboard::diag_for_sq(
+                    GridCoordinates::from_row_column(0, 7),
+                    GridSize::new(Height(11), Width(8))
+                ),
                 ExtendedBitboard(0x80)
             );
             assert_eq!(
-                ExtendedBitboard::diag_for_sq(8, GridSize::new(Height(9), Width(8)))
-                    & ExtendedBitboard(u64::MAX as u128),
+                ExtendedBitboard::diag_for_sq(
+                    GridCoordinates::from_row_column(1, 0),
+                    GridSize::new(Height(9), Width(8))
+                ) & ExtendedBitboard(u64::MAX as u128),
                 ExtendedBitboard(0x4020100804020100)
             );
             assert_eq!(
-                ExtendedBitboard::diag_for_sq(1, GridSize::new(Height(7), Width(3))),
+                ExtendedBitboard::diag_for_sq(
+                    GridCoordinates::from_row_column(0, 1),
+                    GridSize::new(Height(7), Width(3))
+                ),
                 ExtendedBitboard(0b100_010)
             );
             for width in 1..12 {
@@ -289,10 +260,13 @@ mod bitboards {
                     }
                     assert_eq!(
                         ExtendedBitboard::diag_for_sq(
-                            square,
+                            GridCoordinates::from_row_column(square / width, square % width),
                             GridSize::new(Height(9), Width(width))
                         ),
-                        ExtendedBitboard::diag_for_sq(prev, GridSize::new(Height(9), Width(width)))
+                        ExtendedBitboard::diag_for_sq(
+                            GridCoordinates::from_row_column(prev / width, prev % width),
+                            GridSize::new(Height(9), Width(width))
+                        )
                     );
                 }
             }
@@ -301,16 +275,24 @@ mod bitboards {
         #[test]
         fn anti_diag_test() {
             assert_eq!(
-                ExtendedBitboard::anti_diag_for_sq(0, GridSize::new(Height(3), Width(1))),
+                ExtendedBitboard::anti_diag_for_sq(
+                    GridCoordinates::from_row_column(0, 0),
+                    GridSize::new(Height(3), Width(1))
+                ),
                 ExtendedBitboard(1)
             );
             assert_eq!(
-                ExtendedBitboard::anti_diag_for_sq(1, GridSize::new(Height(4), Width(1))),
+                ExtendedBitboard::anti_diag_for_sq(
+                    GridCoordinates::from_row_column(1, 0),
+                    GridSize::new(Height(4), Width(1))
+                ),
                 ExtendedBitboard(0b10)
             );
             assert_eq!(
-                ExtendedBitboard::anti_diag_for_sq(1, GridSize::new(Height(3), Width(2)))
-                    & ExtendedBitboard(0b111111),
+                ExtendedBitboard::anti_diag_for_sq(
+                    GridCoordinates::from_row_column(0, 1),
+                    GridSize::new(Height(3), Width(2))
+                ) & ExtendedBitboard(0b111111),
                 ExtendedBitboard(0b0110)
             );
 
@@ -322,11 +304,11 @@ mod bitboards {
                     }
                     assert_eq!(
                         ExtendedBitboard::anti_diag_for_sq(
-                            square,
+                            GridCoordinates::from_row_column(square / width, square % width),
                             GridSize::new(Height(9), Width(width))
                         ),
                         ExtendedBitboard::anti_diag_for_sq(
-                            prev,
+                            GridCoordinates::from_row_column(prev / width, prev % width),
                             GridSize::new(Height(9), Width(width))
                         )
                     );
@@ -390,63 +372,5 @@ mod bitboards {
                 ExtendedBitboard(0x49249249249249249249249249249249)
             );
         }
-        //
-        // fn get_piece_file(self, size: RectangularSize) -> usize {
-        //     assert!(self.is_single_piece());
-        //     return self.trailing_zeros() % size.width;
-        // }
-        //
-        // fn get_piece_rank(self, size: RectangularSize) -> usize {
-        //     assert!(self.is_single_piece());
-        //     return self.trailing_zeros() / size.width;
-        // }
-        //
-        // fn hyperbola_quintessence(self, blockers: Self, reversed: Self, ray: Self, size: RectangularSize) -> Self {
-        //     assert!(self.is_single_piece());
-        //     // let reversed = blockers.flip_left_right(size);
-        //     let forward = (blockers & ray) - (self << 1);
-        //     let backward = (reversed & ray) - (self << 1);
-        //     return (forward ^ backward.flip_left_right(size)) & ray;
-        // }
-        //
-        // fn hyperbola_quintessence_non_horizontal(self, blockers: Self, ray: Self, size: RectangularSize) -> Self {
-        //     self.hyperbola_quintessence(blockers, blockers.flip_up_down(size), ray, size)
-        // }
-        //
-        // fn horizontal_attacks(self, blockers: Self, size: RectangularSize) -> Self {
-        //     let rank = Self::rank_0(size) << (8 * self.get_piece_rank(size));
-        //     return self.hyperbola_quintessence(blockers, blockers.flip_left_right(size), rank, size);
-        // }
-        //
-        // fn vertical_attacks(self, blockers: Self, size: RectangularSize) -> Self {
-        //     let file = Self::file_0(size) << self.get_piece_file(size);
-        //     return self.hyperbola_quintessence_non_horizontal(blockers, file, size);
-        // }
-        //
-        // fn diagonal_attacks(self, blockers: Self, size: RectangularSize) -> Self {
-        //     let idx = self.trailing_zeros();
-        //     return self.hyperbola_quintessence_non_horizontal(blockers, Self::diag(idx, size), size);
-        // }
-        //
-        // fn anti_diagonal_attacks(self, blockers: Self, size: RectangularSize) -> Self {
-        //     let idx = self.trailing_zeros();
-        //     return self.hyperbola_quintessence_non_horizontal(
-        //         blockers,
-        //         Self::anti_diag(idx, size),
-        //         size,
-        //     );
-        // }
-        //
-        // fn rook_attacks(self, blockers: Self, size: RectangularSize) -> Self {
-        //     self.vertical_attacks(blockers, size) | self.horizontal_attacks(blockers, size)
-        // }
-        //
-        // fn bishop_attacks(self, blockers: Self, size: RectangularSize) -> Self {
-        //     self.diagonal_attacks(blockers, size) | self.anti_diagonal_attacks(blockers, size)
-        // }
-        //
-        // fn queen_attacks(self, blockers: Self, size: RectangularSize) -> Self {
-        //     self.rook_attacks(blockers, size) | self.bishop_attacks(blockers, size)
-        // }
     }
 }

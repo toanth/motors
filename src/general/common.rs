@@ -7,7 +7,8 @@ use num::PrimInt;
 
 pub fn pop_lsb64(x: &mut u64) -> u32 {
     let shift = x.trailing_zeros();
-    *x ^= 1 << shift; // TODO: Use x & (x - 1) and measure perft speedup
+    // *x ^= 1 << shift; // TODO: Use x & (x - 1) and measure perft speedup
+    *x &= (*x - 1);
     shift
 }
 

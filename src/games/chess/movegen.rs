@@ -4,13 +4,13 @@ use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::pieces::ColoredChessPiece;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::squares::{
-    ChessSquare, A_FILE_NO, B_FILE_NO, C_FILE_NO, E_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
+    ChessSquare, A_FILE_NO, C_FILE_NO, E_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
 };
 use crate::games::chess::CastleRight::*;
 use crate::games::chess::{ChessMove, Chessboard};
 use crate::games::Color::*;
-use crate::games::{sup_distance, Board, Color, ColoredPiece, ColoredPieceType, GridSize, Move};
-use crate::general::bitboards::{Bitboard, ChessBitboard};
+use crate::games::{sup_distance, Board, Color, ColoredPiece, ColoredPieceType, Move};
+use crate::general::bitboards::{Bitboard, ChessBitboard, KNIGHTS};
 use crate::general::move_list::EagerNonAllocMoveList;
 
 // for some reason, Chessboard::MoveList can be ambiguous? This should fix that
@@ -31,8 +31,7 @@ impl Chessboard {
         match piece.uncolored_piece_type() {
             Pawn => self.gen_pawn_moves(&mut list),
             Knight => {
-                return self
-                    .gen_single_knight_attacks(mov.from_square().index())
+                return ChessBitboard(KNIGHTS[mov.from_square().index()])
                     .is_bit_set_at(mov.to_square().index());
             }
             Bishop => self.gen_slider_moves(SliderMove::Bishop, &mut list),
@@ -51,19 +50,19 @@ impl Chessboard {
     pub(super) fn is_in_check_on_square(&self, us: Color, square: ChessSquare) -> bool {
         let them = us.other();
         let idx = square.index();
-        let attacks = self.gen_single_knight_attacks(idx);
+        let attacks = ChessBitboard(KNIGHTS[square.index()]);
         if (attacks & self.colored_piece_bb(them, Knight)).has_set_bit() {
             return true;
         }
         let bb = ChessBitboard::single_piece(idx);
         let blockers = self.occupied_bb() & !bb;
-        let attacks = bb.bishop_attacks(blockers, GridSize::chess());
+        let attacks = ChessBitboard::bishop_attacks(square, blockers, self.size());
         if (attacks & (self.colored_piece_bb(them, Bishop) | self.colored_piece_bb(them, Queen)))
             .has_set_bit()
         {
             return true;
         }
-        let attacks = bb.rook_attacks(blockers, GridSize::chess());
+        let attacks = ChessBitboard::rook_attacks(square, blockers, self.size());
         if (attacks & (self.colored_piece_bb(them, Rook) | self.colored_piece_bb(them, Queen)))
             .has_set_bit()
         {
@@ -72,12 +71,12 @@ impl Chessboard {
         let their_pawns = self.colored_piece_bb(them, Pawn);
         let pawn_attacks = match us {
             White => {
-                ((their_pawns & !ChessBitboard::file(A_FILE_NO, GridSize::chess())) >> 9)
-                    | ((their_pawns & !ChessBitboard::file(H_FILE_NO, GridSize::chess())) >> 7)
+                ((their_pawns & !ChessBitboard::file(A_FILE_NO, self.size())) >> 9)
+                    | ((their_pawns & !ChessBitboard::file(H_FILE_NO, self.size())) >> 7)
             }
             Black => {
-                ((their_pawns & !ChessBitboard::file(H_FILE_NO, GridSize::chess())) << 9)
-                    | ((their_pawns & !ChessBitboard::file(A_FILE_NO, GridSize::chess())) << 7)
+                ((their_pawns & !ChessBitboard::file(H_FILE_NO, self.size())) << 9)
+                    | ((their_pawns & !ChessBitboard::file(A_FILE_NO, self.size())) << 7)
             }
         };
         if pawn_attacks.is_bit_set_at(idx) {
@@ -115,29 +114,29 @@ impl Chessboard {
         if color == White {
             regular_pawn_moves = ((pawns << 8) & free, 8);
             double_pawn_moves = (
-                ((pawns & ChessBitboard::rank(1, GridSize::chess())) << 16) & (free << 8) & free,
+                ((pawns & ChessBitboard::rank(1, self.size())) << 16) & (free << 8) & free,
                 16,
             );
             right_pawn_captures = (
-                ((pawns & !ChessBitboard::file(H_FILE_NO, GridSize::chess())) << 9) & capturable,
+                ((pawns & !ChessBitboard::file(H_FILE_NO, self.size())) << 9) & capturable,
                 9,
             );
             left_pawn_captures = (
-                ((pawns & !ChessBitboard::file(A_FILE_NO, GridSize::chess())) << 7) & capturable,
+                ((pawns & !ChessBitboard::file(A_FILE_NO, self.size())) << 7) & capturable,
                 7,
             );
         } else {
             regular_pawn_moves = ((pawns >> 8) & free, -8);
             double_pawn_moves = (
-                ((pawns & ChessBitboard::rank(6, GridSize::chess())) >> 16) & (free >> 8) & free,
+                ((pawns & ChessBitboard::rank(6, self.size())) >> 16) & (free >> 8) & free,
                 -16,
             );
             right_pawn_captures = (
-                ((pawns & !ChessBitboard::file(A_FILE_NO, GridSize::chess())) >> 9) & capturable,
+                ((pawns & !ChessBitboard::file(A_FILE_NO, self.size())) >> 9) & capturable,
                 -9,
             );
             left_pawn_captures = (
-                ((pawns & !ChessBitboard::file(H_FILE_NO, GridSize::chess())) >> 7) & capturable,
+                ((pawns & !ChessBitboard::file(H_FILE_NO, self.size())) >> 7) & capturable,
                 -7,
             );
         }
@@ -169,8 +168,8 @@ impl Chessboard {
     fn gen_king_moves(&self, list: &mut ChessMoveList) {
         let color = self.active_player;
         let king = self.colored_piece_bb(color, King);
-        let king_not_a_file = king & !ChessBitboard::file(A_FILE_NO, GridSize::chess());
-        let king_not_h_file = king & !ChessBitboard::file(H_FILE_NO, GridSize::chess());
+        let king_not_a_file = king & !ChessBitboard::file(A_FILE_NO, self.size());
+        let king_not_h_file = king & !ChessBitboard::file(H_FILE_NO, self.size());
         let moves = (king << 8)
             | (king >> 8)
             | (king_not_a_file >> 1)
@@ -228,27 +227,15 @@ impl Chessboard {
 
     fn gen_knight_moves(&self, list: &mut ChessMoveList) {
         let mut knights = self.colored_piece_bb(self.active_player, Knight);
+        let not_us = !self.colored_bb(self.active_player);
         while knights.has_set_bit() {
             let square_idx = knights.pop_lsb();
-            let mut attacks = self.gen_single_knight_attacks(square_idx);
+            let mut attacks = ChessBitboard(KNIGHTS[square_idx]) & not_us;
             while attacks.has_set_bit() {
                 let to = ChessSquare::new(attacks.pop_lsb());
                 list.add_move(ChessMove::new(ChessSquare::new(square_idx), to, Normal));
             }
         }
-    }
-
-    fn gen_single_knight_attacks(&self, square_idx: usize) -> ChessBitboard {
-        let this_knight = ChessBitboard(1 << square_idx);
-        let not_a_file = this_knight & !ChessBitboard::file(A_FILE_NO, GridSize::chess());
-        let mut moves = (not_a_file << 15) | (not_a_file >> 17);
-        let not_h_file = this_knight & !ChessBitboard::file(H_FILE_NO, GridSize::chess());
-        moves |= (not_h_file >> 15) | (not_h_file << 17);
-        let not_ab_file = not_a_file & !ChessBitboard::file(B_FILE_NO, GridSize::chess());
-        moves |= (not_ab_file << 6) | (not_ab_file >> 10);
-        let not_gh_file = not_h_file & !ChessBitboard::file(G_FILE_NO, GridSize::chess());
-        moves |= (not_gh_file >> 6) | (not_gh_file << 10);
-        moves & !self.colored_bb(self.active_player)
     }
 
     fn gen_slider_moves(&self, slider_move: SliderMove, list: &mut ChessMoveList) {
@@ -267,12 +254,16 @@ impl Chessboard {
             let idx = pieces.pop_lsb();
             let this_piece = ChessBitboard(1 << idx);
             let mut attacks = match slider_move {
-                SliderMove::Bishop => {
-                    this_piece.bishop_attacks(blockers ^ this_piece, GridSize::chess())
-                }
-                SliderMove::Rook => {
-                    this_piece.rook_attacks(blockers ^ this_piece, GridSize::chess())
-                }
+                SliderMove::Bishop => ChessBitboard::bishop_attacks(
+                    ChessSquare::new(idx),
+                    blockers ^ this_piece,
+                    self.size(),
+                ),
+                SliderMove::Rook => ChessBitboard::rook_attacks(
+                    ChessSquare::new(idx),
+                    blockers ^ this_piece,
+                    self.size(),
+                ),
             };
             attacks &= !self.colored_bb(color);
             let from = ChessSquare::new(idx);

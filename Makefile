@@ -15,7 +15,7 @@ bench: release
 	./motors bench
 
 release:
-	cargo rustc --release -- --emit link=${EXE}
+	cargo rustc --release --bin motors -- --emit link=${EXE}
 
 debug:
 	rustc -- --emit link=${EXE}
