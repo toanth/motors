@@ -1,7 +1,6 @@
 #![feature(iter_intersperse)]
-#![feature(trait_upcasting)]
-#![feature(iter_advance_by)]
 #![feature(str_split_whitespace_remainder)]
+#![feature(trait_upcasting)]
 
 use std::fmt::{Display, Formatter};
 /// Games to try:
@@ -27,22 +26,22 @@ use crate::play::{
 };
 use crate::search::run_bench;
 
-mod general;
+pub mod general;
 
-mod games;
+pub mod games;
 
-mod search;
+pub mod search;
 
-mod play;
+pub mod play;
 
-mod eval;
-mod ui;
+pub mod eval;
+pub mod ui;
 
 ///A collection of games and engines.
 /// Currently implemented games: Chess, m,n,k.
 #[derive(Parser, Debug)]
 #[command(name="Motors", author="ToTheAnd", version, about, long_about=None)]
-struct CommandLineArgs {
+pub struct CommandLineArgs {
     #[arg(value_enum, default_value_t=Mode::Ugi)]
     mode: Mode,
     #[arg(value_enum, long, short, default_value_t=Game::Chess)]
@@ -54,7 +53,7 @@ struct CommandLineArgs {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, ValueEnum, Default, Debug)]
-enum Game {
+pub enum Game {
     /// Normal Chess. Chess960 support WIP.
     #[default]
     Chess,
@@ -63,7 +62,7 @@ enum Game {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, ValueEnum, Default, Debug)]
-enum Mode {
+pub enum Mode {
     /// Run and report bench, then exit. Used by OpenBench.
     Bench,
     /// Start the UGI/UCI loop.
@@ -76,7 +75,7 @@ enum Mode {
 
 /// An enum of all possible engine names. Note that not all engine / game combinations are valid.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, ValueEnum, Default, Debug)]
-enum Engine {
+pub enum Engine {
     Random,
     NaiveSlowNegamax,
     #[default]
@@ -134,7 +133,7 @@ fn select_mode<B: Board>(mode: Mode, engine: Engine, ui: &str) -> AnyMatch {
     manager
 }
 
-fn start_initial_game(mode: Mode, game: Game, engine: Engine, ui: &str) -> AnyMatch {
+pub fn start_initial_game(mode: Mode, game: Game, engine: Engine, ui: &str) -> AnyMatch {
     // This match is necessary because the engine and match manager aren't type erased over the game.
     // An alternative would be to just create a Chessgame and use the set_next_match method to correctly
     // create the next match, ten cancel the original match. TODO: Refactor
@@ -144,9 +143,7 @@ fn start_initial_game(mode: Mode, game: Game, engine: Engine, ui: &str) -> AnyMa
     }
 }
 
-fn main() {
-    let args = CommandLineArgs::parse();
-    let mut ugi: AnyMatch = start_initial_game(args.mode, args.game, args.engine, &args.ui);
+pub fn run_games_loop(mut ugi: AnyMatch) {
     loop {
         let _res = ugi.run();
         let next = ugi.next_match();
@@ -155,4 +152,10 @@ fn main() {
         }
         ugi = next.unwrap();
     }
+}
+
+pub fn run_program() {
+    let args = CommandLineArgs::parse();
+    let ugi: AnyMatch = start_initial_game(args.mode, args.game, args.engine, &args.ui);
+    run_games_loop(ugi);
 }

@@ -6,7 +6,24 @@ edition = "2021"
 license = "GPL-3"
 description="A collection of several games and engines"
 
+[profile.bench]
+debug = true
+
+[lib]
+name="lib"
+path="src/lib.rs"
+
+[[bin]]
+name="motors"
+path= "src/motors.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dev-dependencies]
+criterion = "0.5.1"
+
+[[bench]]
+name = "perft_bench"
+harness = false
 
 [dependencies]
 num = "0.4.1"

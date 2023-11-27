@@ -2,3 +2,6 @@
 error.txt
 games.pgn
 motors
+*.svg
+perf.*
+.idea/*

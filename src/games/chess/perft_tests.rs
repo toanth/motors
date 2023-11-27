@@ -1,6 +1,5 @@
-/// Perft test suite taken from Ethereal: https://github.com/AndyGrant/Ethereal/blob/master/src/perft/standard.epd
-/// Additional positions from the excellent website https://analog-hors.github.io/webperft/
-///
+#![feature(test)]
+
 #[cfg(test)]
 mod tests {
     use std::time::Instant;
@@ -71,6 +70,8 @@ mod tests {
         }
     }
 
+    /// Perft test suite taken from Ethereal: https://github.com/AndyGrant/Ethereal/blob/master/src/perft/standard.epd
+    /// Additional positions from the excellent website https://analog-hors.github.io/webperft/
     #[test]
     #[ignore]
     fn perft_test() {
