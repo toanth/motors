@@ -420,17 +420,8 @@ impl Chessboard {
         self.piece_bbs[piece.to_uncolored_idx()]
     }
 
-    fn piece_bb_mut(&mut self, piece: UncoloredChessPiece) -> &mut ChessBitboard {
-        &mut self.piece_bbs[piece.to_uncolored_idx()]
-    }
-
     pub fn colored_bb(&self, color: Color) -> ChessBitboard {
         self.color_bbs[color as usize]
-    }
-
-    fn colored_bb_mut(&mut self, color: Color) -> &mut ChessBitboard {
-        // TODO: Is there a way to avoid repeating the implementation for _mut?
-        &mut self.color_bbs[color as usize]
     }
 
     pub fn occupied_bb(&self) -> ChessBitboard {
@@ -472,9 +463,9 @@ impl Chessboard {
     fn place_piece(&mut self, square: ChessSquare, piece: ColoredChessPiece) {
         let idx = self.to_idx(square);
         debug_assert_eq!(self.piece_on(square).symbol, ColoredChessPiece::Empty);
-        *self.colored_bb_mut(piece.color().expect("Trying to place the empty piece")) |=
-            ChessBitboard(1 << idx);
-        *self.piece_bb_mut(piece.uncolor()) |= ChessBitboard(1 << idx);
+        let bb = ChessBitboard(1 << idx);
+        self.piece_bbs[piece.uncolor() as usize] ^= bb;
+        self.color_bbs[piece.color().unwrap() as usize] ^= bb;
     }
 
     fn remove_piece(&mut self, square: ChessSquare, piece: ColoredChessPiece) {
@@ -486,14 +477,23 @@ impl Chessboard {
                 coordinates: square
             }
         );
+        let bb = ChessBitboard(1 << idx);
         debug_assert_ne!(piece.uncolor(), Empty);
-        *self.colored_bb_mut(piece.color().expect("Trying to remove the empty piece")) &=
-            !ChessBitboard(1 << idx);
-        *self.piece_bb_mut(piece.uncolor()) &= !ChessBitboard(1 << idx);
+        self.piece_bbs[piece.uncolor() as usize] ^= bb;
+        self.color_bbs[piece.color().unwrap() as usize] ^= bb;
     }
 
-    fn remove_piece_on(&mut self, square: ChessSquare) {
-        self.remove_piece(square, self.piece_on(square).symbol)
+    fn move_piece(&mut self, from: ChessSquare, to: ChessSquare, piece: ColoredChessPiece) {
+        debug_assert_ne!(piece.uncolor(), Empty);
+        debug_assert_eq!(self.piece_on(from).symbol, piece);
+        // TODO: Adapt for chess960 castling
+        debug_assert_ne!(self.piece_on(to).color(), piece.color());
+        // use ^ instead of | for to merge the from and to bitboards because in chess960 castling
+        // it's possible that from == to
+        let bb = ChessBitboard((1 << self.to_idx(from)) ^ (1 << self.to_idx(to)));
+        let color = piece.color().unwrap();
+        self.color_bbs[color as usize] ^= bb;
+        self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
     }
 
     pub fn is_50mr_draw(&self) -> bool {
