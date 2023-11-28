@@ -17,6 +17,7 @@ use crate::games::{
     legal_moves_slow, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType, Move,
     MoveFlags,
 };
+use crate::general::bitboards::{Bitboard, ChessBitboard};
 
 #[derive(Copy, Clone, Eq, PartialEq, Default, Debug, EnumIter)]
 pub enum ChessMoveFlags {
@@ -244,11 +245,14 @@ impl Chessboard {
 
     pub(super) fn make_move_impl(mut self, mov: ChessMove) -> Option<Self> {
         let piece = mov.piece(&self).symbol;
+        let uncolored = piece.uncolor();
         let color = self.active_player;
         let other = color.other();
         let from = mov.from_square();
         let to = mov.to_square();
         assert_eq!(color, piece.color().unwrap());
+        self.ply_100_ctr += 1;
+        self.ep_square = None;
         if mov.is_castle() {
             // TODO: Correct Chess960 castling
             let from_file = from.file() as isize;
@@ -274,49 +278,33 @@ impl Chessboard {
                 rook_from = ChessSquare::from_rank_file(rook_from.rank(), A_FILE_NO);
                 rook_to = ChessSquare::from_rank_file(rook_from.rank(), D_FILE_NO);
             }
-            if self.piece_on(rook_from).symbol != ColoredChessPiece::new(color, Rook) {
-                println!("{}", self.as_fen());
-            }
             debug_assert!(self.piece_on(rook_from).symbol == ColoredChessPiece::new(color, Rook));
-            self.remove_piece_on(rook_from); // remove first before placing
-            self.place_piece(rook_to, ColoredChessPiece::new(color, Rook));
-            self.ply_100_ctr += 1;
+            self.move_piece(rook_from, rook_to, ColoredChessPiece::new(color, Rook));
         } else if mov.flags() == EnPassant {
             let taken_pawn = mov.square_of_pawn_taken_by_ep().unwrap();
-            debug_assert_eq!(
-                self.ep_square
-                    .expect("Trying to play en passant without valid ep square"),
-                to
-            );
             debug_assert_eq!(
                 self.piece_on(taken_pawn).symbol,
                 ColoredChessPiece::new(other, Pawn)
             );
-            self.remove_piece_on(taken_pawn);
+            self.remove_piece(taken_pawn, ColoredChessPiece::new(other, Pawn));
             self.ply_100_ctr = 0;
         } else if mov.is_non_ep_capture(&self) {
             debug_assert_eq!(self.piece_on(to).color().unwrap(), other);
             debug_assert_ne!(self.piece_on(to).uncolored_piece_type(), King);
-            self.remove_piece_on(to);
+            self.remove_piece(to, self.piece_on(to).symbol);
             self.ply_100_ctr = 0;
-        } else if piece.uncolor() == Pawn {
+        } else if uncolored == Pawn {
             self.ply_100_ctr = 0;
-        } else {
-            self.ply_100_ctr += 1;
+            if from.rank().abs_diff(to.rank()) == 2 {
+                self.ep_square = Some(ChessSquare::from_rank_file(
+                    (to.rank() + from.rank()) / 2,
+                    to.file(),
+                ));
+            }
         }
-        if piece.uncolor() == Pawn && from.rank().abs_diff(to.rank()) == 2 {
-            self.ep_square = Some(ChessSquare::from_rank_file(
-                (to.rank() + from.rank()) / 2,
-                to.file(),
-            ));
-        } else {
-            self.ep_square = None;
-        }
-        if piece.uncolor() == King {
+        if uncolored == King {
             self.flags.clear_castle_rights(color);
-        }
-
-        if from == self.rook_start_square(color, Queenside) {
+        } else if from == self.rook_start_square(color, Queenside) {
             self.flags.unset_castle_right(color, Queenside);
         } else if from == self.rook_start_square(color, Kingside) {
             self.flags.unset_castle_right(color, Kingside);
@@ -326,19 +314,16 @@ impl Chessboard {
         } else if to == self.rook_start_square(other, Kingside) {
             self.flags.unset_castle_right(other, Kingside);
         }
-        // do this before placing the piece because in chess960 castling it's possible that from == to
-        self.remove_piece(from, piece);
+        self.move_piece(from, to, piece);
         if mov.is_promotion() {
-            let piece = ColoredChessPiece::new(color, mov.flags().promo_piece());
-            self.place_piece(to, piece);
-        } else {
-            self.place_piece(to, piece);
+            let bb = ChessBitboard::single_piece(self.to_idx(to));
+            self.piece_bbs[Pawn as usize] ^= bb;
+            self.piece_bbs[mov.flags().promo_piece() as usize] ^= bb;
         }
         if self.is_in_check() {
             return None; // needs to be checked before switching the active player
         }
         self.active_player = other;
-        self.ply += 1;
         Some(self)
     }
 }

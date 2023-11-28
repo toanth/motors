@@ -18,7 +18,7 @@ release:
 	cargo rustc --release --bin motors -- --emit link=${EXE}
 
 debug:
-	rustc -- --emit link=${EXE}
+	cargo rustc --bin motors -- --emit link=${EXE}
 
 clean:
 	rm -rf target/
