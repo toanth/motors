@@ -543,8 +543,8 @@ impl<B: Board> UGI<B> {
                 name: "Hash".to_string(),
                 typ: EngineUciOptionType::Spin,
                 default: Some("1".to_string()),
-                min: Some("1".to_string()),
-                max: Some("1".to_string()),
+                min: Some("0".to_string()),
+                max: Some("1000".to_string()),
                 vars: vec![],
             })
         }
