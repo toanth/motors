@@ -434,7 +434,7 @@ impl Chessboard {
     }
 
     pub fn is_occupied(&self, square: ChessSquare) -> bool {
-        (self.occupied_bb() >> self.to_idx(square)) & 1 != 0
+        self.occupied_bb().is_bit_set_at(self.to_idx(square))
     }
 
     pub fn colored_piece_bb(&self, color: Color, piece: UncoloredChessPiece) -> ChessBitboard {
@@ -477,7 +477,7 @@ impl Chessboard {
                 coordinates: square
             }
         );
-        let bb = ChessBitboard(1 << idx);
+        let bb = ChessBitboard::single_piece(idx);
         debug_assert_ne!(piece.uncolor(), Empty);
         self.piece_bbs[piece.uncolor() as usize] ^= bb;
         self.color_bbs[piece.color().unwrap() as usize] ^= bb;
@@ -519,11 +519,10 @@ impl Chessboard {
             if !self.colored_bb(player.other()).is_single_piece() {
                 continue; // only catch draws with insufficient mating material against a single king
             }
-            let mut white_bishops = self.colored_piece_bb(player, Bishop);
+            let mut bishops = self.colored_piece_bb(player, Bishop);
             let mut square_col = 0;
-            while white_bishops.has_set_bit() {
-                square_col |=
-                    1 << ChessSquare::new(white_bishops.pop_lsb()).square_color() as usize;
+            while bishops.has_set_bit() {
+                square_col |= 1 << ChessSquare::new(bishops.pop_lsb()).square_color() as usize;
             }
             if square_col == 0b11 {
                 return false; // opposite-colored bishops

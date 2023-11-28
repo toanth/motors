@@ -4,6 +4,7 @@ use itertools::Itertools;
 use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, FromRepr};
 
+use crate::games::chess::pieces::ColoredChessPiece::BlackPawn;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::squares::ChessSquare;
 use crate::games::Color::*;
@@ -259,13 +260,7 @@ impl ColoredPieceType for ColoredChessPiece {
     fn color(self) -> Option<Color> {
         match self {
             ColoredChessPiece::Empty => None,
-            x => {
-                if x as u8 >= ColoredChessPiece::BlackPawn as u8 {
-                    Some(Black)
-                } else {
-                    Some(White)
-                }
-            }
+            x => Color::iter().nth((x as u8 / BlackPawn as u8) as usize),
         }
     }
 
