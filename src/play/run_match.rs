@@ -150,15 +150,9 @@ fn make_move<B: Board>(
     graphics: GraphicsHandle<B>,
     move_hist: &mut Vec<B::Move>,
 ) -> Result<MoveRes<B>, GameOver> {
-    if pos.is_draw() {
+    if let Some(result) = pos.game_result_slow() {
         return Err(GameOver {
-            result: Draw,
-            reason: GameOverReason::Normal,
-        });
-    }
-    if pos.is_game_lost() {
-        return Err(GameOver {
-            result: Lose,
+            result,
             reason: GameOverReason::Normal,
         });
     }
@@ -176,7 +170,7 @@ fn make_move<B: Board>(
         response = player.make_move(pos);
         let duration = start_time.elapsed();
 
-        if let MatchStatus::Over(res) = player.update_time(duration) {
+        if let Over(res) = player.update_time(duration) {
             assert_eq!(res.result, Aborted);
             return Err(GameOver {
                 result: Lose,
@@ -199,7 +193,7 @@ fn make_move<B: Board>(
         move_hist.push(mov);
         return Err(GameOver {
             result: Lose,
-            reason: GameOverReason::Adjudication(InvalidMove),
+            reason: Adjudication(InvalidMove),
         });
     }
 

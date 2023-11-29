@@ -7,6 +7,7 @@ use crate::eval::mnk::simple_mnk_eval::SimpleMnkEval;
 use crate::games::mnk::Symbol::{Empty, O, X};
 use crate::games::Color::{Black, White};
 use crate::games::GridSize;
+use crate::games::PlayerResult::Draw;
 use crate::games::*;
 use crate::general::bitboards::{remove_ones_above, Bitboard, ExtendedBitboard, SliderAttacks};
 use crate::general::common::*;
@@ -471,37 +472,8 @@ impl Board for MNKBoard {
         self.size().valid_coordinates(mov.target) && self.piece_on(mov.target).symbol == Empty
     }
 
-    fn is_game_lost(&self) -> bool {
-        if self.last_move.is_none() {
-            return false;
-        }
-        let last_move = self.last_move.unwrap();
-        let square = last_move.target;
-        let player = self.piece_on(square).uncolored_piece_type().color();
-        if player.is_none() {
-            return false;
-        }
-        let player = player.unwrap();
-        let player_bb = self.player_bb(player);
-        let blockers = !self.player_bb(player);
-        debug_assert!(
-            (blockers & ExtendedBitboard::single_piece(self.to_idx(last_move.target))).is_zero()
-        );
-
-        for dir in SliderAttacks::iter() {
-            if (ExtendedBitboard::slider_attacks(square, blockers, self.size(), dir) & player_bb)
-                .to_primitive()
-                .count_ones()
-                >= self.k() - 1
-            {
-                return true;
-            }
-        }
-        false
-    }
-
-    fn is_draw(&self) -> bool {
-        (self.white_bb | self.black_bb).0.count_ones() == self.num_squares() as u32
+    fn no_moves_result(&self) -> PlayerResult {
+        Draw
     }
 
     fn as_fen(&self) -> String {
@@ -612,6 +584,52 @@ impl Board for MNKBoard {
             ));
         }
         Ok(())
+    }
+
+    fn game_result_no_movegen(&self) -> Option<PlayerResult> {
+        // check for win before checking full board
+        if self.is_game_lost() {
+            Some(Lose)
+        } else if self.empty_bb().is_zero() {
+            return Some(Draw);
+        } else {
+            None
+        }
+    }
+
+    fn game_result_slow(&self) -> Option<PlayerResult> {
+        self.game_result_no_movegen()
+    }
+}
+
+impl MNKBoard {
+    fn is_game_lost(&self) -> bool {
+        if self.last_move.is_none() {
+            return false;
+        }
+        let last_move = self.last_move.unwrap();
+        let square = last_move.target;
+        let player = self.piece_on(square).uncolored_piece_type().color();
+        if player.is_none() {
+            return false;
+        }
+        let player = player.unwrap();
+        let player_bb = self.player_bb(player);
+        let blockers = !self.player_bb(player);
+        debug_assert!(
+            (blockers & ExtendedBitboard::single_piece(self.to_idx(last_move.target))).is_zero()
+        );
+
+        for dir in SliderAttacks::iter() {
+            if (ExtendedBitboard::slider_attacks(square, blockers, self.size(), dir) & player_bb)
+                .to_primitive()
+                .count_ones()
+                >= self.k() - 1
+            {
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -938,19 +956,23 @@ mod test {
         let board = MNKBoard::from_fen("3 3 3 x XX1/3/3").unwrap();
         assert_eq!(board.active_player(), White);
 
-        assert!(board.is_game_won_after(FillSquare {
+        assert!(board.is_game_won_after_slow(FillSquare {
             target: board.to_coordinates(8)
         }));
-        assert!(!board.is_game_won_after(FillSquare {
+        assert!(!board.is_game_won_after_slow(FillSquare {
             target: board.to_coordinates(5)
         }));
 
-        let board = MNKBoard::from_fen("4 3 3 o XOX/OXO/XOO/1OX").unwrap();
-        assert!(board.is_game_won_after(FillSquare {
+        let board = MNKBoard::from_fen("4 3 3 o XOX/O1O/XOO/1OX").unwrap();
+        assert!(board.is_game_won_after_slow(FillSquare {
             target: board.to_coordinates(0)
         }));
+        let board = MNKBoard::from_fen("3 3 3 x XOX/O1O/XOO").unwrap();
+        assert!(board.is_game_won_after_slow(FillSquare {
+            target: board.to_coordinates(4)
+        }));
         let board = MNKBoard::from_fen("4 3 3 x XOX/OXO/XOO/1OX").unwrap();
-        assert!(!board.is_game_won_after(FillSquare {
+        assert!(!board.is_game_won_after_slow(FillSquare {
             target: board.to_coordinates(0)
         }));
     }

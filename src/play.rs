@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use colored::Colorize;
 use itertools::Itertools;
@@ -8,20 +8,19 @@ use rand::prelude::ThreadRng;
 
 use crate::games::chess::Chessboard;
 use crate::games::mnk::MNKBoard;
+use crate::games::PlayerResult::*;
 use crate::games::{
-    Board, Color, CreateEngine, EngineList, GraphicsList, Move, RectangularBoard,
+    Board, Color, CreateEngine, EngineList, GraphicsList, Move, PlayerResult, RectangularBoard,
     RectangularCoordinates,
 };
 use crate::play::AdjudicationReason::*;
 use crate::play::GameResult::Aborted;
 use crate::play::MatchStatus::Over;
-use crate::play::PlayerResult::{Draw, Lose, Win};
 use crate::search::human::Human;
 use crate::search::naive_slow_negamax::NaiveSlowNegamax;
 use crate::search::random_mover::RandomMover;
 use crate::search::{Engine, SearchInfo, SearchLimit, SearchResult, Searcher};
 use crate::ui::text_ui::TextUI;
-use crate::ui::Message::{Info, Warning};
 use crate::ui::{to_ui_handle, GraphicsHandle, UIHandle};
 
 pub mod ugi;
@@ -82,14 +81,6 @@ pub trait CreatableMatchManager: AbstractMatchManager + 'static {
     fn for_game<C: Board>() -> Self::ForGame<C> {
         Self::with_engine_and_ui(default_engine(), to_ui_handle(TextUI::default()))
     }
-}
-
-/// Result of a match from a player's perspective.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-enum PlayerResult {
-    Win,
-    Lose,
-    Draw,
 }
 
 /// Result of a match from a player's perspective, together with the reason for this outcome
@@ -253,82 +244,6 @@ impl<B: Board> Player<B> {
 struct MoveRes<B: Board> {
     mov: B::Move,
     board: B,
-}
-
-fn make_move<B: Board>(
-    pos: B,
-    player: &mut Player<B>,
-    graphics: GraphicsHandle<B>,
-    move_hist: &mut Vec<B::Move>,
-) -> Result<MoveRes<B>, GameOver> {
-    if pos.is_draw() {
-        return Err(GameOver {
-            result: Draw,
-            reason: GameOverReason::Normal,
-        });
-    }
-    if pos.is_game_lost() {
-        return Err(GameOver {
-            result: Lose,
-            reason: GameOverReason::Normal,
-        });
-    }
-
-    graphics.borrow_mut().display_message(
-        Info,
-        format!("Player: {0}", player.searcher.name()).as_str(),
-    );
-
-    let new_pos;
-    let mut response;
-
-    loop {
-        let start_time = Instant::now();
-        response = player.make_move(pos);
-        let duration = start_time.elapsed();
-
-        if let MatchStatus::Over(res) = player.update_time(duration) {
-            assert_eq!(res.result, Aborted);
-            return Err(GameOver {
-                result: Lose,
-                reason: res.reason,
-            });
-        }
-
-        let mov = response.chosen_move;
-        if pos.is_move_legal(mov) {
-            new_pos = pos.make_move(mov).unwrap();
-            break;
-        }
-
-        if player.retry_on_invalid_move {
-            graphics
-                .borrow_mut()
-                .display_message(Warning, "Invalid move. Try again:");
-            continue;
-        }
-        move_hist.push(mov);
-        return Err(GameOver {
-            result: Lose,
-            reason: GameOverReason::Adjudication(InvalidMove),
-        });
-    }
-
-    graphics.borrow_mut().display_message(
-        Info,
-        format!(
-            "Eval: {0}",
-            response
-                .score
-                .map_or("no score".to_string(), |s| s.0.to_string())
-        )
-        .as_str(),
-    );
-
-    Ok(MoveRes {
-        mov: response.chosen_move,
-        board: new_pos,
-    })
 }
 
 fn player_res_to_match_res(game_over: GameOver, is_p1: bool) -> MatchResult {

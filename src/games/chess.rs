@@ -19,10 +19,11 @@ use crate::games::chess::pieces::{
 };
 use crate::games::chess::squares::{ChessSquare, ChessboardSize, F_FILE_NO, NUM_SQUARES};
 use crate::games::Color::{Black, White};
+use crate::games::PlayerResult::{Draw, Lose};
 use crate::games::{
     board_to_string, legal_moves_slow, position_fen_part, read_position_fen, AbstractPieceType,
-    Board, Color, ColoredPiece, ColoredPieceType, CreateEngine, EngineList, Move, RectangularSize,
-    Settings, Size, UncoloredPieceType,
+    Board, Color, ColoredPiece, ColoredPieceType, CreateEngine, EngineList, Move, PlayerResult,
+    RectangularSize, Settings, Size, UncoloredPieceType,
 };
 use crate::general::bitboards::{Bitboard, ChessBitboard};
 use crate::general::move_list::MoveList;
@@ -236,15 +237,31 @@ impl Board for Chessboard {
         self.is_move_pseudolegal_impl(mov)
     }
 
-    fn is_game_lost(&self) -> bool {
-        self.is_in_check() && legal_moves_slow(self).is_empty()
+    fn game_result_no_movegen(&self) -> Option<PlayerResult> {
+        if self.is_50mr_draw() || self.has_insufficient_material() || self.is_3fold_repetition() {
+            return Some(Draw);
+        }
+        return None;
     }
 
-    fn is_draw(&self) -> bool {
-        self.is_50mr_draw()
-            || self.has_insufficient_material()
-            || self.is_3fold_repetition()
-            || self.is_stalemate_slow()
+    fn game_result_slow(&self) -> Option<PlayerResult> {
+        if let Some(res) = self.game_result_no_movegen() {
+            return Some(res);
+        }
+        let no_moves = legal_moves_slow(self).is_empty();
+        if no_moves {
+            Some(self.no_moves_result())
+        } else {
+            None
+        }
+    }
+
+    fn no_moves_result(&self) -> PlayerResult {
+        if self.is_in_check() {
+            Lose
+        } else {
+            Draw
+        }
     }
 
     fn as_fen(&self) -> String {
@@ -702,10 +719,10 @@ mod tests {
             }
             let checkmates = mov.piece(&board).uncolored_piece_type() == Rook
                 && mov.to_square() == ChessSquare::from_rank_file(7, G_FILE_NO);
-            assert_eq!(board.is_game_won_after(mov), checkmates);
+            assert_eq!(board.is_game_won_after_slow(mov), checkmates);
             let new_board = board.make_move(mov).unwrap();
-            assert_eq!(new_board.is_game_lost(), checkmates);
-            assert!(!board.is_game_lost());
+            assert_eq!(new_board.is_game_lost_slow(), checkmates);
+            assert!(!board.is_game_lost_slow());
         }
     }
 

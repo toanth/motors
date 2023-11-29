@@ -46,7 +46,8 @@ impl Chessboard {
         list.contains(&mov)
     }
 
-    // used for castling
+    /// used for castling and to implement `is_in_check`:
+    /// Pretend there is a king of color `us` at `square` and test if it is in check.
     pub(super) fn is_in_check_on_square(&self, us: Color, square: ChessSquare) -> bool {
         let them = us.other();
         let idx = square.index();
@@ -83,7 +84,7 @@ impl Chessboard {
             return true;
         }
         // this can't happen in a legal position, but it can happen in pseudolegal movegen
-        sup_distance(self.king_square(us), self.king_square(them)) <= 1
+        sup_distance(square, self.king_square(them)) <= 1
     }
 
     pub(super) fn gen_all_pseudolegal_moves(&self) -> ChessMoveList {

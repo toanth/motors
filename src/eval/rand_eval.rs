@@ -9,6 +9,6 @@ pub struct RandEval {}
 
 impl<B: Board> Eval<B> for RandEval {
     fn eval(&self, _: B) -> Score {
-        Score(thread_rng().gen_range(SCORE_LOST + 1..SCORE_WON))
+        Score(thread_rng().gen_range(SCORE_LOST.0 + 1..SCORE_WON.0))
     }
 }

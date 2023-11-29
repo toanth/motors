@@ -3,9 +3,10 @@ use std::fmt::Debug;
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
+use derive_more::{Add, Neg, Sub};
 use rand::thread_rng;
 
-use crate::games::Board;
+use crate::games::{Board, PlayerResult};
 use crate::play::AnyMutEngineRef;
 
 pub mod generic_negamax;
@@ -22,22 +23,38 @@ pub struct BenchResult {
 }
 
 // TODO: Turn this into an enum that can also represent a win in n plies (and maybe a draw?)
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg)]
 pub struct Score(pub i32);
+
+impl Add<i32> for Score {
+    type Output = Score;
+
+    fn add(self, rhs: i32) -> Self::Output {
+        Score(self.0 + rhs)
+    }
+}
+
+impl Sub<i32> for Score {
+    type Output = Score;
+
+    fn sub(self, rhs: i32) -> Self::Output {
+        Score(self.0 - rhs)
+    }
+}
 
 impl Score {
     pub fn is_game_won_score(self) -> bool {
-        self.0 >= MIN_SCORE_WON
+        self >= MIN_SCORE_WON
     }
     pub fn is_game_lost_score(self) -> bool {
-        self.0 <= MAX_SCORE_LOST
+        self <= MAX_SCORE_LOST
     }
     /// Returns a negative number of if the game is lost
     pub fn plies_until_game_won(self) -> Option<isize> {
         if self.is_game_won_score() {
-            Some((SCORE_WON - self.0) as isize)
+            Some((SCORE_WON - self).0 as isize)
         } else if self.is_game_lost_score() {
-            Some((SCORE_LOST - self.0) as isize)
+            Some((SCORE_LOST - self).0 as isize)
         } else {
             None
         }
@@ -49,13 +66,21 @@ impl Score {
     }
 }
 
-pub const SCORE_LOST: i32 = -31_000;
-pub const SCORE_WON: i32 = 31_000;
-pub const SCORE_TIME_UP: i32 = SCORE_WON + 1;
-pub const MIN_SCORE_WON: i32 = SCORE_WON - 1000;
-pub const MAX_SCORE_LOST: i32 = SCORE_LOST + 1000;
+pub const SCORE_LOST: Score = Score(-31_000);
+pub const SCORE_WON: Score = Score(31_000);
+pub const SCORE_TIME_UP: Score = Score(SCORE_WON.0 + 1); // can't use + directly because derive_more's + isn't `const`
+pub const MIN_SCORE_WON: Score = Score(SCORE_WON.0 - 1000);
+pub const MAX_SCORE_LOST: Score = Score(SCORE_LOST.0 + 1000);
 
 pub const MAX_DEPTH: usize = 10_000;
+
+pub fn game_result_to_score(res: PlayerResult, ply: usize) -> Score {
+    match res {
+        PlayerResult::Win => SCORE_WON - ply as i32,
+        PlayerResult::Lose => SCORE_LOST + ply as i32,
+        PlayerResult::Draw => Score(0),
+    }
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct TimeControl {

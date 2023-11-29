@@ -4,8 +4,9 @@ use rand::thread_rng;
 
 use crate::games::Board;
 use crate::search::{
-    should_stop, stop_engine, BenchResult, Engine, EngineState, InfoCallback, SearchInfo,
-    SearchLimit, SearchResult, Searcher, SimpleSearchState, TimeControl, SCORE_LOST, SCORE_TIME_UP,
+    game_result_to_score, should_stop, stop_engine, BenchResult, Engine, EngineState, InfoCallback,
+    Score, SearchInfo, SearchLimit, SearchResult, Searcher, SimpleSearchState, TimeControl,
+    SCORE_LOST, SCORE_TIME_UP,
 };
 
 const MAX_DEPTH: usize = 100;
@@ -19,7 +20,7 @@ impl<B: Board> Searcher<B> for NaiveSlowNegamax<B> {
     fn search(&mut self, pos: B, limit: SearchLimit) -> SearchResult<B> {
         self.state = Default::default();
 
-        self.state.score.0 = self.negamax(pos, limit, 0);
+        self.state.score = self.negamax(pos, limit, 0);
         self.state.send_new_info();
         SearchResult::move_and_score(
             self.state.best_move.unwrap_or_else(|| {
@@ -82,14 +83,11 @@ impl<B: Board> Engine<B> for NaiveSlowNegamax<B> {
 }
 
 impl<B: Board> NaiveSlowNegamax<B> {
-    fn negamax(&mut self, pos: B, limit: SearchLimit, ply: usize) -> i32 {
+    fn negamax(&mut self, pos: B, limit: SearchLimit, ply: usize) -> Score {
         assert!(ply <= MAX_DEPTH);
 
-        if pos.is_game_lost() {
-            return SCORE_LOST + ply as i32;
-        }
-        if pos.is_draw() {
-            return 0;
+        if let Some(res) = pos.game_result_no_movegen() {
+            return game_result_to_score(res, ply);
         }
 
         let mut best_score = SCORE_LOST;

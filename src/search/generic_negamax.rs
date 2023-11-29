@@ -5,9 +5,9 @@ use rand::thread_rng;
 use crate::eval::Eval;
 use crate::games::Board;
 use crate::search::{
-    should_stop, stop_engine, BenchResult, Engine, EngineOptionType, EngineState, InfoCallback,
-    Score, SearchInfo, SearchLimit, SearchResult, Searcher, SimpleSearchState, TimeControl,
-    SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
+    game_result_to_score, should_stop, stop_engine, BenchResult, Engine, EngineOptionType,
+    EngineState, InfoCallback, Score, SearchInfo, SearchLimit, SearchResult, Searcher,
+    SimpleSearchState, TimeControl, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
 };
 
 const MAX_DEPTH: usize = 100;
@@ -30,13 +30,13 @@ impl<B: Board, E: Eval<B>> Searcher<B> for GenericNegamax<B, E> {
             if self.state.search_cancelled || should_stop(&limit, self, self.state.start_time) {
                 break;
             }
-            self.state.score = Score(iteration_score);
-            chosen_move = self.state.best_move;
+            self.state.score = iteration_score;
+            chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
             self.state.info_callback.call(self.search_info())
         }
 
         SearchResult::move_only(chosen_move.unwrap_or_else(|| {
-            println!("Warning: Not even a single iteration finished");
+            eprintln!("Warning: Not even a single iteration finished");
             let mut rng = thread_rng();
             pos.random_legal_move(&mut rng)
                 .expect("search() called in a position with no legal moves")
@@ -107,24 +107,22 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
         limit: SearchLimit,
         ply: usize,
         depth: isize,
-        mut alpha: i32,
-        beta: i32,
-    ) -> i32 {
-        assert!(alpha < beta);
-        assert!(ply <= MAX_DEPTH * 2);
-        assert!(depth <= MAX_DEPTH as isize);
+        mut alpha: Score,
+        beta: Score,
+    ) -> Score {
+        debug_assert!(alpha < beta);
+        debug_assert!(ply <= MAX_DEPTH * 2);
+        debug_assert!(depth <= MAX_DEPTH as isize);
 
-        if pos.is_game_lost() {
-            return SCORE_LOST + ply as i32;
-        }
-        if pos.is_draw() {
-            return 0;
+        if let Some(res) = pos.game_result_no_movegen() {
+            return game_result_to_score(res, ply);
         }
         if depth <= 0 {
-            return self.eval.eval(pos).0;
+            return self.eval.eval(pos);
         }
 
         let mut best_score = SCORE_LOST;
+        let mut num_children = 0;
 
         for mov in pos.pseudolegal_moves() {
             let new_pos = pos.make_move(mov);
@@ -132,6 +130,7 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
                 continue; // illegal pseudolegal move
             }
             self.state.nodes += 1;
+            num_children += 1;
 
             let score = -self.negamax(new_pos.unwrap(), limit, ply + 1, depth - 1, -beta, -alpha);
 
@@ -153,6 +152,10 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
             }
             break;
         }
-        best_score
+        if num_children == 0 {
+            game_result_to_score(pos.no_moves_result(), ply)
+        } else {
+            best_score
+        }
     }
 }

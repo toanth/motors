@@ -221,7 +221,7 @@ impl Move<Chessboard> for ChessMove {
             res.push(self.flags().promo_piece().to_ascii_char());
         }
         let board = board.make_move(self).unwrap();
-        if board.is_game_lost() {
+        if board.is_game_lost_slow() {
             res.push('#');
         } else if board.is_in_check() {
             res.push('+');

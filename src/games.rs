@@ -6,6 +6,7 @@ use itertools::Itertools;
 use rand::Rng;
 use strum_macros::EnumIter;
 
+use crate::games::PlayerResult::Lose;
 use crate::general::common::parse_int;
 use crate::general::move_list::MoveList;
 use crate::play::AnyEngine;
@@ -416,6 +417,14 @@ pub trait EngineList<B: Board> {
 
 pub trait Settings: Eq + Copy + Debug + Default {}
 
+/// Result of a match from a player's perspective.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum PlayerResult {
+    Win,
+    Lose,
+    Draw,
+}
+
 pub trait Board:
     Eq + PartialEq + Sized + Default + Debug + Display + Copy + Clone + 'static
 {
@@ -553,23 +562,42 @@ pub trait Board:
         self.make_move(mov).is_some()
     }
 
+    fn game_result_no_movegen(&self) -> Option<PlayerResult>;
+
+    /// Returns the result (win/draw/loss), if any. Can be potentially slow because it can require movegen.
+    /// If movegen is used anyway (such as in an ab search), it is usually better to call `game_result_no_movegen`
+    /// and `no_moves_result` iff there were no legal moves.
+    /// Despite the name, this method is not always slower than `game_result_no_movegen`, for some games both
+    /// implementations are identical. But in a generic setting, this shouldn't be relied upon, hence the name.
+    /// Note that many implementations never return `PlayerResult::Win` because the active player can't win the game,
+    /// which is the case because the current player is flipped after the winning move.
+    /// For example, being checkmated in chess is a loss for the current player.
+    fn game_result_slow(&self) -> Option<PlayerResult>;
+
+    /// Only called when there are no legal moves.
+    /// In that case, the function returns the game state from the current player's perspective.
+    /// Note that this doesn't check that there are indeed no legal moves to avoid paying the performance cost of that.
+    fn no_moves_result(&self) -> PlayerResult;
+
     /// Returns true iff the game is lost for player who can now move, like being checkmated in chess.
-    fn is_game_lost(&self) -> bool;
+    /// Using `game_result_no_movegen()` and `no_moves_result()` is often the faster option if movegen is needed anyway
+    fn is_game_lost_slow(&self) -> bool {
+        self.game_result_slow().is_some_and(|x| x == Lose)
+    }
 
     /// Returns true iff the game is won for the current player after making the given move.
     /// This move has to be pseudolegal. If the move will likely be played anyway, it can be faster
-    /// to use is_game_lost() instead.
-    fn is_game_won_after(&self, mov: Self::Move) -> bool {
+    /// to play it and use `game_result()` or `game_result_no_movegen()` and `no_moves_result` instead.
+    fn is_game_won_after_slow(&self, mov: Self::Move) -> bool {
         self.make_move(mov)
-            .map_or(false, |new_pos| new_pos.is_game_lost())
+            .map_or(false, |new_pos| new_pos.is_game_lost_slow())
     }
 
     /// Returns true iff the game is a draw. This function covers all possibilities of a draw occurring,
     /// like stalemate, insufficient material, threefold repetition and 50 move rule in chess.
     /// Of course, explicitly testing for no legal moves is also possible in many games, and may be
-    /// faster in chess, while covering a large percentage of actual draws, together with threefold
-    /// repetition.
-    fn is_draw(&self) -> bool;
+    /// significantly faster, which is why the `is_draw_no_movegen` method exists.
+    // fn is_draw(&self) -> bool;
 
     /// Returns a compact textual description of the board that can be read in again with `from_fen`.
     fn as_fen(&self) -> String;
