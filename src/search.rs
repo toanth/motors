@@ -349,6 +349,7 @@ pub trait EngineState<B: Board> {
 
 #[derive(Debug)]
 struct SimpleSearchState<B: Board> {
+    history: B::History,
     initial_pos: B,
     best_move: Option<B::Move>,
     nodes: u64,
@@ -373,6 +374,7 @@ impl<B: Board> Default for SimpleSearchState<B> {
     fn default() -> Self {
         let start_time = Instant::now();
         Self {
+            history: B::History::default(),
             initial_pos: B::default(),
             start_time,
             score: Score(0),

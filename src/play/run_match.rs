@@ -5,7 +5,7 @@ use rand::rngs::ThreadRng;
 
 use crate::eval::mnk::simple_mnk_eval::SimpleMnkEval;
 use crate::games::mnk::{MNKBoard, MnkSettings};
-use crate::games::{Board, Color, Height, Width};
+use crate::games::{Board, BoardHistory, Color, Height, Width};
 use crate::general::common::parse_int_from_stdin;
 use crate::play::AdjudicationReason::*;
 use crate::play::GameOverReason::Adjudication;
@@ -146,11 +146,12 @@ struct MoveRes<B: Board> {
 
 fn make_move<B: Board>(
     pos: B,
+    history: &mut B::History,
     player: &mut Player<B>,
     graphics: GraphicsHandle<B>,
     move_hist: &mut Vec<B::Move>,
 ) -> Result<MoveRes<B>, GameOver> {
-    if let Some(result) = pos.game_result_slow() {
+    if let Some(result) = pos.game_result_slow(Some(history)) {
         return Err(GameOver {
             result,
             reason: GameOverReason::Normal,
@@ -180,7 +181,7 @@ fn make_move<B: Board>(
 
         let mov = response.chosen_move;
         if pos.is_move_legal(mov) {
-            new_pos = pos.make_move(mov).unwrap();
+            new_pos = pos.make_move(mov, Some(history)).unwrap();
             break;
         }
 
@@ -260,9 +261,11 @@ impl<B: Board> AbstractMatchManager for BuiltInMatch<B> {
     /// TODO: Another implementation would be to run this asynchronously, but I don't want to deal with multithreading right now
     fn run(&mut self) -> MatchResult {
         self.graphics.borrow_mut().show(self);
+        let mut history = B::History::new(&self.board);
         loop {
             let res = make_move(
                 self.board,
+                &mut history,
                 &mut self.p1,
                 self.graphics.clone(),
                 &mut self.move_hist,
@@ -274,6 +277,7 @@ impl<B: Board> AbstractMatchManager for BuiltInMatch<B> {
 
             let res = make_move(
                 self.board,
+                &mut history,
                 &mut self.p2,
                 self.graphics.clone(),
                 &mut self.move_hist,

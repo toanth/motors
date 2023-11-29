@@ -8,7 +8,7 @@ use colored::Colorize;
 use itertools::Itertools;
 
 use crate::games::Color::White;
-use crate::games::{Board, Color, Move};
+use crate::games::{Board, BoardHistory, Color, Move};
 use crate::general::common::parse_int;
 use crate::play::run_match::play;
 use crate::play::ugi::SearchType::{Bench, Normal, Perft, SplitPerft};
@@ -90,6 +90,7 @@ pub struct UGI<B: Board> {
     status: MatchStatus,
     graphics: GraphicsHandle<B>,
     mov_hist: Vec<B::Move>,
+    board_hist: B::History,
     initial_pos: B,
     next_match: Option<AnyMatch>,
 }
@@ -258,10 +259,12 @@ impl<B: Board> Default for UGI<B> {
 impl<B: Board> UGI<B> {
     pub fn new(mut engine: AnyEngine<B>, graphics: GraphicsHandle<B>) -> Self {
         engine.set_info_callback(Self::info_callback());
+        let board = B::default();
         Self {
             engine,
-            board: B::default(),
+            board,
             mov_hist: vec![],
+            board_hist: B::History::new(&board),
             limit: SearchLimit::infinite(),
             debug_mode: false,
             status: NotStarted,
@@ -570,7 +573,7 @@ impl<B: Board> UGI<B> {
         }
         self.board = self
             .board
-            .make_move(mov)
+            .make_move(mov, Some(&mut self.board_hist))
             .ok_or_else(|| format!("Illegal move {mov} (pseudolegal)"))?;
         self.mov_hist.push(mov);
         // if self.board.is_game_lost() || self.board.is_draw() {

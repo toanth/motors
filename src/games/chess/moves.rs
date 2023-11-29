@@ -14,8 +14,8 @@ use crate::games::chess::pieces::{ChessPiece, ColoredChessPiece, UncoloredChessP
 use crate::games::chess::squares::{ChessSquare, A_FILE_NO, D_FILE_NO, F_FILE_NO, H_FILE_NO};
 use crate::games::chess::Chessboard;
 use crate::games::{
-    legal_moves_slow, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType, Move,
-    MoveFlags,
+    legal_moves_slow, AbstractPieceType, Board, BoardHistory, Color, ColoredPiece,
+    ColoredPieceType, Move, MoveFlags, ZobristHistory,
 };
 use crate::general::bitboards::{Bitboard, ChessBitboard};
 
@@ -220,8 +220,8 @@ impl Move<Chessboard> for ChessMove {
             res.push('=');
             res.push(self.flags().promo_piece().to_ascii_char());
         }
-        let board = board.make_move(self).unwrap();
-        if board.is_game_lost_slow() {
+        let board = board.make_move(self, None).unwrap();
+        if board.is_game_lost_slow(None) {
             res.push('#');
         } else if board.is_in_check() {
             res.push('+');
@@ -243,7 +243,11 @@ impl Chessboard {
         }
     }
 
-    pub(super) fn make_move_impl(mut self, mov: ChessMove) -> Option<Self> {
+    pub(super) fn make_move_impl(
+        mut self,
+        mov: ChessMove,
+        history: Option<&mut ZobristHistory>,
+    ) -> Option<Self> {
         let piece = mov.piece(&self).symbol;
         let uncolored = piece.uncolor();
         let color = self.active_player;
@@ -324,6 +328,9 @@ impl Chessboard {
             return None; // needs to be checked before switching the active player
         }
         self.active_player = other;
+        if let Some(history) = history {
+            history.push(&self);
+        }
         Some(self)
     }
 }

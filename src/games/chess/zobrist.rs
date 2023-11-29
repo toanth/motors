@@ -1,4 +1,3 @@
-use derive_more::BitOrAssign;
 use lazy_static::lazy_static;
 use rand::rngs::StdRng;
 use rand::RngCore;
@@ -9,11 +8,8 @@ use crate::games::chess::pieces::UncoloredChessPiece;
 use crate::games::chess::squares::NUM_COLUMNS;
 use crate::games::chess::{CastleRight, Chessboard};
 use crate::games::Color::*;
-use crate::games::{AbstractPieceType, Color};
+use crate::games::{AbstractPieceType, Color, ZobristHash};
 use crate::general::bitboards::Bitboard;
-
-#[derive(Copy, Clone, Eq, PartialEq, Default, derive_more::Display, Debug, BitOrAssign)]
-pub struct ZobristHash(u64);
 
 pub const NUM_PIECE_SQUARE_ENTRIES: usize = 64 * 6;
 pub const NUM_COLORED_PIECE_SQUARE_ENTRIES: usize = NUM_PIECE_SQUARE_ENTRIES * 2;
@@ -52,8 +48,6 @@ lazy_static! {
     };
 }
 
-struct History(Vec<ZobristHash>);
-
 impl Chessboard {
     pub(super) fn compute_zobrist(&self) -> ZobristHash {
         let mut res = ZobristHash(0);
@@ -62,22 +56,22 @@ impl Chessboard {
                 let mut pieces = self.colored_piece_bb(color, piece);
                 while pieces.has_set_bit() {
                     let idx = pieces.pop_lsb();
-                    res |= PRECOMPUTED_ZOBRIST_KEYS.piece_square_keys
+                    res ^= PRECOMPUTED_ZOBRIST_KEYS.piece_square_keys
                         [idx * 12 + piece.to_uncolored_idx() * 2 + color as usize];
                 }
             }
             for right in CastleRight::iter() {
                 if self.flags.can_castle(color, right) {
-                    res |=
+                    res ^=
                         PRECOMPUTED_ZOBRIST_KEYS.castle_keys[right as usize * 2 + color as usize];
                 }
             }
         }
-        res |= self.ep_square.map_or(ZobristHash(0), |square| {
+        res ^= self.ep_square.map_or(ZobristHash(0), |square| {
             PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file()]
         });
         if self.active_player == White {
-            res |= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+            res ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         }
         res
     }
