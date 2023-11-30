@@ -9,6 +9,7 @@ use rand::thread_rng;
 use crate::games::{Board, PlayerResult};
 use crate::play::AnyMutEngineRef;
 
+pub mod chess;
 pub mod generic_negamax;
 pub mod human;
 pub mod naive_slow_negamax;

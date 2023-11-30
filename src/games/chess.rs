@@ -28,6 +28,7 @@ use crate::games::{
 use crate::general::bitboards::{Bitboard, ChessBitboard};
 use crate::general::move_list::MoveList;
 use crate::play::generic_engines;
+use crate::search::chess::negamax::Negamax;
 use crate::search::generic_negamax::GenericNegamax;
 use crate::ui::NormalGraphics;
 
@@ -575,6 +576,9 @@ impl EngineList<Chessboard> for ChessEngineList {
         let mut res = generic_engines();
         res.push(("generic_negamax".to_string(), |_| {
             Box::new(GenericNegamax::<Chessboard, MaterialOnlyEval>::default())
+        }));
+        res.push(("negamax".to_string(), |_| {
+            Box::new(Negamax::<MaterialOnlyEval>::default())
         }));
         res
     }
