@@ -79,7 +79,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         pos: Chessboard,
         limit: SearchLimit,
         ply: usize,
-        depth: isize,
+        mut depth: isize,
         mut alpha: Score,
         beta: Score,
     ) -> Score {
@@ -89,6 +89,10 @@ impl<E: Eval<Chessboard>> Negamax<E> {
 
         if let Some(res) = pos.game_result_no_movegen() {
             return game_result_to_score(res, ply);
+        }
+        let in_check = pos.is_in_check();
+        if in_check {
+            depth += 1;
         }
         if depth <= 0 {
             return self.qsearch(pos, alpha, beta, ply);
