@@ -297,6 +297,8 @@ pub trait Searcher<B: Board>: Debug + 'static {
 pub trait Engine<B: Board>: Searcher<B> {
     fn bench(&mut self, position: B, depth: usize) -> BenchResult;
 
+    fn default_bench_depth(&self) -> usize;
+
     /// Stop the current search. Can be called from another thread while the search is running.
     fn stop(&mut self) -> Result<SearchResult<B>, String>;
     // {
@@ -559,7 +561,11 @@ fn stop_engine<B: Board>(
     ))
 }
 
-pub fn run_bench<B: Board>(engine: AnyMutEngineRef<B>, mut depth: usize) -> String {
+pub fn run_bench<B: Board>(engine: AnyMutEngineRef<B>) -> String {
+    let depth = engine.default_bench_depth();
+    run_bench_with_depth(engine, depth)
+}
+pub fn run_bench_with_depth<B: Board>(engine: AnyMutEngineRef<B>, mut depth: usize) -> String {
     if depth == MAX_DEPTH {
         depth = 5; // Default value
     }

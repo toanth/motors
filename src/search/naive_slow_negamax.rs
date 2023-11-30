@@ -57,6 +57,10 @@ impl<B: Board> Engine<B> for NaiveSlowNegamax<B> {
         self.state.to_bench_res()
     }
 
+    fn default_bench_depth(&self) -> usize {
+        1 // ignored as the engine will search until terminal nodes anyway
+    }
+
     fn stop(&mut self) -> Result<SearchResult<B>, String> {
         stop_engine(
             &self.state.initial_pos,

@@ -125,7 +125,7 @@ fn select_mode<B: Board>(mode: Mode, engine: Engine, ui: &str) -> AnyMatch {
                 &B::game_name(),
             )
             .unwrap();
-            let res = run_bench(engine("").deref_mut(), 5); // TODO: Allow giving an optional bench depth
+            let res = run_bench(engine("").deref_mut()); // TODO: Allow giving an optional bench depth
             println!("{res}");
             exit(0);
         }

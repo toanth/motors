@@ -57,6 +57,10 @@ impl<B: Board, R: Rng + Default + 'static> Engine<B> for RandomMover<B, R> {
         }
     }
 
+    fn default_bench_depth(&self) -> usize {
+        1 // ignored as the engine will just pick a random move no matter what
+    }
+
     fn stop(&mut self) -> Result<SearchResult<B>, String> {
         Ok(SearchResult::default())
     }

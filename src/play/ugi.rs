@@ -1,6 +1,6 @@
 use std::io::stdin;
 use std::mem::discriminant;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::str::SplitWhitespace;
 use std::time::Duration;
 
@@ -20,7 +20,7 @@ use crate::play::{
 };
 use crate::search::perft::{perft, split_perft};
 use crate::search::{
-    run_bench, Engine, EngineOptionType, EngineUciOptionType, InfoCallback, SearchInfo,
+    run_bench_with_depth, Engine, EngineOptionType, EngineUciOptionType, InfoCallback, SearchInfo,
     SearchLimit, SearchResult, Searcher,
 };
 use crate::ui::no_graphic::NoGraphics;
@@ -407,7 +407,14 @@ impl<B: Board> UGI<B> {
             Normal => format_search_result(self.engine.search(self.board, self.limit)),
             Perft => format!("{0}", perft(self.limit.depth, self.board)),
             SplitPerft => format!("{0}", split_perft(self.limit.depth, self.board)),
-            Bench => run_bench(self.engine.deref_mut(), self.limit.depth),
+            Bench => {
+                let depth = if self.limit.depth == usize::MAX {
+                    self.engine.deref().default_bench_depth()
+                } else {
+                    self.limit.depth
+                };
+                run_bench_with_depth(self.engine.deref_mut(), depth)
+            }
         };
         self.write(result_message.as_str());
         Ok(Ongoing)
