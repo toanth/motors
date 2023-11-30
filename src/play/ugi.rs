@@ -338,7 +338,7 @@ impl<B: Board> UGI<B> {
     }
 
     fn handle_go(&mut self, mut words: SplitWhitespace) -> Result<MatchStatus, String> {
-        let is_white = self.board.active_player() == Color::White;
+        let is_white = self.board.active_player() == White;
         let mut search_type = Normal;
         while let Some(next_word) = words.next() {
             match next_word {
