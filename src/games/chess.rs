@@ -11,7 +11,6 @@ use strum::IntoEnumIterator;
 use crate::eval::chess::pst_only::PstOnlyEval;
 use crate::games::chess::flags::CastleRight::*;
 use crate::games::chess::flags::{CastleRight, ChessFlags};
-use crate::games::chess::movegen::ChessMoveList;
 use crate::games::chess::moves::ChessMove;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::pieces::{
@@ -26,7 +25,7 @@ use crate::games::{
     RectangularSize, Settings, Size, UncoloredPieceType,
 };
 use crate::general::bitboards::{Bitboard, ChessBitboard};
-use crate::general::move_list::MoveList;
+use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::play::generic_engines;
 use crate::search::chess::negamax::Negamax;
 use crate::search::generic_negamax::GenericNegamax;
@@ -45,6 +44,9 @@ const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 
 // TODO: Support Chess960 eventually
 #[derive(Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct ChessSettings {}
+
+// for some reason, Chessboard::MoveList can be ambiguous? This should fix that
+pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, 256>;
 
 impl Settings for ChessSettings {}
 

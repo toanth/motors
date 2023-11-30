@@ -7,14 +7,10 @@ use crate::games::chess::squares::{
     ChessSquare, A_FILE_NO, C_FILE_NO, E_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
 };
 use crate::games::chess::CastleRight::*;
-use crate::games::chess::{ChessMove, Chessboard};
+use crate::games::chess::{ChessMove, ChessMoveList, Chessboard};
 use crate::games::Color::*;
 use crate::games::{sup_distance, Board, Color, ColoredPiece, ColoredPieceType, Move};
 use crate::general::bitboards::{Bitboard, ChessBitboard, KNIGHTS};
-use crate::general::move_list::EagerNonAllocMoveList;
-
-// for some reason, Chessboard::MoveList can be ambiguous? This should fix that
-pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, 256>;
 
 enum SliderMove {
     Bishop,

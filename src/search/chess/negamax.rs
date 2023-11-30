@@ -1,10 +1,13 @@
 use std::time::{Duration, Instant};
 
+use itertools::Itertools;
 use rand::thread_rng;
 
 use crate::eval::Eval;
-use crate::games::chess::Chessboard;
-use crate::games::Board;
+use crate::games::chess::moves::ChessMove;
+use crate::games::chess::pieces::UncoloredChessPiece::Empty;
+use crate::games::chess::{ChessMoveList, Chessboard};
+use crate::games::{Board, ColoredPiece};
 use crate::search::{
     game_result_to_score, should_stop, stop_engine, BenchResult, Engine, EngineOptionType,
     EngineState, InfoCallback, Score, SearchInfo, SearchLimit, SearchResult, SearchStateWithPv,
@@ -94,7 +97,8 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         let mut best_score = SCORE_LOST;
         let mut num_children = 0;
 
-        for mov in pos.pseudolegal_moves() {
+        let all_moves = Self::order_moves(pos.pseudolegal_moves(), &pos);
+        for mov in all_moves {
             let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
                 continue; // illegal pseudolegal move
@@ -114,6 +118,8 @@ impl<E: Eval<Chessboard>> Negamax<E> {
                 continue;
             }
             alpha = score;
+            // TODO: This lost a smallish 2 digit amount of elo, so retest eventually
+            // (will probably be much less important as the search gets slower)
             self.state.pv_table.new_pv_move(ply, mov);
             if ply == 0 {
                 self.state.best_move = Some(mov);
@@ -128,6 +134,19 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         } else {
             best_score
         }
+    }
+
+    fn order_moves(moves: ChessMoveList, board: &Chessboard) -> ChessMoveList {
+        /// The move list is iterated backwards, which is why better moves get higher scores
+        let score_function = |mov: &ChessMove| {
+            let captured = mov.captured(board);
+            if captured == Empty {
+                0
+            } else {
+                10 + captured as usize * 10 - mov.piece(board).uncolored_piece_type() as usize
+            }
+        };
+        moves.sorted_unstable_by_key(score_function).collect()
     }
 }
 

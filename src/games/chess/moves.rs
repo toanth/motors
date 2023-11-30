@@ -87,6 +87,16 @@ impl ChessMove {
         !self.is_castle() && board.is_occupied(self.to_square())
     }
 
+    pub fn captured(self, board: &Chessboard) -> UncoloredChessPiece {
+        if self.flags() == EnPassant {
+            Pawn
+        } else if self.flags() == Castle {
+            Empty
+        } else {
+            board.piece_on(self.to_square()).uncolored_piece_type()
+        }
+    }
+
     pub fn is_promotion(self) -> bool {
         self.flags().is_promo()
     }
