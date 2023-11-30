@@ -334,6 +334,7 @@ impl Chessboard {
             return None; // needs to be checked before switching the active player
         }
         self.active_player = other;
+        self.ply += 1;
         Some(self)
     }
 }
