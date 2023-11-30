@@ -8,7 +8,7 @@ use rand::prelude::{IteratorRandom, SliceRandom};
 use rand::Rng;
 use strum::IntoEnumIterator;
 
-use crate::eval::chess::material_only::MaterialOnlyEval;
+use crate::eval::chess::pst_only::PstOnlyEval;
 use crate::games::chess::flags::CastleRight::*;
 use crate::games::chess::flags::{CastleRight, ChessFlags};
 use crate::games::chess::movegen::ChessMoveList;
@@ -434,6 +434,7 @@ impl Board for Chessboard {
 
 impl Chessboard {
     pub fn piece_bb(&self, piece: UncoloredChessPiece) -> ChessBitboard {
+        debug_assert_ne!(piece, Empty);
         self.piece_bbs[piece.to_uncolored_idx()]
     }
 
@@ -575,10 +576,10 @@ impl EngineList<Chessboard> for ChessEngineList {
     fn list_engines() -> Vec<(String, CreateEngine<Chessboard>)> {
         let mut res = generic_engines();
         res.push(("generic_negamax".to_string(), |_| {
-            Box::new(GenericNegamax::<Chessboard, MaterialOnlyEval>::default())
+            Box::new(GenericNegamax::<Chessboard, PstOnlyEval>::default())
         }));
         res.push(("negamax".to_string(), |_| {
-            Box::new(Negamax::<MaterialOnlyEval>::default())
+            Box::new(Negamax::<PstOnlyEval>::default())
         }));
         res
     }

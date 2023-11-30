@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::ops::{Div, Mul};
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
-use derive_more::{Add, Neg, Sub};
+use derive_more::{Add, AddAssign, Neg, Sub};
 use rand::thread_rng;
 
 use crate::games::{Board, PlayerResult};
@@ -24,7 +25,7 @@ pub struct BenchResult {
 }
 
 // TODO: Turn this into an enum that can also represent a win in n plies (and maybe a draw?)
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg, AddAssign)]
 pub struct Score(pub i32);
 
 impl Add<i32> for Score {
@@ -40,6 +41,22 @@ impl Sub<i32> for Score {
 
     fn sub(self, rhs: i32) -> Self::Output {
         Score(self.0 - rhs)
+    }
+}
+
+impl Mul<i32> for Score {
+    type Output = Score;
+
+    fn mul(self, rhs: i32) -> Self::Output {
+        Score(self.0 * rhs)
+    }
+}
+
+impl Div<i32> for Score {
+    type Output = Score;
+
+    fn div(self, rhs: i32) -> Self::Output {
+        Score(self.0 / rhs)
     }
 }
 
@@ -94,7 +111,7 @@ impl Default for TimeControl {
     fn default() -> Self {
         TimeControl {
             remaining: Duration::MAX,
-            increment: Duration::MAX,
+            increment: Duration::from_millis(0),
             moves_to_go: 0,
         }
     }

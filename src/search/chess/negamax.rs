@@ -20,10 +20,31 @@ pub struct Negamax<E: Eval<Chessboard>> {
 }
 
 impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
+    fn name(&self) -> &'static str {
+        "Chess Negamax"
+    }
+
+    fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
+        if self.state.nodes % 1024 != 0 {
+            false
+        } else {
+            let elapsed = start_time.elapsed();
+            elapsed >= hard_limit.min(tc.remaining / 32 + tc.increment / 2)
+        }
+    }
+
     fn search(&mut self, pos: Chessboard, limit: SearchLimit) -> SearchResult<Chessboard> {
         self.state = SimpleSearchState::initial_state(pos, self.state.info_callback);
         let mut chosen_move = self.state.best_move;
         let max_depth = MAX_DEPTH.min(limit.depth) as isize;
+
+        println!(
+            "starting search with limit {time} ms, {fixed} fixed, {depth} depth, {nodes} nodes",
+            time = limit.tc.remaining.as_millis(),
+            depth = limit.depth,
+            nodes = limit.nodes,
+            fixed = limit.fixed_time.as_millis()
+        );
 
         for depth in 1..=max_depth {
             self.state.depth = depth as usize;
@@ -36,68 +57,15 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
             self.state.info_callback.call(self.search_info())
         }
 
-        SearchResult::move_only(chosen_move.unwrap_or_else(|| {
-            eprintln!("Warning: Not even a single iteration finished");
-            let mut rng = thread_rng();
-            pos.random_legal_move(&mut rng)
-                .expect("search() called in a position with no legal moves")
-        }))
-    }
-
-    fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
-        if self.state.nodes % 1024 != 0 {
-            false
-        } else {
-            let elapsed = start_time.elapsed();
-            elapsed >= hard_limit.min(tc.remaining / 32 + tc.increment / 2)
-        }
-    }
-
-    fn name(&self) -> &'static str {
-        "Chess Negamax"
-    }
-}
-
-impl<E: Eval<Chessboard>> Engine<Chessboard> for Negamax<E> {
-    fn bench(&mut self, pos: Chessboard, depth: usize) -> BenchResult {
-        self.state = SimpleSearchState::initial_state(pos, self.state.info_callback);
-        let mut limit = SearchLimit::infinite();
-        limit.depth = MAX_DEPTH.min(depth);
-        self.state.depth = limit.depth;
-        self.negamax(pos, limit, 0, limit.depth as isize, SCORE_LOST, SCORE_WON);
-        self.state.to_bench_res()
-    }
-
-    fn stop(&mut self) -> Result<SearchResult<Chessboard>, String> {
-        stop_engine(
-            &self.state.initial_pos,
-            self.state.best_move,
+        SearchResult::move_and_score(
+            chosen_move.unwrap_or_else(|| {
+                eprintln!("Warning: Not even a single iteration finished");
+                let mut rng = thread_rng();
+                pos.random_legal_move(&mut rng)
+                    .expect("search() called in a position with no legal moves")
+            }),
             self.state.score,
         )
-    }
-
-    fn set_info_callback(&mut self, f: InfoCallback<Chessboard>) {
-        self.state.info_callback = f;
-    }
-
-    fn search_info(&self) -> SearchInfo<Chessboard> {
-        self.state.to_info()
-    }
-
-    fn forget(&mut self) {
-        self.state.forget();
-    }
-
-    fn nodes(&self) -> u64 {
-        self.state.nodes
-    }
-
-    fn set_option(&mut self, option: &str, value: &str) -> Result<(), String> {
-        Err(format!("Searcher {0} doesn't implement any options, so can't set option '{option}' to '{value}'", self.name()))
-    }
-
-    fn get_options(&self) -> Vec<EngineOptionType> {
-        return Vec::default();
     }
 }
 
@@ -158,5 +126,48 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         } else {
             best_score
         }
+    }
+}
+
+impl<E: Eval<Chessboard>> Engine<Chessboard> for Negamax<E> {
+    fn bench(&mut self, pos: Chessboard, depth: usize) -> BenchResult {
+        self.state = SimpleSearchState::initial_state(pos, self.state.info_callback);
+        let mut limit = SearchLimit::infinite();
+        limit.depth = MAX_DEPTH.min(depth);
+        self.state.depth = limit.depth;
+        self.negamax(pos, limit, 0, limit.depth as isize, SCORE_LOST, SCORE_WON);
+        self.state.to_bench_res()
+    }
+
+    fn stop(&mut self) -> Result<SearchResult<Chessboard>, String> {
+        stop_engine(
+            &self.state.initial_pos,
+            self.state.best_move,
+            self.state.score,
+        )
+    }
+
+    fn set_info_callback(&mut self, f: InfoCallback<Chessboard>) {
+        self.state.info_callback = f;
+    }
+
+    fn search_info(&self) -> SearchInfo<Chessboard> {
+        self.state.to_info()
+    }
+
+    fn forget(&mut self) {
+        self.state.forget();
+    }
+
+    fn nodes(&self) -> u64 {
+        self.state.nodes
+    }
+
+    fn set_option(&mut self, option: &str, value: &str) -> Result<(), String> {
+        Err(format!("Searcher {0} doesn't implement any options, so can't set option '{option}' to '{value}'", self.name()))
+    }
+
+    fn get_options(&self) -> Vec<EngineOptionType> {
+        return Vec::default();
     }
 }
