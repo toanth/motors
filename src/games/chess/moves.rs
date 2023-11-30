@@ -112,6 +112,10 @@ impl ChessMove {
             Kingside
         }
     }
+
+    pub fn from_to_square(self) -> usize {
+        (self.0 & 0xfff) as usize
+    }
 }
 
 impl Display for ChessMove {

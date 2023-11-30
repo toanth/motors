@@ -1,3 +1,4 @@
+use std::ops::{Deref, DerefMut};
 use std::time::{Duration, Instant};
 
 use itertools::Itertools;
@@ -17,10 +18,34 @@ use crate::search::{
 const DEPTH_SOFT_LIMIT: usize = 100;
 const DEPTH_HARD_LIMIT: usize = 128;
 
+#[derive(Debug)]
+struct History([i32; 64 * 64]);
+
+impl Default for History {
+    fn default() -> Self {
+        History([0; 64 * 64])
+    }
+}
+
+impl Deref for History {
+    type Target = [i32; 64 * 64];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for History {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Negamax<E: Eval<Chessboard>> {
     state: SearchStateWithPv<Chessboard, DEPTH_HARD_LIMIT>,
     eval: E,
+    history: History,
 }
 
 impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
@@ -41,6 +66,7 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
         self.state = SearchStateWithPv::initial_state(pos, self.state.info_callback);
         let mut chosen_move = self.state.best_move;
         let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth) as isize;
+        self.history = History::default();
 
         println!(
             "starting search with limit {time} ms, {fixed} fixed, {depth} depth, {nodes} nodes",
@@ -101,7 +127,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         let mut best_score = SCORE_LOST;
         let mut num_children = 0;
 
-        let all_moves = Self::order_moves(pos.pseudolegal_moves(), &pos);
+        let all_moves = self.order_moves(pos.pseudolegal_moves(), &pos);
         for mov in all_moves {
             let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
@@ -131,6 +157,10 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             if score < beta {
                 continue;
             }
+            if mov.is_capture(&pos) {
+                break;
+            }
+            self.history[mov.from_to_square()] += (depth * depth) as i32;
             break;
         }
         if num_children == 0 {
@@ -147,7 +177,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         }
         alpha = alpha.max(best_score);
 
-        let captures = Self::order_moves(pos.pseudolegal_captures(), &pos);
+        let captures = self.order_moves(pos.pseudolegal_captures(), &pos);
         for mov in captures {
             let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
@@ -166,14 +196,15 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         best_score
     }
 
-    fn order_moves(moves: ChessMoveList, board: &Chessboard) -> ChessMoveList {
+    fn order_moves(&self, moves: ChessMoveList, board: &Chessboard) -> ChessMoveList {
         /// The move list is iterated backwards, which is why better moves get higher scores
         let score_function = |mov: &ChessMove| {
             let captured = mov.captured(board);
             if captured == Empty {
-                0
+                self.history[mov.from_to_square()]
             } else {
-                10 + captured as usize * 10 - mov.piece(board).uncolored_piece_type() as usize
+                i32::MAX - 100 + captured as i32 * 10
+                    - mov.piece(board).uncolored_piece_type() as i32
             }
         };
         moves.sorted_unstable_by_key(score_function).collect()
@@ -212,6 +243,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Negamax<E> {
 
     fn forget(&mut self) {
         self.state.forget();
+        self.history = History::default();
     }
 
     fn nodes(&self) -> u64 {
