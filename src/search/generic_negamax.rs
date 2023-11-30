@@ -67,6 +67,10 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
         self.state.to_bench_res()
     }
 
+    fn default_bench_depth(&self) -> usize {
+        4 // overly conversative for most games, but better too little than too much
+    }
+
     fn stop(&mut self) -> Result<SearchResult<B>, String> {
         stop_engine(
             &self.state.initial_pos,

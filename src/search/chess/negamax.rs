@@ -160,6 +160,10 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Negamax<E> {
         self.state.to_bench_res()
     }
 
+    fn default_bench_depth(&self) -> usize {
+        6
+    }
+
     fn stop(&mut self) -> Result<SearchResult<Chessboard>, String> {
         stop_engine(
             &self.state.initial_pos,
