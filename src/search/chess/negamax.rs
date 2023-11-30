@@ -91,7 +91,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             return game_result_to_score(res, ply);
         }
         if depth <= 0 {
-            return self.eval.eval(pos);
+            return self.qsearch(pos, alpha, beta, ply);
         }
 
         let mut best_score = SCORE_LOST;
@@ -134,6 +134,32 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         } else {
             best_score
         }
+    }
+
+    fn qsearch(&mut self, pos: Chessboard, mut alpha: Score, beta: Score, ply: usize) -> Score {
+        let mut best_score = self.eval.eval(pos);
+        if best_score >= beta {
+            return best_score;
+        }
+        alpha = alpha.max(best_score);
+
+        let captures = Self::order_moves(pos.pseudolegal_captures(), &pos);
+        for mov in captures {
+            let new_pos = pos.make_move(mov);
+            if new_pos.is_none() {
+                continue;
+            }
+            let score = -self.qsearch(new_pos.unwrap(), -beta, -alpha, ply + 1);
+            best_score = best_score.max(score);
+            if score <= alpha {
+                continue;
+            }
+            alpha = score;
+            if score >= beta {
+                break;
+            }
+        }
+        best_score
     }
 
     fn order_moves(moves: ChessMoveList, board: &Chessboard) -> ChessMoveList {

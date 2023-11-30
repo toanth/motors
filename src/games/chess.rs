@@ -516,6 +516,10 @@ impl Chessboard {
         self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
     }
 
+    pub fn pseudolegal_captures(&self) -> ChessMoveList {
+        self.gen_pseudolegal_captures()
+    }
+
     pub fn is_50mr_draw(&self) -> bool {
         self.ply_100_ctr >= 100
     }
@@ -731,6 +735,14 @@ mod tests {
             assert_eq!(new_board.is_game_lost_slow(), checkmates);
             assert!(!board.is_game_lost_slow());
         }
+    }
+
+    #[test]
+    fn capture_only_test() {
+        let board = Chessboard::default();
+        assert!(board.pseudolegal_captures().is_empty());
+        let board = Chessboard::from_name("kiwipete").unwrap();
+        assert_eq!(board.pseudolegal_captures().len(), 8);
     }
 
     #[test]
