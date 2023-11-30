@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::ops::{Div, Mul};
+use std::ops::{Deref, DerefMut, Div, Mul};
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
@@ -97,6 +97,42 @@ pub fn game_result_to_score(res: PlayerResult, ply: usize) -> Score {
         PlayerResult::Win => SCORE_WON - ply as i32,
         PlayerResult::Lose => SCORE_LOST + ply as i32,
         PlayerResult::Draw => Score(0),
+    }
+}
+
+/// Implements a triangular pv table, except that it's actually quadratic
+/// (the doubled memory requirements should be inconsequential, and this is much easier to implement
+/// and potentially faster)
+#[derive(Debug)]
+pub struct GenericPVTable<B: Board, const Limit: usize> {
+    list: [[B::Move; Limit]; Limit],
+    size: usize,
+}
+
+impl<B: Board, const Limit: usize> Default for GenericPVTable<B, Limit> {
+    fn default() -> Self {
+        Self {
+            list: [[B::Move::default(); Limit]; Limit],
+            size: 0,
+        }
+    }
+}
+
+impl<B: Board, const Limit: usize> GenericPVTable<B, Limit> {
+    fn new_pv_move(&mut self, ply: usize, mov: B::Move) {
+        debug_assert!(ply < Limit);
+        self.size = self.size.max(ply + 1);
+        let (dest_arr, src_arr) = self.list.split_at_mut(ply + 1);
+        dest_arr[ply][ply] = mov;
+        dest_arr[ply][ply + 1..self.size].copy_from_slice(&src_arr[0][ply + 1..self.size]);
+    }
+
+    fn reset(&mut self) {
+        self.size = 0;
+    }
+
+    fn get_pv(&self) -> &[B::Move] {
+        &self.list[0][..self.size]
     }
 }
 
@@ -320,15 +356,14 @@ impl<B: Board> Default for InfoCallback<B> {
 }
 
 pub trait EngineState<B: Board> {
+    fn initial_state(initial_pos: B, info_callback: InfoCallback<B>) -> Self;
     fn forget(&mut self);
     fn nodes(&self) -> u64;
     fn depth(&self) -> usize;
     fn start_time(&self) -> Instant;
     fn mov(&self) -> B::Move;
     fn score(&self) -> Score;
-    fn pv(&self) -> Vec<B::Move> {
-        vec![self.mov()]
-    }
+    fn pv(&self) -> Vec<B::Move>;
     fn hashfull(&self) -> Option<usize> {
         None
     }
@@ -404,6 +439,14 @@ impl<B: Board> Default for SimpleSearchState<B> {
 }
 
 impl<B: Board> EngineState<B> for SimpleSearchState<B> {
+    fn initial_state(initial_pos: B, info_callback: InfoCallback<B>) -> Self {
+        Self {
+            initial_pos,
+            info_callback,
+            ..Default::default()
+        }
+    }
+
     fn forget(&mut self) {
         let default_val = SimpleSearchState::default();
         *self = default_val;
@@ -429,8 +472,74 @@ impl<B: Board> EngineState<B> for SimpleSearchState<B> {
         self.score
     }
 
+    fn pv(&self) -> Vec<B::Move> {
+        vec![self.mov()]
+    }
+
     fn info_callback(&self) -> InfoCallback<B> {
         self.info_callback
+    }
+}
+
+#[derive(Default, Debug)]
+struct SearchStateWithPv<B: Board, const PVLimit: usize> {
+    wrapped: SimpleSearchState<B>,
+    pv_table: GenericPVTable<B, PVLimit>,
+}
+
+impl<B: Board, const PVLimit: usize> Deref for SearchStateWithPv<B, PVLimit> {
+    type Target = SimpleSearchState<B>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.wrapped
+    }
+}
+
+impl<B: Board, const PVLimit: usize> DerefMut for SearchStateWithPv<B, PVLimit> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.wrapped
+    }
+}
+
+impl<B: Board, const PVLimit: usize> EngineState<B> for SearchStateWithPv<B, PVLimit> {
+    fn initial_state(initial_pos: B, info_callback: InfoCallback<B>) -> Self {
+        Self {
+            wrapped: SimpleSearchState::initial_state(initial_pos, info_callback),
+            pv_table: Default::default(),
+        }
+    }
+
+    fn forget(&mut self) {
+        self.wrapped.forget();
+        self.pv_table.reset();
+    }
+
+    fn nodes(&self) -> u64 {
+        self.wrapped.nodes()
+    }
+
+    fn depth(&self) -> usize {
+        self.wrapped.depth()
+    }
+
+    fn start_time(&self) -> Instant {
+        self.wrapped.start_time()
+    }
+
+    fn mov(&self) -> B::Move {
+        self.wrapped.mov()
+    }
+
+    fn score(&self) -> Score {
+        self.wrapped.score()
+    }
+
+    fn pv(&self) -> Vec<B::Move> {
+        self.pv_table.get_pv().to_vec()
+    }
+
+    fn info_callback(&self) -> InfoCallback<B> {
+        self.wrapped.info_callback()
     }
 }
 

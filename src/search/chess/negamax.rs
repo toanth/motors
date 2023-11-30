@@ -7,15 +7,16 @@ use crate::games::chess::Chessboard;
 use crate::games::Board;
 use crate::search::{
     game_result_to_score, should_stop, stop_engine, BenchResult, Engine, EngineOptionType,
-    EngineState, InfoCallback, Score, SearchInfo, SearchLimit, SearchResult, Searcher,
-    SimpleSearchState, TimeControl, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
+    EngineState, InfoCallback, Score, SearchInfo, SearchLimit, SearchResult, SearchStateWithPv,
+    Searcher, TimeControl, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
 };
 
-const MAX_DEPTH: usize = 100;
+const DEPTH_SOFT_LIMIT: usize = 100;
+const DEPTH_HARD_LIMIT: usize = 128;
 
 #[derive(Debug, Default)]
 pub struct Negamax<E: Eval<Chessboard>> {
-    state: SimpleSearchState<Chessboard>,
+    state: SearchStateWithPv<Chessboard, DEPTH_HARD_LIMIT>,
     eval: E,
 }
 
@@ -34,9 +35,9 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
     }
 
     fn search(&mut self, pos: Chessboard, limit: SearchLimit) -> SearchResult<Chessboard> {
-        self.state = SimpleSearchState::initial_state(pos, self.state.info_callback);
+        self.state = SearchStateWithPv::initial_state(pos, self.state.info_callback);
         let mut chosen_move = self.state.best_move;
-        let max_depth = MAX_DEPTH.min(limit.depth) as isize;
+        let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth) as isize;
 
         println!(
             "starting search with limit {time} ms, {fixed} fixed, {depth} depth, {nodes} nodes",
@@ -80,8 +81,8 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         beta: Score,
     ) -> Score {
         debug_assert!(alpha < beta);
-        debug_assert!(ply <= MAX_DEPTH * 2);
-        debug_assert!(depth <= MAX_DEPTH as isize);
+        debug_assert!(ply <= DEPTH_HARD_LIMIT * 2);
+        debug_assert!(depth <= DEPTH_SOFT_LIMIT as isize);
 
         if let Some(res) = pos.game_result_no_movegen() {
             return game_result_to_score(res, ply);
@@ -108,11 +109,12 @@ impl<E: Eval<Chessboard>> Negamax<E> {
                 return SCORE_TIME_UP;
             }
 
-            if score <= best_score {
+            best_score = best_score.max(score);
+            if score <= alpha {
                 continue;
             }
-            alpha = alpha.max(score);
-            best_score = score;
+            alpha = score;
+            self.state.pv_table.new_pv_move(ply, mov);
             if ply == 0 {
                 self.state.best_move = Some(mov);
             }
@@ -131,9 +133,9 @@ impl<E: Eval<Chessboard>> Negamax<E> {
 
 impl<E: Eval<Chessboard>> Engine<Chessboard> for Negamax<E> {
     fn bench(&mut self, pos: Chessboard, depth: usize) -> BenchResult {
-        self.state = SimpleSearchState::initial_state(pos, self.state.info_callback);
+        self.state = SearchStateWithPv::initial_state(pos, self.state.info_callback);
         let mut limit = SearchLimit::infinite();
-        limit.depth = MAX_DEPTH.min(depth);
+        limit.depth = DEPTH_SOFT_LIMIT.min(depth);
         self.state.depth = limit.depth;
         self.negamax(pos, limit, 0, limit.depth as isize, SCORE_LOST, SCORE_WON);
         self.state.to_bench_res()
