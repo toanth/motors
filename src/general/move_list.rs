@@ -29,6 +29,14 @@ impl<B: Board, const N: usize> EagerNonAllocMoveList<B, N> {
     pub fn len(&self) -> usize {
         self.num_moves
     }
+
+    pub fn as_slice(&self) -> &[B::Move] {
+        &self.list[..self.num_moves]
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [B::Move] {
+        &mut self.list[..self.num_moves]
+    }
 }
 
 impl<B: Board, const N: usize> Iterator for EagerNonAllocMoveList<B, N> {

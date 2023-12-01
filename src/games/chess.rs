@@ -810,6 +810,14 @@ mod tests {
     }
 
     #[test]
+    fn capture_only_test() {
+        let board = Chessboard::default();
+        assert!(board.pseudolegal_captures().is_empty());
+        let board = Chessboard::from_name("kiwipete").unwrap();
+        assert_eq!(board.pseudolegal_captures().len(), 8);
+    }
+
+    #[test]
     fn repetition_test() {
         let mut board = Chessboard::default();
         let new_hash = board.make_nullmove(None).unwrap().zobrist_hash();

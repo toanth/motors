@@ -198,8 +198,8 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         best_score
     }
 
-    fn order_moves(&self, moves: ChessMoveList, board: &Chessboard) -> ChessMoveList {
-        // The move list is iterated backwards, which is why better moves get higher scores
+    fn order_moves(&self, mut moves: ChessMoveList, board: &Chessboard) -> ChessMoveList {
+        /// The move list is iterated backwards, which is why better moves get higher scores
         let score_function = |mov: &ChessMove| {
             let captured = mov.captured(board);
             if captured == Empty {
@@ -208,7 +208,8 @@ impl<E: Eval<Chessboard>> Negamax<E> {
                 i32::MAX - 100 + captured as i32 * 10 - mov.piece(board).uncolored() as i32
             }
         };
-        moves.sorted_unstable_by_key(score_function).collect()
+        moves.as_mut_slice().sort_by_cached_key(score_function);
+        moves
     }
 }
 
