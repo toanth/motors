@@ -46,7 +46,7 @@ pub struct CommandLineArgs {
     mode: Mode,
     #[arg(value_enum, long, short, default_value_t=Game::Chess)]
     game: Game,
-    #[arg(value_enum, default_value_t=Engine::GenericNegamax)]
+    #[arg(value_enum, default_value_t=Engine::Negamax)]
     engine: Engine,
     #[arg(short, long, default_value = "none")]
     ui: String,
@@ -78,8 +78,9 @@ pub enum Mode {
 pub enum Engine {
     Random,
     NaiveSlowNegamax,
-    #[default]
     GenericNegamax,
+    #[default]
+    Negamax,
 }
 
 impl Display for Game {
@@ -107,6 +108,7 @@ impl Display for Engine {
             Engine::Random => write!(f, "random"),
             Engine::NaiveSlowNegamax => write!(f, "naive_negamax"),
             Engine::GenericNegamax => write!(f, "generic_negamax"),
+            Engine::Negamax => write!(f, "negamax"),
         }
     }
 }
@@ -123,7 +125,7 @@ fn select_mode<B: Board>(mode: Mode, engine: Engine, ui: &str) -> AnyMatch {
                 &B::game_name(),
             )
             .unwrap();
-            let res = run_bench(engine("").deref_mut(), 5); // TODO: Allow giving an optional bench depth
+            let res = run_bench(engine("").deref_mut()); // TODO: Allow giving an optional bench depth
             println!("{res}");
             exit(0);
         }

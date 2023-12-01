@@ -67,6 +67,10 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
         self.state.to_bench_res()
     }
 
+    fn default_bench_depth(&self) -> usize {
+        4 // overly conversative for most games, but better too little than too much
+    }
+
     fn stop(&mut self) -> Result<SearchResult<B>, String> {
         stop_engine(
             &self.state.initial_pos,
@@ -134,7 +138,7 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
 
             let score = -self.negamax(new_pos.unwrap(), limit, ply + 1, depth - 1, -beta, -alpha);
 
-            self.state.history.pop();
+            self.state.history.pop(&new_pos.unwrap());
 
             if self.state.search_cancelled || should_stop(&limit, self, self.state.start_time) {
                 self.state.search_cancelled = true;

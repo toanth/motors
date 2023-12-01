@@ -1,7 +1,3 @@
-use lazy_static::lazy_static;
-use rand::rngs::StdRng;
-use rand::RngCore;
-use rand::SeedableRng;
 use strum::IntoEnumIterator;
 
 use crate::games::chess::pieces::UncoloredChessPiece;
@@ -21,32 +17,61 @@ struct PrecomputedZobristKeys {
     side_to_move_key: ZobristHash,
 }
 
-// TODO: Implement a normal static solution (there's probably a crate for const rngs) and benchmark;
-// this solution should require accessing an atomic variable for each read so it may be slow
-lazy_static! {
-    static ref PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
-        let mut res = {
-            PrecomputedZobristKeys {
-                piece_square_keys: [ZobristHash(0); NUM_COLORED_PIECE_SQUARE_ENTRIES],
-                castle_keys: [ZobristHash(0); 2 * 2],
-                ep_file_keys: [ZobristHash(0); NUM_COLUMNS],
-                side_to_move_key: Default::default(),
-            }
-        };
-        let mut rng = StdRng::seed_from_u64(42);
-        for key in res.piece_square_keys.iter_mut() {
-            *key = ZobristHash(rng.next_u64());
-        }
-        for key in res.castle_keys.iter_mut() {
-            *key = ZobristHash(rng.next_u64());
-        }
-        for key in res.ep_file_keys.iter_mut() {
-            *key = ZobristHash(rng.next_u64());
-        }
-        res.side_to_move_key = ZobristHash(rng.next_u64());
-        res
-    };
+/// A simple `const` random number generator adapted from my C++ algebra implementation,
+/// originally from here: https://www.pcg-random.org/ (I hate that website)
+struct PcgXslRr128_64Oneseq(u128);
+
+const MUTLIPLIER: u128 = (2549297995355413924 << 64) + 4865540595714422341;
+const INCREMENT: u128 = (6364136223846793005 << 64) + 1442695040888963407;
+
+// the pcg xsl rr 128 64 oneseq generator, aka pcg64_oneseq (most other pcg generators have additional problems)
+impl PcgXslRr128_64Oneseq {
+    const fn new(seed: u128) -> Self {
+        Self(seed + INCREMENT)
+    }
+
+    const fn gen(mut self) -> (Self, ZobristHash) {
+        self.0 = self.0.wrapping_mul(MUTLIPLIER);
+        self.0 = self.0.wrapping_add(INCREMENT);
+        let upper = (self.0 >> 64) as u64;
+        let xored = upper ^ ((self.0 & u64::MAX as u128) as u64);
+        (
+            self,
+            ZobristHash(xored.rotate_right((upper >> (122 - 64)) as u32)),
+        )
+    }
 }
+
+// Unfortunately, `const_random!` generates new values each time, so the build isn't deterministic unless
+// the environment variable CONST_RANDOM_SEED is set
+const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
+    let mut res = {
+        PrecomputedZobristKeys {
+            piece_square_keys: [ZobristHash(0); NUM_COLORED_PIECE_SQUARE_ENTRIES],
+            castle_keys: [ZobristHash(0); 2 * 2],
+            ep_file_keys: [ZobristHash(0); NUM_COLUMNS],
+            side_to_move_key: ZobristHash(0),
+        }
+    };
+    let mut gen = PcgXslRr128_64Oneseq::new(0x42);
+    let mut i = 0;
+    while i < NUM_COLORED_PIECE_SQUARE_ENTRIES {
+        (gen, res.piece_square_keys[i]) = gen.gen();
+        i += 1;
+    }
+    let mut i = 0;
+    while i < 2 * 2 {
+        (gen, res.castle_keys[i]) = gen.gen();
+        i += 1;
+    }
+    let mut i = 0;
+    while i < NUM_COLUMNS {
+        (gen, res.ep_file_keys[i]) = gen.gen();
+        i += 1;
+    }
+    (gen, res.side_to_move_key) = gen.gen();
+    res
+};
 
 impl Chessboard {
     pub(super) fn compute_zobrist(&self) -> ZobristHash {

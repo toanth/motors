@@ -56,7 +56,7 @@ fn do_perft<T: Board>(depth: usize, pos: T, history: &mut T::History) -> u64 {
     for mov in pos.pseudolegal_moves() {
         if let Some(new_pos) = pos.make_move(mov, Some(history)) {
             nodes += do_perft(depth - 1, new_pos, history);
-            history.pop();
+            history.pop(&new_pos);
         }
     }
     nodes
@@ -82,7 +82,7 @@ pub fn split_perft<T: Board>(depth: usize, pos: T) -> SplitPerftRes<T> {
             let child_nodes = do_perft(depth - 1, new_pos, &mut history);
             res.children.push((mov, child_nodes));
             nodes += child_nodes;
-            history.pop();
+            history.pop(&new_pos);
         }
     }
     let time = start.elapsed();

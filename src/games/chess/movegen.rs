@@ -7,14 +7,10 @@ use crate::games::chess::squares::{
     ChessSquare, A_FILE_NO, C_FILE_NO, E_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
 };
 use crate::games::chess::CastleRight::*;
-use crate::games::chess::{ChessMove, Chessboard};
+use crate::games::chess::{ChessMove, ChessMoveList, Chessboard};
 use crate::games::Color::*;
 use crate::games::{sup_distance, Board, Color, ColoredPiece, ColoredPieceType, Move};
 use crate::general::bitboards::{Bitboard, ChessBitboard, KNIGHTS};
-use crate::general::move_list::EagerNonAllocMoveList;
-
-// for some reason, Chessboard::MoveList can be ambiguous? This should fix that
-pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, 256>;
 
 enum SliderMove {
     Bishop,
@@ -28,19 +24,20 @@ impl Chessboard {
             return false;
         }
         let mut list = ChessMoveList::default();
+        let filter = !self.colored_bb(self.active_player);
         match piece.uncolored_piece_type() {
-            Pawn => self.gen_pawn_moves(&mut list),
+            Pawn => self.gen_pawn_moves(&mut list, filter),
             Knight => {
                 return ChessBitboard(KNIGHTS[mov.from_square().index()])
                     .is_bit_set_at(mov.to_square().index());
             }
-            Bishop => self.gen_slider_moves(SliderMove::Bishop, &mut list),
-            Rook => self.gen_slider_moves(SliderMove::Rook, &mut list),
+            Bishop => self.gen_slider_moves(SliderMove::Bishop, &mut list, filter),
+            Rook => self.gen_slider_moves(SliderMove::Rook, &mut list, filter),
             Queen => {
-                self.gen_slider_moves(SliderMove::Rook, &mut list);
-                self.gen_slider_moves(SliderMove::Bishop, &mut list);
+                self.gen_slider_moves(SliderMove::Rook, &mut list, filter);
+                self.gen_slider_moves(SliderMove::Bishop, &mut list, filter);
             }
-            King => self.gen_king_moves(&mut list),
+            King => self.gen_king_moves(&mut list, filter, false),
             Empty => panic!(),
         }
         list.contains(&mov)
@@ -88,20 +85,28 @@ impl Chessboard {
     }
 
     pub(super) fn gen_all_pseudolegal_moves(&self) -> ChessMoveList {
+        self.gen_pseudolegal_moves(!self.colored_bb(self.active_player), false)
+    }
+
+    pub(super) fn gen_pseudolegal_captures(&self) -> ChessMoveList {
+        self.gen_pseudolegal_moves(self.colored_bb(self.active_player.other()), true)
+    }
+
+    fn gen_pseudolegal_moves(&self, filter: ChessBitboard, only_captures: bool) -> ChessMoveList {
         let mut list = ChessMoveList::default();
-        self.gen_slider_moves(SliderMove::Bishop, &mut list);
-        self.gen_slider_moves(SliderMove::Rook, &mut list);
-        self.gen_knight_moves(&mut list);
-        self.gen_king_moves(&mut list);
-        self.gen_pawn_moves(&mut list);
+        self.gen_slider_moves(SliderMove::Bishop, &mut list, filter);
+        self.gen_slider_moves(SliderMove::Rook, &mut list, filter);
+        self.gen_knight_moves(&mut list, filter);
+        self.gen_king_moves(&mut list, filter, only_captures);
+        self.gen_pawn_moves(&mut list, filter);
         list
     }
 
-    fn gen_pawn_moves(&self, list: &mut ChessMoveList) {
+    fn gen_pawn_moves(&self, list: &mut ChessMoveList, filter: ChessBitboard) {
         let color = self.active_player;
         let pawns = self.colored_piece_bb(color, Pawn);
         let occupied = self.occupied_bb();
-        let free = !occupied;
+        let free = !occupied & filter;
         let opponent = self.colored_bb(color.other());
         let regular_pawn_moves;
         let double_pawn_moves;
@@ -166,7 +171,7 @@ impl Chessboard {
         }
     }
 
-    fn gen_king_moves(&self, list: &mut ChessMoveList) {
+    fn gen_king_moves(&self, list: &mut ChessMoveList, filter: ChessBitboard, only_captures: bool) {
         let color = self.active_player;
         let king = self.colored_piece_bb(color, King);
         let king_not_a_file = king & !ChessBitboard::file(A_FILE_NO, self.size());
@@ -179,7 +184,7 @@ impl Chessboard {
             | (king_not_h_file << 1)
             | (king_not_h_file >> 7)
             | (king_not_h_file << 9);
-        let mut moves = moves & !self.colored_bb(color);
+        let mut moves = moves & filter;
         let king_square = ChessSquare::new(king.trailing_zeros());
         while moves.has_set_bit() {
             let target = moves.pop_lsb();
@@ -188,6 +193,9 @@ impl Chessboard {
                 ChessSquare::new(target),
                 Normal,
             ));
+        }
+        if only_captures {
+            return;
         }
         let king_rank = king_square.rank();
         // Since this is pseudolegal movegen, we only check if the king ends up in check / moves
@@ -226,12 +234,11 @@ impl Chessboard {
         }
     }
 
-    fn gen_knight_moves(&self, list: &mut ChessMoveList) {
+    fn gen_knight_moves(&self, list: &mut ChessMoveList, filter: ChessBitboard) {
         let mut knights = self.colored_piece_bb(self.active_player, Knight);
-        let not_us = !self.colored_bb(self.active_player);
         while knights.has_set_bit() {
             let square_idx = knights.pop_lsb();
-            let mut attacks = ChessBitboard(KNIGHTS[square_idx]) & not_us;
+            let mut attacks = ChessBitboard(KNIGHTS[square_idx]) & filter;
             while attacks.has_set_bit() {
                 let to = ChessSquare::new(attacks.pop_lsb());
                 list.add_move(ChessMove::new(ChessSquare::new(square_idx), to, Normal));
@@ -239,7 +246,12 @@ impl Chessboard {
         }
     }
 
-    fn gen_slider_moves(&self, slider_move: SliderMove, list: &mut ChessMoveList) {
+    fn gen_slider_moves(
+        &self,
+        slider_move: SliderMove,
+        list: &mut ChessMoveList,
+        filter: ChessBitboard,
+    ) {
         let color = self.active_player;
         let non_queens = self.colored_piece_bb(
             color,
@@ -266,7 +278,7 @@ impl Chessboard {
                     self.size(),
                 ),
             };
-            attacks &= !self.colored_bb(color);
+            attacks &= filter;
             let from = ChessSquare::new(idx);
             while attacks.has_set_bit() {
                 let to = ChessSquare::new(attacks.pop_lsb());

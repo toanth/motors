@@ -606,6 +606,12 @@ impl Board for MNKBoard {
     fn zobrist_hash(&self) -> ZobristHash {
         todo!()
     }
+
+    fn make_nullmove(mut self, history: Option<&mut Self::History>) -> Option<Self> {
+        self.active_player = self.active_player.other();
+        history.map(|h| h.push(&self));
+        Some(self)
+    }
 }
 
 impl MNKBoard {

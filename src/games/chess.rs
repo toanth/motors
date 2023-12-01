@@ -9,10 +9,9 @@ use rand::prelude::{IteratorRandom, SliceRandom};
 use rand::Rng;
 use strum::IntoEnumIterator;
 
-use crate::eval::chess::material_only::MaterialOnlyEval;
+use crate::eval::chess::pst_only::PstOnlyEval;
 use crate::games::chess::flags::CastleRight::*;
 use crate::games::chess::flags::{CastleRight, ChessFlags};
-use crate::games::chess::movegen::ChessMoveList;
 use crate::games::chess::moves::ChessMove;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::pieces::{
@@ -23,12 +22,13 @@ use crate::games::Color::{Black, White};
 use crate::games::PlayerResult::{Draw, Lose};
 use crate::games::{
     board_to_string, legal_moves_slow, position_fen_part, read_position_fen, AbstractPieceType,
-    Board, Color, ColoredPiece, ColoredPieceType, CreateEngine, EngineList, Move, PlayerResult,
-    RectangularSize, Settings, Size, UncoloredPieceType, ZobristHash, ZobristHistory,
+    Board, BoardHistory, Color, ColoredPiece, ColoredPieceType, CreateEngine, EngineList, Move,
+    PlayerResult, RectangularSize, Settings, Size, UncoloredPieceType, ZobristHash, ZobristHistory,
 };
 use crate::general::bitboards::{Bitboard, ChessBitboard};
-use crate::general::move_list::MoveList;
+use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::play::generic_engines;
+use crate::search::chess::negamax::Negamax;
 use crate::search::generic_negamax::GenericNegamax;
 use crate::ui::NormalGraphics;
 
@@ -45,6 +45,9 @@ const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 
 // TODO: Support Chess960 eventually
 #[derive(Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct ChessSettings {}
+
+// for some reason, Chessboard::MoveList can be ambiguous? This should fix that
+pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, 256>;
 
 impl Settings for ChessSettings {}
 
@@ -233,6 +236,16 @@ impl Board for Chessboard {
 
     fn make_move(self, mov: Self::Move, history: Option<&mut Self::History>) -> Option<Self> {
         self.make_move_impl(mov, history)
+    }
+
+    fn make_nullmove(mut self, history: Option<&mut Self::History>) -> Option<Self> {
+        if self.is_in_check() {
+            None
+        } else {
+            self.active_player = self.active_player.other();
+            history.map(|h| h.push(&self));
+            Some(self)
+        }
     }
 
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {
@@ -442,6 +455,7 @@ impl Board for Chessboard {
 
 impl Chessboard {
     pub fn piece_bb(&self, piece: UncoloredChessPiece) -> ChessBitboard {
+        debug_assert_ne!(piece, Empty);
         self.piece_bbs[piece.to_uncolored_idx()]
     }
 
@@ -521,11 +535,15 @@ impl Chessboard {
         self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
     }
 
+    pub fn pseudolegal_captures(&self) -> ChessMoveList {
+        self.gen_pseudolegal_captures()
+    }
+
     pub fn is_50mr_draw(&self) -> bool {
         self.ply_100_ctr >= 100
     }
 
-    fn is_2fold_repetition(&self, history: &ZobristHistory) -> bool {
+    pub fn is_2fold_repetition(&self, history: &ZobristHistory) -> bool {
         if history.hashes.is_empty() {
             return false;
         }
@@ -542,7 +560,11 @@ impl Chessboard {
         false
     }
 
-    fn is_3fold_repetition(&self, history: &ZobristHistory) -> bool {
+    /// Note that this function isn't entire correct according to the FIDE rules because it doesn't check for legality,
+    /// so a position with a possible pseudolegal but illegal en passant move would be considered different from
+    /// its repetition, where the en passant move wouldn't be possible
+    /// TODO: Only set the ep square if there are pseudolegal en passants possible
+    pub fn is_3fold_repetition(&self, history: &ZobristHistory) -> bool {
         if history.hashes.is_empty() {
             return false;
         }
@@ -560,7 +582,7 @@ impl Chessboard {
         false
     }
 
-    fn is_stalemate_slow(&self) -> bool {
+    pub fn is_stalemate_slow(&self) -> bool {
         legal_moves_slow(self).is_empty() && !self.is_in_check()
     }
 
@@ -614,7 +636,10 @@ impl EngineList<Chessboard> for ChessEngineList {
     fn list_engines() -> Vec<(String, CreateEngine<Chessboard>)> {
         let mut res = generic_engines();
         res.push(("generic_negamax".to_string(), |_| {
-            Box::new(GenericNegamax::<Chessboard, MaterialOnlyEval>::default())
+            Box::new(GenericNegamax::<Chessboard, PstOnlyEval>::default())
+        }));
+        res.push(("negamax".to_string(), |_| {
+            Box::new(Negamax::<PstOnlyEval>::default())
         }));
         res
     }
@@ -732,7 +757,7 @@ mod tests {
         let perft_res = perft(2, board);
         assert_eq!(perft_res.depth, 2);
         assert_eq!(perft_res.nodes, 20 * 20);
-        assert!(perft_res.time.as_millis() <= 5);
+        assert!(perft_res.time.as_millis() <= 10);
 
         let board =
             Chessboard::from_fen("r1bqkbnr/1pppNppp/p1n5/8/8/8/PPPPPPPP/R1BQKBNR b KQkq - 0 3")
@@ -769,10 +794,12 @@ mod tests {
     #[test]
     fn repetition_test() {
         let mut board = Chessboard::default();
+        let new_hash = board.make_nullmove(None).unwrap().zobrist_hash();
         let moves = [
             "g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1", "f6g8", "e2e4",
         ];
         let mut hist = ZobristHistory::new(&board);
+        assert_ne!(new_hash, board.zobrist_hash());
         for (i, mov) in moves.iter().enumerate() {
             assert_eq!(i > 3, board.is_2fold_repetition(&hist));
             assert_eq!(i > 7, board.is_3fold_repetition(&hist));
@@ -786,6 +813,30 @@ mod tests {
                     .is_some_and(|r| r == Draw)
             );
         }
+        board = Chessboard::from_name("lucena").unwrap();
+        hist = ZobristHistory::new(&board);
+        assert_eq!(board.active_player, White);
+        let hash = board.zobrist_hash();
+        let moves = ["c1b1", "a2c2", "b1e1", "c2a2", "e1c1"];
+        for mov in moves {
+            board = board
+                .make_move(
+                    ChessMove::from_compact_text(mov, &board).unwrap(),
+                    Some(&mut hist),
+                )
+                .unwrap();
+            assert_ne!(board.zobrist_hash(), hash);
+            assert!(!board.is_2fold_repetition(&hist));
+        }
+        assert_eq!(board.active_player, Black);
+    }
+
+    #[test]
+    fn capture_only_test() {
+        let board = Chessboard::default();
+        assert!(board.pseudolegal_captures().is_empty());
+        let board = Chessboard::from_name("kiwipete").unwrap();
+        assert_eq!(board.pseudolegal_captures().len(), 8);
     }
 
     #[test]

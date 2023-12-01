@@ -434,7 +434,7 @@ pub enum PlayerResult {
 pub trait BoardHistory<B: Board>: Default + Debug + Clone + 'static {
     fn new(pos: &B) -> Self;
     fn push(&mut self, board: &B);
-    fn pop(&mut self);
+    fn pop(&mut self, _board: &B);
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
@@ -447,7 +447,7 @@ impl<B: Board> BoardHistory<B> for NoHistory {
 
     fn push(&mut self, _board: &B) {}
 
-    fn pop(&mut self) {}
+    fn pop(&mut self, _board: &B) {}
 }
 
 #[derive(Clone, Eq, PartialEq, Default, Debug)]
@@ -466,10 +466,12 @@ impl<B: Board> BoardHistory<B> for ZobristHistory {
         self.hashes.push(board.zobrist_hash())
     }
 
-    fn pop(&mut self) {
-        self.hashes
+    fn pop(&mut self, board: &B) {
+        let hash = self
+            .hashes
             .pop()
             .expect("ZobristHistory::pop() called on empty history");
+        debug_assert_eq!(board.zobrist_hash(), hash);
     }
 }
 
@@ -599,6 +601,11 @@ pub trait Board:
     /// In other words, this function only gracefully checks legality assuming that the move is pseudolegal.
     /// TODO: Just use make/unmake, much cleaner and easier
     fn make_move(self, mov: Self::Move, history: Option<&mut Self::History>) -> Option<Self>;
+
+    /// Makes a nullmove, i.e. flips the active player. While this action isn't strictly legal in most games,
+    /// it's still very useful and necessary for null move pruning.
+    /// Just like make_move, this function may fail, such as when trying to do a nullmove while in check.
+    fn make_nullmove(self, history: Option<&mut Self::History>) -> Option<Self>;
 
     /// Returns true iff the move is pseudolegal, that is, it can be played with `make_move` without
     /// causing a panic.

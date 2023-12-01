@@ -57,6 +57,10 @@ impl<B: Board> Engine<B> for NaiveSlowNegamax<B> {
         self.state.to_bench_res()
     }
 
+    fn default_bench_depth(&self) -> usize {
+        1 // ignored as the engine will search until terminal nodes anyway
+    }
+
     fn stop(&mut self) -> Result<SearchResult<B>, String> {
         stop_engine(
             &self.state.initial_pos,
@@ -100,7 +104,7 @@ impl<B: Board> NaiveSlowNegamax<B> {
 
             let score = -self.negamax(new_pos.unwrap(), limit, ply + 1);
 
-            self.state.history.pop();
+            self.state.history.pop(&new_pos.unwrap());
 
             if self.state.search_cancelled || should_stop(&limit, self, self.state.start_time) {
                 self.state.search_cancelled = true;

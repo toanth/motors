@@ -1,14 +1,16 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::ops::{Deref, DerefMut, Div, Mul};
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
-use derive_more::{Add, Neg, Sub};
+use derive_more::{Add, AddAssign, Neg, Sub};
 use rand::thread_rng;
 
 use crate::games::{Board, PlayerResult};
 use crate::play::AnyMutEngineRef;
 
+pub mod chess;
 pub mod generic_negamax;
 pub mod human;
 pub mod naive_slow_negamax;
@@ -23,7 +25,7 @@ pub struct BenchResult {
 }
 
 // TODO: Turn this into an enum that can also represent a win in n plies (and maybe a draw?)
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg, AddAssign)]
 pub struct Score(pub i32);
 
 impl Add<i32> for Score {
@@ -39,6 +41,22 @@ impl Sub<i32> for Score {
 
     fn sub(self, rhs: i32) -> Self::Output {
         Score(self.0 - rhs)
+    }
+}
+
+impl Mul<i32> for Score {
+    type Output = Score;
+
+    fn mul(self, rhs: i32) -> Self::Output {
+        Score(self.0 * rhs)
+    }
+}
+
+impl Div<i32> for Score {
+    type Output = Score;
+
+    fn div(self, rhs: i32) -> Self::Output {
+        Score(self.0 / rhs)
     }
 }
 
@@ -82,6 +100,42 @@ pub fn game_result_to_score(res: PlayerResult, ply: usize) -> Score {
     }
 }
 
+/// Implements a triangular pv table, except that it's actually quadratic
+/// (the doubled memory requirements should be inconsequential, and this is much easier to implement
+/// and potentially faster)
+#[derive(Debug)]
+pub struct GenericPVTable<B: Board, const Limit: usize> {
+    list: [[B::Move; Limit]; Limit],
+    size: usize,
+}
+
+impl<B: Board, const Limit: usize> Default for GenericPVTable<B, Limit> {
+    fn default() -> Self {
+        Self {
+            list: [[B::Move::default(); Limit]; Limit],
+            size: 0,
+        }
+    }
+}
+
+impl<B: Board, const Limit: usize> GenericPVTable<B, Limit> {
+    fn new_pv_move(&mut self, ply: usize, mov: B::Move) {
+        debug_assert!(ply < Limit);
+        self.size = self.size.max(ply + 1);
+        let (dest_arr, src_arr) = self.list.split_at_mut(ply + 1);
+        dest_arr[ply][ply] = mov;
+        dest_arr[ply][ply + 1..self.size].copy_from_slice(&src_arr[0][ply + 1..self.size]);
+    }
+
+    fn reset(&mut self) {
+        self.size = 0;
+    }
+
+    fn get_pv(&self) -> &[B::Move] {
+        &self.list[0][..self.size]
+    }
+}
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct TimeControl {
     pub remaining: Duration,
@@ -93,7 +147,7 @@ impl Default for TimeControl {
     fn default() -> Self {
         TimeControl {
             remaining: Duration::MAX,
-            increment: Duration::MAX,
+            increment: Duration::from_millis(0),
             moves_to_go: 0,
         }
     }
@@ -243,6 +297,8 @@ pub trait Searcher<B: Board>: Debug + 'static {
 pub trait Engine<B: Board>: Searcher<B> {
     fn bench(&mut self, position: B, depth: usize) -> BenchResult;
 
+    fn default_bench_depth(&self) -> usize;
+
     /// Stop the current search. Can be called from another thread while the search is running.
     fn stop(&mut self) -> Result<SearchResult<B>, String>;
     // {
@@ -302,15 +358,14 @@ impl<B: Board> Default for InfoCallback<B> {
 }
 
 pub trait EngineState<B: Board> {
+    fn initial_state(initial_pos: B, info_callback: InfoCallback<B>) -> Self;
     fn forget(&mut self);
     fn nodes(&self) -> u64;
     fn depth(&self) -> usize;
     fn start_time(&self) -> Instant;
     fn mov(&self) -> B::Move;
     fn score(&self) -> Score;
-    fn pv(&self) -> Vec<B::Move> {
-        vec![self.mov()]
-    }
+    fn pv(&self) -> Vec<B::Move>;
     fn hashfull(&self) -> Option<usize> {
         None
     }
@@ -388,6 +443,14 @@ impl<B: Board> Default for SimpleSearchState<B> {
 }
 
 impl<B: Board> EngineState<B> for SimpleSearchState<B> {
+    fn initial_state(initial_pos: B, info_callback: InfoCallback<B>) -> Self {
+        Self {
+            initial_pos,
+            info_callback,
+            ..Default::default()
+        }
+    }
+
     fn forget(&mut self) {
         let default_val = SimpleSearchState::default();
         *self = default_val;
@@ -413,8 +476,74 @@ impl<B: Board> EngineState<B> for SimpleSearchState<B> {
         self.score
     }
 
+    fn pv(&self) -> Vec<B::Move> {
+        vec![self.mov()]
+    }
+
     fn info_callback(&self) -> InfoCallback<B> {
         self.info_callback
+    }
+}
+
+#[derive(Default, Debug)]
+struct SearchStateWithPv<B: Board, const PVLimit: usize> {
+    wrapped: SimpleSearchState<B>,
+    pv_table: GenericPVTable<B, PVLimit>,
+}
+
+impl<B: Board, const PVLimit: usize> Deref for SearchStateWithPv<B, PVLimit> {
+    type Target = SimpleSearchState<B>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.wrapped
+    }
+}
+
+impl<B: Board, const PVLimit: usize> DerefMut for SearchStateWithPv<B, PVLimit> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.wrapped
+    }
+}
+
+impl<B: Board, const PVLimit: usize> EngineState<B> for SearchStateWithPv<B, PVLimit> {
+    fn initial_state(initial_pos: B, info_callback: InfoCallback<B>) -> Self {
+        Self {
+            wrapped: SimpleSearchState::initial_state(initial_pos, info_callback),
+            pv_table: Default::default(),
+        }
+    }
+
+    fn forget(&mut self) {
+        self.wrapped.forget();
+        self.pv_table.reset();
+    }
+
+    fn nodes(&self) -> u64 {
+        self.wrapped.nodes()
+    }
+
+    fn depth(&self) -> usize {
+        self.wrapped.depth()
+    }
+
+    fn start_time(&self) -> Instant {
+        self.wrapped.start_time()
+    }
+
+    fn mov(&self) -> B::Move {
+        self.wrapped.mov()
+    }
+
+    fn score(&self) -> Score {
+        self.wrapped.score()
+    }
+
+    fn pv(&self) -> Vec<B::Move> {
+        self.pv_table.get_pv().to_vec()
+    }
+
+    fn info_callback(&self) -> InfoCallback<B> {
+        self.wrapped.info_callback()
     }
 }
 
@@ -434,7 +563,11 @@ fn stop_engine<B: Board>(
     ))
 }
 
-pub fn run_bench<B: Board>(engine: AnyMutEngineRef<B>, mut depth: usize) -> String {
+pub fn run_bench<B: Board>(engine: AnyMutEngineRef<B>) -> String {
+    let depth = engine.default_bench_depth();
+    run_bench_with_depth(engine, depth)
+}
+pub fn run_bench_with_depth<B: Board>(engine: AnyMutEngineRef<B>, mut depth: usize) -> String {
     if depth == MAX_DEPTH {
         depth = 5; // Default value
     }

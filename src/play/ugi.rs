@@ -1,6 +1,6 @@
 use std::io::stdin;
 use std::mem::discriminant;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::str::SplitWhitespace;
 use std::time::Duration;
 
@@ -20,7 +20,7 @@ use crate::play::{
 };
 use crate::search::perft::{perft, split_perft};
 use crate::search::{
-    run_bench, Engine, EngineOptionType, EngineUciOptionType, InfoCallback, SearchInfo,
+    run_bench_with_depth, Engine, EngineOptionType, EngineUciOptionType, InfoCallback, SearchInfo,
     SearchLimit, SearchResult, Searcher,
 };
 use crate::ui::no_graphic::NoGraphics;
@@ -282,7 +282,7 @@ impl<B: Board> UGI<B> {
         };
 
         format!(
-            "info depth {depth}{seldepth} time {time} nodes {nodes} nps {nps} pv {pv} score {score_str}{hashfull}{string}",
+            "info depth {depth}{seldepth} score {score_str} time {time} nodes {nodes} nps {nps} pv {pv}{hashfull}{string}",
             depth = info.depth, time = info.time.as_millis(), nodes = info.nodes,
             seldepth = info.seldepth.map(|d| format!(" seldepth {d}")).unwrap_or_default(),
             nps=info.nps(),
@@ -341,7 +341,7 @@ impl<B: Board> UGI<B> {
     }
 
     fn handle_go(&mut self, mut words: SplitWhitespace) -> Result<MatchStatus, String> {
-        let is_white = self.board.active_player() == Color::White;
+        let is_white = self.board.active_player() == White;
         let mut search_type = Normal;
         while let Some(next_word) = words.next() {
             match next_word {
@@ -410,7 +410,14 @@ impl<B: Board> UGI<B> {
             Normal => format_search_result(self.engine.search(self.board, self.limit)),
             Perft => format!("{0}", perft(self.limit.depth, self.board)),
             SplitPerft => format!("{0}", split_perft(self.limit.depth, self.board)),
-            Bench => run_bench(self.engine.deref_mut(), self.limit.depth),
+            Bench => {
+                let depth = if self.limit.depth == usize::MAX {
+                    self.engine.deref().default_bench_depth()
+                } else {
+                    self.limit.depth
+                };
+                run_bench_with_depth(self.engine.deref_mut(), depth)
+            }
         };
         self.write(result_message.as_str());
         Ok(Ongoing)
