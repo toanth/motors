@@ -1,7 +1,6 @@
 use std::ops::{Deref, DerefMut};
 use std::time::{Duration, Instant};
 
-use itertools::Itertools;
 use rand::thread_rng;
 
 use crate::eval::Eval;
@@ -196,7 +195,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         best_score
     }
 
-    fn order_moves(&self, moves: ChessMoveList, board: &Chessboard) -> ChessMoveList {
+    fn order_moves(&self, mut moves: ChessMoveList, board: &Chessboard) -> ChessMoveList {
         /// The move list is iterated backwards, which is why better moves get higher scores
         let score_function = |mov: &ChessMove| {
             let captured = mov.captured(board);
@@ -207,7 +206,8 @@ impl<E: Eval<Chessboard>> Negamax<E> {
                     - mov.piece(board).uncolored_piece_type() as i32
             }
         };
-        moves.sorted_unstable_by_key(score_function).collect()
+        moves.as_mut_slice().sort_by_cached_key(score_function);
+        moves
     }
 }
 
