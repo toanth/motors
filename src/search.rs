@@ -100,39 +100,61 @@ pub fn game_result_to_score(res: PlayerResult, ply: usize) -> Score {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+struct Pv<B: Board, const LIMIT: usize> {
+    list: [B::Move; LIMIT],
+    length: usize,
+}
+
+impl<B: Board, const LIMIT: usize> Default for Pv<B, LIMIT> {
+    fn default() -> Self {
+        Self {
+            list: [B::Move::default(); LIMIT],
+            length: 0,
+        }
+    }
+}
+
 /// Implements a triangular pv table, except that it's actually quadratic
 /// (the doubled memory requirements should be inconsequential, and this is much easier to implement
 /// and potentially faster)
 #[derive(Debug)]
-pub struct GenericPVTable<B: Board, const Limit: usize> {
-    list: [[B::Move; Limit]; Limit],
+pub struct GenericPVTable<B: Board, const LIMIT: usize> {
+    pv_at_depth: [Pv<B, LIMIT>; LIMIT],
     size: usize,
 }
 
-impl<B: Board, const Limit: usize> Default for GenericPVTable<B, Limit> {
+impl<B: Board, const LIMIT: usize> Default for GenericPVTable<B, LIMIT> {
     fn default() -> Self {
         Self {
-            list: [[B::Move::default(); Limit]; Limit],
+            pv_at_depth: [Default::default(); LIMIT],
             size: 0,
         }
     }
 }
 
-impl<B: Board, const Limit: usize> GenericPVTable<B, Limit> {
+impl<B: Board, const LIMIT: usize> GenericPVTable<B, LIMIT> {
     fn new_pv_move(&mut self, ply: usize, mov: B::Move) {
-        debug_assert!(ply < Limit);
+        debug_assert!(ply < LIMIT);
         self.size = self.size.max(ply + 1);
-        let (dest_arr, src_arr) = self.list.split_at_mut(ply + 1);
-        dest_arr[ply][ply] = mov;
-        dest_arr[ply][ply + 1..self.size].copy_from_slice(&src_arr[0][ply + 1..self.size]);
+        let len = self.pv_at_depth[ply + 1].length.max(ply + 1);
+        self.pv_at_depth[ply].length = len;
+        self.pv_at_depth[ply + 1].length = 0;
+        let (dest_arr, src_arr) = self.pv_at_depth.split_at_mut(ply + 1);
+        let (dest_arr, src_arr) = (&mut dest_arr[ply], &mut src_arr[0]);
+        dest_arr.list[ply] = mov;
+        dest_arr.list[ply + 1..len].copy_from_slice(&src_arr.list[ply + 1..len]);
     }
 
     fn reset(&mut self) {
+        self.pv_at_depth[..self.size]
+            .iter_mut()
+            .for_each(|pv| pv.length = 0);
         self.size = 0;
     }
 
     fn get_pv(&self) -> &[B::Move] {
-        &self.list[0][..self.size]
+        &self.pv_at_depth[0].list[..self.pv_at_depth[0].length]
     }
 }
 
