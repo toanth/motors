@@ -12,6 +12,7 @@ use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::pieces::{ChessPiece, ColoredChessPiece, UncoloredChessPiece};
 use crate::games::chess::squares::{ChessSquare, A_FILE_NO, D_FILE_NO, F_FILE_NO, H_FILE_NO};
+use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::chess::Chessboard;
 use crate::games::{
     legal_moves_slow, AbstractPieceType, Board, BoardHistory, Color, ColoredPiece,
@@ -93,7 +94,7 @@ impl ChessMove {
         } else if self.flags() == Castle {
             Empty
         } else {
-            board.piece_on(self.to_square()).uncolored_piece_type()
+            board.piece_on(self.to_square()).uncolored()
         }
     }
 
@@ -168,11 +169,9 @@ impl Move<Chessboard> for ChessMove {
                 'q' => flags = PromoQueen,
                 _ => return Err(format!("Invalid character after to square: '{promo}'")),
             }
-        } else if board.piece_on(from).uncolored_piece_type() == King
-            && to.file().abs_diff(from.file()) > 1
-        {
+        } else if board.piece_on(from).uncolored() == King && to.file().abs_diff(from.file()) > 1 {
             flags = Castle;
-        } else if board.piece_on(from).uncolored_piece_type() == Pawn
+        } else if board.piece_on(from).uncolored() == Pawn
             && board.piece_on(to).is_empty()
             && from.file() != to.file()
         {
@@ -185,7 +184,7 @@ impl Move<Chessboard> for ChessMove {
     fn to_extended_text(self, board: &Chessboard) -> String {
         let piece = self.piece(board);
         let mut res = piece.to_ascii_char().to_ascii_uppercase().to_string();
-        if piece.uncolored_piece_type() == Pawn {
+        if piece.uncolored() == Pawn {
             if self.is_capture(board) {
                 res = self
                     .from_square()
@@ -260,7 +259,7 @@ impl Chessboard {
     pub(super) fn make_move_impl(
         mut self,
         mov: ChessMove,
-        history: Option<&mut ZobristHistory>,
+        mut history: Option<&mut ZobristHistory>,
     ) -> Option<Self> {
         let piece = mov.piece(&self).symbol;
         let uncolored = piece.uncolor();
@@ -270,6 +269,12 @@ impl Chessboard {
         let to = mov.to_square();
         assert_eq!(color, piece.color().unwrap());
         self.ply_100_ctr += 1;
+        history.as_mut().map(|h| (*h).push(&self));
+        // remove old castling flags
+        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.flags.castling_flags() as usize];
+        if let Some(square) = self.ep_square {
+            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file()];
+        }
         self.ep_square = None;
         if mov.is_castle() {
             // TODO: Correct Chess960 castling
@@ -305,11 +310,18 @@ impl Chessboard {
                 ColoredChessPiece::new(other, Pawn)
             );
             self.remove_piece(taken_pawn, ColoredChessPiece::new(other, Pawn));
+            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, other, taken_pawn);
             self.ply_100_ctr = 0;
         } else if mov.is_non_ep_capture(&self) {
+            let captured = self.piece_on(to).symbol;
             debug_assert_eq!(self.piece_on(to).color().unwrap(), other);
-            debug_assert_ne!(self.piece_on(to).uncolored_piece_type(), King);
-            self.remove_piece(to, self.piece_on(to).symbol);
+            debug_assert_ne!(self.piece_on(to).uncolored(), King);
+            self.remove_piece(to, captured);
+            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(
+                captured.uncolor(),
+                captured.color().unwrap(),
+                to,
+            );
             self.ply_100_ctr = 0;
         } else if uncolored == Pawn {
             self.ply_100_ctr = 0;
@@ -318,6 +330,7 @@ impl Chessboard {
                     (to.rank() + from.rank()) / 2,
                     to.file(),
                 ));
+                self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[to.file()];
             }
         }
         if uncolored == King {
@@ -332,20 +345,32 @@ impl Chessboard {
         } else if to == self.rook_start_square(other, Kingside) {
             self.flags.unset_castle_right(other, Kingside);
         }
+        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.flags.castling_flags() as usize];
         self.move_piece(from, to, piece);
         if mov.is_promotion() {
             let bb = ChessBitboard::single_piece(self.to_idx(to));
             self.piece_bbs[Pawn as usize] ^= bb;
             self.piece_bbs[mov.flags().promo_piece() as usize] ^= bb;
-        }
-        if self.is_in_check() {
-            return None; // needs to be checked before switching the active player
-        }
-        self.active_player = other;
-        if let Some(history) = history {
-            history.push(&self);
+            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, color, to);
+            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(mov.flags().promo_piece(), color, to);
         }
         self.ply += 1;
-        Some(self)
+        self.flip_side_to_move(history)
+    }
+
+    /// Called at the end of make_nullmove and make_move.
+    pub(super) fn flip_side_to_move(
+        mut self,
+        history: Option<&mut ZobristHistory>,
+    ) -> Option<Self> {
+        if self.is_in_check() {
+            history.map(|h| h.pop(&self));
+            None
+        } else {
+            self.active_player = self.active_player.other();
+            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+            debug_assert_eq!(self.hash, self.zobrist_hash());
+            Some(self)
+        }
     }
 }

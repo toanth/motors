@@ -18,6 +18,7 @@ use crate::games::chess::pieces::{
     ChessPiece, ColoredChessPiece, UncoloredChessPiece, NUM_CHESS_PIECES, NUM_COLORS,
 };
 use crate::games::chess::squares::{ChessSquare, ChessboardSize, F_FILE_NO, NUM_SQUARES};
+use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::Color::{Black, White};
 use crate::games::PlayerResult::{Draw, Lose};
 use crate::games::{
@@ -61,6 +62,7 @@ pub struct Chessboard {
     active_player: Color,
     flags: ChessFlags,
     ep_square: Option<ChessSquare>, // eventually, see if using Optional and Noned instead of Option improves nps
+    hash: ZobristHash,
 }
 
 impl Default for Chessboard {
@@ -93,6 +95,7 @@ impl Board for Chessboard {
             active_player: White,
             flags: Default::default(),
             ep_square: None,
+            hash: ZobristHash(0),
         }
     }
 
@@ -238,14 +241,11 @@ impl Board for Chessboard {
         self.make_move_impl(mov, history)
     }
 
-    fn make_nullmove(mut self, history: Option<&mut Self::History>) -> Option<Self> {
-        if self.is_in_check() {
-            None
-        } else {
-            self.active_player = self.active_player.other();
-            history.map(|h| h.push(&self));
-            Some(self)
-        }
+    fn make_nullmove(mut self, mut history: Option<&mut Self::History>) -> Option<Self> {
+        self.ply += 1;
+        self.ply_100_ctr += 1;
+        history.as_mut().map(|h| (*h).push(&self));
+        self.flip_side_to_move(history)
     }
 
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {
@@ -274,7 +274,7 @@ impl Board for Chessboard {
         }
     }
 
-    fn no_moves_result(&self, history: Option<&ZobristHistory>) -> PlayerResult {
+    fn no_moves_result(&self, _history: Option<&ZobristHistory>) -> PlayerResult {
         if self.is_in_check() {
             Lose
         } else {
@@ -283,7 +283,7 @@ impl Board for Chessboard {
     }
 
     fn zobrist_hash(&self) -> ZobristHash {
-        self.compute_zobrist()
+        self.hash
     }
 
     fn as_fen(&self) -> String {
@@ -369,6 +369,7 @@ impl Board for Chessboard {
         board.ply = (fullmove_number.get() - 1) * 2 + (color == Black) as usize;
         board.active_player = color;
         board.flags = castling_rights;
+        board.hash = board.compute_zobrist();
         board.verify_position_legal()?;
         *s = words.remainder().unwrap_or_default();
         Ok(board)
@@ -396,6 +397,10 @@ impl Board for Chessboard {
                 ));
             }
         }
+        let mut hash = PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.flags.castling_flags() as usize];
+        if self.active_player == Black {
+            hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+        }
 
         for color in Color::iter() {
             for side in CastleRight::iter() {
@@ -416,6 +421,7 @@ impl Board for Chessboard {
             {
                 return Err(format!("FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {0}", ep_square.pawn_move_to_center()));
             }
+            hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[ep_square.file()];
         }
 
         if self.is_in_check_on_square(inactive_player, self.king_square(inactive_player)) {
@@ -435,19 +441,36 @@ impl Board for Chessboard {
         }
 
         for piece in ColoredChessPiece::pieces() {
+            let mut bb = self.colored_piece_bb(piece.color().unwrap(), piece.uncolor());
             for other_piece in ColoredChessPiece::pieces() {
                 if other_piece == piece {
                     continue;
                 }
-                if (self.colored_piece_bb(piece.color().unwrap(), piece.uncolor())
-                    & self.colored_piece_bb(other_piece.color().unwrap(), other_piece.uncolor()))
-                .has_set_bit()
+                if (bb & self.colored_piece_bb(other_piece.color().unwrap(), other_piece.uncolor()))
+                    .has_set_bit()
                 {
                     return Err(format!(
                         "There are two pieces on the same square: {piece} and {other_piece}"
                     ));
                 }
             }
+            while bb.has_set_bit() {
+                let square = ChessSquare::new(bb.pop_lsb());
+                hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(
+                    piece.uncolor(),
+                    piece.color().unwrap(),
+                    square,
+                );
+            }
+        }
+        if hash != self.compute_zobrist() {
+            return Err(format!("Internal error: Compute_zobrist() gives a different result from computing the zobrist hash piece by piece"));
+        }
+        if hash != self.hash {
+            return Err(format!(
+                "Error: The zobrist hash doesn't match (should be {hash} but is {0}",
+                self.hash
+            ));
         }
         Ok(())
     }
@@ -533,6 +556,7 @@ impl Chessboard {
         let color = piece.color().unwrap();
         self.color_bbs[color as usize] ^= bb;
         self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
+        self.update_zobrist_for_move(piece, from, to)
     }
 
     pub fn pseudolegal_captures(&self) -> ChessMoveList {
@@ -544,13 +568,10 @@ impl Chessboard {
     }
 
     pub fn is_2fold_repetition(&self, history: &ZobristHistory) -> bool {
-        if history.hashes.is_empty() {
-            return false;
-        }
-        let current = history.hashes.last().copied().unwrap();
+        let current = self.hash;
         for i in iter::range_step_inclusive(
-            history.hashes.len() as isize - 5,
-            0.max(history.hashes.len() as isize - 1 - self.ply_100_ctr as isize),
+            history.hashes.len() as isize - 4,
+            0.max(history.hashes.len() as isize - self.ply_100_ctr as isize),
             -2,
         ) {
             if history.hashes[i as usize] == current {
@@ -565,12 +586,9 @@ impl Chessboard {
     /// its repetition, where the en passant move wouldn't be possible
     /// TODO: Only set the ep square if there are pseudolegal en passants possible
     pub fn is_3fold_repetition(&self, history: &ZobristHistory) -> bool {
-        if history.hashes.is_empty() {
-            return false;
-        }
-        let current = history.hashes.last().copied().unwrap();
-        let stop = 0.max(history.hashes.len() as isize - 1 - self.ply_100_ctr as isize);
-        for i in iter::range_step_inclusive(history.hashes.len() as isize - 5, stop, -2) {
+        let current = self.hash;
+        let stop = 0.max(history.hashes.len() as isize - self.ply_100_ctr as isize);
+        for i in iter::range_step_inclusive(history.hashes.len() as isize - 4, stop, -2) {
             if history.hashes[i as usize] == current {
                 for j in iter::range_step_inclusive(i - 4, stop, -2) {
                     if history.hashes[j as usize] == current {
@@ -651,7 +669,7 @@ mod tests {
 
     use crate::games::chess::squares::{E_FILE_NO, G_FILE_NO};
     use crate::games::chess::*;
-    use crate::games::{BoardHistory, RectangularBoard, RectangularCoordinates};
+    use crate::games::{RectangularBoard, RectangularCoordinates};
     use crate::search::perft::perft;
 
     const E_1: ChessSquare = ChessSquare::from_rank_file(0, E_FILE_NO);
@@ -782,7 +800,7 @@ mod tests {
             if !board.is_pseudolegal_move_legal(mov) {
                 continue;
             }
-            let checkmates = mov.piece(&board).uncolored_piece_type() == Rook
+            let checkmates = mov.piece(&board).uncolored() == Rook
                 && mov.to_square() == ChessSquare::from_rank_file(7, G_FILE_NO);
             assert_eq!(board.is_game_won_after_slow(mov), checkmates);
             let new_board = board.make_move(mov, None).unwrap();
@@ -798,7 +816,7 @@ mod tests {
         let moves = [
             "g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1", "f6g8", "e2e4",
         ];
-        let mut hist = ZobristHistory::new(&board);
+        let mut hist = ZobristHistory::default();
         assert_ne!(new_hash, board.zobrist_hash());
         for (i, mov) in moves.iter().enumerate() {
             assert_eq!(i > 3, board.is_2fold_repetition(&hist));
@@ -814,7 +832,7 @@ mod tests {
             );
         }
         board = Chessboard::from_name("lucena").unwrap();
-        hist = ZobristHistory::new(&board);
+        hist = ZobristHistory::default();
         assert_eq!(board.active_player, White);
         let hash = board.zobrist_hash();
         let moves = ["c1b1", "a2c2", "b1e1", "c2a2", "e1c1"];

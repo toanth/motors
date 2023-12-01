@@ -621,7 +621,7 @@ impl MNKBoard {
         }
         let last_move = self.last_move.unwrap();
         let square = last_move.target;
-        let player = self.piece_on(square).uncolored_piece_type().color();
+        let player = self.piece_on(square).uncolored().color();
         if player.is_none() {
             return false;
         }

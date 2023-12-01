@@ -261,7 +261,7 @@ impl<B: Board> AbstractMatchManager for BuiltInMatch<B> {
     /// TODO: Another implementation would be to run this asynchronously, but I don't want to deal with multithreading right now
     fn run(&mut self) -> MatchResult {
         self.graphics.borrow_mut().show(self);
-        let mut history = B::History::new(&self.board);
+        let mut history = B::History::default();
         loop {
             let res = make_move(
                 self.board,

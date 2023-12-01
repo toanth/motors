@@ -15,6 +15,10 @@ pub enum CastleRight {
 pub struct ChessFlags(u8);
 
 impl ChessFlags {
+    pub fn castling_flags(self) -> u8 {
+        self.0 & 0xf
+    }
+
     pub fn can_castle(self, color: Color, castle_right: CastleRight) -> bool {
         (self.0 >> (color as u8 * 2 + castle_right as u8)) & 1 == 0
     }

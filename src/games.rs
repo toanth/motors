@@ -105,7 +105,7 @@ pub trait ColoredPiece: Eq + Copy + Debug + Default {
     type Coordinates: Coordinates;
     fn coordinates(self) -> Self::Coordinates;
 
-    fn uncolored_piece_type(self) -> <Self::ColoredPieceType as ColoredPieceType>::Uncolored {
+    fn uncolored(self) -> <Self::ColoredPieceType as ColoredPieceType>::Uncolored {
         self.colored_piece_type().uncolor()
     }
 
@@ -432,7 +432,6 @@ pub enum PlayerResult {
 }
 
 pub trait BoardHistory<B: Board>: Default + Debug + Clone + 'static {
-    fn new(pos: &B) -> Self;
     fn push(&mut self, board: &B);
     fn pop(&mut self, _board: &B);
 }
@@ -441,10 +440,6 @@ pub trait BoardHistory<B: Board>: Default + Debug + Clone + 'static {
 pub struct NoHistory {}
 
 impl<B: Board> BoardHistory<B> for NoHistory {
-    fn new(_pos: &B) -> Self {
-        Self {}
-    }
-
     fn push(&mut self, _board: &B) {}
 
     fn pop(&mut self, _board: &B) {}
@@ -456,22 +451,15 @@ pub struct ZobristHistory {
 }
 
 impl<B: Board> BoardHistory<B> for ZobristHistory {
-    fn new(pos: &B) -> Self {
-        Self {
-            hashes: vec![pos.zobrist_hash()],
-        }
-    }
-
     fn push(&mut self, board: &B) {
         self.hashes.push(board.zobrist_hash())
     }
 
-    fn pop(&mut self, board: &B) {
-        let hash = self
-            .hashes
+    // the _board parameter is only there to deduce the trait
+    fn pop(&mut self, _board: &B) {
+        self.hashes
             .pop()
             .expect("ZobristHistory::pop() called on empty history");
-        debug_assert_eq!(board.zobrist_hash(), hash);
     }
 }
 
@@ -480,6 +468,7 @@ impl<B: Board> BoardHistory<B> for ZobristHistory {
 /// However, a `Board` is assumed to be markovian and needs to satisfy `Copy` and `'static`.
 /// When this is not desired, the `GameState` should be used instead, it contains a copy of the current board
 /// and additional non-markovian information, such as the history of zobrist hashes for games that need this.
+/// TODO: Use a struct containing the current board and the history, switch to make/unmake
 pub trait Board:
     Eq + PartialEq + Sized + Default + Debug + Display + Copy + Clone + 'static
 {

@@ -1,20 +1,31 @@
 use strum::IntoEnumIterator;
 
-use crate::games::chess::pieces::UncoloredChessPiece;
-use crate::games::chess::squares::NUM_COLUMNS;
-use crate::games::chess::{CastleRight, Chessboard};
+use crate::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};
+use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
+use crate::games::chess::Chessboard;
 use crate::games::Color::*;
-use crate::games::{AbstractPieceType, Color, ZobristHash};
+use crate::games::{Color, ColoredPiece, ColoredPieceType, ZobristHash};
 use crate::general::bitboards::Bitboard;
 
 pub const NUM_PIECE_SQUARE_ENTRIES: usize = 64 * 6;
 pub const NUM_COLORED_PIECE_SQUARE_ENTRIES: usize = NUM_PIECE_SQUARE_ENTRIES * 2;
 
-struct PrecomputedZobristKeys {
-    piece_square_keys: [ZobristHash; NUM_COLORED_PIECE_SQUARE_ENTRIES],
-    castle_keys: [ZobristHash; 2 * 2],
-    ep_file_keys: [ZobristHash; NUM_COLUMNS],
-    side_to_move_key: ZobristHash,
+pub(super) struct PrecomputedZobristKeys {
+    pub piece_square_keys: [ZobristHash; NUM_COLORED_PIECE_SQUARE_ENTRIES],
+    pub castle_keys: [ZobristHash; 1 << (2 * 2)],
+    pub ep_file_keys: [ZobristHash; NUM_COLUMNS],
+    pub side_to_move_key: ZobristHash,
+}
+
+impl PrecomputedZobristKeys {
+    pub(super) fn piece_key(
+        &self,
+        piece: UncoloredChessPiece,
+        color: Color,
+        square: ChessSquare,
+    ) -> ZobristHash {
+        self.piece_square_keys[square.index() + piece as usize * 2 + color as usize]
+    }
 }
 
 /// A simple `const` random number generator adapted from my C++ algebra implementation,
@@ -44,11 +55,11 @@ impl PcgXslRr128_64Oneseq {
 
 // Unfortunately, `const_random!` generates new values each time, so the build isn't deterministic unless
 // the environment variable CONST_RANDOM_SEED is set
-const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
+pub(super) const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
     let mut res = {
         PrecomputedZobristKeys {
             piece_square_keys: [ZobristHash(0); NUM_COLORED_PIECE_SQUARE_ENTRIES],
-            castle_keys: [ZobristHash(0); 2 * 2],
+            castle_keys: [ZobristHash(0); 1 << (2 * 2)],
             ep_file_keys: [ZobristHash(0); NUM_COLUMNS],
             side_to_move_key: ZobristHash(0),
         }
@@ -60,7 +71,7 @@ const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
         i += 1;
     }
     let mut i = 0;
-    while i < 2 * 2 {
+    while i < res.castle_keys.len() {
         (gen, res.castle_keys[i]) = gen.gen();
         i += 1;
     }
@@ -81,25 +92,47 @@ impl Chessboard {
                 let mut pieces = self.colored_piece_bb(color, piece);
                 while pieces.has_set_bit() {
                     let idx = pieces.pop_lsb();
-                    res ^= PRECOMPUTED_ZOBRIST_KEYS.piece_square_keys
-                        [idx * 12 + piece.to_uncolored_idx() * 2 + color as usize];
-                }
-            }
-            for right in CastleRight::iter() {
-                if self.flags.can_castle(color, right) {
-                    res ^=
-                        PRECOMPUTED_ZOBRIST_KEYS.castle_keys[right as usize * 2 + color as usize];
+                    res ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, ChessSquare::new(idx));
                 }
             }
         }
         res ^= self.ep_square.map_or(ZobristHash(0), |square| {
             PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file()]
         });
-        if self.active_player == White {
+        res ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.flags.castling_flags() as usize];
+        if self.active_player == Black {
             res ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         }
         res
     }
 
-    // TODO: Implement incremental zobrist key updates
+    // pub(super) fn update_zobrist(&mut self, mov: ChessMove) {
+    //     let captured = mov.captured(self);
+    //     let mut hash = self.zobrist_hash();
+    //     let color = self.active_player;
+    //     let new_color = self.active_player.other();
+    //     let to_idx = mov.to_square().index();
+    //     let piece = mov.piece(self).uncolored_piece_type();
+    //     if captured != Empty {
+    //         hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(captured, new_color, to_idx);
+    //     }
+    //     if mov.is_promotion() {}
+    //     self.update_for_move(
+    //         ColoredChessPiece::new(color, piece),
+    //         mov.from_square(),
+    //         mov.to_square(),
+    //     );
+    //     hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+    // }
+
+    pub(super) fn update_zobrist_for_move(
+        &mut self,
+        piece: ColoredChessPiece,
+        from: ChessSquare,
+        to: ChessSquare,
+    ) {
+        let color = piece.color().unwrap();
+        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece.uncolor(), color, to);
+        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece.uncolor(), color, from);
+    }
 }

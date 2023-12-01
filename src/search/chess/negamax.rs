@@ -205,8 +205,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             if captured == Empty {
                 self.history[mov.from_to_square()]
             } else {
-                i32::MAX - 100 + captured as i32 * 10
-                    - mov.piece(board).uncolored_piece_type() as i32
+                i32::MAX - 100 + captured as i32 * 10 - mov.piece(board).uncolored() as i32
             }
         };
         moves.sorted_unstable_by_key(score_function).collect()

@@ -264,7 +264,7 @@ impl<B: Board> UGI<B> {
             engine,
             board,
             mov_hist: vec![],
-            board_hist: B::History::new(&board),
+            board_hist: B::History::default(),
             limit: SearchLimit::infinite(),
             debug_mode: false,
             status: NotStarted,
