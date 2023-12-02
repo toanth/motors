@@ -568,17 +568,7 @@ impl Chessboard {
     }
 
     pub fn is_2fold_repetition(&self, history: &ZobristHistory) -> bool {
-        let current = self.hash;
-        for i in iter::range_step_inclusive(
-            history.hashes.len() as isize - 4,
-            0.max(history.hashes.len() as isize - self.ply_100_ctr as isize),
-            -2,
-        ) {
-            if history.hashes[i as usize] == current {
-                return true;
-            }
-        }
-        false
+        self.find_repetition(history, 2)
     }
 
     /// Note that this function isn't entire correct according to the FIDE rules because it doesn't check for legality,
@@ -588,14 +578,17 @@ impl Chessboard {
     /// insufficient_material function that wouldn't count 2 knights vs king as draw
     /// TODO: Only set the ep square if there are pseudolegal en passants possible
     pub fn is_3fold_repetition(&self, history: &ZobristHistory) -> bool {
+        self.find_repetition(history, 3)
+    }
+
+    fn find_repetition(&self, history: &ZobristHistory, mut count: usize) -> bool {
         let current = self.hash;
         let stop = 0.max(history.hashes.len() as isize - self.ply_100_ctr as isize);
         for i in iter::range_step_inclusive(history.hashes.len() as isize - 4, stop, -2) {
             if history.hashes[i as usize] == current {
-                for j in iter::range_step_inclusive(i - 4, stop, -2) {
-                    if history.hashes[j as usize] == current {
-                        return true;
-                    }
+                count -= 1;
+                if count <= 1 {
+                    return true;
                 }
             }
         }
