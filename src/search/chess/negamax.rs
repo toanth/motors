@@ -113,7 +113,9 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         debug_assert!(depth <= DEPTH_SOFT_LIMIT as isize);
         debug_assert_eq!(self.state.history.hashes.len(), ply);
 
-        if pos.is_2fold_repetition(&self.state.history) || pos.is_50mr_draw() {
+        let root = ply == 0;
+
+        if !root && (pos.is_2fold_repetition(&self.state.history) || pos.is_50mr_draw()) {
             return Score(0);
         }
         let in_check = pos.is_in_check();
