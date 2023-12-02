@@ -447,7 +447,7 @@ impl<B: Board> BoardHistory<B> for NoHistory {
 
 #[derive(Clone, Eq, PartialEq, Default, Debug)]
 pub struct ZobristHistory {
-    hashes: Vec<ZobristHash>,
+    pub hashes: Vec<ZobristHash>,
 }
 
 impl<B: Board> BoardHistory<B> for ZobristHistory {

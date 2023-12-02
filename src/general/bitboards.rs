@@ -106,15 +106,15 @@ const ANTI_DIAGONALS: [[u128; 128]; MAX_WIDTH] = compute_anti_diagonal_bbs();
 const fn gen_single_knight_attacks(square_idx: usize) -> u64 {
     let this_knight: u64 = 1 << square_idx;
     let a_file = 0x0101_0101_0101_0101;
-    let not_a_file = this_knight & !a_file;
-    let mut moves = (not_a_file << 15) | (not_a_file >> 17);
-    let not_h_file = this_knight & !(a_file << 7);
-    moves |= (not_h_file >> 15) | (not_h_file << 17);
-    let not_ab_file = not_a_file & !(a_file << 1);
-    moves |= (not_ab_file << 6) | (not_ab_file >> 10);
-    let not_gh_file = not_h_file & !(a_file << 6);
-    moves |= (not_gh_file >> 6) | (not_gh_file << 10);
-    moves
+    let knight_not_a_file = this_knight & !a_file;
+    let mut attacks = (knight_not_a_file << 15) | (knight_not_a_file >> 17);
+    let knight_not_h_file = this_knight & !(a_file << 7);
+    attacks |= (knight_not_h_file >> 15) | (knight_not_h_file << 17);
+    let knight_not_ab_file = knight_not_a_file & !(a_file << 1);
+    attacks |= (knight_not_ab_file << 6) | (knight_not_ab_file >> 10);
+    let knight_not_gh_file = knight_not_h_file & !(a_file << 6);
+    attacks |= (knight_not_gh_file >> 6) | (knight_not_gh_file << 10);
+    attacks
 }
 const fn gen_knights() -> [u64; 64] {
     let mut res: [u64; 64] = [0; 64];

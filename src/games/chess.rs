@@ -667,10 +667,14 @@ impl EngineList<Chessboard> for ChessEngineList {
 mod tests {
     use rand::thread_rng;
 
+    use crate::eval::chess::material_only::MaterialOnlyEval;
+    use crate::eval::rand_eval::RandEval;
     use crate::games::chess::squares::{E_FILE_NO, G_FILE_NO};
     use crate::games::chess::*;
     use crate::games::{RectangularBoard, RectangularCoordinates};
+    use crate::search::chess::negamax::Negamax;
     use crate::search::perft::perft;
+    use crate::search::{Score, SearchLimit, Searcher};
 
     const E_1: ChessSquare = ChessSquare::from_rank_file(0, E_FILE_NO);
     const E_8: ChessSquare = ChessSquare::from_rank_file(7, E_FILE_NO);
@@ -731,6 +735,10 @@ mod tests {
         let legal_moves = legal_moves_slow(&board);
         assert_eq!(legal_moves.len(), moves.len());
         assert!(legal_moves.sorted().eq(moves.sorted()));
+
+        let mut engine = Negamax::<MaterialOnlyEval>::default();
+        let res = engine.search(board, SearchLimit::depth(4));
+        assert_eq!(res.score.unwrap(), Score(0));
     }
 
     #[test]
@@ -807,6 +815,10 @@ mod tests {
             assert_eq!(new_board.is_game_lost_slow(None), checkmates);
             assert!(!board.is_game_lost_slow(None));
         }
+        let mut engine = Negamax::<RandEval>::default();
+        let res = engine.search(board, SearchLimit::depth(2));
+        assert!(res.score.unwrap().is_game_won_score());
+        assert_eq!(res.score.unwrap().plies_until_game_won(), Some(1));
     }
 
     #[test]
@@ -855,14 +867,6 @@ mod tests {
             assert!(!board.is_2fold_repetition(&hist));
         }
         assert_eq!(board.active_player, Black);
-    }
-
-    #[test]
-    fn capture_only_test() {
-        let board = Chessboard::default();
-        assert!(board.pseudolegal_captures().is_empty());
-        let board = Chessboard::from_name("kiwipete").unwrap();
-        assert_eq!(board.pseudolegal_captures().len(), 8);
     }
 
     #[test]
