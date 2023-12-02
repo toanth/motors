@@ -25,7 +25,7 @@ impl Chessboard {
         }
         let mut list = ChessMoveList::default();
         let filter = !self.colored_bb(self.active_player);
-        match piece.uncolored_piece_type() {
+        match piece.uncolored() {
             Pawn => self.gen_pawn_moves(&mut list, filter),
             Knight => {
                 return ChessBitboard(KNIGHTS[mov.from_square().index()])

@@ -1,7 +1,10 @@
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
+use std::hash::{Hash, Hasher};
+use std::ops::Deref;
 use std::str::FromStr;
 
+use derive_more::{BitOrAssign, BitXorAssign};
 use itertools::Itertools;
 use rand::Rng;
 use strum_macros::EnumIter;
@@ -102,7 +105,7 @@ pub trait ColoredPiece: Eq + Copy + Debug + Default {
     type Coordinates: Coordinates;
     fn coordinates(self) -> Self::Coordinates;
 
-    fn uncolored_piece_type(self) -> <Self::ColoredPieceType as ColoredPieceType>::Uncolored {
+    fn uncolored(self) -> <Self::ColoredPieceType as ColoredPieceType>::Uncolored {
         self.colored_piece_type().uncolor()
     }
 
@@ -415,6 +418,9 @@ pub trait EngineList<B: Board> {
     fn list_engines() -> Vec<(String, CreateEngine<B>)>;
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Default, Debug, derive_more::Display, BitXorAssign)]
+pub struct ZobristHash(u64);
+
 pub trait Settings: Eq + Copy + Debug + Default {}
 
 /// Result of a match from a player's perspective.
@@ -425,6 +431,44 @@ pub enum PlayerResult {
     Draw,
 }
 
+pub trait BoardHistory<B: Board>: Default + Debug + Clone + 'static {
+    fn push(&mut self, board: &B);
+    fn pop(&mut self, _board: &B);
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
+pub struct NoHistory {}
+
+impl<B: Board> BoardHistory<B> for NoHistory {
+    fn push(&mut self, _board: &B) {}
+
+    fn pop(&mut self, _board: &B) {}
+}
+
+#[derive(Clone, Eq, PartialEq, Default, Debug)]
+pub struct ZobristHistory {
+    pub hashes: Vec<ZobristHash>,
+}
+
+impl<B: Board> BoardHistory<B> for ZobristHistory {
+    fn push(&mut self, board: &B) {
+        self.hashes.push(board.zobrist_hash())
+    }
+
+    // the _board parameter is only there to deduce the trait
+    fn pop(&mut self, _board: &B) {
+        self.hashes
+            .pop()
+            .expect("ZobristHistory::pop() called on empty history");
+    }
+}
+
+/// Currently, a game is completely determined by the `Board` type:
+/// The type implementing `Board` contains all the necessary information about the rules of the game.
+/// However, a `Board` is assumed to be markovian and needs to satisfy `Copy` and `'static`.
+/// When this is not desired, the `GameState` should be used instead, it contains a copy of the current board
+/// and additional non-markovian information, such as the history of zobrist hashes for games that need this.
+/// TODO: Use a struct containing the current board and the history, switch to make/unmake
 pub trait Board:
     Eq + PartialEq + Sized + Default + Debug + Display + Copy + Clone + 'static
 {
@@ -437,6 +481,7 @@ pub trait Board:
     type LegalMoveList: MoveList<Self> + FromIterator<Self::Move>;
     type EngineList: EngineList<Self>;
     type GraphicsList: GraphicsList<Self>;
+    type History: BoardHistory<Self>;
 
     /// Returns the name of the game, such as 'chess'
     fn game_name() -> String;
@@ -543,7 +588,13 @@ pub trait Board:
     /// like ignoring a check in chess. Not meant to return None on moves that never make sense,
     /// like moving to a square outside of the board (in that case, the function should panic).
     /// In other words, this function only gracefully checks legality assuming that the move is pseudolegal.
-    fn make_move(self, mov: Self::Move) -> Option<Self>;
+    /// TODO: Just use make/unmake, much cleaner and easier
+    fn make_move(self, mov: Self::Move, history: Option<&mut Self::History>) -> Option<Self>;
+
+    /// Makes a nullmove, i.e. flips the active player. While this action isn't strictly legal in most games,
+    /// it's still very useful and necessary for null move pruning.
+    /// Just like make_move, this function may fail, such as when trying to do a nullmove while in check.
+    fn make_nullmove(self, history: Option<&mut Self::History>) -> Option<Self>;
 
     /// Returns true iff the move is pseudolegal, that is, it can be played with `make_move` without
     /// causing a panic.
@@ -559,10 +610,10 @@ pub trait Board:
     /// Expects a pseudolegal move and returns if this move is also legal, which means that playing it with
     /// `make_move` returns `Some(new_board)`
     fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {
-        self.make_move(mov).is_some()
+        self.make_move(mov, None).is_some()
     }
 
-    fn game_result_no_movegen(&self) -> Option<PlayerResult>;
+    fn game_result_no_movegen(&self, history: Option<&Self::History>) -> Option<PlayerResult>;
 
     /// Returns the result (win/draw/loss), if any. Can be potentially slow because it can require movegen.
     /// If movegen is used anyway (such as in an ab search), it is usually better to call `game_result_no_movegen`
@@ -572,25 +623,25 @@ pub trait Board:
     /// Note that many implementations never return `PlayerResult::Win` because the active player can't win the game,
     /// which is the case because the current player is flipped after the winning move.
     /// For example, being checkmated in chess is a loss for the current player.
-    fn game_result_slow(&self) -> Option<PlayerResult>;
+    fn game_result_slow(&self, history: Option<&Self::History>) -> Option<PlayerResult>;
 
     /// Only called when there are no legal moves.
     /// In that case, the function returns the game state from the current player's perspective.
     /// Note that this doesn't check that there are indeed no legal moves to avoid paying the performance cost of that.
-    fn no_moves_result(&self) -> PlayerResult;
+    fn no_moves_result(&self, _: Option<&Self::History>) -> PlayerResult;
 
     /// Returns true iff the game is lost for player who can now move, like being checkmated in chess.
     /// Using `game_result_no_movegen()` and `no_moves_result()` is often the faster option if movegen is needed anyway
-    fn is_game_lost_slow(&self) -> bool {
-        self.game_result_slow().is_some_and(|x| x == Lose)
+    fn is_game_lost_slow(&self, history: Option<&Self::History>) -> bool {
+        self.game_result_slow(history).is_some_and(|x| x == Lose)
     }
 
     /// Returns true iff the game is won for the current player after making the given move.
     /// This move has to be pseudolegal. If the move will likely be played anyway, it can be faster
     /// to play it and use `game_result()` or `game_result_no_movegen()` and `no_moves_result` instead.
     fn is_game_won_after_slow(&self, mov: Self::Move) -> bool {
-        self.make_move(mov)
-            .map_or(false, |new_pos| new_pos.is_game_lost_slow())
+        self.make_move(mov, None)
+            .map_or(false, |new_pos| new_pos.is_game_lost_slow(None))
     }
 
     /// Returns true iff the game is a draw. This function covers all possibilities of a draw occurring,
@@ -598,6 +649,8 @@ pub trait Board:
     /// Of course, explicitly testing for no legal moves is also possible in many games, and may be
     /// significantly faster, which is why the `is_draw_no_movegen` method exists.
     // fn is_draw(&self) -> bool;
+
+    fn zobrist_hash(&self) -> ZobristHash;
 
     /// Returns a compact textual description of the board that can be read in again with `from_fen`.
     fn as_fen(&self) -> String;

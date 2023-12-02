@@ -210,6 +210,12 @@ impl SearchLimit {
         res.fixed_time = time;
         res
     }
+
+    pub fn depth(depth: usize) -> Self {
+        let mut res = Self::infinite();
+        res.depth = depth;
+        res
+    }
 }
 
 /// An Engine can use two different limits to implement soft/hard time/node management
@@ -426,6 +432,7 @@ pub trait EngineState<B: Board> {
 
 #[derive(Debug)]
 struct SimpleSearchState<B: Board> {
+    history: B::History,
     initial_pos: B,
     best_move: Option<B::Move>,
     nodes: u64,
@@ -450,6 +457,7 @@ impl<B: Board> Default for SimpleSearchState<B> {
     fn default() -> Self {
         let start_time = Instant::now();
         Self {
+            history: B::History::default(),
             initial_pos: B::default(),
             start_time,
             score: Score(0),
@@ -506,12 +514,12 @@ impl<B: Board> EngineState<B> for SimpleSearchState<B> {
 }
 
 #[derive(Default, Debug)]
-struct SearchStateWithPv<B: Board, const PVLimit: usize> {
+struct SearchStateWithPv<B: Board, const PV_LIMIT: usize> {
     wrapped: SimpleSearchState<B>,
-    pv_table: GenericPVTable<B, PVLimit>,
+    pv_table: GenericPVTable<B, PV_LIMIT>,
 }
 
-impl<B: Board, const PVLimit: usize> Deref for SearchStateWithPv<B, PVLimit> {
+impl<B: Board, const PV_LIMIT: usize> Deref for SearchStateWithPv<B, PV_LIMIT> {
     type Target = SimpleSearchState<B>;
 
     fn deref(&self) -> &Self::Target {
@@ -519,13 +527,13 @@ impl<B: Board, const PVLimit: usize> Deref for SearchStateWithPv<B, PVLimit> {
     }
 }
 
-impl<B: Board, const PVLimit: usize> DerefMut for SearchStateWithPv<B, PVLimit> {
+impl<B: Board, const PV_LIMIT: usize> DerefMut for SearchStateWithPv<B, PV_LIMIT> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.wrapped
     }
 }
 
-impl<B: Board, const PVLimit: usize> EngineState<B> for SearchStateWithPv<B, PVLimit> {
+impl<B: Board, const PV_LIMIT: usize> EngineState<B> for SearchStateWithPv<B, PV_LIMIT> {
     fn initial_state(initial_pos: B, info_callback: InfoCallback<B>) -> Self {
         Self {
             wrapped: SimpleSearchState::initial_state(initial_pos, info_callback),

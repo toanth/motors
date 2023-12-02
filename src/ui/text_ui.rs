@@ -105,7 +105,7 @@ fn match_to_pgn<B: Board>(m: &dyn MatchManager<B>) -> String {
         } else {
             res += &format!(" {mov_str}")
         }
-        board = board.make_move(*mov).unwrap();
+        board = board.make_move(*mov, None).unwrap();
     }
     res
 }

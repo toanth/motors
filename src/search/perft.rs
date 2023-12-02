@@ -2,7 +2,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
-use crate::games::{Board, Move};
+use crate::games::{Board, BoardHistory, Move};
 use crate::search::{SearchLimit, SearchResult, Searcher, TimeControl};
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -48,14 +48,15 @@ impl<B: Board> Display for SplitPerftRes<B> {
     }
 }
 
-fn do_perft<T: Board>(depth: usize, pos: T) -> u64 {
+fn do_perft<T: Board>(depth: usize, pos: T, history: &mut T::History) -> u64 {
     let mut nodes = 0;
     if depth == 0 {
         return 1;
     }
     for mov in pos.pseudolegal_moves() {
-        if let Some(new_pos) = pos.make_move(mov) {
-            nodes += do_perft(depth - 1, new_pos);
+        if let Some(new_pos) = pos.make_move(mov, Some(history)) {
+            nodes += do_perft(depth - 1, new_pos, history);
+            history.pop(&new_pos);
         }
     }
     nodes
@@ -63,7 +64,8 @@ fn do_perft<T: Board>(depth: usize, pos: T) -> u64 {
 
 pub fn perft<T: Board>(depth: usize, pos: T) -> PerftRes {
     let start = Instant::now();
-    let nodes = do_perft(depth, pos);
+    let mut history = T::History::default();
+    let nodes = do_perft(depth, pos, &mut history);
     let time = start.elapsed();
 
     PerftRes { time, nodes, depth }
@@ -74,11 +76,13 @@ pub fn split_perft<T: Board>(depth: usize, pos: T) -> SplitPerftRes<T> {
     let mut nodes = 0;
     let mut res: SplitPerftRes<T> = Default::default();
     let start = Instant::now();
+    let mut history = T::History::default();
     for mov in pos.pseudolegal_moves() {
-        if let Some(new_pos) = pos.make_move(mov) {
-            let child_nodes = do_perft(depth - 1, new_pos);
+        if let Some(new_pos) = pos.make_move(mov, Some(&mut history)) {
+            let child_nodes = do_perft(depth - 1, new_pos, &mut history);
             res.children.push((mov, child_nodes));
             nodes += child_nodes;
+            history.pop(&new_pos);
         }
     }
     let time = start.elapsed();

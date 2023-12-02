@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use rand::thread_rng;
 
-use crate::games::Board;
+use crate::games::{Board, BoardHistory};
 use crate::search::{
     game_result_to_score, should_stop, stop_engine, BenchResult, Engine, EngineState, InfoCallback,
     Score, SearchInfo, SearchLimit, SearchResult, Searcher, SimpleSearchState, TimeControl,
@@ -90,19 +90,21 @@ impl<B: Board> NaiveSlowNegamax<B> {
     fn negamax(&mut self, pos: B, limit: SearchLimit, ply: usize) -> Score {
         assert!(ply <= MAX_DEPTH);
 
-        if let Some(res) = pos.game_result_no_movegen() {
+        if let Some(res) = pos.game_result_no_movegen(Some(&self.state.history)) {
             return game_result_to_score(res, ply);
         }
 
         let mut best_score = SCORE_LOST;
 
         for mov in pos.pseudolegal_moves() {
-            let new_pos = pos.make_move(mov);
+            let new_pos = pos.make_move(mov, Some(&mut self.state.history));
             if new_pos.is_none() {
                 continue; // illegal pseudolegal move
             }
 
             let score = -self.negamax(new_pos.unwrap(), limit, ply + 1);
+
+            self.state.history.pop(&new_pos.unwrap());
 
             if self.state.search_cancelled || should_stop(&limit, self, self.state.start_time) {
                 self.state.search_cancelled = true;

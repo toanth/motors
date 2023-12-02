@@ -459,7 +459,7 @@ impl Board for MNKBoard {
         self.random_legal_move(rng) // all pseudolegal moves are legal for m,n,k games
     }
 
-    fn make_move(self, mov: Self::Move) -> Option<Self> {
+    fn make_move(self, mov: Self::Move, _history: Option<&mut NoHistory>) -> Option<Self> {
         self.make_move_for_player(mov, self.active_player())
     }
 
@@ -472,7 +472,7 @@ impl Board for MNKBoard {
         self.size().valid_coordinates(mov.target) && self.piece_on(mov.target).symbol == Empty
     }
 
-    fn no_moves_result(&self) -> PlayerResult {
+    fn no_moves_result(&self, _history: Option<&NoHistory>) -> PlayerResult {
         Draw
     }
 
@@ -586,7 +586,7 @@ impl Board for MNKBoard {
         Ok(())
     }
 
-    fn game_result_no_movegen(&self) -> Option<PlayerResult> {
+    fn game_result_no_movegen(&self, _history: Option<&NoHistory>) -> Option<PlayerResult> {
         // check for win before checking full board
         if self.is_game_lost() {
             Some(Lose)
@@ -597,8 +597,20 @@ impl Board for MNKBoard {
         }
     }
 
-    fn game_result_slow(&self) -> Option<PlayerResult> {
-        self.game_result_no_movegen()
+    fn game_result_slow(&self, _history: Option<&NoHistory>) -> Option<PlayerResult> {
+        self.game_result_no_movegen(_history)
+    }
+
+    type History = NoHistory;
+
+    fn zobrist_hash(&self) -> ZobristHash {
+        todo!()
+    }
+
+    fn make_nullmove(mut self, history: Option<&mut Self::History>) -> Option<Self> {
+        self.active_player = self.active_player.other();
+        history.map(|h| h.push(&self));
+        Some(self)
     }
 }
 
@@ -609,7 +621,7 @@ impl MNKBoard {
         }
         let last_move = self.last_move.unwrap();
         let square = last_move.target;
-        let player = self.piece_on(square).uncolored_piece_type().color();
+        let player = self.piece_on(square).uncolored().color();
         if player.is_none() {
             return false;
         }
@@ -729,8 +741,8 @@ mod test {
         let mov = FillSquare {
             target: GridCoordinates::default(),
         };
-        assert_eq!(board.active_player(), Color::White);
-        let board = board.make_move(mov).unwrap();
+        assert_eq!(board.active_player(), White);
+        let board = board.make_move(mov, None).unwrap();
         assert_eq!(board.size().num_squares(), 9);
         assert_eq!(board.white_bb, ExtendedBitboard(1));
         assert_eq!(board.black_bb, ExtendedBitboard(0));
@@ -743,7 +755,7 @@ mod test {
         assert!(!board.is_game_lost());
 
         let board = MNKBoard::empty(MnkSettings::new(Height(3), Width(4), 1));
-        let board = board.make_move(mov).unwrap();
+        let board = board.make_move(mov, None).unwrap();
         assert!(board.is_game_lost());
         assert_ne!(board.white_bb().to_primitive(), 0);
         assert_eq!(board.black_bb().to_primitive(), 0);
@@ -801,9 +813,12 @@ mod test {
         assert_eq!(str, "3 3 3 x 3/3/3");
 
         let board = board
-            .make_move(FillSquare {
-                target: board.to_coordinates(4),
-            })
+            .make_move(
+                FillSquare {
+                    target: board.to_coordinates(4),
+                },
+                None,
+            )
             .unwrap();
         assert_eq!(board.white_bb(), ExtendedBitboard(0x10));
         assert_eq!(board.piece_on_idx(4).symbol, Symbol::X);
@@ -837,30 +852,42 @@ mod test {
         assert_eq!(board.as_fen(), "3 4 2 x 4/4/4");
 
         let board = board
-            .make_move(FillSquare {
-                target: board.to_coordinates(0),
-            })
+            .make_move(
+                FillSquare {
+                    target: board.to_coordinates(0),
+                },
+                None,
+            )
             .unwrap();
         assert_eq!(board.as_fen(), "3 4 2 o 4/4/X3");
 
         let board = board
-            .make_move(FillSquare {
-                target: board.to_coordinates(4),
-            })
+            .make_move(
+                FillSquare {
+                    target: board.to_coordinates(4),
+                },
+                None,
+            )
             .unwrap();
         assert_eq!(board.as_fen(), "3 4 2 x 4/O3/X3");
 
         let board = board
-            .make_move(FillSquare {
-                target: board.to_coordinates(9),
-            })
+            .make_move(
+                FillSquare {
+                    target: board.to_coordinates(9),
+                },
+                None,
+            )
             .unwrap();
         assert_eq!(board.as_fen(), "3 4 2 o 1X2/O3/X3");
 
         let board = board
-            .make_move(FillSquare {
-                target: board.to_coordinates(3),
-            })
+            .make_move(
+                FillSquare {
+                    target: board.to_coordinates(3),
+                },
+                None,
+            )
             .unwrap();
         assert_eq!(board.as_fen(), "3 4 2 x 1X2/O3/X2O");
     }
