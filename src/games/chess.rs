@@ -584,6 +584,8 @@ impl Chessboard {
     /// Note that this function isn't entire correct according to the FIDE rules because it doesn't check for legality,
     /// so a position with a possible pseudolegal but illegal en passant move would be considered different from
     /// its repetition, where the en passant move wouldn't be possible
+    /// TODO: Maybe there should be a pedantic_3fold_repetition that actually does movegen, there could also be a more pedantic
+    /// insufficient_material function that wouldn't count 2 knights vs king as draw
     /// TODO: Only set the ep square if there are pseudolegal en passants possible
     pub fn is_3fold_repetition(&self, history: &ZobristHistory) -> bool {
         let current = self.hash;
