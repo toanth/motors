@@ -419,7 +419,7 @@ pub trait EngineList<B: Board> {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Default, Debug, derive_more::Display, BitXorAssign)]
-pub struct ZobristHash(u64);
+pub struct ZobristHash(pub u64);
 
 pub trait Settings: Eq + Copy + Debug + Default {}
 

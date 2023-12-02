@@ -1,6 +1,7 @@
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Deref, DerefMut, Div, Mul};
+use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
@@ -9,6 +10,7 @@ use rand::thread_rng;
 
 use crate::games::{Board, PlayerResult};
 use crate::play::AnyMutEngineRef;
+use crate::search::tt::TT;
 
 pub mod chess;
 pub mod generic_negamax;
@@ -16,6 +18,7 @@ pub mod human;
 pub mod naive_slow_negamax;
 pub mod perft;
 pub mod random_mover;
+mod tt;
 
 #[derive(Default, Debug)]
 pub struct BenchResult {
@@ -25,7 +28,7 @@ pub struct BenchResult {
 }
 
 // TODO: Turn this into an enum that can also represent a win in n plies (and maybe a draw?)
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg, AddAssign)]
+#[derive(Default, Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg, AddAssign)]
 pub struct Score(pub i32);
 
 impl Add<i32> for Score {
@@ -302,8 +305,44 @@ impl EngineUciOptionType {
 }
 
 #[derive(Debug, Eq, PartialEq)]
+pub enum EngineOptionName {
+    Hash,
+    Threads,
+    Ponder,
+    MultiPv,
+    Other(String),
+}
+
+impl Display for EngineOptionName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            EngineOptionName::Hash => "Hash",
+            EngineOptionName::Threads => "Threads",
+            EngineOptionName::Ponder => "Ponder",
+            EngineOptionName::MultiPv => "MultiPV",
+            EngineOptionName::Other(x) => &x,
+        };
+        write!(f, "{s}")
+    }
+}
+
+impl FromStr for EngineOptionName {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.to_ascii_lowercase().as_str() {
+            "hash" => EngineOptionName::Hash,
+            "threads" => EngineOptionName::Threads,
+            "ponder" => EngineOptionName::Ponder,
+            "multipv" => EngineOptionName::MultiPv,
+            _ => EngineOptionName::Other(s.to_string()),
+        })
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
 pub struct EngineOptionType {
-    pub name: String,
+    pub name: EngineOptionName,
     pub typ: EngineUciOptionType,
     pub default: Option<String>,
     pub min: Option<String>,
@@ -353,9 +392,9 @@ pub trait Engine<B: Board>: Searcher<B> {
     }
 
     /// Sets an option with the name 'option' to the value 'value'
-    fn set_option(&mut self, option: &str, value: &str) -> Result<(), String> {
+    fn set_option(&mut self, option: EngineOptionName, value: &str) -> Result<(), String> {
         Err(format!(
-            "The searcher '{name}' doesn't support setting options, including setting '{option}' to '{value}'",
+            "The engine '{name}' doesn't support setting options, including setting '{option}' to '{value}'",
             name=self.name()
         ))
     }
@@ -432,6 +471,7 @@ pub trait EngineState<B: Board> {
 
 #[derive(Debug)]
 struct SimpleSearchState<B: Board> {
+    tt: TT<B>,
     history: B::History,
     initial_pos: B,
     best_move: Option<B::Move>,
@@ -457,6 +497,7 @@ impl<B: Board> Default for SimpleSearchState<B> {
     fn default() -> Self {
         let start_time = Instant::now();
         Self {
+            tt: Default::default(),
             history: B::History::default(),
             initial_pos: B::default(),
             start_time,

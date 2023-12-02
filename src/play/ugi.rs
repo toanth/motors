@@ -1,7 +1,7 @@
 use std::io::stdin;
 use std::mem::discriminant;
 use std::ops::{Deref, DerefMut};
-use std::str::SplitWhitespace;
+use std::str::{FromStr, SplitWhitespace};
 use std::time::Duration;
 
 use colored::Colorize;
@@ -19,9 +19,10 @@ use crate::play::{
     CreatableMatchManager, GameOverReason, GameResult, MatchManager, MatchResult, MatchStatus,
 };
 use crate::search::perft::{perft, split_perft};
+use crate::search::EngineOptionName::{Hash, Threads};
 use crate::search::{
-    run_bench_with_depth, Engine, EngineOptionType, EngineUciOptionType, InfoCallback, SearchInfo,
-    SearchLimit, SearchResult, Searcher,
+    run_bench_with_depth, Engine, EngineOptionName, EngineOptionType, EngineUciOptionType,
+    InfoCallback, SearchInfo, SearchLimit, SearchResult, Searcher,
 };
 use crate::ui::no_graphic::NoGraphics;
 use crate::ui::Message::Warning;
@@ -335,8 +336,10 @@ impl<B: Board> UGI<B> {
             }
             value = value + " " + next_word;
         }
-        self.engine
-            .set_option(name.as_str().trim(), value.as_str().trim())?;
+        self.engine.set_option(
+            EngineOptionName::from_str(&name.trim()).unwrap(),
+            value.as_str().trim(),
+        )?;
         Ok(Ongoing)
     }
 
@@ -548,9 +551,9 @@ impl<B: Board> UGI<B> {
             )
         };
         let mut opts = self.engine.get_options();
-        if opts.iter().find(|opt| opt.name == "Hash").is_none() {
+        if opts.iter().find(|opt| opt.name == Hash).is_none() {
             opts.push(EngineOptionType {
-                name: "Hash".to_string(),
+                name: Hash,
                 typ: EngineUciOptionType::Spin,
                 default: Some("1".to_string()),
                 min: Some("0".to_string()),
@@ -558,9 +561,9 @@ impl<B: Board> UGI<B> {
                 vars: vec![],
             })
         }
-        if opts.iter().find(|opt| opt.name == "Threads").is_none() {
+        if opts.iter().find(|opt| opt.name == Threads).is_none() {
             opts.push(EngineOptionType {
-                name: "Threads".to_string(),
+                name: Threads,
                 typ: EngineUciOptionType::Spin,
                 default: Some("1".to_string()),
                 min: Some("1".to_string()),

@@ -8,10 +8,15 @@ use crate::games::chess::moves::ChessMove;
 use crate::games::chess::pieces::UncoloredChessPiece::Empty;
 use crate::games::chess::{ChessMoveList, Chessboard};
 use crate::games::{Board, BoardHistory, ColoredPiece};
+use crate::general::common::parse_int_from_str;
+use crate::search::tt::TTScoreType::{Exact, LowerBound, UpperBound};
+use crate::search::tt::{TTEntry, DEFAULT_HASH_SIZE_MB};
+use crate::search::EngineOptionName::Hash;
 use crate::search::{
-    game_result_to_score, should_stop, stop_engine, BenchResult, Engine, EngineOptionType,
-    EngineState, InfoCallback, Score, SearchInfo, SearchLimit, SearchResult, SearchStateWithPv,
-    Searcher, TimeControl, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
+    game_result_to_score, should_stop, stop_engine, BenchResult, Engine, EngineOptionName,
+    EngineOptionType, EngineState, EngineUciOptionType, InfoCallback, Score, SearchInfo,
+    SearchLimit, SearchResult, SearchStateWithPv, Searcher, TimeControl, SCORE_LOST, SCORE_TIME_UP,
+    SCORE_WON,
 };
 
 const DEPTH_SOFT_LIMIT: usize = 100;
@@ -114,6 +119,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         debug_assert_eq!(self.state.history.hashes.len(), ply);
 
         let root = ply == 0;
+        let original_alpha = alpha;
 
         if !root && (pos.is_2fold_repetition(&self.state.history) || pos.is_50mr_draw()) {
             return Score(0);
@@ -127,6 +133,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         }
 
         let mut best_score = SCORE_LOST;
+        let mut best_move = ChessMove::default();
         let mut num_children = 0;
 
         let all_moves = self.order_moves(pos.pseudolegal_moves(), &pos);
@@ -152,6 +159,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
                 continue;
             }
             alpha = score;
+            best_move = mov;
             // TODO: This lost a smallish 2 digit amount of elo, so retest eventually
             // (will probably be much less important as the search gets slower)
             self.state.pv_table.new_pv_move(ply, mov);
@@ -167,6 +175,19 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             self.history[mov.from_to_square()] += (depth * depth) as i32;
             break;
         }
+
+        let bound = if best_score <= original_alpha {
+            UpperBound
+        } else if best_score >= beta {
+            LowerBound
+        } else {
+            Exact
+        };
+        let tt_entry = TTEntry::new(best_score, best_move, depth, bound, pos.zobrist_hash());
+        // TODO: Test that not overwriting the best move for fail low nodes gains, eventually test that not
+        // overwriting TT nodes unless the depth is quite a bit greater gains
+        self.state.tt.store(tt_entry);
+
         if num_children == 0 {
             game_result_to_score(pos.no_moves_result(Some(&self.state.history)), ply)
         } else {
@@ -203,10 +224,13 @@ impl<E: Eval<Chessboard>> Negamax<E> {
     }
 
     fn order_moves(&self, mut moves: ChessMoveList, board: &Chessboard) -> ChessMoveList {
+        let tt_move = self.state.tt.load(board.zobrist_hash()).mov;
         /// The move list is iterated backwards, which is why better moves get higher scores
         let score_function = |mov: &ChessMove| {
             let captured = mov.captured(board);
-            if captured == Empty {
+            if *mov == tt_move {
+                i32::MAX
+            } else if captured == Empty {
                 self.history[mov.from_to_square()]
             } else {
                 i32::MAX - 100 + captured as i32 * 10 - mov.piece(board).uncolored() as i32
@@ -256,11 +280,29 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Negamax<E> {
         self.state.nodes
     }
 
-    fn set_option(&mut self, option: &str, value: &str) -> Result<(), String> {
-        Err(format!("Searcher {0} doesn't implement any options, so can't set option '{option}' to '{value}'", self.name()))
+    fn set_option(&mut self, option: EngineOptionName, value: &str) -> Result<(), String> {
+        match option {
+            Hash => {
+                let value: usize = parse_int_from_str(value, "hash size in MB")?;
+                let size = value * 1000_000;
+                self.state.tt.resize_bytes(size);
+                Ok(())
+            }
+            x => Err(format!(
+                "The option '{x}' is not supported by the engine {0}",
+                self.name()
+            )),
+        }
     }
 
     fn get_options(&self) -> Vec<EngineOptionType> {
-        return Vec::default();
+        vec![EngineOptionType {
+            name: Hash,
+            typ: EngineUciOptionType::Spin,
+            default: Some(DEFAULT_HASH_SIZE_MB.to_string()),
+            min: Some(0.to_string()),
+            max: Some(1_000_000.to_string()), // use at most 1 terabyte (should be enough for anybody™)
+            vars: vec![],
+        }]
     }
 }

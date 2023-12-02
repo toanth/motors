@@ -5,9 +5,9 @@ use rand::thread_rng;
 use crate::eval::Eval;
 use crate::games::{Board, BoardHistory};
 use crate::search::{
-    game_result_to_score, should_stop, stop_engine, BenchResult, Engine, EngineOptionType,
-    EngineState, InfoCallback, Score, SearchInfo, SearchLimit, SearchResult, Searcher,
-    SimpleSearchState, TimeControl, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
+    game_result_to_score, should_stop, stop_engine, BenchResult, Engine, EngineOptionName,
+    EngineOptionType, EngineState, InfoCallback, Score, SearchInfo, SearchLimit, SearchResult,
+    Searcher, SimpleSearchState, TimeControl, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
 };
 
 const MAX_DEPTH: usize = 100;
@@ -95,7 +95,7 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
         self.state.nodes
     }
 
-    fn set_option(&mut self, option: &str, value: &str) -> Result<(), String> {
+    fn set_option(&mut self, option: EngineOptionName, value: &str) -> Result<(), String> {
         Err(format!("Searcher {0} doesn't implement any options, so can't set option '{option}' to '{value}'", self.name()))
     }
 
