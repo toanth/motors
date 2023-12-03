@@ -10,7 +10,8 @@ use rand::thread_rng;
 
 use crate::games::{Board, PlayerResult};
 use crate::play::AnyMutEngineRef;
-use crate::search::tt::TT;
+use crate::search::tt::TTScoreType::*;
+use crate::search::tt::{TTScoreType, TT};
 
 pub mod chess;
 pub mod generic_negamax;
@@ -84,6 +85,16 @@ impl Score {
     pub fn moves_until_game_won(self) -> Option<isize> {
         self.plies_until_game_won()
             .map(|n| (n as f32 / 2f32).ceil() as isize)
+    }
+
+    fn bound(self, original_alpha: Score, beta: Score) -> TTScoreType {
+        if self <= original_alpha {
+            UpperBound
+        } else if self >= beta {
+            LowerBound
+        } else {
+            Exact
+        }
     }
 }
 

@@ -9,7 +9,6 @@ use crate::games::chess::pieces::UncoloredChessPiece::Empty;
 use crate::games::chess::{ChessMoveList, Chessboard};
 use crate::games::{Board, BoardHistory, ColoredPiece};
 use crate::general::common::parse_int_from_str;
-use crate::search::tt::TTScoreType::{Exact, LowerBound, UpperBound};
 use crate::search::tt::{TTEntry, DEFAULT_HASH_SIZE_MB};
 use crate::search::EngineOptionName::Hash;
 use crate::search::{
@@ -133,10 +132,12 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         }
 
         let mut best_score = SCORE_LOST;
-        let mut best_move = ChessMove::default();
+
+        let tt_entry = self.state.tt.load(pos.zobrist_hash());
+        let mut best_move = tt_entry.mov;
         let mut num_children = 0;
 
-        let all_moves = self.order_moves(pos.pseudolegal_moves(), &pos);
+        let all_moves = self.order_moves(pos.pseudolegal_moves(), &pos, best_move);
         for mov in all_moves {
             let new_pos = pos.make_move(mov, Some(&mut self.state.history));
             if new_pos.is_none() {
@@ -176,16 +177,9 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             break;
         }
 
-        let bound = if best_score <= original_alpha {
-            UpperBound
-        } else if best_score >= beta {
-            LowerBound
-        } else {
-            Exact
-        };
+        let bound = best_score.bound(original_alpha, beta);
         let tt_entry = TTEntry::new(best_score, best_move, depth, bound, pos.zobrist_hash());
-        // TODO: Test that not overwriting the best move for fail low nodes gains, eventually test that not
-        // overwriting TT nodes unless the depth is quite a bit greater gains
+        // TODO: eventually test that not overwriting PV nodes unless the depth is quite a bit greater gains
         self.state.tt.store(tt_entry);
 
         if num_children == 0 {
@@ -196,13 +190,17 @@ impl<E: Eval<Chessboard>> Negamax<E> {
     }
 
     fn qsearch(&mut self, pos: Chessboard, mut alpha: Score, beta: Score, ply: usize) -> Score {
+        let original_alpha = alpha;
         let mut best_score = self.eval.eval(pos);
         if best_score >= beta {
             return best_score;
         }
         alpha = alpha.max(best_score);
+        // TODO: Using the TT for move ordering in qsearch was mostly elo-neutral, so retest that eventually
+        let tt_entry = self.state.tt.load(pos.zobrist_hash());
+        let mut best_move = tt_entry.mov;
 
-        let captures = self.order_moves(pos.pseudolegal_captures(), &pos);
+        let captures = self.order_moves(pos.pseudolegal_captures(), &pos, ChessMove::default());
         for mov in captures {
             let new_pos = pos.make_move(mov, Some(&mut self.state.history));
             if new_pos.is_none() {
@@ -216,15 +214,23 @@ impl<E: Eval<Chessboard>> Negamax<E> {
                 continue;
             }
             alpha = score;
+            best_move = mov;
             if score >= beta {
                 break;
             }
         }
+        let bound = best_score.bound(original_alpha, beta);
+        let tt_entry = TTEntry::new(best_score, best_move, 0, bound, pos.zobrist_hash());
+        self.state.tt.store(tt_entry);
         best_score
     }
 
-    fn order_moves(&self, mut moves: ChessMoveList, board: &Chessboard) -> ChessMoveList {
-        let tt_move = self.state.tt.load(board.zobrist_hash()).mov;
+    fn order_moves(
+        &self,
+        mut moves: ChessMoveList,
+        board: &Chessboard,
+        tt_move: ChessMove,
+    ) -> ChessMoveList {
         /// The move list is iterated backwards, which is why better moves get higher scores
         let score_function = |mov: &ChessMove| {
             let captured = mov.captured(board);
