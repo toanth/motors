@@ -40,6 +40,10 @@ pub trait AbstractUGI {
             let res = self.read_input();
             if res.is_err() {
                 eprintln!("An error occurred: {0}", res.err().unwrap());
+                if self.continue_on_error() {
+                    eprintln!("Continuing...");
+                    continue;
+                }
                 return MatchResult {
                     result: GameResult::P2Win,
                     reason: GameOverReason::Adjudication(AdjudicationReason::EngineError),
@@ -50,6 +54,8 @@ pub trait AbstractUGI {
             }
         }
     }
+
+    fn continue_on_error(&self) -> bool;
 
     fn parse_input(&mut self, input: &str) -> Result<MatchStatus, String>;
 
@@ -85,7 +91,6 @@ enum SearchType {
 #[derive(Debug)]
 pub struct UGI<B: Board> {
     engine: AnyEngine<B>,
-    limit: SearchLimit,
     board: B,
     debug_mode: bool,
     status: MatchStatus,
@@ -172,6 +177,10 @@ impl<B: Board> MatchManager<B> for UGI<B> {
 }
 
 impl<B: Board> AbstractUGI for UGI<B> {
+    fn continue_on_error(&self) -> bool {
+        self.debug_mode
+    }
+
     fn parse_input(&mut self, input: &str) -> Result<MatchStatus, String> {
         let mut words = input.split_whitespace();
         let first_word = words.next().ok_or_else(|| "Empty input")?;
@@ -266,7 +275,6 @@ impl<B: Board> UGI<B> {
             board,
             mov_hist: vec![],
             board_hist: ZobristRepetition3Fold::default(),
-            limit: SearchLimit::infinite(),
             debug_mode: false,
             status: NotStarted,
             graphics,
@@ -344,6 +352,7 @@ impl<B: Board> UGI<B> {
     }
 
     fn handle_go(&mut self, mut words: SplitWhitespace) -> Result<MatchStatus, String> {
+        let mut limit = SearchLimit::infinite();
         let is_white = self.board.active_player() == White;
         let mut search_type = Normal;
         while let Some(next_word) = words.next() {
@@ -357,41 +366,39 @@ impl<B: Board> UGI<B> {
                         Duration::from_millis(parse_int(&mut words, "'wtime' milliseconds")?);
                     if is_white {
                         // always parse the int, even if it isn't relevant
-                        self.limit.tc.remaining = time;
+                        limit.tc.remaining = time;
                     }
                 }
                 "btime" | "p2time" => {
                     let time =
                         Duration::from_millis(parse_int(&mut words, "'btime' milliseconds")?);
                     if !is_white {
-                        self.limit.tc.remaining = time;
+                        limit.tc.remaining = time;
                     }
                 }
                 "winc" | "p1inc" => {
                     let increment =
                         Duration::from_millis(parse_int(&mut words, "'winc' milliseconds")?);
                     if is_white {
-                        self.limit.tc.increment = increment;
+                        limit.tc.increment = increment;
                     }
                 }
                 "binc" | "p2inc" => {
                     let increment =
                         Duration::from_millis(parse_int(&mut words, "'binc' milliseconds")?);
                     if !is_white {
-                        self.limit.tc.increment = increment;
+                        limit.tc.increment = increment;
                     }
                 }
-                "movestogo" => {
-                    self.limit.tc.moves_to_go = parse_int(&mut words, "'movestogo' number")?
-                }
-                "depth" => self.limit.depth = parse_int(&mut words, "depth number")?,
-                "nodes" => self.limit.nodes = parse_int(&mut words, "node count")?,
+                "movestogo" => limit.tc.moves_to_go = parse_int(&mut words, "'movestogo' number")?,
+                "depth" => limit.depth = parse_int(&mut words, "depth number")?,
+                "nodes" => limit.nodes = parse_int(&mut words, "node count")?,
                 "mate" => {
-                    self.limit.depth = parse_int(&mut words, "mate move count")?;
-                    self.limit.depth *= 2 // 'mate' is given in moves instead of plies
+                    limit.depth = parse_int(&mut words, "mate move count")?;
+                    limit.depth *= 2 // 'mate' is given in moves instead of plies
                 }
                 "movetime" => {
-                    self.limit.fixed_time = Duration::from_millis(parse_int(
+                    limit.fixed_time = Duration::from_millis(parse_int(
                         &mut words,
                         "time per move in nanoseconds",
                     )?)
@@ -403,25 +410,29 @@ impl<B: Board> UGI<B> {
                 _ => return Err(format!("Unrecognized 'go' option: '{next_word}'")),
             }
         }
-        self.start_search(search_type)
+        self.start_search(search_type, limit)
     }
 
-    fn start_search(&mut self, search_type: SearchType) -> Result<MatchStatus, String> {
+    fn start_search(
+        &mut self,
+        search_type: SearchType,
+        limit: SearchLimit,
+    ) -> Result<MatchStatus, String> {
         self.status = Ongoing;
         // TODO: Do this asynchronously to be able to handle stop commands
         let result_message = match search_type {
             Normal => format_search_result(self.engine.search(
                 self.board,
-                self.limit,
+                limit,
                 self.board_hist.0.clone(),
             )),
-            Perft => format!("{0}", perft(self.limit.depth, self.board)),
-            SplitPerft => format!("{0}", split_perft(self.limit.depth, self.board)),
+            Perft => format!("{0}", perft(limit.depth, self.board)),
+            SplitPerft => format!("{0}", split_perft(limit.depth, self.board)),
             Bench => {
-                let depth = if self.limit.depth == usize::MAX {
+                let depth = if limit.depth == usize::MAX {
                     self.engine.deref().default_bench_depth()
                 } else {
-                    self.limit.depth
+                    limit.depth
                 };
                 run_bench_with_depth(self.engine.deref_mut(), depth)
             }

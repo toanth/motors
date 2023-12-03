@@ -863,4 +863,10 @@ mod tests {
         let board = board.make_move(mov).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 2);
     }
+
+    #[test]
+    fn search_test() {
+        let fen = "7r/pBrkqQ1p/3b4/5b2/8/6P1/PP2PP1P/R1BR2K1 w - - 1 17";
+        let board = Chessboard::from_fen(fen);
+    }
 }
