@@ -53,12 +53,10 @@ pub trait MatchManager<B: Board>: AbstractMatchManager {
     fn move_history(&self) -> &[B::Move];
 
     fn last_move(&self) -> Option<B::Move> {
-        self.move_hist().last().copied()
+        self.move_history().last().copied()
     }
 
     fn format_info(&self, info: SearchInfo<B>) -> String;
-
-    fn move_hist(&self) -> &[B::Move];
 
     fn graphics(&self) -> GraphicsHandle<B>;
 

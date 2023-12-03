@@ -146,10 +146,6 @@ impl<B: Board> MatchManager<B> for UGI<B> {
         Self::format_info_impl(info)
     }
 
-    fn move_hist(&self) -> &[B::Move] {
-        self.mov_hist.as_slice()
-    }
-
     fn graphics(&self) -> GraphicsHandle<B> {
         self.graphics.clone()
     }
@@ -321,14 +317,14 @@ impl<B: Board> UGI<B> {
             ));
         }
         let mut name = String::default();
-        let mut value = words.next().unwrap_or_default().to_string();
         loop {
-            let next_word = words.next().unwrap_or_default().to_string();
+            let next_word = words.next().unwrap_or_default();
             if next_word == "value" || next_word == "" {
                 break;
             }
-            name = name + " " + value.as_str();
+            name = name + " " + next_word;
         }
+        let mut value = words.next().unwrap_or_default().to_string();
         loop {
             let next_word = words.next().unwrap_or_default();
             if next_word == "" {
