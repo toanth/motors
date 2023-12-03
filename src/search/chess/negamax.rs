@@ -9,7 +9,8 @@ use crate::games::chess::pieces::UncoloredChessPiece::Empty;
 use crate::games::chess::{ChessMoveList, Chessboard};
 use crate::games::{Board, BoardHistory, ColoredPiece};
 use crate::general::common::parse_int_from_str;
-use crate::search::tt::{TTEntry, DEFAULT_HASH_SIZE_MB};
+use crate::search::tt::TTScoreType::{Exact, LowerBound, UpperBound};
+use crate::search::tt::{TTEntry, TTScoreType, DEFAULT_HASH_SIZE_MB};
 use crate::search::EngineOptionName::Hash;
 use crate::search::{
     game_result_to_score, should_stop, stop_engine, BenchResult, Engine, EngineOptionName,
@@ -135,6 +136,18 @@ impl<E: Eval<Chessboard>> Negamax<E> {
 
         let tt_entry = self.state.tt.load(pos.zobrist_hash());
         let mut best_move = tt_entry.mov;
+
+        if !root
+            && tt_entry.bound != TTScoreType::Empty
+            && tt_entry.hash == pos.zobrist_hash()
+            && tt_entry.depth as isize >= depth
+            && ((tt_entry.score >= beta && tt_entry.bound == LowerBound)
+                || (tt_entry.score <= alpha && tt_entry.bound == UpperBound)
+                || tt_entry.bound == Exact)
+        {
+            return tt_entry.score;
+        }
+
         let mut num_children = 0;
 
         let all_moves = self.order_moves(pos.pseudolegal_moves(), &pos, best_move);
@@ -197,7 +210,22 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         }
         alpha = alpha.max(best_score);
         // TODO: Using the TT for move ordering in qsearch was mostly elo-neutral, so retest that eventually
+        // do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation
+        // but if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
         let tt_entry = self.state.tt.load(pos.zobrist_hash());
+
+        // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
+        // However, if we've already done qsearch on this position, we can just re-use the result,
+        // so there is no point in checking the depth at all
+        // if tt_entry.hash == pos.zobrist_hash()
+        //     && tt_entry.bound != TTScoreType::Empty
+        //     && ((tt_entry.bound == LowerBound && tt_entry.score >= beta)
+        //         || (tt_entry.bound == UpperBound && tt_entry.score <= alpha)
+        //         || tt_entry.bound == Exact)
+        // {
+        //     return tt_entry.score;
+        // }
+
         let mut best_move = tt_entry.mov;
 
         let captures = self.order_moves(pos.pseudolegal_captures(), &pos, ChessMove::default());
