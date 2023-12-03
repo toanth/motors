@@ -5,7 +5,9 @@ use rand::rngs::ThreadRng;
 
 use crate::eval::mnk::simple_mnk_eval::SimpleMnkEval;
 use crate::games::mnk::{MNKBoard, MnkSettings};
-use crate::games::{Board, BoardHistory, Color, Height, Width};
+use crate::games::{
+    Board, BoardHistory, Color, Height, Width, ZobristHistoryBase, ZobristRepetition3Fold,
+};
 use crate::general::common::parse_int_from_stdin;
 use crate::play::AdjudicationReason::*;
 use crate::play::GameOverReason::Adjudication;
@@ -92,8 +94,8 @@ pub struct Player<B: Board> {
 }
 
 impl<B: Board> Player<B> {
-    pub fn make_move(&mut self, pos: B) -> SearchResult<B> {
-        self.searcher.search(pos, self.limit)
+    pub fn make_move(&mut self, pos: B, history: ZobristHistoryBase) -> SearchResult<B> {
+        self.searcher.search(pos, self.limit, history)
     }
 
     pub fn update_time(&mut self, time_spent_last_move: Duration) -> MatchStatus {
@@ -146,17 +148,18 @@ struct MoveRes<B: Board> {
 
 fn make_move<B: Board>(
     pos: B,
-    history: &mut B::History,
+    history: &mut ZobristRepetition3Fold,
     player: &mut Player<B>,
     graphics: GraphicsHandle<B>,
     move_hist: &mut Vec<B::Move>,
 ) -> Result<MoveRes<B>, GameOver> {
-    if let Some(result) = pos.game_result_slow(Some(history)) {
+    if let Some(result) = pos.game_result_slow() {
         return Err(GameOver {
             result,
             reason: GameOverReason::Normal,
         });
     }
+    history.push(&pos);
 
     graphics.borrow_mut().display_message(
         Info,
@@ -168,7 +171,7 @@ fn make_move<B: Board>(
 
     loop {
         let start_time = Instant::now();
-        response = player.make_move(pos);
+        response = player.make_move(pos, history.0.clone());
         let duration = start_time.elapsed();
 
         if let Over(res) = player.update_time(duration) {
@@ -181,7 +184,7 @@ fn make_move<B: Board>(
 
         let mov = response.chosen_move;
         if pos.is_move_legal(mov) {
-            new_pos = pos.make_move(mov, Some(history)).unwrap();
+            new_pos = pos.make_move(mov).unwrap();
             break;
         }
 
@@ -209,10 +212,17 @@ fn make_move<B: Board>(
         .as_str(),
     );
 
-    Ok(MoveRes {
-        mov: response.chosen_move,
-        board: new_pos,
-    })
+    if let Some(res) = new_pos.game_result_slow() {
+        Err(GameOver {
+            result: res,
+            reason: GameOverReason::Normal,
+        })
+    } else {
+        Ok(MoveRes {
+            mov: response.chosen_move,
+            board: new_pos,
+        })
+    }
 }
 
 fn player_res_to_match_res(game_over: GameOver, is_p1: bool) -> MatchResult {
@@ -261,7 +271,7 @@ impl<B: Board> AbstractMatchManager for BuiltInMatch<B> {
     /// TODO: Another implementation would be to run this asynchronously, but I don't want to deal with multithreading right now
     fn run(&mut self) -> MatchResult {
         self.graphics.borrow_mut().show(self);
-        let mut history = B::History::default();
+        let mut history = ZobristRepetition3Fold::default();
         loop {
             let res = make_move(
                 self.board,

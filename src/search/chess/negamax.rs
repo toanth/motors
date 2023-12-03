@@ -7,16 +7,15 @@ use crate::eval::Eval;
 use crate::games::chess::moves::ChessMove;
 use crate::games::chess::pieces::UncoloredChessPiece::Empty;
 use crate::games::chess::{ChessMoveList, Chessboard};
-use crate::games::{Board, BoardHistory, ColoredPiece};
+use crate::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
 use crate::general::common::parse_int_from_str;
 use crate::search::tt::TTScoreType::{Exact, LowerBound, UpperBound};
 use crate::search::tt::{TTEntry, TTScoreType, DEFAULT_HASH_SIZE_MB};
 use crate::search::EngineOptionName::Hash;
 use crate::search::{
-    game_result_to_score, should_stop, stop_engine, BenchResult, Engine, EngineOptionName,
-    EngineOptionType, EngineState, EngineUciOptionType, InfoCallback, Score, SearchInfo,
-    SearchLimit, SearchResult, SearchStateWithPv, Searcher, TimeControl, SCORE_LOST, SCORE_TIME_UP,
-    SCORE_WON,
+    game_result_to_score, should_stop, BenchResult, Engine, EngineOptionName, EngineOptionType,
+    EngineUciOptionType, InfoCallback, Score, SearchInfo, SearchLimit, SearchResult,
+    SearchStateWithPv, Searcher, TimeControl, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
 };
 
 const DEPTH_SOFT_LIMIT: usize = 100;
@@ -45,11 +44,42 @@ impl DerefMut for HistoryHeuristic {
     }
 }
 
+#[derive(Default, Debug)]
+struct State {
+    state: SearchStateWithPv<Chessboard, DEPTH_HARD_LIMIT>,
+    history: HistoryHeuristic,
+}
+
+impl Deref for State {
+    type Target = SearchStateWithPv<Chessboard, DEPTH_HARD_LIMIT>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl DerefMut for State {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.state
+    }
+}
+
+impl State {
+    fn forget(&mut self) {
+        self.state.forget();
+        self.history = HistoryHeuristic::default();
+    }
+
+    fn new_search(&mut self, history: ZobristRepetition2Fold) {
+        self.state.new_search(history);
+        self.history = HistoryHeuristic::default();
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Negamax<E: Eval<Chessboard>> {
-    state: SearchStateWithPv<Chessboard, DEPTH_HARD_LIMIT>,
+    state: State,
     eval: E,
-    history: HistoryHeuristic,
 }
 
 impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
@@ -66,11 +96,15 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
         }
     }
 
-    fn search(&mut self, pos: Chessboard, limit: SearchLimit) -> SearchResult<Chessboard> {
-        self.state = SearchStateWithPv::initial_state(pos, self.state.info_callback);
+    fn search(
+        &mut self,
+        pos: Chessboard,
+        limit: SearchLimit,
+        history: ZobristHistoryBase,
+    ) -> SearchResult<Chessboard> {
+        self.state.new_search(ZobristRepetition2Fold(history));
         let mut chosen_move = self.state.best_move;
         let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth) as isize;
-        self.history = HistoryHeuristic::default();
 
         println!(
             "starting search with limit {time} ms, {fixed} fixed, {depth} depth, {nodes} nodes",
@@ -116,12 +150,12 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= DEPTH_HARD_LIMIT * 2);
         debug_assert!(depth <= DEPTH_SOFT_LIMIT as isize);
-        debug_assert_eq!(self.state.history.hashes.len(), ply);
+        debug_assert_eq!(self.state.board_history.0 .0.len(), ply); // TODO: This should fail!!
 
         let root = ply == 0;
         let original_alpha = alpha;
 
-        if !root && (pos.is_2fold_repetition(&self.state.history) || pos.is_50mr_draw()) {
+        if !root && (self.state.board_history.is_repetition(&pos) || pos.is_50mr_draw()) {
             return Score(0);
         }
         let in_check = pos.is_in_check();
@@ -152,16 +186,16 @@ impl<E: Eval<Chessboard>> Negamax<E> {
 
         let all_moves = self.order_moves(pos.pseudolegal_moves(), &pos, best_move);
         for mov in all_moves {
-            let new_pos = pos.make_move(mov, Some(&mut self.state.history));
+            let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
                 continue; // illegal pseudolegal move
             }
             self.state.nodes += 1;
             num_children += 1;
 
+            self.state.board_history.push(&pos);
             let score = -self.negamax(new_pos.unwrap(), limit, ply + 1, depth - 1, -beta, -alpha);
-
-            self.state.history.pop(&new_pos.unwrap());
+            self.state.state.board_history.pop(&pos);
 
             if self.state.search_cancelled || should_stop(&limit, self, self.state.start_time) {
                 self.state.search_cancelled = true;
@@ -186,7 +220,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             if mov.is_capture(&pos) {
                 break;
             }
-            self.history[mov.from_to_square()] += (depth * depth) as i32;
+            self.state.history[mov.from_to_square()] += (depth * depth) as i32;
             break;
         }
 
@@ -196,7 +230,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         self.state.tt.store(tt_entry);
 
         if num_children == 0 {
-            game_result_to_score(pos.no_moves_result(Some(&self.state.history)), ply)
+            game_result_to_score(pos.no_moves_result(), ply)
         } else {
             best_score
         }
@@ -230,13 +264,14 @@ impl<E: Eval<Chessboard>> Negamax<E> {
 
         let captures = self.order_moves(pos.pseudolegal_captures(), &pos, ChessMove::default());
         for mov in captures {
-            let new_pos = pos.make_move(mov, Some(&mut self.state.history));
+            let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
                 continue;
             }
             // TODO: Also count qsearch nodes. Because of the nodes % 1024 check in timeouts, this requires also checking for timeouts in qsearch.
+            self.state.board_history.push(&pos);
             let score = -self.qsearch(new_pos.unwrap(), -beta, -alpha, ply + 1);
-            self.state.history.pop(&new_pos.unwrap());
+            self.state.board_history.pop(&pos);
             best_score = best_score.max(score);
             if score <= alpha {
                 continue;
@@ -265,7 +300,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             if *mov == tt_move {
                 i32::MAX
             } else if captured == Empty {
-                self.history[mov.from_to_square()]
+                self.state.history[mov.from_to_square()]
             } else {
                 i32::MAX - 100 + captured as i32 * 10 - mov.piece(board).uncolored() as i32
             }
@@ -277,7 +312,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
 
 impl<E: Eval<Chessboard>> Engine<Chessboard> for Negamax<E> {
     fn bench(&mut self, pos: Chessboard, depth: usize) -> BenchResult {
-        self.state = SearchStateWithPv::initial_state(pos, self.state.info_callback);
+        self.state.new_search(ZobristRepetition2Fold::default());
         let mut limit = SearchLimit::infinite();
         limit.depth = DEPTH_SOFT_LIMIT.min(depth);
         self.state.depth = limit.depth;
@@ -289,12 +324,8 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Negamax<E> {
         6
     }
 
-    fn stop(&mut self) -> Result<SearchResult<Chessboard>, String> {
-        stop_engine(
-            &self.state.initial_pos,
-            self.state.best_move,
-            self.state.score,
-        )
+    fn stop(&mut self) {
+        self.state.search_cancelled = true;
     }
 
     fn set_info_callback(&mut self, f: InfoCallback<Chessboard>) {
@@ -307,7 +338,6 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Negamax<E> {
 
     fn forget(&mut self) {
         self.state.forget();
-        self.history = HistoryHeuristic::default();
     }
 
     fn nodes(&self) -> u64 {

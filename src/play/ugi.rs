@@ -8,7 +8,7 @@ use colored::Colorize;
 use itertools::Itertools;
 
 use crate::games::Color::White;
-use crate::games::{Board, BoardHistory, Color, Move};
+use crate::games::{Board, BoardHistory, Color, Move, ZobristRepetition3Fold};
 use crate::general::common::parse_int;
 use crate::play::run_match::play;
 use crate::play::ugi::SearchType::{Bench, Normal, Perft, SplitPerft};
@@ -91,7 +91,7 @@ pub struct UGI<B: Board> {
     status: MatchStatus,
     graphics: GraphicsHandle<B>,
     mov_hist: Vec<B::Move>,
-    board_hist: B::History,
+    board_hist: ZobristRepetition3Fold,
     initial_pos: B,
     next_match: Option<AnyMatch>,
 }
@@ -117,7 +117,8 @@ impl<B: Board> AbstractMatchManager for UGI<B> {
     }
 
     fn abort(&mut self) -> Result<MatchStatus, String> {
-        self.engine.stop().map(|_| MatchStatus::aborted())
+        self.engine.stop();
+        Ok(MatchStatus::aborted())
     }
 
     fn match_status(&self) -> MatchStatus {
@@ -209,7 +210,10 @@ impl<B: Board> AbstractUGI for UGI<B> {
             } // just ignore it
             "position" => self.handle_position(words),
             "go" => self.handle_go(words),
-            "stop" => self.engine.stop().map(|_| Ongoing),
+            "stop" => {
+                self.engine.stop();
+                Ok(Ongoing)
+            }
             "ponderhit" => Ok(self.status), // ignore pondering
             "quit" => self.quit(),
             "query" => self.handle_query(words),
@@ -261,7 +265,7 @@ impl<B: Board> UGI<B> {
             engine,
             board,
             mov_hist: vec![],
-            board_hist: B::History::default(),
+            board_hist: ZobristRepetition3Fold::default(),
             limit: SearchLimit::infinite(),
             debug_mode: false,
             status: NotStarted,
@@ -406,7 +410,11 @@ impl<B: Board> UGI<B> {
         self.status = Ongoing;
         // TODO: Do this asynchronously to be able to handle stop commands
         let result_message = match search_type {
-            Normal => format_search_result(self.engine.search(self.board, self.limit)),
+            Normal => format_search_result(self.engine.search(
+                self.board,
+                self.limit,
+                self.board_hist.0.clone(),
+            )),
             Perft => format!("{0}", perft(self.limit.depth, self.board)),
             SplitPerft => format!("{0}", split_perft(self.limit.depth, self.board)),
             Bench => {
@@ -577,11 +585,12 @@ impl<B: Board> UGI<B> {
         if !self.board.is_move_pseudolegal(mov) {
             return Err(format!("Illegal move {mov} (not pseudolegal)"));
         }
+        self.board_hist.push(&self.board);
+        self.mov_hist.push(mov);
         self.board = self
             .board
-            .make_move(mov, Some(&mut self.board_hist))
+            .make_move(mov)
             .ok_or_else(|| format!("Illegal move {mov} (pseudolegal)"))?;
-        self.mov_hist.push(mov);
         // if self.board.is_game_lost() || self.board.is_draw() {
         //     let result = if self.board.is_game_lost() {
         //         if self.board.active_player() == White {

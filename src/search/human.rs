@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Formatter};
 use std::time::{Duration, Instant};
 
-use crate::games::Board;
+use crate::games::{Board, ZobristHistoryBase};
 use crate::search::{SearchLimit, SearchResult, Searcher, TimeControl};
 use crate::ui::text_ui::TextUI;
 use crate::ui::{to_ui_handle, UIHandle};
@@ -31,7 +31,7 @@ impl<B: Board> Default for Human<B> {
 }
 
 impl<B: Board> Searcher<B> for Human<B> {
-    fn search(&mut self, pos: B, _: SearchLimit) -> SearchResult<B> {
+    fn search(&mut self, pos: B, _: SearchLimit, _: ZobristHistoryBase) -> SearchResult<B> {
         let mut handle = self.ui.borrow_mut();
         SearchResult::move_only(handle.get_move(&pos))
     }

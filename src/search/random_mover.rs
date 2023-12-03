@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use rand::Rng;
 
-use crate::games::Board;
+use crate::games::{Board, ZobristHistoryBase};
 use crate::search::{
     BenchResult, Engine, InfoCallback, Score, SearchInfo, SearchLimit, SearchResult, Searcher,
     TimeControl,
@@ -32,7 +32,7 @@ impl<B: Board, R: Rng + Default> Default for RandomMover<B, R> {
 }
 
 impl<B: Board, R: Rng + Default + 'static> Searcher<B> for RandomMover<B, R> {
-    fn search(&mut self, pos: B, _: SearchLimit) -> SearchResult<B> {
+    fn search(&mut self, pos: B, _: SearchLimit, _: ZobristHistoryBase) -> SearchResult<B> {
         self.chosen_move = pos
             .random_legal_move(&mut self.rng)
             .expect("search() called in a position with no legal moves");
@@ -61,8 +61,8 @@ impl<B: Board, R: Rng + Default + 'static> Engine<B> for RandomMover<B, R> {
         1 // ignored as the engine will just pick a random move no matter what
     }
 
-    fn stop(&mut self) -> Result<SearchResult<B>, String> {
-        Ok(SearchResult::default())
+    fn stop(&mut self) {
+        // do nothing
     }
 
     fn set_info_callback(&mut self, f: InfoCallback<B>) {

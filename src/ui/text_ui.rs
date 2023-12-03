@@ -98,21 +98,21 @@ fn match_to_pgn<B: Board>(m: &dyn MatchManager<B>) -> String {
         fen = m.initial_pos().as_fen()
     );
     let mut board = m.initial_pos();
-    for (ply, mov) in m.move_hist().iter().enumerate() {
+    for (ply, mov) in m.move_history().iter().enumerate() {
         let mov_str = mov.to_extended_text(&board);
         if ply % 2 == 0 {
             res += &format!("\n{}. {mov_str}", ply / 2 + 1);
         } else {
             res += &format!(" {mov_str}")
         }
-        board = board.make_move(*mov, None).unwrap();
+        board = board.make_move(*mov).unwrap();
     }
     res
 }
 
 fn match_to_uci<B: Board>(m: &dyn MatchManager<B>) -> String {
     let mut res = format!("position fen {} moves ", m.initial_pos().as_fen());
-    for mov in m.move_hist() {
+    for mov in m.move_history() {
         res += mov.to_compact_text().as_str();
         res.push(' ');
     }

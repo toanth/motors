@@ -2,11 +2,10 @@ use std::time::{Duration, Instant};
 
 use rand::thread_rng;
 
-use crate::games::{Board, BoardHistory};
+use crate::games::{Board, BoardHistory, ZobristHistoryBase, ZobristRepetition2Fold};
 use crate::search::{
-    game_result_to_score, should_stop, stop_engine, BenchResult, Engine, EngineState, InfoCallback,
-    Score, SearchInfo, SearchLimit, SearchResult, Searcher, SimpleSearchState, TimeControl,
-    SCORE_LOST, SCORE_TIME_UP,
+    game_result_to_score, should_stop, BenchResult, Engine, InfoCallback, Score, SearchInfo,
+    SearchLimit, SearchResult, Searcher, SimpleSearchState, TimeControl, SCORE_LOST, SCORE_TIME_UP,
 };
 
 const MAX_DEPTH: usize = 100;
@@ -17,8 +16,13 @@ pub struct NaiveSlowNegamax<B: Board> {
 }
 
 impl<B: Board> Searcher<B> for NaiveSlowNegamax<B> {
-    fn search(&mut self, pos: B, limit: SearchLimit) -> SearchResult<B> {
-        self.state = Default::default();
+    fn search(
+        &mut self,
+        pos: B,
+        limit: SearchLimit,
+        history: ZobristHistoryBase,
+    ) -> SearchResult<B> {
+        self.state.new_search(ZobristRepetition2Fold(history));
 
         self.state.score = self.negamax(pos, limit, 0);
         self.state.send_new_info();
@@ -61,12 +65,8 @@ impl<B: Board> Engine<B> for NaiveSlowNegamax<B> {
         1 // ignored as the engine will search until terminal nodes anyway
     }
 
-    fn stop(&mut self) -> Result<SearchResult<B>, String> {
-        stop_engine(
-            &self.state.initial_pos,
-            self.state.best_move,
-            self.state.score,
-        )
+    fn stop(&mut self) {
+        self.state.search_cancelled = true;
     }
 
     fn set_info_callback(&mut self, f: InfoCallback<B>) {
@@ -90,21 +90,21 @@ impl<B: Board> NaiveSlowNegamax<B> {
     fn negamax(&mut self, pos: B, limit: SearchLimit, ply: usize) -> Score {
         assert!(ply <= MAX_DEPTH);
 
-        if let Some(res) = pos.game_result_no_movegen(Some(&self.state.history)) {
+        if let Some(res) = pos.game_result_no_movegen() {
             return game_result_to_score(res, ply);
         }
 
         let mut best_score = SCORE_LOST;
 
         for mov in pos.pseudolegal_moves() {
-            let new_pos = pos.make_move(mov, Some(&mut self.state.history));
+            let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
                 continue; // illegal pseudolegal move
             }
 
+            self.state.board_history.push(&pos);
             let score = -self.negamax(new_pos.unwrap(), limit, ply + 1);
-
-            self.state.history.pop(&new_pos.unwrap());
+            self.state.board_history.pop(&pos);
 
             if self.state.search_cancelled || should_stop(&limit, self, self.state.start_time) {
                 self.state.search_cancelled = true;

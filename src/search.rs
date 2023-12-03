@@ -6,9 +6,8 @@ use std::time::{Duration, Instant};
 
 use colored::Colorize;
 use derive_more::{Add, AddAssign, Neg, Sub};
-use rand::thread_rng;
 
-use crate::games::{Board, PlayerResult};
+use crate::games::{Board, PlayerResult, ZobristHistoryBase, ZobristRepetition2Fold};
 use crate::play::AnyMutEngineRef;
 use crate::search::tt::TTScoreType::*;
 use crate::search::tt::{TTScoreType, TT};
@@ -363,7 +362,12 @@ pub struct EngineOptionType {
 
 pub trait Searcher<B: Board>: Debug + 'static {
     /// The important function.
-    fn search(&mut self, pos: B, limit: SearchLimit) -> SearchResult<B>;
+    fn search(
+        &mut self,
+        pos: B,
+        limit: SearchLimit,
+        history: ZobristHistoryBase,
+    ) -> SearchResult<B>;
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool;
 
@@ -378,10 +382,7 @@ pub trait Engine<B: Board>: Searcher<B> {
     fn default_bench_depth(&self) -> usize;
 
     /// Stop the current search. Can be called from another thread while the search is running.
-    fn stop(&mut self) -> Result<SearchResult<B>, String>;
-    // {
-    //     Err(format!("The engine '{0}' can't be stopped", self.name()))
-    // }
+    fn stop(&mut self);
 
     fn set_info_callback(&mut self, f: InfoCallback<B>);
 
@@ -435,56 +436,10 @@ impl<B: Board> Default for InfoCallback<B> {
     }
 }
 
-pub trait EngineState<B: Board> {
-    fn initial_state(initial_pos: B, info_callback: InfoCallback<B>) -> Self;
-    fn forget(&mut self);
-    fn nodes(&self) -> u64;
-    fn depth(&self) -> usize;
-    fn start_time(&self) -> Instant;
-    fn mov(&self) -> B::Move;
-    fn score(&self) -> Score;
-    fn pv(&self) -> Vec<B::Move>;
-    fn hashfull(&self) -> Option<usize> {
-        None
-    }
-    fn seldepth(&self) -> Option<usize> {
-        None
-    }
-    fn additional(&self) -> Option<String> {
-        None
-    }
-    fn to_info(&self) -> SearchInfo<B> {
-        SearchInfo {
-            best_move: self.mov(),
-            depth: self.depth(),
-            seldepth: self.seldepth(),
-            time: self.start_time().elapsed(),
-            nodes: self.nodes(),
-            pv: self.pv(),
-            score: self.score(),
-            hashfull: self.hashfull(),
-            additional: self.additional(),
-        }
-    }
-    fn info_callback(&self) -> InfoCallback<B>;
-    fn send_new_info(&self) {
-        self.info_callback().call(self.to_info());
-    }
-
-    fn to_bench_res(&self) -> BenchResult {
-        BenchResult {
-            nodes: self.nodes(),
-            time: self.start_time().elapsed(),
-            depth: self.depth(),
-        }
-    }
-}
-
 #[derive(Debug)]
 struct SimpleSearchState<B: Board> {
     tt: TT<B>,
-    history: B::History,
-    initial_pos: B,
+    board_history: ZobristRepetition2Fold,
     best_move: Option<B::Move>,
     nodes: u64,
     search_cancelled: bool,
@@ -494,23 +449,12 @@ struct SimpleSearchState<B: Board> {
     score: Score,
 }
 
-impl<B: Board> SimpleSearchState<B> {
-    fn initial_state(initial_pos: B, info_callback: InfoCallback<B>) -> Self {
-        Self {
-            initial_pos,
-            info_callback,
-            ..Default::default()
-        }
-    }
-}
-
 impl<B: Board> Default for SimpleSearchState<B> {
     fn default() -> Self {
         let start_time = Instant::now();
         Self {
             tt: Default::default(),
-            history: B::History::default(),
-            initial_pos: B::default(),
+            board_history: ZobristRepetition2Fold::default(),
             start_time,
             score: Score(0),
             best_move: None,
@@ -522,13 +466,16 @@ impl<B: Board> Default for SimpleSearchState<B> {
     }
 }
 
-impl<B: Board> EngineState<B> for SimpleSearchState<B> {
-    fn initial_state(initial_pos: B, info_callback: InfoCallback<B>) -> Self {
-        Self {
-            initial_pos,
-            info_callback,
-            ..Default::default()
-        }
+impl<B: Board> SimpleSearchState<B> {
+    fn new_search(&mut self, history: ZobristRepetition2Fold) {
+        self.board_history = history;
+        self.start_time = Instant::now();
+        self.score = Score(0);
+        self.best_move = None;
+        self.nodes = 0;
+        self.search_cancelled = false;
+        self.depth = 0;
+        // Don't reset the TT or the info callback
     }
 
     fn forget(&mut self) {
@@ -563,6 +510,41 @@ impl<B: Board> EngineState<B> for SimpleSearchState<B> {
     fn info_callback(&self) -> InfoCallback<B> {
         self.info_callback
     }
+
+    fn hashfull(&self) -> Option<usize> {
+        None
+    }
+    fn seldepth(&self) -> Option<usize> {
+        None
+    }
+    fn additional(&self) -> Option<String> {
+        None
+    }
+    fn to_info(&self) -> SearchInfo<B> {
+        SearchInfo {
+            best_move: self.mov(),
+            depth: self.depth(),
+            seldepth: self.seldepth(),
+            time: self.start_time().elapsed(),
+            nodes: self.nodes(),
+            pv: self.pv(),
+            score: self.score(),
+            hashfull: self.hashfull(),
+            additional: self.additional(),
+        }
+    }
+
+    fn send_new_info(&self) {
+        self.info_callback().call(self.to_info());
+    }
+
+    fn to_bench_res(&self) -> BenchResult {
+        BenchResult {
+            nodes: self.nodes(),
+            time: self.start_time().elapsed(),
+            depth: self.depth(),
+        }
+    }
 }
 
 #[derive(Default, Debug)]
@@ -585,12 +567,10 @@ impl<B: Board, const PV_LIMIT: usize> DerefMut for SearchStateWithPv<B, PV_LIMIT
     }
 }
 
-impl<B: Board, const PV_LIMIT: usize> EngineState<B> for SearchStateWithPv<B, PV_LIMIT> {
-    fn initial_state(initial_pos: B, info_callback: InfoCallback<B>) -> Self {
-        Self {
-            wrapped: SimpleSearchState::initial_state(initial_pos, info_callback),
-            pv_table: Default::default(),
-        }
+impl<B: Board, const PV_LIMIT: usize> SearchStateWithPv<B, PV_LIMIT> {
+    fn new_search(&mut self, history: ZobristRepetition2Fold) {
+        self.wrapped.new_search(history);
+        self.pv_table.reset();
     }
 
     fn forget(&mut self) {
@@ -625,22 +605,6 @@ impl<B: Board, const PV_LIMIT: usize> EngineState<B> for SearchStateWithPv<B, PV
     fn info_callback(&self) -> InfoCallback<B> {
         self.wrapped.info_callback()
     }
-}
-
-fn stop_engine<B: Board>(
-    initial_pos: &B,
-    chosen_move: Option<B::Move>,
-    score: Score,
-) -> Result<SearchResult<B>, String> {
-    Ok(SearchResult::move_and_score(
-        chosen_move.unwrap_or_else(|| {
-            let mut rng = thread_rng();
-            initial_pos
-                .random_legal_move(&mut rng)
-                .expect("search and stop() called in a position with no legal moves")
-        }),
-        score,
-    ))
 }
 
 pub fn run_bench<B: Board>(engine: AnyMutEngineRef<B>) -> String {

@@ -16,7 +16,7 @@ use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::chess::Chessboard;
 use crate::games::{
     legal_moves_slow, AbstractPieceType, Board, BoardHistory, Color, ColoredPiece,
-    ColoredPieceType, Move, MoveFlags, ZobristHistory,
+    ColoredPieceType, Move, MoveFlags,
 };
 use crate::general::bitboards::{Bitboard, ChessBitboard};
 
@@ -233,8 +233,8 @@ impl Move<Chessboard> for ChessMove {
             res.push('=');
             res.push(self.flags().promo_piece().to_ascii_char());
         }
-        let board = board.make_move(self, None).unwrap();
-        if board.is_game_lost_slow(None) {
+        let board = board.make_move(self).unwrap();
+        if board.is_game_lost_slow() {
             res.push('#');
         } else if board.is_in_check() {
             res.push('+');
@@ -256,11 +256,7 @@ impl Chessboard {
         }
     }
 
-    pub(super) fn make_move_impl(
-        mut self,
-        mov: ChessMove,
-        mut history: Option<&mut ZobristHistory>,
-    ) -> Option<Self> {
+    pub(super) fn make_move_impl(mut self, mov: ChessMove) -> Option<Self> {
         let piece = mov.piece(&self).symbol;
         let uncolored = piece.uncolor();
         let color = self.active_player;
@@ -269,7 +265,6 @@ impl Chessboard {
         let to = mov.to_square();
         assert_eq!(color, piece.color().unwrap());
         self.ply_100_ctr += 1;
-        history.as_mut().map(|h| (*h).push(&self));
         // remove old castling flags
         self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.flags.castling_flags() as usize];
         if let Some(square) = self.ep_square {
@@ -355,16 +350,12 @@ impl Chessboard {
             self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(mov.flags().promo_piece(), color, to);
         }
         self.ply += 1;
-        self.flip_side_to_move(history)
+        self.flip_side_to_move()
     }
 
     /// Called at the end of make_nullmove and make_move.
-    pub(super) fn flip_side_to_move(
-        mut self,
-        history: Option<&mut ZobristHistory>,
-    ) -> Option<Self> {
+    pub(super) fn flip_side_to_move(mut self) -> Option<Self> {
         if self.is_in_check() {
-            history.map(|h| h.pop(&self));
             None
         } else {
             self.active_player = self.active_player.other();

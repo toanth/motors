@@ -6,10 +6,11 @@ use std::str::FromStr;
 
 use derive_more::{BitOrAssign, BitXorAssign};
 use itertools::Itertools;
+use num::iter;
 use rand::Rng;
 use strum_macros::EnumIter;
 
-use crate::games::PlayerResult::Lose;
+use crate::games::PlayerResult::{Draw, Lose};
 use crate::general::common::parse_int;
 use crate::general::move_list::MoveList;
 use crate::play::AnyEngine;
@@ -432,6 +433,10 @@ pub enum PlayerResult {
 }
 
 pub trait BoardHistory<B: Board>: Default + Debug + Clone + 'static {
+    fn game_result(&self, board: &B) -> Option<PlayerResult>;
+    fn is_repetition(&self, board: &B) -> bool {
+        self.game_result(board).is_some()
+    }
     fn push(&mut self, board: &B);
     fn pop(&mut self, _board: &B);
 }
@@ -440,26 +445,101 @@ pub trait BoardHistory<B: Board>: Default + Debug + Clone + 'static {
 pub struct NoHistory {}
 
 impl<B: Board> BoardHistory<B> for NoHistory {
+    fn game_result(&self, board: &B) -> Option<PlayerResult> {
+        None
+    }
+
     fn push(&mut self, _board: &B) {}
 
     fn pop(&mut self, _board: &B) {}
 }
 
 #[derive(Clone, Eq, PartialEq, Default, Debug)]
-pub struct ZobristHistory {
-    pub hashes: Vec<ZobristHash>,
+pub struct ZobristHistoryBase(pub Vec<ZobristHash>);
+
+impl ZobristHistoryBase {
+    fn push(&mut self, hash: ZobristHash) {
+        self.0.push(hash);
+    }
+
+    fn pop(&mut self) {
+        self.0
+            .pop()
+            .expect("ZobristHistory::pop() called on empty history");
+    }
 }
 
-impl<B: Board> BoardHistory<B> for ZobristHistory {
+fn find_repetition(
+    hash: ZobristHash,
+    max_history: usize,
+    history: &ZobristHistoryBase,
+    mut count: usize,
+) -> bool {
+    let stop = 0.max(history.0.len() as isize - max_history as isize);
+    for i in iter::range_step_inclusive(history.0.len() as isize - 4, stop, -2) {
+        if history.0[i as usize] == hash {
+            count -= 1;
+            if count <= 1 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[derive(Clone, Eq, PartialEq, Default, Debug)]
+pub struct ZobristRepetition2Fold(pub ZobristHistoryBase);
+
+impl<B: Board> BoardHistory<B> for ZobristRepetition2Fold {
+    fn game_result(&self, board: &B) -> Option<PlayerResult> {
+        match find_repetition(
+            board.zobrist_hash(),
+            board.halfmove_repetition_clock(),
+            &self.0,
+            2,
+        ) {
+            true => Some(Draw),
+            false => None,
+        }
+    }
+
     fn push(&mut self, board: &B) {
-        self.hashes.push(board.zobrist_hash())
+        self.0.push(board.zobrist_hash())
     }
 
     // the _board parameter is only there to deduce the trait
     fn pop(&mut self, _board: &B) {
-        self.hashes
-            .pop()
-            .expect("ZobristHistory::pop() called on empty history");
+        self.0.pop();
+    }
+}
+
+#[derive(Default, Debug, Eq, PartialEq, Clone)]
+pub struct ZobristRepetition3Fold(pub ZobristHistoryBase);
+
+/// The threefold repetition rule is pretty common in games where repetitions regularly occur.
+/// Only relies on the hashes, which isn't always entirely correct --
+/// For example, the FIDE rule state that the set of legal moves must be identical, which is not the case
+/// if the ep square is set (and therefore part of the hash) but the pawn is pinned and can't actually take.
+/// TODO: Write another implementation that actually checks for that, to be used by the game manager.
+impl<B: Board> BoardHistory<B> for ZobristRepetition3Fold {
+    fn game_result(&self, board: &B) -> Option<PlayerResult> {
+        match find_repetition(
+            board.zobrist_hash(),
+            board.halfmove_repetition_clock(),
+            &self.0,
+            3,
+        ) {
+            true => Some(Draw),
+            false => None,
+        }
+    }
+
+    fn push(&mut self, board: &B) {
+        self.0.push(board.zobrist_hash())
+    }
+
+    fn pop(&mut self, _board: &B) {
+        self.0.pop()
     }
 }
 
@@ -481,7 +561,6 @@ pub trait Board:
     type LegalMoveList: MoveList<Self> + FromIterator<Self::Move>;
     type EngineList: EngineList<Self>;
     type GraphicsList: GraphicsList<Self>;
-    type History: BoardHistory<Self>;
 
     /// Returns the name of the game, such as 'chess'
     fn game_name() -> String;
@@ -533,12 +612,16 @@ pub trait Board:
     fn active_player(&self) -> Color;
 
     /// The number of moves (turns) since the start of the game.
-    fn fullmove_ctr(&self) -> u32 {
-        self.halfmove_ctr() / 2
+    fn fullmove_ctr(&self) -> usize {
+        self.halfmove_ctr_since_start() / 2
     }
 
     /// The number of half moves (plies) since the start of the game.
-    fn halfmove_ctr(&self) -> u32;
+    fn halfmove_ctr_since_start(&self) -> usize;
+
+    /// An upper bound on the number of past plies that need to be considered for repetitions.
+    /// This can be the same as `halfmove_ctr_since_start` or always zero if repetitions aren't possible.   
+    fn halfmove_repetition_clock(&self) -> usize;
 
     /// The size of the board expressed as coordinates.
     /// The value returned from this function does not correspond to a valid square.
@@ -588,13 +671,12 @@ pub trait Board:
     /// like ignoring a check in chess. Not meant to return None on moves that never make sense,
     /// like moving to a square outside of the board (in that case, the function should panic).
     /// In other words, this function only gracefully checks legality assuming that the move is pseudolegal.
-    /// TODO: Just use make/unmake, much cleaner and easier
-    fn make_move(self, mov: Self::Move, history: Option<&mut Self::History>) -> Option<Self>;
+    fn make_move(self, mov: Self::Move) -> Option<Self>;
 
     /// Makes a nullmove, i.e. flips the active player. While this action isn't strictly legal in most games,
     /// it's still very useful and necessary for null move pruning.
     /// Just like make_move, this function may fail, such as when trying to do a nullmove while in check.
-    fn make_nullmove(self, history: Option<&mut Self::History>) -> Option<Self>;
+    fn make_nullmove(self) -> Option<Self>;
 
     /// Returns true iff the move is pseudolegal, that is, it can be played with `make_move` without
     /// causing a panic.
@@ -610,10 +692,10 @@ pub trait Board:
     /// Expects a pseudolegal move and returns if this move is also legal, which means that playing it with
     /// `make_move` returns `Some(new_board)`
     fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {
-        self.make_move(mov, None).is_some()
+        self.make_move(mov).is_some()
     }
 
-    fn game_result_no_movegen(&self, history: Option<&Self::History>) -> Option<PlayerResult>;
+    fn game_result_no_movegen(&self) -> Option<PlayerResult>;
 
     /// Returns the result (win/draw/loss), if any. Can be potentially slow because it can require movegen.
     /// If movegen is used anyway (such as in an ab search), it is usually better to call `game_result_no_movegen`
@@ -623,25 +705,25 @@ pub trait Board:
     /// Note that many implementations never return `PlayerResult::Win` because the active player can't win the game,
     /// which is the case because the current player is flipped after the winning move.
     /// For example, being checkmated in chess is a loss for the current player.
-    fn game_result_slow(&self, history: Option<&Self::History>) -> Option<PlayerResult>;
+    fn game_result_slow(&self) -> Option<PlayerResult>;
 
     /// Only called when there are no legal moves.
     /// In that case, the function returns the game state from the current player's perspective.
     /// Note that this doesn't check that there are indeed no legal moves to avoid paying the performance cost of that.
-    fn no_moves_result(&self, _: Option<&Self::History>) -> PlayerResult;
+    fn no_moves_result(&self) -> PlayerResult;
 
     /// Returns true iff the game is lost for player who can now move, like being checkmated in chess.
     /// Using `game_result_no_movegen()` and `no_moves_result()` is often the faster option if movegen is needed anyway
-    fn is_game_lost_slow(&self, history: Option<&Self::History>) -> bool {
-        self.game_result_slow(history).is_some_and(|x| x == Lose)
+    fn is_game_lost_slow(&self) -> bool {
+        self.game_result_slow().is_some_and(|x| x == Lose)
     }
 
     /// Returns true iff the game is won for the current player after making the given move.
     /// This move has to be pseudolegal. If the move will likely be played anyway, it can be faster
     /// to play it and use `game_result()` or `game_result_no_movegen()` and `no_moves_result` instead.
     fn is_game_won_after_slow(&self, mov: Self::Move) -> bool {
-        self.make_move(mov, None)
-            .map_or(false, |new_pos| new_pos.is_game_lost_slow(None))
+        self.make_move(mov)
+            .map_or(false, |new_pos| new_pos.is_game_lost_slow())
     }
 
     /// Returns true iff the game is a draw. This function covers all possibilities of a draw occurring,
@@ -682,6 +764,24 @@ pub trait Board:
     /// and for validating input, such as FENs, not to be used for filtering positions after a call to `make_move`
     /// (it should  already be ensured that the move results in a legal position or `None` through other means).
     fn verify_position_legal(&self) -> Result<(), String>;
+}
+
+pub fn game_result_slow<B: Board, H: BoardHistory<B>>(
+    board: &B,
+    history: &H,
+) -> Option<PlayerResult> {
+    board
+        .game_result_slow()
+        .or_else(|| history.game_result(&board))
+}
+
+pub fn game_result_no_movegen<B: Board, H: BoardHistory<B>>(
+    board: &B,
+    history: &H,
+) -> Option<PlayerResult> {
+    board
+        .game_result_no_movegen()
+        .or_else(|| history.game_result(&board))
 }
 
 pub trait RectangularBoard: Board {

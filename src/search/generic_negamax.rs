@@ -3,11 +3,11 @@ use std::time::{Duration, Instant};
 use rand::thread_rng;
 
 use crate::eval::Eval;
-use crate::games::{Board, BoardHistory};
+use crate::games::{Board, BoardHistory, ZobristHistoryBase, ZobristRepetition2Fold};
 use crate::search::{
-    game_result_to_score, should_stop, stop_engine, BenchResult, Engine, EngineOptionName,
-    EngineOptionType, EngineState, InfoCallback, Score, SearchInfo, SearchLimit, SearchResult,
-    Searcher, SimpleSearchState, TimeControl, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
+    game_result_to_score, should_stop, BenchResult, Engine, EngineOptionName, EngineOptionType,
+    InfoCallback, Score, SearchInfo, SearchLimit, SearchResult, Searcher, SimpleSearchState,
+    TimeControl, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
 };
 
 const MAX_DEPTH: usize = 100;
@@ -19,8 +19,13 @@ pub struct GenericNegamax<B: Board, E: Eval<B>> {
 }
 
 impl<B: Board, E: Eval<B>> Searcher<B> for GenericNegamax<B, E> {
-    fn search(&mut self, pos: B, limit: SearchLimit) -> SearchResult<B> {
-        self.state = SimpleSearchState::initial_state(pos, self.state.info_callback);
+    fn search(
+        &mut self,
+        pos: B,
+        limit: SearchLimit,
+        history: ZobristHistoryBase,
+    ) -> SearchResult<B> {
+        self.state.new_search(ZobristRepetition2Fold(history));
         let mut chosen_move = self.state.best_move;
         let max_depth = MAX_DEPTH.min(limit.depth) as isize;
 
@@ -59,7 +64,7 @@ impl<B: Board, E: Eval<B>> Searcher<B> for GenericNegamax<B, E> {
 
 impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
     fn bench(&mut self, pos: B, depth: usize) -> BenchResult {
-        self.state = SimpleSearchState::initial_state(pos, self.state.info_callback);
+        self.state.new_search(ZobristRepetition2Fold::default());
         let mut limit = SearchLimit::infinite();
         limit.depth = MAX_DEPTH.min(depth);
         self.state.depth = limit.depth;
@@ -71,12 +76,8 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
         4 // overly conversative for most games, but better too little than too much
     }
 
-    fn stop(&mut self) -> Result<SearchResult<B>, String> {
-        stop_engine(
-            &self.state.initial_pos,
-            self.state.best_move,
-            self.state.score,
-        )
+    fn stop(&mut self) {
+        self.state.search_cancelled = true;
     }
 
     fn set_info_callback(&mut self, f: InfoCallback<B>) {
@@ -118,7 +119,7 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
         debug_assert!(ply <= MAX_DEPTH * 2);
         debug_assert!(depth <= MAX_DEPTH as isize);
 
-        if let Some(res) = pos.game_result_no_movegen(Some(&self.state.history)) {
+        if let Some(res) = pos.game_result_no_movegen() {
             return game_result_to_score(res, ply);
         }
         if depth <= 0 {
@@ -129,7 +130,7 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
         let mut num_children = 0;
 
         for mov in pos.pseudolegal_moves() {
-            let new_pos = pos.make_move(mov, Some(&mut self.state.history));
+            let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
                 continue; // illegal pseudolegal move
             }
@@ -138,7 +139,7 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
 
             let score = -self.negamax(new_pos.unwrap(), limit, ply + 1, depth - 1, -beta, -alpha);
 
-            self.state.history.pop(&new_pos.unwrap());
+            self.state.board_history.pop(&new_pos.unwrap());
 
             if self.state.search_cancelled || should_stop(&limit, self, self.state.start_time) {
                 self.state.search_cancelled = true;
@@ -159,7 +160,7 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
             break;
         }
         if num_children == 0 {
-            game_result_to_score(pos.no_moves_result(Some(&self.state.history)), ply)
+            game_result_to_score(pos.no_moves_result(), ply)
         } else {
             best_score
         }

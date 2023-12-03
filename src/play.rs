@@ -11,7 +11,7 @@ use crate::games::mnk::MNKBoard;
 use crate::games::PlayerResult::*;
 use crate::games::{
     Board, Color, CreateEngine, EngineList, GraphicsList, Move, PlayerResult, RectangularBoard,
-    RectangularCoordinates,
+    RectangularCoordinates, ZobristHistoryBase,
 };
 use crate::play::AdjudicationReason::*;
 use crate::play::GameResult::Aborted;
@@ -53,7 +53,7 @@ pub trait MatchManager<B: Board>: AbstractMatchManager {
     fn move_history(&self) -> &[B::Move];
 
     fn last_move(&self) -> Option<B::Move> {
-        self.move_hist().last().copied()
+        self.move_history().last().copied()
     }
 
     fn format_info(&self, info: SearchInfo<B>) -> String;
@@ -192,8 +192,8 @@ pub struct Player<B: Board> {
 }
 
 impl<B: Board> Player<B> {
-    pub fn make_move(&mut self, pos: B) -> SearchResult<B> {
-        self.searcher.search(pos, self.limit)
+    pub fn make_move(&mut self, pos: B, history: ZobristHistoryBase) -> SearchResult<B> {
+        self.searcher.search(pos, self.limit, history)
     }
 
     pub fn update_time(&mut self, time_spent_last_move: Duration) -> MatchStatus {
