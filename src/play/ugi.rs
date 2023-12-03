@@ -400,7 +400,7 @@ impl<B: Board> UGI<B> {
                 "movetime" => {
                     limit.fixed_time = Duration::from_millis(parse_int(
                         &mut words,
-                        "time per move in nanoseconds",
+                        "time per move in milliseconds",
                     )?)
                 }
                 "infinite" => (), // "infinite" is the identity element of the bounded semilattice of `go` options

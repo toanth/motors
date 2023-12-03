@@ -70,7 +70,7 @@ impl Score {
     pub fn is_game_lost_score(self) -> bool {
         self <= MAX_SCORE_LOST
     }
-    /// Returns a negative number of if the game is lost
+    /// Returns a negative number of plies if the game is lost
     pub fn plies_until_game_won(self) -> Option<isize> {
         if self.is_game_won_score() {
             Some((SCORE_WON - self).0 as isize)
@@ -183,7 +183,7 @@ impl Default for TimeControl {
         TimeControl {
             remaining: Duration::MAX,
             increment: Duration::from_millis(0),
-            moves_to_go: 0,
+            moves_to_go: 30,
         }
     }
 }

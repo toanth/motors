@@ -92,7 +92,8 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
             false
         } else {
             let elapsed = start_time.elapsed();
-            elapsed >= hard_limit.min(tc.remaining / 32 + tc.increment / 2)
+            let divisor = tc.moves_to_go as u32 + 2;
+            elapsed >= hard_limit.min(tc.remaining / divisor + tc.increment / 2)
         }
     }
 
@@ -107,16 +108,20 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
         let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth) as isize;
 
         println!(
-            "starting search with limit {time} ms, {fixed} fixed, {depth} depth, {nodes} nodes",
+            "starting search with limit {time} ms, {fixed} fixed, {depth} depth, {nodes} nodes, will take at most {max}ms",
             time = limit.tc.remaining.as_millis(),
             depth = limit.depth,
             nodes = limit.nodes,
-            fixed = limit.fixed_time.as_millis()
+            fixed = limit.fixed_time.as_millis(),
+            max= (limit.tc.remaining / 32 + limit.tc.increment / 2).min(limit.fixed_time).as_millis(),
         );
 
         for depth in 1..=max_depth {
             self.state.depth = depth as usize;
             let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON);
+            assert!(!iteration_score
+                .plies_until_game_won()
+                .is_some_and(|x| x == 0));
             if self.state.search_cancelled || should_stop(&limit, self, self.state.start_time) {
                 break;
             }
@@ -168,7 +173,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
 
         let mut best_score = SCORE_LOST;
 
-        let tt_entry = self.state.tt.load(pos.zobrist_hash());
+        let tt_entry = self.state.tt.load(pos.zobrist_hash(), ply);
         let mut best_move = tt_entry.mov;
 
         if !root
@@ -227,7 +232,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         let bound = best_score.bound(original_alpha, beta);
         let tt_entry = TTEntry::new(best_score, best_move, depth, bound, pos.zobrist_hash());
         // TODO: eventually test that not overwriting PV nodes unless the depth is quite a bit greater gains
-        self.state.tt.store(tt_entry);
+        self.state.tt.store(tt_entry, ply);
 
         if num_children == 0 {
             game_result_to_score(pos.no_moves_result(), ply)
@@ -246,7 +251,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         // TODO: Using the TT for move ordering in qsearch was mostly elo-neutral, so retest that eventually
         // do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation
         // but if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        let tt_entry = self.state.tt.load(pos.zobrist_hash());
+        let tt_entry = self.state.tt.load(pos.zobrist_hash(), 0);
 
         // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
         // However, if we've already done qsearch on this position, we can just re-use the result,
@@ -264,6 +269,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
 
         let captures = self.order_moves(pos.pseudolegal_captures(), &pos, ChessMove::default());
         for mov in captures {
+            debug_assert!(mov.is_capture(&pos)); // TODO: Separate quiet / noisy moves instead of setting captures == noisy
             let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
                 continue;
@@ -284,7 +290,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         }
         let bound = best_score.bound(original_alpha, beta);
         let tt_entry = TTEntry::new(best_score, best_move, 0, bound, pos.zobrist_hash());
-        self.state.tt.store(tt_entry);
+        self.state.tt.store(tt_entry, 0);
         best_score
     }
 

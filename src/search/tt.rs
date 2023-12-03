@@ -81,13 +81,28 @@ impl<B: Board> TT<B> {
         (hash.0 % self.mask) as usize
     }
 
-    pub fn store(&mut self, entry: TTEntry<B>) {
+    pub fn store(&mut self, mut entry: TTEntry<B>, ply: usize) {
         let idx = self.index_of(entry.hash);
+        if let Some(plies) = entry.score.plies_until_game_won() {
+            if plies < 0 {
+                entry.score.0 -= ply as i32;
+            } else {
+                entry.score.0 += ply as i32;
+            }
+        }
         self.arr[idx] = entry;
     }
 
-    pub fn load(&self, hash: ZobristHash) -> TTEntry<B> {
+    pub fn load(&self, hash: ZobristHash, ply: usize) -> TTEntry<B> {
         let idx = self.index_of(hash);
-        self.arr[idx]
+        let mut entry = self.arr[idx];
+        if let Some(plies) = entry.score.plies_until_game_won() {
+            if plies < 0 {
+                entry.score.0 += ply as i32;
+            } else {
+                entry.score.0 -= ply as i32;
+            }
+        }
+        entry
     }
 }
