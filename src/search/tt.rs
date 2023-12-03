@@ -6,7 +6,7 @@ use crate::games::chess::Chessboard;
 use crate::games::{Board, ZobristHash};
 use crate::search::Score;
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
 pub(super) enum TTScoreType {
     #[default]
     Empty,

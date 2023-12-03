@@ -58,8 +58,6 @@ pub trait MatchManager<B: Board>: AbstractMatchManager {
 
     fn format_info(&self, info: SearchInfo<B>) -> String;
 
-    fn move_hist(&self) -> &[B::Move];
-
     fn graphics(&self) -> GraphicsHandle<B>;
 
     fn set_graphics(&mut self, graphics: GraphicsHandle<B>);

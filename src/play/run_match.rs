@@ -316,10 +316,6 @@ impl<B: Board> MatchManager<B> for BuiltInMatch<B> {
         self.graphics.clone()
     }
 
-    fn move_hist(&self) -> &[B::Move] {
-        self.move_hist.as_slice()
-    }
-
     fn format_info(&self, info: SearchInfo<B>) -> String {
         format!(
             "After {0} milliseconds: Move {1}, score {2}",
