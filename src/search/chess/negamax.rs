@@ -107,14 +107,14 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
         let mut chosen_move = self.state.best_move;
         let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth) as isize;
 
-        println!(
-            "starting search with limit {time} ms, {fixed} fixed, {depth} depth, {nodes} nodes, will take at most {max}ms",
-            time = limit.tc.remaining.as_millis(),
-            depth = limit.depth,
-            nodes = limit.nodes,
-            fixed = limit.fixed_time.as_millis(),
-            max= (limit.tc.remaining / 32 + limit.tc.increment / 2).min(limit.fixed_time).as_millis(),
-        );
+        // println!(
+        //     "starting search with limit {time} ms, {fixed} fixed, {depth} depth, {nodes} nodes, will take at most {max}ms",
+        //     time = limit.tc.remaining.as_millis(),
+        //     depth = limit.depth,
+        //     nodes = limit.nodes,
+        //     fixed = limit.fixed_time.as_millis(),
+        //     max= (limit.tc.remaining / 32 + limit.tc.increment / 2).min(limit.fixed_time).as_millis(),
+        // );
 
         for depth in 1..=max_depth {
             self.state.depth = depth as usize;
@@ -177,16 +177,26 @@ impl<E: Eval<Chessboard>> Negamax<E> {
 
         let tt_entry = self.state.tt.load(pos.zobrist_hash(), ply);
         let mut best_move = tt_entry.mov;
+        let trust_tt_entry =
+            tt_entry.bound != TTScoreType::Empty && tt_entry.hash == pos.zobrist_hash();
 
         if !root
-            && tt_entry.bound != TTScoreType::Empty
-            && tt_entry.hash == pos.zobrist_hash()
+            && trust_tt_entry
             && tt_entry.depth as isize >= depth
             && ((tt_entry.score >= beta && tt_entry.bound == LowerBound)
                 || (tt_entry.score <= alpha && tt_entry.bound == UpperBound)
                 || tt_entry.bound == Exact)
         {
             return tt_entry.score;
+        }
+
+        let eval = match trust_tt_entry {
+            true => tt_entry.score,
+            false => self.eval.eval(pos),
+        };
+
+        if depth < 5 && eval >= beta + Score(100 * depth as i32) {
+            return eval;
         }
 
         let mut num_children = 0;
