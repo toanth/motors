@@ -160,7 +160,8 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         self.state.sel_depth = self.state.sel_depth.max(ply);
 
         let root = ply == 0;
-        let pv_node = alpha + 1 > beta;
+        let pv_node = alpha + 1 < beta;
+        debug_assert!(!root || pv_node); // root implies pv node
         let original_alpha = alpha;
 
         if !root && (self.state.board_history.is_repetition(&pos) || pos.is_50mr_draw()) {
@@ -179,7 +180,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         let tt_entry = self.state.tt.load(pos.zobrist_hash(), ply);
         let mut best_move = tt_entry.mov;
 
-        if !root
+        if !pv_node
             && tt_entry.bound != TTScoreType::Empty
             && tt_entry.hash == pos.zobrist_hash()
             && tt_entry.depth as isize >= depth
