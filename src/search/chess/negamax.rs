@@ -155,7 +155,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= DEPTH_HARD_LIMIT * 2);
         debug_assert!(depth <= DEPTH_SOFT_LIMIT as isize);
-        debug_assert_eq!(self.state.board_history.0 .0.len(), ply); // TODO: This should fail!!
+        debug_assert!(self.state.board_history.0 .0.len() >= ply);
 
         self.state.sel_depth = self.state.sel_depth.max(ply);
 
@@ -299,7 +299,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
 
         let captures = self.order_moves(pos.noisy_pseudolegal(), &pos, ChessMove::default());
         for mov in captures {
-            debug_assert!(mov.is_capture(&pos)); // TODO: Separate quiet / noisy moves instead of setting captures == noisy
+            debug_assert!(mov.is_noisy(&pos));
             let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
                 continue;

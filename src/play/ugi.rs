@@ -315,7 +315,7 @@ impl<B: Board> UGI<B> {
 
     fn id(&self) -> String {
         format!(
-            "id Motors - {0} {1} author ToTheAnd",
+            "id name Motors - {0} {1}\nid author ToTheAnd",
             self.engine.name(),
             self.engine.version()
         )

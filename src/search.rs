@@ -614,6 +614,12 @@ impl<B: Board, const PV_LIMIT: usize> SearchStateWithPv<B, PV_LIMIT> {
     fn info_callback(&self) -> InfoCallback<B> {
         self.wrapped.info_callback()
     }
+
+    fn to_info(&self) -> SearchInfo<B> {
+        let mut res = self.wrapped.to_info();
+        res.pv = self.pv();
+        res
+    }
 }
 
 pub fn run_bench<B: Board>(engine: AnyMutEngineRef<B>) -> String {

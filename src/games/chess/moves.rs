@@ -80,6 +80,10 @@ impl ChessMove {
         board.piece_on(self.to_square())
     }
 
+    pub fn is_noisy(self, board: &Chessboard) -> bool {
+        self.is_capture(board) || self.flags() == PromoQueen || self.flags() == PromoKnight
+    }
+
     pub fn is_capture(self, board: &Chessboard) -> bool {
         self.flags() == EnPassant || self.is_non_ep_capture(board)
     }
