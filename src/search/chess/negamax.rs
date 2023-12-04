@@ -192,12 +192,14 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             return tt_entry.score;
         }
 
-        let eval = match trust_tt_entry {
-            true => tt_entry.score,
-            false => self.eval.eval(pos),
-        };
+        let eval = self.eval.eval(pos);
+        //     match trust_tt_entry {
+        //     true => tt_entry.score,
+        //     false => self.eval.eval(pos),
+        // };
 
-        if can_prune && depth < 5 && eval >= beta + Score(100 * depth as i32) {
+        // Reverse Futility Pruning (RFP)
+        if can_prune && depth < 5 && eval >= beta + Score(120 * depth as i32) {
             return eval;
         }
 
