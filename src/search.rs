@@ -445,6 +445,7 @@ struct SimpleSearchState<B: Board> {
     search_cancelled: bool,
     info_callback: InfoCallback<B>,
     depth: usize,
+    sel_depth: usize,
     start_time: Instant,
     score: Score,
 }
@@ -462,6 +463,7 @@ impl<B: Board> Default for SimpleSearchState<B> {
             search_cancelled: false,
             info_callback: InfoCallback::default(),
             depth: 0,
+            sel_depth: 0,
         }
     }
 }
@@ -515,7 +517,11 @@ impl<B: Board> SimpleSearchState<B> {
         None
     }
     fn seldepth(&self) -> Option<usize> {
-        None
+        if self.sel_depth == 0 {
+            None
+        } else {
+            Some(self.sel_depth + 1) // + 1 because seldepth is counted from 1, but ply is counted from 0
+        }
     }
     fn additional(&self) -> Option<String> {
         None

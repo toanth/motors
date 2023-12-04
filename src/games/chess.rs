@@ -230,6 +230,10 @@ impl Board for Chessboard {
         self.gen_all_pseudolegal_moves()
     }
 
+    fn noisy_pseudolegal(&self) -> Self::MoveList {
+        self.gen_noisy_pseudolegal()
+    }
+
     fn random_legal_move<T: Rng>(&self, rng: &mut T) -> Option<Self::Move> {
         let moves = legal_moves_slow(self);
         moves.choose(rng)
@@ -560,10 +564,6 @@ impl Chessboard {
         self.update_zobrist_for_move(piece, from, to)
     }
 
-    pub fn pseudolegal_captures(&self) -> ChessMoveList {
-        self.gen_pseudolegal_captures()
-    }
-
     pub fn is_50mr_draw(&self) -> bool {
         self.ply_100_ctr >= 100
     }
@@ -805,9 +805,9 @@ mod tests {
     #[test]
     fn capture_only_test() {
         let board = Chessboard::default();
-        assert!(board.pseudolegal_captures().is_empty());
+        assert!(board.noisy_pseudolegal().is_empty());
         let board = Chessboard::from_name("kiwipete").unwrap();
-        assert_eq!(board.pseudolegal_captures().len(), 8);
+        assert_eq!(board.noisy_pseudolegal().len(), 8);
     }
 
     #[test]

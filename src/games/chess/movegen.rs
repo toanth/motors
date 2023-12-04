@@ -9,7 +9,7 @@ use crate::games::chess::squares::{
 use crate::games::chess::CastleRight::*;
 use crate::games::chess::{ChessMove, ChessMoveList, Chessboard};
 use crate::games::Color::*;
-use crate::games::{sup_distance, Board, Color, ColoredPiece, ColoredPieceType, Move};
+use crate::games::{sup_distance, Board, Color, ColoredPiece, ColoredPieceType, Coordinates, Move};
 use crate::general::bitboards::{Bitboard, ChessBitboard, KNIGHTS};
 
 enum SliderMove {
@@ -26,7 +26,7 @@ impl Chessboard {
         let mut list = ChessMoveList::default();
         let filter = !self.colored_bb(self.active_player);
         match piece.uncolored() {
-            Pawn => self.gen_pawn_moves(&mut list, filter),
+            Pawn => self.gen_pawn_moves(&mut list, false),
             Knight => {
                 return ChessBitboard(KNIGHTS[mov.from_square().index()])
                     .is_bit_set_at(mov.to_square().index());
@@ -88,25 +88,25 @@ impl Chessboard {
         self.gen_pseudolegal_moves(!self.colored_bb(self.active_player), false)
     }
 
-    pub(super) fn gen_pseudolegal_captures(&self) -> ChessMoveList {
+    pub(super) fn gen_noisy_pseudolegal(&self) -> ChessMoveList {
         self.gen_pseudolegal_moves(self.colored_bb(self.active_player.other()), true)
     }
 
-    fn gen_pseudolegal_moves(&self, filter: ChessBitboard, only_captures: bool) -> ChessMoveList {
+    fn gen_pseudolegal_moves(&self, filter: ChessBitboard, only_noisy: bool) -> ChessMoveList {
         let mut list = ChessMoveList::default();
         self.gen_slider_moves(SliderMove::Bishop, &mut list, filter);
         self.gen_slider_moves(SliderMove::Rook, &mut list, filter);
         self.gen_knight_moves(&mut list, filter);
-        self.gen_king_moves(&mut list, filter, only_captures);
-        self.gen_pawn_moves(&mut list, filter);
+        self.gen_king_moves(&mut list, filter, only_noisy);
+        self.gen_pawn_moves(&mut list, only_noisy);
         list
     }
 
-    fn gen_pawn_moves(&self, list: &mut ChessMoveList, filter: ChessBitboard) {
+    fn gen_pawn_moves(&self, list: &mut ChessMoveList, only_noisy: bool) {
         let color = self.active_player;
         let pawns = self.colored_piece_bb(color, Pawn);
         let occupied = self.occupied_bb();
-        let free = !occupied & filter;
+        let free = !occupied;
         let opponent = self.colored_bb(color.other());
         let regular_pawn_moves;
         let double_pawn_moves;
@@ -158,12 +158,19 @@ impl Chessboard {
                 let from = ChessSquare::new((idx as isize - move_type.1) as usize);
                 let to = ChessSquare::new(idx);
                 let mut flag = Normal;
-                if to == self.ep_square.unwrap_or(ChessSquare::unchecked(64)) {
+                if to == self.ep_square.unwrap_or(ChessSquare::no_coordinates()) {
                     flag = EnPassant;
                 } else if to.rank() == 0 || to.rank() == 7 {
-                    for flag in [PromoQueen, PromoKnight, PromoRook, PromoBishop] {
+                    for flag in [PromoQueen, PromoKnight] {
                         list.add_move(ChessMove::new(from, to, flag));
                     }
+                    if !only_noisy {
+                        for flag in [PromoRook, PromoBishop] {
+                            list.add_move(ChessMove::new(from, to, flag));
+                        }
+                    }
+                    continue;
+                } else if only_noisy && from.file() == to.file() {
                     continue;
                 }
                 list.add_move(ChessMove::new(from, to, flag));

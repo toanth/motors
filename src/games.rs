@@ -659,6 +659,9 @@ pub trait Board:
     /// `make_move` or which will cause `make_move` to return `None`.
     fn pseudolegal_moves(&self) -> Self::MoveList;
 
+    /// Returns a list of pseudo legal moves that are considered "noisy", such as captures and promotions in chess.
+    fn noisy_pseudolegal(&self) -> Self::MoveList;
+
     /// Returns a random legal move, that is, chooses a pseudorandom move from the set of legal moves.
     /// Can be implemented by generating all legal moves and randomly sampling one, so it's potentially
     /// a very inefficient function, random_pseudolegal_move should be prefered if possible

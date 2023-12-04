@@ -157,6 +157,8 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         debug_assert!(depth <= DEPTH_SOFT_LIMIT as isize);
         debug_assert_eq!(self.state.board_history.0 .0.len(), ply); // TODO: This should fail!!
 
+        self.state.sel_depth = self.state.sel_depth.max(ply);
+
         let root = ply == 0;
         let original_alpha = alpha;
 
@@ -247,11 +249,14 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         if best_score >= beta {
             return best_score;
         }
+
+        self.state.sel_depth = self.state.sel_depth.max(ply);
+
         alpha = alpha.max(best_score);
         // TODO: Using the TT for move ordering in qsearch was mostly elo-neutral, so retest that eventually
         // do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation
         // but if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        let tt_entry = self.state.tt.load(pos.zobrist_hash(), 0);
+        let tt_entry = self.state.tt.load(pos.zobrist_hash(), ply);
 
         // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
         // However, if we've already done qsearch on this position, we can just re-use the result,
@@ -267,7 +272,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
 
         let mut best_move = tt_entry.mov;
 
-        let captures = self.order_moves(pos.pseudolegal_captures(), &pos, ChessMove::default());
+        let captures = self.order_moves(pos.noisy_pseudolegal(), &pos, ChessMove::default());
         for mov in captures {
             debug_assert!(mov.is_capture(&pos)); // TODO: Separate quiet / noisy moves instead of setting captures == noisy
             let new_pos = pos.make_move(mov);
@@ -290,7 +295,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         }
         let bound = best_score.bound(original_alpha, beta);
         let tt_entry = TTEntry::new(best_score, best_move, 0, bound, pos.zobrist_hash());
-        self.state.tt.store(tt_entry, 0);
+        self.state.tt.store(tt_entry, ply);
         best_score
     }
 

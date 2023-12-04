@@ -613,6 +613,10 @@ impl Board for MNKBoard {
         self.active_player = self.active_player.other();
         Some(self)
     }
+
+    fn noisy_pseudolegal(&self) -> Self::MoveList {
+        Default::default()
+    }
 }
 
 impl MNKBoard {
