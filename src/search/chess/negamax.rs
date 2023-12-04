@@ -160,6 +160,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         self.state.sel_depth = self.state.sel_depth.max(ply);
 
         let root = ply == 0;
+        let pv_node = alpha + 1 > beta;
         let original_alpha = alpha;
 
         if !root && (self.state.board_history.is_repetition(&pos) || pos.is_50mr_draw()) {
@@ -197,11 +198,21 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             if new_pos.is_none() {
                 continue; // illegal pseudolegal move
             }
+            let new_pos = new_pos.unwrap();
             self.state.nodes += 1;
             num_children += 1;
 
             self.state.board_history.push(&pos);
-            let score = -self.negamax(new_pos.unwrap(), limit, ply + 1, depth - 1, -beta, -alpha);
+            let mut score;
+            if num_children == 1 {
+                score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha);
+            } else {
+                score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -beta + 1);
+                if alpha < score && score < beta {
+                    score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha);
+                }
+            }
+
             self.state.state.board_history.pop(&pos);
 
             if self.state.search_cancelled || should_stop(&limit, self, self.state.start_time) {
