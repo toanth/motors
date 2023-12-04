@@ -173,6 +173,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         if depth <= 0 {
             return self.qsearch(pos, alpha, beta, ply);
         }
+        let can_prune = !pv_node && !in_check;
 
         let mut best_score = SCORE_LOST;
 
@@ -196,7 +197,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             false => self.eval.eval(pos),
         };
 
-        if depth < 5 && eval >= beta + Score(100 * depth as i32) {
+        if can_prune && depth < 5 && eval >= beta + Score(100 * depth as i32) {
             return eval;
         }
 
