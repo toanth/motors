@@ -160,7 +160,8 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         self.state.sel_depth = self.state.sel_depth.max(ply);
 
         let root = ply == 0;
-        let pv_node = alpha + 1 > beta;
+        let pv_node = alpha + 1 < beta;
+        debug_assert!(!root || pv_node); // root implies pv node
         let original_alpha = alpha;
 
         if !root && (self.state.board_history.is_repetition(&pos) || pos.is_50mr_draw()) {
@@ -182,7 +183,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         let trust_tt_entry =
             tt_entry.bound != TTScoreType::Empty && tt_entry.hash == pos.zobrist_hash();
 
-        if !root
+        if !pv_node
             && trust_tt_entry
             && tt_entry.depth as isize >= depth
             && ((tt_entry.score >= beta && tt_entry.bound == LowerBound)
@@ -199,7 +200,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         // };
 
         // Reverse Futility Pruning (RFP)
-        if can_prune && depth < 5 && eval >= beta + Score(120 * depth as i32) {
+        if can_prune && depth < 4 && eval >= beta + Score(80 * depth as i32) {
             return eval;
         }
 
