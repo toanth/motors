@@ -118,7 +118,7 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
 
         for depth in 1..=max_depth {
             self.state.depth = depth as usize;
-            let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON);
+            let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON, false);
             assert!(!iteration_score
                 .plies_until_game_won()
                 .is_some_and(|x| x == 0));
@@ -151,6 +151,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         mut depth: isize,
         mut alpha: Score,
         beta: Score,
+        allow_nmp: bool,
     ) -> Score {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= DEPTH_HARD_LIMIT * 2);
@@ -200,8 +201,27 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         // };
 
         // Reverse Futility Pruning (RFP)
-        if can_prune && depth < 4 && eval >= beta + Score(80 * depth as i32) {
-            return eval;
+        if can_prune {
+            if depth < 4 && eval >= beta + Score(80 * depth as i32) {
+                return eval;
+            }
+
+            if allow_nmp && depth >= 3 && eval >= beta {
+                let new_pos = pos.make_nullmove().unwrap();
+                let reduction = 1 + depth / 4;
+                let score = -self.negamax(
+                    new_pos,
+                    limit,
+                    ply + 1,
+                    depth - 1 - reduction,
+                    -beta,
+                    -beta + 1,
+                    false,
+                );
+                if score >= beta {
+                    return score;
+                }
+            }
         }
 
         let mut num_children = 0;
@@ -219,11 +239,11 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             self.state.board_history.push(&pos);
             let mut score;
             if num_children == 1 {
-                score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha);
+                score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, true);
             } else {
-                score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -beta + 1);
+                score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -beta + 1, true);
                 if alpha < score && score < beta {
-                    score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha);
+                    score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, true);
                 }
             }
 
@@ -352,7 +372,15 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Negamax<E> {
         let mut limit = SearchLimit::infinite();
         limit.depth = DEPTH_SOFT_LIMIT.min(depth);
         self.state.depth = limit.depth;
-        self.negamax(pos, limit, 0, limit.depth as isize, SCORE_LOST, SCORE_WON);
+        self.negamax(
+            pos,
+            limit,
+            0,
+            limit.depth as isize,
+            SCORE_LOST,
+            SCORE_WON,
+            false,
+        );
         self.state.to_bench_res()
     }
 
