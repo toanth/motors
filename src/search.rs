@@ -70,6 +70,9 @@ impl Score {
     pub fn is_game_lost_score(self) -> bool {
         self <= MAX_SCORE_LOST
     }
+    pub fn is_game_over_score(self) -> bool {
+        self.is_game_won_score() || self.is_game_lost_score()
+    }
     /// Returns a negative number of plies if the game is lost
     pub fn plies_until_game_won(self) -> Option<isize> {
         if self.is_game_won_score() {
@@ -314,7 +317,7 @@ impl EngineUciOptionType {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum EngineOptionName {
     Hash,
     Threads,

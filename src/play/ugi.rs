@@ -344,10 +344,15 @@ impl<B: Board> UGI<B> {
             }
             value = value + " " + next_word;
         }
-        self.engine.set_option(
-            EngineOptionName::from_str(&name.trim()).unwrap(),
-            value.as_str().trim(),
-        )?;
+        let name = EngineOptionName::from_str(&name.trim()).unwrap();
+        let value = value.trim();
+        self.engine.set_option(name.clone(), value).or_else(|err| {
+            if name == Threads && value == "1" {
+                Ok(())
+            } else {
+                Err(err)
+            }
+        })?;
         Ok(Ongoing)
     }
 
