@@ -156,7 +156,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= DEPTH_HARD_LIMIT * 2);
         debug_assert!(depth <= DEPTH_SOFT_LIMIT as isize);
-        debug_assert_eq!(self.state.board_history.0 .0.len(), ply); // TODO: This should fail!!
+        debug_assert!(self.state.board_history.0 .0.len() >= ply);
 
         self.state.sel_depth = self.state.sel_depth.max(ply);
 
@@ -207,6 +207,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             }
 
             if allow_nmp && depth >= 3 && eval >= beta {
+                self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
                 let reduction = 1 + depth / 4;
                 let score = -self.negamax(
@@ -218,6 +219,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
                     -beta + 1,
                     false,
                 );
+                self.state.board_history.pop(&pos);
                 if score >= beta {
                     return score;
                 }

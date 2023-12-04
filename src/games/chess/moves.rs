@@ -359,6 +359,10 @@ impl Chessboard {
             None
         } else {
             self.active_player = self.active_player.other();
+            if self.ep_square.is_some() {
+                self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[self.ep_square.unwrap().file()];
+                self.ep_square = None;
+            }
             self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
             debug_assert_eq!(self.hash, self.zobrist_hash());
             Some(self)
