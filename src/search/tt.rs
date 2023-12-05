@@ -60,6 +60,13 @@ impl<B: Board> Default for TT<B> {
 }
 
 impl<B: Board> TT<B> {
+    pub fn empty() -> Self {
+        Self {
+            arr: vec![],
+            mask: 0,
+        }
+    }
+
     pub fn new_with_bytes(size_in_bytes: usize) -> Self {
         let mut res = Self {
             arr: vec![],

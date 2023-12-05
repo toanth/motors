@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
+use std::mem::replace;
 use std::ops::{Deref, DerefMut, Div, Mul};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
@@ -473,19 +474,16 @@ impl<B: Board> Default for SimpleSearchState<B> {
 
 impl<B: Board> SimpleSearchState<B> {
     fn new_search(&mut self, history: ZobristRepetition2Fold) {
+        let tt = replace(&mut self.tt, TT::empty());
+        self.forget();
         self.board_history = history;
-        self.start_time = Instant::now();
-        self.score = Score(0);
-        self.best_move = None;
-        self.nodes = 0;
-        self.search_cancelled = false;
-        self.depth = 0;
-        // Don't reset the TT or the info callback
+        self.tt = tt; // keep the TT between searches.
     }
 
     fn forget(&mut self) {
-        let default_val = SimpleSearchState::default();
-        *self = default_val;
+        let info_callback = self.info_callback;
+        *self = SimpleSearchState::default();
+        self.info_callback = info_callback;
     }
 
     fn nodes(&self) -> u64 {
