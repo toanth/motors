@@ -213,6 +213,10 @@ impl<E: Eval<Chessboard>> Negamax<E> {
                 return eval;
             }
 
+            // Null Move Pruning (NMP). If static eval of our position is above beta, this node probably isn't that interesting.
+            // To test this hypothesis, do a nullmove and perform a search with reduced depth; if the result is still
+            // above beta, then it's very likely that the score would have been above beta if we had played a move,
+            // so imply return the nmp score.
             if allow_nmp && depth >= 3 && eval >= beta {
                 self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
