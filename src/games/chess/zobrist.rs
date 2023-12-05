@@ -136,3 +136,33 @@ impl Chessboard {
         self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece.uncolor(), color, from);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
+    use crate::games::chess::squares::{ChessSquare, D_FILE_NO, E_FILE_NO};
+    use crate::games::chess::Chessboard;
+    use crate::games::Board;
+
+    #[test]
+    fn ep_test() {
+        let position =
+            Chessboard::from_fen("4r1k1/p4pp1/6bp/2p5/r2p4/P4PPP/1P2P3/2RRB1K1 w - - 1 15")
+                .unwrap();
+        assert_eq!(position.zobrist_hash(), position.compute_zobrist());
+        let mov = ChessMove::new(
+            ChessSquare::from_rank_file(1, E_FILE_NO),
+            ChessSquare::from_rank_file(3, E_FILE_NO),
+            ChessMoveFlags::Normal,
+        );
+        let new_pos = position.make_move(mov).unwrap();
+        assert_eq!(new_pos.zobrist_hash(), new_pos.compute_zobrist());
+        let ep_move = ChessMove::new(
+            ChessSquare::from_rank_file(3, D_FILE_NO),
+            ChessSquare::from_rank_file(2, E_FILE_NO),
+            ChessMoveFlags::EnPassant,
+        );
+        let after_ep = new_pos.make_move(ep_move).unwrap();
+        assert_eq!(after_ep.zobrist_hash(), after_ep.compute_zobrist());
+    }
+}

@@ -121,7 +121,7 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
 
         for depth in 1..=max_depth {
             self.state.depth = depth as usize;
-            let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON);
+            let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON, false);
             let soft_limit = limit.fixed_time.min(limit.tc.remaining / 64);
             assert!(!iteration_score
                 .plies_until_game_won()
@@ -158,6 +158,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         mut depth: isize,
         mut alpha: Score,
         beta: Score,
+        allow_nmp: bool,
     ) -> Score {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= DEPTH_HARD_LIMIT * 2);
@@ -213,8 +214,33 @@ impl<E: Eval<Chessboard>> Negamax<E> {
 
         // Reverse Futility Pruning (RFP): If eval is far above beta, it's likely that out opponent
         // blundered in a previous move of the search, do if the depth is low, don't even bother searching further.
-        if can_prune && depth < 4 && eval >= beta + Score(80 * depth as i32) {
-            return eval;
+        if can_prune {
+            if depth < 4 && eval >= beta + Score(80 * depth as i32) {
+                return eval;
+            }
+
+            // Null Move Pruning (NMP). If static eval of our position is above beta, this node probably isn't that interesting.
+            // To test this hypothesis, do a nullmove and perform a search with reduced depth; if the result is still
+            // above beta, then it's very likely that the score would have been above beta if we had played a move,
+            // so imply return the nmp score.
+            if allow_nmp && depth >= 3 && eval >= beta {
+                self.state.board_history.push(&pos);
+                let new_pos = pos.make_nullmove().unwrap();
+                let reduction = 1 + depth / 4;
+                let score = -self.negamax(
+                    new_pos,
+                    limit,
+                    ply + 1,
+                    depth - 1 - reduction,
+                    -beta,
+                    -beta + 1,
+                    false,
+                );
+                self.state.board_history.pop(&pos);
+                if score >= beta {
+                    return score;
+                }
+            }
         }
 
         let mut num_children = 0;
@@ -234,11 +260,11 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             // which we can do with a zero window search. Should this assumption fail, re-search with a full window.
             let mut score;
             if num_children == 1 {
-                score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha);
+                score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, true);
             } else {
-                score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -beta + 1);
+                score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -beta + 1, true);
                 if alpha < score && score < beta {
-                    score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha);
+                    score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, true);
                 }
             }
 
@@ -378,7 +404,15 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Negamax<E> {
         let mut limit = SearchLimit::infinite();
         limit.depth = DEPTH_SOFT_LIMIT.min(depth);
         self.state.depth = limit.depth;
-        self.negamax(pos, limit, 0, limit.depth as isize, SCORE_LOST, SCORE_WON);
+        self.negamax(
+            pos,
+            limit,
+            0,
+            limit.depth as isize,
+            SCORE_LOST,
+            SCORE_WON,
+            false,
+        );
         self.state.to_bench_res()
     }
 
