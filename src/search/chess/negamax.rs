@@ -266,7 +266,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
                 // so search them with reduced depth.
                 let mut reduction = 0;
                 if num_children > 5 && depth > 4 && !mov.is_noisy(&pos) {
-                    reduction = (1 + depth / 4).max(depth - 1);
+                    reduction = (depth / 4).min(depth - 1);
                 }
                 score = -self.negamax(
                     new_pos,
