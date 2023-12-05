@@ -87,13 +87,16 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
         "Chess Negamax"
     }
 
-    fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
+    fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
         if self.state.nodes % 1024 != 0 {
             false
         } else {
             let elapsed = start_time.elapsed();
-            let divisor = tc.moves_to_go as u32 + 2;
-            elapsed >= hard_limit.min(tc.remaining / divisor + tc.increment / 2)
+            // divide by 4 unless moves to go is very small, but don't divide by 1 (or zero) to avoid timeouts
+            let divisor = tc.moves_to_go.clamp(2, 4) as u32;
+            // TODO: Technically, this can lead to timeouts if increment > remaining, although that can't happen
+            // unless increment was > timeout since the start or there's a lot of move overhead
+            elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment / 2)
         }
     }
 
@@ -119,15 +122,19 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
         for depth in 1..=max_depth {
             self.state.depth = depth as usize;
             let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON, false);
+            let soft_limit = limit.fixed_time.min(limit.tc.remaining / 64);
             assert!(!iteration_score
                 .plies_until_game_won()
                 .is_some_and(|x| x == 0));
-            if self.state.search_cancelled || should_stop(&limit, self, self.state.start_time) {
+            if self.state.search_cancelled {
                 break;
             }
             self.state.score = iteration_score;
             chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
-            self.state.info_callback.call(self.search_info())
+            self.state.info_callback.call(self.search_info());
+            if self.state.start_time.elapsed() >= soft_limit {
+                break;
+            }
         }
 
         SearchResult::move_and_score(
@@ -321,7 +328,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
 
         let captures = self.order_moves(pos.noisy_pseudolegal(), &pos, ChessMove::default());
         for mov in captures {
-            debug_assert!(mov.is_capture(&pos)); // TODO: Separate quiet / noisy moves instead of setting captures == noisy
+            debug_assert!(mov.is_noisy(&pos));
             let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
                 continue;
