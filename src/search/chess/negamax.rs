@@ -92,7 +92,7 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
             false
         } else {
             let elapsed = start_time.elapsed();
-            let divisor = tc.moves_to_go as u32 + 2;
+            let divisor = 16.min(tc.moves_to_go as u32 + 2);
             elapsed >= hard_limit.min(tc.remaining / divisor + tc.increment / 2)
         }
     }
@@ -119,10 +119,11 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
         for depth in 1..=max_depth {
             self.state.depth = depth as usize;
             let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON);
+            let soft_limit = limit.fixed_time.min(limit.tc.remaining / 64);
             assert!(!iteration_score
                 .plies_until_game_won()
                 .is_some_and(|x| x == 0));
-            if self.state.search_cancelled || should_stop(&limit, self, self.state.start_time) {
+            if self.state.search_cancelled || self.state.start_time.elapsed() >= soft_limit {
                 break;
             }
             self.state.score = iteration_score;

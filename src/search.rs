@@ -186,7 +186,7 @@ impl Default for TimeControl {
         TimeControl {
             remaining: Duration::MAX,
             increment: Duration::from_millis(0),
-            moves_to_go: 30,
+            moves_to_go: usize::MAX,
         }
     }
 }
