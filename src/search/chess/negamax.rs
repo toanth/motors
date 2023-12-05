@@ -262,7 +262,21 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             if num_children == 1 {
                 score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, true);
             } else {
-                score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -beta + 1, true);
+                // Late Move Reduction (LMR): Assume that moves ordered later are worse and therefore less interesting,
+                // so search them with reduced depth.
+                let mut reduction = 0;
+                if num_children > 5 && depth > 4 && !mov.is_noisy(&pos) {
+                    reduction = 1 + depth / 4;
+                }
+                score = -self.negamax(
+                    new_pos,
+                    limit,
+                    ply + 1,
+                    depth - 1 - reduction,
+                    -beta,
+                    -beta + 1,
+                    true,
+                );
                 if alpha < score && score < beta {
                     score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, true);
                 }
