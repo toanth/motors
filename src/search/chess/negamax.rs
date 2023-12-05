@@ -1,6 +1,6 @@
-use std::ops::{Deref, DerefMut};
 use std::time::{Duration, Instant};
 
+use derive_more::{Deref, DerefMut};
 use rand::thread_rng;
 
 use crate::eval::Eval;
@@ -44,35 +44,35 @@ impl DerefMut for HistoryHeuristic {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Debug, Deref, DerefMut)]
+struct KillerHeuristic([ChessMove; DEPTH_HARD_LIMIT]);
+
+impl Default for KillerHeuristic {
+    fn default() -> Self {
+        KillerHeuristic([ChessMove::default(); DEPTH_HARD_LIMIT])
+    }
+}
+
+#[derive(Default, Debug, Deref, DerefMut)]
 struct State {
+    #[deref]
+    #[deref_mut]
     state: SearchStateWithPv<Chessboard, DEPTH_HARD_LIMIT>,
     history: HistoryHeuristic,
-}
-
-impl Deref for State {
-    type Target = SearchStateWithPv<Chessboard, DEPTH_HARD_LIMIT>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.state
-    }
-}
-
-impl DerefMut for State {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.state
-    }
+    killers: KillerHeuristic,
 }
 
 impl State {
     fn forget(&mut self) {
         self.state.forget();
         self.history = HistoryHeuristic::default();
+        self.killers = KillerHeuristic::default();
     }
 
     fn new_search(&mut self, history: ZobristRepetition2Fold) {
         self.state.new_search(history);
         self.history = HistoryHeuristic::default();
+        self.killers = KillerHeuristic::default();
     }
 }
 
@@ -245,7 +245,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
 
         let mut num_children = 0;
 
-        let all_moves = self.order_moves(pos.pseudolegal_moves(), &pos, best_move);
+        let all_moves = self.order_moves(pos.pseudolegal_moves(), &pos, best_move, ply);
         for mov in all_moves {
             let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
@@ -297,6 +297,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             }
             // Update various heuristics, TODO: More (killers, history gravity, etc)
             self.state.history[mov.from_to_square()] += (depth * depth) as i32;
+            self.state.killers[ply] = mov;
             break;
         }
 
@@ -346,7 +347,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
 
         let mut best_move = tt_entry.mov;
 
-        let captures = self.order_moves(pos.noisy_pseudolegal(), &pos, ChessMove::default());
+        let captures = self.order_moves(pos.noisy_pseudolegal(), &pos, ChessMove::default(), ply);
         for mov in captures {
             debug_assert!(mov.is_noisy(&pos));
             let new_pos = pos.make_move(mov);
@@ -381,12 +382,15 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         mut moves: ChessMoveList,
         board: &Chessboard,
         tt_move: ChessMove,
+        ply: usize,
     ) -> ChessMoveList {
         /// The move list is iterated backwards, which is why better moves get higher scores
         let score_function = |mov: &ChessMove| {
             let captured = mov.captured(board);
             if *mov == tt_move {
                 i32::MAX
+            } else if *mov == self.state.killers[ply] {
+                i32::MAX - 200
             } else if captured == Empty {
                 self.state.history[mov.from_to_square()]
             } else {
