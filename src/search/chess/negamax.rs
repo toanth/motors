@@ -87,13 +87,13 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
         "Chess Negamax"
     }
 
-    fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
+    fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
         if self.state.nodes % 1024 != 0 {
             false
         } else {
             let elapsed = start_time.elapsed();
             let divisor = 16.min(tc.moves_to_go as u32 + 2);
-            elapsed >= hard_limit.min(tc.remaining / divisor + tc.increment / 2)
+            elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment / 2)
         }
     }
 
@@ -123,12 +123,15 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
             assert!(!iteration_score
                 .plies_until_game_won()
                 .is_some_and(|x| x == 0));
-            if self.state.search_cancelled || self.state.start_time.elapsed() >= soft_limit {
+            if self.state.search_cancelled {
                 break;
             }
             self.state.score = iteration_score;
             chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
-            self.state.info_callback.call(self.search_info())
+            self.state.info_callback.call(self.search_info());
+            if self.state.start_time.elapsed() >= soft_limit {
+                break;
+            }
         }
 
         SearchResult::move_and_score(
