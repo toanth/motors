@@ -293,6 +293,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
                 continue;
             }
             if mov.is_capture(&pos) {
+                // TODO: Run test with regression bounds for using is_noisy (can cache that)
                 break;
             }
             // Update various heuristics, TODO: More (killers, history gravity, etc)
