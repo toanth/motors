@@ -175,6 +175,8 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             return Score(0);
         }
         let in_check = pos.is_in_check();
+        // Check extensions. Increase the depth by 1 if in check.
+        // Do this before deciding whether to drop into qsearch.
         if in_check {
             depth += 1;
         }
@@ -190,6 +192,9 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         let trust_tt_entry =
             tt_entry.bound != TTScoreType::Empty && tt_entry.hash == pos.zobrist_hash();
 
+        // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
+        // and we're not a PV node, and the saved score is either exact or at least known to be outside of [alpha, beta),
+        // simply return it.
         if !pv_node
             && trust_tt_entry
             && tt_entry.depth as isize >= depth
@@ -206,7 +211,8 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         //     false => self.eval.eval(pos),
         // };
 
-        // Reverse Futility Pruning (RFP)
+        // Reverse Futility Pruning (RFP): If eval is far above beta, it's likely that out opponent
+        // blundered in a previous move of the search, do if the depth is low, don't even bother searching further.
         if can_prune && depth < 4 && eval >= beta + Score(80 * depth as i32) {
             return eval;
         }
@@ -224,6 +230,8 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             num_children += 1;
 
             self.state.board_history.push(&pos);
+            // PVS: Assume that the TT move is the best move, so we only need to prove that the other moves are worse,
+            // which we can do with a zero window search. Should this assumption fail, re-search with a full window.
             let mut score;
             if num_children == 1 {
                 score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha);
@@ -236,12 +244,14 @@ impl<E: Eval<Chessboard>> Negamax<E> {
 
             self.state.state.board_history.pop(&pos);
 
+            // Check for cancellation right after searching a move to avoid storing incorrect information in the TT.
             if self.state.search_cancelled || should_stop(&limit, self, self.state.start_time) {
                 self.state.search_cancelled = true;
                 return SCORE_TIME_UP;
             }
 
             best_score = best_score.max(score);
+            // Save indentation by using `continue` instead of nested if statements.
             if score <= alpha {
                 continue;
             }
@@ -259,6 +269,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
             if mov.is_capture(&pos) {
                 break;
             }
+            // Update various heuristics, TODO: More (killers, history gravity, etc)
             self.state.history[mov.from_to_square()] += (depth * depth) as i32;
             break;
         }
@@ -266,6 +277,8 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         let bound = best_score.bound(original_alpha, beta);
         let tt_entry = TTEntry::new(best_score, best_move, depth, bound, pos.zobrist_hash());
         // TODO: eventually test that not overwriting PV nodes unless the depth is quite a bit greater gains
+        // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
+        // if this node was an exact or fail high node.
         self.state.tt.store(tt_entry, ply);
 
         if num_children == 0 {
@@ -275,8 +288,11 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         }
     }
 
+    /// Search only noisy moves to quieten down the position before calling eval.
     fn qsearch(&mut self, pos: Chessboard, mut alpha: Score, beta: Score, ply: usize) -> Score {
         let original_alpha = alpha;
+        // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
+        // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
         let mut best_score = self.eval.eval(pos);
         if best_score >= beta {
             return best_score;
@@ -331,6 +347,9 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         best_score
     }
 
+    /// Order moves so that the most promising moves are searched first.
+    /// The most promising move is always the TT move, because that is backed up by search.
+    /// After that follow various heuristics.
     fn order_moves(
         &self,
         mut moves: ChessMoveList,
