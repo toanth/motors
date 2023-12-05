@@ -406,7 +406,9 @@ impl<B: Board> UGI<B> {
                     limit.fixed_time = Duration::from_millis(parse_int(
                         &mut words,
                         "time per move in milliseconds",
-                    )?)
+                    )?);
+                    limit.fixed_time = (limit.fixed_time - Duration::from_millis(1))
+                        .max(Duration::from_micros(500));
                 }
                 "infinite" => (), // "infinite" is the identity element of the bounded semilattice of `go` options
                 "perft" => search_type = Perft,
