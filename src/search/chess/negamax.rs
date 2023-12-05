@@ -92,7 +92,10 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
             false
         } else {
             let elapsed = start_time.elapsed();
-            let divisor = 16.min(tc.moves_to_go as u32 + 2);
+            // divide by 4 unless moves to go is very small, but don't divide by 1 (or zero) to avoid timeouts
+            let divisor = tc.moves_to_go.clamp(2, 4) as u32;
+            // TODO: Technically, this can lead to timeouts if increment > remaining, although that can't happen
+            // unless increment was > timeout since the start or there's a lot of move overhead
             elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment / 2)
         }
     }
