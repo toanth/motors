@@ -265,8 +265,11 @@ impl<E: Eval<Chessboard>> Negamax<E> {
                 // Late Move Reduction (LMR): Assume that moves ordered later are worse and therefore less interesting,
                 // so search them with reduced depth.
                 let mut reduction = 0;
-                if num_children > 5 && depth > 4 && !mov.is_noisy(&pos) {
-                    reduction = (depth / 4).min(depth - 1);
+                if num_children > 10 && depth > 4 && !mov.is_noisy(&pos) {
+                    if !pv_node {
+                        reduction = 1;
+                    }
+                    reduction = (reduction + depth / 4).min(depth - 1);
                 }
                 score = -self.negamax(
                     new_pos,

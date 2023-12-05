@@ -866,6 +866,8 @@ mod tests {
         let mov = board.random_legal_move(&mut rng).unwrap();
         let board = board.make_move(mov).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 2);
+        let fen =
+            "rnbqkbnr/pppppppp/pPpPpPpP/PpPpPpPp/pPpPpPpP/PpPpPpPp/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     }
 
     #[test]
