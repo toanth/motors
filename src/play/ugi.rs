@@ -46,7 +46,8 @@ pub trait AbstractUGI {
                 self.write_error(res.err().unwrap().as_str());
                 if self.continue_on_error() {
                     eprintln!("Continuing...");
-                    self.log_stream().write("Continuing...");
+                    self.log_stream()
+                        .write("Continuing...", "('debug' is 'on')");
                     continue;
                 }
                 return MatchResult {
@@ -71,18 +72,18 @@ pub trait AbstractUGI {
         if let Err(e) = stdin().read_line(&mut input) {
             return Err(format!("Failed to read input: {0}", e.to_string()));
         }
+        self.log_stream().write(">", input.as_str().trim());
         self.parse_input(input.as_str())
     }
 
     fn write_error(&mut self, err_msg: &str) {
         eprintln!("{err_msg}");
-        self.log_stream().write("ERROR");
-        self.log_stream().write(err_msg);
+        self.log_stream().write("ERROR:", err_msg);
     }
 
     fn write(&mut self, message: &str) {
         println!("{message}");
-        self.log_stream().write(message);
+        self.log_stream().write("<", message);
     }
 
     fn write_info(&mut self, info: &str) {
@@ -111,12 +112,12 @@ pub enum DebugOutput {
 }
 
 impl DebugOutput {
-    fn write(&mut self, msg: &str) {
+    fn write(&mut self, prefix: &str, msg: &str) {
         match self {
             DebugOutput::None => {}
-            DebugOutput::File(f) => _ = writeln!(f, "{msg}"),
-            DebugOutput::Stdout(out) => _ = writeln!(out, "{msg}"),
-            DebugOutput::Stderr(err) => _ = writeln!(err, "{msg}"),
+            DebugOutput::File(f) => _ = writeln!(f, "{prefix} {msg}"),
+            DebugOutput::Stdout(out) => _ = writeln!(out, "{prefix} {msg}"),
+            DebugOutput::Stderr(err) => _ = writeln!(err, "{prefix} {msg}"),
         }
     }
 }
