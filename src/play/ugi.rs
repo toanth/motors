@@ -1,6 +1,10 @@
-use std::io::stdin;
+use std::fmt::Debug;
+use std::fs::File;
+use std::io;
+use std::io::{stdin, BufWriter, Stderr, Stdout, Write};
 use std::mem::discriminant;
 use std::ops::{Deref, DerefMut};
+use std::path::Path;
 use std::str::{FromStr, SplitWhitespace};
 use std::time::Duration;
 
@@ -39,9 +43,10 @@ pub trait AbstractUGI {
         loop {
             let res = self.read_input();
             if res.is_err() {
-                eprintln!("An error occurred: {0}", res.err().unwrap());
+                self.write_error(res.err().unwrap().as_str());
                 if self.continue_on_error() {
                     eprintln!("Continuing...");
+                    self.log_stream().write("Continuing...");
                     continue;
                 }
                 return MatchResult {
@@ -55,6 +60,8 @@ pub trait AbstractUGI {
         }
     }
 
+    fn log_stream(&mut self) -> &mut DebugOutput;
+
     fn continue_on_error(&self) -> bool;
 
     fn parse_input(&mut self, input: &str) -> Result<MatchStatus, String>;
@@ -67,16 +74,23 @@ pub trait AbstractUGI {
         self.parse_input(input.as_str())
     }
 
-    fn write(&self, message: &str) {
-        println!("{message}")
+    fn write_error(&mut self, err_msg: &str) {
+        eprintln!("{err_msg}");
+        self.log_stream().write("ERROR");
+        self.log_stream().write(err_msg);
     }
 
-    fn write_info(&self, info: &str) {
-        println!("info {info}")
+    fn write(&mut self, message: &str) {
+        println!("{message}");
+        self.log_stream().write(message);
     }
 
-    fn write_response(&self, response: String) {
-        println!("response {response}")
+    fn write_info(&mut self, info: &str) {
+        self.write(&format!("info {info}"))
+    }
+
+    fn write_response(&mut self, response: String) {
+        self.write(&format!("response {response}"))
     }
 }
 
@@ -85,6 +99,26 @@ enum SearchType {
     Perft,
     SplitPerft,
     Bench,
+}
+
+/// `Option<Box<dyn Write>>` doesn't implement `Debug`, which is a problem because `UGI` should implement `Debug`.
+#[derive(Debug)]
+pub enum DebugOutput {
+    None,
+    File(BufWriter<File>),
+    Stdout(BufWriter<Stdout>),
+    Stderr(BufWriter<Stderr>),
+}
+
+impl DebugOutput {
+    fn write(&mut self, msg: &str) {
+        match self {
+            DebugOutput::None => {}
+            DebugOutput::File(f) => _ = writeln!(f, "{msg}"),
+            DebugOutput::Stdout(out) => _ = writeln!(out, "{msg}"),
+            DebugOutput::Stderr(err) => _ = writeln!(err, "{msg}"),
+        }
+    }
 }
 
 // Implement both UGI and UCI
@@ -99,6 +133,7 @@ pub struct UGI<B: Board> {
     board_hist: ZobristRepetition3Fold,
     initial_pos: B,
     next_match: Option<AnyMatch>,
+    debug_output: DebugOutput,
 }
 
 impl<B: Board> AbstractMatchManager for UGI<B> {
@@ -177,6 +212,10 @@ impl<B: Board> MatchManager<B> for UGI<B> {
 }
 
 impl<B: Board> AbstractUGI for UGI<B> {
+    fn log_stream(&mut self) -> &mut DebugOutput {
+        &mut self.debug_output
+    }
+
     fn continue_on_error(&self) -> bool {
         self.debug_mode
     }
@@ -205,8 +244,22 @@ impl<B: Board> AbstractUGI for UGI<B> {
             }
             "debug" => {
                 match words.next().unwrap_or_default() {
-                    "on" => self.debug_mode = true,
-                    "off" => self.debug_mode = false,
+                    "on" => {
+                        self.debug_mode = true;
+                        // don't change the log stream if it's already set
+                        if matches!(self.debug_output, DebugOutput::None) {
+                            if let Err(msg) = self.handle_log("debug_output.log".split_whitespace())
+                            {
+                                self.write_info(&format!(
+                                    "Error: Couldn't set the debug log file: '{msg}'"
+                                ));
+                            };
+                        }
+                    }
+                    "off" => {
+                        self.debug_mode = false;
+                        self.handle_log("none".split_whitespace())?;
+                    }
                     x => return Err(format!("Invalid debug option '{x}'")),
                 }
                 Ok(self.status)
@@ -232,6 +285,7 @@ impl<B: Board> AbstractUGI for UGI<B> {
             "query" => self.handle_query(words),
             "ui" => self.handle_ui(words),
             "print" => self.handle_print(words),
+            "log" => self.handle_log(words),
             "engine" => self.handle_engine(words),
             "game" => self.handle_game(words),
             "play" => {
@@ -284,6 +338,7 @@ impl<B: Board> UGI<B> {
             graphics,
             next_match: None,
             initial_pos: B::default(),
+            debug_output: DebugOutput::None,
         }
     }
 
@@ -537,6 +592,29 @@ impl<B: Board> UGI<B> {
 
     fn handle_ui(&mut self, mut words: SplitWhitespace) -> Result<MatchStatus, String> {
         set_graphics_from_str(self, words.next().unwrap_or_default())
+    }
+
+    // TODO: Move this function, and others throughout the project,
+    // to the base trait so they don't depend on the type of `Board` to reduce code bloat.
+    fn handle_log(&mut self, mut words: SplitWhitespace) -> Result<MatchStatus, String> {
+        let remaining = words.remainder(); // Support whitespaces in file name (but not at the beginning)
+        match words.next().ok_or_else(|| {
+            format!(
+                "Missing argument to 'log', expected either a filename, 'stdout', 'stderr', or 'none'"
+            )
+        })? {
+            "none" => self.debug_output = DebugOutput::None,
+            "stdout" => self.debug_output = DebugOutput::Stdout(BufWriter::new(io::stdout())),
+            "stderr" => self.debug_output = DebugOutput::Stderr(BufWriter::new(io::stderr())),
+            x if x.contains('.')  => {
+                let path = Path::new(remaining.unwrap());
+                let file = File::create(path).map_err(|err| format!("Couldn't create log file: {err}"))?;
+                self.debug_output = DebugOutput::File(BufWriter::new(file));
+            }
+            x => return Err(format!("'{x}' does not appear to be a valid filename (it does not contain a '.'). \
+             Expected either a filename, 'stdout', 'stderr', or 'none'."))
+        };
+        Ok(self.status)
     }
 
     fn handle_engine(&mut self, mut words: SplitWhitespace) -> Result<MatchStatus, String> {
