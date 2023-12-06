@@ -40,14 +40,13 @@ fn format_search_result<B: Board>(res: SearchResult<B>) -> String {
 
 pub trait AbstractUGI {
     fn ugi_loop(&mut self) -> MatchResult {
+        self.write_debug("Starting UGI loop");
         loop {
             let res = self.read_input();
             if res.is_err() {
                 self.write_error(res.err().unwrap().as_str());
                 if self.continue_on_error() {
-                    eprintln!("Continuing...");
-                    self.log_stream()
-                        .write("Continuing...", "('debug' is 'on')");
+                    self.write_debug("Continuing... ('debug' is 'on')");
                     continue;
                 }
                 return MatchResult {
@@ -60,6 +59,8 @@ pub trait AbstractUGI {
             }
         }
     }
+
+    fn debug_mode(&self) -> bool;
 
     fn log_stream(&mut self) -> &mut DebugOutput;
 
@@ -74,6 +75,13 @@ pub trait AbstractUGI {
         }
         self.log_stream().write(">", input.as_str().trim());
         self.parse_input(input.as_str())
+    }
+
+    fn write_debug(&mut self, debug_msg: &str) {
+        if self.debug_mode() {
+            eprintln!("{debug_msg}");
+        }
+        self.log_stream().write("DEBUG:", debug_msg);
     }
 
     fn write_error(&mut self, err_msg: &str) {
@@ -213,6 +221,10 @@ impl<B: Board> MatchManager<B> for UGI<B> {
 }
 
 impl<B: Board> AbstractUGI for UGI<B> {
+    fn debug_mode(&self) -> bool {
+        self.debug_mode
+    }
+
     fn log_stream(&mut self) -> &mut DebugOutput {
         &mut self.debug_output
     }
@@ -294,18 +306,18 @@ impl<B: Board> AbstractUGI for UGI<B> {
                 Ok(self.status)
             }
             x => {
+                // An invalid token at the start of the input should be ignored according to the UCI spec.
+                // The same is true recursively for the remaining input.
+                let remaining = words.remainder().unwrap_or_default().trim();
                 self.graphics.borrow_mut().display_message(
                     Warning,
                     &format!("Ignoring invalid token at start of UCI command '{x}'"),
                 );
-                let remaining = words.remainder().unwrap_or_default();
+                self.write_debug(&format!("Invalid input '{x}' followed by '{remaining}'"));
                 if remaining.is_empty() {
-                    return Err(format!("Invalid input '{x}'"));
+                    return Ok(self.status);
                 }
                 self.parse_input(remaining)
-                    .map_err(|msg| {
-                        format!("Invalid input {x}, ignoring it led to '{remaining}' followed by error '{msg}'")
-                    })
             }
         }
     }
@@ -607,13 +619,16 @@ impl<B: Board> UGI<B> {
             "none" => self.debug_output = DebugOutput::None,
             "stdout" => self.debug_output = DebugOutput::Stdout(BufWriter::new(io::stdout())),
             "stderr" => self.debug_output = DebugOutput::Stderr(BufWriter::new(io::stderr())),
-            x if x.contains('.')  => {
+            _ => {
+                let filename = remaining.unwrap().trim();
+                if !remaining.unwrap().contains('.') {
+                    return Err(format!("'{filename}' does not appear to be a valid filename (it does not contain a '.'). \
+             Expected either a filename, 'stdout', 'stderr', or 'none'."))
+                }
                 let path = Path::new(remaining.unwrap());
                 let file = File::create(path).map_err(|err| format!("Couldn't create log file: {err}"))?;
                 self.debug_output = DebugOutput::File(BufWriter::new(file));
             }
-            x => return Err(format!("'{x}' does not appear to be a valid filename (it does not contain a '.'). \
-             Expected either a filename, 'stdout', 'stderr', or 'none'."))
         };
         Ok(self.status)
     }
