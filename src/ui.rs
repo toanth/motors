@@ -6,20 +6,23 @@ use strum_macros::Display;
 
 use crate::games::{Board, CreateGraphics, GraphicsList, RectangularBoard, RectangularCoordinates};
 use crate::play::MatchManager;
+use crate::ui::logger::Logger;
 use crate::ui::no_graphic::NoGraphics;
 use crate::ui::pretty::PrettyUI;
 use crate::ui::text_ui::DisplayType::{Ascii, Fen, Pgn, Uci, Unicode};
 use crate::ui::text_ui::TextUI;
 
+pub mod logger;
 pub mod no_graphic;
 pub mod pretty;
 pub mod text_ui;
 
-#[derive(Debug, Display, Eq, PartialEq)]
+#[derive(Debug, Display, Eq, PartialEq, Copy, Clone)]
 pub enum Message {
     Info,
     Warning,
     Error,
+    Debug,
 }
 
 impl Message {
@@ -28,6 +31,7 @@ impl Message {
             Message::Info => "",
             Message::Warning => "Warning: ",
             Message::Error => "Error: ",
+            Message::Debug => "Debug: ",
         }
     }
 }
@@ -35,9 +39,20 @@ impl Message {
 // TODO: Allow the user to abort / change settings etc? Should probably go in a different trait then
 pub trait Graphics<B: Board>: Debug + 'static {
     // TODO: Try to remove the dyn to see if rust compiles that (probably doesn't)
-    fn show(&mut self, m: &dyn MatchManager<B>);
+    fn show(&mut self, m: &dyn MatchManager<B>) {
+        println!("{}", self.as_string(m));
+    }
 
-    fn display_message(&mut self, typ: Message, message: &str);
+    fn as_string(&mut self, m: &dyn MatchManager<B>) -> String;
+
+    fn display_message_simple(&mut self, typ: Message, message: &str);
+
+    fn display_message(&mut self, _m: &dyn MatchManager<B>, typ: Message, message: &str) {
+        if matches!(typ, Message::Debug) && !_m.debug_mode() {
+            return;
+        }
+        self.display_message_simple(typ, message);
+    }
 }
 
 // A UI can also get a move, which is necessary for a human player
@@ -79,6 +94,19 @@ impl<B: Board> GraphicsList<B> for RequiredGraphics {
             ("fen".to_string(), |_| to_graphics_handle(TextUI::new(Fen))),
             ("uci".to_string(), |_| to_graphics_handle(TextUI::new(Uci))),
             ("pgn".to_string(), |_| to_graphics_handle(TextUI::new(Pgn))),
+            ("logger".to_string(), |stream| {
+                // TODO: CreateGraphics should return a `Result<>` to account for invalid input
+                to_graphics_handle(
+                    Logger::from_str(stream)
+                        .or_else(|err| {
+                            eprintln!(
+                                "Error while setting log stream, falling back to default: {err}'"
+                            );
+                            Logger::from_str("")
+                        })
+                        .unwrap(),
+                )
+            }),
         ]
     }
 }

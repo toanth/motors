@@ -43,6 +43,8 @@ pub trait AbstractMatchManager: Debug {
     fn match_status(&self) -> MatchStatus;
 
     fn game_name(&self) -> String;
+
+    fn debug_mode(&self) -> bool;
 }
 
 pub trait MatchManager<B: Board>: AbstractMatchManager {

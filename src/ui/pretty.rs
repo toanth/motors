@@ -59,37 +59,40 @@ impl<B: RectangularBoard> Graphics<B> for PrettyUI
 where
     B::Coordinates: RectangularCoordinates,
 {
-    fn show(&mut self, m: &dyn MatchManager<B>) {
+    fn as_string(&mut self, m: &dyn MatchManager<B>) -> String {
+        let mut res = String::default();
         let pos = m.board();
         let last_move = m.last_move();
         if last_move.is_none() {
-            println!("Starting new game!");
+            _ = writeln!(res, "Starting new game!");
         }
         for y in 0..pos.height() {
             let mut line = " ".to_string();
             for x in 0..pos.width() {
                 let square = B::Coordinates::from_row_column(y, x).flip_up_down(pos.size());
                 let piece = pos.piece_on(square);
-                write!(
+                _ = write!(
                     &mut line,
                     "{0}",
                     color::<B>(piece.colored_piece_type(), square, last_move)
                 )
                 .unwrap();
             }
-            writeln!(line, " {0}", pos.height() - y).unwrap();
-            print!("{line}");
+            _ = writeln!(line, " {0}", pos.height() - y).unwrap();
+            write!(res, "{line}");
         }
-        println!(
+        _ = writeln!(
+            res,
             " {0}",
             ('A'..)
                 .take(pos.width())
                 .intersperse(' ')
                 .collect::<String>()
         );
+        res
     }
 
-    fn display_message(&mut self, typ: Message, message: &str) {
+    fn display_message_simple(&mut self, typ: Message, message: &str) {
         display_message(typ, message)
     }
 }

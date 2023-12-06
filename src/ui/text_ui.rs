@@ -14,7 +14,7 @@ pub fn get_move<B: Board, U: UI<B>>(ui: &mut U, board: &B) -> B::Move {
         let mut input = String::new();
         let read = stdin().read_line(&mut input);
         if read.is_err() {
-            ui.display_message(
+            ui.display_message_simple(
                 Error,
                 format!("Couldn't get input: {}", read.err().unwrap().to_string()).as_str(),
             );
@@ -24,7 +24,7 @@ pub fn get_move<B: Board, U: UI<B>>(ui: &mut U, board: &B) -> B::Move {
         if res.is_ok() {
             return res.unwrap();
         }
-        ui.display_message(
+        ui.display_message_simple(
             Error,
             format!(
                 "Input '{0}' is not a valid move: {1}",
@@ -120,18 +120,17 @@ fn match_to_uci<B: Board>(m: &dyn MatchManager<B>) -> String {
 }
 
 impl<B: Board> Graphics<B> for TextUI {
-    fn show(&mut self, m: &dyn MatchManager<B>) {
-        let message = match self.typ {
+    fn as_string(&mut self, m: &dyn MatchManager<B>) -> String {
+        match self.typ {
             DisplayType::Ascii => m.board().as_ascii_diagram(),
             DisplayType::Unicode => m.board().as_unicode_diagram(),
             DisplayType::Fen => m.board().as_fen(),
             DisplayType::Pgn => match_to_pgn(m),
             DisplayType::Uci => match_to_uci(m),
-        };
-        println!("{message}");
+        }
     }
 
-    fn display_message(&mut self, typ: Message, message: &str) {
+    fn display_message_simple(&mut self, typ: Message, message: &str) {
         display_message(typ, message)
     }
 }

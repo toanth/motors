@@ -13,7 +13,11 @@ impl<B: Board> Graphics<B> for NoGraphics {
         // do nothing
     }
 
-    fn display_message(&mut self, typ: Message, message: &str) {
+    fn as_string(&mut self, m: &dyn MatchManager<B>) -> String {
+        String::default()
+    }
+
+    fn display_message_simple(&mut self, typ: Message, message: &str) {
         if typ == Error {
             eprintln!("{message}");
         }

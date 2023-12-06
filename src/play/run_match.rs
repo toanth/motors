@@ -161,7 +161,7 @@ fn make_move<B: Board>(
     }
     history.push(&pos);
 
-    graphics.borrow_mut().display_message(
+    graphics.borrow_mut().display_message_simple(
         Info,
         format!("Player: {0}", player.searcher.name()).as_str(),
     );
@@ -191,7 +191,7 @@ fn make_move<B: Board>(
         if player.retry_on_invalid_move {
             graphics
                 .borrow_mut()
-                .display_message(Warning, "Invalid move. Try again:");
+                .display_message_simple(Warning, "Invalid move. Try again:");
             continue;
         }
         move_hist.push(mov);
@@ -201,7 +201,7 @@ fn make_move<B: Board>(
         });
     }
 
-    graphics.borrow_mut().display_message(
+    graphics.borrow_mut().display_message_simple(
         Info,
         format!(
             "Eval: {0}",
@@ -314,6 +314,10 @@ impl<B: Board> AbstractMatchManager for BuiltInMatch<B> {
 
     fn set_next_match(&mut self, next: Option<AnyMatch>) {
         self.next_match = next;
+    }
+
+    fn debug_mode(&self) -> bool {
+        false
     }
 }
 

@@ -1,10 +1,8 @@
+use std::cell::RefCell;
 use std::fmt::Debug;
-use std::fs::File;
-use std::io;
-use std::io::{stdin, BufWriter, Stderr, Stdout, Write};
+use std::io::{stdin, Write};
 use std::mem::discriminant;
 use std::ops::{Deref, DerefMut};
-use std::path::Path;
 use std::str::{FromStr, SplitWhitespace};
 use std::time::Duration;
 
@@ -28,9 +26,10 @@ use crate::search::{
     run_bench_with_depth, Engine, EngineOptionName, EngineOptionType, EngineUciOptionType,
     InfoCallback, SearchInfo, SearchLimit, SearchResult, Searcher,
 };
+use crate::ui::logger::{LogStream, Logger};
 use crate::ui::no_graphic::NoGraphics;
-use crate::ui::Message::Warning;
-use crate::ui::{to_graphics_handle, GraphicsHandle, UIHandle};
+use crate::ui::Message::*;
+use crate::ui::{to_graphics_handle, Graphics, GraphicsHandle, Message, UIHandle};
 
 // use itertools::Itertools;
 
@@ -40,13 +39,13 @@ fn format_search_result<B: Board>(res: SearchResult<B>) -> String {
 
 pub trait AbstractUGI {
     fn ugi_loop(&mut self) -> MatchResult {
-        self.write_debug("Starting UGI loop");
+        self.write_message(Debug, "Starting UGI loop");
         loop {
-            let res = self.read_input();
+            let res = self.read_ugi_input();
             if res.is_err() {
-                self.write_error(res.err().unwrap().as_str());
+                self.write_message(Error, res.err().unwrap().as_str());
                 if self.continue_on_error() {
-                    self.write_debug("Continuing... ('debug' is 'on')");
+                    self.write_message(Debug, "Continuing... ('debug' is 'on')");
                     continue;
                 }
                 return MatchResult {
@@ -60,46 +59,20 @@ pub trait AbstractUGI {
         }
     }
 
-    fn debug_mode(&self) -> bool;
-
-    fn log_stream(&mut self) -> &mut DebugOutput;
-
     fn continue_on_error(&self) -> bool;
 
-    fn parse_input(&mut self, input: &str) -> Result<MatchStatus, String>;
+    fn read_ugi_input(&mut self) -> Result<MatchStatus, String>;
 
-    fn read_input(&mut self) -> Result<MatchStatus, String> {
-        let mut input = String::default();
-        if let Err(e) = stdin().read_line(&mut input) {
-            return Err(format!("Failed to read input: {0}", e.to_string()));
-        }
-        self.log_stream().write(">", input.as_str().trim());
-        self.parse_input(input.as_str())
-    }
+    fn write_message(&mut self, typ: Message, message: &str);
 
-    fn write_debug(&mut self, debug_msg: &str) {
-        if self.debug_mode() {
-            eprintln!("{debug_msg}");
-        }
-        self.log_stream().write("DEBUG:", debug_msg);
-    }
-
-    fn write_error(&mut self, err_msg: &str) {
-        eprintln!("{err_msg}");
-        self.log_stream().write("ERROR:", err_msg);
-    }
-
-    fn write(&mut self, message: &str) {
-        println!("{message}");
-        self.log_stream().write("<", message);
-    }
+    fn write_ugi(&mut self, message: &str);
 
     fn write_info(&mut self, info: &str) {
-        self.write(&format!("info {info}"))
+        self.write_ugi(&format!("info {info}"))
     }
 
     fn write_response(&mut self, response: String) {
-        self.write(&format!("response {response}"))
+        self.write_ugi(&format!("response {response}"))
     }
 }
 
@@ -108,26 +81,6 @@ enum SearchType {
     Perft,
     SplitPerft,
     Bench,
-}
-
-/// `Option<Box<dyn Write>>` doesn't implement `Debug`, which is a problem because `UGI` should implement `Debug`.
-#[derive(Debug)]
-pub enum DebugOutput {
-    None,
-    File(BufWriter<File>),
-    Stdout(BufWriter<Stdout>),
-    Stderr(BufWriter<Stderr>),
-}
-
-impl DebugOutput {
-    fn write(&mut self, prefix: &str, msg: &str) {
-        match self {
-            DebugOutput::None => {}
-            DebugOutput::File(f) => _ = writeln!(f, "{prefix} {msg}"),
-            DebugOutput::Stdout(out) => _ = writeln!(out, "{prefix} {msg}"),
-            DebugOutput::Stderr(err) => _ = writeln!(err, "{prefix} {msg}"),
-        }
-    }
 }
 
 // Implement both UGI and UCI
@@ -142,7 +95,7 @@ pub struct UGI<B: Board> {
     board_hist: ZobristRepetition3Fold,
     initial_pos: B,
     next_match: Option<AnyMatch>,
-    debug_output: DebugOutput,
+    logger: RefCell<Logger<B>>,
 }
 
 impl<B: Board> AbstractMatchManager for UGI<B> {
@@ -176,6 +129,10 @@ impl<B: Board> AbstractMatchManager for UGI<B> {
 
     fn game_name(&self) -> String {
         B::game_name()
+    }
+
+    fn debug_mode(&self) -> bool {
+        self.debug_mode
     }
 }
 
@@ -221,105 +178,31 @@ impl<B: Board> MatchManager<B> for UGI<B> {
 }
 
 impl<B: Board> AbstractUGI for UGI<B> {
-    fn debug_mode(&self) -> bool {
-        self.debug_mode
+    fn read_ugi_input(&mut self) -> Result<MatchStatus, String> {
+        let mut input = String::default();
+        if let Err(e) = stdin().read_line(&mut input) {
+            return Err(format!("Failed to read input: {0}", e.to_string()));
+        }
+        self.logger
+            .borrow_mut()
+            .stream
+            .write(">", input.as_str().trim());
+        self.parse_input(input.as_str())
     }
 
-    fn log_stream(&mut self) -> &mut DebugOutput {
-        &mut self.debug_output
+    fn write_ugi(&mut self, message: &str) {
+        // UGI is always done through stdin and stdout, no matter what the UI is.
+        println!("{message}");
+        self.logger.borrow_mut().stream.write("<", message);
+    }
+
+    fn write_message(&mut self, typ: Message, msg: &str) {
+        self.graphics.borrow_mut().display_message(self, typ, msg);
+        self.logger.borrow_mut().display_message(self, typ, msg);
     }
 
     fn continue_on_error(&self) -> bool {
         self.debug_mode
-    }
-
-    fn parse_input(&mut self, input: &str) -> Result<MatchStatus, String> {
-        let mut words = input.split_whitespace();
-        let first_word = words.next().ok_or_else(|| "Empty input")?;
-        match first_word {
-            "ugi" => {
-                let id_msg = self.id();
-                self.write(id_msg.as_str());
-                self.write(self.write_options().as_str());
-                self.write("ugiok");
-                Ok(self.status)
-            }
-            "uci" => {
-                let id_msg = self.id();
-                self.write(id_msg.as_str());
-                self.write(self.write_options().as_str());
-                self.write("uciok");
-                Ok(self.status)
-            }
-            "isready" => {
-                self.write("readyok");
-                Ok(self.status)
-            }
-            "debug" => {
-                match words.next().unwrap_or_default() {
-                    "on" => {
-                        self.debug_mode = true;
-                        // don't change the log stream if it's already set
-                        if matches!(self.debug_output, DebugOutput::None) {
-                            if let Err(msg) = self.handle_log("debug_output.log".split_whitespace())
-                            {
-                                self.write_info(&format!(
-                                    "Error: Couldn't set the debug log file: '{msg}'"
-                                ));
-                            };
-                        }
-                    }
-                    "off" => {
-                        self.debug_mode = false;
-                        self.handle_log("none".split_whitespace())?;
-                    }
-                    x => return Err(format!("Invalid debug option '{x}'")),
-                }
-                Ok(self.status)
-            }
-            "setoption" => self.handle_setoption(words),
-            "register" => Err("'register' isn't supported".to_string()),
-            "ucinewgame" => {
-                self.engine.forget();
-                self.status = NotStarted;
-                Ok(self.status)
-            } // just ignore it
-            "position" => self.handle_position(words),
-            "go" => self.handle_go(words),
-            "stop" => {
-                self.engine.stop();
-                self.write(&format_search_result(
-                    self.engine.search_info().to_search_result(),
-                ));
-                Ok(Ongoing)
-            }
-            "ponderhit" => Ok(self.status), // ignore pondering
-            "quit" => self.quit(),
-            "query" => self.handle_query(words),
-            "ui" => self.handle_ui(words),
-            "print" => self.handle_print(words),
-            "log" => self.handle_log(words),
-            "engine" => self.handle_engine(words),
-            "game" => self.handle_game(words),
-            "play" => {
-                play(); // play a game locally without using UGI
-                Ok(self.status)
-            }
-            x => {
-                // An invalid token at the start of the input should be ignored according to the UCI spec.
-                // The same is true recursively for the remaining input.
-                let remaining = words.remainder().unwrap_or_default().trim();
-                self.graphics.borrow_mut().display_message(
-                    Warning,
-                    &format!("Ignoring invalid token at start of UCI command '{x}'"),
-                );
-                self.write_debug(&format!("Invalid input '{x}' followed by '{remaining}'"));
-                if remaining.is_empty() {
-                    return Ok(self.status);
-                }
-                self.parse_input(remaining)
-            }
-        }
     }
 }
 
@@ -351,7 +234,101 @@ impl<B: Board> UGI<B> {
             graphics,
             next_match: None,
             initial_pos: B::default(),
-            debug_output: DebugOutput::None,
+            logger: RefCell::new(Logger::new(LogStream::None)),
+        }
+    }
+
+    fn parse_input(&mut self, input: &str) -> Result<MatchStatus, String> {
+        let mut words = input.split_whitespace();
+        let first_word = words.next().ok_or_else(|| "Empty input")?;
+        match first_word {
+            "ugi" => {
+                let id_msg = self.id();
+                self.write_ugi(id_msg.as_str());
+                self.write_ugi(self.write_options().as_str());
+                self.write_ugi("ugiok");
+                Ok(self.status)
+            }
+            "uci" => {
+                let id_msg = self.id();
+                self.write_ugi(id_msg.as_str());
+                self.write_ugi(self.write_options().as_str());
+                self.write_ugi("uciok");
+                Ok(self.status)
+            }
+            "isready" => {
+                self.write_ugi("readyok");
+                Ok(self.status)
+            }
+            "debug" => {
+                match words.next().unwrap_or_default() {
+                    "on" => {
+                        self.debug_mode = true;
+                        // don't change the log stream if it's already set
+                        if !self.logger.borrow().is_active() {
+                            if let Err(msg) = self.handle_log("".split_whitespace()) {
+                                // Don't return an error, instead simply print a message and continue.
+                                self.write_message(
+                                    Error,
+                                    &format!("Couldn't set the debug log file: '{msg}'"),
+                                );
+                            };
+                        }
+                    }
+                    "off" => {
+                        self.debug_mode = false;
+                        self.handle_log("none".split_whitespace())?;
+                    }
+                    x => return Err(format!("Invalid debug option '{x}'")),
+                }
+                Ok(self.status)
+            }
+            "setoption" => self.handle_setoption(words),
+            "register" => Err("'register' isn't supported".to_string()),
+            "ucinewgame" => {
+                self.engine.forget();
+                self.status = NotStarted;
+                Ok(self.status)
+            } // just ignore it
+            "position" => self.handle_position(words),
+            "go" => self.handle_go(words),
+            "stop" => {
+                self.engine.stop();
+                self.write_ugi(&format_search_result(
+                    self.engine.search_info().to_search_result(),
+                ));
+                Ok(Ongoing)
+            }
+            "ponderhit" => Ok(self.status), // ignore pondering
+            "quit" => self.quit(),
+            "query" => self.handle_query(words),
+            "ui" => self.handle_ui(words),
+            "print" => self.handle_print(words),
+            "log" => self.handle_log(words),
+            "engine" => self.handle_engine(words),
+            "game" => self.handle_game(words),
+            "play" => {
+                play(); // play a game locally without using UGI
+                Ok(self.status)
+            }
+            x => {
+                // An invalid token at the start of the input should be ignored according to the UCI spec.
+                // The same is true recursively for the remaining input.
+                let remaining = words.remainder().unwrap_or_default().trim();
+                self.graphics.borrow_mut().display_message(
+                    self,
+                    Warning,
+                    &format!("Ignoring invalid token at start of UCI command '{x}'"),
+                );
+                self.write_message(
+                    Debug,
+                    &format!("Invalid input '{x}' followed by '{remaining}'"),
+                );
+                if remaining.is_empty() {
+                    return Ok(self.status);
+                }
+                self.parse_input(remaining)
+            }
         }
     }
 
@@ -516,7 +493,7 @@ impl<B: Board> UGI<B> {
                 run_bench_with_depth(self.engine.deref_mut(), depth)
             }
         };
-        self.write(result_message.as_str());
+        self.write_ugi(result_message.as_str());
         Ok(Ongoing)
     }
 
@@ -611,25 +588,7 @@ impl<B: Board> UGI<B> {
     // to the base trait so they don't depend on the type of `Board` to reduce code bloat.
     fn handle_log(&mut self, mut words: SplitWhitespace) -> Result<MatchStatus, String> {
         let remaining = words.remainder(); // Support whitespaces in file name (but not at the beginning)
-        match words.next().ok_or_else(|| {
-            format!(
-                "Missing argument to 'log', expected either a filename, 'stdout', 'stderr', or 'none'"
-            )
-        })? {
-            "none" => self.debug_output = DebugOutput::None,
-            "stdout" => self.debug_output = DebugOutput::Stdout(BufWriter::new(io::stdout())),
-            "stderr" => self.debug_output = DebugOutput::Stderr(BufWriter::new(io::stderr())),
-            _ => {
-                let filename = remaining.unwrap().trim();
-                if !remaining.unwrap().contains('.') {
-                    return Err(format!("'{filename}' does not appear to be a valid filename (it does not contain a '.'). \
-             Expected either a filename, 'stdout', 'stderr', or 'none'."))
-                }
-                let path = Path::new(remaining.unwrap());
-                let file = File::create(path).map_err(|err| format!("Couldn't create log file: {err}"))?;
-                self.debug_output = DebugOutput::File(BufWriter::new(file));
-            }
-        };
+        self.logger = RefCell::new(Logger::from_str(remaining.unwrap_or_default())?);
         Ok(self.status)
     }
 
