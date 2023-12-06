@@ -215,12 +215,16 @@ impl<B: Board> AbstractUGI for UGI<B> {
             "register" => Err("'register' isn't supported".to_string()),
             "ucinewgame" => {
                 self.engine.forget();
-                Ok(Ongoing)
+                self.status = NotStarted;
+                Ok(self.status)
             } // just ignore it
             "position" => self.handle_position(words),
             "go" => self.handle_go(words),
             "stop" => {
                 self.engine.stop();
+                self.write(&format_search_result(
+                    self.engine.search_info().to_search_result(),
+                ));
                 Ok(Ongoing)
             }
             "ponderhit" => Ok(self.status), // ignore pondering
@@ -322,16 +326,16 @@ impl<B: Board> UGI<B> {
     }
 
     fn handle_setoption(&mut self, mut words: SplitWhitespace) -> Result<MatchStatus, String> {
-        let name = words.next().unwrap_or_default();
+        let mut name = words.next().unwrap_or_default().to_ascii_lowercase();
         if name != "name" {
             return Err(format!(
                 "Invalid option command: Expected 'name', got '{name};"
             ));
         }
-        let mut name = String::default();
+        name = String::default();
         loop {
             let next_word = words.next().unwrap_or_default();
-            if next_word == "value" || next_word == "" {
+            if next_word.to_ascii_lowercase() == "value" || next_word == "" {
                 break;
             }
             name = name + " " + next_word;
@@ -353,7 +357,7 @@ impl<B: Board> UGI<B> {
                 Err(err)
             }
         })?;
-        Ok(Ongoing)
+        Ok(self.status)
     }
 
     fn handle_go(&mut self, mut words: SplitWhitespace) -> Result<MatchStatus, String> {

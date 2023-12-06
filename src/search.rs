@@ -295,6 +295,10 @@ impl<B: Board> SearchInfo<B> {
     pub fn ignore(self) {
         // do nothing.
     }
+
+    pub fn to_search_result(&self) -> SearchResult<B> {
+        SearchResult::move_and_score(self.best_move, self.score)
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
