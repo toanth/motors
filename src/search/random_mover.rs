@@ -11,7 +11,6 @@ use crate::search::{
 
 pub struct RandomMover<B: Board, R: Rng + Default> {
     pub rng: R,
-    info_callback: InfoCallback<B>,
     chosen_move: B::Move,
 }
 
@@ -25,14 +24,19 @@ impl<B: Board, R: Rng + Default> Default for RandomMover<B, R> {
     fn default() -> Self {
         Self {
             rng: R::default(),
-            info_callback: InfoCallback::default(),
             chosen_move: B::Move::default(),
         }
     }
 }
 
 impl<B: Board, R: Rng + Default + 'static> Searcher<B> for RandomMover<B, R> {
-    fn search(&mut self, pos: B, _: SearchLimit, _: ZobristHistoryBase) -> SearchResult<B> {
+    fn search(
+        &mut self,
+        pos: B,
+        _: SearchLimit,
+        _: ZobristHistoryBase,
+        _: Box<dyn InfoCallback<B>>,
+    ) -> SearchResult<B> {
         self.chosen_move = pos
             .random_legal_move(&mut self.rng)
             .expect("search() called in a position with no legal moves");
@@ -63,10 +67,6 @@ impl<B: Board, R: Rng + Default + 'static> Engine<B> for RandomMover<B, R> {
 
     fn stop(&mut self) {
         // do nothing
-    }
-
-    fn set_info_callback(&mut self, f: InfoCallback<B>) {
-        self.info_callback = f;
     }
 
     fn search_info(&self) -> SearchInfo<B> {

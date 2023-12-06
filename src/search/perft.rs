@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
 use crate::games::{Board, BoardHistory, Move, ZobristHistoryBase};
-use crate::search::{SearchLimit, SearchResult, Searcher, TimeControl};
+use crate::search::{InfoCallback, SearchLimit, SearchResult, Searcher, TimeControl};
 
 #[derive(Copy, Clone, Debug, Default)]
 pub struct PerftRes {
@@ -100,6 +100,7 @@ impl<B: Board> Searcher<B> for PerftSearcher {
         pos: B,
         limit: SearchLimit,
         _history: ZobristHistoryBase,
+        _: Box<dyn InfoCallback<B>>,
     ) -> SearchResult<B> {
         self.result = perft(limit.depth, pos);
         let mut res = SearchResult::default();
@@ -133,6 +134,7 @@ impl<B: Board> Searcher<B> for SplitPerftSearcher<B> {
         pos: B,
         limit: SearchLimit,
         _history: ZobristHistoryBase,
+        _: Box<dyn InfoCallback<B>>,
     ) -> SearchResult<B> {
         self.result = split_perft(limit.depth, pos);
         let mut res = SearchResult::default();

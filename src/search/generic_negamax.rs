@@ -24,6 +24,7 @@ impl<B: Board, E: Eval<B>> Searcher<B> for GenericNegamax<B, E> {
         pos: B,
         limit: SearchLimit,
         history: ZobristHistoryBase,
+        info_callback: Box<dyn InfoCallback<B>>,
     ) -> SearchResult<B> {
         self.state.new_search(ZobristRepetition2Fold(history));
         let mut chosen_move = self.state.best_move;
@@ -37,7 +38,7 @@ impl<B: Board, E: Eval<B>> Searcher<B> for GenericNegamax<B, E> {
             }
             self.state.score = iteration_score;
             chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
-            self.state.info_callback.call(self.search_info())
+            info_callback.print_info(self.search_info())
         }
 
         SearchResult::move_only(chosen_move.unwrap_or_else(|| {
@@ -78,10 +79,6 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
 
     fn stop(&mut self) {
         self.state.search_cancelled = true;
-    }
-
-    fn set_info_callback(&mut self, f: InfoCallback<B>) {
-        self.state.info_callback = f;
     }
 
     fn search_info(&self) -> SearchInfo<B> {

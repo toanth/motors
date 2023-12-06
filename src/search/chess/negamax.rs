@@ -105,6 +105,7 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
         pos: Chessboard,
         limit: SearchLimit,
         history: ZobristHistoryBase,
+        info_callback: Box<dyn InfoCallback<Chessboard>>,
     ) -> SearchResult<Chessboard> {
         self.state.new_search(ZobristRepetition2Fold(history));
         let mut chosen_move = self.state.best_move;
@@ -131,7 +132,7 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
             }
             self.state.score = iteration_score;
             chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
-            self.state.info_callback.call(self.search_info());
+            info_callback.print_info(self.search_info());
             if self.state.start_time.elapsed() >= soft_limit {
                 break;
             }
@@ -385,7 +386,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
         tt_move: ChessMove,
         ply: usize,
     ) -> ChessMoveList {
-        /// The move list is iterated backwards, which is why better moves get higher scores
+        // The move list is iterated backwards, which is why better moves get higher scores
         let score_function = |mov: &ChessMove| {
             let captured = mov.captured(board);
             if *mov == tt_move {
@@ -427,10 +428,6 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Negamax<E> {
 
     fn stop(&mut self) {
         self.state.search_cancelled = true;
-    }
-
-    fn set_info_callback(&mut self, f: InfoCallback<Chessboard>) {
-        self.state.info_callback = f;
     }
 
     fn search_info(&self) -> SearchInfo<Chessboard> {

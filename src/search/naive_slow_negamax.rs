@@ -21,11 +21,12 @@ impl<B: Board> Searcher<B> for NaiveSlowNegamax<B> {
         pos: B,
         limit: SearchLimit,
         history: ZobristHistoryBase,
+        info_callback: Box<dyn InfoCallback<B>>,
     ) -> SearchResult<B> {
         self.state.new_search(ZobristRepetition2Fold(history));
 
         self.state.score = self.negamax(pos, limit, 0);
-        self.state.send_new_info();
+        info_callback.print_info(self.search_info());
         SearchResult::move_and_score(
             self.state.best_move.unwrap_or_else(|| {
                 // Sadly, this is the expected case since there is no iterative deepening
@@ -67,10 +68,6 @@ impl<B: Board> Engine<B> for NaiveSlowNegamax<B> {
 
     fn stop(&mut self) {
         self.state.search_cancelled = true;
-    }
-
-    fn set_info_callback(&mut self, f: InfoCallback<B>) {
-        self.state.info_callback = f;
     }
 
     fn search_info(&self) -> SearchInfo<B> {

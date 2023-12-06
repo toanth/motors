@@ -375,6 +375,7 @@ pub trait Searcher<B: Board>: Debug + 'static {
         pos: B,
         limit: SearchLimit,
         history: ZobristHistoryBase,
+        info_callback: Box<dyn InfoCallback<B>>,
     ) -> SearchResult<B>;
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool;
@@ -391,8 +392,6 @@ pub trait Engine<B: Board>: Searcher<B> {
 
     /// Stop the current search. Can be called from another thread while the search is running.
     fn stop(&mut self);
-
-    fn set_info_callback(&mut self, f: InfoCallback<B>);
 
     /// Returns a SearchInfo object with information about the search so far.
     /// Can be called during search, only returns the information regarding the current thread.
@@ -425,23 +424,9 @@ pub trait Engine<B: Board>: Searcher<B> {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct InfoCallback<B: Board> {
-    pub func: fn(SearchInfo<B>) -> (),
-}
-
-impl<B: Board> InfoCallback<B> {
-    fn call(self, info: SearchInfo<B>) {
-        (self.func)(info)
-    }
-}
-
-impl<B: Board> Default for InfoCallback<B> {
-    fn default() -> Self {
-        Self {
-            func: SearchInfo::ignore,
-        }
-    }
+/// To be used as dyn trait object
+pub trait InfoCallback<B: Board> {
+    fn print_info(&self, info: SearchInfo<B>);
 }
 
 #[derive(Debug)]
@@ -451,7 +436,6 @@ struct SimpleSearchState<B: Board> {
     best_move: Option<B::Move>,
     nodes: u64,
     search_cancelled: bool,
-    info_callback: InfoCallback<B>,
     depth: usize,
     sel_depth: usize,
     start_time: Instant,
@@ -469,7 +453,6 @@ impl<B: Board> Default for SimpleSearchState<B> {
             best_move: None,
             nodes: 0,
             search_cancelled: false,
-            info_callback: InfoCallback::default(),
             depth: 0,
             sel_depth: 0,
         }
@@ -485,9 +468,7 @@ impl<B: Board> SimpleSearchState<B> {
     }
 
     fn forget(&mut self) {
-        let info_callback = self.info_callback;
         *self = SimpleSearchState::default();
-        self.info_callback = info_callback;
     }
 
     fn nodes(&self) -> u64 {
@@ -512,10 +493,6 @@ impl<B: Board> SimpleSearchState<B> {
 
     fn pv(&self) -> Vec<B::Move> {
         vec![self.mov()]
-    }
-
-    fn info_callback(&self) -> InfoCallback<B> {
-        self.info_callback
     }
 
     fn hashfull(&self) -> Option<usize> {
@@ -543,10 +520,6 @@ impl<B: Board> SimpleSearchState<B> {
             hashfull: self.hashfull(),
             additional: self.additional(),
         }
-    }
-
-    fn send_new_info(&self) {
-        self.info_callback().call(self.to_info());
     }
 
     fn to_bench_res(&self) -> BenchResult {
@@ -611,10 +584,6 @@ impl<B: Board, const PV_LIMIT: usize> SearchStateWithPv<B, PV_LIMIT> {
 
     fn pv(&self) -> Vec<B::Move> {
         self.pv_table.get_pv().to_vec()
-    }
-
-    fn info_callback(&self) -> InfoCallback<B> {
-        self.wrapped.info_callback()
     }
 
     fn to_info(&self) -> SearchInfo<B> {

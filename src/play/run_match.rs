@@ -22,13 +22,25 @@ use crate::search::generic_negamax::GenericNegamax;
 use crate::search::human::Human;
 use crate::search::naive_slow_negamax::NaiveSlowNegamax;
 use crate::search::random_mover::RandomMover;
-use crate::search::{SearchInfo, SearchLimit, SearchResult, Searcher, TimeControl};
+use crate::search::{InfoCallback, SearchInfo, SearchLimit, SearchResult, Searcher, TimeControl};
 use crate::ui::pretty::PrettyUI;
 use crate::ui::text_ui::TextUI;
 use crate::ui::Message::*;
 use crate::ui::{to_ui_handle, GraphicsHandle, UIHandle};
 
-// TODO: Remove this file / move the play_match.rs file into this
+#[derive(Debug, Default)]
+struct BuiltInInfoCallback {}
+
+impl<B: Board> InfoCallback<B> for BuiltInInfoCallback {
+    fn print_info(&self, info: SearchInfo<B>) {
+        println!(
+            "After {0} milliseconds: Move {1}, score {2}",
+            info.time.as_millis(),
+            info.best_move,
+            info.score.0
+        )
+    }
+}
 
 pub fn play() {
     play_mnk(); // the only game that's implemented for now
@@ -95,7 +107,12 @@ pub struct Player<B: Board> {
 
 impl<B: Board> Player<B> {
     pub fn make_move(&mut self, pos: B, history: ZobristHistoryBase) -> SearchResult<B> {
-        self.searcher.search(pos, self.limit, history)
+        self.searcher.search(
+            pos,
+            self.limit,
+            history,
+            Box::new(BuiltInInfoCallback::default()),
+        )
     }
 
     pub fn update_time(&mut self, time_spent_last_move: Duration) -> MatchStatus {
@@ -103,7 +120,7 @@ impl<B: Board> Player<B> {
         if time_spent_last_move > max_time {
             return Over(MatchResult {
                 result: Aborted,
-                reason: GameOverReason::Adjudication(TimeUp),
+                reason: Adjudication(TimeUp),
             });
         }
         self.limit.tc.remaining -= time_spent_last_move;
@@ -328,15 +345,6 @@ impl<B: Board> MatchManager<B> for BuiltInMatch<B> {
 
     fn graphics(&self) -> GraphicsHandle<B> {
         self.graphics.clone()
-    }
-
-    fn format_info(&self, info: SearchInfo<B>) -> String {
-        format!(
-            "After {0} milliseconds: Move {1}, score {2}",
-            info.time.as_millis(),
-            info.best_move,
-            info.score.0
-        )
     }
 
     fn initial_pos(&self) -> B {

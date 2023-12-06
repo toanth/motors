@@ -1,6 +1,4 @@
 use std::fmt::{Debug, Display, Formatter};
-use std::marker::PhantomData;
-use std::time::Duration;
 
 use colored::Colorize;
 use itertools::Itertools;
@@ -11,15 +9,14 @@ use crate::games::mnk::MNKBoard;
 use crate::games::PlayerResult::*;
 use crate::games::{
     Board, Color, CreateEngine, EngineList, GraphicsList, Move, PlayerResult, RectangularBoard,
-    RectangularCoordinates, ZobristHistoryBase,
+    RectangularCoordinates,
 };
 use crate::play::AdjudicationReason::*;
 use crate::play::GameResult::Aborted;
 use crate::play::MatchStatus::Over;
-use crate::search::human::Human;
 use crate::search::naive_slow_negamax::NaiveSlowNegamax;
 use crate::search::random_mover::RandomMover;
-use crate::search::{Engine, SearchInfo, SearchLimit, SearchResult, Searcher};
+use crate::search::{Engine, Searcher};
 use crate::ui::text_ui::TextUI;
 use crate::ui::{to_ui_handle, GraphicsHandle, UIHandle};
 
@@ -57,8 +54,6 @@ pub trait MatchManager<B: Board>: AbstractMatchManager {
     fn last_move(&self) -> Option<B::Move> {
         self.move_history().last().copied()
     }
-
-    fn format_info(&self, info: SearchInfo<B>) -> String;
 
     fn graphics(&self) -> GraphicsHandle<B>;
 
@@ -182,64 +177,6 @@ pub type AnyMutEngineRef<'a, B> = &'a mut dyn Engine<B>;
 /// `AnyMatch` is a type-erased `MatchManager`, and almost the only thing that isn't generic over the Game.
 /// Pretty much the entire program is spent inside the match manager.
 pub type AnyMatch = Box<dyn AbstractMatchManager>;
-
-/// A player for the built-in match manager. TODO: Refactor
-#[derive(Debug)]
-pub struct Player<B: Board> {
-    pub searcher: AnySearcher<B>,
-    pub limit: SearchLimit,
-    pub original_limit: SearchLimit,
-    pub retry_on_invalid_move: bool,
-    phantom: PhantomData<B>,
-}
-
-impl<B: Board> Player<B> {
-    pub fn make_move(&mut self, pos: B, history: ZobristHistoryBase) -> SearchResult<B> {
-        self.searcher.search(pos, self.limit, history)
-    }
-
-    pub fn update_time(&mut self, time_spent_last_move: Duration) -> MatchStatus {
-        let max_time = self.limit.tc.remaining.max(self.limit.fixed_time);
-        if time_spent_last_move > max_time {
-            return Over(MatchResult {
-                result: Aborted,
-                reason: GameOverReason::Adjudication(TimeUp),
-            });
-        }
-        self.limit.tc.remaining -= time_spent_last_move;
-        if self.limit.tc.moves_to_go == 1 {
-            self.limit.tc.moves_to_go = self.original_limit.tc.moves_to_go;
-            self.limit.tc.remaining += self.original_limit.tc.remaining;
-        } else if self.limit.tc.moves_to_go != 0 {
-            self.limit.tc.moves_to_go -= 1;
-        }
-        MatchStatus::Ongoing
-    }
-
-    pub fn new_for_searcher<S: Searcher<B>>(searcher: S, limit: SearchLimit) -> Self {
-        Self::new(Box::new(searcher), limit)
-    }
-
-    pub fn new(searcher: AnySearcher<B>, limit: SearchLimit) -> Self {
-        Self {
-            searcher,
-            limit,
-            original_limit: limit,
-            retry_on_invalid_move: false,
-            phantom: Default::default(),
-        }
-    }
-
-    pub fn human(ui: UIHandle<B>) -> Self {
-        Player {
-            searcher: Box::new(Human::new(ui)),
-            limit: SearchLimit::infinite(),
-            original_limit: SearchLimit::infinite(),
-            retry_on_invalid_move: true,
-            phantom: Default::default(),
-        }
-    }
-}
 
 struct MoveRes<B: Board> {
     mov: B::Move,

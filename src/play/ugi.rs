@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use std::io::{stdin, Write};
 use std::mem::discriminant;
 use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
 use std::str::{FromStr, SplitWhitespace};
 use std::time::Duration;
 
@@ -37,6 +38,11 @@ fn format_search_result<B: Board>(res: SearchResult<B>) -> String {
     format!("bestmove {best}", best = res.chosen_move.to_compact_text())
 }
 
+fn write_ugi<B: Board>(logger: &mut Logger<B>, message: &str) {
+    // UGI is always done through stdin and stdout, no matter what the UI is.
+    println!("{message}");
+    logger.stream.write("<", message);
+}
 pub trait AbstractUGI {
     fn ugi_loop(&mut self) -> MatchResult {
         self.write_message(Debug, "Starting UGI loop");
@@ -63,16 +69,47 @@ pub trait AbstractUGI {
 
     fn read_ugi_input(&mut self) -> Result<MatchStatus, String>;
 
+    // TODO: This should be a method of GameManager instead
     fn write_message(&mut self, typ: Message, message: &str);
 
-    fn write_ugi(&mut self, message: &str);
+    fn write_ugi(&self, message: &str);
 
-    fn write_info(&mut self, info: &str) {
+    fn write_info(&self, info: &str) {
         self.write_ugi(&format!("info {info}"))
     }
 
     fn write_response(&mut self, response: String) {
         self.write_ugi(&format!("response {response}"))
+    }
+}
+
+pub struct UgiInfoCallback<B: Board> {
+    // Ideally, this would simply be a reference to the UGI object,
+    // but the borrow checker will eat me alive if I try that
+    logger: Rc<RefCell<Logger<B>>>,
+}
+
+impl<B: Board> InfoCallback<B> for UgiInfoCallback<B> {
+    fn print_info(&self, info: SearchInfo<B>) {
+        let score_str = if let Some(moves_until_over) = info.score.moves_until_game_won() {
+            format!("mate {moves_until_over}")
+        } else {
+            format!("cp {0}", info.score.0) // TODO: WDL normalization
+        };
+
+        let info_str = format!(
+        "info depth {depth}{seldepth} score {score_str} time {time} nodes {nodes} nps {nps} pv {pv}{hashfull}{string}",
+        depth = info.depth, time = info.time.as_millis(), nodes = info.nodes,
+        seldepth = info.seldepth.map(|d| format!(" seldepth {d}")).unwrap_or_default(),
+        nps=info.nps(),
+        pv = info.pv.iter().map(|mv| mv.to_compact_text()).collect::<Vec<_>>().join(" "),
+        hashfull = info.hashfull.map(|f| format!(" hashfull {f}")).unwrap_or_default(),
+        string = info.additional.map(|s| format!(" string {s}")).unwrap_or_default()
+    );
+        println!("{info_str}");
+        self.logger
+            .borrow_mut()
+            .display_message_simple(Info, &info_str);
     }
 }
 
@@ -95,7 +132,7 @@ pub struct UGI<B: Board> {
     board_hist: ZobristRepetition3Fold,
     initial_pos: B,
     next_match: Option<AnyMatch>,
-    logger: RefCell<Logger<B>>,
+    logger: Rc<RefCell<Logger<B>>>,
 }
 
 impl<B: Board> AbstractMatchManager for UGI<B> {
@@ -149,10 +186,6 @@ impl<B: Board> MatchManager<B> for UGI<B> {
         self.mov_hist.as_slice()
     }
 
-    fn format_info(&self, info: SearchInfo<B>) -> String {
-        Self::format_info_impl(info)
-    }
-
     fn graphics(&self) -> GraphicsHandle<B> {
         self.graphics.clone()
     }
@@ -169,7 +202,6 @@ impl<B: Board> MatchManager<B> for UGI<B> {
 
     fn set_engine(&mut self, _: usize, engine: AnyEngine<B>) {
         self.engine = engine;
-        self.engine.set_info_callback(Self::info_callback());
     }
 
     fn set_board(&mut self, board: B) {
@@ -190,10 +222,8 @@ impl<B: Board> AbstractUGI for UGI<B> {
         self.parse_input(input.as_str())
     }
 
-    fn write_ugi(&mut self, message: &str) {
-        // UGI is always done through stdin and stdout, no matter what the UI is.
-        println!("{message}");
-        self.logger.borrow_mut().stream.write("<", message);
+    fn write_ugi(&self, message: &str) {
+        write_ugi(&mut self.logger.borrow_mut(), message);
     }
 
     fn write_message(&mut self, typ: Message, msg: &str) {
@@ -221,8 +251,7 @@ impl<B: Board> Default for UGI<B> {
 }
 
 impl<B: Board> UGI<B> {
-    pub fn new(mut engine: AnyEngine<B>, graphics: GraphicsHandle<B>) -> Self {
-        engine.set_info_callback(Self::info_callback());
+    pub fn new(engine: AnyEngine<B>, graphics: GraphicsHandle<B>) -> Self {
         let board = B::default();
         Self {
             engine,
@@ -234,7 +263,7 @@ impl<B: Board> UGI<B> {
             graphics,
             next_match: None,
             initial_pos: B::default(),
-            logger: RefCell::new(Logger::new(LogStream::None)),
+            logger: Rc::new(RefCell::new(Logger::new(LogStream::None))),
         }
     }
 
@@ -332,29 +361,10 @@ impl<B: Board> UGI<B> {
         }
     }
 
-    fn format_info_impl(info: SearchInfo<B>) -> String {
-        let score_str = if let Some(moves_until_over) = info.score.moves_until_game_won() {
-            format!("mate {moves_until_over}")
-        } else {
-            format!("cp {0}", info.score.0) // TODO: WDL normalization
-        };
-
-        format!(
-            "info depth {depth}{seldepth} score {score_str} time {time} nodes {nodes} nps {nps} pv {pv}{hashfull}{string}",
-            depth = info.depth, time = info.time.as_millis(), nodes = info.nodes,
-            seldepth = info.seldepth.map(|d| format!(" seldepth {d}")).unwrap_or_default(),
-            nps=info.nps(),
-            pv = info.pv.iter().map(|mv| mv.to_compact_text()).collect::<Vec<_>>().join(" "),
-            hashfull = info.hashfull.map(|f| format!(" hashfull {f}")).unwrap_or_default(),
-            string = info.additional.map(|s| format!(" string {s}")).unwrap_or_default()
-        )
-    }
-
-    fn info_callback() -> InfoCallback<B> {
-        InfoCallback {
-            // TODO: Use self.write_info, if the borrow checker allows that
-            func: |info| println!("{}", Self::format_info_impl(info).as_str()),
-        }
+    fn info_callback(&self) -> Box<dyn InfoCallback<B>> {
+        Box::new(UgiInfoCallback {
+            logger: self.logger.clone(),
+        })
     }
 
     fn quit(&mut self) -> Result<MatchStatus, String> {
@@ -481,6 +491,7 @@ impl<B: Board> UGI<B> {
                 self.board,
                 limit,
                 self.board_hist.0.clone(),
+                self.info_callback(),
             )),
             Perft => format!("{0}", perft(limit.depth, self.board)),
             SplitPerft => format!("{0}", split_perft(limit.depth, self.board)),
@@ -586,9 +597,11 @@ impl<B: Board> UGI<B> {
 
     // TODO: Move this function, and others throughout the project,
     // to the base trait so they don't depend on the type of `Board` to reduce code bloat.
-    fn handle_log(&mut self, mut words: SplitWhitespace) -> Result<MatchStatus, String> {
+    fn handle_log(&mut self, words: SplitWhitespace) -> Result<MatchStatus, String> {
         let remaining = words.remainder(); // Support whitespaces in file name (but not at the beginning)
-        self.logger = RefCell::new(Logger::from_str(remaining.unwrap_or_default())?);
+        self.logger = Rc::new(RefCell::new(Logger::from_str(
+            remaining.unwrap_or_default(),
+        )?));
         Ok(self.status)
     }
 
