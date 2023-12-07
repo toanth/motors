@@ -29,7 +29,7 @@ use crate::games::{
 use crate::general::bitboards::{Bitboard, ChessBitboard};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::play::generic_engines;
-use crate::search::chess::negamax::Negamax;
+use crate::search::chess::caps::Caps;
 use crate::search::generic_negamax::GenericNegamax;
 use crate::ui::NormalGraphics;
 
@@ -638,8 +638,8 @@ impl EngineList<Chessboard> for ChessEngineList {
         res.push(("generic_negamax".to_string(), |_| {
             Box::new(GenericNegamax::<Chessboard, PstOnlyEval>::default())
         }));
-        res.push(("negamax".to_string(), |_| {
-            Box::new(Negamax::<PstOnlyEval>::default())
+        res.push(("caps".to_string(), |_| {
+            Box::new(Caps::<PstOnlyEval>::default())
         }));
         res
     }
@@ -657,7 +657,7 @@ mod tests {
         game_result_no_movegen, RectangularBoard, RectangularCoordinates, ZobristHistoryBase,
         ZobristRepetition2Fold,
     };
-    use crate::search::chess::negamax::Negamax;
+    use crate::search::chess::caps::Caps;
     use crate::search::perft::perft;
     use crate::search::{Score, SearchLimit, Searcher};
 
@@ -721,7 +721,7 @@ mod tests {
         assert_eq!(legal_moves.len(), moves.len());
         assert!(legal_moves.sorted().eq(moves.sorted()));
 
-        let mut engine = Negamax::<MaterialOnlyEval>::default();
+        let mut engine = Caps::<MaterialOnlyEval>::default();
         let res = engine.search(board, SearchLimit::depth(4), ZobristHistoryBase::default());
         assert_eq!(res.score.unwrap(), Score(0));
     }
@@ -800,7 +800,7 @@ mod tests {
             assert_eq!(new_board.is_game_lost_slow(), checkmates);
             assert!(!board.is_game_lost_slow());
         }
-        let mut engine = Negamax::<RandEval>::default();
+        let mut engine = Caps::<RandEval>::default();
         let res = engine.search(board, SearchLimit::depth(2), ZobristHistoryBase::default());
         assert!(res.score.unwrap().is_game_won_score());
         assert_eq!(res.score.unwrap().plies_until_game_won(), Some(1));

@@ -4,25 +4,16 @@ use static_assertions::const_assert_eq;
 
 use crate::games::chess::Chessboard;
 use crate::games::{Board, ZobristHash};
-use crate::search::Score;
-
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
-pub(super) enum TTScoreType {
-    #[default]
-    Empty,
-    LowerBound,
-    Exact,
-    UpperBound,
-}
+use crate::search::{NodeType, Score};
 
 #[derive(Debug, Copy, Clone, Default)]
 #[repr(C)] // probably unnecessary, but allows asserting that the size behaves as expected
 pub(super) struct TTEntry<B: Board> {
-    pub hash: ZobristHash,  // 8 bytes
-    pub score: Score,       // 4 bytes
-    pub mov: B::Move,       // depends, 2 bytes for chess (atm never more)
-    pub depth: u8,          // 1 byte
-    pub bound: TTScoreType, // 1 byte
+    pub hash: ZobristHash, // 8 bytes
+    pub score: Score,      // 4 bytes
+    pub mov: B::Move,      // depends, 2 bytes for chess (atm never more)
+    pub depth: u8,         // 1 byte
+    pub bound: NodeType,   // 1 byte
 }
 
 impl<B: Board> TTEntry<B> {
@@ -30,7 +21,7 @@ impl<B: Board> TTEntry<B> {
         score: Score,
         mov: B::Move,
         depth: isize,
-        bound: TTScoreType,
+        bound: NodeType,
         hash: ZobristHash,
     ) -> TTEntry<B> {
         let depth = depth.clamp(0, u8::MAX as isize) as u8;
