@@ -1,8 +1,11 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
+use std::marker::PhantomData;
 use std::mem::replace;
 use std::ops::{Deref, DerefMut, Div, Mul};
 use std::str::FromStr;
+use std::sync::mpsc::{SendError, Sender};
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
@@ -421,6 +424,112 @@ pub trait Engine<B: Board>: Searcher<B> {
     /// Returns a list of textual representations of all options of this searcher
     fn get_options(&self) -> Vec<EngineOptionType> {
         Vec::default()
+    }
+}
+
+/// A `MultithreadedEngine` looks almost exactly like a normal engine from the outside and internally manages
+/// multiple concurrently running engines. All outside code only interfaces with the main engine, which owns
+/// the spawned concurrent engines.
+#[derive(Debug)]
+struct OwnedEngine<B: Board, E: Engine<B>> {
+    owned: E,
+    stop: Sender<()>,
+    forget: Sender<()>,
+    nodes: RefCell<single_value_channel::Receiver<u64>>,
+    set_option: Sender<(EngineOptionName, String)>,
+    phantom: PhantomData<B>,
+}
+
+#[derive(Debug)]
+struct MultithreadedEngine<B: Board, E: Engine<B>> {
+    main: E,
+    owned: Vec<OwnedEngine<B, E>>,
+}
+
+impl<B: Board, E: Engine<B>> Searcher<B> for MultithreadedEngine<B, E> {
+    fn search(
+        &mut self,
+        pos: B,
+        limit: SearchLimit,
+        history: ZobristHistoryBase,
+        info_callback: Box<dyn InfoCallback<B>>,
+    ) -> SearchResult<B> {
+        // TODO: Actually do multithreading
+        self.main.search(pos, limit, history, info_callback)
+    }
+
+    fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
+        self.main.time_up(tc, hard_limit, start_time)
+    }
+
+    fn name(&self) -> &'static str {
+        self.main.name()
+    }
+}
+
+fn failed_send<T>(name: &str, err: SendError<T>) {
+    panic!("Tried sending '{name}' to a multithreaded engine instantiation that has already been deallocated: {err}");
+}
+
+impl<B: Board, E: Engine<B>> Engine<B> for MultithreadedEngine<B, E> {
+    fn bench(&mut self, position: B, depth: usize) -> BenchResult {
+        self.main.bench(position, depth)
+    }
+
+    fn default_bench_depth(&self) -> usize {
+        self.main.default_bench_depth()
+    }
+
+    fn stop(&mut self) {
+        self.owned.iter_mut().for_each(|e| {
+            e.stop
+                .send(())
+                .unwrap_or_else(|err| failed_send("stop", err))
+        });
+        self.stop();
+    }
+
+    fn search_info(&self) -> SearchInfo<B> {
+        self.main.search_info()
+    }
+
+    fn forget(&mut self) {
+        self.owned.iter_mut().for_each(|e| {
+            e.forget
+                .send(())
+                .unwrap_or_else(|err| failed_send("forget", err))
+        });
+        self.forget();
+    }
+
+    fn nodes(&self) -> u64 {
+        let owned_nodes: u64 = self
+            .owned
+            .iter()
+            .map(|e| e.nodes.borrow_mut().latest().clone())
+            .sum();
+        owned_nodes + self.main.nodes()
+    }
+
+    fn version(&self) -> &'static str {
+        self.main.version()
+    }
+
+    fn set_option(&mut self, option: EngineOptionName, value: &str) -> Result<(), String> {
+        // set this first in case there's an error (this ignores errors in other threads based on the assumption
+        // that they would have occurred in this thread as well)
+        self.main.set_option(option.clone(), value)?;
+        for engine in self.owned.iter_mut() {
+            engine
+                .set_option
+                .send((option.clone(), value.to_string()))
+                .unwrap_or_else(|err| failed_send("setoption", err));
+        }
+        Ok(())
+    }
+
+    fn get_options(&self) -> Vec<EngineOptionType> {
+        self.main.get_options()
     }
 }
 
