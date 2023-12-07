@@ -76,15 +76,17 @@ impl State {
     }
 }
 
+/// Chess Alpha-beta Pruning Search, or in short, CAPS.
+/// Larger than Sᴍᴀʟʟ Cᴀᴘꜱ.
 #[derive(Debug, Default)]
-pub struct Negamax<E: Eval<Chessboard>> {
+pub struct Caps<E: Eval<Chessboard>> {
     state: State,
     eval: E,
 }
 
-impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
+impl<E: Eval<Chessboard>> Searcher<Chessboard> for Caps<E> {
     fn name(&self) -> &'static str {
-        "Chess Negamax"
+        "CAPS"
     }
 
     fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
@@ -149,7 +151,7 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Negamax<E> {
     }
 }
 
-impl<E: Eval<Chessboard>> Negamax<E> {
+impl<E: Eval<Chessboard>> Caps<E> {
     fn negamax(
         &mut self,
         pos: Chessboard,
@@ -403,7 +405,7 @@ impl<E: Eval<Chessboard>> Negamax<E> {
     }
 }
 
-impl<E: Eval<Chessboard>> Engine<Chessboard> for Negamax<E> {
+impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
     fn bench(&mut self, pos: Chessboard, depth: usize) -> BenchResult {
         self.state.new_search(ZobristRepetition2Fold::default());
         let mut limit = SearchLimit::infinite();

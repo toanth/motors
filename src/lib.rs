@@ -46,7 +46,7 @@ pub struct CommandLineArgs {
     mode: Mode,
     #[arg(value_enum, long, short, default_value_t=Game::Chess)]
     game: Game,
-    #[arg(value_enum, default_value_t=Engine::Negamax)]
+    #[arg(value_enum, default_value_t=Engine::Caps)]
     engine: Engine,
     #[arg(short, long, default_value = "none")]
     ui: String,
@@ -80,7 +80,7 @@ pub enum Engine {
     NaiveSlowNegamax,
     GenericNegamax,
     #[default]
-    Negamax,
+    Caps,
 }
 
 impl Display for Game {
@@ -108,7 +108,7 @@ impl Display for Engine {
             Engine::Random => write!(f, "random"),
             Engine::NaiveSlowNegamax => write!(f, "naive_negamax"),
             Engine::GenericNegamax => write!(f, "generic_negamax"),
-            Engine::Negamax => write!(f, "negamax"),
+            Engine::Caps => write!(f, "caps"),
         }
     }
 }

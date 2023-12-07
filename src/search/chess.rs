@@ -1,1 +1,1 @@
-pub mod negamax;
+pub mod caps;
