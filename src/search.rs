@@ -10,8 +10,7 @@ use derive_more::{Add, AddAssign, Neg, Sub};
 
 use crate::games::{Board, PlayerResult, ZobristHistoryBase, ZobristRepetition2Fold};
 use crate::play::AnyMutEngineRef;
-use crate::search::tt::TTScoreType::*;
-use crate::search::tt::{TTScoreType, TT};
+use crate::search::tt::TT;
 
 pub mod chess;
 pub mod generic_negamax;
@@ -89,16 +88,6 @@ impl Score {
         self.plies_until_game_won()
             .map(|n| (n as f32 / 2f32).ceil() as isize)
     }
-
-    fn bound(self, original_alpha: Score, beta: Score) -> TTScoreType {
-        if self <= original_alpha {
-            UpperBound
-        } else if self >= beta {
-            LowerBound
-        } else {
-            Exact
-        }
-    }
 }
 
 pub const SCORE_LOST: Score = Score(-31_000);
@@ -152,15 +141,24 @@ impl<B: Board, const LIMIT: usize> Default for GenericPVTable<B, LIMIT> {
 
 impl<B: Board, const LIMIT: usize> GenericPVTable<B, LIMIT> {
     fn new_pv_move(&mut self, ply: usize, mov: B::Move) {
-        debug_assert!(ply < LIMIT);
+        debug_assert!(ply + 1 < LIMIT);
         self.size = self.size.max(ply + 1);
         let len = self.pv_at_depth[ply + 1].length.max(ply + 1);
+        debug_assert!(
+            // no reductions on pv nodes (yet)
+            self.pv_at_depth[ply + 1].length == 0 || self.pv_at_depth[ply + 1].length >= ply + 2
+        );
         self.pv_at_depth[ply].length = len;
         self.pv_at_depth[ply + 1].length = 0;
         let (dest_arr, src_arr) = self.pv_at_depth.split_at_mut(ply + 1);
         let (dest_arr, src_arr) = (&mut dest_arr[ply], &mut src_arr[0]);
         dest_arr.list[ply] = mov;
         dest_arr.list[ply + 1..len].copy_from_slice(&src_arr.list[ply + 1..len]);
+    }
+
+    fn no_pv_move(&mut self, ply: usize) {
+        self.pv_at_depth[ply].length = 0;
+        self.pv_at_depth[ply + 1].length = 0;
     }
 
     fn reset(&mut self) {
@@ -525,7 +523,7 @@ impl<B: Board> SimpleSearchState<B> {
         if self.sel_depth == 0 {
             None
         } else {
-            Some(self.sel_depth + 1) // + 1 because seldepth is counted from 1, but ply is counted from 0
+            Some(self.sel_depth)
         }
     }
     fn additional(&self) -> Option<String> {
@@ -622,6 +620,15 @@ impl<B: Board, const PV_LIMIT: usize> SearchStateWithPv<B, PV_LIMIT> {
         res.pv = self.pv();
         res
     }
+}
+
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
+pub enum NodeType {
+    #[default]
+    Empty,
+    LowerBound, // score greater than beta, cut-node
+    Exact,      // score between alpha and beta, PV node (important node!)
+    UpperBound, // score less than alpha, all-node (relatively rare, but makes parent a cut-node)
 }
 
 pub fn run_bench<B: Board>(engine: AnyMutEngineRef<B>) -> String {

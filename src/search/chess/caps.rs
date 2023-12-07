@@ -9,12 +9,12 @@ use crate::games::chess::pieces::UncoloredChessPiece::Empty;
 use crate::games::chess::{ChessMoveList, Chessboard};
 use crate::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
 use crate::general::common::parse_int_from_str;
-use crate::search::tt::TTScoreType::{Exact, LowerBound, UpperBound};
-use crate::search::tt::{TTEntry, TTScoreType, DEFAULT_HASH_SIZE_MB};
+use crate::search::tt::{TTEntry, DEFAULT_HASH_SIZE_MB};
 use crate::search::EngineOptionName::Hash;
+use crate::search::NodeType::*;
 use crate::search::{
     game_result_to_score, should_stop, BenchResult, Engine, EngineOptionName, EngineOptionType,
-    EngineUciOptionType, InfoCallback, Score, SearchInfo, SearchLimit, SearchResult,
+    EngineUciOptionType, InfoCallback, NodeType, Score, SearchInfo, SearchLimit, SearchResult,
     SearchStateWithPv, Searcher, TimeControl, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
 };
 
@@ -170,9 +170,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
         self.state.sel_depth = self.state.sel_depth.max(ply);
 
         let root = ply == 0;
-        let pv_node = alpha + 1 < beta;
-        debug_assert!(!root || pv_node); // root implies pv node
-        let original_alpha = alpha;
+        let is_pvs_pv_node = alpha + 1 < beta; // TODO: Pass as parameter / generic? Probably not worth much elo
+        debug_assert!(!root || is_pvs_pv_node); // root implies pv node
 
         if !root && (self.state.board_history.is_repetition(&pos) || pos.is_50mr_draw()) {
             return Score(0);
@@ -186,19 +185,20 @@ impl<E: Eval<Chessboard>> Caps<E> {
         if depth <= 0 {
             return self.qsearch(pos, alpha, beta, ply);
         }
-        let can_prune = !pv_node && !in_check;
+        let can_prune = !is_pvs_pv_node && !in_check;
 
         let mut best_score = SCORE_LOST;
+        let mut bound_so_far = UpperBound;
 
         let tt_entry = self.state.tt.load(pos.zobrist_hash(), ply);
         let mut best_move = tt_entry.mov;
         let trust_tt_entry =
-            tt_entry.bound != TTScoreType::Empty && tt_entry.hash == pos.zobrist_hash();
+            tt_entry.bound != NodeType::Empty && tt_entry.hash == pos.zobrist_hash();
 
         // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
         // and we're not a PV node, and the saved score is either exact or at least known to be outside of [alpha, beta),
         // simply return it.
-        if !pv_node
+        if !is_pvs_pv_node
             && trust_tt_entry
             && tt_entry.depth as isize >= depth
             && ((tt_entry.score >= beta && tt_entry.bound == LowerBound)
@@ -283,17 +283,16 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if score <= alpha {
                 continue;
             }
+            bound_so_far = Exact;
             alpha = score;
             best_move = mov;
-            // TODO: This lost a smallish 2 digit amount of elo, so retest eventually
-            // (will probably be much less important as the search gets slower)
-            self.state.pv_table.new_pv_move(ply, mov);
             if ply == 0 {
                 self.state.best_move = Some(mov);
             }
             if score < beta {
                 continue;
             }
+            bound_so_far = LowerBound;
             if mov.is_capture(&pos) {
                 // TODO: Run test with regression bounds for using is_noisy (can cache that)
                 break;
@@ -304,12 +303,24 @@ impl<E: Eval<Chessboard>> Caps<E> {
             break;
         }
 
-        let bound = best_score.bound(original_alpha, beta);
-        let tt_entry = TTEntry::new(best_score, best_move, depth, bound, pos.zobrist_hash());
+        let tt_entry = TTEntry::new(
+            best_score,
+            best_move,
+            depth,
+            bound_so_far,
+            pos.zobrist_hash(),
+        );
         // TODO: eventually test that not overwriting PV nodes unless the depth is quite a bit greater gains
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node.
         self.state.tt.store(tt_entry, ply);
+
+        if bound_so_far == Exact {
+            // TODO: Test if this loses elo (a different implementation used to lose a few elo points)
+            self.state.pv_table.new_pv_move(ply, best_move);
+        } else {
+            self.state.pv_table.no_pv_move(ply);
+        }
 
         if num_children == 0 {
             game_result_to_score(pos.no_moves_result(), ply)
@@ -324,6 +335,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
         let mut best_score = self.eval.eval(pos);
+        let mut bound_so_far = UpperBound;
         if best_score >= beta {
             return best_score;
         }
@@ -365,14 +377,15 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if score <= alpha {
                 continue;
             }
+            bound_so_far = Exact;
             alpha = score;
             best_move = mov;
             if score >= beta {
+                bound_so_far = LowerBound;
                 break;
             }
         }
-        let bound = best_score.bound(original_alpha, beta);
-        let tt_entry = TTEntry::new(best_score, best_move, 0, bound, pos.zobrist_hash());
+        let tt_entry = TTEntry::new(best_score, best_move, 0, bound_so_far, pos.zobrist_hash());
         self.state.tt.store(tt_entry, ply);
         best_score
     }
@@ -471,5 +484,18 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
             max: Some(1_000_000.to_string()), // use at most 1 terabyte (should be enough for anybody™)
             vars: vec![],
         }]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::games::chess::Chessboard;
+    use crate::games::Board;
+
+    #[test]
+    fn simple_search_test() {
+        let pos = Chessboard::from_fen(
+            "r2q1r2/ppp1pkb1/2n1p1pp/2N1P3/2pP2Q1/2P1B2P/PP3PP1/R4RK1 b - - 1 18",
+        );
     }
 }
