@@ -77,7 +77,7 @@ impl State {
 }
 
 /// Chess Alpha-beta Pruning Search, or in short, CAPS.
-/// Larger than Sᴍᴀʟʟ Cᴀᴘꜱ.
+/// Larger than SᴍᴀʟʟCᴀᴘꜱ.
 #[derive(Debug, Default)]
 pub struct Caps<E: Eval<Chessboard>> {
     state: State,
@@ -264,7 +264,15 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if num_children == 1 {
                 score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, true);
             } else {
-                score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -beta + 1, true);
+                score = -self.negamax(
+                    new_pos,
+                    limit,
+                    ply + 1,
+                    depth - 1,
+                    -(alpha + 1),
+                    -alpha,
+                    true,
+                );
                 if alpha < score && score < beta {
                     score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, true);
                 }
