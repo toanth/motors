@@ -13,7 +13,8 @@ use strum_macros::EnumIter;
 use crate::games::PlayerResult::{Draw, Lose};
 use crate::general::common::parse_int;
 use crate::general::move_list::MoveList;
-use crate::play::AnyEngine;
+use crate::search::multithreading::EnginePlayer;
+use crate::search::Engine;
 use crate::ui::GraphicsHandle;
 
 pub mod mnk;
@@ -370,7 +371,7 @@ pub struct NoMoveFlags {}
 
 impl MoveFlags for NoMoveFlags {}
 
-pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display {
+pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Send {
     type Flags: MoveFlags;
 
     /// From which square does the piece move?
@@ -403,7 +404,7 @@ pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display {
 
 pub type CreateGraphics<B> = fn(&str) -> GraphicsHandle<B>;
 
-pub type CreateEngine<B> = fn(&str) -> AnyEngine<B>;
+pub type CreateEngine<B> = fn(&str) -> Box<dyn EnginePlayer<B>>;
 
 /// It's very inelegant to have the Board define what graphics / engines support it, but
 /// unfortunately this is the only way I found to do that without using the unstable `specialization` feature.
@@ -550,7 +551,7 @@ impl<B: Board> BoardHistory<B> for ZobristRepetition3Fold {
 /// and additional non-markovian information, such as the history of zobrist hashes for games that need this.
 /// TODO: Use a struct containing the current board and the history, switch to make/unmake
 pub trait Board:
-    Eq + PartialEq + Sized + Default + Debug + Display + Copy + Clone + 'static
+    Eq + PartialEq + Sized + Default + Debug + Display + Copy + Clone + Send + 'static
 {
     type Settings: Settings;
     type Coordinates: Coordinates;

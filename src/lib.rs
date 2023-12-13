@@ -1,6 +1,7 @@
 #![feature(iter_intersperse)]
 #![feature(str_split_whitespace_remainder)]
 #![feature(trait_upcasting)]
+#![feature(return_position_impl_trait_in_trait)]
 
 use std::fmt::{Display, Formatter};
 /// Games to try:
@@ -15,6 +16,7 @@ use std::ops::DerefMut;
 use std::process::exit;
 
 use clap::{Parser, ValueEnum};
+use rand::SeedableRng;
 
 use crate::games::chess::Chessboard;
 use crate::games::mnk::MNKBoard;
@@ -24,6 +26,7 @@ use crate::play::ugi::UGI;
 use crate::play::{
     select_from_name, set_engine_from_str, set_graphics_from_str, AnyMatch, MatchManager,
 };
+use crate::search::multithreading::EnginePlayer;
 use crate::search::run_bench;
 
 pub mod general;

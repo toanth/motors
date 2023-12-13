@@ -2,7 +2,8 @@ use std::fmt::{Debug, Formatter};
 use std::time::{Duration, Instant};
 
 use crate::games::{Board, ZobristHistoryBase};
-use crate::search::{InfoCallback, SearchLimit, SearchResult, Searcher, TimeControl};
+use crate::general::common::Res;
+use crate::search::{SearchLimit, SearchResult, Searcher, TimeControl};
 use crate::ui::text_ui::TextUI;
 use crate::ui::{to_ui_handle, UIHandle};
 
@@ -31,15 +32,9 @@ impl<B: Board> Default for Human<B> {
 }
 
 impl<B: Board> Searcher<B> for Human<B> {
-    fn search(
-        &mut self,
-        pos: B,
-        _: SearchLimit,
-        _: ZobristHistoryBase,
-        _: Box<dyn InfoCallback<B>>,
-    ) -> SearchResult<B> {
+    fn search(&mut self, pos: B, _: SearchLimit, _: ZobristHistoryBase) -> Res<SearchResult<B>> {
         let mut handle = self.ui.borrow_mut();
-        SearchResult::move_only(handle.get_move(&pos))
+        Ok(SearchResult::move_only(handle.get_move(&pos)))
     }
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {

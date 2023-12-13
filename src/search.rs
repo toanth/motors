@@ -1,33 +1,60 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
-use std::marker::PhantomData;
 use std::mem::replace;
 use std::ops::{Deref, DerefMut, Div, Mul};
 use std::str::FromStr;
-use std::sync::mpsc::{SendError, Sender};
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
 use derive_more::{Add, AddAssign, Neg, Sub};
 
 use crate::games::{Board, PlayerResult, ZobristHistoryBase, ZobristRepetition2Fold};
+use crate::general::common::Res;
 use crate::play::AnyMutEngineRef;
+use crate::search::multithreading::{
+    EngineCommunicator, EngineOwner, EnginePlayer, EngineSends, EngineThread,
+};
 use crate::search::tt::TT;
+use crate::search::Searching::{Ongoing, Quit, Stop};
 
 pub mod chess;
 pub mod generic_negamax;
 pub mod human;
+pub mod multithreading;
 pub mod naive_slow_negamax;
 pub mod perft;
 pub mod random_mover;
 mod tt;
+
+#[derive(Default, Debug, Clone)]
+pub struct EngineInfo {
+    pub name: String,
+    pub version: String,
+    pub default_bench_depth: usize,
+    pub options: Vec<EngineOptionType>,
+    pub description: String, // TODO: Use
+}
 
 #[derive(Default, Debug)]
 pub struct BenchResult {
     pub nodes: u64,
     pub time: Duration,
     pub depth: usize,
+}
+
+impl Display for BenchResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "depth {0}, time {2}ms, {1} nodes, {3} nps",
+            self.depth,
+            self.nodes,
+            self.time.as_millis(),
+            ((self.nodes as f64 / self.time.as_millis() as f64 * 1000.0).round())
+                .to_string()
+                .red()
+        )
+    }
 }
 
 // TODO: Turn this into an enum that can also represent a win in n plies (and maybe a draw?)
@@ -236,14 +263,14 @@ impl SearchLimit {
     }
 }
 
-/// An Engine can use two different limits to implement soft/hard time/node management
-fn should_stop<B: Board, E: Engine<B>>(
-    limit: &SearchLimit,
-    engine: &E,
-    start_time: Instant,
-) -> bool {
-    engine.time_up(limit.tc, limit.fixed_time, start_time) || engine.nodes() >= limit.nodes
-}
+// /// An Engine can use two different limits to implement soft/hard time/node management
+// fn should_stop<B: Board, E: Engine<B>>(
+//     limit: &SearchLimit,
+//     engine: &E,
+//     start_time: Instant,
+// ) -> bool {
+//     engine.time_up(limit.tc, limit.fixed_time, start_time) || engine.nodes() >= limit.nodes
+// }
 
 #[derive(Eq, PartialEq, Debug, Default)]
 pub struct SearchResult<B: Board> {
@@ -359,7 +386,7 @@ impl FromStr for EngineOptionName {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct EngineOptionType {
     pub name: EngineOptionName,
     pub typ: EngineUciOptionType,
@@ -376,8 +403,7 @@ pub trait Searcher<B: Board>: Debug + 'static {
         pos: B,
         limit: SearchLimit,
         history: ZobristHistoryBase,
-        info_callback: Box<dyn InfoCallback<B>>,
-    ) -> SearchResult<B>;
+    ) -> Res<SearchResult<B>>;
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool;
 
@@ -386,163 +412,96 @@ pub trait Searcher<B: Board>: Debug + 'static {
     fn name(&self) -> &'static str;
 }
 
-pub trait Engine<B: Board>: Searcher<B> {
-    fn bench(&mut self, position: B, depth: usize) -> BenchResult;
+pub trait Engine<B: Board>: Searcher<B> + Send {
+    type State: BasicSearchState<B>;
 
-    fn default_bench_depth(&self) -> usize;
+    fn new(communicator: EngineCommunicator<B>) -> Self;
+
+    fn search_state(&self) -> &Self::State;
+
+    fn search_state_mut(&mut self) -> &mut Self::State;
+
+    fn communicator(&mut self) -> &mut EngineCommunicator<B>;
+
+    fn send(&mut self, msg: EngineSends<B>) -> Res<()> {
+        self.communicator()
+            .sender
+            .send(msg)
+            .map_err(|err| err.to_string())
+    }
+
+    fn clone_for_multithreading(&self) -> EngineOwner<B>;
+
+    fn bench(&mut self, position: B, depth: usize) -> Res<BenchResult>;
 
     /// Stop the current search. Can be called from another thread while the search is running.
-    fn stop(&mut self);
+    fn stop(&mut self) {
+        self.search_state_mut().set_searching(Stop);
+    }
+
+    fn quit(&mut self) {
+        self.stop();
+        self.search_state_mut().set_searching(Quit);
+    }
 
     /// Returns a SearchInfo object with information about the search so far.
     /// Can be called during search, only returns the information regarding the current thread.
-    fn search_info(&self) -> SearchInfo<B>;
+    fn search_info(&self) -> SearchInfo<B> {
+        self.search_state().to_search_info()
+    }
 
     /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
-    fn forget(&mut self);
+    fn forget(&mut self) {
+        self.search_state_mut().forget()
+    }
 
     /// Returns the number of nodes looked at so far. Can be called during search.
     /// For smp, this may also return the number of nodes looked at at the current thread.
-    fn nodes(&self) -> u64;
-
-    /// Returns the version of this searcher, such as `"0.1.0"`.
-    /// Takes &self as parameter so that Searcher can be made into an object.
-    fn version(&self) -> &'static str {
-        "0.0.0"
+    fn nodes(&self) -> u64 {
+        self.search_state().nodes()
     }
 
+    /// Returns information about this engine, such as the name, version and default bench depth.
+    fn engine_info(&self) -> EngineInfo;
+
     /// Sets an option with the name 'option' to the value 'value'
-    fn set_option(&mut self, option: EngineOptionName, value: &str) -> Result<(), String> {
+    fn set_option(&mut self, option: EngineOptionName, value: &str) -> Res<Option<EngineSends<B>>> {
         Err(format!(
             "The engine '{name}' doesn't support setting options, including setting '{option}' to '{value}'",
             name=self.name()
         ))
     }
-
-    /// Returns a list of textual representations of all options of this searcher
-    fn get_options(&self) -> Vec<EngineOptionType> {
-        Vec::default()
-    }
 }
 
-/// A `MultithreadedEngine` looks almost exactly like a normal engine from the outside and internally manages
-/// multiple concurrently running engines. All outside code only interfaces with the main engine, which owns
-/// the spawned concurrent engines.
-#[derive(Debug)]
-struct OwnedEngine<B: Board, E: Engine<B>> {
-    owned: E,
-    stop: Sender<()>,
-    forget: Sender<()>,
-    nodes: RefCell<single_value_channel::Receiver<u64>>,
-    set_option: Sender<(EngineOptionName, String)>,
-    phantom: PhantomData<B>,
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum Searching {
+    Ongoing,
+    Stop,
+    Quit,
 }
 
-#[derive(Debug)]
-struct MultithreadedEngine<B: Board, E: Engine<B>> {
-    main: E,
-    owned: Vec<OwnedEngine<B, E>>,
-}
-
-impl<B: Board, E: Engine<B>> Searcher<B> for MultithreadedEngine<B, E> {
-    fn search(
-        &mut self,
-        pos: B,
-        limit: SearchLimit,
-        history: ZobristHistoryBase,
-        info_callback: Box<dyn InfoCallback<B>>,
-    ) -> SearchResult<B> {
-        // TODO: Actually do multithreading
-        self.main.search(pos, limit, history, info_callback)
+pub trait BasicSearchState<B: Board> {
+    fn nodes(&self) -> u64;
+    fn searching(&self) -> Searching;
+    fn set_searching(&mut self, searching: Searching);
+    fn search_cancelled(&self) -> bool {
+        self.searching() != Ongoing
     }
-
-    fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
-        self.main.time_up(tc, hard_limit, start_time)
-    }
-
-    fn name(&self) -> &'static str {
-        self.main.name()
-    }
-}
-
-fn failed_send<T>(name: &str, err: SendError<T>) {
-    panic!("Tried sending '{name}' to a multithreaded engine instantiation that has already been deallocated: {err}");
-}
-
-impl<B: Board, E: Engine<B>> Engine<B> for MultithreadedEngine<B, E> {
-    fn bench(&mut self, position: B, depth: usize) -> BenchResult {
-        self.main.bench(position, depth)
-    }
-
-    fn default_bench_depth(&self) -> usize {
-        self.main.default_bench_depth()
-    }
-
-    fn stop(&mut self) {
-        self.owned.iter_mut().for_each(|e| {
-            e.stop
-                .send(())
-                .unwrap_or_else(|err| failed_send("stop", err))
-        });
-        self.stop();
-    }
-
-    fn search_info(&self) -> SearchInfo<B> {
-        self.main.search_info()
-    }
-
-    fn forget(&mut self) {
-        self.owned.iter_mut().for_each(|e| {
-            e.forget
-                .send(())
-                .unwrap_or_else(|err| failed_send("forget", err))
-        });
-        self.forget();
-    }
-
-    fn nodes(&self) -> u64 {
-        let owned_nodes: u64 = self
-            .owned
-            .iter()
-            .map(|e| e.nodes.borrow_mut().latest().clone())
-            .sum();
-        owned_nodes + self.main.nodes()
-    }
-
-    fn version(&self) -> &'static str {
-        self.main.version()
-    }
-
-    fn set_option(&mut self, option: EngineOptionName, value: &str) -> Result<(), String> {
-        // set this first in case there's an error (this ignores errors in other threads based on the assumption
-        // that they would have occurred in this thread as well)
-        self.main.set_option(option.clone(), value)?;
-        for engine in self.owned.iter_mut() {
-            engine
-                .set_option
-                .send((option.clone(), value.to_string()))
-                .unwrap_or_else(|err| failed_send("setoption", err));
-        }
-        Ok(())
-    }
-
-    fn get_options(&self) -> Vec<EngineOptionType> {
-        self.main.get_options()
-    }
-}
-
-/// To be used as dyn trait object
-pub trait InfoCallback<B: Board> {
-    fn print_info(&self, info: SearchInfo<B>);
+    fn depth(&self) -> usize;
+    fn start_time(&self) -> Instant;
+    fn score(&self) -> Score;
+    fn forget(&mut self);
+    fn new_search(&mut self, history: ZobristRepetition2Fold);
+    fn to_search_info(&self) -> SearchInfo<B>;
 }
 
 #[derive(Debug)]
-struct SimpleSearchState<B: Board> {
+pub struct SimpleSearchState<B: Board> {
     tt: TT<B>,
     board_history: ZobristRepetition2Fold,
     best_move: Option<B::Move>,
     nodes: u64,
-    search_cancelled: bool,
+    searching: Searching,
     depth: usize,
     sel_depth: usize,
     start_time: Instant,
@@ -559,7 +518,7 @@ impl<B: Board> Default for SimpleSearchState<B> {
             score: Score(0),
             best_move: None,
             nodes: 0,
-            search_cancelled: false,
+            searching: Ongoing,
             depth: 0,
             sel_depth: 0,
         }
@@ -567,35 +526,8 @@ impl<B: Board> Default for SimpleSearchState<B> {
 }
 
 impl<B: Board> SimpleSearchState<B> {
-    fn new_search(&mut self, history: ZobristRepetition2Fold) {
-        let tt = replace(&mut self.tt, TT::empty());
-        self.forget();
-        self.board_history = history;
-        self.tt = tt; // keep the TT between searches.
-    }
-
-    fn forget(&mut self) {
-        *self = SimpleSearchState::default();
-    }
-
-    fn nodes(&self) -> u64 {
-        self.nodes
-    }
-
-    fn depth(&self) -> usize {
-        self.depth
-    }
-
-    fn start_time(&self) -> Instant {
-        self.start_time
-    }
-
     fn mov(&self) -> B::Move {
         self.best_move.unwrap_or_default()
-    }
-
-    fn score(&self) -> Score {
-        self.score
     }
 
     fn pv(&self) -> Vec<B::Move> {
@@ -615,7 +547,60 @@ impl<B: Board> SimpleSearchState<B> {
     fn additional(&self) -> Option<String> {
         None
     }
-    fn to_info(&self) -> SearchInfo<B> {
+
+    fn to_bench_res(&self) -> BenchResult {
+        BenchResult {
+            nodes: self.nodes(),
+            time: self.start_time().elapsed(),
+            depth: self.depth(),
+        }
+    }
+}
+
+// Sensible default values, but engines may choose to check more/less frequently than every 1024 nodes
+fn should_stop<B: Board, E: Engine<B>>(engine: &mut E, limit: SearchLimit) -> bool {
+    engine.search_state().search_cancelled()
+        || engine.nodes() >= limit.nodes
+        || (engine.nodes() % 1024 == 0 && EngineThread::check_if_aborted(engine, &limit))
+}
+
+impl<B: Board> BasicSearchState<B> for SimpleSearchState<B> {
+    fn nodes(&self) -> u64 {
+        self.nodes
+    }
+
+    fn searching(&self) -> Searching {
+        self.searching
+    }
+
+    fn set_searching(&mut self, searching: Searching) {
+        self.searching = searching;
+    }
+
+    fn depth(&self) -> usize {
+        self.depth
+    }
+
+    fn start_time(&self) -> Instant {
+        self.start_time
+    }
+
+    fn score(&self) -> Score {
+        self.score
+    }
+
+    fn forget(&mut self) {
+        *self = SimpleSearchState::default();
+    }
+
+    fn new_search(&mut self, history: ZobristRepetition2Fold) {
+        let tt = replace(&mut self.tt, TT::empty());
+        self.forget();
+        self.board_history = history;
+        self.tt = tt; // keep the TT between searches.
+    }
+
+    fn to_search_info(&self) -> SearchInfo<B> {
         SearchInfo {
             best_move: self.mov(),
             depth: self.depth(),
@@ -628,18 +613,11 @@ impl<B: Board> SimpleSearchState<B> {
             additional: self.additional(),
         }
     }
-
-    fn to_bench_res(&self) -> BenchResult {
-        BenchResult {
-            nodes: self.nodes(),
-            time: self.start_time().elapsed(),
-            depth: self.depth(),
-        }
-    }
 }
 
+// TODO: Remove, store PV table in search stack
 #[derive(Default, Debug)]
-struct SearchStateWithPv<B: Board, const PV_LIMIT: usize> {
+pub struct SearchStateWithPv<B: Board, const PV_LIMIT: usize> {
     wrapped: SimpleSearchState<B>,
     pv_table: GenericPVTable<B, PV_LIMIT>,
 }
@@ -693,8 +671,8 @@ impl<B: Board, const PV_LIMIT: usize> SearchStateWithPv<B, PV_LIMIT> {
         self.pv_table.get_pv().to_vec()
     }
 
-    fn to_info(&self) -> SearchInfo<B> {
-        let mut res = self.wrapped.to_info();
+    fn to_search_info(&self) -> SearchInfo<B> {
+        let mut res = self.wrapped.to_search_info();
         res.pv = self.pv();
         res
     }
@@ -709,29 +687,26 @@ pub enum NodeType {
     UpperBound, // score less than alpha, all-node (relatively rare, but makes parent a cut-node)
 }
 
-pub fn run_bench<B: Board>(engine: AnyMutEngineRef<B>) -> String {
-    let depth = engine.default_bench_depth();
+pub fn run_bench<B: Board>(engine: AnyMutEngineRef<B>) -> BenchResult {
+    let depth = engine.engine_info().default_bench_depth;
     run_bench_with_depth(engine, depth)
 }
-pub fn run_bench_with_depth<B: Board>(engine: AnyMutEngineRef<B>, mut depth: usize) -> String {
+pub fn run_bench_with_depth<B: Board>(engine: AnyMutEngineRef<B>, mut depth: usize) -> BenchResult {
     if depth == MAX_DEPTH {
         depth = 5; // Default value
     }
     let mut sum = BenchResult::default();
     for position in B::bench_positions() {
-        engine.forget();
-        let res = engine.bench(position, depth);
-        sum.nodes += res.nodes;
-        sum.time += res.time;
-        sum.depth = sum.depth.max(res.depth);
+        engine.start_bench(position, depth).unwrap();
+        match engine.receiver().recv().expect("bench thread panic") {
+            EngineSends::BenchRes(res) => {
+                sum.nodes += res.nodes;
+                sum.time += res.time;
+                sum.depth = sum.depth.max(res.depth);
+            }
+            EngineSends::Message(m) => println!("{m}"), // TODO: Remove
+            _ => {}
+        }
     }
-    format!(
-        "depth {0}, time {2}ms, {1} nodes, {3} nps",
-        sum.depth,
-        sum.nodes,
-        sum.time.as_millis(),
-        ((sum.nodes as f64 / sum.time.as_millis() as f64 * 1000.0).round())
-            .to_string()
-            .red()
-    )
+    sum
 }

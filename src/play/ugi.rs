@@ -2,17 +2,18 @@ use std::cell::RefCell;
 use std::fmt::Debug;
 use std::io::{stdin, Write};
 use std::mem::discriminant;
-use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::str::{FromStr, SplitWhitespace};
+use std::thread::spawn;
 use std::time::Duration;
 
 use colored::Colorize;
+use crossbeam_channel::{select, unbounded};
 use itertools::Itertools;
 
 use crate::games::Color::White;
 use crate::games::{Board, BoardHistory, Color, Move, ZobristRepetition3Fold};
-use crate::general::common::parse_int;
+use crate::general::common::{parse_int, Res};
 use crate::play::run_match::play;
 use crate::play::ugi::SearchType::{Bench, Normal, Perft, SplitPerft};
 use crate::play::MatchStatus::*;
@@ -21,11 +22,12 @@ use crate::play::{
     set_position_from_str, AbstractMatchManager, AdjudicationReason, AnyEngine, AnyMatch,
     CreatableMatchManager, GameOverReason, GameResult, MatchManager, MatchResult, MatchStatus,
 };
+use crate::search::multithreading::{EngineSends, Receiver, Sender};
 use crate::search::perft::{perft, split_perft};
 use crate::search::EngineOptionName::{Hash, Threads};
 use crate::search::{
-    run_bench_with_depth, Engine, EngineOptionName, EngineOptionType, EngineUciOptionType,
-    InfoCallback, SearchInfo, SearchLimit, SearchResult, Searcher,
+    BenchResult, EngineOptionName, EngineOptionType, EngineUciOptionType, SearchInfo, SearchLimit,
+    SearchResult, Searcher,
 };
 use crate::ui::logger::{LogStream, Logger};
 use crate::ui::no_graphic::NoGraphics;
@@ -34,20 +36,38 @@ use crate::ui::{to_graphics_handle, Graphics, GraphicsHandle, Message, UIHandle}
 
 // use itertools::Itertools;
 
-fn format_search_result<B: Board>(res: SearchResult<B>) -> String {
-    format!("bestmove {best}", best = res.chosen_move.to_compact_text())
-}
-
 fn write_ugi<B: Board>(logger: &mut Logger<B>, message: &str) {
     // UGI is always done through stdin and stdout, no matter what the UI is.
     println!("{message}");
     logger.stream.write("<", message);
 }
+
+fn ugi_input_thread(sender: Sender<Res<String>>) {
+    loop {
+        let mut input = String::default();
+        match stdin().read_line(&mut input) {
+            Ok(_) => {
+                if sender.send(Ok(input)).is_err() {
+                    break;
+                }
+            }
+            Err(e) => {
+                _ = sender.send(Err(format!("Failed to read input: {0}", e.to_string())));
+                break;
+            }
+        }
+    }
+}
+
 pub trait AbstractUGI {
     fn ugi_loop(&mut self) -> MatchResult {
         self.write_message(Debug, "Starting UGI loop");
+        let (sender, receiver) = unbounded();
+        spawn(move || {
+            ugi_input_thread(sender);
+        });
         loop {
-            let res = self.read_ugi_input();
+            let res = self.handle_ugi(receiver.clone());
             if res.is_err() {
                 self.write_message(Error, res.err().unwrap().as_str());
                 if self.continue_on_error() {
@@ -67,51 +87,41 @@ pub trait AbstractUGI {
 
     fn continue_on_error(&self) -> bool;
 
-    fn read_ugi_input(&mut self) -> Result<MatchStatus, String>;
+    fn handle_ugi(&mut self, receiver: Receiver<Res<String>>) -> Result<MatchStatus, String>;
 
     // TODO: This should be a method of GameManager instead
     fn write_message(&mut self, typ: Message, message: &str);
 
     fn write_ugi(&self, message: &str);
 
-    fn write_info(&self, info: &str) {
-        self.write_ugi(&format!("info {info}"))
-    }
-
     fn write_response(&mut self, response: String) {
         self.write_ugi(&format!("response {response}"))
     }
 }
 
-pub struct UgiInfoCallback<B: Board> {
-    // Ideally, this would simply be a reference to the UGI object,
-    // but the borrow checker will eat me alive if I try that
-    logger: Rc<RefCell<Logger<B>>>,
-}
-
-impl<B: Board> InfoCallback<B> for UgiInfoCallback<B> {
-    fn print_info(&self, info: SearchInfo<B>) {
-        let score_str = if let Some(moves_until_over) = info.score.moves_until_game_won() {
-            format!("mate {moves_until_over}")
-        } else {
-            format!("cp {0}", info.score.0) // TODO: WDL normalization
-        };
-
-        let info_str = format!(
-        "info depth {depth}{seldepth} score {score_str} time {time} nodes {nodes} nps {nps} pv {pv}{hashfull}{string}",
-        depth = info.depth, time = info.time.as_millis(), nodes = info.nodes,
-        seldepth = info.seldepth.map(|d| format!(" seldepth {d}")).unwrap_or_default(),
-        nps=info.nps(),
-        pv = info.pv.iter().map(|mv| mv.to_compact_text()).collect::<Vec<_>>().join(" "),
-        hashfull = info.hashfull.map(|f| format!(" hashfull {f}")).unwrap_or_default(),
-        string = info.additional.map(|s| format!(" string {s}")).unwrap_or_default()
-    );
-        println!("{info_str}");
-        self.logger
-            .borrow_mut()
-            .display_message_simple(Info, &info_str);
-    }
-}
+// impl<B: Board> InfoCallback<B> for UgiInfoCallback<B> {
+//     fn print_info(&self, info: SearchInfo<B>) {
+//         let score_str = if let Some(moves_until_over) = info.score.moves_until_game_won() {
+//             format!("mate {moves_until_over}")
+//         } else {
+//             format!("cp {0}", info.score.0) // TODO: WDL normalization
+//         };
+//
+//         let info_str = format!(
+//         "info depth {depth}{seldepth} score {score_str} time {time} nodes {nodes} nps {nps} pv {pv}{hashfull}{string}",
+//         depth = info.depth, time = info.time.as_millis(), nodes = info.nodes,
+//         seldepth = info.seldepth.map(|d| format!(" seldepth {d}")).unwrap_or_default(),
+//         nps=info.nps(),
+//         pv = info.pv.iter().map(|mv| mv.to_compact_text()).collect::<Vec<_>>().join(" "),
+//         hashfull = info.hashfull.map(|f| format!(" hashfull {f}")).unwrap_or_default(),
+//         string = info.additional.map(|s| format!(" string {s}")).unwrap_or_default()
+//     );
+//         println!("{info_str}");
+//         self.logger
+//             .borrow_mut()
+//             .display_message_simple(Info, &info_str);
+//     }
+// }
 
 enum SearchType {
     Normal,
@@ -155,8 +165,8 @@ impl<B: Board> AbstractMatchManager for UGI<B> {
         }
     }
 
-    fn abort(&mut self) -> Result<MatchStatus, String> {
-        self.engine.stop();
+    fn abort(&mut self) -> Res<MatchStatus> {
+        self.engine.send_stop()?;
         Ok(MatchStatus::aborted())
     }
 
@@ -195,10 +205,10 @@ impl<B: Board> MatchManager<B> for UGI<B> {
         self.graphics.borrow_mut().show(self);
     }
 
-    /// all of this will be refactored soon
-    fn searcher(&self, _idx: usize) -> &dyn Searcher<B> {
-        self.engine.as_ref()
-    }
+    // /// all of this will be refactored soon
+    // fn searcher(&self, _idx: usize) -> &dyn Searcher<B> {
+    //     self.engine.as_ref()
+    // }
 
     fn set_engine(&mut self, _: usize, engine: AnyEngine<B>) {
         self.engine = engine;
@@ -210,16 +220,12 @@ impl<B: Board> MatchManager<B> for UGI<B> {
 }
 
 impl<B: Board> AbstractUGI for UGI<B> {
-    fn read_ugi_input(&mut self) -> Result<MatchStatus, String> {
-        let mut input = String::default();
-        if let Err(e) = stdin().read_line(&mut input) {
-            return Err(format!("Failed to read input: {0}", e.to_string()));
-        }
-        self.logger
-            .borrow_mut()
-            .stream
-            .write(">", input.as_str().trim());
-        self.parse_input(input.as_str())
+    fn handle_ugi(&mut self, stdin_receiver: Receiver<Res<String>>) -> Result<MatchStatus, String> {
+        return select! {
+            recv(stdin_receiver) -> input =>
+                self.parse_input(&input.map_err(|err| err.to_string())??),
+            recv(self.engine.receiver()) -> msg => self.handle_engine_response(msg.map_err(|err| err.to_string())?),
+        };
     }
 
     fn write_ugi(&self, message: &str) {
@@ -267,7 +273,26 @@ impl<B: Board> UGI<B> {
         }
     }
 
-    fn parse_input(&mut self, input: &str) -> Result<MatchStatus, String> {
+    fn handle_engine_response(&mut self, response: EngineSends<B>) -> Res<MatchStatus> {
+        match response {
+            // EngineSends::Nodes(n) => self.
+            EngineSends::BenchRes(res) => self.show_bench(res),
+            EngineSends::SearchRes(res) => self.show_search_res(res),
+            EngineSends::EngineInformation(info) => { /*not handled here*/ }
+            EngineSends::Info(info) => self.show_search_info(info),
+            EngineSends::Message(msg) => self.write_message(Info, &msg),
+            EngineSends::Error(msg) => {
+                self.write_message(Error, &msg);
+                return Err(msg);
+            }
+            EngineSends::EngineCopy(engine) => self.engine.receive_engine(engine),
+        }
+        return Ok(self.status);
+    }
+
+    fn parse_input(&mut self, mut input: &str) -> Result<MatchStatus, String> {
+        input = input.trim();
+        self.logger.borrow_mut().stream.write(">", input);
         let mut words = input.split_whitespace();
         let first_word = words.next().ok_or_else(|| "Empty input")?;
         match first_word {
@@ -315,17 +340,17 @@ impl<B: Board> UGI<B> {
             "setoption" => self.handle_setoption(words),
             "register" => Err("'register' isn't supported".to_string()),
             "ucinewgame" => {
-                self.engine.forget();
+                self.engine.send_forget()?;
                 self.status = NotStarted;
                 Ok(self.status)
             } // just ignore it
             "position" => self.handle_position(words),
             "go" => self.handle_go(words),
             "stop" => {
-                self.engine.stop();
-                self.write_ugi(&format_search_result(
-                    self.engine.search_info().to_search_result(),
-                ));
+                self.engine.send_stop()?;
+                // self.write_ugi(&format_search_result(
+                //     self.engine.search_info().to_search_result(),
+                // ));
                 Ok(Ongoing)
             }
             "ponderhit" => Ok(self.status), // ignore pondering
@@ -361,22 +386,16 @@ impl<B: Board> UGI<B> {
         }
     }
 
-    fn info_callback(&self) -> Box<dyn InfoCallback<B>> {
-        Box::new(UgiInfoCallback {
-            logger: self.logger.clone(),
-        })
-    }
-
     fn quit(&mut self) -> Result<MatchStatus, String> {
         self.next_match = None;
         self.abort()
     }
 
     fn id(&self) -> String {
+        let info = self.engine.engine_info();
         format!(
             "id name Motors - {0} {1}\nid author ToTheAnd",
-            self.engine.name(),
-            self.engine.version()
+            info.name, info.version
         )
     }
 
@@ -404,14 +423,16 @@ impl<B: Board> UGI<B> {
             value = value + " " + next_word;
         }
         let name = EngineOptionName::from_str(&name.trim()).unwrap();
-        let value = value.trim();
-        self.engine.set_option(name.clone(), value).or_else(|err| {
-            if name == Threads && value == "1" {
-                Ok(())
-            } else {
-                Err(err)
-            }
-        })?;
+        let value = value.trim().to_string();
+        self.engine
+            .set_option(name.clone(), value.clone())
+            .or_else(|err| {
+                if name == Threads && value == "1" {
+                    Ok(())
+                } else {
+                    Err(err)
+                }
+            })?;
         Ok(self.status)
     }
 
@@ -486,25 +507,29 @@ impl<B: Board> UGI<B> {
     ) -> Result<MatchStatus, String> {
         self.status = Ongoing;
         // TODO: Do this asynchronously to be able to handle stop commands
-        let result_message = match search_type {
-            Normal => format_search_result(self.engine.search(
-                self.board,
-                limit,
-                self.board_hist.0.clone(),
-                self.info_callback(),
-            )),
-            Perft => format!("{0}", perft(limit.depth, self.board)),
-            SplitPerft => format!("{0}", split_perft(limit.depth, self.board)),
+        match search_type {
+            Normal => self
+                .engine
+                .start_search(self.board, limit, self.board_hist.0.clone())?,
+            Perft => {
+                let msg = format!("{0}", perft(limit.depth, self.board));
+                self.write_ugi(&msg);
+            }
+            SplitPerft => {
+                let msg = format!("{0}", split_perft(limit.depth, self.board));
+                self.write_ugi(&msg);
+            }
             Bench => {
                 let depth = if limit.depth == usize::MAX {
-                    self.engine.deref().default_bench_depth()
+                    self.engine.engine_info().default_bench_depth
                 } else {
                     limit.depth
                 };
-                run_bench_with_depth(self.engine.deref_mut(), depth)
+                self.engine
+                    .start_bench(self.board, depth)
+                    .expect("bench panic");
             }
         };
-        self.write_ugi(result_message.as_str());
         Ok(Ongoing)
     }
 
@@ -642,7 +667,7 @@ impl<B: Board> UGI<B> {
                 typ = opt.typ.to_str()
             )
         };
-        let mut opts = self.engine.get_options();
+        let mut opts = self.engine.get_options().iter().cloned().collect_vec();
         if opts.iter().find(|opt| opt.name == Hash).is_none() {
             opts.push(EngineOptionType {
                 name: Hash,
@@ -695,5 +720,43 @@ impl<B: Board> UGI<B> {
         //     });
         // }
         Ok(self.status)
+    }
+
+    fn show_bench(&mut self, bench_result: BenchResult) {
+        self.write_ugi(&format!(
+            "depth {0}, time {2}ms, {1} nodes, {3} nps",
+            bench_result.depth,
+            bench_result.nodes,
+            bench_result.time.as_millis(),
+            ((bench_result.nodes as f64 / bench_result.time.as_millis() as f64 * 1000.0).round())
+                .to_string()
+                .red()
+        ));
+    }
+
+    fn show_search_res(&mut self, search_result: SearchResult<B>) {
+        self.write_ugi(&format!(
+            "bestmove {best}",
+            best = search_result.chosen_move.to_compact_text()
+        ));
+    }
+
+    fn show_search_info(&mut self, info: SearchInfo<B>) {
+        let score_str = if let Some(moves_until_over) = info.score.moves_until_game_won() {
+            format!("mate {moves_until_over}")
+        } else {
+            format!("cp {0}", info.score.0) // TODO: WDL normalization
+        };
+
+        let info_str = format!(
+            "info depth {depth}{seldepth} score {score_str} time {time} nodes {nodes} nps {nps} pv {pv}{hashfull}{string}",
+            depth = info.depth, time = info.time.as_millis(), nodes = info.nodes,
+            seldepth = info.seldepth.map(|d| format!(" seldepth {d}")).unwrap_or_default(),
+            nps = info.nps(),
+            pv = info.pv.iter().map(|mv| mv.to_compact_text()).collect::<Vec<_>>().join(" "),
+            hashfull = info.hashfull.map(|f| format!(" hashfull {f}")).unwrap_or_default(),
+            string = info.additional.map(|s| format!(" string {s}")).unwrap_or_default()
+        );
+        self.write_ugi(&info_str);
     }
 }

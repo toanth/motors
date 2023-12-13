@@ -33,7 +33,9 @@ pub fn ith_one_u128(idx: usize, val: u128) -> usize {
     }
 }
 
-pub fn parse_int_from_str<T: PrimInt + FromStr>(as_str: &str, name: &str) -> Result<T, String> {
+pub type Res<T> = Result<T, String>;
+
+pub fn parse_int_from_str<T: PrimInt + FromStr>(as_str: &str, name: &str) -> Res<T> {
     // for some weird Rust reason, parse::<T>() returns a completely unbounded Err on failure,
     // so we just write the error message ourselves
     as_str
@@ -44,11 +46,11 @@ pub fn parse_int_from_str<T: PrimInt + FromStr>(as_str: &str, name: &str) -> Res
 pub fn parse_int<T: PrimInt + FromStr + Display>(
     words: &mut SplitWhitespace,
     name: &str,
-) -> Result<T, String> {
+) -> Res<T> {
     parse_int_from_str(words.next().ok_or_else(|| format!("missing {name}"))?, name)
 }
 
-pub fn parse_int_from_stdin<T: PrimInt + FromStr>() -> Result<T, String> {
+pub fn parse_int_from_stdin<T: PrimInt + FromStr>() -> Res<T> {
     let mut s = String::default();
     stdin().read_line(&mut s).map_err(|e| e.to_string())?;
     parse_int_from_str(s.trim(), "integer")

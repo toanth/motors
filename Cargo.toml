@@ -37,11 +37,11 @@ rand = "0.8.5"
 # but this is fixed in the git repo.
 bitintr = { git = "https://github.com/gnzlbg/bitintr" }
 colored = "2.0.4"
-strum = "0.25.0"
+strum = "0.25.0" # TODO: Necessary with derive_more?
 strum_macros = "0.25.3"
 derive_more = { version = "1.0.0-beta.6", features=["full"] }
 itertools = "0.12.0"
 clap = { version = "4.4.8", features = ["derive"] }
-chrono = "0.4.31"
+chrono = "0.4.31" # TODO: Is this really necessary?
 static_assertions = "1.1.0"
-single_value_channel = "1.2.2"
+crossbeam-channel = "0.5.8"

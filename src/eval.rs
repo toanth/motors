@@ -8,6 +8,6 @@ pub mod rand_eval;
 pub mod chess;
 pub mod mnk;
 
-pub trait Eval<B: Board>: Debug + Default + 'static {
+pub trait Eval<B: Board>: Debug + Default + Send + 'static {
     fn eval(&self, pos: B) -> Score;
 }

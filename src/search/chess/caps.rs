@@ -8,14 +8,18 @@ use crate::games::chess::moves::ChessMove;
 use crate::games::chess::pieces::UncoloredChessPiece::Empty;
 use crate::games::chess::{ChessMoveList, Chessboard};
 use crate::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
-use crate::general::common::parse_int_from_str;
+use crate::general::common::{parse_int_from_str, Res};
+use crate::search::multithreading::EngineSends::Info;
+use crate::search::multithreading::{EngineCommunicator, EngineOwner, EngineSends};
 use crate::search::tt::{TTEntry, DEFAULT_HASH_SIZE_MB};
-use crate::search::EngineOptionName::Hash;
+use crate::search::EngineOptionName::{Hash, Threads};
+use crate::search::EngineUciOptionType::Spin;
 use crate::search::NodeType::*;
+use crate::search::Searching::Ongoing;
 use crate::search::{
-    game_result_to_score, should_stop, BenchResult, Engine, EngineOptionName, EngineOptionType,
-    EngineUciOptionType, InfoCallback, NodeType, Score, SearchInfo, SearchLimit, SearchResult,
-    SearchStateWithPv, Searcher, TimeControl, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
+    game_result_to_score, should_stop, BasicSearchState, BenchResult, Engine, EngineInfo,
+    EngineOptionName, EngineOptionType, NodeType, Score, SearchInfo, SearchLimit, SearchResult,
+    SearchStateWithPv, Searcher, Searching, TimeControl, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
 };
 
 const DEPTH_SOFT_LIMIT: usize = 100;
@@ -54,7 +58,7 @@ impl Default for KillerHeuristic {
 }
 
 #[derive(Default, Debug, Deref, DerefMut)]
-struct State {
+pub struct State {
     #[deref]
     #[deref_mut]
     state: SearchStateWithPv<Chessboard, DEPTH_HARD_LIMIT>,
@@ -76,11 +80,55 @@ impl State {
     }
 }
 
+impl BasicSearchState<Chessboard> for State {
+    fn nodes(&self) -> u64 {
+        self.nodes
+    }
+
+    fn searching(&self) -> Searching {
+        self.searching
+    }
+
+    fn set_searching(&mut self, searching: Searching) {
+        self.state.set_searching(searching);
+        debug_assert_eq!(self.search_cancelled(), searching != Ongoing);
+    }
+
+    fn depth(&self) -> usize {
+        self.depth
+    }
+
+    fn start_time(&self) -> Instant {
+        self.start_time
+    }
+
+    fn score(&self) -> Score {
+        self.score
+    }
+
+    fn forget(&mut self) {
+        self.state.forget();
+        self.history = HistoryHeuristic::default();
+        self.killers = KillerHeuristic::default();
+    }
+
+    fn new_search(&mut self, history: ZobristRepetition2Fold) {
+        self.state.new_search(history);
+        self.history = HistoryHeuristic::default();
+        self.killers = KillerHeuristic::default();
+    }
+
+    fn to_search_info(&self) -> SearchInfo<Chessboard> {
+        self.state.to_search_info()
+    }
+}
+
 /// Chess Alpha-beta Pruning Search, or in short, CAPS.
-/// Larger than Sᴍᴀʟʟ Cᴀᴘꜱ.
-#[derive(Debug, Default)]
+/// Larger than SᴍᴀʟʟCᴀᴘꜱ.
+#[derive(Debug)]
 pub struct Caps<E: Eval<Chessboard>> {
     state: State,
+    communicator: EngineCommunicator<Chessboard>,
     eval: E,
 }
 
@@ -107,8 +155,7 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Caps<E> {
         pos: Chessboard,
         limit: SearchLimit,
         history: ZobristHistoryBase,
-        info_callback: Box<dyn InfoCallback<Chessboard>>,
-    ) -> SearchResult<Chessboard> {
+    ) -> Result<SearchResult<Chessboard>, String> {
         self.state.new_search(ZobristRepetition2Fold(history));
         let mut chosen_move = self.state.best_move;
         let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth) as isize;
@@ -129,18 +176,18 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Caps<E> {
             assert!(!iteration_score
                 .plies_until_game_won()
                 .is_some_and(|x| x == 0));
-            if self.state.search_cancelled {
+            if self.state.search_cancelled() {
                 break;
             }
             self.state.score = iteration_score;
             chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
-            info_callback.print_info(self.search_info());
+            self.send(Info(self.search_info())).unwrap();
             if self.state.start_time.elapsed() >= soft_limit {
                 break;
             }
         }
 
-        SearchResult::move_and_score(
+        Ok(SearchResult::move_and_score(
             chosen_move.unwrap_or_else(|| {
                 eprintln!("Warning: Not even a single iteration finished");
                 let mut rng = thread_rng();
@@ -148,7 +195,7 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Caps<E> {
                     .expect("search() called in a position with no legal moves")
             }),
             self.state.score,
-        )
+        ))
     }
 }
 
@@ -274,8 +321,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             self.state.state.board_history.pop(&pos);
 
             // Check for cancellation right after searching a move to avoid storing incorrect information in the TT.
-            if self.state.search_cancelled || should_stop(&limit, self, self.state.start_time) {
-                self.state.search_cancelled = true;
+            if should_stop(self, limit) {
                 return SCORE_TIME_UP;
             }
 
@@ -420,7 +466,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
 }
 
 impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
-    fn bench(&mut self, pos: Chessboard, depth: usize) -> BenchResult {
+    fn bench(&mut self, pos: Chessboard, depth: usize) -> Res<BenchResult> {
         self.state.new_search(ZobristRepetition2Fold::default());
         let mut limit = SearchLimit::infinite();
         limit.depth = DEPTH_SOFT_LIMIT.min(depth);
@@ -434,36 +480,55 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
             SCORE_WON,
             false,
         );
-        self.state.to_bench_res()
+        // TODO: Handle stop command in bench
+        Ok(self.state.to_bench_res())
     }
 
-    fn default_bench_depth(&self) -> usize {
-        6
+    fn clone_for_multithreading(&self) -> EngineOwner<Chessboard> {
+        // TODO: Share TT
+        EngineOwner::new::<Self>()
     }
 
-    fn stop(&mut self) {
-        self.state.search_cancelled = true;
+    fn engine_info(&self) -> EngineInfo {
+        let options = vec![
+            EngineOptionType {
+                name: Hash,
+                typ: Spin,
+                default: Some(DEFAULT_HASH_SIZE_MB.to_string()),
+                min: Some(0.to_string()),
+                max: Some(1_000_000.to_string()), // use at most 1 terabyte (should be enough for anybody™)
+                vars: vec![],
+            },
+            EngineOptionType {
+                name: Threads,
+                typ: Spin,
+                default: Some(1.to_string()),
+                min: Some(1.to_string()),
+                max: Some(100.to_string()),
+                vars: vec![],
+            },
+        ];
+        EngineInfo {
+            name: self.name().to_string(),
+            version: "0.0.1".to_string(),
+            default_bench_depth: 6,
+            options,
+            description: "CAPS (Chess Alpha-beta Pruning Search), a negamax-based chess engine"
+                .to_string(),
+        }
     }
 
-    fn search_info(&self) -> SearchInfo<Chessboard> {
-        self.state.to_info()
-    }
-
-    fn forget(&mut self) {
-        self.state.forget();
-    }
-
-    fn nodes(&self) -> u64 {
-        self.state.nodes
-    }
-
-    fn set_option(&mut self, option: EngineOptionName, value: &str) -> Result<(), String> {
+    fn set_option(
+        &mut self,
+        option: EngineOptionName,
+        value: &str,
+    ) -> Res<Option<EngineSends<Chessboard>>> {
         match option {
             Hash => {
                 let value: usize = parse_int_from_str(value, "hash size in MB")?;
                 let size = value * 1000_000;
                 self.state.tt.resize_bytes(size);
-                Ok(())
+                Ok(None)
             }
             x => Err(format!(
                 "The option '{x}' is not supported by the engine {0}",
@@ -472,15 +537,26 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
         }
     }
 
-    fn get_options(&self) -> Vec<EngineOptionType> {
-        vec![EngineOptionType {
-            name: Hash,
-            typ: EngineUciOptionType::Spin,
-            default: Some(DEFAULT_HASH_SIZE_MB.to_string()),
-            min: Some(0.to_string()),
-            max: Some(1_000_000.to_string()), // use at most 1 terabyte (should be enough for anybody™)
-            vars: vec![],
-        }]
+    type State = State;
+
+    fn new(engine_communicator: EngineCommunicator<Chessboard>) -> Self {
+        Self {
+            state: Default::default(),
+            communicator: engine_communicator,
+            eval: E::default(),
+        }
+    }
+
+    fn search_state(&self) -> &Self::State {
+        &self.state
+    }
+
+    fn search_state_mut(&mut self) -> &mut Self::State {
+        &mut self.state
+    }
+
+    fn communicator(&mut self) -> &mut EngineCommunicator<Chessboard> {
+        &mut self.communicator
     }
 }
 

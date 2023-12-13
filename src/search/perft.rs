@@ -3,7 +3,8 @@ use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
 use crate::games::{Board, BoardHistory, Move, ZobristHistoryBase};
-use crate::search::{InfoCallback, SearchLimit, SearchResult, Searcher, TimeControl};
+use crate::general::common::Res;
+use crate::search::{SearchLimit, SearchResult, Searcher, TimeControl};
 
 #[derive(Copy, Clone, Debug, Default)]
 pub struct PerftRes {
@@ -100,8 +101,7 @@ impl<B: Board> Searcher<B> for PerftSearcher {
         pos: B,
         limit: SearchLimit,
         _history: ZobristHistoryBase,
-        _: Box<dyn InfoCallback<B>>,
-    ) -> SearchResult<B> {
+    ) -> Res<SearchResult<B>> {
         self.result = perft(limit.depth, pos);
         let mut res = SearchResult::default();
         res.additional
@@ -110,7 +110,7 @@ impl<B: Board> Searcher<B> for PerftSearcher {
             .insert("depth".to_string(), self.result.depth.to_string());
         res.additional
             .insert("time".to_string(), self.result.time.as_millis().to_string());
-        res
+        Ok(res)
     }
 
     fn time_up(&self, _: TimeControl, _: Duration, _: Instant) -> bool {
@@ -134,8 +134,7 @@ impl<B: Board> Searcher<B> for SplitPerftSearcher<B> {
         pos: B,
         limit: SearchLimit,
         _history: ZobristHistoryBase,
-        _: Box<dyn InfoCallback<B>>,
-    ) -> SearchResult<B> {
+    ) -> Res<SearchResult<B>> {
         self.result = split_perft(limit.depth, pos);
         let mut res = SearchResult::default();
         res.additional
@@ -150,7 +149,7 @@ impl<B: Board> Searcher<B> for SplitPerftSearcher<B> {
             res.additional
                 .insert(child.0.to_string(), child.1.to_string());
         }
-        res
+        Ok(res)
     }
 
     fn time_up(&self, _tc: TimeControl, _hard_limit: Duration, _start_time: Instant) -> bool {

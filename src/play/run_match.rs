@@ -1,12 +1,9 @@
 use std::marker::PhantomData;
 use std::time::{Duration, Instant};
 
-use rand::rngs::ThreadRng;
-
-use crate::eval::mnk::simple_mnk_eval::SimpleMnkEval;
-use crate::games::mnk::{MNKBoard, MnkSettings};
+use crate::games::mnk::MnkEngineList;
 use crate::games::{
-    Board, BoardHistory, Color, Height, Width, ZobristHistoryBase, ZobristRepetition3Fold,
+    Board, BoardHistory, Color, EngineList, ZobristHistoryBase, ZobristRepetition3Fold,
 };
 use crate::general::common::parse_int_from_stdin;
 use crate::play::AdjudicationReason::*;
@@ -18,12 +15,8 @@ use crate::play::{
     default_engine, AbstractMatchManager, AnyEngine, AnyMatch, AnySearcher, CreatableMatchManager,
     GameOver, GameOverReason, GameResult, MatchManager, MatchResult, MatchStatus,
 };
-use crate::search::generic_negamax::GenericNegamax;
 use crate::search::human::Human;
-use crate::search::naive_slow_negamax::NaiveSlowNegamax;
-use crate::search::random_mover::RandomMover;
-use crate::search::{InfoCallback, SearchInfo, SearchLimit, SearchResult, Searcher, TimeControl};
-use crate::ui::pretty::PrettyUI;
+use crate::search::{SearchLimit, SearchResult, Searcher, TimeControl};
 use crate::ui::text_ui::TextUI;
 use crate::ui::Message::*;
 use crate::ui::{to_ui_handle, GraphicsHandle, UIHandle};
@@ -31,16 +24,16 @@ use crate::ui::{to_ui_handle, GraphicsHandle, UIHandle};
 #[derive(Debug, Default)]
 struct BuiltInInfoCallback {}
 
-impl<B: Board> InfoCallback<B> for BuiltInInfoCallback {
-    fn print_info(&self, info: SearchInfo<B>) {
-        println!(
-            "After {0} milliseconds: Move {1}, score {2}",
-            info.time.as_millis(),
-            info.best_move,
-            info.score.0
-        )
-    }
-}
+// impl<B: Board> InfoCallback<B> for BuiltInInfoCallback {
+//     fn print_info(&self, info: SearchInfo<B>) {
+//         println!(
+//             "After {0} milliseconds: Move {1}, score {2}",
+//             info.time.as_millis(),
+//             info.best_move,
+//             info.score.0
+//         )
+//     }
+// }
 
 pub fn play() {
     play_mnk(); // the only game that's implemented for now
@@ -53,46 +46,47 @@ pub fn play_mnk() {
         moves_to_go: 0,
     });
 
+    let engines = MnkEngineList::list_engines();
     println!("Please enter the height:");
     let height = parse_int_from_stdin().unwrap_or(3);
     println!("Please enter the width:");
     let width = parse_int_from_stdin().unwrap_or(3);
     println!("Please enter k:");
     let k = parse_int_from_stdin().unwrap_or(3);
-    println!("Please enter strength (between 1 and 3):");
+    println!("Please enter strength (between 1 and {}):", engines.len());
     let strength = parse_int_from_stdin().unwrap_or_else(|e| {
         println!("Error: {e}");
         3
     });
-    let computer = match strength {
-        1 => Player::new_for_searcher(RandomMover::<MNKBoard, ThreadRng>::default(), limit),
-        2 => Player::new_for_searcher(NaiveSlowNegamax::default(), limit),
-        _ => Player::new_for_searcher(GenericNegamax::<MNKBoard, SimpleMnkEval>::default(), limit),
-    };
-    println!("Playing against {0}", computer.searcher.name());
-    let ui = to_ui_handle(PrettyUI::default());
-    let mnk_settings = MnkSettings::try_new(Height(height), Width(width), k);
-    if mnk_settings.is_none() {
-        println!("Invalid m,n,k settings, please try again");
-        return;
-    }
-    let mut the_match = BuiltInMatch::new(
-        mnk_settings.unwrap(),
-        Player::human(ui.clone()),
-        computer,
-        ui.clone(),
-    );
-
-    let res = the_match.run();
-    if let Adjudication(x) = res.reason {
-        println!("Adjudication: {x}");
-    }
-    match res.result {
-        GameResult::P1Win => println!("Player 1 won!"),
-        GameResult::P2Win => println!("Player 2 won!"),
-        GameResult::Draw => println!("The game ended in a draw."),
-        GameResult::Aborted => println!("The game was aborted."),
-    }
+    // let engine = engines
+    //     .get(strength - 1)
+    //     .unwrap_or_else(engines.last().unwrap());
+    // let computer = (engine.1)("");
+    todo!();
+    // println!("Playing against {0}",  computer.engine_info().name);
+    // let ui = to_ui_handle(PrettyUI::default());
+    // let mnk_settings = MnkSettings::try_new(Height(height), Width(width), k);
+    // if mnk_settings.is_none() {
+    //     println!("Invalid m,n,k settings, please try again");
+    //     return;
+    // }
+    // let mut the_match = BuiltInMatch::new(
+    //     mnk_settings.unwrap(),
+    //     Player::human(ui.clone()),
+    //     computer,
+    //     ui.clone(),
+    // );
+    //
+    // let res = the_match.run();
+    // if let Adjudication(x) = res.reason {
+    //     println!("Adjudication: {x}");
+    // }
+    // match res.result {
+    //     GameResult::P1Win => println!("Player 1 won!"),
+    //     GameResult::P2Win => println!("Player 2 won!"),
+    //     GameResult::Draw => println!("The game ended in a draw."),
+    //     GameResult::Aborted => println!("The game was aborted."),
+    // }
 }
 
 /// A player for the built-in match manager. TODO: Refactor
@@ -107,12 +101,13 @@ pub struct Player<B: Board> {
 
 impl<B: Board> Player<B> {
     pub fn make_move(&mut self, pos: B, history: ZobristHistoryBase) -> SearchResult<B> {
-        self.searcher.search(
-            pos,
-            self.limit,
-            history,
-            Box::new(BuiltInInfoCallback::default()),
-        )
+        // self.searcher.search(
+        //     pos,
+        //     self.limit,
+        //     history,
+        //     Box::new(BuiltInInfoCallback::default()),
+        // )
+        todo!()
     }
 
     pub fn update_time(&mut self, time_spent_last_move: Duration) -> MatchStatus {
@@ -361,20 +356,21 @@ impl<B: Board> MatchManager<B> for BuiltInMatch<B> {
     }
 
     fn set_engine(&mut self, idx: usize, engine: AnyEngine<B>) {
-        match idx {
-            0 => self.p1.searcher = engine,
-            1 => self.p2.searcher = engine,
-            _ => panic!("Player number has to be 0 or 1"),
-        }
+        // match idx {
+        //     0 => self.p1.searcher = engine,
+        //     1 => self.p2.searcher = engine,
+        //     _ => panic!("Player number has to be 0 or 1"),
+        // }
+        todo!()
     }
 
-    fn searcher(&self, idx: usize) -> &dyn Searcher<B> {
-        match idx {
-            0 => self.p1.searcher.as_ref(),
-            1 => self.p2.searcher.as_ref(),
-            _ => panic!("Can only get searcher 0 or 1"),
-        }
-    }
+    // fn searcher(&self, idx: usize) -> &dyn Searcher<B> {
+    //     match idx {
+    //         0 => self.p1.searcher.as_ref(),
+    //         1 => self.p2.searcher.as_ref(),
+    //         _ => panic!("Can only get searcher 0 or 1"),
+    //     }
+    // }
 
     fn set_board(&mut self, board: B) {
         self.board = board;
@@ -385,10 +381,11 @@ impl<B: Board> CreatableMatchManager for BuiltInMatch<B> {
     type ForGame<C: Board> = BuiltInMatch<C>;
 
     fn with_engine_and_ui<C: Board>(engine: AnyEngine<C>, ui: UIHandle<C>) -> Self::ForGame<C> {
-        let player_1 = Player::human(ui.clone());
-        let limit = SearchLimit::per_move(Duration::from_millis(1_000));
-        let player_2 = Player::new(engine, limit);
-        <Self::ForGame<C>>::new(C::Settings::default(), player_1, player_2, ui)
+        // let player_1 = Player::human(ui.clone());
+        // let limit = SearchLimit::per_move(Duration::from_millis(1_000));
+        // let player_2 = Player::new(engine, limit);
+        // <Self::ForGame<C>>::new(C::Settings::default(), player_1, player_2, ui)
+        todo!()
     }
 }
 

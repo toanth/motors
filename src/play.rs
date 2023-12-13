@@ -2,7 +2,8 @@ use std::fmt::{Debug, Display, Formatter};
 
 use colored::Colorize;
 use itertools::Itertools;
-use rand::prelude::ThreadRng;
+use rand::rngs::StdRng;
+use rand::{thread_rng, RngCore, SeedableRng};
 
 use crate::games::chess::Chessboard;
 use crate::games::mnk::MNKBoard;
@@ -14,6 +15,7 @@ use crate::games::{
 use crate::play::AdjudicationReason::*;
 use crate::play::GameResult::Aborted;
 use crate::play::MatchStatus::Over;
+use crate::search::multithreading::{EngineOwner, EnginePlayer};
 use crate::search::naive_slow_negamax::NaiveSlowNegamax;
 use crate::search::random_mover::RandomMover;
 use crate::search::{Engine, Searcher};
@@ -59,7 +61,7 @@ pub trait MatchManager<B: Board>: AbstractMatchManager {
 
     fn set_graphics(&mut self, graphics: GraphicsHandle<B>);
 
-    fn searcher(&self, _idx: usize) -> &dyn Searcher<B>;
+    // fn searcher(&self, _idx: usize) -> &dyn Searcher<B>;
 
     /// Should also set the engine's info callback
     fn set_engine(&mut self, idx: usize, engine: AnyEngine<B>);
@@ -168,11 +170,11 @@ pub struct MatchResult {
 
 pub type AnySearcher<B> = Box<dyn Searcher<B>>;
 
-pub type AnyEngine<B> = Box<dyn Engine<B>>;
+pub type AnyEngine<B> = Box<dyn EnginePlayer<B>>;
 
-pub type AnyEngineRef<'a, B> = &'a dyn Engine<B>;
+pub type AnyEngineRef<'a, B> = &'a dyn EnginePlayer<B>;
 
-pub type AnyMutEngineRef<'a, B> = &'a mut dyn Engine<B>;
+pub type AnyMutEngineRef<'a, B> = &'a mut dyn EnginePlayer<B>;
 
 /// `AnyMatch` is a type-erased `MatchManager`, and almost the only thing that isn't generic over the Game.
 /// Pretty much the entire program is spent inside the match manager.
@@ -205,10 +207,14 @@ pub struct DefaultEngineList {}
 pub fn generic_engines<B: Board>() -> Vec<(String, CreateEngine<B>)> {
     vec![
         ("random".to_string(), |_| {
-            Box::new(RandomMover::<B, ThreadRng>::default())
+            // there's probably a better way to seed the rng, but this should be good enough
+            let owner =
+                RandomMover::<B, StdRng>::with_rng(StdRng::seed_from_u64(thread_rng().next_u64()));
+            Box::new(owner)
         }),
         ("naive_negamax".to_string(), |_| {
-            Box::new(NaiveSlowNegamax::default())
+            let owner = EngineOwner::new::<NaiveSlowNegamax<B>>();
+            Box::new(owner)
         }),
     ]
 }

@@ -3,16 +3,20 @@ use std::time::{Duration, Instant};
 use rand::thread_rng;
 
 use crate::games::{Board, BoardHistory, ZobristHistoryBase, ZobristRepetition2Fold};
+use crate::general::common::Res;
+use crate::search::multithreading::EngineSends::Info;
+use crate::search::multithreading::{EngineCommunicator, EngineOwner};
 use crate::search::{
-    game_result_to_score, should_stop, BenchResult, Engine, InfoCallback, Score, SearchInfo,
+    game_result_to_score, should_stop, BasicSearchState, BenchResult, Engine, EngineInfo, Score,
     SearchLimit, SearchResult, Searcher, SimpleSearchState, TimeControl, SCORE_LOST, SCORE_TIME_UP,
 };
 
 const MAX_DEPTH: usize = 100;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct NaiveSlowNegamax<B: Board> {
     state: SimpleSearchState<B>,
+    communicator: EngineCommunicator<B>,
 }
 
 impl<B: Board> Searcher<B> for NaiveSlowNegamax<B> {
@@ -21,13 +25,12 @@ impl<B: Board> Searcher<B> for NaiveSlowNegamax<B> {
         pos: B,
         limit: SearchLimit,
         history: ZobristHistoryBase,
-        info_callback: Box<dyn InfoCallback<B>>,
-    ) -> SearchResult<B> {
+    ) -> Res<SearchResult<B>> {
         self.state.new_search(ZobristRepetition2Fold(history));
 
         self.state.score = self.negamax(pos, limit, 0);
-        info_callback.print_info(self.search_info());
-        SearchResult::move_and_score(
+        self.send(Info(self.search_info())).unwrap();
+        Ok(SearchResult::move_and_score(
             self.state.best_move.unwrap_or_else(|| {
                 // Sadly, this is the expected case since there is no iterative deepening
                 let mut rng = thread_rng();
@@ -35,7 +38,7 @@ impl<B: Board> Searcher<B> for NaiveSlowNegamax<B> {
                     .expect("search() called in a position with no legal moves")
             }),
             self.state.score,
-        )
+        ))
     }
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
@@ -53,33 +56,49 @@ impl<B: Board> Searcher<B> for NaiveSlowNegamax<B> {
 }
 
 impl<B: Board> Engine<B> for NaiveSlowNegamax<B> {
-    fn bench(&mut self, pos: B, depth: usize) -> BenchResult {
+    fn bench(&mut self, pos: B, depth: usize) -> Res<BenchResult> {
         self.state = Default::default();
         let mut limit = SearchLimit::default();
         limit.depth = depth;
 
         self.negamax(pos, limit, 0);
-        self.state.to_bench_res()
+        // TODO: Handle stop command
+        Ok(self.state.to_bench_res())
     }
 
-    fn default_bench_depth(&self) -> usize {
-        1 // ignored as the engine will search until terminal nodes anyway
+    fn clone_for_multithreading(&self) -> EngineOwner<B> {
+        EngineOwner::new::<Self>()
     }
 
-    fn stop(&mut self) {
-        self.state.search_cancelled = true;
+    fn engine_info(&self) -> EngineInfo {
+        EngineInfo {
+            name: self.name().to_string(),
+            version: "0.1.0".to_string(),
+            default_bench_depth: 0, // ignored as the engine will search until terminal nodes anyway
+            options: Vec::default(),
+            description: "An engine that searches the *entire* search tree. Useless except for very simple games like Tic-Tac-Toe".to_string(),
+        }
     }
 
-    fn search_info(&self) -> SearchInfo<B> {
-        self.state.to_info()
+    type State = SimpleSearchState<B>;
+
+    fn new(communicator: EngineCommunicator<B>) -> Self {
+        Self {
+            state: SimpleSearchState::default(),
+            communicator,
+        }
     }
 
-    fn forget(&mut self) {
-        self.state.forget();
+    fn search_state(&self) -> &Self::State {
+        &self.state
     }
 
-    fn nodes(&self) -> u64 {
-        self.state.nodes
+    fn search_state_mut(&mut self) -> &mut Self::State {
+        &mut self.state
+    }
+
+    fn communicator(&mut self) -> &mut EngineCommunicator<B> {
+        &mut self.communicator
     }
 }
 
@@ -103,8 +122,7 @@ impl<B: Board> NaiveSlowNegamax<B> {
             let score = -self.negamax(new_pos.unwrap(), limit, ply + 1);
             self.state.board_history.pop(&pos);
 
-            if self.state.search_cancelled || should_stop(&limit, self, self.state.start_time) {
-                self.state.search_cancelled = true;
+            if should_stop(self, limit) {
                 return SCORE_TIME_UP;
             }
 

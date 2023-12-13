@@ -31,6 +31,7 @@ use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::play::generic_engines;
 use crate::search::chess::caps::Caps;
 use crate::search::generic_negamax::GenericNegamax;
+use crate::search::multithreading::{EngineOwner, MultithreadedEngine};
 use crate::ui::NormalGraphics;
 
 pub mod flags;
@@ -636,10 +637,12 @@ impl EngineList<Chessboard> for ChessEngineList {
     fn list_engines() -> Vec<(String, CreateEngine<Chessboard>)> {
         let mut res = generic_engines();
         res.push(("generic_negamax".to_string(), |_| {
-            Box::new(GenericNegamax::<Chessboard, PstOnlyEval>::default())
+            let owner = EngineOwner::new::<GenericNegamax<Chessboard, PstOnlyEval>>();
+            Box::new(MultithreadedEngine::new(owner))
         }));
         res.push(("caps".to_string(), |_| {
-            Box::new(Caps::<PstOnlyEval>::default())
+            let owner = EngineOwner::new::<Caps<PstOnlyEval>>();
+            Box::new(MultithreadedEngine::new(owner))
         }));
         res
     }

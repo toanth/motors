@@ -14,6 +14,7 @@ use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
 use crate::play::generic_engines;
 use crate::search::generic_negamax::GenericNegamax;
+use crate::search::multithreading::{EngineOwner, MultithreadedEngine};
 use crate::ui::NormalGraphics;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
@@ -656,7 +657,8 @@ impl EngineList<MNKBoard> for MnkEngineList {
     fn list_engines() -> Vec<(String, CreateEngine<MNKBoard>)> {
         let mut res = generic_engines();
         res.push(("generic_negamax".to_string(), |_| {
-            Box::new(GenericNegamax::<MNKBoard, SimpleMnkEval>::default())
+            let owner = EngineOwner::new::<GenericNegamax<MNKBoard, SimpleMnkEval>>();
+            Box::new(MultithreadedEngine::new(owner))
         }));
         res
     }
