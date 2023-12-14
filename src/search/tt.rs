@@ -4,7 +4,7 @@ use static_assertions::const_assert_eq;
 
 use crate::games::chess::Chessboard;
 use crate::games::{Board, ZobristHash};
-use crate::search::{NodeType, Score};
+use crate::search::{NodeType, Score, SCORE_WON};
 
 #[derive(Debug, Copy, Clone, Default)]
 #[repr(C)] // probably unnecessary, but allows asserting that the size behaves as expected
@@ -80,6 +80,11 @@ impl<B: Board> TT<B> {
     }
 
     pub fn store(&mut self, mut entry: TTEntry<B>, ply: usize) {
+        debug_assert!(
+            entry.score.0.abs() + ply as i32 <= SCORE_WON.0,
+            "score {score} ply {ply}",
+            score = entry.score.0
+        );
         let idx = self.index_of(entry.hash);
         if let Some(plies) = entry.score.plies_until_game_won() {
             if plies < 0 {
@@ -88,6 +93,12 @@ impl<B: Board> TT<B> {
                 entry.score.0 += ply as i32;
             }
         }
+        debug_assert!(
+            entry.score.0.abs() <= SCORE_WON.0,
+            "score {}, ply {ply}, won in {won}",
+            entry.score.0,
+            won = entry.score.plies_until_game_won().unwrap_or(42),
+        );
         self.arr[idx] = entry;
     }
 
@@ -101,6 +112,7 @@ impl<B: Board> TT<B> {
                 entry.score.0 -= ply as i32;
             }
         }
+        debug_assert!(entry.score.0.abs() <= SCORE_WON.0);
         entry
     }
 }

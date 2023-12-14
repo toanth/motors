@@ -15,7 +15,7 @@ use crate::search::multithreading::{
     EngineCommunicator, EngineOwner, EnginePlayer, EngineSends, EngineThread,
 };
 use crate::search::tt::TT;
-use crate::search::Searching::{Ongoing, Quit, Stop};
+use crate::search::Searching::*;
 
 pub mod chess;
 pub mod generic_negamax;
@@ -118,13 +118,18 @@ impl Score {
         self.plies_until_game_won()
             .map(|n| (n as f32 / 2f32).ceil() as isize)
     }
+
+    pub fn plies_until_game_over(self) -> Option<isize> {
+        self.plies_until_game_won().map(|x| x.abs())
+    }
 }
 
 pub const SCORE_LOST: Score = Score(-31_000);
 pub const SCORE_WON: Score = Score(31_000);
-pub const SCORE_TIME_UP: Score = Score(SCORE_WON.0 + 1); // can't use + directly because derive_more's + isn't `const`
+pub const SCORE_TIME_UP: Score = Score(SCORE_WON.0 + 1000); // can't use + directly because derive_more's + isn't `const`
 pub const MIN_SCORE_WON: Score = Score(SCORE_WON.0 - 1000);
 pub const MAX_SCORE_LOST: Score = Score(SCORE_LOST.0 + 1000);
+pub const NO_SCORE_YET: Score = Score(SCORE_LOST.0 - 100);
 
 pub const MAX_DEPTH: usize = 10_000;
 
@@ -441,7 +446,7 @@ pub trait Engine<B: Board>: Searcher<B> + Send {
 
     fn quit(&mut self) {
         self.stop();
-        self.search_state_mut().set_searching(Quit);
+        self.search_state_mut().quit();
     }
 
     /// Returns a SearchInfo object with information about the search so far.
@@ -477,7 +482,6 @@ pub trait Engine<B: Board>: Searcher<B> + Send {
 pub enum Searching {
     Ongoing,
     Stop,
-    Quit,
 }
 
 pub trait BasicSearchState<B: Board> {
@@ -487,6 +491,8 @@ pub trait BasicSearchState<B: Board> {
     fn search_cancelled(&self) -> bool {
         self.searching() != Ongoing
     }
+    fn should_quit(&self) -> bool;
+    fn quit(&mut self);
     fn depth(&self) -> usize;
     fn start_time(&self) -> Instant;
     fn score(&self) -> Score;
@@ -502,6 +508,7 @@ pub struct SimpleSearchState<B: Board> {
     best_move: Option<B::Move>,
     nodes: u64,
     searching: Searching,
+    should_quit: bool,
     depth: usize,
     sel_depth: usize,
     start_time: Instant,
@@ -518,7 +525,8 @@ impl<B: Board> Default for SimpleSearchState<B> {
             score: Score(0),
             best_move: None,
             nodes: 0,
-            searching: Ongoing,
+            searching: Stop,
+            should_quit: false,
             depth: 0,
             sel_depth: 0,
         }
@@ -559,9 +567,15 @@ impl<B: Board> SimpleSearchState<B> {
 
 // Sensible default values, but engines may choose to check more/less frequently than every 1024 nodes
 fn should_stop<B: Board, E: Engine<B>>(engine: &mut E, limit: SearchLimit) -> bool {
-    engine.search_state().search_cancelled()
+    if engine.search_state().search_cancelled()
         || engine.nodes() >= limit.nodes
         || (engine.nodes() % 1024 == 0 && EngineThread::check_if_aborted(engine, &limit))
+    {
+        engine.search_state_mut().set_searching(Stop);
+        true
+    } else {
+        false
+    }
 }
 
 impl<B: Board> BasicSearchState<B> for SimpleSearchState<B> {
@@ -575,6 +589,14 @@ impl<B: Board> BasicSearchState<B> for SimpleSearchState<B> {
 
     fn set_searching(&mut self, searching: Searching) {
         self.searching = searching;
+    }
+
+    fn should_quit(&self) -> bool {
+        self.should_quit
+    }
+
+    fn quit(&mut self) {
+        self.should_quit = true;
     }
 
     fn depth(&self) -> usize {
@@ -598,6 +620,7 @@ impl<B: Board> BasicSearchState<B> for SimpleSearchState<B> {
         self.forget();
         self.board_history = history;
         self.tt = tt; // keep the TT between searches.
+        self.searching = Ongoing;
     }
 
     fn to_search_info(&self) -> SearchInfo<B> {
@@ -673,7 +696,7 @@ impl<B: Board, const PV_LIMIT: usize> SearchStateWithPv<B, PV_LIMIT> {
 
     fn to_search_info(&self) -> SearchInfo<B> {
         let mut res = self.wrapped.to_search_info();
-        res.pv = self.pv();
+        // res.pv = self.pv(); // TODO: Re-enable OV output
         res
     }
 }

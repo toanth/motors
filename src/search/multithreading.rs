@@ -66,37 +66,43 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         }
     }
 
-    fn start_search(engine: &mut E, pos: B, limit: SearchLimit, history: ZobristHistoryBase) {
-        engine.stop();
-        engine.search_state_mut().set_searching(Ongoing);
-        match engine.search(pos, limit, history) {
-            Ok(search_res) => {
-                if let Err(err) = engine.send(SearchRes(search_res)) {
-                    Self::write_error(engine, err.to_string());
-                }
-            }
-            Err(msg) => Self::write_error(engine, msg),
+    fn start_search(
+        engine: &mut E,
+        pos: B,
+        limit: SearchLimit,
+        history: ZobristHistoryBase,
+    ) -> Res<()> {
+        if !engine.search_state().search_cancelled() {
+            return Err(format!(
+                "Engine {} received a go command while still searching",
+                engine.name()
+            ));
         }
+        engine.search_state_mut().set_searching(Ongoing);
+        let search_res = engine.search(pos, limit, history)?;
+        if !engine.search_state().search_cancelled() {
+            engine.search_state_mut().set_searching(Searching::Stop);
+        }
+        engine.send(SearchRes(search_res))
     }
 
-    fn bench(engine: &mut E, pos: B, depth: usize) {
+    fn bench(engine: &mut E, pos: B, depth: usize) -> Res<()> {
         engine.stop();
         engine.forget();
-        match engine.bench(pos, depth) {
-            Ok(res) => {
-                if let Err(err) = engine.send(BenchRes(res)) {
-                    Self::write_error(engine, err.to_string());
-                }
-            }
-            Err(msg) => Self::write_error(engine, msg),
-        };
+        let res = engine.bench(pos, depth)?;
+        engine.send(BenchRes(res))
     }
 
     fn handle_input(engine: &mut E, received: EngineReceives<B>) -> Res<()> {
         Ok(match received {
             Quit => engine.quit(),
             Stop => engine.stop(),
-            Forget => engine.forget(),
+            Forget => {
+                if !engine.search_state().search_cancelled() {
+                    return Err(format!("Engine '{}' received a 'forget' command (ucinewgame) while still searching", engine.name()));
+                }
+                engine.forget();
+            }
             SetOption(name, val) => match name {
                 Threads => {
                     let count = parse_int_from_str(&val, "thread count")?;
@@ -112,8 +118,8 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                     }
                 }
             },
-            Search(pos, limit, history) => Self::start_search(engine, pos, limit, history),
-            Bench(pos, depth) => Self::bench(engine, pos, depth),
+            Search(pos, limit, history) => Self::start_search(engine, pos, limit, history)?,
+            Bench(pos, depth) => Self::bench(engine, pos, depth)?,
         })
     }
 
@@ -157,7 +163,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                     engine.quit()
                 }
             }
-            if engine.search_state().searching() == Searching::Quit {
+            if engine.search_state().should_quit() {
                 break;
             }
         }

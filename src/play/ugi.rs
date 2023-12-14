@@ -167,7 +167,8 @@ impl<B: Board> AbstractMatchManager for UGI<B> {
 
     fn abort(&mut self) -> Res<MatchStatus> {
         self.engine.send_stop()?;
-        Ok(MatchStatus::aborted())
+        self.status = MatchStatus::aborted();
+        Ok(self.status)
     }
 
     fn match_status(&self) -> MatchStatus {
@@ -301,18 +302,15 @@ impl<B: Board> UGI<B> {
                 self.write_ugi(id_msg.as_str());
                 self.write_ugi(self.write_options().as_str());
                 self.write_ugi("ugiok");
-                Ok(self.status)
             }
             "uci" => {
                 let id_msg = self.id();
                 self.write_ugi(id_msg.as_str());
                 self.write_ugi(self.write_options().as_str());
                 self.write_ugi("uciok");
-                Ok(self.status)
             }
             "isready" => {
                 self.write_ugi("readyok");
-                Ok(self.status)
             }
             "debug" => {
                 match words.next().unwrap_or_default() {
@@ -335,35 +333,48 @@ impl<B: Board> UGI<B> {
                     }
                     x => return Err(format!("Invalid debug option '{x}'")),
                 }
-                Ok(self.status)
             }
-            "setoption" => self.handle_setoption(words),
-            "register" => Err("'register' isn't supported".to_string()),
+            "setoption" => {
+                self.handle_setoption(words)?;
+            }
+            "register" => return Err("'register' isn't supported".to_string()),
             "ucinewgame" => {
                 self.engine.send_forget()?;
                 self.status = NotStarted;
-                Ok(self.status)
             } // just ignore it
-            "position" => self.handle_position(words),
-            "go" => self.handle_go(words),
+            "position" => {
+                self.handle_position(words)?;
+            }
+            "go" => {
+                self.handle_go(words)?;
+            }
             "stop" => {
                 self.engine.send_stop()?;
-                // self.write_ugi(&format_search_result(
-                //     self.engine.search_info().to_search_result(),
-                // ));
-                Ok(Ongoing)
             }
-            "ponderhit" => Ok(self.status), // ignore pondering
-            "quit" => self.quit(),
-            "query" => self.handle_query(words),
-            "ui" => self.handle_ui(words),
-            "print" => self.handle_print(words),
-            "log" => self.handle_log(words),
-            "engine" => self.handle_engine(words),
-            "game" => self.handle_game(words),
+            "ponderhit" => {} // ignore pondering
+            "quit" => {
+                self.quit()?;
+            }
+            "query" => {
+                self.handle_query(words)?;
+            }
+            "ui" => {
+                self.handle_ui(words)?;
+            }
+            "print" => {
+                self.handle_print(words)?;
+            }
+            "log" => {
+                self.handle_log(words)?;
+            }
+            "engine" => {
+                self.handle_engine(words)?;
+            }
+            "game" => {
+                self.handle_game(words)?;
+            }
             "play" => {
                 play(); // play a game locally without using UGI
-                Ok(self.status)
             }
             x => {
                 // An invalid token at the start of the input should be ignored according to the UCI spec.
@@ -381,9 +392,10 @@ impl<B: Board> UGI<B> {
                 if remaining.is_empty() {
                     return Ok(self.status);
                 }
-                self.parse_input(remaining)
+                self.parse_input(remaining)?;
             }
         }
+        Ok(self.status)
     }
 
     fn quit(&mut self) -> Result<MatchStatus, String> {

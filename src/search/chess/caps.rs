@@ -15,11 +15,11 @@ use crate::search::tt::{TTEntry, DEFAULT_HASH_SIZE_MB};
 use crate::search::EngineOptionName::{Hash, Threads};
 use crate::search::EngineUciOptionType::Spin;
 use crate::search::NodeType::*;
-use crate::search::Searching::Ongoing;
 use crate::search::{
     game_result_to_score, should_stop, BasicSearchState, BenchResult, Engine, EngineInfo,
     EngineOptionName, EngineOptionType, NodeType, Score, SearchInfo, SearchLimit, SearchResult,
-    SearchStateWithPv, Searcher, Searching, TimeControl, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
+    SearchStateWithPv, Searcher, Searching, TimeControl, MIN_SCORE_WON, NO_SCORE_YET, SCORE_LOST,
+    SCORE_TIME_UP, SCORE_WON,
 };
 
 const DEPTH_SOFT_LIMIT: usize = 100;
@@ -91,7 +91,14 @@ impl BasicSearchState<Chessboard> for State {
 
     fn set_searching(&mut self, searching: Searching) {
         self.state.set_searching(searching);
-        debug_assert_eq!(self.search_cancelled(), searching != Ongoing);
+    }
+
+    fn should_quit(&self) -> bool {
+        self.should_quit
+    }
+
+    fn quit(&mut self) {
+        self.wrapped.quit()
     }
 
     fn depth(&self) -> usize {
@@ -160,7 +167,7 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Caps<E> {
         let mut chosen_move = self.state.best_move;
         let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth) as isize;
 
-        // println!(
+        // eprintln!(
         //     "starting search with limit {time} ms, {fixed} fixed, {depth} depth, {nodes} nodes, will take at most {max}ms",
         //     time = limit.tc.remaining.as_millis(),
         //     depth = limit.depth,
@@ -173,9 +180,14 @@ impl<E: Eval<Chessboard>> Searcher<Chessboard> for Caps<E> {
             self.state.depth = depth as usize;
             let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON, false);
             let soft_limit = limit.fixed_time.min(limit.tc.remaining / 64);
-            assert!(!iteration_score
-                .plies_until_game_won()
-                .is_some_and(|x| x == 0));
+            assert!(
+                !(iteration_score != SCORE_TIME_UP
+                    && iteration_score
+                        .plies_until_game_over()
+                        .is_some_and(|x| x <= 0)),
+                "score {} depth {depth}",
+                iteration_score.0
+            );
             if self.state.search_cancelled() {
                 break;
             }
@@ -235,7 +247,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         }
         let can_prune = !is_pvs_pv_node && !in_check;
 
-        let mut best_score = SCORE_LOST;
+        let mut best_score = NO_SCORE_YET;
         let mut bound_so_far = UpperBound;
 
         let tt_entry = self.state.tt.load(pos.zobrist_hash(), ply);
@@ -257,12 +269,13 @@ impl<E: Eval<Chessboard>> Caps<E> {
         }
 
         let eval = self.eval.eval(pos);
+        debug_assert!(!eval.is_game_over_score());
         //     match trust_tt_entry {
         //     true => tt_entry.score,
         //     false => self.eval.eval(pos),
         // };
 
-        // Reverse Futility Pruning (RFP): If eval is far above beta, it's likely that out opponent
+        // Reverse Futility Pruning (RFP): If eval is far above beta, it's likely that our opponent
         // blundered in a previous move of the search, do if the depth is low, don't even bother searching further.
         if can_prune {
             if depth < 4 && eval >= beta + Score(80 * depth as i32) {
@@ -272,7 +285,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // Null Move Pruning (NMP). If static eval of our position is above beta, this node probably isn't that interesting.
             // To test this hypothesis, do a nullmove and perform a search with reduced depth; if the result is still
             // above beta, then it's very likely that the score would have been above beta if we had played a move,
-            // so imply return the nmp score.
+            // so simply return the nmp score.
             if allow_nmp && depth >= 3 && eval >= beta {
                 self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
@@ -288,7 +301,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 );
                 self.state.board_history.pop(&pos);
                 if score >= beta {
-                    return score;
+                    return score.min(MIN_SCORE_WON);
                 }
             }
         }
@@ -304,6 +317,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
             let new_pos = new_pos.unwrap();
             self.state.nodes += 1;
             num_children += 1;
+
+            let debug_history_len = self.state.board_history.0 .0.len();
 
             self.state.board_history.push(&pos);
             // PVS: Assume that the TT move is the best move, so we only need to prove that the other moves are worse,
@@ -326,12 +341,18 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 }
             }
 
-            self.state.state.board_history.pop(&pos);
+            self.state.board_history.pop(&pos);
 
+            debug_assert_eq!(
+                self.state.board_history.0 .0.len(),
+                debug_history_len,
+                "depth {depth} ply {ply} old len {debug_history_len} new len {} child {num_children}", self.state.board_history.0 .0.len()
+            );
             // Check for cancellation right after searching a move to avoid storing incorrect information in the TT.
             if should_stop(self, limit) {
                 return SCORE_TIME_UP;
             }
+            debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);
 
             best_score = best_score.max(score);
             // Save indentation by using `continue` instead of nested if statements.
@@ -358,6 +379,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
             break;
         }
 
+        if num_children == 0 {
+            // TODO: Merge cached in-check branch
+            return game_result_to_score(pos.no_moves_result(), ply);
+        }
+
         let tt_entry = TTEntry::new(
             best_score,
             best_move,
@@ -377,11 +403,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             self.state.pv_table.no_pv_move(ply);
         }
 
-        if num_children == 0 {
-            game_result_to_score(pos.no_moves_result(), ply)
-        } else {
-            best_score
-        }
+        best_score
     }
 
     /// Search only noisy moves to quieten down the position before calling eval.
@@ -442,6 +464,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         }
         let tt_entry = TTEntry::new(best_score, best_move, 0, bound_so_far, pos.zobrist_hash());
         self.state.tt.store(tt_entry, ply);
+        debug_assert!(!best_score.is_game_over_score());
         best_score
     }
 
