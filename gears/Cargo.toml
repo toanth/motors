@@ -1,0 +1,32 @@
+[package]
+name = "gears"
+version = "0.1.0"
+edition = "2021"
+
+[[bench]]
+name = "perft_bench"
+harness = false
+
+[dev-dependencies]
+criterion = "0.5.1"
+
+
+[dependencies]
+num = "0.4.1"
+rand = "0.8.5"
+# The latest published version has a bug in the pdep implementation where it panics when called with u64::MAX,
+# but this is fixed in the git repo.
+bitintr = { git = "https://github.com/gnzlbg/bitintr" }
+colored = "2.0.4"
+strum = "0.26.1"
+strum_macros = "0.26.1"
+derive_more = { version = "1.0.0-beta.6", features = ["full"] }
+itertools = "0.12.0"
+chrono = "0.4.31"
+static_assertions = "1.1.0"
+dyn-clone = "1.0.17"
+
+[features]
+default = ["chess", "mnk"]
+chess = []
+mnk = []
