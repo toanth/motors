@@ -1,19 +1,20 @@
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
-
 use std::str::{FromStr, SplitWhitespace};
 
-use derive_more::{BitXorAssign};
+use derive_more::BitXorAssign;
 use itertools::Itertools;
 use num::iter;
 use rand::Rng;
 use strum_macros::EnumIter;
 
+use crate::{GameOver, GameOverReason, MatchResult, player_res_to_match_res, PlayerResult};
 use crate::games::PlayerResult::{Draw, Lose};
-use crate::general::common::{EntityList, GenericSelect, parse_int, Res, select_name_static, StaticallyNamedEntity};
+use crate::general::common::{
+    EntityList, GenericSelect, parse_int, Res, select_name_static, StaticallyNamedEntity,
+};
 use crate::general::move_list::MoveList;
 use crate::output::OutputBuilder;
-use crate::{GameOver, GameOverReason, MatchResult, player_res_to_match_res, PlayerResult};
 
 #[cfg(feature = "mnk")]
 pub mod mnk;
@@ -584,7 +585,17 @@ type NameToPos<B> = GenericSelect<fn() -> B>;
 /// When this is not desired, the `GameState` should be used instead, it contains a copy of the current board
 /// and additional non-markovian information, such as the history of zobrist hashes for games that need this.
 pub trait Board:
-    Eq + PartialEq + Sized + Default + Debug + Display + Copy + Clone + Send + StaticallyNamedEntity + 'static
+    Eq
+    + PartialEq
+    + Sized
+    + Default
+    + Debug
+    + Display
+    + Copy
+    + Clone
+    + Send
+    + StaticallyNamedEntity
+    + 'static
 {
     type Settings: Settings;
     type Coordinates: Coordinates;
@@ -613,8 +624,13 @@ pub trait Board:
     /// Constructs a specific, well-known position from its name, such as 'kiwipete' in chess.
     /// Not to be confused with `from_fen`, which can load arbitrary positions.
     fn from_name(name: &str) -> Res<Self> {
-        select_name_static(name, &Self::name_to_pos_map(), "position", Self::game_name())
-            .map(|f| (f.val)())
+        select_name_static(
+            name,
+            &Self::name_to_pos_map(),
+            "position",
+            Self::game_name(),
+        )
+        .map(|f| (f.val)())
     }
 
     /// Returns a Vec mapping well-known position names to their FEN, for example for kiwipete in chess.
@@ -754,7 +770,10 @@ pub trait Board:
 
     fn match_result_slow(&self) -> Option<MatchResult> {
         let player_res = self.game_result_player_slow()?;
-        let game_over = GameOver { result: player_res, reason: GameOverReason::Normal };
+        let game_over = GameOver {
+            result: player_res,
+            reason: GameOverReason::Normal,
+        };
         Some(player_res_to_match_res(game_over, self.active_player()))
     }
 

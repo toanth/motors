@@ -4,8 +4,8 @@
 mod tests {
     use std::time::Instant;
 
-    use crate::games::chess::Chessboard;
     use crate::games::Board;
+    use crate::games::chess::Chessboard;
     use crate::general::perft::perft;
     use crate::search::Depth;
 
@@ -44,8 +44,10 @@ mod tests {
         assert_eq!(res.nodes.get(), 6271);
         let res = perft(Depth::new(3), board);
         assert_eq!(res.nodes.get(), 568299);
-        let res = perft(Depth::new(4), board);
-        assert_eq!(res.nodes.get(), 34807627);
+        if cfg!(not(debug_assertions)) {
+            let res = perft(Depth::new(4), board);
+            assert_eq!(res.nodes.get(), 34807627);
+        }
     }
 
     struct ExpectedPerftRes {

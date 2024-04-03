@@ -1,25 +1,21 @@
-
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Instant;
 
 use crate::AdjudicationReason::*;
 use crate::GameResult::Aborted;
-
 use crate::games::{Board, Color};
 use crate::games::Color::White;
-
-
-
 use crate::general::common::{Res, select_name_dyn};
 use crate::MatchStatus::Over;
-use crate::output::{OutputBuilder};
+use crate::output::OutputBuilder;
 use crate::PlayerResult::Win;
 use crate::search::TimeControl;
 
-/// Anything that doesn't fit into the other modules, such as low-level helper functions
-pub mod general;
+pub mod cli;
 /// Anything related to the specific games, organized in submodules like "chess".
 pub mod games;
+/// Anything that doesn't fit into the other modules, such as low-level helper functions
+pub mod general;
 /// Anything related to printing the game. A part of this library instead of the `monitors` crate
 /// because it's very helpful to allow an engine to do debug printing and logging.
 /// Still, the monitors crate contains more advanced UIs, such as a GUI.
@@ -28,11 +24,8 @@ pub mod output;
 pub mod search;
 /// Ugi helpers used both by `motors` and `monitors`
 pub mod ugi;
-pub mod cli;
-
 
 // *** Match status information ***
-
 
 /// Result of a match from a player's perspective.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -94,7 +87,7 @@ pub enum AdjudicationReason {
     InvalidMove,
     AbortedByUser,
     EngineError,
-    Adjudicator(String) // e.g. both engines displayed a winning score for one player for many consecutive moves
+    Adjudicator(String), // e.g. both engines displayed a winning score for one player for many consecutive moves
 }
 
 impl Display for AdjudicationReason {
@@ -149,6 +142,7 @@ pub fn player_res_to_match_res(game_over: GameOver, color: Color) -> MatchResult
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct OutputArgs {
     pub name: String,
     pub opts: Vec<String>,
@@ -198,11 +192,24 @@ pub trait GameState<B: Board> {
     fn thinking_since(&self, color: Color) -> Option<Instant>;
 }
 
-
-pub fn output_builder_from_str<B: Board>(name: &str, list: &[Box<dyn OutputBuilder<B>>]) -> Res<Box<dyn OutputBuilder<B>>> {
-    Ok(dyn_clone::clone_box(select_name_dyn(name, list, "output", B::game_name())?))
+pub fn output_builder_from_str<B: Board>(
+    name: &str,
+    list: &[Box<dyn OutputBuilder<B>>],
+) -> Res<Box<dyn OutputBuilder<B>>> {
+    Ok(dyn_clone::clone_box(select_name_dyn(
+        name,
+        list,
+        "output",
+        B::game_name(),
+    )?))
 }
 
-pub fn create_selected_output_builders<B: Board>(outputs: &[OutputArgs], list: &[Box<dyn OutputBuilder<B>>]) -> Res<Vec<Box<dyn OutputBuilder<B>>>> {
-    outputs.iter().map(|o| output_builder_from_str(&o.name, list)).collect()
+pub fn create_selected_output_builders<B: Board>(
+    outputs: &[OutputArgs],
+    list: &[Box<dyn OutputBuilder<B>>],
+) -> Res<Vec<Box<dyn OutputBuilder<B>>>> {
+    outputs
+        .iter()
+        .map(|o| output_builder_from_str(&o.name, list))
+        .collect()
 }

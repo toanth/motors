@@ -9,10 +9,10 @@ use std::usize;
 use derive_more::{Add, AddAssign, Neg, Sub};
 
 use crate::games::{Board, Move};
+use crate::general::common::parse_fp_from_str;
 use crate::PlayerResult;
 
 /// Anything related to search that is also used by `monitors`, and therefore doesn't belong in `motors`.
-
 
 // TODO: Turn this into an enum that can also represent a win in n plies (and maybe a draw?)
 #[derive(Default, Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg, AddAssign)]
@@ -72,7 +72,8 @@ impl Score {
     }
     /// Returns a negative number if the game is lost
     pub fn moves_until_game_won(self) -> Option<isize> {
-        self.plies_until_game_won().map(|n| (n as f32 / 2f32).ceil() as isize)
+        self.plies_until_game_won()
+            .map(|n| (n as f32 / 2f32).ceil() as isize)
     }
 
     pub fn plies_until_game_over(self) -> Option<isize> {
@@ -102,7 +103,6 @@ pub fn game_result_to_score(res: PlayerResult, ply: usize) -> Score {
     }
 }
 
-
 #[derive(Eq, PartialEq, Debug, Default)]
 pub struct SearchResult<B: Board> {
     pub chosen_move: B::Move,
@@ -128,17 +128,26 @@ impl<B: Board> SearchResult<B> {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct SearchInfo<B: Board> {
     pub best_move: B::Move,
-    pub depth: usize,
+    pub depth: Depth,
     pub seldepth: Option<usize>,
     pub time: Duration,
-    pub nodes: u64,
+    pub nodes: Nodes,
     pub pv: Vec<B::Move>,
     pub score: Score,
     pub hashfull: Option<usize>,
     pub additional: Option<String>,
+}
+
+impl<B: Board> Default for SearchInfo<B> {
+    fn default() -> Self {
+        Self {
+            nodes: Nodes::MAX,
+            ..Default::default()
+        }
+    }
 }
 
 impl<B: Board> SearchInfo<B> {
@@ -147,7 +156,7 @@ impl<B: Board> SearchInfo<B> {
         if micros == 0.0 {
             0
         } else {
-            ((self.nodes as f64 * 1_000_000.0) / micros) as usize
+            ((self.nodes.get() as f64 * 1_000_000.0) / micros) as usize
         }
     }
 
@@ -171,7 +180,7 @@ impl<B: Board> Display for SearchInfo<B> {
 
         write!(f,
                "info depth {depth}{seldepth} score {score_str} time {time} nodes {nodes} nps {nps} pv {pv}{hashfull}{string}",
-               depth = self.depth, time = self.time.as_millis(), nodes = self.nodes,
+               depth = self.depth.get(), time = self.time.as_millis(), nodes = self.nodes.get(),
                seldepth = self.seldepth.map(|d| format!(" seldepth {d}")).unwrap_or_default(),
                nps = self.nps(),
                pv = self.pv.iter().map(|mv| mv.to_compact_text()).collect::<Vec<_>>().join(" "),
@@ -180,7 +189,6 @@ impl<B: Board> Display for SearchInfo<B> {
         )
     }
 }
-
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct TimeControl {
@@ -200,7 +208,12 @@ impl Display for TimeControl {
         if self.remaining == Duration::MAX {
             write!(f, "infinite")
         } else {
-            write!(f, "{0}ms + {1}ms", self.remaining.as_millis(), self.increment.as_millis())
+            write!(
+                f,
+                "{0}ms + {1}ms",
+                self.remaining.as_millis(),
+                self.increment.as_millis()
+            )
         }
     }
 }
@@ -208,7 +221,9 @@ impl Display for TimeControl {
 impl FromStr for TimeControl {
     type Err = String;
 
-    // assume that the start time and increment strings don't contain a `+` fn from_str(s: &str) -> Result<Self, Self::Err> {
+    // assume that the start time and increment strings don't contain a `+`
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s == "infinite" || s == "∞" {
             return Ok(TimeControl::infinite());
         }
@@ -219,7 +234,9 @@ impl FromStr for TimeControl {
         let start_time = Duration::from_millis((1000.0 * start_time) as u64);
         let mut increment = Duration::default();
         if let Some(inc_str) = parts.next() {
-            increment = Duration::from_millis((1000.0 * parse_fp_from_str::<f64>(inc_str.trim(), "the increment")?) as u64);
+            increment = Duration::from_millis(
+                (1000.0 * parse_fp_from_str::<f64>(inc_str.trim(), "the increment")?) as u64,
+            );
         }
         Ok(TimeControl {
             remaining: start_time,
@@ -246,8 +263,8 @@ impl TimeControl {
         if !self.is_infinite() {
             self.remaining += self.increment;
             self.remaining -= elapsed; // In this order to avoid computing negative intermediate values (which panics)
-            // TODO: This probably still panics when remaining + increment - elapsed is less than 0 but greater than -time_margin.
-            // TODO: Handle movestogo
+                                       // TODO: This probably still panics when remaining + increment - elapsed is less than 0 but greater than -time_margin.
+                                       // TODO: Handle movestogo
         }
     }
 
@@ -265,7 +282,12 @@ impl TimeControl {
             "infinite\n".to_string()
         } else {
             let t = self.remaining(start).as_millis() / 100;
-            format!("{min:02}:{s:02}.{ds:01}\n", min = t / 600, s = t % 600 / 10, ds = t % 10)
+            format!(
+                "{min:02}:{s:02}.{ds:01}\n",
+                min = t / 600,
+                s = t % 600 / 10,
+                ds = t % 10
+            )
         }
     }
 }

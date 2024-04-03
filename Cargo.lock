@@ -447,6 +447,7 @@ dependencies = [
  "crossbeam-channel",
  "crossbeam-utils",
  "derive_more",
+ "dyn-clone",
  "gears",
  "itertools 0.12.1",
  "rand",

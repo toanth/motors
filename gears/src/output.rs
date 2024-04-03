@@ -2,11 +2,10 @@ use std::fmt::Debug;
 use std::str::SplitWhitespace;
 
 use dyn_clone::DynClone;
-
 use strum_macros::Display;
 
-use crate::games::{Board, OutputList, RectangularBoard, RectangularCoordinates};
 use crate::{GameOverReason, GameState, MatchResult, MatchStatus};
+use crate::games::{Board, OutputList, RectangularBoard, RectangularCoordinates};
 use crate::general::common::{NamedEntity, Res};
 use crate::output::logger::LoggerBuilder;
 use crate::output::Message::Info;
@@ -60,7 +59,6 @@ pub fn game_over_message(result: MatchResult) -> String {
 // TODO: Split into Input and Output parts to avoid reference cycles; an `Input` has a reference to the UgiGui, and the UgiGui has a Vec of Outputs
 /// There is no trait for Input because it's literally just something that contains a `Weak<Mutex<UgiGui>>`
 pub trait Output<B: Board>: NamedEntity + Debug + Send + 'static {
-    // TODO: Try to remove the dyn to see if rust compiles that (probably doesn't)
     fn show(&mut self, m: &dyn GameState<B>) {
         println!("{}", self.as_string(m));
     }
@@ -87,6 +85,8 @@ pub trait Output<B: Board>: NamedEntity + Debug + Send + 'static {
     }
 
     fn display_message_simple(&mut self, typ: Message, message: &str);
+
+    // TODO: Remove or rename
 
     fn display_message(&mut self, m: &dyn GameState<B>, typ: Message, message: &str) {
         if matches!(typ, Message::Debug) && !m.debug_info_enabled() {
@@ -123,7 +123,6 @@ pub trait OutputBuilder<B: Board>: NamedEntity + DynClone + Send {
 }
 
 pub type OutputBox<B> = Box<dyn Output<B>>;
-
 
 pub fn required_outputs<B: Board>() -> OutputList<B> {
     vec![
