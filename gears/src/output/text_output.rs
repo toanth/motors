@@ -1,17 +1,16 @@
 use std::fs::File;
-use std::io::{Stderr, stderr, Stdout, stdout, Write};
+use std::io::{stderr, Stderr, stdout, Stdout, Write};
+use std::mem::swap;
 use std::path::Path;
 use std::str::SplitWhitespace;
-use crate::games::{Board, Move};
 
 use crate::{AdjudicationReason, GameOverReason, GameResult, GameState, MatchStatus};
+use crate::games::{Board, Move};
 use crate::games::Color::{Black, White};
 use crate::general::common::{NamedEntity, Res};
 use crate::MatchStatus::Ongoing;
 use crate::output::{Message, Output, OutputBox, OutputBuilder};
 use crate::output::Message::{Debug, Error};
-
-
 
 #[derive(Debug)]
 pub enum TextStream {
@@ -47,8 +46,10 @@ impl TextStream {
         if !name.contains('.') {
             // Although files of course don't have to contain a '.', requiring that feels like a good way to
             // catch errors like typos where the user didn't mean to specify a file name.
-            return Err(format!("'{name}' does not appear to be a valid log filename (it does not contain a '.'). \
-                Expected either a filename, 'stdout', 'stderr', or 'none'."));
+            return Err(format!(
+                "'{name}' does not appear to be a valid log filename (it does not contain a '.'). \
+                Expected either a filename, 'stdout', 'stderr', or 'none'."
+            ));
         }
         let path = Path::new(name);
         let file = File::create(path).map_err(|err| format!("Couldn't create log file: {err}"))?;
@@ -67,7 +68,7 @@ impl TextWriter {
         if self.error.is_some() && (typ == Error || typ == Debug) {
             if let Some(ref mut error) = self.error {
                 error.write(typ.message_prefix(), message);
-                return
+                return;
             }
         }
         self.normal.write(typ.message_prefix(), message);
@@ -78,11 +79,17 @@ impl TextWriter {
     }
 
     pub fn new(out: TextStream) -> Self {
-        Self { normal: out, error: None }
+        Self {
+            normal: out,
+            error: None,
+        }
     }
 
     pub fn new_with_err(out: TextStream, err: TextStream) -> Self {
-        Self { normal: out, error: Some(err) }
+        Self {
+            normal: out,
+            error: Some(err),
+        }
     }
 }
 
@@ -156,9 +163,12 @@ struct TextOutput {
 }
 
 impl TextOutput {
-
     fn with_writer(typ: DisplayType, is_engine: bool, writer: TextWriter) -> Self {
-        Self {typ, is_engine, writer }
+        Self {
+            typ,
+            is_engine,
+            writer,
+        }
     }
 
     pub fn match_to_pgn<B: Board>(&self, m: &dyn GameState<B>) -> String {
@@ -217,7 +227,7 @@ impl TextOutput {
             }
             board = board.make_move(*mov).unwrap();
         }
-        if let MatchStatus::Over(x) =m.match_status() {
+        if let MatchStatus::Over(x) = m.match_status() {
             if !matches!(x.result, GameResult::Aborted) {
                 res += &(" ".to_string() + result);
             }
@@ -255,18 +265,33 @@ impl NamedEntity for TextOutput {
 }
 
 impl<B: Board> Output<B> for TextOutput {
-
     fn as_string(&self, m: &dyn GameState<B>) -> String {
         // TODO: Option to flip the board?
-        let mut white_time = String::default();
-        let mut black_time = String::default();
+        let mut time_below = String::default();
+        let mut time_above = String::default();
         if m.match_status() == Ongoing {
-            white_time = m.time(White).map(|tc| tc.remaining_to_string(m.thinking_since(White))).unwrap_or_default();
-            black_time = m.time(Black).map(|tc| tc.remaining_to_string(m.thinking_since(Black))).unwrap_or_default();
+            time_below = m
+                .time(White)
+                .map(|tc| tc.remaining_to_string(m.thinking_since(White)))
+                .unwrap_or_default();
+            time_above = m
+                .time(Black)
+                .map(|tc| tc.remaining_to_string(m.thinking_since(Black)))
+                .unwrap_or_default();
+        }
+        let flipped = m.active_player() == Black;
+        if flipped {
+            swap(&mut time_below, &mut time_above);
         }
         match self.typ {
-            DisplayType::Ascii => format!("{black_time}{}{white_time}", m.get_board().as_ascii_diagram()),
-            DisplayType::Unicode => format!("{black_time}{}{white_time}", m.get_board().as_unicode_diagram()),
+            DisplayType::Ascii => format!(
+                "{time_above}{}{time_below}",
+                m.get_board().as_ascii_diagram(flipped)
+            ),
+            DisplayType::Unicode => format!(
+                "{time_above}{}{time_below}",
+                m.get_board().as_unicode_diagram(flipped)
+            ),
             DisplayType::Fen => m.get_board().as_fen(),
             DisplayType::Pgn => self.match_to_pgn(m),
             DisplayType::Uci | DisplayType::Ugi => TextOutput::match_to_ugi(m),
@@ -286,7 +311,10 @@ pub struct TextOutputBuilder {
 
 impl TextOutputBuilder {
     pub fn new(typ: DisplayType) -> Self {
-        Self { typ, options: vec![] }
+        Self {
+            typ,
+            options: vec![],
+        }
     }
     pub fn build<B: Board>(&self, is_engine: bool) -> Res<OutputBox<B>> {
         let mut stream = TextStream::Stdout(stdout());
@@ -297,10 +325,17 @@ impl TextOutputBuilder {
             } else if let Some(err) = option.strip_prefix("err=") {
                 err_stream = TextStream::from_filename(err)?;
             } else {
-                return Err(format!("Unrecognized option '{option}' for output {}", self.typ.long_name()))
+                return Err(format!(
+                    "Unrecognized option '{option}' for output {}",
+                    self.typ.long_name()
+                ));
             }
         }
-        Ok(Box::new(TextOutput::with_writer(self.typ, is_engine, TextWriter::new_with_err(stream, err_stream))))
+        Ok(Box::new(TextOutput::with_writer(
+            self.typ,
+            is_engine,
+            TextWriter::new_with_err(stream, err_stream),
+        )))
     }
 }
 

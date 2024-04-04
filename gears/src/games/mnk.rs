@@ -5,15 +5,14 @@ use std::str::SplitWhitespace;
 
 use strum::IntoEnumIterator;
 
-use crate::games::*;
+use crate::games::mnk::Symbol::{Empty, O, X};
 use crate::games::Color::{Black, White};
 use crate::games::GridSize;
-use crate::games::mnk::Symbol::{Empty, O, X};
 use crate::games::PlayerResult::Draw;
-use crate::general::bitboards::{Bitboard, ExtendedBitboard, remove_ones_above, SliderAttacks};
+use crate::games::*;
+use crate::general::bitboards::{remove_ones_above, Bitboard, ExtendedBitboard, SliderAttacks};
 use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
-
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub enum Symbol {
@@ -279,15 +278,24 @@ pub struct MNKBoard {
 }
 
 impl StaticallyNamedEntity for MNKBoard {
-    fn static_short_name() -> &'static str where Self: Sized {
+    fn static_short_name() -> &'static str
+    where
+        Self: Sized,
+    {
         "mnk"
     }
 
-    fn static_long_name() -> &'static str where Self: Sized {
+    fn static_long_name() -> &'static str
+    where
+        Self: Sized,
+    {
         "m,n,k game"
     }
 
-    fn static_description() -> &'static str where Self: Sized {
+    fn static_description() -> &'static str
+    where
+        Self: Sized,
+    {
         "An m,n,k game is a generalization of games like Tic-Tac-Toe or Gomoku to boards of size mxn, where n in a row are needed to win"
     }
 }
@@ -349,7 +357,7 @@ impl MNKBoard {
 
 impl Display for MNKBoard {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{0}", self.as_unicode_diagram())
+        write!(f, "{0}", self.as_unicode_diagram(false))
     }
 }
 
@@ -602,12 +610,12 @@ impl Board for MNKBoard {
         Ok(board)
     }
 
-    fn as_ascii_diagram(&self) -> String {
-        board_to_string(self, Square::to_ascii_char)
+    fn as_ascii_diagram(&self, flip: bool) -> String {
+        board_to_string(self, Square::to_ascii_char, flip)
     }
 
-    fn as_unicode_diagram(&self) -> String {
-        board_to_string(self, Square::to_utf8_char)
+    fn as_unicode_diagram(&self, flip: bool) -> String {
+        board_to_string(self, Square::to_utf8_char, flip)
     }
 
     fn verify_position_legal(&self) -> Res<()> {
@@ -670,6 +678,7 @@ impl MNKBoard {
 mod test {
     use crate::general::perft::{perft, split_perft};
     use crate::search::Depth;
+
     use super::*;
 
     #[test]
@@ -783,12 +792,18 @@ mod test {
         assert_eq!(r.perft_res.nodes.get(), 96 * 95);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
         assert!(r.perft_res.time.as_millis() <= 10);
-        let r = split_perft(Depth::new(3), MNKBoard::empty(MnkSettings::new(Height(4), Width(3), 3)));
+        let r = split_perft(
+            Depth::new(3),
+            MNKBoard::empty(MnkSettings::new(Height(4), Width(3), 3)),
+        );
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes.get(), 12 * 11 * 10);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
         assert!(r.perft_res.time.as_millis() <= 1000);
-        let r = split_perft(Depth::new(5), MNKBoard::empty(MnkSettings::new(Height(5), Width(5), 5)));
+        let r = split_perft(
+            Depth::new(5),
+            MNKBoard::empty(MnkSettings::new(Height(5), Width(5), 5)),
+        );
         assert_eq!(r.perft_res.depth.get(), 5);
         assert_eq!(r.perft_res.nodes.get(), 25 * 24 * 23 * 22 * 21);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));

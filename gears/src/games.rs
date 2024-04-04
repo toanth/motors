@@ -665,7 +665,7 @@ pub trait Board:
     fn halfmove_ctr_since_start(&self) -> usize;
 
     /// An upper bound on the number of past plies that need to be considered for repetitions.
-    /// This can be the same as `halfmove_ctr_since_start` or always zero if repetitions aren't possible.   
+    /// This can be the same as `halfmove_ctr_since_start` or always zero if repetitions aren't possible.
     fn halfmove_repetition_clock(&self) -> usize;
 
     /// The size of the board expressed as coordinates.
@@ -829,12 +829,12 @@ pub trait Board:
     /// Returns an ASCII art representation of the board.
     /// This is not meant to return a FEN, but instead a diagram where the pieces
     /// are identified by their letters in algebraic notation.
-    fn as_ascii_diagram(&self) -> String;
+    fn as_ascii_diagram(&self, flip: bool) -> String;
 
     /// Returns a UTF-8 representation of the board.
     /// This is not meant to return a FEN, but instead a diagram where the pieces
     /// are identified by their unicode symbols.
-    fn as_unicode_diagram(&self) -> String;
+    fn as_unicode_diagram(&self, flip: bool) -> String;
 
     /// Verifies that the position is legal. This function is meant to be used in `assert!`s
     /// and for validating input, such as FENs, not to be used for filtering positions after a call to `make_move`
@@ -911,19 +911,23 @@ where
 fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
     pos: &B,
     piece_to_char: F,
+    flip: bool,
 ) -> String {
-    itertools::intersperse(
-        (0..pos.num_squares())
-            .map(|i| piece_to_char(pos.piece_on_idx(i)))
-            .intersperse(' ')
-            .collect::<Vec<_>>()
-            .chunks(pos.width() * 2)
-            .rev(),
-        &['\n'],
-    )
-    .flatten()
-    .collect::<String>()
-        + "\n"
+    let mut squares = (0..pos.num_squares())
+        .map(|i| piece_to_char(pos.piece_on_idx(i)))
+        .intersperse(' ')
+        .collect_vec();
+    squares.push(' ');
+    let mut rows = squares
+        .chunks(pos.width() * 2)
+        .zip((1..).map(|x| x.to_string()))
+        .map(|(row, nr)| format!("{} {nr}\n", row.iter().collect::<String>()))
+        .collect_vec();
+    if !flip {
+        rows.reverse();
+    }
+    rows.push(('A'..).take(pos.width()).map(|c| format!("{c} ")).collect());
+    rows.iter().map(|x| x.chars()).flatten().collect::<String>() + "\n"
 }
 
 fn read_position_fen<B: RectangularBoard, F>(

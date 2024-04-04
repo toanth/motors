@@ -144,8 +144,15 @@ pub struct SearchInfo<B: Board> {
 impl<B: Board> Default for SearchInfo<B> {
     fn default() -> Self {
         Self {
+            best_move: B::Move::default(),
+            depth: Depth::default(),
+            seldepth: None,
+            time: Duration::default(),
             nodes: Nodes::MAX,
-            ..Default::default()
+            pv: vec![],
+            score: Score::default(),
+            hashfull: None,
+            additional: None,
         }
     }
 }

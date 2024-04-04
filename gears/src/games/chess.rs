@@ -4,14 +4,13 @@ use std::str::{FromStr, SplitWhitespace};
 
 use bitintr::Popcnt;
 use itertools::Itertools;
-use rand::prelude::{IteratorRandom};
+use rand::prelude::IteratorRandom;
 use rand::Rng;
 use strum::IntoEnumIterator;
 
 use crate::games::{
-    AbstractPieceType, Board, board_to_string, BoardHistory, Color,
-    ColoredPiece, ColoredPieceType, NameToPos, position_fen_part,
-    read_position_fen, Settings, UncoloredPieceType, ZobristHash,
+    AbstractPieceType, Board, board_to_string, BoardHistory, Color, ColoredPiece,
+    ColoredPieceType, NameToPos, position_fen_part, read_position_fen, Settings, UncoloredPieceType, ZobristHash,
     ZobristRepetition3Fold,
 };
 use crate::games::chess::flags::{CastleRight, ChessFlags};
@@ -26,8 +25,7 @@ use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::Color::{Black, White};
 use crate::general::bitboards::{Bitboard, BLACK_SQUARES, ChessBitboard, WHITE_SQUARES};
 use crate::general::common::{EntityList, GenericSelect, Res, StaticallyNamedEntity};
-use crate::general::move_list::{EagerNonAllocMoveList, };
-
+use crate::general::move_list::EagerNonAllocMoveList;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 
@@ -70,15 +68,24 @@ impl Default for Chessboard {
 }
 
 impl StaticallyNamedEntity for Chessboard {
-    fn static_short_name() -> &'static str where Self: Sized {
+    fn static_short_name() -> &'static str
+    where
+        Self: Sized,
+    {
         "chess"
     }
 
-    fn static_long_name() -> &'static str where Self: Sized {
+    fn static_long_name() -> &'static str
+    where
+        Self: Sized,
+    {
         "chess game"
     }
 
-    fn static_description() -> &'static str where Self: Sized {
+    fn static_description() -> &'static str
+    where
+        Self: Sized,
+    {
         "Chess or Chess960(WIP, not yet supported) game"
     }
 }
@@ -314,19 +321,28 @@ impl Board for Chessboard {
     /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules
     fn cannot_reasonably_lose(&self, player: Color) -> bool {
         let other = player.other();
-        if (self.colored_piece_bb(other, Pawn) | self.colored_piece_bb(other, Rook) | self.colored_piece_bb(other, Queen)).has_set_bit() {
-            return false
+        if (self.colored_piece_bb(other, Pawn)
+            | self.colored_piece_bb(other, Rook)
+            | self.colored_piece_bb(other, Queen))
+        .has_set_bit()
+        {
+            return false;
         }
         if self.colored_bb(other).is_single_piece() {
             return true; // opponent has only their king left
         }
         // opponent has at lest one knight or bishop, but no other pieces
-        if !self.colored_piece_bb(other, Bishop).has_set_bit() && self.colored_piece_bb(other, Knight).is_single_piece()
-            && !self.piece_bb(Pawn).has_set_bit() {
-             // this can very rarely be incorrect because a smothered mate with a knight is possible even without pawns
-            return true
+        if !self.colored_piece_bb(other, Bishop).has_set_bit()
+            && self.colored_piece_bb(other, Knight).is_single_piece()
+            && !self.piece_bb(Pawn).has_set_bit()
+        {
+            // this can very rarely be incorrect because a smothered mate with a knight is possible even without pawns
+            return true;
         }
-        if !self.colored_piece_bb(other, Knight).has_set_bit() && self.colored_piece_bb(other, Bishop).is_single_piece() && !self.piece_bb(Pawn).has_set_bit() {
+        if !self.colored_piece_bb(other, Knight).has_set_bit()
+            && self.colored_piece_bb(other, Bishop).is_single_piece()
+            && !self.piece_bb(Pawn).has_set_bit()
+        {
             return true;
         }
         false
@@ -423,12 +439,12 @@ impl Board for Chessboard {
         Ok(board)
     }
 
-    fn as_ascii_diagram(&self) -> String {
-        board_to_string(self, ChessPiece::to_ascii_char)
+    fn as_ascii_diagram(&self, flip: bool) -> String {
+        board_to_string(self, ChessPiece::to_ascii_char, flip)
     }
 
-    fn as_unicode_diagram(&self) -> String {
-        board_to_string(self, ChessPiece::to_utf8_char)
+    fn as_unicode_diagram(&self, flip: bool) -> String {
+        board_to_string(self, ChessPiece::to_utf8_char, flip)
     }
 
     fn verify_position_legal(&self) -> Res<()> {
@@ -632,14 +648,16 @@ impl Chessboard {
         }
         let bishops = self.piece_bb(Bishop);
         if (bishops & BLACK_SQUARES).has_set_bit() && !(bishops & WHITE_SQUARES).is_zero() {
-            return false;  // opposite-colored bishops (even if they belong to different players)
+            return false; // opposite-colored bishops (even if they belong to different players)
         }
         if bishops.has_set_bit() && self.piece_bb(Knight).has_set_bit() {
             return false; // knight and bishop, or knight vs bishop
         }
         let knights = self.piece_bb(Knight);
         let white_knights = self.colored_piece_bb(White, Knight);
-        if knights.0.popcnt() >= 3 || ((knights ^ white_knights).has_set_bit() && white_knights.has_set_bit()) {
+        if knights.0.popcnt() >= 3
+            || ((knights ^ white_knights).has_set_bit() && white_knights.has_set_bit())
+        {
             return false;
         }
         true
@@ -660,20 +678,23 @@ impl Chessboard {
 
 impl Display for Chessboard {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{0}", self.as_unicode_diagram())
+        write!(f, "{0}", self.as_unicode_diagram(false))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rand::thread_rng;
 
-
-    use crate::games::{game_result_no_movegen, Move, RectangularBoard, RectangularCoordinates, ZobristRepetition2Fold};
+    use crate::games::{
+        game_result_no_movegen, Move, RectangularBoard, RectangularCoordinates,
+        ZobristRepetition2Fold,
+    };
     use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
     use crate::general::perft::perft;
-    use crate::search::{Depth};
+    use crate::search::Depth;
+
+    use super::*;
 
     const E_1: ChessSquare = ChessSquare::from_rank_file(0, E_FILE_NO);
     const E_8: ChessSquare = ChessSquare::from_rank_file(7, E_FILE_NO);
@@ -772,7 +793,7 @@ mod tests {
         let board = Chessboard::from_fen(endgame_fen).unwrap();
         let perft_res = perft(Depth::new(1), board);
         assert_eq!(perft_res.depth, Depth::new(1));
-        assert_eq!(perft_res.nodes.get(),  5 + 7 + 13 + 14);
+        assert_eq!(perft_res.nodes.get(), 5 + 7 + 13 + 14);
         assert!(perft_res.time.as_millis() <= 1);
         let board = Chessboard::default();
         let perft_res = perft(Depth::new(1), board);
