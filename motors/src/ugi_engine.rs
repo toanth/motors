@@ -3,34 +3,33 @@ use std::io::stdin;
 use std::mem::discriminant;
 use std::str::{FromStr, SplitWhitespace};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::thread::spawn;
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
-use crossbeam_channel::{select, unbounded};
+use crossbeam_channel::select;
 use itertools::Itertools;
 
-use gears::games::Color::White;
+use gears::{
+    AbstractRun, AdjudicationReason, AnyMatch, GameOverReason, GameResult, GameState,
+    MatchResult, MatchStatus, output_builder_from_str,
+};
 use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
+use gears::games::Color::White;
 use gears::general::common::parse_int;
 use gears::general::common::Res;
 use gears::general::perft::{perft, split_perft};
+use gears::MatchStatus::*;
+use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
-use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, Nodes, SearchInfo, SearchLimit, SearchResult, TimeControl};
+use gears::ugi::{EngineOptionName, parse_ugi_position};
 use gears::ugi::EngineOptionName::Threads;
-use gears::ugi::{parse_ugi_position, EngineOptionName};
-use gears::MatchStatus::*;
-use gears::{
-    output_builder_from_str, AbstractRun, AdjudicationReason, AnyMatch, GameOverReason, GameResult,
-    GameState, MatchResult, MatchStatus,
-};
 
 use crate::cli::EngineOpts;
 use crate::create_engine_from_str;
-use crate::search::multithreading::{Receiver, SearchSender, Sender};
 use crate::search::{AnyEngine, BenchResult, EngineList};
+use crate::search::multithreading::{Receiver, SearchSender, Sender};
 use crate::ugi_engine::SearchType::*;
 
 // TODO: Ensure this conforms to https://expositor.dev/uci/doc/uci-draft-1.pdf
@@ -281,14 +280,26 @@ impl<B: Board> EngineUGI<B> {
             Debug,
             &format!("Starting UGI loop (playing {})", B::game_name()),
         );
-        let (sender, receiver) = unbounded();
-        spawn(move || {
-            ugi_input_thread(sender);
-        });
         loop {
-            let res = self.handle_ugi(receiver.clone());
-            if res.is_err() {
-                self.write_message(Error, res.err().unwrap().as_str());
+            let mut input = String::default();
+            // If reading the input failed, always terminate. This probably means that the pipe is broken or similar,
+            // so there's no point in continuing.
+            match stdin().read_line(&mut input) {
+                Ok(count) => {
+                    if count == 0 {
+                        self.write_message(Debug, "Read 0 bytes. Terminating the program.");
+                        break;
+                    }
+                }
+                Err(e) => {
+                    self.write_message(Error, &format!("Failed to read input: {e}"));
+                    break;
+                }
+            }
+
+            let res = self.parse_input(input.split_whitespace());
+            if let Err(err) = res {
+                self.write_message(Error, err.as_str());
                 if self.continue_on_error() && !matches!(self.state.status, Over(_)) {
                     self.write_message(Debug, "Continuing... ('debug' is 'on')");
                     continue;
@@ -697,6 +708,11 @@ impl<B: Board> EngineUGI<B> {
             .board
             .make_move(mov)
             .ok_or_else(|| format!("Illegal move {mov} (pseudolegal)"))?;
+        if self.state.debug_mode {
+            if let Some(res) = self.state.board.match_result_slow() {
+                return Err(format!("The game is over ({0}, reason: {1}) after move {mov}, which results in the following position: {2}", res.result, res.reason, self.state.board.as_fen()));
+            }
+        }
         Ok(())
     }
 }
