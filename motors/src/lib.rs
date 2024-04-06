@@ -4,27 +4,23 @@ use std::ops::Deref;
 use dyn_clone::clone_box;
 use rand::rngs::StdRng;
 
-use gears::{AbstractRun, AnyMatch, create_selected_output_builders, OutputArgs};
 use gears::cli::{ArgIter, Game};
-use gears::games::{Board, OutputList};
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
 #[cfg(feature = "mnk")]
 use gears::games::mnk::MNKBoard;
-use gears::general::common::{Res, select_name_dyn};
+use gears::games::{Board, OutputList};
+use gears::general::common::{select_name_dyn, Res};
 use gears::output::normal_outputs;
 use gears::search::Depth;
+use gears::{create_selected_output_builders, AbstractRun, AnyMatch, OutputArgs};
 
-use crate::cli::{EngineOpts, Mode, parse_cli};
 use crate::cli::Mode::Bench;
+use crate::cli::{parse_cli, EngineOpts, Mode};
 #[cfg(feature = "chess")]
 use crate::eval::chess::pst_only::PstOnlyEval;
 #[cfg(feature = "mnk")]
 use crate::eval::mnk::simple_mnk_eval::SimpleMnkEval;
-use crate::search::{
-    AbstractEngineBuilder, AnyEngine, Benchable, EngineBuilder, EngineList, EngineWrapperBuilder,
-    run_bench, run_bench_with_depth,
-};
 #[cfg(feature = "caps")]
 use crate::search::chess::caps::Caps;
 #[cfg(feature = "generic_negamax")]
@@ -34,6 +30,10 @@ use crate::search::generic::naive_slow_negamax::NaiveSlowNegamax;
 #[cfg(feature = "random_mover")]
 use crate::search::generic::random_mover::RandomMover;
 use crate::search::multithreading::SearchSender;
+use crate::search::{
+    run_bench, run_bench_with_depth, AbstractEngineBuilder, AnyEngine, Benchable, EngineBuilder,
+    EngineList, EngineWrapperBuilder,
+};
 use crate::ugi_engine::EngineUGI;
 
 pub mod cli;
@@ -84,7 +84,7 @@ pub fn create_engine_from_str_impl<B: Board>(
 pub fn create_engine_from_str<B: Board>(
     name: &str,
     engines: &EngineList<B>,
-    search_sender: Box<dyn SearchSender<B>>,
+    search_sender: SearchSender<B>,
 ) -> Res<AnyEngine<B>> {
     let builder = create_engine_from_str_impl(name, engines)?;
     let builder = EngineWrapperBuilder::new(builder, search_sender);

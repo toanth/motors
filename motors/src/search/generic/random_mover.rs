@@ -1,14 +1,14 @@
 use std::fmt::{Debug, Formatter};
 use std::time::{Duration, Instant};
 
-use rand::{thread_rng, Rng, RngCore, SeedableRng};
+use rand::{Rng, RngCore, SeedableRng, thread_rng};
 
 use gears::games::{Board, ZobristHistoryBase};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{Depth, Nodes, Score, SearchInfo, SearchLimit, SearchResult, TimeControl};
 
+use crate::search::{Benchable, BenchResult, Engine, EngineInfo, SimpleSearchState};
 use crate::search::multithreading::SearchSender;
-use crate::search::{BenchResult, Benchable, Engine, EngineInfo, SimpleSearchState};
 
 pub trait SeedRng: Rng + SeedableRng {}
 
@@ -104,7 +104,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         pos: B,
         _: SearchLimit,
         _: ZobristHistoryBase,
-        sender: &mut dyn SearchSender<B>,
+        _sender: &mut SearchSender<B>,
     ) -> Res<SearchResult<B>> {
         self.chosen_move = pos
             .random_legal_move(&mut self.rng)

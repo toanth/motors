@@ -14,8 +14,8 @@ use gears::ugi::{EngineOption, EngineOptionName};
 use crate::search::multithreading::{
     EngineOwner, EngineWrapper, MultithreadedEngine, SearchSender,
 };
-use crate::search::tt::TT;
 use crate::search::Searching::*;
+use crate::search::tt::TT;
 
 #[cfg(feature = "chess")]
 pub mod chess;
@@ -148,7 +148,7 @@ impl<B: Board, const LIMIT: usize> GenericPVTable<B, LIMIT> {
 
 /// A trait because this type erases over the Engine being built.
 pub trait AbstractEngineBuilder<B: Board>: NamedEntity + DynClone {
-    fn build(&self, sender: Box<dyn SearchSender<B>>) -> EngineOwner<B>;
+    fn build(&self, sender: SearchSender<B>) -> EngineOwner<B>;
 
     fn build_for_bench(&self) -> Box<dyn Benchable<B>>;
 
@@ -158,28 +158,29 @@ pub trait AbstractEngineBuilder<B: Board>: NamedEntity + DynClone {
 #[derive(Debug)]
 pub struct EngineWrapperBuilder<B: Board> {
     builder: Box<dyn AbstractEngineBuilder<B>>,
-    sender: Box<dyn SearchSender<B>>,
+    sender: SearchSender<B>,
 }
 
 impl<B: Board> Clone for EngineWrapperBuilder<B> {
     fn clone(&self) -> Self {
         Self {
             builder: clone_box(self.builder.deref()),
-            sender: clone_box(self.sender.deref()),
+            sender: self.sender.clone(),
         }
     }
 }
 
 impl<B: Board> EngineWrapperBuilder<B> {
-    pub fn new(
-        builder: Box<dyn AbstractEngineBuilder<B>>,
-        sender: Box<dyn SearchSender<B>>,
-    ) -> Self {
+    pub fn new(builder: Box<dyn AbstractEngineBuilder<B>>, sender: SearchSender<B>) -> Self {
         Self { builder, sender }
     }
 
-    pub fn single_threaded(&self) -> Box<dyn EngineWrapper<B>> {
-        Box::new(self.builder.build(clone_box(self.sender.deref())))
+    pub fn single_threaded(&self, output: bool) -> Box<dyn EngineWrapper<B>> {
+        let mut sender = self.sender.clone();
+        if !output {
+            sender.deactivate_output();
+        }
+        Box::new(self.builder.build(sender))
     }
 
     pub fn multi_threaded(&self) -> Box<dyn EngineWrapper<B>> {
@@ -188,9 +189,9 @@ impl<B: Board> EngineWrapperBuilder<B> {
 
     pub fn build(&self) -> Box<dyn EngineWrapper<B>> {
         if self.builder.can_use_multiple_threads() {
-            self.single_threaded()
-        } else {
             self.multi_threaded()
+        } else {
+            self.single_threaded(true)
         }
     }
 }
@@ -219,7 +220,7 @@ impl<B: Board, E: Engine<B>> EngineBuilder<B, E> {
 }
 
 impl<B: Board, E: Engine<B>> AbstractEngineBuilder<B> for EngineBuilder<B, E> {
-    fn build(&self, sender: Box<dyn SearchSender<B>>) -> EngineOwner<B> {
+    fn build(&self, sender: SearchSender<B>) -> EngineOwner<B> {
         EngineOwner::new(E::new(self.state.clone()), sender)
     }
 
@@ -278,14 +279,14 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         pos: B,
         limit: SearchLimit,
         history: ZobristHistoryBase,
-        sender: &mut dyn SearchSender<B>,
+        sender: &mut SearchSender<B>,
     ) -> Res<SearchResult<B>>;
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool;
 
     // Sensible default values, but engines may choose to check more/less frequently than every 1024 nodes
 
-    fn should_stop_impl(&self, limit: SearchLimit, sender: &dyn SearchSender<B>) -> bool {
+    fn should_stop_impl(&self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
         let state = self.search_state();
         if state.nodes() >= limit.nodes {
             return true;
@@ -298,7 +299,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
             || state.search_cancelled()
     }
 
-    fn should_stop(&mut self, limit: SearchLimit, sender: &dyn SearchSender<B>) -> bool {
+    fn should_stop(&mut self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
         if self.should_stop_impl(limit, sender) {
             self.search_state_mut().set_searching(Stop);
             true
@@ -360,7 +361,7 @@ pub trait BasicSearchState<B: Board>: Debug + Default + Clone {
     fn search_cancelled(&self) -> bool {
         self.searching() != Ongoing
     }
-    fn should_quit(&self) -> bool;
+    fn should_stop(&self) -> bool;
     fn quit(&mut self);
     fn depth(&self) -> Depth;
     fn start_time(&self) -> Instant;
@@ -377,7 +378,7 @@ pub struct SimpleSearchState<B: Board> {
     best_move: Option<B::Move>,
     nodes: u64,
     searching: Searching,
-    should_quit: bool,
+    should_stop: bool,
     depth: Depth,
     sel_depth: usize,
     start_time: Instant,
@@ -395,7 +396,7 @@ impl<B: Board> Default for SimpleSearchState<B> {
             best_move: None,
             nodes: 0,
             searching: Stop,
-            should_quit: false,
+            should_stop: false,
             depth: Depth::MIN,
             sel_depth: 0,
         }
@@ -447,12 +448,12 @@ impl<B: Board> BasicSearchState<B> for SimpleSearchState<B> {
         self.searching = searching;
     }
 
-    fn should_quit(&self) -> bool {
-        self.should_quit
+    fn should_stop(&self) -> bool {
+        self.should_stop
     }
 
     fn quit(&mut self) {
-        self.should_quit = true;
+        self.should_stop = true;
     }
 
     fn depth(&self) -> Depth {

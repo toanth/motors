@@ -14,7 +14,7 @@ use crate::eval::Eval;
 use crate::search::{
     BasicSearchState, Benchable, BenchResult, Engine, EngineInfo, SimpleSearchState,
 };
-use crate::search::multithreading::{NoSender, SearchSender};
+use crate::search::multithreading::SearchSender;
 
 const MAX_DEPTH: Depth = Depth::new(100);
 
@@ -59,7 +59,7 @@ impl<B: Board, E: Eval<B>> Benchable<B> for GenericNegamax<B, E> {
             limit.depth.get() as isize,
             SCORE_LOST,
             SCORE_WON,
-            &NoSender::default(),
+            &SearchSender::no_sender(),
         );
         // TODO: Handle stop command in bench
         self.state.to_bench_res()
@@ -95,7 +95,7 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
         pos: B,
         limit: SearchLimit,
         history: ZobristHistoryBase,
-        sender: &mut dyn SearchSender<B>,
+        sender: &mut SearchSender<B>,
     ) -> Res<SearchResult<B>> {
         self.state.new_search(ZobristRepetition2Fold(history));
         let mut chosen_move = self.state.best_move;
@@ -154,7 +154,7 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
         depth: isize,
         mut alpha: Score,
         beta: Score,
-        sender: &dyn SearchSender<B>,
+        sender: &SearchSender<B>,
     ) -> Score {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= MAX_DEPTH.get() * 2);

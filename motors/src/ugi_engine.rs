@@ -10,27 +10,27 @@ use colored::Colorize;
 use crossbeam_channel::{select, unbounded};
 use itertools::Itertools;
 
-use gears::{
-    AbstractRun, AdjudicationReason, AnyMatch, GameOverReason, GameResult, GameState,
-    MatchResult, MatchStatus, output_builder_from_str,
-};
-use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
 use gears::games::Color::White;
+use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
 use gears::general::common::parse_int;
 use gears::general::common::Res;
 use gears::general::perft::{perft, split_perft};
-use gears::MatchStatus::*;
-use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
+use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, Nodes, SearchInfo, SearchLimit, SearchResult, TimeControl};
-use gears::ugi::{EngineOptionName, parse_ugi_position};
 use gears::ugi::EngineOptionName::Threads;
+use gears::ugi::{parse_ugi_position, EngineOptionName};
+use gears::MatchStatus::*;
+use gears::{
+    output_builder_from_str, AbstractRun, AdjudicationReason, AnyMatch, GameOverReason, GameResult,
+    GameState, MatchResult, MatchStatus,
+};
 
 use crate::cli::EngineOpts;
 use crate::create_engine_from_str;
+use crate::search::multithreading::{Receiver, SearchSender, Sender};
 use crate::search::{AnyEngine, BenchResult, EngineList};
-use crate::search::multithreading::{Receiver, Sender, UgiSender};
 use crate::ugi_engine::SearchType::*;
 
 // TODO: Ensure this conforms to https://expositor.dev/uci/doc/uci-draft-1.pdf
@@ -229,7 +229,7 @@ impl<B: Board> EngineUGI<B> {
         all_engines: EngineList<B>,
     ) -> Res<Self> {
         let output = Arc::new(Mutex::new(UgiOutput::default()));
-        let sender = Box::new(UgiSender::new(output.clone()));
+        let sender = SearchSender::new(output.clone());
         let board = B::default();
         let engine = create_engine_from_str(&opts.engine, &all_engines, sender)?;
         let state = EngineGameState {
@@ -339,7 +339,7 @@ impl<B: Board> EngineUGI<B> {
                 self.write_ugi("readyok");
             }
             "debug" => {
-                match words.next().unwrap_or_default() {
+                match words.next().unwrap_or("on") {
                     "on" => {
                         self.state.debug_mode = true;
                         // don't change the log stream if it's already set
@@ -438,7 +438,7 @@ impl<B: Board> EngineUGI<B> {
         let mut name = words.next().unwrap_or_default().to_ascii_lowercase();
         if name != "name" {
             return Err(format!(
-                "Invalid option command: Expected 'name', got '{name};"
+                "Invalid 'setoption' command: Expected 'name', got '{name};"
             ));
         }
         name = String::default();

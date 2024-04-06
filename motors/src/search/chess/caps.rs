@@ -3,27 +3,27 @@ use std::time::{Duration, Instant};
 use derive_more::{Deref, DerefMut};
 use rand::thread_rng;
 
-use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
-use gears::games::chess::{Chessboard, ChessMoveList};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
-use gears::general::common::{NamedEntity, parse_int_from_str, Res, StaticallyNamedEntity};
+use gears::games::chess::{ChessMoveList, Chessboard};
+use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
+use gears::general::common::{parse_int_from_str, NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
-    Depth, game_result_to_score, MIN_SCORE_WON, NO_SCORE_YET, Nodes, Score, SCORE_LOST, SCORE_TIME_UP,
-    SCORE_WON, SearchInfo, SearchLimit, SearchResult, TimeControl,
+    game_result_to_score, Depth, Nodes, Score, SearchInfo, SearchLimit, SearchResult, TimeControl,
+    MIN_SCORE_WON, NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
 };
-use gears::ugi::{EngineOption, EngineOptionName, UgiSpin};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::EngineOptionType::Spin;
+use gears::ugi::{EngineOption, EngineOptionName, UgiSpin};
 
 use crate::eval::Eval;
-use crate::search::{
-    BasicSearchState, Benchable, BenchResult, Engine, EngineInfo, NodeType, Searching,
-    SearchStateWithPv,
-};
-use crate::search::multithreading::{NoSender, SearchSender};
-use crate::search::NodeType::*;
+use crate::search::multithreading::SearchSender;
 use crate::search::tt::TTEntry;
+use crate::search::NodeType::*;
+use crate::search::{
+    BasicSearchState, BenchResult, Benchable, Engine, EngineInfo, NodeType, SearchStateWithPv,
+    Searching,
+};
 
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
@@ -96,8 +96,8 @@ impl BasicSearchState<Chessboard> for State {
         self.state.set_searching(searching);
     }
 
-    fn should_quit(&self) -> bool {
-        self.should_quit
+    fn should_stop(&self) -> bool {
+        self.should_stop
     }
 
     fn quit(&mut self) {
@@ -180,7 +180,7 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
             SCORE_LOST,
             SCORE_WON,
             false,
-            &NoSender::default(),
+            &SearchSender::no_sender(),
         );
         // TODO: Handle stop command in bench?
         self.state.to_bench_res()
@@ -248,7 +248,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
         pos: Chessboard,
         limit: SearchLimit,
         history: ZobristHistoryBase,
-        sender: &mut dyn SearchSender<Chessboard>,
+        sender: &mut SearchSender<Chessboard>,
     ) -> Res<SearchResult<Chessboard>> {
         self.state.new_search(ZobristRepetition2Fold(history));
         let mut chosen_move = self.state.best_move;
@@ -338,7 +338,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         mut alpha: Score,
         beta: Score,
         allow_nmp: bool, // TODO: Use search stack
-        sender: &dyn SearchSender<Chessboard>,
+        sender: &SearchSender<Chessboard>,
     ) -> Score {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= DEPTH_HARD_LIMIT.get() * 2);
