@@ -4,18 +4,10 @@
 
 EXE = caps
 CC = cargo
-export EXE
-export CC
 
 .PHONY: all clean
 
-#the first target is the default target and only builds `motors`, because that's all that is necessary for openbench
-default: motors
-
-all: motors monitors
-
-monitors:
-	cargo build --bin monitors
+all: motors
 
 motors: release
 
@@ -23,10 +15,10 @@ bench: release
 	./motors bench
 
 release:
-	cd motors && make release
+	cargo rustc --release --bin motors -- --emit link=${EXE}
 
 debug:
-	cd motors && make debug
+	cargo rustc --bin motors -- --emit link=${EXE}
 
 clean:
 	rm -rf target/

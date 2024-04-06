@@ -1,7 +1,4 @@
 /target
-error.txt
-games.pgn
-motors
-*.svg
-perf.*
-.idea/*
+*.log
+.idea
+caps
