@@ -665,9 +665,12 @@ impl<B: Board> EngineUGI<B> {
 
     fn handle_log(&mut self, words: SplitWhitespace) -> Res<()> {
         self.output().additional_outputs.retain(|o| !o.is_logger());
-        self.output()
-            .additional_outputs
-            .push(LoggerBuilder::from_words(words).for_engine(&self.state)?);
+        let next = words.clone().next().unwrap_or_default();
+        if next != "off" && next != "none" {
+            self.output()
+                .additional_outputs
+                .push(LoggerBuilder::from_words(words).for_engine(&self.state)?);
+        }
         Ok(())
     }
 
