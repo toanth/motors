@@ -689,7 +689,7 @@ impl<B: Board> EngineUGI<B> {
             .cloned()
             .collect_vec();
         opts.iter()
-            .map(|opt| format!("{opt}"))
+            .map(|opt| format!("option {opt}"))
             .collect::<Vec<String>>()
             .join("\n")
     }

@@ -1,10 +1,10 @@
 use std::fmt::{Display, Formatter};
 use std::str::{FromStr, SplitWhitespace};
-use crate::games::{Board};
+
+use crate::games::Board;
 use crate::general::common::{Res, select_name_static};
 
 /// Ugi-related helpers that are used by both `motors` and `monitors`.
-
 
 #[derive(Default, Debug, Copy, Clone)]
 pub struct UgiCheck {
@@ -55,7 +55,7 @@ impl EngineOptionType {
 }
 impl Display for EngineOptionType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "name {}", self.type_to_str())?;
+        write!(f, "type {}", self.type_to_str())?;
         match self {
             EngineOptionType::Check(c) => {
                 if let Some(b) = c.default {
@@ -163,19 +163,16 @@ impl Display for EngineOption {
     }
 }
 
-
 pub fn parse_ugi_position<B: Board>(words: &mut SplitWhitespace, settings: B::Settings) -> Res<B> {
     // let input = words.remainder().unwrap_or_default().trim();
     let position_word = words
         .next()
         .ok_or_else(|| "Missing position after 'position' command".to_string())?;
     Ok(match position_word {
-        "fen" => {
-            B::read_fen_and_advance_input(words)?
-        }
+        "fen" => B::read_fen_and_advance_input(words)?,
         "startpos" => B::startpos(settings),
-        name => {
-            (select_name_static(name, &B::name_to_pos_map(), "position", B::game_name()).map_err(|err| format!("{err} 'startpos' and 'fen <fen>' are also always recognized."))?.val)()
-        }
+        name => (select_name_static(name, &B::name_to_pos_map(), "position", B::game_name())
+            .map_err(|err| format!("{err} 'startpos' and 'fen <fen>' are also always recognized."))?
+            .val)(),
     })
 }
