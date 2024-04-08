@@ -3,27 +3,27 @@ use std::time::{Duration, Instant};
 use derive_more::{Deref, DerefMut};
 use rand::thread_rng;
 
+use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
+use gears::games::chess::{Chessboard, ChessMoveList};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
-use gears::games::chess::{ChessMoveList, Chessboard};
-use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
-    game_result_to_score, Depth, Nodes, Score, SearchInfo, SearchLimit, SearchResult, TimeControl,
-    MIN_SCORE_WON, NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
+    Depth, game_result_to_score, MIN_SCORE_WON, NO_SCORE_YET, Nodes, Score, SCORE_LOST, SCORE_TIME_UP,
+    SCORE_WON, SearchInfo, SearchLimit, SearchResult, TimeControl,
 };
+use gears::ugi::{EngineOption, UgiSpin};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::EngineOptionType::Spin;
-use gears::ugi::{EngineOption, EngineOptionName, UgiSpin};
 
 use crate::eval::Eval;
-use crate::search::multithreading::SearchSender;
-use crate::search::tt::{TTEntry, TT};
-use crate::search::NodeType::*;
 use crate::search::{
-    BasicSearchState, BenchResult, Benchable, Engine, EngineInfo, NodeType, SearchStateWithPv,
-    Searching,
+    BasicSearchState, Benchable, BenchResult, Engine, EngineInfo, NodeType, Searching,
+    SearchStateWithPv,
 };
+use crate::search::multithreading::SearchSender;
+use crate::search::NodeType::*;
+use crate::search::tt::{TT, TTEntry};
 
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
@@ -215,21 +215,6 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
             options,
             description: "CAPS (Chess Alpha-beta Pruning Search), a negamax-based chess engine"
                 .to_string(),
-        }
-    }
-
-    fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()> {
-        match name {
-            // Hash => {
-            //     let value: usize = parse_int_from_str(&value, "hash size in mb")?;
-            //     let size = value * 1_000_000;
-            //     self.state.tt.resize_bytes(size);
-            //     Ok(())
-            // }
-            x => Err(format!(
-                "The option '{x}' is not supported by the engine {0}",
-                self.long_name()
-            )),
         }
     }
 }
