@@ -1,14 +1,15 @@
 use std::fmt::{Debug, Formatter};
 use std::time::{Duration, Instant};
 
-use rand::{Rng, RngCore, SeedableRng, thread_rng};
+use rand::{thread_rng, Rng, RngCore, SeedableRng};
 
 use gears::games::{Board, ZobristHistoryBase};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{Depth, Nodes, Score, SearchInfo, SearchLimit, SearchResult, TimeControl};
 
-use crate::search::{Benchable, BenchResult, Engine, EngineInfo, SimpleSearchState};
 use crate::search::multithreading::SearchSender;
+use crate::search::tt::TT;
+use crate::search::{BenchResult, Benchable, Engine, EngineInfo, SimpleSearchState};
 
 pub trait SeedRng: Rng + SeedableRng {}
 
@@ -150,5 +151,9 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
 
     fn new(state: Self::State) -> Self {
         Self::default()
+    }
+
+    fn set_tt(&mut self, _tt: TT) {
+        // do nothing
     }
 }

@@ -1,24 +1,25 @@
 use std::fmt::Debug;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
+use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 
 use crossbeam_channel::unbounded;
 
 use gears::games::{Board, ZobristHistoryBase};
-use gears::general::common::{NamedEntity, parse_int_from_str, Res};
+use gears::general::common::{parse_int_from_str, NamedEntity, Res};
 use gears::output::Message;
 use gears::output::Message::Error;
 use gears::search::{Depth, SearchInfo, SearchLimit, SearchResult};
+use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::{EngineOption, EngineOptionName};
-use gears::ugi::EngineOptionName::Threads;
 
+use crate::search::multithreading::EngineReceives::*;
+use crate::search::tt::TT;
+use crate::search::Searching::Ongoing;
 use crate::search::{
     BasicSearchState, BenchResult, Engine, EngineInfo, EngineWrapperBuilder, Searching,
 };
-use crate::search::multithreading::EngineReceives::*;
-use crate::search::Searching::Ongoing;
 use crate::ugi_engine::UgiOutput;
 
 pub type Sender<T> = crossbeam_channel::Sender<T>;
@@ -31,7 +32,7 @@ pub enum EngineReceives<B: Board> {
     Stop,
     Forget,
     SetOption(EngineOptionName, String),
-    Search(B, SearchLimit, ZobristHistoryBase),
+    Search(B, SearchLimit, ZobristHistoryBase, TT),
     Bench(B, Depth),
 }
 
@@ -117,7 +118,13 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         }
     }
 
-    fn start_search(&mut self, pos: B, limit: SearchLimit, history: ZobristHistoryBase) -> Res<()> {
+    fn start_search(
+        &mut self,
+        pos: B,
+        limit: SearchLimit,
+        history: ZobristHistoryBase,
+        tt: TT,
+    ) -> Res<()> {
         if !self.engine.search_state().search_cancelled() {
             return Err(format!(
                 "Engine {} received a go command while still searching",
@@ -167,7 +174,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                 Threads => panic!("This should have already been handled by the engine owner"),
                 _ => self.engine.set_option(name, value)?, // TODO: Update info in UGI client
             },
-            Search(pos, limit, history) => self.start_search(pos, limit, history)?,
+            Search(pos, limit, history, tt) => self.start_search(pos, limit, history, tt)?,
             Bench(pos, depth) => self.bench_single_position(pos, depth)?,
         };
         Ok(false)
@@ -207,6 +214,7 @@ pub struct EngineOwner<B: Board> {
     sender: Sender<EngineReceives<B>>,
     search_sender: SearchSender<B>,
     engine_info: EngineInfo,
+    tt: TT,
 }
 
 impl<B: Board> EngineOwner<B> {
@@ -234,6 +242,7 @@ impl<B: Board> EngineOwner<B> {
             sender,
             search_sender: search_sender_clone,
             engine_info: info,
+            tt: TT::default(),
         }
     }
 }
@@ -277,7 +286,7 @@ impl<B: Board> EngineWrapper<B> for EngineOwner<B> {
     fn start_search(&mut self, pos: B, limit: SearchLimit, history: ZobristHistoryBase) -> Res<()> {
         self.search_sender.reset_stop();
         self.sender
-            .send(Search(pos, limit, history))
+            .send(Search(pos, limit, history, self.tt.clone()))
             .map_err(|err| err.to_string())
     }
 
@@ -296,11 +305,17 @@ impl<B: Board> EngineWrapper<B> for EngineOwner<B> {
                     self.engine_info.name
                 ));
             }
-            return Ok(());
+            Ok(())
+        } else if name == Hash {
+            let value: usize = parse_int_from_str(&value, "hash size in mb")?;
+            let size = value * 1_000_000;
+            self.tt = TT::new_with_bytes(size);
+            Ok(())
+        } else {
+            self.sender
+                .send(SetOption(name, value))
+                .map_err(|err| err.to_string())
         }
-        self.sender
-            .send(SetOption(name, value))
-            .map_err(|err| err.to_string())
     }
 
     fn send_stop(&mut self) -> Res<()> {
@@ -314,6 +329,7 @@ impl<B: Board> EngineWrapper<B> for EngineOwner<B> {
     }
 
     fn send_forget(&mut self) -> Res<()> {
+        self.tt.forget();
         self.sender.send(Forget).map_err(|err| err.to_string())
     }
 
@@ -366,6 +382,8 @@ impl<B: Board> EngineWrapper<B> for MultithreadedEngine<B> {
             self.owned
                 .resize_with(count - 1, || self.builder.single_threaded(false));
             Ok(())
+        } else if name == Hash {
+            self.main.set_option(name, value)
         } else {
             for o in self.owned.iter_mut() {
                 o.set_option(name.clone(), value.clone())?;

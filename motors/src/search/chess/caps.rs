@@ -7,7 +7,7 @@ use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
 use gears::games::chess::{ChessMoveList, Chessboard};
 use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
-use gears::general::common::{parse_int_from_str, NamedEntity, Res, StaticallyNamedEntity};
+use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
     game_result_to_score, Depth, Nodes, Score, SearchInfo, SearchLimit, SearchResult, TimeControl,
     MIN_SCORE_WON, NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
@@ -18,7 +18,7 @@ use gears::ugi::{EngineOption, EngineOptionName, UgiSpin};
 
 use crate::eval::Eval;
 use crate::search::multithreading::SearchSender;
-use crate::search::tt::TTEntry;
+use crate::search::tt::{TTEntry, TT};
 use crate::search::NodeType::*;
 use crate::search::{
     BasicSearchState, BenchResult, Benchable, Engine, EngineInfo, NodeType, SearchStateWithPv,
@@ -139,6 +139,7 @@ impl BasicSearchState<Chessboard> for State {
 pub struct Caps<E: Eval<Chessboard>> {
     state: State,
     eval: E,
+    tt: TT,
 }
 
 impl<E: Eval<Chessboard>> StaticallyNamedEntity for Caps<E> {
@@ -219,12 +220,12 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
 
     fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()> {
         match name {
-            Hash => {
-                let value: usize = parse_int_from_str(&value, "hash size in mb")?;
-                let size = value * 1_000_000;
-                self.state.tt.resize_bytes(size);
-                Ok(())
-            }
+            // Hash => {
+            //     let value: usize = parse_int_from_str(&value, "hash size in mb")?;
+            //     let size = value * 1_000_000;
+            //     self.state.tt.resize_bytes(size);
+            //     Ok(())
+            // }
             x => Err(format!(
                 "The option '{x}' is not supported by the engine {0}",
                 self.long_name()
@@ -240,7 +241,12 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
         Self {
             state,
             eval: E::default(),
+            tt: TT::default(),
         }
+    }
+
+    fn set_tt(&mut self, tt: TT) {
+        self.tt = tt;
     }
 
     fn search(
@@ -368,7 +374,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         let mut best_score = NO_SCORE_YET;
         let mut bound_so_far = UpperBound;
 
-        let tt_entry = self.state.tt.load(pos.zobrist_hash(), ply);
+        let tt_entry: TTEntry<Chessboard> = self.tt.load(pos.zobrist_hash(), ply);
         let mut best_move = tt_entry.mov;
         let trust_tt_entry =
             tt_entry.bound != NodeType::Empty && tt_entry.hash == pos.zobrist_hash();
@@ -522,17 +528,17 @@ impl<E: Eval<Chessboard>> Caps<E> {
             return game_result_to_score(pos.no_moves_result(), ply);
         }
 
-        let tt_entry = TTEntry::new(
+        let tt_entry: TTEntry<Chessboard> = TTEntry::new(
+            pos.zobrist_hash(),
             best_score,
             best_move,
             depth,
             bound_so_far,
-            pos.zobrist_hash(),
         );
         // TODO: eventually test that not overwriting PV nodes unless the depth is quite a bit greater gains
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node.
-        self.state.tt.store(tt_entry, ply);
+        self.tt.store(tt_entry, ply);
 
         if bound_so_far == Exact {
             // TODO: Test if this loses elo (a different implementation used to lose a few elo points)
@@ -561,7 +567,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // TODO: Using the TT for move ordering in qsearch was mostly elo-neutral, so retest that eventually
         // do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation
         // but if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        let tt_entry = self.state.tt.load(pos.zobrist_hash(), ply);
+        let tt_entry: TTEntry<Chessboard> = self.tt.load(pos.zobrist_hash(), ply);
 
         // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
         // However, if we've already done qsearch on this position, we can just re-use the result,
@@ -600,8 +606,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 break;
             }
         }
-        let tt_entry = TTEntry::new(best_score, best_move, 0, bound_so_far, pos.zobrist_hash());
-        self.state.tt.store(tt_entry, ply);
+        let tt_entry: TTEntry<Chessboard> =
+            TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
+        self.tt.store(tt_entry, ply);
         debug_assert!(!best_score.is_game_over_score());
         best_score
     }

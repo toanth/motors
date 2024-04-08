@@ -1,6 +1,5 @@
 use std::fmt::{Display, Formatter};
-
-use std::str::{FromStr};
+use std::str::FromStr;
 
 use itertools::Itertools;
 use num::iter;
@@ -8,7 +7,7 @@ use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 use crate::games::{
-    AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType, Move, MoveFlags,
+    AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType, DimT, Move, MoveFlags,
 };
 use crate::games::chess::Chessboard;
 use crate::games::chess::flags::CastleRight;
@@ -142,6 +141,7 @@ impl Display for ChessMove {
 
 impl Move<Chessboard> for ChessMove {
     type Flags = ChessMoveFlags;
+    type Underlying = u16;
 
     fn src_square(self) -> ChessSquare {
         ChessSquare::new((self.0 & 0x3f) as usize)
@@ -223,8 +223,11 @@ impl Move<Chessboard> for ChessMove {
                 Kingside => "O-O".to_string(),
             };
         }
-        let moves = board.legal_moves_slow()
-            .filter(|mov| mov.piece(board).symbol == piece.symbol && mov.dest_square() == self.dest_square())
+        let moves = board
+            .legal_moves_slow()
+            .filter(|mov| {
+                mov.piece(board).symbol == piece.symbol && mov.dest_square() == self.dest_square()
+            })
             .collect_vec();
         if moves.is_empty() {
             return format!("<Illegal move {}>", self.to_compact_text());
@@ -278,6 +281,14 @@ impl Move<Chessboard> for ChessMove {
         Ok(res.0)
     }
 
+    fn from_usize(val: usize) -> Option<Self> {
+        Some(Self(val as u16))
+    }
+
+    fn to_underlying(self) -> Self::Underlying {
+        self.0
+    }
+
     // TODO: Parse pgn (not here though)
 }
 
@@ -305,7 +316,7 @@ impl Chessboard {
         // remove old castling flags
         self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.flags.castling_flags() as usize];
         if let Some(square) = self.ep_square {
-            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file()];
+            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize];
         }
         self.ep_square = None;
         if mov.is_castle() {
@@ -322,7 +333,7 @@ impl Chessboard {
             {
                 if self.is_in_check_on_square(
                     color,
-                    ChessSquare::from_rank_file(from.rank(), file as usize),
+                    ChessSquare::from_rank_file(from.rank(), file as DimT),
                 ) {
                     return None;
                 }
@@ -362,7 +373,7 @@ impl Chessboard {
                     (to.rank() + from.rank()) / 2,
                     to.file(),
                 ));
-                self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[to.file()];
+                self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[to.file() as usize];
             }
         }
         if uncolored == King {
@@ -407,10 +418,10 @@ impl Chessboard {
 pub struct MoveParser<'a> {
     original_input: &'a str,
     num_bytes_read: usize,
-    start_rank: Option<usize>,
-    start_file: Option<usize>,
-    target_rank: Option<usize>,
-    target_file: Option<usize>,
+    start_rank: Option<DimT>,
+    start_file: Option<DimT>,
+    target_rank: Option<DimT>,
+    target_file: Option<DimT>,
     piece: UncoloredChessPiece,
     is_capture: bool,
     is_ep: bool,
@@ -493,15 +504,18 @@ impl<'a> MoveParser<'a> {
         if self.remaining().starts_with(s) {
             self.num_bytes_read += 0.max(s.len() - 1);
         }
-        if !s.is_empty() && self
+        if !s.is_empty()
+            && self
                 .current_char()
-                .is_some_and(|c| c == chars.next().unwrap()) && self.remaining() == chars.as_str() {
+                .is_some_and(|c| c == chars.next().unwrap())
+            && self.remaining() == chars.as_str()
+        {
             // don't call self.advance_char() here so that one character less is consumed.
             // This makes it easier to use this function as part of an if that otherwise only checks a single character
             while chars.next().is_some() {
                 self.advance_char();
             }
-            return true
+            return true;
         }
         false
     }
@@ -589,8 +603,8 @@ impl<'a> MoveParser<'a> {
                 self.start_rank = Some(sq.rank());
             }
             Err(_) => match file {
-                'a'..='h' => self.start_file = Some(file as usize - 'a' as usize),
-                '1'..='8' => self.start_rank = Some(file as usize - '1' as usize),
+                'a'..='h' => self.start_file = Some(file as DimT - 'a' as DimT),
+                '1'..='8' => self.start_rank = Some(file as DimT - '1' as DimT),
                 x => {
                     // doesn't reset the current char, but that's fine because we're aborting anyway
                     return Err(if self.piece == Empty && !self.is_capture {
@@ -620,7 +634,7 @@ impl<'a> MoveParser<'a> {
             }
         }
         if self.piece == Empty && file.is_some() && matches!(file.unwrap(), 'a'..='h') {
-            self.target_file = file.map(|c| c as usize - 'a' as usize);
+            self.target_file = file.map(|c| c as DimT - 'a' as DimT);
             return;
         }
         self.num_bytes_read = read_so_far;
@@ -685,10 +699,9 @@ impl<'a> MoveParser<'a> {
                 // actually not a check, but a position evaluation (which gets ignored, so no need to undo the parsing)
                 self.gives_check = false;
             }
-        } else if self
-            .current_char()
-            .is_some_and(|c| matches!(c, '#' | '‡') || self.parse_str_dont_consume_last_char("mate"))
-        {
+        } else if self.current_char().is_some_and(|c| {
+            matches!(c, '#' | '‡') || self.parse_str_dont_consume_last_char("mate")
+        }) {
             self.advance_char();
             self.gives_mate = true;
             self.gives_check = true;
@@ -740,7 +753,10 @@ impl<'a> MoveParser<'a> {
             ));
         }
         if self.piece != Pawn && self.target_rank.is_none() {
-            return Err(format!("Missing the rank of the target square in move '{}'", self.consumed()))
+            return Err(format!(
+                "Missing the rank of the target square in move '{}'",
+                self.consumed()
+            ));
         }
 
         let mut moves = board.gen_all_pseudolegal_moves().filter(|mov| {
@@ -760,11 +776,18 @@ impl<'a> MoveParser<'a> {
         });
         let res = match moves.next() {
             None => {
-                let f = |file: Option<usize>, rank: Option<usize>| {
+                let f = |file: Option<DimT>, rank: Option<DimT>| {
                     if file.is_some() {
                         match rank {
-                            Some(rank) => ChessSquare::from_rank_file(rank, file.unwrap()).to_string(),
-                            None => format!("the {} file", ('a' as usize + file.unwrap()) as u8 as char)
+                            Some(rank) => {
+                                ChessSquare::from_rank_file(rank, file.unwrap()).to_string()
+                            }
+                            None => {
+                                format!(
+                                    "the {} file",
+                                    ('a' as DimT + file.unwrap()) as DimT as char
+                                )
+                            }
                         }
                     } else if rank.is_some() {
                         format!("rank {}", rank.unwrap())
@@ -847,7 +870,8 @@ mod tests {
     #[test]
     fn simple_algebraic_notation_test() {
         // TODO: Finish writing this testcase
-        let transformations = [("Na1", "Na1"),
+        let transformations = [
+            ("Na1", "Na1"),
             ("nxA7 mate", "Nxa7#"),
             ("RD1:+", "Rxd1+"),
             ("e2e4", "e4"),
@@ -861,7 +885,17 @@ mod tests {
 
     #[test]
     fn invalid_algebraic_notation_test() {
-        let inputs = ["resign", "Robert'); DROP TABLE Students;--", "Raa", "R4", "Raaa4", "Qi1", "Ra8D", "ef e.p.", "O-O-O-O"];
+        let inputs = [
+            "resign",
+            "Robert'); DROP TABLE Students;--",
+            "Raa",
+            "R4",
+            "Raaa4",
+            "Qi1",
+            "Ra8D",
+            "ef e.p.",
+            "O-O-O-O",
+        ];
         // TODO: Implement
     }
 

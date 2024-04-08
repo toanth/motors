@@ -1,20 +1,21 @@
+use std::cmp::max;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::{FromStr, SplitWhitespace};
 
 use derive_more::BitXorAssign;
 use itertools::Itertools;
-use num::iter;
+use num::{iter, PrimInt};
 use rand::Rng;
 use strum_macros::EnumIter;
 
-use crate::{GameOver, GameOverReason, MatchResult, player_res_to_match_res, PlayerResult};
 use crate::games::PlayerResult::{Draw, Lose};
 use crate::general::common::{
-    EntityList, GenericSelect, parse_int, Res, select_name_static, StaticallyNamedEntity,
+    parse_int, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
 };
 use crate::general::move_list::MoveList;
 use crate::output::OutputBuilder;
+use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
 
 #[cfg(feature = "mnk")]
 pub mod mnk;
@@ -189,28 +190,28 @@ pub trait Coordinates: Eq + Copy + Debug + Default + FromStr<Err = String> + Dis
     fn no_coordinates() -> Self;
 }
 
+pub type DimT = u8;
+
 pub trait RectangularCoordinates: Coordinates {
-    fn from_row_column(row: usize, column: usize) -> Self;
-    fn row(self) -> usize;
-    fn column(self) -> usize;
+    fn from_row_column(row: DimT, column: DimT) -> Self;
+    fn row(self) -> DimT;
+    fn column(self) -> DimT;
 }
 
 // Computes the L1 norm of a - b
 pub fn manhattan_distance<C: RectangularCoordinates>(a: C, b: C) -> usize {
-    a.row().abs_diff(b.row()) + a.column().abs_diff(b.column())
+    a.row().abs_diff(b.row()) as usize + a.column().abs_diff(b.column()) as usize
 }
 
 // Compute the supremum norm of a - b
 pub fn sup_distance<C: RectangularCoordinates>(a: C, b: C) -> usize {
-    a.row()
-        .abs_diff(b.row())
-        .max(a.column().abs_diff(b.column()))
+    max(a.row().abs_diff(b.row()), a.column().abs_diff(b.column())) as usize
 }
 
 #[derive(Clone, Copy, Eq, PartialOrd, PartialEq, Debug, Default)]
 pub struct GridCoordinates {
-    pub row: usize,
-    pub column: usize,
+    pub row: DimT,
+    pub column: DimT,
 }
 
 impl Coordinates for GridCoordinates {
@@ -232,22 +233,22 @@ impl Coordinates for GridCoordinates {
 
     fn no_coordinates() -> Self {
         GridCoordinates {
-            row: u32::MAX as usize,
-            column: u32::MAX as usize,
+            row: DimT::MAX,
+            column: DimT::MAX,
         }
     }
 }
 
 impl RectangularCoordinates for GridCoordinates {
-    fn from_row_column(row: usize, column: usize) -> Self {
+    fn from_row_column(row: DimT, column: DimT) -> Self {
         GridCoordinates { row, column }
     }
 
-    fn row(self) -> usize {
+    fn row(self) -> DimT {
         self.row
     }
 
-    fn column(self) -> usize {
+    fn column(self) -> DimT {
         self.column
     }
 }
@@ -273,7 +274,7 @@ impl Display for GridCoordinates {
         write!(
             f,
             "{0}{1}",
-            (self.column + 'a' as usize) as u8 as char,
+            (self.column + 'a' as DimT) as char,
             self.row + 1 // output 1-indexed
         )
     }
@@ -284,7 +285,8 @@ impl GridCoordinates {
         if !file.is_ascii_alphabetic() {
             return Err("file (column) must be a valid ascii letter".to_string());
         }
-        let column = file.to_ascii_lowercase() as usize - 'a' as usize;
+        let column = file.to_ascii_lowercase() as DimT - 'a' as DimT;
+        let rank = DimT::try_from(rank).map_err(|err| err.to_string())?;
         Ok(GridCoordinates {
             column,
             row: rank.wrapping_sub(1),
@@ -293,10 +295,28 @@ impl GridCoordinates {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Default)]
-pub struct Height(pub usize);
+pub struct Height(pub DimT);
+
+impl Height {
+    pub fn get(self) -> DimT {
+        self.0
+    }
+    pub fn val(self) -> usize {
+        self.0 as usize
+    }
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Default)]
-pub struct Width(pub usize);
+pub struct Width(pub DimT);
+
+impl Width {
+    pub fn get(self) -> DimT {
+        self.0
+    }
+    pub fn val(self) -> usize {
+        self.0 as usize
+    }
+}
 
 pub trait Size<C: Coordinates>: Eq + PartialEq + Copy + Clone + Display + Debug {
     fn num_squares(self) -> usize;
@@ -354,7 +374,7 @@ impl GridSize {
 
 impl Size<GridCoordinates> for GridSize {
     fn num_squares(self) -> usize {
-        self.height.0 * self.width.0
+        self.height.val() * self.width.val()
     }
 
     // fn to_coordinates(self, idx: usize) -> GridCoordinates {
@@ -365,13 +385,14 @@ impl Size<GridCoordinates> for GridSize {
     // }
 
     fn to_idx(self, coordinates: GridCoordinates) -> usize {
-        coordinates.row() * self.width.0 + coordinates.column()
+        coordinates.row() as usize * self.width.val() + coordinates.column() as usize
     }
 
     fn to_coordinates(self, idx: usize) -> GridCoordinates {
         GridCoordinates {
-            row: idx / self.width.0,
-            column: idx % self.width.0,
+            // TODO: Handle overflows?
+            row: (idx / self.width.val()) as DimT,
+            column: (idx % self.width.val()) as DimT,
         }
     }
 
@@ -399,6 +420,8 @@ impl MoveFlags for NoMoveFlags {}
 
 pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Send {
     type Flags: MoveFlags;
+
+    type Underlying: PrimInt + Into<usize>;
 
     /// From which square does the piece move?
     /// When this doesn't make sense, such as for m,n,k games, return some default value, such as `no_coordinates()`
@@ -443,6 +466,10 @@ pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Send {
             }
         }
     }
+
+    fn from_usize(val: usize) -> Option<Self>;
+
+    fn to_underlying(self) -> Self::Underlying;
 }
 
 pub type OutputList<B> = EntityList<Box<dyn OutputBuilder<B>>>;
@@ -861,9 +888,9 @@ pub fn game_result_no_movegen<B: Board, H: BoardHistory<B>>(
 }
 
 pub trait RectangularBoard: Board {
-    fn height(&self) -> usize;
+    fn height(&self) -> DimT;
 
-    fn width(&self) -> usize;
+    fn width(&self) -> DimT;
 }
 
 impl<T: Board> RectangularBoard for T
@@ -871,10 +898,10 @@ where
     T::Coordinates: RectangularCoordinates,
     <T::Coordinates as Coordinates>::Size: RectangularSize<T::Coordinates>,
 {
-    fn height(&self) -> usize {
+    fn height(&self) -> DimT {
         self.size().height().0
     }
-    fn width(&self) -> usize {
+    fn width(&self) -> DimT {
         self.size().width().0
     }
 }
@@ -919,14 +946,19 @@ fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
         .collect_vec();
     squares.push(' ');
     let mut rows = squares
-        .chunks(pos.width() * 2)
+        .chunks(pos.width() as usize * 2)
         .zip((1..).map(|x| x.to_string()))
         .map(|(row, nr)| format!("{} {nr}\n", row.iter().collect::<String>()))
         .collect_vec();
     if !flip {
         rows.reverse();
     }
-    rows.push(('A'..).take(pos.width()).map(|c| format!("{c} ")).collect());
+    rows.push(
+        ('A'..)
+            .take(pos.width() as usize)
+            .map(|c| format!("{c} "))
+            .collect(),
+    );
     rows.iter().map(|x| x.chars()).flatten().collect::<String>() + "\n"
 }
 
@@ -945,7 +977,10 @@ where
     for (line, line_num) in lines.zip(0..) {
         let mut skipped_digits = 0;
         let square_before_line = square;
-        debug_assert_eq!(square_before_line, line_num * board.width());
+        debug_assert_eq!(
+            square_before_line,
+            line_num as usize * board.width() as usize
+        );
 
         let handle_skipped = |digit_in_line, skipped_digits, idx: &mut usize| {
             if skipped_digits > 0 {
@@ -983,7 +1018,7 @@ where
         }
         handle_skipped(line.len(), skipped_digits, &mut square)?;
         let line_len = square - square_before_line;
-        if line_len != board.width() {
+        if line_len != board.width() as usize {
             return Err(format!(
                 "Line '{line}' has incorrect width: {line_len}, should be {0}",
                 board.width()

@@ -9,7 +9,9 @@ use crate::games::chess::squares::{
 use crate::games::chess::CastleRight::*;
 use crate::games::chess::{ChessMove, ChessMoveList, Chessboard};
 use crate::games::Color::*;
-use crate::games::{sup_distance, Board, Color, ColoredPiece, ColoredPieceType, Coordinates, Move};
+use crate::games::{
+    sup_distance, Board, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, Move,
+};
 use crate::general::bitboards::{Bitboard, ChessBitboard, KNIGHTS};
 
 enum SliderMove {
@@ -208,7 +210,7 @@ impl Chessboard {
         // Since this is pseudolegal movegen, we only check if the king ends up in check / moves
         // over a square where it would be check when playing the move.
         if self.flags.can_castle(color, Queenside)
-            && (0b1110 << (king_rank * NUM_COLUMNS) & self.occupied_bb().0 == 0)
+            && (0b1110 << (king_rank as usize * NUM_COLUMNS) & self.occupied_bb().0 == 0)
         {
             debug_assert_eq!(king_square.file(), E_FILE_NO);
             debug_assert_eq!(king_square.rank() % 7, 0);
@@ -224,10 +226,10 @@ impl Chessboard {
             ));
         }
         if self.flags.can_castle(color, Kingside)
-            && (0b110_0000 << (king_rank * NUM_COLUMNS) & self.occupied_bb().0 == 0)
+            && (0b110_0000 << (king_rank as usize * NUM_COLUMNS) & self.occupied_bb().0 == 0)
         {
             debug_assert_eq!(king_square.file(), E_FILE_NO);
-            debug_assert_eq!(king_square.rank(), color as usize * 7);
+            debug_assert_eq!(king_square.rank(), color as DimT * 7);
             debug_assert_eq!(
                 self.piece_on(self.rook_start_square(color, Kingside))
                     .symbol,

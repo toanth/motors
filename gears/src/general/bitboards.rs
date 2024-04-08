@@ -10,7 +10,7 @@ use derive_more::{
 use num::{One, PrimInt, Unsigned, Zero};
 use strum_macros::EnumIter;
 
-use crate::games::{GridCoordinates, RectangularCoordinates, RectangularSize, Size};
+use crate::games::{DimT, GridCoordinates, RectangularCoordinates, RectangularSize, Size};
 #[cfg(feature = "chess")]
 use crate::games::chess::squares::{ChessboardSize, ChessSquare};
 use crate::general::common::{pop_lsb128, pop_lsb64};
@@ -150,7 +150,6 @@ pub const BLACK_SQUARES: ChessBitboard = ChessBitboard(0x5555_5555_5555_5555);
     Shr,
     ShrAssign,
 )]
-
 #[cfg(feature = "chess")]
 pub struct ChessBitboard(pub u64);
 
@@ -279,31 +278,33 @@ where
     }
 
     fn rank_0(size: C::Size) -> Self {
-        Self::from_primitive((Self::Primitive::one() << size.width().0) - Self::Primitive::one())
+        Self::from_primitive(
+            (Self::Primitive::one() << size.width().val()) - Self::Primitive::one(),
+        )
     }
 
     fn file_0(size: C::Size) -> Self {
-        Self::from_u128(STEPS[size.width().0])
+        Self::from_u128(STEPS[size.width().val()])
     }
 
-    fn rank(idx: usize, size: C::Size) -> Self {
+    fn rank(idx: DimT, size: C::Size) -> Self {
         debug_assert!(idx < size.height().0);
-        Self::rank_0(size) << (idx * size.width().0)
+        Self::rank_0(size) << (idx as usize * size.width().val())
     }
 
-    fn file(idx: usize, size: C::Size) -> Self {
+    fn file(idx: DimT, size: C::Size) -> Self {
         debug_assert!(idx < size.height().0);
-        Self::file_0(size) << idx
+        Self::file_0(size) << idx as usize
     }
 
     fn diag_for_sq(sq: C, size: C::Size) -> Self {
         debug_assert!(size.coordinates_valid(sq));
-        Self::from_u128(DIAGONALS[size.width().0][size.to_idx(sq)])
+        Self::from_u128(DIAGONALS[size.width().val()][size.to_idx(sq)])
     }
 
     fn anti_diag_for_sq(sq: C, size: C::Size) -> Self {
         debug_assert!(size.coordinates_valid(sq));
-        Self::from_u128(ANTI_DIAGONALS[size.width().0][size.to_idx(sq)])
+        Self::from_u128(ANTI_DIAGONALS[size.width().val()][size.to_idx(sq)])
     }
 
     fn piece_coordinates(self, size: C::Size) -> C {
@@ -314,7 +315,7 @@ where
 
     /// TODO: The following two methods are likely very slow. Find something faster
     fn flip_left_right(self, size: C::Size) -> Self {
-        let width = size.width().0;
+        let width = size.width().val();
         let mut bb = self;
         let file_mask = Self::file_0(size);
         // flip files linearly
@@ -333,9 +334,9 @@ where
         let mut bb = self;
         let rank_mask = Self::rank_0(size);
         // flip ranks linearly
-        for i in 0..size.height().0 / 2 {
-            let lower_shift = i * size.width().0;
-            let upper_shift = (size.height().0 - 1 - i) * size.width().0;
+        for i in 0..size.height().val() / 2 {
+            let lower_shift = i * size.width().val();
+            let upper_shift = (size.height().val() - 1 - i) * size.width().val();
             let lower_rank = (bb >> lower_shift) & rank_mask;
             let upper_rank = (bb >> upper_shift) & rank_mask;
             let xor = lower_rank ^ upper_rank;
@@ -347,12 +348,12 @@ where
 
     fn get_piece_file(self, size: C::Size) -> usize {
         debug_assert!(self.is_single_piece());
-        self.trailing_zeros() % size.width().0
+        self.trailing_zeros() % size.width().val()
     }
 
     fn get_piece_rank(self, size: C::Size) -> usize {
         debug_assert!(self.is_single_piece());
-        self.trailing_zeros() / size.width().0
+        self.trailing_zeros() / size.width().val()
     }
 
     fn hyperbola_quintessence<F>(idx: usize, blockers: Self, reverse: F, ray: Self) -> Self

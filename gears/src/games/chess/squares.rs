@@ -2,22 +2,22 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use crate::games::{
-    Coordinates, GridCoordinates, GridSize, Height, RectangularCoordinates, RectangularSize, Size,
-    Width,
+    Coordinates, DimT, GridCoordinates, GridSize, Height, RectangularCoordinates, RectangularSize,
+    Size, Width,
 };
 use crate::general::common::Res;
 
 pub const NUM_ROWS: usize = 8;
 pub const NUM_COLUMNS: usize = 8;
 pub const NUM_SQUARES: usize = NUM_ROWS * NUM_COLUMNS;
-pub const A_FILE_NO: usize = 0;
-pub const B_FILE_NO: usize = 1;
-pub const C_FILE_NO: usize = 2;
-pub const D_FILE_NO: usize = 3;
-pub const E_FILE_NO: usize = 4;
-pub const F_FILE_NO: usize = 5;
-pub const G_FILE_NO: usize = 6;
-pub const H_FILE_NO: usize = 7;
+pub const A_FILE_NO: DimT = 0;
+pub const B_FILE_NO: DimT = 1;
+pub const C_FILE_NO: DimT = 2;
+pub const D_FILE_NO: DimT = 3;
+pub const E_FILE_NO: DimT = 4;
+pub const F_FILE_NO: DimT = 5;
+pub const G_FILE_NO: DimT = 6;
+pub const H_FILE_NO: DimT = 7;
 
 #[derive(Debug, Default, Eq, PartialEq, Copy, Clone)]
 pub struct ChessboardSize {}
@@ -77,10 +77,10 @@ impl ChessSquare {
     }
 
     pub const fn from_coordinates(c: GridCoordinates) -> Self {
-        Self::new(c.row * NUM_COLUMNS + c.column)
+        Self::new(c.row as usize * NUM_COLUMNS + c.column as usize)
     }
 
-    pub const fn from_rank_file(rank: usize, file: usize) -> Self {
+    pub const fn from_rank_file(rank: DimT, file: DimT) -> Self {
         Self::from_coordinates(GridCoordinates {
             row: rank,
             column: file,
@@ -109,11 +109,11 @@ impl ChessSquare {
         self.idx as usize
     }
 
-    pub fn rank(self) -> usize {
+    pub fn rank(self) -> DimT {
         self.row()
     }
 
-    pub fn file(self) -> usize {
+    pub fn file(self) -> DimT {
         self.column()
     }
 
@@ -188,15 +188,15 @@ impl Coordinates for ChessSquare {
 }
 
 impl RectangularCoordinates for ChessSquare {
-    fn from_row_column(row: usize, column: usize) -> Self {
+    fn from_row_column(row: DimT, column: DimT) -> Self {
         Self::from_rank_file(row, column)
     }
 
-    fn row(self) -> usize {
-        (self.idx / 8) as usize
+    fn row(self) -> DimT {
+        self.idx / 8
     }
 
-    fn column(self) -> usize {
-        (self.idx % 8) as usize
+    fn column(self) -> DimT {
+        self.idx % 8
     }
 }

@@ -25,6 +25,7 @@ dyn-clone = "1.0.17"
 static_assertions = "1.1.0"
 crossbeam-channel = "0.5.8"
 crossbeam-utils = "0.8.19"
+portable-atomic = "1.6.0"
 
 [features]
 default = ["chess", "mnk", "random_mover", "generic_negamax", "caps"]

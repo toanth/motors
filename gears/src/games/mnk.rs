@@ -1,16 +1,18 @@
 use std::cmp::min;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::mem::size_of;
 use std::str::SplitWhitespace;
 
+use static_assertions::const_assert_eq;
 use strum::IntoEnumIterator;
 
-use crate::games::mnk::Symbol::{Empty, O, X};
+use crate::games::*;
 use crate::games::Color::{Black, White};
 use crate::games::GridSize;
+use crate::games::mnk::Symbol::{Empty, O, X};
 use crate::games::PlayerResult::Draw;
-use crate::games::*;
-use crate::general::bitboards::{remove_ones_above, Bitboard, ExtendedBitboard, SliderAttacks};
+use crate::general::bitboards::{Bitboard, ExtendedBitboard, remove_ones_above, SliderAttacks};
 use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
 
@@ -141,10 +143,13 @@ type Square = GenericPiece<GridCoordinates, Symbol>;
 // }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(C)]
 pub struct FillSquare {
     pub target: GridCoordinates,
     // pub player: Player,
 }
+
+const_assert_eq!(size_of::<FillSquare>(), 2);
 
 impl Default for FillSquare {
     fn default() -> Self {
@@ -162,6 +167,7 @@ impl Display for FillSquare {
 
 impl Move<MNKBoard> for FillSquare {
     type Flags = NoMoveFlags;
+    type Underlying = u16;
 
     fn src_square(self) -> GridCoordinates {
         GridCoordinates::no_coordinates()
@@ -186,13 +192,26 @@ impl Move<MNKBoard> for FillSquare {
     fn from_extended_text(_s: &str, _board: &MNKBoard) -> Res<Self> {
         todo!()
     }
+
+    fn from_usize(val: usize) -> Option<Self> {
+        Some(Self {
+            target: GridCoordinates::from_row_column(
+                ((val >> 8) & 0xff) as DimT,
+                (val & 0xff) as DimT,
+            ),
+        })
+    }
+
+    fn to_underlying(self) -> Self::Underlying {
+        ((self.target.row as u16) << 8) | (self.target.column as u16)
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct MnkSettings {
-    height: u8,
-    width: u8,
-    k: u8,
+    height: DimT,
+    width: DimT,
+    k: DimT,
 }
 
 impl MnkSettings {
@@ -223,18 +242,14 @@ impl MnkSettings {
         }
     }
 
-    pub fn new(height: Height, width: Width, k: usize) -> Self {
+    pub fn new(height: Height, width: Width, k: DimT) -> Self {
         Self::try_new(height, width, k).expect("The provided mnk values are invalid")
     }
 
-    pub fn try_new(height: Height, width: Width, k: usize) -> Option<Self> {
-        let height = height.0 as u8;
-        let width = width.0 as u8;
-        let res = Self {
-            height,
-            width,
-            k: k as u8,
-        };
+    pub fn try_new(height: Height, width: Width, k: DimT) -> Option<Self> {
+        let height = height.0;
+        let width = width.0;
+        let res = Self { height, width, k };
         if res.check_invariants() {
             Some(res)
         } else {
@@ -243,11 +258,11 @@ impl MnkSettings {
     }
 
     pub fn height(self) -> Height {
-        Height(self.height as usize)
+        Height(self.height)
     }
 
     pub fn width(self) -> Width {
-        Width(self.width as usize)
+        Width(self.width)
     }
 
     pub fn k(self) -> usize {
@@ -415,8 +430,8 @@ impl Board for MNKBoard {
 
     fn size(&self) -> GridSize {
         GridSize {
-            height: Height(self.settings.height as usize),
-            width: Width(self.settings.width as usize),
+            height: Height(self.settings.height),
+            width: Width(self.settings.width),
         }
     }
 

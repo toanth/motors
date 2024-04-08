@@ -1,10 +1,10 @@
 use std::fmt::{Debug, Display, Formatter};
-use std::mem::replace;
 use std::ops::{Deref, DerefMut};
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
 use dyn_clone::{clone_box, DynClone};
+use strum_macros::FromRepr;
 
 use gears::games::{Board, ZobristHistoryBase, ZobristRepetition2Fold};
 use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
@@ -14,8 +14,8 @@ use gears::ugi::{EngineOption, EngineOptionName};
 use crate::search::multithreading::{
     EngineOwner, EngineWrapper, MultithreadedEngine, SearchSender,
 };
-use crate::search::Searching::*;
 use crate::search::tt::TT;
+use crate::search::Searching::*;
 
 #[cfg(feature = "chess")]
 pub mod chess;
@@ -261,7 +261,7 @@ pub trait Benchable<B: Board>: StaticallyNamedEntity + Debug {
 
     fn set_option(&mut self, option: EngineOptionName, value: String) -> Res<()> {
         Err(format!(
-            "The engine '{name}' doesn't support setting options, including setting '{option}' to '{value}'",
+            "The engine '{name}' doesn't support setting custom options, including setting '{option}' to '{value}' (Note: 'Hash' and 'Threads' may still be supported)",
             name = self.long_name()
         ))
     }
@@ -271,6 +271,8 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     type State: BasicSearchState<B>;
 
     fn new(state: Self::State) -> Self;
+
+    fn set_tt(&mut self, tt: TT);
 
     /// The important function.
 
@@ -373,7 +375,6 @@ pub trait BasicSearchState<B: Board>: Debug + Default + Clone {
 
 #[derive(Debug, Clone)]
 pub struct SimpleSearchState<B: Board> {
-    tt: TT<B>,
     board_history: ZobristRepetition2Fold,
     best_move: Option<B::Move>,
     nodes: u64,
@@ -389,7 +390,6 @@ impl<B: Board> Default for SimpleSearchState<B> {
     fn default() -> Self {
         let start_time = Instant::now();
         Self {
-            tt: Default::default(),
             board_history: ZobristRepetition2Fold::default(),
             start_time,
             score: Score(0),
@@ -473,10 +473,8 @@ impl<B: Board> BasicSearchState<B> for SimpleSearchState<B> {
     }
 
     fn new_search(&mut self, history: ZobristRepetition2Fold) {
-        let tt = replace(&mut self.tt, TT::empty());
         self.forget();
         self.board_history = history;
-        self.tt = tt; // keep the TT between searches.
         self.searching = Ongoing;
     }
 
@@ -558,7 +556,8 @@ impl<B: Board, const PV_LIMIT: usize> SearchStateWithPv<B, PV_LIMIT> {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, FromRepr)]
+#[repr(u8)]
 pub enum NodeType {
     #[default]
     Empty,

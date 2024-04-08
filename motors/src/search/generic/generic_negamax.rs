@@ -15,6 +15,7 @@ use crate::search::{
     BasicSearchState, Benchable, BenchResult, Engine, EngineInfo, SimpleSearchState,
 };
 use crate::search::multithreading::SearchSender;
+use crate::search::tt::TT;
 
 const MAX_DEPTH: Depth = Depth::new(100);
 
@@ -22,6 +23,7 @@ const MAX_DEPTH: Depth = Depth::new(100);
 pub struct GenericNegamax<B: Board, E: Eval<B>> {
     state: SimpleSearchState<B>,
     eval: E,
+    tt: TT,
 }
 
 impl<B: Board, E: Eval<B>> StaticallyNamedEntity for GenericNegamax<B, E> {
@@ -141,7 +143,12 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
         Self {
             state,
             eval: E::default(),
+            tt: TT::default(),
         }
+    }
+
+    fn set_tt(&mut self, tt: TT) {
+        self.tt = tt;
     }
 }
 
