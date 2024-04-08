@@ -91,6 +91,8 @@ pub const SCORE_TIME_UP: Score = Score(SCORE_WON.0 + 1000);
 // can't use + directly because derive_more's + isn't `const`
 pub const MIN_SCORE_WON: Score = Score(SCORE_WON.0 - 1000);
 pub const MAX_SCORE_LOST: Score = Score(SCORE_LOST.0 + 1000);
+pub const MIN_NORMAL_SCORE: Score = Score(MAX_SCORE_LOST.0 + 1);
+pub const MAX_NORMAL_SCORE: Score = Score(MIN_SCORE_WON.0 - 1);
 pub const NO_SCORE_YET: Score = Score(SCORE_LOST.0 - 100);
 
 pub const MAX_DEPTH: Depth = Depth(10_000);

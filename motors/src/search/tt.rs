@@ -14,7 +14,7 @@ use crate::search::NodeType;
 
 type AtomicTTEntry = AtomicU128;
 
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 #[repr(C)]
 pub(super) struct TTEntry<B: Board> {
     pub hash: ZobristHash, // 8 bytes
@@ -48,8 +48,9 @@ impl<B: Board> TTEntry<B> {
 
     #[cfg(not(feature = "unsafe"))]
     fn to_packed(self) -> u128 {
+        let score = self.score.0 as u32; // don't sign extend negative scores
         ((self.hash.0 as u128) << 64)
-            | ((self.score.0 as u128) << (64 - 32))
+            | ((score as u128) << (64 - 32))
             | ((self.mov.to_underlying().into() as u128) << 16)
             | ((self.depth as u128) << 8)
             | self.bound as u128
@@ -62,7 +63,7 @@ impl<B: Board> TTEntry<B> {
 
     #[cfg(not(feature = "unsafe"))]
     fn from_packed(val: u128) -> Self {
-        let hash = ZobristHash(((val >> 64) & 0xffff_ffff_ffff_ffff) as u64);
+        let hash = ZobristHash((val >> 64) as u64);
         let score = Score(((val >> (64 - 32)) & 0xffff_ffff) as i32);
         let mov = B::Move::from_usize(((val >> 16) & 0xffff) as usize).unwrap();
         let depth = ((val >> 8) & 0xff) as u8;
@@ -170,5 +171,65 @@ impl TT {
         }
         debug_assert!(entry.score.0.abs() <= SCORE_WON.0);
         entry
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use rand::{Rng, thread_rng};
+    use rand::distributions::Uniform;
+
+    use gears::search::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
+
+    use super::*;
+
+    #[test]
+    #[cfg(feature = "chess")]
+    fn test_packing() {
+        let board = Chessboard::from_name("kiwipete").unwrap();
+        let mut i = 1;
+        for mov in board.pseudolegal_moves() {
+            let entry: TTEntry<Chessboard> = TTEntry::new(
+                board.zobrist_hash(),
+                Score(i * i * (i % 2 * 2 - 1)),
+                mov,
+                i as isize,
+                NodeType::from_repr(i as u8 % 3).unwrap(),
+            );
+            let converted = entry.to_packed();
+            assert_eq!(TTEntry::from_packed(converted), entry);
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "chess")]
+    fn test_load_store() {
+        for pos in Chessboard::bench_positions() {
+            let num_bytes_in_size = thread_rng().sample(Uniform::new(4, 25));
+            let size_in_bytes = (1 << num_bytes_in_size)
+                + thread_rng().sample(Uniform::new(0, 1 << num_bytes_in_size));
+            let mut tt = TT::new_with_bytes(size_in_bytes);
+            for mov in pos.pseudolegal_moves() {
+                let score = Score(
+                    thread_rng().sample(Uniform::new(MIN_NORMAL_SCORE.0, MAX_NORMAL_SCORE.0)),
+                );
+                let depth = thread_rng().sample(Uniform::new(1, 100));
+                let bound = NodeType::from_repr(thread_rng().sample(Uniform::new(0, 3))).unwrap();
+                let entry: TTEntry<Chessboard> = TTEntry {
+                    hash: pos.zobrist_hash(),
+                    score,
+                    mov,
+                    depth,
+                    bound,
+                };
+                let packed = entry.to_packed();
+                let val = TTEntry::from_packed(packed);
+                assert_eq!(val, entry);
+                let ply = thread_rng().sample(Uniform::new(0, 100));
+                tt.store(entry.clone(), ply);
+                let loaded = tt.load(entry.hash, ply);
+                assert_eq!(entry, loaded);
+            }
+        }
     }
 }
