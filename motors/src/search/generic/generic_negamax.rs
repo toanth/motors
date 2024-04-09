@@ -185,6 +185,8 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
             self.state.nodes += 1;
             num_children += 1;
 
+            self.state.board_history.push(&pos);
+
             let score = -self.negamax(
                 new_pos.unwrap(),
                 limit,
