@@ -102,7 +102,7 @@ impl Chessboard {
             }
         }
         res ^= self.ep_square.map_or(ZobristHash(0), |square| {
-            PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file()]
+            PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize]
         });
         res ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.flags.castling_flags() as usize];
         if self.active_player == Black {

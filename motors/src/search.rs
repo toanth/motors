@@ -1,21 +1,19 @@
 use std::fmt::{Debug, Display, Formatter};
-use std::mem::replace;
 use std::ops::{Deref, DerefMut};
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
 use dyn_clone::{clone_box, DynClone};
+use strum_macros::FromRepr;
 
 use gears::games::{Board, ZobristHistoryBase, ZobristRepetition2Fold};
 use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{Depth, Nodes, Score, SearchInfo, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::{EngineOption, EngineOptionName};
 
-use crate::search::multithreading::{
-    EngineOwner, EngineWrapper, MultithreadedEngine, SearchSender,
-};
-use crate::search::tt::TT;
+use crate::search::multithreading::{EngineWrapper, SearchSender};
 use crate::search::Searching::*;
+use crate::search::tt::TT;
 
 #[cfg(feature = "chess")]
 pub mod chess;
@@ -33,8 +31,6 @@ pub struct EngineInfo {
     pub description: String, // TODO: Use
                              // TODO: NamedEntity?
 }
-
-pub type AnyEngine<B> = Box<dyn EngineWrapper<B>>;
 
 #[derive(Debug)]
 pub struct BenchResult {
@@ -137,18 +133,9 @@ impl<B: Board, const LIMIT: usize> GenericPVTable<B, LIMIT> {
     }
 }
 
-// /// An Engine can use two different limits to implement soft/hard time/node management
-// fn should_stop<B: Board, E: Engine<B>>(
-//     limit: &SearchLimit,
-//     engine: &E,
-//     start_time: Instant,
-// ) -> bool {
-//     engine.time_up(limit.tc, limit.fixed_time, start_time) || engine.nodes() >= limit.nodes
-// }
-
 /// A trait because this type erases over the Engine being built.
 pub trait AbstractEngineBuilder<B: Board>: NamedEntity + DynClone {
-    fn build(&self, sender: Box<dyn SearchSender<B>>) -> EngineOwner<B>;
+    fn build(&self, sender: SearchSender<B>, tt: TT) -> EngineWrapper<B>;
 
     fn build_for_bench(&self) -> Box<dyn Benchable<B>>;
 
@@ -158,40 +145,26 @@ pub trait AbstractEngineBuilder<B: Board>: NamedEntity + DynClone {
 #[derive(Debug)]
 pub struct EngineWrapperBuilder<B: Board> {
     builder: Box<dyn AbstractEngineBuilder<B>>,
-    sender: Box<dyn SearchSender<B>>,
+    sender: SearchSender<B>,
 }
 
 impl<B: Board> Clone for EngineWrapperBuilder<B> {
     fn clone(&self) -> Self {
         Self {
             builder: clone_box(self.builder.deref()),
-            sender: clone_box(self.sender.deref()),
+            sender: self.sender.clone(),
         }
     }
 }
 
 impl<B: Board> EngineWrapperBuilder<B> {
-    pub fn new(
-        builder: Box<dyn AbstractEngineBuilder<B>>,
-        sender: Box<dyn SearchSender<B>>,
-    ) -> Self {
+    pub fn new(builder: Box<dyn AbstractEngineBuilder<B>>, sender: SearchSender<B>) -> Self {
         Self { builder, sender }
     }
 
-    pub fn single_threaded(&self) -> Box<dyn EngineWrapper<B>> {
-        Box::new(self.builder.build(clone_box(self.sender.deref())))
-    }
-
-    pub fn multi_threaded(&self) -> Box<dyn EngineWrapper<B>> {
-        Box::new(MultithreadedEngine::new(self.clone()))
-    }
-
-    pub fn build(&self) -> Box<dyn EngineWrapper<B>> {
-        if self.builder.can_use_multiple_threads() {
-            self.single_threaded()
-        } else {
-            self.multi_threaded()
-        }
+    pub fn build(&self) -> EngineWrapper<B> {
+        let sender = self.sender.clone();
+        self.builder.build(sender, TT::default())
     }
 }
 
@@ -219,8 +192,8 @@ impl<B: Board, E: Engine<B>> EngineBuilder<B, E> {
 }
 
 impl<B: Board, E: Engine<B>> AbstractEngineBuilder<B> for EngineBuilder<B, E> {
-    fn build(&self, sender: Box<dyn SearchSender<B>>) -> EngineOwner<B> {
-        EngineOwner::new(E::new(self.state.clone()), sender)
+    fn build(&self, sender: SearchSender<B>, tt: TT) -> EngineWrapper<B> {
+        EngineWrapper::new_with_tt(E::new(self.state.clone()), sender, clone_box(self), tt)
     }
 
     fn build_for_bench(&self) -> Box<dyn Benchable<B>> {
@@ -260,7 +233,7 @@ pub trait Benchable<B: Board>: StaticallyNamedEntity + Debug {
 
     fn set_option(&mut self, option: EngineOptionName, value: String) -> Res<()> {
         Err(format!(
-            "The engine '{name}' doesn't support setting options, including setting '{option}' to '{value}'",
+            "The engine '{name}' doesn't support setting custom options, including setting '{option}' to '{value}' (Note: 'Hash' and 'Threads' may still be supported)",
             name = self.long_name()
         ))
     }
@@ -271,6 +244,8 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
 
     fn new(state: Self::State) -> Self;
 
+    fn set_tt(&mut self, tt: TT);
+
     /// The important function.
 
     fn search(
@@ -278,14 +253,14 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         pos: B,
         limit: SearchLimit,
         history: ZobristHistoryBase,
-        sender: &mut dyn SearchSender<B>,
+        sender: &mut SearchSender<B>,
     ) -> Res<SearchResult<B>>;
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool;
 
     // Sensible default values, but engines may choose to check more/less frequently than every 1024 nodes
 
-    fn should_stop_impl(&self, limit: SearchLimit, sender: &dyn SearchSender<B>) -> bool {
+    fn should_stop_impl(&self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
         let state = self.search_state();
         if state.nodes() >= limit.nodes {
             return true;
@@ -298,7 +273,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
             || state.search_cancelled()
     }
 
-    fn should_stop(&mut self, limit: SearchLimit, sender: &dyn SearchSender<B>) -> bool {
+    fn should_stop(&mut self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
         if self.should_stop_impl(limit, sender) {
             self.search_state_mut().set_searching(Stop);
             true
@@ -360,7 +335,7 @@ pub trait BasicSearchState<B: Board>: Debug + Default + Clone {
     fn search_cancelled(&self) -> bool {
         self.searching() != Ongoing
     }
-    fn should_quit(&self) -> bool;
+    fn should_stop(&self) -> bool;
     fn quit(&mut self);
     fn depth(&self) -> Depth;
     fn start_time(&self) -> Instant;
@@ -372,12 +347,11 @@ pub trait BasicSearchState<B: Board>: Debug + Default + Clone {
 
 #[derive(Debug, Clone)]
 pub struct SimpleSearchState<B: Board> {
-    tt: TT<B>,
     board_history: ZobristRepetition2Fold,
     best_move: Option<B::Move>,
     nodes: u64,
     searching: Searching,
-    should_quit: bool,
+    should_stop: bool,
     depth: Depth,
     sel_depth: usize,
     start_time: Instant,
@@ -388,14 +362,13 @@ impl<B: Board> Default for SimpleSearchState<B> {
     fn default() -> Self {
         let start_time = Instant::now();
         Self {
-            tt: Default::default(),
             board_history: ZobristRepetition2Fold::default(),
             start_time,
             score: Score(0),
             best_move: None,
             nodes: 0,
             searching: Stop,
-            should_quit: false,
+            should_stop: false,
             depth: Depth::MIN,
             sel_depth: 0,
         }
@@ -447,12 +420,12 @@ impl<B: Board> BasicSearchState<B> for SimpleSearchState<B> {
         self.searching = searching;
     }
 
-    fn should_quit(&self) -> bool {
-        self.should_quit
+    fn should_stop(&self) -> bool {
+        self.should_stop
     }
 
     fn quit(&mut self) {
-        self.should_quit = true;
+        self.should_stop = true;
     }
 
     fn depth(&self) -> Depth {
@@ -472,10 +445,8 @@ impl<B: Board> BasicSearchState<B> for SimpleSearchState<B> {
     }
 
     fn new_search(&mut self, history: ZobristRepetition2Fold) {
-        let tt = replace(&mut self.tt, TT::empty());
         self.forget();
         self.board_history = history;
-        self.tt = tt; // keep the TT between searches.
         self.searching = Ongoing;
     }
 
@@ -557,7 +528,8 @@ impl<B: Board, const PV_LIMIT: usize> SearchStateWithPv<B, PV_LIMIT> {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, FromRepr)]
+#[repr(u8)]
 pub enum NodeType {
     #[default]
     Empty,

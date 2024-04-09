@@ -279,7 +279,8 @@ impl Board for Chessboard {
         self.ply += 1;
         self.ply_100_ctr += 1;
         if self.ep_square.is_some() {
-            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[self.ep_square.unwrap().file()];
+            self.hash ^=
+                PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[self.ep_square.unwrap().file() as usize];
             self.ep_square = None;
         }
         self.flip_side_to_move()
@@ -485,7 +486,7 @@ impl Board for Chessboard {
             {
                 return Err(format!("FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {0}", ep_square.pawn_move_to_center()));
             }
-            hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[ep_square.file()];
+            hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[ep_square.file() as usize];
         }
 
         if self.is_in_check_on_square(inactive_player, self.king_square(inactive_player)) {

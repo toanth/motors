@@ -3,11 +3,10 @@ use std::io::stdin;
 use std::mem::discriminant;
 use std::str::{FromStr, SplitWhitespace};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::thread::spawn;
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
-use crossbeam_channel::{select, unbounded};
+use crossbeam_channel::select;
 use itertools::Itertools;
 
 use gears::{
@@ -29,8 +28,8 @@ use gears::ugi::EngineOptionName::Threads;
 
 use crate::cli::EngineOpts;
 use crate::create_engine_from_str;
-use crate::search::{AnyEngine, BenchResult, EngineList};
-use crate::search::multithreading::{Receiver, Sender, UgiSender};
+use crate::search::{BenchResult, EngineList};
+use crate::search::multithreading::{EngineWrapper, Receiver, SearchSender, Sender};
 use crate::ugi_engine::SearchType::*;
 
 // TODO: Ensure this conforms to https://expositor.dev/uci/doc/uci-draft-1.pdf
@@ -79,7 +78,7 @@ impl Display for SearchType {
 
 #[derive(Debug)]
 struct EngineGameState<B: Board> {
-    engine: AnyEngine<B>,
+    engine: EngineWrapper<B>,
     board: B,
     debug_mode: bool,
     status: MatchStatus,
@@ -92,6 +91,8 @@ struct EngineGameState<B: Board> {
     display_name: String,
     last_played_color: Color,
 }
+
+// TODO: Keep this is a global object instead? Would make it easier to print warnings from anywhere, simplify search sender design
 
 #[derive(Debug, Default)]
 /// All UGI communication is done through stdout, but there can be additional outputs,
@@ -229,7 +230,7 @@ impl<B: Board> EngineUGI<B> {
         all_engines: EngineList<B>,
     ) -> Res<Self> {
         let output = Arc::new(Mutex::new(UgiOutput::default()));
-        let sender = Box::new(UgiSender::new(output.clone()));
+        let sender = SearchSender::new(output.clone());
         let board = B::default();
         let engine = create_engine_from_str(&opts.engine, &all_engines, sender)?;
         let state = EngineGameState {
@@ -281,14 +282,26 @@ impl<B: Board> EngineUGI<B> {
             Debug,
             &format!("Starting UGI loop (playing {})", B::game_name()),
         );
-        let (sender, receiver) = unbounded();
-        spawn(move || {
-            ugi_input_thread(sender);
-        });
         loop {
-            let res = self.handle_ugi(receiver.clone());
-            if res.is_err() {
-                self.write_message(Error, res.err().unwrap().as_str());
+            let mut input = String::default();
+            // If reading the input failed, always terminate. This probably means that the pipe is broken or similar,
+            // so there's no point in continuing.
+            match stdin().read_line(&mut input) {
+                Ok(count) => {
+                    if count == 0 {
+                        self.write_message(Debug, "Read 0 bytes. Terminating the program.");
+                        break;
+                    }
+                }
+                Err(e) => {
+                    self.write_message(Error, &format!("Failed to read input: {e}"));
+                    break;
+                }
+            }
+
+            let res = self.parse_input(input.split_whitespace());
+            if let Err(err) = res {
+                self.write_message(Error, err.as_str());
                 if self.continue_on_error() && !matches!(self.state.status, Over(_)) {
                     self.write_message(Debug, "Continuing... ('debug' is 'on')");
                     continue;
@@ -339,7 +352,7 @@ impl<B: Board> EngineUGI<B> {
                 self.write_ugi("readyok");
             }
             "debug" => {
-                match words.next().unwrap_or_default() {
+                match words.next().unwrap_or("on") {
                     "on" => {
                         self.state.debug_mode = true;
                         // don't change the log stream if it's already set
@@ -438,7 +451,7 @@ impl<B: Board> EngineUGI<B> {
         let mut name = words.next().unwrap_or_default().to_ascii_lowercase();
         if name != "name" {
             return Err(format!(
-                "Invalid option command: Expected 'name', got '{name};"
+                "Invalid 'setoption' command: Expected 'name', got '{name};"
             ));
         }
         name = String::default();
@@ -654,9 +667,12 @@ impl<B: Board> EngineUGI<B> {
 
     fn handle_log(&mut self, words: SplitWhitespace) -> Res<()> {
         self.output().additional_outputs.retain(|o| !o.is_logger());
-        self.output()
-            .additional_outputs
-            .push(LoggerBuilder::from_words(words).for_engine(&self.state)?);
+        let next = words.clone().next().unwrap_or_default();
+        if next != "off" && next != "none" {
+            self.output()
+                .additional_outputs
+                .push(LoggerBuilder::from_words(words).for_engine(&self.state)?);
+        }
         Ok(())
     }
 
@@ -675,7 +691,7 @@ impl<B: Board> EngineUGI<B> {
             .cloned()
             .collect_vec();
         opts.iter()
-            .map(|opt| format!("{opt}"))
+            .map(|opt| format!("option {opt}"))
             .collect::<Vec<String>>()
             .join("\n")
     }
@@ -697,6 +713,11 @@ impl<B: Board> EngineUGI<B> {
             .board
             .make_move(mov)
             .ok_or_else(|| format!("Illegal move {mov} (pseudolegal)"))?;
+        if self.state.debug_mode {
+            if let Some(res) = self.state.board.match_result_slow() {
+                return Err(format!("The game is over ({0}, reason: {1}) after move {mov}, which results in the following position: {2}", res.result, res.reason, self.state.board.as_fen()));
+            }
+        }
         Ok(())
     }
 }

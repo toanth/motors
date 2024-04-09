@@ -1,7 +1,5 @@
 use std::fmt::Write;
 
-
-
 use colored::{Color, Colorize};
 
 use crate::games::{
@@ -9,10 +7,10 @@ use crate::games::{
     RectangularCoordinates,
 };
 use crate::games::Color::*;
-use crate::{GameState};
+use crate::GameState;
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use crate::output::{Message, Output, OutputBox, OutputBuilder};
-use crate::output::text_output::{TextWriter};
+use crate::output::text_output::TextWriter;
 
 #[derive(Debug, Default)]
 pub(super) struct PrettyUI {
@@ -98,10 +96,7 @@ where
         _ = writeln!(
             res,
             " {0}",
-            itertools::intersperse(
-            ('A'..)
-                .take(pos.width()), ' ')
-                .collect::<String>()
+            itertools::intersperse(('A'..).take(pos.width() as usize), ' ').collect::<String>()
         );
         res
     }
@@ -137,6 +132,9 @@ where
     }
 
     fn add_option(&mut self, _option: String) -> Res<()> {
-        Err(format!("The {} output doesn't accept any options", self.long_name()))
+        Err(format!(
+            "The {} output doesn't accept any options",
+            self.long_name()
+        ))
     }
 }
