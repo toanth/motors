@@ -1,25 +1,25 @@
 use std::fmt::Debug;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
-use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 
 use crossbeam_channel::unbounded;
 
 use gears::games::{Board, ZobristHistoryBase};
-use gears::general::common::{parse_int_from_str, NamedEntity, Res};
+use gears::general::common::{NamedEntity, parse_int_from_str, Res};
 use gears::output::Message;
 use gears::output::Message::Error;
 use gears::search::{Depth, SearchInfo, SearchLimit, SearchResult};
-use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::{EngineOption, EngineOptionName};
+use gears::ugi::EngineOptionName::{Hash, Threads};
 
-use crate::search::multithreading::EngineReceives::*;
-use crate::search::tt::TT;
-use crate::search::Searching::Ongoing;
 use crate::search::{
-    BasicSearchState, BenchResult, Engine, EngineInfo, EngineWrapperBuilder, Searching,
+    AbstractEngineBuilder, BasicSearchState, BenchResult, Engine, EngineInfo, Searching,
 };
+use crate::search::multithreading::EngineReceives::*;
+use crate::search::Searching::Ongoing;
+use crate::search::tt::TT;
 use crate::ugi_engine::UgiOutput;
 
 pub type Sender<T> = crossbeam_channel::Sender<T>;
@@ -131,6 +131,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                 self.engine.long_name()
             ));
         }
+        self.engine.set_tt(tt);
         self.engine.search_state_mut().set_searching(Ongoing);
         let search_res = self
             .engine
@@ -209,27 +210,32 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
     }
 }
 
+/// Implementations of this trait live in the UGI thread and deal with forwarding the UGI commands to
+/// all engine threads and coordinating the different engine threads to arrive at only one chosen move.
 #[derive(Debug)]
-pub struct EngineOwner<B: Board> {
+pub struct EngineWrapper<B: Board> {
     sender: Sender<EngineReceives<B>>,
     search_sender: SearchSender<B>,
     engine_info: EngineInfo,
     tt: TT,
+    secondary: Vec<EngineWrapper<B>>,
+    builder: Box<dyn AbstractEngineBuilder<B>>,
 }
 
-impl<B: Board> EngineOwner<B> {
-    pub fn new<E: Engine<B>>(engine: E, search_sender: SearchSender<B>) -> Self {
-        Self::new_with(|| engine, search_sender)
+impl<B: Board> Drop for EngineWrapper<B> {
+    fn drop(&mut self) {
+        _ = self.sender.send(Quit);
     }
+}
 
-    // TODO: Needed?
-
-    pub fn new_with<E: Engine<B>, F>(f: F, search_sender: SearchSender<B>) -> Self
-    where
-        F: FnOnce() -> E,
-    {
+impl<B: Board> EngineWrapper<B> {
+    pub fn new_with_tt<E: Engine<B>>(
+        engine: E,
+        search_sender: SearchSender<B>,
+        builder: Box<dyn AbstractEngineBuilder<B>>,
+        tt: TT,
+    ) -> Self {
         let (sender, receiver) = unbounded();
-        let engine = f();
         let info = engine.engine_info();
         let search_sender_clone = search_sender.clone();
         let mut thread = EngineThread {
@@ -238,186 +244,112 @@ impl<B: Board> EngineOwner<B> {
             receiver,
         };
         spawn(move || thread.main_loop());
-        EngineOwner {
+        EngineWrapper {
             sender,
             search_sender: search_sender_clone,
             engine_info: info,
-            tt: TT::default(),
+            tt,
+            secondary: vec![],
+            builder,
         }
     }
-}
 
-impl<B: Board> Drop for EngineOwner<B> {
-    fn drop(&mut self) {
-        _ = self.sender.send(Quit);
-    }
-}
-
-/// Implementations of this trait live in the UGI thread and deal with forwarding the UGI commands to
-/// all engine threads and coordinating the different engine threads to arrive at only one chosen move.
-pub trait EngineWrapper<B: Board>: Debug {
-    // /// This alias would be unnecessary if Rust allowed to return `impl Iterator` from a trait method
-    // type PollResultIter: Iterator<Item = EngineSends<B>>;
-    // type WaitResultIter: Iterator<Item = EngineSends<B>>;
-    // fn new<E: Engine<B>>(engine: E) -> Self;
-
-    fn start_search(&mut self, pos: B, limit: SearchLimit, history: ZobristHistoryBase) -> Res<()>;
-
-    fn start_bench(&mut self, pos: B, depth: Depth) -> Res<()>;
-
-    fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()>;
-
-    fn send_stop(&mut self) -> Res<()>;
-
-    fn send_quit(&mut self) -> Res<()>;
-
-    fn send_forget(&mut self) -> Res<()>;
-
-    fn engine_info(&self) -> &EngineInfo;
-
-    fn get_options(&self) -> &[EngineOption] {
-        self.engine_info().options.as_slice()
-    }
-
-    fn search_sender(&mut self) -> &mut SearchSender<B>;
-}
-
-impl<B: Board> EngineWrapper<B> for EngineOwner<B> {
-    fn start_search(&mut self, pos: B, limit: SearchLimit, history: ZobristHistoryBase) -> Res<()> {
+    pub fn start_search(
+        &mut self,
+        pos: B,
+        limit: SearchLimit,
+        history: ZobristHistoryBase,
+    ) -> Res<()> {
+        for o in self.secondary.iter_mut() {
+            o.start_search(pos, limit, history.clone())?;
+        }
         self.search_sender.reset_stop();
         self.sender
             .send(Search(pos, limit, history, self.tt.clone()))
             .map_err(|err| err.to_string())
     }
 
-    fn start_bench(&mut self, pos: B, depth: Depth) -> Res<()> {
+    pub fn start_bench(&mut self, pos: B, depth: Depth) -> Res<()> {
         self.search_sender.reset_stop();
         self.sender
             .send(Bench(pos, depth))
             .map_err(|err| err.to_string())
     }
 
-    fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()> {
+    pub fn set_tt(&mut self, tt: TT) {
+        for wrapper in self.secondary.iter_mut() {
+            wrapper.set_tt(tt.clone());
+        }
+        self.tt = tt;
+    }
+
+    pub fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()> {
         if name == Threads {
-            if value.trim() != "1" {
+            let count: usize = parse_int_from_str(&value, "num threads")?;
+            if !self.builder.can_use_multiple_threads() && count != 1 {
+                // TODO: Warning instead of error
                 return Err(format!(
-                    "The engine '{}' only supports running on a single thread",
+                    "The engine {} only supports 1 thread",
                     self.engine_info.name
                 ));
             }
+            self.secondary.clear();
+            let mut sender = self.search_sender.clone();
+            sender.deactivate_output();
+            self.secondary.resize_with(count - 1, || {
+                self.builder.build(sender.clone(), self.tt.clone())
+            });
             Ok(())
         } else if name == Hash {
             let value: usize = parse_int_from_str(&value, "hash size in mb")?;
             let size = value * 1_000_000;
-            self.tt = TT::new_with_bytes(size);
+            self.set_tt(TT::new_with_bytes(size));
             Ok(())
         } else {
+            for o in self.secondary.iter_mut() {
+                o.set_option(name.clone(), value.clone())?;
+            }
             self.sender
                 .send(SetOption(name, value))
                 .map_err(|err| err.to_string())
         }
     }
 
-    fn send_stop(&mut self) -> Res<()> {
+    pub fn send_stop(&mut self) -> Res<()> {
+        for o in self.secondary.iter_mut() {
+            o.send_stop()?;
+        }
         self.search_sender.send_stop();
         self.sender.send(Stop).map_err(|err| err.to_string())
     }
 
-    fn send_quit(&mut self) -> Res<()> {
+    pub fn send_quit(&mut self) -> Res<()> {
+        for o in self.secondary.iter_mut() {
+            o.send_quit()?;
+        }
         self.search_sender.send_stop();
         self.sender.send(Quit).map_err(|err| err.to_string())
     }
 
-    fn send_forget(&mut self) -> Res<()> {
-        self.tt.forget();
+    pub fn send_forget(&mut self) -> Res<()> {
+        for o in self.secondary.iter_mut() {
+            o.send_forget()?
+        }
+        if self.is_primary() {
+            self.tt.forget();
+        }
         self.sender.send(Forget).map_err(|err| err.to_string())
     }
 
-    fn engine_info(&self) -> &EngineInfo {
+    pub fn engine_info(&self) -> &EngineInfo {
         &self.engine_info
     }
 
-    fn search_sender(&mut self) -> &mut SearchSender<B> {
-        &mut self.search_sender
-    }
-}
-
-/// A `MultithreadedEngine` looks almost exactly like a normal engine from the outside and internally manages
-/// multiple concurrently running engines. All outside code only interfaces with the main engine, which owns
-/// the spawned concurrent engines. This type is general enough to support holding different engines, which
-/// might be useful in the future for some less serious engines.
-#[derive(Debug)]
-pub struct MultithreadedEngine<B: Board> {
-    main: Box<dyn EngineWrapper<B>>,
-    owned: Vec<Box<dyn EngineWrapper<B>>>,
-    builder: EngineWrapperBuilder<B>,
-}
-
-impl<B: Board> MultithreadedEngine<B> {
-    pub fn new(builder: EngineWrapperBuilder<B>) -> Self {
-        Self {
-            main: builder.single_threaded(true),
-            owned: vec![],
-            builder,
-        }
-    }
-}
-
-impl<B: Board> EngineWrapper<B> for MultithreadedEngine<B> {
-    fn start_search(&mut self, pos: B, limit: SearchLimit, history: ZobristHistoryBase) -> Res<()> {
-        for o in self.owned.iter_mut() {
-            o.start_search(pos, limit, history.clone())?;
-        }
-        self.main.start_search(pos, limit, history)
+    pub fn get_options(&self) -> &[EngineOption] {
+        self.engine_info().options.as_slice()
     }
 
-    fn start_bench(&mut self, pos: B, depth: Depth) -> Res<()> {
-        self.main.start_bench(pos, depth)
-    }
-
-    fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()> {
-        if name == Threads {
-            let count: usize = parse_int_from_str(&value, "num threads")?;
-            self.owned.clear();
-            self.owned
-                .resize_with(count - 1, || self.builder.single_threaded(false));
-            Ok(())
-        } else if name == Hash {
-            self.main.set_option(name, value)
-        } else {
-            for o in self.owned.iter_mut() {
-                o.set_option(name.clone(), value.clone())?;
-            }
-            self.main.set_option(name, value)
-        }
-    }
-
-    fn send_stop(&mut self) -> Res<()> {
-        for o in self.owned.iter_mut() {
-            o.send_stop()?;
-        }
-        self.main.send_stop()
-    }
-
-    fn send_quit(&mut self) -> Res<()> {
-        for o in self.owned.iter_mut() {
-            o.send_quit()?;
-        }
-        self.main.send_quit()
-    }
-
-    fn send_forget(&mut self) -> Res<()> {
-        for o in self.owned.iter_mut() {
-            o.send_forget()?
-        }
-        self.main.send_forget()
-    }
-
-    fn engine_info(&self) -> &EngineInfo {
-        self.main.engine_info()
-    }
-
-    fn search_sender(&mut self) -> &mut SearchSender<B> {
-        self.main.search_sender()
+    fn is_primary(&self) -> bool {
+        self.search_sender.output.is_some()
     }
 }

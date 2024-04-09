@@ -28,8 +28,8 @@ use gears::ugi::EngineOptionName::Threads;
 
 use crate::cli::EngineOpts;
 use crate::create_engine_from_str;
-use crate::search::{AnyEngine, BenchResult, EngineList};
-use crate::search::multithreading::{Receiver, SearchSender, Sender};
+use crate::search::{BenchResult, EngineList};
+use crate::search::multithreading::{EngineWrapper, Receiver, SearchSender, Sender};
 use crate::ugi_engine::SearchType::*;
 
 // TODO: Ensure this conforms to https://expositor.dev/uci/doc/uci-draft-1.pdf
@@ -78,7 +78,7 @@ impl Display for SearchType {
 
 #[derive(Debug)]
 struct EngineGameState<B: Board> {
-    engine: AnyEngine<B>,
+    engine: EngineWrapper<B>,
     board: B,
     debug_mode: bool,
     status: MatchStatus,
@@ -91,6 +91,8 @@ struct EngineGameState<B: Board> {
     display_name: String,
     last_played_color: Color,
 }
+
+// TODO: Keep this is a global object instead? Would make it easier to print warnings from anywhere, simplify search sender design
 
 #[derive(Debug, Default)]
 /// All UGI communication is done through stdout, but there can be additional outputs,

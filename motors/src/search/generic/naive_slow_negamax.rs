@@ -4,13 +4,15 @@ use rand::thread_rng;
 
 use gears::games::{Board, BoardHistory, ZobristHistoryBase, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
-use gears::search::{game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SearchLimit, SearchResult, TimeControl};
+use gears::search::{
+    game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SearchLimit, SearchResult, TimeControl,
+};
 
 use crate::search::{
-    BasicSearchState, BenchResult, Engine, EngineInfo, Searcher,
-    SearcherBase, should_stop, SimpleSearchState,
+    BasicSearchState, BenchResult, Engine, EngineInfo, Searcher, SearcherBase, should_stop,
+    SimpleSearchState,
 };
-use crate::search::multithreading::{EngineOwner, EngineReceiver};
+use crate::search::multithreading::{EngineReceiver, EngineWrapper};
 use crate::search::multithreading::EngineSends::Info;
 
 const MAX_DEPTH: usize = 100;
@@ -23,17 +25,23 @@ pub struct NaiveSlowNegamax<B: Board> {
 
 impl<B: Board> StaticallyNamedEntity for NaiveSlowNegamax<B> {
     fn static_short_name() -> &'static str
-        where Self: Sized, {
+    where
+        Self: Sized,
+    {
         "naive_negamax"
     }
 
     fn static_long_name() -> &'static str
-        where Self: Sized, {
+    where
+        Self: Sized,
+    {
         "Naive Slow Negamax"
     }
 
     fn static_description() -> &'static str
-        where Self: Sized, {
+    where
+        Self: Sized,
+    {
         "A very simple engine that searches the *entire* game tree, without using alpha-beta pruning or an eval function. Will not finish except for very simple games."
     }
 }
@@ -51,7 +59,9 @@ impl<B: Board> SearcherBase for NaiveSlowNegamax<B> {
 
 impl<B: Board> Searcher<B> for NaiveSlowNegamax<B> {
     fn can_use_multiple_threads() -> bool
-        where Self: Sized, {
+    where
+        Self: Sized,
+    {
         false
     }
 
@@ -69,7 +79,8 @@ impl<B: Board> Searcher<B> for NaiveSlowNegamax<B> {
             self.state.best_move.unwrap_or_else(|| {
                 // Sadly, this is the expected case since there is no iterative deepening
                 let mut rng = thread_rng();
-                pos.random_legal_move(&mut rng).expect("search() called in a position with no legal moves")
+                pos.random_legal_move(&mut rng)
+                    .expect("search() called in a position with no legal moves")
             }),
             self.state.score,
         ))
@@ -79,15 +90,18 @@ impl<B: Board> Searcher<B> for NaiveSlowNegamax<B> {
 impl<B: Board> Engine<B> for NaiveSlowNegamax<B> {
     fn bench(&mut self, pos: B, depth: usize) -> Res<BenchResult> {
         self.state = Default::default();
-        let limit = SearchLimit { depth, ..Default::default() };
+        let limit = SearchLimit {
+            depth,
+            ..Default::default()
+        };
 
         self.negamax(pos, limit, 0);
         // TODO: Handle stop command
         Ok(self.state.to_bench_res())
     }
 
-    fn clone_for_multithreading(&self) -> EngineOwner<B> {
-        EngineOwner::new::<Self>()
+    fn clone_for_multithreading(&self) -> EngineWrapper<B> {
+        EngineWrapper::new::<Self>()
     }
 
     fn engine_info(&self) -> EngineInfo {

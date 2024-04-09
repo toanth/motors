@@ -11,11 +11,9 @@ use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity
 use gears::search::{Depth, Nodes, Score, SearchInfo, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::{EngineOption, EngineOptionName};
 
-use crate::search::multithreading::{
-    EngineOwner, EngineWrapper, MultithreadedEngine, SearchSender,
-};
-use crate::search::tt::TT;
+use crate::search::multithreading::{EngineWrapper, SearchSender};
 use crate::search::Searching::*;
+use crate::search::tt::TT;
 
 #[cfg(feature = "chess")]
 pub mod chess;
@@ -33,8 +31,6 @@ pub struct EngineInfo {
     pub description: String, // TODO: Use
                              // TODO: NamedEntity?
 }
-
-pub type AnyEngine<B> = Box<dyn EngineWrapper<B>>;
 
 #[derive(Debug)]
 pub struct BenchResult {
@@ -137,18 +133,9 @@ impl<B: Board, const LIMIT: usize> GenericPVTable<B, LIMIT> {
     }
 }
 
-// /// An Engine can use two different limits to implement soft/hard time/node management
-// fn should_stop<B: Board, E: Engine<B>>(
-//     limit: &SearchLimit,
-//     engine: &E,
-//     start_time: Instant,
-// ) -> bool {
-//     engine.time_up(limit.tc, limit.fixed_time, start_time) || engine.nodes() >= limit.nodes
-// }
-
 /// A trait because this type erases over the Engine being built.
 pub trait AbstractEngineBuilder<B: Board>: NamedEntity + DynClone {
-    fn build(&self, sender: SearchSender<B>) -> EngineOwner<B>;
+    fn build(&self, sender: SearchSender<B>, tt: TT) -> EngineWrapper<B>;
 
     fn build_for_bench(&self) -> Box<dyn Benchable<B>>;
 
@@ -175,24 +162,9 @@ impl<B: Board> EngineWrapperBuilder<B> {
         Self { builder, sender }
     }
 
-    pub fn single_threaded(&self, output: bool) -> Box<dyn EngineWrapper<B>> {
-        let mut sender = self.sender.clone();
-        if !output {
-            sender.deactivate_output();
-        }
-        Box::new(self.builder.build(sender))
-    }
-
-    pub fn multi_threaded(&self) -> Box<dyn EngineWrapper<B>> {
-        Box::new(MultithreadedEngine::new(self.clone()))
-    }
-
-    pub fn build(&self) -> Box<dyn EngineWrapper<B>> {
-        if self.builder.can_use_multiple_threads() {
-            self.multi_threaded()
-        } else {
-            self.single_threaded(true)
-        }
+    pub fn build(&self) -> EngineWrapper<B> {
+        let sender = self.sender.clone();
+        self.builder.build(sender, TT::default())
     }
 }
 
@@ -220,8 +192,8 @@ impl<B: Board, E: Engine<B>> EngineBuilder<B, E> {
 }
 
 impl<B: Board, E: Engine<B>> AbstractEngineBuilder<B> for EngineBuilder<B, E> {
-    fn build(&self, sender: SearchSender<B>) -> EngineOwner<B> {
-        EngineOwner::new(E::new(self.state.clone()), sender)
+    fn build(&self, sender: SearchSender<B>, tt: TT) -> EngineWrapper<B> {
+        EngineWrapper::new_with_tt(E::new(self.state.clone()), sender, clone_box(self), tt)
     }
 
     fn build_for_bench(&self) -> Box<dyn Benchable<B>> {
