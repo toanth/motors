@@ -1,6 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::io::stdin;
-use std::mem::discriminant;
 use std::str::{FromStr, SplitWhitespace};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -9,10 +8,7 @@ use colored::Colorize;
 use crossbeam_channel::select;
 use itertools::Itertools;
 
-use gears::{
-    AbstractRun, AdjudicationReason, AnyMatch, GameOverReason, GameResult, GameState,
-    MatchResult, MatchStatus, output_builder_from_str,
-};
+use gears::{AbstractRun, AnyMatch, GameResult, GameState, MatchStatus, output_builder_from_str};
 use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
 use gears::games::Color::White;
 use gears::general::common::parse_int;
@@ -30,6 +26,7 @@ use crate::cli::EngineOpts;
 use crate::create_engine_from_str;
 use crate::search::{BenchResult, EngineList};
 use crate::search::multithreading::{EngineWrapper, Receiver, SearchSender, Sender};
+use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
 
 // TODO: Ensure this conforms to https://expositor.dev/uci/doc/uci-draft-1.pdf
@@ -76,12 +73,18 @@ impl Display for SearchType {
     }
 }
 
+#[derive(Debug, Clone)]
+enum ProgramStatus {
+    Run(MatchStatus),
+    Quit,
+}
+
 #[derive(Debug)]
 struct EngineGameState<B: Board> {
     engine: EngineWrapper<B>,
     board: B,
     debug_mode: bool,
-    status: MatchStatus,
+    status: ProgramStatus,
     mov_hist: Vec<B::Move>,
     board_hist: ZobristRepetition3Fold,
     initial_pos: B,
@@ -184,7 +187,12 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
     }
 
     fn match_status(&self) -> MatchStatus {
-        self.status.clone()
+        match self.status.clone() {
+            Run(status) => status,
+            Quit => {
+                panic!("It shouldn't be possible to call match_status when quitting the engine.")
+            }
+        }
     }
 
     fn debug_info_enabled(&self) -> bool {
@@ -237,7 +245,7 @@ impl<B: Board> EngineUGI<B> {
             engine,
             board,
             debug_mode: opts.debug,
-            status: NotStarted,
+            status: Run(NotStarted),
             mov_hist: vec![],
             board_hist: ZobristRepetition3Fold::default(),
             initial_pos: B::default(),
@@ -267,10 +275,10 @@ impl<B: Board> EngineUGI<B> {
         self.state.board = self.state.initial_pos;
         self.state.mov_hist.clear();
         <ZobristRepetition3Fold as BoardHistory<B>>::clear(&mut self.state.board_hist);
-        self.state.status = NotStarted;
+        self.state.status = Run(NotStarted);
     }
 
-    fn handle_ugi(&mut self, stdin_receiver: Receiver<Res<String>>) -> Res<MatchStatus> {
+    fn handle_ugi(&mut self, stdin_receiver: Receiver<Res<String>>) -> Res<ProgramStatus> {
         select! {
             recv(stdin_receiver) -> input =>
                 self.parse_input(input.map_err(|err| err.to_string())??.split_whitespace()),
@@ -302,13 +310,13 @@ impl<B: Board> EngineUGI<B> {
             let res = self.parse_input(input.split_whitespace());
             if let Err(err) = res {
                 self.write_message(Error, err.as_str());
-                if self.continue_on_error() && !matches!(self.state.status, Over(_)) {
+                if self.continue_on_error() {
                     self.write_message(Debug, "Continuing... ('debug' is 'on')");
                     continue;
                 }
                 return;
             }
-            if let Over(_) = res.unwrap() {
+            if let Ok(Quit) = res {
                 return;
             }
         }
@@ -326,7 +334,7 @@ impl<B: Board> EngineUGI<B> {
         self.state.debug_mode
     }
 
-    fn parse_input(&mut self, mut words: SplitWhitespace) -> Res<MatchStatus> {
+    fn parse_input(&mut self, mut words: SplitWhitespace) -> Res<ProgramStatus> {
         self.output().write_ugi_input(words.clone());
         let first_word = words.next().ok_or("Empty input")?;
         match first_word {
@@ -384,7 +392,7 @@ impl<B: Board> EngineUGI<B> {
             "register" => return Err("'register' isn't supported".to_string()),
             "ucinewgame" => {
                 self.state.engine.send_forget()?;
-                self.state.status = NotStarted;
+                self.state.status = Run(NotStarted);
             }
             "stop" => {
                 self.state.engine.send_stop()?;
@@ -431,11 +439,7 @@ impl<B: Board> EngineUGI<B> {
     fn quit(&mut self) -> Res<()> {
         self.next_match = None;
         self.state.engine.send_quit()?;
-        let result = MatchResult {
-            result: GameResult::Aborted,
-            reason: GameOverReason::Adjudication(AdjudicationReason::AbortedByUser),
-        };
-        self.state.status = Over(result);
+        self.state.status = Quit;
         Ok(())
     }
 
@@ -560,7 +564,7 @@ impl<B: Board> EngineUGI<B> {
             Debug,
             &format!("Starting {search_type} search with tc {}", limit.tc),
         );
-        self.state.status = Ongoing;
+        self.state.status = Run(Ongoing);
         // TODO: Do this asynchronously to be able to handle stop commands
         match search_type {
             Normal => self.state.engine.start_search(
@@ -588,7 +592,6 @@ impl<B: Board> EngineUGI<B> {
                     .expect("bench panic");
             }
         };
-        self.state.status = Ongoing;
         Ok(())
     }
 
@@ -613,15 +616,15 @@ impl<B: Board> EngineUGI<B> {
 
     fn handle_query(&mut self, mut words: SplitWhitespace) -> Res<()> {
         match words.next().ok_or("Missing argument to 'query'")? {
-            "gameover" => self.output().write_response(
-                (discriminant(&self.state.status) == discriminant(&Ongoing)).to_string(),
-            ),
+            "gameover" => self
+                .output()
+                .write_response(matches!(self.state.status, Run(Ongoing)).to_string()),
             "p1turn" => self
                 .output()
                 .write_response((self.state.board.active_player() == White).to_string()),
             "result" => {
                 let response = match &self.state.status {
-                    Over(res) => match res.result {
+                    Run(Over(res)) => match res.result {
                         GameResult::P1Win => "p1win",
                         GameResult::P2Win => "p2win",
                         GameResult::Draw => "draw",
@@ -700,7 +703,7 @@ impl<B: Board> EngineUGI<B> {
         if !self.state.board.is_move_pseudolegal(mov) {
             return Err(format!("Illegal move {mov} (not pseudolegal)"));
         }
-        if let Over(result) = &self.state.status {
+        if let Run(Over(result)) = &self.state.status {
             return Err(format!(
                 "Cannot play move '{mov}' because the game is already over: {0} ({1}). The position is '{2}'",
                 result.result, result.reason, self.state.board.as_fen()
