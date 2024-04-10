@@ -8,24 +8,24 @@ use colored::Colorize;
 use crossbeam_channel::select;
 use itertools::Itertools;
 
-use gears::{AbstractRun, AnyMatch, GameResult, GameState, MatchStatus, output_builder_from_str};
-use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
 use gears::games::Color::White;
+use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
 use gears::general::common::parse_int;
 use gears::general::common::Res;
 use gears::general::perft::{perft, split_perft};
-use gears::MatchStatus::*;
-use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
+use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, Nodes, SearchInfo, SearchLimit, SearchResult, TimeControl};
-use gears::ugi::{EngineOptionName, parse_ugi_position};
 use gears::ugi::EngineOptionName::Threads;
+use gears::ugi::{parse_ugi_position, EngineOptionName};
+use gears::MatchStatus::*;
+use gears::{output_builder_from_str, AbstractRun, AnyMatch, GameResult, GameState, MatchStatus};
 
 use crate::cli::EngineOpts;
 use crate::create_engine_from_str;
-use crate::search::{BenchResult, EngineList};
 use crate::search::multithreading::{EngineWrapper, Receiver, SearchSender, Sender};
+use crate::search::{BenchResult, EngineList};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
 
@@ -395,7 +395,7 @@ impl<B: Board> EngineUGI<B> {
                 self.state.status = Run(NotStarted);
             }
             "stop" => {
-                self.state.engine.send_stop()?;
+                self.state.engine.send_stop();
             }
             "ponderhit" => {} // ignore pondering
             "quit" => {

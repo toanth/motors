@@ -9,8 +9,8 @@ use gears::search::{
 };
 
 use crate::search::{
-    BasicSearchState, BenchResult, Engine, EngineInfo, Searcher, SearcherBase, should_stop,
-    SimpleSearchState,
+    ABSearchState, BenchResult, Engine, EngineInfo, Searcher, SearcherBase, SearchState,
+    should_stop,
 };
 use crate::search::multithreading::{EngineReceiver, EngineWrapper};
 use crate::search::multithreading::EngineSends::Info;
@@ -19,7 +19,7 @@ const MAX_DEPTH: usize = 100;
 
 #[derive(Debug)]
 pub struct NaiveSlowNegamax<B: Board> {
-    state: SimpleSearchState<B>,
+    state: ABSearchState<B>,
     communicator: EngineReceiver<B>,
 }
 
@@ -114,11 +114,11 @@ impl<B: Board> Engine<B> for NaiveSlowNegamax<B> {
         }
     }
 
-    type State = SimpleSearchState<B>;
+    type State = ABSearchState<B>;
 
     fn new(communicator: EngineReceiver<B>) -> Self {
         Self {
-            state: SimpleSearchState::default(),
+            state: ABSearchState::default(),
             communicator,
         }
     }

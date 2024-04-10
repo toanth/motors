@@ -1,15 +1,18 @@
 use std::fmt::{Debug, Formatter};
 use std::time::{Duration, Instant};
 
-use rand::{thread_rng, Rng, RngCore, SeedableRng};
+use rand::{Rng, RngCore, SeedableRng, thread_rng};
 
-use gears::games::{Board, ZobristHistoryBase};
+use gears::games::Board;
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{Depth, Nodes, Score, SearchInfo, SearchLimit, SearchResult, TimeControl};
 
+use crate::search::{
+    ABSearchState, Benchable, BenchResult, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
+    SearchState,
+};
 use crate::search::multithreading::SearchSender;
 use crate::search::tt::TT;
-use crate::search::{BenchResult, Benchable, Engine, EngineInfo, SimpleSearchState};
 
 pub trait SeedRng: Rng + SeedableRng {}
 
@@ -18,7 +21,7 @@ impl<T> SeedRng for T where T: Rng + SeedableRng {}
 pub struct RandomMover<B: Board, R: SeedRng> {
     pub rng: R,
     chosen_move: B::Move,
-    _state: SimpleSearchState<B>,
+    _state: ABSearchState<B, EmptySearchStackEntry, NoCustomInfo>,
 }
 
 impl<B: Board, R: SeedRng> Debug for RandomMover<B, R> {
@@ -32,7 +35,7 @@ impl<B: Board, R: SeedRng> Default for RandomMover<B, R> {
         Self {
             rng: R::seed_from_u64(thread_rng().next_u64()),
             chosen_move: B::Move::default(),
-            _state: SimpleSearchState::default(),
+            _state: ABSearchState::new(Depth::new(1)),
         }
     }
 }
@@ -100,21 +103,16 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         false
     }
 
-    fn search(
+    fn do_search(
         &mut self,
         pos: B,
         _: SearchLimit,
-        _: ZobristHistoryBase,
         _sender: &mut SearchSender<B>,
     ) -> Res<SearchResult<B>> {
         self.chosen_move = pos
             .random_legal_move(&mut self.rng)
             .expect("search() called in a position with no legal moves");
         Ok(SearchResult::move_only(self.chosen_move))
-    }
-
-    fn stop(&mut self) {
-        // do nothing
     }
 
     fn search_info(&self) -> SearchInfo<B> {
@@ -139,21 +137,15 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         Nodes::new(1).unwrap()
     }
 
-    type State = SimpleSearchState<B>;
+    fn set_tt(&mut self, _tt: TT) {
+        // do nothing
+    }
 
-    fn search_state(&self) -> &Self::State {
+    fn search_state(&self) -> &impl SearchState<B> {
         &self._state
     }
 
-    fn search_state_mut(&mut self) -> &mut Self::State {
-        todo!()
-    }
-
-    fn new(state: Self::State) -> Self {
-        Self::default()
-    }
-
-    fn set_tt(&mut self, _tt: TT) {
-        // do nothing
+    fn search_state_mut(&mut self) -> &mut impl SearchState<B> {
+        &mut self._state
     }
 }

@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use rand::thread_rng;
 
-use gears::games::{Board, BoardHistory, ZobristHistoryBase, ZobristRepetition2Fold};
+use gears::games::{Board, BoardHistory, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
     Depth, game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE_WON, SearchLimit,
@@ -12,18 +12,29 @@ use gears::ugi::EngineOptionName;
 
 use crate::eval::Eval;
 use crate::search::{
-    BasicSearchState, Benchable, BenchResult, Engine, EngineInfo, SimpleSearchState,
+    ABSearchState, Benchable, BenchResult, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
+    SearchState,
 };
 use crate::search::multithreading::SearchSender;
 use crate::search::tt::TT;
 
 const MAX_DEPTH: Depth = Depth::new(100);
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct GenericNegamax<B: Board, E: Eval<B>> {
-    state: SimpleSearchState<B>,
+    state: ABSearchState<B, EmptySearchStackEntry, NoCustomInfo>,
     eval: E,
     tt: TT,
+}
+
+impl<B: Board, E: Eval<B>> Default for GenericNegamax<B, E> {
+    fn default() -> Self {
+        Self {
+            state: ABSearchState::new(MAX_DEPTH),
+            eval: E::default(),
+            tt: TT::default(),
+        }
+    }
 }
 
 impl<B: Board, E: Eval<B>> StaticallyNamedEntity for GenericNegamax<B, E> {
@@ -83,8 +94,6 @@ impl<B: Board, E: Eval<B>> Benchable<B> for GenericNegamax<B, E> {
 }
 
 impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
-    type State = SimpleSearchState<B>;
-
     fn can_use_multiple_threads() -> bool
     where
         Self: Sized,
@@ -92,14 +101,12 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
         true
     }
 
-    fn search(
+    fn do_search(
         &mut self,
         pos: B,
         limit: SearchLimit,
-        history: ZobristHistoryBase,
         sender: &mut SearchSender<B>,
     ) -> Res<SearchResult<B>> {
-        self.state.new_search(ZobristRepetition2Fold(history));
         let mut chosen_move = self.state.best_move;
         let max_depth = MAX_DEPTH.min(limit.depth).get() as isize;
 
@@ -131,24 +138,16 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
         }
     }
 
-    fn search_state(&self) -> &Self::State {
+    fn set_tt(&mut self, tt: TT) {
+        self.tt = tt;
+    }
+
+    fn search_state(&self) -> &impl SearchState<B> {
         &self.state
     }
 
-    fn search_state_mut(&mut self) -> &mut Self::State {
+    fn search_state_mut(&mut self) -> &mut impl SearchState<B> {
         &mut self.state
-    }
-
-    fn new(state: Self::State) -> Self {
-        Self {
-            state,
-            eval: E::default(),
-            tt: TT::default(),
-        }
-    }
-
-    fn set_tt(&mut self, tt: TT) {
-        self.tt = tt;
     }
 }
 

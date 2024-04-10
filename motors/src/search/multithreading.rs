@@ -14,11 +14,8 @@ use gears::search::{Depth, SearchInfo, SearchLimit, SearchResult};
 use gears::ugi::{EngineOption, EngineOptionName};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 
-use crate::search::{
-    AbstractEngineBuilder, BasicSearchState, BenchResult, Engine, EngineInfo, Searching,
-};
+use crate::search::{AbstractEngineBuilder, BenchResult, Engine, EngineInfo, SearchState};
 use crate::search::multithreading::EngineReceives::*;
-use crate::search::Searching::Ongoing;
 use crate::search::tt::TT;
 use crate::ugi_engine::UgiOutput;
 
@@ -27,9 +24,8 @@ pub type Receiver<T> = crossbeam_channel::Receiver<T>;
 pub type TryRecvError = crossbeam_channel::TryRecvError;
 
 pub enum EngineReceives<B: Board> {
-    Quit,
     // joins the thread
-    Stop,
+    Quit,
     Forget,
     SetOption(EngineOptionName, String),
     Search(B, SearchLimit, ZobristHistoryBase, TT),
@@ -125,29 +121,23 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         history: ZobristHistoryBase,
         tt: TT,
     ) -> Res<()> {
-        if !self.engine.search_state().search_cancelled() {
+        if self.engine.is_currently_searching() {
             return Err(format!(
                 "Engine {} received a go command while still searching",
                 self.engine.long_name()
             ));
         }
         self.engine.set_tt(tt);
-        self.engine.search_state_mut().set_searching(Ongoing);
         let search_res = self
             .engine
             .search(pos, limit, history, &mut self.search_sender)?;
-        if !self.engine.search_state().search_cancelled() {
-            self.engine
-                .search_state_mut()
-                .set_searching(Searching::Stop);
-        }
 
         self.search_sender.send_search_res(search_res);
         Ok(())
     }
 
     fn bench_single_position(&mut self, pos: B, depth: Depth) -> Res<()> {
-        self.engine.stop();
+        // self.engine.stop();
         self.engine.forget();
         let res = self.engine.bench(pos, depth);
         self.search_sender.send_bench_res(res);
@@ -164,7 +154,6 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                 self.engine.quit();
                 return Ok(true);
             }
-            Stop => self.engine.stop(), // TODO: This can probably get called twice (also from the sender), so make sure it's idempotent
             Forget => {
                 if !self.engine.search_state().search_cancelled() {
                     return Err(format!("Engine '{}' received a 'forget' command (ucinewgame) while still searching", self.engine.long_name()));
@@ -260,10 +249,12 @@ impl<B: Board> EngineWrapper<B> {
         limit: SearchLimit,
         history: ZobristHistoryBase,
     ) -> Res<()> {
+        if self.is_primary() {
+            self.search_sender.reset_stop();
+        }
         for o in self.secondary.iter_mut() {
             o.start_search(pos, limit, history.clone())?;
         }
-        self.search_sender.reset_stop();
         self.sender
             .send(Search(pos, limit, history, self.tt.clone()))
             .map_err(|err| err.to_string())
@@ -315,12 +306,11 @@ impl<B: Board> EngineWrapper<B> {
         }
     }
 
-    pub fn send_stop(&mut self) -> Res<()> {
+    pub fn send_stop(&mut self) {
         for o in self.secondary.iter_mut() {
-            o.send_stop()?;
+            o.send_stop();
         }
         self.search_sender.send_stop();
-        self.sender.send(Stop).map_err(|err| err.to_string())
     }
 
     pub fn send_quit(&mut self) -> Res<()> {

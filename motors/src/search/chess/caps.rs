@@ -3,27 +3,27 @@ use std::time::{Duration, Instant};
 use derive_more::{Deref, DerefMut};
 use rand::thread_rng;
 
-use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
-use gears::games::chess::{Chessboard, ChessMoveList};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
+use gears::games::chess::{ChessMoveList, Chessboard};
+use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
-    Depth, game_result_to_score, MIN_SCORE_WON, NO_SCORE_YET, Nodes, Score, SCORE_LOST, SCORE_TIME_UP,
-    SCORE_WON, SearchInfo, SearchLimit, SearchResult, TimeControl,
+    game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, MIN_SCORE_WON,
+    NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
 };
-use gears::ugi::{EngineOption, UgiSpin};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::EngineOptionType::Spin;
+use gears::ugi::{EngineOption, UgiSpin};
 
 use crate::eval::Eval;
-use crate::search::{
-    BasicSearchState, Benchable, BenchResult, Engine, EngineInfo, NodeType, Searching,
-    SearchStateWithPv,
-};
 use crate::search::multithreading::SearchSender;
+use crate::search::tt::{TTEntry, TT};
 use crate::search::NodeType::*;
-use crate::search::tt::{TT, TTEntry};
+use crate::search::{
+    ABSearchState, BenchResult, Benchable, CustomInfo, Engine, EngineInfo, NodeType, Pv,
+    SearchStackEntry, SearchState,
+};
 
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
@@ -51,95 +51,41 @@ impl DerefMut for HistoryHeuristic {
     }
 }
 
-#[derive(Debug, Clone, Deref, DerefMut)]
-struct KillerHeuristic([ChessMove; DEPTH_HARD_LIMIT.get()]);
-
-impl Default for KillerHeuristic {
-    fn default() -> Self {
-        KillerHeuristic([ChessMove::default(); DEPTH_HARD_LIMIT.get()])
-    }
-}
-
-#[derive(Default, Debug, Clone, Deref, DerefMut)]
-pub struct State {
-    #[deref]
-    #[deref_mut]
-    state: SearchStateWithPv<Chessboard, { DEPTH_HARD_LIMIT.get() }>,
+#[derive(Debug, Clone, Default)]
+struct Additional {
     history: HistoryHeuristic,
-    killers: KillerHeuristic,
 }
 
-impl State {
-    fn forget(&mut self) {
-        self.state.forget();
-        self.history = HistoryHeuristic::default();
-        self.killers = KillerHeuristic::default();
-    }
+impl CustomInfo for Additional {}
 
-    fn new_search(&mut self, history: ZobristRepetition2Fold) {
-        self.state.new_search(history);
-        self.history = HistoryHeuristic::default();
-        self.killers = KillerHeuristic::default();
-    }
+#[derive(Debug, Default, Copy, Clone)]
+struct CapsSearchStackEntry {
+    killer: ChessMove,
+    pv: Pv<Chessboard, { DEPTH_HARD_LIMIT.get() }>,
+    allow_nmp: bool,
 }
 
-impl BasicSearchState<Chessboard> for State {
-    fn nodes(&self) -> Nodes {
-        Nodes::new(self.nodes).unwrap()
-    }
+impl SearchStackEntry for CapsSearchStackEntry {}
 
-    fn searching(&self) -> Searching {
-        self.searching
-    }
-
-    fn set_searching(&mut self, searching: Searching) {
-        self.state.set_searching(searching);
-    }
-
-    fn should_stop(&self) -> bool {
-        self.should_stop
-    }
-
-    fn quit(&mut self) {
-        self.wrapped.quit()
-    }
-
-    fn depth(&self) -> Depth {
-        self.depth
-    }
-
-    fn start_time(&self) -> Instant {
-        self.start_time
-    }
-
-    fn score(&self) -> Score {
-        self.score
-    }
-
-    fn forget(&mut self) {
-        self.state.forget();
-        self.history = HistoryHeuristic::default();
-        self.killers = KillerHeuristic::default();
-    }
-
-    fn new_search(&mut self, history: ZobristRepetition2Fold) {
-        self.state.new_search(history);
-        self.history = HistoryHeuristic::default();
-        self.killers = KillerHeuristic::default();
-    }
-
-    fn to_search_info(&self) -> SearchInfo<Chessboard> {
-        self.state.to_search_info()
-    }
-}
+type State = ABSearchState<Chessboard, CapsSearchStackEntry, Additional>;
 
 /// Chess-playing Alpha-beta Pruning Search, or in short, CAPS.
 /// Larger than SᴍᴀʟʟCᴀᴘꜱ.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Caps<E: Eval<Chessboard>> {
     state: State,
     eval: E,
     tt: TT,
+}
+
+impl<E: Eval<Chessboard>> Default for Caps<E> {
+    fn default() -> Self {
+        Self {
+            state: ABSearchState::new(DEPTH_HARD_LIMIT),
+            eval: E::default(),
+            tt: TT::default(),
+        }
+    }
 }
 
 impl<E: Eval<Chessboard>> StaticallyNamedEntity for Caps<E> {
@@ -220,28 +166,16 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
 }
 
 impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
-    type State = State;
-
-    fn new(state: Self::State) -> Self {
-        Self {
-            state,
-            eval: E::default(),
-            tt: TT::default(),
-        }
-    }
-
     fn set_tt(&mut self, tt: TT) {
         self.tt = tt;
     }
 
-    fn search(
+    fn do_search(
         &mut self,
         pos: Chessboard,
         limit: SearchLimit,
-        history: ZobristHistoryBase,
         sender: &mut SearchSender<Chessboard>,
     ) -> Res<SearchResult<Chessboard>> {
-        self.state.new_search(ZobristRepetition2Fold(history));
         let mut chosen_move = self.state.best_move;
         let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth).get() as isize;
 
@@ -302,11 +236,11 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
         }
     }
 
-    fn search_state(&self) -> &Self::State {
+    fn search_state(&self) -> &impl SearchState<Chessboard> {
         &self.state
     }
 
-    fn search_state_mut(&mut self) -> &mut Self::State {
+    fn search_state_mut(&mut self) -> &mut impl SearchState<Chessboard> {
         &mut self.state
     }
 
@@ -337,6 +271,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
         debug_assert!(self.state.board_history.0 .0.len() >= ply);
 
         self.state.sel_depth = self.state.sel_depth.max(ply);
+
+        let entry = &mut self.state.search_stack[ply];
 
         let root = ply == 0;
         let is_pvs_pv_node = alpha + 1 < beta; // TODO: Pass as parameter / generic? Probably not worth much elo
@@ -503,8 +439,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 break;
             }
             // Update various heuristics, TODO: More (killers, history gravity, etc)
-            self.state.history[mov.from_to_square()] += (depth * depth) as i32;
-            self.state.killers[ply] = mov;
+            let entry = &mut self.state.search_stack[ply];
+            self.state.custom.history[mov.from_to_square()] += (depth * depth) as i32;
+            entry.killer = mov;
             break;
         }
 
@@ -525,11 +462,17 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // if this node was an exact or fail high node.
         self.tt.store(tt_entry, ply);
 
+        let split = self.state.search_stack.split_at_mut(ply + 1);
+        let entry = split.0.last_mut().unwrap();
         if bound_so_far == Exact {
             // TODO: Test if this loses elo (a different implementation used to lose a few elo points)
-            self.state.pv_table.new_pv_move(ply, best_move);
+            entry.pv.list[ply] = best_move;
+            let next = &split.1[0].pv;
+            for p in ply + 1..next.length {
+                entry.pv.list[p] = next.list[p];
+            }
         } else {
-            self.state.pv_table.no_pv_move(ply);
+            entry.pv.length = ply + 1;
         }
 
         best_score
@@ -614,10 +557,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
             let captured = mov.captured(board);
             if *mov == tt_move {
                 i32::MAX
-            } else if *mov == self.state.killers[ply] {
+            } else if *mov == self.state.search_stack[ply].killer {
                 i32::MAX - 200
             } else if captured == Empty {
-                self.state.history[mov.from_to_square()]
+                self.state.custom.history[mov.from_to_square()]
             } else {
                 i32::MAX - 100 + captured as i32 * 10 - mov.piece(board).uncolored() as i32
             }
@@ -631,6 +574,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
 mod tests {
     use gears::games::chess::Chessboard;
 
+    use crate::eval::rand_eval::RandEval;
+
     use super::*;
 
     #[test]
@@ -639,5 +584,21 @@ mod tests {
             "r2q1r2/ppp1pkb1/2n1p1pp/2N1P3/2pP2Q1/2P1B2P/PP3PP1/R4RK1 b - - 1 18",
         );
         // TODO: Write test
+    }
+
+    #[test]
+    fn simple_mate_test() {
+        let board = Chessboard::from_fen("4k3/8/4K3/8/8/8/8/6R1 w - - 0 1").unwrap();
+        let mut engine = Caps::<RandEval>::default();
+        let res = engine
+            .search(
+                board,
+                SearchLimit::depth(Depth::new(2)),
+                ZobristHistoryBase::default(),
+                &mut SearchSender::no_sender(),
+            )
+            .unwrap();
+        assert!(res.score.unwrap().is_game_won_score());
+        assert_eq!(res.score.unwrap().plies_until_game_won(), Some(1));
     }
 }

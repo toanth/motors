@@ -1,4 +1,6 @@
 use std::fmt::{Debug, Display, Formatter};
+use std::marker::PhantomData;
+use std::mem::take;
 use std::ops::{Deref, DerefMut};
 use std::time::{Duration, Instant};
 
@@ -65,7 +67,7 @@ impl Display for BenchResult {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-struct Pv<B: Board, const LIMIT: usize> {
+pub struct Pv<B: Board, const LIMIT: usize> {
     list: [B::Move; LIMIT],
     length: usize,
 }
@@ -172,32 +174,29 @@ pub type EngineList<B> = EntityList<Box<dyn AbstractEngineBuilder<B>>>;
 
 #[derive(Debug, Default)]
 pub struct EngineBuilder<B: Board, E: Engine<B>> {
-    state: E::State,
+    _phantom_b: PhantomData<B>,
+    _phantom_e: PhantomData<E>,
 }
 
 impl<B: Board, E: Engine<B>> Clone for EngineBuilder<B, E> {
     fn clone(&self) -> Self {
-        Self {
-            state: self.state.clone(),
-        }
+        Self::default()
     }
 }
 
 impl<B: Board, E: Engine<B>> EngineBuilder<B, E> {
     pub fn new() -> Self {
-        Self {
-            state: E::State::default(),
-        }
+        Self::default()
     }
 }
 
 impl<B: Board, E: Engine<B>> AbstractEngineBuilder<B> for EngineBuilder<B, E> {
     fn build(&self, sender: SearchSender<B>, tt: TT) -> EngineWrapper<B> {
-        EngineWrapper::new_with_tt(E::new(self.state.clone()), sender, clone_box(self), tt)
+        EngineWrapper::new_with_tt(E::default(), sender, clone_box(self), tt)
     }
 
     fn build_for_bench(&self) -> Box<dyn Benchable<B>> {
-        Box::new(E::new(self.state.clone()))
+        Box::new(E::default())
     }
 
     fn can_use_multiple_threads(&self) -> bool {
@@ -240,19 +239,28 @@ pub trait Benchable<B: Board>: StaticallyNamedEntity + Debug {
 }
 
 pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
-    type State: BasicSearchState<B>;
-
-    fn new(state: Self::State) -> Self;
-
     fn set_tt(&mut self, tt: TT);
-
-    /// The important function.
 
     fn search(
         &mut self,
         pos: B,
         limit: SearchLimit,
         history: ZobristHistoryBase,
+        sender: &mut SearchSender<B>,
+    ) -> Res<SearchResult<B>> {
+        self.search_state_mut()
+            .new_search(ZobristRepetition2Fold(history));
+        let res = self.do_search(pos, limit, sender);
+        self.search_state_mut().end_search();
+        res
+    }
+
+    /// The important function.
+
+    fn do_search(
+        &mut self,
+        pos: B,
+        limit: SearchLimit,
         sender: &mut SearchSender<B>,
     ) -> Res<SearchResult<B>>;
 
@@ -275,27 +283,21 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
 
     fn should_stop(&mut self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
         if self.should_stop_impl(limit, sender) {
-            self.search_state_mut().set_searching(Stop);
+            // TODO: Necessary?
+            self.search_state_mut().end_search();
             true
         } else {
             false
         }
     }
 
-    fn search_state(&self) -> &Self::State;
-
-    fn search_state_mut(&mut self) -> &mut Self::State;
-
-    /// Stop the current search. Can be called from another thread while the search is running.
-
-    fn stop(&mut self) {
-        self.search_state_mut().set_searching(Stop);
-    }
-
     fn quit(&mut self) {
-        self.stop();
         self.search_state_mut().quit();
     }
+
+    fn search_state(&self) -> &impl SearchState<B>;
+
+    fn search_state_mut(&mut self) -> &mut impl SearchState<B>;
 
     /// Returns a SearchInfo object with information about the search so far.
     /// Can be called during search, only returns the information regarding the current thread.
@@ -307,11 +309,15 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
 
     fn forget(&mut self) {
-        self.search_state_mut().forget()
+        self.search_state_mut().forget();
+    }
+
+    fn is_currently_searching(&self) -> bool {
+        !self.search_state().search_cancelled()
     }
 
     /// Returns the number of nodes looked at so far. Can be called during search.
-    /// For smp, this may also return the number of nodes looked at at the current thread.
+    /// For smp, this only returns the number of nodes looked at in the current thread.
 
     fn nodes(&self) -> Nodes {
         self.search_state().nodes()
@@ -328,10 +334,9 @@ pub enum Searching {
     Stop,
 }
 
-pub trait BasicSearchState<B: Board>: Debug + Default + Clone {
+pub trait SearchState<B: Board>: Debug + Clone {
     fn nodes(&self) -> Nodes;
     fn searching(&self) -> Searching;
-    fn set_searching(&mut self, searching: Searching);
     fn search_cancelled(&self) -> bool {
         self.searching() != Ongoing
     }
@@ -342,12 +347,33 @@ pub trait BasicSearchState<B: Board>: Debug + Default + Clone {
     fn score(&self) -> Score;
     fn forget(&mut self);
     fn new_search(&mut self, history: ZobristRepetition2Fold);
+    fn end_search(&mut self);
     fn to_search_info(&self) -> SearchInfo<B>;
 }
 
+pub trait SearchStackEntry: Default + Clone + Debug {
+    fn forget(&mut self) {
+        *self = Self::default();
+    }
+}
+
+#[derive(Copy, Clone, Default, Debug)]
+struct EmptySearchStackEntry {}
+
+impl SearchStackEntry for EmptySearchStackEntry {}
+
+trait CustomInfo: Default + Clone + Debug {}
+
+#[derive(Default, Clone, Debug)]
+struct NoCustomInfo {}
+
+impl CustomInfo for NoCustomInfo {}
+
 #[derive(Debug, Clone)]
-pub struct SimpleSearchState<B: Board> {
+pub struct ABSearchState<B: Board, E: SearchStackEntry, C: CustomInfo> {
+    search_stack: Vec<E>,
     board_history: ZobristRepetition2Fold,
+    custom: C,
     best_move: Option<B::Move>,
     nodes: u64,
     searching: Searching,
@@ -358,10 +384,15 @@ pub struct SimpleSearchState<B: Board> {
     score: Score,
 }
 
-impl<B: Board> Default for SimpleSearchState<B> {
-    fn default() -> Self {
+impl<B: Board, E: SearchStackEntry, C: CustomInfo> ABSearchState<B, E, C> {
+    fn new(max_depth: Depth) -> Self {
+        Self::new_with_stack(vec![E::default(); max_depth.get()])
+    }
+
+    fn new_with_stack(search_stack: Vec<E>) -> Self {
         let start_time = Instant::now();
         Self {
+            search_stack,
             board_history: ZobristRepetition2Fold::default(),
             start_time,
             score: Score(0),
@@ -371,11 +402,10 @@ impl<B: Board> Default for SimpleSearchState<B> {
             should_stop: false,
             depth: Depth::MIN,
             sel_depth: 0,
+            custom: C::default(),
         }
     }
-}
 
-impl<B: Board> SimpleSearchState<B> {
     fn mov(&self) -> B::Move {
         self.best_move.unwrap_or_default()
     }
@@ -407,17 +437,13 @@ impl<B: Board> SimpleSearchState<B> {
     }
 }
 
-impl<B: Board> BasicSearchState<B> for SimpleSearchState<B> {
+impl<B: Board, E: SearchStackEntry, C: CustomInfo> SearchState<B> for ABSearchState<B, E, C> {
     fn nodes(&self) -> Nodes {
         Nodes::new(self.nodes).unwrap()
     }
 
     fn searching(&self) -> Searching {
         self.searching
-    }
-
-    fn set_searching(&mut self, searching: Searching) {
-        self.searching = searching;
     }
 
     fn should_stop(&self) -> bool {
@@ -441,13 +467,21 @@ impl<B: Board> BasicSearchState<B> for SimpleSearchState<B> {
     }
 
     fn forget(&mut self) {
-        *self = SimpleSearchState::default();
+        let mut stack = take(&mut self.search_stack);
+        for e in stack.iter_mut() {
+            e.forget();
+        }
+        *self = Self::new_with_stack(stack);
     }
 
     fn new_search(&mut self, history: ZobristRepetition2Fold) {
         self.forget();
         self.board_history = history;
         self.searching = Ongoing;
+    }
+
+    fn end_search(&mut self) {
+        self.searching = Stop;
     }
 
     fn to_search_info(&self) -> SearchInfo<B> {
@@ -462,69 +496,6 @@ impl<B: Board> BasicSearchState<B> for SimpleSearchState<B> {
             hashfull: self.hashfull(),
             additional: self.additional(),
         }
-    }
-}
-
-// TODO: Remove, store PV table in search stack
-#[derive(Default, Debug, Clone)]
-pub struct SearchStateWithPv<B: Board, const PV_LIMIT: usize> {
-    wrapped: SimpleSearchState<B>,
-    pv_table: GenericPVTable<B, PV_LIMIT>,
-}
-
-impl<B: Board, const PV_LIMIT: usize> Deref for SearchStateWithPv<B, PV_LIMIT> {
-    type Target = SimpleSearchState<B>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.wrapped
-    }
-}
-
-impl<B: Board, const PV_LIMIT: usize> DerefMut for SearchStateWithPv<B, PV_LIMIT> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.wrapped
-    }
-}
-
-impl<B: Board, const PV_LIMIT: usize> SearchStateWithPv<B, PV_LIMIT> {
-    fn new_search(&mut self, history: ZobristRepetition2Fold) {
-        self.wrapped.new_search(history);
-        self.pv_table.reset();
-    }
-
-    fn forget(&mut self) {
-        self.wrapped.forget();
-        self.pv_table.reset();
-    }
-
-    fn nodes(&self) -> Nodes {
-        self.wrapped.nodes()
-    }
-
-    fn depth(&self) -> Depth {
-        self.wrapped.depth()
-    }
-
-    fn start_time(&self) -> Instant {
-        self.wrapped.start_time()
-    }
-
-    fn mov(&self) -> B::Move {
-        self.wrapped.mov()
-    }
-
-    fn score(&self) -> Score {
-        self.wrapped.score()
-    }
-
-    fn pv(&self) -> Vec<B::Move> {
-        self.pv_table.get_pv().to_vec()
-    }
-
-    fn to_search_info(&self) -> SearchInfo<B> {
-        let mut res = self.wrapped.to_search_info();
-        // res.pv = self.pv(); // TODO: Re-enable PV output
-        res
     }
 }
 
@@ -560,17 +531,4 @@ pub fn run_bench_with_depth<B: Board>(
     }
     sum.depth = depth;
     sum
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    #[cfg(feature = "caps")]
-    fn simple_mate_test() {
-        // let board = Chessboard::from_fen("4k3/8/4K3/8/8/8/8/6R1 w - - 0 1").unwrap();
-        // let mut engine = Caps::<RandEval>::default();
-        // let res = engine.search(board, SearchLimit::depth(Depth::new(2)), ZobristHistoryBase::default());
-        // assert!(res.score.unwrap().is_game_won_score());
-        // assert_eq!(res.score.unwrap().plies_until_game_won(), Some(1));
-    }
 }
