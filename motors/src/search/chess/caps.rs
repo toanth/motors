@@ -62,7 +62,6 @@ impl CustomInfo for Additional {}
 struct CapsSearchStackEntry {
     killer: ChessMove,
     pv: Pv<Chessboard, { DEPTH_HARD_LIMIT.get() }>,
-    allow_nmp: bool,
 }
 
 impl SearchStackEntry<Chessboard> for CapsSearchStackEntry {
@@ -130,7 +129,6 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
             limit.depth.get() as isize,
             SCORE_LOST,
             SCORE_WON,
-            false,
             &SearchSender::no_sender(),
         );
         // TODO: Handle stop command in bench?
@@ -194,8 +192,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
 
         for depth in 1..=max_depth {
             self.state.depth = Depth::new(depth as usize);
-            let iteration_score =
-                self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON, false, sender);
+            let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON, sender);
             let soft_limit = limit.fixed_time.min(limit.tc.remaining / 64);
             assert!(
                 !(iteration_score != SCORE_TIME_UP
@@ -266,7 +263,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
         mut depth: isize,
         mut alpha: Score,
         beta: Score,
-        allow_nmp: bool, // TODO: Use search stack
         sender: &SearchSender<Chessboard>,
     ) -> Score {
         debug_assert!(alpha < beta);
@@ -275,8 +271,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
         debug_assert!(self.state.board_history.0 .0.len() >= ply);
 
         self.state.sel_depth = self.state.sel_depth.max(ply);
-
-        let entry = &mut self.state.search_stack[ply];
 
         let root = ply == 0;
         let is_pvs_pv_node = alpha + 1 < beta; // TODO: Pass as parameter / generic? Probably not worth much elo
@@ -335,7 +329,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // To test this hypothesis, do a nullmove and perform a search with reduced depth; if the result is still
             // above beta, then it's very likely that the score would have been above beta if we had played a move,
             // so simply return the nmp score.
-            if allow_nmp && depth >= 3 && eval >= beta {
+            if depth >= 3 && eval >= beta {
                 self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
                 let reduction = 1 + depth / 4;
@@ -346,7 +340,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     depth - 1 - reduction,
                     -beta,
                     -beta + 1,
-                    false,
                     sender,
                 );
                 self.state.board_history.pop(&pos);
@@ -378,16 +371,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // which we can do with a zero window search. Should this assumption fail, re-search with a full window.
             let mut score;
             if num_children == 1 {
-                score = -self.negamax(
-                    new_pos,
-                    limit,
-                    ply + 1,
-                    depth - 1,
-                    -beta,
-                    -alpha,
-                    true,
-                    sender,
-                );
+                score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, sender);
             } else {
                 score = -self.negamax(
                     new_pos,
@@ -396,20 +380,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     depth - 1,
                     -(alpha + 1),
                     -alpha,
-                    true,
                     sender,
                 );
                 if alpha < score && score < beta {
-                    score = -self.negamax(
-                        new_pos,
-                        limit,
-                        ply + 1,
-                        depth - 1,
-                        -beta,
-                        -alpha,
-                        true,
-                        sender,
-                    );
+                    score =
+                        -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, sender);
                 }
             }
 
@@ -441,7 +416,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
             let split = self.state.search_stack.split_at_mut(ply + 1);
             let pv = &mut split.0.last_mut().unwrap().pv;
             let child_pv = &split.1[0].pv;
-            // TODO: Test if this loses elo (a different implementation used to lose a few elo points)
             pv.push(ply, best_move, child_pv);
 
             if score < beta {
