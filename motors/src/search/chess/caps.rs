@@ -37,6 +37,17 @@ impl Default for HistoryHeuristic {
     }
 }
 
+impl HistoryHeuristic {
+    /// Update the history score by the given value (TODO: With history malus, this can also be negative).
+    /// Applies history gravity to the scores to keep them within some interval.
+    fn update(&mut self, mov: ChessMove, value: i32) {
+        let entry = &mut self[mov.from_to_square()];
+        let max_history = 4096;
+        let delta = value - *entry * value.abs() / max_history;
+        *entry += delta;
+    }
+}
+
 impl Deref for HistoryHeuristic {
     type Target = [i32; 64 * 64];
 
@@ -432,7 +443,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
             }
             // Update various heuristics, TODO: More (killers, history gravity, etc)
             let entry = &mut self.state.search_stack[ply];
-            self.state.custom.history[mov.from_to_square()] += (depth * depth) as i32;
+            self.state
+                .custom
+                .history
+                .update(mov, (depth * depth) as i32);
             entry.killer = mov;
             break;
         }
