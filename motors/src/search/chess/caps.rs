@@ -3,27 +3,27 @@ use std::time::{Duration, Instant};
 use derive_more::{Deref, DerefMut};
 use rand::thread_rng;
 
+use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
+use gears::games::chess::{Chessboard, ChessMoveList};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
-use gears::games::chess::{ChessMoveList, Chessboard};
-use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
-    game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, MIN_SCORE_WON,
-    NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
+    Depth, game_result_to_score, MIN_SCORE_WON, NO_SCORE_YET, Score, SCORE_LOST, SCORE_TIME_UP,
+    SCORE_WON, SearchLimit, SearchResult, TimeControl,
 };
+use gears::ugi::{EngineOption, UgiSpin};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::EngineOptionType::Spin;
-use gears::ugi::{EngineOption, UgiSpin};
 
 use crate::eval::Eval;
-use crate::search::multithreading::SearchSender;
-use crate::search::tt::{TTEntry, TT};
-use crate::search::NodeType::*;
 use crate::search::{
-    ABSearchState, BenchResult, Benchable, CustomInfo, Engine, EngineInfo, NodeType, Pv,
+    ABSearchState, Benchable, BenchResult, CustomInfo, Engine, EngineInfo, NodeType, Pv,
     SearchStackEntry, SearchState,
 };
+use crate::search::multithreading::SearchSender;
+use crate::search::NodeType::*;
+use crate::search::tt::{TT, TTEntry};
 
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
@@ -65,7 +65,11 @@ struct CapsSearchStackEntry {
     allow_nmp: bool,
 }
 
-impl SearchStackEntry for CapsSearchStackEntry {}
+impl SearchStackEntry<Chessboard> for CapsSearchStackEntry {
+    fn pv(&self) -> Option<&[ChessMove]> {
+        Some(&self.pv.list[0..self.pv.length])
+    }
+}
 
 type State = ABSearchState<Chessboard, CapsSearchStackEntry, Additional>;
 
@@ -364,6 +368,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
             self.state.nodes += 1;
             num_children += 1;
 
+            // O(1). Resets the child's pv length so that it's not the maximum length it used to be.
+            self.state.search_stack[ply + 1].pv.clear();
+
             let debug_history_len = self.state.board_history.0 .0.len();
 
             self.state.board_history.push(&pos);
@@ -430,6 +437,13 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if ply == 0 {
                 self.state.best_move = Some(mov);
             }
+
+            let split = self.state.search_stack.split_at_mut(ply + 1);
+            let pv = &mut split.0.last_mut().unwrap().pv;
+            let child_pv = &split.1[0].pv;
+            // TODO: Test if this loses elo (a different implementation used to lose a few elo points)
+            pv.push(ply, best_move, child_pv);
+
             if score < beta {
                 continue;
             }
@@ -461,19 +475,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node.
         self.tt.store(tt_entry, ply);
-
-        let split = self.state.search_stack.split_at_mut(ply + 1);
-        let entry = split.0.last_mut().unwrap();
-        if bound_so_far == Exact {
-            // TODO: Test if this loses elo (a different implementation used to lose a few elo points)
-            entry.pv.list[ply] = best_move;
-            let next = &split.1[0].pv;
-            for p in ply + 1..next.length {
-                entry.pv.list[p] = next.list[p];
-            }
-        } else {
-            entry.pv.length = ply + 1;
-        }
 
         best_score
     }

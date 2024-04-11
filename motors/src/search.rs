@@ -81,6 +81,20 @@ impl<B: Board, const LIMIT: usize> Default for Pv<B, LIMIT> {
     }
 }
 
+impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
+    pub fn push(&mut self, ply: usize, mov: B::Move, child_pv: &Pv<B, LIMIT>) {
+        self.list[ply] = mov;
+        for i in ply + 1..child_pv.length {
+            self.list[i] = child_pv.list[i];
+        }
+        self.length = (ply + 1).max(child_pv.length);
+    }
+
+    pub fn clear(&mut self) {
+        self.length = 0;
+    }
+}
+
 /// Implements a triangular pv table, except that it's actually quadratic
 /// (the doubled memory requirements should be inconsequential, and this is much easier to implement
 /// and potentially faster)
@@ -351,16 +365,21 @@ pub trait SearchState<B: Board>: Debug + Clone {
     fn to_search_info(&self) -> SearchInfo<B>;
 }
 
-pub trait SearchStackEntry: Default + Clone + Debug {
+pub trait SearchStackEntry<B: Board>: Default + Clone + Debug {
     fn forget(&mut self) {
         *self = Self::default();
     }
+    fn pv(&self) -> Option<&[B::Move]>;
 }
 
 #[derive(Copy, Clone, Default, Debug)]
 struct EmptySearchStackEntry {}
 
-impl SearchStackEntry for EmptySearchStackEntry {}
+impl<B: Board> SearchStackEntry<B> for EmptySearchStackEntry {
+    fn pv(&self) -> Option<&[B::Move]> {
+        None
+    }
+}
 
 trait CustomInfo: Default + Clone + Debug {}
 
@@ -370,7 +389,7 @@ struct NoCustomInfo {}
 impl CustomInfo for NoCustomInfo {}
 
 #[derive(Debug, Clone)]
-pub struct ABSearchState<B: Board, E: SearchStackEntry, C: CustomInfo> {
+pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo> {
     search_stack: Vec<E>,
     board_history: ZobristRepetition2Fold,
     custom: C,
@@ -384,7 +403,7 @@ pub struct ABSearchState<B: Board, E: SearchStackEntry, C: CustomInfo> {
     score: Score,
 }
 
-impl<B: Board, E: SearchStackEntry, C: CustomInfo> ABSearchState<B, E, C> {
+impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
     fn new(max_depth: Depth) -> Self {
         Self::new_with_stack(vec![E::default(); max_depth.get()])
     }
@@ -411,7 +430,13 @@ impl<B: Board, E: SearchStackEntry, C: CustomInfo> ABSearchState<B, E, C> {
     }
 
     fn pv(&self) -> Vec<B::Move> {
-        vec![self.mov()]
+        if let Some(pv) = self.search_stack[0].pv() {
+            assert!(!pv.is_empty());
+            assert_eq!(pv[0], self.mov());
+            Vec::from(pv)
+        } else {
+            vec![self.mov()]
+        }
     }
 
     fn hashfull(&self) -> Option<usize> {
@@ -437,7 +462,7 @@ impl<B: Board, E: SearchStackEntry, C: CustomInfo> ABSearchState<B, E, C> {
     }
 }
 
-impl<B: Board, E: SearchStackEntry, C: CustomInfo> SearchState<B> for ABSearchState<B, E, C> {
+impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearchState<B, E, C> {
     fn nodes(&self) -> Nodes {
         Nodes::new(self.nodes).unwrap()
     }
