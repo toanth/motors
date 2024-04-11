@@ -319,7 +319,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // };
 
         // Reverse Futility Pruning (RFP): If eval is far above beta, it's likely that our opponent
-        // blundered in a previous move of the search, do if the depth is low, don't even bother searching further.
+        // blundered in a previous move of the search, so if the depth is low, don't even bother searching further.
         if can_prune {
             if depth < 4 && eval >= beta + Score(80 * depth as i32) {
                 return eval;
@@ -328,7 +328,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // Null Move Pruning (NMP). If static eval of our position is above beta, this node probably isn't that interesting.
             // To test this hypothesis, do a nullmove and perform a search with reduced depth; if the result is still
             // above beta, then it's very likely that the score would have been above beta if we had played a move,
-            // so simply return the nmp score.
+            // so simply return the nmp score. This is based on the null move observation (there are very few zugzwang positions).
+            // A more careful implementation would do a verification search to check for zugzwang, and possibly avoid even trying
+            // nmp in a position with no pieces except the king and pawns.
             if depth >= 3 && eval >= beta {
                 self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
@@ -369,6 +371,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
             self.state.board_history.push(&pos);
             // PVS: Assume that the TT move is the best move, so we only need to prove that the other moves are worse,
             // which we can do with a zero window search. Should this assumption fail, re-search with a full window.
+            // A better (but very slightly more complicated) implementation would be to do 2 researches, first with a
+            // null window but the full depth, and only then without a null window and at the full depth.
             let mut score;
             if num_children == 1 {
                 score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, sender);
