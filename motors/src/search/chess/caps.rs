@@ -1,6 +1,8 @@
 use std::time::{Duration, Instant};
 
+use arrayvec::ArrayVec;
 use derive_more::{Deref, DerefMut};
+use itertools::Itertools;
 use rand::thread_rng;
 
 use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
@@ -58,10 +60,12 @@ struct Additional {
 
 impl CustomInfo for Additional {}
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Clone)]
 struct CapsSearchStackEntry {
     killer: ChessMove,
     pv: Pv<Chessboard, { DEPTH_HARD_LIMIT.get() }>,
+    // TODO: Use ArrayVec for other stuff, like the move list.
+    tried_quiets: ArrayVec<ChessMove, 256>,
 }
 
 impl SearchStackEntry<Chessboard> for CapsSearchStackEntry {
@@ -353,6 +357,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         let mut num_children = 0;
 
+        self.state.search_stack[ply].tried_quiets.clear();
+
         let all_moves = self.order_moves(pos.pseudolegal_moves(), &pos, best_move, ply);
         for mov in all_moves {
             let new_pos = pos.make_move(mov);
@@ -405,6 +411,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
             }
             debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);
 
+            if !mov.is_capture(&pos) {
+                // TODO: Use quiet instead of non-capture (non-regression test)
+                self.state.search_stack[ply].tried_quiets.push(mov);
+            }
+
             best_score = best_score.max(score);
             // Save indentation by using `continue` instead of nested if statements.
             if score <= alpha {
@@ -432,6 +443,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
             }
             // Update various heuristics, TODO: More (killers, history gravity, etc)
             let entry = &mut self.state.search_stack[ply];
+            for disappointing in entry.tried_quiets.iter().dropping_back(1) {
+                debug_assert!(!disappointing.is_capture(&pos));
+                debug_assert!(pos.is_move_legal(*disappointing));
+
+                self.state.custom.history[disappointing.from_to_square()] -= (depth * depth) as i32;
+            }
             self.state.custom.history[mov.from_to_square()] += (depth * depth) as i32;
             entry.killer = mov;
             break;
