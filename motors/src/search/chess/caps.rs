@@ -288,7 +288,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         if depth <= 0 {
             return self.qsearch(pos, alpha, beta, ply);
         }
-        let can_prune = !is_pvs_pv_node && !in_check;
+        let can_prune_or_reduce = !is_pvs_pv_node && !in_check;
 
         let mut best_score = NO_SCORE_YET;
         let mut bound_so_far = UpperBound;
@@ -320,7 +320,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         // Reverse Futility Pruning (RFP): If eval is far above beta, it's likely that our opponent
         // blundered in a previous move of the search, so if the depth is low, don't even bother searching further.
-        if can_prune {
+        if can_prune_or_reduce {
             if depth < 4 && eval >= beta + Score(80 * depth as i32) {
                 return eval;
             }
@@ -351,7 +351,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
             }
         }
 
-        let mut num_children = 0;
+        let mut children_visited = 0;
+        let mut num_quiets_visited = 0;
 
         let all_moves = self.order_moves(pos.pseudolegal_moves(), &pos, best_move, ply);
         for mov in all_moves {
@@ -361,7 +362,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
             }
             let new_pos = new_pos.unwrap();
             self.state.nodes += 1;
-            num_children += 1;
+            children_visited += 1;
+            // TODO: Use is_noisy() instead of is_capture everywhere, also rename to is_tactical maybe?
+            if !mov.is_capture(&pos) {
+                num_quiets_visited += 1;
+            }
 
             // O(1). Resets the child's pv length so that it's not the maximum length it used to be.
             self.state.search_stack[ply + 1].pv.clear();
@@ -369,19 +374,30 @@ impl<E: Eval<Chessboard>> Caps<E> {
             let debug_history_len = self.state.board_history.0 .0.len();
 
             self.state.board_history.push(&pos);
-            // PVS: Assume that the TT move is the best move, so we only need to prove that the other moves are worse,
-            // which we can do with a zero window search. Should this assumption fail, re-search with a full window.
+            // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove that
+            // the other moves are worse, which we can do with a zero window search. Should this assumption fail,
+            // re-search with a full window.
             // A better (but very slightly more complicated) implementation would be to do 2 researches, first with a
             // null window but the full depth, and only then without a null window and at the full depth.
             let mut score;
-            if num_children == 1 {
+            if children_visited == 1 {
                 score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, sender);
             } else {
+                /// LMR (Late Move Reductions): Trust the move ordering (mostly the quiet history heuristic, at least currently)
+                /// and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search to verify our belief.
+                /// In the unlikely case that thi believe turns out to have been misplaced, do a full research instead
+                /// (A more complex implementation might do 2 researches, where the first research still uses a null window but
+                /// searches to the full depth.)
+                let mut reduction = 0;
+                if can_prune_or_reduce && num_quiets_visited > 8 && depth >= 5 {
+                    reduction = 2; // This is a very basic implementation. TODO: Make more complex eventually.
+                }
+
                 score = -self.negamax(
                     new_pos,
                     limit,
                     ply + 1,
-                    depth - 1,
+                    depth - 1 - reduction,
                     -(alpha + 1),
                     -alpha,
                     sender,
@@ -397,7 +413,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             debug_assert_eq!(
                 self.state.board_history.0.0.len(),
                 debug_history_len,
-                "depth {depth} ply {ply} old len {debug_history_len} new len {} child {num_children}", self.state.board_history.0.0.len()
+                "depth {depth} ply {ply} old len {debug_history_len} new len {} child {children_visited}", self.state.board_history.0.0.len()
             );
             // Check for cancellation right after searching a move to avoid storing incorrect information in the TT.
             if self.should_stop(limit, sender) {
@@ -437,7 +453,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             break;
         }
 
-        if num_children == 0 {
+        if children_visited == 0 {
             // TODO: Merge cached in-check branch
             return game_result_to_score(pos.no_moves_result(), ply);
         }
