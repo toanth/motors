@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter};
 use std::str::{FromStr, SplitWhitespace};
 
 use crate::games::Board;
-use crate::general::common::{Res, select_name_static};
+use crate::general::common::{select_name_static, Res};
 
 /// Ugi-related helpers that are used by both `motors` and `monitors`.
 
@@ -169,8 +169,8 @@ pub fn parse_ugi_position<B: Board>(words: &mut SplitWhitespace, settings: B::Se
         .next()
         .ok_or_else(|| "Missing position after 'position' command".to_string())?;
     Ok(match position_word {
-        "fen" => B::read_fen_and_advance_input(words)?,
-        "startpos" => B::startpos(settings),
+        "fen" | "f" => B::read_fen_and_advance_input(words)?,
+        "startpos" | "s" => B::startpos(settings),
         name => (select_name_static(name, &B::name_to_pos_map(), "position", B::game_name())
             .map_err(|err| format!("{err} 'startpos' and 'fen <fen>' are also always recognized."))?
             .val)(),

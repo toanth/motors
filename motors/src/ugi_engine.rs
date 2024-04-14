@@ -8,24 +8,24 @@ use colored::Colorize;
 use crossbeam_channel::select;
 use itertools::Itertools;
 
-use gears::games::Color::White;
+use gears::{AbstractRun, AnyMatch, GameResult, GameState, MatchStatus, output_builder_from_str};
 use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
+use gears::games::Color::White;
 use gears::general::common::parse_int;
 use gears::general::common::Res;
 use gears::general::perft::{perft, split_perft};
+use gears::MatchStatus::*;
+use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
-use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, Nodes, SearchInfo, SearchLimit, SearchResult, TimeControl};
+use gears::ugi::{EngineOptionName, parse_ugi_position};
 use gears::ugi::EngineOptionName::Threads;
-use gears::ugi::{parse_ugi_position, EngineOptionName};
-use gears::MatchStatus::*;
-use gears::{output_builder_from_str, AbstractRun, AnyMatch, GameResult, GameState, MatchStatus};
 
 use crate::cli::EngineOpts;
 use crate::create_engine_from_str;
-use crate::search::multithreading::{EngineWrapper, Receiver, SearchSender, Sender};
 use crate::search::{BenchResult, EngineList};
+use crate::search::multithreading::{EngineWrapper, Receiver, SearchSender, Sender};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
 
@@ -338,10 +338,10 @@ impl<B: Board> EngineUGI<B> {
         self.output().write_ugi_input(words.clone());
         let first_word = words.next().ok_or("Empty input")?;
         match first_word {
-            "go" => {
+            "go" | "g" => {
                 self.handle_go(words)?;
             }
-            "position" => {
+            "position" | "pos" | "p" => {
                 self.handle_position(words)?;
             }
             "ugi" => {
@@ -500,7 +500,7 @@ impl<B: Board> EngineUGI<B> {
                     return Err("The 'go searchmoves' option is not implemented".to_string());
                 }
                 "ponder" => return Err("Pondering is not (yet?) implemented".to_string()),
-                "wtime" | "p1time" => {
+                "wtime" | "p1time" | "wt" | "p1t" => {
                     let time =
                         Duration::from_millis(parse_int(&mut words, "'wtime' milliseconds")?);
                     if is_white {
@@ -508,21 +508,21 @@ impl<B: Board> EngineUGI<B> {
                         limit.tc.remaining = time;
                     }
                 }
-                "btime" | "p2time" => {
+                "btime" | "p2time" | "bt" | "p2t" => {
                     let time =
                         Duration::from_millis(parse_int(&mut words, "'btime' milliseconds")?);
                     if !is_white {
                         limit.tc.remaining = time;
                     }
                 }
-                "winc" | "p1inc" => {
+                "winc" | "p1inc" | "wi" => {
                     let increment =
                         Duration::from_millis(parse_int(&mut words, "'winc' milliseconds")?);
                     if is_white {
                         limit.tc.increment = increment;
                     }
                 }
-                "binc" | "p2inc" => {
+                "binc" | "p2inc" | "bi" => {
                     let increment =
                         Duration::from_millis(parse_int(&mut words, "'binc' milliseconds")?);
                     if !is_white {
@@ -532,8 +532,8 @@ impl<B: Board> EngineUGI<B> {
                 "movestogo" => {
                     limit.tc.moves_to_go = Some(parse_int(&mut words, "'movestogo' number")?)
                 }
-                "depth" => limit.depth = Depth::new(parse_int(&mut words, "depth number")?),
-                "nodes" => {
+                "depth" | "d" => limit.depth = Depth::new(parse_int(&mut words, "depth number")?),
+                "nodes" | "n" => {
                     limit.nodes = Nodes::new(parse_int(&mut words, "node count")?)
                         .ok_or_else(|| "node count can't be zero".to_string())?
                 }
@@ -549,7 +549,7 @@ impl<B: Board> EngineUGI<B> {
                     limit.fixed_time =
                         (limit.fixed_time - Duration::from_millis(2)).max(Duration::from_millis(1));
                 }
-                "infinite" => (), // "infinite" is the identity element of the bounded semilattice of `go` options
+                "infinite" | "inf" => (), // "infinite" is the identity element of the bounded semilattice of `go` options
                 "perft" => search_type = Perft,
                 "splitperft" => search_type = SplitPerft,
                 "bench" => search_type = Bench,
@@ -602,8 +602,8 @@ impl<B: Board> EngineUGI<B> {
         let Some(word) = words.next() else {
             return Ok(());
         };
-        if word != "moves" {
-            return Err(format!("Unrecognized word '{word}' after position command, expected either 'moves' or nothing"));
+        if word != "moves" && word != "m" {
+            return Err(format!("Unrecognized word '{word}' after position command, expected either 'moves', 'm', or nothing"));
         }
         for mov in words {
             let mov = B::Move::from_compact_text(mov, &self.state.board)
