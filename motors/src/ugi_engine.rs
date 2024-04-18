@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::io::stdin;
+use std::ops::{Deref, DerefMut};
 use std::str::{FromStr, SplitWhitespace};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -79,20 +80,91 @@ enum ProgramStatus {
     Quit,
 }
 
-#[derive(Debug)]
-struct EngineGameState<B: Board> {
-    engine: EngineWrapper<B>,
+#[derive(Debug, Clone)]
+struct BoardGameState<B: Board> {
     board: B,
     debug_mode: bool,
     status: ProgramStatus,
     mov_hist: Vec<B::Move>,
     board_hist: ZobristRepetition3Fold,
     initial_pos: B,
+    last_played_color: Color,
+}
+
+impl<B: Board> BoardGameState<B> {
+    fn make_move(&mut self, mov: B::Move) -> Res<()> {
+        if !self.board.is_move_pseudolegal(mov) {
+            return Err(format!("Illegal move {mov} (not pseudolegal)"));
+        }
+        if let Run(Over(result)) = &self.status {
+            return Err(format!(
+                "Cannot play move '{mov}' because the game is already over: {0} ({1}). The position is '{2}'",
+                result.result, result.reason, self.board.as_fen()
+            ));
+        }
+        self.board_hist.push(&self.board);
+        self.mov_hist.push(mov);
+        self.board = self
+            .board
+            .make_move(mov)
+            .ok_or_else(|| format!("Illegal move {mov} (pseudolegal)"))?;
+        if self.debug_mode {
+            if let Some(res) = self.board.match_result_slow() {
+                return Err(format!("The game is over ({0}, reason: {1}) after move {mov}, which results in the following position: {2}", res.result, res.reason, self.board.as_fen()));
+            }
+        }
+        Ok(())
+    }
+
+    fn clear_state(&mut self) {
+        self.board = self.initial_pos;
+        self.mov_hist.clear();
+        <ZobristRepetition3Fold as BoardHistory<B>>::clear(&mut self.board_hist);
+        self.status = Run(NotStarted);
+    }
+
+    fn handle_position(&mut self, mut words: SplitWhitespace) -> Res<()> {
+        self.initial_pos = parse_ugi_position(&mut words, self.board.settings())?;
+        self.clear_state();
+
+        let Some(word) = words.next() else {
+            return Ok(());
+        };
+        if word != "moves" && word != "m" {
+            return Err(format!("Unrecognized word '{word}' after position command, expected either 'moves', 'm', or nothing"));
+        }
+        for mov in words {
+            let mov = B::Move::from_compact_text(mov, &self.board)
+                .map_err(|err| format!("Couldn't parse move: {err}"))?;
+            self.make_move(mov)?;
+        }
+        self.last_played_color = self.board.active_player();
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct EngineGameState<B: Board> {
+    board_state: BoardGameState<B>,
+    engine: EngineWrapper<B>,
     /// This doesn't have to be the UGI engine name. It often isn't, especially when two engines with
     /// the same name play against each other, such as in a SPRT. It should be unique, however
     /// (the `monitors` client ensures that, but another GUI might not).
     display_name: String,
-    last_played_color: Color,
+}
+
+impl<B: Board> Deref for EngineGameState<B> {
+    type Target = BoardGameState<B>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.board_state
+    }
+}
+
+impl<B: Board> DerefMut for EngineGameState<B> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.board_state
+    }
 }
 
 // TODO: Keep this is a global object instead? Would make it easier to print warnings from anywhere, simplify search sender design
@@ -163,7 +235,7 @@ impl<B: Board> UgiOutput<B> {
 pub struct EngineUGI<B: Board> {
     state: EngineGameState<B>,
     output: Arc<Mutex<UgiOutput<B>>>,
-    next_match: Option<AnyMatch>,
+    next_match: Option<AnyMatch>, // TODO: Used?
     output_factories: OutputList<B>,
 }
 
@@ -241,16 +313,19 @@ impl<B: Board> EngineUGI<B> {
         let sender = SearchSender::new(output.clone());
         let board = B::default();
         let engine = create_engine_from_str(&opts.engine, &all_engines, sender)?;
-        let state = EngineGameState {
-            engine,
+        let board_state = BoardGameState {
             board,
             debug_mode: opts.debug,
             status: Run(NotStarted),
             mov_hist: vec![],
             board_hist: ZobristRepetition3Fold::default(),
             initial_pos: B::default(),
-            display_name: opts.engine,
             last_played_color: Default::default(),
+        };
+        let state = EngineGameState {
+            board_state,
+            engine,
+            display_name: opts.engine,
         };
         for builder in selected_output_builders {
             output
@@ -269,13 +344,6 @@ impl<B: Board> EngineUGI<B> {
 
     fn output(&self) -> MutexGuard<UgiOutput<B>> {
         self.output.lock().unwrap()
-    }
-
-    fn clear_state(&mut self) {
-        self.state.board = self.state.initial_pos;
-        self.state.mov_hist.clear();
-        <ZobristRepetition3Fold as BoardHistory<B>>::clear(&mut self.state.board_hist);
-        self.state.status = Run(NotStarted);
     }
 
     fn handle_ugi(&mut self, stdin_receiver: Receiver<Res<String>>) -> Res<ProgramStatus> {
@@ -337,12 +405,17 @@ impl<B: Board> EngineUGI<B> {
     fn parse_input(&mut self, mut words: SplitWhitespace) -> Res<ProgramStatus> {
         self.output().write_ugi_input(words.clone());
         let first_word = words.next().ok_or("Empty input")?;
+        // TODO: Return an error on traliing words instead of silently ignoring them, similar to the UgiClient implementation
         match first_word {
+            // put time-critical commands at the top
             "go" | "g" => {
                 self.handle_go(words)?;
             }
             "position" | "pos" | "p" => {
-                self.handle_position(words)?;
+                self.state.handle_position(words)?;
+            }
+            "stop" => {
+                self.state.engine.send_stop();
             }
             "ugi" => {
                 let id_msg = self.id();
@@ -394,9 +467,6 @@ impl<B: Board> EngineUGI<B> {
                 self.state.engine.send_forget()?;
                 self.state.status = Run(NotStarted);
             }
-            "stop" => {
-                self.state.engine.send_stop();
-            }
             "ponderhit" => {} // ignore pondering
             "quit" => {
                 self.quit()?;
@@ -420,8 +490,9 @@ impl<B: Board> EngineUGI<B> {
                 self.handle_engine(words)?;
             }
             "play" => {
-                todo!("remove?");
+                todo!("remove? probably not");
             }
+            "eval" => self.handle_eval(words)?,
             x => {
                 // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
                 // expositor UCI spec demands that an invalid token should cause the entire message to be ignored.
@@ -595,23 +666,14 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_position(&mut self, mut words: SplitWhitespace) -> Res<()> {
-        self.state.initial_pos = parse_ugi_position(&mut words, self.state.board.settings())?;
-        self.clear_state();
-
-        let Some(word) = words.next() else {
-            return Ok(());
-        };
-        if word != "moves" && word != "m" {
-            return Err(format!("Unrecognized word '{word}' after position command, expected either 'moves', 'm', or nothing"));
+    fn handle_eval(&mut self, words: SplitWhitespace) -> Res<()> {
+        if words.clone().next().is_some() {
+            let mut board_state_clone = self.state.board_state.clone();
+            board_state_clone.handle_position(words)?;
+            self.state.engine.static_eval(board_state_clone.board)
+        } else {
+            self.state.engine.static_eval(self.state.board)
         }
-        for mov in words {
-            let mov = B::Move::from_compact_text(mov, &self.state.board)
-                .map_err(|err| format!("Couldn't parse move: {err}"))?;
-            self.make_move(mov)?;
-        }
-        self.state.last_played_color = self.state.board.active_player();
-        Ok(())
     }
 
     fn handle_query(&mut self, mut words: SplitWhitespace) -> Res<()> {
@@ -680,7 +742,7 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_engine(&mut self, mut words: SplitWhitespace) -> Res<()> {
-        todo!("Currently, this is no longer implemented (and maybe not a good idea in general?)")
+        todo!("Currently, this is no longer implemented (and maybe not a good idea in general?) TODO: Implement")
         // self.state.engine = create_engine_from_str(words.next().unwrap_or_default(), "")?;
         // Ok(())
     }
@@ -697,30 +759,5 @@ impl<B: Board> EngineUGI<B> {
             .map(|opt| format!("option {opt}"))
             .collect::<Vec<String>>()
             .join("\n")
-    }
-
-    fn make_move(&mut self, mov: B::Move) -> Res<()> {
-        if !self.state.board.is_move_pseudolegal(mov) {
-            return Err(format!("Illegal move {mov} (not pseudolegal)"));
-        }
-        if let Run(Over(result)) = &self.state.status {
-            return Err(format!(
-                "Cannot play move '{mov}' because the game is already over: {0} ({1}). The position is '{2}'",
-                result.result, result.reason, self.state.board.as_fen()
-            ));
-        }
-        self.state.board_hist.push(&self.state.board);
-        self.state.mov_hist.push(mov);
-        self.state.board = self
-            .state
-            .board
-            .make_move(mov)
-            .ok_or_else(|| format!("Illegal move {mov} (pseudolegal)"))?;
-        if self.state.debug_mode {
-            if let Some(res) = self.state.board.match_result_slow() {
-                return Err(format!("The game is over ({0}, reason: {1}) after move {mov}, which results in the following position: {2}", res.result, res.reason, self.state.board.as_fen()));
-            }
-        }
-        Ok(())
     }
 }

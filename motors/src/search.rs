@@ -270,7 +270,6 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     }
 
     /// The important function.
-
     fn do_search(
         &mut self,
         pos: B,
@@ -281,7 +280,6 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool;
 
     // Sensible default values, but engines may choose to check more/less frequently than every 1024 nodes
-
     fn should_stop_impl(&self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
         let state = self.search_state();
         if state.nodes() >= limit.nodes {
@@ -315,13 +313,15 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
 
     /// Returns a SearchInfo object with information about the search so far.
     /// Can be called during search, only returns the information regarding the current thread.
-
     fn search_info(&self) -> SearchInfo<B> {
         self.search_state().to_search_info()
     }
 
-    /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
+    /// This should return the static eval (possibly with WDL normalization) without doing any kind of search.
+    /// For engines like `RandomMover` where there is no static eval, this should return `Score(0)`.
+    fn get_static_eval(&mut self, pos: B) -> Score;
 
+    /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
     fn forget(&mut self) {
         self.search_state_mut().forget();
     }

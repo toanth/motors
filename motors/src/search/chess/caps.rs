@@ -3,27 +3,27 @@ use std::time::{Duration, Instant};
 use derive_more::{Deref, DerefMut};
 use rand::thread_rng;
 
+use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
+use gears::games::chess::{Chessboard, ChessMoveList};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
-use gears::games::chess::{ChessMoveList, Chessboard};
-use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
-    game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, MIN_SCORE_WON,
-    NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
+    Depth, game_result_to_score, MIN_SCORE_WON, NO_SCORE_YET, Score, SCORE_LOST, SCORE_TIME_UP,
+    SCORE_WON, SearchLimit, SearchResult, TimeControl,
 };
+use gears::ugi::{EngineOption, UgiSpin};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::EngineOptionType::Spin;
-use gears::ugi::{EngineOption, UgiSpin};
 
 use crate::eval::Eval;
-use crate::search::multithreading::SearchSender;
-use crate::search::tt::{TTEntry, TT};
-use crate::search::NodeType::*;
 use crate::search::{
-    ABSearchState, BenchResult, Benchable, CustomInfo, Engine, EngineInfo, NodeType, Pv,
+    ABSearchState, Benchable, BenchResult, CustomInfo, Engine, EngineInfo, NodeType, Pv,
     SearchStackEntry, SearchState,
 };
+use crate::search::multithreading::SearchSender;
+use crate::search::NodeType::*;
+use crate::search::tt::{TT, TTEntry};
 
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
@@ -243,6 +243,10 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
 
     fn search_state_mut(&mut self) -> &mut impl SearchState<Chessboard> {
         &mut self.state
+    }
+
+    fn get_static_eval(&mut self, pos: Chessboard) -> Score {
+        self.eval.eval(pos)
     }
 
     fn can_use_multiple_threads() -> bool
