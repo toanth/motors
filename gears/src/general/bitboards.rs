@@ -169,6 +169,15 @@ impl Debug for ChessBitboard {
     }
 }
 
+impl ChessBitboard {
+    pub fn file_no(idx: DimT) -> Self {
+        Self::file(idx, ChessboardSize::default())
+    }
+    pub fn rank_no(idx: DimT) -> Self {
+        Self::rank(idx, ChessboardSize::default())
+    }
+}
+
 #[derive(
     Copy,
     Clone,
