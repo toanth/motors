@@ -5,7 +5,8 @@ use gears::games::chess::Chessboard;
 use gears::games::chess::pieces::UncoloredChessPiece;
 use gears::games::chess::pieces::UncoloredChessPiece::{Pawn, Rook};
 use gears::games::chess::squares::ChessSquare;
-use gears::general::bitboards::{Bitboard, ChessBitboard};
+use gears::games::Color::{Black, White};
+use gears::general::bitboards::{A_FILE, Bitboard, ChessBitboard};
 use gears::search::Score;
 
 use crate::eval::chess::hce::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
@@ -191,6 +192,23 @@ fn file_openness(file: DimT, our_pawns: ChessBitboard, their_pawns: ChessBitboar
     }
 }
 
+// TODO: Remove here, turn into trait method (needs size, so should go into SizedBitboard)
+fn print_bitboard(bb: ChessBitboard) -> String {
+    let mut res = String::new();
+    for rank in 7..=0 {
+        for file in 0..8 {
+            let bit = bb & (1 << (8 * rank + file));
+            if bit == 0 {
+                res.push('0');
+            } else {
+                res.push('1');
+            }
+        }
+        res.push('\n');
+    }
+    res
+}
+
 impl Eval<Chessboard> for HandCraftedEval {
     fn eval(&self, pos: Chessboard) -> Score {
         let mut mg = Score(0);
@@ -246,8 +264,8 @@ impl Eval<Chessboard> for HandCraftedEval {
                     let mg_table = piece as usize * 2;
                     let eg_table = mg_table + 1;
                     let square = match color {
-                        Color::White => idx ^ 0b111_000,
-                        Color::Black => idx,
+                        White => idx ^ 0b111_000,
+                        Black => idx,
                     };
                     mg += Score(PSQTS[mg_table][square]);
                     eg += Score(PSQTS[eg_table][square]);
@@ -256,11 +274,22 @@ impl Eval<Chessboard> for HandCraftedEval {
                     // Isolated pawns
                     if piece == Pawn {
                         let file = ChessBitboard::file_no(ChessSquare::new(idx).file());
-                        if (our_pawns.west() & file).is_zero()
-                            && (our_pawns.east() & file).is_zero()
-                        {
-                            mg += Score(ISOLATED_PAWN_MG);
-                            eg += Score(ISOLATED_PAWN_EG);
+                        // if (our_pawns.west() & file).is_zero()
+                        //     && (our_pawns.east() & file).is_zero()
+                        // {
+                        //     mg += Score(ISOLATED_PAWN_MG);
+                        //     eg += Score(ISOLATED_PAWN_EG);
+                        // }
+                        let blocking = if color == White {
+                            A_FILE << idx
+                        } else {
+                            A_FILE >> (idx ^ 0b111_000)
+                        };
+                        let blocking = blocking.west() | blocking | blocking.east();
+                        let blocking = blocking & their_pawns;
+                        if blocking.is_zero() {
+                            println!("{}", print_bitboard(blocking));
+                            println!("{color} passed pawn on square {}", ChessSquare::new(idx));
                         }
                     }
                 }

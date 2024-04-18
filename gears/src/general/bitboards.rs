@@ -10,9 +10,9 @@ use derive_more::{
 use num::{One, PrimInt, Unsigned, Zero};
 use strum_macros::EnumIter;
 
-use crate::games::{DimT, GridCoordinates, RectangularCoordinates, RectangularSize, Size};
 #[cfg(feature = "chess")]
-use crate::games::chess::squares::{ChessboardSize, ChessSquare};
+use crate::games::chess::squares::{ChessSquare, ChessboardSize};
+use crate::games::{DimT, GridCoordinates, RectangularCoordinates, RectangularSize, Size};
 use crate::general::common::{pop_lsb128, pop_lsb64};
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
@@ -256,6 +256,9 @@ pub enum SliderAttacks {
     Diagonal,
     AntiDiagonal,
 }
+
+// TODO: Refactor into a RawBitboard trait and a SizedBitboard, which contains a RawBitboard and a size,
+// possibly a dereference impl to raw bitboard.
 
 // This seems like a lot of boilerplate code.
 // Maybe there's a better way?
@@ -606,7 +609,7 @@ pub const fn remove_ones_below(bb: u128, idx: usize) -> u128 {
 #[cfg(test)]
 mod tests {
     use crate::general::bitboards::{
-        Bitboard, ExtendedBitboard, remove_ones_above, remove_ones_below,
+        remove_ones_above, remove_ones_below, Bitboard, ExtendedBitboard,
     };
 
     #[test]
