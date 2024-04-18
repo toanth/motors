@@ -1,23 +1,25 @@
 use itertools::Itertools;
 
+use crate::games::{
+    Board, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, Move, sup_distance,
+};
+use crate::games::chess::{Chessboard, ChessMove, ChessMoveList};
+use crate::games::chess::CastleRight::*;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::pieces::ColoredChessPiece;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::squares::{
-    ChessSquare, A_FILE_NO, C_FILE_NO, E_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
+    A_FILE_NO, C_FILE_NO, ChessSquare, E_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
 };
-use crate::games::chess::CastleRight::*;
-use crate::games::chess::{ChessMove, ChessMoveList, Chessboard};
 use crate::games::Color::*;
-use crate::games::{
-    sup_distance, Board, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, Move,
-};
 use crate::general::bitboards::{Bitboard, ChessBitboard, KNIGHTS};
 
 enum SliderMove {
     Bishop,
     Rook,
 }
+
+// TODO: Use the north(), west(), etc. methods
 
 impl Chessboard {
     pub fn is_move_pseudolegal_impl(&self, mov: ChessMove) -> bool {

@@ -176,6 +176,38 @@ impl ChessBitboard {
     pub fn rank_no(idx: DimT) -> Self {
         Self::rank(idx, ChessboardSize::default())
     }
+
+    pub fn north(self) -> Self {
+        self << 8
+    }
+
+    pub fn south(self) -> Self {
+        self >> 8
+    }
+
+    pub fn east(self) -> Self {
+        (self & !Self::file_no(7)) << 1
+    }
+
+    pub fn west(self) -> Self {
+        (self & !Self::file_no(0)) >> 1
+    }
+
+    pub fn north_east(self) -> Self {
+        self.north().east()
+    }
+
+    pub fn south_east(self) -> Self {
+        self.south().east()
+    }
+
+    pub fn south_west(self) -> Self {
+        self.south().west()
+    }
+
+    pub fn north_west(self) -> Self {
+        self.north().west()
+    }
 }
 
 #[derive(
@@ -369,10 +401,6 @@ where
     where
         F: Fn(Self) -> Self,
     {
-        // alternative implementation without reverse:
-        // let forward = (blocker & ray) - (self << 1);
-        // let forward = blockers - forward;
-        // let mask = forward - 1;
         let piece = Self::single_piece(idx);
         debug_assert!(!(piece & ray).is_zero());
         let blockers = blockers & ray;
