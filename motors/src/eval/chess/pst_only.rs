@@ -12,7 +12,7 @@ use crate::eval::Eval;
 pub struct PstOnlyEval {}
 
 /// Psqt values tuned on a combination of the zurichess and a dataset used by 4ku,
-/// created by GCP using his engine Stoofvlees and filtered by cj5716,
+/// created by GCP using his engine Stoofvlees and filtered by cj5716 using Stockfish at depth 9,
 /// using this tuner: https://github.com/GediminasMasaitis/texel-tuner.
 #[rustfmt::skip]
 const PSQTS: [[i32; 64]; 12] = [

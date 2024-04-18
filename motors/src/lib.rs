@@ -17,6 +17,7 @@ use gears::search::Depth;
 
 use crate::cli::{EngineOpts, Mode, parse_cli};
 use crate::cli::Mode::Bench;
+use crate::eval::chess::hce::HandCraftedEval;
 #[cfg(feature = "chess")]
 use crate::eval::chess::pst_only::PstOnlyEval;
 #[cfg(feature = "mnk")]
@@ -151,7 +152,7 @@ pub fn list_chess_engines() -> EngineList<Chessboard> {
     >::new()));
     #[cfg(feature = "caps")]
     res.push(Box::new(
-        EngineBuilder::<Chessboard, Caps<PstOnlyEval>>::new(),
+        EngineBuilder::<Chessboard, Caps<HandCraftedEval>>::new(),
     ));
     res
 }
