@@ -7,12 +7,14 @@ use std::str::SplitWhitespace;
 use static_assertions::const_assert_eq;
 use strum::IntoEnumIterator;
 
-use crate::games::*;
+use crate::games::mnk::Symbol::{Empty, O, X};
 use crate::games::Color::{Black, White};
 use crate::games::GridSize;
-use crate::games::mnk::Symbol::{Empty, O, X};
 use crate::games::PlayerResult::Draw;
-use crate::general::bitboards::{Bitboard, ExtendedBitboard, remove_ones_above, SliderAttacks};
+use crate::games::*;
+use crate::general::bitboards::{
+    remove_ones_above, Bitboard, DefaultBitboard, ExtendedRawBitboard, RawBitboard, RayDirections,
+};
 use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
 
@@ -282,10 +284,12 @@ impl Default for MnkSettings {
 
 impl Settings for MnkSettings {}
 
+pub type MnkBitboard = DefaultBitboard<ExtendedRawBitboard, GridCoordinates>;
+
 #[derive(Copy, Clone, Eq, PartialEq, Default, Debug)]
 pub struct MNKBoard {
-    white_bb: ExtendedBitboard,
-    black_bb: ExtendedBitboard,
+    white_bb: ExtendedRawBitboard,
+    black_bb: ExtendedRawBitboard,
     ply: u32,
     active_player: Color,
     settings: MnkSettings,
@@ -316,38 +320,38 @@ impl StaticallyNamedEntity for MNKBoard {
 }
 
 impl MNKBoard {
-    pub fn white_bb(self) -> ExtendedBitboard {
-        self.white_bb
+    pub fn white_bb(self) -> MnkBitboard {
+        MnkBitboard::from_raw(self.white_bb, self.size())
     }
 
-    pub fn black_bb(self) -> ExtendedBitboard {
-        self.black_bb
+    pub fn black_bb(self) -> MnkBitboard {
+        MnkBitboard::from_raw(self.black_bb, self.size())
     }
 
-    pub fn player_bb(self, player: Color) -> ExtendedBitboard {
+    pub fn player_bb(self, player: Color) -> MnkBitboard {
         match player {
-            Color::White => self.white_bb,
-            Color::Black => self.black_bb,
+            White => self.white_bb(),
+            Black => self.black_bb(),
         }
     }
 
-    pub fn active_player_bb(self) -> ExtendedBitboard {
+    pub fn active_player_bb(self) -> MnkBitboard {
         self.player_bb(self.active_player())
     }
 
-    pub fn inactive_player_bb(self) -> ExtendedBitboard {
+    pub fn inactive_player_bb(self) -> MnkBitboard {
         self.player_bb(self.active_player().other())
     }
 
-    pub fn occupied_bb(self) -> ExtendedBitboard {
-        self.black_bb | self.white_bb
+    pub fn occupied_bb(self) -> MnkBitboard {
+        self.black_bb() | self.white_bb()
     }
 
-    pub fn empty_bb(self) -> ExtendedBitboard {
-        ExtendedBitboard(remove_ones_above(
-            !self.occupied_bb().0,
-            self.num_squares() - 1,
-        ))
+    pub fn empty_bb(self) -> MnkBitboard {
+        MnkBitboard::from_uint(
+            remove_ones_above(!self.occupied_bb().0, self.num_squares() - 1),
+            self.size(),
+        )
     }
 
     pub fn k(self) -> u32 {
@@ -396,8 +400,8 @@ impl Board for MNKBoard {
         assert!(settings.height * settings.width <= 128);
         MNKBoard {
             ply: 0,
-            white_bb: ExtendedBitboard(0),
-            black_bb: ExtendedBitboard(0),
+            white_bb: ExtendedRawBitboard(0),
+            black_bb: ExtendedRawBitboard(0),
             settings,
             active_player: White,
             last_move: None,
@@ -437,7 +441,7 @@ impl Board for MNKBoard {
 
     fn piece_on_idx(&self, idx: usize) -> Square {
         let coordinates = self.to_coordinates(idx);
-        debug_assert!(self.white_bb & self.black_bb == ExtendedBitboard(0));
+        debug_assert!(self.white_bb & self.black_bb == ExtendedRawBitboard(0));
         if (self.white_bb >> idx) & 1 == 1 {
             Square {
                 symbol: X,
@@ -670,12 +674,12 @@ impl MNKBoard {
         let player = player.unwrap();
         let player_bb = self.player_bb(player);
         let blockers = !self.player_bb(player);
-        debug_assert!(
-            (blockers & ExtendedBitboard::single_piece(self.to_idx(last_move.target))).is_zero()
-        );
+        debug_assert!((blockers.raw()
+            & ExtendedRawBitboard::single_piece(self.to_idx(last_move.target)))
+        .is_zero());
 
-        for dir in SliderAttacks::iter() {
-            if (ExtendedBitboard::slider_attacks(square, blockers, self.size(), dir) & player_bb)
+        for dir in RayDirections::iter() {
+            if (MnkBitboard::slider_attacks(square, blockers, dir) & player_bb)
                 .to_primitive()
                 .count_ones()
                 >= self.k() - 1

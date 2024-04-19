@@ -23,7 +23,8 @@ use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::squares::{ChessboardSize, ChessSquare, NUM_SQUARES};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::Color::{Black, White};
-use crate::general::bitboards::{Bitboard, BLACK_SQUARES, ChessBitboard, WHITE_SQUARES};
+use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
+use crate::general::bitboards::chess::{BLACK_SQUARES, ChessBitboard, WHITE_SQUARES};
 use crate::general::common::{EntityList, GenericSelect, Res, StaticallyNamedEntity};
 use crate::general::move_list::EagerNonAllocMoveList;
 use crate::PlayerResult;
@@ -50,8 +51,8 @@ impl Settings for ChessSettings {}
 
 #[derive(Eq, PartialEq, Debug, Copy, Clone)]
 pub struct Chessboard {
-    piece_bbs: [ChessBitboard; NUM_CHESS_PIECES],
-    color_bbs: [ChessBitboard; NUM_COLORS],
+    piece_bbs: [RawStandardBitboard; NUM_CHESS_PIECES],
+    color_bbs: [RawStandardBitboard; NUM_COLORS],
     ply: usize, // TODO: Test if using u32 or even u16 improves nps in perft (also for 50mr counter)
     ply_100_ctr: usize,
     // history: Rc<History>, // just ignore 3fold repetitions for now
@@ -454,7 +455,7 @@ impl Board for Chessboard {
                 return Err(format!("The {color} player does not have exactly one king"));
             }
             if (self.colored_piece_bb(color, Pawn)
-                & (ChessBitboard::rank(0, self.size()) | ChessBitboard::rank(7, self.size())))
+                & (ChessBitboard::rank_no(0) | ChessBitboard::rank_no(7)))
             .has_set_bit()
             {
                 return Err(format!(
@@ -544,15 +545,15 @@ impl Board for Chessboard {
 impl Chessboard {
     pub fn piece_bb(&self, piece: UncoloredChessPiece) -> ChessBitboard {
         debug_assert_ne!(piece, Empty);
-        self.piece_bbs[piece.to_uncolored_idx()]
+        ChessBitboard::new(self.piece_bbs[piece.to_uncolored_idx()])
     }
 
     pub fn colored_bb(&self, color: Color) -> ChessBitboard {
-        self.color_bbs[color as usize]
+        ChessBitboard::new(self.color_bbs[color as usize])
     }
 
     pub fn occupied_bb(&self) -> ChessBitboard {
-        debug_assert!(self.colored_bb(White) & self.colored_bb(Black) == ChessBitboard(0));
+        debug_assert!((self.colored_bb(White) & self.colored_bb(Black)).is_zero());
         self.colored_bb(White) | self.colored_bb(Black)
     }
 
@@ -586,7 +587,7 @@ impl Chessboard {
     fn place_piece(&mut self, square: ChessSquare, piece: ColoredChessPiece) {
         let idx = self.to_idx(square);
         debug_assert_eq!(self.piece_on(square).symbol, ColoredChessPiece::Empty);
-        let bb = ChessBitboard(1 << idx);
+        let bb = RawStandardBitboard(1 << idx);
         self.piece_bbs[piece.uncolor() as usize] ^= bb;
         self.color_bbs[piece.color().unwrap() as usize] ^= bb;
     }
@@ -600,7 +601,7 @@ impl Chessboard {
                 coordinates: square
             }
         );
-        let bb = ChessBitboard::single_piece(idx);
+        let bb = ChessBitboard::single_piece(idx).raw();
         debug_assert_ne!(piece.uncolor(), Empty);
         self.piece_bbs[piece.uncolor() as usize] ^= bb;
         self.color_bbs[piece.color().unwrap() as usize] ^= bb;
@@ -613,7 +614,7 @@ impl Chessboard {
         debug_assert_ne!(self.piece_on(to).color(), piece.color());
         // use ^ instead of | for to merge the from and to bitboards because in chess960 castling
         // it's possible that from == to
-        let bb = ChessBitboard((1 << self.to_idx(from)) ^ (1 << self.to_idx(to)));
+        let bb = RawStandardBitboard((1 << self.to_idx(from)) ^ (1 << self.to_idx(to)));
         let color = piece.color().unwrap();
         self.color_bbs[color as usize] ^= bb;
         self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
@@ -734,12 +735,15 @@ mod tests {
         assert!(!board.is_3fold_repetition(&ZobristRepetition3Fold::default()));
         assert!(!board.has_insufficient_material());
         assert!(!board.is_50mr_draw());
-        assert_eq!(board.colored_bb(White), ChessBitboard(0xffff));
+        assert_eq!(board.colored_bb(White), ChessBitboard::from_u64(0xffff));
         assert_eq!(
             board.colored_bb(Black),
-            ChessBitboard(0xffff_0000_0000_0000)
+            ChessBitboard::from_u64(0xffff_0000_0000_0000)
         );
-        assert_eq!(board.occupied_bb(), ChessBitboard(0xffff_0000_0000_ffff));
+        assert_eq!(
+            board.occupied_bb(),
+            ChessBitboard::from_u64(0xffff_0000_0000_ffff)
+        );
         assert_eq!(board.king_square(White), E_1);
         assert_eq!(board.king_square(Black), E_8);
         let square = ChessSquare::from_rank_file(4, F_FILE_NO);

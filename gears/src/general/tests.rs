@@ -36,7 +36,7 @@ mod bitboards {
     #[cfg(feature = "chess")]
     mod chessboard {
         use crate::games::chess::squares::{ChessboardSize, ChessSquare};
-        use crate::general::bitboards::{Bitboard, ChessBitboard};
+        use crate::general::bitboards::{ChessBitboard, RawBitboard};
 
         #[test]
         fn is_single_piece_test() {
@@ -173,7 +173,7 @@ mod bitboards {
 
     mod extended_board {
         use crate::games::{GridCoordinates, GridSize, Height, RectangularCoordinates, Width};
-        use crate::general::bitboards::{Bitboard, ExtendedBitboard};
+        use crate::general::bitboards::{ExtendedBitboard, RawBitboard};
 
         const LARGER_THAN_64_BIT: u128 = 1 << 64;
 

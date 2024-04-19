@@ -3,7 +3,7 @@ use strum::IntoEnumIterator;
 use gears::games::{Board, Color};
 use gears::games::chess::Chessboard;
 use gears::games::chess::pieces::UncoloredChessPiece;
-use gears::general::bitboards::Bitboard;
+use gears::general::bitboards::RawBitboard;
 use gears::search::Score;
 
 use crate::eval::Eval;

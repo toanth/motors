@@ -480,7 +480,7 @@ impl<B: Board> EngineUGI<B> {
             "remove_uis" => {
                 self.handle_remove_uis()?;
             }
-            "print" => {
+            "print" | "show" | "s" | "display" => {
                 self.handle_print(words)?;
             }
             "log" => {
