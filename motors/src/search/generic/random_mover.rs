@@ -148,4 +148,8 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
     fn search_state_mut(&mut self) -> &mut impl SearchState<B> {
         &mut self._state
     }
+
+    fn get_static_eval(&mut self, _pos: B) -> Score {
+        Score(0)
+    }
 }

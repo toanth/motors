@@ -12,7 +12,9 @@ use crate::games::Color::{Black, White};
 use crate::games::GridSize;
 use crate::games::mnk::Symbol::{Empty, O, X};
 use crate::games::PlayerResult::Draw;
-use crate::general::bitboards::{Bitboard, ExtendedBitboard, remove_ones_above, SliderAttacks};
+use crate::general::bitboards::{
+    Bitboard, DefaultBitboard, ExtendedRawBitboard, RawBitboard, RayDirections, remove_ones_above,
+};
 use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
 
@@ -282,10 +284,12 @@ impl Default for MnkSettings {
 
 impl Settings for MnkSettings {}
 
+pub type MnkBitboard = DefaultBitboard<ExtendedRawBitboard, GridCoordinates>;
+
 #[derive(Copy, Clone, Eq, PartialEq, Default, Debug)]
 pub struct MNKBoard {
-    white_bb: ExtendedBitboard,
-    black_bb: ExtendedBitboard,
+    white_bb: ExtendedRawBitboard,
+    black_bb: ExtendedRawBitboard,
     ply: u32,
     active_player: Color,
     settings: MnkSettings,
@@ -316,38 +320,38 @@ impl StaticallyNamedEntity for MNKBoard {
 }
 
 impl MNKBoard {
-    pub fn white_bb(self) -> ExtendedBitboard {
-        self.white_bb
+    pub fn white_bb(self) -> MnkBitboard {
+        MnkBitboard::from_raw(self.white_bb, self.size())
     }
 
-    pub fn black_bb(self) -> ExtendedBitboard {
-        self.black_bb
+    pub fn black_bb(self) -> MnkBitboard {
+        MnkBitboard::from_raw(self.black_bb, self.size())
     }
 
-    pub fn player_bb(self, player: Color) -> ExtendedBitboard {
+    pub fn player_bb(self, player: Color) -> MnkBitboard {
         match player {
-            Color::White => self.white_bb,
-            Color::Black => self.black_bb,
+            White => self.white_bb(),
+            Black => self.black_bb(),
         }
     }
 
-    pub fn active_player_bb(self) -> ExtendedBitboard {
+    pub fn active_player_bb(self) -> MnkBitboard {
         self.player_bb(self.active_player())
     }
 
-    pub fn inactive_player_bb(self) -> ExtendedBitboard {
+    pub fn inactive_player_bb(self) -> MnkBitboard {
         self.player_bb(self.active_player().other())
     }
 
-    pub fn occupied_bb(self) -> ExtendedBitboard {
-        self.black_bb | self.white_bb
+    pub fn occupied_bb(self) -> MnkBitboard {
+        self.black_bb() | self.white_bb()
     }
 
-    pub fn empty_bb(self) -> ExtendedBitboard {
-        ExtendedBitboard(remove_ones_above(
-            !self.occupied_bb().0,
-            self.num_squares() - 1,
-        ))
+    pub fn empty_bb(self) -> MnkBitboard {
+        MnkBitboard::from_uint(
+            remove_ones_above(!self.occupied_bb().0, self.num_squares() - 1),
+            self.size(),
+        )
     }
 
     pub fn k(self) -> u32 {
@@ -396,8 +400,8 @@ impl Board for MNKBoard {
         assert!(settings.height * settings.width <= 128);
         MNKBoard {
             ply: 0,
-            white_bb: ExtendedBitboard(0),
-            black_bb: ExtendedBitboard(0),
+            white_bb: ExtendedRawBitboard(0),
+            black_bb: ExtendedRawBitboard(0),
             settings,
             active_player: White,
             last_move: None,
@@ -437,7 +441,7 @@ impl Board for MNKBoard {
 
     fn piece_on_idx(&self, idx: usize) -> Square {
         let coordinates = self.to_coordinates(idx);
-        debug_assert!(self.white_bb & self.black_bb == ExtendedBitboard(0));
+        debug_assert!(self.white_bb & self.black_bb == ExtendedRawBitboard(0));
         if (self.white_bb >> idx) & 1 == 1 {
             Square {
                 symbol: X,
@@ -670,12 +674,12 @@ impl MNKBoard {
         let player = player.unwrap();
         let player_bb = self.player_bb(player);
         let blockers = !self.player_bb(player);
-        debug_assert!(
-            (blockers & ExtendedBitboard::single_piece(self.to_idx(last_move.target))).is_zero()
-        );
+        debug_assert!((blockers.raw()
+            & ExtendedRawBitboard::single_piece(self.to_idx(last_move.target)))
+        .is_zero());
 
-        for dir in SliderAttacks::iter() {
-            if (ExtendedBitboard::slider_attacks(square, blockers, self.size(), dir) & player_bb)
+        for dir in RayDirections::iter() {
+            if (MnkBitboard::slider_attacks(square, blockers, dir) & player_bb)
                 .to_primitive()
                 .count_ones()
                 >= self.k() - 1
@@ -771,12 +775,12 @@ mod test {
         assert_eq!(board.active_player(), White);
         let board = board.make_move(mov).unwrap();
         assert_eq!(board.size().num_squares(), 9);
-        assert_eq!(board.white_bb, ExtendedBitboard(1));
-        assert_eq!(board.black_bb, ExtendedBitboard(0));
+        assert_eq!(board.white_bb, ExtendedRawBitboard(1));
+        assert_eq!(board.black_bb, ExtendedRawBitboard(0));
         assert_eq!(board.ply, 1);
         assert_eq!(
-            board.empty_bb(),
-            !ExtendedBitboard(1) & ExtendedBitboard(0x1ff)
+            board.empty_bb().raw(),
+            !ExtendedRawBitboard(1) & ExtendedRawBitboard(0x1ff)
         );
         assert_eq!(board.active_player(), Color::Black);
         assert!(!board.is_game_lost());
@@ -850,7 +854,10 @@ mod test {
                 target: board.to_coordinates(4),
             })
             .unwrap();
-        assert_eq!(board.white_bb(), ExtendedBitboard(0x10));
+        assert_eq!(
+            board.white_bb(),
+            MnkBitboard::from_uint(0x10, GridSize::tictactoe())
+        );
         assert_eq!(board.piece_on_idx(4).symbol, Symbol::X);
         assert_eq!(board.as_fen(), "3 3 3 o 3/1X1/3");
 
@@ -913,7 +920,7 @@ mod test {
     #[test]
     fn from_fen_test() {
         let board = MNKBoard::from_fen("4 3 2 x 3/3/3/3").unwrap();
-        assert_eq!(board.occupied_bb(), ExtendedBitboard(0));
+        assert_eq!(board.occupied_bb().raw(), ExtendedRawBitboard(0));
         assert_eq!(board.size(), GridSize::new(Height(4), Width(3)));
         assert_eq!(board.k(), 2);
         assert_eq!(
@@ -922,12 +929,15 @@ mod test {
         );
 
         let board = MNKBoard::from_fen("3 4 3 o 3X/4/2O1").unwrap();
-        assert_eq!(board.occupied_bb(), ExtendedBitboard(0b1000_0000_0100));
+        assert_eq!(
+            board.occupied_bb().raw(),
+            ExtendedRawBitboard(0b1000_0000_0100)
+        );
         assert_eq!(
             board,
             MNKBoard {
-                white_bb: ExtendedBitboard(0b1000_0000_0000),
-                black_bb: ExtendedBitboard(0b0000_0000_0100),
+                white_bb: ExtendedRawBitboard(0b1000_0000_0000),
+                black_bb: ExtendedRawBitboard(0b0000_0000_0100),
                 ply: 2,
                 settings: MnkSettings::new(Height(3), Width(4), 3),
                 active_player: Black,
@@ -939,8 +949,8 @@ mod test {
         assert_eq!(board, copy);
 
         let board = MNKBoard::from_fen("7 3 2 o X1O/3/OXO/1X1/XO1/XXX/1OO").unwrap();
-        let white_bb = ExtendedBitboard(0b001_000_010_010_001_111_000);
-        let black_bb = ExtendedBitboard(0b100_000_101_000_010_000_110);
+        let white_bb = ExtendedRawBitboard(0b001_000_010_010_001_111_000);
+        let black_bb = ExtendedRawBitboard(0b100_000_101_000_010_000_110);
         assert_eq!(
             board,
             MNKBoard {
@@ -956,8 +966,8 @@ mod test {
 
         let board = MNKBoard::from_fen("4 12 3 x 12/11X/1X10/2X1X3XXX1").unwrap();
         let white_bb =
-            ExtendedBitboard(0b0000_0000_0000_1000_0000_0000_0000_0000_0010_0111_0001_0100);
-        let black_bb = ExtendedBitboard(0);
+            ExtendedRawBitboard(0b0000_0000_0000_1000_0000_0000_0000_0000_0010_0111_0001_0100);
+        let black_bb = ExtendedRawBitboard(0);
         assert_eq!(
             board,
             MNKBoard {

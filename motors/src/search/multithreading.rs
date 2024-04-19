@@ -10,7 +10,7 @@ use gears::games::{Board, ZobristHistoryBase};
 use gears::general::common::{NamedEntity, parse_int_from_str, Res};
 use gears::output::Message;
 use gears::output::Message::Error;
-use gears::search::{Depth, SearchInfo, SearchLimit, SearchResult};
+use gears::search::{Depth, Score, SearchInfo, SearchLimit, SearchResult};
 use gears::ugi::{EngineOption, EngineOptionName};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 
@@ -30,6 +30,7 @@ pub enum EngineReceives<B: Board> {
     SetOption(EngineOptionName, String),
     Search(B, SearchLimit, ZobristHistoryBase, TT),
     Bench(B, Depth),
+    Eval(B),
 }
 
 /// A search sender is used for communication while the search is ongoing.
@@ -79,6 +80,15 @@ impl<B: Board> SearchSender<B> {
     pub fn send_bench_res(&mut self, res: BenchResult) {
         if let Some(output) = &self.output {
             output.lock().unwrap().show_bench(res)
+        }
+    }
+
+    pub fn send_static_eval(&mut self, eval: Score) {
+        if let Some(output) = &self.output {
+            output
+                .lock()
+                .unwrap()
+                .write_ugi(&format!("score cp {}", eval.0))
         }
     }
 
@@ -144,6 +154,11 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         Ok(())
     }
 
+    fn get_static_eval(&mut self, pos: B) {
+        let eval = self.engine.get_static_eval(pos);
+        self.search_sender.send_static_eval(eval);
+    }
+
     fn write_error(&mut self, msg: &str) {
         self.search_sender.send_message(Error, msg);
     }
@@ -166,6 +181,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
             },
             Search(pos, limit, history, tt) => self.start_search(pos, limit, history, tt)?,
             Bench(pos, depth) => self.bench_single_position(pos, depth)?,
+            Eval(pos) => self.get_static_eval(pos),
         };
         Ok(false)
     }
@@ -265,6 +281,10 @@ impl<B: Board> EngineWrapper<B> {
         self.sender
             .send(Bench(pos, depth))
             .map_err(|err| err.to_string())
+    }
+
+    pub fn static_eval(&mut self, pos: B) -> Res<()> {
+        self.sender.send(Eval(pos)).map_err(|err| err.to_string())
     }
 
     pub fn set_tt(&mut self, tt: TT) {

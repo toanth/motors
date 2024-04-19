@@ -5,7 +5,7 @@ use crate::games::chess::Chessboard;
 use crate::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
 use crate::games::Color::*;
-use crate::general::bitboards::Bitboard;
+use crate::general::bitboards::RawBitboard;
 
 pub const NUM_PIECE_SQUARE_ENTRIES: usize = 64 * 6;
 pub const NUM_COLORED_PIECE_SQUARE_ENTRIES: usize = NUM_PIECE_SQUARE_ENTRIES * 2;

@@ -5,8 +5,10 @@ use gears::games::chess::Chessboard;
 use gears::games::chess::pieces::UncoloredChessPiece;
 use gears::games::chess::pieces::UncoloredChessPiece::{Pawn, Rook};
 use gears::games::chess::squares::ChessSquare;
+use gears::general::bitboards::chess::ChessBitboard;
+use gears::general::bitboards::RawBitboard;
 use gears::games::Color::{Black, White};
-use gears::general::bitboards::{A_FILE, Bitboard, ChessBitboard};
+use gears::general::bitboards::{A_FILE, Bitboard};
 use gears::search::Score;
 
 use crate::eval::chess::hce::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};

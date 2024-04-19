@@ -149,6 +149,10 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
     fn search_state_mut(&mut self) -> &mut impl SearchState<B> {
         &mut self.state
     }
+
+    fn get_static_eval(&mut self, pos: B) -> Score {
+        self.eval.eval(pos)
+    }
 }
 
 impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
