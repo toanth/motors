@@ -535,6 +535,9 @@ where
     }
 }
 
+// Deriving Eq and Partial Eq means that irrelevant bits are also getting compared.
+// This makes comparisons fast but shifts responsibility to the user to properly zero out those,
+// which can be confusing. TODO: Change?
 #[derive(Default, Copy, Clone, PartialEq, Eq, Debug)]
 pub struct DefaultBitboard<R: RawBitboard, C: RectangularCoordinates> {
     raw: R,
@@ -881,7 +884,9 @@ pub const fn remove_ones_below(bb: u128, idx: usize) -> u128 {
 
 #[cfg(test)]
 mod tests {
-    use crate::general::bitboards::{ExtendedBitboard, remove_ones_above, remove_ones_below};
+    use crate::games::{GridSize, Height, Width};
+    use crate::games::mnk::MnkBitboard;
+    use crate::general::bitboards::{Bitboard, remove_ones_above, remove_ones_below};
 
     #[test]
     fn remove_ones_above_test() {
@@ -906,69 +911,70 @@ mod tests {
 
     #[test]
     fn hyperbola_quintessence_test() {
+        let size = GridSize::new(Height(1), Width(2));
         for i in 0..64 {
             let row = i / 8;
             let expected = (0xff_u128 - (1 << (i % 8))) << (row * 8);
             assert_eq!(
-                ExtendedBitboard::hyperbola_quintessence(
+                MnkBitboard::hyperbola_quintessence(
                     i,
-                    ExtendedBitboard(0),
-                    |x| ExtendedBitboard(x.0.reverse_bits()),
-                    ExtendedBitboard(0xff) << (row * 8)
+                    MnkBitboard::from_uint(0, size),
+                    |x| MnkBitboard::from_uint(x.0.reverse_bits(), size),
+                    MnkBitboard::from_uint(0xff, size) << (row * 8)
                 ),
-                ExtendedBitboard(expected),
+                MnkBitboard::from_uint(expected, size),
                 "{i}"
             );
         }
 
         assert_eq!(
-            ExtendedBitboard::hyperbola_quintessence(
+            MnkBitboard::hyperbola_quintessence(
                 3,
-                ExtendedBitboard(0b_0100_0001),
-                |x| ExtendedBitboard(x.0.reverse_bits()),
-                ExtendedBitboard(0xff),
+                MnkBitboard::from_uint(0b_0100_0001, size),
+                |x| MnkBitboard::from_uint(x.0.reverse_bits(), size),
+                MnkBitboard::from_uint(0xff, size),
             ),
-            ExtendedBitboard(0b_0111_0111)
+            MnkBitboard::from_uint(0b_0111_0111, size),
         );
 
         assert_eq!(
-            ExtendedBitboard::hyperbola_quintessence(
+            MnkBitboard::hyperbola_quintessence(
                 28,
-                ExtendedBitboard(0x1234_4000_0fed),
-                |x| ExtendedBitboard(x.0.reverse_bits()),
-                ExtendedBitboard(0xffff_ffff_ffff),
+                MnkBitboard::from_uint(0x1234_4000_0fed, size),
+                |x| MnkBitboard::from_uint(x.0.reverse_bits(), size),
+                MnkBitboard::from_uint(0xffff_ffff_ffff, size),
             ),
-            ExtendedBitboard(0x0000_6fff_f800)
+            MnkBitboard::from_uint(0x0000_6fff_f800, size),
         );
 
         assert_eq!(
-            ExtendedBitboard::hyperbola_quintessence(
+            MnkBitboard::hyperbola_quintessence(
                 28,
-                ExtendedBitboard(0x0110_0200_0001_1111),
-                |x| ExtendedBitboard(x.0.reverse_bits()),
-                ExtendedBitboard(0x1111_1111_1111_1111),
+                MnkBitboard::from_uint(0x0110_0200_0001_1111, size),
+                |x| MnkBitboard::from_uint(x.0.reverse_bits(), size),
+                MnkBitboard::from_uint(0x1111_1111_1111_1111, size),
             ),
-            ExtendedBitboard(0x0011_1111_0111_0000)
+            MnkBitboard::from_uint(0x0011_1111_0111_0000, size),
         );
 
         assert_eq!(
-            ExtendedBitboard::hyperbola_quintessence(
+            MnkBitboard::hyperbola_quintessence(
                 16,
-                ExtendedBitboard(0xfffe_d002_a912),
-                |x| ExtendedBitboard(x.0.swap_bytes()),
-                ExtendedBitboard(0x0101_0101_0101),
+                MnkBitboard::from_uint(0xfffe_d002_a912, size),
+                |x| MnkBitboard::from_uint(x.0.swap_bytes(), size),
+                MnkBitboard::from_uint(0x0101_0101_0101, size),
             ),
-            ExtendedBitboard(0x0101_0100_0100)
+            MnkBitboard::from_uint(0x0101_0100_0100, size),
         );
 
         assert_eq!(
-            ExtendedBitboard::hyperbola_quintessence(
+            MnkBitboard::hyperbola_quintessence(
                 20,
-                ExtendedBitboard(0xffff_ffef_ffff),
-                |x| ExtendedBitboard(x.0.swap_bytes()),
-                ExtendedBitboard(0x_ffff_ffff_ffff),
+                MnkBitboard::from_uint(0xffff_ffef_ffff, size),
+                |x| MnkBitboard::from_uint(x.0.swap_bytes(), size),
+                MnkBitboard::from_uint(0x_ffff_ffff_ffff, size),
             ),
-            ExtendedBitboard(0)
+            MnkBitboard::from_uint(0, size),
         );
     }
 }

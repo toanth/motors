@@ -7,13 +7,13 @@ use std::str::SplitWhitespace;
 use static_assertions::const_assert_eq;
 use strum::IntoEnumIterator;
 
-use crate::games::mnk::Symbol::{Empty, O, X};
+use crate::games::*;
 use crate::games::Color::{Black, White};
 use crate::games::GridSize;
+use crate::games::mnk::Symbol::{Empty, O, X};
 use crate::games::PlayerResult::Draw;
-use crate::games::*;
 use crate::general::bitboards::{
-    remove_ones_above, Bitboard, DefaultBitboard, ExtendedRawBitboard, RawBitboard, RayDirections,
+    Bitboard, DefaultBitboard, ExtendedRawBitboard, RawBitboard, RayDirections, remove_ones_above,
 };
 use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
@@ -775,12 +775,12 @@ mod test {
         assert_eq!(board.active_player(), White);
         let board = board.make_move(mov).unwrap();
         assert_eq!(board.size().num_squares(), 9);
-        assert_eq!(board.white_bb, ExtendedBitboard(1));
-        assert_eq!(board.black_bb, ExtendedBitboard(0));
+        assert_eq!(board.white_bb, ExtendedRawBitboard(1));
+        assert_eq!(board.black_bb, ExtendedRawBitboard(0));
         assert_eq!(board.ply, 1);
         assert_eq!(
-            board.empty_bb(),
-            !ExtendedBitboard(1) & ExtendedBitboard(0x1ff)
+            board.empty_bb().raw(),
+            !ExtendedRawBitboard(1) & ExtendedRawBitboard(0x1ff)
         );
         assert_eq!(board.active_player(), Color::Black);
         assert!(!board.is_game_lost());
@@ -854,7 +854,10 @@ mod test {
                 target: board.to_coordinates(4),
             })
             .unwrap();
-        assert_eq!(board.white_bb(), ExtendedBitboard(0x10));
+        assert_eq!(
+            board.white_bb(),
+            MnkBitboard::from_uint(0x10, GridSize::tictactoe())
+        );
         assert_eq!(board.piece_on_idx(4).symbol, Symbol::X);
         assert_eq!(board.as_fen(), "3 3 3 o 3/1X1/3");
 
@@ -917,7 +920,7 @@ mod test {
     #[test]
     fn from_fen_test() {
         let board = MNKBoard::from_fen("4 3 2 x 3/3/3/3").unwrap();
-        assert_eq!(board.occupied_bb(), ExtendedBitboard(0));
+        assert_eq!(board.occupied_bb().raw(), ExtendedRawBitboard(0));
         assert_eq!(board.size(), GridSize::new(Height(4), Width(3)));
         assert_eq!(board.k(), 2);
         assert_eq!(
@@ -926,12 +929,15 @@ mod test {
         );
 
         let board = MNKBoard::from_fen("3 4 3 o 3X/4/2O1").unwrap();
-        assert_eq!(board.occupied_bb(), ExtendedBitboard(0b1000_0000_0100));
+        assert_eq!(
+            board.occupied_bb().raw(),
+            ExtendedRawBitboard(0b1000_0000_0100)
+        );
         assert_eq!(
             board,
             MNKBoard {
-                white_bb: ExtendedBitboard(0b1000_0000_0000),
-                black_bb: ExtendedBitboard(0b0000_0000_0100),
+                white_bb: ExtendedRawBitboard(0b1000_0000_0000),
+                black_bb: ExtendedRawBitboard(0b0000_0000_0100),
                 ply: 2,
                 settings: MnkSettings::new(Height(3), Width(4), 3),
                 active_player: Black,
@@ -943,8 +949,8 @@ mod test {
         assert_eq!(board, copy);
 
         let board = MNKBoard::from_fen("7 3 2 o X1O/3/OXO/1X1/XO1/XXX/1OO").unwrap();
-        let white_bb = ExtendedBitboard(0b001_000_010_010_001_111_000);
-        let black_bb = ExtendedBitboard(0b100_000_101_000_010_000_110);
+        let white_bb = ExtendedRawBitboard(0b001_000_010_010_001_111_000);
+        let black_bb = ExtendedRawBitboard(0b100_000_101_000_010_000_110);
         assert_eq!(
             board,
             MNKBoard {
@@ -960,8 +966,8 @@ mod test {
 
         let board = MNKBoard::from_fen("4 12 3 x 12/11X/1X10/2X1X3XXX1").unwrap();
         let white_bb =
-            ExtendedBitboard(0b0000_0000_0000_1000_0000_0000_0000_0000_0010_0111_0001_0100);
-        let black_bb = ExtendedBitboard(0);
+            ExtendedRawBitboard(0b0000_0000_0000_1000_0000_0000_0000_0000_0010_0111_0001_0100);
+        let black_bb = ExtendedRawBitboard(0);
         assert_eq!(
             board,
             MNKBoard {
