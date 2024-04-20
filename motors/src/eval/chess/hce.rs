@@ -194,23 +194,6 @@ fn file_openness(file: DimT, our_pawns: ChessBitboard, their_pawns: ChessBitboar
     }
 }
 
-// TODO: Remove here, turn into trait method (needs size, so should go into SizedBitboard)
-fn print_bitboard(bb: ChessBitboard) -> String {
-    let mut res = String::new();
-    for rank in 7..=0 {
-        for file in 0..8 {
-            let bit = bb.0 & (1 << (8 * rank + file));
-            if bit == 0 {
-                res.push('0');
-            } else {
-                res.push('1');
-            }
-        }
-        res.push('\n');
-    }
-    res
-}
-
 impl Eval<Chessboard> for HandCraftedEval {
     fn eval(&self, pos: Chessboard) -> Score {
         let mut mg = Score(0);
@@ -283,15 +266,15 @@ impl Eval<Chessboard> for HandCraftedEval {
                         //     eg += Score(ISOLATED_PAWN_EG);
                         // }
                         let blocking = if color == White {
-                            A_FILE << idx
+                            A_FILE << (idx + 8)
                         } else {
-                            A_FILE >> (idx ^ 0b111_000)
+                            A_FILE >> (64 - idx)
                         };
                         let blocking = blocking.west() | blocking | blocking.east();
+                        println!("{color} pawn on {}:\n{blocking}", ChessSquare::new(idx));
                         let blocking = blocking & their_pawns;
                         if blocking.is_zero() {
-                            // println!("{}", print_bitboard(blocking));
-                            // println!("{color} passed pawn on square {}", ChessSquare::new(idx));
+                            println!("{color} passed pawn on square {}", ChessSquare::new(idx));
                         }
                     }
                 }

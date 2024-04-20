@@ -590,7 +590,7 @@ where
     C::Size: RectangularSize<C>,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        for row in self.size().height().0 - 1..=0 {
+        for row in (0..self.size().height().0).rev() {
             for column in 0..self.size().width().0 {
                 let idx = row * self.size().width().0 + column;
                 write!(
