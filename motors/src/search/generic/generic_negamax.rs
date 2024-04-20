@@ -53,7 +53,7 @@ impl<B: Board, E: Eval<B>> StaticallyNamedEntity for GenericNegamax<B, E> {
     where
         Self: Sized,
     {
-        "A simple alpha-bete pruning negamax implementation that doesn't use any game-specific information."
+        "A simple alpha-bete pruning negamax implementation that doesn't use any game-specific information"
     }
 }
 

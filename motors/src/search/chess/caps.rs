@@ -3,27 +3,27 @@ use std::time::{Duration, Instant};
 use derive_more::{Deref, DerefMut};
 use rand::thread_rng;
 
-use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
-use gears::games::chess::{Chessboard, ChessMoveList};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
+use gears::games::chess::{ChessMoveList, Chessboard};
+use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
-    Depth, game_result_to_score, MIN_SCORE_WON, NO_SCORE_YET, Score, SCORE_LOST, SCORE_TIME_UP,
-    SCORE_WON, SearchLimit, SearchResult, TimeControl,
+    game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, MIN_SCORE_WON,
+    NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
 };
-use gears::ugi::{EngineOption, UgiSpin};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::EngineOptionType::Spin;
+use gears::ugi::{EngineOption, UgiSpin};
 
 use crate::eval::Eval;
+use crate::search::multithreading::SearchSender;
+use crate::search::tt::{TTEntry, TT};
+use crate::search::NodeType::*;
 use crate::search::{
-    ABSearchState, Benchable, BenchResult, CustomInfo, Engine, EngineInfo, NodeType, Pv,
+    ABSearchState, BenchResult, Benchable, CustomInfo, Engine, EngineInfo, NodeType, Pv,
     SearchStackEntry, SearchState,
 };
-use crate::search::multithreading::SearchSender;
-use crate::search::NodeType::*;
-use crate::search::tt::{TT, TTEntry};
 
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
@@ -110,7 +110,7 @@ impl<E: Eval<Chessboard>> StaticallyNamedEntity for Caps<E> {
     where
         Self: Sized,
     {
-        "Chess-playing Alpha-beta Pruning Search (CAPS), a chess engine. Currently very early in development and not yet all that strong (but still > 2k elo). Much larger than SᴍᴀʟʟCᴀᴘꜱ."
+        "Chess-playing Alpha-beta Pruning Search (CAPS), a chess engine. Currently very early in development and not yet all that strong (but still > 2k elo). Much larger than SᴍᴀʟʟCᴀᴘꜱ"
     }
 }
 
@@ -591,16 +591,19 @@ mod tests {
     #[test]
     fn simple_mate_test() {
         let board = Chessboard::from_fen("4k3/8/4K3/8/8/8/8/6R1 w - - 0 1").unwrap();
-        let mut engine = Caps::<RandEval>::default();
-        let res = engine
-            .search(
-                board,
-                SearchLimit::depth(Depth::new(2)),
-                ZobristHistoryBase::default(),
-                &mut SearchSender::no_sender(),
-            )
-            .unwrap();
-        assert!(res.score.unwrap().is_game_won_score());
-        assert_eq!(res.score.unwrap().plies_until_game_won(), Some(1));
+        // run multiple times to get different random numbers from the eval function
+        for i in 0..100 {
+            let mut engine = Caps::<RandEval>::default();
+            let res = engine
+                .search(
+                    board,
+                    SearchLimit::depth(Depth::new(2)),
+                    ZobristHistoryBase::default(),
+                    &mut SearchSender::no_sender(),
+                )
+                .unwrap();
+            assert!(res.score.unwrap().is_game_won_score());
+            assert_eq!(res.score.unwrap().plies_until_game_won(), Some(1));
+        }
     }
 }

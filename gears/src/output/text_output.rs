@@ -9,12 +9,12 @@ use crate::games::{Board, Move};
 use crate::games::Color::{Black, White};
 use crate::general::common::{NamedEntity, Res};
 use crate::MatchStatus::Ongoing;
-use crate::output::{Message, Output, OutputBox, OutputBuilder};
-use crate::output::Message::{Debug, Error};
+use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
+use crate::output::text_output::DisplayType::MsgOnly;
 
 #[derive(Debug)]
 pub enum TextStream {
-    File(File), // Don't use a BufWriter to ensure the log is always up-to-date.
+    File(File, String), // Don't use a BufWriter to ensure the log is always up-to-date.
     Stdout(Stdout),
     Stderr(Stderr),
 }
@@ -26,7 +26,7 @@ impl TextStream {
 
     pub fn stream(&mut self) -> &mut dyn Write {
         match self {
-            TextStream::File(f) => f,
+            TextStream::File(f, _) => f,
             TextStream::Stdout(out) => out,
             TextStream::Stderr(err) => err,
         }
@@ -53,63 +53,47 @@ impl TextStream {
         }
         let path = Path::new(name);
         let file = File::create(path).map_err(|err| format!("Couldn't create log file: {err}"))?;
-        Ok(TextStream::File(file))
+        Ok(TextStream::File(
+            file,
+            path.canonicalize()
+                .ok()
+                .as_ref()
+                .and_then(|p| p.to_str())
+                .unwrap_or(name)
+                .to_string(),
+        ))
+    }
+
+    pub fn name(&self) -> String {
+        match self {
+            TextStream::File(_, name) => name.clone(),
+            TextStream::Stdout(_) => "stdout".to_string(),
+            TextStream::Stderr(_) => "stderr".to_string(),
+        }
     }
 }
 
 #[derive(Debug)]
 pub struct TextWriter {
-    normal: TextStream,
-    error: Option<TextStream>,
+    pub stream: TextStream,
+    pub accepted: Vec<Message>,
 }
 
 impl TextWriter {
     pub fn display_message(&mut self, typ: Message, message: &str) {
-        if self.error.is_some() && (typ == Error || typ == Debug) {
-            if let Some(ref mut error) = self.error {
-                error.write(typ.message_prefix(), message);
-                return;
-            }
-        }
-        self.normal.write(typ.message_prefix(), message);
-    }
-
-    pub fn file(out: File) -> Self {
-        Self::new(TextStream::File(out))
-    }
-
-    pub fn new(out: TextStream) -> Self {
-        Self {
-            normal: out,
-            error: None,
+        if self.accepted.contains(&typ) {
+            self.stream.write(typ.message_prefix(), message);
         }
     }
 
-    pub fn new_with_err(out: TextStream, err: TextStream) -> Self {
-        Self {
-            normal: out,
-            error: Some(err),
-        }
+    pub fn new_for(stream: TextStream, accepted: Vec<Message>) -> Self {
+        Self { stream, accepted }
     }
 }
 
-impl Default for TextWriter {
-    fn default() -> Self {
-        Self::new_with_err(TextStream::Stdout(stdout()), TextStream::Stderr(stderr()))
-    }
-}
+// TODO: Option to flip the board so that it's viewed from the perspective of the current player
 
-// TODO: Option to flip the board so that it's viewed from the perspecive of the current player
-
-// pub fn display_message(typ: Message, message: &str) {
-//     if typ == Error || typ == Debug {
-//         eprintln!("{0}{message}", typ.message_prefix());
-//     } else {
-//         println!("{0}{message}", typ.message_prefix());
-//     }
-// }
-
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
 pub enum DisplayType {
     #[default]
     Unicode,
@@ -118,6 +102,7 @@ pub enum DisplayType {
     Pgn,
     Uci,
     Ugi, // The same as `UCI`, but with a different name so that the user can write both 'print uci' and 'print ugi'
+    MsgOnly, // Doesn't print the state at all, but a text output with that display type would still display messages.
 }
 
 impl NamedEntity for DisplayType {
@@ -129,6 +114,7 @@ impl NamedEntity for DisplayType {
             DisplayType::Pgn => "pgn",
             DisplayType::Uci => "uci",
             DisplayType::Ugi => "ugi",
+            DisplayType::MsgOnly => "messages",
         }
     }
 
@@ -140,38 +126,31 @@ impl NamedEntity for DisplayType {
             DisplayType::Pgn => "PGN",
             DisplayType::Uci => "UCI",
             DisplayType::Ugi => "UGI",
+            DisplayType::MsgOnly => "Only Messages",
         }
     }
 
     fn description(&self) -> Option<&str> {
         Some(match self {
-            DisplayType::Unicode => "A textual 2D representation of the position using unicode characters. For many games, this is the same as the ASCII representation, but e.g. for chess it uses chess symbols like '♔'.",
-            DisplayType::Ascii => "A textual 2D representation of the position using \"normal\" english characters. E.g. for chess, this represents the white king as 'K' and a black queen as 'q'.",
-            DisplayType::Fen => "A compact textual representation of the position. For chess, this is the Forsyth–Edwards Notation, and for other games it's a similar notation based on chess FENs.",
-            DisplayType::Pgn => "A textual representation of the entire match. For chess, this is the Portable Games Notation, and for other games it's a similar notation based on chess PGNs.",
-            DisplayType::Uci => "A textual representation of the match using the machine-readable UGI notation that gets used for engine-GUI communication. UCI for chess and the very slightly different UGI protocol for other games.",
+            DisplayType::Unicode => "A textual 2D representation of the position using unicode characters. For many games, this is the same as the ASCII representation, but e.g. for chess it uses chess symbols like '♔'",
+            DisplayType::Ascii => "A textual 2D representation of the position using \"normal\" english characters. E.g. for chess, this represents the white king as 'K' and a black queen as 'q'",
+            DisplayType::Fen => "A compact textual representation of the position. For chess, this is the Forsyth–Edwards Notation, and for other games it's a similar notation based on chess FENs",
+            DisplayType::Pgn => "A textual representation of the entire match. For chess, this is the Portable Games Notation, and for other games it's a similar notation based on chess PGNs",
+            DisplayType::Uci => "A textual representation of the match using the machine-readable UGI notation that gets used for engine-GUI communication. UCI for chess and the very slightly different UGI protocol for other games",
             DisplayType::Ugi => "Same as 'UCI'",
+            DisplayType::MsgOnly => "Doesn't print the match or current position at all, but will display messages"
         })
     }
 }
 
 #[derive(Debug)]
-struct TextOutput {
-    typ: DisplayType,
-    is_engine: bool,
-    writer: TextWriter,
+pub struct BoardToText {
+    pub typ: DisplayType,
+    pub is_engine: bool,
 }
 
-impl TextOutput {
-    fn with_writer(typ: DisplayType, is_engine: bool, writer: TextWriter) -> Self {
-        Self {
-            typ,
-            is_engine,
-            writer,
-        }
-    }
-
-    pub fn match_to_pgn<B: Board>(&self, m: &dyn GameState<B>) -> String {
+impl BoardToText {
+    fn match_to_pgn<B: Board>(&self, m: &dyn GameState<B>) -> String {
         let result = match m.match_status() {
             MatchStatus::Over(r) => match r.result {
                 GameResult::P1Win => "1-0",
@@ -248,24 +227,8 @@ impl TextOutput {
             res
         }
     }
-}
 
-impl NamedEntity for TextOutput {
-    fn short_name(&self) -> &str {
-        self.typ.short_name()
-    }
-
-    fn long_name(&self) -> &str {
-        self.typ.long_name()
-    }
-
-    fn description(&self) -> Option<&str> {
-        self.typ.description()
-    }
-}
-
-impl<B: Board> Output<B> for TextOutput {
-    fn as_string(&self, m: &dyn GameState<B>) -> String {
+    pub fn as_string<B: Board>(&self, m: &dyn GameState<B>) -> String {
         // TODO: Option to flip the board?
         let mut time_below = String::default();
         let mut time_above = String::default();
@@ -294,8 +257,55 @@ impl<B: Board> Output<B> for TextOutput {
             ),
             DisplayType::Fen => m.get_board().as_fen(),
             DisplayType::Pgn => self.match_to_pgn(m),
-            DisplayType::Uci | DisplayType::Ugi => TextOutput::match_to_ugi(m),
+            DisplayType::Uci | DisplayType::Ugi => BoardToText::match_to_ugi(m),
+            DisplayType::MsgOnly => String::default(),
         }
+    }
+}
+
+#[derive(Debug)]
+struct TextOutput {
+    writer: TextWriter,
+    to_text: BoardToText,
+    name: Option<&'static str>,
+}
+
+impl TextOutput {
+    fn new(
+        typ: DisplayType,
+        is_engine: bool,
+        writer: TextWriter,
+        name: Option<&'static str>,
+    ) -> Self {
+        Self {
+            to_text: BoardToText { typ, is_engine },
+            writer,
+            name,
+        }
+    }
+}
+
+impl NamedEntity for TextOutput {
+    fn short_name(&self) -> &str {
+        self.name.unwrap_or(self.to_text.typ.short_name())
+    }
+
+    fn long_name(&self) -> &str {
+        self.to_text.typ.long_name()
+    }
+
+    fn description(&self) -> Option<&str> {
+        self.to_text.typ.description()
+    }
+}
+
+impl AbstractOutput for TextOutput {
+    fn prints_board(&self) -> bool {
+        self.to_text.typ != MsgOnly
+    }
+
+    fn output_name(&self) -> String {
+        self.writer.stream.name()
     }
 
     fn display_message_simple(&mut self, typ: Message, message: &str) {
@@ -303,49 +313,71 @@ impl<B: Board> Output<B> for TextOutput {
     }
 }
 
-#[derive(Default, Clone, Debug)]
+impl<B: Board> Output<B> for TextOutput {
+    fn as_string(&self, m: &dyn GameState<B>) -> String {
+        self.to_text.as_string(m)
+    }
+}
+
+#[derive(Default, Debug)]
 pub struct TextOutputBuilder {
-    typ: DisplayType,
-    options: Vec<String>,
+    pub typ: DisplayType,
+    pub stream: Option<TextStream>,
+    pub accepted: Vec<Message>,
+    short_name: Option<&'static str>,
+}
+
+impl Clone for TextOutputBuilder {
+    fn clone(&self) -> Self {
+        Self {
+            typ: self.typ,
+            stream: None,
+            accepted: self.accepted.clone(),
+            short_name: self.short_name.clone(),
+        }
+    }
 }
 
 impl TextOutputBuilder {
     pub fn new(typ: DisplayType) -> Self {
         Self {
             typ,
-            options: vec![],
+            stream: None,
+            accepted: vec![],
+            short_name: None,
         }
     }
-    pub fn build<B: Board>(&self, is_engine: bool) -> Res<OutputBox<B>> {
-        let mut stream = TextStream::Stdout(stdout());
-        let mut err_stream = TextStream::Stderr(stderr());
-        for option in &self.options {
-            if let Some(file) = option.strip_prefix("file=") {
-                stream = TextStream::from_filename(file)?;
-            } else if let Some(err) = option.strip_prefix("err=") {
-                err_stream = TextStream::from_filename(err)?;
-            } else {
-                return Err(format!(
-                    "Unrecognized option '{option}' for output {}",
-                    self.typ.long_name()
-                ));
-            }
+
+    pub fn messages_for(accepted: Vec<Message>, short_name: &'static str) -> Self {
+        Self {
+            typ: MsgOnly,
+            stream: None,
+            accepted,
+            short_name: Some(short_name),
         }
-        Ok(Box::new(TextOutput::with_writer(
+    }
+
+    pub fn build<B: Board>(&mut self, is_engine: bool) -> Res<OutputBox<B>> {
+        let stream = self
+            .stream
+            .take()
+            .unwrap_or_else(|| TextStream::Stderr(stderr()));
+        Ok(Box::new(TextOutput::new(
             self.typ,
             is_engine,
-            TextWriter::new_with_err(stream, err_stream),
+            TextWriter::new_for(stream, self.accepted.clone()),
+            self.short_name.clone(),
         )))
     }
 }
 
 impl NamedEntity for TextOutputBuilder {
     fn short_name(&self) -> &str {
-        self.typ.short_name()
+        self.short_name.unwrap_or_else(|| self.typ.short_name())
     }
 
     fn long_name(&self) -> &str {
-        self.typ.long_name()
+        self.short_name.unwrap_or_else(|| self.typ.long_name())
     }
 
     fn description(&self) -> Option<&str> {
@@ -354,16 +386,15 @@ impl NamedEntity for TextOutputBuilder {
 }
 
 impl<B: Board> OutputBuilder<B> for TextOutputBuilder {
-    fn for_engine(&self, _state: &dyn GameState<B>) -> Res<OutputBox<B>> {
+    fn for_engine(&mut self, _state: &dyn GameState<B>) -> Res<OutputBox<B>> {
         self.build(true)
     }
 
-    fn for_client(&self, _state: &dyn GameState<B>) -> Res<OutputBox<B>> {
+    fn for_client(&mut self, _state: &dyn GameState<B>) -> Res<OutputBox<B>> {
         self.build(false)
     }
 
-    fn add_option(&mut self, option: String) -> Res<()> {
-        self.options.push(option);
-        Ok(())
+    fn add_option(&mut self, _option: String) -> Res<()> {
+        Err("TextOutputBuilder doesn't support any additional options".to_string())
     }
 }

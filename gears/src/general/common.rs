@@ -8,6 +8,8 @@ use colored::Colorize;
 use itertools::Itertools;
 use num::{Float, PrimInt};
 
+use crate::general::common::Description::WithDescription;
+
 pub fn pop_lsb64(x: &mut u64) -> u32 {
     let shift = x.trailing_zeros();
     *x &= *x - 1;
@@ -39,7 +41,9 @@ pub fn ith_one_u128(idx: usize, val: u128) -> usize {
 pub type Res<T> = Result<T, String>;
 
 pub fn parse_fp_from_str<T: Float + FromStr>(as_str: &str, name: &str) -> Res<T> {
-    as_str.parse::<T>().map_err(|_err| format!("couldn't parse {name} ('{as_str}')"))
+    as_str
+        .parse::<T>()
+        .map_err(|_err| format!("couldn't parse {name} ('{as_str}')"))
 }
 
 pub fn parse_int_from_str<T: PrimInt + FromStr>(as_str: &str, name: &str) -> Res<T> {
@@ -63,10 +67,9 @@ pub fn parse_int_from_stdin<T: PrimInt + FromStr>() -> Res<T> {
     parse_int_from_str(s.trim(), "integer")
 }
 
-
 /// The name is used to identify the entity throughout all UIs and command line arguments.
 /// Examples are games ('chess', 'mnk', etc), engines ('caps', 'random', etc), and UIs ('fen', 'pretty', etc)
-pub trait NamedEntity : Debug {
+pub trait NamedEntity: Debug {
     /// The short name must consist of a single word in lowercase letters and is usually used for text-based UIs
     fn short_name(&self) -> &str;
 
@@ -82,11 +85,17 @@ pub trait NamedEntity : Debug {
 }
 
 pub trait StaticallyNamedEntity: NamedEntity {
-    fn static_short_name() -> &'static str where Self: Sized;
+    fn static_short_name() -> &'static str
+    where
+        Self: Sized;
 
-    fn static_long_name() -> &'static str where Self: Sized;
+    fn static_long_name() -> &'static str
+    where
+        Self: Sized;
 
-    fn static_description() -> &'static str where Self: Sized;
+    fn static_description() -> &'static str
+    where
+        Self: Sized;
 }
 
 impl<T: StaticallyNamedEntity> NamedEntity for T {
@@ -127,7 +136,13 @@ impl<T: Debug> NamedEntity for GenericSelect<T> {
     }
 }
 
-fn select_name_impl<'a, T, F: Fn(&T) -> &str, G: Fn(&T, &str) -> bool>(
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Description {
+    WithDescription,
+    NoDescription,
+}
+
+fn select_name_impl<'a, T, F: Fn(&T) -> String, G: Fn(&T, &str) -> bool>(
     name: &str,
     list: &'a [T],
     typ: &str,
@@ -140,11 +155,9 @@ fn select_name_impl<'a, T, F: Fn(&T) -> &str, G: Fn(&T, &str) -> bool>(
         None => {
             let list_as_string = match list.len() {
                 0 => format!("There are no valid {typ} names (presumably your program version was built with those features disabled)"),
-                1 => format!("The only valid {typ} for this version of the program is {}", to_name(list.iter().next().unwrap()).bold()),
-                _ => format!("Valid {typ} names are {}", itertools::intersperse(
-                    list.iter().map(|entity| to_name(entity).bold().to_string()),
-                    ", ".to_string(),
-                ).collect::<String>())
+                1 => format!("The only valid {typ} for this version of the program is {}", to_name(list.first().unwrap())),
+                _ => format!("Valid {typ} names are {}",
+                    itertools::intersperse(list.iter().map(|x| to_name(x)), ", ".to_string()).collect::<String>())
             };
             let game_name = game_name.bold();
             let name = name.red();
@@ -155,30 +168,61 @@ fn select_name_impl<'a, T, F: Fn(&T) -> &str, G: Fn(&T, &str) -> bool>(
     }
 }
 
+pub fn to_name_and_optional_description<T: NamedEntity + ?Sized>(
+    x: &T,
+    description: Description,
+) -> String {
+    if description == WithDescription {
+        format!(
+            "\n{name:<18} {descr}",
+            name = format!("'{}':", x.short_name().bold()),
+            descr = x.description().unwrap_or("<No description>")
+        )
+    } else {
+        format!("'{}'", x.short_name().bold())
+    }
+}
+
 pub fn select_name_dyn<'a, T: NamedEntity>(
     name: &str,
     list: &'a [Box<T>],
     typ: &str,
     game_name: &str,
+    descr: Description,
 ) -> Res<&'a T>
 where
     T: ?Sized,
 {
-    select_name_impl(name, list, typ, game_name, |e| e.short_name(), |e, s| e.matches(s)).map(|val| &**val)
+    select_name_impl(
+        name,
+        list,
+        typ,
+        game_name,
+        |x| to_name_and_optional_description(x.as_ref(), descr),
+        |e, s| e.matches(s),
+    )
+    .map(|val| &**val)
 }
 
-/// There's probably a way to avoid having the exact same 1 line implementation for select_name_static and select_name_dyn
-/// (the only difference is that select_name_dyn uses Box<dyn T> instead of T for the element type, and Box<dyn T> doesn't satisfy
-/// NamedEntity, even though it's possible to call all the trait methods on it.)
+/// There's probably a way to avoid having the exact same 1 line implementation for `select_name_static` and `select_name_dyn`
+/// (the only difference is that `select_name_dyn` uses `Box<dyn T>` instead of `T` for the element type,
+/// and `Box<dyn T>` doesn't satisfy `NamedEntity`, even though it's possible to call all the trait methods on it.)
 pub fn select_name_static<'a, T: NamedEntity>(
     name: &str,
     list: &'a [T],
     typ: &str,
     game_name: &str,
+    descr: Description,
 ) -> Res<&'a T> {
-    select_name_impl(name, list, typ, game_name, |e| e.short_name(), |e, s| e.matches(s))
+    select_name_impl(
+        name,
+        list,
+        typ,
+        game_name,
+        |x| to_name_and_optional_description(x, descr),
+        |e, s| e.matches(s),
+    )
 }
-
 
 pub fn nonzero_usize(val: usize, name: &str) -> Res<NonZeroUsize> {
     NonZeroUsize::new(val).ok_or_else(|| format!("{name} can't be zero"))
@@ -190,7 +234,7 @@ pub fn nonzero_u64(val: u64, name: &str) -> Res<NonZeroU64> {
 
 #[cfg(test)]
 mod tests {
-    use rand::{Rng, thread_rng};
+    use rand::{thread_rng, Rng};
 
     use crate::general::common::{ith_one_u128, ith_one_u64, pop_lsb128, pop_lsb64};
 

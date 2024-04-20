@@ -1,5 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
-use std::io::stdin;
+use std::io::{stdin, Write};
 use std::ops::{Deref, DerefMut};
 use std::str::{FromStr, SplitWhitespace};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -12,7 +12,8 @@ use itertools::Itertools;
 use gears::{AbstractRun, AnyMatch, GameResult, GameState, MatchStatus, output_builder_from_str};
 use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
 use gears::games::Color::White;
-use gears::general::common::parse_int;
+use gears::general::common::{parse_int, to_name_and_optional_description};
+use gears::general::common::Description::WithDescription;
 use gears::general::common::Res;
 use gears::general::perft::{perft, split_perft};
 use gears::MatchStatus::*;
@@ -205,6 +206,15 @@ impl<B: Board> UgiOutput<B> {
         }
     }
 
+    pub fn show(&mut self, m: &dyn GameState<B>) -> bool {
+        for output in self.additional_outputs.iter_mut() {
+            output.show(m)
+        }
+        self.additional_outputs
+            .iter()
+            .any(|o| !o.is_logger() && o.prints_board())
+    }
+
     pub fn show_bench(&mut self, bench_result: BenchResult) {
         self.write_ugi(&format!(
             "depth {0}, time {2}ms, {1} nodes, {3} nps",
@@ -305,7 +315,7 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
 impl<B: Board> EngineUGI<B> {
     pub fn create(
         opts: EngineOpts,
-        selected_output_builders: OutputList<B>,
+        mut selected_output_builders: OutputList<B>,
         all_output_builders: OutputList<B>,
         all_engines: EngineList<B>,
     ) -> Res<Self> {
@@ -327,7 +337,9 @@ impl<B: Board> EngineUGI<B> {
             engine,
             display_name: opts.engine,
         };
-        for builder in selected_output_builders {
+        let err_msg_builder = output_builder_from_str("error", &all_output_builders)?;
+        selected_output_builders.push(err_msg_builder);
+        for builder in selected_output_builders.iter_mut() {
             output
                 .lock()
                 .unwrap()
@@ -432,32 +444,8 @@ impl<B: Board> EngineUGI<B> {
             "isready" => {
                 self.write_ugi("readyok");
             }
-            "debug" => {
-                match words.next().unwrap_or("on") {
-                    "on" => {
-                        self.state.debug_mode = true;
-                        // don't change the log stream if it's already set
-                        if !self
-                            .output()
-                            .additional_outputs
-                            .iter()
-                            .any(|o| o.is_logger())
-                        {
-                            if let Err(msg) = self.handle_log("".split_whitespace()) {
-                                // Don't return an error, instead simply print a message and continue.
-                                self.write_message(
-                                    Error,
-                                    &format!("Couldn't set the debug log file: '{msg}'"),
-                                );
-                            };
-                        }
-                    }
-                    "off" => {
-                        self.state.debug_mode = false;
-                        self.handle_log("none".split_whitespace())?;
-                    }
-                    x => return Err(format!("Invalid debug option '{x}'")),
-                }
+            "debug" | "d" => {
+                self.handle_debug(words)?;
             }
             "setoption" => {
                 self.handle_setoption(words)?;
@@ -474,11 +462,8 @@ impl<B: Board> EngineUGI<B> {
             "query" => {
                 self.handle_query(words)?;
             }
-            "output" => {
-                self.handle_ui(words)?;
-            }
-            "remove_uis" => {
-                self.handle_remove_uis()?;
+            "output" | "o" => {
+                self.handle_output(words)?;
             }
             "print" | "show" | "s" | "display" => {
                 self.handle_print(words)?;
@@ -492,7 +477,7 @@ impl<B: Board> EngineUGI<B> {
             "play" => {
                 todo!("remove? probably not");
             }
-            "eval" => self.handle_eval(words)?,
+            "eval" | "e" => self.handle_eval(words)?,
             x => {
                 // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
                 // expositor UCI spec demands that an invalid token should cause the entire message to be ignored.
@@ -702,29 +687,101 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_print(&mut self, mut words: SplitWhitespace) -> Res<()> {
-        // This is definitely not the fastest way to print something, but performance isn't a huge concern here
-        let mut output =
-            output_builder_from_str(words.next().unwrap_or_default(), &self.output_factories)?
-                .for_engine(&self.state)?;
-        output.show(&self.state);
+        match words.next() {
+            None => {
+                if !self.output().show(&self.state) {
+                    return self.handle_print("unicode".split_whitespace());
+                }
+            }
+            Some(name) => {
+                // This is definitely not the fastest way to print something, but performance isn't a huge concern here
+                let mut output = output_builder_from_str(name, &self.output_factories)?
+                    .for_engine(&self.state)?;
+                output.show(&self.state);
+            }
+        }
         Ok(())
     }
 
-    fn handle_ui(&mut self, mut words: SplitWhitespace) -> Res<()> {
-        self.output().additional_outputs.push(
-            output_builder_from_str(words.next().unwrap_or_default(), &self.output_factories)?
-                .for_engine(&self.state)?,
-        );
+    fn handle_output(&mut self, mut words: SplitWhitespace) -> Res<()> {
+        let next = words.next().unwrap_or_default();
+        let output_ptr = self.output.clone();
+        let mut output = output_ptr.lock().unwrap();
+        if next.eq_ignore_ascii_case("remove") {
+            let next = words.next().ok_or(
+                "No output to remove specified. Use 'all' to remove all outputs".to_string(),
+            )?;
+            if next.eq_ignore_ascii_case("all") {
+                output.additional_outputs.clear();
+            } else {
+                output
+                    .additional_outputs
+                    .retain(|o| !o.short_name().eq_ignore_ascii_case(next))
+            }
+        } else if next.eq_ignore_ascii_case("list") {
+            for o in output.additional_outputs.iter() {
+                print!(
+                    "{}",
+                    to_name_and_optional_description(o.as_ref(), WithDescription)
+                );
+            }
+            println!();
+        } else {
+            if !output
+                .additional_outputs
+                .iter()
+                .any(|o| o.short_name().eq_ignore_ascii_case(next))
+            {
+                output.additional_outputs.push(
+                    output_builder_from_str(next, &self.output_factories)
+                        .map_err(|err| {
+                            format!(
+                                "{err}\nSpecial commands are '{0}' and '{1}'.",
+                                "remove".bold(),
+                                "list".bold()
+                            )
+                        })?
+                        .for_engine(&self.state)?,
+                );
+            }
+        }
         Ok(())
     }
 
-    fn handle_remove_uis(&mut self) -> Res<()> {
-        self.write_message(
-            Debug,
-            &format!("Removed all {} UIs", self.output().additional_outputs.len()),
-        );
-        self.output().additional_outputs.clear();
-        Ok(())
+    fn handle_debug(&mut self, mut words: SplitWhitespace) -> Res<()> {
+        match words.next().unwrap_or("on") {
+            "on" => {
+                self.state.debug_mode = true;
+                // make sure to print all the messages that can be sent (adding an existing output is a no-op)
+                self.handle_output("error".split_whitespace())?;
+                self.handle_output("debug".split_whitespace())?;
+                self.handle_output("info".split_whitespace())?;
+                self.write_message(Debug, "Debug mode enabled");
+                // don't change the log stream if it's already set
+                if !self
+                    .output()
+                    .additional_outputs
+                    .iter()
+                    .any(|o| o.is_logger())
+                {
+                    // In case of an error here, still keep the debug mode set.
+                    self.handle_log("".split_whitespace())
+                        .map_err(|err| format!("Couldn't set the debug log file: '{err}'"))?;
+                    Ok(())
+                } else {
+                    Ok(())
+                }
+            }
+            "off" => {
+                self.state.debug_mode = false;
+                _ = self.handle_output("remove debug".split_whitespace());
+                _ = self.handle_output("remove info".split_whitespace());
+                self.write_message(Debug, "Debug mode disabled");
+                // don't remove the error output, as there is basically no reason to do so
+                self.handle_log("none".split_whitespace())
+            }
+            x => return Err(format!("Invalid debug option '{x}'")),
+        }
     }
 
     // TODO: Move this function, and others throughout the project,
@@ -734,10 +791,21 @@ impl<B: Board> EngineUGI<B> {
         self.output().additional_outputs.retain(|o| !o.is_logger());
         let next = words.clone().next().unwrap_or_default();
         if next != "off" && next != "none" {
-            self.output()
-                .additional_outputs
-                .push(LoggerBuilder::from_words(words).for_engine(&self.state)?);
+            let logger = LoggerBuilder::from_words(words).for_engine(&self.state)?;
+            self.output().additional_outputs.push(logger);
         }
+        // write the debug message after setting the logger so that it also gets logged.
+        self.write_message(
+            Debug,
+            &format!(
+                "Set the debug logfile to '{}'",
+                self.output()
+                    .additional_outputs
+                    .last()
+                    .unwrap()
+                    .output_name()
+            ),
+        );
         Ok(())
     }
 

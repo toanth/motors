@@ -69,7 +69,7 @@ impl<B: Board, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R>
     where
         Self: Sized,
     {
-        "A very simple engine that always chooses a legal move uniformly at random."
+        "A very simple engine that always chooses a legal move uniformly at random"
     }
 }
 

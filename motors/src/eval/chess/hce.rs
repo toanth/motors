@@ -5,10 +5,10 @@ use gears::games::chess::Chessboard;
 use gears::games::chess::pieces::UncoloredChessPiece;
 use gears::games::chess::pieces::UncoloredChessPiece::{Pawn, Rook};
 use gears::games::chess::squares::ChessSquare;
-use gears::general::bitboards::chess::ChessBitboard;
-use gears::general::bitboards::RawBitboard;
 use gears::games::Color::{Black, White};
-use gears::general::bitboards::{A_FILE, Bitboard};
+use gears::general::bitboards::Bitboard;
+use gears::general::bitboards::chess::{A_FILE, ChessBitboard};
+use gears::general::bitboards::RawBitboard;
 use gears::search::Score;
 
 use crate::eval::chess::hce::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
@@ -199,7 +199,7 @@ fn print_bitboard(bb: ChessBitboard) -> String {
     let mut res = String::new();
     for rank in 7..=0 {
         for file in 0..8 {
-            let bit = bb & (1 << (8 * rank + file));
+            let bit = bb.0 & (1 << (8 * rank + file));
             if bit == 0 {
                 res.push('0');
             } else {
@@ -290,8 +290,8 @@ impl Eval<Chessboard> for HandCraftedEval {
                         let blocking = blocking.west() | blocking | blocking.east();
                         let blocking = blocking & their_pawns;
                         if blocking.is_zero() {
-                            println!("{}", print_bitboard(blocking));
-                            println!("{color} passed pawn on square {}", ChessSquare::new(idx));
+                            // println!("{}", print_bitboard(blocking));
+                            // println!("{color} passed pawn on square {}", ChessSquare::new(idx));
                         }
                     }
                 }
@@ -301,8 +301,8 @@ impl Eval<Chessboard> for HandCraftedEval {
         }
         let score = (mg * phase + eg * (24 - phase)) / 24;
         match pos.active_player() {
-            Color::White => score,
-            Color::Black => -score,
+            White => score,
+            Black => -score,
         }
     }
 }

@@ -20,7 +20,6 @@ use crate::search::tt::TT;
 #[cfg(feature = "chess")]
 pub mod chess;
 pub mod generic;
-pub mod human;
 pub mod multithreading;
 mod tt;
 

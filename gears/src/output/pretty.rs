@@ -1,4 +1,5 @@
 use std::fmt::Write;
+use std::io::stdout;
 
 use colored::{Color, Colorize};
 
@@ -9,12 +10,22 @@ use crate::games::{
 use crate::games::Color::*;
 use crate::GameState;
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
-use crate::output::{Message, Output, OutputBox, OutputBuilder};
-use crate::output::text_output::TextWriter;
+use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
+use crate::output::Message::Info;
+use crate::output::text_output::{TextStream, TextWriter};
 
-#[derive(Debug, Default)]
+// TODO: Should be a BoardToString variant
+#[derive(Debug)]
 pub(super) struct PrettyUI {
     writer: TextWriter,
+}
+
+impl Default for PrettyUI {
+    fn default() -> Self {
+        Self {
+            writer: TextWriter::new_for(TextStream::Stdout(stdout()), vec![Info]),
+        }
+    }
 }
 
 fn color<B: Board>(
@@ -67,6 +78,16 @@ impl NamedEntity for PrettyUI {
     }
 }
 
+impl AbstractOutput for PrettyUI {
+    fn output_name(&self) -> String {
+        self.writer.stream.name()
+    }
+
+    fn display_message_simple(&mut self, typ: Message, message: &str) {
+        self.writer.display_message(typ, message)
+    }
+}
+
 impl<B: RectangularBoard> Output<B> for PrettyUI
 where
     B::Coordinates: RectangularCoordinates,
@@ -100,10 +121,6 @@ where
         );
         res
     }
-
-    fn display_message_simple(&mut self, typ: Message, message: &str) {
-        self.writer.display_message(typ, message)
-    }
 }
 
 #[derive(Default, Copy, Clone, Debug)]
@@ -127,7 +144,7 @@ impl<B: RectangularBoard> OutputBuilder<B> for PrettyUIBuilder
 where
     B::Coordinates: RectangularCoordinates,
 {
-    fn for_engine(&self, _state: &dyn GameState<B>) -> Res<OutputBox<B>> {
+    fn for_engine(&mut self, _state: &dyn GameState<B>) -> Res<OutputBox<B>> {
         Ok(Box::<PrettyUI>::default())
     }
 

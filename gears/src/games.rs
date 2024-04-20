@@ -9,13 +9,14 @@ use num::{iter, PrimInt};
 use rand::Rng;
 use strum_macros::EnumIter;
 
+use crate::{GameOver, GameOverReason, MatchResult, player_res_to_match_res, PlayerResult};
 use crate::games::PlayerResult::{Draw, Lose};
 use crate::general::common::{
-    parse_int, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
+    EntityList, GenericSelect, parse_int, Res, select_name_static, StaticallyNamedEntity,
 };
+use crate::general::common::Description::NoDescription;
 use crate::general::move_list::MoveList;
 use crate::output::OutputBuilder;
-use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
 
 #[cfg(feature = "mnk")]
 pub mod mnk;
@@ -656,6 +657,7 @@ pub trait Board:
             &Self::name_to_pos_map(),
             "position",
             Self::game_name(),
+            NoDescription,
         )
         .map(|f| (f.val)())
     }

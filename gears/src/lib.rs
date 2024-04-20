@@ -6,6 +6,7 @@ use crate::GameResult::Aborted;
 use crate::games::{Board, Color};
 use crate::games::Color::White;
 use crate::general::common::{Res, select_name_dyn};
+use crate::general::common::Description::WithDescription;
 use crate::MatchStatus::Over;
 use crate::output::OutputBuilder;
 use crate::PlayerResult::Win;
@@ -201,6 +202,7 @@ pub fn output_builder_from_str<B: Board>(
         list,
         "output",
         B::game_name(),
+        WithDescription,
     )?))
 }
 

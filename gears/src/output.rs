@@ -8,7 +8,7 @@ use crate::{GameOverReason, GameState, MatchResult, MatchStatus};
 use crate::games::{Board, OutputList, RectangularBoard, RectangularCoordinates};
 use crate::general::common::{NamedEntity, Res};
 use crate::output::logger::LoggerBuilder;
-use crate::output::Message::Info;
+use crate::output::Message::*;
 use crate::output::pretty::PrettyUIBuilder;
 use crate::output::text_output::DisplayType::*;
 use crate::output::text_output::TextOutputBuilder;
@@ -52,13 +52,34 @@ pub fn game_over_message(result: MatchResult) -> String {
     }
 }
 
-/// A UI prints the board.The Ugi Gui Match calls `make_interactive` once at the start, which makes the UI listen
-/// to allow handling inputs such as moves and match making.
-/// The UI object lives in the same thread as the UgiGui, but usually uses multithreading internally to allow processing user input when
-/// make_interactive has been called. Otherwise, it can just print the board on demand in the same thread (this is the case for the logger).
-// TODO: Split into Input and Output parts to avoid reference cycles; an `Input` has a reference to the UgiGui, and the UgiGui has a Vec of Outputs
-/// There is no trait for Input because it's literally just something that contains a `Weak<Mutex<UgiGui>>`
-pub trait Output<B: Board>: NamedEntity + Debug + Send + 'static {
+/// An `AbstractOutput` contains the parts of an `Output` that are independent of the `Board`
+pub trait AbstractOutput: NamedEntity + Debug + Send + 'static {
+    fn is_logger(&self) -> bool {
+        false
+    }
+
+    /// True iff the output can print the board in some form, such as by outputting a FEN, PGN, diagram, or graphical representation.
+    fn prints_board(&self) -> bool {
+        true
+    }
+
+    fn output_name(&self) -> String;
+
+    fn write_ugi_output(&mut self, _message: &str, _player: Option<&str>) {
+        // do nothing (most UIs don't log all UGI commands)
+    }
+
+    fn write_ugi_input(&mut self, _message: SplitWhitespace, _player: Option<&str>) {
+        // do nothing (most UIs don't log all UGI commands)
+    }
+
+    fn display_message_simple(&mut self, typ: Message, message: &str);
+}
+
+/// An Output prints the board and shows messages.
+/// There is no trait for Input because it's literally just something that contains a `Weak<Mutex<UgiGui>>`,
+/// and not needed at all for `motors` (only for `monitors`).
+pub trait Output<B: Board>: AbstractOutput {
     fn show(&mut self, m: &dyn GameState<B>) {
         println!("{}", self.as_string(m));
     }
@@ -70,24 +91,9 @@ pub trait Output<B: Board>: NamedEntity + Debug + Send + 'static {
         }
     }
 
-    fn is_logger(&self) -> bool {
-        false
-    }
-
     fn as_string(&self, m: &dyn GameState<B>) -> String;
 
-    fn write_ugi_output(&mut self, _message: &str, _player: Option<&str>) {
-        // do nothing (most UIs don't log all UGI commands)
-    }
-
-    fn write_ugi_input(&mut self, _message: SplitWhitespace, _player: Option<&str>) {
-        // do nothing (most UIs don't log all UGI commands)
-    }
-
-    fn display_message_simple(&mut self, typ: Message, message: &str);
-
     // TODO: Remove or rename
-
     fn display_message(&mut self, m: &dyn GameState<B>, typ: Message, message: &str) {
         if matches!(typ, Message::Debug) && !m.debug_info_enabled() {
             return;
@@ -106,9 +112,9 @@ pub trait OutputBuilderOption<B: Board> {
 
 /// Factory to create the specified Output; the `monitors` crate has a `UIBuilder` trait that inherits from this.
 pub trait OutputBuilder<B: Board>: NamedEntity + DynClone + Send {
-    fn for_engine(&self, state: &dyn GameState<B>) -> Res<OutputBox<B>>;
+    fn for_engine(&mut self, state: &dyn GameState<B>) -> Res<OutputBox<B>>;
 
-    fn for_client(&self, state: &dyn GameState<B>) -> Res<OutputBox<B>> {
+    fn for_client(&mut self, state: &dyn GameState<B>) -> Res<OutputBox<B>> {
         self.for_engine(state)
     }
 
@@ -132,6 +138,12 @@ pub fn required_outputs<B: Board>() -> OutputList<B> {
         Box::new(TextOutputBuilder::new(Uci)),
         Box::new(TextOutputBuilder::new(Ugi)),
         Box::new(TextOutputBuilder::new(Pgn)),
+        Box::new(TextOutputBuilder::messages_for(
+            vec![Warning, Error],
+            "error",
+        )),
+        Box::new(TextOutputBuilder::messages_for(vec![Debug], "debug")),
+        Box::new(TextOutputBuilder::messages_for(vec![Info], "info")),
         #[allow(clippy::box_default)]
         Box::new(LoggerBuilder::default()),
     ]

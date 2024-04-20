@@ -11,6 +11,7 @@ use derive_more::{
 use num::{One, PrimInt, Unsigned, Zero};
 use strum_macros::EnumIter;
 
+use crate::games::{DimT, RectangularCoordinates, RectangularSize, Size};
 #[cfg(feature = "chess")]
 use crate::games::chess::squares::ChessboardSize;
 use crate::games::chess::squares::ChessSquare;
@@ -397,9 +398,17 @@ where
         Self::from_u128(ANTI_DIAGONALS[size.width().val()][size.to_idx(sq)], size)
     }
 
+    fn raw(self) -> R;
+
     fn size(self) -> C::Size;
 
-    fn raw(self) -> R;
+    fn width(self) -> usize {
+        self.size().width().val()
+    }
+
+    fn height(self) -> usize {
+        self.size().height().val()
+    }
 
     fn piece_coordinates(self) -> C {
         debug_assert!(self.is_single_piece());
@@ -533,35 +542,35 @@ where
         }
     }
 
-    pub fn north(self) -> Self {
-        self << self.size().width()
+    fn north(self) -> Self {
+        self << self.width()
     }
 
-    pub fn south(self) -> Self {
-        self >> self.size().width()
+    fn south(self) -> Self {
+        self >> self.width()
     }
 
-    pub fn east(self) -> Self {
-        (self & !Self::file(self.size().width() - 1, self.size())) << 1
+    fn east(self) -> Self {
+        (self & !Self::file(self.size().width().0 - 1, self.size())) << 1
     }
 
-    pub fn west(self) -> Self {
+    fn west(self) -> Self {
         (self & !Self::file(0, self.size())) >> 1
     }
 
-    pub fn north_east(self) -> Self {
+    fn north_east(self) -> Self {
         self.north().east()
     }
 
-    pub fn south_east(self) -> Self {
+    fn south_east(self) -> Self {
         self.south().east()
     }
 
-    pub fn south_west(self) -> Self {
+    fn south_west(self) -> Self {
         self.south().west()
     }
 
-    pub fn north_west(self) -> Self {
+    fn north_west(self) -> Self {
         self.north().west()
     }
 }
@@ -766,7 +775,7 @@ where
 pub mod chess {
     use derive_more::Display;
 
-    use crate::games::GridSize;
+    use crate::games::{GridCoordinates, GridSize};
 
     use super::*;
 

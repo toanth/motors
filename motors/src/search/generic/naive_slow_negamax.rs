@@ -42,7 +42,7 @@ impl<B: Board> StaticallyNamedEntity for NaiveSlowNegamax<B> {
     where
         Self: Sized,
     {
-        "A very simple engine that searches the *entire* game tree, without using alpha-beta pruning or an eval function. Will not finish except for very simple games."
+        "A very simple engine that searches the *entire* game tree, without using alpha-beta pruning or an eval function. Will not finish except for very simple games"
     }
 }
 

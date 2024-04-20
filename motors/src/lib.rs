@@ -12,6 +12,7 @@ use gears::games::chess::Chessboard;
 #[cfg(feature = "mnk")]
 use gears::games::mnk::MNKBoard;
 use gears::general::common::{Res, select_name_dyn};
+use gears::general::common::Description::WithDescription;
 use gears::output::normal_outputs;
 use gears::search::Depth;
 
@@ -79,6 +80,7 @@ pub fn create_engine_from_str_impl<B: Board>(
         engines,
         "engine",
         B::game_name(),
+        WithDescription,
     )?))
 }
 

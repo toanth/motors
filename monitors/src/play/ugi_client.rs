@@ -6,7 +6,10 @@ use std::time::{Duration, Instant};
 
 use crossbeam_utils::sync::{Parker, Unparker};
 
-use gears::{AbstractRun, AdjudicationReason, GameOver, GameOverReason, GameResult, GameState, MatchResult, MatchStatus, output_builder_from_str, player_res_to_match_res, PlayerResult};
+use gears::{
+    AbstractRun, AdjudicationReason, GameOver, GameOverReason, GameResult,
+    GameState, MatchResult, MatchStatus, output_builder_from_str, player_res_to_match_res, PlayerResult,
+};
 use gears::games::{Board, BoardHistory, Color, Move, ZobristRepetition3Fold};
 use gears::games::Color::{Black, White};
 use gears::general::common::Res;
@@ -18,7 +21,9 @@ use gears::ugi::EngineOptionType::*;
 
 use crate::cli::CommandLineArgs;
 use crate::play::adjudication::{Adjudication, Adjudicator};
-use crate::play::player::{EnginePlayer, HumanPlayerStatus, limit_to_ugi, Player, PlayerBuilder, Protocol};
+use crate::play::player::{
+    EnginePlayer, HumanPlayerStatus, limit_to_ugi, Player, PlayerBuilder, Protocol,
+};
 use crate::play::player::Player::{Engine, Human};
 use crate::play::ugi_input::BestMoveAction;
 use crate::play::ugi_input::BestMoveAction::Ignore;
@@ -30,7 +35,6 @@ use crate::ui::Input;
 pub type PlayerId = usize;
 
 const NO_PLAYER: PlayerId = PlayerId::MAX;
-
 
 // A struct that gets manipulated by the UI and the players
 #[derive(Debug, Clone)]
@@ -122,14 +126,18 @@ impl<B: Board> ClientState<B> {
     pub(super) fn get_engine_from_id_mut(&mut self, id: PlayerId) -> &mut EnginePlayer<B> {
         match self.get_player_from_id_mut(id) {
             Engine(e) => e,
-            Human(_) => panic!("Internal error: Expected player {id} to be an engine, but it was a human")
+            Human(_) => {
+                panic!("Internal error: Expected player {id} to be an engine, but it was a human")
+            }
         }
     }
 
     pub fn get_engine_from_id(&self, id: PlayerId) -> &EnginePlayer<B> {
         match self.get_player_from_id(id) {
             Engine(e) => e,
-            Human(_) => panic!("Internal error: Expected player {id} to be an engine, but it was a human")
+            Human(_) => {
+                panic!("Internal error: Expected player {id} to be an engine, but it was a human")
+            }
         }
     }
 
@@ -196,7 +204,6 @@ impl<B: Board> GameState<B> for ClientState<B> {
     }
 }
 
-
 /// The word `Client` is used instead of the more common term `Ugi GUI` to avoid confusion with regard to the actual GUI,
 /// and in keeping with the (unofficial, but vastly more detailed) UCI specification at https://expositor.dev/uci/doc/uci-draft-1.pdf
 #[derive(Debug)]
@@ -215,7 +222,6 @@ pub struct Client<B: Board> {
     will_quit: bool,
 }
 
-
 impl<B: Board> Client<B> {
     fn create(
         send_quit: Unparker,
@@ -226,10 +232,20 @@ impl<B: Board> Client<B> {
             None => B::default(),
             Some(fen) => B::from_fen(&fen)?,
         };
-        let event = args.event.clone().unwrap_or_else(|| format!("Monitors - {} match", B::game_name()));
-        let site = args.site.clone().unwrap_or_else(|| "github.com/toanth/motors".to_string());
+        let event = args
+            .event
+            .clone()
+            .unwrap_or_else(|| format!("Monitors - {} match", B::game_name()));
+        let site = args
+            .site
+            .clone()
+            .unwrap_or_else(|| "github.com/toanth/motors".to_string());
 
-        let adjudicator = Adjudicator::new(args.resign_adjudication, args.draw_adjudication, args.max_moves.unwrap_or(NonZeroUsize::MAX).get());
+        let adjudicator = Adjudicator::new(
+            args.resign_adjudication,
+            args.draw_adjudication,
+            args.max_moves.unwrap_or(NonZeroUsize::MAX).get(),
+        );
 
         let match_state = UgiMatchState::new(initial_pos, event, site);
         let state = ClientState {
@@ -240,7 +256,9 @@ impl<B: Board> Client<B> {
             recover: args.recover,
             debug: false,
         };
-        let ugi_output = output_builder_from_str("ugi", &all_outputs).expect("Couldn't create 'ugi' output").for_client(&state)?;
+        let ugi_output = output_builder_from_str("ugi", &all_outputs)
+            .expect("Couldn't create 'ugi' output")
+            .for_client(&state)?;
         Ok(Arc::new(Mutex::new(Self {
             state,
             outputs: vec![],
@@ -260,7 +278,7 @@ impl<B: Board> Client<B> {
         &mut self.match_state().board
     }
 
-    pub fn add_output(&mut self, output: Box<dyn OutputBuilder<B>>) -> Res<()> {
+    pub fn add_output(&mut self, mut output: Box<dyn OutputBuilder<B>>) -> Res<()> {
         let output = output.for_client(&self.state)?;
         self.outputs.push(output);
         Ok(())
@@ -302,7 +320,8 @@ impl<B: Board> Client<B> {
 
     /// Resets the current match to the state before any moves were played.
     pub fn reset(&mut self) {
-        if self.match_state().p1 != NO_PLAYER { // A newly constructed UgiMatchState does not contain any players
+        if self.match_state().p1 != NO_PLAYER {
+            // A newly constructed UgiMatchState does not contain any players
             for color in [White, Black] {
                 self.cancel_thinking(color);
                 self.state.get_player_mut(color).reset();
@@ -314,7 +333,10 @@ impl<B: Board> Client<B> {
     pub fn abort_match(&mut self) {
         self.cancel_thinking(White);
         self.cancel_thinking(Black);
-        self.game_over(MatchResult { result: GameResult::Aborted, reason: GameOverReason::Adjudication(AdjudicationReason::AbortedByUser) });
+        self.game_over(MatchResult {
+            result: GameResult::Aborted,
+            reason: GameOverReason::Adjudication(AdjudicationReason::AbortedByUser),
+        });
     }
 
     /// This does not only cancel the match (like `abort_match`, `lose_on_time` or `game_over`), but also exits the client completely.
@@ -332,13 +354,21 @@ impl<B: Board> Client<B> {
 
     pub fn lose_on_time(&mut self, color: Color) {
         let time = self.state.get_player_mut(color).get_original_tc();
-        self.show_message(Warning, &format!("The {color} player ran out of time (the time control was {start}ms + {inc}ms)",
-                                            start = time.remaining.as_millis(),
-                                            inc = time.increment.as_millis()));
+        self.show_message(
+            Warning,
+            &format!(
+                "The {color} player ran out of time (the time control was {start}ms + {inc}ms)",
+                start = time.remaining.as_millis(),
+                inc = time.increment.as_millis()
+            ),
+        );
         if self.match_state().status == Ongoing {
             // Draw by adjudication when the opponent has insufficient mating material, only applied to
             // games with a human player
-            let result = if (!self.state.get_player(White).is_engine() || !self.state.get_player(Black).is_engine()) && self.board().cannot_reasonably_lose(color) {
+            let result = if (!self.state.get_player(White).is_engine()
+                || !self.state.get_player(Black).is_engine())
+                && self.board().cannot_reasonably_lose(color)
+            {
                 PlayerResult::Draw
             } else {
                 PlayerResult::Lose
@@ -363,13 +393,21 @@ impl<B: Board> Client<B> {
         for output in self.outputs.iter_mut() {
             output.update_engine_info(&engine.display_name, &info);
         }
-        let current_match = engine.current_match.as_mut().ok_or_else(|| format!("The engine sent info ('{info}') while it wasn't playing in match"))?;
+        let current_match = engine.current_match.as_mut().ok_or_else(|| {
+            format!("The engine sent info ('{info}') while it wasn't playing in match")
+        })?;
         current_match.search_info = Some(info);
         Ok(())
     }
 
     pub fn show_ugi_info_string(&mut self, id: PlayerId, info: &str) {
-        self.show_message(Info, &format!("Engine {}: '{info}'", self.state.get_engine_from_id(id).display_name))
+        self.show_message(
+            Info,
+            &format!(
+                "Engine {}: '{info}'",
+                self.state.get_engine_from_id(id).display_name
+            ),
+        )
     }
 
     /// Plays a move without assuming that it comes from the current player, so this can be used to set up a position.
@@ -383,8 +421,14 @@ impl<B: Board> Client<B> {
             ));
         }
         let Some(board) = self.board().make_move(mov) else {
-            let player_res = GameOver { result: PlayerResult::Lose, reason: GameOverReason::Adjudication(AdjudicationReason::InvalidMove) };
-            self.game_over(player_res_to_match_res(player_res, self.active_player().unwrap()));
+            let player_res = GameOver {
+                result: PlayerResult::Lose,
+                reason: GameOverReason::Adjudication(AdjudicationReason::InvalidMove),
+            };
+            self.game_over(player_res_to_match_res(
+                player_res,
+                self.active_player().unwrap(),
+            ));
             return Err(format!(
                 "Invalid move '{mov}' in position {}",
                 self.board().as_fen(),
@@ -411,7 +455,7 @@ impl<B: Board> Client<B> {
                 self.match_state().status = Ongoing;
                 self.start_thinking(color.other());
             }
-            Some(result) => self.game_over(result)
+            Some(result) => self.game_over(result),
         };
         Ok(())
     }
@@ -556,7 +600,10 @@ impl<B: Board> Client<B> {
 
     pub fn rewind_to_ply(&mut self, ply: usize) -> Res<()> {
         assert!(ply <= self.match_state().move_history.len());
-        debug_assert!(self.match_state().board_history.0.0.len() == self.match_state().move_history.len() + 1);
+        debug_assert!(
+            self.match_state().board_history.0 .0.len()
+                == self.match_state().move_history.len() + 1
+        );
         let initial_pos = self.match_state().initial_pos;
         let mut moves = self.match_state().move_history.clone();
         moves.truncate(ply);
@@ -576,7 +623,7 @@ impl<B: Board> Client<B> {
         let mut change_pos = || -> Res<()> {
             for mov in moves {
                 self.play_move_internal(*mov)?;
-            };
+            }
             Ok(())
         };
         if let Err(err) = change_pos() {
@@ -609,7 +656,6 @@ impl<B: Board> Client<B> {
         }
     }
 
-
     pub fn set_player(&mut self, color: Color, player: PlayerId) {
         let active_player = self.active_player();
         let old_player = self.state.get_player(color);
@@ -636,7 +682,6 @@ impl<B: Board> Client<B> {
         self.match_state().initial_pos = initial_pos;
         self.reset();
     }
-
 
     pub fn new_match(&mut self, p1: PlayerId, p2: PlayerId) {
         assert!(p1 < self.state.num_players());

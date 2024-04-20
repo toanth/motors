@@ -1,22 +1,25 @@
-pub mod ui;
-pub mod play;
-pub mod cli;
-
 use std::process::abort;
+
 use itertools::Itertools;
-use gears::{AnyMatch, output_builder_from_str, create_selected_output_builders};
-use gears::cli::{Game};
+
+use gears::{AnyMatch, create_selected_output_builders, output_builder_from_str};
+use gears::cli::Game;
 use gears::games::{Board, OutputList, RectangularBoard, RectangularCoordinates};
 use gears::games::chess::Chessboard;
-use gears::games::Color::{Black, White};
 use gears::games::mnk::MNKBoard;
 use gears::general::common::{Res, select_name_dyn};
+use gears::general::common::Description::WithDescription;
 use gears::output::{normal_outputs, required_outputs};
+
 use crate::cli::{CommandLineArgs, HumanArgs, parse_cli, PlayerArgs};
-use crate::play::player::{NameSet, PlayerBuilder};
+use crate::play::player::PlayerBuilder;
 use crate::play::ugi_client::RunClient;
 use crate::ui::{InputBuilder, InputList};
 use crate::ui::text_input::TextInputBuilder;
+
+pub mod cli;
+pub mod play;
+pub mod ui;
 
 fn main() {
     if let Err(err) = run_program() {
@@ -25,10 +28,10 @@ fn main() {
     }
 }
 
-
 pub fn text_based_inputs<B: Board>() -> InputList<B> {
-    vec![Box::new(TextInputBuilder::default()),
-    // TODO: Add SPRT input
+    vec![
+        Box::new(TextInputBuilder::default()),
+        // TODO: Add SPRT input
     ]
 }
 
@@ -36,11 +39,12 @@ pub fn required_uis<B: Board>() -> (OutputList<B>, InputList<B>) {
     (required_outputs(), text_based_inputs())
 }
 
-
-pub fn normal_uis<B: RectangularBoard>() -> (OutputList<B>, InputList<B>) where <B as Board>::Coordinates: RectangularCoordinates {
+pub fn normal_uis<B: RectangularBoard>() -> (OutputList<B>, InputList<B>)
+where
+    <B as Board>::Coordinates: RectangularCoordinates,
+{
     (normal_outputs(), text_based_inputs()) // TODO: Add additional interactive uis, like a GUI
 }
-
 
 fn list_chess_uis() -> (OutputList<Chessboard>, InputList<Chessboard>) {
     normal_uis::<Chessboard>()
@@ -50,8 +54,18 @@ fn list_mnk_uis() -> (OutputList<MNKBoard>, InputList<MNKBoard>) {
     normal_uis::<MNKBoard>()
 }
 
-pub fn create_input_from_str<B: Board>(name: &str, opts: &str, list: &[Box<dyn InputBuilder<B>>]) -> Res<Box<dyn InputBuilder<B>>> {
-    let mut ui_builder = dyn_clone::clone_box(select_name_dyn(name, list, "input", B::game_name())?);
+pub fn create_input_from_str<B: Board>(
+    name: &str,
+    opts: &str,
+    list: &[Box<dyn InputBuilder<B>>],
+) -> Res<Box<dyn InputBuilder<B>>> {
+    let mut ui_builder = dyn_clone::clone_box(select_name_dyn(
+        name,
+        list,
+        "input",
+        B::game_name(),
+        WithDescription,
+    )?);
     ui_builder.set_option(opts)?;
     Ok(ui_builder)
 }
@@ -61,7 +75,7 @@ pub fn map_ui_to_input_and_output(ui: &str) -> (&str, &str) {
         "text" => ("text", "unicode"),
         "gui" => todo!(),
         "sprt" => (todo!(), "none"),
-        x => (x, x)
+        x => (x, x),
     }
 }
 
@@ -70,11 +84,11 @@ pub fn map_ui_to_input_and_output(ui: &str) -> (&str, &str) {
 pub fn create_match(args: CommandLineArgs) -> Res<AnyMatch> {
     // match mode {
     //     Gui(options) => {
-            match args.game {
-                Game::Chess => create_gui_match_for_game(args, list_chess_uis()),
-                Game::Mnk => create_gui_match_for_game(args, list_mnk_uis()),
-            }
-        // }
+    match args.game {
+        Game::Chess => create_gui_match_for_game(args, list_chess_uis()),
+        Game::Mnk => create_gui_match_for_game(args, list_mnk_uis()),
+    }
+    // }
     //     mode => {
     //         #[cfg(feature = "motors")]
     //         return motors::create_match(game, mode);
@@ -83,8 +97,10 @@ pub fn create_match(args: CommandLineArgs) -> Res<AnyMatch> {
     // }
 }
 
-pub fn create_gui_match_for_game<B: Board>(mut args: CommandLineArgs, uis: (OutputList<B>, InputList<B>)) -> Res<AnyMatch> {
-
+pub fn create_gui_match_for_game<B: Board>(
+    mut args: CommandLineArgs,
+    uis: (OutputList<B>, InputList<B>),
+) -> Res<AnyMatch> {
     while args.players.len() < 2 {
         args.players.push(PlayerArgs::Human(HumanArgs::default()));
     }
@@ -117,7 +133,8 @@ pub fn create_gui_match_for_game<B: Board>(mut args: CommandLineArgs, uis: (Outp
 pub fn run_program() -> Res<()> {
     let args = parse_cli().map_err(|err| format!("Error parsing command line arguments: {err}"))?;
 
-    let mut the_match = create_match(args).map_err(|err| format!("Couldn't start the client: {err}"))?;
+    let mut the_match =
+        create_match(args).map_err(|err| format!("Couldn't start the client: {err}"))?;
     the_match.run();
     Ok(())
 }

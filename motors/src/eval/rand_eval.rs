@@ -10,6 +10,6 @@ pub struct RandEval {}
 
 impl<B: Board> Eval<B> for RandEval {
     fn eval(&self, _: B) -> Score {
-        Score(thread_rng().gen_range(MIN_NORMAL_SCORE.0..MAX_NORMAL_SCORE.0))
+        Score(thread_rng().gen_range(MIN_NORMAL_SCORE.0..=MAX_NORMAL_SCORE.0))
     }
 }
