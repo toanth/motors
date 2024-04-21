@@ -7,7 +7,7 @@ use gears::games::chess::pieces::UncoloredChessPiece::{Pawn, Rook};
 use gears::games::chess::squares::ChessSquare;
 use gears::games::Color::{Black, White};
 use gears::general::bitboards::Bitboard;
-use gears::general::bitboards::chess::ChessBitboard;
+use gears::general::bitboards::chess::{A_FILE, ChessBitboard};
 use gears::general::bitboards::RawBitboard;
 use gears::search::Score;
 
@@ -266,12 +266,12 @@ impl Eval<Chessboard> for HandCraftedEval {
                         //     mg += Score(ISOLATED_PAWN_MG);
                         //     eg += Score(ISOLATED_PAWN_EG);
                         // }
-                        // let file = if color == White {
-                        //     A_FILE << (idx + 8)
-                        // } else {
-                        //     A_FILE >> (64 - idx)
-                        // };
-                        let hard_blockers = file & all_pawns;
+                        let in_front = if color == White {
+                            A_FILE << (idx + 8)
+                        } else {
+                            A_FILE >> (64 - idx)
+                        };
+                        let hard_blockers = in_front & all_pawns;
                         if hard_blockers.is_zero() {
                             let neighboring_files = file.west() | file.east();
                             if (neighboring_files & their_pawns).0.count_ones()
