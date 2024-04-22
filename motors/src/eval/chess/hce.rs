@@ -168,30 +168,29 @@ const KING_SEMIOPEN_FILE_EG: i32 = 8;
 const KING_CLOSED_FILE_MG: i32 = 15;
 const KING_CLOSED_FILE_EG: i32 = -16;
 #[rustfmt::skip]
-    const PASSED_PAWNS_MG: [i32; 64] = // passed pawns mg
-    [
-        0, 0, 0, 0, 0, 0, 0, 0,
-        21, 16, 20, 20, 12, 9, -8, 1,
-        33, 42, 33, 19, 18, 8, -32, -51,
-        12, 8, 18, 17, 0, 5, -23, -18,
-        -3, -13, -19, -12, -19, -10, -26, -16,
-        -10, -23, -24, -19, -19, -15, -24, 2,
-        -18, -9, -17, -20, -5, -4, 2, -4,
-        0, 0, 0, 0, 0, 0, 0, 0,
-    ];
+const PASSED_PAWNS_MG: [i32; 64] =
+[
+    0, 0, 0, 0, 0, 0, 0, 0,
+    21, 16, 20, 20, 12, 9, -8, 1,
+    33, 42, 33, 19, 18, 8, -32, -51,
+    12, 8, 18, 17, 0, 5, -23, -18,
+    -3, -13, -19, -12, -19, -10, -26, -16,
+    -10, -23, -24, -19, -19, -15, -24, 2,
+    -18, -9, -17, -20, -5, -4, 2, -4,
+    0, 0, 0, 0, 0, 0, 0, 0,
+];
 #[rustfmt::skip]
-    const PASSED_PAWNS_EG: [i32; 64] =
-    // passed pawns eg
-    [
-        0, 0, 0, 0, 0, 0, 0, 0,
-        -14, -13, -11, -12, -5, -7, -7, -9,
-        109, 107, 94, 64, 68, 90, 97, 117,
-        57, 54, 45, 37, 39, 45, 61, 63,
-        31, 28, 26, 19, 22, 25, 39, 37,
-        0, 7, 12, 2, 8, 9, 21, 5,
-        3, 5, 15, 10, -1, 4, 6, 6,
-        0, 0, 0, 0, 0, 0, 0, 0,
-    ];
+const PASSED_PAWNS_EG: [i32; 64] =
+[
+    0, 0, 0, 0, 0, 0, 0, 0,
+    -14, -13, -11, -12, -5, -7, -7, -9,
+    109, 107, 94, 64, 68, 90, 97, 117,
+    57, 54, 45, 37, 39, 45, 61, 63,
+    31, 28, 26, 19, 22, 25, 39, 37,
+    0, 7, 12, 2, 8, 9, 21, 5,
+    3, 5, 15, 10, -1, 4, 6, 6,
+    0, 0, 0, 0, 0, 0, 0, 0,
+];
 
 // TODO: Differentiate between rooks and kings in front of / behind pawns.
 
@@ -280,15 +279,8 @@ impl Eval<Chessboard> for HandCraftedEval {
                     eg += Score(PSQTS[eg_table][square]);
                     phase += PIECE_PHASE[piece as usize];
 
-                    // Isolated pawns
+                    // Passed pawns.
                     if piece == Pawn {
-                        let file = ChessBitboard::file_no(ChessSquare::new(idx).file());
-                        // if (our_pawns.west() & file).is_zero()
-                        //     && (our_pawns.east() & file).is_zero()
-                        // {
-                        //     mg += Score(ISOLATED_PAWN_MG);
-                        //     eg += Score(ISOLATED_PAWN_EG);
-                        // }
                         let in_front = if color == White {
                             A_FILE << (idx + 8)
                         } else {
@@ -299,24 +291,6 @@ impl Eval<Chessboard> for HandCraftedEval {
                             mg += Score(PASSED_PAWNS_MG[square]);
                             eg += Score(PASSED_PAWNS_EG[square]);
                         }
-                        // let hard_blockers = in_front & all_pawns;
-                        // if hard_blockers.is_zero() {
-                        //     let neighboring_files = file.west() | file.east();
-                        //     let blocking_squares = in_front.west() | in_front.east();
-                        //     let blocking_pawns = blocking_squares & their_pawns;
-                        //     let supporting_squares = neighboring_files & !blocking_squares;
-                        //     let supporting_pawns = supporting_squares & our_pawns;
-                        //     if blocking_pawns.0.count_ones() <= supporting_pawns.0.count_ones() {
-                        //         mg += Score(PASSED_PAWN_MG);
-                        //         eg += Score(PASSED_PAWN_EG);
-                        //     }
-                        // }
-                        // let file = file.west() | file | file.east();
-                        // let blocking = (file & all_pawns) | hard_blockers;
-                        // if blocking.is_zero() {
-                        //     mg += Score(PAWN_MAJORITY_MG);
-                        //     eg += Score(PAWN_MAJORITY_EG);
-                        // }
                     }
                 }
             }
