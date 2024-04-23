@@ -235,6 +235,12 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
 
 #[allow(clippy::too_many_arguments)]
 impl<E: Eval<Chessboard>> Caps<E> {
+    /// Anspiration Windows (AW): Assume that the score will be close to the score from the previous iteration
+    /// of Iterative Deepening, so use alpha, beta bounds around that score to prune more aggressively.
+    /// This means that it's possible for the root to fail low (or high), which is always something to consider:
+    /// For example, the best move is not trustworthy if the root failed low (but because the TT move is ordered first,
+    /// and the TT move at the root is always `state.best_move` (there can be no collisions because it's written to last),
+    /// it should in theory still be trustworthy if the root failed high)
     fn aspiration(
         &mut self,
         pos: Chessboard,
@@ -280,7 +286,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
             alpha = iteration_score - widening;
             beta = iteration_score + widening;
             sender.send_search_info(self.search_info());
-            chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
+            // incomplete iterations and root nodes that failed low  don't overwrite the `state.best_move`,
+            // so it should in theory be fine to unconditionally assign it to `chosen_move`, but let's play it safe
+            // and only do that here.
+            chosen_move = self.state.best_move;
             if depth > max_depth {
                 break;
             }
@@ -465,9 +474,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
             bound_so_far = Exact;
             alpha = score;
             best_move = mov;
-            if ply == 0 {
-                self.state.best_move = Some(mov);
-            }
 
             let split = self.state.search_stack.split_at_mut(ply + 1);
             let pv = &mut split.0.last_mut().unwrap().pv;
@@ -489,7 +495,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
             break;
         }
 
-        if children_visited == 0 {
+        if ply == 0 {
+            assert_ne!(children_visited, 0);
+            self.state.best_move = Some(best_move);
+        } else if children_visited == 0 {
             // TODO: Merge cached in-check branch
             return game_result_to_score(pos.no_moves_result(), ply);
         }
