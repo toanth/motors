@@ -124,16 +124,7 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
         let mut limit = SearchLimit::infinite();
         limit.depth = DEPTH_SOFT_LIMIT.min(depth);
         self.state.depth = limit.depth;
-        self.negamax(
-            pos,
-            limit,
-            0,
-            limit.depth.get() as isize,
-            SCORE_LOST,
-            SCORE_WON,
-            &SearchSender::no_sender(),
-        );
-        // TODO: Handle stop command in bench?
+        let _ = self.search_from_pos(pos, limit);
         self.state.to_bench_res()
     }
 
@@ -180,9 +171,6 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
         mut limit: SearchLimit,
         sender: &mut SearchSender<Chessboard>,
     ) -> Res<SearchResult<Chessboard>> {
-        let mut chosen_move = self.state.best_move;
-        let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth).get() as isize;
-
         limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
         let soft_limit = limit
             .fixed_time
@@ -199,27 +187,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
             soft = soft_limit.as_millis(),
         ));
 
-        for depth in 1..=max_depth {
-            self.state.depth = Depth::new(depth as usize);
-            let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON, sender);
-            assert!(
-                !(iteration_score != SCORE_TIME_UP
-                    && iteration_score
-                        .plies_until_game_over()
-                        .is_some_and(|x| x <= 0)),
-                "score {} depth {depth}",
-                iteration_score.0
-            );
-            if self.state.search_cancelled() {
-                break;
-            }
-            self.state.score = iteration_score;
-            chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
-            sender.send_search_info(self.search_info());
-            if self.state.start_time.elapsed() >= soft_limit {
-                break;
-            }
-        }
+        let chosen_move = self.aspiration(pos, limit, soft_limit, sender);
 
         Ok(SearchResult::move_and_score(
             chosen_move.unwrap_or_else(|| {
@@ -267,6 +235,60 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
 
 #[allow(clippy::too_many_arguments)]
 impl<E: Eval<Chessboard>> Caps<E> {
+    fn aspiration(
+        &mut self,
+        pos: Chessboard,
+        limit: SearchLimit,
+        soft_limit: Duration,
+        sender: &mut SearchSender<Chessboard>,
+    ) -> Option<ChessMove> {
+        let mut chosen_move = self.state.best_move;
+        let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth).get() as isize;
+
+        let mut alpha = SCORE_LOST;
+        let mut beta = SCORE_WON;
+        let mut depth = 1;
+
+        loop {
+            self.state.depth = Depth::new(depth as usize);
+            let iteration_score = self.negamax(pos, limit, 0, depth, alpha, beta, sender);
+            assert!(
+                !(iteration_score != SCORE_TIME_UP
+                    && iteration_score
+                        .plies_until_game_over()
+                        .is_some_and(|x| x <= 0)),
+                "score {} depth {depth}",
+                iteration_score.0
+            );
+            if self.state.search_cancelled() || self.state.start_time.elapsed() >= soft_limit {
+                break;
+            }
+            self.state.score = iteration_score;
+            if iteration_score <= alpha {
+                let delta = alpha - iteration_score + Score(20);
+                alpha = iteration_score - delta;
+                beta = iteration_score + delta;
+                continue; // don't set chosen_move if the root node failed low
+            } else if iteration_score >= beta {
+                let delta = iteration_score - beta;
+                alpha = beta;
+                beta = iteration_score + delta;
+            } else {
+                depth = depth + 1;
+                alpha = iteration_score;
+                beta = iteration_score;
+                sender.send_search_info(self.search_info());
+            }
+            alpha -= Score(20);
+            beta += Score(20);
+            chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
+            if depth > max_depth {
+                break;
+            }
+        }
+        chosen_move
+    }
+
     fn negamax(
         &mut self,
         pos: Chessboard,

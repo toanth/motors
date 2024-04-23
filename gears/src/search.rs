@@ -6,7 +6,7 @@ use std::str::FromStr;
 use std::time::{Duration, Instant};
 use std::usize;
 
-use derive_more::{Add, AddAssign, Neg, Sub};
+use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 
 use crate::games::{Board, Move};
 use crate::general::common::parse_fp_from_str;
@@ -15,7 +15,9 @@ use crate::PlayerResult;
 /// Anything related to search that is also used by `monitors`, and therefore doesn't belong in `motors`.
 
 // TODO: Turn this into an enum that can also represent a win in n plies (and maybe a draw?)
-#[derive(Default, Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg, AddAssign)]
+#[derive(
+    Default, Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg, AddAssign, SubAssign,
+)]
 pub struct Score(pub i32);
 
 impl Add<i32> for Score {
