@@ -126,8 +126,8 @@ impl<B: Board> BoardGameState<B> {
         self.status = Run(NotStarted);
     }
 
-    fn handle_position(&mut self, mut words: SplitWhitespace) -> Res<()> {
-        self.initial_pos = parse_ugi_position(&mut words, self.board.settings())?;
+    fn handle_position(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+        self.initial_pos = parse_ugi_position(words, self.board.settings())?;
         self.clear_state();
 
         let Some(word) = words.next() else {
@@ -418,6 +418,7 @@ impl<B: Board> EngineUGI<B> {
 
     fn parse_input(&mut self, mut words: SplitWhitespace) -> Res<ProgramStatus> {
         self.output().write_ugi_input(words.clone());
+        let words = &mut words;
         let first_word = words.next().ok_or("Empty input")?;
         // TODO: Return an error on traliing words instead of silently ignoring them, similar to the UgiClient implementation
         match first_word {
@@ -479,6 +480,12 @@ impl<B: Board> EngineUGI<B> {
             "play" => {
                 todo!("remove? probably not");
             }
+            "perft" => {
+                self.handle_perft_or_bench(Perft, words)?;
+            }
+            "bench" => {
+                self.handle_perft_or_bench(Bench, words)?;
+            }
             "eval" | "e" => self.handle_eval(words)?,
             x => {
                 // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
@@ -490,6 +497,15 @@ impl<B: Board> EngineUGI<B> {
                     ),
                 );
             }
+        }
+        if let Some(remaining) = words.next() {
+            self.write_message(
+                Warning,
+                &format!(
+                    "Ignoring trailing input starting with '{}'",
+                    remaining.bold()
+                ),
+            );
         }
         Ok(self.state.status.clone())
     }
@@ -509,7 +525,7 @@ impl<B: Board> EngineUGI<B> {
         )
     }
 
-    fn handle_setoption(&mut self, mut words: SplitWhitespace) -> Res<()> {
+    fn handle_setoption(&mut self, words: &mut SplitWhitespace) -> Res<()> {
         let mut name = words.next().unwrap_or_default().to_ascii_lowercase();
         if name != "name" {
             return Err(format!(
@@ -547,63 +563,54 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_go(&mut self, mut words: SplitWhitespace) -> Res<()> {
+    fn handle_go(&mut self, words: &mut SplitWhitespace) -> Res<()> {
         let mut limit = SearchLimit::infinite();
         let is_white = self.state.board.active_player() == White;
         let mut search_type = Normal;
         while let Some(next_word) = words.next() {
             match next_word {
-                // TODO: Add "eval" UCI command to print the static eval (probably requires adapting the `Engine` trait)
                 "searchmoves" => {
                     return Err("The 'go searchmoves' option is not implemented".to_string());
                 }
                 "ponder" => return Err("Pondering is not (yet?) implemented".to_string()),
                 "wtime" | "p1time" | "wt" | "p1t" => {
-                    let time =
-                        Duration::from_millis(parse_int(&mut words, "'wtime' milliseconds")?);
+                    let time = Duration::from_millis(parse_int(words, "'wtime' milliseconds")?);
                     if is_white {
                         // always parse the int, even if it isn't relevant
                         limit.tc.remaining = time;
                     }
                 }
                 "btime" | "p2time" | "bt" | "p2t" => {
-                    let time =
-                        Duration::from_millis(parse_int(&mut words, "'btime' milliseconds")?);
+                    let time = Duration::from_millis(parse_int(words, "'btime' milliseconds")?);
                     if !is_white {
                         limit.tc.remaining = time;
                     }
                 }
                 "winc" | "p1inc" | "wi" => {
-                    let increment =
-                        Duration::from_millis(parse_int(&mut words, "'winc' milliseconds")?);
+                    let increment = Duration::from_millis(parse_int(words, "'winc' milliseconds")?);
                     if is_white {
                         limit.tc.increment = increment;
                     }
                 }
                 "binc" | "p2inc" | "bi" => {
-                    let increment =
-                        Duration::from_millis(parse_int(&mut words, "'binc' milliseconds")?);
+                    let increment = Duration::from_millis(parse_int(words, "'binc' milliseconds")?);
                     if !is_white {
                         limit.tc.increment = increment;
                     }
                 }
-                "movestogo" => {
-                    limit.tc.moves_to_go = Some(parse_int(&mut words, "'movestogo' number")?)
-                }
-                "depth" | "d" => limit.depth = Depth::new(parse_int(&mut words, "depth number")?),
+                "movestogo" => limit.tc.moves_to_go = Some(parse_int(words, "'movestogo' number")?),
+                "depth" | "d" => limit.depth = Depth::new(parse_int(words, "depth number")?),
                 "nodes" | "n" => {
-                    limit.nodes = Nodes::new(parse_int(&mut words, "node count")?)
+                    limit.nodes = Nodes::new(parse_int(words, "node count")?)
                         .ok_or_else(|| "node count can't be zero".to_string())?
                 }
                 "mate" => {
-                    let depth: usize = parse_int(&mut words, "mate move count")?;
+                    let depth: usize = parse_int(words, "mate move count")?;
                     limit.depth = Depth::new(depth * 2) // 'mate' is given in moves instead of plies
                 }
                 "movetime" => {
-                    limit.fixed_time = Duration::from_millis(parse_int(
-                        &mut words,
-                        "time per move in milliseconds",
-                    )?);
+                    limit.fixed_time =
+                        Duration::from_millis(parse_int(words, "time per move in milliseconds")?);
                     limit.fixed_time =
                         (limit.fixed_time - MOVE_OVERHEAD).max(Duration::from_millis(1));
                 }
@@ -618,12 +625,20 @@ impl<B: Board> EngineUGI<B> {
         self.start_search(search_type, limit)
     }
 
-    fn start_search(&mut self, search_type: SearchType, limit: SearchLimit) -> Res<()> {
+    fn start_search(&mut self, search_type: SearchType, mut limit: SearchLimit) -> Res<()> {
         self.write_message(
             Debug,
             &format!("Starting {search_type} search with tc {}", limit.tc),
         );
         self.state.status = Run(Ongoing);
+        let default_depth = match search_type {
+            Perft | SplitPerft => self.state.board.default_perft_depth(),
+            Bench => self.state.engine.engine_info().default_bench_depth,
+            _ => limit.depth,
+        };
+        if limit.depth == Depth::MAX {
+            limit.depth = default_depth;
+        }
         // TODO: Do this asynchronously to be able to handle stop commands
         match search_type {
             Normal => self.state.engine.start_search(
@@ -640,21 +655,44 @@ impl<B: Board> EngineUGI<B> {
                 self.write_ugi(&msg);
             }
             Bench => {
-                let depth = if limit.depth == Depth::MAX {
-                    self.state.engine.engine_info().default_bench_depth
-                } else {
-                    limit.depth
-                };
                 self.state
                     .engine
-                    .start_bench(self.state.board, depth)
+                    .start_bench(self.state.board, limit.depth)
                     .expect("bench panic");
             }
         };
         Ok(())
     }
 
-    fn handle_eval(&mut self, words: SplitWhitespace) -> Res<()> {
+    fn load_position_into_copy(&self, words: &mut SplitWhitespace) -> Res<B> {
+        let mut board_state_clone = self.state.board_state.clone();
+        board_state_clone.handle_position(words)?;
+        Ok(board_state_clone.board)
+    }
+
+    fn handle_perft_or_bench(&mut self, typ: SearchType, words: &mut SplitWhitespace) -> Res<()> {
+        let mut board = self.state.board;
+        let mut limit = SearchLimit::infinite();
+        match words.next().unwrap_or_default() {
+            "position" | "pos" | "p" => board = self.load_position_into_copy(words)?,
+            "depth" | "d" => {
+                limit.depth = Depth::new(parse_int(words, "depth number")?);
+                if words.next().is_some_and(|w| w == "position") {
+                    board = self.load_position_into_copy(words)?;
+                }
+            }
+            "" => {}
+            x => {
+                return Err(format!(
+                    "expected 'position' or 'depth' after 'perft', not '{}'",
+                    x.red()
+                ))
+            }
+        };
+        self.start_search(typ, limit)
+    }
+
+    fn handle_eval(&mut self, words: &mut SplitWhitespace) -> Res<()> {
         if words.clone().next().is_some() {
             let mut board_state_clone = self.state.board_state.clone();
             board_state_clone.handle_position(words)?;
@@ -664,7 +702,7 @@ impl<B: Board> EngineUGI<B> {
         }
     }
 
-    fn handle_query(&mut self, mut words: SplitWhitespace) -> Res<()> {
+    fn handle_query(&mut self, words: &mut SplitWhitespace) -> Res<()> {
         match words.next().ok_or("Missing argument to 'query'")? {
             "gameover" => self
                 .output()
@@ -689,11 +727,11 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_print(&mut self, mut words: SplitWhitespace) -> Res<()> {
+    fn handle_print(&mut self, words: &mut SplitWhitespace) -> Res<()> {
         match words.next() {
             None => {
                 if !self.output().show(&self.state) {
-                    return self.handle_print("unicode".split_whitespace());
+                    return self.handle_print(&mut "unicode".split_whitespace());
                 }
             }
             Some(name) => {
@@ -706,7 +744,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_output(&mut self, mut words: SplitWhitespace) -> Res<()> {
+    fn handle_output(&mut self, words: &mut SplitWhitespace) -> Res<()> {
         let next = words.next().unwrap_or_default();
         let output_ptr = self.output.clone();
         let mut output = output_ptr.lock().unwrap();
@@ -751,14 +789,14 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_debug(&mut self, mut words: SplitWhitespace) -> Res<()> {
+    fn handle_debug(&mut self, words: &mut SplitWhitespace) -> Res<()> {
         match words.next().unwrap_or("on") {
             "on" => {
                 self.state.debug_mode = true;
                 // make sure to print all the messages that can be sent (adding an existing output is a no-op)
-                self.handle_output("error".split_whitespace())?;
-                self.handle_output("debug".split_whitespace())?;
-                self.handle_output("info".split_whitespace())?;
+                self.handle_output(&mut "error".split_whitespace())?;
+                self.handle_output(&mut "debug".split_whitespace())?;
+                self.handle_output(&mut "info".split_whitespace())?;
                 self.write_message(Debug, "Debug mode enabled");
                 // don't change the log stream if it's already set
                 if !self
@@ -768,7 +806,7 @@ impl<B: Board> EngineUGI<B> {
                     .any(|o| o.is_logger())
                 {
                     // In case of an error here, still keep the debug mode set.
-                    self.handle_log("".split_whitespace())
+                    self.handle_log(&mut "".split_whitespace())
                         .map_err(|err| format!("Couldn't set the debug log file: '{err}'"))?;
                     Ok(())
                 } else {
@@ -777,11 +815,11 @@ impl<B: Board> EngineUGI<B> {
             }
             "off" => {
                 self.state.debug_mode = false;
-                _ = self.handle_output("remove debug".split_whitespace());
-                _ = self.handle_output("remove info".split_whitespace());
+                _ = self.handle_output(&mut "remove debug".split_whitespace());
+                _ = self.handle_output(&mut "remove info".split_whitespace());
                 self.write_message(Debug, "Debug mode disabled");
                 // don't remove the error output, as there is basically no reason to do so
-                self.handle_log("none".split_whitespace())
+                self.handle_log(&mut "none".split_whitespace())
             }
             x => return Err(format!("Invalid debug option '{x}'")),
         }
@@ -790,7 +828,7 @@ impl<B: Board> EngineUGI<B> {
     // TODO: Move this function, and others throughout the project,
     // somewhere else so they don't depend on the type of `Board` to reduce code bloat.
 
-    fn handle_log(&mut self, words: SplitWhitespace) -> Res<()> {
+    fn handle_log(&mut self, words: &mut SplitWhitespace) -> Res<()> {
         self.output().additional_outputs.retain(|o| !o.is_logger());
         let next = words.clone().next().unwrap_or_default();
         if next != "off" && next != "none" {
@@ -812,7 +850,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_engine(&mut self, mut words: SplitWhitespace) -> Res<()> {
+    fn handle_engine(&mut self, words: &mut SplitWhitespace) -> Res<()> {
         todo!("Currently, this is no longer implemented (and maybe not a good idea in general?) TODO: Implement")
         // self.state.engine = create_engine_from_str(words.next().unwrap_or_default(), "")?;
         // Ok(())

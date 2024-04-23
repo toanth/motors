@@ -17,6 +17,7 @@ use crate::general::common::{
 use crate::general::common::Description::NoDescription;
 use crate::general::move_list::MoveList;
 use crate::output::OutputBuilder;
+use crate::search::Depth;
 
 #[cfg(feature = "mnk")]
 pub mod mnk;
@@ -723,6 +724,13 @@ pub trait Board:
 
     /// Returns the piece at the given index.
     fn piece_on_idx(&self, pos: usize) -> Self::Piece;
+
+    /// Returns the default depth that should be used for perft if not otherwise specified.
+    /// Takes in a reference to self because some boards have a size determined at runtime,
+    /// and the default perft depth can change depending on that (or even depending on the current position)
+    fn default_perft_depth(&self) -> Depth {
+        Depth::new(5)
+    }
 
     /// This function is used for optimizations and may safely return `false`.
     fn are_all_pseudolegal_legal() -> bool {

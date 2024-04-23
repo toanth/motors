@@ -118,7 +118,7 @@ impl LoggerBuilder {
         }
     }
 
-    pub fn from_words(mut words: SplitWhitespace) -> Self {
+    pub fn from_words(words: &mut SplitWhitespace) -> Self {
         Self::new(&words.join(" "))
     }
 
