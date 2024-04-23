@@ -251,8 +251,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
         let mut chosen_move = self.state.best_move;
         let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth).get() as isize;
 
-        let mut alpha = SCORE_LOST;
-        let /*mut*/ beta = SCORE_WON;
+        let /*mut*/ alpha = SCORE_LOST;
+        let mut beta = SCORE_WON;
         let mut depth = 1;
 
         loop {
@@ -273,18 +273,18 @@ impl<E: Eval<Chessboard>> Caps<E> {
             let widening = Score(20);
             if iteration_score <= alpha {
                 let delta = alpha - iteration_score + widening;
-                alpha = iteration_score - delta;
-                // beta = iteration_score + delta;
+                // alpha = iteration_score - delta;
+                beta = iteration_score + delta;
                 continue; // don't set chosen_move if the root node failed low
             } else if iteration_score >= beta {
                 let delta = iteration_score - beta + widening;
-                alpha = iteration_score - delta;
-                // beta = iteration_score + delta;
+                //alpha = iteration_score - delta;
+                beta = iteration_score + delta;
                 continue;
             }
             depth = depth + 1;
-            alpha = iteration_score - widening;
-            // beta = iteration_score + widening;
+            // alpha = iteration_score - widening;
+            beta = iteration_score + widening;
             sender.send_search_info(self.search_info());
             // incomplete iterations and root nodes that failed low  don't overwrite the `state.best_move`,
             // so it should in theory be fine to unconditionally assign it to `chosen_move`, but let's play it safe
