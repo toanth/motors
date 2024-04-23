@@ -278,10 +278,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 alpha = iteration_score;
                 beta = iteration_score;
                 sender.send_search_info(self.search_info());
+                chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
             }
-            alpha -= Score(20);
-            beta += Score(20);
-            chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
+            alpha -= Score(50);
+            beta += Score(50);
             if depth > max_depth {
                 break;
             }
