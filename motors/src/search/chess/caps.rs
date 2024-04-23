@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::time::{Duration, Instant};
 
 use derive_more::{Deref, DerefMut};
@@ -8,6 +9,7 @@ use gears::games::chess::{Chessboard, ChessMoveList};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
+use gears::output::Message::Debug;
 use gears::search::{
     Depth, game_result_to_score, MIN_SCORE_WON, NO_SCORE_YET, Score, SCORE_LOST, SCORE_TIME_UP,
     SCORE_WON, SearchLimit, SearchResult, TimeControl,
@@ -175,25 +177,31 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
     fn do_search(
         &mut self,
         pos: Chessboard,
-        limit: SearchLimit,
+        mut limit: SearchLimit,
         sender: &mut SearchSender<Chessboard>,
     ) -> Res<SearchResult<Chessboard>> {
         let mut chosen_move = self.state.best_move;
         let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth).get() as isize;
 
-        // eprintln!(
-        //     "starting search with limit {time} ms, {fixed} fixed, {depth} depth, {nodes} nodes, will take at most {max}ms",
-        //     time = limit.tc.remaining.as_millis(),
-        //     depth = limit.depth,
-        //     nodes = limit.nodes,
-        //     fixed = limit.fixed_time.as_millis(),
-        //     max= (limit.tc.remaining / 32 + limit.tc.increment / 2).min(limit.fixed_time).as_millis(),
-        // );
+        limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
+        let soft_limit = limit
+            .fixed_time
+            .min(limit.tc.remaining / 32 + limit.tc.increment)
+            .min(limit.tc.remaining / 4);
+
+        sender.send_message(Debug, &format!(
+            "Starting search with limit {time}ms, {incr}ms increment, max {fixed}ms, max depth {depth}, max {nodes} nodes, soft limit {soft}ms",
+            time = limit.tc.remaining.as_millis(),
+            incr = limit.tc.increment.as_millis(),
+            depth = limit.depth.get(),
+            nodes = limit.nodes.get(),
+            fixed = limit.fixed_time.as_millis(),
+            soft = soft_limit.as_millis(),
+        ));
 
         for depth in 1..=max_depth {
             self.state.depth = Depth::new(depth as usize);
             let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON, sender);
-            let soft_limit = limit.fixed_time.min(limit.tc.remaining / 64);
             assert!(
                 !(iteration_score != SCORE_TIME_UP
                     && iteration_score
@@ -231,8 +239,8 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
             let elapsed = start_time.elapsed();
             // divide by 4 unless moves to go is very small, but don't divide by 1 (or zero) to avoid timeouts
             let divisor = tc.moves_to_go.unwrap_or(usize::MAX).clamp(2, 4) as u32;
-            // TODO: Technically, this can lead to timeouts if increment > remaining, although that can't happen
-            // unless increment was > timeout since the start or there's a lot of move overhead
+            // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
+            // (assuming the move overhead is set correctly)
             elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment / 2)
         }
     }
