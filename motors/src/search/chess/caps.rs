@@ -189,13 +189,14 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
         //     fixed = limit.fixed_time.as_millis(),
         //     max= (limit.tc.remaining / 32 + limit.tc.increment / 2).min(limit.fixed_time).as_millis(),
         // );
+        let soft_limit = limit
+            .fixed_time
+            .min(limit.tc.remaining / 32 + limit.tc.increment)
+            .min(limit.tc.remaining / 4);
 
         for depth in 1..=max_depth {
             self.state.depth = Depth::new(depth as usize);
             let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON, sender);
-            let soft_limit = limit
-                .fixed_time
-                .min(limit.tc.remaining / 32 + limit.tc.increment);
             assert!(
                 !(iteration_score != SCORE_TIME_UP
                     && iteration_score

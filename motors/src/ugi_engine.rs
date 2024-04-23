@@ -31,6 +31,8 @@ use crate::search::multithreading::{EngineWrapper, Receiver, SearchSender, Sende
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
 
+const MOVE_OVERHEAD: Duration = Duration::from_millis(2);
+
 // TODO: Ensure this conforms to https://expositor.dev/uci/doc/uci-draft-1.pdf
 
 fn ugi_input_thread(sender: Sender<Res<String>>) {
@@ -603,7 +605,7 @@ impl<B: Board> EngineUGI<B> {
                         "time per move in milliseconds",
                     )?);
                     limit.fixed_time =
-                        (limit.fixed_time - Duration::from_millis(2)).max(Duration::from_millis(1));
+                        (limit.fixed_time - MOVE_OVERHEAD).max(Duration::from_millis(1));
                 }
                 "infinite" | "inf" => (), // "infinite" is the identity element of the bounded semilattice of `go` options
                 "perft" => search_type = Perft,
@@ -612,6 +614,7 @@ impl<B: Board> EngineUGI<B> {
                 _ => return Err(format!("Unrecognized 'go' option: '{next_word}'")),
             }
         }
+        limit.tc.remaining = (limit.tc.remaining - MOVE_OVERHEAD).max(Duration::from_millis(1));
         self.start_search(search_type, limit)
     }
 
