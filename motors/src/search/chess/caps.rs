@@ -235,7 +235,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
 
 #[allow(clippy::too_many_arguments)]
 impl<E: Eval<Chessboard>> Caps<E> {
-    /// Anspiration Windows (AW): Assume that the score will be close to the score from the previous iteration
+    /// Aspiration Windows (AW): Assume that the score will be close to the score from the previous iteration
     /// of Iterative Deepening, so use alpha, beta bounds around that score to prune more aggressively.
     /// This means that it's possible for the root to fail low (or high), which is always something to consider:
     /// For example, the best move is not trustworthy if the root failed low (but because the TT move is ordered first,
@@ -252,7 +252,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth).get() as isize;
 
         let /*mut*/ alpha = SCORE_LOST;
-        let mut beta = SCORE_WON;
+        let /*mut*/ beta = SCORE_WON;
         let mut depth = 1;
 
         loop {
@@ -274,17 +274,17 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if iteration_score <= alpha {
                 let delta = alpha - iteration_score + widening;
                 // alpha = iteration_score - delta;
-                beta = iteration_score + delta;
+                // beta = iteration_score + delta;
                 continue; // don't set chosen_move if the root node failed low
             } else if iteration_score >= beta {
                 let delta = iteration_score - beta + widening;
                 //alpha = iteration_score - delta;
-                beta = iteration_score + delta;
+                // beta = iteration_score + delta;
                 continue;
             }
             depth = depth + 1;
             // alpha = iteration_score - widening;
-            beta = iteration_score + widening;
+            // beta = iteration_score + widening;
             sender.send_search_info(self.search_info());
             // incomplete iterations and root nodes that failed low  don't overwrite the `state.best_move`,
             // so it should in theory be fine to unconditionally assign it to `chosen_move`, but let's play it safe
