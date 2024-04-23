@@ -255,6 +255,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
         let mut beta = SCORE_WON;
         let mut depth = 1;
 
+        let mut window_radius = Score(20);
+
         loop {
             self.state.depth = Depth::new(depth as usize);
             let iteration_score = self.negamax(pos, limit, 0, depth, alpha, beta, sender);
@@ -266,29 +268,29 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 "score {} depth {depth}",
                 iteration_score.0
             );
+            sender.send_message(
+                Debug,
+                &format!(
+                    "depth {depth}, score {0}, radius {1}, interval ({2}, {3})",
+                    iteration_score.0, window_radius.0, alpha.0, beta.0,
+                ),
+            );
             if self.state.search_cancelled() {
                 break;
             }
             self.state.score = iteration_score;
-            if iteration_score <= alpha {
-                let delta = alpha - iteration_score;
-                alpha = iteration_score - delta;
-                beta = iteration_score + delta;
-            } else if iteration_score >= beta {
-                let delta = iteration_score - beta;
-                alpha = iteration_score - delta;
-                beta = iteration_score + delta;
-            } else {
+            if iteration_score > alpha && iteration_score < beta {
                 depth = depth + 1;
-                alpha = iteration_score;
-                beta = iteration_score;
+                // make sure that alpha and beta are at least 2 apart, to recognize PV nodes.
+                window_radius = Score(1.max(window_radius.0 / 2));
                 sender.send_search_info(self.search_info());
+            } else {
+                window_radius.0 *= 3;
             }
-            let widening = Score(20);
-            alpha = (alpha - widening).max(SCORE_LOST);
-            beta = (beta + widening).min(SCORE_WON);
-            // incomplete iterations and root nodes that failed low  don't overwrite the `state.best_move`,
-            // so it should in theory be fine to unconditionally assign it to `chosen_move`
+            alpha = (iteration_score - window_radius).max(SCORE_LOST);
+            beta = (iteration_score + window_radius).min(SCORE_WON);
+            // incomplete iterations and root nodes that failed low don't overwrite the `state.best_move`,
+            // so it should be fine to unconditionally assign it to `chosen_move`
             chosen_move = self.state.best_move;
             if depth > max_depth || self.state.start_time.elapsed() >= soft_limit {
                 break;
