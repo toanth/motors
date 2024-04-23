@@ -11,8 +11,8 @@ use gears::games::chess::pieces::UncoloredChessPiece::Empty;
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
 use gears::search::{
-    Depth, game_result_to_score, MIN_SCORE_WON, NO_SCORE_YET, Score, SCORE_LOST, SCORE_TIME_UP,
-    SCORE_WON, SearchLimit, SearchResult, TimeControl,
+    Depth, game_result_to_score, MAX_SCORE_LOST, MIN_SCORE_WON, NO_SCORE_YET, Score, SCORE_LOST,
+    SCORE_TIME_UP, SCORE_WON, SearchLimit, SearchResult, TimeControl,
 };
 use gears::ugi::{EngineOption, UgiSpin};
 use gears::ugi::EngineOptionName::{Hash, Threads};
@@ -400,6 +400,17 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         let all_moves = self.order_moves(pos.pseudolegal_moves(), &pos, best_move, ply);
         for mov in all_moves {
+            /// LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
+            /// so don't even bother looking at them in the last few layers.
+            if can_prune
+                && best_score > MAX_SCORE_LOST
+                && depth <= 3
+                && num_quiets_visited >= 16 * depth
+            // quiets are ordered last, so this move is ordered very late
+            {
+                break;
+            }
+
             let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
                 continue; // illegal pseudolegal move
