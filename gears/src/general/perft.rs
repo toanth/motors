@@ -44,7 +44,7 @@ impl<B: Board> Display for SplitPerftRes<B> {
         for child in &self.children {
             write!(f, "\n{0}\t{1}", child.0, child.1)?;
         }
-        write!(f, "") // TODO: This is probably a bad idea, it just makes the compiler happy
+        Ok(())
     }
 }
 
@@ -83,8 +83,10 @@ pub fn split_perft<T: Board>(depth: Depth, pos: T) -> SplitPerftRes<T> {
     }
     let time = start.elapsed();
     let nodes = Nodes::new(nodes).unwrap();
-    children
-        .sort_by(|a, b| a.0.to_compact_text().cmp(&b.0.to_compact_text()));
+    children.sort_by(|a, b| a.0.to_compact_text().cmp(&b.0.to_compact_text()));
     let perft_res = PerftRes { time, nodes, depth };
-    SplitPerftRes { perft_res, children }
+    SplitPerftRes {
+        perft_res,
+        children,
+    }
 }

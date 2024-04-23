@@ -99,7 +99,7 @@ impl Board for Chessboard {
     type MoveList = ChessMoveList;
     type LegalMoveList = ChessMoveList; // TODO: Implement staged movegen eventually
 
-    fn empty(_: Self::Settings) -> Self {
+    fn empty_possibly_invalid(_: Self::Settings) -> Self {
         Self {
             piece_bbs: Default::default(),
             color_bbs: Default::default(),
@@ -130,6 +130,10 @@ impl Board for Chessboard {
             GenericSelect {
                 name: "lucena",
                 val: || Self::from_fen("1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1").unwrap(),
+            },
+            GenericSelect {
+                name: "philidor",
+                val: || Self::from_fen("3K4/r7/7R/2kp4/8/8/8/8 w - - 0 1").unwrap(),
             },
         ]
     }
@@ -393,7 +397,7 @@ impl Board for Chessboard {
         let pos_word = words
             .next()
             .ok_or_else(|| "Empty chess FEN string".to_string())?;
-        let mut board = Chessboard::empty(ChessSettings::default());
+        let mut board = Chessboard::empty_possibly_invalid(ChessSettings::default());
         board = read_position_fen(pos_word, board, |mut board, square, typ| {
             board.try_place_piece(square, typ)?;
             Ok(board)
@@ -491,7 +495,6 @@ impl Board for Chessboard {
         }
 
         if self.is_in_check_on_square(inactive_player, self.king_square(inactive_player)) {
-            // TODO: Handle checkmates?
             return Err(format!(
                 "Player {inactive_player} is in check, but it's not their turn to move"
             ));
@@ -703,7 +706,7 @@ mod tests {
 
     #[test]
     fn empty_test() {
-        let board = Chessboard::empty(ChessSettings::default());
+        let board = Chessboard::empty_possibly_invalid(ChessSettings::default());
         assert_eq!(board.num_squares(), 64);
         assert_eq!(board.size(), ChessboardSize::default());
         assert_eq!(board.width(), 8);

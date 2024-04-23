@@ -362,6 +362,12 @@ impl SearchLimit {
         res
     }
 
+    pub fn nodes(nodes: Nodes) -> Self {
+        let mut res = Self::infinite();
+        res.nodes = nodes;
+        res
+    }
+
     pub fn max_move_time(&self) -> Duration {
         self.fixed_time.min(self.tc.remaining)
     }

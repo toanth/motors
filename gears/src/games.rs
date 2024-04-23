@@ -632,17 +632,16 @@ pub trait Board:
     type MoveList: MoveList<Self>;
     type LegalMoveList: MoveList<Self> + FromIterator<Self::Move>;
 
-    /// Returns the name of the game, such as 'chess'
-    /// TODO: Can this static function be replaced by the `name` function of `NamedEntity`?
-    /// Or even better, implement a trait inheriting from NamedEntity where those functions are static
+    /// Returns the name of the game, such as 'chess'.
     fn game_name() -> &'static str {
         Self::static_short_name()
     }
 
-    /// An empty board. This does not have to be a valid position.
-    /// TODO: Used? Implemented for chess?
-    fn empty(_: Self::Settings) -> Self {
-        Default::default()
+    /// The position returned by this function does not have to be legal, e.g. in chess it would
+    /// not include any kings. However, this is still useful to set up the board and is used
+    /// in fen parsing, for example.
+    fn empty_possibly_invalid(_settings: Self::Settings) -> Self {
+        Self::default()
     }
 
     /// The starting position of the game.
@@ -835,7 +834,6 @@ pub trait Board:
     /// draw condition), but that shouldn't be a problem in practice -- this rule is only meant ot be applied in human games anyway.
     fn cannot_reasonably_lose(&self, player: Color) -> bool;
 
-    // TODO: Write more test cases for zobrist hashing
     fn zobrist_hash(&self) -> ZobristHash;
 
     /// Returns a compact textual description of the board that can be read in again with `from_fen`.
@@ -1034,3 +1032,64 @@ where
 //         write!(f, "{0}", self.as_utf8_diagram())
 //     }
 // }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use crate::games::Board;
+    use crate::games::chess::Chessboard;
+    use crate::games::mnk::MNKBoard;
+
+    use super::*;
+
+    fn basic_test<B: Board>() {
+        assert!(!B::bench_positions().is_empty());
+        for pos in B::bench_positions() {
+            let ply = pos.halfmove_ctr_since_start();
+            // use a new hash set per position because bench positions can be only one ply away from each other
+            let mut hashes = HashSet::new();
+            assert!(pos.verify_position_legal().is_ok());
+            assert!(pos.match_result_slow().is_none());
+            assert_eq!(B::from_fen(&pos.as_fen()).unwrap(), pos);
+            let hash = pos.zobrist_hash().0;
+            hashes.insert(hash);
+            assert_ne!(hash, 0);
+            if B::are_all_pseudolegal_legal() {
+                assert_eq!(
+                    pos.legal_moves_slow().count(),
+                    pos.pseudolegal_moves().count()
+                );
+            }
+            for mov in pos.legal_moves_slow() {
+                assert!(pos.is_move_legal(mov));
+            }
+            for mov in pos.pseudolegal_moves() {
+                assert!(pos.is_move_pseudolegal(mov));
+                let new_pos = pos.make_move(mov);
+                assert_eq!(new_pos.is_some(), pos.is_pseudolegal_move_legal(mov));
+                let Some(new_pos) = new_pos else { continue };
+                assert!(new_pos.verify_position_legal().is_ok());
+                assert_eq!(new_pos.active_player().other(), pos.active_player());
+                assert_ne!(new_pos.as_fen(), pos.as_fen());
+                assert_eq!(B::from_fen(&new_pos.as_fen()).unwrap(), new_pos);
+                assert_ne!(new_pos.zobrist_hash().0, hash); // Even for null moves, the side to move has changed
+                assert_eq!(new_pos.halfmove_ctr_since_start() - ply, 1);
+                assert!(!hashes.contains(&new_pos.zobrist_hash().0));
+                hashes.insert(new_pos.zobrist_hash().0);
+            }
+        }
+    }
+
+    #[cfg(feature = "chess")]
+    #[test]
+    fn basic_chess_test() {
+        basic_test::<Chessboard>()
+    }
+
+    #[cfg(feature = "mnk")]
+    #[test]
+    fn basic_mnk_test() {
+        basic_test::<MNKBoard>()
+    }
+}

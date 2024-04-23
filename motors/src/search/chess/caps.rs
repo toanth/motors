@@ -3,27 +3,27 @@ use std::time::{Duration, Instant};
 use derive_more::{Deref, DerefMut};
 use rand::thread_rng;
 
+use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
+use gears::games::chess::{Chessboard, ChessMoveList};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
-use gears::games::chess::{ChessMoveList, Chessboard};
-use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
-    game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, MIN_SCORE_WON,
-    NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
+    Depth, game_result_to_score, MIN_SCORE_WON, NO_SCORE_YET, Score, SCORE_LOST, SCORE_TIME_UP,
+    SCORE_WON, SearchLimit, SearchResult, TimeControl,
 };
+use gears::ugi::{EngineOption, UgiSpin};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::EngineOptionType::Spin;
-use gears::ugi::{EngineOption, UgiSpin};
 
 use crate::eval::Eval;
-use crate::search::multithreading::SearchSender;
-use crate::search::tt::{TTEntry, TT};
-use crate::search::NodeType::*;
 use crate::search::{
-    ABSearchState, BenchResult, Benchable, CustomInfo, Engine, EngineInfo, NodeType, Pv,
+    ABSearchState, Benchable, BenchResult, CustomInfo, Engine, EngineInfo, NodeType, Pv,
     SearchStackEntry, SearchState,
 };
+use crate::search::multithreading::SearchSender;
+use crate::search::NodeType::*;
+use crate::search::tt::{TT, TTEntry};
 
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
@@ -575,7 +575,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
 #[cfg(test)]
 mod tests {
     use gears::games::chess::Chessboard;
+    use gears::search::Nodes;
 
+    use crate::eval::chess::hce::HandCraftedEval;
+    use crate::eval::chess::pst_only::PstOnlyEval;
     use crate::eval::rand_eval::RandEval;
 
     use super::*;
@@ -589,21 +592,39 @@ mod tests {
     }
 
     #[test]
-    fn simple_mate_test() {
+    fn mate_in_one_test() {
         let board = Chessboard::from_fen("4k3/8/4K3/8/8/8/8/6R1 w - - 0 1").unwrap();
         // run multiple times to get different random numbers from the eval function
-        for i in 0..100 {
-            let mut engine = Caps::<RandEval>::default();
-            let res = engine
-                .search(
-                    board,
-                    SearchLimit::depth(Depth::new(2)),
-                    ZobristHistoryBase::default(),
-                    &mut SearchSender::no_sender(),
-                )
-                .unwrap();
-            assert!(res.score.unwrap().is_game_won_score());
-            assert_eq!(res.score.unwrap().plies_until_game_won(), Some(1));
+        for depth in 1..=3 {
+            for i in 0..100 {
+                let mut engine = Caps::<RandEval>::default();
+                let res = engine
+                    .search(
+                        board,
+                        SearchLimit::depth(Depth::new(depth)),
+                        ZobristHistoryBase::default(),
+                        &mut SearchSender::no_sender(),
+                    )
+                    .unwrap();
+                assert!(res.score.unwrap().is_game_won_score());
+                assert_eq!(res.score.unwrap().plies_until_game_won(), Some(1));
+            }
         }
+    }
+
+    fn lucena_test() {
+        let pos = Chessboard::from_name("lucena").unwrap();
+        let mut engine = Caps::<PstOnlyEval>::default();
+        let res = engine
+            .search_from_pos(pos, SearchLimit::depth(Depth::new(7)))
+            .unwrap();
+        assert!(res.score.unwrap() >= Score(300));
+    }
+
+    fn philidor_test() {
+        let pos = Chessboard::from_name("philidor").unwrap();
+        let mut engine = Caps::<HandCraftedEval>::default();
+        let res = engine.search_from_pos(pos, SearchLimit::nodes(Nodes::new(500_000).unwrap()));
+        assert!(res.unwrap().score.unwrap().abs() <= Score(20));
     }
 }

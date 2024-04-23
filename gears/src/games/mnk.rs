@@ -286,7 +286,7 @@ impl Settings for MnkSettings {}
 
 pub type MnkBitboard = DefaultBitboard<ExtendedRawBitboard, GridCoordinates>;
 
-#[derive(Copy, Clone, Eq, PartialEq, Default, Debug)]
+#[derive(Copy, Clone, Default, Debug)]
 pub struct MNKBoard {
     white_bb: ExtendedRawBitboard,
     black_bb: ExtendedRawBitboard,
@@ -295,6 +295,16 @@ pub struct MNKBoard {
     settings: MnkSettings,
     last_move: Option<FillSquare>,
 }
+
+impl PartialEq<Self> for MNKBoard {
+    fn eq(&self, other: &Self) -> bool {
+        self.white_bb == other.white_bb
+            && self.active_player == other.active_player
+            && self.settings == other.settings
+    }
+}
+
+impl Eq for MNKBoard {}
 
 impl StaticallyNamedEntity for MNKBoard {
     fn static_short_name() -> &'static str
@@ -392,7 +402,7 @@ impl Board for MNKBoard {
     type MoveList = EagerNonAllocMoveList<Self, 128>;
     type LegalMoveList = Self::MoveList;
 
-    fn empty(settings: MnkSettings) -> MNKBoard {
+    fn empty_possibly_invalid(settings: MnkSettings) -> MNKBoard {
         assert!(settings.height <= 128);
         assert!(settings.width <= 128);
         assert!(settings.k <= 128);
@@ -409,7 +419,7 @@ impl Board for MNKBoard {
     }
 
     fn startpos(settings: MnkSettings) -> MNKBoard {
-        Self::empty(settings)
+        Self::empty_possibly_invalid(settings)
     }
 
     fn settings(&self) -> Self::Settings {
@@ -609,7 +619,7 @@ impl Board for MNKBoard {
             .next()
             .ok_or_else(|| "Empty position in mnk fen".to_string())?;
 
-        let mut board = MNKBoard::empty(settings);
+        let mut board = MNKBoard::empty_possibly_invalid(settings);
 
         let place_piece = |board: MNKBoard, target: GridCoordinates, symbol: Symbol| {
             board
@@ -706,7 +716,7 @@ mod test {
         assert_eq!(board.size().height.0, 3);
         assert_eq!(board.size().width.0, 3);
         assert_eq!(board.k(), 3);
-        let board = MNKBoard::empty(MnkSettings::new(Height(2), Width(5), 2));
+        let board = MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(2), Width(5), 2));
         assert_eq!(board.size().width().0, 5);
         assert_eq!(board.size().height().0, 2);
         assert_eq!(board.k(), 2);
@@ -751,11 +761,11 @@ mod test {
     // Only covers very basic cases, perft is used for mor more complex cases
     #[test]
     fn movegen_test() {
-        let board = MNKBoard::empty(MnkSettings::new(Height(4), Width(5), 2));
+        let board = MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(4), Width(5), 2));
         let mut moves = board.pseudolegal_moves();
         assert_eq!(moves.len(), 20);
         assert_eq!(
-            MNKBoard::empty(MnkSettings::new(Height(10), Width(9), 7))
+            MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(10), Width(9), 7))
                 .pseudolegal_moves()
                 .len(),
             90
@@ -785,7 +795,7 @@ mod test {
         assert_eq!(board.active_player(), Color::Black);
         assert!(!board.is_game_lost());
 
-        let board = MNKBoard::empty(MnkSettings::new(Height(3), Width(4), 1));
+        let board = MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(3), Width(4), 1));
         let board = board.make_move(mov).unwrap();
         assert!(board.is_game_lost());
         assert_ne!(board.white_bb().to_primitive(), 0);
@@ -805,7 +815,7 @@ mod test {
         assert!(r.time.as_millis() <= 1); // 1 ms should be far more than enough even on a very slow device
         let r = split_perft(
             Depth::new(2),
-            MNKBoard::empty(MnkSettings::new(Height(8), Width(12), 2)),
+            MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(8), Width(12), 2)),
         );
         assert_eq!(r.perft_res.depth.get(), 2);
         assert_eq!(r.perft_res.nodes.get(), 96 * 95);
@@ -813,7 +823,7 @@ mod test {
         assert!(r.perft_res.time.as_millis() <= 10);
         let r = split_perft(
             Depth::new(3),
-            MNKBoard::empty(MnkSettings::new(Height(4), Width(3), 3)),
+            MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(4), Width(3), 3)),
         );
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes.get(), 12 * 11 * 10);
@@ -821,7 +831,7 @@ mod test {
         assert!(r.perft_res.time.as_millis() <= 1000);
         let r = split_perft(
             Depth::new(5),
-            MNKBoard::empty(MnkSettings::new(Height(5), Width(5), 5)),
+            MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(5), Width(5), 5)),
         );
         assert_eq!(r.perft_res.depth.get(), 5);
         assert_eq!(r.perft_res.nodes.get(), 25 * 24 * 23 * 22 * 21);
@@ -835,7 +845,7 @@ mod test {
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
         assert!(r.perft_res.time.as_millis() <= 1000);
 
-        let board = MNKBoard::empty(MnkSettings::new(Height(2), Width(2), 2));
+        let board = MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(2), Width(2), 2));
         let r = split_perft(Depth::new(3), board);
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes.get(), 2 * 3 * 4);
@@ -881,7 +891,7 @@ mod test {
             .unwrap();
         assert_eq!(board.as_fen(), "3 3 3 x 3/XXO/3");
 
-        let board = MNKBoard::empty(MnkSettings {
+        let board = MNKBoard::empty_possibly_invalid(MnkSettings {
             height: 3,
             width: 4,
             k: 2,
@@ -925,7 +935,7 @@ mod test {
         assert_eq!(board.k(), 2);
         assert_eq!(
             board,
-            MNKBoard::empty(MnkSettings::new(Height(4), Width(3), 2))
+            MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(4), Width(3), 2))
         );
 
         let board = MNKBoard::from_fen("3 4 3 o 3X/4/2O1").unwrap();

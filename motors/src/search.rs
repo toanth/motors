@@ -254,6 +254,15 @@ pub trait Benchable<B: Board>: StaticallyNamedEntity + Debug {
 pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     fn set_tt(&mut self, tt: TT);
 
+    fn search_from_pos(&mut self, pos: B, limit: SearchLimit) -> Res<SearchResult<B>> {
+        self.search(
+            pos,
+            limit,
+            ZobristHistoryBase::default(),
+            &mut SearchSender::no_sender(),
+        )
+    }
+
     fn search(
         &mut self,
         pos: B,
