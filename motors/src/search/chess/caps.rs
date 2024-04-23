@@ -264,24 +264,23 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 break;
             }
             self.state.score = iteration_score;
+            let widening = Score(20);
             if iteration_score <= alpha {
-                let delta = alpha - iteration_score + Score(20);
+                let delta = alpha - iteration_score + widening;
                 alpha = iteration_score - delta;
                 beta = iteration_score + delta;
                 continue; // don't set chosen_move if the root node failed low
             } else if iteration_score >= beta {
-                let delta = iteration_score - beta;
-                alpha = beta;
+                let delta = iteration_score - beta + widening;
+                alpha = iteration_score - delta;
                 beta = iteration_score + delta;
-            } else {
-                depth = depth + 1;
-                alpha = iteration_score;
-                beta = iteration_score;
-                sender.send_search_info(self.search_info());
-                chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
+                continue;
             }
-            alpha -= Score(50);
-            beta += Score(50);
+            depth = depth + 1;
+            alpha = iteration_score - widening;
+            beta = iteration_score + widening;
+            sender.send_search_info(self.search_info());
+            chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
             if depth > max_depth {
                 break;
             }
