@@ -420,7 +420,6 @@ impl<B: Board> EngineUGI<B> {
         self.output().write_ugi_input(words.clone());
         let words = &mut words;
         let first_word = words.next().ok_or("Empty input")?;
-        // TODO: Return an error on traliing words instead of silently ignoring them, similar to the UgiClient implementation
         match first_word {
             // put time-critical commands at the top
             "go" | "g" => {
@@ -487,13 +486,15 @@ impl<B: Board> EngineUGI<B> {
                 self.handle_perft_or_bench(Bench, words)?;
             }
             "eval" | "e" => self.handle_eval(words)?,
+            "help" => self.print_help(),
             x => {
                 // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
                 // expositor UCI spec demands that an invalid token should cause the entire message to be ignored.
                 self.write_message(
                     Warning,
                     &format!(
-                        "Invalid token at start of UCI command '{x}', ignoring the entire command"
+                        "Invalid token at start of UCI command '{x}', ignoring the entire command. \
+                        If you are a human, consider typing {} to see a list of recognized commands.", "help".bold()
                     ),
                 );
             }
@@ -848,6 +849,50 @@ impl<B: Board> EngineUGI<B> {
             ),
         );
         Ok(())
+    }
+
+    fn print_help(&self) {
+        let engine_name = format!(
+            "{0} ({1})",
+            self.state.display_name.bold(),
+            self.state.engine.engine_info().name.bold()
+        );
+        let str = format!("{motors}: A work-in-progress collection of engines for various games, \
+        currently playing {game_name}, using the engine {engine_name}.\
+        \nThe behavior of normal UCI / UGI commands can be found here: https://backscattering.de/chess/uci/ \
+        \nSeveral additional commands are supported:\
+        \n {debug}: Turns debug logging on or off. `debug <logfile>` sets logging as if by calling `log <logfile>`, \
+        enables additional debug output, and also enables error recovery mode: \
+        For incorrect input, the program will now print an error message and continue instead of terminating.\
+        \n {output}: Adds additional outputs. An 'output' prints information about the current state of the game and can handle messages.\
+        Type `output` to see a list of outputs and a short explanation of what they do.\
+        \n {print}: `print <output>` prints the game using the specified output, or all of the current outputs if none is given, \
+        or `unicode` if no outputs are being used.\
+        \n {log}: `log <logfile> starts logging to <logfile>; use `none` or `off` to turn off logging and `stdout` or `stderr` to print to those streams.\
+        \n {engine}: Loads another engine. TODO: Currently not supported.\
+        \n {play}: A simple match runner to play against the engine manually on the command line. TODO: Currently not supported.\
+        \n {perft}: Equivalent to `go perft`, but allows setting the position as last argument, e.g. `perft depth 3 position startpos` \
+        or simply `perft` to use the current position and game-specific default depth.\
+        \n {bench}: See `perft`, but replace 'perft' with 'bench'. The default depth is engine-specific.\
+        \n {eval}: Prints the static eval of the current position, without doing any actual searching.\
+        \n {help}: Prints this help message. \
+        \nThis command line interface is mainly intended for internal use, if you want to play against this engine or use it for analysis,\
+        you should probably use a GUI, such as the WIP {monitors} project.",
+            game_name = B::game_name().bold(),
+            motors = "motors".bold(),
+            debug = "debug | d".bold(),
+            output = "output | o".bold(),
+            print = "print | show | s | display".bold(),
+            log = "log".bold(),
+            engine = "engine".bold(),
+            play = "play".bold(),
+            perft = "perft".bold(),
+            bench = "bench".bold(),
+            eval = "eval | e".bold(),
+            help = "help".bold(),
+            monitors = "monitors".italic(),
+        );
+        println!("{str}");
     }
 
     fn handle_engine(&mut self, words: &mut SplitWhitespace) -> Res<()> {
