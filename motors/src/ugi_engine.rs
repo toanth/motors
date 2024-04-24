@@ -9,7 +9,7 @@ use colored::Colorize;
 use crossbeam_channel::select;
 use itertools::Itertools;
 
-use gears::{AbstractRun, AnyMatch, GameResult, GameState, MatchStatus, output_builder_from_str};
+use gears::{AbstractRun, GameResult, GameState, MatchStatus, output_builder_from_str};
 use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
 use gears::games::Color::White;
 use gears::general::common::{parse_int, to_name_and_optional_description};
@@ -204,7 +204,7 @@ impl<B: Board> UgiOutput<B> {
 
     pub fn write_message(&mut self, typ: Message, msg: &str) {
         for output in self.additional_outputs.iter_mut() {
-            output.display_message_simple(typ, msg);
+            output.display_message(typ, msg);
         }
     }
 
@@ -242,12 +242,11 @@ impl<B: Board> UgiOutput<B> {
     }
 }
 
-// Implement both UGI and UCI
+/// Implements both UGI and UCI.
 #[derive(Debug)]
 pub struct EngineUGI<B: Board> {
     state: EngineGameState<B>,
     output: Arc<Mutex<UgiOutput<B>>>,
-    next_match: Option<AnyMatch>, // TODO: Used?
     output_factories: OutputList<B>,
 }
 
@@ -277,10 +276,6 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
                 panic!("It shouldn't be possible to call match_status when quitting the engine.")
             }
         }
-    }
-
-    fn debug_info_enabled(&self) -> bool {
-        self.debug_mode
     }
 
     fn name(&self) -> &str {
@@ -351,7 +346,6 @@ impl<B: Board> EngineUGI<B> {
         Ok(Self {
             state,
             output,
-            next_match: None,
             output_factories: all_output_builders,
         })
     }
@@ -512,7 +506,6 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn quit(&mut self) -> Res<()> {
-        self.next_match = None;
         self.state.engine.send_quit()?;
         self.state.status = Quit;
         Ok(())
@@ -640,7 +633,6 @@ impl<B: Board> EngineUGI<B> {
         if limit.depth == Depth::MAX {
             limit.depth = default_depth;
         }
-        // TODO: Do this asynchronously to be able to handle stop commands
         match search_type {
             Normal => self.state.engine.start_search(
                 self.state.board,

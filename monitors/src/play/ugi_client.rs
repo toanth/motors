@@ -175,10 +175,6 @@ impl<B: Board> GameState<B> for ClientState<B> {
         self.the_match.status.clone()
     }
 
-    fn debug_info_enabled(&self) -> bool {
-        true
-    }
-
     fn name(&self) -> &str {
         "GUI"
     }
@@ -479,7 +475,7 @@ impl<B: Board> Client<B> {
 
     pub fn show_message(&mut self, typ: Message, message: &str) {
         for mut output in self.outputs.iter_mut() {
-            output.display_message(&self.state, typ, message);
+            output.display_message_with_state(&self.state, typ, message);
         }
     }
 

@@ -4,38 +4,36 @@ use std::ops::Deref;
 use dyn_clone::clone_box;
 use rand::rngs::StdRng;
 
-use gears::{AbstractRun, AnyMatch, create_selected_output_builders, OutputArgs};
 use gears::cli::{ArgIter, Game};
-use gears::games::{Board, OutputList};
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
 #[cfg(feature = "mnk")]
 use gears::games::mnk::MNKBoard;
-use gears::general::common::{Res, select_name_dyn};
+use gears::games::{Board, OutputList};
 use gears::general::common::Description::WithDescription;
+use gears::general::common::{select_name_dyn, Res};
 use gears::output::normal_outputs;
 use gears::search::Depth;
+use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs};
 
-use crate::cli::{EngineOpts, Mode, parse_cli};
 use crate::cli::Mode::Bench;
+use crate::cli::{parse_cli, EngineOpts, Mode};
 use crate::eval::chess::hce::HandCraftedEval;
 #[cfg(feature = "chess")]
 use crate::eval::chess::pst_only::PstOnlyEval;
 #[cfg(feature = "mnk")]
 use crate::eval::mnk::simple_mnk_eval::SimpleMnkEval;
-use crate::search::{
-    AbstractEngineBuilder, Benchable, EngineBuilder, EngineList, EngineWrapperBuilder, run_bench,
-    run_bench_with_depth,
-};
 #[cfg(feature = "caps")]
 use crate::search::chess::caps::Caps;
 #[cfg(feature = "generic_negamax")]
 use crate::search::generic::generic_negamax::GenericNegamax;
-#[cfg(feature = "naive_negamax")]
-use crate::search::generic::naive_slow_negamax::NaiveSlowNegamax;
 #[cfg(feature = "random_mover")]
 use crate::search::generic::random_mover::RandomMover;
 use crate::search::multithreading::{EngineWrapper, SearchSender};
+use crate::search::{
+    run_bench, run_bench_with_depth, AbstractEngineBuilder, Benchable, EngineBuilder, EngineList,
+    EngineWrapperBuilder,
+};
 use crate::ugi_engine::EngineUGI;
 
 pub mod cli;
@@ -106,7 +104,7 @@ pub fn create_match_for_game<B: Board>(
     mut args: EngineOpts,
     engines: EngineList<B>,
     outputs: OutputList<B>,
-) -> Res<AnyMatch> {
+) -> Res<AnyRunnable> {
     match args.mode {
         Bench(_) => Ok(Box::new(BenchRun::create(args, engines)?)),
         Mode::Engine => {
@@ -135,12 +133,12 @@ fn list_mnk_outputs() -> OutputList<MNKBoard> {
 
 pub fn generic_engines<B: Board>() -> EngineList<B> {
     vec![
-        #[cfg(feature = "naive_negamax")]
-        Box::new(EngineBuilder::<B, NaiveSlowNegamax<B>>::default()),
         #[cfg(feature = "random_mover")]
         Box::new(EngineBuilder::<B, RandomMover<B, StdRng>>::default()),
         // Does not contain GenericNegamax because that takes the eval function as generic argument, which
-        // depends on the game (TODO: maybe include with a game-independent eval?)
+        // depends on the game (TODO: include with a game-independent eval?)
+        // #[cfg(feature = "generic_negamax")]
+        // Box::new(EngineBuilder::<B, GenericNegamax<B, RandEval>>::new()),
     ]
 }
 
@@ -170,7 +168,7 @@ pub fn list_mnk_engine() -> EngineList<MNKBoard> {
     res
 }
 
-pub fn create_match(args: EngineOpts) -> Res<AnyMatch> {
+pub fn create_match(args: EngineOpts) -> Res<AnyRunnable> {
     match args.game {
         #[cfg(feature = "chess")]
         Game::Chess => create_match_for_game(args, list_chess_engines(), list_chess_outputs()),

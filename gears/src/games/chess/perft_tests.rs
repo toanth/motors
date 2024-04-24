@@ -14,21 +14,23 @@ mod tests {
         let board = Chessboard::from_name("kiwipete").unwrap();
         let res = perft(Depth::new(4), board);
         assert_eq!(res.nodes.get(), 4085603);
-        // commented out for now because the test takes far too long
-        // // kiwipete after white castles (cheaper to run than increasing the depth of kiwipete, and failed perft once)
-        // let board = Chessboard::from_fen(
-        //     "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R4RK1 b kq - 1 1",
-        // )
-        // .unwrap();
-        // let res = perft(4, board);
-        // assert_eq!(res.nodes, 4119629);
-        // // kiwipete after white plays a2a3
-        // let board = Chessboard::from_fen(
-        //     "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q1p/1PPBBPPP/R3K2R b KQkq - 0 1",
-        // )
-        // .unwrap();
-        // let res = perft(4, board);
-        // assert_eq!(res.nodes, 4627439);
+        // Disabled in debug mode because that would take too long. TODO: Optimize movegen.
+        if !cfg!(debug_assertions) {
+            // kiwipete after white castles (cheaper to run than increasing the depth of kiwipete, and failed perft once)
+            let board = Chessboard::from_fen(
+                "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R4RK1 b kq - 1 1",
+            )
+            .unwrap();
+            let res = perft(Depth::new(4), board);
+            assert_eq!(res.nodes.get(), 4119629);
+            // kiwipete after white plays a2a3
+            let board = Chessboard::from_fen(
+                "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q1p/1PPBBPPP/R3K2R b KQkq - 0 1",
+            )
+            .unwrap();
+            let res = perft(Depth::new(4), board);
+            assert_eq!(res.nodes.get(), 4627439);
+        }
     }
 
     #[test]

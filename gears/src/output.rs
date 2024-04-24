@@ -4,15 +4,15 @@ use std::str::SplitWhitespace;
 use dyn_clone::DynClone;
 use strum_macros::Display;
 
-use crate::{GameOverReason, GameState, MatchResult, MatchStatus};
 use crate::games::{Board, OutputList, RectangularBoard, RectangularCoordinates};
 use crate::general::common::{NamedEntity, Res};
 use crate::output::logger::LoggerBuilder;
-use crate::output::Message::*;
 use crate::output::pretty::PrettyUIBuilder;
 use crate::output::text_output::DisplayType::*;
 use crate::output::text_output::TextOutputBuilder;
+use crate::output::Message::*;
 use crate::search::SearchInfo;
+use crate::{GameOverReason, GameState, MatchResult, MatchStatus};
 
 pub mod logger;
 pub mod pretty;
@@ -73,7 +73,7 @@ pub trait AbstractOutput: NamedEntity + Debug + Send + 'static {
         // do nothing (most UIs don't log all UGI commands)
     }
 
-    fn display_message_simple(&mut self, typ: Message, message: &str);
+    fn display_message(&mut self, typ: Message, message: &str);
 }
 
 /// An Output prints the board and shows messages.
@@ -86,23 +86,19 @@ pub trait Output<B: Board>: AbstractOutput {
 
     fn inform_game_over(&mut self, m: &dyn GameState<B>) {
         match m.match_status() {
-            MatchStatus::Over(res) => self.display_message_simple(Info, &game_over_message(res)),
+            MatchStatus::Over(res) => self.display_message(Info, &game_over_message(res)),
             _ => panic!("Internal error: the match isn't over"),
         }
     }
 
     fn as_string(&self, m: &dyn GameState<B>) -> String;
 
-    // TODO: Remove or rename
-    fn display_message(&mut self, m: &dyn GameState<B>, typ: Message, message: &str) {
-        if matches!(typ, Message::Debug) && !m.debug_info_enabled() {
-            return;
-        }
-        self.display_message_simple(typ, message);
+    fn display_message_with_state(&mut self, _: &dyn GameState<B>, typ: Message, message: &str) {
+        self.display_message(typ, message);
     }
 
     fn update_engine_info(&mut self, engine_name: &str, info: &SearchInfo<B>) {
-        self.display_message_simple(Info, &format!("{engine_name}: {}", info))
+        self.display_message(Info, &format!("{engine_name}: {}", info))
     }
 }
 

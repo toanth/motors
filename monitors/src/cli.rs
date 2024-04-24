@@ -8,12 +8,17 @@ use std::process::exit;
 use std::str::FromStr;
 use std::sync::MutexGuard;
 use std::time::Duration;
+
 use itertools::Itertools;
 use num::PrimInt;
+
 use gears::cli::{ArgIter, Game, get_next_arg, get_next_int, get_next_nonzero_usize, parse_output};
-use gears::general::common::{nonzero_u64, nonzero_usize, parse_fp_from_str, parse_int_from_str, Res};
+use gears::general::common::{
+    nonzero_u64, nonzero_usize, parse_fp_from_str, parse_int_from_str, Res,
+};
 use gears::OutputArgs;
 use gears::search::{Depth, Score, TimeControl};
+
 use crate::cli::PlayerArgs::{Engine, Human};
 use crate::cli::Protocol::{Uci, Ugi};
 use crate::play::adjudication::ScoreAdjudication;
@@ -22,9 +27,6 @@ use crate::play::ugi_client::Client;
 
 /// Since clap doesn't handle long arguments with a single `-`, but cutechess (and fastchess) use that format,
 /// this just writes the parser by hand
-///
-// TODO: Once this is working, add option to run as an engine or bench if the 'motors' cargo feature is enabled
-
 pub struct CommandLineArgs {
     /// The game to run.
     pub game: Game,
@@ -80,13 +82,11 @@ pub struct CommandLineArgs {
     //
     // /// Print the results after a multiple of this number of matches
     // pub outcome_interval: Option<usize>,
-
     /// Additional ways ot print the current match state. Can be used for logging or to get more beautiful / relevant
     /// outputs, such as printing the current FEN after each move, export the match as a PGN, or pretty-print the board.
     /// This can also be changed on the fly while the program is running.
     pub additional_outputs: Vec<OutputArgs>,
 }
-
 
 #[derive(Debug, Default, Clone)]
 pub struct ClientEngineCliArgs {
@@ -139,7 +139,6 @@ pub struct ClientEngineCliArgs {
 
     /// Add `--debug` to flags if the engine is built-in, and it's not already given in `engine_args`
     pub add_debug_flag: bool,
-
 }
 
 // TODO: Not really suited for cli.rs anymore
@@ -156,13 +155,18 @@ pub enum PlayerArgs {
 }
 
 fn parse_key_equals_value(arg: &str) -> Res<(&str, Res<&str>)> {
-        let mut parts = arg.split('=');
-        let key = parts.next().unwrap();
-        let value = parts.next().ok_or_else(|| format!("Expected '=<value>' after '{key}'"));
-        if let Some(rest) = parts.next() {
-            let rest = rest.to_string().add(&parts.join("="));
-            return Err(format!("Expected an argument of the form 'key=value' or 'key' but got '{key}={}={rest}'", value.unwrap()));
-        }
+    let mut parts = arg.split('=');
+    let key = parts.next().unwrap();
+    let value = parts
+        .next()
+        .ok_or_else(|| format!("Expected '=<value>' after '{key}'"));
+    if let Some(rest) = parts.next() {
+        let rest = rest.to_string().add(&parts.join("="));
+        return Err(format!(
+            "Expected an argument of the form 'key=value' or 'key' but got '{key}={}={rest}'",
+            value.unwrap()
+        ));
+    }
     Ok((key, value))
 }
 
@@ -178,7 +182,6 @@ fn parse_ui(args: &mut ArgIter, res: &mut CommandLineArgs) -> Res<()> {
     Ok(())
 }
 
-
 fn parse_adjudication(args: &mut ArgIter, is_draw: bool) -> Res<ScoreAdjudication> {
     let mut res = ScoreAdjudication::default();
     let mut twosided = is_draw;
@@ -188,11 +191,15 @@ fn parse_adjudication(args: &mut ArgIter, is_draw: bool) -> Res<ScoreAdjudicatio
         let (key, val) = parse_key_equals_value(&arg)?;
         let val = val?;
         match key {
-            "movecount" =>  res.move_number = parse_int_from_str(&val, "movecount")?,
+            "movecount" => res.move_number = parse_int_from_str(&val, "movecount")?,
             "movenumber" => res.start_after = parse_int_from_str(&val, "movenumber")?,
             "score" => res.score_threshold = Score(parse_int_from_str(&val, "score")?),
             "twosided" => twosided = bool::from_str(val).map_err(|err| err.to_string())?,
-            _ => return Err(format!("Invalid adjudication setting '{val}' with unknown key '{key}'")),
+            _ => {
+                return Err(format!(
+                    "Invalid adjudication setting '{val}' with unknown key '{key}'"
+                ))
+            }
         }
     }
     if !twosided {
@@ -202,9 +209,11 @@ fn parse_adjudication(args: &mut ArgIter, is_draw: bool) -> Res<ScoreAdjudicatio
 }
 
 // Channeling my inner C++ programmer to write a function accepting a generic iterator.
-pub fn parse_engine<Iter: Iterator<Item=String>>(args: &mut Peekable<Iter>) -> Res<ClientEngineCliArgs> {
+pub fn parse_engine<Iter: Iterator<Item = String>>(
+    args: &mut Peekable<Iter>,
+) -> Res<ClientEngineCliArgs> {
     let mut res = ClientEngineCliArgs::default();
-    while let Some(arg) =  args.peek() {
+    while let Some(arg) = args.peek() {
         if arg.starts_with('-') {
             return Ok(res);
         }
@@ -244,11 +253,11 @@ pub fn parse_engine<Iter: Iterator<Item=String>>(args: &mut Peekable<Iter>) -> R
     Ok(res)
 }
 
-pub fn parse_human<Iter: Iterator<Item=String>>(args: &mut Peekable<Iter>) -> Res<HumanArgs> {
+pub fn parse_human<Iter: Iterator<Item = String>>(args: &mut Peekable<Iter>) -> Res<HumanArgs> {
     let mut res = HumanArgs::default();
     while let Some(arg) = args.peek() {
         if arg.starts_with('-') {
-            return Ok(res)
+            return Ok(res);
         }
         let arg = args.next().unwrap();
         let (key, value) = parse_key_equals_value(&arg)?;
@@ -258,7 +267,7 @@ pub fn parse_human<Iter: Iterator<Item=String>>(args: &mut Peekable<Iter>) -> Re
             x => return Err(format!("Unknown argument '{x}' for a human player")),
         }
     }
-    return Ok(res)
+    return Ok(res);
 }
 
 fn print_help_message() {
@@ -274,10 +283,17 @@ fn get_version() -> &'static str {
     option_env!("CARGO_PKG_VERSION").unwrap_or("<unknown version>")
 }
 
-pub fn combine_engine_args(engine: &mut ClientEngineCliArgs, each: &ClientEngineCliArgs, add_debug_flag: bool) {
+pub fn combine_engine_args(
+    engine: &mut ClientEngineCliArgs,
+    each: &ClientEngineCliArgs,
+    add_debug_flag: bool,
+) {
     // Logically, this function performs |= on each contained `Option`. Unfortunately,
     // Rust doesn't provide a built-in |= operator for `Option`s.
-    engine.display_name = engine.display_name.clone().or_else(|| each.display_name.clone());
+    engine.display_name = engine
+        .display_name
+        .clone()
+        .or_else(|| each.display_name.clone());
     if engine.cmd.is_empty() {
         engine.cmd = each.cmd.clone();
     }
@@ -286,18 +302,28 @@ pub fn combine_engine_args(engine: &mut ClientEngineCliArgs, each: &ClientEngine
         engine.engine_args = each.engine_args.clone();
     }
     engine.add_debug_flag = add_debug_flag;
-    engine.init_string = engine.init_string.clone().or_else(|| each.init_string.clone());
+    engine.init_string = engine
+        .init_string
+        .clone()
+        .or_else(|| each.init_string.clone());
     engine.stderr = engine.stderr.clone().or_else(|| each.stderr.clone());
     engine.proto = engine.proto.clone().or_else(|| each.proto.clone());
     engine.tc = engine.tc.clone().or_else(|| each.tc.clone());
     engine.move_time = engine.move_time.clone().or_else(|| each.move_time.clone());
-    engine.time_margin = engine.time_margin.clone().or_else(|| each.time_margin.clone());
+    engine.time_margin = engine
+        .time_margin
+        .clone()
+        .or_else(|| each.time_margin.clone());
     engine.white_pov |= each.white_pov;
     engine.depth = engine.depth.clone().or_else(|| each.depth.clone());
     engine.nodes = engine.nodes.clone().or_else(|| each.nodes.clone());
-    each.custom_options.iter().for_each(|(key, value)| { engine.custom_options.entry(key.clone()).or_insert(value.clone());});
+    each.custom_options.iter().for_each(|(key, value)| {
+        engine
+            .custom_options
+            .entry(key.clone())
+            .or_insert(value.clone());
+    });
 }
-
 
 pub fn parse_cli() -> Res<CommandLineArgs> {
     let mut args = std::env::args().peekable();
@@ -337,11 +363,13 @@ pub fn parse_cli() -> Res<CommandLineArgs> {
         }
         match arg.as_str() {
             "-h" | "-help" => print_help_message(),
-            "-v" | "-version"  => print_version(),
+            "-v" | "-version" => print_version(),
             "-g" | "-game" | "-variant" => parse_game(&mut args, &mut res)?,
             "-ui" => parse_ui(&mut args, &mut res)?,
             "-d" | "-debug" => res.debug = true,
-            "-additional-output" | "-output" | "-o" => parse_output(&mut args, &mut res.additional_outputs)?,
+            "-additional-output" | "-output" | "-o" => {
+                parse_output(&mut args, &mut res.additional_outputs)?
+            }
             "-engine" => res.players.push(Engine(parse_engine(&mut args)?)),
             "-human" => res.players.push(Human(parse_human(&mut args)?)),
             "-each" => each = parse_engine(&mut args)?,
@@ -366,16 +394,22 @@ pub fn parse_cli() -> Res<CommandLineArgs> {
             "-seeds" => todo!(),
             "-site" => res.site = Some(get_next_arg(&mut args, "site")?),
             "-srand" => todo!(),
-            "-wait" => res.wait_after_match = Duration::from_millis(get_next_int(&mut args, "wait")?),
+            "-wait" => {
+                res.wait_after_match = Duration::from_millis(get_next_int(&mut args, "wait")?)
+            }
             "-resultformat" => todo!(),
             "-startpos" => todo!(), // set one startpos for all matches. Incompatible with sprt.
-            x => return Err(format!("Unrecognized option '{x}'. Type --help for a list of all valid options")),
+            x => {
+                return Err(format!(
+                    "Unrecognized option '{x}'. Type --help for a list of all valid options"
+                ))
+            }
         }
     }
 
     for player in res.players.iter_mut() {
         match player {
-            Human(_) => {},
+            Human(_) => {}
             Engine(args) => combine_engine_args(args, &each, args.add_debug_flag),
         }
     }

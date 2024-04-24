@@ -83,7 +83,7 @@ impl AbstractOutput for PrettyUI {
         self.writer.stream.name()
     }
 
-    fn display_message_simple(&mut self, typ: Message, message: &str) {
+    fn display_message(&mut self, typ: Message, message: &str) {
         self.writer.display_message(typ, message)
     }
 }

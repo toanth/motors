@@ -30,7 +30,6 @@ portable-atomic = "1.6.0"
 [features]
 default = ["chess", "mnk", "random_mover", "generic_negamax", "caps"]
 random_mover = []
-naive_negamax = [] # not a default feature because it's borderline useless
 generic_negamax = []
 caps = ["chess"]
 

@@ -4,11 +4,11 @@ use std::str::SplitWhitespace;
 use itertools::Itertools;
 
 use crate::games::Board;
-use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
-use crate::output::text_output::DisplayType::Fen;
-use crate::output::text_output::{BoardToText, TextStream};
-use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
 use crate::GameState;
+use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
+use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
+use crate::output::text_output::{BoardToText, TextStream};
+use crate::output::text_output::DisplayType::Fen;
 
 #[derive(Debug)]
 pub struct Logger {
@@ -25,7 +25,7 @@ impl Logger {
                 is_engine: false,
             },
         };
-        res.display_message_simple(
+        res.display_message(
             Message::Info,
             &format!(
                 "[Starting logging at {}]",
@@ -77,7 +77,7 @@ impl AbstractOutput for Logger {
         }
     }
 
-    fn display_message_simple(&mut self, typ: Message, message: &str) {
+    fn display_message(&mut self, typ: Message, message: &str) {
         self.stream.write(typ.message_prefix(), message);
     }
 }
@@ -92,8 +92,8 @@ impl<B: Board> Output<B> for Logger {
         self.board_to_text.as_string(m)
     }
 
-    fn display_message(&mut self, m: &dyn GameState<B>, typ: Message, message: &str) {
-        self.display_message_simple(typ, message);
+    fn display_message_with_state(&mut self, m: &dyn GameState<B>, typ: Message, message: &str) {
+        self.display_message(typ, message);
         match typ {
             Message::Info => {}
             _ => {

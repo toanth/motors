@@ -603,7 +603,7 @@ where
                     }
                 )?;
             }
-            writeln!(f, "")?;
+            writeln!(f)?;
         }
         Ok(())
     }

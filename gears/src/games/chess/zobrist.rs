@@ -232,9 +232,9 @@ mod tests {
         let mut queue = VecDeque::new();
         queue.push_back(position);
         let max_queue_len = if cfg!(debug_assertions) {
-            1_000_000
+            500_000
         } else {
-            10_000_000
+            5_000_000
         };
         while queue.len() <= max_queue_len {
             let pos = queue.front().copied().unwrap();

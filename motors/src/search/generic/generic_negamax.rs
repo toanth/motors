@@ -121,12 +121,15 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
             sender.send_search_info(self.search_info());
         }
 
-        Ok(SearchResult::move_only(chosen_move.unwrap_or_else(|| {
-            eprintln!("Warning: Not even a single iteration finished");
-            let mut rng = thread_rng();
-            pos.random_legal_move(&mut rng)
-                .expect("search() called in a position with no legal moves")
-        })))
+        Ok(SearchResult::move_and_score(
+            chosen_move.unwrap_or_else(|| {
+                eprintln!("Warning: Not even a single iteration finished");
+                let mut rng = thread_rng();
+                pos.random_legal_move(&mut rng)
+                    .expect("search() called in a position with no legal moves")
+            }),
+            self.state.score,
+        ))
     }
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {

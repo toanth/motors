@@ -1,22 +1,22 @@
 use std::fmt::Debug;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
+use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 
 use crossbeam_channel::unbounded;
 
 use gears::games::{Board, ZobristHistoryBase};
-use gears::general::common::{NamedEntity, parse_int_from_str, Res};
+use gears::general::common::{parse_int_from_str, NamedEntity, Res};
 use gears::output::Message;
 use gears::output::Message::Error;
 use gears::search::{Depth, Score, SearchInfo, SearchLimit, SearchResult};
-use gears::ugi::{EngineOption, EngineOptionName};
 use gears::ugi::EngineOptionName::{Hash, Threads};
+use gears::ugi::{EngineOption, EngineOptionName};
 
-use crate::search::{AbstractEngineBuilder, BenchResult, Engine, EngineInfo, SearchState};
 use crate::search::multithreading::EngineReceives::*;
 use crate::search::tt::TT;
+use crate::search::{AbstractEngineBuilder, BenchResult, Engine, EngineInfo, SearchState};
 use crate::ugi_engine::UgiOutput;
 
 pub type Sender<T> = crossbeam_channel::Sender<T>;
@@ -298,7 +298,6 @@ impl<B: Board> EngineWrapper<B> {
         if name == Threads {
             let count: usize = parse_int_from_str(&value, "num threads")?;
             if !self.builder.can_use_multiple_threads() && count != 1 {
-                // TODO: Warning instead of error
                 return Err(format!(
                     "The engine {} only supports 1 thread",
                     self.engine_info.name

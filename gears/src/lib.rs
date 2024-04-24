@@ -159,10 +159,9 @@ pub trait AbstractRun: Debug {
     fn run(&mut self);
 }
 
-/// `AnyMatch` is a type-erased `AbstractRun`, and almost the only thing that isn't generic over the Game.
+/// `AnyRunnable` is a type-erased `AbstractRun`, and almost the only thing that isn't generic over the Game.
 /// Pretty much the entire program is spent inside the match manager.
-/// // TODO: Rename to AnyRunnable or something like that Or better, remove completely
-pub type AnyMatch = Box<dyn AbstractRun>;
+pub type AnyRunnable = Box<dyn AbstractRun>;
 
 pub trait GameState<B: Board> {
     fn initial_pos(&self) -> B;
@@ -181,7 +180,6 @@ pub trait GameState<B: Board> {
         self.move_history().len()
     }
     fn match_status(&self) -> MatchStatus;
-    fn debug_info_enabled(&self) -> bool;
     // fn clear_state(&mut self);
     /// For the UGI client, this returns "gui". For an engine, it returns the name of the engine.
     fn name(&self) -> &str;

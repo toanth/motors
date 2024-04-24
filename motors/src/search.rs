@@ -94,60 +94,6 @@ impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
     }
 }
 
-/// Implements a triangular pv table, except that it's actually quadratic
-/// (the doubled memory requirements should be inconsequential, and this is much easier to implement
-/// and potentially faster)
-#[derive(Debug, Clone)]
-pub struct GenericPVTable<B: Board, const LIMIT: usize> {
-    pv_at_depth: [Pv<B, LIMIT>; LIMIT],
-    size: usize,
-}
-
-impl<B: Board, const LIMIT: usize> Default for GenericPVTable<B, LIMIT> {
-    fn default() -> Self {
-        Self {
-            pv_at_depth: [Default::default(); LIMIT],
-            size: 0,
-        }
-    }
-}
-
-impl<B: Board, const LIMIT: usize> GenericPVTable<B, LIMIT> {
-    fn new_pv_move(&mut self, ply: usize, mov: B::Move) {
-        debug_assert!(ply + 1 < LIMIT);
-        self.size = self.size.max(ply + 1);
-        let len = self.pv_at_depth[ply + 1].length.max(ply + 1);
-        debug_assert!(
-            // no reductions on pv nodes (yet)
-            self.pv_at_depth[ply + 1].length == 0 || self.pv_at_depth[ply + 1].length >= ply + 2
-        );
-        self.pv_at_depth[ply].length = len;
-        self.pv_at_depth[ply + 1].length = 0;
-        let (dest_arr, src_arr) = self.pv_at_depth.split_at_mut(ply + 1);
-        let (dest_arr, src_arr) = (&mut dest_arr[ply], &mut src_arr[0]);
-        dest_arr.list[ply] = mov;
-        dest_arr.list[ply + 1..len].copy_from_slice(&src_arr.list[ply + 1..len]);
-    }
-
-    fn no_pv_move(&mut self, ply: usize) {
-        self.pv_at_depth[ply].length = 0;
-        self.pv_at_depth[ply + 1].length = 0;
-    }
-
-    fn reset(&mut self) {
-        self.pv_at_depth[..self.size]
-            .iter_mut()
-            .for_each(|pv| pv.length = 0);
-        self.size = 0;
-    }
-
-    // TODO: Fix pv table
-
-    fn get_pv(&self) -> &[B::Move] {
-        &self.pv_at_depth[0].list[..self.pv_at_depth[0].length]
-    }
-}
-
 /// A trait because this type erases over the Engine being built.
 pub trait AbstractEngineBuilder<B: Board>: NamedEntity + DynClone {
     fn build(&self, sender: SearchSender<B>, tt: TT) -> EngineWrapper<B>;
@@ -231,18 +177,13 @@ impl<B: Board, E: Engine<B>> StaticallyNamedEntity for EngineBuilder<B, E> {
     }
 }
 
-// TODO: Necessary?
-// pub trait EngineBase: StaticallyNamedEntity + Debug + Default + Send + 'static /*+ Send*/ {}
-
 pub trait Benchable<B: Board>: StaticallyNamedEntity + Debug {
     fn bench(&mut self, position: B, depth: Depth) -> BenchResult;
 
     /// Returns information about this engine, such as the name, version and default bench depth.
-
     fn engine_info(&self) -> EngineInfo;
 
     /// Sets an option with the name 'option' to the value 'value'
-
     fn set_option(&mut self, option: EngineOptionName, value: String) -> Res<()> {
         Err(format!(
             "The engine '{name}' doesn't support setting custom options, including setting '{option}' to '{value}' (Note: 'Hash' and 'Threads' may still be supported)",

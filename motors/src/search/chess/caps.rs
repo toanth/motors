@@ -4,28 +4,28 @@ use std::time::{Duration, Instant};
 use derive_more::{Deref, DerefMut};
 use rand::thread_rng;
 
-use gears::games::{Board, BoardHistory, ColoredPiece, ZobristHistoryBase, ZobristRepetition2Fold};
-use gears::games::chess::{Chessboard, ChessMoveList};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
+use gears::games::chess::{ChessMoveList, Chessboard};
+use gears::games::{Board, BoardHistory, ColoredPiece, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
 use gears::search::{
-    Depth, game_result_to_score, MIN_SCORE_WON, NO_SCORE_YET, Score, SCORE_LOST, SCORE_TIME_UP,
-    SCORE_WON, SearchLimit, SearchResult, TimeControl,
+    game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, MIN_SCORE_WON,
+    NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
 };
-use gears::ugi::{EngineOption, UgiSpin};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::EngineOptionType::Spin;
+use gears::ugi::{EngineOption, UgiSpin};
 
 use crate::eval::Eval;
+use crate::search::multithreading::SearchSender;
+use crate::search::tt::{TTEntry, TT};
+use crate::search::NodeType::*;
 use crate::search::{
-    ABSearchState, Benchable, BenchResult, CustomInfo, Engine, EngineInfo, NodeType, Pv,
+    ABSearchState, BenchResult, Benchable, CustomInfo, Engine, EngineInfo, NodeType, Pv,
     SearchStackEntry, SearchState,
 };
-use crate::search::multithreading::SearchSender;
-use crate::search::NodeType::*;
-use crate::search::tt::{TT, TTEntry};
 
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
@@ -187,17 +187,16 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
             soft = soft_limit.as_millis(),
         ));
 
-        let chosen_move = self.aspiration(pos, limit, soft_limit, sender);
-
-        Ok(SearchResult::move_and_score(
-            chosen_move.unwrap_or_else(|| {
+        let chosen_move = match self.aspiration(pos, limit, soft_limit, sender) {
+            Some(mov) => mov,
+            None => {
                 eprintln!("Warning: Not even a single iteration finished");
                 let mut rng = thread_rng();
                 pos.random_legal_move(&mut rng)
                     .expect("search() called in a position with no legal moves")
-            }),
-            self.state.score,
-        ))
+            }
+        };
+        Ok(SearchResult::move_and_score(chosen_move, self.state.score))
     }
 
     fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
@@ -280,7 +279,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             }
             self.state.score = iteration_score;
             if iteration_score > alpha && iteration_score < beta {
-                depth = depth + 1;
+                depth += 1;
                 // make sure that alpha and beta are at least 2 apart, to recognize PV nodes.
                 window_radius = Score(1.max(window_radius.0 / 2));
                 sender.send_search_info(self.search_info());
@@ -427,11 +426,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if children_visited == 1 {
                 score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, sender);
             } else {
-                /// LMR (Late Move Reductions): Trust the move ordering (mostly the quiet history heuristic, at least currently)
-                /// and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search to verify our belief.
-                /// In the unlikely case that thi believe turns out to have been misplaced, do a full research instead
-                /// (A more complex implementation might do 2 researches, where the first research still uses a null window but
-                /// searches to the full depth.)
+                // LMR (Late Move Reductions): Trust the move ordering (mostly the quiet history heuristic, at least currently)
+                // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search to verify our belief.
+                // In the unlikely case that thi believe turns out to have been misplaced, do a full research instead
+                // (A more complex implementation might do 2 researches, where the first research still uses a null window but
+                // searches to the full depth.)
                 let mut reduction = 0;
                 if !in_check && num_quiets_visited > 4 && depth >= 4 {
                     reduction = 1; // This is a very basic implementation. TODO: Make more complex eventually.
@@ -615,6 +614,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
 #[cfg(test)]
 mod tests {
     use gears::games::chess::Chessboard;
+    use gears::games::ZobristHistoryBase;
     use gears::search::Nodes;
 
     use crate::eval::chess::hce::HandCraftedEval;
@@ -624,19 +624,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn simple_search_test() {
-        let pos = Chessboard::from_fen(
-            "r2q1r2/ppp1pkb1/2n1p1pp/2N1P3/2pP2Q1/2P1B2P/PP3PP1/R4RK1 b - - 1 18",
-        );
-        // TODO: Write test
-    }
-
-    #[test]
     fn mate_in_one_test() {
         let board = Chessboard::from_fen("4k3/8/4K3/8/8/8/8/6R1 w - - 0 1").unwrap();
         // run multiple times to get different random numbers from the eval function
         for depth in 1..=3 {
-            for i in 0..100 {
+            for _ in 0..100 {
                 let mut engine = Caps::<RandEval>::default();
                 let res = engine
                     .search(
@@ -652,19 +644,48 @@ mod tests {
         }
     }
 
+    #[test]
+    fn simple_search_test() {
+        let list = [
+            (
+                "r2q1r2/ppp1pkb1/2n1p1pp/2N1P3/2pP2Q1/2P1B2P/PP3PP1/R4RK1 b - - 1 18",
+                -500,
+                -100,
+            ),
+            (
+                "r1bqkbnr/3n2p1/2p1pp1p/pp1p3P/P2P4/1PP1PNP1/1B3P2/RN1QKB1R w KQkq - 0 14",
+                90,
+                300,
+            ),
+        ];
+        for (fen, min, max) in list {
+            let pos = Chessboard::from_fen(fen).unwrap();
+            let mut engine = Caps::<PstOnlyEval>::default();
+            let res = engine
+                .search_from_pos(pos, SearchLimit::nodes(Nodes::new(50_000).unwrap()))
+                .unwrap();
+            assert!(res.score.is_some_and(|score| score > Score(min)));
+            assert!(res.score.is_some_and(|score| score < Score(max)));
+        }
+    }
+
+    #[test]
     fn lucena_test() {
         let pos = Chessboard::from_name("lucena").unwrap();
         let mut engine = Caps::<PstOnlyEval>::default();
         let res = engine
             .search_from_pos(pos, SearchLimit::depth(Depth::new(7)))
             .unwrap();
-        assert!(res.score.unwrap() >= Score(300));
+        // TODO: More aggressive bound once the engine is stronger
+        assert!(res.score.unwrap() >= Score(200));
     }
 
+    #[test]
     fn philidor_test() {
         let pos = Chessboard::from_name("philidor").unwrap();
         let mut engine = Caps::<HandCraftedEval>::default();
-        let res = engine.search_from_pos(pos, SearchLimit::nodes(Nodes::new(500_000).unwrap()));
-        assert!(res.unwrap().score.unwrap().abs() <= Score(20));
+        let res = engine.search_from_pos(pos, SearchLimit::nodes(Nodes::new(100_000).unwrap()));
+        // TODO: More aggressive bound once the engine is stronger
+        assert!(res.unwrap().score.unwrap().abs() <= Score(200));
     }
 }

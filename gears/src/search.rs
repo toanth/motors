@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
 use std::ops::{Div, Mul};
@@ -111,8 +110,6 @@ pub fn game_result_to_score(res: PlayerResult, ply: usize) -> Score {
 pub struct SearchResult<B: Board> {
     pub chosen_move: B::Move,
     pub score: Option<Score>,
-    pub pv: Option<Vec<B::Move>>,
-    pub additional: HashMap<String, String>,
 }
 
 impl<B: Board> SearchResult<B> {
@@ -368,6 +365,10 @@ impl SearchLimit {
         let mut res = Self::infinite();
         res.nodes = nodes;
         res
+    }
+
+    pub fn nodes_(nodes: u64) -> Self {
+        Self::nodes(Nodes::new(nodes).unwrap())
     }
 
     pub fn max_move_time(&self) -> Duration {

@@ -2,7 +2,7 @@ use std::process::abort;
 
 use itertools::Itertools;
 
-use gears::{AnyMatch, create_selected_output_builders, output_builder_from_str};
+use gears::{AnyRunnable, create_selected_output_builders, output_builder_from_str};
 use gears::cli::Game;
 use gears::games::{Board, OutputList, RectangularBoard, RectangularCoordinates};
 use gears::games::chess::Chessboard;
@@ -81,7 +81,7 @@ pub fn map_ui_to_input_and_output(ui: &str) -> (&str, &str) {
 
 // TODO: Use #[cfg()] to conditionally include `motors` and its engines
 
-pub fn create_match(args: CommandLineArgs) -> Res<AnyMatch> {
+pub fn create_match(args: CommandLineArgs) -> Res<AnyRunnable> {
     // match mode {
     //     Gui(options) => {
     match args.game {
@@ -100,7 +100,7 @@ pub fn create_match(args: CommandLineArgs) -> Res<AnyMatch> {
 pub fn create_gui_match_for_game<B: Board>(
     mut args: CommandLineArgs,
     uis: (OutputList<B>, InputList<B>),
-) -> Res<AnyMatch> {
+) -> Res<AnyRunnable> {
     while args.players.len() < 2 {
         args.players.push(PlayerArgs::Human(HumanArgs::default()));
     }
