@@ -298,9 +298,11 @@ impl Eval<Chessboard> for HandCraftedEval {
             eg = -eg;
         }
         let score = (mg * phase + eg * (24 - phase)) / 24;
-        match pos.active_player() {
-            White => score,
-            Black => -score,
-        }
+        let tempo = Score(10);
+        tempo
+            + match pos.active_player() {
+                White => score,
+                Black => -score,
+            }
     }
 }
