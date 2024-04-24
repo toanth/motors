@@ -449,7 +449,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // searches to the full depth.)
                 let mut reduction = 0;
                 if !in_check && num_quiets_visited > 4 && depth >= 4 {
-                    reduction = 1 + num_quiets_visited / 16; // This is a very basic implementation. TODO: Make more complex eventually.
+                    reduction = 1 + depth / 8; // This is a very basic implementation. TODO: Make more complex eventually.
                     if !is_pvs_pv_node {
                         reduction += 1;
                     }
