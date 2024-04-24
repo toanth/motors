@@ -401,10 +401,14 @@ impl<E: Eval<Chessboard>> Caps<E> {
         for mov in all_moves {
             /// LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
             /// so don't even bother looking at them in the last few layers.
+            /// FP (Futility Pruning): If the static eval is far below alpha,
+            /// then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
+            /// so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
             if can_prune
                 && best_score > MAX_SCORE_LOST
                 && depth <= 3
-                && num_quiets_visited >= 16 * depth
+                && (num_quiets_visited >= 16 * depth
+                    || (eval + Score((300 + 64 * depth) as i32) < alpha && num_quiets_visited > 0))
             // quiets are ordered last, so this move is ordered very late
             {
                 break;

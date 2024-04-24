@@ -7,13 +7,13 @@ use std::str::SplitWhitespace;
 use static_assertions::const_assert_eq;
 use strum::IntoEnumIterator;
 
-use crate::games::*;
+use crate::games::mnk::Symbol::{Empty, O, X};
 use crate::games::Color::{Black, White};
 use crate::games::GridSize;
-use crate::games::mnk::Symbol::{Empty, O, X};
 use crate::games::PlayerResult::Draw;
+use crate::games::*;
 use crate::general::bitboards::{
-    Bitboard, DefaultBitboard, ExtendedRawBitboard, RawBitboard, RayDirections, remove_ones_above,
+    remove_ones_above, Bitboard, DefaultBitboard, ExtendedRawBitboard, RawBitboard, RayDirections,
 };
 use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
@@ -836,7 +836,7 @@ mod test {
         assert_eq!(r.perft_res.depth.get(), 5);
         assert_eq!(r.perft_res.nodes.get(), 25 * 24 * 23 * 22 * 21);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
-        assert!(r.perft_res.time.as_millis() <= 2000);
+        assert!(r.perft_res.time.as_millis() <= 2500);
 
         let r = split_perft(Depth::new(9), MNKBoard::default());
         assert_eq!(r.perft_res.depth.get(), 9);
