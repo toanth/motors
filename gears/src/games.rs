@@ -741,8 +741,8 @@ pub trait Board:
     /// `make_move` or which will cause `make_move` to return `None`.
     fn pseudolegal_moves(&self) -> Self::MoveList;
 
-    /// Returns a list of pseudo legal moves that are considered "noisy", such as captures and promotions in chess.
-    fn noisy_pseudolegal(&self) -> Self::MoveList;
+    /// Returns a list of pseudo legal moves that are considered "tactical", such as captures and promotions in chess.
+    fn tactical_pseudolegal(&self) -> Self::MoveList;
 
     /// Returns a list of legal moves, that is, moves that can be played using `make_move`
     /// and will not return `None`. TODO: Add trait for efficient legal moves implementation.
