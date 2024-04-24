@@ -6,21 +6,21 @@ use num::iter;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-use crate::games::chess::flags::CastleRight;
-use crate::games::chess::flags::CastleRight::*;
-use crate::games::chess::moves::ChessMoveFlags::*;
-use crate::games::chess::pieces::UncoloredChessPiece::*;
-use crate::games::chess::pieces::{ChessPiece, ColoredChessPiece, UncoloredChessPiece};
-use crate::games::chess::squares::{
-    ChessSquare, A_FILE_NO, C_FILE_NO, D_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO,
-};
-use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
-use crate::games::chess::Chessboard;
 use crate::games::{
     AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType, DimT, Move, MoveFlags,
 };
-use crate::general::bitboards::chess::ChessBitboard;
+use crate::games::chess::Chessboard;
+use crate::games::chess::flags::CastleRight;
+use crate::games::chess::flags::CastleRight::*;
+use crate::games::chess::moves::ChessMoveFlags::*;
+use crate::games::chess::pieces::{ChessPiece, ColoredChessPiece, UncoloredChessPiece};
+use crate::games::chess::pieces::UncoloredChessPiece::*;
+use crate::games::chess::squares::{
+    A_FILE_NO, C_FILE_NO, ChessSquare, D_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO,
+};
+use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::common::Res;
 
 #[derive(Copy, Clone, Eq, PartialEq, Default, Debug, EnumIter)]
@@ -92,7 +92,9 @@ impl ChessMove {
     }
 
     pub fn is_non_ep_capture(self, board: &Chessboard) -> bool {
-        !self.is_castle() && board.is_occupied(self.dest_square())
+        board
+            .colored_bb(board.active_player.other())
+            .is_bit_set_at(self.dest_square().index())
     }
 
     pub fn captured(self, board: &Chessboard) -> UncoloredChessPiece {
@@ -864,9 +866,9 @@ impl<'a> MoveParser<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::games::chess::moves::ChessMove;
-    use crate::games::chess::Chessboard;
     use crate::games::{Board, Move};
+    use crate::games::chess::Chessboard;
+    use crate::games::chess::moves::ChessMove;
 
     #[test]
     fn simple_algebraic_notation_test() {
