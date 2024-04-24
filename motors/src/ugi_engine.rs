@@ -9,29 +9,29 @@ use colored::Colorize;
 use crossbeam_channel::select;
 use itertools::Itertools;
 
-use gears::{AbstractRun, GameResult, GameState, MatchStatus, output_builder_from_str};
-use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
 use gears::games::Color::White;
-use gears::general::common::{parse_int, to_name_and_optional_description};
+use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
 use gears::general::common::Description::WithDescription;
 use gears::general::common::Res;
+use gears::general::common::{parse_int, to_name_and_optional_description};
 use gears::general::perft::{perft, split_perft};
-use gears::MatchStatus::*;
-use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
+use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, Nodes, SearchInfo, SearchLimit, SearchResult, TimeControl};
-use gears::ugi::{EngineOptionName, parse_ugi_position};
 use gears::ugi::EngineOptionName::Threads;
+use gears::ugi::{parse_ugi_position, EngineOptionName};
+use gears::MatchStatus::*;
+use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchStatus};
 
 use crate::cli::EngineOpts;
 use crate::create_engine_from_str;
-use crate::search::{BenchResult, EngineList};
 use crate::search::multithreading::{EngineWrapper, Receiver, SearchSender, Sender};
+use crate::search::{BenchResult, EngineList};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
 
-const MOVE_OVERHEAD: Duration = Duration::from_millis(2);
+const MOVE_OVERHEAD: Duration = Duration::from_millis(10);
 
 // TODO: Ensure this conforms to https://expositor.dev/uci/doc/uci-draft-1.pdf
 
@@ -605,8 +605,10 @@ impl<B: Board> EngineUGI<B> {
                 "movetime" => {
                     limit.fixed_time =
                         Duration::from_millis(parse_int(words, "time per move in milliseconds")?);
-                    limit.fixed_time =
-                        (limit.fixed_time - MOVE_OVERHEAD).max(Duration::from_millis(1));
+                    limit.fixed_time = limit
+                        .fixed_time
+                        .saturating_sub(MOVE_OVERHEAD)
+                        .max(Duration::from_millis(1));
                 }
                 "infinite" | "inf" => (), // "infinite" is the identity element of the bounded semilattice of `go` options
                 "perft" => search_type = Perft,
@@ -615,7 +617,11 @@ impl<B: Board> EngineUGI<B> {
                 _ => return Err(format!("Unrecognized 'go' option: '{next_word}'")),
             }
         }
-        limit.tc.remaining = (limit.tc.remaining - MOVE_OVERHEAD).max(Duration::from_millis(1));
+        limit.tc.remaining = limit
+            .tc
+            .remaining
+            .saturating_sub(MOVE_OVERHEAD)
+            .max(Duration::from_millis(1));
         self.start_search(search_type, limit)
     }
 
