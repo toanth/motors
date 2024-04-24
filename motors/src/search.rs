@@ -10,7 +10,9 @@ use strum_macros::FromRepr;
 
 use gears::games::{Board, ZobristHistoryBase, ZobristRepetition2Fold};
 use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
-use gears::search::{Depth, Nodes, Score, SearchInfo, SearchLimit, SearchResult, TimeControl};
+use gears::search::{
+    Depth, Nodes, Score, SCORE_WON, SearchInfo, SearchLimit, SearchResult, TimeControl,
+};
 use gears::ugi::{EngineOption, EngineOptionName};
 
 use crate::search::multithreading::{EngineWrapper, SearchSender};
@@ -250,6 +252,18 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         } else {
             false
         }
+    }
+
+    fn should_not_start_next_iteration(
+        &self,
+        soft_limit: Duration,
+        max_depth: isize,
+        mate_depth: Depth,
+    ) -> bool {
+        let state = self.search_state();
+        state.start_time().elapsed() >= soft_limit
+            || state.depth().get() as isize >= max_depth
+            || state.score() >= Score(SCORE_WON.0 - mate_depth.get() as i32)
     }
 
     fn quit(&mut self) {

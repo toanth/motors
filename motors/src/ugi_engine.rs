@@ -600,7 +600,7 @@ impl<B: Board> EngineUGI<B> {
                 }
                 "mate" => {
                     let depth: usize = parse_int(words, "mate move count")?;
-                    limit.depth = Depth::new(depth * 2) // 'mate' is given in moves instead of plies
+                    limit.mate = Depth::new(depth * 2) // 'mate' is given in moves instead of plies
                 }
                 "movetime" => {
                     limit.fixed_time =

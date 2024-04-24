@@ -325,6 +325,7 @@ pub struct SearchLimit {
     pub fixed_time: Duration,
     pub depth: Depth,
     pub nodes: Nodes,
+    pub mate: Depth,
 }
 
 impl Default for SearchLimit {
@@ -334,6 +335,7 @@ impl Default for SearchLimit {
             fixed_time: Duration::MAX,
             depth: MAX_DEPTH,
             nodes: Nodes::new(u64::MAX).unwrap(),
+            mate: MAX_DEPTH,
         }
     }
 }

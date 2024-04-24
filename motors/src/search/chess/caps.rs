@@ -178,9 +178,10 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
             .min(limit.tc.remaining / 4);
 
         sender.send_message(Debug, &format!(
-            "Starting search with limit {time}ms, {incr}ms increment, max {fixed}ms, max depth {depth}, max {nodes} nodes, soft limit {soft}ms",
+            "Starting search with limit {time}ms, {incr}ms increment, max {fixed}ms, mate in {mate} plies, max depth {depth}, max {nodes} nodes, soft limit {soft}ms",
             time = limit.tc.remaining.as_millis(),
             incr = limit.tc.increment.as_millis(),
+            mate = limit.mate.get(),
             depth = limit.depth.get(),
             nodes = limit.nodes.get(),
             fixed = limit.fixed_time.as_millis(),
@@ -291,7 +292,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // incomplete iterations and root nodes that failed low don't overwrite the `state.best_move`,
             // so it should be fine to unconditionally assign it to `chosen_move`
             chosen_move = self.state.best_move;
-            if depth > max_depth || self.state.start_time.elapsed() >= soft_limit {
+            if self.should_not_start_next_iteration(soft_limit, max_depth, limit.mate) {
                 break;
             }
         }
@@ -309,7 +310,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         sender: &SearchSender<Chessboard>,
     ) -> Score {
         debug_assert!(alpha < beta);
-        debug_assert!(ply <= DEPTH_HARD_LIMIT.get() * 2);
+        debug_assert!(ply <= DEPTH_HARD_LIMIT.get());
         debug_assert!(depth <= DEPTH_SOFT_LIMIT.get() as isize);
         debug_assert!(self.state.board_history.0 .0.len() >= ply);
 
@@ -328,7 +329,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         if in_check {
             depth += 1;
         }
-        if depth <= 0 {
+        if depth <= 0 || ply >= DEPTH_HARD_LIMIT.get() {
             return self.qsearch(pos, alpha, beta, ply);
         }
         let can_prune = !is_pvs_pv_node && !in_check;
