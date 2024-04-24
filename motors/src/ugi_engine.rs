@@ -9,25 +9,25 @@ use colored::Colorize;
 use crossbeam_channel::select;
 use itertools::Itertools;
 
-use gears::games::Color::White;
+use gears::{AbstractRun, GameResult, GameState, MatchStatus, output_builder_from_str};
 use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
+use gears::games::Color::White;
+use gears::general::common::{parse_int, parse_int_from_str, to_name_and_optional_description};
 use gears::general::common::Description::WithDescription;
 use gears::general::common::Res;
-use gears::general::common::{parse_int, to_name_and_optional_description};
 use gears::general::perft::{perft, split_perft};
+use gears::MatchStatus::*;
+use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
-use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, Nodes, SearchInfo, SearchLimit, SearchResult, TimeControl};
+use gears::ugi::{EngineOptionName, parse_ugi_position};
 use gears::ugi::EngineOptionName::Threads;
-use gears::ugi::{parse_ugi_position, EngineOptionName};
-use gears::MatchStatus::*;
-use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchStatus};
 
 use crate::cli::EngineOpts;
 use crate::create_engine_from_str;
-use crate::search::multithreading::{EngineWrapper, Receiver, SearchSender, Sender};
 use crate::search::{BenchResult, EngineList};
+use crate::search::multithreading::{EngineWrapper, Receiver, SearchSender, Sender};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
 
@@ -672,22 +672,24 @@ impl<B: Board> EngineUGI<B> {
     fn handle_perft_or_bench(&mut self, typ: SearchType, words: &mut SplitWhitespace) -> Res<()> {
         let mut board = self.state.board;
         let mut limit = SearchLimit::infinite();
-        match words.next().unwrap_or_default() {
-            "position" | "pos" | "p" => board = self.load_position_into_copy(words)?,
-            "depth" | "d" => {
-                limit.depth = Depth::new(parse_int(words, "depth number")?);
-                if words.next().is_some_and(|w| w == "position") {
-                    board = self.load_position_into_copy(words)?;
+        while let Some(word) = words.next() {
+            match word {
+                "position" | "pos" | "p" => board = self.load_position_into_copy(words)?,
+                "depth" | "d" => {
+                    limit.depth = Depth::new(parse_int(words, "depth number")?);
+                }
+                x => {
+                    if let Ok(depth) = parse_int_from_str(x, "depth") {
+                        limit.depth = Depth::new(depth);
+                    } else {
+                        return Err(format!(
+                            "unrecognized bench/perft argument '{}', expected 'position', 'depth' or the depth value",
+                            x.red()
+                        ));
+                    }
                 }
             }
-            "" => {}
-            x => {
-                return Err(format!(
-                    "expected 'position' or 'depth' after 'perft', not '{}'",
-                    x.red()
-                ))
-            }
-        };
+        }
         self.start_search(typ, limit)
     }
 

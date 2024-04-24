@@ -213,7 +213,7 @@ impl Default for TimeControl {
 
 impl Display for TimeControl {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if self.remaining == Duration::MAX {
+        if self.remaining >= Duration::MAX / 2 {
             write!(f, "infinite")
         } else {
             write!(
