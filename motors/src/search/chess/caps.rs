@@ -422,8 +422,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             let new_pos = new_pos.unwrap();
             self.state.nodes += 1;
             children_visited += 1;
-            // TODO: Use is_noisy() instead of is_capture everywhere, also rename to is_tactical maybe?
-            if !mov.is_capture(&pos) {
+            if !mov.is_tactical(&pos) {
                 num_quiets_visited += 1;
             }
 
@@ -501,8 +500,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 continue;
             }
             bound_so_far = LowerBound;
-            if mov.is_capture(&pos) {
-                // TODO: Run test with regression bounds for using is_noisy (can cache that)
+            if mov.is_tactical(&pos) {
                 break;
             }
             // Update various heuristics, TODO: More (killers, history gravity, etc)
@@ -535,8 +533,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         best_score
     }
 
-    /// Search only noisy moves to quieten down the position before calling eval.
-
+    /// Search only "tactical" moves to quieten down the position before calling eval.
     fn qsearch(&mut self, pos: Chessboard, mut alpha: Score, beta: Score, ply: usize) -> Score {
         // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
@@ -568,9 +565,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         let mut best_move = tt_entry.mov;
 
-        let captures = self.order_moves(pos.noisy_pseudolegal(), &pos, ChessMove::default(), ply);
+        let captures =
+            self.order_moves(pos.tactical_pseudolegal(), &pos, ChessMove::default(), ply);
         for mov in captures {
-            debug_assert!(mov.is_noisy(&pos));
+            debug_assert!(mov.is_tactical(&pos));
             let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
                 continue;
