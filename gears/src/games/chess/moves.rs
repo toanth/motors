@@ -83,7 +83,7 @@ impl ChessMove {
         board.piece_on(self.dest_square())
     }
 
-    pub fn is_noisy(self, board: &Chessboard) -> bool {
+    pub fn is_tactical(self, board: &Chessboard) -> bool {
         self.is_capture(board) || self.flags() == PromoQueen || self.flags() == PromoKnight
     }
 

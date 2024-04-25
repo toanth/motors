@@ -8,23 +8,23 @@ use rand::prelude::IteratorRandom;
 use rand::Rng;
 use strum::IntoEnumIterator;
 
-use crate::games::{
-    AbstractPieceType, Board, board_to_string, BoardHistory, Color, ColoredPiece,
-    ColoredPieceType, NameToPos, position_fen_part, read_position_fen, Settings, UncoloredPieceType, ZobristHash,
-    ZobristRepetition3Fold,
-};
-use crate::games::chess::flags::{CastleRight, ChessFlags};
 use crate::games::chess::flags::CastleRight::*;
+use crate::games::chess::flags::{CastleRight, ChessFlags};
 use crate::games::chess::moves::ChessMove;
-use crate::games::chess::pieces::{
-    ChessPiece, ColoredChessPiece, NUM_CHESS_PIECES, NUM_COLORS, UncoloredChessPiece,
-};
 use crate::games::chess::pieces::UncoloredChessPiece::*;
-use crate::games::chess::squares::{ChessboardSize, ChessSquare, NUM_SQUARES};
+use crate::games::chess::pieces::{
+    ChessPiece, ColoredChessPiece, UncoloredChessPiece, NUM_CHESS_PIECES, NUM_COLORS,
+};
+use crate::games::chess::squares::{ChessSquare, ChessboardSize, NUM_SQUARES};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::Color::{Black, White};
+use crate::games::{
+    board_to_string, position_fen_part, read_position_fen, AbstractPieceType, Board, BoardHistory,
+    Color, ColoredPiece, ColoredPieceType, NameToPos, Settings, UncoloredPieceType, ZobristHash,
+    ZobristRepetition3Fold,
+};
+use crate::general::bitboards::chess::{ChessBitboard, BLACK_SQUARES, WHITE_SQUARES};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
-use crate::general::bitboards::chess::{BLACK_SQUARES, ChessBitboard, WHITE_SQUARES};
 use crate::general::common::{EntityList, GenericSelect, Res, StaticallyNamedEntity};
 use crate::general::move_list::EagerNonAllocMoveList;
 use crate::PlayerResult;
@@ -266,8 +266,8 @@ impl Board for Chessboard {
         self.gen_all_pseudolegal_moves()
     }
 
-    fn noisy_pseudolegal(&self) -> Self::MoveList {
-        self.gen_noisy_pseudolegal()
+    fn tactical_pseudolegal(&self) -> Self::MoveList {
+        self.gen_tactical_pseudolegal()
     }
 
     fn random_legal_move<T: Rng>(&self, rng: &mut T) -> Option<Self::Move> {
@@ -695,11 +695,11 @@ impl Display for Chessboard {
 mod tests {
     use rand::thread_rng;
 
+    use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
     use crate::games::{
         game_result_no_movegen, Move, RectangularBoard, RectangularCoordinates,
         ZobristRepetition2Fold,
     };
-    use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
     use crate::general::perft::perft;
     use crate::search::Depth;
 
@@ -852,9 +852,9 @@ mod tests {
     #[test]
     fn capture_only_test() {
         let board = Chessboard::default();
-        assert!(board.noisy_pseudolegal().is_empty());
+        assert!(board.tactical_pseudolegal().is_empty());
         let board = Chessboard::from_name("kiwipete").unwrap();
-        assert_eq!(board.noisy_pseudolegal().len(), 8);
+        assert_eq!(board.tactical_pseudolegal().len(), 8);
     }
 
     #[test]

@@ -490,7 +490,7 @@ impl Board for MNKBoard {
         moves
     }
 
-    fn noisy_pseudolegal(&self) -> Self::MoveList {
+    fn tactical_pseudolegal(&self) -> Self::MoveList {
         Default::default()
     }
 
