@@ -103,21 +103,21 @@ impl Chessboard {
         self.gen_pseudolegal_moves(!self.colored_bb(self.active_player), false)
     }
 
-    pub fn gen_noisy_pseudolegal(&self) -> ChessMoveList {
+    pub fn gen_tactical_pseudolegal(&self) -> ChessMoveList {
         self.gen_pseudolegal_moves(self.colored_bb(self.active_player.other()), true)
     }
 
-    fn gen_pseudolegal_moves(&self, filter: ChessBitboard, only_noisy: bool) -> ChessMoveList {
+    fn gen_pseudolegal_moves(&self, filter: ChessBitboard, only_tactical: bool) -> ChessMoveList {
         let mut list = ChessMoveList::default();
         self.gen_slider_moves(SliderMove::Bishop, &mut list, filter);
         self.gen_slider_moves(SliderMove::Rook, &mut list, filter);
         self.gen_knight_moves(&mut list, filter);
-        self.gen_king_moves(&mut list, filter, only_noisy);
-        self.gen_pawn_moves(&mut list, only_noisy);
+        self.gen_king_moves(&mut list, filter, only_tactical);
+        self.gen_pawn_moves(&mut list, only_tactical);
         list
     }
 
-    fn gen_pawn_moves(&self, list: &mut ChessMoveList, only_noisy: bool) {
+    fn gen_pawn_moves(&self, list: &mut ChessMoveList, only_tactical: bool) {
         let color = self.active_player;
         let pawns = self.colored_piece_bb(color, Pawn);
         let occupied = self.occupied_bb();
@@ -180,13 +180,13 @@ impl Chessboard {
                     for flag in [PromoQueen, PromoKnight] {
                         list.add_move(ChessMove::new(from, to, flag));
                     }
-                    if !only_noisy || is_capture {
+                    if !only_tactical || is_capture {
                         for flag in [PromoRook, PromoBishop] {
                             list.add_move(ChessMove::new(from, to, flag));
                         }
                     }
                     continue;
-                } else if only_noisy && !is_capture {
+                } else if only_tactical && !is_capture {
                     continue;
                 }
                 list.add_move(ChessMove::new(from, to, flag));

@@ -267,7 +267,7 @@ impl Board for Chessboard {
     }
 
     fn noisy_pseudolegal(&self) -> Self::MoveList {
-        self.gen_noisy_pseudolegal()
+        self.gen_tactical_pseudolegal()
     }
 
     fn random_legal_move<T: Rng>(&self, rng: &mut T) -> Option<Self::Move> {
