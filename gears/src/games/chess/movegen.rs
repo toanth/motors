@@ -164,7 +164,7 @@ impl Chessboard {
                     for flag in [PromoQueen, PromoKnight] {
                         list.add_move(ChessMove::new(from, to, flag));
                     }
-                    if !only_tactical || is_capture {
+                    if !only_tactical {
                         for flag in [PromoRook, PromoBishop] {
                             list.add_move(ChessMove::new(from, to, flag));
                         }
