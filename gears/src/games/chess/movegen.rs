@@ -1,19 +1,19 @@
 use itertools::Itertools;
 
+use crate::games::{
+    Board, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, Move, sup_distance,
+};
+use crate::games::chess::{Chessboard, ChessMove, ChessMoveList};
+use crate::games::chess::CastleRight::*;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::pieces::ColoredChessPiece;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::squares::{
-    ChessSquare, A_FILE_NO, C_FILE_NO, E_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
+    A_FILE_NO, C_FILE_NO, ChessSquare, E_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
 };
-use crate::games::chess::CastleRight::*;
-use crate::games::chess::{ChessMove, ChessMoveList, Chessboard};
 use crate::games::Color::*;
-use crate::games::{
-    sup_distance, Board, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, Move,
-};
-use crate::general::bitboards::chess::{ChessBitboard, KNIGHTS};
 use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::general::bitboards::chess::{ChessBitboard, KNIGHTS};
 
 #[derive(Debug, Copy, Clone)]
 enum SliderMove {
@@ -125,40 +125,24 @@ impl Chessboard {
         let opponent = self.colored_bb(color.other());
         let regular_pawn_moves;
         let double_pawn_moves;
-        let left_pawn_captures;
-        let right_pawn_captures;
         let capturable = opponent
             | self
                 .ep_square
                 .map(|s| ChessBitboard::single_piece(s.index()))
                 .unwrap_or_default();
+        let [left_pawn_captures, right_pawn_captures] =
+            Self::pawn_captures(color, pawns, capturable);
         if color == White {
             regular_pawn_moves = ((pawns << 8) & free, 8);
             double_pawn_moves = (
                 ((pawns & ChessBitboard::rank_no(1)) << 16) & (free << 8) & free,
                 16,
             );
-            right_pawn_captures = (
-                ((pawns & !ChessBitboard::file_no(H_FILE_NO)) << 9) & capturable,
-                9,
-            );
-            left_pawn_captures = (
-                ((pawns & !ChessBitboard::file_no(A_FILE_NO)) << 7) & capturable,
-                7,
-            );
         } else {
             regular_pawn_moves = ((pawns >> 8) & free, -8);
             double_pawn_moves = (
                 ((pawns & ChessBitboard::rank_no(6)) >> 16) & (free >> 8) & free,
                 -16,
-            );
-            right_pawn_captures = (
-                ((pawns & !ChessBitboard::file_no(A_FILE_NO)) >> 9) & capturable,
-                -9,
-            );
-            left_pawn_captures = (
-                ((pawns & !ChessBitboard::file_no(H_FILE_NO)) >> 7) & capturable,
-                -7,
             );
         }
         for move_type in [
@@ -319,7 +303,7 @@ impl Chessboard {
                 );
             }
         }
-        [right_pawn_captures, left_pawn_captures]
+        [left_pawn_captures, right_pawn_captures]
     }
 
     fn normal_king_moves_from_square(
