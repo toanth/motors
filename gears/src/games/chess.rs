@@ -231,16 +231,16 @@ impl Board for Chessboard {
         ChessboardSize::default()
     }
 
-    fn to_idx(&self, pos: Self::Coordinates) -> usize {
-        pos.index()
+    fn to_idx(&self, square: Self::Coordinates) -> usize {
+        square.index()
     }
 
     fn to_coordinates(&self, idx: usize) -> Self::Coordinates {
         ChessSquare::new(idx)
     }
 
-    fn piece_on(&self, pos: Self::Coordinates) -> Self::Piece {
-        let idx = pos.index();
+    fn piece_on(&self, square: Self::Coordinates) -> Self::Piece {
+        let idx = square.index();
         let typ = self
             .piece_bbs
             .iter()
@@ -254,7 +254,7 @@ impl Board for Chessboard {
         let typ = ColoredChessPiece::new(color, UncoloredChessPiece::from_uncolored_idx(typ));
         ChessPiece {
             symbol: typ,
-            coordinates: pos,
+            coordinates: square,
         }
     }
 

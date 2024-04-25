@@ -5,18 +5,18 @@ use rand::thread_rng;
 use gears::games::{Board, BoardHistory, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
-    Depth, game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE_WON, SearchLimit,
-    SearchResult, TimeControl,
+    game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, SCORE_LOST,
+    SCORE_TIME_UP, SCORE_WON,
 };
 use gears::ugi::EngineOptionName;
 
 use crate::eval::Eval;
-use crate::search::{
-    ABSearchState, Benchable, BenchResult, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
-    SearchState,
-};
 use crate::search::multithreading::SearchSender;
 use crate::search::tt::TT;
+use crate::search::{
+    ABSearchState, BenchResult, Benchable, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
+    SearchState,
+};
 
 const MAX_DEPTH: Depth = Depth::new(100);
 
@@ -104,11 +104,12 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
     fn do_search(
         &mut self,
         pos: B,
-        limit: SearchLimit,
+        mut limit: SearchLimit,
         sender: &mut SearchSender<B>,
     ) -> Res<SearchResult<B>> {
         let mut chosen_move = self.state.best_move;
         let max_depth = MAX_DEPTH.min(limit.depth).get() as isize;
+        limit.fixed_time = limit.fixed_time.min(limit.tc.remaining);
 
         for depth in 1..=max_depth {
             self.state.depth = Depth::new(depth as usize);
@@ -119,6 +120,9 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
             self.state.score = iteration_score;
             chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
             sender.send_search_info(self.search_info());
+            if self.should_not_start_next_iteration(limit.fixed_time, max_depth, limit.mate) {
+                break;
+            }
         }
 
         Ok(SearchResult::move_and_score(

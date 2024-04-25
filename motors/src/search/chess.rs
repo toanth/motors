@@ -31,7 +31,7 @@ mod tests {
         let board = Chessboard::from_fen(fen).unwrap();
         let mut engine = E::default();
         let res = engine
-            .search_from_pos(board, SearchLimit::depth(Depth::new(4)))
+            .search_from_pos(board, SearchLimit::mate(Depth::new(5)))
             .unwrap();
         assert_eq!(
             res.chosen_move,

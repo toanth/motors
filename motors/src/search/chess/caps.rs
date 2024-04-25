@@ -370,7 +370,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             }
 
             // Null Move Pruning (NMP). If static eval of our position is above beta, this node probably isn't that interesting.
-            // To test this hypothesis, do a nullmove and perform a search with reduced depth; if the result is still
+            // To test this hypothesis, do a null move and perform a search with reduced depth; if the result is still
             // above beta, then it's very likely that the score would have been above beta if we had played a move,
             // so simply return the nmp score. This is based on the null move observation (there are very few zugzwang positions).
             // A more careful implementation would do a verification search to check for zugzwang, and possibly avoid even trying

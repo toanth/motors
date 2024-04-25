@@ -346,27 +346,38 @@ impl SearchLimit {
     }
 
     pub fn tc(tc: TimeControl) -> Self {
-        let mut res = Self::infinite();
-        res.tc = tc;
-        res
+        Self {
+            tc,
+            ..Self::infinite()
+        }
     }
 
-    pub fn per_move(time: Duration) -> Self {
-        let mut res = Self::infinite();
-        res.fixed_time = time;
-        res
+    pub fn per_move(fixed_time: Duration) -> Self {
+        Self {
+            fixed_time,
+            ..Self::infinite()
+        }
     }
 
     pub fn depth(depth: Depth) -> Self {
-        let mut res = Self::infinite();
-        res.depth = depth;
-        res
+        Self {
+            depth,
+            ..Self::infinite()
+        }
+    }
+
+    pub fn mate(depth: Depth) -> Self {
+        Self {
+            mate: depth,
+            ..Self::infinite()
+        }
     }
 
     pub fn nodes(nodes: Nodes) -> Self {
-        let mut res = Self::infinite();
-        res.nodes = nodes;
-        res
+        Self {
+            nodes,
+            ..Self::infinite()
+        }
     }
 
     pub fn nodes_(nodes: u64) -> Self {

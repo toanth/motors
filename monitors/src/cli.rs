@@ -131,6 +131,9 @@ pub struct ClientEngineCliArgs {
     /// Limit the depth the engine searches to.
     pub depth: Option<Depth>,
 
+    /// Try to find a mate in n *moves* (not plies), searches forever if there isn't one (unless another limit is also specified)
+    pub mate: Option<Depth>,
+
     /// Limit the engine to the given number of nodes
     pub nodes: Option<NonZeroU64>,
 
@@ -241,6 +244,7 @@ pub fn parse_engine<Iter: Iterator<Item = String>>(
             "bookdepth" => todo!(),
             "whitepov" => res.white_pov = true,
             "depth" => res.depth = Some(Depth::new(parse_int_from_str(value?, "depth")?)),
+            "mate" => res.mate = Some(Depth::new(parse_int_from_str(value?, "mate")?)),
             "nodes" => res.nodes = Some(nonzero_u64(parse_int_from_str(value?, "nodes")?, "nodes")?),
             "ponder" => todo!("'ponder' isn't yet implemented"),
             "tscale" => todo!("'tscale' isn't yet implemented"),

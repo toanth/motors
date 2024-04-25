@@ -434,12 +434,14 @@ impl PlayerBuilder {
         });
         let fixed_time = args.move_time.unwrap_or(Duration::MAX);
         let depth = args.depth.unwrap_or(Depth::MAX);
+        let mate = args.mate.unwrap_or(Depth::MAX);
         let nodes = args.nodes.unwrap_or(Nodes::MAX);
         let default_limit = SearchLimit {
             tc,
             fixed_time,
             depth,
             nodes,
+            mate,
         };
 
         // try to set uci/ugi mode based on the game, but possibly change that according to how the engine responds
