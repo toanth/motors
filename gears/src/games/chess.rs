@@ -8,23 +8,23 @@ use rand::prelude::IteratorRandom;
 use rand::Rng;
 use strum::IntoEnumIterator;
 
-use crate::games::{
-    AbstractPieceType, Board, board_to_string, BoardHistory, Color, ColoredPiece,
-    ColoredPieceType, NameToPos, position_fen_part, read_position_fen, Settings, UncoloredPieceType, ZobristHash,
-    ZobristRepetition3Fold,
-};
-use crate::games::chess::flags::{CastleRight, ChessFlags};
 use crate::games::chess::flags::CastleRight::*;
+use crate::games::chess::flags::{CastleRight, ChessFlags};
 use crate::games::chess::moves::ChessMove;
-use crate::games::chess::pieces::{
-    ChessPiece, ColoredChessPiece, NUM_CHESS_PIECES, NUM_COLORS, UncoloredChessPiece,
-};
 use crate::games::chess::pieces::UncoloredChessPiece::*;
-use crate::games::chess::squares::{ChessboardSize, ChessSquare, NUM_SQUARES};
+use crate::games::chess::pieces::{
+    ChessPiece, ColoredChessPiece, UncoloredChessPiece, NUM_CHESS_PIECES, NUM_COLORS,
+};
+use crate::games::chess::squares::{ChessSquare, ChessboardSize, NUM_SQUARES};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::Color::{Black, White};
+use crate::games::{
+    board_to_string, position_fen_part, read_position_fen, AbstractPieceType, Board, BoardHistory,
+    Color, ColoredPiece, ColoredPieceType, NameToPos, Settings, UncoloredPieceType, ZobristHash,
+    ZobristRepetition3Fold,
+};
+use crate::general::bitboards::chess::{ChessBitboard, BLACK_SQUARES, WHITE_SQUARES};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
-use crate::general::bitboards::chess::{BLACK_SQUARES, ChessBitboard, WHITE_SQUARES};
 use crate::general::common::{EntityList, GenericSelect, Res, StaticallyNamedEntity};
 use crate::general::move_list::EagerNonAllocMoveList;
 use crate::PlayerResult;
@@ -138,6 +138,14 @@ impl Board for Chessboard {
             GenericSelect {
                 name: "mate_in_1",
                 val: || Self::from_fen("8/7r/8/K1k5/8/8/4p3/8 b - - 10 11").unwrap(),
+            },
+            GenericSelect {
+                name: "see_win_pawn",
+                val: || Self::from_fen("k6q/3n1n2/3b4/4p3/3P1P2/3N1N2/8/1K6 w - - 0 1").unwrap(),
+            },
+            GenericSelect {
+                name: "see_xray",
+                val: || Self::from_fen("5q1k/8/8/8/RRQ2nrr/8/8/K7 w - - 0 1").unwrap(),
             },
         ]
     }
@@ -695,11 +703,11 @@ impl Display for Chessboard {
 mod tests {
     use rand::thread_rng;
 
+    use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
     use crate::games::{
         game_result_no_movegen, Move, RectangularBoard, RectangularCoordinates,
         ZobristRepetition2Fold,
     };
-    use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
     use crate::general::perft::perft;
     use crate::search::Depth;
 

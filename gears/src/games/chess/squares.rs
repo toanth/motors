@@ -5,6 +5,7 @@ use crate::games::{
     Coordinates, DimT, GridCoordinates, GridSize, Height, RectangularCoordinates, RectangularSize,
     Size, Width,
 };
+use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::common::Res;
 
 pub const NUM_ROWS: usize = 8;
@@ -103,6 +104,10 @@ impl ChessSquare {
             row: self.row(),
             column: self.column(),
         }
+    }
+
+    pub fn to_bitboard(self) -> ChessBitboard {
+        ChessBitboard::single_piece(self.index())
     }
 
     pub fn index(self) -> usize {
