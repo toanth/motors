@@ -1,19 +1,19 @@
 use itertools::Itertools;
 
-use crate::games::{
-    Board, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, Move, sup_distance,
-};
-use crate::games::chess::{Chessboard, ChessMove, ChessMoveList};
-use crate::games::chess::CastleRight::*;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::pieces::ColoredChessPiece;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::squares::{
-    A_FILE_NO, C_FILE_NO, ChessSquare, E_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
+    ChessSquare, A_FILE_NO, C_FILE_NO, E_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
 };
+use crate::games::chess::CastleRight::*;
+use crate::games::chess::{ChessMove, ChessMoveList, Chessboard};
 use crate::games::Color::*;
-use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::games::{
+    sup_distance, Board, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, Move,
+};
 use crate::general::bitboards::chess::{ChessBitboard, KNIGHTS};
+use crate::general::bitboards::{Bitboard, RawBitboard};
 
 #[derive(Debug, Copy, Clone)]
 enum SliderMove {
@@ -274,6 +274,8 @@ impl Chessboard {
     /// All `*_from_square` methods and `pawn_captures` can be called with squares that do not contain the specified piece.
     /// This makes sense because it allows to find all pieces able to attack a given square.
 
+    // TODO: This seems to be a noticeable (SPRT failing) slowdown over inlining it in `gen_pawn_moves`.
+    // Optimize movegen in general, using speedup.py.
     fn pawn_captures(
         color: Color,
         pawns: ChessBitboard,

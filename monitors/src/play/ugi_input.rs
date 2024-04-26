@@ -11,20 +11,20 @@ use std::time::{Duration, Instant};
 use colored::Colorize;
 use itertools::Itertools;
 
+use gears::games::{Board, Color, Move};
+use gears::general::common::{parse_duration_ms, parse_int_from_str, Res};
+use gears::output::Message::Debug;
+use gears::search::{Depth, Nodes, SearchInfo, SearchLimit, SCORE_LOST, SCORE_WON};
+use gears::ugi::EngineOptionType::*;
+use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
+use gears::MatchStatus::Over;
 use gears::{
-    AdjudicationReason, GameOver, GameOverReason, MatchStatus, player_res_to_match_res,
+    player_res_to_match_res, AdjudicationReason, GameOver, GameOverReason, MatchStatus,
     PlayerResult,
 };
-use gears::games::{Board, Color, Move};
-use gears::general::common::{parse_int_from_str, Res};
-use gears::MatchStatus::Over;
-use gears::output::Message::Debug;
-use gears::search::{Depth, Nodes, SCORE_LOST, SCORE_WON, SearchInfo, SearchLimit};
-use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
-use gears::ugi::EngineOptionType::*;
 
-use crate::play::player::{EnginePlayer, Protocol};
 use crate::play::player::Protocol::{Uci, Ugi};
+use crate::play::player::{EnginePlayer, Protocol};
 use crate::play::ugi_client::{Client, PlayerId};
 use crate::play::ugi_input::EngineStatus::*;
 use crate::play::ugi_input::HandleBestMove::{Ignore, Play};
@@ -525,14 +525,16 @@ impl<B: Board> InputThread<B> {
             match key {
                 "depth" => res.depth = Depth::new(parse_int_from_str(value, "depth")?),
                 "seldepth" => res.seldepth = Some(parse_int_from_str(value, "seldepth")?),
-                "time" => res.time = Duration::from_millis(parse_int_from_str(value, "time")?),
+                "time" => res.time = parse_duration_ms(&mut value.split_whitespace(), "time")?,
                 "nodes" => res.nodes = Nodes::new(parse_int_from_str(value, "nodes")?).unwrap(),
                 "pv" => {
                     match B::Move::from_compact_text(value, &board) {
                         Ok(mov) => pv_moves.push(mov),
-                        Err(err) => return Err(format!(
+                        Err(err) => {
+                            return Err(format!(
                             "'pv' needs to be followed by a valid move, but '{value}' isn't: {err}"
-                        )),
+                        ))
+                        }
                     }
                     loop {
                         let undo_consume_word = words.clone();

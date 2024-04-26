@@ -238,12 +238,12 @@ impl FromStr for TimeControl {
         // For now, don't support movestogo TODO: Add support eventually
         let mut parts = s.split('+');
         let start_time = parts.next().ok_or_else(|| "Empty TC".to_string())?;
-        let start_time = parse_fp_from_str::<f64>(start_time.trim(), "the start time")?;
-        let start_time = Duration::from_millis((1000.0 * start_time) as u64);
+        let start_time = parse_fp_from_str::<f64>(start_time.trim(), "the start time")?.max(0.0);
+        let start_time = Duration::from_secs_f64(start_time);
         let mut increment = Duration::default();
         if let Some(inc_str) = parts.next() {
-            increment = Duration::from_millis(
-                (1000.0 * parse_fp_from_str::<f64>(inc_str.trim(), "the increment")?) as u64,
+            increment = Duration::from_secs_f64(
+                parse_fp_from_str::<f64>(inc_str.trim(), "the increment")?.max(0.0),
             );
         }
         Ok(TimeControl {

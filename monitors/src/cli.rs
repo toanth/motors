@@ -12,12 +12,12 @@ use std::time::Duration;
 use itertools::Itertools;
 use num::PrimInt;
 
-use gears::cli::{ArgIter, Game, get_next_arg, get_next_int, get_next_nonzero_usize, parse_output};
+use gears::cli::{get_next_arg, get_next_int, get_next_nonzero_usize, parse_output, ArgIter, Game};
 use gears::general::common::{
-    nonzero_u64, nonzero_usize, parse_fp_from_str, parse_int_from_str, Res,
+    nonzero_u64, nonzero_usize, parse_duration_ms, parse_fp_from_str, parse_int_from_str, Res,
 };
-use gears::OutputArgs;
 use gears::search::{Depth, Score, TimeControl};
+use gears::OutputArgs;
 
 use crate::cli::PlayerArgs::{Engine, Human};
 use crate::cli::Protocol::{Uci, Ugi};
@@ -239,7 +239,7 @@ pub fn parse_engine<Iter: Iterator<Item = String>>(
             },
             "tc" => res.tc = Some(TimeControl::from_str(value?)?),
             "st" => res.move_time = Some(Duration::from_secs_f64(parse_fp_from_str(value?, "st (move time)")?)),
-            "timemargin" => res.time_margin = Some(TimeMargin(Duration::from_millis(parse_int_from_str(value?, "timemargin")?))),
+            "timemargin" => res.time_margin = Some(TimeMargin(parse_duration_ms(&mut value?.split_whitespace(), "timemargin")?)),
             "book" => todo!(),
             "bookdepth" => todo!(),
             "whitepov" => res.white_pov = true,
@@ -399,7 +399,8 @@ pub fn parse_cli() -> Res<CommandLineArgs> {
             "-site" => res.site = Some(get_next_arg(&mut args, "site")?),
             "-srand" => todo!(),
             "-wait" => {
-                res.wait_after_match = Duration::from_millis(get_next_int(&mut args, "wait")?)
+                res.wait_after_match =
+                    Duration::from_millis(get_next_int(&mut args, "wait")?.max(1))
             }
             "-resultformat" => todo!(),
             "-startpos" => todo!(), // set one startpos for all matches. Incompatible with sprt.

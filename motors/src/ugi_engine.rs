@@ -9,25 +9,27 @@ use colored::Colorize;
 use crossbeam_channel::select;
 use itertools::Itertools;
 
-use gears::{AbstractRun, GameResult, GameState, MatchStatus, output_builder_from_str};
-use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
 use gears::games::Color::White;
-use gears::general::common::{parse_int, parse_int_from_str, to_name_and_optional_description};
+use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
 use gears::general::common::Description::WithDescription;
 use gears::general::common::Res;
+use gears::general::common::{
+    parse_duration_ms, parse_int, parse_int_from_str, to_name_and_optional_description,
+};
 use gears::general::perft::{perft, split_perft};
-use gears::MatchStatus::*;
-use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
+use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, Nodes, SearchInfo, SearchLimit, SearchResult, TimeControl};
-use gears::ugi::{EngineOptionName, parse_ugi_position};
 use gears::ugi::EngineOptionName::Threads;
+use gears::ugi::{parse_ugi_position, EngineOptionName};
+use gears::MatchStatus::*;
+use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchStatus};
 
 use crate::cli::EngineOpts;
 use crate::create_engine_from_str;
-use crate::search::{BenchResult, EngineList};
 use crate::search::multithreading::{EngineWrapper, Receiver, SearchSender, Sender};
+use crate::search::{BenchResult, EngineList};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
 
@@ -568,26 +570,26 @@ impl<B: Board> EngineUGI<B> {
                 }
                 "ponder" => return Err("Pondering is not (yet?) implemented".to_string()),
                 "wtime" | "p1time" | "wt" | "p1t" => {
-                    let time = Duration::from_millis(parse_int(words, "'wtime' milliseconds")?);
+                    let time = parse_duration_ms(words, "wtime")?;
+                    // always parse the duration, even if it isn't relevant
                     if is_white {
-                        // always parse the int, even if it isn't relevant
                         limit.tc.remaining = time;
                     }
                 }
                 "btime" | "p2time" | "bt" | "p2t" => {
-                    let time = Duration::from_millis(parse_int(words, "'btime' milliseconds")?);
+                    let time = parse_duration_ms(words, "btime")?;
                     if !is_white {
                         limit.tc.remaining = time;
                     }
                 }
                 "winc" | "p1inc" | "wi" => {
-                    let increment = Duration::from_millis(parse_int(words, "'winc' milliseconds")?);
+                    let increment = parse_duration_ms(words, "winc")?;
                     if is_white {
                         limit.tc.increment = increment;
                     }
                 }
                 "binc" | "p2inc" | "bi" => {
-                    let increment = Duration::from_millis(parse_int(words, "'binc' milliseconds")?);
+                    let increment = parse_duration_ms(words, "binc")?;
                     if !is_white {
                         limit.tc.increment = increment;
                     }
@@ -603,8 +605,7 @@ impl<B: Board> EngineUGI<B> {
                     limit.mate = Depth::new(depth * 2) // 'mate' is given in moves instead of plies
                 }
                 "movetime" => {
-                    limit.fixed_time =
-                        Duration::from_millis(parse_int(words, "time per move in milliseconds")?);
+                    limit.fixed_time = parse_duration_ms(words, "time per move in milliseconds")?;
                     limit.fixed_time = limit
                         .fixed_time
                         .saturating_sub(MOVE_OVERHEAD)
