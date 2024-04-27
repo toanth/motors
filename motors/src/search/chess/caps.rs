@@ -174,7 +174,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
         limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
         let soft_limit = limit
             .fixed_time
-            .min(limit.tc.remaining / 32 + limit.tc.increment / 8)
+            .min(limit.tc.remaining / 32 + limit.tc.increment / 2)
             .min(limit.tc.remaining / 4);
 
         sender.send_message(Debug, &format!(
