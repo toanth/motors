@@ -1,10 +1,10 @@
 use strum::IntoEnumIterator;
 
-use crate::games::{Color, ColoredPieceType, ZobristHash};
-use crate::games::chess::Chessboard;
 use crate::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
+use crate::games::chess::Chessboard;
 use crate::games::Color::*;
+use crate::games::{Color, ColoredPieceType, ZobristHash};
 use crate::general::bitboards::RawBitboard;
 
 pub const NUM_PIECE_SQUARE_ENTRIES: usize = 64 * 6;
@@ -148,13 +148,13 @@ mod tests {
 
     use itertools::Itertools;
 
-    use crate::games::{Board, ZobristHash};
-    use crate::games::chess::Chessboard;
     use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
     use crate::games::chess::pieces::UncoloredChessPiece::{Bishop, Knight};
     use crate::games::chess::squares::{ChessSquare, D_FILE_NO, E_FILE_NO};
     use crate::games::chess::zobrist::{PcgXslRr128_64Oneseq, PRECOMPUTED_ZOBRIST_KEYS};
+    use crate::games::chess::Chessboard;
     use crate::games::Color::{Black, White};
+    use crate::games::{Board, ZobristHash};
 
     #[test]
     fn pcg_test() {
@@ -183,10 +183,8 @@ mod tests {
         let b2 = PRECOMPUTED_ZOBRIST_KEYS
             .piece_key(Knight, Black, ChessSquare::from_chars('g', '4').unwrap())
             .0;
-        println!("{a1} {a2} {b1} {b2}");
         assert_ne!(a1 ^ a2, b1 ^ b2); // used to be bugged
         let position = Chessboard::from_name("kiwipete").unwrap();
-        println!("{}", position.as_fen());
         let hash = position.hash;
         let mut hashes = HashMap::new();
         let mut collisions = HashMap::new();

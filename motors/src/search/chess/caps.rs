@@ -4,28 +4,28 @@ use std::time::{Duration, Instant};
 use derive_more::{Deref, DerefMut};
 use rand::thread_rng;
 
-use gears::games::{Board, BoardHistory, ColoredPiece, ZobristRepetition2Fold};
-use gears::games::chess::{Chessboard, ChessMoveList};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
+use gears::games::chess::{ChessMoveList, Chessboard};
+use gears::games::{Board, BoardHistory, ColoredPiece, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
 use gears::search::{
-    Depth, game_result_to_score, MAX_SCORE_LOST, MIN_SCORE_WON, NO_SCORE_YET, Score, SCORE_LOST,
-    SCORE_TIME_UP, SCORE_WON, SearchLimit, SearchResult, TimeControl,
+    game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, MAX_SCORE_LOST,
+    MIN_SCORE_WON, NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
 };
-use gears::ugi::{EngineOption, UgiSpin};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::EngineOptionType::Spin;
+use gears::ugi::{EngineOption, UgiSpin};
 
 use crate::eval::Eval;
+use crate::search::multithreading::SearchSender;
+use crate::search::tt::{TTEntry, TT};
+use crate::search::NodeType::*;
 use crate::search::{
-    ABSearchState, Benchable, BenchResult, CustomInfo, Engine, EngineInfo, NodeType, Pv,
+    ABSearchState, BenchResult, Benchable, CustomInfo, Engine, EngineInfo, NodeType, Pv,
     SearchStackEntry, SearchState,
 };
-use crate::search::multithreading::SearchSender;
-use crate::search::NodeType::*;
-use crate::search::tt::{TT, TTEntry};
 
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
@@ -174,7 +174,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
         limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
         let soft_limit = limit
             .fixed_time
-            .min(limit.tc.remaining / 32 + limit.tc.increment)
+            .min(limit.tc.remaining / 32 + limit.tc.increment / 8)
             .min(limit.tc.remaining / 4);
 
         sender.send_message(Debug, &format!(
