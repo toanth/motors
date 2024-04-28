@@ -139,6 +139,15 @@ impl Board for Chessboard {
                 name: "mate_in_1",
                 val: || Self::from_fen("8/7r/8/K1k5/8/8/4p3/8 b - - 10 11").unwrap(),
             },
+            GenericSelect {
+                name: "unusual",
+                val: || {
+                    Self::from_fen(
+                        "2kb1b2/pR2P1P1/P1N1P3/1p2Pp2/P5P1/1N6/4P2B/2qR2K1 w - f6 99 123",
+                    )
+                    .unwrap()
+                },
+            },
         ]
     }
 

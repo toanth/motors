@@ -400,7 +400,7 @@ pub fn parse_cli() -> Res<CommandLineArgs> {
             "-srand" => todo!(),
             "-wait" => {
                 res.wait_after_match =
-                    Duration::from_millis(get_next_int(&mut args, "wait")?.max(1))
+                    Duration::from_millis(get_next_int::<i64>(&mut args, "wait")?.max(1) as u64)
             }
             "-resultformat" => todo!(),
             "-startpos" => todo!(), // set one startpos for all matches. Incompatible with sprt.
