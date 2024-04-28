@@ -182,7 +182,7 @@ impl Move<Chessboard> for ChessMove {
             return Err(format!("Move too short: '{s}'. Must be <from square><to square>, e.g. e2e4, and possibly a promotion piece."));
         }
         let from = ChessSquare::from_str(&s[..2])?;
-        let to = ChessSquare::from_str(&s[2..4])?;
+        let mut to = ChessSquare::from_str(&s[2..4])?;
         let mut flags = Normal;
         if s.len() > 4 {
             let promo = s.chars().nth(4).unwrap();
@@ -195,6 +195,12 @@ impl Move<Chessboard> for ChessMove {
             }
         } else if board.piece_on(from).uncolored() == King && to.file().abs_diff(from.file()) > 1 {
             flags = Castle;
+            // handle KxR notation (e.g. e1h1 for kingside castling)
+            if to.file() < from.file() {
+                to = ChessSquare::from_rank_file(to.rank(), C_FILE_NO);
+            } else {
+                to = ChessSquare::from_rank_file(to.rank(), G_FILE_NO);
+            }
         } else if board.piece_on(from).uncolored() == Pawn
             && board.piece_on(to).is_empty()
             && from.file() != to.file()
@@ -955,9 +961,9 @@ mod tests {
 
     #[test]
     fn castle_test() {
-        // TODO: (D)FRC, KxR notation
+        // TODO: (D)FRC
         let pos = Chessboard::from_name("kiwipete").unwrap();
-        let moves = ["0-0", "0-0-0", "e1g1", /*"e1h1", "e1a1",*/ "e1c1"];
+        let moves = ["0-0", "0-0-0", "e1g1", "e1h1", "e1a1", "e1c1"];
         for mov in moves {
             let mov = ChessMove::from_text(mov, &pos);
             if let Err(err) = mov {
