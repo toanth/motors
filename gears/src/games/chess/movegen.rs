@@ -197,7 +197,7 @@ impl Chessboard {
         let king_rank = king_square.rank();
         // Since this is pseudolegal movegen, we only check if the king ends up in check / moves
         // over a square where it would be check when playing the move.
-        if self.flags.can_castle(color, Queenside)
+        if self.castling.can_castle(color, Queenside)
             && (0b1110 << (king_rank as usize * NUM_COLUMNS) & self.occupied_bb().0 == 0)
         {
             debug_assert_eq!(king_square.file(), E_FILE_NO);
@@ -213,7 +213,7 @@ impl Chessboard {
                 Castle,
             ));
         }
-        if self.flags.can_castle(color, Kingside)
+        if self.castling.can_castle(color, Kingside)
             && (0b110_0000 << (king_rank as usize * NUM_COLUMNS) & self.occupied_bb().0 == 0)
         {
             debug_assert_eq!(king_square.file(), E_FILE_NO);

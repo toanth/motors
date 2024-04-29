@@ -6,8 +6,8 @@ use num::iter;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-use crate::games::chess::flags::CastleRight;
-use crate::games::chess::flags::CastleRight::*;
+use crate::games::chess::castling::CastleRight;
+use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::pieces::{ChessPiece, ColoredChessPiece, UncoloredChessPiece};
@@ -17,7 +17,8 @@ use crate::games::chess::squares::{
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::chess::Chessboard;
 use crate::games::{
-    AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType, DimT, Move, MoveFlags,
+    char_to_file, file_to_char, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType,
+    DimT, Move, MoveFlags,
 };
 use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::bitboards::{Bitboard, RawBitboard};
@@ -318,14 +319,9 @@ impl Move<Chessboard> for ChessMove {
 
 impl Chessboard {
     pub fn rook_start_square(&self, color: Color, side: CastleRight) -> ChessSquare {
-        let idx = color as usize * 2 + side as usize;
-        match idx {
-            0 => ChessSquare::from_rank_file(0, A_FILE_NO),
-            1 => ChessSquare::from_rank_file(0, H_FILE_NO),
-            2 => ChessSquare::from_rank_file(7, A_FILE_NO),
-            3 => ChessSquare::from_rank_file(7, H_FILE_NO),
-            _ => panic!("Internal error"),
-        }
+        let file = self.castling.rook_start_squares(color, side);
+        let rank = 7 * color as DimT;
+        ChessSquare::from_rank_file(rank, file)
     }
 
     pub fn make_move_impl(mut self, mov: ChessMove) -> Option<Self> {
@@ -338,7 +334,8 @@ impl Chessboard {
         assert_eq!(color, piece.color().unwrap());
         self.ply_100_ctr += 1;
         // remove old castling flags
-        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.flags.castling_flags() as usize];
+        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys
+            [self.castling.allowed_castling_directions() as usize];
         if let Some(square) = self.ep_square {
             self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize];
         }
@@ -401,18 +398,19 @@ impl Chessboard {
             }
         }
         if uncolored == King {
-            self.flags.clear_castle_rights(color);
+            self.castling.clear_castle_rights(color);
         } else if from == self.rook_start_square(color, Queenside) {
-            self.flags.unset_castle_right(color, Queenside);
+            self.castling.unset_castle_right(color, Queenside);
         } else if from == self.rook_start_square(color, Kingside) {
-            self.flags.unset_castle_right(color, Kingside);
+            self.castling.unset_castle_right(color, Kingside);
         }
         if to == self.rook_start_square(other, Queenside) {
-            self.flags.unset_castle_right(other, Queenside);
+            self.castling.unset_castle_right(other, Queenside);
         } else if to == self.rook_start_square(other, Kingside) {
-            self.flags.unset_castle_right(other, Kingside);
+            self.castling.unset_castle_right(other, Kingside);
         }
-        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.flags.castling_flags() as usize];
+        self.hash ^=
+            PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         self.move_piece(from, to, piece);
         if mov.is_promotion() {
             let bb = ChessBitboard::single_piece(self.to_idx(to)).raw();
@@ -620,7 +618,7 @@ impl<'a> MoveParser<'a> {
                 self.start_rank = Some(sq.rank());
             }
             Err(_) => match file {
-                'a'..='h' => self.start_file = Some(file as DimT - 'a' as DimT),
+                'a'..='h' => self.start_file = Some(char_to_file(file)),
                 '1'..='8' => self.start_rank = Some(file as DimT - '1' as DimT),
                 x => {
                     // doesn't reset the current char, but that's fine because we're aborting anyway
@@ -651,7 +649,7 @@ impl<'a> MoveParser<'a> {
             }
         }
         if self.piece == Empty && file.is_some() && matches!(file.unwrap(), 'a'..='h') {
-            self.target_file = file.map(|c| c as DimT - 'a' as DimT);
+            self.target_file = file.map(|c| char_to_file(c));
             return;
         }
         self.num_bytes_read = read_so_far;
@@ -804,10 +802,7 @@ impl<'a> MoveParser<'a> {
                                 ChessSquare::from_rank_file(rank, file.unwrap()).to_string()
                             }
                             None => {
-                                format!(
-                                    "the {} file",
-                                    ('a' as DimT + file.unwrap()) as DimT as char
-                                )
+                                format!("the {} file", file_to_char(file.unwrap()))
                             }
                         }
                     } else if rank.is_some() {

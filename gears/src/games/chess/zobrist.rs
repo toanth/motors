@@ -104,7 +104,7 @@ impl Chessboard {
         res ^= self.ep_square.map_or(ZobristHash(0), |square| {
             PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize]
         });
-        res ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.flags.castling_flags() as usize];
+        res ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         if self.active_player == Black {
             res ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         }

@@ -545,6 +545,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         self.state.sel_depth = self.state.sel_depth.max(ply);
 
+        // TODO: stand pat is SCORE_LOST when in check, generate evasions?
         alpha = alpha.max(best_score);
         // TODO: Using the TT for move ordering in qsearch was mostly elo-neutral, so retest that eventually
         // do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation
