@@ -16,6 +16,7 @@ use crate::games::chess::squares::{
 };
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::chess::Chessboard;
+use crate::games::Color::{Black, White};
 use crate::games::{
     char_to_file, file_to_char, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType,
     DimT, Move, MoveFlags,
@@ -29,7 +30,8 @@ pub enum ChessMoveFlags {
     #[default]
     Normal,
     EnPassant,
-    Castle,
+    CastleQueenside,
+    CastleKingside,
     PromoKnight,
     PromoBishop,
     PromoRook,
@@ -55,7 +57,7 @@ impl MoveFlags for ChessMoveFlags {}
 /// Members are stored as follows:
 /// Bits 0-5: from square
 /// Bits 6 - 11: To square
-/// Bits 12-13: Move type
+/// Bits 12-14: Move type
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Ord, PartialOrd)]
 pub struct ChessMove(u16);
 
@@ -101,7 +103,7 @@ impl ChessMove {
     pub fn captured(self, board: &Chessboard) -> UncoloredChessPiece {
         if self.flags() == EnPassant {
             Pawn
-        } else if self.flags() == Castle {
+        } else if self.is_castle() {
             Empty
         } else {
             board.piece_on(self.dest_square()).uncolored()
@@ -121,7 +123,7 @@ impl ChessMove {
     }
 
     pub fn is_castle(self) -> bool {
-        self.flags() == Castle
+        self.flags() == CastleQueenside || self.flags() == CastleKingside
     }
 
     pub fn castle_side(self) -> CastleRight {
@@ -184,6 +186,7 @@ impl Move<Chessboard> for ChessMove {
         }
         let from = ChessSquare::from_str(&s[..2])?;
         let mut to = ChessSquare::from_str(&s[2..4])?;
+        let piece = board.piece_on(from);
         let mut flags = Normal;
         if s.len() > 4 {
             let promo = s.chars().nth(4).unwrap();
@@ -194,13 +197,26 @@ impl Move<Chessboard> for ChessMove {
                 'q' => flags = PromoQueen,
                 _ => return Err(format!("Invalid character after to square: '{promo}'")),
             }
-        } else if board.piece_on(from).uncolored() == King && to.file().abs_diff(from.file()) > 1 {
-            flags = Castle;
-            // handle KxR notation (e.g. e1h1 for kingside castling)
-            if to.file() < from.file() {
-                to = ChessSquare::from_rank_file(to.rank(), C_FILE_NO);
-            } else {
-                to = ChessSquare::from_rank_file(to.rank(), G_FILE_NO);
+        } else if piece.uncolored() == King {
+            let rook_capture =
+                board.piece_on(to).symbol == ColoredChessPiece::new(piece.color().unwrap(), Rook);
+            if rook_capture || to.file().abs_diff(from.file()) > 1 {
+                let color = if from.rank() == 0 { White } else { Black };
+                if !rook_capture {
+                    // convert normal chess king-to castling notation to rook capture notation (necessary for chess960/DFRC)
+                    let to_file = match to.file() {
+                        C_FILE_NO => board.castling.rook_start_file(color, Queenside),
+                        G_FILE_NO => board.castling.rook_start_file(color, Kingside),
+                        _ => return Err(format!("Invalid king move to square {to}, which is neither a normal king move nor a castling move"))
+                    };
+                    to = ChessSquare::from_rank_file(to.rank(), to_file);
+                }
+                // handle KxR notation (e.g. e1h1 for kingside castling)
+                flags = if to.file() == board.castling.rook_start_file(color, Queenside) {
+                    CastleQueenside
+                } else {
+                    CastleKingside
+                }
             }
         } else if board.piece_on(from).uncolored() == Pawn
             && board.piece_on(to).is_empty()
@@ -319,18 +335,19 @@ impl Move<Chessboard> for ChessMove {
 
 impl Chessboard {
     pub fn rook_start_square(&self, color: Color, side: CastleRight) -> ChessSquare {
-        let file = self.castling.rook_start_squares(color, side);
+        let file = self.castling.rook_start_file(color, side);
         let rank = 7 * color as DimT;
         ChessSquare::from_rank_file(rank, file)
     }
 
+    /// Is only ever called on a copy of the board, so no need to undo the changes when a move gets aborted due to pseudo-legality.
     pub fn make_move_impl(mut self, mov: ChessMove) -> Option<Self> {
         let piece = mov.piece(&self).symbol;
         let uncolored = piece.uncolor();
         let color = self.active_player;
         let other = color.other();
         let from = mov.src_square();
-        let to = mov.dest_square();
+        let mut to = mov.dest_square();
         assert_eq!(color, piece.color().unwrap());
         self.ply_100_ctr += 1;
         // remove old castling flags
@@ -341,17 +358,32 @@ impl Chessboard {
         }
         self.ep_square = None;
         if mov.is_castle() {
-            // TODO: Correct Chess960 castling
             let from_file = from.file() as isize;
-            let to_file = to.file() as isize;
-            let side = if from_file < to_file {
-                Kingside
+            let rook_file = to.file() as isize;
+            let (side, to_file, rook_to_file) = if mov.flags() == CastleKingside {
+                (Kingside, G_FILE_NO, F_FILE_NO)
             } else {
-                Queenside
+                (Queenside, C_FILE_NO, D_FILE_NO)
             };
+            debug_assert_eq!(
+                side == Kingside,
+                self.castling.can_castle(color, Kingside)
+                    && rook_file == self.castling.rook_start_file(color, Kingside) as isize
+            );
+            debug_assert_eq!(
+                side == Queenside,
+                self.castling.can_castle(color, Queenside)
+                    && rook_file == self.castling.rook_start_file(color, Queenside) as isize
+            );
 
-            for file in iter::range_step(from_file, to_file, if side == Kingside { 1 } else { -1 })
-            {
+            // Explicitly test if the current square is in check in case the following for loop is empty
+            // because the king doesn't move -- in that case, testing for check after the castle might obscure the
+            // check with the rook, e.g. black in 'rbbqQ1kr/1p2p1pp/p5n1/2pp1p2/2P4P/P7/BP1PPPP1/R1B1NNKR b HAha - 0 10'
+            if self.is_in_check() {
+                return None;
+            }
+            let step = if side == Kingside { 1 } else { -1 };
+            for file in iter::range_step(from_file + step, to_file as isize, step) {
                 if self.is_in_check_on_square(
                     color,
                     ChessSquare::from_rank_file(from.rank(), file as DimT),
@@ -359,14 +391,11 @@ impl Chessboard {
                     return None;
                 }
             }
-            let mut rook_from = ChessSquare::from_rank_file(from.rank(), H_FILE_NO);
-            let mut rook_to = ChessSquare::from_rank_file(from.rank(), F_FILE_NO);
-            if side == Queenside {
-                rook_from = ChessSquare::from_rank_file(rook_from.rank(), A_FILE_NO);
-                rook_to = ChessSquare::from_rank_file(rook_from.rank(), D_FILE_NO);
-            }
+            let rook_from = self.rook_start_square(color, side);
+            let rook_to = ChessSquare::from_rank_file(from.rank(), rook_to_file);
             debug_assert!(self.piece_on(rook_from).symbol == ColoredChessPiece::new(color, Rook));
             self.move_piece(rook_from, rook_to, ColoredChessPiece::new(color, Rook));
+            to = ChessSquare::from_rank_file(from.rank(), to_file);
         } else if mov.flags() == EnPassant {
             let taken_pawn = mov.square_of_pawn_taken_by_ep().unwrap();
             debug_assert_eq!(
@@ -413,11 +442,17 @@ impl Chessboard {
             PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         self.move_piece(from, to, piece);
         if mov.is_promotion() {
-            let bb = ChessBitboard::single_piece(self.to_idx(to)).raw();
+            let bb = to.bb().raw();
             self.piece_bbs[Pawn as usize] ^= bb;
             self.piece_bbs[mov.flags().promo_piece() as usize] ^= bb;
             self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, color, to);
             self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(mov.flags().promo_piece(), color, to);
+        } else if mov.is_castle() {
+            // After the rook has moved, it's possible that we're now in a discovered check in chess960 (also,
+            // we haven't actually checked yet if the target square is attacked).
+            if self.is_in_check() {
+                return None;
+            }
         }
         self.ply += 1;
         self.flip_side_to_move()
@@ -544,7 +579,7 @@ impl<'a> MoveParser<'a> {
             return Some(ChessMove::new(
                 king_square,
                 ChessSquare::from_rank_file(king_square.rank(), C_FILE_NO),
-                Castle,
+                CastleQueenside,
             ));
         }
         if self.original_input.starts_with("0-0") || self.original_input.starts_with("O-O") {
@@ -554,7 +589,7 @@ impl<'a> MoveParser<'a> {
             return Some(ChessMove::new(
                 king_square,
                 ChessSquare::from_rank_file(king_square.rank(), G_FILE_NO),
-                Castle,
+                CastleKingside,
             ));
         }
         None
@@ -971,3 +1006,5 @@ mod tests {
         }
     }
 }
+
+// TODO: PGN import test (not here though)

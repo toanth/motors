@@ -368,7 +368,7 @@ impl Board for Chessboard {
         for color in Color::iter() {
             for side in CastleRight::iter().rev() {
                 if self.castling.can_castle(color, side) {
-                    let mut file = file_to_char(self.castling.rook_start_squares(color, side));
+                    let mut file = file_to_char(self.castling.rook_start_file(color, side));
                     if color == White {
                         file = file.to_ascii_uppercase();
                     }
@@ -612,10 +612,14 @@ impl Chessboard {
     fn move_piece(&mut self, from: ChessSquare, to: ChessSquare, piece: ColoredChessPiece) {
         debug_assert_ne!(piece.uncolor(), Empty);
         debug_assert_eq!(self.piece_on(from).symbol, piece);
-        // TODO: Adapt for chess960 castling
-        debug_assert_ne!(self.piece_on(to).color(), piece.color());
+        // with chess960 castling, it's possible to move to the source square or a square occupied by a rook
+        debug_assert!(
+            self.piece_on(to).color() != piece.color()
+                || piece.uncolor() == King
+                || piece.uncolor() == Rook
+        );
         // use ^ instead of | for to merge the from and to bitboards because in chess960 castling
-        // it's possible that from == to
+        // it's possible that from == to or that there's another piece on the target square
         let bb = RawStandardBitboard((1 << self.to_idx(from)) ^ (1 << self.to_idx(to)));
         let color = piece.color().unwrap();
         self.color_bbs[color as usize] ^= bb;

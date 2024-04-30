@@ -32,7 +32,7 @@ impl CastlingFlags {
     }
 
     /// This return value of this function can only be used if `can_castle` would return `true`.
-    pub fn rook_start_squares(self, color: Color, castle_right: CastleRight) -> DimT {
+    pub fn rook_start_file(self, color: Color, castle_right: CastleRight) -> DimT {
         ((self.0 >> Self::shift(color, castle_right)) & 0x7) as DimT
     }
 

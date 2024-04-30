@@ -1,10 +1,12 @@
 use itertools::Itertools;
+use strum::IntoEnumIterator;
 
+use crate::games::chess::castling::CastleRight;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::pieces::ColoredChessPiece;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::squares::{
-    ChessSquare, A_FILE_NO, C_FILE_NO, E_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
+    ChessSquare, A_FILE_NO, B_FILE_NO, C_FILE_NO, E_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
 };
 use crate::games::chess::CastleRight::*;
 use crate::games::chess::{ChessMove, ChessMoveList, Chessboard};
@@ -13,7 +15,7 @@ use crate::games::{
     sup_distance, Board, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, Move,
 };
 use crate::general::bitboards::chess::{ChessBitboard, KNIGHTS};
-use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 
 #[derive(Debug, Copy, Clone)]
 enum SliderMove {
@@ -194,40 +196,81 @@ impl Chessboard {
         if only_captures {
             return;
         }
-        let king_rank = king_square.rank();
-        // Since this is pseudolegal movegen, we only check if the king ends up in check / moves
-        // over a square where it would be check when playing the move.
-        if self.castling.can_castle(color, Queenside)
-            && (0b1110 << (king_rank as usize * NUM_COLUMNS) & self.occupied_bb().0 == 0)
-        {
-            debug_assert_eq!(king_square.file(), E_FILE_NO);
-            debug_assert_eq!(king_square.rank() % 7, 0);
-            debug_assert_eq!(
-                self.piece_on(self.rook_start_square(color, Queenside))
-                    .symbol,
-                ColoredChessPiece::new(color, Rook)
-            );
-            list.add_move(ChessMove::new(
-                king_square,
-                ChessSquare::from_rank_file(king_rank, C_FILE_NO),
-                Castle,
-            ));
+        // Castling, handling the general (D)FRC case.
+        let king_file = king_square.file() as usize;
+        const KING_QUEENSIDE_BB: [ChessBitboard; 8] = [
+            ChessBitboard::from_u64(!0), // impossible
+            ChessBitboard::from_u64(0b0000_0100),
+            ChessBitboard::from_u64(0b0000_0000), // no square to check
+            ChessBitboard::from_u64(0b0000_0100),
+            ChessBitboard::from_u64(0b0000_1100),
+            ChessBitboard::from_u64(0b0001_1100),
+            ChessBitboard::from_u64(0b0011_1100),
+            ChessBitboard::from_u64(!0), // impossible
+        ];
+        const KING_KINGSIDE_BB: [ChessBitboard; 8] = [
+            ChessBitboard::from_u64(!0), // impossible
+            ChessBitboard::from_u64(0b0111_1100),
+            ChessBitboard::from_u64(0b0111_1000),
+            ChessBitboard::from_u64(0b0111_0000),
+            ChessBitboard::from_u64(0b0110_0000),
+            ChessBitboard::from_u64(0b0100_0000),
+            ChessBitboard::from_u64(0b0000_0000),
+            ChessBitboard::from_u64(!0), // impossible
+        ];
+        const ROOK_QUEENSIDE_BB: [ChessBitboard; 8] = [
+            ChessBitboard::new(RawStandardBitboard(0b0000_1110)),
+            ChessBitboard::new(RawStandardBitboard(0b0000_1100)),
+            ChessBitboard::new(RawStandardBitboard(0b0000_1000)),
+            ChessBitboard::new(RawStandardBitboard(0b0000_0000)),
+            ChessBitboard::new(RawStandardBitboard(0b0000_1000)),
+            ChessBitboard::new(RawStandardBitboard(0b0001_1000)),
+            ChessBitboard::from_u64(!0), // impossible
+            ChessBitboard::from_u64(!0), // impossible
+        ];
+        const ROOK_KINGSIDE_BB: [ChessBitboard; 8] = [
+            ChessBitboard::from_u64(!0), // impossible
+            ChessBitboard::from_u64(!0), // impossible
+            ChessBitboard::new(RawStandardBitboard(0b0011_1000)),
+            ChessBitboard::new(RawStandardBitboard(0b0011_0000)),
+            ChessBitboard::new(RawStandardBitboard(0b0010_0000)),
+            ChessBitboard::new(RawStandardBitboard(0b0000_0000)),
+            ChessBitboard::new(RawStandardBitboard(0b0010_0000)),
+            ChessBitboard::new(RawStandardBitboard(0b0110_0000)),
+        ];
+        if self.castling.can_castle(color, Queenside) {
+            let rook = self.rook_start_square(color, Queenside);
+            let queenside_rook_bb = rook.bb();
+            let rook_free_bb = ROOK_QUEENSIDE_BB
+                [self.castling.rook_start_file(color, Queenside) as usize]
+                << (color as usize * 7 * 8);
+            let king_free_bb = KING_QUEENSIDE_BB[king_file] << (color as usize * 7 * 8);
+            if ((self.occupied_bb() ^ queenside_rook_bb) & king_free_bb).is_zero()
+                && ((self.occupied_bb() ^ king) & rook_free_bb).is_zero()
+            {
+                debug_assert_eq!(
+                    self.piece_on(rook).symbol,
+                    ColoredChessPiece::new(color, Rook)
+                );
+                list.add_move(ChessMove::new(king_square, rook, CastleQueenside));
+            }
         }
-        if self.castling.can_castle(color, Kingside)
-            && (0b110_0000 << (king_rank as usize * NUM_COLUMNS) & self.occupied_bb().0 == 0)
-        {
-            debug_assert_eq!(king_square.file(), E_FILE_NO);
-            debug_assert_eq!(king_square.rank(), color as DimT * 7);
-            debug_assert_eq!(
-                self.piece_on(self.rook_start_square(color, Kingside))
-                    .symbol,
-                ColoredChessPiece::new(color, Rook)
-            );
-            list.add_move(ChessMove::new(
-                king_square,
-                ChessSquare::from_rank_file(king_rank, G_FILE_NO),
-                Castle,
-            ));
+        if self.castling.can_castle(color, Kingside) {
+            let rook = self.rook_start_square(color, Kingside);
+            let kingside_rook_bb = rook.bb();
+            let rook_free_bb = ROOK_KINGSIDE_BB
+                [self.castling.rook_start_file(color, Kingside) as usize]
+                << (color as usize * 7 * 8);
+            let king_free_bb = KING_KINGSIDE_BB[king_file] << (color as usize * 7 * 8);
+            if ((self.occupied_bb() ^ kingside_rook_bb) & king_free_bb).is_zero()
+                && ((self.occupied_bb() ^ king) & rook_free_bb).is_zero()
+            {
+                debug_assert_eq!(
+                    self.piece_on(rook).symbol,
+                    ColoredChessPiece::new(color, Rook)
+                );
+                list.add_move(ChessMove::new(king_square, rook, CastleKingside));
+            }
         }
     }
 
@@ -314,7 +357,7 @@ impl Chessboard {
         filter: ChessBitboard,
     ) -> ChessBitboard {
         // TODO: Use lookup table and measure speedup
-        let king = ChessBitboard::single_piece(square.index());
+        let king = square.bb();
         let king_not_a_file = king & !ChessBitboard::file(A_FILE_NO, self.size());
         let king_not_h_file = king & !ChessBitboard::file(H_FILE_NO, self.size());
         let moves = (king << 8)

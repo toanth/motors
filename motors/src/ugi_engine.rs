@@ -129,7 +129,7 @@ impl<B: Board> BoardGameState<B> {
     }
 
     fn handle_position(&mut self, words: &mut SplitWhitespace) -> Res<()> {
-        self.initial_pos = parse_ugi_position(words, self.board.settings())?;
+        self.initial_pos = parse_ugi_position(words, &self.board)?;
         self.clear_state();
 
         let Some(word) = words.next() else {
@@ -478,6 +478,9 @@ impl<B: Board> EngineUGI<B> {
             "perft" => {
                 self.handle_perft_or_bench(Perft, words)?;
             }
+            "splitperft" | "sp" => {
+                self.handle_perft_or_bench(SplitPerft, words)?;
+            }
             "bench" => {
                 self.handle_perft_or_bench(Bench, words)?;
             }
@@ -613,7 +616,7 @@ impl<B: Board> EngineUGI<B> {
                 }
                 "infinite" | "inf" => (), // "infinite" is the identity element of the bounded semilattice of `go` options
                 "perft" => search_type = Perft,
-                "splitperft" => search_type = SplitPerft,
+                "splitperft" | "sp" => search_type = SplitPerft,
                 "bench" => search_type = Bench,
                 _ => return Err(format!("Unrecognized 'go' option: '{next_word}'")),
             }

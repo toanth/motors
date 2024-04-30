@@ -1,3 +1,4 @@
+use colored::Colorize;
 use std::fmt::{Display, Formatter};
 use std::str::{FromStr, SplitWhitespace};
 
@@ -163,16 +164,22 @@ impl Display for EngineOption {
     }
 }
 
-pub fn parse_ugi_position<B: Board>(words: &mut SplitWhitespace, settings: B::Settings) -> Res<B> {
+pub fn parse_ugi_position<B: Board>(words: &mut SplitWhitespace, old_board: &B) -> Res<B> {
     // let input = words.remainder().unwrap_or_default().trim();
     let position_word = words
         .next()
         .ok_or_else(|| "Missing position after 'position' command".to_string())?;
     Ok(match position_word {
         "fen" | "f" => B::read_fen_and_advance_input(words)?,
-        "startpos" | "s" => B::startpos(settings),
+        "startpos" | "s" => B::startpos(old_board.settings()),
+        "old" | "o" | "previous" | "p" => old_board.clone(),
         name => B::from_name(name).map_err(|err| {
-            format!("{err} 'startpos' and 'fen <fen>' are also always recognized.")
+            format!(
+                "{err} '{0}', '{1}' and '{2}' are also always recognized.",
+                "startpos".bold(),
+                "fen <fen>".bold(),
+                "old".bold()
+            )
         })?,
     })
 }

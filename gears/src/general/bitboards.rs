@@ -11,10 +11,10 @@ use derive_more::{
 use num::{One, PrimInt, Unsigned, Zero};
 use strum_macros::EnumIter;
 
-use crate::games::{DimT, RectangularCoordinates, RectangularSize, Size};
+use crate::games::chess::squares::ChessSquare;
 #[cfg(feature = "chess")]
 use crate::games::chess::squares::ChessboardSize;
-use crate::games::chess::squares::ChessSquare;
+use crate::games::{DimT, RectangularCoordinates, RectangularSize, Size};
 use crate::general::common::{pop_lsb128, pop_lsb64};
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
@@ -161,6 +161,14 @@ pub trait RawBitboard:
 
     fn to_wrapped(self) -> Wrapping<Self::Primitive> {
         Wrapping(self.to_primitive())
+    }
+
+    /// Returns a bitboard where exactly the bits in the inclusive interval [low, high] are set.
+    fn squares_between(low: Self, high: Self) -> Self {
+        debug_assert!(low.is_single_piece());
+        debug_assert!(high.is_single_piece());
+        debug_assert!(low.trailing_zeros() <= high.trailing_zeros());
+        ((high - Self::single_piece(0)) ^ (low - Self::single_piece(0))) | high
     }
 
     fn is_zero(self) -> bool {
@@ -459,6 +467,16 @@ where
     fn get_piece_rank(self) -> usize {
         debug_assert!(self.is_single_piece());
         self.trailing_zeros() / self.size().width().val()
+    }
+
+    /// Returns a bitboard where exactly the bits in the inclusive interval [low, high] are set,
+    /// where `low_bb` is `Self::single_piece(low)` and `high_bb` is `Self::single_piece(high)`
+    fn square_between(low_bb: Self, high_bb: Self) -> Self {
+        debug_assert!(low_bb.is_single_piece());
+        debug_assert!(high_bb.is_single_piece());
+        debug_assert_eq!(low_bb.size(), high_bb.size());
+        let raw = R::squares_between(low_bb.raw(), high_bb.raw());
+        Self::from_raw(raw, low_bb.size())
     }
 
     fn hyperbola_quintessence<F>(idx: usize, blockers: Self, reverse: F, ray: Self) -> Self
@@ -924,9 +942,9 @@ pub const fn remove_ones_below(bb: u128, idx: usize) -> u128 {
 
 #[cfg(test)]
 mod tests {
-    use crate::games::{GridSize, Height, Width};
     use crate::games::mnk::MnkBitboard;
-    use crate::general::bitboards::{Bitboard, remove_ones_above, remove_ones_below};
+    use crate::games::{GridSize, Height, Width};
+    use crate::general::bitboards::{remove_ones_above, remove_ones_below, Bitboard};
 
     #[test]
     fn remove_ones_above_test() {
