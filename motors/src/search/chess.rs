@@ -4,17 +4,17 @@ pub mod caps;
 mod tests {
     use std::str::FromStr;
 
-    use gears::games::{Board, Move};
-    use gears::games::chess::Chessboard;
     use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
     use gears::games::chess::squares::ChessSquare;
-    use gears::search::{Depth, Score, SCORE_LOST, SCORE_WON, SearchLimit};
+    use gears::games::chess::Chessboard;
+    use gears::games::{Board, Move};
+    use gears::search::{Depth, Score, SearchLimit, SCORE_LOST, SCORE_WON};
 
     use crate::eval::chess::hce::HandCraftedEval;
     use crate::eval::rand_eval::RandEval;
     use crate::search::chess::caps::Caps;
-    use crate::search::Engine;
     use crate::search::generic::generic_negamax::GenericNegamax;
+    use crate::search::Engine;
 
     #[test]
     fn generic_negamax_test() {
@@ -56,7 +56,7 @@ mod tests {
             .unwrap();
         assert!(res.score.unwrap() >= Score(1400));
         // not a legal chess position, but searc with random eval should handle this
-        let fen = "QQQQQQQQ/QQQQQQQQ/QQQQQQQQ/QQQQQQQQ/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
+        let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
         let board = Chessboard::from_fen(fen).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 3);
         let mut engine = Caps::<RandEval>::default();

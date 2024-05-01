@@ -195,6 +195,10 @@ pub trait RawBitboard:
     fn trailing_zeros(self) -> usize {
         self.to_primitive().trailing_zeros() as usize
     }
+
+    fn num_set_bits(self) -> usize {
+        self.to_primitive().count_ones() as usize
+    }
 }
 
 #[derive(
@@ -916,6 +920,31 @@ pub mod chess {
             debug_assert!(self.raw().0.is_power_of_two());
             self.0.trailing_zeros() as usize / 8
         }
+
+        fn file_0(_size: ChessboardSize) -> Self {
+            Self::from_u64(0x0101_0101_0101_0101)
+        }
+
+        // // specialization of the generic trait method for performance
+        // fn diag_for_sq(sq: ChessSquare, _size: ChessSquare::Size) -> Self {
+        //     let diag = sq.file() as isize - sq.rank() as isize;
+        //     const DIAG: ChessBitboard = ChessBitboard::from_u64(0x8040_2010_0804_0201);
+        //     if diag >= 0 {
+        //         DIAG >> diag
+        //     } else {
+        //         DIAG << (diag * 8)
+        //     }
+        // }
+        //
+        // fn anti_diag_for_sq(sq: ChessSquare, _size: ChessSquare::Size) -> Self {
+        //     let anti_diag = sq.file() + sq.rank();
+        //     const ANTI_DIAG: ChessBitboard = ChessBitboard::from_u64(0x0102_0408_1020_4080);
+        //     if anti_diag >= 7 {
+        //         ANTI_DIAG << (anti_diag - 7)
+        //     } else {
+        //         ANTI_DIAG >> ((7 - anti_diag) * 8)
+        //     }
+        // }
     }
 
     impl Sub for ChessBitboard {

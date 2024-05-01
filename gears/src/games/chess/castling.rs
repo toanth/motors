@@ -43,24 +43,24 @@ impl CastlingFlags {
             & (self.allowed_castling_directions() >> (color as usize * 2 + castle_right as usize))
     }
 
-    fn set_castle_right(&mut self, color: Color, castle_right: CastleRight, file: DimT) {
+    pub(super) fn set_castle_right(&mut self, color: Color, castle_right: CastleRight, file: DimT) {
         debug_assert!((file as usize) < NUM_COLUMNS);
         debug_assert!(!self.can_castle(color, castle_right));
         self.0 |= (file as u16) << Self::shift(color, castle_right);
         self.0 |= 1 << (12 + color as usize * 2 + castle_right as usize)
     }
 
-    pub fn unset_castle_right(&mut self, color: Color, castle_right: CastleRight) {
+    pub(super) fn unset_castle_right(&mut self, color: Color, castle_right: CastleRight) {
         self.0 &= !(0x1 << ((color as usize * 2 + castle_right as usize) + 12));
         self.0 &= !(0x7 << Self::shift(color, castle_right));
     }
 
-    pub fn clear_castle_rights(&mut self, color: Color) {
+    pub(super) fn clear_castle_rights(&mut self, color: Color) {
         self.0 &= !(0x3 << (color as usize * 2 + 12));
         self.0 &= !(0x3f << (color as usize * 6));
     }
 
-    pub fn parse_castling_rights(mut self, rights: &str, board: &Chessboard) -> Res<Self> {
+    pub(super) fn parse_castling_rights(mut self, rights: &str, board: &Chessboard) -> Res<Self> {
         self.0 = 0;
         if rights == "-" {
             return Ok(self);
@@ -69,7 +69,7 @@ impl CastlingFlags {
         } else if rights.len() > 4 {
             // XFEN support isn't a priority
             return Err(format!(
-                "Invalid castling rights string: '{rights}' is not exactly 4 characters long"
+                "Invalid castling rights string: '{rights}' is more than 4 characters long"
             ));
         }
         if !rights.chars().all_unique() {

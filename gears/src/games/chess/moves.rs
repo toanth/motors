@@ -571,14 +571,18 @@ impl<'a> MoveParser<'a> {
     }
 
     fn parse_castling(&mut self, board: &Chessboard) -> Option<ChessMove> {
-        let king_square = board.king_square(board.active_player);
+        let color = board.active_player;
+        let king_square = board.king_square(color);
         if self.original_input.starts_with("0-0-0") || self.original_input.starts_with("O-O-O") {
             for _ in 0..5 {
                 self.advance_char();
             }
             return Some(ChessMove::new(
                 king_square,
-                ChessSquare::from_rank_file(king_square.rank(), C_FILE_NO),
+                ChessSquare::from_rank_file(
+                    king_square.rank(),
+                    board.castling.rook_start_file(color, Queenside),
+                ),
                 CastleQueenside,
             ));
         }
@@ -588,7 +592,10 @@ impl<'a> MoveParser<'a> {
             }
             return Some(ChessMove::new(
                 king_square,
-                ChessSquare::from_rank_file(king_square.rank(), G_FILE_NO),
+                ChessSquare::from_rank_file(
+                    king_square.rank(),
+                    board.castling.rook_start_file(color, Kingside),
+                ),
                 CastleKingside,
             ));
         }
@@ -764,24 +771,13 @@ impl<'a> MoveParser<'a> {
 
     fn parse_annotation(&mut self) {
         self.ignore_whitespace();
-        while self.current_char().is_some_and(|c| {
-            matches!(
-                c,
-                '!' | '?'
-                    | '⌓'
-                    | '□'
-                    | ' '
-                    | '⩲'
-                    | '⩱'
-                    | '±'
-                    | '∓'
-                    | '∞'
-                    | '/'
-                    | '+'
-                    | '-'
-                    | '='
-            )
-        }) {
+        let annotation_chars = [
+            '!', '?', '⌓', '□', ' ', '⩲', '⩱', '±', '∓', '∞', '/', '+', '-', '=',
+        ];
+        while self
+            .current_char()
+            .is_some_and(|c| annotation_chars.contains(&c))
+        {
             self.advance_char();
         }
     }
@@ -984,6 +980,11 @@ mod tests {
                 let encoded = mov.to_extended_text(&pos);
                 let decoded = ChessMove::from_extended_text(&encoded, &pos);
                 assert!(decoded.is_ok());
+                println!(
+                    "{encoded} | {0} | {1}",
+                    decoded.clone().unwrap(),
+                    pos.as_fen()
+                );
                 assert_eq!(decoded.unwrap(), mov);
             }
         }
