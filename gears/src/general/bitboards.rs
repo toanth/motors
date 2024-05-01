@@ -405,8 +405,9 @@ where
         self.size().to_coordinates(idx)
     }
 
-    /// TODO: The following two methods are likely very slow. Find something faster
-    fn flip_left_right(self) -> Self {
+    // TODO: The following two methods are likely very slow. Find something faster
+    /// Flips the `_rank`th rank of the bitboard horizontally and leaves the other bits in an unspecified state.
+    fn flip_left_right(self, _rank: usize) -> Self {
         let width = self.size().width().val();
         let mut bb = self;
         let file_mask = Self::file_0(self.size());
@@ -486,8 +487,9 @@ where
 
     fn horizontal_attacks(square: C, blockers: Self) -> Self {
         let size = blockers.size();
-        let rank = Self::rank(square.row(), size);
-        Self::hyperbola_quintessence(size.to_idx(square), blockers, |x| x.flip_left_right(), rank)
+        let rank = square.row();
+        let rank_bb = Self::rank(rank, size);
+        Self::hyperbola_quintessence(size.to_idx(square), blockers, |x| x.flip_left_right(rank as usize), rank_bb)
     }
 
     fn vertical_attacks(square: C, blockers: Self) -> Self {
@@ -942,16 +944,15 @@ pub mod chess {
             self.raw
         }
 
-        fn flip_left_right(self) -> ChessBitboard {
-            const FLIP_DUOS: RawStandardBitboard = RawStandardBitboard(0x5555_5555_5555_5555);
-            const FLIP_NIBBLES: RawStandardBitboard = RawStandardBitboard(0x3333_3333_3333_3333);
-            const FLIP_BYTES: RawStandardBitboard = RawStandardBitboard(0x0f0f_0f0f_0f0f_0f0f);
-            let bb = self.raw;
-            // SWAR flip
-            let bb = ((bb >> 1) & FLIP_DUOS) | ((bb & FLIP_DUOS) << 1);
-            let bb = ((bb >> 2) & FLIP_NIBBLES) | ((bb & FLIP_NIBBLES) << 2);
-
-            Self::new(((bb >> 4) & FLIP_BYTES) | ((bb & FLIP_BYTES) << 4))
+        // idea from here: https://stackoverflow.com/questions/2602823/in-c-c-whats-the-simplest-way-to-reverse-the-order-of-bits-in-a-byte/2603254#2603254
+        fn flip_left_right(self, rank: usize) -> ChessBitboard {
+            const LOOKUP: [u8; 16] = [
+                0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe, 0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf,
+            ];
+            let bb = self.0 >> (8 * rank);
+            Self::from_u64(
+                (LOOKUP[((bb >> 4) & 0xf) as usize] | (LOOKUP[(bb & 0xf) as usize] << 4)) as u64,
+            ) << (8 * rank)
         }
 
         fn flip_up_down(self) -> Self {

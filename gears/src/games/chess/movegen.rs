@@ -100,7 +100,7 @@ impl Chessboard {
             return true;
         }
         // this can't happen in a legal position, but it can happen in pseudolegal movegen
-        sup_distance(square, self.king_square(them)) <= 1
+        (KINGS[square.index()] & self.colored_piece_bb(them, King)).has_set_bit()
     }
 
     pub fn gen_all_pseudolegal_moves(&self) -> ChessMoveList {
