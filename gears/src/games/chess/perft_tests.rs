@@ -98,8 +98,8 @@ mod tests {
     fn dfrc_perft_test() {
         #[cfg(debug_assertions)]
         const FENS: [&str; 2] = [
-            "r1q1k1rn/1p1ppp1p/1npb2b1/p1N3p1/8/1BP4P/PP1PPPP1/1RQ1KRBN w BFag - 0 9 ;D1 32 ;D2 1093 ;D3 34210 ;D4 1187103",// ;D5 37188628",// ;D6 1308319545",
-            "rk3r2/8/8/5r2/6R1/8/8/R3K1R1 w AGaf - 0 1 ;D1 31 ;D2 841 ;D3 23877 ;D4 711547 ",//;D5 20894205",// ;D6 644033568"
+            "r1q1k1rn/1p1ppp1p/1npb2b1/p1N3p1/8/1BP4P/PP1PPPP1/1RQ1KRBN w BFag - 0 9 ;D1 32 ;D2 1093 ;D3 34210 ;D4 1187103 ;D5 37188628",// ;D6 1308319545",
+            "rk3r2/8/8/5r2/6R1/8/8/R3K1R1 w AGaf - 0 1 ;D1 31 ;D2 841 ;D3 23877 ;D4 711547 ;D5 20894205",// ;D6 644033568"
         ];
         #[cfg(not(debug_assertions))]
         const FENS: [&str; 2] = [

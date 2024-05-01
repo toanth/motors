@@ -383,6 +383,8 @@ impl Chessboard {
                 return None;
             }
             let step = if side == Kingside { 1 } else { -1 };
+            // no need to test for check on the target square as that will be done at the end of this function after
+            // the rook has moved
             for file in iter::range_step(from_file + step, to_file as isize, step) {
                 if self.is_in_check_on_square(
                     color,
@@ -447,12 +449,6 @@ impl Chessboard {
             self.piece_bbs[mov.flags().promo_piece() as usize] ^= bb;
             self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, color, to);
             self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(mov.flags().promo_piece(), color, to);
-        } else if mov.is_castle() {
-            // After the rook has moved, it's possible that we're now in a discovered check in chess960 (also,
-            // we haven't actually checked yet if the target square is attacked).
-            if self.is_in_check() {
-                return None;
-            }
         }
         self.ply += 1;
         self.flip_side_to_move()

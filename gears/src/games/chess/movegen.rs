@@ -14,7 +14,7 @@ use crate::games::Color::*;
 use crate::games::{
     sup_distance, Board, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, Move,
 };
-use crate::general::bitboards::chess::{ChessBitboard, KNIGHTS};
+use crate::general::bitboards::chess::{ChessBitboard, KINGS, KNIGHTS};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 
 #[derive(Debug, Copy, Clone)]
@@ -35,6 +35,7 @@ const QUEEN_SEE: SeeScore = SeeScore(900);
 // TODO: Use the north(), west(), etc. methods
 
 impl Chessboard {
+    // TODO: More efficient impl for sliders
     pub fn is_move_pseudolegal_impl(&self, mov: ChessMove) -> bool {
         let piece = mov.piece(self);
         if piece.is_empty() || piece.color().unwrap() != self.active_player {
@@ -45,7 +46,8 @@ impl Chessboard {
         match piece.uncolored() {
             Pawn => self.gen_pawn_moves(&mut list, false),
             Knight => {
-                return ChessBitboard::from_u64(KNIGHTS[mov.src_square().index()])
+                return self
+                    .knight_moves_from_square(mov.src_square(), filter)
                     .is_bit_set_at(mov.dest_square().index());
             }
             Bishop => self.gen_slider_moves(SliderMove::Bishop, &mut list, filter),
@@ -65,7 +67,7 @@ impl Chessboard {
     pub fn is_in_check_on_square(&self, us: Color, square: ChessSquare) -> bool {
         let them = us.other();
         let idx = square.index();
-        let attacks = ChessBitboard::from_u64(KNIGHTS[square.index()]);
+        let attacks = KNIGHTS[square.index()];
         if (attacks & self.colored_piece_bb(them, Knight)).has_set_bit() {
             return true;
         }
@@ -356,19 +358,7 @@ impl Chessboard {
         square: ChessSquare,
         filter: ChessBitboard,
     ) -> ChessBitboard {
-        // TODO: Use lookup table and measure speedup
-        let king = square.bb();
-        let king_not_a_file = king & !ChessBitboard::file(A_FILE_NO, self.size());
-        let king_not_h_file = king & !ChessBitboard::file(H_FILE_NO, self.size());
-        let moves = (king << 8)
-            | (king >> 8)
-            | (king_not_a_file >> 1)
-            | (king_not_a_file << 7)
-            | (king_not_a_file >> 9)
-            | (king_not_h_file << 1)
-            | (king_not_h_file >> 7)
-            | (king_not_h_file << 9);
-        moves & filter
+        KINGS[square.index()] & filter
     }
 
     fn knight_moves_from_square(
@@ -376,7 +366,7 @@ impl Chessboard {
         square: ChessSquare,
         filter: ChessBitboard,
     ) -> ChessBitboard {
-        ChessBitboard::from_u64(KNIGHTS[square.index()]) & filter
+        KNIGHTS[square.index()] & filter
     }
 
     fn gen_sliders_from_square(

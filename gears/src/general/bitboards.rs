@@ -106,29 +106,6 @@ const DIAGONALS: [[u128; 128]; MAX_WIDTH] = compute_diagonal_bbs();
 
 const ANTI_DIAGONALS: [[u128; 128]; MAX_WIDTH] = compute_anti_diagonal_bbs();
 
-const fn precompute_single_knight_attacks(square_idx: usize) -> u64 {
-    let this_knight: u64 = 1 << square_idx;
-    let a_file: u64 = 0x0101_0101_0101_0101;
-    let knight_not_a_file = this_knight & !a_file;
-    let mut attacks = (knight_not_a_file << 15) | (knight_not_a_file >> 17);
-    let knight_not_h_file = this_knight & !(a_file << 7);
-    attacks |= (knight_not_h_file >> 15) | (knight_not_h_file << 17);
-    let knight_not_ab_file = knight_not_a_file & !(a_file << 1);
-    attacks |= (knight_not_ab_file << 6) | (knight_not_ab_file >> 10);
-    let knight_not_gh_file = knight_not_h_file & !(a_file << 6);
-    attacks |= (knight_not_gh_file >> 6) | (knight_not_gh_file << 10);
-    attacks
-}
-const fn precompute_knights() -> [u64; 64] {
-    let mut res: [u64; 64] = [0; 64];
-    let mut i = 0;
-    while i < 64 {
-        res[i] = precompute_single_knight_attacks(i);
-        i += 1;
-    }
-    res
-}
-
 // This seems like a lot of boilerplate code.
 // Maybe there's a better way?
 pub trait RawBitboard:
@@ -797,11 +774,81 @@ where
 pub mod chess {
     use derive_more::Display;
 
+    use crate::games::chess::squares::{A_FILE_NO, H_FILE_NO};
     use crate::games::{GridCoordinates, GridSize};
 
     use super::*;
 
-    pub const KNIGHTS: [u64; 64] = precompute_knights();
+    /// Some of the (automatically derived) methods of ChessBitbiard aren't `const`,
+    /// so use `u64` for all `const fn`s.
+    const CHESS_DIAGONALS: [ChessBitboard; 64] = {
+        let mut res = [ChessBitboard::from_u64(0); 64];
+        let mut i = 0;
+        while i < 64 {
+            res[i] = ChessBitboard::from_u64(DIAGONALS[8][i] as u64);
+            i += 1;
+        }
+        res
+    };
+
+    const CHESS_ANTI_DIAGONALS: [ChessBitboard; 64] = {
+        let mut res = [ChessBitboard::from_u64(0); 64];
+        let mut i = 0;
+        while i < 64 {
+            res[i] = ChessBitboard::from_u64(ANTI_DIAGONALS[8][i] as u64);
+            i += 1;
+        }
+        res
+    };
+
+    const fn precompute_single_knight_attacks(square_idx: usize) -> u64 {
+        let this_knight: u64 = 1 << square_idx;
+        let a_file: u64 = 0x0101_0101_0101_0101;
+        let knight_not_a_file = this_knight & !a_file;
+        let mut attacks = (knight_not_a_file << 15) | (knight_not_a_file >> 17);
+        let knight_not_h_file = this_knight & !(a_file << 7);
+        attacks |= (knight_not_h_file >> 15) | (knight_not_h_file << 17);
+        let knight_not_ab_file = knight_not_a_file & !(a_file << 1);
+        attacks |= (knight_not_ab_file << 6) | (knight_not_ab_file >> 10);
+        let knight_not_gh_file = knight_not_h_file & !(a_file << 6);
+        attacks |= (knight_not_gh_file >> 6) | (knight_not_gh_file << 10);
+        attacks
+    }
+
+    const fn precompute_single_king_attacks(square_idx: usize) -> u64 {
+        let king = 1 << square_idx;
+        let a_file = 0x0101_0101_0101_0101;
+        let king_not_a_file = king & !a_file;
+        let king_not_h_file = king & !(a_file << 7);
+        (king << 8)
+            | (king >> 8)
+            | (king_not_a_file >> 1)
+            | (king_not_a_file << 7)
+            | (king_not_a_file >> 9)
+            | (king_not_h_file << 1)
+            | (king_not_h_file >> 7)
+            | (king_not_h_file << 9)
+    }
+
+    pub const KNIGHTS: [ChessBitboard; 64] = {
+        let mut res: [ChessBitboard; 64] = [ChessBitboard::from_u64(0); 64];
+        let mut i = 0;
+        while i < 64 {
+            res[i] = ChessBitboard::from_u64(precompute_single_knight_attacks(i));
+            i += 1;
+        }
+        res
+    };
+
+    pub const KINGS: [ChessBitboard; 64] = {
+        let mut res = [ChessBitboard::from_u64(0); 64];
+        let mut i = 0;
+        while i < 64 {
+            res[i] = ChessBitboard::from_u64(precompute_single_king_attacks(i));
+            i += 1;
+        }
+        res
+    };
 
     pub const WHITE_SQUARES: ChessBitboard = ChessBitboard::from_u64(0xaaaa_aaaa_aaaa_aaaa);
     pub const BLACK_SQUARES: ChessBitboard = ChessBitboard::from_u64(0x5555_5555_5555_5555);
@@ -925,26 +972,14 @@ pub mod chess {
             Self::from_u64(0x0101_0101_0101_0101)
         }
 
-        // // specialization of the generic trait method for performance
-        // fn diag_for_sq(sq: ChessSquare, _size: ChessSquare::Size) -> Self {
-        //     let diag = sq.file() as isize - sq.rank() as isize;
-        //     const DIAG: ChessBitboard = ChessBitboard::from_u64(0x8040_2010_0804_0201);
-        //     if diag >= 0 {
-        //         DIAG >> diag
-        //     } else {
-        //         DIAG << (diag * 8)
-        //     }
-        // }
-        //
-        // fn anti_diag_for_sq(sq: ChessSquare, _size: ChessSquare::Size) -> Self {
-        //     let anti_diag = sq.file() + sq.rank();
-        //     const ANTI_DIAG: ChessBitboard = ChessBitboard::from_u64(0x0102_0408_1020_4080);
-        //     if anti_diag >= 7 {
-        //         ANTI_DIAG << (anti_diag - 7)
-        //     } else {
-        //         ANTI_DIAG >> ((7 - anti_diag) * 8)
-        //     }
-        // }
+        // specialization of the generic trait method for performance
+        fn diag_for_sq(sq: ChessSquare, _size: ChessboardSize) -> Self {
+            CHESS_DIAGONALS[sq.index()]
+        }
+
+        fn anti_diag_for_sq(sq: ChessSquare, _size: ChessboardSize) -> Self {
+            CHESS_ANTI_DIAGONALS[sq.index()]
+        }
     }
 
     impl Sub for ChessBitboard {
