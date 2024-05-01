@@ -253,26 +253,38 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         let mut alpha = SCORE_LOST;
         let mut beta = SCORE_WON;
-        let mut depth = 1;
+        self.state.depth = Depth::new(1);
 
         let mut window_radius = Score(20);
 
         loop {
-            self.state.depth = Depth::new(depth as usize);
-            let iteration_score = self.negamax(pos, limit, 0, depth, alpha, beta, sender);
+            let iteration_score = self.negamax(
+                pos,
+                limit,
+                0,
+                self.state.depth.get() as isize,
+                alpha,
+                beta,
+                sender,
+            );
             assert!(
                 !(iteration_score != SCORE_TIME_UP
                     && iteration_score
                         .plies_until_game_over()
                         .is_some_and(|x| x <= 0)),
-                "score {} depth {depth}",
-                iteration_score.0
+                "score {0} depth {1}",
+                iteration_score.0,
+                self.state.depth.get(),
             );
             sender.send_message(
                 Debug,
                 &format!(
                     "depth {depth}, score {0}, radius {1}, interval ({2}, {3})",
-                    iteration_score.0, window_radius.0, alpha.0, beta.0,
+                    iteration_score.0,
+                    window_radius.0,
+                    alpha.0,
+                    beta.0,
+                    depth = self.state.depth.get()
                 ),
             );
             if self.state.search_cancelled() {
@@ -280,10 +292,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
             }
             self.state.score = iteration_score;
             if iteration_score > alpha && iteration_score < beta {
-                depth += 1;
+                sender.send_search_info(self.search_info()); // do this before incrementing the depth
+                self.state.depth += Depth::new(1);
                 // make sure that alpha and beta are at least 2 apart, to recognize PV nodes.
                 window_radius = Score(1.max(window_radius.0 / 2));
-                sender.send_search_info(self.search_info());
             } else {
                 window_radius.0 *= 3;
             }

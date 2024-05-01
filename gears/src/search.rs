@@ -300,7 +300,7 @@ impl TimeControl {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, AddAssign)]
 pub struct Depth(usize);
 
 impl Depth {
