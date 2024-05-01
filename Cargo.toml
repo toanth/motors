@@ -5,6 +5,7 @@ members = ["motors", "gears", "monitors"]
 
 [profile.release]
 lto = true
+panic = "abort"
 debug = 1 # useful for profiling, maybe remove this eventually
 
 [profile.bench]

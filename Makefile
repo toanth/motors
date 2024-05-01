@@ -15,7 +15,7 @@ default: motors
 all: motors monitors
 
 monitors:
-	cargo build --bin monitors
+	cargo build --release --bin monitors
 
 motors: release
 
