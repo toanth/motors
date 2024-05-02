@@ -187,7 +187,7 @@ impl<B: Board> Display for SearchInfo<B> {
         };
 
         write!(f,
-               "info depth {depth}{seldepth} score {score_str} time {time} nodes {nodes} nps {nps} pv {pv}{hashfull}{string}",
+               "info depth {depth}{seldepth} score {score_str} time {time} nodes {nodes} nps {nps}{hashfull} pv {pv}{string}",
                depth = self.depth.get(), time = self.time.as_millis(), nodes = self.nodes.get(),
                seldepth = self.seldepth.map(|d| format!(" seldepth {d}")).unwrap_or_default(),
                nps = self.nps(),

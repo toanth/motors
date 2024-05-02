@@ -56,9 +56,21 @@ impl DerefMut for HistoryHeuristic {
 #[derive(Debug, Clone, Default)]
 struct Additional {
     history: HistoryHeuristic,
+    tt: TT,
 }
 
-impl CustomInfo for Additional {}
+impl CustomInfo for Additional {
+    fn tt(&self) -> Option<&TT> {
+        Some(&self.tt)
+    }
+
+    fn new_search(&self) -> Self {
+        Self {
+            history: HistoryHeuristic::default(),
+            tt: self.tt.clone(),
+        }
+    }
+}
 
 #[derive(Debug, Default, Copy, Clone)]
 struct CapsSearchStackEntry {
@@ -80,7 +92,6 @@ type State = ABSearchState<Chessboard, CapsSearchStackEntry, Additional>;
 pub struct Caps<E: Eval<Chessboard>> {
     state: State,
     eval: E,
-    tt: TT,
 }
 
 impl<E: Eval<Chessboard>> Default for Caps<E> {
@@ -88,7 +99,6 @@ impl<E: Eval<Chessboard>> Default for Caps<E> {
         Self {
             state: ABSearchState::new(DEPTH_HARD_LIMIT),
             eval: E::default(),
-            tt: TT::default(),
         }
     }
 }
@@ -162,7 +172,7 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
 
 impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
     fn set_tt(&mut self, tt: TT) {
-        self.tt = tt;
+        self.state.custom.tt = tt;
     }
 
     fn do_search(
@@ -328,6 +338,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         debug_assert!(self.state.board_history.0 .0.len() >= ply);
 
         self.state.sel_depth = self.state.sel_depth.max(ply);
+        let mut tt = self.state.custom.tt.clone();
 
         let root = ply == 0;
         let is_pvs_pv_node = alpha + 1 < beta; // TODO: Pass as parameter / generic? Probably not worth much elo
@@ -350,7 +361,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         let mut best_score = NO_SCORE_YET;
         let mut bound_so_far = UpperBound;
 
-        let tt_entry: TTEntry<Chessboard> = self.tt.load(pos.zobrist_hash(), ply);
+        let tt_entry: TTEntry<Chessboard> = tt.load(pos.zobrist_hash(), ply);
         let mut best_move = tt_entry.mov;
         let trust_tt_entry =
             tt_entry.bound != NodeType::Empty && tt_entry.hash == pos.zobrist_hash();
@@ -576,7 +587,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // TODO: eventually test that not overwriting PV nodes unless the depth is quite a bit greater gains
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
-        self.tt.store(tt_entry, ply);
+        tt.store(tt_entry, ply);
 
         best_score
     }
@@ -598,7 +609,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // TODO: Using the TT for move ordering in qsearch was mostly elo-neutral, so retest that eventually
         // do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation
         // but if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        let tt_entry: TTEntry<Chessboard> = self.tt.load(pos.zobrist_hash(), ply);
+        let tt_entry: TTEntry<Chessboard> = self.state.custom.tt.load(pos.zobrist_hash(), ply);
 
         // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
         // However, if we've already done qsearch on this position, we can just re-use the result,
@@ -644,7 +655,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         }
         let tt_entry: TTEntry<Chessboard> =
             TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
-        self.tt.store(tt_entry, ply);
+        self.state.custom.tt.store(tt_entry, ply);
         debug_assert!(!best_score.is_game_over_score());
         best_score
     }

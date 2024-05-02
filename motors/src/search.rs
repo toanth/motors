@@ -344,7 +344,14 @@ impl<B: Board> SearchStackEntry<B> for EmptySearchStackEntry {
     }
 }
 
-trait CustomInfo: Default + Clone + Debug {}
+trait CustomInfo: Default + Clone + Debug {
+    fn tt(&self) -> Option<&TT> {
+        None
+    }
+    fn new_search(&self) -> Self {
+        self.clone()
+    }
+}
 
 #[derive(Default, Clone, Debug)]
 struct NoCustomInfo {}
@@ -368,10 +375,10 @@ pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo> {
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
     fn new(max_depth: Depth) -> Self {
-        Self::new_with_stack(vec![E::default(); max_depth.get()])
+        Self::new_with(vec![E::default(); max_depth.get()], C::default())
     }
 
-    fn new_with_stack(search_stack: Vec<E>) -> Self {
+    fn new_with(search_stack: Vec<E>, custom: C) -> Self {
         let start_time = Instant::now();
         Self {
             search_stack,
@@ -384,7 +391,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
             should_stop: false,
             depth: Depth::MIN,
             sel_depth: 0,
-            custom: C::default(),
+            custom,
         }
     }
 
@@ -403,7 +410,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
     }
 
     fn hashfull(&self) -> Option<usize> {
-        None
+        self.custom.tt().map(|tt| tt.estimate_hashfull::<B>())
     }
     fn seldepth(&self) -> Option<usize> {
         if self.sel_depth == 0 {
@@ -459,7 +466,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
         for e in stack.iter_mut() {
             e.forget();
         }
-        *self = Self::new_with_stack(stack);
+        *self = Self::new_with(stack, self.custom.new_search());
     }
 
     fn new_search(&mut self, history: ZobristRepetition2Fold) {

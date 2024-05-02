@@ -1,13 +1,13 @@
 use std::mem::size_of;
-use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
+use std::sync::Arc;
 
 use portable_atomic::AtomicU128;
 use static_assertions::const_assert_eq;
 
-use gears::games::{Board, Move, ZobristHash};
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
+use gears::games::{Board, Move, ZobristHash};
 use gears::search::{Score, SCORE_WON};
 
 use crate::search::NodeType;
@@ -127,6 +127,25 @@ impl TT {
         }
     }
 
+    /// Counts the number of non-empty entries in the first 1k entries
+    pub fn estimate_hashfull<B: Board>(&self) -> usize {
+        let len = 1000.min(self.tt.arr.len());
+        let num_used = self
+            .tt
+            .arr
+            .iter()
+            .take(len)
+            .filter(|e: &&AtomicTTEntry| {
+                TTEntry::<B>::from_packed(e.load(Relaxed)).hash != ZobristHash::default()
+            })
+            .count();
+        if len < 1000 {
+            (num_used as f64 * 1000.0 / len as f64).round() as usize
+        } else {
+            num_used
+        }
+    }
+
     fn index_of(&self, hash: ZobristHash) -> usize {
         hash.0 as usize & self.mask
     }
@@ -176,8 +195,8 @@ impl TT {
 
 #[cfg(test)]
 mod test {
-    use rand::{Rng, thread_rng};
     use rand::distributions::Uniform;
+    use rand::{thread_rng, Rng};
 
     use gears::search::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
 
