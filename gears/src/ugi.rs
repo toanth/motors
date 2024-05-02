@@ -53,6 +53,16 @@ impl EngineOptionType {
             EngineOptionType::UString(_) => "string",
         }
     }
+
+    pub fn value_to_str(&self) -> String {
+        match self {
+            EngineOptionType::Check(check) => check.val.to_string(),
+            EngineOptionType::Spin(spin) => spin.val.to_string(),
+            EngineOptionType::Combo(combo) => combo.val.to_string(),
+            EngineOptionType::Button => "<Button>".to_string(),
+            EngineOptionType::UString(string) => string.val.clone(),
+        }
+    }
 }
 impl Display for EngineOptionType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -107,6 +117,7 @@ pub enum EngineOptionName {
     Ponder,
     MultiPv,
     UciElo,
+    MoveOverhead,
     Other(String),
 }
 
@@ -118,6 +129,7 @@ impl Display for EngineOptionName {
             EngineOptionName::Ponder => "Ponder",
             EngineOptionName::MultiPv => "MultiPV",
             EngineOptionName::UciElo => "UCI_Elo",
+            EngineOptionName::MoveOverhead => "MoveOverhead",
             EngineOptionName::Other(x) => x,
         };
         write!(f, "{s}")
@@ -133,6 +145,7 @@ impl FromStr for EngineOptionName {
             "threads" => EngineOptionName::Threads,
             "ponder" => EngineOptionName::Ponder,
             "multipv" => EngineOptionName::MultiPv,
+            "move overhead" | "moveoverhead" => EngineOptionName::MoveOverhead,
             _ => EngineOptionName::Other(s.to_string()),
         })
     }
