@@ -641,7 +641,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
 #[cfg(test)]
 mod tests {
     use gears::games::chess::Chessboard;
-    use gears::games::ZobristHistoryBase;
+    use gears::games::{Move, ZobristHistoryBase};
     use gears::search::Nodes;
 
     use crate::eval::chess::hce::HandCraftedEval;
@@ -714,5 +714,49 @@ mod tests {
         let res = engine.search_from_pos(pos, SearchLimit::nodes(Nodes::new(100_000).unwrap()));
         // TODO: More aggressive bound once the engine is stronger
         assert!(res.unwrap().score.unwrap().abs() <= Score(200));
+    }
+
+    #[test]
+    #[cfg(not(debug_assertions))]
+    /// puzzles that are reasonably challenging for most humans, but shouldn't be difficult for the engine
+    fn mate_test() {
+        let fens = [
+            ("8/5K2/4N2k/2B5/5pP1/1np2n2/1p6/r2R4 w - - 0 1", "d1d5"),
+            ("5rk1/r5p1/2b2p2/3q1N2/6Q1/3B2P1/5P2/6KR w - - 0 1", "f5h6"),
+            (
+                "2rk2nr/R1pnp3/5b2/5P2/BpPN1Q2/pPq5/P7/1K4R1 w - - 0 1",
+                "f4c7",
+            ),
+            ("k2r3r/PR6/1K6/3R4/8/5np1/B6p/8 w - - 0 1", "d5d8"),
+            ("3n3R/8/3p1pp1/r2bk3/8/4NPP1/p3P1KP/1r1R4 w - - 0 1", "h8e8"),
+            ("7K/k7/p1R5/4N1q1/8/6rb/5r2/1R6 w - - 0 1", "c6c7"),
+            (
+                "rkr5/3n1p2/1pp1b3/NP4p1/3PPn1p/QN1B1Pq1/2P5/R6K w - - 0 1",
+                "a5c6",
+            ),
+            ("1kr5/4R3/pP6/1n2N3/3p4/2p5/1r6/4K2R w K - 0 1", "h1h8"),
+            ("1k6/1bpQN3/1p6/p7/6p1/2NP1nP1/5PK1/4q3 w - - 0 1", "d7d8"),
+            (
+                "1k4r1/pb1p4/1p1P4/1P3r1p/1N2Q3/6Pq/4BP1P/4R1K1 w - - 0 1",
+                "b4a6",
+            ),
+        ];
+        for (fen, mov) in fens {
+            let pos = Chessboard::from_fen(fen).unwrap();
+            let mut engine = Caps::<HandCraftedEval>::default();
+            let mut limit = SearchLimit::depth(Depth::new(18));
+            limit.mate = Depth::new(10);
+            limit.fixed_time = Duration::from_secs(2);
+            let res = engine
+                .search_from_pos(pos, SearchLimit::depth(Depth::new(15)))
+                .unwrap();
+            println!(
+                "chosen move {0}, fen {1}",
+                res.chosen_move.to_extended_text(&pos),
+                pos.as_fen()
+            );
+            assert!(res.score.unwrap().is_game_won_score());
+            assert_eq!(res.chosen_move.to_compact_text(), mov);
+        }
     }
 }
