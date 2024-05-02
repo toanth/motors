@@ -537,6 +537,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // TODO: Merge cached in-check branch
             return game_result_to_score(pos.no_moves_result(), ply);
         }
+
+        // in case of a collision, if there's no best_move to store because the node failed low, make that clear by
+        // storing a null move instead of the random move that was stored there previously. This helps IIR.
+        if bound_so_far == UpperBound && pos.zobrist_hash() != tt_entry.hash {
+            best_move = ChessMove::default();
+        }
         let tt_entry: TTEntry<Chessboard> = TTEntry::new(
             pos.zobrist_hash(),
             best_score,
@@ -608,6 +614,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 bound_so_far = LowerBound;
                 break;
             }
+        }
+        // see main search, don't store a random move in the TT entry.
+        if bound_so_far == UpperBound && pos.zobrist_hash() != tt_entry.hash {
+            best_move = ChessMove::default();
         }
         let tt_entry: TTEntry<Chessboard> =
             TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
