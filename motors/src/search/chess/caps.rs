@@ -375,7 +375,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         //     false => self.eval.eval(pos),
         // };
 
-        // Internal Iterative Reductions (IIR): If we don't have a TT move, this node will likely take a long time
+        // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
         // because the move ordering won't be great, so don't spend too much time on this node.
         // Instead, search it with reduced depth to fill the TT entry so that we can re-search it faster the next time
         // we see this node.
@@ -383,19 +383,20 @@ impl<E: Eval<Chessboard>> Caps<E> {
             depth -= 1;
         }
 
-        // Reverse Futility Pruning (RFP): If eval is far above beta, it's likely that our opponent
+        // RFP (Reverse Futility Pruning): If eval is far above beta, it's likely that our opponent
         // blundered in a previous move of the search, so if the depth is low, don't even bother searching further.
         if can_prune {
             if depth < 4 && eval >= beta + Score(80 * depth as i32) {
                 return eval;
             }
 
-            // Null Move Pruning (NMP). If static eval of our position is above beta, this node probably isn't that interesting.
+            // NMP (Null Move Pruning). If static eval of our position is above beta, this node probably isn't that interesting.
             // To test this hypothesis, do a null move and perform a search with reduced depth; if the result is still
             // above beta, then it's very likely that the score would have been above beta if we had played a move,
             // so simply return the nmp score. This is based on the null move observation (there are very few zugzwang positions).
             // A more careful implementation would do a verification search to check for zugzwang, and possibly avoid even trying
             // nmp in a position with no pieces except the king and pawns.
+            // TODO: Verification search.
             if depth >= 3 && eval >= beta {
                 self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
@@ -421,11 +422,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         let all_moves = self.order_moves(pos.pseudolegal_moves(), &pos, best_move, ply);
         for mov in all_moves {
-            /// LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
-            /// so don't even bother looking at them in the last few layers.
-            /// FP (Futility Pruning): If the static eval is far below alpha,
-            /// then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
-            /// so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
+            // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
+            // so don't even bother looking at them in the last few layers.
+            // FP (Futility Pruning): If the static eval is far below alpha,
+            // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
+            // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
             if can_prune
                 && best_score > MAX_SCORE_LOST
                 && depth <= 3
@@ -453,8 +454,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
             let debug_history_len = self.state.board_history.0 .0.len();
 
             self.state.board_history.push(&pos);
-            // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove that
-            // the other moves are worse, which we can do with a zero window search. Should this assumption fail,
+            // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove
+            // that the other moves are worse, which we can do with a zero window search. Should this assumption fail,
             // re-search with a full window.
             // A better (but very slightly more complicated) implementation would be to do 2 researches, first with a
             // null window but the full depth, and only then without a null window and at the full depth.
@@ -463,10 +464,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, sender);
             } else {
                 // LMR (Late Move Reductions): Trust the move ordering (mostly the quiet history heuristic, at least currently)
-                // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search to verify our belief.
-                // In the unlikely case that thi believe turns out to have been misplaced, do a full research instead
-                // (A more complex implementation might do 2 researches, where the first research still uses a null window but
-                // searches to the full depth.)
+                // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
+                // to verify our belief.
                 let mut reduction = 0;
                 if !in_check && num_quiets_visited > 4 && depth >= 4 {
                     reduction = 1 + depth / 8; // This is a very basic implementation. TODO: Make more complex eventually.
@@ -484,9 +483,32 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     -alpha,
                     sender,
                 );
-                if alpha < score && score < beta {
-                    score =
-                        -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, sender);
+                // If the score turned out to be better than expected (at least `alpha`), this might just be because
+                // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
+                if alpha < score {
+                    score = -self.negamax(
+                        new_pos,
+                        limit,
+                        ply + 1,
+                        depth - 1,
+                        -(alpha + 1),
+                        -alpha,
+                        sender,
+                    );
+                    // If the full-depth search also performed better than expected, do a full-depth search with the
+                    // full window to find the true score. If the score was at least `beta`, don't search again
+                    // -- this move is probably already too good, so don't waste more time finding out how good it is exactly.
+                    if alpha < score && score < beta {
+                        score = -self.negamax(
+                            new_pos,
+                            limit,
+                            ply + 1,
+                            depth - 1,
+                            -beta,
+                            -alpha,
+                            sender,
+                        );
+                    }
                 }
             }
 
@@ -553,7 +575,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         );
         // TODO: eventually test that not overwriting PV nodes unless the depth is quite a bit greater gains
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
-        // if this node was an exact or fail high node.
+        // if this node was an exact or fail high node or if there was a collision.
         self.tt.store(tt_entry, ply);
 
         best_score
