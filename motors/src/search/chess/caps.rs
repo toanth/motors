@@ -308,6 +308,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 break;
             }
         }
+        self.state.depth -= Depth::new(1); // don't print a depth one larger than what was actually searched.
         chosen_move
     }
 
@@ -373,6 +374,14 @@ impl<E: Eval<Chessboard>> Caps<E> {
         //     true => tt_entry.score,
         //     false => self.eval.eval(pos),
         // };
+
+        // Internal Iterative Reductions (IIR): If we don't have a TT move, this node will likely take a long time
+        // because the move ordering won't be great, so don't spend too much time on this node.
+        // Instead, search it with reduced depth to fill the TT entry so that we can re-search it faster the next time
+        // we see this node.
+        if depth > 4 && best_move == ChessMove::default() {
+            depth -= 1;
+        }
 
         // Reverse Futility Pruning (RFP): If eval is far above beta, it's likely that our opponent
         // blundered in a previous move of the search, so if the depth is low, don't even bother searching further.
@@ -530,6 +539,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
             return game_result_to_score(pos.no_moves_result(), ply);
         }
 
+        // in case of a collision, if there's no best_move to store because the node failed low, make that clear by
+        // storing a null move instead of the random move that was stored there previously. This helps IIR.
+        if bound_so_far == UpperBound && pos.zobrist_hash() != tt_entry.hash {
+            best_move = ChessMove::default();
+        }
         let tt_entry: TTEntry<Chessboard> = TTEntry::new(
             pos.zobrist_hash(),
             best_score,
@@ -601,6 +615,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 bound_so_far = LowerBound;
                 break;
             }
+        }
+        // see main search, don't store a random move in the TT entry.
+        if bound_so_far == UpperBound && pos.zobrist_hash() != tt_entry.hash {
+            best_move = ChessMove::default();
         }
         let tt_entry: TTEntry<Chessboard> =
             TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
