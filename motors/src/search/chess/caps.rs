@@ -308,6 +308,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 break;
             }
         }
+        self.state.depth -= Depth::new(1); // don't print a depth one larger than what was actually searched.
         chosen_move
     }
 
