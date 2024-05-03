@@ -106,29 +106,6 @@ const DIAGONALS: [[u128; 128]; MAX_WIDTH] = compute_diagonal_bbs();
 
 const ANTI_DIAGONALS: [[u128; 128]; MAX_WIDTH] = compute_anti_diagonal_bbs();
 
-const fn precompute_single_knight_attacks(square_idx: usize) -> u64 {
-    let this_knight: u64 = 1 << square_idx;
-    let a_file: u64 = 0x0101_0101_0101_0101;
-    let knight_not_a_file = this_knight & !a_file;
-    let mut attacks = (knight_not_a_file << 15) | (knight_not_a_file >> 17);
-    let knight_not_h_file = this_knight & !(a_file << 7);
-    attacks |= (knight_not_h_file >> 15) | (knight_not_h_file << 17);
-    let knight_not_ab_file = knight_not_a_file & !(a_file << 1);
-    attacks |= (knight_not_ab_file << 6) | (knight_not_ab_file >> 10);
-    let knight_not_gh_file = knight_not_h_file & !(a_file << 6);
-    attacks |= (knight_not_gh_file >> 6) | (knight_not_gh_file << 10);
-    attacks
-}
-const fn precompute_knights() -> [u64; 64] {
-    let mut res: [u64; 64] = [0; 64];
-    let mut i = 0;
-    while i < 64 {
-        res[i] = precompute_single_knight_attacks(i);
-        i += 1;
-    }
-    res
-}
-
 // This seems like a lot of boilerplate code.
 // Maybe there's a better way?
 pub trait RawBitboard:
@@ -163,6 +140,14 @@ pub trait RawBitboard:
         Wrapping(self.to_primitive())
     }
 
+    /// Returns a bitboard where exactly the bits in the inclusive interval [low, high] are set.
+    fn squares_between(low: Self, high: Self) -> Self {
+        debug_assert!(low.is_single_piece());
+        debug_assert!(high.is_single_piece());
+        debug_assert!(low.trailing_zeros() <= high.trailing_zeros());
+        ((high - Self::single_piece(0)) ^ (low - Self::single_piece(0))) | high
+    }
+
     fn is_zero(self) -> bool {
         self.to_primitive() == Self::Primitive::zero()
     }
@@ -186,6 +171,10 @@ pub trait RawBitboard:
 
     fn trailing_zeros(self) -> usize {
         self.to_primitive().trailing_zeros() as usize
+    }
+
+    fn num_set_bits(self) -> usize {
+        self.to_primitive().count_ones() as usize
     }
 }
 
@@ -416,8 +405,9 @@ where
         self.size().to_coordinates(idx)
     }
 
-    /// TODO: The following two methods are likely very slow. Find something faster
-    fn flip_left_right(self) -> Self {
+    // TODO: The following two methods are likely very slow. Find something faster
+    /// Flips the `_rank`th rank of the bitboard horizontally and leaves the other bits in an unspecified state.
+    fn flip_left_right(self, _rank: usize) -> Self {
         let width = self.size().width().val();
         let mut bb = self;
         let file_mask = Self::file_0(self.size());
@@ -461,6 +451,16 @@ where
         self.trailing_zeros() / self.size().width().val()
     }
 
+    /// Returns a bitboard where exactly the bits in the inclusive interval [low, high] are set,
+    /// where `low_bb` is `Self::single_piece(low)` and `high_bb` is `Self::single_piece(high)`
+    fn square_between(low_bb: Self, high_bb: Self) -> Self {
+        debug_assert!(low_bb.is_single_piece());
+        debug_assert!(high_bb.is_single_piece());
+        debug_assert_eq!(low_bb.size(), high_bb.size());
+        let raw = R::squares_between(low_bb.raw(), high_bb.raw());
+        Self::from_raw(raw, low_bb.size())
+    }
+
     fn hyperbola_quintessence<F>(idx: usize, blockers: Self, reverse: F, ray: Self) -> Self
     where
         F: Fn(Self) -> Self,
@@ -487,8 +487,9 @@ where
 
     fn horizontal_attacks(square: C, blockers: Self) -> Self {
         let size = blockers.size();
-        let rank = Self::rank(square.row(), size);
-        Self::hyperbola_quintessence(size.to_idx(square), blockers, |x| x.flip_left_right(), rank)
+        let rank = square.row();
+        let rank_bb = Self::rank(rank, size);
+        Self::hyperbola_quintessence(size.to_idx(square), blockers, |x| x.flip_left_right(rank as usize), rank_bb)
     }
 
     fn vertical_attacks(square: C, blockers: Self) -> Self {
@@ -777,11 +778,81 @@ where
 pub mod chess {
     use derive_more::Display;
 
+    use crate::games::chess::squares::{A_FILE_NO, H_FILE_NO};
     use crate::games::{GridCoordinates, GridSize};
 
     use super::*;
 
-    pub const KNIGHTS: [u64; 64] = precompute_knights();
+    /// Some of the (automatically derived) methods of ChessBitbiard aren't `const`,
+    /// so use `u64` for all `const fn`s.
+    const CHESS_DIAGONALS: [ChessBitboard; 64] = {
+        let mut res = [ChessBitboard::from_u64(0); 64];
+        let mut i = 0;
+        while i < 64 {
+            res[i] = ChessBitboard::from_u64(DIAGONALS[8][i] as u64);
+            i += 1;
+        }
+        res
+    };
+
+    const CHESS_ANTI_DIAGONALS: [ChessBitboard; 64] = {
+        let mut res = [ChessBitboard::from_u64(0); 64];
+        let mut i = 0;
+        while i < 64 {
+            res[i] = ChessBitboard::from_u64(ANTI_DIAGONALS[8][i] as u64);
+            i += 1;
+        }
+        res
+    };
+
+    const fn precompute_single_knight_attacks(square_idx: usize) -> u64 {
+        let this_knight: u64 = 1 << square_idx;
+        let a_file: u64 = 0x0101_0101_0101_0101;
+        let knight_not_a_file = this_knight & !a_file;
+        let mut attacks = (knight_not_a_file << 15) | (knight_not_a_file >> 17);
+        let knight_not_h_file = this_knight & !(a_file << 7);
+        attacks |= (knight_not_h_file >> 15) | (knight_not_h_file << 17);
+        let knight_not_ab_file = knight_not_a_file & !(a_file << 1);
+        attacks |= (knight_not_ab_file << 6) | (knight_not_ab_file >> 10);
+        let knight_not_gh_file = knight_not_h_file & !(a_file << 6);
+        attacks |= (knight_not_gh_file >> 6) | (knight_not_gh_file << 10);
+        attacks
+    }
+
+    const fn precompute_single_king_attacks(square_idx: usize) -> u64 {
+        let king = 1 << square_idx;
+        let a_file = 0x0101_0101_0101_0101;
+        let king_not_a_file = king & !a_file;
+        let king_not_h_file = king & !(a_file << 7);
+        (king << 8)
+            | (king >> 8)
+            | (king_not_a_file >> 1)
+            | (king_not_a_file << 7)
+            | (king_not_a_file >> 9)
+            | (king_not_h_file << 1)
+            | (king_not_h_file >> 7)
+            | (king_not_h_file << 9)
+    }
+
+    pub const KNIGHTS: [ChessBitboard; 64] = {
+        let mut res: [ChessBitboard; 64] = [ChessBitboard::from_u64(0); 64];
+        let mut i = 0;
+        while i < 64 {
+            res[i] = ChessBitboard::from_u64(precompute_single_knight_attacks(i));
+            i += 1;
+        }
+        res
+    };
+
+    pub const KINGS: [ChessBitboard; 64] = {
+        let mut res = [ChessBitboard::from_u64(0); 64];
+        let mut i = 0;
+        while i < 64 {
+            res[i] = ChessBitboard::from_u64(precompute_single_king_attacks(i));
+            i += 1;
+        }
+        res
+    };
 
     pub const WHITE_SQUARES: ChessBitboard = ChessBitboard::from_u64(0xaaaa_aaaa_aaaa_aaaa);
     pub const BLACK_SQUARES: ChessBitboard = ChessBitboard::from_u64(0x5555_5555_5555_5555);
@@ -875,16 +946,15 @@ pub mod chess {
             self.raw
         }
 
-        fn flip_left_right(self) -> ChessBitboard {
-            const FLIP_DUOS: RawStandardBitboard = RawStandardBitboard(0x5555_5555_5555_5555);
-            const FLIP_NIBBLES: RawStandardBitboard = RawStandardBitboard(0x3333_3333_3333_3333);
-            const FLIP_BYTES: RawStandardBitboard = RawStandardBitboard(0x0f0f_0f0f_0f0f_0f0f);
-            let bb = self.raw;
-            // SWAR flip
-            let bb = ((bb >> 1) & FLIP_DUOS) | ((bb & FLIP_DUOS) << 1);
-            let bb = ((bb >> 2) & FLIP_NIBBLES) | ((bb & FLIP_NIBBLES) << 2);
-
-            Self::new(((bb >> 4) & FLIP_BYTES) | ((bb & FLIP_BYTES) << 4))
+        // idea from here: https://stackoverflow.com/questions/2602823/in-c-c-whats-the-simplest-way-to-reverse-the-order-of-bits-in-a-byte/2603254#2603254
+        fn flip_left_right(self, rank: usize) -> ChessBitboard {
+            const LOOKUP: [u8; 16] = [
+                0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe, 0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf,
+            ];
+            let bb = self.0 >> (8 * rank);
+            Self::from_u64(
+                (LOOKUP[((bb >> 4) & 0xf) as usize] | (LOOKUP[(bb & 0xf) as usize] << 4)) as u64,
+            ) << (8 * rank)
         }
 
         fn flip_up_down(self) -> Self {
@@ -899,6 +969,19 @@ pub mod chess {
         fn get_piece_rank(self) -> usize {
             debug_assert!(self.raw().0.is_power_of_two());
             self.0.trailing_zeros() as usize / 8
+        }
+
+        fn file_0(_size: ChessboardSize) -> Self {
+            Self::from_u64(0x0101_0101_0101_0101)
+        }
+
+        // specialization of the generic trait method for performance
+        fn diag_for_sq(sq: ChessSquare, _size: ChessboardSize) -> Self {
+            CHESS_DIAGONALS[sq.index()]
+        }
+
+        fn anti_diag_for_sq(sq: ChessSquare, _size: ChessboardSize) -> Self {
+            CHESS_ANTI_DIAGONALS[sq.index()]
         }
     }
 

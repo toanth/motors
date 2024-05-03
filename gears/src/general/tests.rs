@@ -35,9 +35,9 @@ mod bitboards {
 
     #[cfg(feature = "chess")]
     mod chessboard {
-        use crate::games::chess::squares::{ChessboardSize, ChessSquare};
-        use crate::general::bitboards::{Bitboard, RawBitboard};
+        use crate::games::chess::squares::{ChessSquare, ChessboardSize};
         use crate::general::bitboards::chess::ChessBitboard;
+        use crate::general::bitboards::{Bitboard, RawBitboard};
 
         #[test]
         fn is_single_piece_test() {
@@ -134,20 +134,23 @@ mod bitboards {
         #[test]
         fn flip_left_right_test() {
             assert_eq!(
-                ChessBitboard::from_u64(0).flip_left_right(),
+                ChessBitboard::from_u64(0).flip_left_right(0),
                 ChessBitboard::from_u64(0)
             );
             assert_eq!(
-                ChessBitboard::from_u64(1).flip_left_right(),
+                ChessBitboard::from_u64(1).flip_left_right(0),
                 ChessBitboard::from_u64(0x80)
             );
+            for i in 0..7 {
+                assert_eq!(
+                    (ChessBitboard::from_u64(0x0003_4010_00e0).flip_left_right(i) >> (8 * i)).0
+                        & 0xff,
+                    (ChessBitboard::from_u64(0x00c0_0208_0007) >> (8 * i)).0 & 0xff
+                );
+            }
             assert_eq!(
-                ChessBitboard::from_u64(0x0003_4010_00e0).flip_left_right(),
-                ChessBitboard::from_u64(0x00c0_0208_0007)
-            );
-            assert_eq!(
-                ChessBitboard::from_u64(0xffff_ffff_ffff_fffe).flip_left_right(),
-                ChessBitboard::from_u64(0xffff_ffff_ffff_ff7f)
+                ChessBitboard::from_u64(0xffff_ffff_ffff_fffe).flip_left_right(0),
+                ChessBitboard::from_u64(0xffff_ffff_ffff_ff7f & 0xff)
             );
         }
 
@@ -173,8 +176,8 @@ mod bitboards {
     }
 
     mod extended_board {
-        use crate::games::{GridCoordinates, GridSize, Height, RectangularCoordinates, Width};
         use crate::games::mnk::MnkBitboard;
+        use crate::games::{GridCoordinates, GridSize, Height, RectangularCoordinates, Width};
         use crate::general::bitboards::{Bitboard, ExtendedRawBitboard, RawBitboard};
 
         const LARGER_THAN_64_BIT: u128 = 1 << 64;
@@ -305,27 +308,27 @@ mod bitboards {
         fn flip_left_right_test() {
             let size = GridSize::new(Height(4), Width(3));
             assert_eq!(
-                MnkBitboard::from_uint(0, size).flip_left_right(),
+                MnkBitboard::from_uint(0, size).flip_left_right(0),
                 MnkBitboard::from_uint(0, size)
             );
             let size = GridSize::chess();
             assert_eq!(
-                MnkBitboard::from_uint(1, size).flip_left_right(),
+                MnkBitboard::from_uint(1, size).flip_left_right(0),
                 MnkBitboard::from_uint(0b1000_0000, size)
             );
             let size = GridSize::new(Height(12), Width(2));
             assert_eq!(
-                MnkBitboard::from_uint(0x0234e1, size).flip_left_right(),
+                MnkBitboard::from_uint(0x0234e1, size).flip_left_right(0),
                 MnkBitboard::from_uint(0x0138d2, size)
             );
             let size = GridSize::new(Height(7), Width(3));
             assert_eq!(
-                MnkBitboard::from_uint(0b101_001_011_110_111_001, size).flip_left_right(),
+                MnkBitboard::from_uint(0b101_001_011_110_111_001, size).flip_left_right(0),
                 MnkBitboard::from_uint(0b101_100_110_011_111_100, size)
             );
             let size = GridSize::tictactoe();
             assert_eq!(
-                MnkBitboard::from_uint(0x49249249249249249249249249249249, size).flip_left_right(),
+                MnkBitboard::from_uint(0x49249249249249249249249249249249, size).flip_left_right(0),
                 MnkBitboard::from_uint(0x24924924924924924924924924924924, size)
             );
         }

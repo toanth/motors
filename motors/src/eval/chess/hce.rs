@@ -1,13 +1,13 @@
 use strum::IntoEnumIterator;
 
-use gears::games::{Board, Color, DimT};
-use gears::games::chess::Chessboard;
 use gears::games::chess::pieces::UncoloredChessPiece;
 use gears::games::chess::pieces::UncoloredChessPiece::{Pawn, Rook};
 use gears::games::chess::squares::ChessSquare;
+use gears::games::chess::Chessboard;
 use gears::games::Color::{Black, White};
+use gears::games::{Board, Color, DimT};
+use gears::general::bitboards::chess::{ChessBitboard, A_FILE};
 use gears::general::bitboards::Bitboard;
-use gears::general::bitboards::chess::{A_FILE, ChessBitboard};
 use gears::general::bitboards::RawBitboard;
 use gears::search::Score;
 
@@ -17,7 +17,7 @@ use crate::eval::Eval;
 #[derive(Default, Debug)]
 pub struct HandCraftedEval {}
 
-/// Psqt values tuned on a combination of the zurichess and a dataset used by 4ku,
+/// Eval values tuned on a combination of the zurichess and a dataset used by 4ku,
 /// created by GCP using his engine Stoofvlees and filtered by cj5716 using Stockfish at depth 9,
 /// using this tuner: https://github.com/GediminasMasaitis/texel-tuner.
 #[rustfmt::skip]

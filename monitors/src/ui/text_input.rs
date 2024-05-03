@@ -8,26 +8,26 @@ use colored::Colorize;
 use itertools::Itertools;
 use rand::thread_rng;
 
-use gears::{GameState, output_builder_from_str};
-use gears::games::{Board, BoardHistory, Color, Move};
 use gears::games::Color::{Black, White};
-use gears::general::common::{
-    NamedEntity, parse_int_from_str, Res, select_name_static, StaticallyNamedEntity,
-    to_name_and_optional_description,
-};
+use gears::games::{Board, BoardHistory, Color, Move};
 use gears::general::common::Description::{NoDescription, WithDescription};
-use gears::MatchStatus::{Ongoing, Over};
+use gears::general::common::{
+    parse_int_from_str, select_name_static, to_name_and_optional_description, NamedEntity, Res,
+    StaticallyNamedEntity,
+};
 use gears::output::Message::{Info, Warning};
 use gears::search::TimeControl;
 use gears::ugi::parse_ugi_position;
+use gears::MatchStatus::{Ongoing, Over};
+use gears::{output_builder_from_str, GameState};
 
-use crate::cli::{HumanArgs, parse_engine, parse_human, PlayerArgs};
 use crate::cli::PlayerArgs::{Engine, Human};
+use crate::cli::{parse_engine, parse_human, HumanArgs, PlayerArgs};
 use crate::play::player::{Player, PlayerBuilder};
 use crate::play::ugi_client::Client;
 use crate::play::ugi_input::BestMoveAction::Play;
-use crate::ui::{Input, InputBuilder};
 use crate::ui::text_input::DefaultPlayer::{Active, Inactive, NoPlayer};
+use crate::ui::{Input, InputBuilder};
 
 struct TextSelection<F> {
     names: Vec<&'static str>,
@@ -329,8 +329,8 @@ impl<B: Board> TextInputThread<B> {
     }
 
     fn handle_position(mut client: MutexGuard<Client<B>>, words: &mut SplitWhitespace) -> Res<()> {
-        let settings = client.board().settings();
-        client.reset_to_new_start_position(parse_ugi_position(words, settings)?);
+        let board = client.board().clone();
+        client.reset_to_new_start_position(parse_ugi_position(words, &board)?);
         let Some(word) = words.next() else {
             return Ok(());
         };

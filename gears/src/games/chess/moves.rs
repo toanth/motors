@@ -6,8 +6,8 @@ use num::iter;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-use crate::games::chess::flags::CastleRight;
-use crate::games::chess::flags::CastleRight::*;
+use crate::games::chess::castling::CastleRight;
+use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::pieces::{ChessPiece, ColoredChessPiece, UncoloredChessPiece};
@@ -16,8 +16,10 @@ use crate::games::chess::squares::{
 };
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::chess::Chessboard;
+use crate::games::Color::{Black, White};
 use crate::games::{
-    AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType, DimT, Move, MoveFlags,
+    char_to_file, file_to_char, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType,
+    DimT, Move, MoveFlags,
 };
 use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::bitboards::{Bitboard, RawBitboard};
@@ -28,7 +30,8 @@ pub enum ChessMoveFlags {
     #[default]
     Normal,
     EnPassant,
-    Castle,
+    CastleQueenside,
+    CastleKingside,
     PromoKnight,
     PromoBishop,
     PromoRook,
@@ -54,7 +57,7 @@ impl MoveFlags for ChessMoveFlags {}
 /// Members are stored as follows:
 /// Bits 0-5: from square
 /// Bits 6 - 11: To square
-/// Bits 12-13: Move type
+/// Bits 12-14: Move type
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Ord, PartialOrd)]
 pub struct ChessMove(u16);
 
@@ -83,7 +86,7 @@ impl ChessMove {
         board.piece_on(self.dest_square())
     }
 
-    pub fn is_noisy(self, board: &Chessboard) -> bool {
+    pub fn is_tactical(self, board: &Chessboard) -> bool {
         self.is_capture(board) || self.flags() == PromoQueen || self.flags() == PromoKnight
     }
 
@@ -100,7 +103,7 @@ impl ChessMove {
     pub fn captured(self, board: &Chessboard) -> UncoloredChessPiece {
         if self.flags() == EnPassant {
             Pawn
-        } else if self.flags() == Castle {
+        } else if self.is_castle() {
             Empty
         } else {
             board.piece_on(self.dest_square()).uncolored()
@@ -120,7 +123,7 @@ impl ChessMove {
     }
 
     pub fn is_castle(self) -> bool {
-        self.flags() == Castle
+        self.flags() == CastleQueenside || self.flags() == CastleKingside
     }
 
     pub fn castle_side(self) -> CastleRight {
@@ -182,7 +185,8 @@ impl Move<Chessboard> for ChessMove {
             return Err(format!("Move too short: '{s}'. Must be <from square><to square>, e.g. e2e4, and possibly a promotion piece."));
         }
         let from = ChessSquare::from_str(&s[..2])?;
-        let to = ChessSquare::from_str(&s[2..4])?;
+        let mut to = ChessSquare::from_str(&s[2..4])?;
+        let piece = board.piece_on(from);
         let mut flags = Normal;
         if s.len() > 4 {
             let promo = s.chars().nth(4).unwrap();
@@ -193,8 +197,27 @@ impl Move<Chessboard> for ChessMove {
                 'q' => flags = PromoQueen,
                 _ => return Err(format!("Invalid character after to square: '{promo}'")),
             }
-        } else if board.piece_on(from).uncolored() == King && to.file().abs_diff(from.file()) > 1 {
-            flags = Castle;
+        } else if piece.uncolored() == King {
+            let rook_capture =
+                board.piece_on(to).symbol == ColoredChessPiece::new(piece.color().unwrap(), Rook);
+            if rook_capture || to.file().abs_diff(from.file()) > 1 {
+                let color = if from.rank() == 0 { White } else { Black };
+                if !rook_capture {
+                    // convert normal chess king-to castling notation to rook capture notation (necessary for chess960/DFRC)
+                    let to_file = match to.file() {
+                        C_FILE_NO => board.castling.rook_start_file(color, Queenside),
+                        G_FILE_NO => board.castling.rook_start_file(color, Kingside),
+                        _ => return Err(format!("Invalid king move to square {to}, which is neither a normal king move nor a castling move"))
+                    };
+                    to = ChessSquare::from_rank_file(to.rank(), to_file);
+                }
+                // handle KxR notation (e.g. e1h1 for kingside castling)
+                flags = if to.file() == board.castling.rook_start_file(color, Queenside) {
+                    CastleQueenside
+                } else {
+                    CastleKingside
+                }
+            }
         } else if board.piece_on(from).uncolored() == Pawn
             && board.piece_on(to).is_empty()
             && from.file() != to.file()
@@ -206,30 +229,34 @@ impl Move<Chessboard> for ChessMove {
     }
 
     fn to_extended_text(self, board: &Chessboard) -> String {
-        let piece = self.piece(board);
-        let mut res = piece.to_ascii_char().to_ascii_uppercase().to_string();
-        if piece.uncolored() == Pawn {
-            if self.is_capture(board) {
-                res = self
-                    .src_square()
-                    .to_string()
-                    .chars()
-                    .nth(0)
-                    .unwrap()
-                    .to_string();
-            } else {
-                res = String::default();
-            }
-        } else if self.is_castle() {
+        if self.is_castle() {
             return match self.castle_side() {
                 Queenside => "O-O-O".to_string(),
                 Kingside => "O-O".to_string(),
             };
         }
+        let piece = self.piece(board);
+        let mut res = match piece.uncolored() {
+            Pawn => String::default(),
+            piece => piece.to_ascii_char().to_string(),
+        };
+        let mut from_str = if piece.uncolored() == Pawn && self.is_capture(board) {
+            self.src_square()
+                .to_string()
+                .chars()
+                .nth(0)
+                .unwrap()
+                .to_string()
+        } else {
+            String::default()
+        };
         let moves = board
-            .legal_moves_slow()
+            // we have to use .pseudolegal instead of legal moves here because that's what the rules demand.
+            .pseudolegal_moves()
             .filter(|mov| {
-                mov.piece(board).symbol == piece.symbol && mov.dest_square() == self.dest_square()
+                mov.piece(board).symbol == piece.symbol
+                    && mov.dest_square() == self.dest_square()
+                    && mov.promo_piece() == self.promo_piece()
             })
             .collect_vec();
         if moves.is_empty() {
@@ -237,24 +264,35 @@ impl Move<Chessboard> for ChessMove {
         }
 
         if moves.len() > 1 {
-            if moves
+            from_str = if moves
                 .iter()
                 .filter(|mov| mov.src_square().file() == self.src_square().file())
                 .count()
                 <= 1
             {
-                res.push(self.src_square().to_string().chars().nth(0).unwrap());
+                self.src_square()
+                    .to_string()
+                    .chars()
+                    .nth(0)
+                    .unwrap()
+                    .to_string()
             } else if moves
                 .iter()
                 .filter(|mov| mov.src_square().rank() == self.src_square().rank())
                 .count()
                 <= 1
             {
-                res.push(self.src_square().to_string().chars().nth(1).unwrap());
+                self.src_square()
+                    .to_string()
+                    .chars()
+                    .nth(1)
+                    .unwrap()
+                    .to_string()
             } else {
-                res += &self.src_square().to_string();
+                self.src_square().to_string()
             }
-        }
+        };
+        res += &from_str;
         if self.is_capture(board) {
             res.push('x');
         }
@@ -297,43 +335,57 @@ impl Move<Chessboard> for ChessMove {
 
 impl Chessboard {
     pub fn rook_start_square(&self, color: Color, side: CastleRight) -> ChessSquare {
-        let idx = color as usize * 2 + side as usize;
-        match idx {
-            0 => ChessSquare::from_rank_file(0, A_FILE_NO),
-            1 => ChessSquare::from_rank_file(0, H_FILE_NO),
-            2 => ChessSquare::from_rank_file(7, A_FILE_NO),
-            3 => ChessSquare::from_rank_file(7, H_FILE_NO),
-            _ => panic!("Internal error"),
-        }
+        let file = self.castling.rook_start_file(color, side);
+        let rank = 7 * color as DimT;
+        ChessSquare::from_rank_file(rank, file)
     }
 
+    /// Is only ever called on a copy of the board, so no need to undo the changes when a move gets aborted due to pseudo-legality.
     pub fn make_move_impl(mut self, mov: ChessMove) -> Option<Self> {
         let piece = mov.piece(&self).symbol;
         let uncolored = piece.uncolor();
         let color = self.active_player;
         let other = color.other();
         let from = mov.src_square();
-        let to = mov.dest_square();
+        let mut to = mov.dest_square();
         assert_eq!(color, piece.color().unwrap());
         self.ply_100_ctr += 1;
         // remove old castling flags
-        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.flags.castling_flags() as usize];
+        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys
+            [self.castling.allowed_castling_directions() as usize];
         if let Some(square) = self.ep_square {
             self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize];
         }
         self.ep_square = None;
         if mov.is_castle() {
-            // TODO: Correct Chess960 castling
             let from_file = from.file() as isize;
-            let to_file = to.file() as isize;
-            let side = if from_file < to_file {
-                Kingside
+            let rook_file = to.file() as isize;
+            let (side, to_file, rook_to_file) = if mov.flags() == CastleKingside {
+                (Kingside, G_FILE_NO, F_FILE_NO)
             } else {
-                Queenside
+                (Queenside, C_FILE_NO, D_FILE_NO)
             };
+            debug_assert_eq!(
+                side == Kingside,
+                self.castling.can_castle(color, Kingside)
+                    && rook_file == self.castling.rook_start_file(color, Kingside) as isize
+            );
+            debug_assert_eq!(
+                side == Queenside,
+                self.castling.can_castle(color, Queenside)
+                    && rook_file == self.castling.rook_start_file(color, Queenside) as isize
+            );
 
-            for file in iter::range_step(from_file, to_file, if side == Kingside { 1 } else { -1 })
-            {
+            // Explicitly test if the current square is in check in case the following for loop is empty
+            // because the king doesn't move -- in that case, testing for check after the castle might obscure the
+            // check with the rook, e.g. black in 'rbbqQ1kr/1p2p1pp/p5n1/2pp1p2/2P4P/P7/BP1PPPP1/R1B1NNKR b HAha - 0 10'
+            if self.is_in_check() {
+                return None;
+            }
+            let step = if side == Kingside { 1 } else { -1 };
+            // no need to test for check on the target square as that will be done at the end of this function after
+            // the rook has moved
+            for file in iter::range_step(from_file + step, to_file as isize, step) {
                 if self.is_in_check_on_square(
                     color,
                     ChessSquare::from_rank_file(from.rank(), file as DimT),
@@ -341,14 +393,11 @@ impl Chessboard {
                     return None;
                 }
             }
-            let mut rook_from = ChessSquare::from_rank_file(from.rank(), H_FILE_NO);
-            let mut rook_to = ChessSquare::from_rank_file(from.rank(), F_FILE_NO);
-            if side == Queenside {
-                rook_from = ChessSquare::from_rank_file(rook_from.rank(), A_FILE_NO);
-                rook_to = ChessSquare::from_rank_file(rook_from.rank(), D_FILE_NO);
-            }
+            let rook_from = self.rook_start_square(color, side);
+            let rook_to = ChessSquare::from_rank_file(from.rank(), rook_to_file);
             debug_assert!(self.piece_on(rook_from).symbol == ColoredChessPiece::new(color, Rook));
             self.move_piece(rook_from, rook_to, ColoredChessPiece::new(color, Rook));
+            to = ChessSquare::from_rank_file(from.rank(), to_file);
         } else if mov.flags() == EnPassant {
             let taken_pawn = mov.square_of_pawn_taken_by_ep().unwrap();
             debug_assert_eq!(
@@ -380,21 +429,22 @@ impl Chessboard {
             }
         }
         if uncolored == King {
-            self.flags.clear_castle_rights(color);
+            self.castling.clear_castle_rights(color);
         } else if from == self.rook_start_square(color, Queenside) {
-            self.flags.unset_castle_right(color, Queenside);
+            self.castling.unset_castle_right(color, Queenside);
         } else if from == self.rook_start_square(color, Kingside) {
-            self.flags.unset_castle_right(color, Kingside);
+            self.castling.unset_castle_right(color, Kingside);
         }
         if to == self.rook_start_square(other, Queenside) {
-            self.flags.unset_castle_right(other, Queenside);
+            self.castling.unset_castle_right(other, Queenside);
         } else if to == self.rook_start_square(other, Kingside) {
-            self.flags.unset_castle_right(other, Kingside);
+            self.castling.unset_castle_right(other, Kingside);
         }
-        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.flags.castling_flags() as usize];
+        self.hash ^=
+            PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         self.move_piece(from, to, piece);
         if mov.is_promotion() {
-            let bb = ChessBitboard::single_piece(self.to_idx(to)).raw();
+            let bb = to.bb().raw();
             self.piece_bbs[Pawn as usize] ^= bb;
             self.piece_bbs[mov.flags().promo_piece() as usize] ^= bb;
             self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, color, to);
@@ -501,22 +551,15 @@ impl<'a> MoveParser<'a> {
         }
     }
 
-    // assumes that the last char in `s` is an ASCII char, i.e. takes exactly 1 byte
     fn parse_str_dont_consume_last_char(&mut self, s: &str) -> bool {
-        let mut chars = s.chars();
         if self.remaining().starts_with(s) {
-            self.num_bytes_read += 0.max(s.len() - 1);
-        }
-        if !s.is_empty()
-            && self
-                .current_char()
-                .is_some_and(|c| c == chars.next().unwrap())
-            && self.remaining() == chars.as_str()
-        {
-            // don't call self.advance_char() here so that one character less is consumed.
+            let mut chars = s.chars().peekable();
+            // Consume one character less.
             // This makes it easier to use this function as part of an if that otherwise only checks a single character
             while chars.next().is_some() {
-                self.advance_char();
+                if chars.peek().is_some() {
+                    self.advance_char();
+                }
             }
             return true;
         }
@@ -524,15 +567,19 @@ impl<'a> MoveParser<'a> {
     }
 
     fn parse_castling(&mut self, board: &Chessboard) -> Option<ChessMove> {
-        let king_square = board.king_square(board.active_player);
+        let color = board.active_player;
+        let king_square = board.king_square(color);
         if self.original_input.starts_with("0-0-0") || self.original_input.starts_with("O-O-O") {
             for _ in 0..5 {
                 self.advance_char();
             }
             return Some(ChessMove::new(
                 king_square,
-                ChessSquare::from_rank_file(king_square.rank(), C_FILE_NO),
-                Castle,
+                ChessSquare::from_rank_file(
+                    king_square.rank(),
+                    board.castling.rook_start_file(color, Queenside),
+                ),
+                CastleQueenside,
             ));
         }
         if self.original_input.starts_with("0-0") || self.original_input.starts_with("O-O") {
@@ -541,8 +588,11 @@ impl<'a> MoveParser<'a> {
             }
             return Some(ChessMove::new(
                 king_square,
-                ChessSquare::from_rank_file(king_square.rank(), G_FILE_NO),
-                Castle,
+                ChessSquare::from_rank_file(
+                    king_square.rank(),
+                    board.castling.rook_start_file(color, Kingside),
+                ),
+                CastleKingside,
             ));
         }
         None
@@ -561,7 +611,7 @@ impl<'a> MoveParser<'a> {
             .current_char()
             .ok_or_else(|| "Empty move".to_string())?;
         match current {
-            'a'..='h' | 'A' | 'C' | 'E'..='H' => (),
+            'a'..='h' | 'A' | 'C' | 'E'..='H' | 'x' | ':' | '×' => (),
             _ => {
                 self.piece = ColoredChessPiece::from_utf8_char(current)
                     .map(|c| c.uncolor())
@@ -606,7 +656,7 @@ impl<'a> MoveParser<'a> {
                 self.start_rank = Some(sq.rank());
             }
             Err(_) => match file {
-                'a'..='h' => self.start_file = Some(file as DimT - 'a' as DimT),
+                'a'..='h' => self.start_file = Some(char_to_file(file)),
                 '1'..='8' => self.start_rank = Some(file as DimT - '1' as DimT),
                 x => {
                     // doesn't reset the current char, but that's fine because we're aborting anyway
@@ -637,7 +687,7 @@ impl<'a> MoveParser<'a> {
             }
         }
         if self.piece == Empty && file.is_some() && matches!(file.unwrap(), 'a'..='h') {
-            self.target_file = file.map(|c| c as DimT - 'a' as DimT);
+            self.target_file = file.map(|c| char_to_file(c));
             return;
         }
         self.num_bytes_read = read_so_far;
@@ -687,10 +737,20 @@ impl<'a> MoveParser<'a> {
     fn parse_check_mate(&mut self) {
         self.ignore_whitespace();
         assert!(!self.gives_check); // the implementation relies on the fact that this function is only called once per move
-        if self
-            .current_char()
-            .is_some_and(|c| matches!(c, '+' | '†') || self.parse_str_dont_consume_last_char("ch"))
-        {
+        if self.current_char().is_some_and(|c| {
+            matches!(c, '#' | '‡')
+                || self.parse_str_dont_consume_last_char("mate")
+                || self.parse_str_dont_consume_last_char("checkmate")
+        }) {
+            self.advance_char();
+            self.gives_mate = true;
+            self.gives_check = true;
+        } else if self.current_char().is_some_and(|c| {
+            matches!(c, '+' | '†')
+                // test for 'check' before 'ch' because otherwise 'ch' would accept for input 'check' and 'eck' would remain.
+                || self.parse_str_dont_consume_last_char("check")
+                || self.parse_str_dont_consume_last_char("ch")
+        }) {
             let parsed_plus = self.current_char().unwrap() == '+';
             self.advance_char();
             self.gives_check = true;
@@ -702,35 +762,18 @@ impl<'a> MoveParser<'a> {
                 // actually not a check, but a position evaluation (which gets ignored, so no need to undo the parsing)
                 self.gives_check = false;
             }
-        } else if self.current_char().is_some_and(|c| {
-            matches!(c, '#' | '‡') || self.parse_str_dont_consume_last_char("mate")
-        }) {
-            self.advance_char();
-            self.gives_mate = true;
-            self.gives_check = true;
         }
     }
 
     fn parse_annotation(&mut self) {
         self.ignore_whitespace();
-        while self.current_char().is_some_and(|c| {
-            matches!(
-                c,
-                '!' | '?'
-                    | '⌓'
-                    | '□'
-                    | ' '
-                    | '⩲'
-                    | '⩱'
-                    | '±'
-                    | '∓'
-                    | '∞'
-                    | '/'
-                    | '+'
-                    | '-'
-                    | '='
-            )
-        }) {
+        let annotation_chars = [
+            '!', '?', '⌓', '□', ' ', '⩲', '⩱', '±', '∓', '∞', '/', '+', '-', '=',
+        ];
+        while self
+            .current_char()
+            .is_some_and(|c| annotation_chars.contains(&c))
+        {
             self.advance_char();
         }
     }
@@ -744,7 +787,7 @@ impl<'a> MoveParser<'a> {
             self.start_rank = None;
         }
 
-        assert_ne!(self.piece, Pawn);
+        // assert_ne!(self.piece, Pawn); // Pawns aren't written as `p` in SAN, but the parser still accepts this.
         if self.piece == Empty {
             self.piece = Pawn;
         }
@@ -786,10 +829,7 @@ impl<'a> MoveParser<'a> {
                                 ChessSquare::from_rank_file(rank, file.unwrap()).to_string()
                             }
                             None => {
-                                format!(
-                                    "the {} file",
-                                    ('a' as DimT + file.unwrap()) as DimT as char
-                                )
+                                format!("the {} file", file_to_char(file.unwrap()))
                             }
                         }
                     } else if rank.is_some() {
@@ -871,19 +911,37 @@ mod tests {
     use crate::games::{Board, Move};
 
     #[test]
-    fn simple_algebraic_notation_test() {
-        // TODO: Finish writing this testcase
+    fn valid_algebraic_notation_test() {
         let transformations = [
             ("Na1", "Na1"),
             ("nxA7 mate", "Nxa7#"),
-            ("RD1:+", "Rxd1+"),
+            ("RC1:", "Rxc1"),
             ("e2e4", "e4"),
-            ("f8D", "f8Q"),
-            ("a5b6:e.p.+", "axb6+"),
-            ("b:ep+", "axb6+"),
-            ("🨅e4", "e4"), // TODO: more (Un)colored unicode pieces
+            ("e8D", "e8=Q"),
+            ("e5f6:e.p.", "exf6"),
+            ("ef:e.p.", "exf6"),
+            //("f:e.p.", "exf6"), // TODO: Make this work?
+            ("e:fep", "exf6"),
+            ("b:", "axb5"),
+            ("🨅e4", "e4"),
+            ("♚f2", "Kf2"),
+            ("♖b8+", "Rb8+"),
+            ("Rb7d7", "Rbd7"), // even though the move Rd1d7 isn't legal, it's still necessary to disambiguate with Rbd7
+            ("gf8:🨂", "gxf8=R"),
+            (":d8🨂 checkmate", "exd8=R#"),
+            ("exf♘", "exf8=N"),
+            ("gf:♝", "gxf8=B"),
+            ("xf5", "gxf5"),
+            ("Ra7", "Rxa7"),
+            ("rB8", "Rb8+"),
+            ("nA7+", "Nxa7#"),
+            ("N3a5", "Nba5"),
         ];
-        // TODO: Implement
+        let pos = Chessboard::from_name("unusual").unwrap();
+        for (input, output) in transformations {
+            let mov = ChessMove::from_extended_text(input, &pos).unwrap();
+            assert_eq!(mov.to_extended_text(&pos), output);
+        }
     }
 
     #[test]
@@ -896,10 +954,17 @@ mod tests {
             "Raaa4",
             "Qi1",
             "Ra8D",
-            "ef e.p.",
+            "f e.p.",
             "O-O-O-O",
+            ":f8🨂", // ambiguous
+            "Rb8#", // check but not checkmate
+            "Rd2",  // only pseudolegal
+            "e3+",  // doesn't give check
         ];
-        // TODO: Implement
+        let pos = Chessboard::from_name("unusual").unwrap();
+        for input in inputs {
+            assert!(ChessMove::from_extended_text(input, &pos).is_err());
+        }
     }
 
     #[test]
@@ -911,8 +976,32 @@ mod tests {
                 let encoded = mov.to_extended_text(&pos);
                 let decoded = ChessMove::from_extended_text(&encoded, &pos);
                 assert!(decoded.is_ok());
+                println!(
+                    "{encoded} | {0} | {1}",
+                    decoded.clone().unwrap(),
+                    pos.as_fen()
+                );
                 assert_eq!(decoded.unwrap(), mov);
             }
         }
     }
+
+    #[test]
+    fn castle_test() {
+        // TODO: (D)FRC
+        let pos = Chessboard::from_name("kiwipete").unwrap();
+        let moves = ["0-0", "0-0-0", "e1g1", "e1h1", "e1a1", "e1c1"];
+        for mov in moves {
+            let mov = ChessMove::from_text(mov, &pos);
+            if let Err(err) = mov {
+                eprintln!("{err}");
+                panic!();
+            }
+            let mov = mov.unwrap();
+            assert!(mov.is_castle());
+            assert!(!mov.is_capture(&pos));
+        }
+    }
 }
+
+// TODO: PGN import test (not here though)

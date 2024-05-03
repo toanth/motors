@@ -4,28 +4,28 @@ use std::time::{Duration, Instant};
 use derive_more::{Deref, DerefMut};
 use rand::thread_rng;
 
-use gears::games::{Board, BoardHistory, ColoredPiece, ZobristRepetition2Fold};
-use gears::games::chess::{Chessboard, ChessMoveList};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
+use gears::games::chess::{ChessMoveList, Chessboard};
+use gears::games::{Board, BoardHistory, ColoredPiece, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
 use gears::search::{
-    Depth, game_result_to_score, MAX_SCORE_LOST, MIN_SCORE_WON, NO_SCORE_YET, Score, SCORE_LOST,
-    SCORE_TIME_UP, SCORE_WON, SearchLimit, SearchResult, TimeControl,
+    game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, MAX_SCORE_LOST,
+    MIN_SCORE_WON, NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
 };
-use gears::ugi::{EngineOption, UgiSpin};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::EngineOptionType::Spin;
+use gears::ugi::{EngineOption, UgiSpin};
 
 use crate::eval::Eval;
+use crate::search::multithreading::SearchSender;
+use crate::search::tt::{TTEntry, TT};
+use crate::search::NodeType::*;
 use crate::search::{
-    ABSearchState, Benchable, BenchResult, CustomInfo, Engine, EngineInfo, NodeType, Pv,
+    ABSearchState, BenchResult, Benchable, CustomInfo, Engine, EngineInfo, NodeType, Pv,
     SearchStackEntry, SearchState,
 };
-use crate::search::multithreading::SearchSender;
-use crate::search::NodeType::*;
-use crate::search::tt::{TT, TTEntry};
 
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
@@ -56,9 +56,21 @@ impl DerefMut for HistoryHeuristic {
 #[derive(Debug, Clone, Default)]
 struct Additional {
     history: HistoryHeuristic,
+    tt: TT,
 }
 
-impl CustomInfo for Additional {}
+impl CustomInfo for Additional {
+    fn tt(&self) -> Option<&TT> {
+        Some(&self.tt)
+    }
+
+    fn new_search(&self) -> Self {
+        Self {
+            history: HistoryHeuristic::default(),
+            tt: self.tt.clone(),
+        }
+    }
+}
 
 #[derive(Debug, Default, Copy, Clone)]
 struct CapsSearchStackEntry {
@@ -80,7 +92,6 @@ type State = ABSearchState<Chessboard, CapsSearchStackEntry, Additional>;
 pub struct Caps<E: Eval<Chessboard>> {
     state: State,
     eval: E,
-    tt: TT,
 }
 
 impl<E: Eval<Chessboard>> Default for Caps<E> {
@@ -88,7 +99,6 @@ impl<E: Eval<Chessboard>> Default for Caps<E> {
         Self {
             state: ABSearchState::new(DEPTH_HARD_LIMIT),
             eval: E::default(),
-            tt: TT::default(),
         }
     }
 }
@@ -152,7 +162,7 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
         EngineInfo {
             name: self.long_name().to_string(),
             version: "0.0.1".to_string(),
-            default_bench_depth: Depth::new(7),
+            default_bench_depth: Depth::new(9),
             options,
             description: "CAPS (Chess Alpha-beta Pruning Search), a negamax-based chess engine"
                 .to_string(),
@@ -162,7 +172,7 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
 
 impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
     fn set_tt(&mut self, tt: TT) {
-        self.tt = tt;
+        self.state.custom.tt = tt;
     }
 
     fn do_search(
@@ -174,7 +184,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
         limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
         let soft_limit = limit
             .fixed_time
-            .min(limit.tc.remaining / 32 + limit.tc.increment)
+            .min(limit.tc.remaining / 32 + limit.tc.increment / 2)
             .min(limit.tc.remaining / 4);
 
         sender.send_message(Debug, &format!(
@@ -253,26 +263,38 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         let mut alpha = SCORE_LOST;
         let mut beta = SCORE_WON;
-        let mut depth = 1;
+        self.state.depth = Depth::new(1);
 
         let mut window_radius = Score(20);
 
         loop {
-            self.state.depth = Depth::new(depth as usize);
-            let iteration_score = self.negamax(pos, limit, 0, depth, alpha, beta, sender);
+            let iteration_score = self.negamax(
+                pos,
+                limit,
+                0,
+                self.state.depth.get() as isize,
+                alpha,
+                beta,
+                sender,
+            );
             assert!(
                 !(iteration_score != SCORE_TIME_UP
                     && iteration_score
                         .plies_until_game_over()
                         .is_some_and(|x| x <= 0)),
-                "score {} depth {depth}",
-                iteration_score.0
+                "score {0} depth {1}",
+                iteration_score.0,
+                self.state.depth.get(),
             );
             sender.send_message(
                 Debug,
                 &format!(
                     "depth {depth}, score {0}, radius {1}, interval ({2}, {3})",
-                    iteration_score.0, window_radius.0, alpha.0, beta.0,
+                    iteration_score.0,
+                    window_radius.0,
+                    alpha.0,
+                    beta.0,
+                    depth = self.state.depth.get()
                 ),
             );
             if self.state.search_cancelled() {
@@ -280,10 +302,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
             }
             self.state.score = iteration_score;
             if iteration_score > alpha && iteration_score < beta {
-                depth += 1;
+                sender.send_search_info(self.search_info()); // do this before incrementing the depth
+                self.state.depth += Depth::new(1);
                 // make sure that alpha and beta are at least 2 apart, to recognize PV nodes.
                 window_radius = Score(1.max(window_radius.0 / 2));
-                sender.send_search_info(self.search_info());
             } else {
                 window_radius.0 *= 3;
             }
@@ -296,6 +318,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 break;
             }
         }
+        self.state.depth -= Depth::new(1); // don't print a depth one larger than what was actually searched.
         chosen_move
     }
 
@@ -315,6 +338,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         debug_assert!(self.state.board_history.0 .0.len() >= ply);
 
         self.state.sel_depth = self.state.sel_depth.max(ply);
+        let mut tt = self.state.custom.tt.clone();
 
         let root = ply == 0;
         let is_pvs_pv_node = alpha + 1 < beta; // TODO: Pass as parameter / generic? Probably not worth much elo
@@ -337,16 +361,16 @@ impl<E: Eval<Chessboard>> Caps<E> {
         let mut best_score = NO_SCORE_YET;
         let mut bound_so_far = UpperBound;
 
-        let tt_entry: TTEntry<Chessboard> = self.tt.load(pos.zobrist_hash(), ply);
+        let tt_entry: TTEntry<Chessboard> = tt.load(pos.zobrist_hash(), ply);
         let mut best_move = tt_entry.mov;
-        let trust_tt_entry =
+        let found_tt_entry =
             tt_entry.bound != NodeType::Empty && tt_entry.hash == pos.zobrist_hash();
 
         // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
         // and we're not a PV node, and the saved score is either exact or at least known to be outside of [alpha, beta),
         // simply return it.
         if !is_pvs_pv_node
-            && trust_tt_entry
+            && found_tt_entry
             && tt_entry.depth as isize >= depth
             && ((tt_entry.score >= beta && tt_entry.bound == LowerBound)
                 || (tt_entry.score <= alpha && tt_entry.bound == UpperBound)
@@ -355,30 +379,41 @@ impl<E: Eval<Chessboard>> Caps<E> {
             return tt_entry.score;
         }
 
-        let eval = self.eval.eval(pos);
-        debug_assert!(!eval.is_game_over_score());
-        //     match trust_tt_entry {
-        //     true => tt_entry.score,
-        //     false => self.eval.eval(pos),
-        // };
+        let eval =
+            if found_tt_entry && tt_entry.bound == Exact && !tt_entry.score.is_game_over_score() {
+                // The TT score is backed by a search, so it should b more trustworthy than a simple call to static eval.s
+                tt_entry.score
+            } else {
+                self.eval.eval(pos)
+            };
 
-        // Reverse Futility Pruning (RFP): If eval is far above beta, it's likely that our opponent
+        debug_assert!(!eval.is_game_over_score());
+        // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
+        // because the move ordering won't be great, so don't spend too much time on this node.
+        // Instead, search it with reduced depth to fill the TT entry so that we can re-search it faster the next time
+        // we see this node.
+        if depth > 4 && best_move == ChessMove::default() {
+            depth -= 1;
+        }
+
+        // RFP (Reverse Futility Pruning): If eval is far above beta, it's likely that our opponent
         // blundered in a previous move of the search, so if the depth is low, don't even bother searching further.
         if can_prune {
             if depth < 4 && eval >= beta + Score(80 * depth as i32) {
                 return eval;
             }
 
-            // Null Move Pruning (NMP). If static eval of our position is above beta, this node probably isn't that interesting.
+            // NMP (Null Move Pruning). If static eval of our position is above beta, this node probably isn't that interesting.
             // To test this hypothesis, do a null move and perform a search with reduced depth; if the result is still
             // above beta, then it's very likely that the score would have been above beta if we had played a move,
             // so simply return the nmp score. This is based on the null move observation (there are very few zugzwang positions).
             // A more careful implementation would do a verification search to check for zugzwang, and possibly avoid even trying
             // nmp in a position with no pieces except the king and pawns.
+            // TODO: Verification search.
             if depth >= 3 && eval >= beta {
                 self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
-                let reduction = 1 + depth / 4;
+                let reduction = 3 + depth / 4;
                 let score = -self.negamax(
                     new_pos,
                     limit,
@@ -400,11 +435,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         let all_moves = self.order_moves(pos.pseudolegal_moves(), &pos, best_move, ply);
         for mov in all_moves {
-            /// LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
-            /// so don't even bother looking at them in the last few layers.
-            /// FP (Futility Pruning): If the static eval is far below alpha,
-            /// then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
-            /// so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
+            // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
+            // so don't even bother looking at them in the last few layers.
+            // FP (Futility Pruning): If the static eval is far below alpha,
+            // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
+            // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
             if can_prune
                 && best_score > MAX_SCORE_LOST
                 && depth <= 3
@@ -422,8 +457,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             let new_pos = new_pos.unwrap();
             self.state.nodes += 1;
             children_visited += 1;
-            // TODO: Use is_noisy() instead of is_capture everywhere, also rename to is_tactical maybe?
-            if !mov.is_capture(&pos) {
+            if !mov.is_tactical(&pos) {
                 num_quiets_visited += 1;
             }
 
@@ -433,8 +467,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
             let debug_history_len = self.state.board_history.0 .0.len();
 
             self.state.board_history.push(&pos);
-            // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove that
-            // the other moves are worse, which we can do with a zero window search. Should this assumption fail,
+            // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove
+            // that the other moves are worse, which we can do with a zero window search. Should this assumption fail,
             // re-search with a full window.
             // A better (but very slightly more complicated) implementation would be to do 2 researches, first with a
             // null window but the full depth, and only then without a null window and at the full depth.
@@ -443,10 +477,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, sender);
             } else {
                 // LMR (Late Move Reductions): Trust the move ordering (mostly the quiet history heuristic, at least currently)
-                // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search to verify our belief.
-                // In the unlikely case that thi believe turns out to have been misplaced, do a full research instead
-                // (A more complex implementation might do 2 researches, where the first research still uses a null window but
-                // searches to the full depth.)
+                // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
+                // to verify our belief.
                 let mut reduction = 0;
                 if !in_check && num_quiets_visited > 4 && depth >= 4 {
                     reduction = 1 + depth / 8; // This is a very basic implementation. TODO: Make more complex eventually.
@@ -464,9 +496,32 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     -alpha,
                     sender,
                 );
-                if alpha < score && score < beta {
-                    score =
-                        -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, sender);
+                // If the score turned out to be better than expected (at least `alpha`), this might just be because
+                // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
+                if alpha < score {
+                    score = -self.negamax(
+                        new_pos,
+                        limit,
+                        ply + 1,
+                        depth - 1,
+                        -(alpha + 1),
+                        -alpha,
+                        sender,
+                    );
+                    // If the full-depth search also performed better than expected, do a full-depth search with the
+                    // full window to find the true score. If the score was at least `beta`, don't search again
+                    // -- this move is probably already too good, so don't waste more time finding out how good it is exactly.
+                    if alpha < score && score < beta {
+                        score = -self.negamax(
+                            new_pos,
+                            limit,
+                            ply + 1,
+                            depth - 1,
+                            -beta,
+                            -alpha,
+                            sender,
+                        );
+                    }
                 }
             }
 
@@ -501,8 +556,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 continue;
             }
             bound_so_far = LowerBound;
-            if mov.is_capture(&pos) {
-                // TODO: Run test with regression bounds for using is_noisy (can cache that)
+            if mov.is_tactical(&pos) {
                 break;
             }
             // Update various heuristics, TODO: More (killers, history gravity, etc)
@@ -520,6 +574,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
             return game_result_to_score(pos.no_moves_result(), ply);
         }
 
+        // in case of a collision, if there's no best_move to store because the node failed low, make that clear by
+        // storing a null move instead of the random move that was stored there previously. This helps IIR.
+        if bound_so_far == UpperBound && pos.zobrist_hash() != tt_entry.hash {
+            best_move = ChessMove::default();
+        }
         let tt_entry: TTEntry<Chessboard> = TTEntry::new(
             pos.zobrist_hash(),
             best_score,
@@ -529,14 +588,13 @@ impl<E: Eval<Chessboard>> Caps<E> {
         );
         // TODO: eventually test that not overwriting PV nodes unless the depth is quite a bit greater gains
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
-        // if this node was an exact or fail high node.
-        self.tt.store(tt_entry, ply);
+        // if this node was an exact or fail high node or if there was a collision.
+        tt.store(tt_entry, ply);
 
         best_score
     }
 
-    /// Search only noisy moves to quieten down the position before calling eval.
-
+    /// Search only "tactical" moves to quieten down the position before calling eval.
     fn qsearch(&mut self, pos: Chessboard, mut alpha: Score, beta: Score, ply: usize) -> Score {
         // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
@@ -548,11 +606,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         self.state.sel_depth = self.state.sel_depth.max(ply);
 
+        // TODO: stand pat is SCORE_LOST when in check, generate evasions?
         alpha = alpha.max(best_score);
         // TODO: Using the TT for move ordering in qsearch was mostly elo-neutral, so retest that eventually
         // do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation
         // but if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        let tt_entry: TTEntry<Chessboard> = self.tt.load(pos.zobrist_hash(), ply);
+        let tt_entry: TTEntry<Chessboard> = self.state.custom.tt.load(pos.zobrist_hash(), ply);
 
         // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
         // However, if we've already done qsearch on this position, we can just re-use the result,
@@ -568,9 +627,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         let mut best_move = tt_entry.mov;
 
-        let captures = self.order_moves(pos.noisy_pseudolegal(), &pos, ChessMove::default(), ply);
+        let captures =
+            self.order_moves(pos.tactical_pseudolegal(), &pos, ChessMove::default(), ply);
         for mov in captures {
-            debug_assert!(mov.is_noisy(&pos));
+            debug_assert!(mov.is_tactical(&pos));
             let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
                 continue;
@@ -591,9 +651,13 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 break;
             }
         }
+        // see main search, don't store a random move in the TT entry.
+        if bound_so_far == UpperBound && pos.zobrist_hash() != tt_entry.hash {
+            best_move = ChessMove::default();
+        }
         let tt_entry: TTEntry<Chessboard> =
             TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
-        self.tt.store(tt_entry, ply);
+        self.state.custom.tt.store(tt_entry, ply);
         debug_assert!(!best_score.is_game_over_score());
         best_score
     }
@@ -630,7 +694,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
 #[cfg(test)]
 mod tests {
     use gears::games::chess::Chessboard;
-    use gears::games::ZobristHistoryBase;
+    use gears::games::{Move, ZobristHistoryBase};
     use gears::search::Nodes;
 
     use crate::eval::chess::hce::HandCraftedEval;
@@ -703,5 +767,49 @@ mod tests {
         let res = engine.search_from_pos(pos, SearchLimit::nodes(Nodes::new(100_000).unwrap()));
         // TODO: More aggressive bound once the engine is stronger
         assert!(res.unwrap().score.unwrap().abs() <= Score(200));
+    }
+
+    #[test]
+    #[cfg(not(debug_assertions))]
+    /// puzzles that are reasonably challenging for most humans, but shouldn't be difficult for the engine
+    fn mate_test() {
+        let fens = [
+            ("8/5K2/4N2k/2B5/5pP1/1np2n2/1p6/r2R4 w - - 0 1", "d1d5"),
+            ("5rk1/r5p1/2b2p2/3q1N2/6Q1/3B2P1/5P2/6KR w - - 0 1", "f5h6"),
+            (
+                "2rk2nr/R1pnp3/5b2/5P2/BpPN1Q2/pPq5/P7/1K4R1 w - - 0 1",
+                "f4c7",
+            ),
+            ("k2r3r/PR6/1K6/3R4/8/5np1/B6p/8 w - - 0 1", "d5d8"),
+            ("3n3R/8/3p1pp1/r2bk3/8/4NPP1/p3P1KP/1r1R4 w - - 0 1", "h8e8"),
+            ("7K/k7/p1R5/4N1q1/8/6rb/5r2/1R6 w - - 0 1", "c6c7"),
+            (
+                "rkr5/3n1p2/1pp1b3/NP4p1/3PPn1p/QN1B1Pq1/2P5/R6K w - - 0 1",
+                "a5c6",
+            ),
+            ("1kr5/4R3/pP6/1n2N3/3p4/2p5/1r6/4K2R w K - 0 1", "h1h8"),
+            ("1k6/1bpQN3/1p6/p7/6p1/2NP1nP1/5PK1/4q3 w - - 0 1", "d7d8"),
+            (
+                "1k4r1/pb1p4/1p1P4/1P3r1p/1N2Q3/6Pq/4BP1P/4R1K1 w - - 0 1",
+                "b4a6",
+            ),
+        ];
+        for (fen, mov) in fens {
+            let pos = Chessboard::from_fen(fen).unwrap();
+            let mut engine = Caps::<HandCraftedEval>::default();
+            let mut limit = SearchLimit::depth(Depth::new(18));
+            limit.mate = Depth::new(10);
+            limit.fixed_time = Duration::from_secs(2);
+            let res = engine
+                .search_from_pos(pos, SearchLimit::depth(Depth::new(15)))
+                .unwrap();
+            println!(
+                "chosen move {0}, fen {1}",
+                res.chosen_move.to_extended_text(&pos),
+                pos.as_fen()
+            );
+            assert!(res.score.unwrap().is_game_won_score());
+            assert_eq!(res.chosen_move.to_compact_text(), mov);
+        }
     }
 }

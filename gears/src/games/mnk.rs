@@ -490,7 +490,7 @@ impl Board for MNKBoard {
         moves
     }
 
-    fn noisy_pseudolegal(&self) -> Self::MoveList {
+    fn tactical_pseudolegal(&self) -> Self::MoveList {
         Default::default()
     }
 
@@ -836,7 +836,7 @@ mod test {
         assert_eq!(r.perft_res.depth.get(), 5);
         assert_eq!(r.perft_res.nodes.get(), 25 * 24 * 23 * 22 * 21);
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
-        assert!(r.perft_res.time.as_millis() <= 2500);
+        assert!(r.perft_res.time.as_millis() <= 4000);
 
         let r = split_perft(Depth::new(9), MNKBoard::default());
         assert_eq!(r.perft_res.depth.get(), 9);

@@ -24,7 +24,8 @@ Current features:
 - Principal Variation Search
 - Check Extensions
 - Null Move Pruning
-- Reverse Futlity Pruning
+- Reverse Futility Pruning
+- Futility Pruning
 - Late Move Pruning
 - Time Management with a soft and hard bound, as well as support for fixed time, depth, nodes and `infinite`, or any combination of these
 - Eval function:

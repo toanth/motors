@@ -11,13 +11,13 @@ use strum_macros::FromRepr;
 use gears::games::{Board, ZobristHistoryBase, ZobristRepetition2Fold};
 use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
-    Depth, Nodes, Score, SCORE_WON, SearchInfo, SearchLimit, SearchResult, TimeControl,
+    Depth, Nodes, Score, SearchInfo, SearchLimit, SearchResult, TimeControl, SCORE_WON,
 };
 use gears::ugi::{EngineOption, EngineOptionName};
 
 use crate::search::multithreading::{EngineWrapper, SearchSender};
-use crate::search::Searching::*;
 use crate::search::tt::TT;
+use crate::search::Searching::*;
 
 #[cfg(feature = "chess")]
 pub mod chess;
@@ -262,7 +262,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     ) -> bool {
         let state = self.search_state();
         state.start_time().elapsed() >= soft_limit
-            || state.depth().get() as isize >= max_depth
+            || state.depth().get() as isize > max_depth
             || state.score() >= Score(SCORE_WON.0 - mate_depth.get() as i32)
     }
 
@@ -344,7 +344,14 @@ impl<B: Board> SearchStackEntry<B> for EmptySearchStackEntry {
     }
 }
 
-trait CustomInfo: Default + Clone + Debug {}
+trait CustomInfo: Default + Clone + Debug {
+    fn tt(&self) -> Option<&TT> {
+        None
+    }
+    fn new_search(&self) -> Self {
+        self.clone()
+    }
+}
 
 #[derive(Default, Clone, Debug)]
 struct NoCustomInfo {}
@@ -368,10 +375,10 @@ pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo> {
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
     fn new(max_depth: Depth) -> Self {
-        Self::new_with_stack(vec![E::default(); max_depth.get()])
+        Self::new_with(vec![E::default(); max_depth.get()], C::default())
     }
 
-    fn new_with_stack(search_stack: Vec<E>) -> Self {
+    fn new_with(search_stack: Vec<E>, custom: C) -> Self {
         let start_time = Instant::now();
         Self {
             search_stack,
@@ -384,7 +391,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
             should_stop: false,
             depth: Depth::MIN,
             sel_depth: 0,
-            custom: C::default(),
+            custom,
         }
     }
 
@@ -403,7 +410,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
     }
 
     fn hashfull(&self) -> Option<usize> {
-        None
+        self.custom.tt().map(|tt| tt.estimate_hashfull::<B>())
     }
     fn seldepth(&self) -> Option<usize> {
         if self.sel_depth == 0 {
@@ -459,7 +466,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
         for e in stack.iter_mut() {
             e.forget();
         }
-        *self = Self::new_with_stack(stack);
+        *self = Self::new_with(stack, self.custom.new_search());
     }
 
     fn new_search(&mut self, history: ZobristRepetition2Fold) {

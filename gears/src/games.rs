@@ -9,15 +9,15 @@ use num::{iter, PrimInt};
 use rand::Rng;
 use strum_macros::EnumIter;
 
-use crate::{GameOver, GameOverReason, MatchResult, player_res_to_match_res, PlayerResult};
 use crate::games::PlayerResult::{Draw, Lose};
-use crate::general::common::{
-    EntityList, GenericSelect, parse_int, Res, select_name_static, StaticallyNamedEntity,
-};
 use crate::general::common::Description::NoDescription;
+use crate::general::common::{
+    parse_int, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
+};
 use crate::general::move_list::MoveList;
 use crate::output::OutputBuilder;
 use crate::search::Depth;
+use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
 
 #[cfg(feature = "mnk")]
 pub mod mnk;
@@ -168,11 +168,16 @@ impl<C: Coordinates, T: ColoredPieceType> Display for GenericPiece<C, T> {
     }
 }
 
-// pub enum TextRepresentation {
-//     Fen,
-//     AsciiDiagram,
-//     Utf8Diagram,
-// }
+pub fn file_to_char(file: DimT) -> char {
+    debug_assert!(file < 26);
+    (file + 'a' as DimT) as char
+}
+
+pub fn char_to_file(file: char) -> DimT {
+    debug_assert!(file >= 'a');
+    debug_assert!(file <= 'z');
+    file as DimT - 'a' as DimT
+}
 
 // Assume 2D grid for now.
 pub trait Coordinates: Eq + Copy + Debug + Default + FromStr<Err = String> + Display {
@@ -276,7 +281,7 @@ impl Display for GridCoordinates {
         write!(
             f,
             "{0}{1}",
-            (self.column + 'a' as DimT) as char,
+            file_to_char(self.column),
             self.row + 1 // output 1-indexed
         )
     }
@@ -287,7 +292,7 @@ impl GridCoordinates {
         if !file.is_ascii_alphabetic() {
             return Err("file (column) must be a valid ascii letter".to_string());
         }
-        let column = file.to_ascii_lowercase() as DimT - 'a' as DimT;
+        let column = char_to_file(file.to_ascii_lowercase());
         let rank = DimT::try_from(rank).map_err(|err| err.to_string())?;
         Ok(GridCoordinates {
             column,
@@ -741,8 +746,8 @@ pub trait Board:
     /// `make_move` or which will cause `make_move` to return `None`.
     fn pseudolegal_moves(&self) -> Self::MoveList;
 
-    /// Returns a list of pseudo legal moves that are considered "noisy", such as captures and promotions in chess.
-    fn noisy_pseudolegal(&self) -> Self::MoveList;
+    /// Returns a list of pseudo legal moves that are considered "tactical", such as captures and promotions in chess.
+    fn tactical_pseudolegal(&self) -> Self::MoveList;
 
     /// Returns a list of legal moves, that is, moves that can be played using `make_move`
     /// and will not return `None`. TODO: Add trait for efficient legal moves implementation.
@@ -1045,9 +1050,9 @@ where
 mod tests {
     use std::collections::HashSet;
 
-    use crate::games::Board;
     use crate::games::chess::Chessboard;
     use crate::games::mnk::MNKBoard;
+    use crate::games::Board;
 
     use super::*;
 

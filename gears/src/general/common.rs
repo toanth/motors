@@ -2,6 +2,7 @@ use std::fmt::{Debug, Display};
 use std::io::stdin;
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::str::{FromStr, SplitWhitespace};
+use std::time::Duration;
 
 use bitintr::Pdep;
 use colored::Colorize;
@@ -65,6 +66,12 @@ pub fn parse_int_from_stdin<T: PrimInt + FromStr>() -> Res<T> {
     let mut s = String::default();
     stdin().read_line(&mut s).map_err(|e| e.to_string())?;
     parse_int_from_str(s.trim(), "integer")
+}
+
+pub fn parse_duration_ms(words: &mut SplitWhitespace, name: &str) -> Res<Duration> {
+    let num_ms: i64 = parse_int(words, name)?;
+    // The UGI client can send negative remaining time.
+    Ok(Duration::from_millis(num_ms.max(0) as u64))
 }
 
 /// The name is used to identify the entity throughout all UIs and command line arguments.

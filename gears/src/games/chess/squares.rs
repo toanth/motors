@@ -106,7 +106,7 @@ impl ChessSquare {
         }
     }
 
-    pub fn to_bitboard(self) -> ChessBitboard {
+    pub fn bb(self) -> ChessBitboard {
         ChessBitboard::single_piece(self.index())
     }
 

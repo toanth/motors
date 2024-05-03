@@ -1,5 +1,5 @@
-use std::fmt::{Debug, Display, Formatter};
-use std::io::{stdin, Write};
+use std::fmt::{Debug, Display, Formatter, Write};
+use std::io::stdin;
 use std::ops::{Deref, DerefMut};
 use std::str::{FromStr, SplitWhitespace};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -9,29 +9,32 @@ use colored::Colorize;
 use crossbeam_channel::select;
 use itertools::Itertools;
 
-use gears::{AbstractRun, GameResult, GameState, MatchStatus, output_builder_from_str};
-use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
 use gears::games::Color::White;
-use gears::general::common::{parse_int, parse_int_from_str, to_name_and_optional_description};
+use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
 use gears::general::common::Description::WithDescription;
 use gears::general::common::Res;
+use gears::general::common::{
+    parse_duration_ms, parse_int, parse_int_from_str, to_name_and_optional_description,
+};
 use gears::general::perft::{perft, split_perft};
-use gears::MatchStatus::*;
-use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
+use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, Nodes, SearchInfo, SearchLimit, SearchResult, TimeControl};
-use gears::ugi::{EngineOptionName, parse_ugi_position};
-use gears::ugi::EngineOptionName::Threads;
+use gears::ugi::EngineOptionName::{MoveOverhead, Threads};
+use gears::ugi::EngineOptionType::Spin;
+use gears::ugi::{parse_ugi_position, EngineOption, EngineOptionName, UgiSpin};
+use gears::MatchStatus::*;
+use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchStatus};
 
 use crate::cli::EngineOpts;
 use crate::create_engine_from_str;
-use crate::search::{BenchResult, EngineList};
 use crate::search::multithreading::{EngineWrapper, Receiver, SearchSender, Sender};
+use crate::search::{BenchResult, EngineList};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
 
-const MOVE_OVERHEAD: Duration = Duration::from_millis(10);
+const DEFAULT_MOVE_OVERHEAD_MS: u64 = 20;
 
 // TODO: Ensure this conforms to https://expositor.dev/uci/doc/uci-draft-1.pdf
 
@@ -127,7 +130,7 @@ impl<B: Board> BoardGameState<B> {
     }
 
     fn handle_position(&mut self, words: &mut SplitWhitespace) -> Res<()> {
-        self.initial_pos = parse_ugi_position(words, self.board.settings())?;
+        self.initial_pos = parse_ugi_position(words, &self.board)?;
         self.clear_state();
 
         let Some(word) = words.next() else {
@@ -248,6 +251,7 @@ pub struct EngineUGI<B: Board> {
     state: EngineGameState<B>,
     output: Arc<Mutex<UgiOutput<B>>>,
     output_factories: OutputList<B>,
+    move_overhead: Duration,
 }
 
 impl<B: Board> AbstractRun for EngineUGI<B> {
@@ -347,6 +351,7 @@ impl<B: Board> EngineUGI<B> {
             state,
             output,
             output_factories: all_output_builders,
+            move_overhead: Duration::from_millis(DEFAULT_MOVE_OVERHEAD_MS),
         })
     }
 
@@ -428,13 +433,13 @@ impl<B: Board> EngineUGI<B> {
             "ugi" => {
                 let id_msg = self.id();
                 self.write_ugi(id_msg.as_str());
-                self.write_ugi(self.write_options().as_str());
+                self.write_ugi(self.write_ugi_options().as_str());
                 self.write_ugi("ugiok");
             }
             "uci" => {
                 let id_msg = self.id();
                 self.write_ugi(id_msg.as_str());
-                self.write_ugi(self.write_options().as_str());
+                self.write_ugi(self.write_ugi_options().as_str());
                 self.write_ugi("uciok");
             }
             "isready" => {
@@ -458,6 +463,9 @@ impl<B: Board> EngineUGI<B> {
             "query" => {
                 self.handle_query(words)?;
             }
+            "option" => {
+                self.write_ugi(&self.print_option(words)?);
+            }
             "output" | "o" => {
                 self.handle_output(words)?;
             }
@@ -475,6 +483,9 @@ impl<B: Board> EngineUGI<B> {
             }
             "perft" => {
                 self.handle_perft_or_bench(Perft, words)?;
+            }
+            "splitperft" | "sp" => {
+                self.handle_perft_or_bench(SplitPerft, words)?;
             }
             "bench" => {
                 self.handle_perft_or_bench(Bench, words)?;
@@ -543,6 +554,10 @@ impl<B: Board> EngineUGI<B> {
             value = value + " " + next_word;
         }
         let name = EngineOptionName::from_str(name.trim()).unwrap();
+        if name == MoveOverhead {
+            self.move_overhead = parse_duration_ms(&mut value.split_whitespace(), "move overhead")?;
+            return Ok(());
+        }
         let value = value.trim().to_string();
         self.state
             .engine
@@ -568,26 +583,26 @@ impl<B: Board> EngineUGI<B> {
                 }
                 "ponder" => return Err("Pondering is not (yet?) implemented".to_string()),
                 "wtime" | "p1time" | "wt" | "p1t" => {
-                    let time = Duration::from_millis(parse_int(words, "'wtime' milliseconds")?);
+                    let time = parse_duration_ms(words, "wtime")?;
+                    // always parse the duration, even if it isn't relevant
                     if is_white {
-                        // always parse the int, even if it isn't relevant
                         limit.tc.remaining = time;
                     }
                 }
                 "btime" | "p2time" | "bt" | "p2t" => {
-                    let time = Duration::from_millis(parse_int(words, "'btime' milliseconds")?);
+                    let time = parse_duration_ms(words, "btime")?;
                     if !is_white {
                         limit.tc.remaining = time;
                     }
                 }
                 "winc" | "p1inc" | "wi" => {
-                    let increment = Duration::from_millis(parse_int(words, "'winc' milliseconds")?);
+                    let increment = parse_duration_ms(words, "winc")?;
                     if is_white {
                         limit.tc.increment = increment;
                     }
                 }
                 "binc" | "p2inc" | "bi" => {
-                    let increment = Duration::from_millis(parse_int(words, "'binc' milliseconds")?);
+                    let increment = parse_duration_ms(words, "binc")?;
                     if !is_white {
                         limit.tc.increment = increment;
                     }
@@ -603,16 +618,15 @@ impl<B: Board> EngineUGI<B> {
                     limit.mate = Depth::new(depth * 2) // 'mate' is given in moves instead of plies
                 }
                 "movetime" => {
-                    limit.fixed_time =
-                        Duration::from_millis(parse_int(words, "time per move in milliseconds")?);
+                    limit.fixed_time = parse_duration_ms(words, "time per move in milliseconds")?;
                     limit.fixed_time = limit
                         .fixed_time
-                        .saturating_sub(MOVE_OVERHEAD)
+                        .saturating_sub(self.move_overhead)
                         .max(Duration::from_millis(1));
                 }
                 "infinite" | "inf" => (), // "infinite" is the identity element of the bounded semilattice of `go` options
                 "perft" => search_type = Perft,
-                "splitperft" => search_type = SplitPerft,
+                "splitperft" | "sp" => search_type = SplitPerft,
                 "bench" => search_type = Bench,
                 _ => return Err(format!("Unrecognized 'go' option: '{next_word}'")),
             }
@@ -620,7 +634,7 @@ impl<B: Board> EngineUGI<B> {
         limit.tc.remaining = limit
             .tc
             .remaining
-            .saturating_sub(MOVE_OVERHEAD)
+            .saturating_sub(self.move_overhead)
             .max(Duration::from_millis(1));
         self.start_search(search_type, limit)
     }
@@ -875,6 +889,7 @@ impl<B: Board> EngineUGI<B> {
         or simply `perft` to use the current position and game-specific default depth.\
         \n {bench}: See `perft`, but replace 'perft' with 'bench'. The default depth is engine-specific.\
         \n {eval}: Prints the static eval of the current position, without doing any actual searching.\
+        \n {option}: Prints the current value of the specified UGI option, or of all UGI options if no name is specified.\
         \n {help}: Prints this help message. \
         \nThis command line interface is mainly intended for internal use, if you want to play against this engine or use it for analysis,\
         you should probably use a GUI, such as the WIP {monitors} project.",
@@ -889,6 +904,7 @@ impl<B: Board> EngineUGI<B> {
             perft = "perft".bold(),
             bench = "bench".bold(),
             eval = "eval | e".bold(),
+            option = "option".bold(),
             help = "help".bold(),
             monitors = "monitors".italic(),
         );
@@ -901,17 +917,75 @@ impl<B: Board> EngineUGI<B> {
         // Ok(())
     }
 
-    fn write_options(&self) -> String {
-        let mut opts = self
+    fn print_option(&self, words: &mut SplitWhitespace) -> Res<String> {
+        let options = self.get_options();
+        Ok(
+            match words
+                .intersperse(" ")
+                .collect::<String>()
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "" => {
+                    let mut res = String::default();
+                    for o in options {
+                        writeln!(
+                            res,
+                            "{name}: {value}",
+                            name = o.name.to_string(),
+                            value = o.value.value_to_str()
+                        )
+                        .unwrap();
+                    }
+                    res
+                }
+                x => {
+                    match options
+                        .iter()
+                        .map(|o| o)
+                        .find(|o| o.name.to_string().eq_ignore_ascii_case(x))
+                    {
+                        Some(opt) => {
+                            format!("{0}: {1}", opt.name.to_string(), opt.value.value_to_str())
+                        }
+                        None => {
+                            return Err(format!(
+                                "No option named '{0}' exists. Type '{1}' for a list of options.",
+                                x.red(),
+                                "ugi".bold()
+                            ))
+                        }
+                    }
+                }
+            },
+        )
+    }
+
+    fn write_ugi_options(&self) -> String {
+        self.get_options()
+            .iter()
+            .map(|opt| format!("option {opt}"))
+            .collect::<Vec<String>>()
+            .join("\n")
+    }
+
+    fn get_options(&self) -> Vec<EngineOption> {
+        let mut res = self
             .state
             .engine
             .get_options()
             .iter()
             .cloned()
             .collect_vec();
-        opts.iter()
-            .map(|opt| format!("option {opt}"))
-            .collect::<Vec<String>>()
-            .join("\n")
+        res.push(EngineOption {
+            name: MoveOverhead,
+            value: Spin(UgiSpin {
+                val: self.move_overhead.as_millis() as i64,
+                default: Some(DEFAULT_MOVE_OVERHEAD_MS as i64),
+                min: Some(0),
+                max: Some(10_000),
+            }),
+        });
+        res
     }
 }
