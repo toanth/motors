@@ -11,10 +11,10 @@ use derive_more::{
 use num::{One, PrimInt, Unsigned, Zero};
 use strum_macros::EnumIter;
 
-use crate::games::{DimT, RectangularCoordinates, RectangularSize, Size};
+use crate::games::chess::squares::ChessSquare;
 #[cfg(feature = "chess")]
 use crate::games::chess::squares::ChessboardSize;
-use crate::games::chess::squares::ChessSquare;
+use crate::games::{DimT, RectangularCoordinates, RectangularSize, Size};
 use crate::general::common::{pop_lsb128, pop_lsb64};
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
@@ -512,6 +512,8 @@ where
         )
     }
 
+    /// All slider attack functions, including `rook_attacks` and `bishop_attacks`, assume that the source square
+    /// is empty, so if that's not the case, they should be called with `blockers ^ square_bitboard`.
     fn slider_attacks(square: C, blockers: Self, dir: RayDirections) -> Self {
         match dir {
             RayDirections::Horizontal => Self::horizontal_attacks(square, blockers),
@@ -924,9 +926,9 @@ pub const fn remove_ones_below(bb: u128, idx: usize) -> u128 {
 
 #[cfg(test)]
 mod tests {
-    use crate::games::{GridSize, Height, Width};
     use crate::games::mnk::MnkBitboard;
-    use crate::general::bitboards::{Bitboard, remove_ones_above, remove_ones_below};
+    use crate::games::{GridSize, Height, Width};
+    use crate::general::bitboards::{remove_ones_above, remove_ones_below, Bitboard};
 
     #[test]
     fn remove_ones_above_test() {

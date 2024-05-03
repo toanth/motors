@@ -141,7 +141,7 @@ impl Board for Chessboard {
             },
             GenericSelect {
                 name: "see_win_pawn",
-                val: || Self::from_fen("k6q/3n1n2/3b4/4p3/3P1P2/3N1N2/8/1K6 w - - 0 1").unwrap(),
+                val: || Self::from_fen("k6q/3n1n2/3b4/2P1p3/3P1P2/3N1NP1/8/1K6 w - - 0 1").unwrap(),
             },
             GenericSelect {
                 name: "see_xray",

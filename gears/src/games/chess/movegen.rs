@@ -21,7 +21,8 @@ use crate::games::{
     DimT, Move,
 };
 use crate::general::bitboards::chess::{ChessBitboard, KNIGHTS};
-use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
+use crate::general::bitboards::{Bitboard, Direction, RawBitboard};
 
 #[derive(Debug, Copy, Clone)]
 enum SliderMove {
@@ -142,40 +143,24 @@ impl Chessboard {
         let opponent = self.colored_bb(color.other());
         let regular_pawn_moves;
         let double_pawn_moves;
-        let left_pawn_captures;
-        let right_pawn_captures;
         let capturable = opponent
             | self
                 .ep_square
                 .map(|s| ChessBitboard::single_piece(s.index()))
                 .unwrap_or_default();
+        let [left_pawn_captures, right_pawn_captures] =
+            Self::pawn_captures(color, pawns, capturable);
         if color == White {
             regular_pawn_moves = ((pawns << 8) & free, 8);
             double_pawn_moves = (
                 ((pawns & ChessBitboard::rank_no(1)) << 16) & (free << 8) & free,
                 16,
             );
-            right_pawn_captures = (
-                ((pawns & !ChessBitboard::file_no(H_FILE_NO)) << 9) & capturable,
-                9,
-            );
-            left_pawn_captures = (
-                ((pawns & !ChessBitboard::file_no(A_FILE_NO)) << 7) & capturable,
-                7,
-            );
         } else {
             regular_pawn_moves = ((pawns >> 8) & free, -8);
             double_pawn_moves = (
                 ((pawns & ChessBitboard::rank_no(6)) >> 16) & (free >> 8) & free,
                 -16,
-            );
-            right_pawn_captures = (
-                ((pawns & !ChessBitboard::file_no(A_FILE_NO)) >> 9) & capturable,
-                -9,
-            );
-            left_pawn_captures = (
-                ((pawns & !ChessBitboard::file_no(H_FILE_NO)) >> 7) & capturable,
-                -7,
             );
         }
         for move_type in [
@@ -296,7 +281,12 @@ impl Chessboard {
         while pieces.has_set_bit() {
             let idx = pieces.pop_lsb();
             let from = ChessSquare::new(idx);
-            let mut attacks = self.gen_sliders_from_square(from, slider_move, filter);
+            let mut attacks = self.gen_sliders_from_square(
+                from,
+                slider_move,
+                filter,
+                ChessBitboard::single_piece(idx),
+            );
             while attacks.has_set_bit() {
                 let to = ChessSquare::new(attacks.pop_lsb());
                 list.add_move(ChessMove::new(from, to, Normal));
@@ -336,7 +326,7 @@ impl Chessboard {
                 );
             }
         }
-        [right_pawn_captures, left_pawn_captures]
+        [left_pawn_captures, right_pawn_captures]
     }
 
     fn all_pawn_captures(
@@ -373,16 +363,15 @@ impl Chessboard {
         square: ChessSquare,
         slider_move: SliderMove,
         filter: ChessBitboard,
+        square_bb_if_occupied: ChessBitboard,
     ) -> ChessBitboard {
         let blockers = self.occupied_bb();
-        let idx = square.index();
-        let this_piece = ChessBitboard::single_piece(idx);
         let mut attacks = match slider_move {
             SliderMove::Bishop => {
-                ChessBitboard::bishop_attacks(ChessSquare::new(idx), blockers ^ this_piece)
+                ChessBitboard::bishop_attacks(square, blockers ^ square_bb_if_occupied)
             }
             SliderMove::Rook => {
-                ChessBitboard::rook_attacks(ChessSquare::new(idx), blockers ^ this_piece)
+                ChessBitboard::rook_attacks(square, blockers ^ square_bb_if_occupied)
             }
         };
         attacks & filter
@@ -392,19 +381,28 @@ impl Chessboard {
         let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
         let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
         let square_bb = ChessBitboard::single_piece(square.index());
-        self.gen_sliders_from_square(square, SliderMove::Rook, rook_sliders)
-            | self.gen_sliders_from_square(square, SliderMove::Bishop, bishop_sliders)
+        let square_bb_if_occupied = if self.is_occupied(square) {
+            square_bb
+        } else {
+            ChessBitboard::default()
+        };
+        self.gen_sliders_from_square(
+            square,
+            SliderMove::Rook,
+            rook_sliders,
+            square_bb_if_occupied,
+        ) | self.gen_sliders_from_square(square, SliderMove::Bishop, bishop_sliders, square_bb)
             | Self::knight_moves_from_square(square, self.piece_bb(Knight))
             | Self::normal_king_moves_from_square(square, self.piece_bb(King))
-            | Self::all_pawn_captures(White, self.colored_piece_bb(Black, Pawn), square_bb)
-            | Self::all_pawn_captures(Black, self.colored_piece_bb(White, Pawn), square_bb)
+            | Self::all_pawn_captures(Black, square_bb, self.colored_piece_bb(White, Pawn))
+            | Self::all_pawn_captures(White, square_bb, self.colored_piece_bb(Black, Pawn))
     }
 
     // TODO: Discovered attacks, test!
     fn next_see_attacker(
         &self,
         color: Color,
-        all_attackers: ChessBitboard,
+        all_remaining_attackers: ChessBitboard,
         current_attackers: &mut ChessBitboard,
         attacker_iter: &mut Peekable<UncoloredChessPieceIter>,
     ) -> Option<UncoloredChessPiece> {
@@ -413,31 +411,138 @@ impl Chessboard {
                 if piece == Empty {
                     return None;
                 }
-                *current_attackers = all_attackers & self.colored_piece_bb(color, piece);
+                *current_attackers = all_remaining_attackers & self.colored_piece_bb(color, piece);
                 if current_attackers.has_set_bit() {
                     break;
                 }
                 attacker_iter.next();
             }
         }
-        current_attackers.pop_lsb();
-        Some(attacker_iter.peek().copied().unwrap())
+
+        attacker_iter.peek().copied()
     }
+
+    // fn see_attack(
+    //     &self,
+    //     square: ChessSquare,
+    //     all_remaining_attackers: &mut ChessBitboard,
+    //     current_attackers: &mut ChessBitboard,
+    //     attacker_iter: &mut Peekable<UncoloredChessPieceIter>,
+    //     removed_attackers: &mut ChessBitboard,
+    // ) {
+    //     let piece = attacker_iter.peek().copied().unwrap();
+    //     let idx = current_attackers.pop_lsb();
+    //     *all_remaining_attackers ^= ChessBitboard::single_piece(idx);
+    //     *removed_attackers |= ChessBitboard::single_piece(idx);
+    //     let blockers_left = self.occupied_bb() ^ *removed_attackers;
+    //     let src = ChessSquare::new(idx);
+    //     // xrays for sliders
+    //     let ray_attacks = if src.file() == square.file() {
+    //         ChessBitboard::slider_attacks(square, blockers_left, Vertical)
+    //             & (self.piece_bb(Rook) | self.piece_bb(Queen))
+    //     } else if src.rank() == square.rank() {
+    //         ChessBitboard::slider_attacks(square, blockers_left, Horizontal)
+    //             & (self.piece_bb(Rook) | self.piece_bb(Queen))
+    //     } else if src.rank().wrapping_sub(square.rank()) == src.file().wrapping_sub(square.file()) {
+    //         ChessBitboard::slider_attacks(square, blockers_left, Diagonal)
+    //             & (self.piece_bb(Bishop) | self.piece_bb(Queen))
+    //     } else if src.rank().wrapping_sub(square.rank()) == square.file().wrapping_sub(src.file()) {
+    //         ChessBitboard::slider_attacks(square, blockers_left, AntiDiagonal)
+    //             & (self.piece_bb(Bishop) | self.piece_bb(Queen))
+    //     } else {
+    //         ChessBitboard::default()
+    //     };
+    //     let new_attack = ray_attacks & !*removed_attackers;
+    //     debug_assert!(new_attack.0.count_ones() <= 1);
+    //     if new_attack.has_set_bit() {
+    //         debug_assert_eq!(
+    //             *all_remaining_attackers & new_attack,
+    //             ChessBitboard::default()
+    //         );
+    //         *all_remaining_attackers |= new_attack;
+    //         *attacker_iter = UncoloredChessPiece::iter()
+    //             .dropping(Bishop as usize)
+    //             .peekable();
+    //     }
+    //     Some(piece)
+    // }
 
     fn see(&self, mov: ChessMove, mut alpha: SeeScore, mut beta: SeeScore) -> SeeScore {
         // TODO: Also handle EP.
         let square = mov.dest_square();
-        let src_bb = mov.src_square().to_bitboard();
         debug_assert!(alpha < beta);
+        println!("{square}");
         let color = self.active_player;
-        let all_attackers = self.all_attacking(square) ^ src_bb;
+        let mut all_remaining_attackers = self.all_attacking(square);
+        println!("{all_remaining_attackers}");
         let mut our_attacker_iter = UncoloredChessPiece::iter().peekable();
         let mut their_attacker_iter = UncoloredChessPiece::iter().peekable();
         let mut our_current_attackers = ChessBitboard::default();
         let mut their_current_attackers = ChessBitboard::default();
+        let mut removed_attackers = ChessBitboard::default();
+        if self.is_occupied(square) {
+            removed_attackers = square.to_bitboard();
+        }
         let mut our_victim = self.piece_on(square).uncolored();
         let mut their_victim = self.piece_on(mov.src_square()).uncolored();
         let mut eval = piece_see_value(our_victim);
+
+        let mut see_attack =
+            |attacker_iter: &mut Peekable<UncoloredChessPieceIter>,
+             attacker: ChessSquare,
+             all_remaining_attackers: &mut ChessBitboard| {
+                let idx = attacker.index();
+                *all_remaining_attackers ^= ChessBitboard::single_piece(idx);
+                removed_attackers |= ChessBitboard::single_piece(idx);
+                debug_assert_eq!(
+                    removed_attackers & !self.occupied_bb(),
+                    ChessBitboard::default()
+                );
+                let blockers_left = self.occupied_bb() ^ removed_attackers;
+                let src = ChessSquare::new(idx);
+                println!(
+                    "{}",
+                    ChessBitboard::slider_attacks(square, blockers_left, Diagonal)
+                        & (self.piece_bb(Bishop) | self.piece_bb(Queen))
+                );
+                // xrays for sliders
+                let ray_attacks = if src.file() == square.file() {
+                    ChessBitboard::slider_attacks(square, blockers_left, Vertical)
+                        & (self.piece_bb(Rook) | self.piece_bb(Queen))
+                } else if src.rank() == square.rank() {
+                    ChessBitboard::slider_attacks(square, blockers_left, Horizontal)
+                        & (self.piece_bb(Rook) | self.piece_bb(Queen))
+                } else if src.rank().wrapping_sub(square.rank())
+                    == src.file().wrapping_sub(square.file())
+                {
+                    ChessBitboard::slider_attacks(square, blockers_left, Diagonal)
+                        & (self.piece_bb(Bishop) | self.piece_bb(Queen))
+                } else if src.rank().wrapping_sub(square.rank())
+                    == square.file().wrapping_sub(src.file())
+                {
+                    let attacks =
+                        ChessBitboard::slider_attacks(square, blockers_left, AntiDiagonal);
+                    let pieces = (self.piece_bb(Bishop) | self.piece_bb(Queen));
+                    attacks & pieces
+                } else {
+                    ChessBitboard::default()
+                };
+                let new_attack = ray_attacks & !removed_attackers;
+                debug_assert!(new_attack.0.count_ones() <= 2);
+                debug_assert!((new_attack & !*all_remaining_attackers).0.count_ones() <= 1);
+                *all_remaining_attackers |= new_attack;
+                if new_attack.has_set_bit() && *attacker_iter.peek().unwrap() != Pawn {
+                    *attacker_iter = UncoloredChessPiece::iter()
+                        .dropping(Bishop as usize)
+                        .peekable();
+                }
+            };
+        see_attack(
+            &mut our_attacker_iter,
+            mov.src_square(),
+            &mut all_remaining_attackers,
+        );
+
         loop {
             if eval <= alpha {
                 return alpha;
@@ -446,12 +551,17 @@ impl Chessboard {
             }
             let Some(piece) = self.next_see_attacker(
                 color.other(),
-                all_attackers,
+                all_remaining_attackers,
                 &mut their_current_attackers,
                 &mut their_attacker_iter,
             ) else {
                 return eval.min(beta);
             };
+            see_attack(
+                &mut their_attacker_iter,
+                ChessSquare::new(their_current_attackers.pop_lsb()),
+                &mut all_remaining_attackers,
+            );
             our_victim = piece;
             eval -= piece_see_value(their_victim);
             if eval >= beta {
@@ -461,12 +571,17 @@ impl Chessboard {
             }
             let Some(piece) = self.next_see_attacker(
                 color,
-                all_attackers,
+                all_remaining_attackers,
                 &mut our_current_attackers,
                 &mut our_attacker_iter,
             ) else {
                 return eval.max(alpha);
             };
+            see_attack(
+                &mut our_attacker_iter,
+                ChessSquare::new(our_current_attackers.pop_lsb()),
+                &mut all_remaining_attackers,
+            );
             their_victim = piece;
             eval += piece_see_value(our_victim);
         }
@@ -478,10 +593,9 @@ mod tests {
     use super::*;
     use crate::games::chess::Chessboard;
     use crate::games::Board;
-    use std::str::FromStr;
 
     #[test]
-    fn trivia_see_test() {
+    fn trivial_see_test() {
         let board = Chessboard::from_name("kiwipete").unwrap();
         let see_score_no_capture = board.see(
             ChessMove::from_compact_text("a1b1", &board).unwrap(),
@@ -514,7 +628,7 @@ mod tests {
             SeeScore(-9999),
             SeeScore(9999),
         );
-        assert_eq!(see_score_bad_pawn_capture, SeeScore(-800));
+        assert_eq!(see_score_bad_pawn_capture, SeeScore(-300));
 
         let see_score_good_pawn_capture = board.see(
             ChessMove::from_compact_text("g2h3", &board).unwrap(),
@@ -535,12 +649,50 @@ mod tests {
         assert_eq!(see_score, SeeScore(100));
 
         let see_score = board.see(
+            ChessMove::from_compact_text("d3e5", &board).unwrap(),
+            SeeScore(-120),
+            SeeScore(101),
+        );
+        assert_eq!(see_score, SeeScore(100));
+
+        let see_score = board.see(
+            ChessMove::from_compact_text("c5d6", &board).unwrap(),
+            SeeScore(-120),
+            SeeScore(200),
+        );
+        assert_eq!(see_score, SeeScore(200));
+
+        let see_score = board.see(
             ChessMove::from_compact_text("f4e5", &board).unwrap(),
             SeeScore(200),
             SeeScore(9999),
         );
         // TODO: Fail soft? It doesn't make sense to clamp to the window.
         assert_eq!(see_score, SeeScore(200));
+
+        let board = board.flip_side_to_move().unwrap();
+        println!("{board}");
+        println!("{}", board.as_fen());
+        let see_score = board.see(
+            ChessMove::from_compact_text("e5d4", &board).unwrap(),
+            SeeScore(-999),
+            SeeScore(9999),
+        );
+        assert_eq!(see_score, SeeScore(100));
+
+        let see_score = board.see(
+            ChessMove::from_compact_text("e5f4", &board).unwrap(),
+            SeeScore(-1234),
+            SeeScore(567890),
+        );
+        assert_eq!(see_score, SeeScore(0));
+
+        let see_score = board.see(
+            ChessMove::from_compact_text("d7c5", &board).unwrap(),
+            SeeScore(-9999),
+            SeeScore(9999),
+        );
+        assert_eq!(see_score, SeeScore(-200));
     }
 
     #[test]
@@ -552,5 +704,11 @@ mod tests {
             SeeScore(9999),
         );
         assert_eq!(see_score, SeeScore(-600));
+        let see_score = board.see(
+            ChessMove::from_compact_text("b4b8", &board).unwrap(),
+            SeeScore(-1234),
+            SeeScore(1),
+        );
+        assert_eq!(see_score, SeeScore(-500));
     }
 }
