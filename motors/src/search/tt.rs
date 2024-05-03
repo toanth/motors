@@ -11,6 +11,7 @@ use gears::games::{Board, Move, ZobristHash};
 use gears::search::{Score, SCORE_WON};
 
 use crate::search::NodeType;
+use crate::search::NodeType::Empty;
 
 type AtomicTTEntry = AtomicU128;
 
@@ -135,9 +136,7 @@ impl TT {
             .arr
             .iter()
             .take(len)
-            .filter(|e: &&AtomicTTEntry| {
-                TTEntry::<B>::from_packed(e.load(Relaxed)).hash != ZobristHash::default()
-            })
+            .filter(|e: &&AtomicTTEntry| TTEntry::<B>::from_packed(e.load(Relaxed)).bound != Empty)
             .count();
         if len < 1000 {
             (num_used as f64 * 1000.0 / len as f64).round() as usize

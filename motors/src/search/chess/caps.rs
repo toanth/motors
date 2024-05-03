@@ -363,14 +363,14 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         let tt_entry: TTEntry<Chessboard> = tt.load(pos.zobrist_hash(), ply);
         let mut best_move = tt_entry.mov;
-        let trust_tt_entry =
+        let found_tt_entry =
             tt_entry.bound != NodeType::Empty && tt_entry.hash == pos.zobrist_hash();
 
         // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
         // and we're not a PV node, and the saved score is either exact or at least known to be outside of [alpha, beta),
         // simply return it.
         if !is_pvs_pv_node
-            && trust_tt_entry
+            && found_tt_entry
             && tt_entry.depth as isize >= depth
             && ((tt_entry.score >= beta && tt_entry.bound == LowerBound)
                 || (tt_entry.score <= alpha && tt_entry.bound == UpperBound)
@@ -379,13 +379,15 @@ impl<E: Eval<Chessboard>> Caps<E> {
             return tt_entry.score;
         }
 
-        let eval = self.eval.eval(pos);
-        debug_assert!(!eval.is_game_over_score());
-        //     match trust_tt_entry {
-        //     true => tt_entry.score,
-        //     false => self.eval.eval(pos),
-        // };
+        let eval =
+            if found_tt_entry && tt_entry.bound == Exact && !tt_entry.score.is_game_over_score() {
+                // The TT score is backed by a search, so it should b more trustworthy than a simple call to static eval.s
+                tt_entry.score
+            } else {
+                self.eval.eval(pos)
+            };
 
+        debug_assert!(!eval.is_game_over_score());
         // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
         // because the move ordering won't be great, so don't spend too much time on this node.
         // Instead, search it with reduced depth to fill the TT entry so that we can re-search it faster the next time
