@@ -481,7 +481,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // to verify our belief.
                 let mut reduction = 0;
                 if !in_check && num_quiets_visited > 4 && depth >= 4 {
-                    reduction = 1 + depth / 8; // This is a very basic implementation. TODO: Make more complex eventually.
+                    reduction = 1 + depth / 8; // This is a very basic implementation.
                     if !is_pvs_pv_node {
                         reduction += 1;
                     }
@@ -498,7 +498,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 );
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
-                if alpha < score {
+                if alpha < score && reduction > 0 {
                     score = -self.negamax(
                         new_pos,
                         limit,
@@ -508,20 +508,13 @@ impl<E: Eval<Chessboard>> Caps<E> {
                         -alpha,
                         sender,
                     );
-                    // If the full-depth search also performed better than expected, do a full-depth search with the
-                    // full window to find the true score. If the score was at least `beta`, don't search again
-                    // -- this move is probably already too good, so don't waste more time finding out how good it is exactly.
-                    if alpha < score && score < beta {
-                        score = -self.negamax(
-                            new_pos,
-                            limit,
-                            ply + 1,
-                            depth - 1,
-                            -beta,
-                            -alpha,
-                            sender,
-                        );
-                    }
+                }
+                // If the full-depth search also performed better than expected, do a full-depth search with the
+                // full window to find the true score. If the score was at least `beta`, don't search again
+                // -- this move is probably already too good, so don't waste more time finding out how good it is exactly.
+                if alpha < score && score < beta {
+                    score =
+                        -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, sender);
                 }
             }
 
