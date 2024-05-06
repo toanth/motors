@@ -1071,8 +1071,8 @@ mod tests {
             assert_ne!(hash, 0);
             if B::are_all_pseudolegal_legal() {
                 assert_eq!(
-                    pos.legal_moves_slow().count(),
-                    pos.pseudolegal_moves().count()
+                    pos.legal_moves_slow().into_iter().count(),
+                    pos.pseudolegal_moves().into_iter().count()
                 );
             }
             for mov in pos.legal_moves_slow() {

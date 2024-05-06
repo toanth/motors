@@ -860,7 +860,10 @@ mod tests {
         assert_eq!(moves.len(), 20);
         let legal_moves = board.legal_moves_slow();
         assert_eq!(legal_moves.len(), moves.len());
-        assert!(legal_moves.sorted().eq(moves.sorted()));
+        assert!(legal_moves
+            .into_iter()
+            .sorted()
+            .eq(moves.into_iter().sorted()));
 
         // let mut engine = Caps::<MaterialOnlyEval>::default();
         // let res = engine.search(board, SearchLimit::depth(4), ZobristHistoryBase::default());
