@@ -625,10 +625,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         let mut best_move = tt_entry.mov;
 
-        // TODO: Use TT move here? Might require starting to prefetch
         let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> = MovePicker::new(
             pos.tactical_pseudolegal(),
-            self.score_move_fn(pos, ChessMove::default(), ply),
+            self.score_move_fn(pos, best_move, ply),
         );
         for mov in move_picker.into_iter() {
             debug_assert!(mov.is_tactical(&pos));
