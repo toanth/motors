@@ -1,3 +1,4 @@
+use arrayvec::ArrayVec;
 use std::cmp::min;
 use std::time::{Duration, Instant};
 
@@ -6,7 +7,7 @@ use rand::thread_rng;
 
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
-use gears::games::chess::{ChessMoveList, Chessboard};
+use gears::games::chess::{ChessMoveList, Chessboard, MAX_CHESS_MOVES_IN_POS};
 use gears::games::{Board, BoardHistory, ColoredPiece, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
@@ -19,12 +20,13 @@ use gears::ugi::EngineOptionType::Spin;
 use gears::ugi::{EngineOption, UgiSpin};
 
 use crate::eval::Eval;
+use crate::search::move_picker::MovePicker;
 use crate::search::multithreading::SearchSender;
 use crate::search::tt::{TTEntry, TT};
 use crate::search::NodeType::*;
 use crate::search::{
-    ABSearchState, BenchResult, Benchable, CustomInfo, Engine, EngineInfo, NodeType, Pv,
-    SearchStackEntry, SearchState,
+    move_picker, ABSearchState, BenchResult, Benchable, CustomInfo, Engine, EngineInfo, NodeType,
+    Pv, SearchStackEntry, SearchState,
 };
 
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
@@ -433,8 +435,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
         let mut children_visited = 0;
         let mut num_quiets_visited = 0;
 
-        let all_moves = self.order_moves(pos.pseudolegal_moves(), &pos, best_move, ply);
-        for mov in all_moves {
+        let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(
+            pos.pseudolegal_moves(),
+            self.score_move_fn(pos, best_move, ply),
+        );
+        for mov in move_picker.into_iter() {
             // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
             // so don't even bother looking at them in the last few layers.
             // FP (Futility Pruning): If the static eval is far below alpha,
@@ -620,9 +625,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         let mut best_move = tt_entry.mov;
 
-        let captures =
-            self.order_moves(pos.tactical_pseudolegal(), &pos, ChessMove::default(), ply);
-        for mov in captures {
+        // TODO: Use TT move here? Might require starting to prefetch
+        let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> = MovePicker::new(
+            pos.tactical_pseudolegal(),
+            self.score_move_fn(pos, ChessMove::default(), ply),
+        );
+        for mov in move_picker.into_iter() {
             debug_assert!(mov.is_tactical(&pos));
             let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
@@ -658,31 +666,25 @@ impl<E: Eval<Chessboard>> Caps<E> {
     /// Order moves so that the most promising moves are searched first.
     /// The most promising move is always the TT move, because that is backed up by search.
     /// After that follow various heuristics.
-
-    fn order_moves(
+    fn score_move_fn(
         &self,
-        mut moves: ChessMoveList,
-        board: &Chessboard,
+        board: Chessboard,
         tt_move: ChessMove,
         ply: usize,
-    ) -> ChessMoveList {
+    ) -> impl Fn(ChessMove) -> i32 + '_ {
         // The move list is iterated backwards, which is why better moves get higher scores
-        let score_function = |mov: &ChessMove| {
-            let captured = mov.captured(board);
-            if *mov == tt_move {
+        move |mov| {
+            let captured = mov.captured(&board);
+            if mov == tt_move {
                 i32::MAX
-            } else if *mov == self.state.search_stack[ply].killer {
+            } else if mov == self.state.search_stack[ply].killer {
                 i32::MAX - 200
             } else if captured == Empty {
                 self.state.custom.history[mov.from_to_square()]
             } else {
-                i32::MAX - 100 + captured as i32 * 10 - mov.piece(board).uncolored() as i32
+                i32::MAX - 100 + captured as i32 * 10 - mov.piece(&board).uncolored() as i32
             }
-        };
-        moves
-            .as_mut_slice()
-            .sort_by_cached_key(|m| -score_function(m));
-        moves
+        }
     }
 }
 

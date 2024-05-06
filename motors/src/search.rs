@@ -22,6 +22,7 @@ use crate::search::Searching::*;
 #[cfg(feature = "chess")]
 pub mod chess;
 pub mod generic;
+mod move_picker;
 pub mod multithreading;
 mod tt;
 

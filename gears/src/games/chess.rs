@@ -46,8 +46,10 @@ const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w HAha - 0 
 #[derive(Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct ChessSettings {}
 
+pub const MAX_CHESS_MOVES_IN_POS: usize = 256;
+
 // for some reason, Chessboard::MoveList can be ambiguous? This should fix that
-pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, 256>;
+pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, MAX_CHESS_MOVES_IN_POS>;
 
 impl Settings for ChessSettings {}
 
