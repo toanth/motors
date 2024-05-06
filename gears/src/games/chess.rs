@@ -2,7 +2,6 @@ use std::fmt::{Display, Formatter};
 use std::num::NonZeroUsize;
 use std::str::{FromStr, SplitWhitespace};
 
-use crate::cli::Game::Chess;
 use bitintr::Popcnt;
 use itertools::Itertools;
 use rand::prelude::IteratorRandom;
@@ -37,6 +36,7 @@ mod movegen;
 pub mod moves;
 mod perft_tests;
 pub mod pieces;
+pub mod see;
 pub mod squares;
 pub mod zobrist;
 
@@ -156,6 +156,10 @@ impl Board for Chessboard {
             GenericSelect {
                 name: "see_xray",
                 val: || Self::from_fen("5q1k/8/8/8/RRQ2nrr/8/8/K7 w - - 0 1").unwrap(),
+            },
+            GenericSelect {
+                name: "zugzwang",
+                val: || Self::from_fen("6Q1/8/8/7k/8/8/3p1pp1/3Kbrrb w - - 26 14").unwrap(),
             },
         ]
     }

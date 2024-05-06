@@ -150,10 +150,6 @@ impl ChessSquare {
             self.south()
         }
     }
-
-    // pub fn invalid() -> Self {
-    //     Self {idx: NUM_SQUARES as u8 }
-    // }
 }
 
 impl FromStr for ChessSquare {

@@ -91,7 +91,11 @@ impl ChessMove {
     }
 
     pub fn is_capture(self, board: &Chessboard) -> bool {
-        self.flags() == EnPassant || self.is_non_ep_capture(board)
+        self.is_ep() || self.is_non_ep_capture(board)
+    }
+
+    pub fn is_ep(self) -> bool {
+        self.flags() == EnPassant
     }
 
     pub fn is_non_ep_capture(self, board: &Chessboard) -> bool {
@@ -101,7 +105,7 @@ impl ChessMove {
     }
 
     pub fn captured(self, board: &Chessboard) -> UncoloredChessPiece {
-        if self.flags() == EnPassant {
+        if self.is_ep() {
             Pawn
         } else if self.is_castle() {
             Empty
@@ -398,7 +402,7 @@ impl Chessboard {
             debug_assert!(self.piece_on(rook_from).symbol == ColoredChessPiece::new(color, Rook));
             self.move_piece(rook_from, rook_to, ColoredChessPiece::new(color, Rook));
             to = ChessSquare::from_rank_file(from.rank(), to_file);
-        } else if mov.flags() == EnPassant {
+        } else if mov.is_ep() {
             let taken_pawn = mov.square_of_pawn_taken_by_ep().unwrap();
             debug_assert_eq!(
                 self.piece_on(taken_pawn).symbol,
