@@ -150,6 +150,11 @@ impl ChessSquare {
             self.south()
         }
     }
+
+    pub fn is_backrank(self) -> bool {
+        let rank = self.rank();
+        rank == 0 || rank == 7
+    }
 }
 
 impl FromStr for ChessSquare {

@@ -12,7 +12,7 @@ use derive_more::{Add, AddAssign, Sub, SubAssign};
 use strum::IntoEnumIterator;
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Add, AddAssign, Sub, SubAssign)]
-struct SeeScore(i32);
+pub struct SeeScore(pub i32);
 
 // TODO: Better values?
 const SEE_SCORES: [SeeScore; NUM_CHESS_PIECES + 1] = [
@@ -25,11 +25,11 @@ const SEE_SCORES: [SeeScore; NUM_CHESS_PIECES + 1] = [
     SeeScore(0), // also give the empty square a see value to make the implementation simpler
 ];
 
-fn piece_see_value(piece: UncoloredChessPiece) -> SeeScore {
+pub fn piece_see_value(piece: UncoloredChessPiece) -> SeeScore {
     SEE_SCORES[piece.to_uncolored_idx()]
 }
 
-fn move_see_value(mov: ChessMove, victim: UncoloredChessPiece) -> SeeScore {
+pub fn move_see_value(mov: ChessMove, victim: UncoloredChessPiece) -> SeeScore {
     let mut score = piece_see_value(victim);
     if mov.is_promotion() {
         score += piece_see_value(mov.promo_piece()) - piece_see_value(Pawn);
@@ -45,26 +45,17 @@ impl Chessboard {
         color: Color,
         all_remaining_attackers: ChessBitboard,
     ) -> (Option<UncoloredChessPiece>, ChessSquare) {
-        let mut attacker_iter = UncoloredChessPiece::iter().peekable();
-        loop {
-            let piece = attacker_iter.peek().copied().unwrap();
-            if piece == Empty {
-                return (None, ChessSquare::no_coordinates());
-            }
-            let mut current_attackers = self
-                .colored_piece_bb(color, attacker_iter.peek().copied().unwrap())
-                & all_remaining_attackers;
+        for piece in UncoloredChessPiece::pieces() {
+            let mut current_attackers =
+                self.colored_piece_bb(color, piece) & all_remaining_attackers;
             if current_attackers.has_set_bit() {
-                return (
-                    attacker_iter.peek().copied(),
-                    ChessSquare::new(current_attackers.pop_lsb()),
-                );
-            }
-            attacker_iter.next();
+                return (Some(piece), ChessSquare::new(current_attackers.pop_lsb()));
+            };
         }
+        (None, ChessSquare::no_coordinates())
     }
 
-    fn see(&self, mov: ChessMove, mut alpha: SeeScore, mut beta: SeeScore) -> SeeScore {
+    pub fn see(&self, mov: ChessMove, mut alpha: SeeScore, mut beta: SeeScore) -> SeeScore {
         let square = mov.dest_square();
         debug_assert!(alpha < beta);
         let color = self.active_player;
@@ -101,11 +92,6 @@ impl Chessboard {
             );
             let blockers_left = self.occupied_bb() ^ removed_attackers;
             let src = ChessSquare::new(idx);
-            println!(
-                "{}",
-                ChessBitboard::slider_attacks(square, blockers_left, Diagonal)
-                    & (self.piece_bb(Bishop) | self.piece_bb(Queen))
-            );
             // xrays for sliders
             let ray_attacks = if src.file() == square.file() {
                 ChessBitboard::slider_attacks(square, blockers_left, Vertical)
@@ -126,12 +112,10 @@ impl Chessboard {
             } else {
                 ChessBitboard::default()
             };
-            let new_attack = ray_attacks & !removed_attackers;
-            debug_assert!(new_attack.0.count_ones() <= 2);
-            debug_assert!((new_attack & !*all_remaining_attackers).0.count_ones() <= 1);
+            let new_attack = ray_attacks & !(removed_attackers | *all_remaining_attackers);
+            debug_assert!(new_attack.0.count_ones() <= 1);
             *all_remaining_attackers |= new_attack;
-            let (flags, new_piece) = if piece == Pawn && (square.rank() == 0 || square.rank() == 7)
-            {
+            let (flags, new_piece) = if piece == Pawn && square.is_backrank() {
                 (PromoQueen, Queen)
             } else {
                 (Normal, piece)
@@ -172,6 +156,10 @@ impl Chessboard {
             their_victim = piece;
             eval += move_see_value(mov, our_victim);
         }
+    }
+
+    pub fn see_at_least(&self, mov: ChessMove, beta: SeeScore) -> bool {
+        self.see(mov, beta - SeeScore(1), beta).0 >= beta.0
     }
 }
 
@@ -259,8 +247,6 @@ mod tests {
         assert_eq!(see_score, SeeScore(200));
 
         let board = board.flip_side_to_move().unwrap();
-        println!("{board}");
-        println!("{}", board.as_fen());
         let see_score = board.see(
             ChessMove::from_compact_text("e5d4", &board).unwrap(),
             SeeScore(-999),
@@ -304,7 +290,7 @@ mod tests {
     // test suite from Leorik: https://github.com/lithander/Leorik/blob/master/Leorik.Test/see.epd,
     // with some original tests appended.
     fn see_test_suite() {
-        // There are quite a few are but tricky corner cases that neither handled not tested properly here
+        // There are quite a few unrealistic but tricky corner cases that are neither handled not tested properly here
         let tests = [
             "6k1/1pp4p/p1pb4/6q1/3P1pRr/2P4P/PP1Br1P1/5RKN w - -; Rfxf4; -100; P - R + B",
             "5rk1/1pp2q1p/p1pb4/8/3P1NP1/2P5/1P1BQ1P1/5RK1 b - -; Bxf4; 0; -N + B",
@@ -369,19 +355,20 @@ mod tests {
             "4kbnr/p1P4p/b1q5/5pP1/4n3/5Q2/PP1PPP1P/RNB1KBNR w KQk f6; gxf6; 0; P - P",
             "4kbnr/p1P4p/b1q5/5pP1/4n3/5Q2/PP1PPP1P/RNB1KBNR w KQk f6; gxf6;	0; P - P",
             "4kbnr/p1P4p/b1q5/5pP1/4n2Q/8/PP1PPP1P/RNB1KBNR w KQk f6; gxf6; 0; P - P",
-                "1n2kb1r/p1P4p/2qb4/5pP1/4n2Q/8/PP1PPP1P/RNB1KBNR w KQk -; cxb8=Q; 200; N + (Q - P) - Q",
-                "rnbqk2r/pp3ppp/2p1pn2/3p4/3P4/N1P1BN2/PPB1PPPb/R2Q1RK1 w kq -; Kxh2; 300; B",
-                "3N4/2K5/2n5/1k6/8/8/8/8 b - -; Nxd8; 0; N - N",
-                "3N4/2P5/2n5/1k6/8/8/8/4K3 b - -; Nxd8; -800; N - (N + Q - P) ",
-                "3n3r/2P5/8/1k6/8/8/3Q4/4K3 w - -; Qxd8; 300; N",
-                "3n3r/2P5/8/1k6/8/8/3Q4/4K3 w - -; cxd8=Q; 700; (N + Q - P) - Q + R",
-                "r2n3r/2P1P3/4N3/1k6/8/8/8/4K3 w - -; Nxd8; 300; N",
-                "8/8/8/1k6/6b1/4N3/2p3K1/3n4 w - -; Nxd1; -800; N - N", // This was incorrect in the original test suite
-                "8/8/1k6/8/8/2N1N3/2p1p1K1/3n4 w - -; Nexd1; -800; N - (N + Q - P)",
-                "8/8/1k6/8/8/2N1N3/4p1K1/3n4 w - -; Ncxd1; 100; N - (N + Q - P) + Q ",
-                "r1bqk1nr/pppp1ppp/2n5/1B2p3/1b2P3/5N2/PPPP1PPP/RNBQK2R w KQkq -; O-O; 0;",
+            "1n2kb1r/p1P4p/2qb4/5pP1/4n2Q/8/PP1PPP1P/RNB1KBNR w KQk -; cxb8=Q; 200; N + (Q - P) - Q",
+            "rnbqk2r/pp3ppp/2p1pn2/3p4/3P4/N1P1BN2/PPB1PPPb/R2Q1RK1 w kq -; Kxh2; 300; B",
+            "3N4/2K5/2n5/1k6/8/8/8/8 b - -; Nxd8; 0; N - N",
+            "3N4/2P5/2n5/1k6/8/8/8/4K3 b - -; Nxd8; -800; N - (N + Q - P) ",
+            "3n3r/2P5/8/1k6/8/8/3Q4/4K3 w - -; Qxd8; 300; N",
+            "3n3r/2P5/8/1k6/8/8/3Q4/4K3 w - -; cxd8=Q; 700; (N + Q - P) - Q + R",
+            "r2n3r/2P1P3/4N3/1k6/8/8/8/4K3 w - -; Nxd8; 300; N",
+            "8/8/8/1k6/6b1/4N3/2p3K1/3n4 w - -; Nxd1; -800; N - N", // This was incorrect in the original test suite
+            "8/8/1k6/8/8/2N1N3/2p1p1K1/3n4 w - -; Nexd1; -800; N - (N + Q - P)",
+            "8/8/1k6/8/8/2N1N3/4p1K1/3n4 w - -; Ncxd1; 100; N - (N + Q - P) + Q ",
+            "r1bqk1nr/pppp1ppp/2n5/1B2p3/1b2P3/5N2/PPPP1PPP/RNBQK2R w KQkq -; O-O; 0;",
             "3q3k/pb1r1p2/np6/3P2Pp/2p1P2r/2R4B/PQ3P1P/3R2K1 w - h6 0 1; gxh6; 0",
-            "4kb1r/p1P4p/b1q5/5pP1/7Q/8/PP1PPP1P/RNB1KBNR w KQk f6 0 1; gxf6ep; 100", // "3r4/8/1k6/8/6B1/1bN1NB2/2p1p1K1/3n4 w - - 0 1; Ncxd1; -400", // Doesn't work correctly, but maybe not a big deal
+            "4kb1r/p1P4p/b1q5/5pP1/7Q/8/PP1PPP1P/RNB1KBNR w KQk f6 0 1; gxf6ep; 100",
+            "3r4/8/1k6/8/6B1/1bN1NB2/2p1p1K1/3n4 w - - 0 1; Ncxd1; -400", // Doesn't work correctly, but maybe not a big deal
         ];
         for testcase in tests {
             let mut parts = testcase.split(';');
@@ -390,6 +377,9 @@ mod tests {
             let expected_score = parse_int_from_str(parts.next().unwrap().trim(), "score").unwrap();
             let result = board.see(mov, SeeScore(-9999), SeeScore(9999));
             assert_eq!(result, SeeScore(expected_score));
+            let expected_good = expected_score >= 0;
+            let is_good = board.see_at_least(mov, SeeScore(0));
+            assert_eq!(expected_good, is_good);
         }
     }
 }
