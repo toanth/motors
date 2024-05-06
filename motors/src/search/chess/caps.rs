@@ -6,6 +6,7 @@ use rand::thread_rng;
 
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
+use gears::games::chess::see::SeeScore;
 use gears::games::chess::{ChessMoveList, Chessboard};
 use gears::games::{Board, BoardHistory, ColoredPiece, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
@@ -676,7 +677,13 @@ impl<E: Eval<Chessboard>> Caps<E> {
             } else if captured == Empty {
                 self.state.custom.history[mov.from_to_square()]
             } else {
-                i32::MAX - 100 + captured as i32 * 10 - mov.piece(board).uncolored() as i32
+                let base_val = if board.see_at_least(*mov, SeeScore(0)) {
+                    i32::MAX - 100
+                } else {
+                    i32::MIN + 100
+                };
+                // the offset applied to `base_val` can be negative, because pawns have index 0.
+                base_val + captured as i32 * 10 - mov.piece(board).uncolored() as i32
             }
         };
         moves.as_mut_slice().sort_by_cached_key(score_function);
