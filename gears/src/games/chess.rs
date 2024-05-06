@@ -273,12 +273,12 @@ impl Board for Chessboard {
 
     fn random_legal_move<T: Rng>(&self, rng: &mut T) -> Option<Self::Move> {
         let moves = self.legal_moves_slow();
-        moves.choose(rng)
+        moves.into_iter().choose(rng)
     }
 
     fn random_pseudolegal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
         let moves = self.pseudolegal_moves();
-        moves.choose(rng)
+        moves.into_iter().choose(rng)
     }
 
     fn make_move(self, mov: Self::Move) -> Option<Self> {

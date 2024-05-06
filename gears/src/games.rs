@@ -754,9 +754,10 @@ pub trait Board:
     fn legal_moves_slow(&self) -> Self::LegalMoveList {
         let pseudo_legal = self.pseudolegal_moves();
         if Self::are_all_pseudolegal_legal() {
-            return pseudo_legal.collect();
+            return pseudo_legal.into_iter().collect();
         }
         pseudo_legal
+            .into_iter()
             .filter(|mov| self.is_pseudolegal_move_legal(*mov))
             .collect()
     }

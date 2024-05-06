@@ -485,7 +485,7 @@ impl Board for MNKBoard {
             let next_move = FillSquare {
                 target: self.to_coordinates(idx),
             };
-            moves.add_move(next_move);
+            MoveList::<MNKBoard>::add_move(&mut moves, next_move);
         }
         moves
     }

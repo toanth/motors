@@ -16,6 +16,7 @@ use crate::games::{
 };
 use crate::general::bitboards::chess::{ChessBitboard, KINGS, KNIGHTS};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
+use crate::general::move_list::MoveList;
 
 #[derive(Debug, Copy, Clone)]
 enum SliderMove {
@@ -166,18 +167,18 @@ impl Chessboard {
                     flag = EnPassant;
                 } else if to.rank() == 0 || to.rank() == 7 {
                     for flag in [PromoQueen, PromoKnight] {
-                        list.add_move(ChessMove::new(from, to, flag));
+                        list.push(ChessMove::new(from, to, flag));
                     }
                     if !only_tactical {
                         for flag in [PromoRook, PromoBishop] {
-                            list.add_move(ChessMove::new(from, to, flag));
+                            list.push(ChessMove::new(from, to, flag));
                         }
                     }
                     continue;
                 } else if only_tactical && !is_capture {
                     continue;
                 }
-                list.add_move(ChessMove::new(from, to, flag));
+                list.push(ChessMove::new(from, to, flag));
             }
         }
     }
@@ -189,7 +190,7 @@ impl Chessboard {
         let mut moves = self.normal_king_moves_from_square(king_square, filter);
         while moves.has_set_bit() {
             let target = moves.pop_lsb();
-            list.add_move(ChessMove::new(
+            list.push(ChessMove::new(
                 king_square,
                 ChessSquare::new(target),
                 Normal,
@@ -254,7 +255,7 @@ impl Chessboard {
                     self.piece_on(rook).symbol,
                     ColoredChessPiece::new(color, Rook)
                 );
-                list.add_move(ChessMove::new(king_square, rook, CastleQueenside));
+                list.push(ChessMove::new(king_square, rook, CastleQueenside));
             }
         }
         if self.castling.can_castle(color, Kingside) {
@@ -271,7 +272,7 @@ impl Chessboard {
                     self.piece_on(rook).symbol,
                     ColoredChessPiece::new(color, Rook)
                 );
-                list.add_move(ChessMove::new(king_square, rook, CastleKingside));
+                list.push(ChessMove::new(king_square, rook, CastleKingside));
             }
         }
     }
@@ -284,7 +285,7 @@ impl Chessboard {
             let mut attacks = self.knight_moves_from_square(from, filter);
             while attacks.has_set_bit() {
                 let to = ChessSquare::new(attacks.pop_lsb());
-                list.add_move(ChessMove::new(from, to, Normal));
+                list.push(ChessMove::new(from, to, Normal));
             }
         }
     }
@@ -311,7 +312,7 @@ impl Chessboard {
             let mut attacks = self.gen_sliders_from_square(from, slider_move, filter);
             while attacks.has_set_bit() {
                 let to = ChessSquare::new(attacks.pop_lsb());
-                list.add_move(ChessMove::new(from, to, Normal));
+                list.push(ChessMove::new(from, to, Normal));
             }
         }
     }

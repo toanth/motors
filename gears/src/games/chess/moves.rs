@@ -253,6 +253,7 @@ impl Move<Chessboard> for ChessMove {
         let moves = board
             // we have to use .pseudolegal instead of legal moves here because that's what the rules demand.
             .pseudolegal_moves()
+            .into_iter()
             .filter(|mov| {
                 mov.piece(board).symbol == piece.symbol
                     && mov.dest_square() == self.dest_square()
@@ -805,7 +806,7 @@ impl<'a> MoveParser<'a> {
             ));
         }
 
-        let mut moves = board.gen_all_pseudolegal_moves().filter(|mov| {
+        let mut moves = board.gen_all_pseudolegal_moves().into_iter().filter(|mov| {
             mov.piece(board).uncolored() == self.piece
                 && mov.dest_square().file() == self.target_file.unwrap()
                 && !self

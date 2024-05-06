@@ -679,7 +679,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 i32::MAX - 100 + captured as i32 * 10 - mov.piece(board).uncolored() as i32
             }
         };
-        moves.as_mut_slice().sort_by_cached_key(score_function);
+        moves
+            .as_mut_slice()
+            .sort_by_cached_key(|m| -score_function(m));
         moves
     }
 }
