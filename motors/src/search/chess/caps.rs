@@ -655,10 +655,15 @@ impl<E: Eval<Chessboard>> Caps<E> {
         if bound_so_far == UpperBound && pos.zobrist_hash() != tt_entry.hash {
             best_move = ChessMove::default();
         }
-        let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
-        self.state.custom.tt.store(tt_entry, ply);
-        debug_assert!(!best_score.is_game_over_score());
+        // The TT score that gets read in qsearch can be a mate score if it's from a normal search. Don't store this into
+        // the TT in qsearch ancestor nodes because there might be quiet moves that avoid the mate.
+        // However, still return it from qsearch -- the stand pat check makes sure we don't return a mate score unless
+        // there really is no way to avoid mate. (TODO: Handle positions where we are in check by generating evasions)
+        if !best_score.is_game_over_score() {
+            let tt_entry: TTEntry<Chessboard> =
+                TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
+            self.state.custom.tt.store(tt_entry, ply);
+        }
         best_score
     }
 
