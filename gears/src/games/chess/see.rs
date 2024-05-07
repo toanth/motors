@@ -8,10 +8,13 @@ use crate::games::{AbstractPieceType, Board, Color, ColoredPiece, Coordinates, M
 use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 use crate::general::bitboards::{Bitboard, RawBitboard};
-use derive_more::{Add, AddAssign, Sub, SubAssign};
+use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
+use std::mem::swap;
 use strum::IntoEnumIterator;
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Add, AddAssign, Sub, SubAssign)]
+#[derive(
+    Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Add, AddAssign, Sub, SubAssign, Neg,
+)]
 pub struct SeeScore(pub i32);
 
 // TODO: Better values?
@@ -58,11 +61,11 @@ impl Chessboard {
     pub fn see(&self, mov: ChessMove, mut alpha: SeeScore, mut beta: SeeScore) -> SeeScore {
         let square = mov.dest_square();
         debug_assert!(alpha < beta);
-        let color = self.active_player;
+        let mut color = self.active_player;
         let mut all_remaining_attackers = self.all_attacking(square);
         let mut removed_attackers = ChessBitboard::default();
         if self.is_occupied(square) {
-            removed_attackers = square.bb();
+            removed_attackers = square.bb(); // hyperbola quintessence expects the source square to be empty
         }
         let original_moving_piece = self.piece_on(mov.src_square()).uncolored();
         let mut our_victim = self.piece_on(square).uncolored();
@@ -93,25 +96,7 @@ impl Chessboard {
             let blockers_left = self.occupied_bb() ^ removed_attackers;
             let src = ChessSquare::new(idx);
             // xrays for sliders
-            let ray_attacks = if src.file() == square.file() {
-                ChessBitboard::slider_attacks(square, blockers_left, Vertical)
-                    & (self.piece_bb(Rook) | self.piece_bb(Queen))
-            } else if src.rank() == square.rank() {
-                ChessBitboard::slider_attacks(square, blockers_left, Horizontal)
-                    & (self.piece_bb(Rook) | self.piece_bb(Queen))
-            } else if src.rank().wrapping_sub(square.rank())
-                == src.file().wrapping_sub(square.file())
-            {
-                ChessBitboard::slider_attacks(square, blockers_left, Diagonal)
-                    & (self.piece_bb(Bishop) | self.piece_bb(Queen))
-            } else if src.rank().wrapping_sub(square.rank())
-                == square.file().wrapping_sub(src.file())
-            {
-                ChessBitboard::slider_attacks(square, blockers_left, AntiDiagonal)
-                    & (self.piece_bb(Bishop) | self.piece_bb(Queen))
-            } else {
-                ChessBitboard::default()
-            };
+            let ray_attacks = self.ray_attacks(square, src, blockers_left);
             let new_attack = ray_attacks & !(removed_attackers | *all_remaining_attackers);
             debug_assert!(new_attack.0.count_ones() <= 1);
             *all_remaining_attackers |= new_attack;
@@ -130,31 +115,30 @@ impl Chessboard {
 
         loop {
             if eval <= alpha {
-                return alpha;
+                return if color == self.active_player {
+                    alpha
+                } else {
+                    -alpha
+                };
             } else if eval < beta {
                 beta = eval;
             }
             let (Some(piece), attacker_src_square) =
                 self.next_see_attacker(color.other(), all_remaining_attackers)
             else {
-                return eval.min(beta);
+                return if color == self.active_player {
+                    eval.min(beta)
+                } else {
+                    -eval.min(beta)
+                };
             };
             let (mov, piece) = see_attack(attacker_src_square, &mut all_remaining_attackers, piece);
             our_victim = piece;
             eval -= move_see_value(mov, their_victim);
-            if eval >= beta {
-                return beta;
-            } else if eval > alpha {
-                alpha = eval;
-            }
-            let (Some(piece), attacker_src_square) =
-                self.next_see_attacker(color, all_remaining_attackers)
-            else {
-                return eval.max(alpha);
-            };
-            let (mov, piece) = see_attack(attacker_src_square, &mut all_remaining_attackers, piece);
-            their_victim = piece;
-            eval += move_see_value(mov, our_victim);
+            color = color.other();
+            (alpha, beta) = (-beta, -alpha);
+            eval = -eval;
+            swap(&mut our_victim, &mut their_victim);
         }
     }
 

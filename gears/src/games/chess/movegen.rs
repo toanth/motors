@@ -417,4 +417,29 @@ impl Chessboard {
             | Self::all_pawn_captures(Black, square_bb, self.colored_piece_bb(White, Pawn))
             | Self::all_pawn_captures(White, square_bb, self.colored_piece_bb(Black, Pawn))
     }
+
+    pub fn ray_attacks(
+        &self,
+        target: ChessSquare,
+        ray_square: ChessSquare,
+        blockers: ChessBitboard,
+    ) -> ChessBitboard {
+        let file_diff = target.file().wrapping_sub(ray_square.file());
+        let rank_diff = target.rank().wrapping_sub(ray_square.rank());
+        if file_diff == 0 {
+            ChessBitboard::slider_attacks(target, blockers, Vertical)
+                & (self.piece_bb(Rook) | self.piece_bb(Queen))
+        } else if rank_diff == 0 {
+            ChessBitboard::slider_attacks(target, blockers, Horizontal)
+                & (self.piece_bb(Rook) | self.piece_bb(Queen))
+        } else if file_diff == rank_diff {
+            ChessBitboard::slider_attacks(target, blockers, Diagonal)
+                & (self.piece_bb(Bishop) | self.piece_bb(Queen))
+        } else if file_diff == 0_u8.wrapping_sub(rank_diff) {
+            ChessBitboard::slider_attacks(target, blockers, AntiDiagonal)
+                & (self.piece_bb(Bishop) | self.piece_bb(Queen))
+        } else {
+            ChessBitboard::default()
+        }
+    }
 }
