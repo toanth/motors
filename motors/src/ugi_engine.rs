@@ -782,24 +782,22 @@ impl<B: Board> EngineUGI<B> {
                 );
             }
             println!();
-        } else {
-            if !output
-                .additional_outputs
-                .iter()
-                .any(|o| o.short_name().eq_ignore_ascii_case(next))
-            {
-                output.additional_outputs.push(
-                    output_builder_from_str(next, &self.output_factories)
-                        .map_err(|err| {
-                            format!(
-                                "{err}\nSpecial commands are '{0}' and '{1}'.",
-                                "remove".bold(),
-                                "list".bold()
-                            )
-                        })?
-                        .for_engine(&self.state)?,
-                );
-            }
+        } else if !output
+            .additional_outputs
+            .iter()
+            .any(|o| o.short_name().eq_ignore_ascii_case(next))
+        {
+            output.additional_outputs.push(
+                output_builder_from_str(next, &self.output_factories)
+                    .map_err(|err| {
+                        format!(
+                            "{err}\nSpecial commands are '{0}' and '{1}'.",
+                            "remove".bold(),
+                            "list".bold()
+                        )
+                    })?
+                    .for_engine(&self.state)?,
+            );
         }
         Ok(())
     }

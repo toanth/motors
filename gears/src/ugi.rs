@@ -185,7 +185,7 @@ pub fn parse_ugi_position<B: Board>(words: &mut SplitWhitespace, old_board: &B) 
     Ok(match position_word {
         "fen" | "f" => B::read_fen_and_advance_input(words)?,
         "startpos" | "s" => B::startpos(old_board.settings()),
-        "old" | "o" | "previous" | "p" => old_board.clone(),
+        "old" | "o" | "previous" | "p" => *old_board,
         name => B::from_name(name).map_err(|err| {
             format!(
                 "{err} Additionally, '{0}', '{1}' and '{2}' are also always recognized.",

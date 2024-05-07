@@ -9,23 +9,18 @@ description = "A collection of several games and engines"
 
 [dependencies]
 gears = { path = "../gears", default-features = false }
-#num = "0.4.1"
-##text_io = "0.1.12"
 rand = "0.8.5"
-## The latest published version has a bug in the pdep implementation where it panics when called with u64::MAX,
-## but this is fixed in the git repo.
-#bitintr = { git = "https://github.com/gnzlbg/bitintr" }
 colored = "2.0.4"
 strum = "0.26.1"
 strum_macros = "0.26.1"
 derive_more = { version = "1.0.0-beta.6", features = ["full"] }
 itertools = "0.12.0"
 dyn-clone = "1.0.17"
-#chrono = "0.4.31" # Not really necessary
 static_assertions = "1.1.0"
 crossbeam-channel = "0.5.8"
 crossbeam-utils = "0.8.19"
 portable-atomic = "1.6.0"
+arrayvec = "0.7.4"
 
 [features]
 default = ["chess", "mnk", "random_mover", "generic_negamax", "caps"]

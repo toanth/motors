@@ -485,7 +485,7 @@ impl Board for MNKBoard {
             let next_move = FillSquare {
                 target: self.to_coordinates(idx),
             };
-            moves.add_move(next_move);
+            MoveList::<MNKBoard>::add_move(&mut moves, next_move);
         }
         moves
     }
@@ -771,8 +771,8 @@ mod test {
             90
         );
 
-        let mov = moves.next().unwrap();
-        assert_eq!(moves.len(), 19);
+        let mov: FillSquare = moves.iter().next().copied().unwrap();
+        assert_eq!(moves.len(), 20);
         assert!(board.size().coordinates_valid(mov.target));
     }
 

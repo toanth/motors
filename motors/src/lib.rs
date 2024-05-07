@@ -1,4 +1,3 @@
-use std::borrow::BorrowMut;
 use std::ops::Deref;
 
 use dyn_clone::clone_box;

@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::mem::take;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
@@ -22,6 +22,7 @@ use crate::search::Searching::*;
 #[cfg(feature = "chess")]
 pub mod chess;
 pub mod generic;
+mod move_picker;
 pub mod multithreading;
 mod tt;
 

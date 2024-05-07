@@ -1,16 +1,16 @@
 use std::fs::File;
-use std::io::{stderr, Stderr, stdout, Stdout, Write};
+use std::io::{stderr, stdout, Stderr, Stdout, Write};
 use std::mem::swap;
 use std::path::Path;
 use std::str::SplitWhitespace;
 
-use crate::{AdjudicationReason, GameOverReason, GameResult, GameState, MatchStatus};
-use crate::games::{Board, Move};
 use crate::games::Color::{Black, White};
+use crate::games::{Board, Move};
 use crate::general::common::{NamedEntity, Res};
-use crate::MatchStatus::Ongoing;
-use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
 use crate::output::text_output::DisplayType::MsgOnly;
+use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
+use crate::MatchStatus::Ongoing;
+use crate::{AdjudicationReason, GameOverReason, GameResult, GameState, MatchStatus};
 
 #[derive(Debug)]
 pub enum TextStream {
@@ -333,7 +333,7 @@ impl Clone for TextOutputBuilder {
             typ: self.typ,
             stream: None,
             accepted: self.accepted.clone(),
-            short_name: self.short_name.clone(),
+            short_name: self.short_name,
         }
     }
 }
@@ -366,7 +366,7 @@ impl TextOutputBuilder {
             self.typ,
             is_engine,
             TextWriter::new_for(stream, self.accepted.clone()),
-            self.short_name.clone(),
+            self.short_name,
         )))
     }
 }

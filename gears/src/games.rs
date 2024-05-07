@@ -170,13 +170,13 @@ impl<C: Coordinates, T: ColoredPieceType> Display for GenericPiece<C, T> {
 
 pub fn file_to_char(file: DimT) -> char {
     debug_assert!(file < 26);
-    (file + 'a' as DimT) as char
+    (file + b'a') as char
 }
 
 pub fn char_to_file(file: char) -> DimT {
     debug_assert!(file >= 'a');
     debug_assert!(file <= 'z');
-    file as DimT - 'a' as DimT
+    file as DimT - b'a'
 }
 
 // Assume 2D grid for now.
@@ -754,9 +754,10 @@ pub trait Board:
     fn legal_moves_slow(&self) -> Self::LegalMoveList {
         let pseudo_legal = self.pseudolegal_moves();
         if Self::are_all_pseudolegal_legal() {
-            return pseudo_legal.collect();
+            return pseudo_legal.into_iter().collect();
         }
         pseudo_legal
+            .into_iter()
             .filter(|mov| self.is_pseudolegal_move_legal(*mov))
             .collect()
     }
@@ -972,7 +973,7 @@ fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
             .map(|c| format!("{c} "))
             .collect(),
     );
-    rows.iter().map(|x| x.chars()).flatten().collect::<String>() + "\n"
+    rows.iter().flat_map(|x| x.chars()).collect::<String>() + "\n"
 }
 
 fn read_position_fen<B: RectangularBoard, F>(
@@ -1070,8 +1071,8 @@ mod tests {
             assert_ne!(hash, 0);
             if B::are_all_pseudolegal_legal() {
                 assert_eq!(
-                    pos.legal_moves_slow().count(),
-                    pos.pseudolegal_moves().count()
+                    pos.legal_moves_slow().into_iter().count(),
+                    pos.pseudolegal_moves().into_iter().count()
                 );
             }
             for mov in pos.legal_moves_slow() {

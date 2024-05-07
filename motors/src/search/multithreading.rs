@@ -7,7 +7,7 @@ use std::thread::spawn;
 use crossbeam_channel::unbounded;
 
 use gears::games::{Board, ZobristHistoryBase};
-use gears::general::common::{parse_int_from_str, NamedEntity, Res};
+use gears::general::common::{parse_int_from_str, Res};
 use gears::output::Message;
 use gears::output::Message::Error;
 use gears::search::{Depth, Score, SearchInfo, SearchLimit, SearchResult};

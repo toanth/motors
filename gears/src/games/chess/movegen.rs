@@ -1,30 +1,15 @@
-use std::iter::Peekable;
-
-use derive_more::{Add, AddAssign, Sub, SubAssign};
-use itertools::Itertools;
-use strum::IntoEnumIterator;
-
-use crate::games::chess::castling::CastleRight;
 use crate::games::chess::moves::ChessMove;
 use crate::games::chess::moves::ChessMoveFlags::*;
+use crate::games::chess::pieces::ColoredChessPiece;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
-use crate::games::chess::pieces::{
-    ColoredChessPiece, UncoloredChessPiece, UncoloredChessPieceIter, NUM_CHESS_PIECES,
-};
-use crate::games::chess::squares::{
-    ChessSquare, A_FILE_NO, B_FILE_NO, C_FILE_NO, E_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
-};
-use crate::games::chess::CastleRight::*;
+use crate::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO};
 use crate::games::chess::CastleRight::*;
 use crate::games::chess::{ChessMoveList, Chessboard};
 use crate::games::Color::*;
-use crate::games::{
-    sup_distance, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType, Coordinates,
-    DimT, Move,
-};
+use crate::games::{Board, Color, ColoredPiece, ColoredPieceType, Coordinates, Move};
 use crate::general::bitboards::chess::{ChessBitboard, KINGS, KNIGHTS};
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
-use crate::general::bitboards::{Bitboard, Direction, RawBitboard, RawStandardBitboard};
+use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 
 #[derive(Debug, Copy, Clone)]
 enum SliderMove {
@@ -165,18 +150,18 @@ impl Chessboard {
                     flag = EnPassant;
                 } else if to.rank() == 0 || to.rank() == 7 {
                     for flag in [PromoQueen, PromoKnight] {
-                        list.add_move(ChessMove::new(from, to, flag));
+                        list.push(ChessMove::new(from, to, flag));
                     }
                     if !only_tactical {
                         for flag in [PromoRook, PromoBishop] {
-                            list.add_move(ChessMove::new(from, to, flag));
+                            list.push(ChessMove::new(from, to, flag));
                         }
                     }
                     continue;
                 } else if only_tactical && !is_capture {
                     continue;
                 }
-                list.add_move(ChessMove::new(from, to, flag));
+                list.push(ChessMove::new(from, to, flag));
             }
         }
     }
@@ -188,7 +173,7 @@ impl Chessboard {
         let mut moves = Self::normal_king_moves_from_square(king_square, filter);
         while moves.has_set_bit() {
             let target = moves.pop_lsb();
-            list.add_move(ChessMove::new(
+            list.push(ChessMove::new(
                 king_square,
                 ChessSquare::new(target),
                 Normal,
@@ -253,7 +238,7 @@ impl Chessboard {
                     self.piece_on(rook).symbol,
                     ColoredChessPiece::new(color, Rook)
                 );
-                list.add_move(ChessMove::new(king_square, rook, CastleQueenside));
+                list.push(ChessMove::new(king_square, rook, CastleQueenside));
             }
         }
         if self.castling.can_castle(color, Kingside) {
@@ -270,7 +255,7 @@ impl Chessboard {
                     self.piece_on(rook).symbol,
                     ColoredChessPiece::new(color, Rook)
                 );
-                list.add_move(ChessMove::new(king_square, rook, CastleKingside));
+                list.push(ChessMove::new(king_square, rook, CastleKingside));
             }
         }
     }
@@ -283,7 +268,7 @@ impl Chessboard {
             let mut attacks = Self::knight_moves_from_square(from, filter);
             while attacks.has_set_bit() {
                 let to = ChessSquare::new(attacks.pop_lsb());
-                list.add_move(ChessMove::new(from, to, Normal));
+                list.push(ChessMove::new(from, to, Normal));
             }
         }
     }
@@ -315,7 +300,7 @@ impl Chessboard {
             );
             while attacks.has_set_bit() {
                 let to = ChessSquare::new(attacks.pop_lsb());
-                list.add_move(ChessMove::new(from, to, Normal));
+                list.push(ChessMove::new(from, to, Normal));
             }
         }
     }
@@ -382,7 +367,7 @@ impl Chessboard {
         square_bb_if_occupied: ChessBitboard,
     ) -> ChessBitboard {
         let blockers = self.occupied_bb();
-        let mut attacks = match slider_move {
+        let attacks = match slider_move {
             SliderMove::Bishop => {
                 ChessBitboard::bishop_attacks(square, blockers ^ square_bb_if_occupied)
             }

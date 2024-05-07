@@ -124,7 +124,6 @@ impl<B: Board> SearchResult<B> {
         Self {
             chosen_move,
             score: Some(score),
-            ..Default::default()
         }
     }
 }

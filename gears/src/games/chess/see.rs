@@ -6,11 +6,10 @@ use crate::games::chess::squares::ChessSquare;
 use crate::games::chess::Chessboard;
 use crate::games::{AbstractPieceType, Board, Color, ColoredPiece, Coordinates, Move};
 use crate::general::bitboards::chess::ChessBitboard;
-use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
+use crate::general::bitboards::RayDirections::Vertical;
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use std::mem::swap;
-use strum::IntoEnumIterator;
 
 #[derive(
     Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Add, AddAssign, Sub, SubAssign, Neg,
@@ -59,8 +58,8 @@ impl Chessboard {
     }
 
     pub fn see(&self, mov: ChessMove, mut alpha: SeeScore, mut beta: SeeScore) -> SeeScore {
-        let square = mov.dest_square();
         debug_assert!(alpha < beta);
+        let square = mov.dest_square();
         let mut color = self.active_player;
         let mut all_remaining_attackers = self.all_attacking(square);
         let mut removed_attackers = ChessBitboard::default();
@@ -82,7 +81,7 @@ impl Chessboard {
         }
         let mut eval = move_see_value(mov, our_victim);
         // testing if eval - max recapture score was >= beta caused a decently large bench performance regression,
-        // so let's not do that. This also significantly simplifies the code, because the amx recapture score can be larger
+        // so let's not do that. This also significantly simplifies the code, because the max recapture score can be larger
         // than the captured piece value in case of promotions.
 
         let mut see_attack = |attacker: ChessSquare,

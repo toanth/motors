@@ -12,7 +12,6 @@ use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::castling::{CastleRight, CastlingFlags};
 use crate::games::chess::moves::ChessMove;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
-use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::pieces::{
     ChessPiece, ColoredChessPiece, UncoloredChessPiece, NUM_CHESS_PIECES, NUM_COLORS,
 };
@@ -46,8 +45,10 @@ const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w HAha - 0 
 #[derive(Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct ChessSettings {}
 
+pub const MAX_CHESS_MOVES_IN_POS: usize = 256;
+
 // for some reason, Chessboard::MoveList can be ambiguous? This should fix that
-pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, 256>;
+pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, MAX_CHESS_MOVES_IN_POS>;
 
 impl Settings for ChessSettings {}
 
@@ -285,12 +286,12 @@ impl Board for Chessboard {
 
     fn random_legal_move<T: Rng>(&self, rng: &mut T) -> Option<Self::Move> {
         let moves = self.legal_moves_slow();
-        moves.choose(rng)
+        moves.into_iter().choose(rng)
     }
 
     fn random_pseudolegal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
         let moves = self.pseudolegal_moves();
-        moves.choose(rng)
+        moves.into_iter().choose(rng)
     }
 
     fn make_move(self, mov: Self::Move) -> Option<Self> {
@@ -870,7 +871,10 @@ mod tests {
         assert_eq!(moves.len(), 20);
         let legal_moves = board.legal_moves_slow();
         assert_eq!(legal_moves.len(), moves.len());
-        assert!(legal_moves.sorted().eq(moves.sorted()));
+        assert!(legal_moves
+            .into_iter()
+            .sorted()
+            .eq(moves.into_iter().sorted()));
 
         // let mut engine = Caps::<MaterialOnlyEval>::default();
         // let res = engine.search(board, SearchLimit::depth(4), ZobristHistoryBase::default());
@@ -1045,7 +1049,7 @@ mod tests {
             assert!(board.verify_position_legal().is_ok());
             assert!(fens.insert(board.as_fen()));
             let num_moves = board.pseudolegal_moves().len();
-            assert!(num_moves >= 18 && num_moves <= 21); // 21 legal moves because castling can be legal
+            assert!((18..=21).contains(&num_moves)); // 21 legal moves because castling can be legal
             assert_eq!(board.castling.allowed_castling_directions(), 0b1111);
             assert_eq!(
                 board.king_square(White).flip_up_down(board.size()),

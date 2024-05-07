@@ -39,6 +39,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8901269c6307e8d93993578286ac0edf7f195079ffff5ebdeea6a59ffb7e36bc"
 
 [[package]]
+name = "arrayvec"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96d30a06541fbafbc7f82ed10c06164cfbd2c401138f6addd8404629c4b16711"
+
+[[package]]
 name = "autocfg"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -284,6 +290,7 @@ checksum = "11157ac094ffbdde99aa67b23417ebdd801842852b500e395a45a9c0aac03e4a"
 name = "gears"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "bitintr",
  "chrono",
  "colored",
@@ -443,6 +450,7 @@ dependencies = [
 name = "motors"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "colored",
  "crossbeam-channel",
  "crossbeam-utils",

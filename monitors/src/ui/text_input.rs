@@ -288,6 +288,7 @@ impl<B: Board> TextInputThread<B> {
             "{}",
             board
                 .legal_moves_slow()
+                .into_iter()
                 .map(|m| m.to_extended_text(&board))
                 .intersperse(", ".to_string())
                 .collect::<String>()

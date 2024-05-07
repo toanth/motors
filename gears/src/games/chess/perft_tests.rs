@@ -4,7 +4,7 @@
 mod tests {
     use itertools::Itertools;
     use std::num::NonZeroUsize;
-    use std::thread::{available_parallelism, current, scope, spawn, Builder};
+    use std::thread::{available_parallelism, current, Builder};
     use std::time::Instant;
 
     use crate::games::chess::Chessboard;

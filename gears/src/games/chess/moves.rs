@@ -11,9 +11,7 @@ use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::pieces::{ChessPiece, ColoredChessPiece, UncoloredChessPiece};
-use crate::games::chess::squares::{
-    ChessSquare, A_FILE_NO, C_FILE_NO, D_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO,
-};
+use crate::games::chess::squares::{ChessSquare, C_FILE_NO, D_FILE_NO, F_FILE_NO, G_FILE_NO};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::chess::Chessboard;
 use crate::games::Color::{Black, White};
@@ -21,7 +19,6 @@ use crate::games::{
     char_to_file, file_to_char, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType,
     DimT, Move, MoveFlags,
 };
-use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::common::Res;
 
@@ -257,6 +254,7 @@ impl Move<Chessboard> for ChessMove {
         let moves = board
             // we have to use .pseudolegal instead of legal moves here because that's what the rules demand.
             .pseudolegal_moves()
+            .into_iter()
             .filter(|mov| {
                 mov.piece(board).symbol == piece.symbol
                     && mov.dest_square() == self.dest_square()
@@ -355,8 +353,8 @@ impl Chessboard {
         assert_eq!(color, piece.color().unwrap());
         self.ply_100_ctr += 1;
         // remove old castling flags
-        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys
-            [self.castling.allowed_castling_directions() as usize];
+        self.hash ^=
+            PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         if let Some(square) = self.ep_square {
             self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize];
         }
@@ -661,7 +659,7 @@ impl<'a> MoveParser<'a> {
             }
             Err(_) => match file {
                 'a'..='h' => self.start_file = Some(char_to_file(file)),
-                '1'..='8' => self.start_rank = Some(file as DimT - '1' as DimT),
+                '1'..='8' => self.start_rank = Some(file as DimT - b'1'),
                 x => {
                     // doesn't reset the current char, but that's fine because we're aborting anyway
                     return Err(if self.piece == Empty && !self.is_capture {
@@ -691,7 +689,7 @@ impl<'a> MoveParser<'a> {
             }
         }
         if self.piece == Empty && file.is_some() && matches!(file.unwrap(), 'a'..='h') {
-            self.target_file = file.map(|c| char_to_file(c));
+            self.target_file = file.map(char_to_file);
             return;
         }
         self.num_bytes_read = read_so_far;
@@ -809,7 +807,7 @@ impl<'a> MoveParser<'a> {
             ));
         }
 
-        let mut moves = board.gen_all_pseudolegal_moves().filter(|mov| {
+        let mut moves = board.gen_all_pseudolegal_moves().into_iter().filter(|mov| {
             mov.piece(board).uncolored() == self.piece
                 && mov.dest_square().file() == self.target_file.unwrap()
                 && !self

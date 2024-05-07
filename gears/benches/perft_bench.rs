@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use itertools::Itertools;
-use gears::games::Board;
 use gears::games::chess::Chessboard;
+use gears::games::Board;
+use gears::general::move_list::MoveList;
 use gears::general::perft::perft;
 use gears::search::Depth;
 
@@ -37,9 +37,9 @@ fn gen_moves(c: &mut Criterion, name: &str, fen: &str) {
 fn play_moves(c: &mut Criterion, name: &str, fen: &str) {
     c.bench_function(name, |b| {
         let pos = Chessboard::from_fen(fen).unwrap();
-        let moves = pos.pseudolegal_moves().collect_vec();
+        let moves = pos.pseudolegal_moves();
         b.iter(|| {
-            for m in &moves {
+            for m in moves.iter_moves() {
                 black_box(black_box(pos).make_move(*m));
             }
         })

@@ -25,6 +25,7 @@ itertools = "0.12.0"
 chrono = "0.4.31"
 static_assertions = "1.1.0"
 dyn-clone = "1.0.17"
+arrayvec = "0.7.4"
 
 [features]
 default = ["chess", "mnk"]
