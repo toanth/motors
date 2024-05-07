@@ -606,7 +606,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         // TODO: stand pat is SCORE_LOST when in check, generate evasions?
         alpha = alpha.max(best_score);
-        // TODO: Using the TT for move ordering in qsearch was mostly elo-neutral, so retest that eventually
         // do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation
         // but if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
         let tt_entry: TTEntry<Chessboard> = self.state.custom.tt.load(pos.zobrist_hash(), ply);
@@ -614,14 +613,14 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
         // However, if we've already done qsearch on this position, we can just re-use the result,
         // so there is no point in checking the depth at all
-        // if tt_entry.hash == pos.zobrist_hash()
-        //     && tt_entry.bound != TTScoreType::Empty
-        //     && ((tt_entry.bound == LowerBound && tt_entry.score >= beta)
-        //         || (tt_entry.bound == UpperBound && tt_entry.score <= alpha)
-        //         || tt_entry.bound == Exact)
-        // {
-        //     return tt_entry.score;
-        // }
+        if tt_entry.hash == pos.zobrist_hash()
+            && tt_entry.bound != NodeType::Empty
+            && ((tt_entry.bound == LowerBound && tt_entry.score >= beta)
+                || (tt_entry.bound == UpperBound && tt_entry.score <= alpha)
+                || tt_entry.bound == Exact)
+        {
+            return tt_entry.score;
+        }
 
         let mut best_move = tt_entry.mov;
 
