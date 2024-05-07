@@ -486,11 +486,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // to verify our belief.
                 let mut reduction = 0;
                 if !in_check && num_quiets_visited > 4 && depth >= 4 {
-                    reduction = 1 + depth / 8; // This is a very basic implementation.
+                    reduction = 1 + depth / 8 + (num_quiets_visited - 4) / 8; // This is a very basic implementation.
                     if !is_pvs_pv_node {
                         reduction += 1;
                     }
                 }
+                reduction = reduction.min(depth - 1);
 
                 score = -self.negamax(
                     new_pos,
