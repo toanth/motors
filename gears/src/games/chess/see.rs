@@ -81,6 +81,9 @@ impl Chessboard {
                     & (self.piece_bb(Rook) | self.piece_bb(Queen));
         }
         let mut eval = move_see_value(mov, our_victim);
+        // testing if eval - max recapture score was >= beta caused a decently large bench performance regression,
+        // so let's not do that. This also significantly simplifies the code, because the amx recapture score can be larger
+        // than the captured piece value in case of promotions.
 
         let mut see_attack = |attacker: ChessSquare,
                               all_remaining_attackers: &mut ChessBitboard,
@@ -94,9 +97,8 @@ impl Chessboard {
                 ChessBitboard::default()
             );
             let blockers_left = self.occupied_bb() ^ removed_attackers;
-            let src = ChessSquare::new(idx);
             // xrays for sliders
-            let ray_attacks = self.ray_attacks(square, src, blockers_left);
+            let ray_attacks = self.ray_attacks(square, ChessSquare::new(idx), blockers_left);
             let new_attack = ray_attacks & !(removed_attackers | *all_remaining_attackers);
             debug_assert!(new_attack.0.count_ones() <= 1);
             *all_remaining_attackers |= new_attack;
@@ -114,31 +116,31 @@ impl Chessboard {
         );
 
         loop {
-            if eval <= alpha {
-                return if color == self.active_player {
-                    alpha
-                } else {
-                    -alpha
-                };
-            } else if eval < beta {
-                beta = eval;
-            }
-            let (Some(piece), attacker_src_square) =
-                self.next_see_attacker(color.other(), all_remaining_attackers)
-            else {
-                return if color == self.active_player {
-                    eval.min(beta)
-                } else {
-                    -eval.min(beta)
-                };
-            };
-            let (mov, piece) = see_attack(attacker_src_square, &mut all_remaining_attackers, piece);
-            our_victim = piece;
-            eval -= move_see_value(mov, their_victim);
             color = color.other();
             (alpha, beta) = (-beta, -alpha);
             eval = -eval;
             swap(&mut our_victim, &mut their_victim);
+            if eval >= beta {
+                return if color == self.active_player {
+                    beta
+                } else {
+                    -beta
+                };
+            } else if eval > alpha {
+                alpha = eval;
+            }
+            let (Some(piece), attacker_src_square) =
+                self.next_see_attacker(color, all_remaining_attackers)
+            else {
+                return if color == self.active_player {
+                    eval.max(alpha)
+                } else {
+                    -eval.max(alpha)
+                };
+            };
+            let (mov, piece) = see_attack(attacker_src_square, &mut all_remaining_attackers, piece);
+            eval += move_see_value(mov, our_victim);
+            their_victim = piece;
         }
     }
 

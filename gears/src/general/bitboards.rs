@@ -899,6 +899,9 @@ pub mod chess {
         pub fn file_no(idx: DimT) -> Self {
             Self::file(idx, ChessboardSize::default())
         }
+        pub fn pawn_ranks() -> Self {
+            Self::from_u64(0x00ff_0000_0000_ff00)
+        }
     }
 
     impl Debug for ChessBitboard {
