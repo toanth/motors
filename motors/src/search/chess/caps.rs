@@ -22,6 +22,7 @@ use gears::ugi::{EngineOption, UgiSpin};
 use crate::eval::Eval;
 use crate::search::move_picker::MovePicker;
 use crate::search::multithreading::SearchSender;
+use crate::search::statistics::SearchType::{MainSearch, Qsearch};
 use crate::search::tt::{TTEntry, TT};
 use crate::search::NodeType::*;
 use crate::search::{
@@ -274,6 +275,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         let mut window_radius = Score(20);
 
+        self.state.statistics.next_id_iteration();
+
         loop {
             let iteration_score = self.negamax(
                 pos,
@@ -313,8 +316,14 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 self.state.depth += Depth::new(1);
                 // make sure that alpha and beta are at least 2 apart, to recognize PV nodes.
                 window_radius = Score(1.max(window_radius.0 / 2));
+                self.state.statistics.aw_exact();
             } else {
                 window_radius.0 *= 3;
+                if iteration_score <= alpha {
+                    self.state.statistics.aw_fail_low();
+                } else {
+                    self.state.statistics.aw_fail_high()
+                }
             }
             alpha = (iteration_score - window_radius).max(SCORE_LOST);
             beta = (iteration_score + window_radius).min(SCORE_WON);
@@ -358,6 +367,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // Check extensions. Increase the depth by 1 if in check.
         // Do this before deciding whether to drop into qsearch.
         if in_check {
+            self.state.statistics.in_check();
             depth += 1;
         }
         if depth <= 0 || ply >= DEPTH_HARD_LIMIT.get() {
@@ -372,6 +382,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
         let mut best_move = tt_entry.mov;
         let found_tt_entry =
             tt_entry.bound != NodeType::Empty && tt_entry.hash == pos.zobrist_hash();
+        if tt_entry.hash != pos.zobrist_hash() {
+            self.state.statistics.tt_miss(MainSearch);
+        }
 
         // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
         // and we're not a PV node, and the saved score is either exact or at least known to be outside of [alpha, beta),
@@ -383,6 +396,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 || (tt_entry.score <= alpha && tt_entry.bound == UpperBound)
                 || tt_entry.bound == Exact)
         {
+            self.state.statistics.tt_cutoff(MainSearch, tt_entry.bound);
             return tt_entry.score;
         }
 
@@ -465,6 +479,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 continue; // illegal pseudolegal move
             }
             let new_pos = new_pos.unwrap();
+            self.state.statistics.count_move(MainSearch);
             self.state.nodes += 1;
             children_visited += 1;
             if !mov.is_tactical(&pos) {
@@ -510,6 +525,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
                 if alpha < score && reduction > 0 {
+                    self.state.statistics.lmr_first_retry();
                     score = -self.negamax(
                         new_pos,
                         limit,
@@ -524,6 +540,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // full window to find the true score. If the score was at least `beta`, don't search again
                 // -- this move is probably already too good, so don't waste more time finding out how good it is exactly.
                 if alpha < score && score < beta {
+                    self.state.statistics.lmr_second_retry();
                     score =
                         -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, sender);
                 }
@@ -569,6 +586,15 @@ impl<E: Eval<Chessboard>> Caps<E> {
             entry.killer = mov;
             break;
         }
+
+        // Update statistics for this node as soon as we know the node type, before returning.
+        self.state.statistics.count_complete_node(
+            MainSearch,
+            bound_so_far,
+            depth,
+            ply,
+            children_visited,
+        );
 
         if ply == 0 {
             assert_ne!(children_visited, 0);
@@ -625,6 +651,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 || (tt_entry.bound == UpperBound && tt_entry.score <= alpha)
                 || tt_entry.bound == Exact)
         {
+            self.state.statistics.tt_cutoff(Qsearch, tt_entry.bound);
             return tt_entry.score;
         }
 
@@ -634,12 +661,15 @@ impl<E: Eval<Chessboard>> Caps<E> {
             pos.tactical_pseudolegal(),
             self.score_move_fn(pos, best_move, ply),
         );
+        let mut children_visited = 0;
         for mov in move_picker.into_iter() {
             debug_assert!(mov.is_tactical(&pos));
             let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
                 continue;
             }
+            children_visited += 1;
+            self.state.statistics.count_move(Qsearch);
             // TODO: Also count qsearch nodes. Because of the nodes % 1024 check in timeouts, this requires also checking for timeouts in qsearch.
             self.state.board_history.push(&pos);
             let score = -self.qsearch(new_pos.unwrap(), -beta, -alpha, ply + 1);
@@ -656,6 +686,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 break;
             }
         }
+        self.state
+            .statistics
+            .count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
+
         // see main search, don't store a random move in the TT entry.
         if bound_so_far == UpperBound && pos.zobrist_hash() != tt_entry.hash {
             best_move = ChessMove::default();

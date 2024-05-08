@@ -16,6 +16,7 @@ use gears::search::{
 use gears::ugi::{EngineOption, EngineOptionName};
 
 use crate::search::multithreading::{EngineWrapper, SearchSender};
+use crate::search::statistics::Statistics;
 use crate::search::tt::TT;
 use crate::search::Searching::*;
 
@@ -24,6 +25,7 @@ pub mod chess;
 pub mod generic;
 mod move_picker;
 pub mod multithreading;
+pub mod statistics;
 mod tt;
 
 #[derive(Default, Debug, Clone)]
@@ -218,6 +220,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
             .new_search(ZobristRepetition2Fold(history));
         let res = self.do_search(pos, limit, sender);
         self.search_state_mut().end_search();
+        sender.send_statistics(self.search_state().statistics());
         res
     }
 
@@ -327,6 +330,7 @@ pub trait SearchState<B: Board>: Debug + Clone {
     fn new_search(&mut self, history: ZobristRepetition2Fold);
     fn end_search(&mut self);
     fn to_search_info(&self) -> SearchInfo<B>;
+    fn statistics(&self) -> &Statistics;
 }
 
 pub trait SearchStackEntry<B: Board>: Default + Clone + Debug {
@@ -375,6 +379,7 @@ pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo> {
     sel_depth: usize,
     start_time: Instant,
     score: Score,
+    statistics: Statistics,
 }
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
@@ -396,6 +401,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
             depth: Depth::MIN,
             sel_depth: 0,
             custom,
+            statistics: Statistics::default(),
         }
     }
 
@@ -483,6 +489,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
         self.should_stop = false;
         self.depth = Depth::MIN;
         self.sel_depth = 0;
+        self.statistics = Statistics::default();
     }
 
     fn new_search(&mut self, history: ZobristRepetition2Fold) {
@@ -507,6 +514,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
             hashfull: self.hashfull(),
             additional: self.additional(),
         }
+    }
+
+    fn statistics(&self) -> &Statistics {
+        // TODO: Also use statistics for UCI-relevant output like nodes and nps?
+        &self.statistics
     }
 }
 

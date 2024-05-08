@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{Arc, Mutex};
@@ -9,12 +8,13 @@ use crossbeam_channel::unbounded;
 use gears::games::{Board, ZobristHistoryBase};
 use gears::general::common::{parse_int_from_str, NamedEntity, Res};
 use gears::output::Message;
-use gears::output::Message::Error;
+use gears::output::Message::{Debug, Error};
 use gears::search::{Depth, Score, SearchInfo, SearchLimit, SearchResult};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::{EngineOption, EngineOptionName};
 
 use crate::search::multithreading::EngineReceives::*;
+use crate::search::statistics::{Statistics, Summary};
 use crate::search::tt::TT;
 use crate::search::{AbstractEngineBuilder, BenchResult, Engine, EngineInfo, SearchState};
 use crate::ugi_engine::UgiOutput;
@@ -95,6 +95,14 @@ impl<B: Board> SearchSender<B> {
     pub fn send_message(&mut self, typ: Message, text: &str) {
         if let Some(output) = &self.output {
             output.lock().unwrap().write_message(typ, text)
+        }
+    }
+
+    pub fn send_statistics(&mut self, statistics: &Statistics) {
+        // don't pay the performance penalty of aggregating statistics unless they are shown,
+        // especially since the "statistics" feature is likely turned off
+        if cfg!(feature = "statistics") && self.output.is_some() {
+            self.send_message(Debug, &Summary::new(statistics).to_string());
         }
     }
 

@@ -26,7 +26,8 @@ arrayvec = "0.7.4"
 default = ["chess", "mnk", "random_mover", "generic_negamax", "caps"]
 random_mover = []
 generic_negamax = []
-caps = ["chess"]
+caps = ["chess"] # enabling the caps feature also enables the chess feature
+statistics = []
 
 generic-engines = ["random_mover", "generic_negamax"]
 chess-engines = ["caps"]
