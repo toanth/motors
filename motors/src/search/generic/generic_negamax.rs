@@ -61,7 +61,7 @@ impl<B: Board, E: Eval<B>> StaticallyNamedEntity for GenericNegamax<B, E> {
 
 impl<B: Board, E: Eval<B>> Benchable<B> for GenericNegamax<B, E> {
     fn bench(&mut self, pos: B, depth: Depth) -> BenchResult {
-        self.state.new_search(ZobristRepetition2Fold::default());
+        self.state.forget(true);
         let mut limit = SearchLimit::infinite();
         limit.depth = MAX_DEPTH.min(depth);
         self.state.depth = limit.depth;

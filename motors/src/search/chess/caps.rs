@@ -66,10 +66,15 @@ impl CustomInfo for Additional {
         Some(&self.tt)
     }
 
-    fn new_search(&self) -> Self {
-        Self {
-            history: HistoryHeuristic::default(),
-            tt: self.tt.clone(),
+    fn new_search(&mut self) {
+        for value in self.history.iter_mut() {
+            *value /= 4;
+        }
+    }
+
+    fn forget(&mut self) {
+        for value in self.history.iter_mut() {
+            *value = 0;
         }
     }
 }
@@ -132,7 +137,7 @@ impl<E: Eval<Chessboard>> StaticallyNamedEntity for Caps<E> {
 
 impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
     fn bench(&mut self, pos: Chessboard, depth: Depth) -> BenchResult {
-        self.state.new_search(ZobristRepetition2Fold::default());
+        self.state.forget(true);
         let mut limit = SearchLimit::infinite();
         limit.depth = DEPTH_SOFT_LIMIT.min(depth);
         self.state.depth = limit.depth;
@@ -658,7 +663,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
         let tt_entry: TTEntry<Chessboard> =
             TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
         self.state.custom.tt.store(tt_entry, ply);
-        debug_assert!(!best_score.is_game_over_score());
         best_score
     }
 
