@@ -287,7 +287,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
 
     /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
     fn forget(&mut self) {
-        self.search_state_mut().forget();
+        self.search_state_mut().forget(true);
     }
 
     fn is_currently_searching(&self) -> bool {
@@ -323,7 +323,7 @@ pub trait SearchState<B: Board>: Debug + Clone {
     fn depth(&self) -> Depth;
     fn start_time(&self) -> Instant;
     fn score(&self) -> Score;
-    fn forget(&mut self);
+    fn forget(&mut self, hard: bool);
     fn new_search(&mut self, history: ZobristRepetition2Fold);
     fn end_search(&mut self);
     fn to_search_info(&self) -> SearchInfo<B>;
@@ -349,8 +349,11 @@ trait CustomInfo: Default + Clone + Debug {
     fn tt(&self) -> Option<&TT> {
         None
     }
-    fn new_search(&self) -> Self {
-        self.clone()
+    fn new_search(&mut self) {
+        self.forget()
+    }
+    fn forget(&mut self) {
+        // do nothing
     }
 }
 
@@ -462,16 +465,28 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
         self.score
     }
 
-    fn forget(&mut self) {
-        let mut stack = take(&mut self.search_stack);
-        for e in stack.iter_mut() {
+    fn forget(&mut self, hard: bool) {
+        for e in self.search_stack.iter_mut() {
             e.forget();
         }
-        *self = Self::new_with(stack, self.custom.new_search());
+        if hard {
+            self.custom.forget();
+        } else {
+            self.custom.new_search();
+        }
+        self.start_time = Instant::now();
+        self.board_history = ZobristRepetition2Fold::default(); // will get overwritten later
+        self.score = Score(0);
+        self.best_move = None;
+        self.nodes = 0;
+        self.searching = Stop;
+        self.should_stop = false;
+        self.depth = Depth::MIN;
+        self.sel_depth = 0;
     }
 
     fn new_search(&mut self, history: ZobristRepetition2Fold) {
-        self.forget();
+        self.forget(false);
         self.board_history = history;
         self.searching = Ongoing;
     }
