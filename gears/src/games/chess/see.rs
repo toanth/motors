@@ -66,9 +66,10 @@ impl Chessboard {
         // A simple shortcut to avoid doing most of the work of SEE for a large portion of the cases it's called.
         // This needs to handle the case of the opponent recapturing with a pawn promotion.
         if piece_see_value(our_victim) - piece_see_value(original_moving_piece) >= beta
-            && (PAWN_CAPTURES[color as usize][square.index()]
-                & self.colored_piece_bb(color.other(), Pawn))
-            .is_zero()
+            && !(square.is_backrank()
+                && (PAWN_CAPTURES[color as usize][square.index()]
+                    & self.colored_piece_bb(color.other(), Pawn))
+                .has_set_bit())
         {
             return beta;
         }
