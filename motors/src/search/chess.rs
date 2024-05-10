@@ -55,15 +55,18 @@ mod tests {
             .search_from_pos(board, SearchLimit::nodes_(5_000))
             .unwrap();
         assert!(res.score.unwrap() >= Score(1400));
-        // not a legal chess position, but searc with random eval should handle this
+        // not a legal chess position, but search with random eval should handle this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
         let board = Chessboard::from_fen(fen).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 3);
-        let mut engine = Caps::<RandEval>::default();
-        let res = engine
-            .search_from_pos(board, SearchLimit::depth(Depth::new(100)))
-            .unwrap();
-        assert_eq!(res.score.unwrap(), SCORE_LOST + 2);
-        assert_eq!(res.chosen_move.to_compact_text(), "h1g1");
+        for i in (2..100).step_by(3) {
+            // do this several times to get different random numbers
+            let mut engine = Caps::<RandEval>::default();
+            let res = engine
+                .search_from_pos(board, SearchLimit::depth(Depth::new(i)))
+                .unwrap();
+            assert_eq!(res.score.unwrap(), SCORE_LOST + 2);
+            assert_eq!(res.chosen_move.to_compact_text(), "h1g1");
+        }
     }
 }
