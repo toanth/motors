@@ -334,7 +334,7 @@ impl Default for SearchLimit {
             fixed_time: Duration::MAX,
             depth: MAX_DEPTH,
             nodes: Nodes::new(u64::MAX).unwrap(),
-            mate: MAX_DEPTH,
+            mate: Depth(1),
         }
     }
 }
