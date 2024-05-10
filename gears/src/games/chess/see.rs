@@ -5,7 +5,7 @@ use crate::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use crate::games::chess::squares::ChessSquare;
 use crate::games::chess::Chessboard;
 use crate::games::{AbstractPieceType, Board, Color, ColoredPiece, Coordinates, Move};
-use crate::general::bitboards::chess::ChessBitboard;
+use crate::general::bitboards::chess::{ChessBitboard, PAWN_CAPTURES};
 use crate::general::bitboards::RayDirections::Vertical;
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
@@ -61,13 +61,22 @@ impl Chessboard {
         debug_assert!(alpha < beta);
         let square = mov.dest_square();
         let mut color = self.active_player;
+        let original_moving_piece = self.piece_on(mov.src_square()).uncolored();
+        let mut our_victim = self.piece_on(square).uncolored();
+        // A simple shortcut to avoid doing most of the work of SEE for a large portion of the cases it's called.
+        // This needs to handle the case of the opponent recapturing with a pawn promotion.
+        if piece_see_value(our_victim) - piece_see_value(original_moving_piece) >= beta
+            && (PAWN_CAPTURES[color as usize][square.index()]
+                & self.colored_piece_bb(color.other(), Pawn))
+            .is_zero()
+        {
+            return beta;
+        }
         let mut all_remaining_attackers = self.all_attacking(square);
         let mut removed_attackers = ChessBitboard::default();
         if self.is_occupied(square) {
             removed_attackers = square.bb(); // hyperbola quintessence expects the source square to be empty
         }
-        let original_moving_piece = self.piece_on(mov.src_square()).uncolored();
-        let mut our_victim = self.piece_on(square).uncolored();
         let mut their_victim = original_moving_piece;
         if mov.is_promotion() {
             their_victim = mov.promo_piece();

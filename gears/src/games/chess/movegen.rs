@@ -7,7 +7,7 @@ use crate::games::chess::CastleRight::*;
 use crate::games::chess::{ChessMoveList, Chessboard};
 use crate::games::Color::*;
 use crate::games::{Board, Color, ColoredPiece, ColoredPieceType, Coordinates, Move};
-use crate::general::bitboards::chess::{ChessBitboard, KINGS, KNIGHTS};
+use crate::general::bitboards::chess::{ChessBitboard, KINGS, KNIGHTS, PAWN_CAPTURES};
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 
@@ -113,24 +113,40 @@ impl Chessboard {
         let opponent = self.colored_bb(color.other());
         let regular_pawn_moves;
         let double_pawn_moves;
+        let left_pawn_captures;
+        let right_pawn_captures;
         let capturable = opponent
             | self
                 .ep_square
                 .map(|s| ChessBitboard::single_piece(s.index()))
                 .unwrap_or_default();
-        let [left_pawn_captures, right_pawn_captures] =
-            Self::pawn_captures(color, pawns, capturable);
         if color == White {
             regular_pawn_moves = ((pawns << 8) & free, 8);
             double_pawn_moves = (
                 ((pawns & ChessBitboard::rank_no(1)) << 16) & (free << 8) & free,
                 16,
             );
+            right_pawn_captures = (
+                ((pawns & !ChessBitboard::file_no(H_FILE_NO)) << 9) & capturable,
+                9,
+            );
+            left_pawn_captures = (
+                ((pawns & !ChessBitboard::file_no(A_FILE_NO)) << 7) & capturable,
+                7,
+            );
         } else {
             regular_pawn_moves = ((pawns >> 8) & free, -8);
             double_pawn_moves = (
                 ((pawns & ChessBitboard::rank_no(6)) >> 16) & (free >> 8) & free,
                 -16,
+            );
+            right_pawn_captures = (
+                ((pawns & !ChessBitboard::file_no(A_FILE_NO)) >> 9) & capturable,
+                -9,
+            );
+            left_pawn_captures = (
+                ((pawns & !ChessBitboard::file_no(H_FILE_NO)) >> 7) & capturable,
+                -7,
             );
         }
         for move_type in [
@@ -305,51 +321,8 @@ impl Chessboard {
         }
     }
 
-    /// All `*_from_square` methods and `pawn_captures` can be called with squares that do not contain the specified piece.
+    /// All the following methods can be called with squares that do not contain the specified piece.
     /// This makes sense because it allows to find all pieces able to attack a given square.
-
-    // TODO: This seems to be a noticeable (SPRT failing) slowdown over inlining it in `gen_pawn_moves`.
-    // Optimize movegen in general, using speedup.py.
-    fn pawn_captures(
-        color: Color,
-        pawns: ChessBitboard,
-        capturable: ChessBitboard,
-    ) -> [(ChessBitboard, isize); 2] {
-        let left_pawn_captures;
-        let right_pawn_captures;
-        match color {
-            White => {
-                right_pawn_captures = (
-                    ((pawns & !ChessBitboard::file_no(H_FILE_NO)) << 9) & capturable,
-                    9,
-                );
-                left_pawn_captures = (
-                    ((pawns & !ChessBitboard::file_no(A_FILE_NO)) << 7) & capturable,
-                    7,
-                );
-            }
-            Black => {
-                right_pawn_captures = (
-                    ((pawns & !ChessBitboard::file_no(A_FILE_NO)) >> 9) & capturable,
-                    -9,
-                );
-                left_pawn_captures = (
-                    ((pawns & !ChessBitboard::file_no(H_FILE_NO)) >> 7) & capturable,
-                    -7,
-                );
-            }
-        }
-        [left_pawn_captures, right_pawn_captures]
-    }
-
-    fn all_pawn_captures(
-        color: Color,
-        pawns: ChessBitboard,
-        capturable: ChessBitboard,
-    ) -> ChessBitboard {
-        let res = Self::pawn_captures(color, pawns, capturable);
-        res[0].0 | res[1].0
-    }
 
     fn normal_king_moves_from_square(square: ChessSquare, filter: ChessBitboard) -> ChessBitboard {
         KINGS[square.index()] & filter
@@ -357,6 +330,10 @@ impl Chessboard {
 
     fn knight_moves_from_square(square: ChessSquare, filter: ChessBitboard) -> ChessBitboard {
         KNIGHTS[square.index()] & filter
+    }
+
+    pub fn single_pawn_captures(color: Color, square: ChessSquare) -> ChessBitboard {
+        PAWN_CAPTURES[color as usize][square.index()]
     }
 
     fn gen_sliders_from_square(
@@ -399,8 +376,8 @@ impl Chessboard {
             square_bb_if_occupied,
         ) | Self::knight_moves_from_square(square, self.piece_bb(Knight))
             | Self::normal_king_moves_from_square(square, self.piece_bb(King))
-            | Self::all_pawn_captures(Black, square_bb, self.colored_piece_bb(White, Pawn))
-            | Self::all_pawn_captures(White, square_bb, self.colored_piece_bb(Black, Pawn))
+            | Self::single_pawn_captures(Black, square) & self.colored_piece_bb(White, Pawn)
+            | Self::single_pawn_captures(White, square) & self.colored_piece_bb(Black, Pawn)
     }
 
     pub fn ray_attacks(
