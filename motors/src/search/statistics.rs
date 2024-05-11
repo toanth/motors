@@ -137,12 +137,17 @@ pub enum SearchType {
 /// Functions that exist even if there are no statistics being collected,
 /// either because they're cheap or because they're necessary
 impl Statistics {
+    #[inline(always)]
     pub fn aw_fail_high(&mut self) {
         self.cur_mut().aw.fail_highs += 1;
     }
+
+    #[inline(always)]
     pub fn aw_fail_low(&mut self) {
-        self.cur_mut().aw.fail_highs += 1;
+        self.cur_mut().aw.fail_lows += 1;
     }
+
+    #[inline(always)]
     pub fn aw_exact(&mut self) {
         self.cur_mut().aw.exact += 1;
         self.next_id_iteration();
@@ -242,14 +247,17 @@ impl Statistics {
 
 #[cfg(not(feature = "statistics"))]
 impl Statistics {
+    #[inline(always)]
     pub fn next_id_iteration(&mut self) {
         self.id_iterations += 1;
     }
 
+    #[inline(always)]
     pub fn end_search(&mut self) {
         self.id_iterations -= 1;
     }
 
+    #[inline(always)]
     pub fn count_complete_node(
         &mut self,
         _search_type: SearchType,
@@ -260,6 +268,7 @@ impl Statistics {
     ) {
     }
 
+    #[inline(always)]
     pub fn count_node_started(&mut self, search_type: SearchType, ply: usize) {
         match search_type {
             MainSearch => self.main_nodes += 1,
@@ -268,28 +277,36 @@ impl Statistics {
         self.seldepth = self.seldepth.max(ply);
     }
 
+    #[inline(always)]
     pub fn in_check(&mut self) {}
 
+    #[inline(always)]
     pub fn tt_miss(&mut self, _search_type: SearchType) {}
 
+    #[inline(always)]
     pub fn tt_cutoff(&mut self, _search_type: SearchType, _node_type: NodeType) {}
 
+    #[inline(always)]
     pub fn lmr_first_retry(&mut self) {}
 
+    #[inline(always)]
     pub fn lmr_second_retry(&mut self) {}
 
     pub fn aggregate_iterations(&self) -> IDStatistics {
         IDStatistics::default()
     }
 
+    #[inline(always)]
     pub fn depth(&self) -> usize {
         self.id_iterations
     }
 
+    #[inline(always)]
     pub fn sel_depth(&self) -> usize {
         self.seldepth
     }
 
+    #[inline(always)]
     pub fn nodes(&self, search_type: SearchType) -> u64 {
         match search_type {
             MainSearch => self.main_nodes,
@@ -297,9 +314,11 @@ impl Statistics {
         }
     }
 
+    #[inline(always)]
     fn cur(&self) -> &Self {
         self
     }
+    #[inline(always)]
     fn cur_mut(&mut self) -> &mut Self {
         self
     }

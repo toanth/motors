@@ -306,12 +306,14 @@ impl Depth {
     pub const MIN: Self = Depth(0);
     pub const MAX: Self = MAX_DEPTH;
 
+    #[inline(always)]
     pub const fn get(self) -> usize {
         self.0
     }
 
+    #[inline(always)]
     pub const fn new(val: usize) -> Self {
-        assert!(val <= Self::MAX.get());
+        debug_assert!(val <= Self::MAX.get());
         Self(val)
     }
 }

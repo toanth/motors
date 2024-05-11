@@ -318,6 +318,7 @@ pub enum Searching {
 
 pub trait SearchState<B: Board>: Debug + Clone {
     /// Returns a `u64` instead of `Nodes` because this will return `0` before the search has been started.
+    #[inline(always)]
     fn nodes(&self, search_type: SearchType) -> u64 {
         self.statistics().nodes(search_type)
     }
@@ -327,6 +328,7 @@ pub trait SearchState<B: Board>: Debug + Clone {
     }
     fn should_stop(&self) -> bool;
     fn quit(&mut self);
+    #[inline(always)]
     fn depth(&self) -> Depth {
         Depth::new(self.statistics().depth())
     }
@@ -507,8 +509,9 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
         }
     }
 
+    /// If the 'statistics' feature is enabled, this collects additional statistics.
+    /// If not, this still keeps track of nodes, depth and seldepth.
     fn statistics(&self) -> &Statistics {
-        // TODO: Also use statistics for UCI-relevant output like nodes and nps?
         &self.statistics
     }
 }
