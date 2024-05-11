@@ -124,7 +124,7 @@ pub struct Statistics {
     main_nodes: u64,
     qsearch_nodes: u64,
     aw: NodeTypeCtr,
-    id_iterations: usize,
+    depth: usize,
     seldepth: usize,
 }
 
@@ -151,6 +151,11 @@ impl Statistics {
     pub fn aw_exact(&mut self) {
         self.cur_mut().aw.exact += 1;
         self.next_id_iteration();
+    }
+
+    #[inline(always)]
+    pub fn end_search(&mut self) {
+        self.depth -= 1;
     }
 }
 
@@ -185,10 +190,6 @@ impl Statistics {
     pub fn next_id_iteration(&mut self) {
         self.iterations.push(IDStatistics::default());
         self.depth += 1;
-    }
-
-    pub fn end_search(&mut self) {
-        self.depth -= 1;
     }
 
     pub fn count_complete_node(
@@ -249,12 +250,7 @@ impl Statistics {
 impl Statistics {
     #[inline(always)]
     pub fn next_id_iteration(&mut self) {
-        self.id_iterations += 1;
-    }
-
-    #[inline(always)]
-    pub fn end_search(&mut self) {
-        self.id_iterations -= 1;
+        self.depth += 1;
     }
 
     #[inline(always)]
@@ -298,7 +294,7 @@ impl Statistics {
 
     #[inline(always)]
     pub fn depth(&self) -> usize {
-        self.id_iterations
+        self.depth
     }
 
     #[inline(always)]
@@ -493,7 +489,7 @@ impl Summary {
     pub fn new(statistics: &Statistics) -> Self {
         Self {
             id_summary: vec![],
-            total: IDSummary::new(&IDStatistics::default(), statistics.id_iterations as u64),
+            total: IDSummary::new(&IDStatistics::default(), statistics.depth as u64),
         }
     }
 }

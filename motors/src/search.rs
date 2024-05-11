@@ -236,7 +236,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool;
 
     // Sensible default values, but engines may choose to check more/less frequently than every 1024 nodes
-    fn should_stop_impl(&self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
+    fn should_stop(&self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
         let state = self.search_state();
         if state.nodes(MainSearch) >= limit.nodes.get() {
             return true;
@@ -247,16 +247,6 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         self.time_up(limit.tc, limit.fixed_time, self.search_state().start_time())
             || sender.should_stop()
             || state.search_cancelled()
-    }
-
-    fn should_stop(&mut self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
-        if self.should_stop_impl(limit, sender) {
-            // TODO: Necessary?
-            self.search_state_mut().end_search();
-            true
-        } else {
-            false
-        }
     }
 
     fn should_not_start_next_iteration(
