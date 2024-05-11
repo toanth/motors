@@ -2,9 +2,7 @@ use itertools::Itertools;
 use strum_macros::EnumIter;
 
 use crate::games::chess::castling::CastleRight::*;
-use crate::games::chess::squares::{
-    A_FILE_NO, B_FILE_NO, C_FILE_NO, D_FILE_NO, E_FILE_NO, H_FILE_NO, NUM_COLUMNS,
-};
+use crate::games::chess::squares::{A_FILE_NO, H_FILE_NO, NUM_COLUMNS};
 use crate::games::chess::Chessboard;
 use crate::games::Color::*;
 use crate::games::{char_to_file, Color, DimT};
@@ -28,7 +26,7 @@ impl CastlingFlags {
     }
 
     fn shift(color: Color, castle_right: CastleRight) -> usize {
-        (color as usize * 6 + castle_right as usize * 3)
+        color as usize * 6 + castle_right as usize * 3
     }
 
     /// This return value of this function can only be used if `can_castle` would return `true`.

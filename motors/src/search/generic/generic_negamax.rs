@@ -5,7 +5,7 @@ use rand::thread_rng;
 use gears::games::{Board, BoardHistory, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
-    game_result_to_score, DepthLimit, Score, SearchLimit, SearchResult, TimeControl, SCORE_LOST,
+    game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, SCORE_LOST,
     SCORE_TIME_UP, SCORE_WON,
 };
 use gears::ugi::EngineOptionName;
@@ -20,7 +20,7 @@ use crate::search::{
     SearchState,
 };
 
-const MAX_DEPTH: DepthLimit = DepthLimit::new(100);
+const MAX_DEPTH: Depth = Depth::new(100);
 
 #[derive(Debug)]
 pub struct GenericNegamax<B: Board, E: Eval<B>> {
@@ -62,7 +62,7 @@ impl<B: Board, E: Eval<B>> StaticallyNamedEntity for GenericNegamax<B, E> {
 // impl<B: Board, E: Eval<B>> EngineBase for GenericNegamax<B, E> {}
 
 impl<B: Board, E: Eval<B>> Benchable<B> for GenericNegamax<B, E> {
-    fn bench(&mut self, pos: B, depth: DepthLimit) -> BenchResult {
+    fn bench(&mut self, pos: B, depth: Depth) -> BenchResult {
         self.state.forget(true);
         let mut limit = SearchLimit::infinite();
         limit.depth = MAX_DEPTH.min(depth);
@@ -83,7 +83,7 @@ impl<B: Board, E: Eval<B>> Benchable<B> for GenericNegamax<B, E> {
         EngineInfo {
             name: self.long_name().to_string(),
             version: "0.0.0".to_string(),
-            default_bench_depth: DepthLimit::new(4),
+            default_bench_depth: Depth::new(4),
             options: Vec::default(),
             description: "A game-independent negamax engine. Currently very basic.".to_string(),
         }

@@ -3,8 +3,9 @@ use std::time::Duration;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use gears::games::chess::Chessboard;
 use gears::games::Board;
+use gears::general::move_list::MoveList;
 use gears::general::perft::perft;
-use gears::search::DepthLimit;
+use gears::search::Depth;
 use itertools::Itertools;
 
 const QUEENS_FEN: &str = "k7/3Q3Q/8/2Q5/2Q3Q1/2Q5/2QQ3Q/KQ6 w - - 0 1";
@@ -16,14 +17,14 @@ const PAWNS_FEN: &str = "k7/3P3P/7p/1p3pP1/2P5/3Pp3/2PP3P/K7 w - f6 0 2";
 pub fn perft_startpos_bench(c: &mut Criterion) {
     c.bench_function("perft 4 startpos", |b| {
         let pos = Chessboard::default();
-        b.iter(|| perft(DepthLimit::new(4), pos))
+        b.iter(|| perft(Depth::new(4), pos))
     });
 }
 
 pub fn perft_kiwipete_bench(c: &mut Criterion) {
     c.bench_function("perft 4 kiwipete", |b| {
         let pos = Chessboard::from_name("kiwipete").unwrap();
-        b.iter(|| perft(DepthLimit::new(4), pos))
+        b.iter(|| perft(Depth::new(4), pos))
     });
 }
 
@@ -37,9 +38,9 @@ fn gen_moves(c: &mut Criterion, name: &str, fen: &str) {
 fn play_moves(c: &mut Criterion, name: &str, fen: &str) {
     c.bench_function(name, |b| {
         let pos = Chessboard::from_fen(fen).unwrap();
-        let moves = pos.pseudolegal_moves().collect_vec();
+        let moves = pos.pseudolegal_moves();
         b.iter(|| {
-            for m in &moves {
+            for m in moves.iter_moves() {
                 black_box(black_box(pos).make_move(*m));
             }
         })

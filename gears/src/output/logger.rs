@@ -1,14 +1,13 @@
-use std::io::Write;
 use std::str::SplitWhitespace;
 
 use itertools::Itertools;
 
 use crate::games::Board;
-use crate::GameState;
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
-use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
-use crate::output::text_output::{BoardToText, TextStream};
 use crate::output::text_output::DisplayType::Fen;
+use crate::output::text_output::{BoardToText, TextStream};
+use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
+use crate::GameState;
 
 #[derive(Debug)]
 pub struct Logger {

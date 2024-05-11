@@ -164,7 +164,7 @@ fn select_name_impl<'a, T, F: Fn(&T) -> String, G: Fn(&T, &str) -> bool>(
                 0 => format!("There are no valid {typ} names (presumably your program version was built with those features disabled)"),
                 1 => format!("The only valid {typ} for this version of the program is {}", to_name(list.first().unwrap())),
                 _ => format!("Valid {typ} names are {}",
-                    itertools::intersperse(list.iter().map(|x| to_name(x)), ", ".to_string()).collect::<String>())
+                    itertools::intersperse(list.iter().map(to_name), ", ".to_string()).collect::<String>())
             };
             let game_name = game_name.bold();
             let name = name.red();

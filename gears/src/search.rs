@@ -96,7 +96,7 @@ pub const MIN_NORMAL_SCORE: Score = Score(MAX_SCORE_LOST.0 + 1);
 pub const MAX_NORMAL_SCORE: Score = Score(MIN_SCORE_WON.0 - 1);
 pub const NO_SCORE_YET: Score = Score(SCORE_LOST.0 - 100);
 
-pub const MAX_DEPTH: DepthLimit = DepthLimit(10_000);
+pub const MAX_DEPTH: Depth = Depth(10_000);
 
 pub fn game_result_to_score(res: PlayerResult, ply: usize) -> Score {
     match res {
@@ -124,7 +124,6 @@ impl<B: Board> SearchResult<B> {
         Self {
             chosen_move,
             score: Some(score),
-            ..Default::default()
         }
     }
 }
@@ -132,7 +131,7 @@ impl<B: Board> SearchResult<B> {
 #[derive(Debug)]
 pub struct SearchInfo<B: Board> {
     pub best_move: B::Move,
-    pub depth: DepthLimit,
+    pub depth: Depth,
     pub seldepth: Option<usize>,
     pub time: Duration,
     pub nodes: NodesLimit,
@@ -146,7 +145,7 @@ impl<B: Board> Default for SearchInfo<B> {
     fn default() -> Self {
         Self {
             best_move: B::Move::default(),
-            depth: DepthLimit::default(),
+            depth: Depth::default(),
             seldepth: None,
             time: Duration::default(),
             nodes: NodesLimit::MAX,
@@ -301,10 +300,10 @@ impl TimeControl {
 }
 
 #[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, AddAssign, SubAssign)]
-pub struct DepthLimit(usize);
+pub struct Depth(usize);
 
-impl DepthLimit {
-    pub const MIN: Self = DepthLimit(0);
+impl Depth {
+    pub const MIN: Self = Depth(0);
     pub const MAX: Self = MAX_DEPTH;
 
     pub const fn get(self) -> usize {
@@ -323,9 +322,9 @@ pub type NodesLimit = NonZeroU64;
 pub struct SearchLimit {
     pub tc: TimeControl,
     pub fixed_time: Duration,
-    pub depth: DepthLimit,
+    pub depth: Depth,
     pub nodes: NodesLimit,
-    pub mate: DepthLimit,
+    pub mate: Depth,
 }
 
 impl Default for SearchLimit {
@@ -335,7 +334,7 @@ impl Default for SearchLimit {
             fixed_time: Duration::MAX,
             depth: MAX_DEPTH,
             nodes: NodesLimit::new(u64::MAX).unwrap(),
-            mate: MAX_DEPTH,
+            mate: Depth(0),
         }
     }
 }
@@ -359,14 +358,14 @@ impl SearchLimit {
         }
     }
 
-    pub fn depth(depth: DepthLimit) -> Self {
+    pub fn depth(depth: Depth) -> Self {
         Self {
             depth,
             ..Self::infinite()
         }
     }
 
-    pub fn mate(depth: DepthLimit) -> Self {
+    pub fn mate(depth: Depth) -> Self {
         Self {
             mate: depth,
             ..Self::infinite()

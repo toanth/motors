@@ -227,7 +227,7 @@ impl Eval<Chessboard> for HandCraftedEval {
             let our_pawns = pos.colored_piece_bb(color, Pawn);
             let their_pawns = pos.colored_piece_bb(color.other(), Pawn);
 
-            /// Rooks on (semi)open/closed files (semi-closed files are handled by adjusting the base rook values during tuning)
+            // Rooks on (semi)open/closed files (semi-closed files are handled by adjusting the base rook values during tuning)
             let mut rooks = pos.colored_piece_bb(color, Rook);
             while rooks.has_set_bit() {
                 let idx = rooks.pop_lsb();

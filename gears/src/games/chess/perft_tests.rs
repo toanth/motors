@@ -4,18 +4,18 @@
 mod tests {
     use itertools::Itertools;
     use std::num::NonZeroUsize;
-    use std::thread::{available_parallelism, current, scope, spawn, Builder};
+    use std::thread::{available_parallelism, current, Builder};
     use std::time::Instant;
 
     use crate::games::chess::Chessboard;
     use crate::games::Board;
     use crate::general::perft::perft;
-    use crate::search::DepthLimit;
+    use crate::search::Depth;
 
     #[test]
     fn kiwipete_test() {
         let board = Chessboard::from_name("kiwipete").unwrap();
-        let res = perft(DepthLimit::new(4), board);
+        let res = perft(Depth::new(4), board);
         assert_eq!(res.nodes.get(), 4085603);
         // Disabled in debug mode because that would take too long. TODO: Optimize movegen.
         if !cfg!(debug_assertions) {
@@ -24,14 +24,14 @@ mod tests {
                 "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R4RK1 b kq - 1 1",
             )
             .unwrap();
-            let res = perft(DepthLimit::new(4), board);
+            let res = perft(Depth::new(4), board);
             assert_eq!(res.nodes.get(), 4119629);
             // kiwipete after white plays a2a3
             let board = Chessboard::from_fen(
                 "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q1p/1PPBBPPP/R3K2R b KQkq - 0 1",
             )
             .unwrap();
-            let res = perft(DepthLimit::new(4), board);
+            let res = perft(Depth::new(4), board);
             assert_eq!(res.nodes.get(), 4627439);
         }
     }
@@ -42,15 +42,15 @@ mod tests {
             "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1",
         )
         .unwrap();
-        let res = perft(DepthLimit::new(1), board);
+        let res = perft(Depth::new(1), board);
         assert_eq!(res.nodes.get(), 99);
         assert!(res.time.as_millis() <= 1);
-        let res = perft(DepthLimit::new(2), board);
+        let res = perft(Depth::new(2), board);
         assert_eq!(res.nodes.get(), 6271);
-        let res = perft(DepthLimit::new(3), board);
+        let res = perft(Depth::new(3), board);
         assert_eq!(res.nodes.get(), 568299);
         if cfg!(not(debug_assertions)) {
-            let res = perft(DepthLimit::new(4), board);
+            let res = perft(Depth::new(4), board);
             assert_eq!(res.nodes.get(), 34807627);
         }
     }
@@ -138,7 +138,7 @@ mod tests {
                             .enumerate()
                             .filter(|(_depth, x)| **x != INVALID)
                         {
-                            let res = perft(DepthLimit::new(depth), board);
+                            let res = perft(Depth::new(depth), board);
                             assert_eq!(res.depth.get(), depth);
                             assert_eq!(res.nodes.get(), *expected_count);
                             println!(

@@ -14,7 +14,7 @@ use itertools::Itertools;
 use gears::games::{Board, Color, Move};
 use gears::general::common::{parse_duration_ms, parse_int_from_str, Res};
 use gears::output::Message::Debug;
-use gears::search::{DepthLimit, NodesLimit, SearchInfo, SearchLimit, SCORE_LOST, SCORE_WON};
+use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SCORE_LOST, SCORE_WON};
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
 use gears::MatchStatus::Over;
@@ -523,7 +523,7 @@ impl<B: Board> InputThread<B> {
                 .next()
                 .ok_or_else(|| format!("info line ends after '{key}', expected a value"))?;
             match key {
-                "depth" => res.depth = DepthLimit::new(parse_int_from_str(value, "depth")?),
+                "depth" => res.depth = Depth::new(parse_int_from_str(value, "depth")?),
                 "seldepth" => res.seldepth = Some(parse_int_from_str(value, "seldepth")?),
                 "time" => res.time = parse_duration_ms(&mut value.split_whitespace(), "time")?,
                 "nodes" => {

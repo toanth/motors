@@ -513,6 +513,8 @@ where
         )
     }
 
+    /// All slider attack functions, including `rook_attacks` and `bishop_attacks`, assume that the source square
+    /// is empty, so if that's not the case, they should be called with `blockers ^ square_bitboard`.
     fn slider_attacks(square: C, blockers: Self, dir: RayDirections) -> Self {
         match dir {
             RayDirections::Horizontal => Self::horizontal_attacks(square, blockers),
@@ -777,7 +779,8 @@ pub mod chess {
     use derive_more::Display;
 
     use crate::games::chess::squares::{A_FILE_NO, H_FILE_NO};
-    use crate::games::{GridCoordinates, GridSize};
+    use crate::games::Color::*;
+    use crate::games::{Color, GridCoordinates, GridSize};
 
     use super::*;
 
@@ -805,7 +808,7 @@ pub mod chess {
 
     const fn precompute_single_knight_attacks(square_idx: usize) -> u64 {
         let this_knight: u64 = 1 << square_idx;
-        let a_file: u64 = 0x0101_0101_0101_0101;
+        let a_file: u64 = A_FILE.raw.0;
         let knight_not_a_file = this_knight & !a_file;
         let mut attacks = (knight_not_a_file << 15) | (knight_not_a_file >> 17);
         let knight_not_h_file = this_knight & !(a_file << 7);
@@ -819,7 +822,7 @@ pub mod chess {
 
     const fn precompute_single_king_attacks(square_idx: usize) -> u64 {
         let king = 1 << square_idx;
-        let a_file = 0x0101_0101_0101_0101;
+        let a_file = A_FILE.raw.0;
         let king_not_a_file = king & !a_file;
         let king_not_h_file = king & !(a_file << 7);
         (king << 8)
@@ -830,6 +833,16 @@ pub mod chess {
             | (king_not_h_file << 1)
             | (king_not_h_file >> 7)
             | (king_not_h_file << 9)
+    }
+
+    const fn precompute_single_pawn_capture(color: Color, square_idx: usize) -> u64 {
+        let pawn = 1 << square_idx;
+        let pawn_not_a_file = pawn & !A_FILE.raw.0;
+        let pawn_not_h_file = pawn & !(A_FILE.raw.0 << 7);
+        match color {
+            White => (pawn_not_a_file << 7) | (pawn_not_h_file << 9),
+            Black => (pawn_not_a_file >> 9) | (pawn_not_h_file >> 7),
+        }
     }
 
     pub const KNIGHTS: [ChessBitboard; 64] = {
@@ -847,6 +860,19 @@ pub mod chess {
         let mut i = 0;
         while i < 64 {
             res[i] = ChessBitboard::from_u64(precompute_single_king_attacks(i));
+            i += 1;
+        }
+        res
+    };
+
+    pub const PAWN_CAPTURES: [[ChessBitboard; 64]; 2] = {
+        let mut res = [[ChessBitboard::from_u64(0); 64]; 2];
+        let mut i = 0;
+        while i < 64 {
+            res[White as usize][i] =
+                ChessBitboard::from_u64(precompute_single_pawn_capture(White, i));
+            res[Black as usize][i] =
+                ChessBitboard::from_u64(precompute_single_pawn_capture(Black, i));
             i += 1;
         }
         res
@@ -896,6 +922,9 @@ pub mod chess {
         }
         pub fn file_no(idx: DimT) -> Self {
             Self::file(idx, ChessboardSize::default())
+        }
+        pub fn pawn_ranks() -> Self {
+            Self::from_u64(0x00ff_0000_0000_ff00)
         }
     }
 

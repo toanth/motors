@@ -16,7 +16,7 @@ use crate::general::common::{
 };
 use crate::general::move_list::MoveList;
 use crate::output::OutputBuilder;
-use crate::search::DepthLimit;
+use crate::search::Depth;
 use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
 
 #[cfg(feature = "mnk")]
@@ -170,13 +170,13 @@ impl<C: Coordinates, T: ColoredPieceType> Display for GenericPiece<C, T> {
 
 pub fn file_to_char(file: DimT) -> char {
     debug_assert!(file < 26);
-    (file + 'a' as DimT) as char
+    (file + b'a') as char
 }
 
 pub fn char_to_file(file: char) -> DimT {
     debug_assert!(file >= 'a');
     debug_assert!(file <= 'z');
-    file as DimT - 'a' as DimT
+    file as DimT - b'a'
 }
 
 // Assume 2D grid for now.
@@ -733,8 +733,8 @@ pub trait Board:
     /// Returns the default depth that should be used for perft if not otherwise specified.
     /// Takes in a reference to self because some boards have a size determined at runtime,
     /// and the default perft depth can change depending on that (or even depending on the current position)
-    fn default_perft_depth(&self) -> DepthLimit {
-        DepthLimit::new(5)
+    fn default_perft_depth(&self) -> Depth {
+        Depth::new(5)
     }
 
     /// This function is used for optimizations and may safely return `false`.
@@ -973,7 +973,7 @@ fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
             .map(|c| format!("{c} "))
             .collect(),
     );
-    rows.iter().map(|x| x.chars()).flatten().collect::<String>() + "\n"
+    rows.iter().flat_map(|x| x.chars()).collect::<String>() + "\n"
 }
 
 fn read_position_fen<B: RectangularBoard, F>(

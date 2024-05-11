@@ -28,7 +28,7 @@ use gears::general::common::{parse_int_from_str, Res};
 use gears::output::Message::*;
 use gears::output::{OutputBox, OutputBuilder};
 use gears::search::{
-    DepthLimit, NodesLimit, SearchInfo, SearchLimit, TimeControl, MAX_DEPTH, SCORE_LOST, SCORE_WON,
+    Depth, NodesLimit, SearchInfo, SearchLimit, TimeControl, MAX_DEPTH, SCORE_LOST, SCORE_WON,
 };
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
@@ -433,8 +433,8 @@ impl PlayerBuilder {
             moves_to_go: None,
         });
         let fixed_time = args.move_time.unwrap_or(Duration::MAX);
-        let depth = args.depth.unwrap_or(DepthLimit::MAX);
-        let mate = args.mate.unwrap_or(DepthLimit::MAX);
+        let depth = args.depth.unwrap_or(Depth::MAX);
+        let mate = args.mate.unwrap_or(Depth::MAX);
         let nodes = args.nodes.unwrap_or(NodesLimit::MAX);
         let default_limit = SearchLimit {
             tc,

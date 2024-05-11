@@ -6,10 +6,10 @@ use std::thread::spawn;
 use crossbeam_channel::unbounded;
 
 use gears::games::{Board, ZobristHistoryBase};
-use gears::general::common::{parse_int_from_str, NamedEntity, Res};
+use gears::general::common::{parse_int_from_str, Res};
 use gears::output::Message;
 use gears::output::Message::{Debug, Error};
-use gears::search::{DepthLimit, Score, SearchInfo, SearchLimit, SearchResult};
+use gears::search::{Depth, Score, SearchInfo, SearchLimit, SearchResult};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::{EngineOption, EngineOptionName};
 
@@ -29,7 +29,7 @@ pub enum EngineReceives<B: Board> {
     Forget,
     SetOption(EngineOptionName, String),
     Search(B, SearchLimit, ZobristHistoryBase, TT),
-    Bench(B, DepthLimit),
+    Bench(B, Depth),
     Eval(B),
 }
 
@@ -154,7 +154,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         Ok(())
     }
 
-    fn bench_single_position(&mut self, pos: B, depth: DepthLimit) -> Res<()> {
+    fn bench_single_position(&mut self, pos: B, depth: Depth) -> Res<()> {
         // self.engine.stop();
         self.engine.forget();
         let res = self.engine.bench(pos, depth);
@@ -284,7 +284,7 @@ impl<B: Board> EngineWrapper<B> {
             .map_err(|err| err.to_string())
     }
 
-    pub fn start_bench(&mut self, pos: B, depth: DepthLimit) -> Res<()> {
+    pub fn start_bench(&mut self, pos: B, depth: Depth) -> Res<()> {
         self.search_sender.reset_stop();
         self.sender
             .send(Bench(pos, depth))

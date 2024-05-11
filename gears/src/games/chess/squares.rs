@@ -151,9 +151,10 @@ impl ChessSquare {
         }
     }
 
-    // pub fn invalid() -> Self {
-    //     Self {idx: NUM_SQUARES as u8 }
-    // }
+    pub fn is_backrank(self) -> bool {
+        let rank = self.rank();
+        rank == 0 || rank == 7
+    }
 }
 
 impl FromStr for ChessSquare {

@@ -3,13 +3,13 @@ use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
 use crate::games::{Board, Move};
-use crate::search::{DepthLimit, NodesLimit};
+use crate::search::{Depth, NodesLimit};
 
 #[derive(Copy, Clone, Debug)]
 pub struct PerftRes {
     pub time: Duration,
     pub nodes: NodesLimit,
-    pub depth: DepthLimit,
+    pub depth: Depth,
 }
 
 impl Display for PerftRes {
@@ -61,7 +61,7 @@ fn do_perft<T: Board>(depth: usize, pos: T) -> u64 {
     nodes
 }
 
-pub fn perft<T: Board>(depth: DepthLimit, pos: T) -> PerftRes {
+pub fn perft<T: Board>(depth: Depth, pos: T) -> PerftRes {
     let start = Instant::now();
     let nodes = NodesLimit::new(do_perft(depth.get(), pos)).unwrap();
     let time = start.elapsed();
@@ -69,7 +69,7 @@ pub fn perft<T: Board>(depth: DepthLimit, pos: T) -> PerftRes {
     PerftRes { time, nodes, depth }
 }
 
-pub fn split_perft<T: Board>(depth: DepthLimit, pos: T) -> SplitPerftRes<T> {
+pub fn split_perft<T: Board>(depth: Depth, pos: T) -> SplitPerftRes<T> {
     assert!(depth.get() > 0);
     let mut nodes = 0;
     let start = Instant::now();

@@ -194,7 +194,7 @@ mod tests {
             let previous = hashes.insert(new_board.hash.0, new_board);
             assert!(previous.is_none());
             let different_bits = (new_board.hash.0 ^ hash.0).count_ones();
-            assert!(different_bits >= 16 && different_bits <= 48);
+            assert!((16..=48).contains(&different_bits));
             for mov in new_board.legal_moves_slow() {
                 let new_board = new_board.make_move(mov).unwrap();
                 let previous = hashes.insert(new_board.hash.0, new_board);
@@ -212,7 +212,7 @@ mod tests {
                 }
                 let different_bits = (new_board.hash.0 ^ hash.0).count_ones();
                 println!("{different_bits}");
-                assert!(different_bits >= 12 && different_bits < 52);
+                assert!((12..52).contains(&different_bits));
             }
         }
         assert!(

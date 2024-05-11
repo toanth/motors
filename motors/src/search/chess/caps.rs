@@ -7,13 +7,14 @@ use rand::thread_rng;
 
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
-use gears::games::chess::{ChessMoveList, Chessboard, MAX_CHESS_MOVES_IN_POS};
+use gears::games::chess::see::SeeScore;
+use gears::games::chess::{Chessboard, MAX_CHESS_MOVES_IN_POS};
 use gears::games::{Board, BoardHistory, ColoredPiece, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
 use gears::search::{
-    game_result_to_score, DepthLimit, Score, SearchLimit, SearchResult, TimeControl,
-    MAX_SCORE_LOST, MIN_SCORE_WON, NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
+    game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, MAX_SCORE_LOST,
+    MIN_SCORE_WON, NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
 };
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::EngineOptionType::Spin;
@@ -26,12 +27,12 @@ use crate::search::statistics::SearchType::{MainSearch, Qsearch};
 use crate::search::tt::{TTEntry, TT};
 use crate::search::NodeType::*;
 use crate::search::{
-    move_picker, ABSearchState, BenchResult, Benchable, CustomInfo, Engine, EngineInfo, NodeType,
-    Pv, SearchStackEntry, SearchState,
+    ABSearchState, BenchResult, Benchable, CustomInfo, Engine, EngineInfo, NodeType, Pv,
+    SearchStackEntry, SearchState,
 };
 
-const DEPTH_SOFT_LIMIT: DepthLimit = DepthLimit::new(100);
-const DEPTH_HARD_LIMIT: DepthLimit = DepthLimit::new(128);
+const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
+const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
 
 #[derive(Debug, Clone)]
 struct HistoryHeuristic([i32; 64 * 64]);
@@ -137,7 +138,7 @@ impl<E: Eval<Chessboard>> StaticallyNamedEntity for Caps<E> {
 // impl<E: Eval<Chessboard>> EngineBase for Caps<E> {}
 
 impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
-    fn bench(&mut self, pos: Chessboard, depth: DepthLimit) -> BenchResult {
+    fn bench(&mut self, pos: Chessboard, depth: Depth) -> BenchResult {
         self.state.forget(true);
         let mut limit = SearchLimit::infinite();
         limit.depth = DEPTH_SOFT_LIMIT.min(depth);
@@ -169,7 +170,7 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
         EngineInfo {
             name: self.long_name().to_string(),
             version: "0.0.1".to_string(),
-            default_bench_depth: DepthLimit::new(10),
+            default_bench_depth: Depth::new(10),
             options,
             description: "CAPS (Chess Alpha-beta Pruning Search), a negamax-based chess engine"
                 .to_string(),
@@ -711,7 +712,13 @@ impl<E: Eval<Chessboard>> Caps<E> {
             } else if captured == Empty {
                 self.state.custom.history[mov.from_to_square()]
             } else {
-                i32::MAX - 100 + captured as i32 * 10 - mov.piece(&board).uncolored() as i32
+                let base_val = if board.see_at_least(mov, SeeScore(0)) {
+                    i32::MAX - 100
+                } else {
+                    i32::MIN + 100
+                };
+                // the offset applied to `base_val` can be negative, because pawns have index 0.
+                base_val + captured as i32 * 10 - mov.piece(&board).uncolored() as i32
             }
         }
     }
@@ -739,7 +746,7 @@ mod tests {
                 let res = engine
                     .search(
                         board,
-                        SearchLimit::depth(DepthLimit::new(depth)),
+                        SearchLimit::depth(Depth::new(depth)),
                         ZobristHistoryBase::default(),
                         &mut SearchSender::no_sender(),
                     )
@@ -780,7 +787,7 @@ mod tests {
         let pos = Chessboard::from_name("lucena").unwrap();
         let mut engine = Caps::<PstOnlyEval>::default();
         let res = engine
-            .search_from_pos(pos, SearchLimit::depth(DepthLimit::new(7)))
+            .search_from_pos(pos, SearchLimit::depth(Depth::new(7)))
             .unwrap();
         // TODO: More aggressive bound once the engine is stronger
         assert!(res.score.unwrap() >= Score(200));
@@ -824,11 +831,11 @@ mod tests {
         for (fen, mov) in fens {
             let pos = Chessboard::from_fen(fen).unwrap();
             let mut engine = Caps::<HandCraftedEval>::default();
-            let mut limit = SearchLimit::depth(DepthLimit::new(18));
-            limit.mate = DepthLimit::new(10);
+            let mut limit = SearchLimit::depth(Depth::new(18));
+            limit.mate = Depth::new(10);
             limit.fixed_time = Duration::from_secs(2);
             let res = engine
-                .search_from_pos(pos, SearchLimit::depth(DepthLimit::new(15)))
+                .search_from_pos(pos, SearchLimit::depth(Depth::new(15)))
                 .unwrap();
             println!(
                 "chosen move {0}, fen {1}",

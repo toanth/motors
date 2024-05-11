@@ -1,4 +1,3 @@
-use std::borrow::BorrowMut;
 use std::ops::Deref;
 
 use dyn_clone::clone_box;
@@ -13,7 +12,7 @@ use gears::games::{Board, OutputList};
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{select_name_dyn, Res};
 use gears::output::normal_outputs;
-use gears::search::DepthLimit;
+use gears::search::Depth;
 use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs};
 
 use crate::cli::Mode::Bench;
@@ -44,7 +43,7 @@ mod ugi_engine;
 #[derive(Debug)]
 struct BenchRun<B: Board> {
     engine: Box<dyn Benchable<B>>,
-    depth: Option<DepthLimit>,
+    depth: Option<Depth>,
 }
 
 impl<B: Board> BenchRun<B> {

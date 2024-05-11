@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::mem::take;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
@@ -11,7 +11,7 @@ use strum_macros::FromRepr;
 use gears::games::{Board, ZobristHistoryBase, ZobristRepetition2Fold};
 use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
-    DepthLimit, NodesLimit, Score, SearchInfo, SearchLimit, SearchResult, TimeControl, SCORE_WON,
+    Depth, NodesLimit, Score, SearchInfo, SearchLimit, SearchResult, TimeControl, SCORE_WON,
 };
 use gears::ugi::{EngineOption, EngineOptionName};
 
@@ -33,7 +33,7 @@ mod tt;
 pub struct EngineInfo {
     pub name: String,
     pub version: String,
-    pub default_bench_depth: DepthLimit,
+    pub default_bench_depth: Depth,
     pub options: Vec<EngineOption>,
     pub description: String, // TODO: Use
                              // TODO: NamedEntity?
@@ -43,7 +43,7 @@ pub struct EngineInfo {
 pub struct BenchResult {
     pub nodes: NodesLimit,
     pub time: Duration,
-    pub depth: DepthLimit,
+    pub depth: Depth,
 }
 
 impl Default for BenchResult {
@@ -51,7 +51,7 @@ impl Default for BenchResult {
         Self {
             nodes: NodesLimit::MIN,
             time: Duration::default(),
-            depth: DepthLimit::MIN,
+            depth: Depth::MIN,
         }
     }
 }
@@ -184,7 +184,7 @@ impl<B: Board, E: Engine<B>> StaticallyNamedEntity for EngineBuilder<B, E> {
 }
 
 pub trait Benchable<B: Board>: StaticallyNamedEntity + Debug {
-    fn bench(&mut self, position: B, depth: DepthLimit) -> BenchResult;
+    fn bench(&mut self, position: B, depth: Depth) -> BenchResult;
 
     /// Returns information about this engine, such as the name, version and default bench depth.
     fn engine_info(&self) -> EngineInfo;
@@ -263,7 +263,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         &self,
         soft_limit: Duration,
         max_depth: isize,
-        mate_depth: DepthLimit,
+        mate_depth: Depth,
     ) -> bool {
         let state = self.search_state();
         state.start_time().elapsed() >= soft_limit
@@ -327,8 +327,8 @@ pub trait SearchState<B: Board>: Debug + Clone {
     }
     fn should_stop(&self) -> bool;
     fn quit(&mut self);
-    fn depth(&self) -> DepthLimit {
-        DepthLimit::new(self.statistics().depth())
+    fn depth(&self) -> Depth {
+        Depth::new(self.statistics().depth())
     }
     fn start_time(&self) -> Instant;
     fn score(&self) -> Score;
@@ -386,7 +386,7 @@ pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo> {
 }
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
-    fn new(max_depth: DepthLimit) -> Self {
+    fn new(max_depth: Depth) -> Self {
         Self::new_with(vec![E::default(); max_depth.get()], C::default())
     }
 
@@ -532,7 +532,7 @@ pub fn run_bench<B: Board>(engine: &mut dyn Benchable<B>) -> BenchResult {
 
 pub fn run_bench_with_depth<B: Board>(
     engine: &mut dyn Benchable<B>,
-    mut depth: DepthLimit,
+    mut depth: Depth,
 ) -> BenchResult {
     if depth.get() <= 0 {
         depth = engine.engine_info().default_bench_depth

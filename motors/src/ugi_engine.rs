@@ -20,7 +20,7 @@ use gears::general::perft::{perft, split_perft};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
-use gears::search::{DepthLimit, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
+use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::EngineOptionName::{MoveOverhead, Threads};
 use gears::ugi::EngineOptionType::Spin;
 use gears::ugi::{parse_ugi_position, EngineOption, EngineOptionName, UgiSpin};
@@ -608,14 +608,14 @@ impl<B: Board> EngineUGI<B> {
                     }
                 }
                 "movestogo" => limit.tc.moves_to_go = Some(parse_int(words, "'movestogo' number")?),
-                "depth" | "d" => limit.depth = DepthLimit::new(parse_int(words, "depth number")?),
+                "depth" | "d" => limit.depth = Depth::new(parse_int(words, "depth number")?),
                 "nodes" | "n" => {
                     limit.nodes = NodesLimit::new(parse_int(words, "node count")?)
                         .ok_or_else(|| "node count can't be zero".to_string())?
                 }
                 "mate" => {
                     let depth: usize = parse_int(words, "mate move count")?;
-                    limit.mate = DepthLimit::new(depth * 2) // 'mate' is given in moves instead of plies
+                    limit.mate = Depth::new(depth * 2) // 'mate' is given in moves instead of plies
                 }
                 "movetime" => {
                     limit.fixed_time = parse_duration_ms(words, "time per move in milliseconds")?;
@@ -650,7 +650,7 @@ impl<B: Board> EngineUGI<B> {
             Bench => self.state.engine.engine_info().default_bench_depth,
             _ => limit.depth,
         };
-        if limit.depth == DepthLimit::MAX {
+        if limit.depth == Depth::MAX {
             limit.depth = default_depth;
         }
         match search_type {
@@ -690,11 +690,11 @@ impl<B: Board> EngineUGI<B> {
             match word {
                 "position" | "pos" | "p" => board = self.load_position_into_copy(words)?,
                 "depth" | "d" => {
-                    limit.depth = DepthLimit::new(parse_int(words, "depth number")?);
+                    limit.depth = Depth::new(parse_int(words, "depth number")?);
                 }
                 x => {
                     if let Ok(depth) = parse_int_from_str(x, "depth") {
-                        limit.depth = DepthLimit::new(depth);
+                        limit.depth = Depth::new(depth);
                     } else {
                         return Err(format!(
                             "unrecognized bench/perft argument '{}', expected 'position', 'depth' or the depth value",
@@ -782,24 +782,22 @@ impl<B: Board> EngineUGI<B> {
                 );
             }
             println!();
-        } else {
-            if !output
-                .additional_outputs
-                .iter()
-                .any(|o| o.short_name().eq_ignore_ascii_case(next))
-            {
-                output.additional_outputs.push(
-                    output_builder_from_str(next, &self.output_factories)
-                        .map_err(|err| {
-                            format!(
-                                "{err}\nSpecial commands are '{0}' and '{1}'.",
-                                "remove".bold(),
-                                "list".bold()
-                            )
-                        })?
-                        .for_engine(&self.state)?,
-                );
-            }
+        } else if !output
+            .additional_outputs
+            .iter()
+            .any(|o| o.short_name().eq_ignore_ascii_case(next))
+        {
+            output.additional_outputs.push(
+                output_builder_from_str(next, &self.output_factories)
+                    .map_err(|err| {
+                        format!(
+                            "{err}\nSpecial commands are '{0}' and '{1}'.",
+                            "remove".bold(),
+                            "list".bold()
+                        )
+                    })?
+                    .for_engine(&self.state)?,
+            );
         }
         Ok(())
     }
