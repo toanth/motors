@@ -11,12 +11,13 @@ use strum_macros::FromRepr;
 use gears::games::{Board, ZobristHistoryBase, ZobristRepetition2Fold};
 use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
-    Depth, Nodes, Score, SearchInfo, SearchLimit, SearchResult, TimeControl, SCORE_WON,
+    DepthLimit, NodesLimit, Score, SearchInfo, SearchLimit, SearchResult, TimeControl, SCORE_WON,
 };
 use gears::ugi::{EngineOption, EngineOptionName};
 
 use crate::search::multithreading::{EngineWrapper, SearchSender};
-use crate::search::statistics::Statistics;
+use crate::search::statistics::SearchType::{MainSearch, Qsearch};
+use crate::search::statistics::{SearchType, Statistics};
 use crate::search::tt::TT;
 use crate::search::Searching::*;
 
@@ -32,7 +33,7 @@ mod tt;
 pub struct EngineInfo {
     pub name: String,
     pub version: String,
-    pub default_bench_depth: Depth,
+    pub default_bench_depth: DepthLimit,
     pub options: Vec<EngineOption>,
     pub description: String, // TODO: Use
                              // TODO: NamedEntity?
@@ -40,17 +41,17 @@ pub struct EngineInfo {
 
 #[derive(Debug)]
 pub struct BenchResult {
-    pub nodes: Nodes,
+    pub nodes: NodesLimit,
     pub time: Duration,
-    pub depth: Depth,
+    pub depth: DepthLimit,
 }
 
 impl Default for BenchResult {
     fn default() -> Self {
         Self {
-            nodes: Nodes::MIN,
+            nodes: NodesLimit::MIN,
             time: Duration::default(),
-            depth: Depth::MIN,
+            depth: DepthLimit::MIN,
         }
     }
 }
@@ -183,7 +184,7 @@ impl<B: Board, E: Engine<B>> StaticallyNamedEntity for EngineBuilder<B, E> {
 }
 
 pub trait Benchable<B: Board>: StaticallyNamedEntity + Debug {
-    fn bench(&mut self, position: B, depth: Depth) -> BenchResult;
+    fn bench(&mut self, position: B, depth: DepthLimit) -> BenchResult;
 
     /// Returns information about this engine, such as the name, version and default bench depth.
     fn engine_info(&self) -> EngineInfo;
@@ -237,10 +238,10 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     // Sensible default values, but engines may choose to check more/less frequently than every 1024 nodes
     fn should_stop_impl(&self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
         let state = self.search_state();
-        if state.nodes() >= limit.nodes {
+        if state.nodes(MainSearch) >= limit.nodes.get() {
             return true;
         }
-        if state.nodes().get() % 1024 != 0 {
+        if state.nodes(MainSearch) % 1024 != 0 {
             return false;
         }
         self.time_up(limit.tc, limit.fixed_time, self.search_state().start_time())
@@ -262,7 +263,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         &self,
         soft_limit: Duration,
         max_depth: isize,
-        mate_depth: Depth,
+        mate_depth: DepthLimit,
     ) -> bool {
         let state = self.search_state();
         state.start_time().elapsed() >= soft_limit
@@ -297,11 +298,11 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         !self.search_state().search_cancelled()
     }
 
-    /// Returns the number of nodes looked at so far. Can be called during search.
+    /// Returns the number of nodes looked at so far, excluding quiescent search, SEE and similar. Can be called during search.
     /// For smp, this only returns the number of nodes looked at in the current thread.
-
-    fn nodes(&self) -> Nodes {
-        self.search_state().nodes()
+    fn nodes(&self) -> NodesLimit {
+        NodesLimit::new(self.search_state().nodes(MainSearch) + self.search_state().nodes(Qsearch))
+            .unwrap()
     }
 
     fn can_use_multiple_threads() -> bool
@@ -316,14 +317,19 @@ pub enum Searching {
 }
 
 pub trait SearchState<B: Board>: Debug + Clone {
-    fn nodes(&self) -> Nodes;
+    /// Returns a `u64` instead of `Nodes` because this will return `0` before the search has been started.
+    fn nodes(&self, search_type: SearchType) -> u64 {
+        self.statistics().nodes(search_type)
+    }
     fn searching(&self) -> Searching;
     fn search_cancelled(&self) -> bool {
         self.searching() != Ongoing
     }
     fn should_stop(&self) -> bool;
     fn quit(&mut self);
-    fn depth(&self) -> Depth;
+    fn depth(&self) -> DepthLimit {
+        DepthLimit::new(self.statistics().depth())
+    }
     fn start_time(&self) -> Instant;
     fn score(&self) -> Score;
     fn forget(&mut self, hard: bool);
@@ -372,18 +378,15 @@ pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo> {
     board_history: ZobristRepetition2Fold,
     custom: C,
     best_move: Option<B::Move>,
-    nodes: u64,
     searching: Searching,
     should_stop: bool,
-    depth: Depth,
-    sel_depth: usize,
     start_time: Instant,
     score: Score,
     statistics: Statistics,
 }
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
-    fn new(max_depth: Depth) -> Self {
+    fn new(max_depth: DepthLimit) -> Self {
         Self::new_with(vec![E::default(); max_depth.get()], C::default())
     }
 
@@ -395,11 +398,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
             start_time,
             score: Score(0),
             best_move: None,
-            nodes: 0,
             searching: Stop,
             should_stop: false,
-            depth: Depth::MIN,
-            sel_depth: 0,
             custom,
             statistics: Statistics::default(),
         }
@@ -423,10 +423,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
         self.custom.tt().map(|tt| tt.estimate_hashfull::<B>())
     }
     fn seldepth(&self) -> Option<usize> {
-        if self.sel_depth == 0 {
+        let res = self.statistics.sel_depth();
+        if res == 0 {
             None
         } else {
-            Some(self.sel_depth)
+            Some(res)
         }
     }
     fn additional(&self) -> Option<String> {
@@ -435,7 +436,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
 
     fn to_bench_res(&self) -> BenchResult {
         BenchResult {
-            nodes: self.nodes(),
+            nodes: NodesLimit::new(self.nodes(MainSearch) + self.nodes(Qsearch)).unwrap(),
             time: self.start_time().elapsed(),
             depth: self.depth(),
         }
@@ -443,10 +444,6 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
 }
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearchState<B, E, C> {
-    fn nodes(&self) -> Nodes {
-        Nodes::new(self.nodes).unwrap()
-    }
-
     fn searching(&self) -> Searching {
         self.searching
     }
@@ -457,10 +454,6 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
 
     fn quit(&mut self) {
         self.should_stop = true;
-    }
-
-    fn depth(&self) -> Depth {
-        self.depth
     }
 
     fn start_time(&self) -> Instant {
@@ -484,11 +477,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
         self.board_history = ZobristRepetition2Fold::default(); // will get overwritten later
         self.score = Score(0);
         self.best_move = None;
-        self.nodes = 0;
         self.searching = Stop;
         self.should_stop = false;
-        self.depth = Depth::MIN;
-        self.sel_depth = 0;
         self.statistics = Statistics::default();
     }
 
@@ -499,6 +489,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
     }
 
     fn end_search(&mut self) {
+        self.statistics.end_search();
         self.searching = Stop;
     }
 
@@ -508,7 +499,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
             depth: self.depth(),
             seldepth: self.seldepth(),
             time: self.start_time().elapsed(),
-            nodes: self.nodes(),
+            nodes: NodesLimit::new(self.nodes(Qsearch) + self.nodes(MainSearch)).unwrap(),
             pv: self.pv(),
             score: self.score(),
             hashfull: self.hashfull(),
@@ -541,7 +532,7 @@ pub fn run_bench<B: Board>(engine: &mut dyn Benchable<B>) -> BenchResult {
 
 pub fn run_bench_with_depth<B: Board>(
     engine: &mut dyn Benchable<B>,
-    mut depth: Depth,
+    mut depth: DepthLimit,
 ) -> BenchResult {
     if depth.get() <= 0 {
         depth = engine.engine_info().default_bench_depth
@@ -549,7 +540,7 @@ pub fn run_bench_with_depth<B: Board>(
     let mut sum = BenchResult::default();
     for position in B::bench_positions() {
         let res = engine.bench(position, depth);
-        sum.nodes = Nodes::new(sum.nodes.get() + res.nodes.get()).unwrap();
+        sum.nodes = NodesLimit::new(sum.nodes.get() + res.nodes.get()).unwrap();
         sum.time += res.time;
     }
     sum.depth = depth;

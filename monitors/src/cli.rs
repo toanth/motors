@@ -16,7 +16,7 @@ use gears::cli::{get_next_arg, get_next_int, get_next_nonzero_usize, parse_outpu
 use gears::general::common::{
     nonzero_u64, nonzero_usize, parse_duration_ms, parse_fp_from_str, parse_int_from_str, Res,
 };
-use gears::search::{Depth, Score, TimeControl};
+use gears::search::{DepthLimit, Score, TimeControl};
 use gears::OutputArgs;
 
 use crate::cli::PlayerArgs::{Engine, Human};
@@ -129,10 +129,10 @@ pub struct ClientEngineCliArgs {
     pub white_pov: bool,
 
     /// Limit the depth the engine searches to.
-    pub depth: Option<Depth>,
+    pub depth: Option<DepthLimit>,
 
     /// Try to find a mate in n *moves* (not plies), searches forever if there isn't one (unless another limit is also specified)
-    pub mate: Option<Depth>,
+    pub mate: Option<DepthLimit>,
 
     /// Limit the engine to the given number of nodes
     pub nodes: Option<NonZeroU64>,
@@ -243,8 +243,8 @@ pub fn parse_engine<Iter: Iterator<Item = String>>(
             "book" => todo!(),
             "bookdepth" => todo!(),
             "whitepov" => res.white_pov = true,
-            "depth" => res.depth = Some(Depth::new(parse_int_from_str(value?, "depth")?)),
-            "mate" => res.mate = Some(Depth::new(parse_int_from_str(value?, "mate")?)),
+            "depth" => res.depth = Some(DepthLimit::new(parse_int_from_str(value?, "depth")?)),
+            "mate" => res.mate = Some(DepthLimit::new(parse_int_from_str(value?, "mate")?)),
             "nodes" => res.nodes = Some(nonzero_u64(parse_int_from_str(value?, "nodes")?, "nodes")?),
             "ponder" => todo!("'ponder' isn't yet implemented"),
             "tscale" => todo!("'tscale' isn't yet implemented"),

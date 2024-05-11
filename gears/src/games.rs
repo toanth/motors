@@ -16,7 +16,7 @@ use crate::general::common::{
 };
 use crate::general::move_list::MoveList;
 use crate::output::OutputBuilder;
-use crate::search::Depth;
+use crate::search::DepthLimit;
 use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
 
 #[cfg(feature = "mnk")]
@@ -733,8 +733,8 @@ pub trait Board:
     /// Returns the default depth that should be used for perft if not otherwise specified.
     /// Takes in a reference to self because some boards have a size determined at runtime,
     /// and the default perft depth can change depending on that (or even depending on the current position)
-    fn default_perft_depth(&self) -> Depth {
-        Depth::new(5)
+    fn default_perft_depth(&self) -> DepthLimit {
+        DepthLimit::new(5)
     }
 
     /// This function is used for optimizations and may safely return `false`.

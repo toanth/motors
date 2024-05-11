@@ -5,20 +5,22 @@ use rand::thread_rng;
 use gears::games::{Board, BoardHistory, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
-    game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, SCORE_LOST,
+    game_result_to_score, DepthLimit, Score, SearchLimit, SearchResult, TimeControl, SCORE_LOST,
     SCORE_TIME_UP, SCORE_WON,
 };
 use gears::ugi::EngineOptionName;
 
 use crate::eval::Eval;
 use crate::search::multithreading::SearchSender;
+use crate::search::statistics::SearchType::MainSearch;
 use crate::search::tt::TT;
+use crate::search::NodeType::{Exact, LowerBound, UpperBound};
 use crate::search::{
     ABSearchState, BenchResult, Benchable, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
     SearchState,
 };
 
-const MAX_DEPTH: Depth = Depth::new(100);
+const MAX_DEPTH: DepthLimit = DepthLimit::new(100);
 
 #[derive(Debug)]
 pub struct GenericNegamax<B: Board, E: Eval<B>> {
@@ -60,11 +62,10 @@ impl<B: Board, E: Eval<B>> StaticallyNamedEntity for GenericNegamax<B, E> {
 // impl<B: Board, E: Eval<B>> EngineBase for GenericNegamax<B, E> {}
 
 impl<B: Board, E: Eval<B>> Benchable<B> for GenericNegamax<B, E> {
-    fn bench(&mut self, pos: B, depth: Depth) -> BenchResult {
+    fn bench(&mut self, pos: B, depth: DepthLimit) -> BenchResult {
         self.state.forget(true);
         let mut limit = SearchLimit::infinite();
         limit.depth = MAX_DEPTH.min(depth);
-        self.state.depth = limit.depth;
         self.negamax(
             pos,
             limit,
@@ -82,7 +83,7 @@ impl<B: Board, E: Eval<B>> Benchable<B> for GenericNegamax<B, E> {
         EngineInfo {
             name: self.long_name().to_string(),
             version: "0.0.0".to_string(),
-            default_bench_depth: Depth::new(4),
+            default_bench_depth: DepthLimit::new(4),
             options: Vec::default(),
             description: "A game-independent negamax engine. Currently very basic.".to_string(),
         }
@@ -111,8 +112,9 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
         let max_depth = MAX_DEPTH.min(limit.depth).get() as isize;
         limit.fixed_time = limit.fixed_time.min(limit.tc.remaining);
 
+        self.state.statistics.next_id_iteration();
+
         for depth in 1..=max_depth {
-            self.state.depth = Depth::new(depth as usize);
             let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON, sender);
             if self.state.search_cancelled() {
                 break;
@@ -120,6 +122,8 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
             self.state.score = iteration_score;
             chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
             sender.send_search_info(self.search_info());
+            // increases the depth. do this after sending the search info, but before deciding if the depth limit has been exceeded.
+            self.state.statistics.next_id_iteration();
             if self.should_not_start_next_iteration(limit.fixed_time, max_depth, limit.mate) {
                 break;
             }
@@ -137,7 +141,7 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
     }
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
-        if self.state.nodes % 1024 != 0 {
+        if self.state.nodes(MainSearch) % 1024 != 0 {
             false
         } else {
             let elapsed = start_time.elapsed();
@@ -176,6 +180,7 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= MAX_DEPTH.get() * 2);
         debug_assert!(depth <= MAX_DEPTH.get() as isize);
+        self.state.statistics.count_node_started(MainSearch, ply);
 
         if let Some(res) = pos.game_result_no_movegen() {
             return game_result_to_score(res, ply);
@@ -192,7 +197,6 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
             if new_pos.is_none() {
                 continue; // illegal pseudolegal move
             }
-            self.state.nodes += 1;
             num_children += 1;
 
             self.state.board_history.push(&pos);
@@ -226,6 +230,16 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
             }
             break;
         }
+        let node_type = if best_score >= beta {
+            LowerBound
+        } else if best_score <= alpha {
+            UpperBound
+        } else {
+            Exact
+        };
+        self.state
+            .statistics
+            .count_complete_node(MainSearch, node_type, depth, ply, num_children);
         if num_children == 0 {
             game_result_to_score(pos.no_moves_result(), ply)
         } else {

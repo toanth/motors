@@ -8,7 +8,7 @@ mod tests {
     use gears::games::chess::squares::ChessSquare;
     use gears::games::chess::Chessboard;
     use gears::games::{Board, Move};
-    use gears::search::{Depth, Score, SearchLimit, SCORE_LOST, SCORE_WON};
+    use gears::search::{DepthLimit, Score, SearchLimit, SCORE_LOST, SCORE_WON};
 
     use crate::eval::chess::hce::HandCraftedEval;
     use crate::eval::rand_eval::RandEval;
@@ -31,7 +31,7 @@ mod tests {
         let board = Chessboard::from_fen(fen).unwrap();
         let mut engine = E::default();
         let res = engine
-            .search_from_pos(board, SearchLimit::mate(Depth::new(5)))
+            .search_from_pos(board, SearchLimit::mate(DepthLimit::new(5)))
             .unwrap();
         assert_eq!(
             res.chosen_move,
@@ -61,7 +61,7 @@ mod tests {
         assert_eq!(board.pseudolegal_moves().len(), 3);
         let mut engine = Caps::<RandEval>::default();
         let res = engine
-            .search_from_pos(board, SearchLimit::depth(Depth::new(100)))
+            .search_from_pos(board, SearchLimit::depth(DepthLimit::new(100)))
             .unwrap();
         assert_eq!(res.score.unwrap(), SCORE_LOST + 2);
         assert_eq!(res.chosen_move.to_compact_text(), "h1g1");

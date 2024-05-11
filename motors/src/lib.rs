@@ -13,7 +13,7 @@ use gears::games::{Board, OutputList};
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{select_name_dyn, Res};
 use gears::output::normal_outputs;
-use gears::search::Depth;
+use gears::search::DepthLimit;
 use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs};
 
 use crate::cli::Mode::Bench;
@@ -44,7 +44,7 @@ mod ugi_engine;
 #[derive(Debug)]
 struct BenchRun<B: Board> {
     engine: Box<dyn Benchable<B>>,
-    depth: Option<Depth>,
+    depth: Option<DepthLimit>,
 }
 
 impl<B: Board> BenchRun<B> {

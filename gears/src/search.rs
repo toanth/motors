@@ -96,7 +96,7 @@ pub const MIN_NORMAL_SCORE: Score = Score(MAX_SCORE_LOST.0 + 1);
 pub const MAX_NORMAL_SCORE: Score = Score(MIN_SCORE_WON.0 - 1);
 pub const NO_SCORE_YET: Score = Score(SCORE_LOST.0 - 100);
 
-pub const MAX_DEPTH: Depth = Depth(10_000);
+pub const MAX_DEPTH: DepthLimit = DepthLimit(10_000);
 
 pub fn game_result_to_score(res: PlayerResult, ply: usize) -> Score {
     match res {
@@ -132,10 +132,10 @@ impl<B: Board> SearchResult<B> {
 #[derive(Debug)]
 pub struct SearchInfo<B: Board> {
     pub best_move: B::Move,
-    pub depth: Depth,
+    pub depth: DepthLimit,
     pub seldepth: Option<usize>,
     pub time: Duration,
-    pub nodes: Nodes,
+    pub nodes: NodesLimit,
     pub pv: Vec<B::Move>,
     pub score: Score,
     pub hashfull: Option<usize>,
@@ -146,10 +146,10 @@ impl<B: Board> Default for SearchInfo<B> {
     fn default() -> Self {
         Self {
             best_move: B::Move::default(),
-            depth: Depth::default(),
+            depth: DepthLimit::default(),
             seldepth: None,
             time: Duration::default(),
-            nodes: Nodes::MAX,
+            nodes: NodesLimit::MAX,
             pv: vec![],
             score: Score::default(),
             hashfull: None,
@@ -301,10 +301,10 @@ impl TimeControl {
 }
 
 #[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, AddAssign, SubAssign)]
-pub struct Depth(usize);
+pub struct DepthLimit(usize);
 
-impl Depth {
-    pub const MIN: Self = Depth(0);
+impl DepthLimit {
+    pub const MIN: Self = DepthLimit(0);
     pub const MAX: Self = MAX_DEPTH;
 
     pub const fn get(self) -> usize {
@@ -317,15 +317,15 @@ impl Depth {
     }
 }
 
-pub type Nodes = NonZeroU64;
+pub type NodesLimit = NonZeroU64;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct SearchLimit {
     pub tc: TimeControl,
     pub fixed_time: Duration,
-    pub depth: Depth,
-    pub nodes: Nodes,
-    pub mate: Depth,
+    pub depth: DepthLimit,
+    pub nodes: NodesLimit,
+    pub mate: DepthLimit,
 }
 
 impl Default for SearchLimit {
@@ -334,7 +334,7 @@ impl Default for SearchLimit {
             tc: TimeControl::default(),
             fixed_time: Duration::MAX,
             depth: MAX_DEPTH,
-            nodes: Nodes::new(u64::MAX).unwrap(),
+            nodes: NodesLimit::new(u64::MAX).unwrap(),
             mate: MAX_DEPTH,
         }
     }
@@ -359,21 +359,21 @@ impl SearchLimit {
         }
     }
 
-    pub fn depth(depth: Depth) -> Self {
+    pub fn depth(depth: DepthLimit) -> Self {
         Self {
             depth,
             ..Self::infinite()
         }
     }
 
-    pub fn mate(depth: Depth) -> Self {
+    pub fn mate(depth: DepthLimit) -> Self {
         Self {
             mate: depth,
             ..Self::infinite()
         }
     }
 
-    pub fn nodes(nodes: Nodes) -> Self {
+    pub fn nodes(nodes: NodesLimit) -> Self {
         Self {
             nodes,
             ..Self::infinite()
@@ -381,7 +381,7 @@ impl SearchLimit {
     }
 
     pub fn nodes_(nodes: u64) -> Self {
-        Self::nodes(Nodes::new(nodes).unwrap())
+        Self::nodes(NodesLimit::new(nodes).unwrap())
     }
 
     pub fn max_move_time(&self) -> Duration {

@@ -795,7 +795,7 @@ mod tests {
         ZobristRepetition2Fold,
     };
     use crate::general::perft::perft;
-    use crate::search::Depth;
+    use crate::search::DepthLimit;
 
     use super::*;
 
@@ -905,32 +905,32 @@ mod tests {
     fn simple_perft_test() {
         let endgame_fen = "6k1/8/6K1/8/3B1N2/8/8/7R w - - 0 1";
         let board = Chessboard::from_fen(endgame_fen).unwrap();
-        let perft_res = perft(Depth::new(1), board);
-        assert_eq!(perft_res.depth, Depth::new(1));
+        let perft_res = perft(DepthLimit::new(1), board);
+        assert_eq!(perft_res.depth, DepthLimit::new(1));
         assert_eq!(perft_res.nodes.get(), 5 + 7 + 13 + 14);
         assert!(perft_res.time.as_millis() <= 1);
         let board = Chessboard::default();
-        let perft_res = perft(Depth::new(1), board);
-        assert_eq!(perft_res.depth, Depth::new(1));
+        let perft_res = perft(DepthLimit::new(1), board);
+        assert_eq!(perft_res.depth, DepthLimit::new(1));
         assert_eq!(perft_res.nodes.get(), 20);
         assert!(perft_res.time.as_millis() <= 1);
-        let perft_res = perft(Depth::new(2), board);
-        assert_eq!(perft_res.depth, Depth::new(2));
+        let perft_res = perft(DepthLimit::new(2), board);
+        assert_eq!(perft_res.depth, DepthLimit::new(2));
         assert_eq!(perft_res.nodes.get(), 20 * 20);
         assert!(perft_res.time.as_millis() <= 10);
 
         let board =
             Chessboard::from_fen("r1bqkbnr/1pppNppp/p1n5/8/8/8/PPPPPPPP/R1BQKBNR b KQkq - 0 3")
                 .unwrap();
-        let perft_res = perft(Depth::new(1), board);
+        let perft_res = perft(DepthLimit::new(1), board);
         assert_eq!(perft_res.nodes.get(), 26);
-        assert_eq!(perft(Depth::new(3), board).nodes.get(), 16790);
+        assert_eq!(perft(DepthLimit::new(3), board).nodes.get(), 16790);
 
         let board = Chessboard::from_fen(
             "rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9",
         )
         .unwrap();
-        let perft_res = perft(Depth::new(4), board);
+        let perft_res = perft(DepthLimit::new(4), board);
         assert_eq!(perft_res.nodes.get(), 890435);
 
         // DFRC
@@ -938,7 +938,7 @@ mod tests {
             "r1q1k1rn/1p1ppp1p/1npb2b1/p1N3p1/8/1BP4P/PP1PPPP1/1RQ1KRBN w BFag - 0 9",
         )
         .unwrap();
-        assert_eq!(perft(Depth::new(4), board).nodes.get(), 1187103);
+        assert_eq!(perft(DepthLimit::new(4), board).nodes.get(), 1187103);
     }
 
     #[test]
@@ -1018,7 +1018,7 @@ mod tests {
         let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
         let board = Chessboard::from_fen(fen).unwrap();
         assert_eq!(board.active_player, White);
-        assert_eq!(perft(Depth::new(3), board).nodes.get(), 568299);
+        assert_eq!(perft(DepthLimit::new(3), board).nodes.get(), 568299);
         // not a legal chess position, but the board should support this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
         let board = Chessboard::from_fen(fen).unwrap();

@@ -1,10 +1,10 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use gears::cli::{ArgIter, Game, get_next_arg, get_next_int, parse_output};
+use gears::cli::{get_next_arg, get_next_int, parse_output, ArgIter, Game};
 use gears::general::common::Res;
+use gears::search::DepthLimit;
 use gears::OutputArgs;
-use gears::search::Depth;
 
 use crate::cli::Mode::{Bench, Engine};
 
@@ -12,7 +12,7 @@ use crate::cli::Mode::{Bench, Engine};
 pub enum Mode {
     #[default]
     Engine,
-    Bench(Option<Depth>),
+    Bench(Option<DepthLimit>),
 }
 
 impl Display for Mode {
@@ -37,13 +37,13 @@ pub struct EngineOpts {
     pub mode: Mode,
 }
 
-fn parse_bench(args: &mut ArgIter) -> Res<Option<Depth>> {
+fn parse_bench(args: &mut ArgIter) -> Res<Option<DepthLimit>> {
     let mut res = None;
     if let Some(next) = args.peek() {
         if next == "-d" || next == "--depth" {
             args.next();
             if args.peek().is_some_and(|a| a != "default") {
-                res = Some(Depth::new(get_next_int(args, "depth")?));
+                res = Some(DepthLimit::new(get_next_int(args, "depth")?));
             }
         }
     }

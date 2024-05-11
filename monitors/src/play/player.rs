@@ -2,8 +2,8 @@ use std::any::TypeId;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::env::current_exe;
-use std::fmt::{Debug, Display, Formatter};
 use std::fmt::Write;
+use std::fmt::{Debug, Display, Formatter};
 use std::fs::File;
 use std::io;
 use std::io::{BufRead, BufReader};
@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::str::{FromStr, SplitWhitespace};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
-use std::thread::{Builder, sleep};
+use std::thread::{sleep, Builder};
 use std::time::{Duration, Instant};
 
 use crossbeam_utils::sync::{Parker, Unparker};
@@ -21,33 +21,33 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use whoami::fallible::realname;
 
-use gears::{
-    AbstractRun, AdjudicationReason, GameOver, GameOverReason, GameState, MatchStatus,
-    player_res_to_match_res, PlayerResult,
-};
-use gears::games::{Board, BoardHistory, Color, Move, ZobristRepetition3Fold};
 use gears::games::chess::Chessboard;
 use gears::games::Color::{Black, White};
+use gears::games::{Board, BoardHistory, Color, Move, ZobristRepetition3Fold};
 use gears::general::common::{parse_int_from_str, Res};
-use gears::MatchStatus::{Ongoing, Over};
-use gears::output::{OutputBox, OutputBuilder};
 use gears::output::Message::*;
+use gears::output::{OutputBox, OutputBuilder};
 use gears::search::{
-    Depth, MAX_DEPTH, Nodes, SCORE_LOST, SCORE_WON, SearchInfo, SearchLimit, TimeControl,
+    DepthLimit, NodesLimit, SearchInfo, SearchLimit, TimeControl, MAX_DEPTH, SCORE_LOST, SCORE_WON,
 };
-use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
 use gears::ugi::EngineOptionType::*;
+use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
+use gears::MatchStatus::{Ongoing, Over};
+use gears::{
+    player_res_to_match_res, AbstractRun, AdjudicationReason, GameOver, GameOverReason, GameState,
+    MatchStatus, PlayerResult,
+};
 
 use crate::cli::{ClientEngineCliArgs, HumanArgs, PlayerArgs};
 use crate::play::player::EngineStatus::*;
 use crate::play::player::Player::{Engine, Human};
 use crate::play::player::Protocol::{Uci, Ugi};
 use crate::play::ugi_client::{Client, PlayerId};
+use crate::play::ugi_input::BestMoveAction::Play;
+use crate::play::ugi_input::HandleBestMove::Ignore;
 use crate::play::ugi_input::{
     access_client, BestMoveAction, CurrentMatch, EngineStatus, HandleBestMove, InputThread,
 };
-use crate::play::ugi_input::BestMoveAction::Play;
-use crate::play::ugi_input::HandleBestMove::Ignore;
 use crate::ui::Input;
 
 #[derive(Default, Debug)]
@@ -270,7 +270,7 @@ pub fn limit_to_ugi(
     if !btime.increment.is_zero() {
         write!(res, "binc {} ", btime.increment.as_millis())?;
     }
-    if limit.nodes != Nodes::MAX {
+    if limit.nodes != NodesLimit::MAX {
         write!(res, "nodes {} ", limit.nodes)?;
     }
     if limit.depth < MAX_DEPTH {
@@ -433,9 +433,9 @@ impl PlayerBuilder {
             moves_to_go: None,
         });
         let fixed_time = args.move_time.unwrap_or(Duration::MAX);
-        let depth = args.depth.unwrap_or(Depth::MAX);
-        let mate = args.mate.unwrap_or(Depth::MAX);
-        let nodes = args.nodes.unwrap_or(Nodes::MAX);
+        let depth = args.depth.unwrap_or(DepthLimit::MAX);
+        let mate = args.mate.unwrap_or(DepthLimit::MAX);
+        let nodes = args.nodes.unwrap_or(NodesLimit::MAX);
         let default_limit = SearchLimit {
             tc,
             fixed_time,

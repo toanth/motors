@@ -706,7 +706,7 @@ impl MNKBoard {
 #[cfg(test)]
 mod test {
     use crate::general::perft::{perft, split_perft};
-    use crate::search::Depth;
+    use crate::search::DepthLimit;
 
     use super::*;
 
@@ -809,12 +809,12 @@ mod test {
 
     #[test]
     fn perft_startpos_test() {
-        let r = perft(Depth::new(1), MNKBoard::default());
+        let r = perft(DepthLimit::new(1), MNKBoard::default());
         assert_eq!(r.depth.get(), 1);
         assert_eq!(r.nodes.get(), 9);
         assert!(r.time.as_millis() <= 1); // 1 ms should be far more than enough even on a very slow device
         let r = split_perft(
-            Depth::new(2),
+            DepthLimit::new(2),
             MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(8), Width(12), 2)),
         );
         assert_eq!(r.perft_res.depth.get(), 2);
@@ -822,7 +822,7 @@ mod test {
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
         assert!(r.perft_res.time.as_millis() <= 10);
         let r = split_perft(
-            Depth::new(3),
+            DepthLimit::new(3),
             MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(4), Width(3), 3)),
         );
         assert_eq!(r.perft_res.depth.get(), 3);
@@ -830,7 +830,7 @@ mod test {
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
         assert!(r.perft_res.time.as_millis() <= 1000);
         let r = split_perft(
-            Depth::new(5),
+            DepthLimit::new(5),
             MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(5), Width(5), 5)),
         );
         assert_eq!(r.perft_res.depth.get(), 5);
@@ -838,7 +838,7 @@ mod test {
         assert!(r.children.iter().all(|x| x.1 == r.children[0].1));
         assert!(r.perft_res.time.as_millis() <= 4000);
 
-        let r = split_perft(Depth::new(9), MNKBoard::default());
+        let r = split_perft(DepthLimit::new(9), MNKBoard::default());
         assert_eq!(r.perft_res.depth.get(), 9);
         assert!(r.perft_res.nodes.get() >= 100_000);
         assert!(r.perft_res.nodes.get() <= 9 * 8 * 7 * 6 * 5 * 4 * 3 * 2);
@@ -846,7 +846,7 @@ mod test {
         assert!(r.perft_res.time.as_millis() <= 1000);
 
         let board = MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(2), Width(2), 2));
-        let r = split_perft(Depth::new(3), board);
+        let r = split_perft(DepthLimit::new(3), board);
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes.get(), 2 * 3 * 4);
         assert!(r.children.iter().all(|x| x.1 == 2 * 3));

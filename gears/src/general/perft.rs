@@ -3,13 +3,13 @@ use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
 use crate::games::{Board, Move};
-use crate::search::{Depth, Nodes};
+use crate::search::{DepthLimit, NodesLimit};
 
 #[derive(Copy, Clone, Debug)]
 pub struct PerftRes {
     pub time: Duration,
-    pub nodes: Nodes,
-    pub depth: Depth,
+    pub nodes: NodesLimit,
+    pub depth: DepthLimit,
 }
 
 impl Display for PerftRes {
@@ -61,15 +61,15 @@ fn do_perft<T: Board>(depth: usize, pos: T) -> u64 {
     nodes
 }
 
-pub fn perft<T: Board>(depth: Depth, pos: T) -> PerftRes {
+pub fn perft<T: Board>(depth: DepthLimit, pos: T) -> PerftRes {
     let start = Instant::now();
-    let nodes = Nodes::new(do_perft(depth.get(), pos)).unwrap();
+    let nodes = NodesLimit::new(do_perft(depth.get(), pos)).unwrap();
     let time = start.elapsed();
 
     PerftRes { time, nodes, depth }
 }
 
-pub fn split_perft<T: Board>(depth: Depth, pos: T) -> SplitPerftRes<T> {
+pub fn split_perft<T: Board>(depth: DepthLimit, pos: T) -> SplitPerftRes<T> {
     assert!(depth.get() > 0);
     let mut nodes = 0;
     let start = Instant::now();
@@ -82,7 +82,7 @@ pub fn split_perft<T: Board>(depth: Depth, pos: T) -> SplitPerftRes<T> {
         }
     }
     let time = start.elapsed();
-    let nodes = Nodes::new(nodes).unwrap();
+    let nodes = NodesLimit::new(nodes).unwrap();
     children.sort_by(|a, b| a.0.to_compact_text().cmp(&b.0.to_compact_text()));
     let perft_res = PerftRes { time, nodes, depth };
     SplitPerftRes {

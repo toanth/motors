@@ -12,8 +12,8 @@ use gears::games::{Board, BoardHistory, ColoredPiece, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
 use gears::search::{
-    game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, MAX_SCORE_LOST,
-    MIN_SCORE_WON, NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
+    game_result_to_score, DepthLimit, Score, SearchLimit, SearchResult, TimeControl,
+    MAX_SCORE_LOST, MIN_SCORE_WON, NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP, SCORE_WON,
 };
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::EngineOptionType::Spin;
@@ -30,8 +30,8 @@ use crate::search::{
     Pv, SearchStackEntry, SearchState,
 };
 
-const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
-const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
+const DEPTH_SOFT_LIMIT: DepthLimit = DepthLimit::new(100);
+const DEPTH_HARD_LIMIT: DepthLimit = DepthLimit::new(128);
 
 #[derive(Debug, Clone)]
 struct HistoryHeuristic([i32; 64 * 64]);
@@ -137,11 +137,10 @@ impl<E: Eval<Chessboard>> StaticallyNamedEntity for Caps<E> {
 // impl<E: Eval<Chessboard>> EngineBase for Caps<E> {}
 
 impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
-    fn bench(&mut self, pos: Chessboard, depth: Depth) -> BenchResult {
+    fn bench(&mut self, pos: Chessboard, depth: DepthLimit) -> BenchResult {
         self.state.forget(true);
         let mut limit = SearchLimit::infinite();
         limit.depth = DEPTH_SOFT_LIMIT.min(depth);
-        self.state.depth = limit.depth;
         let _ = self.search_from_pos(pos, limit);
         self.state.to_bench_res()
     }
@@ -170,7 +169,7 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
         EngineInfo {
             name: self.long_name().to_string(),
             version: "0.0.1".to_string(),
-            default_bench_depth: Depth::new(9),
+            default_bench_depth: DepthLimit::new(10),
             options,
             description: "CAPS (Chess Alpha-beta Pruning Search), a negamax-based chess engine"
                 .to_string(),
@@ -219,7 +218,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
     }
 
     fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
-        if self.state.nodes % 1024 != 0 {
+        if self.state.nodes(MainSearch) % 1024 != 0 {
             false
         } else {
             let elapsed = start_time.elapsed();
@@ -271,7 +270,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         let mut alpha = SCORE_LOST;
         let mut beta = SCORE_WON;
-        self.state.depth = Depth::new(1);
 
         let mut window_radius = Score(20);
 
@@ -282,7 +280,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 pos,
                 limit,
                 0,
-                self.state.depth.get() as isize,
+                self.state.depth().get() as isize,
                 alpha,
                 beta,
                 sender,
@@ -294,7 +292,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                         .is_some_and(|x| x <= 0)),
                 "score {0} depth {1}",
                 iteration_score.0,
-                self.state.depth.get(),
+                self.state.depth().get(),
             );
             sender.send_message(
                 Debug,
@@ -304,7 +302,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     window_radius.0,
                     alpha.0,
                     beta.0,
-                    depth = self.state.depth.get()
+                    depth = self.state.depth().get()
                 ),
             );
             if self.state.search_cancelled() {
@@ -313,10 +311,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
             self.state.score = iteration_score;
             if iteration_score > alpha && iteration_score < beta {
                 sender.send_search_info(self.search_info()); // do this before incrementing the depth
-                self.state.depth += Depth::new(1);
-                // make sure that alpha and beta are at least 2 apart, to recognize PV nodes.
+                                                             // make sure that alpha and beta are at least 2 apart, to recognize PV nodes.
                 window_radius = Score(1.max(window_radius.0 / 2));
-                self.state.statistics.aw_exact();
+                self.state.statistics.aw_exact(); // increases the depth
             } else {
                 window_radius.0 *= 3;
                 if iteration_score <= alpha {
@@ -334,7 +331,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 break;
             }
         }
-        self.state.depth -= Depth::new(1); // don't print a depth one larger than what was actually searched.
         chosen_move
     }
 
@@ -352,8 +348,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
         debug_assert!(ply <= DEPTH_HARD_LIMIT.get());
         debug_assert!(depth <= DEPTH_SOFT_LIMIT.get() as isize);
         debug_assert!(self.state.board_history.0 .0.len() >= ply);
+        self.state.statistics.count_node_started(MainSearch, ply);
 
-        self.state.sel_depth = self.state.sel_depth.max(ply);
         let mut tt = self.state.custom.tt.clone();
 
         let root = ply == 0;
@@ -479,8 +475,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 continue; // illegal pseudolegal move
             }
             let new_pos = new_pos.unwrap();
-            self.state.statistics.count_move(MainSearch);
-            self.state.nodes += 1;
             children_visited += 1;
             if !mov.is_tactical(&pos) {
                 num_quiets_visited += 1;
@@ -626,6 +620,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
     /// Search only "tactical" moves to quieten down the position before calling eval.
     fn qsearch(&mut self, pos: Chessboard, mut alpha: Score, beta: Score, ply: usize) -> Score {
+        self.state.statistics.count_node_started(Qsearch, ply);
         // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
         let mut best_score = self.eval.eval(pos);
@@ -633,8 +628,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
         if best_score >= beta {
             return best_score;
         }
-
-        self.state.sel_depth = self.state.sel_depth.max(ply);
 
         // TODO: stand pat is SCORE_LOST when in check, generate evasions?
         alpha = alpha.max(best_score);
@@ -669,7 +662,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 continue;
             }
             children_visited += 1;
-            self.state.statistics.count_move(Qsearch);
             // TODO: Also count qsearch nodes. Because of the nodes % 1024 check in timeouts, this requires also checking for timeouts in qsearch.
             self.state.board_history.push(&pos);
             let score = -self.qsearch(new_pos.unwrap(), -beta, -alpha, ply + 1);
@@ -729,7 +721,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
 mod tests {
     use gears::games::chess::Chessboard;
     use gears::games::{Move, ZobristHistoryBase};
-    use gears::search::Nodes;
+    use gears::search::NodesLimit;
 
     use crate::eval::chess::hce::HandCraftedEval;
     use crate::eval::chess::pst_only::PstOnlyEval;
@@ -747,7 +739,7 @@ mod tests {
                 let res = engine
                     .search(
                         board,
-                        SearchLimit::depth(Depth::new(depth)),
+                        SearchLimit::depth(DepthLimit::new(depth)),
                         ZobristHistoryBase::default(),
                         &mut SearchSender::no_sender(),
                     )
@@ -776,7 +768,7 @@ mod tests {
             let pos = Chessboard::from_fen(fen).unwrap();
             let mut engine = Caps::<PstOnlyEval>::default();
             let res = engine
-                .search_from_pos(pos, SearchLimit::nodes(Nodes::new(50_000).unwrap()))
+                .search_from_pos(pos, SearchLimit::nodes(NodesLimit::new(50_000).unwrap()))
                 .unwrap();
             assert!(res.score.is_some_and(|score| score > Score(min)));
             assert!(res.score.is_some_and(|score| score < Score(max)));
@@ -788,7 +780,7 @@ mod tests {
         let pos = Chessboard::from_name("lucena").unwrap();
         let mut engine = Caps::<PstOnlyEval>::default();
         let res = engine
-            .search_from_pos(pos, SearchLimit::depth(Depth::new(7)))
+            .search_from_pos(pos, SearchLimit::depth(DepthLimit::new(7)))
             .unwrap();
         // TODO: More aggressive bound once the engine is stronger
         assert!(res.score.unwrap() >= Score(200));
@@ -798,7 +790,8 @@ mod tests {
     fn philidor_test() {
         let pos = Chessboard::from_name("philidor").unwrap();
         let mut engine = Caps::<HandCraftedEval>::default();
-        let res = engine.search_from_pos(pos, SearchLimit::nodes(Nodes::new(100_000).unwrap()));
+        let res =
+            engine.search_from_pos(pos, SearchLimit::nodes(NodesLimit::new(100_000).unwrap()));
         // TODO: More aggressive bound once the engine is stronger
         assert!(res.unwrap().score.unwrap().abs() <= Score(200));
     }
@@ -831,11 +824,11 @@ mod tests {
         for (fen, mov) in fens {
             let pos = Chessboard::from_fen(fen).unwrap();
             let mut engine = Caps::<HandCraftedEval>::default();
-            let mut limit = SearchLimit::depth(Depth::new(18));
-            limit.mate = Depth::new(10);
+            let mut limit = SearchLimit::depth(DepthLimit::new(18));
+            limit.mate = DepthLimit::new(10);
             limit.fixed_time = Duration::from_secs(2);
             let res = engine
-                .search_from_pos(pos, SearchLimit::depth(Depth::new(15)))
+                .search_from_pos(pos, SearchLimit::depth(DepthLimit::new(15)))
                 .unwrap();
             println!(
                 "chosen move {0}, fen {1}",

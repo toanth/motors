@@ -1,18 +1,20 @@
 use std::fmt::{Debug, Formatter};
 use std::time::{Duration, Instant};
 
-use rand::{Rng, RngCore, SeedableRng, thread_rng};
+use rand::{thread_rng, Rng, RngCore, SeedableRng};
 
 use gears::games::Board;
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
-use gears::search::{Depth, Nodes, Score, SearchInfo, SearchLimit, SearchResult, TimeControl};
-
-use crate::search::{
-    ABSearchState, Benchable, BenchResult, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
-    SearchState,
+use gears::search::{
+    DepthLimit, NodesLimit, Score, SearchInfo, SearchLimit, SearchResult, TimeControl,
 };
+
 use crate::search::multithreading::SearchSender;
 use crate::search::tt::TT;
+use crate::search::{
+    ABSearchState, BenchResult, Benchable, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
+    SearchState,
+};
 
 pub trait SeedRng: Rng + SeedableRng {}
 
@@ -35,7 +37,7 @@ impl<B: Board, R: SeedRng> Default for RandomMover<B, R> {
         Self {
             rng: R::seed_from_u64(thread_rng().next_u64()),
             chosen_move: B::Move::default(),
-            _state: ABSearchState::new(Depth::new(1)),
+            _state: ABSearchState::new(DepthLimit::new(1)),
         }
     }
 }
@@ -76,7 +78,7 @@ impl<B: Board, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R>
 // impl<B: Board, R: SeedRng + Clone + Send + 'static> EngineBase for RandomMover<B, R> {}
 
 impl<B: Board, R: SeedRng + Clone + Send + 'static> Benchable<B> for RandomMover<B, R> {
-    fn bench(&mut self, _position: B, _depth: Depth) -> BenchResult {
+    fn bench(&mut self, _position: B, _depth: DepthLimit) -> BenchResult {
         BenchResult::default()
     }
 
@@ -84,7 +86,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Benchable<B> for RandomMover
         EngineInfo {
             name: self.long_name().to_string(),
             version: "0.1.0".to_string(),
-            default_bench_depth: Depth::new(1), // ignored as the engine will just pick a random move no matter what
+            default_bench_depth: DepthLimit::new(1), // ignored as the engine will just pick a random move no matter what
             options: Vec::default(),
             description: "An Engine that simply plays a random legal move".to_string(),
         }
@@ -118,10 +120,10 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
     fn search_info(&self) -> SearchInfo<B> {
         SearchInfo {
             best_move: self.chosen_move,
-            depth: Depth::new(0),
+            depth: DepthLimit::new(0),
             seldepth: None,
             time: Duration::default(),
-            nodes: Nodes::new(1).unwrap(),
+            nodes: NodesLimit::new(1).unwrap(),
             pv: vec![self.chosen_move],
             score: Score(0),
             hashfull: None,
@@ -133,8 +135,8 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         // nothing to do
     }
 
-    fn nodes(&self) -> Nodes {
-        Nodes::new(1).unwrap()
+    fn nodes(&self) -> NodesLimit {
+        NodesLimit::new(1).unwrap()
     }
 
     fn set_tt(&mut self, _tt: TT) {
