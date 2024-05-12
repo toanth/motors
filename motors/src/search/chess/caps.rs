@@ -9,7 +9,7 @@ use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::{Chessboard, MAX_CHESS_MOVES_IN_POS};
-use gears::games::{Board, BoardHistory, ColoredPiece, ZobristRepetition2Fold};
+use gears::games::{Board, BoardHistory, ColoredPiece, Move, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
 use gears::search::{
@@ -219,22 +219,21 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
     }
 
     fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
-        if self.state.nodes(MainSearch) % 1024 != 0 {
-            false
-        } else {
-            let elapsed = start_time.elapsed();
-            // divide by 4 unless moves to go is very small, but don't divide by 1 (or zero) to avoid timeouts
-            let divisor = tc.moves_to_go.unwrap_or(usize::MAX).clamp(2, 4) as u32;
-            // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
-            // (assuming the move overhead is set correctly)
-            elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment / 2)
-        }
+        debug_assert!(self.state.main_search_nodes() % 1024 == 0);
+        let elapsed = start_time.elapsed();
+        // divide by 4 unless moves to go is very small, but don't divide by 1 (or zero) to avoid timeouts
+        let divisor = tc.moves_to_go.unwrap_or(usize::MAX).clamp(2, 4) as u32;
+        // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
+        // (assuming the move overhead is set correctly)
+        elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment / 2)
     }
 
+    #[inline(always)]
     fn search_state(&self) -> &impl SearchState<Chessboard> {
         &self.state
     }
 
+    #[inline(always)]
     fn search_state_mut(&mut self) -> &mut impl SearchState<Chessboard> {
         &mut self.state
     }
@@ -476,6 +475,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 continue; // illegal pseudolegal move
             }
             let new_pos = new_pos.unwrap();
+            self.state.statistics.count_legal_make_move(MainSearch);
             children_visited += 1;
             if !mov.is_tactical(&pos) {
                 num_quiets_visited += 1;
@@ -663,7 +663,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 continue;
             }
             children_visited += 1;
-            // TODO: Also count qsearch nodes. Because of the nodes % 1024 check in timeouts, this requires also checking for timeouts in qsearch.
+            self.state.statistics.count_legal_make_move(Qsearch);
             self.state.board_history.push(&pos);
             let score = -self.qsearch(new_pos.unwrap(), -beta, -alpha, ply + 1);
             self.state.board_history.pop(&pos);

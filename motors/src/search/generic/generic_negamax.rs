@@ -141,12 +141,8 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
     }
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
-        if self.state.nodes(MainSearch) % 1024 != 0 {
-            false
-        } else {
-            let elapsed = start_time.elapsed();
-            elapsed >= hard_limit.min(tc.remaining / 32 + tc.increment / 2)
-        }
+        let elapsed = start_time.elapsed();
+        elapsed >= hard_limit.min(tc.remaining / 32 + tc.increment / 2)
     }
 
     fn set_tt(&mut self, tt: TT) {
@@ -198,6 +194,7 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
                 continue; // illegal pseudolegal move
             }
             num_children += 1;
+            self.state.statistics.count_legal_make_move(MainSearch);
 
             self.state.board_history.push(&pos);
 

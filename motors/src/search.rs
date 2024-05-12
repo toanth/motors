@@ -238,10 +238,11 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     // Sensible default values, but engines may choose to check more/less frequently than every 1024 nodes
     fn should_stop(&self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
         let state = self.search_state();
-        if state.nodes(MainSearch) >= limit.nodes.get() {
+        // Do the less expensive checks first to avoid querying the time in each node
+        if state.main_search_nodes() >= limit.nodes.get() {
             return true;
         }
-        if state.nodes(MainSearch) % 1024 != 0 {
+        if state.main_search_nodes() % 1024 != 0 {
             return false;
         }
         self.time_up(limit.tc, limit.fixed_time, self.search_state().start_time())
@@ -288,13 +289,6 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         !self.search_state().search_cancelled()
     }
 
-    /// Returns the number of nodes looked at so far, excluding quiescent search, SEE and similar. Can be called during search.
-    /// For smp, this only returns the number of nodes looked at in the current thread.
-    fn nodes(&self) -> NodesLimit {
-        NodesLimit::new(self.search_state().nodes(MainSearch) + self.search_state().nodes(Qsearch))
-            .unwrap()
-    }
-
     fn can_use_multiple_threads() -> bool
     where
         Self: Sized;
@@ -307,10 +301,14 @@ pub enum Searching {
 }
 
 pub trait SearchState<B: Board>: Debug + Clone {
-    /// Returns a `u64` instead of `Nodes` because this will return `0` before the search has been started.
+    /// Returns the number of nodes looked at so far, excluding quiescent search, SEE and similar. Can be called during search.
+    /// For smp, this only returns the number of nodes looked at in the current thread.
     #[inline(always)]
-    fn nodes(&self, search_type: SearchType) -> u64 {
-        self.statistics().nodes(search_type)
+    fn main_search_nodes(&self) -> u64 {
+        self.statistics().main_search_nodes()
+    }
+    fn uci_nodes(&self) -> u64 {
+        self.statistics().uci_nodes()
     }
     fn searching(&self) -> Searching;
     fn search_cancelled(&self) -> bool {
@@ -428,7 +426,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
 
     fn to_bench_res(&self) -> BenchResult {
         BenchResult {
-            nodes: NodesLimit::new(self.nodes(MainSearch) + self.nodes(Qsearch)).unwrap(),
+            nodes: NodesLimit::new(self.uci_nodes()).unwrap(),
             time: self.start_time().elapsed(),
             depth: self.depth(),
         }
@@ -491,7 +489,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
             depth: self.depth(),
             seldepth: self.seldepth(),
             time: self.start_time().elapsed(),
-            nodes: NodesLimit::new(self.nodes(Qsearch) + self.nodes(MainSearch)).unwrap(),
+            nodes: NodesLimit::new(self.uci_nodes()).unwrap(),
             pv: self.pv(),
             score: self.score(),
             hashfull: self.hashfull(),
@@ -500,7 +498,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
     }
 
     /// If the 'statistics' feature is enabled, this collects additional statistics.
-    /// If not, this still keeps track of nodes, depth and seldepth.
+    /// If not, this still keeps track of nodes, depth and seldepth, which is used for UCI output.
+    #[inline(always)]
     fn statistics(&self) -> &Statistics {
         &self.statistics
     }

@@ -15,7 +15,20 @@ use crate::PlayerResult;
 
 // TODO: Turn this into an enum that can also represent a win in n plies (and maybe a draw?)
 #[derive(
-    Default, Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg, AddAssign, SubAssign,
+    Default,
+    Debug,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Copy,
+    Clone,
+    Add,
+    Sub,
+    Neg,
+    AddAssign,
+    SubAssign,
+    derive_more::Display,
 )]
 pub struct Score(pub i32);
 

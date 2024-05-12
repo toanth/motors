@@ -133,10 +133,6 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         // nothing to do
     }
 
-    fn nodes(&self) -> NodesLimit {
-        NodesLimit::new(1).unwrap()
-    }
-
     fn set_tt(&mut self, _tt: TT) {
         // do nothing
     }
