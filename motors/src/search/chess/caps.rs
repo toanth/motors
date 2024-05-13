@@ -28,7 +28,7 @@ use crate::search::tt::{TTEntry, TT};
 use crate::search::NodeType::*;
 use crate::search::{
     ABSearchState, BenchResult, Benchable, CustomInfo, Engine, EngineInfo, NodeType, Pv,
-    SearchStackEntry, SearchState,
+    SearchStackEntry, SearchState, DEFAULT_CHECK_TIME_INTERVAL,
 };
 
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
@@ -219,7 +219,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
     }
 
     fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
-        debug_assert!(self.state.main_search_nodes() % 1024 == 0);
+        debug_assert!(self.state.main_search_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0);
         let elapsed = start_time.elapsed();
         // divide by 4 unless moves to go is very small, but don't divide by 1 (or zero) to avoid timeouts
         let divisor = tc.moves_to_go.unwrap_or(usize::MAX).clamp(2, 4) as u32;

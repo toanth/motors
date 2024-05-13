@@ -198,6 +198,8 @@ pub trait Benchable<B: Board>: StaticallyNamedEntity + Debug {
     }
 }
 
+const DEFAULT_CHECK_TIME_INTERVAL: u64 = 4096;
+
 pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     fn set_tt(&mut self, tt: TT);
 
@@ -235,14 +237,14 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool;
 
-    // Sensible default values, but engines may choose to check more/less frequently than every 1024 nodes
+    // Sensible default values, but engines may choose to check more/less frequently than every 4096 nodes
     fn should_stop_impl(&self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
         let state = self.search_state();
         // Do the less expensive checks first to avoid querying the time in each node
         if state.main_search_nodes() >= limit.nodes.get() || state.search_cancelled() {
             return true;
         }
-        if state.main_search_nodes() % 1024 != 0 {
+        if state.main_search_nodes() % DEFAULT_CHECK_TIME_INTERVAL != 0 {
             return false;
         }
         self.time_up(limit.tc, limit.fixed_time, self.search_state().start_time())
