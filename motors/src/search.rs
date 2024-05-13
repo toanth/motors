@@ -236,10 +236,10 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool;
 
     // Sensible default values, but engines may choose to check more/less frequently than every 1024 nodes
-    fn should_stop(&self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
+    fn should_stop_impl(&self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
         let state = self.search_state();
         // Do the less expensive checks first to avoid querying the time in each node
-        if state.main_search_nodes() >= limit.nodes.get() {
+        if state.main_search_nodes() >= limit.nodes.get() || state.search_cancelled() {
             return true;
         }
         if state.main_search_nodes() % 1024 != 0 {
@@ -247,7 +247,15 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         }
         self.time_up(limit.tc, limit.fixed_time, self.search_state().start_time())
             || sender.should_stop()
-            || state.search_cancelled()
+    }
+
+    fn should_stop(&mut self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
+        if (self.should_stop_impl(limit, sender)) {
+            self.search_state_mut().mark_search_should_end();
+            true
+        } else {
+            false
+        }
     }
 
     fn should_not_start_next_iteration(
@@ -324,9 +332,14 @@ pub trait SearchState<B: Board>: Debug + Clone {
     fn score(&self) -> Score;
     fn forget(&mut self, hard: bool);
     fn new_search(&mut self, history: ZobristRepetition2Fold);
-    fn end_search(&mut self);
+    fn end_search(&mut self) {
+        self.mark_search_should_end();
+        self.statistics_mut().end_search();
+    }
+    fn mark_search_should_end(&mut self);
     fn to_search_info(&self) -> SearchInfo<B>;
     fn statistics(&self) -> &Statistics;
+    fn statistics_mut(&mut self) -> &mut Statistics;
 }
 
 pub trait SearchStackEntry<B: Board>: Default + Clone + Debug {
@@ -478,8 +491,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
         self.searching = Ongoing;
     }
 
-    fn end_search(&mut self) {
-        self.statistics.end_search();
+    fn mark_search_should_end(&mut self) {
         self.searching = Stop;
     }
 
@@ -502,6 +514,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
     #[inline(always)]
     fn statistics(&self) -> &Statistics {
         &self.statistics
+    }
+
+    #[inline(always)]
+    fn statistics_mut(&mut self) -> &mut Statistics {
+        &mut self.statistics
     }
 }
 
