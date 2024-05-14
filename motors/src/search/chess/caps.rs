@@ -39,6 +39,20 @@ const KILLER_SCORE: i32 = i32::MAX - 200;
 #[derive(Debug, Clone)]
 struct HistoryHeuristic([i32; 64 * 64]);
 
+impl HistoryHeuristic {
+    // This function updates the history and applies the History Gravity technique,
+    // which keeps history scores from growing arbitrarily large and scales boni/mali depending on how
+    // "unexpected" they are, i.e. by how much they differ from the current history scores.
+    fn update(&mut self, idx: usize, value: i32) {
+        let entry = &mut self.0[idx];
+        // The maximum history score can be slightly larger than the divisor due to rounding errors.
+        const DIVISOR: i32 = 16384;
+        // The `.abs()` is necessary to correctly handle history malus.
+        let bonus = value - value.abs() * *entry / DIVISOR;
+        *entry += bonus;
+    }
+}
+
 impl Default for HistoryHeuristic {
     fn default() -> Self {
         HistoryHeuristic([0; 64 * 64])
@@ -591,9 +605,15 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // Update various heuristics, TODO: More (killers, history gravity, etc)
             let entry = &mut self.state.search_stack[ply];
             for disappointing in entry.tried_quiets.iter().dropping_back(1) {
-                self.state.custom.history[disappointing.from_to_square()] -= (depth * depth) as i32;
+                self.state
+                    .custom
+                    .history
+                    .update(disappointing.from_to_square(), -(depth * depth) as i32);
             }
-            self.state.custom.history[mov.from_to_square()] += (depth * depth) as i32;
+            self.state
+                .custom
+                .history
+                .update(mov.from_to_square(), (depth * depth) as i32);
             entry.killer = mov;
             break;
         }
