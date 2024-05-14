@@ -132,13 +132,13 @@ impl Chessboard {
 
     pub fn update_zobrist_for_move(
         &mut self,
-        piece: ColoredChessPiece,
+        piece: UncoloredChessPiece,
         from: ChessSquare,
         to: ChessSquare,
     ) {
-        let color = piece.color().unwrap();
-        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece.uncolor(), color, to);
-        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece.uncolor(), color, from);
+        let color = self.active_player;
+        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, to);
+        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, from);
     }
 }
 

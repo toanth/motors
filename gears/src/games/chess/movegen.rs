@@ -251,7 +251,7 @@ impl Chessboard {
                 && ((self.occupied_bb() ^ king) & rook_free_bb).is_zero()
             {
                 debug_assert_eq!(
-                    self.piece_on(rook).symbol,
+                    self.colored_piece_on(rook).symbol,
                     ColoredChessPiece::new(color, Rook)
                 );
                 list.push(ChessMove::new(king_square, rook, CastleQueenside));
@@ -268,7 +268,7 @@ impl Chessboard {
                 && ((self.occupied_bb() ^ king) & rook_free_bb).is_zero()
             {
                 debug_assert_eq!(
-                    self.piece_on(rook).symbol,
+                    self.colored_piece_on(rook).symbol,
                     ColoredChessPiece::new(color, Rook)
                 );
                 list.push(ChessMove::new(king_square, rook, CastleKingside));

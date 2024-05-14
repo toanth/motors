@@ -75,12 +75,17 @@ impl ChessMove {
             Some(ChessSquare::from_rank_file(4, to.file()))
         }
     }
+
     pub fn piece(self, board: &Chessboard) -> ChessPiece {
-        board.piece_on(self.src_square())
+        board.colored_piece_on(self.src_square())
     }
 
-    pub fn piece_on_target(self, board: &Chessboard) -> ChessPiece {
-        board.piece_on(self.dest_square())
+    pub fn uncolored_piece(self, board: &Chessboard) -> UncoloredChessPiece {
+        board.uncolored_piece_on(self.src_square())
+    }
+
+    pub fn uncolored_piece_on_target(self, board: &Chessboard) -> UncoloredChessPiece {
+        board.uncolored_piece_on(self.dest_square())
     }
 
     pub fn is_tactical(self, board: &Chessboard) -> bool {
@@ -107,7 +112,7 @@ impl ChessMove {
         } else if self.is_castle() {
             Empty
         } else {
-            board.piece_on(self.dest_square()).uncolored()
+            board.colored_piece_on(self.dest_square()).uncolored()
         }
     }
 
@@ -187,7 +192,7 @@ impl Move<Chessboard> for ChessMove {
         }
         let from = ChessSquare::from_str(&s[..2])?;
         let mut to = ChessSquare::from_str(&s[2..4])?;
-        let piece = board.piece_on(from);
+        let piece = board.colored_piece_on(from);
         let mut flags = Normal;
         if s.len() > 4 {
             let promo = s.chars().nth(4).unwrap();
@@ -199,8 +204,8 @@ impl Move<Chessboard> for ChessMove {
                 _ => return Err(format!("Invalid character after to square: '{promo}'")),
             }
         } else if piece.uncolored() == King {
-            let rook_capture =
-                board.piece_on(to).symbol == ColoredChessPiece::new(piece.color().unwrap(), Rook);
+            let rook_capture = board.colored_piece_on(to).symbol
+                == ColoredChessPiece::new(piece.color().unwrap(), Rook);
             if rook_capture || to.file().abs_diff(from.file()) > 1 {
                 let color = if from.rank() == 0 { White } else { Black };
                 if !rook_capture {
@@ -219,8 +224,8 @@ impl Move<Chessboard> for ChessMove {
                     CastleKingside
                 }
             }
-        } else if board.piece_on(from).uncolored() == Pawn
-            && board.piece_on(to).is_empty()
+        } else if board.colored_piece_on(from).uncolored() == Pawn
+            && board.colored_piece_on(to).is_empty()
             && from.file() != to.file()
         {
             flags = EnPassant;
@@ -344,13 +349,12 @@ impl Chessboard {
 
     /// Is only ever called on a copy of the board, so no need to undo the changes when a move gets aborted due to pseudo-legality.
     pub fn make_move_impl(mut self, mov: ChessMove) -> Option<Self> {
-        let piece = mov.piece(&self).symbol;
-        let uncolored = piece.uncolor();
+        let piece = mov.uncolored_piece(&self);
         let color = self.active_player;
         let other = color.other();
         let from = mov.src_square();
         let mut to = mov.dest_square();
-        assert_eq!(color, piece.color().unwrap());
+        debug_assert_eq!(color, mov.piece(&self).color().unwrap());
         self.ply_100_ctr += 1;
         // remove old castling flags
         self.hash ^=
@@ -397,22 +401,24 @@ impl Chessboard {
             }
             let rook_from = self.rook_start_square(color, side);
             let rook_to = ChessSquare::from_rank_file(from.rank(), rook_to_file);
-            debug_assert!(self.piece_on(rook_from).symbol == ColoredChessPiece::new(color, Rook));
-            self.move_piece(rook_from, rook_to, ColoredChessPiece::new(color, Rook));
+            debug_assert!(
+                self.colored_piece_on(rook_from).symbol == ColoredChessPiece::new(color, Rook)
+            );
+            self.move_piece(rook_from, rook_to, Rook);
             to = ChessSquare::from_rank_file(from.rank(), to_file);
         } else if mov.is_ep() {
             let taken_pawn = mov.square_of_pawn_taken_by_ep().unwrap();
             debug_assert_eq!(
-                self.piece_on(taken_pawn).symbol,
+                self.colored_piece_on(taken_pawn).symbol,
                 ColoredChessPiece::new(other, Pawn)
             );
             self.remove_piece(taken_pawn, ColoredChessPiece::new(other, Pawn));
             self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, other, taken_pawn);
             self.ply_100_ctr = 0;
         } else if mov.is_non_ep_capture(&self) {
-            let captured = self.piece_on(to).symbol;
-            debug_assert_eq!(self.piece_on(to).color().unwrap(), other);
-            debug_assert_ne!(self.piece_on(to).uncolored(), King);
+            let captured = self.colored_piece_on(to).symbol;
+            debug_assert_eq!(self.colored_piece_on(to).color().unwrap(), other);
+            debug_assert_ne!(self.colored_piece_on(to).uncolored(), King);
             self.remove_piece(to, captured);
             self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(
                 captured.uncolor(),
@@ -420,7 +426,7 @@ impl Chessboard {
                 to,
             );
             self.ply_100_ctr = 0;
-        } else if uncolored == Pawn {
+        } else if piece == Pawn {
             self.ply_100_ctr = 0;
             if from.rank().abs_diff(to.rank()) == 2 {
                 self.ep_square = Some(ChessSquare::from_rank_file(
@@ -430,7 +436,7 @@ impl Chessboard {
                 self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[to.file() as usize];
             }
         }
-        if uncolored == King {
+        if piece == King {
             self.castling.clear_castle_rights(color);
         } else if from == self.rook_start_square(color, Queenside) {
             self.castling.unset_castle_right(color, Queenside);
@@ -808,7 +814,7 @@ impl<'a> MoveParser<'a> {
         }
 
         let mut moves = board.gen_all_pseudolegal_moves().into_iter().filter(|mov| {
-            mov.piece(board).uncolored() == self.piece
+            mov.uncolored_piece(board) == self.piece
                 && mov.dest_square().file() == self.target_file.unwrap()
                 && !self
                     .target_rank

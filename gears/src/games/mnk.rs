@@ -449,7 +449,7 @@ impl Board for MNKBoard {
         }
     }
 
-    fn piece_on_idx(&self, idx: usize) -> Square {
+    fn colored_piece_on_idx(&self, idx: usize) -> Square {
         let coordinates = self.to_coordinates(idx);
         debug_assert!(self.white_bb & self.black_bb == ExtendedRawBitboard(0));
         if (self.white_bb >> idx) & 1 == 1 {
@@ -528,7 +528,8 @@ impl Board for MNKBoard {
     }
 
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {
-        self.size().coordinates_valid(mov.target) && self.piece_on(mov.target).symbol == Empty
+        self.size().coordinates_valid(mov.target)
+            && self.colored_piece_on(mov.target).symbol == Empty
     }
 
     fn game_result_no_movegen(&self) -> Option<PlayerResult> {
@@ -677,7 +678,7 @@ impl MNKBoard {
         }
         let last_move = self.last_move.unwrap();
         let square = last_move.target;
-        let player = self.piece_on(square).uncolored().color();
+        let player = self.colored_piece_on(square).uncolored().color();
         if player.is_none() {
             return false;
         }
@@ -868,7 +869,7 @@ mod test {
             board.white_bb(),
             MnkBitboard::from_uint(0x10, GridSize::tictactoe())
         );
-        assert_eq!(board.piece_on_idx(4).symbol, Symbol::X);
+        assert_eq!(board.colored_piece_on_idx(4).symbol, Symbol::X);
         assert_eq!(board.as_fen(), "3 3 3 o 3/1X1/3");
 
         let board = board

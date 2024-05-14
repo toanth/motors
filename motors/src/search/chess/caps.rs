@@ -719,7 +719,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     i32::MIN + 100
                 };
                 // the offset applied to `base_val` can be negative, because pawns have index 0.
-                base_val + captured as i32 * 10 - mov.piece(&board).uncolored() as i32
+                base_val + captured as i32 * 10 - mov.uncolored_piece(&board) as i32
             }
         }
     }

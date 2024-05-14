@@ -723,12 +723,21 @@ pub trait Board:
 
     /// Returns the piece at the given coordinates.
     /// Should return the same as `piece_on_idx(self.to_idx(pos))`.
-    fn piece_on(&self, pos: Self::Coordinates) -> Self::Piece {
-        self.piece_on_idx(self.to_idx(pos))
+    fn colored_piece_on(&self, pos: Self::Coordinates) -> Self::Piece {
+        self.colored_piece_on_idx(self.to_idx(pos))
     }
 
     /// Returns the piece at the given index.
-    fn piece_on_idx(&self, pos: usize) -> Self::Piece;
+    fn colored_piece_on_idx(&self, pos: usize) -> Self::Piece;
+
+    /// Returns the uncolored piece type at the given coordinates.
+    /// Can sometimes be implemented more efficiently than `colored_piece_on`
+    fn uncolored_piece_on(
+        &self,
+        pos: Self::Coordinates,
+    ) -> <<Self::Piece as ColoredPiece>::ColoredPieceType as ColoredPieceType>::Uncolored {
+        self.colored_piece_on(pos).uncolored()
+    }
 
     /// Returns the default depth that should be used for perft if not otherwise specified.
     /// Takes in a reference to self because some boards have a size determined at runtime,
@@ -928,7 +937,7 @@ where
     for y in (0..pos.height()).rev() {
         let mut empty_ctr = 0;
         for x in 0..pos.width() {
-            let piece = pos.piece_on(T::Coordinates::from_row_column(y, x));
+            let piece = pos.colored_piece_on(T::Coordinates::from_row_column(y, x));
             if piece.is_empty() {
                 empty_ctr += 1;
             } else {
@@ -955,7 +964,7 @@ fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
     flip: bool,
 ) -> String {
     let mut squares = (0..pos.num_squares())
-        .map(|i| piece_to_char(pos.piece_on_idx(i)))
+        .map(|i| piece_to_char(pos.colored_piece_on_idx(i)))
         .intersperse(' ')
         .collect_vec();
     squares.push(' ');

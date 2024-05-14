@@ -253,27 +253,33 @@ impl Board for Chessboard {
         ChessSquare::new(idx)
     }
 
-    fn piece_on(&self, square: Self::Coordinates) -> Self::Piece {
+    fn colored_piece_on(&self, square: Self::Coordinates) -> Self::Piece {
         let idx = square.index();
-        let typ = self
-            .piece_bbs
-            .iter()
-            .position(|bb| bb.is_bit_set_at(idx))
-            .unwrap_or(NUM_CHESS_PIECES);
+        let uncolored = self.uncolored_piece_on(square);
         let color = if self.colored_bb(Black).is_bit_set_at(idx) {
             Black
         } else {
             White // use white as color for `Empty` because that's what `new` expects
         };
-        let typ = ColoredChessPiece::new(color, UncoloredChessPiece::from_uncolored_idx(typ));
+        let typ = ColoredChessPiece::new(color, uncolored);
         ChessPiece {
             symbol: typ,
             coordinates: square,
         }
     }
 
-    fn piece_on_idx(&self, idx: usize) -> Self::Piece {
-        self.piece_on(ChessSquare::new(idx))
+    fn uncolored_piece_on(&self, square: Self::Coordinates) -> UncoloredChessPiece {
+        let idx = square.index();
+        UncoloredChessPiece::from_uncolored_idx(
+            self.piece_bbs
+                .iter()
+                .position(|bb| bb.is_bit_set_at(idx))
+                .unwrap_or(NUM_CHESS_PIECES),
+        )
+    }
+
+    fn colored_piece_on_idx(&self, idx: usize) -> Self::Piece {
+        self.colored_piece_on(ChessSquare::new(idx))
     }
 
     fn pseudolegal_moves(&self) -> Self::MoveList {
@@ -500,7 +506,9 @@ impl Board for Chessboard {
         let inactive_player = self.active_player.other();
 
         if let Some(ep_square) = self.ep_square {
-            if self.piece_on(ep_square.pawn_move_to_center()).symbol
+            if self
+                .colored_piece_on(ep_square.pawn_move_to_center())
+                .symbol
                 != ColoredChessPiece::new(inactive_player, Pawn)
             {
                 return Err(format!("FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {0}", ep_square.pawn_move_to_center()));
@@ -609,7 +617,10 @@ impl Chessboard {
 
     fn place_piece(&mut self, square: ChessSquare, piece: ColoredChessPiece) {
         let idx = self.to_idx(square);
-        debug_assert_eq!(self.piece_on(square).symbol, ColoredChessPiece::Empty);
+        debug_assert_eq!(
+            self.colored_piece_on(square).symbol,
+            ColoredChessPiece::Empty
+        );
         let bb = RawStandardBitboard(1 << idx);
         self.piece_bbs[piece.uncolor() as usize] ^= bb;
         self.color_bbs[piece.color().unwrap() as usize] ^= bb;
@@ -618,7 +629,7 @@ impl Chessboard {
     fn remove_piece(&mut self, square: ChessSquare, piece: ColoredChessPiece) {
         let idx = self.to_idx(square);
         debug_assert_eq!(
-            self.piece_on(square),
+            self.colored_piece_on(square),
             ChessPiece {
                 symbol: piece,
                 coordinates: square
@@ -630,19 +641,23 @@ impl Chessboard {
         self.color_bbs[piece.color().unwrap() as usize] ^= bb;
     }
 
-    fn move_piece(&mut self, from: ChessSquare, to: ChessSquare, piece: ColoredChessPiece) {
-        debug_assert_ne!(piece.uncolor(), Empty);
-        debug_assert_eq!(self.piece_on(from).symbol, piece);
+    fn move_piece(&mut self, from: ChessSquare, to: ChessSquare, piece: UncoloredChessPiece) {
+        debug_assert_ne!(piece, Empty);
+        debug_assert_eq!(self.colored_piece_on(from).uncolored(), piece);
+        debug_assert_eq!(
+            self.active_player,
+            self.colored_piece_on(from).color().unwrap()
+        );
         // with chess960 castling, it's possible to move to the source square or a square occupied by a rook
         debug_assert!(
-            self.piece_on(to).color() != piece.color()
-                || piece.uncolor() == King
-                || piece.uncolor() == Rook
+            self.colored_piece_on(to).color() != self.colored_piece_on(from).color()
+                || piece == King
+                || piece == Rook
         );
         // use ^ instead of | for to merge the from and to bitboards because in chess960 castling
         // it's possible that from == to or that there's another piece on the target square
         let bb = RawStandardBitboard((1 << self.to_idx(from)) ^ (1 << self.to_idx(to)));
-        let color = piece.color().unwrap();
+        let color = self.active_player;
         self.color_bbs[color as usize] ^= bb;
         self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
         self.update_zobrist_for_move(piece, from, to)
@@ -860,7 +875,7 @@ mod tests {
         assert_eq!(board.king_square(Black), E_8);
         let square = ChessSquare::from_rank_file(4, F_FILE_NO);
         assert_eq!(
-            board.piece_on(square),
+            board.colored_piece_on(square),
             ChessPiece {
                 symbol: ColoredChessPiece::Empty,
                 coordinates: square
@@ -968,7 +983,7 @@ mod tests {
             if !board.is_pseudolegal_move_legal(mov) {
                 continue;
             }
-            let checkmates = mov.piece(&board).uncolored() == Rook
+            let checkmates = mov.uncolored_piece(&board) == Rook
                 && mov.dest_square() == ChessSquare::from_rank_file(7, G_FILE_NO);
             assert_eq!(board.is_game_won_after_slow(mov), checkmates);
             let new_board = board.make_move(mov).unwrap();

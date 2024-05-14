@@ -3,16 +3,16 @@ use std::io::stdout;
 
 use colored::{Color, Colorize};
 
+use crate::games::Color::*;
 use crate::games::{
     AbstractPieceType, Board, ColoredPiece, ColoredPieceType, Coordinates, Move, RectangularBoard,
     RectangularCoordinates,
 };
-use crate::games::Color::*;
-use crate::GameState;
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
-use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
-use crate::output::Message::Info;
 use crate::output::text_output::{TextStream, TextWriter};
+use crate::output::Message::Info;
+use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
+use crate::GameState;
 
 // TODO: Should be a BoardToString variant
 #[derive(Debug)]
@@ -103,7 +103,7 @@ where
             let mut line = " ".to_string();
             for x in 0..pos.width() {
                 let square = B::Coordinates::from_row_column(y, x).flip_up_down(pos.size());
-                let piece = pos.piece_on(square);
+                let piece = pos.colored_piece_on(square);
                 write!(
                     &mut line,
                     "{0}",
