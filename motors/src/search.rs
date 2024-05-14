@@ -71,6 +71,7 @@ impl Display for BenchResult {
     }
 }
 
+// TODO: Use ArrayVec
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Pv<B: Board, const LIMIT: usize> {
     list: [B::Move; LIMIT],
@@ -253,6 +254,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
             || sender.should_stop()
     }
 
+    #[inline(always)]
     fn should_stop(&mut self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
         if (self.should_stop_impl(limit, sender)) {
             self.search_state_mut().mark_search_should_end();

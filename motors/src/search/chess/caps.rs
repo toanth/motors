@@ -3,6 +3,7 @@ use std::cmp::min;
 use std::time::{Duration, Instant};
 
 use derive_more::{Deref, DerefMut};
+use itertools::Itertools;
 use rand::thread_rng;
 
 use gears::games::chess::moves::ChessMove;
@@ -82,10 +83,11 @@ impl CustomInfo for Additional {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Clone)]
 struct CapsSearchStackEntry {
     killer: ChessMove,
     pv: Pv<Chessboard, { DEPTH_HARD_LIMIT.get() }>,
+    tried_quiets: ArrayVec<ChessMove, MAX_CHESS_MOVES_IN_POS>,
 }
 
 impl SearchStackEntry<Chessboard> for CapsSearchStackEntry {
@@ -456,6 +458,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // (i.e. it's every move that gets ordered after the killer). The name is a bit dramatic, the first few of those
         // can still be good candidates to explore.
         let mut num_uninteresting_visited = 0;
+        self.state.search_stack[ply].tried_quiets.clear();
 
         let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(
             pos.pseudolegal_moves(),
@@ -548,6 +551,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 }
             }
 
+            if !mov.is_tactical(&pos) {
+                self.state.search_stack[ply].tried_quiets.push(mov);
+            }
             self.state.board_history.pop(&pos);
 
             debug_assert_eq!(
@@ -584,6 +590,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
             }
             // Update various heuristics, TODO: More (killers, history gravity, etc)
             let entry = &mut self.state.search_stack[ply];
+            for disappointing in entry.tried_quiets.iter().dropping_back(1) {
+                self.state.custom.history[disappointing.from_to_square()] -= (depth * depth) as i32;
+            }
             self.state.custom.history[mov.from_to_square()] += (depth * depth) as i32;
             entry.killer = mov;
             break;
