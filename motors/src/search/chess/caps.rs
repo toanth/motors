@@ -33,6 +33,7 @@ use crate::search::{
 
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
+const KILLER_SCORE: i32 = i32::MAX - 200;
 
 #[derive(Debug, Clone)]
 struct HistoryHeuristic([i32; 64 * 64]);
@@ -451,13 +452,16 @@ impl<E: Eval<Chessboard>> Caps<E> {
         }
 
         let mut children_visited = 0;
-        let mut num_quiets_visited = 0;
+        // an uninteresting move is a quiet move or bad capture unless it's the TT or killer move
+        // (i.e. it's every move that gets ordered after the killer). The name is a bit dramatic, the first few of those
+        // can still be good candidates to explore.
+        let mut num_uninteresting_visited = 0;
 
         let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(
             pos.pseudolegal_moves(),
             self.score_move_fn(pos, best_move, ply),
         );
-        for mov in move_picker.into_iter() {
+        for (mov, move_score) in move_picker.into_iter() {
             // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
             // so don't even bother looking at them in the last few layers.
             // FP (Futility Pruning): If the static eval is far below alpha,
@@ -466,9 +470,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if can_prune
                 && best_score > MAX_SCORE_LOST
                 && depth <= 3
-                && (num_quiets_visited >= 16 * depth
-                    || (eval + Score((300 + 64 * depth) as i32) < alpha && num_quiets_visited > 0))
-            // quiets are ordered last, so this move is ordered very late
+                && (num_uninteresting_visited >= 16 * depth
+                    || (eval + Score((300 + 64 * depth) as i32) < alpha
+                        && move_score < KILLER_SCORE))
             {
                 break;
             }
@@ -480,8 +484,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
             let new_pos = new_pos.unwrap();
             self.state.statistics.count_legal_make_move(MainSearch);
             children_visited += 1;
-            if !mov.is_tactical(&pos) {
-                num_quiets_visited += 1;
+            if move_score < KILLER_SCORE {
+                num_uninteresting_visited += 1;
             }
 
             // O(1). Resets the child's pv length so that it's not the maximum length it used to be.
@@ -503,8 +507,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
                 // to verify our belief.
                 let mut reduction = 0;
-                if !in_check && num_quiets_visited > 4 && depth >= 4 {
-                    reduction = 1 + depth / 8 + (num_quiets_visited - 4) / 8; // This is a very basic implementation.
+                if !in_check && num_uninteresting_visited > 4 && depth >= 4 {
+                    reduction = 1 + depth / 8 + (num_uninteresting_visited - 4) / 8; // This is a very basic implementation.
                     if !is_pvs_pv_node {
                         reduction += 1;
                     }
@@ -659,7 +663,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             self.score_move_fn(pos, best_move, ply),
         );
         let mut children_visited = 0;
-        for mov in move_picker.into_iter() {
+        for (mov, _score) in move_picker.into_iter() {
             debug_assert!(mov.is_tactical(&pos));
             let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
@@ -711,7 +715,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if mov == tt_move {
                 i32::MAX
             } else if mov == self.state.search_stack[ply].killer {
-                i32::MAX - 200
+                KILLER_SCORE
             } else if captured == Empty {
                 self.state.custom.history[mov.from_to_square()]
             } else {

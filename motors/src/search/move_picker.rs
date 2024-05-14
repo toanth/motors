@@ -18,13 +18,15 @@ impl<B: Board, const MAX_LEN: usize> MovePicker<B, MAX_LEN> {
         Self { moves, scores }
     }
 
-    pub fn next_move(&mut self) -> Option<B::Move> {
+    pub fn next_move_and_score(&mut self) -> Option<(B::Move, i32)> {
         if self.scores.is_empty() {
             return None;
         }
         let idx = self.scores.iter().position_max().unwrap();
-        self.scores.swap_remove(idx);
-        Some(self.moves.swap_remove_move(idx))
+        Some((
+            self.moves.swap_remove_move(idx),
+            self.scores.swap_remove(idx),
+        ))
     }
 }
 
@@ -33,15 +35,15 @@ pub struct MovePickIter<B: Board, const MAX_LEN: usize> {
 }
 
 impl<B: Board, const MAX_LEN: usize> Iterator for MovePickIter<B, MAX_LEN> {
-    type Item = B::Move;
+    type Item = (B::Move, i32);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.move_picker.next_move()
+        self.move_picker.next_move_and_score()
     }
 }
 
 impl<B: Board, const MAX_LEN: usize> IntoIterator for MovePicker<B, MAX_LEN> {
-    type Item = B::Move;
+    type Item = (B::Move, i32);
     type IntoIter = MovePickIter<B, MAX_LEN>;
 
     fn into_iter(self) -> Self::IntoIter {
