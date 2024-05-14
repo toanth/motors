@@ -470,7 +470,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if can_prune
                 && best_score > MAX_SCORE_LOST
                 && depth <= 3
-                && (num_uninteresting_visited >= 16 * depth
+                && (num_uninteresting_visited >= 12 * depth
                     || (eval + Score((300 + 64 * depth) as i32) < alpha
                         && move_score < KILLER_SCORE))
             {
