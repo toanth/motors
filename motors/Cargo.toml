@@ -6,6 +6,12 @@ edition = "2021"
 license = "GPL-3"
 description = "A collection of several games and engines"
 
+[[bench]]
+name = "bench_caps_bench"
+harness = false
+
+[dev-dependencies]
+criterion = "0.5.1"
 
 [dependencies]
 gears = { path = "../gears", default-features = false }

@@ -452,6 +452,7 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "colored",
+ "criterion",
  "crossbeam-channel",
  "crossbeam-utils",
  "derive_more",

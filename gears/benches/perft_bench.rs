@@ -3,10 +3,8 @@ use std::time::Duration;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use gears::games::chess::Chessboard;
 use gears::games::Board;
-use gears::general::move_list::MoveList;
 use gears::general::perft::perft;
 use gears::search::Depth;
-use itertools::Itertools;
 
 const QUEENS_FEN: &str = "k7/3Q3Q/8/2Q5/2Q3Q1/2Q5/2QQ3Q/KQ6 w - - 0 1";
 const ROOKS_FEN: &str = "k7/4R3/5R2/8/2R3R1/2R5/2RR3R/KRR5 w - - 0 1";
@@ -40,7 +38,7 @@ fn play_moves(c: &mut Criterion, name: &str, fen: &str) {
         let pos = Chessboard::from_fen(fen).unwrap();
         let moves = pos.pseudolegal_moves();
         b.iter(|| {
-            for m in moves.iter_moves() {
+            for m in moves.iter() {
                 black_box(black_box(pos).make_move(*m));
             }
         })

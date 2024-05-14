@@ -198,7 +198,7 @@ pub trait Benchable<B: Board>: StaticallyNamedEntity + Debug {
     }
 }
 
-const DEFAULT_CHECK_TIME_INTERVAL: u64 = 4096;
+const DEFAULT_CHECK_TIME_INTERVAL: u64 = 2048;
 
 pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     fn set_tt(&mut self, tt: TT);
@@ -222,8 +222,10 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         self.search_state_mut()
             .new_search(ZobristRepetition2Fold(history));
         let res = self.do_search(pos, limit, sender);
-        self.search_state_mut().end_search();
-        sender.send_statistics(self.search_state().statistics());
+        let search_state = self.search_state_mut();
+        search_state.end_search();
+        sender.send_statistics(search_state.statistics());
+        search_state.aggregate_match_statistics();
         res
     }
 
@@ -342,6 +344,7 @@ pub trait SearchState<B: Board>: Debug + Clone {
     fn to_search_info(&self) -> SearchInfo<B>;
     fn statistics(&self) -> &Statistics;
     fn statistics_mut(&mut self) -> &mut Statistics;
+    fn aggregate_match_statistics(&mut self);
 }
 
 pub trait SearchStackEntry<B: Board>: Default + Clone + Debug {
@@ -388,6 +391,7 @@ pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo> {
     start_time: Instant,
     score: Score,
     statistics: Statistics,
+    match_statistics: Statistics, // statistics aggregated over all searches of the current match
 }
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
@@ -407,6 +411,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
             should_stop: false,
             custom,
             statistics: Statistics::default(),
+            match_statistics: Default::default(),
         }
     }
 
@@ -521,6 +526,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
     #[inline(always)]
     fn statistics_mut(&mut self) -> &mut Statistics {
         &mut self.statistics
+    }
+
+    #[inline(always)]
+    fn aggregate_match_statistics(&mut self) {
+        self.match_statistics.aggregate_searches(&self.statistics);
     }
 }
 

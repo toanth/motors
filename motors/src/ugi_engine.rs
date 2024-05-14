@@ -34,7 +34,7 @@ use crate::search::{BenchResult, EngineList};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
 
-const DEFAULT_MOVE_OVERHEAD_MS: u64 = 20;
+const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
 
 // TODO: Ensure this conforms to https://expositor.dev/uci/doc/uci-draft-1.pdf
 

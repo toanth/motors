@@ -328,6 +328,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // so it should be fine to unconditionally assign it to `chosen_move`
             chosen_move = self.state.best_move;
             if self.should_not_start_next_iteration(soft_limit, max_depth, limit.mate) {
+                self.state.statistics.soft_limit_stop();
                 break;
             }
         }

@@ -118,6 +118,8 @@ pub struct Statistics {
     iterations: Vec<IDStatistics>,
     /// can be 1 smaller than the length of `iterations` because it only counts completed depths
     depth: usize,
+    soft_limit_stop: usize, // 1 iff the current search was stopped after reaching the soft limit, 0 otherwise.
+    num_searches: usize,
 }
 
 #[cfg(not(feature = "statistics"))]
@@ -127,6 +129,7 @@ pub struct Statistics {
     seldepth: usize,
     legal_make_move_calls_main_search: u64,
     legal_make_move_calls_qsearch: u64,
+    soft_limit_stop: u64,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -213,6 +216,10 @@ impl Statistics {
         self.depth += 1;
     }
 
+    pub fn soft_limit_stop(&mut self) {
+        self.soft_limit_stop = 1;
+    }
+
     pub fn count_complete_node(
         &mut self,
         search_type: SearchType,
@@ -265,6 +272,19 @@ impl Statistics {
         }
         res
     }
+
+    pub fn aggregate_searches(&mut self, other: &Statistics) {
+        self.depth = self.depth.max(other.depth);
+        self.soft_limit_stop += other.soft_limit_stop;
+        self.iterations.resize(
+            self.iterations.len().max(other.iterations.len()),
+            IDStatistics::default(),
+        );
+        for i in 0..self.iterations.len().min(other.iterations.len()) {
+            self.iterations[i].aggregate(&other.iterations[i]);
+        }
+        self.num_searches += 1;
+    }
 }
 
 #[cfg(not(feature = "statistics"))]
@@ -310,6 +330,10 @@ impl Statistics {
     }
 
     #[inline(always)]
+    pub fn aggregate_searches(&mut self, _other: &Statistics) { /*do nothing*/
+    }
+
+    #[inline(always)]
     pub fn depth(&self) -> usize {
         self.depth
     }
@@ -333,6 +357,11 @@ impl Statistics {
     #[inline(always)]
     pub fn aw_exact(&mut self) {
         self.next_id_iteration();
+    }
+
+    #[inline(always)]
+    pub fn soft_limit_stop(&mut self) {
+        self.soft_limit_stop = 1;
     }
 
     #[inline(always)]
@@ -503,6 +532,8 @@ impl Display for IDSummary {
 pub struct Summary {
     id_summary: Vec<IDSummary>,
     total: IDSummary,
+    soft_limit_stop: usize,
+    num_searches: usize,
 }
 
 impl Summary {
@@ -525,14 +556,16 @@ impl Summary {
                 }),
             id_summary.len() as u64,
         );
-        Self { id_summary, total }
+        Self {
+            id_summary,
+            total,
+            soft_limit_stop: statistics.soft_limit_stop,
+            num_searches: statistics.num_searches + 1,
+        }
     }
     #[cfg(not(feature = "statistics"))]
-    pub fn new(statistics: &Statistics) -> Self {
-        Self {
-            id_summary: vec![],
-            total: IDSummary::new(&IDStatistics::default(), statistics.depth as u64),
-        }
+    pub fn new(_statistics: &Statistics) -> Self {
+        panic!("Cannot generate summaries for statistics unless the 'statistics' feature has been enabled at compile time");
     }
 }
 
@@ -542,6 +575,12 @@ impl Display for Summary {
         the nodes where at least one move was considered. If two percentages are given, those in between (parentheses) \
         are as a percentage of all nodes, while those in between [brackets] are as a percentage of completed nodes.\
         If values are listed as 'x and y', then x is the main search and y is quiescent search.").unwrap();
+        writeln!(
+            f,
+            "Stopped after reaching the soft limit: {}",
+            self.soft_limit_stop
+        )
+        .unwrap();
         for id in self.id_summary.iter() {
             writeln!(f, "{id}").unwrap();
         }
