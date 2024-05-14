@@ -176,7 +176,9 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= MAX_DEPTH.get() * 2);
         debug_assert!(depth <= MAX_DEPTH.get() as isize);
-        self.state.statistics.count_node_started(MainSearch, ply);
+        self.state
+            .statistics
+            .count_node_started(MainSearch, ply, true);
 
         if let Some(res) = pos.game_result_no_movegen() {
             return game_result_to_score(res, ply);

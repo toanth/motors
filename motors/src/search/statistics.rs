@@ -239,10 +239,17 @@ impl Statistics {
 
     /// This counts all nodes (except the root node), unlike `count_complete_node`,
     /// which only counts nodes where the moves loop has completed, so it doesn't count TT cutoffs.
-    pub fn count_node_started(&mut self, search_type: SearchType, ply: usize) {
+    pub fn count_node_started(
+        &mut self,
+        search_type: SearchType,
+        ply: usize,
+        update_seldepth: bool,
+    ) {
         self.search_mut(search_type).counters[NodesStarted as usize] += 1;
         let cur = self.cur_mut();
-        cur.seldepth = cur.seldepth.max(ply);
+        if update_seldepth {
+            cur.seldepth = cur.seldepth.max(ply);
+        }
     }
 
     pub fn in_check(&mut self) {
@@ -306,8 +313,16 @@ impl Statistics {
     }
 
     #[inline(always)]
-    pub fn count_node_started(&mut self, _search_type: SearchType, ply: usize) {
-        self.seldepth = self.seldepth.max(ply);
+    pub fn count_node_started(
+        &mut self,
+        _search_type: SearchType,
+        ply: usize,
+        update_seldepth: bool,
+    ) {
+        // not updating seldepth in all nodes meaningfully increases performance and is even measurable in a [0, 10] SPRT.
+        if update_seldepth {
+            self.seldepth = self.seldepth.max(ply);
+        }
     }
 
     #[inline(always)]

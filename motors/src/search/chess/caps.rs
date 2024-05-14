@@ -349,7 +349,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
         debug_assert!(ply <= DEPTH_HARD_LIMIT.get());
         debug_assert!(depth <= DEPTH_SOFT_LIMIT.get() as isize);
         debug_assert!(self.state.board_history.0 .0.len() >= ply);
-        self.state.statistics.count_node_started(MainSearch, ply);
+        self.state
+            .statistics
+            .count_node_started(MainSearch, ply, false);
 
         let mut tt = self.state.custom.tt.clone();
 
@@ -622,7 +624,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
     /// Search only "tactical" moves to quieten down the position before calling eval.
     fn qsearch(&mut self, pos: Chessboard, mut alpha: Score, beta: Score, ply: usize) -> Score {
-        self.state.statistics.count_node_started(Qsearch, ply);
+        self.state.statistics.count_node_started(Qsearch, ply, true);
         // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
         let mut best_score = self.eval.eval(pos);
