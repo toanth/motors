@@ -470,7 +470,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if can_prune
                 && best_score > MAX_SCORE_LOST
                 && depth <= 3
-                && (num_uninteresting_visited >= 12 * depth
+                && (num_uninteresting_visited >= 8 + 8 * depth
                     || (eval + Score((300 + 64 * depth) as i32) < alpha
                         && move_score < KILLER_SCORE))
             {
@@ -507,8 +507,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
                 // to verify our belief.
                 let mut reduction = 0;
-                if !in_check && num_uninteresting_visited > 4 && depth >= 4 {
-                    reduction = 1 + depth / 8 + (num_uninteresting_visited - 4) / 8; // This is a very basic implementation.
+                if !in_check && num_uninteresting_visited > 2 && depth >= 4 {
+                    reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8; // This is a very basic implementation.
                     if !is_pvs_pv_node {
                         reduction += 1;
                     }
