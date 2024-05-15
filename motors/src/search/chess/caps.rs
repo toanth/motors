@@ -680,7 +680,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
         let mut children_visited = 0;
         for (mov, _score) in move_picker.into_iter() {
             debug_assert!(mov.is_tactical(&pos));
-            let new_pos = pos.make_move(mov);
+            let new_pos =
+                pos.make_move_and_prefetch_tt(mov, |hash| self.state.custom.tt.prefetch(hash));
             if new_pos.is_none() {
                 continue;
             }

@@ -1,5 +1,6 @@
 use strum::IntoEnumIterator;
 
+use crate::games::chess::moves::ChessMove;
 use crate::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
 use crate::games::chess::Chessboard;
@@ -111,34 +112,25 @@ impl Chessboard {
         res
     }
 
-    // pub(super) fn update_zobrist(&mut self, mov: ChessMove) {
-    //     let captured = mov.captured(self);
-    //     let mut hash = self.zobrist_hash();
-    //     let color = self.active_player;
-    //     let new_color = self.active_player.other();
-    //     let to_idx = mov.to_square().index();
-    //     let piece = mov.piece(self).uncolored_piece_type();
-    //     if captured != Empty {
-    //         hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(captured, new_color, to_idx);
-    //     }
-    //     if mov.is_promotion() {}
-    //     self.update_for_move(
-    //         ColoredChessPiece::new(color, piece),
-    //         mov.from_square(),
-    //         mov.to_square(),
-    //     );
-    //     hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
-    // }
-
     pub fn update_zobrist_for_move(
         &mut self,
         piece: UncoloredChessPiece,
         from: ChessSquare,
         to: ChessSquare,
     ) {
-        let color = self.active_player;
-        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, to);
-        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, from);
+        self.hash = Self::new_zobrist_after_move(self.hash, self.active_player, piece, from, to);
+    }
+
+    pub fn new_zobrist_after_move(
+        mut old_hash: ZobristHash,
+        color: Color,
+        piece: UncoloredChessPiece,
+        from: ChessSquare,
+        to: ChessSquare,
+    ) -> ZobristHash {
+        old_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, to);
+        old_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, from);
+        old_hash
     }
 }
 

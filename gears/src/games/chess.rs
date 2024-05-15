@@ -20,7 +20,7 @@ use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::Color::{Black, White};
 use crate::games::{
     board_to_string, file_to_char, position_fen_part, read_position_fen, AbstractPieceType, Board,
-    BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, NameToPos, Settings,
+    BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, Move, NameToPos, Settings,
     UncoloredPieceType, ZobristHash, ZobristRepetition3Fold,
 };
 use crate::general::bitboards::chess::{ChessBitboard, BLACK_SQUARES, WHITE_SQUARES};
@@ -301,7 +301,7 @@ impl Board for Chessboard {
     }
 
     fn make_move(self, mov: Self::Move) -> Option<Self> {
-        self.make_move_impl(mov)
+        self.make_move_impl(mov, mov.uncolored_piece(&self))
     }
 
     fn make_nullmove(mut self) -> Option<Self> {
