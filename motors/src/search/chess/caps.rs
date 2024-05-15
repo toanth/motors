@@ -652,6 +652,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // If we've already done qsearch on this position, we can just re-use the result,
         // so there is no point in checking the depth at all
         if tt_entry.hash == pos.zobrist_hash()
+            && tt_entry.depth == 0
             && tt_entry.bound != NodeType::Empty
             && ((tt_entry.bound == LowerBound && tt_entry.score >= beta)
                 || (tt_entry.bound == UpperBound && tt_entry.score <= alpha)
