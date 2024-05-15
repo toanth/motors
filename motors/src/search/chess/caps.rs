@@ -644,22 +644,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
     /// Search only "tactical" moves to quieten down the position before calling eval.
     fn qsearch(&mut self, pos: Chessboard, mut alpha: Score, beta: Score, ply: usize) -> Score {
         self.state.statistics.count_node_started(Qsearch, ply, true);
-        // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
-        // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
-        let mut best_score = self.eval.eval(pos);
-        let mut bound_so_far = UpperBound;
-        if best_score >= beta {
-            return best_score;
-        }
-
-        // TODO: stand pat is SCORE_LOST when in check, generate evasions?
-        alpha = alpha.max(best_score);
         // do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation
         // but if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
         let tt_entry: TTEntry<Chessboard> = self.state.custom.tt.load(pos.zobrist_hash(), ply);
 
-        // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
-        // However, if we've already done qsearch on this position, we can just re-use the result,
+        // Depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
+        // If we've already done qsearch on this position, we can just re-use the result,
         // so there is no point in checking the depth at all
         if tt_entry.hash == pos.zobrist_hash()
             && tt_entry.bound != NodeType::Empty
@@ -670,6 +660,17 @@ impl<E: Eval<Chessboard>> Caps<E> {
             self.state.statistics.tt_cutoff(Qsearch, tt_entry.bound);
             return tt_entry.score;
         }
+
+        // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
+        // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
+        let mut best_score = self.eval.eval(pos);
+        let mut bound_so_far = UpperBound;
+        if best_score >= beta {
+            return best_score;
+        }
+
+        // TODO: stand pat is SCORE_LOST when in check, generate evasions?
+        alpha = alpha.max(best_score);
 
         let mut best_move = tt_entry.mov;
 
