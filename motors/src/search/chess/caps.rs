@@ -88,6 +88,7 @@ struct CapsSearchStackEntry {
     killer: ChessMove,
     pv: Pv<Chessboard, { DEPTH_HARD_LIMIT.get() }>,
     tried_quiets: ArrayVec<ChessMove, MAX_CHESS_MOVES_IN_POS>,
+    eval: Score,
 }
 
 impl SearchStackEntry<Chessboard> for CapsSearchStackEntry {
@@ -409,7 +410,13 @@ impl<E: Eval<Chessboard>> Caps<E> {
             } else {
                 self.eval.eval(pos)
             };
+        self.state.search_stack[ply].eval = eval;
+        // `improving` and `regressing` compare the current static eval with the static eval 2 plies ago to recognize
+        // blunders. `improving` detects potential blunders by our opponent and `regressing` detects potential blunders
+        // by us. TODO: Consider if using the TT score instead of the static eval helps, since that should be more accurate.
 
+        let improving = ply >= 2 && eval - self.state.search_stack[ply - 2].eval > Score(50);
+        // let regressing = ply >= 2 && eval - self.state.search_stack[ply - 2].eval < Score(-50); // TODO: Also use this
         debug_assert!(!eval.is_game_over_score());
         // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
         // because the move ordering won't be great, so don't spend too much time on this node.
@@ -421,8 +428,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         // RFP (Reverse Futility Pruning): If eval is far above beta, it's likely that our opponent
         // blundered in a previous move of the search, so if the depth is low, don't even bother searching further.
+        // Use `improving` to better distinguish between blunders by our opponent and a generally good static eval
+        // relative to `beta` --  there may be other positional factors that aren't being reflected by the static eval,
+        // (like imminent threads) so don't prune too aggressively if we're not improving.
         if can_prune {
-            if depth < 4 && eval >= beta + Score(80 * depth as i32) {
+            let margin = (120 - (improving as i32 * 64)) * depth as i32;
+            if depth < 4 && eval >= beta + Score(margin) {
                 return eval;
             }
 
