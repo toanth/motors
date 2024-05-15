@@ -2,7 +2,7 @@ use arrayvec::ArrayVec;
 use std::cmp::min;
 use std::time::{Duration, Instant};
 
-use derive_more::{Deref, DerefMut};
+use derive_more::{Deref, DerefMut, Index, IndexMut};
 use itertools::Itertools;
 use rand::thread_rng;
 
@@ -36,19 +36,19 @@ const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
 const KILLER_SCORE: i32 = i32::MAX - 200;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
 struct HistoryHeuristic([i32; 64 * 64]);
 
 impl HistoryHeuristic {
-    // This function updates the history and applies the History Gravity technique,
-    // which keeps history scores from growing arbitrarily large and scales boni/mali depending on how
-    // "unexpected" they are, i.e. by how much they differ from the current history scores.
+    /// Updates the history using the History Gravity technique,
+    /// which keeps history scores from growing arbitrarily large and scales boni/mali depending on how
+    /// "unexpected" they are, i.e. by how much they differ from the current history scores.
     fn update(&mut self, idx: usize, value: i32) {
-        let entry = &mut self.0[idx];
-        // The maximum history score can be slightly larger than the divisor due to rounding errors.
-        const DIVISOR: i32 = 16384;
-        // The `.abs()` is necessary to correctly handle history malus.
-        let bonus = value - value.abs() * *entry / DIVISOR;
+        let entry = &mut self[idx];
+        // The maximum history score magnitude can be slightly larger than the divisor due to rounding errors.
+        const DIVISOR: i32 = 1024;
+        // The `.abs()` call is necessary to correctly handle history malus.
+        let bonus = value - value.abs() * *entry / DIVISOR; // bonus can also be negative
         *entry += bonus;
     }
 }
@@ -56,20 +56,6 @@ impl HistoryHeuristic {
 impl Default for HistoryHeuristic {
     fn default() -> Self {
         HistoryHeuristic([0; 64 * 64])
-    }
-}
-
-impl Deref for HistoryHeuristic {
-    type Target = [i32; 64 * 64];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for HistoryHeuristic {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 
