@@ -626,19 +626,18 @@ impl Chessboard {
         self.color_bbs[piece.color().unwrap() as usize] ^= bb;
     }
 
-    fn remove_piece(&mut self, square: ChessSquare, piece: ColoredChessPiece) {
+    fn remove_piece(&mut self, square: ChessSquare, piece: UncoloredChessPiece, color: Color) {
         let idx = self.to_idx(square);
         debug_assert_eq!(
             self.colored_piece_on(square),
             ChessPiece {
-                symbol: piece,
+                symbol: ColoredChessPiece::new(color, piece),
                 coordinates: square
             }
         );
         let bb = ChessBitboard::single_piece(idx).raw();
-        debug_assert_ne!(piece.uncolor(), Empty);
-        self.piece_bbs[piece.uncolor() as usize] ^= bb;
-        self.color_bbs[piece.color().unwrap() as usize] ^= bb;
+        self.piece_bbs[piece as usize] ^= bb;
+        self.color_bbs[color as usize] ^= bb;
     }
 
     fn move_piece(&mut self, from: ChessSquare, to: ChessSquare, piece: UncoloredChessPiece) {
