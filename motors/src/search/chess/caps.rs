@@ -41,7 +41,7 @@ struct HistoryHeuristic([i32; 64 * 64]);
 
 impl HistoryHeuristic {
     /// Updates the history using the History Gravity technique,
-    /// which keeps history scores from growing arbitrarily large and scales boni/mali depending on how
+    /// which keeps history scores from growing arbitrarily large and scales the bonus/malus depending on how
     /// "unexpected" they are, i.e. by how much they differ from the current history scores.
     fn update(&mut self, idx: usize, value: i32) {
         let entry = &mut self[idx];
