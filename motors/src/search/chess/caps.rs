@@ -529,8 +529,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     if !is_pvs_pv_node {
                         reduction += 1;
                     }
-                    if improving {
-                        reduction += 1;
+                    if regressing {
+                        reduction -= 1;
                     }
                 }
                 reduction = reduction.min(depth - 1);
