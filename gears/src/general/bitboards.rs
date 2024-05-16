@@ -11,6 +11,7 @@ use derive_more::{
 use num::{One, PrimInt, Unsigned, Zero};
 use strum_macros::EnumIter;
 
+#[cfg(feature = "chess")]
 use crate::games::chess::squares::ChessSquare;
 #[cfg(feature = "chess")]
 use crate::games::chess::squares::ChessboardSize;
