@@ -446,7 +446,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if depth >= 3 && eval >= beta {
                 self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
-                let reduction = 3 + depth / 4 + improving as isize;
+                let reduction = depth / 4 + 2 + improving as isize * 2;
                 let score = -self.negamax(
                     new_pos,
                     limit,
