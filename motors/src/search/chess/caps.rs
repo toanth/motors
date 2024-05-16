@@ -413,8 +413,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         self.state.search_stack[ply].eval = eval;
         // `improving` and `regressing` compare the current static eval with the static eval 2 plies ago to recognize
         // blunders. `improving` detects potential blunders by our opponent and `regressing` detects potential blunders
-        // by us. TODO: Consider if using the TT score instead of the static eval helps, since that should be more accurate.
-
+        // by us. TODO: Currently, this uses the TT score when possible. Think about if there are unintended consequences.
         let improving = ply >= 2 && eval - self.state.search_stack[ply - 2].eval > Score(50);
         // let regressing = ply >= 2 && eval - self.state.search_stack[ply - 2].eval < Score(-50); // TODO: Also use this
         debug_assert!(!eval.is_game_over_score());
@@ -447,7 +446,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if depth >= 3 && eval >= beta {
                 self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
-                let reduction = 3 + depth / 4;
+                let reduction = 3 + depth / 4 + improving as isize;
                 let score = -self.negamax(
                     new_pos,
                     limit,
