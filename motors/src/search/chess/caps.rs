@@ -524,15 +524,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
                 // to verify our belief.
                 let mut reduction = 0;
-                if !in_check && num_uninteresting_visited > 2 && depth >= 4 {
+                if !in_check && num_uninteresting_visited > 2 && depth >= 4 - improving as isize {
                     reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8;
                     if !is_pvs_pv_node {
                         reduction += 1;
-                    }
-                    if improving {
-                        reduction += 1;
-                    } else if regressing {
-                        reduction -= 1;
                     }
                 }
                 reduction = reduction.min(depth - 1);
