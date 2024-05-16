@@ -432,7 +432,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // (like imminent threads) so don't prune too aggressively if we're not improving.
         if can_prune {
             let margin = (120 - (improving as i32 * 64)) * depth as i32;
-            if depth < 4 + improving as isize && eval >= beta + Score(margin) {
+            if depth < 4 && eval >= beta + Score(margin) {
                 return eval;
             }
 
@@ -527,6 +527,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 if !in_check && num_uninteresting_visited > 2 && depth >= 4 {
                     reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8;
                     if !is_pvs_pv_node {
+                        reduction += 1;
+                    }
+                    if improving {
                         reduction += 1;
                     }
                 }
