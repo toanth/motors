@@ -443,10 +443,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // A more careful implementation would do a verification search to check for zugzwang, and possibly avoid even trying
             // nmp in a position with no pieces except the king and pawns.
             // TODO: Verification search.
-            if depth >= 3 && eval >= beta {
+            if depth >= 3 - improving as isize && eval >= beta {
                 self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
-                let reduction = depth / 4 + 2 + improving as isize * 2;
+                let reduction = 3 + depth / 4;
                 let score = -self.negamax(
                     new_pos,
                     limit,
