@@ -415,7 +415,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // blunders. `improving` detects potential blunders by our opponent and `regressing` detects potential blunders
         // by us. TODO: Currently, this uses the TT score when possible. Think about if there are unintended consequences.
         let improving = ply >= 2 && eval - self.state.search_stack[ply - 2].eval > Score(50);
-        let regressing = ply >= 2 && eval - self.state.search_stack[ply - 2].eval < Score(-50); // TODO: Also use this
+        // let regressing = ply >= 2 && eval - self.state.search_stack[ply - 2].eval < Score(-50); // TODO: Also use this
         debug_assert!(!eval.is_game_over_score());
         // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
         // because the move ordering won't be great, so don't spend too much time on this node.
@@ -520,15 +520,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
                 // to verify our belief.
                 let mut reduction = 0;
-                if !in_check && num_uninteresting_visited > 2 && depth >= 4 {
+                if !in_check && num_uninteresting_visited > 2 && depth >= 4 - improving as isize {
                     reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8;
                     if !is_pvs_pv_node {
                         reduction += 1;
-                    }
-                    if improving {
-                        reduction += 1;
-                    } else if regressing {
-                        reduction -= 1;
                     }
                 }
                 reduction = reduction.min(depth - 1);
