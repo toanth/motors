@@ -432,7 +432,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // (like imminent threads) so don't prune too aggressively if we're not improving.
         if can_prune {
             let margin = (120 - (improving as i32 * 64)) * depth as i32;
-            if depth < 4 && eval >= beta + Score(margin) {
+            if depth < 4 + improving as isize && eval >= beta + Score(margin) {
                 return eval;
             }
 
@@ -443,7 +443,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // A more careful implementation would do a verification search to check for zugzwang, and possibly avoid even trying
             // nmp in a position with no pieces except the king and pawns.
             // TODO: Verification search.
-            if depth >= 3 - improving as isize && eval >= beta {
+            if depth >= 3 && eval >= beta {
                 self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
                 let reduction = 3 + depth / 4;
