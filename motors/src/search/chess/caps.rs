@@ -413,10 +413,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
         self.state.search_stack[ply].eval = eval;
         // `improving` and `regressing` compare the current static eval with the static eval 2 plies ago to recognize
         // blunders. `improving` detects potential blunders by our opponent and `regressing` detects potential blunders
-        // by us. TODO: Consider if using the TT score instead of the static eval helps, since that should be more accurate.
-
+        // by us. TODO: Currently, this uses the TT score when possible. Think about if there are unintended consequences.
         let improving = ply >= 2 && eval - self.state.search_stack[ply - 2].eval > Score(50);
-        // let regressing = ply >= 2 && eval - self.state.search_stack[ply - 2].eval < Score(-50); // TODO: Also use this
+        let regressing = ply >= 2 && eval - self.state.search_stack[ply - 2].eval < Score(-50);
         debug_assert!(!eval.is_game_over_score());
         // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
         // because the move ordering won't be great, so don't spend too much time on this node.
@@ -481,12 +480,16 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // FP (Futility Pruning): If the static eval is far below alpha,
             // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
             // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
+            let fp_margin = if regressing {
+                200 + 32 * depth
+            } else {
+                300 + 64 * depth
+            };
             if can_prune
                 && best_score > MAX_SCORE_LOST
                 && depth <= 3
                 && (num_uninteresting_visited >= 8 + 8 * depth
-                    || (eval + Score((300 + 64 * depth) as i32) < alpha
-                        && move_score < KILLER_SCORE))
+                    || (eval + Score(fp_margin as i32) < alpha && move_score < KILLER_SCORE))
             {
                 break;
             }
@@ -522,7 +525,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // to verify our belief.
                 let mut reduction = 0;
                 if !in_check && num_uninteresting_visited > 2 && depth >= 4 {
-                    reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8; // This is a very basic implementation.
+                    reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8;
                     if !is_pvs_pv_node {
                         reduction += 1;
                     }
