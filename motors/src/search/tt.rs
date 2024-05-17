@@ -1,4 +1,6 @@
-use std::mem::size_of;
+use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T2};
+use std::mem::{size_of, transmute, transmute_copy};
+use std::ptr::addr_of;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 
@@ -42,13 +44,18 @@ impl<B: Board> TTEntry<B> {
             hash,
         }
     }
+
     #[cfg(feature = "unsafe")]
-    unsafe fn to_packed(self) -> u128 {
-        transmute::<Self, AtomicTTEntry>(self)
+    fn to_packed(self) -> u128 {
+        if size_of::<Self>() == 128 / 8 {
+            // `transmute_copy` is needed because otherwise the compiler complains that the sizes might not match.
+            unsafe { transmute_copy::<Self, u128>(&self) }
+        } else {
+            self.to_packed_fallback()
+        }
     }
 
-    #[cfg(not(feature = "unsafe"))]
-    fn to_packed(self) -> u128 {
+    fn to_packed_fallback(self) -> u128 {
         let score = self.score.0 as u32; // don't sign extend negative scores
         ((self.hash.0 as u128) << 64)
             | ((score as u128) << (64 - 32))
@@ -57,13 +64,26 @@ impl<B: Board> TTEntry<B> {
             | self.bound as u128
     }
 
+    #[cfg(not(feature = "unsafe"))]
+    fn to_packed(self) -> u128 {
+        self.to_packed_fallback()
+    }
+
     #[cfg(feature = "unsafe")]
-    unsafe fn from_packed(packed: u128) -> Self {
-        transmute::<u128, Self>(packed)
+    fn from_packed(packed: u128) -> Self {
+        if size_of::<Self>() == 128 / 8 {
+            unsafe { transmute_copy::<u128, Self>(&packed) }
+        } else {
+            Self::from_packed_fallback(packed)
+        }
     }
 
     #[cfg(not(feature = "unsafe"))]
     fn from_packed(val: u128) -> Self {
+        Self::from_packed_fallback(val)
+    }
+
+    fn from_packed_fallback(val: u128) -> Self {
         let hash = ZobristHash((val >> 64) as u64);
         let score = Score(((val >> (64 - 32)) & 0xffff_ffff) as i32);
         let mov = B::Move::from_usize(((val >> 16) & 0xffff) as usize).unwrap();
@@ -190,6 +210,16 @@ impl TT {
         debug_assert!(entry.score.0.abs() <= SCORE_WON.0);
         entry
     }
+
+    #[inline(always)]
+    pub fn prefetch(&self, hash: ZobristHash) {
+        if cfg!(feature = "unsafe") {
+            unsafe {
+                #[cfg(all(target_arch = "x86_64", target_feature = "sse"))]
+                _mm_prefetch::<_MM_HINT_T2>(addr_of!(self.tt.arr[self.index_of(hash)]) as *const i8);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -216,6 +246,7 @@ mod test {
             );
             let converted = entry.to_packed();
             assert_eq!(TTEntry::from_packed(converted), entry);
+            i += 1;
         }
     }
 

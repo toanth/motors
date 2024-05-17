@@ -2,7 +2,8 @@ use arrayvec::ArrayVec;
 use std::cmp::min;
 use std::time::{Duration, Instant};
 
-use derive_more::{Deref, DerefMut};
+use derive_more::{Deref, DerefMut, Index, IndexMut};
+use itertools::Itertools;
 use rand::thread_rng;
 
 use gears::games::chess::moves::ChessMove;
@@ -33,27 +34,28 @@ use crate::search::{
 
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
+const KILLER_SCORE: i32 = i32::MAX - 200;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
 struct HistoryHeuristic([i32; 64 * 64]);
+
+impl HistoryHeuristic {
+    /// Updates the history using the History Gravity technique,
+    /// which keeps history scores from growing arbitrarily large and scales the bonus/malus depending on how
+    /// "unexpected" they are, i.e. by how much they differ from the current history scores.
+    fn update(&mut self, idx: usize, value: i32) {
+        let entry = &mut self[idx];
+        // The maximum history score magnitude can be slightly larger than the divisor due to rounding errors.
+        const DIVISOR: i32 = 1024;
+        // The `.abs()` call is necessary to correctly handle history malus.
+        let bonus = value - value.abs() * *entry / DIVISOR; // bonus can also be negative
+        *entry += bonus;
+    }
+}
 
 impl Default for HistoryHeuristic {
     fn default() -> Self {
         HistoryHeuristic([0; 64 * 64])
-    }
-}
-
-impl Deref for HistoryHeuristic {
-    type Target = [i32; 64 * 64];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for HistoryHeuristic {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 
@@ -81,10 +83,12 @@ impl CustomInfo for Additional {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Clone)]
 struct CapsSearchStackEntry {
     killer: ChessMove,
     pv: Pv<Chessboard, { DEPTH_HARD_LIMIT.get() }>,
+    tried_quiets: ArrayVec<ChessMove, MAX_CHESS_MOVES_IN_POS>,
+    eval: Score,
 }
 
 impl SearchStackEntry<Chessboard> for CapsSearchStackEntry {
@@ -406,7 +410,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
             } else {
                 self.eval.eval(pos)
             };
-
+        self.state.search_stack[ply].eval = eval;
+        // `improving` and `regressing` compare the current static eval with the static eval 2 plies ago to recognize
+        // blunders. `improving` detects potential blunders by our opponent and `regressing` detects potential blunders
+        // by us. TODO: Currently, this uses the TT score when possible. Think about if there are unintended consequences.
+        let improving = ply >= 2 && eval - self.state.search_stack[ply - 2].eval > Score(50);
+        let regressing = ply >= 2 && eval - self.state.search_stack[ply - 2].eval < Score(-50);
         debug_assert!(!eval.is_game_over_score());
         // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
         // because the move ordering won't be great, so don't spend too much time on this node.
@@ -418,8 +427,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         // RFP (Reverse Futility Pruning): If eval is far above beta, it's likely that our opponent
         // blundered in a previous move of the search, so if the depth is low, don't even bother searching further.
+        // Use `improving` to better distinguish between blunders by our opponent and a generally good static eval
+        // relative to `beta` --  there may be other positional factors that aren't being reflected by the static eval,
+        // (like imminent threads) so don't prune too aggressively if we're not improving.
         if can_prune {
-            if depth < 4 && eval >= beta + Score(80 * depth as i32) {
+            let margin = (120 - (improving as i32 * 64)) * depth as i32;
+            if depth < 4 && eval >= beta + Score(margin) {
                 return eval;
             }
 
@@ -451,24 +464,32 @@ impl<E: Eval<Chessboard>> Caps<E> {
         }
 
         let mut children_visited = 0;
-        let mut num_quiets_visited = 0;
+        // an uninteresting move is a quiet move or bad capture unless it's the TT or killer move
+        // (i.e. it's every move that gets ordered after the killer). The name is a bit dramatic, the first few of those
+        // can still be good candidates to explore.
+        let mut num_uninteresting_visited = 0;
+        self.state.search_stack[ply].tried_quiets.clear();
 
         let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(
             pos.pseudolegal_moves(),
             self.score_move_fn(pos, best_move, ply),
         );
-        for mov in move_picker.into_iter() {
+        for (mov, move_score) in move_picker.into_iter() {
             // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
             // so don't even bother looking at them in the last few layers.
             // FP (Futility Pruning): If the static eval is far below alpha,
             // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
             // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
+            let fp_margin = if regressing {
+                200 + 32 * depth
+            } else {
+                300 + 64 * depth
+            };
             if can_prune
                 && best_score > MAX_SCORE_LOST
                 && depth <= 3
-                && (num_quiets_visited >= 16 * depth
-                    || (eval + Score((300 + 64 * depth) as i32) < alpha && num_quiets_visited > 0))
-            // quiets are ordered last, so this move is ordered very late
+                && (num_uninteresting_visited >= 8 + 8 * depth
+                    || (eval + Score(fp_margin as i32) < alpha && move_score < KILLER_SCORE))
             {
                 break;
             }
@@ -480,8 +501,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
             let new_pos = new_pos.unwrap();
             self.state.statistics.count_legal_make_move(MainSearch);
             children_visited += 1;
-            if !mov.is_tactical(&pos) {
-                num_quiets_visited += 1;
+            if move_score < KILLER_SCORE {
+                num_uninteresting_visited += 1;
             }
 
             // O(1). Resets the child's pv length so that it's not the maximum length it used to be.
@@ -503,8 +524,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
                 // to verify our belief.
                 let mut reduction = 0;
-                if !in_check && num_quiets_visited > 4 && depth >= 4 {
-                    reduction = 1 + depth / 8 + (num_quiets_visited - 4) / 8; // This is a very basic implementation.
+                if !in_check && num_uninteresting_visited > 2 && depth >= 4 {
+                    reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8;
                     if !is_pvs_pv_node {
                         reduction += 1;
                     }
@@ -544,6 +565,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 }
             }
 
+            if !mov.is_tactical(&pos) {
+                self.state.search_stack[ply].tried_quiets.push(mov);
+            }
             self.state.board_history.pop(&pos);
 
             debug_assert_eq!(
@@ -580,7 +604,16 @@ impl<E: Eval<Chessboard>> Caps<E> {
             }
             // Update various heuristics, TODO: More (killers, history gravity, etc)
             let entry = &mut self.state.search_stack[ply];
-            self.state.custom.history[mov.from_to_square()] += (depth * depth) as i32;
+            for disappointing in entry.tried_quiets.iter().dropping_back(1) {
+                self.state
+                    .custom
+                    .history
+                    .update(disappointing.from_to_square(), -(depth * depth) as i32);
+            }
+            self.state
+                .custom
+                .history
+                .update(mov.from_to_square(), (depth * depth) as i32);
             entry.killer = mov;
             break;
         }
@@ -659,9 +692,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
             self.score_move_fn(pos, best_move, ply),
         );
         let mut children_visited = 0;
-        for mov in move_picker.into_iter() {
+        for (mov, _score) in move_picker.into_iter() {
             debug_assert!(mov.is_tactical(&pos));
-            let new_pos = pos.make_move(mov);
+            let new_pos =
+                pos.make_move_and_prefetch_tt(mov, |hash| self.state.custom.tt.prefetch(hash));
             if new_pos.is_none() {
                 continue;
             }
@@ -711,7 +745,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if mov == tt_move {
                 i32::MAX
             } else if mov == self.state.search_stack[ply].killer {
-                i32::MAX - 200
+                KILLER_SCORE
             } else if captured == Empty {
                 self.state.custom.history[mov.from_to_square()]
             } else {

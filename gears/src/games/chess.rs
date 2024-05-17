@@ -21,7 +21,7 @@ use crate::games::Color::{Black, White};
 use crate::games::SelfChecks::{Assertion, CheckFen};
 use crate::games::{
     board_to_string, file_to_char, position_fen_part, read_position_fen, AbstractPieceType, Board,
-    BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, NameToPos, SelfChecks, Settings,
+    BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, Move, NameToPos, SelfChecks, Settings,
     UncoloredPieceType, ZobristHash, ZobristRepetition3Fold,
 };
 use crate::general::bitboards::chess::{ChessBitboard, BLACK_SQUARES, WHITE_SQUARES};
@@ -302,7 +302,7 @@ impl Board for Chessboard {
     }
 
     fn make_move(self, mov: Self::Move) -> Option<Self> {
-        self.make_move_impl(mov)
+        self.make_move_impl(mov, mov.uncolored_piece(&self))
     }
 
     fn make_nullmove(mut self) -> Option<Self> {
@@ -633,19 +633,18 @@ impl Chessboard {
         self.color_bbs[piece.color().unwrap() as usize] ^= bb;
     }
 
-    fn remove_piece(&mut self, square: ChessSquare, piece: ColoredChessPiece) {
+    fn remove_piece(&mut self, square: ChessSquare, piece: UncoloredChessPiece, color: Color) {
         let idx = self.to_idx(square);
         debug_assert_eq!(
             self.colored_piece_on(square),
             ChessPiece {
-                symbol: piece,
+                symbol: ColoredChessPiece::new(color, piece),
                 coordinates: square
             }
         );
         let bb = ChessBitboard::single_piece(idx).raw();
-        debug_assert_ne!(piece.uncolor(), Empty);
-        self.piece_bbs[piece.uncolor() as usize] ^= bb;
-        self.color_bbs[piece.color().unwrap() as usize] ^= bb;
+        self.piece_bbs[piece as usize] ^= bb;
+        self.color_bbs[color as usize] ^= bb;
     }
 
     fn move_piece(&mut self, from: ChessSquare, to: ChessSquare, piece: UncoloredChessPiece) {

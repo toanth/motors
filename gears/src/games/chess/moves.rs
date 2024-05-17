@@ -17,7 +17,7 @@ use crate::games::chess::Chessboard;
 use crate::games::Color::{Black, White};
 use crate::games::{
     char_to_file, file_to_char, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType,
-    DimT, Move, MoveFlags,
+    DimT, Move, MoveFlags, ZobristHash,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::common::Res;
@@ -347,9 +347,27 @@ impl Chessboard {
         ChessSquare::from_rank_file(rank, file)
     }
 
-    /// Is only ever called on a copy of the board, so no need to undo the changes when a move gets aborted due to pseudo-legality.
-    pub fn make_move_impl(mut self, mov: ChessMove) -> Option<Self> {
+    pub fn make_move_and_prefetch_tt<F: Fn(ZobristHash)>(
+        self,
+        mov: ChessMove,
+        prefetch: F,
+    ) -> Option<Self> {
         let piece = mov.uncolored_piece(&self);
+        let hash = Self::new_zobrist_after_move(
+            self.hash,
+            self.active_player,
+            piece,
+            mov.src_square(),
+            mov.dest_square(),
+        );
+        // this is only an approximation of the new hash, but that is good enough
+        prefetch(hash);
+        self.make_move_impl(mov, piece)
+    }
+
+    /// Is only ever called on a copy of the board, so no need to undo the changes when a move gets aborted due to pseudo-legality.
+    pub fn make_move_impl(mut self, mov: ChessMove, piece: UncoloredChessPiece) -> Option<Self> {
+        debug_assert_eq!(piece, mov.uncolored_piece(&self));
         let color = self.active_player;
         let other = color.other();
         let from = mov.src_square();
@@ -412,19 +430,15 @@ impl Chessboard {
                 self.colored_piece_on(taken_pawn).symbol,
                 ColoredChessPiece::new(other, Pawn)
             );
-            self.remove_piece(taken_pawn, ColoredChessPiece::new(other, Pawn));
+            self.remove_piece(taken_pawn, Pawn, other);
             self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, other, taken_pawn);
             self.ply_100_ctr = 0;
         } else if mov.is_non_ep_capture(&self) {
-            let captured = self.colored_piece_on(to).symbol;
+            let captured = self.uncolored_piece_on(to);
             debug_assert_eq!(self.colored_piece_on(to).color().unwrap(), other);
-            debug_assert_ne!(self.colored_piece_on(to).uncolored(), King);
-            self.remove_piece(to, captured);
-            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(
-                captured.uncolor(),
-                captured.color().unwrap(),
-                to,
-            );
+            debug_assert_ne!(captured, King);
+            self.remove_piece(to, captured, other);
+            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(captured, other, to);
             self.ply_100_ctr = 0;
         } else if piece == Pawn {
             self.ply_100_ctr = 0;
