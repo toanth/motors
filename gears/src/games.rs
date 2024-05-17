@@ -613,6 +613,12 @@ impl<B: Board> BoardHistory<B> for ZobristRepetition3Fold {
 
 type NameToPos<B> = GenericSelect<fn() -> B>;
 
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+pub enum SelfChecks {
+    CheckFen,
+    Assertion,
+}
+
 /// Currently, a game is completely determined by the `Board` type:
 /// The type implementing `Board` contains all the necessary information about the rules of the game.
 /// However, a `Board` is assumed to be markovian and needs to satisfy `Copy` and `'static`.
@@ -874,7 +880,9 @@ pub trait Board:
         Ok(res)
     }
 
-    fn read_fen_and_advance_input(string: &mut SplitWhitespace) -> Res<Self>;
+    /// Like `from_fen`, but changes the `input` argument to contain the reining input instead of panicking when there's
+    /// any remaining input after reading the fen.
+    fn read_fen_and_advance_input(input: &mut SplitWhitespace) -> Res<Self>;
 
     /// Returns an ASCII art representation of the board.
     /// This is not meant to return a FEN, but instead a diagram where the pieces
@@ -889,7 +897,9 @@ pub trait Board:
     /// Verifies that the position is legal. This function is meant to be used in `assert!`s
     /// and for validating input, such as FENs, not to be used for filtering positions after a call to `make_move`
     /// (it should  already be ensured that the move results in a legal position or `None` through other means).
-    fn verify_position_legal(&self) -> Res<()>;
+    /// If `checks` is `Assertion`, this performs internal validity checks, which is useful for asserting that there are no
+    /// bugs in the implementation, but unnecessary if this function is only called to check the validity of a FEN.
+    fn verify_position_legal(&self, checks: SelfChecks) -> Res<()>;
 }
 
 pub fn game_result_slow<B: Board, H: BoardHistory<B>>(
@@ -1063,6 +1073,7 @@ mod tests {
     use crate::games::chess::Chessboard;
     use crate::games::mnk::MNKBoard;
     use crate::games::Board;
+    use crate::games::SelfChecks::Assertion;
 
     use super::*;
 
@@ -1072,7 +1083,7 @@ mod tests {
             let ply = pos.halfmove_ctr_since_start();
             // use a new hash set per position because bench positions can be only one ply away from each other
             let mut hashes = HashSet::new();
-            assert!(pos.verify_position_legal().is_ok());
+            assert!(pos.verify_position_legal(Assertion).is_ok());
             assert!(pos.match_result_slow().is_none());
             assert_eq!(B::from_fen(&pos.as_fen()).unwrap(), pos);
             let hash = pos.zobrist_hash().0;
@@ -1092,7 +1103,7 @@ mod tests {
                 let new_pos = pos.make_move(mov);
                 assert_eq!(new_pos.is_some(), pos.is_pseudolegal_move_legal(mov));
                 let Some(new_pos) = new_pos else { continue };
-                assert!(new_pos.verify_position_legal().is_ok());
+                assert!(new_pos.verify_position_legal(Assertion).is_ok());
                 assert_eq!(new_pos.active_player().other(), pos.active_player());
                 assert_ne!(new_pos.as_fen(), pos.as_fen());
                 assert_eq!(B::from_fen(&new_pos.as_fen()).unwrap(), new_pos);

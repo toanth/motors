@@ -18,9 +18,10 @@ use crate::games::chess::pieces::{
 use crate::games::chess::squares::{ChessSquare, ChessboardSize, NUM_SQUARES};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::Color::{Black, White};
+use crate::games::SelfChecks::{Assertion, CheckFen};
 use crate::games::{
     board_to_string, file_to_char, position_fen_part, read_position_fen, AbstractPieceType, Board,
-    BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, NameToPos, Settings,
+    BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, NameToPos, SelfChecks, Settings,
     UncoloredPieceType, ZobristHash, ZobristRepetition3Fold,
 };
 use crate::general::bitboards::chess::{ChessBitboard, BLACK_SQUARES, WHITE_SQUARES};
@@ -460,7 +461,7 @@ impl Board for Chessboard {
         board.active_player = color;
         board.castling = castling_rights;
         board.hash = board.compute_zobrist();
-        board.verify_position_legal()?;
+        board.verify_position_legal(CheckFen)?;
         Ok(board)
     }
 
@@ -472,7 +473,7 @@ impl Board for Chessboard {
         board_to_string(self, ChessPiece::to_utf8_char, flip)
     }
 
-    fn verify_position_legal(&self) -> Res<()> {
+    fn verify_position_legal(&self, checks: SelfChecks) -> Res<()> {
         for color in Color::iter() {
             if !self.colored_piece_bb(color, King).is_single_piece() {
                 return Err(format!("The {color} player does not have exactly one king"));
@@ -543,31 +544,37 @@ impl Board for Chessboard {
                     bb.num_set_bits()
                 ));
             }
-            for other_piece in ColoredChessPiece::pieces() {
-                if other_piece == piece {
-                    continue;
-                }
-                if (bb & self.colored_piece_bb(other_piece.color().unwrap(), other_piece.uncolor()))
+            if checks != CheckFen {
+                for other_piece in ColoredChessPiece::pieces() {
+                    if other_piece == piece {
+                        continue;
+                    }
+                    if (bb
+                        & self
+                            .colored_piece_bb(other_piece.color().unwrap(), other_piece.uncolor()))
                     .has_set_bit()
-                {
-                    return Err(format!(
-                        "There are two pieces on the same square: {piece} and {other_piece}"
-                    ));
+                    {
+                        return Err(format!(
+                            "There are two pieces on the same square: {piece} and {other_piece}"
+                        ));
+                    }
+                }
+                while bb.has_set_bit() {
+                    let square = ChessSquare::new(bb.pop_lsb());
+                    hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece.uncolor(), color, square);
                 }
             }
-            while bb.has_set_bit() {
-                let square = ChessSquare::new(bb.pop_lsb());
-                hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece.uncolor(), color, square);
+        }
+        if checks != CheckFen {
+            if hash != self.compute_zobrist() {
+                return Err("Internal error: Compute_zobrist() gives a different result from computing the zobrist hash piece by piece".to_string());
             }
-        }
-        if hash != self.compute_zobrist() {
-            return Err("Internal error: Compute_zobrist() gives a different result from computing the zobrist hash piece by piece".to_string());
-        }
-        if hash != self.hash {
-            return Err(format!(
-                "Error: The zobrist hash doesn't match (should be {hash} but is {0}",
-                self.hash
-            ));
+            if hash != self.hash {
+                return Err(format!(
+                    "Error: The zobrist hash doesn't match (should be {hash} but is {0}",
+                    self.hash
+                ));
+            }
         }
         Ok(())
     }
@@ -799,7 +806,7 @@ impl Chessboard {
         res.color_bbs[White as usize] = RawStandardBitboard::default();
         Self::chess960_startpos_white(white_num, White, &mut res)?;
         res.hash = res.compute_zobrist();
-        res.verify_position_legal().expect("Internal error: Setting up a Chess960 starting position resulted in an invalid position");
+        res.verify_position_legal(Assertion).expect("Internal error: Setting up a Chess960 starting position resulted in an invalid position");
         Ok(res)
     }
 }
@@ -1061,7 +1068,7 @@ mod tests {
         let mut startpos_found = false;
         for i in 0..960 {
             let board = Chessboard::chess_960_startpos(i).unwrap();
-            assert!(board.verify_position_legal().is_ok());
+            assert!(board.verify_position_legal(Assertion).is_ok());
             assert!(fens.insert(board.as_fen()));
             let num_moves = board.pseudolegal_moves().len();
             assert!((18..=21).contains(&num_moves)); // 21 legal moves because castling can be legal

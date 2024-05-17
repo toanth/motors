@@ -122,6 +122,10 @@ impl ChessSquare {
         self.column()
     }
 
+    pub fn flip(self) -> Self {
+        self.flip_up_down(ChessboardSize::default())
+    }
+
     pub fn north(self) -> ChessSquare {
         debug_assert_ne!(self.rank(), 7);
         Self::new(self.index() + 8)

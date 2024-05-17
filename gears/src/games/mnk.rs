@@ -648,7 +648,7 @@ impl Board for MNKBoard {
         board_to_string(self, Square::to_utf8_char, flip)
     }
 
-    fn verify_position_legal(&self) -> Res<()> {
+    fn verify_position_legal(&self, _checks: SelfChecks) -> Res<()> {
         let non_empty = self.occupied_bb().0.count_ones();
         if self.ply != non_empty {
             return Err(format!(

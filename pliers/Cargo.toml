@@ -6,5 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-gears = { path = "../gears", default-features = false }
+gears = { path = "../gears" }
 derive_more = "1.0.0-beta.6"
+rand = "0.8.5"
+strum = "0.26.2"
+strum_macros = "0.26.2"
