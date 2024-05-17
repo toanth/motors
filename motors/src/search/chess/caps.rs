@@ -414,8 +414,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // `improving` and `regressing` compare the current static eval with the static eval 2 plies ago to recognize
         // blunders. `improving` detects potential blunders by our opponent and `regressing` detects potential blunders
         // by us. TODO: Currently, this uses the TT score when possible. Think about if there are unintended consequences.
-        let improving =
-            ply >= 2 && !in_check && eval - self.state.search_stack[ply - 2].eval > Score(50);
+        // TODO: Don't set if in check? Currently, improving is never used if in check, so this won't pass a SPRT.
+        let improving = ply >= 2 && eval - self.state.search_stack[ply - 2].eval > Score(50);
         let regressing = ply >= 2 && eval - self.state.search_stack[ply - 2].eval < Score(-50);
         debug_assert!(!eval.is_game_over_score());
         // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
@@ -444,7 +444,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // A more careful implementation would do a verification search to check for zugzwang, and possibly avoid even trying
             // nmp in a position with no pieces except the king and pawns.
             // TODO: Verification search.
-            if depth >= 3 && eval >= beta {
+            if depth >= 3 + regressing as isize && eval >= beta {
                 self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
                 let reduction = 3 + depth / 4;
