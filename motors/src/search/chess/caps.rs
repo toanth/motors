@@ -414,7 +414,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // `improving` and `regressing` compare the current static eval with the static eval 2 plies ago to recognize
         // blunders. `improving` detects potential blunders by our opponent and `regressing` detects potential blunders
         // by us. TODO: Currently, this uses the TT score when possible. Think about if there are unintended consequences.
-        let improving = ply >= 2 && eval - self.state.search_stack[ply - 2].eval > Score(50);
+        let improving =
+            ply >= 2 && !in_check && eval - self.state.search_stack[ply - 2].eval > Score(50);
         let regressing = ply >= 2 && eval - self.state.search_stack[ply - 2].eval < Score(-50);
         debug_assert!(!eval.is_game_over_score());
         // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
