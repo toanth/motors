@@ -479,6 +479,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // `improving` and `regressing` compare the current static eval with the static eval 2 plies ago to recognize
         // blunders. `improving` detects potential blunders by our opponent and `regressing` detects potential blunders
         // by us. TODO: Currently, this uses the TT score when possible. Think about if there are unintended consequences.
+        // TODO: Don't set if in check? Currently, improving is never used if in check, so this won't pass a SPRT.
         let improving = ply >= 2 && eval - self.state.search_stack[ply - 2].eval > Score(50);
         let regressing = ply >= 2 && eval - self.state.search_stack[ply - 2].eval < Score(-50);
         debug_assert!(!eval.is_game_over_score());
@@ -496,9 +497,20 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // relative to `beta` --  there may be other positional factors that aren't being reflected by the static eval,
         // (like imminent threads) so don't prune too aggressively if we're not improving.
         if can_prune {
-            let margin = (120 - (improving as i32 * 64)) * depth as i32;
-            if depth < 4 && eval >= beta + Score(margin) {
+            let rfp_margin = (120 - (improving as i32 * 64)) * depth as i32;
+            if depth < 4 && eval >= beta + Score(rfp_margin) {
                 return eval;
+            }
+
+            /// Razoring. If static eval is far below alpha, it's unlikely that any quiet move can meet alpha, so call
+            /// qsearch immediately. If the result still doesn't raise alpha, just give up and return the qsearch score.
+            /// This obviously has the potential to miss quite a few tactics, so only do this at low depths and when
+            /// the difference between the static eval and alpha is really large.
+            if depth < 3 && eval + Score(256) * depth as i32 <= alpha {
+                let qsearch_score = self.qsearch(pos, alpha, beta, ply);
+                if qsearch_score <= alpha {
+                    return qsearch_score;
+                }
             }
 
             // NMP (Null Move Pruning). If static eval of our position is above beta, this node probably isn't that interesting.
