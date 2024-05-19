@@ -586,23 +586,30 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if score <= alpha {
                 continue;
             }
-            bound_so_far = Exact;
+            // We've raised alpha. For most nodes, this results in an immediate beta cutoff because we're using a null window.
             alpha = score;
             best_move = mov;
 
+            // Update the PV. We only need to do that for PV nodes (could even only do that for non-fail highs, although that would
+            // truncate the pv on an aw fail high nd relies on details of this implementation), but for some reason,
+            // that resulted in a bench slowdown, so for now we're doing that everywhere. TODO: Retest this eventually.
             let split = self.state.search_stack.split_at_mut(ply + 1);
             let pv = &mut split.0.last_mut().unwrap().pv;
             let child_pv = &split.1[0].pv;
             pv.push(ply, best_move, child_pv);
 
             if score < beta {
+                // We're in a PVS PV node and didn't fail high (yet, but probably won't), so look at the other moves.
+                // PVS PV nodes are rare
+                bound_so_far = Exact;
                 continue;
             }
+            // Beta cutoff. Update history and killer for quiet moves, then break out of the moves loop.
             bound_so_far = LowerBound;
             if mov.is_tactical(&pos) {
                 break;
             }
-            // Update various heuristics, TODO: More (killers, history gravity, etc)
+            // Update various heuristics. TODO: Conthist, capthist, ...
             let entry = &mut self.state.search_stack[ply];
             for disappointing in entry.tried_quiets.iter().dropping_back(1) {
                 self.state
