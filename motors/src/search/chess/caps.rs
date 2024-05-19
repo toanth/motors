@@ -506,7 +506,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             /// qsearch immediately. If the result still doesn't raise alpha, just give up and return the qsearch score.
             /// This obviously has the potential to miss quite a few tactics, so only do this at low depths and when
             /// the difference between the static eval and alpha is really large.
-            if depth < 3 && eval + Score(400) + Score(128) * depth as i32 <= alpha {
+            if depth < 2 && eval + Score(400) * depth as i32 <= alpha {
                 let qsearch_score = self.qsearch(pos, alpha, beta, ply);
                 if qsearch_score <= alpha {
                     return qsearch_score;
