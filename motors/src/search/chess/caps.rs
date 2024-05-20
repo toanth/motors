@@ -36,20 +36,23 @@ const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
 const KILLER_SCORE: i32 = i32::MAX - 200;
 
+/// Updates the history using the History Gravity technique,
+/// which keeps history scores from growing arbitrarily large and scales the bonus/malus depending on how
+/// "unexpected" they are, i.e. by how much they differ from the current history scores.
+fn update_history_score(entry: &mut i32, bonus: i32) {
+    // The maximum history score magnitude can be slightly larger than the divisor due to rounding errors.
+    const DIVISOR: i32 = 1024;
+    // The `.abs()` call is necessary to correctly handle history malus.
+    let bonus = bonus - bonus.abs() * *entry / DIVISOR; // bonus can also be negative
+    *entry += bonus;
+}
+
 #[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
 struct HistoryHeuristic([i32; 64 * 64]);
 
 impl HistoryHeuristic {
-    /// Updates the history using the History Gravity technique,
-    /// which keeps history scores from growing arbitrarily large and scales the bonus/malus depending on how
-    /// "unexpected" they are, i.e. by how much they differ from the current history scores.
-    fn update(&mut self, idx: usize, value: i32) {
-        let entry = &mut self[idx];
-        // The maximum history score magnitude can be slightly larger than the divisor due to rounding errors.
-        const DIVISOR: i32 = 1024;
-        // The `.abs()` call is necessary to correctly handle history malus.
-        let bonus = value - value.abs() * *entry / DIVISOR; // bonus can also be negative
-        *entry += bonus;
+    fn update(&mut self, mov: ChessMove, bonus: i32) {
+        update_history_score(&mut self[mov.from_to_square()], bonus);
     }
 }
 
@@ -59,9 +62,32 @@ impl Default for HistoryHeuristic {
     }
 }
 
+/// Continuation history. Many moves have a "natural" response, so use that for move ordering:
+/// Instead of only learning which quiet moves are good, learn which quiet moves are good after our
+/// opponent played a given move.
+#[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
+struct ContHist(Vec<i32>); // Can't store this on the stack because it's too large.
+
+impl ContHist {
+    fn update(&mut self, mov: ChessMove, prev_mov: ChessMove, bonus: i32) {
+        let entry = &mut self[prev_mov.from_to_square() * 64 * 64 + mov.from_to_square()];
+        update_history_score(entry, bonus);
+    }
+    fn score(&self, mov: ChessMove, prev_move: ChessMove) -> i32 {
+        self[prev_move.from_to_square() * 64 * 64 + mov.from_to_square()]
+    }
+}
+
+impl Default for ContHist {
+    fn default() -> Self {
+        ContHist(vec![0; 64 * 64 * 64 * 64])
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct Additional {
     history: HistoryHeuristic,
+    cont_hist: ContHist,
     tt: TT,
 }
 
@@ -74,10 +100,16 @@ impl CustomInfo for Additional {
         for value in self.history.iter_mut() {
             *value /= 4;
         }
+        for value in self.cont_hist.iter_mut() {
+            *value /= 4; // TODO: Test keeping that around
+        }
     }
 
     fn forget(&mut self) {
         for value in self.history.iter_mut() {
+            *value = 0;
+        }
+        for value in self.cont_hist.iter_mut() {
             *value = 0;
         }
     }
@@ -89,6 +121,7 @@ struct CapsSearchStackEntry {
     pv: Pv<Chessboard, { DEPTH_HARD_LIMIT.get() }>,
     tried_quiets: ArrayVec<ChessMove, MAX_CHESS_MOVES_IN_POS>,
     eval: Score,
+    last_tried_move: ChessMove,
 }
 
 impl SearchStackEntry<Chessboard> for CapsSearchStackEntry {
@@ -500,6 +533,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             }
             let new_pos = new_pos.unwrap();
             self.state.statistics.count_legal_make_move(MainSearch);
+            self.state.search_stack[ply].last_tried_move = mov;
             children_visited += 1;
             if move_score < KILLER_SCORE {
                 num_uninteresting_visited += 1;
@@ -609,19 +643,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if mov.is_tactical(&pos) {
                 break;
             }
-            // Update various heuristics. TODO: Conthist, capthist, ...
-            let entry = &mut self.state.search_stack[ply];
-            for disappointing in entry.tried_quiets.iter().dropping_back(1) {
-                self.state
-                    .custom
-                    .history
-                    .update(disappointing.from_to_square(), -(depth * depth) as i32);
-            }
-            self.state
-                .custom
-                .history
-                .update(mov.from_to_square(), (depth * depth) as i32);
-            entry.killer = mov;
+            self.update_histories_and_killer(mov, depth, ply);
             break;
         }
 
@@ -660,6 +682,28 @@ impl<E: Eval<Chessboard>> Caps<E> {
         tt.store(tt_entry, ply);
 
         best_score
+    }
+
+    fn update_histories_and_killer(&mut self, mov: ChessMove, depth: isize, ply: usize) {
+        let split = self.state.search_stack.split_at_mut(ply + 1);
+        let entry = split.0.last_mut().unwrap();
+        let predecessor = &split.1[0];
+        let bonus = (depth * depth) as i32;
+        entry.killer = mov;
+        for disappointing in entry.tried_quiets.iter().dropping_back(1) {
+            self.state.custom.history.update(*disappointing, -bonus);
+        }
+        self.state.custom.history.update(mov, bonus);
+        if ply > 0 {
+            let prev_move = predecessor.last_tried_move;
+            self.state.custom.cont_hist.update(mov, prev_move, bonus);
+            for disappointing in entry.tried_quiets.iter().dropping_back(1) {
+                self.state
+                    .custom
+                    .cont_hist
+                    .update(*disappointing, prev_move, -bonus);
+            }
+        }
     }
 
     /// Search only "tactical" moves to quieten down the position before calling eval.
@@ -754,7 +798,13 @@ impl<E: Eval<Chessboard>> Caps<E> {
             } else if mov == self.state.search_stack[ply].killer {
                 KILLER_SCORE
             } else if captured == Empty {
-                self.state.custom.history[mov.from_to_square()]
+                let conthist_score = if ply > 0 {
+                    let prev_move = self.state.search_stack[ply - 1].last_tried_move;
+                    self.state.custom.cont_hist.score(mov, prev_move)
+                } else {
+                    0
+                };
+                self.state.custom.history[mov.from_to_square()] + conthist_score
             } else {
                 let base_val = if board.see_at_least(mov, SeeScore(0)) {
                     i32::MAX - 100
