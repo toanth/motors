@@ -3,6 +3,7 @@ use std::num::NonZeroUsize;
 use std::str::{FromStr, SplitWhitespace};
 
 use bitintr::Popcnt;
+use colored::Colorize;
 use itertools::Itertools;
 use rand::prelude::IteratorRandom;
 use rand::Rng;
@@ -21,8 +22,8 @@ use crate::games::Color::{Black, White};
 use crate::games::SelfChecks::{Assertion, CheckFen};
 use crate::games::{
     board_to_string, file_to_char, position_fen_part, read_position_fen, AbstractPieceType, Board,
-    BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, Move, NameToPos, SelfChecks, Settings,
-    UncoloredPieceType, ZobristHash, ZobristRepetition3Fold,
+    BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, Move, NameToPos, SelfChecks,
+    Settings, UncoloredPieceType, ZobristHash, ZobristRepetition3Fold,
 };
 use crate::general::bitboards::chess::{ChessBitboard, BLACK_SQUARES, WHITE_SQUARES};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
@@ -450,14 +451,27 @@ impl Board for Chessboard {
             Some(ChessSquare::from_str(ep_square)?)
         };
         let halfmove_clock = words.next().unwrap_or("0");
-        board.ply_100_ctr = halfmove_clock
-            .parse::<usize>()
-            .map_err(|err| format!("Couldn't parse halfmove clock: {err}"))?;
-        let fullmove_number = words.next().unwrap_or("1");
-        let fullmove_number = fullmove_number
-            .parse::<NonZeroUsize>()
-            .map_err(|err| format!("Couldn't parse fullmove counter: {err}"))?;
-        board.ply = (fullmove_number.get() - 1) * 2 + (color == Black) as usize;
+        // Some FENs don't contain the halfmove clock and fullmove number, so assume that's the case if parsing
+        // the halfmove clock fails -- but don't do this for the fullmove number.
+        if let Ok(halfmove_clock) = halfmove_clock.parse::<usize>() {
+            board.ply_100_ctr = halfmove_clock;
+            let fullmove_number = words.next().ok_or_else(|| {
+                format!(
+                    "The FEN contained a valid halfmove clock ('{}') but no fullmove counter",
+                    halfmove_clock
+                )
+            })?;
+            let fullmove_number = fullmove_number.parse::<NonZeroUsize>().map_err(|err| {
+                format!(
+                    "Couldn't parse fullmove counter '{}': {err}",
+                    fullmove_number.red()
+                )
+            })?;
+            board.ply = (fullmove_number.get() - 1) * 2 + (color == Black) as usize;
+        } else {
+            board.ply_100_ctr = 0;
+            board.ply = (color == Black) as usize;
+        }
         board.active_player = color;
         board.castling = castling_rights;
         board.hash = board.compute_zobrist();

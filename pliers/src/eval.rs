@@ -1,30 +1,34 @@
-use crate::gd::{Position, Weights};
+use crate::gd::{Float, Position, Weights};
 use gears::games::Board;
+use gears::general::bitboards::RawBitboard;
 use std::fmt::{Display, Formatter};
-use std::marker::PhantomData;
 
-pub mod caps_hce_eval;
+pub mod chess;
 
-#[derive(Default)]
-pub struct FormatWeights<B: Board, E: Eval<B>> {
-    weights: Weights,
-    _phantom_data1: PhantomData<B>,
-    _phantom_data2: PhantomData<E>,
+pub struct FormatWeights {
+    weights: Option<Weights>,
+    format_fn: fn(&mut Formatter<'_>, &Weights) -> std::fmt::Result,
+    num_features: usize,
 }
 
-impl<B: Board, E: Eval<B>> FormatWeights<B, E> {
-    pub fn new(weights: Weights) -> Self {
+impl FormatWeights {
+    pub fn new<B: Board, E: Eval<B>>() -> Self {
         Self {
-            weights,
-            ..Default::default()
+            weights: None,
+            format_fn: E::format_impl,
+            num_features: E::NUM_FEATURES,
         }
+    }
+    pub fn with_weights(&mut self, weights: Weights) -> &Self {
+        self.weights = Some(weights);
+        self
     }
 }
 
-impl<B: Board, E: Eval<B>> Display for FormatWeights<B, E> {
+impl Display for FormatWeights {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        assert_eq!(self.weights.len(), E::NUM_FEATURES);
-        E::format_impl(f, &self.weights)
+        assert_eq!(self.weights.as_ref().unwrap().len(), self.num_features);
+        (self.format_fn)(f, self.weights.as_ref().unwrap())
     }
 }
 
@@ -34,10 +38,10 @@ pub trait Eval<B: Board>: Default {
 
     fn format_impl(f: &mut Formatter<'_>, weights: &Weights) -> std::fmt::Result;
 
-    fn formatter(weights: Weights) -> FormatWeights<B, Self>
+    fn formatter() -> FormatWeights
     where
         Self: Sized,
     {
-        FormatWeights::new(weights)
+        FormatWeights::new::<B, Self>()
     }
 }

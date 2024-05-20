@@ -1,3 +1,4 @@
+use colored::Colorize;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
@@ -666,11 +667,11 @@ impl<'a> MoveParser<'a> {
     fn parse_square_rank_or_file(&mut self) -> Res<()> {
         let file = self
             .current_char()
-            .ok_or_else(|| format!("Move '{}' is too short", self.consumed()))?;
+            .ok_or_else(|| format!("Move '{}' is too short", self.consumed().red()))?;
         self.advance_char();
         let rank = self
             .current_char()
-            .ok_or_else(|| format!("Move '{}' is too short", self.consumed()))?;
+            .ok_or_else(|| format!("Move '{}' is too short", self.consumed().red()))?;
         match ChessSquare::from_chars(file, rank) {
             Ok(sq) => {
                 self.advance_char();
@@ -683,9 +684,9 @@ impl<'a> MoveParser<'a> {
                 x => {
                     // doesn't reset the current char, but that's fine because we're aborting anyway
                     return Err(if self.piece == Empty && !self.is_capture {
-                        format!("A move must start with a valid file, rank or piece, but '{x}' is neither")
+                        format!("A move must start with a valid file, rank or piece, but '{}' is neither", x.to_string().red())
                     } else {
-                        format!("'{x}' is not a valid file or rank")
+                        format!("'{}' is not a valid file or rank", x.to_string().red())
                     });
                 }
             },

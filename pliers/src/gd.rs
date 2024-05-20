@@ -1,12 +1,13 @@
-use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Sub, SubAssign};
+use crate::eval::{Eval, FormatWeights};
+use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
 use std::fmt::Formatter;
-use std::ops::{Div, DivAssign, Mul, MulAssign};
+use std::ops::{DivAssign, MulAssign};
 
 pub type Float = f64;
 
 /// The result of calling the eval function.
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
-pub struct CpScore(Float);
+pub struct CpScore(pub Float);
 
 impl Display for CpScore {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -39,6 +40,12 @@ impl Display for WrScore {
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Display)]
 pub struct EvalScale(pub Float);
 
+impl Default for EvalScale {
+    fn default() -> Self {
+        Self(110.0) // gives roughly the normal piece values, expressed as centipawns
+    }
+}
+
 pub fn sigmoid(x: Float, scale: EvalScale) -> Float {
     1.0 / (1.0 + (-x / scale.0).exp())
 }
@@ -62,9 +69,21 @@ pub fn sample_loss_for_cp(eval: CpScore, outcome: Outcome, eval_scale: EvalScale
 }
 
 #[derive(
-    Debug, Display, Default, Copy, Clone, PartialOrd, PartialEq, Add, AddAssign, Sub, SubAssign,
+    Debug,
+    Display,
+    Default,
+    Copy,
+    Clone,
+    PartialOrd,
+    PartialEq,
+    Add,
+    AddAssign,
+    Sub,
+    SubAssign,
+    Mul,
+    Div,
 )]
-pub struct Weight(Float);
+pub struct Weight(pub Float);
 
 impl Weight {
     pub fn rounded(self) -> i32 {
@@ -160,8 +179,29 @@ impl Weights {
     }
 }
 
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct Feature(pub i8);
+#[cfg(not(feature = "tapered"))]
+type FeatureImpl = i8;
+
+#[cfg(feature = "tapered")]
+pub type FeatureT = Float;
+
+#[derive(Debug, Default, Copy, Clone, PartialOrd, PartialEq)]
+pub struct Feature(pub FeatureT);
+
+impl Feature {
+    pub fn new_i8(val: i8) -> Self {
+        Self(val as FeatureT)
+    }
+
+    #[cfg(feature = "tapered")]
+    pub fn new_float(val: Float) -> Self {
+        Self(val as FeatureT)
+    }
+
+    pub fn float(self) -> Float {
+        self.0 as Float
+    }
+}
 
 pub type Position = Vec<Feature>;
 
@@ -192,7 +232,7 @@ pub fn wr_prediction_for_weights(
     cp_to_wr(eval, eval_scale)
 }
 
-pub fn loss(weights: &Weights, dataset: &Dataset, eval_scale: EvalScale) -> Float {
+pub fn loss(weights: &Weights, dataset: &[Datapoint], eval_scale: EvalScale) -> Float {
     let mut res = Float::default();
     for datapoint in dataset.iter() {
         let eval = wr_prediction_for_weights(weights, &datapoint.position, eval_scale);
@@ -207,7 +247,11 @@ pub fn loss(weights: &Weights, dataset: &Dataset, eval_scale: EvalScale) -> Floa
 /// The loss function of a single sample is `(sigmoid(sample, scale) - outcome) ^ 2`,
 /// so per the chain rule, the derivative is `2 * (sigmoid(sample, scale) - outcome) * sigmoid'(sample, scale)`,
 /// where the derivative of the sigmoid, sigmoid', is `scale * sigmoid(sample, scale) * (1 - sigmoid(sample, scale)`.
-pub fn compute_gradient(weights: &Weights, dataset: &Dataset, eval_scale: EvalScale) -> Gradient {
+pub fn compute_gradient(
+    weights: &Weights,
+    dataset: &[Datapoint],
+    eval_scale: EvalScale,
+) -> Gradient {
     let mut grad = Weights(vec![Weight::default(); weights.len()]);
     // the 2 is a constant factor and could be dropped because we don't need to preserve the magnitude of the gradient,
     // but let's be correct and keep it.
@@ -225,18 +269,215 @@ pub fn compute_gradient(weights: &Weights, dataset: &Dataset, eval_scale: EvalSc
     grad
 }
 
-pub fn do_optimize(dataset: &Dataset, eval_scale: EvalScale, num_epochs: usize) -> Weights {
-    // TODO: AdamW
+pub trait Optimizer {
+    fn new(dataset: &[Datapoint], eval_scale: EvalScale) -> Self
+    where
+        Self: Sized;
+
+    // can be less than 1 to increase the lr.
+    fn lr_drop(&mut self, factor: Float);
+
+    fn num_features(&self) -> Option<usize> {
+        None
+    }
+
+    fn iteration(
+        &mut self,
+        weights: &mut Weights,
+        dataset: &[Datapoint],
+        eval_scale: EvalScale,
+        i: usize,
+    );
+
+    fn optimize(
+        &mut self,
+        dataset: &[Datapoint],
+        eval_scale: EvalScale,
+        num_iterations: usize,
+    ) -> Weights {
+        if let Some(num_features) = self.num_features() {
+            assert_eq!(
+                dataset[0].position.len(),
+                num_features,
+                "The number of features in the dataset doesn't match"
+            );
+        }
+        let mut weights = Weights(vec![Weight(0.0); dataset[0].position.len()]);
+        for i in 0..num_iterations {
+            self.iteration(&mut weights, dataset, eval_scale, i);
+        }
+        weights
+    }
+}
+
+pub struct SimpleGDOptimizer {
+    pub alpha: Float,
+}
+
+impl Optimizer for SimpleGDOptimizer {
+    fn new(_dataset: &[Datapoint], eval_scale: EvalScale) -> Self {
+        Self {
+            alpha: eval_scale.0 / 4.0,
+        }
+    }
+
+    fn lr_drop(&mut self, factor: Float) {
+        self.alpha /= factor;
+    }
+
+    fn iteration(
+        &mut self,
+        weights: &mut Weights,
+        dataset: &[Datapoint],
+        eval_scale: EvalScale,
+        _i: usize,
+    ) {
+        let gradient = compute_gradient(weights, dataset, eval_scale);
+        for i in 0..weights.len() {
+            weights[i].0 -= gradient[i].0 * self.alpha;
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct AdamHyperParams {
+    /// Learning rate multiplier, an upper bound on the step size.
+    pub alpha: Float,
+    /// Exponential decay of the moving average of the gradient
+    pub beta1: Float,
+    /// Exponential decay of the moving average of the uncentered variance of the gradient
+    pub beta2: Float,
+    /// Offset to avoid division by zero
+    pub epsilon: Float,
+}
+
+impl Default for AdamHyperParams {
+    fn default() -> Self {
+        Self::for_eval_scale(EvalScale::default())
+    }
+}
+
+impl AdamHyperParams {
+    fn for_eval_scale(eval_scale: EvalScale) -> Self {
+        Self {
+            /// We can use relatively large step sizes since our objective function is pretty nice
+            alpha: eval_scale.0 / 4.0,
+            /// Setting these values too low can introduce crazy swings in the eval values and loss when it would
+            /// otherwise appear converged -- maybe because of numerical instability?
+            beta1: 0.9, // 0.8,
+            beta2: 0.995,
+            /// When the gradient goes down to zero, we can run into numerical instability issues when dividing by the
+            /// square root of the uncentered variance, Set epsilon relatively large to counter this effect. This can
+            /// happen when a weight has almost converged or (if something else went wrong) when a weight got tuned so
+            /// large that the sigmoid gradient vanishes.
+            epsilon: 1e-6,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Adam {
+    pub hyper_params: AdamHyperParams,
+    /// first moment (exponentially moving average)
+    m: Weights,
+    /// second moment (exponentially moving average)
+    v: Weights,
+}
+
+impl Optimizer for Adam {
+    fn new(dataset: &[Datapoint], eval_scale: EvalScale) -> Self {
+        let hyper_params = AdamHyperParams::for_eval_scale(eval_scale);
+        let num_weights = dataset[0].position.len();
+        Self {
+            hyper_params,
+            m: Weights(vec![Weight(0.0); num_weights]),
+            v: Weights(vec![Weight(0.0); num_weights]),
+        }
+    }
+
+    fn lr_drop(&mut self, factor: Float) {
+        self.hyper_params.alpha /= factor;
+    }
+
+    fn num_features(&self) -> Option<usize> {
+        Some(self.v.len())
+    }
+
+    fn iteration(
+        &mut self,
+        weights: &mut Weights,
+        dataset: &[Datapoint],
+        eval_scale: EvalScale,
+        iteration: usize,
+    ) {
+        let iteration = iteration + 1;
+        let beta1 = self.hyper_params.beta1;
+        let beta2 = self.hyper_params.beta2;
+        let gradient = compute_gradient(weights, dataset, eval_scale);
+        for i in 0..gradient.len() {
+            // biased since the values are initialized to 0, so the exponential moving average is wrong
+            self.m[i] = self.m[i] * beta1 + gradient[i] * (1.0 - beta1);
+            self.v[i] = self.v[i] * beta2 + gradient[i] * gradient[i].0 * (1.0 - beta2);
+            let unbiased_m = self.m[i] / (1.0 - beta1.powi(iteration as i32));
+            let unbiased_v = self.v[i] / (1.0 - beta2.powi(iteration as i32));
+            weights[i] = weights[i]
+                - unbiased_m * self.hyper_params.alpha
+                    / (unbiased_v.0.sqrt() + self.hyper_params.epsilon)
+        }
+    }
+}
+
+pub fn do_optimize(
+    dataset: &[Datapoint],
+    eval_scale: EvalScale,
+    num_epochs: usize,
+    mut format_weights: FormatWeights,
+    optimizer: &mut dyn Optimizer,
+) -> Weights {
+    // TODO: AdamW?
     let mut weights = Weights(vec![Weight(0.0); dataset[0].position.len()]);
-    let mut scaling_factor = 1.0;
+    // Since weights are initially 0, use a very high lr for the first couple of iterations.
+    optimizer.lr_drop(0.25); // increases lr by a factor of
+    let mut prev_loss = 0.0;
     for epoch in 0..num_epochs {
-        let gradient = compute_gradient(&weights, dataset, eval_scale);
-        weights -= gradient * scaling_factor;
-        scaling_factor *= 0.99;
-        println!("Epoch {epoch} complete, weights:\n {weights}");
-        println!("Loss: {}", loss(&weights, &dataset, eval_scale));
+        optimizer.iteration(&mut weights, dataset, eval_scale, epoch);
+        let loss = loss(&weights, dataset, eval_scale);
+        println!(
+            "Epoch {epoch} complete, weights:\n {}",
+            format_weights.with_weights(weights.clone())
+        );
+        // if epoch % 10 == 0 {
+        // let loss = loss(&weights, dataset, eval_scale);
+        println!(
+            "Epoch {epoch}, loss: {0}, loss got smaller by: 1/1_000_000 * {1}",
+            loss,
+            (prev_loss - loss) * 1_000_000.0,
+        );
+        prev_loss = loss;
+        if loss <= 0.01 && epoch >= 20 {
+            break;
+        }
+        // }
+        if epoch == 20.min(num_epochs / 100) {
+            optimizer.lr_drop(4.0); // undo the raised lr.
+        }
     }
     weights
+}
+
+pub fn adam_optimize(
+    dataset: &[Datapoint],
+    eval_scale: EvalScale,
+    num_epochs: usize,
+    format_weights: FormatWeights,
+) -> Weights {
+    do_optimize(
+        dataset,
+        eval_scale,
+        num_epochs,
+        format_weights,
+        &mut Adam::new(dataset, eval_scale),
+    )
 }
 
 #[cfg(test)]
@@ -249,7 +490,7 @@ mod tests {
     #[test]
     pub fn simple_loss_test() {
         let weights = Weights(vec![Weight(0.0); 42]);
-        let no_features = vec![Feature(0); 42];
+        let no_features = vec![Feature::default(); 42];
         for outcome in [0.0, 0.5, 1.0] {
             let dataset = vec![Datapoint {
                 position: no_features.clone(),
@@ -267,6 +508,21 @@ mod tests {
     }
 
     #[test]
+    pub fn compute_gradient_test() {
+        let weights = Weights(vec![Weight(0.0)]);
+        for outcome in [0.0_f64, 0.5, 1.0] {
+            let data_points = [Datapoint {
+                position: vec![Feature::new_i8(1)],
+                outcome: Outcome::new(1.0),
+            }];
+            let gradient = compute_gradient(&weights, &data_points, EvalScale(1.0));
+            assert_eq!(gradient.len(), 1);
+            let gradient = gradient[0].0;
+            assert_eq!(-gradient, 0.5 * 0.5 * 0.5 * 2.0 * outcome.signum());
+        }
+    }
+
+    #[test]
     // testcase that contains only 1 position with only 1 feature
     pub fn trivial_test() {
         let scaling_factor = EvalScale(100.0);
@@ -274,7 +530,7 @@ mod tests {
             for initial_weight in [0.0, 0.1, 100.0, -1.2] {
                 for outcome in [0.0, 0.5, 1.0, 0.9, 0.499] {
                     let mut weights = Weights(vec![Weight(initial_weight)]);
-                    let position = vec![Feature(feature)];
+                    let position = vec![Feature::new_i8(feature)];
                     let datapoint = Datapoint {
                         position: position.clone(),
                         outcome: Outcome::new(outcome),
@@ -319,7 +575,7 @@ mod tests {
     pub fn simple_test() {
         for outcome in [0.0, 0.5, 1.0] {
             let mut weights = Weights(vec![Weight(0.0), Weight(1.0), Weight(-1.0)]);
-            let position = vec![Feature(1), Feature(-1), Feature(2)];
+            let position = vec![Feature::new_i8(1), Feature::new_i8(-1), Feature::new_i8(2)];
             let datapoint = Datapoint {
                 position: position.clone(),
                 outcome: Outcome::new(outcome),
@@ -344,7 +600,7 @@ mod tests {
         let scale = EvalScale(500.0);
         for outcome in [0.0, 0.5, 1.0] {
             let mut weights = Weights(vec![Weight(123.987), Weight(-987.123)]);
-            let position = vec![Feature(3), Feature(-3)];
+            let position = vec![Feature::new_i8(3), Feature::new_i8(-3)];
             let datapoint = Datapoint {
                 position: position.clone(),
                 outcome: Outcome::new(outcome),
@@ -375,11 +631,11 @@ mod tests {
     pub fn two_positions_test() {
         let scale = EvalScale(1000.0);
         let win = Datapoint {
-            position: vec![Feature(1), Feature(-1)],
+            position: vec![Feature::new_i8(1), Feature::new_i8(-1)],
             outcome: WrScore(1.0),
         };
         let lose = Datapoint {
-            position: vec![Feature(-1), Feature(1)],
+            position: vec![Feature::new_i8(-1), Feature::new_i8(1)],
             outcome: WrScore(0.0),
         };
         let dataset = vec![win, lose];
@@ -390,14 +646,30 @@ mod tests {
                 Weight(weights_dist.sample(&mut rng)),
                 Weight(weights_dist.sample(&mut rng)),
             ]);
+            let mut weights_copy = weights.clone();
             for _ in 0..200 {
                 let grad = compute_gradient(&weights, &dataset, scale);
                 weights -= grad;
             }
-            let loss = loss(&weights, &dataset, scale);
-            assert!(loss <= 0.001);
+            let remaining_loss = loss(&weights, &dataset, scale);
+            assert!(remaining_loss <= 0.001);
             assert!(weights[0].0 >= 100.0);
             assert!(weights[1].0 <= -100.0);
+
+            type AnyOptimizer = Box<dyn Optimizer>;
+            let mut optimizers: [Box<dyn Optimizer>; 2] = [
+                Box::new(SimpleGDOptimizer { alpha: 1.0 }),
+                Box::new(Adam::new(&dataset, scale)),
+            ];
+            for mut optimizer in optimizers {
+                for i in 0..100 {
+                    optimizer.iteration(&mut weights_copy, &dataset, scale, i);
+                }
+                let remaining_loss = loss(&weights_copy, &dataset, scale);
+                assert!(remaining_loss <= 0.001);
+                assert!(weights[0].0 >= 100.0);
+                assert!(weights[1].0 <= -100.0);
+            }
         }
     }
 
@@ -405,15 +677,15 @@ mod tests {
     pub fn three_positions_test() {
         let mut weights = Weights(vec![Weight(0.4), Weight(1.0), Weight(2.0)]);
         let draw_datapoint = Datapoint {
-            position: vec![Feature(0), Feature(0), Feature(0)],
+            position: vec![Feature::new_i8(0), Feature::new_i8(0), Feature::new_i8(0)],
             outcome: Outcome::new(0.5),
         };
         let lose_datapoint = Datapoint {
-            position: vec![Feature(-1), Feature(-1), Feature(0)],
+            position: vec![Feature::new_i8(-1), Feature::new_i8(-1), Feature::new_i8(0)],
             outcome: Outcome::new(0.0),
         };
         let win_datapoint = Datapoint {
-            position: vec![Feature(1), Feature(1), Feature(0)],
+            position: vec![Feature::new_i8(1), Feature::new_i8(1), Feature::new_i8(0)],
             outcome: Outcome::new(1.0),
         };
 
@@ -443,5 +715,26 @@ mod tests {
             weights[2].0, 2.0,
             "irrelevant weight is not supposed to change at all"
         );
+    }
+
+    #[test]
+    pub fn adam_one_weight_test() {
+        for outcome in [0.0, 0.5, 1.0] {
+            let eval_scale = EvalScale(10000.0);
+            let dataset = vec![Datapoint {
+                position: vec![Feature::new_i8(1)],
+                outcome: Outcome::new(outcome),
+            }];
+            let mut adam = Adam::new(&dataset, eval_scale);
+            let weights = adam.optimize(&dataset, eval_scale, 20);
+            assert_eq!(weights.len(), 1);
+            let weight = weights[0].0;
+            assert_eq!(weight.signum(), (outcome - 0.5).signum());
+            if outcome == 1.0 {
+                assert!(weight >= 10.0);
+            } else if outcome == 0.0 {
+                assert!(weight <= -10.0);
+            }
+        }
     }
 }
