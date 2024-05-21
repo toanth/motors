@@ -100,9 +100,8 @@ impl CustomInfo for Additional {
         for value in self.history.iter_mut() {
             *value /= 4;
         }
-        for value in self.cont_hist.iter_mut() {
-            *value /= 4; // TODO: Test keeping that around
-        }
+        // don't update conthist value, the malus already takes care of that
+        // TODO: Test not updating main history values
     }
 
     fn forget(&mut self) {
