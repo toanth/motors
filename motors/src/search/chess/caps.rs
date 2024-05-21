@@ -10,7 +10,7 @@ use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::{Chessboard, MAX_CHESS_MOVES_IN_POS};
-use gears::games::{Board, BoardHistory, ColoredPiece, Move, ZobristRepetition2Fold};
+use gears::games::{Board, BoardHistory, Color, ColoredPiece, Move, ZobristRepetition2Fold};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
 use gears::search::{
@@ -37,25 +37,25 @@ const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
 const KILLER_SCORE: i32 = i32::MAX - 200;
 
 #[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
-struct HistoryHeuristic([i32; 64 * 64]);
+struct HistoryHeuristic([[i32; 64 * 64]; 2]);
 
 impl HistoryHeuristic {
     /// Updates the history using the History Gravity technique,
     /// which keeps history scores from growing arbitrarily large and scales the bonus/malus depending on how
     /// "unexpected" they are, i.e. by how much they differ from the current history scores.
-    fn update(&mut self, idx: usize, value: i32) {
-        let entry = &mut self[idx];
+    fn update(&mut self, mov: ChessMove, color: Color, bonus: i32) {
+        let entry = &mut self[color as usize][mov.from_to_square()];
         // The maximum history score magnitude can be slightly larger than the divisor due to rounding errors.
         const DIVISOR: i32 = 1024;
         // The `.abs()` call is necessary to correctly handle history malus.
-        let bonus = value - value.abs() * *entry / DIVISOR; // bonus can also be negative
+        let bonus = bonus - bonus.abs() * *entry / DIVISOR; // bonus can also be negative
         *entry += bonus;
     }
 }
 
 impl Default for HistoryHeuristic {
     fn default() -> Self {
-        HistoryHeuristic([0; 64 * 64])
+        HistoryHeuristic([[0; 64 * 64]; 2])
     }
 }
 
@@ -71,13 +71,13 @@ impl CustomInfo for Additional {
     }
 
     fn new_search(&mut self) {
-        for value in self.history.iter_mut() {
+        for value in self.history.iter_mut().flatten() {
             *value /= 4;
         }
     }
 
     fn forget(&mut self) {
-        for value in self.history.iter_mut() {
+        for value in self.history.iter_mut().flatten() {
             *value = 0;
         }
     }
@@ -612,15 +612,16 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // Update various heuristics. TODO: Conthist, capthist, ...
             let entry = &mut self.state.search_stack[ply];
             for disappointing in entry.tried_quiets.iter().dropping_back(1) {
-                self.state
-                    .custom
-                    .history
-                    .update(disappointing.from_to_square(), -(depth * depth) as i32);
+                self.state.custom.history.update(
+                    *disappointing,
+                    pos.active_player(),
+                    -(depth * depth) as i32,
+                );
             }
             self.state
                 .custom
                 .history
-                .update(mov.from_to_square(), (depth * depth) as i32);
+                .update(mov, pos.active_player(), (depth * depth) as i32);
             entry.killer = mov;
             break;
         }
@@ -754,7 +755,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             } else if mov == self.state.search_stack[ply].killer {
                 KILLER_SCORE
             } else if captured == Empty {
-                self.state.custom.history[mov.from_to_square()]
+                self.state.custom.history[board.active_player() as usize][mov.from_to_square()]
             } else {
                 let base_val = if board.see_at_least(mov, SeeScore(0)) {
                     i32::MAX - 100
