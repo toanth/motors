@@ -24,10 +24,9 @@ pub struct NodeTypeCtr {
 impl NodeTypeCtr {
     fn increment(&mut self, node_type: NodeType) {
         let ctr = match node_type {
-            NodeType::Empty => panic!(),
-            NodeType::LowerBound => &mut self.fail_highs,
+            NodeType::FailHigh => &mut self.fail_highs,
             NodeType::Exact => &mut self.exact,
-            NodeType::UpperBound => &mut self.fail_lows,
+            NodeType::FailLow => &mut self.fail_lows,
         };
         *ctr += 1;
     }

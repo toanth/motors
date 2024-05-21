@@ -14,7 +14,7 @@ use crate::eval::Eval;
 use crate::search::multithreading::SearchSender;
 use crate::search::statistics::SearchType::MainSearch;
 use crate::search::tt::TT;
-use crate::search::NodeType::{Exact, LowerBound, UpperBound};
+use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use crate::search::{
     ABSearchState, BenchResult, Benchable, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
     SearchState,
@@ -230,9 +230,9 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
             break;
         }
         let node_type = if best_score >= beta {
-            LowerBound
+            FailHigh
         } else if best_score <= alpha {
-            UpperBound
+            FailLow
         } else {
             Exact
         };
