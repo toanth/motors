@@ -552,9 +552,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     // In a PV node, we should be careful not to reduce too much in general. In a fail high node, we don't
                     // expect to even look at this move, so this is interesting and should not be reduced too much.
                     match expected_node_type {
-                        FailHigh => reduction += 2,
+                        FailHigh => reduction += 3,
                         Exact => reduction += 1,
-                        FailLow => reduction += 3,
+                        FailLow => reduction += 2,
                     }
                 }
                 reduction = reduction.min(depth - 1);
