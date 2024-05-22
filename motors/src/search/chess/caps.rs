@@ -546,15 +546,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
                 // to verify our belief.
                 let mut reduction = 0;
-                if !in_check && num_uninteresting_visited > 2 && depth >= 4 {
-                    reduction = depth / 8 + (num_uninteresting_visited - 2) / 8;
-                    // In a fail low node, we need to search all moves but expect them to not raise alpha, so reduce more.
-                    // In a PV node, we should be careful not to reduce too much in general. In a fail high node, we don't
-                    // expect to even look at this move, so this is interesting and should not be reduced too much.
-                    match expected_node_type {
-                        FailHigh => reduction += 2,
-                        Exact => reduction += 1,
-                        FailLow => reduction += 3,
+                let lmr_depth = 4 - (expected_node_type == FailLow) as isize;
+                if !in_check && num_uninteresting_visited > 2 && depth >= lmr_depth {
+                    reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8;
+                    if !is_pv_node {
+                        reduction += 1;
                     }
                 }
                 reduction = reduction.min(depth - 1);
