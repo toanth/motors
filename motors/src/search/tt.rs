@@ -1,4 +1,4 @@
-use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T2};
+use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T1};
 use std::mem::{size_of, transmute, transmute_copy};
 use std::ptr::addr_of;
 use std::sync::atomic::Ordering::Relaxed;
@@ -239,9 +239,8 @@ impl TT {
     pub fn prefetch(&self, hash: ZobristHash) {
         if cfg!(feature = "unsafe") {
             unsafe {
-                // TODO: Test if T0 is better, make sure this doesn't try to load the entry it's prefetching
                 #[cfg(all(target_arch = "x86_64", target_feature = "sse"))]
-                _mm_prefetch::<_MM_HINT_T2>(addr_of!(self.tt.arr[self.index_of(hash)]) as *const i8);
+                _mm_prefetch::<_MM_HINT_T1>(addr_of!(self.tt.arr[self.index_of(hash)]) as *const i8);
             }
         }
     }

@@ -362,8 +362,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         let mut tt = self.state.custom.tt.clone();
 
         let root = ply == 0;
-        // let is_pv_node = expected_node_type == Exact; // TODO: Make a generic argument of search?
-        let is_pv_node = alpha + 1 < beta; // TODO: Pass as parameter / generic? Probably not worth much elo
+        let is_pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
         debug_assert!(!root || is_pv_node); // root implies pv node
         debug_assert!(alpha + 1 == beta || is_pv_node); // alpha + 1 < beta implies Exact node
 
@@ -461,7 +460,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     depth - 1 - reduction,
                     -beta,
                     -beta + 1,
-                    FailLow,
+                    FailLow, // the child node is expected to fail low, leading to a fail high in this node
                     sender,
                 );
                 self.state.board_history.pop(&pos);
@@ -518,7 +517,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
             let debug_history_len = self.state.board_history.0 .0.len();
 
-            let expected_child_type = expected_node_type.inverse();
+            let expected_child_type = if expected_node_type == Exact && children_visited > 1 {
+                FailHigh
+            } else {
+                expected_node_type.inverse()
+            };
 
             self.state.board_history.push(&pos);
             // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove
@@ -543,7 +546,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
                 // to verify our belief.
                 let mut reduction = 0;
-                if !in_check && num_uninteresting_visited > 2 && depth >= 4 {
+                let lmr_depth = 4 - (expected_node_type == FailLow) as isize;
+                if !in_check && num_uninteresting_visited > 2 && depth >= lmr_depth {
                     reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8;
                     if !is_pv_node {
                         reduction += 1;
@@ -580,6 +584,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // full window to find the true score. If the score was at least `beta`, don't search again
                 // -- this move is probably already too good, so don't waste more time finding out how good it is exactly.
                 if alpha < score && score < beta {
+                    debug_assert_eq!(expected_node_type, Exact);
                     self.state.statistics.lmr_second_retry();
                     score = -self.negamax(
                         new_pos,
