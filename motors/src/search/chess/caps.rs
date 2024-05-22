@@ -174,7 +174,7 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
         EngineInfo {
             name: self.long_name().to_string(),
             version: "0.0.1".to_string(),
-            default_bench_depth: Depth::new(10),
+            default_bench_depth: Depth::new(12),
             options,
             description: "CAPS (Chess Alpha-beta Pruning Search), a negamax-based chess engine"
                 .to_string(),
