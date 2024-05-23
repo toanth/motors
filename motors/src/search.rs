@@ -540,12 +540,13 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
 #[derive(Debug, Copy, Clone, Eq, PartialEq, FromRepr)]
 #[repr(u8)]
 pub enum NodeType {
+    /// Don't use 0 because that's used to represent the empty node type for the internal TT representation
     /// score is a lower bound >= beta, cut-node (the most common node type)
-    FailHigh,
+    FailHigh = 1,
     /// score known exactly in `(alpha, beta)`, PV node (very rare, but those are the most important nodes)
-    Exact,
+    Exact = 2,
     /// score between alpha and beta, PV node (important node!)
-    FailLow, // score is an upper bound <= alpha, all-node (relatively rare, but makes parent a cut-node)
+    FailLow = 3, // score is an upper bound <= alpha, all-node (relatively rare, but makes parent a cut-node)
 }
 
 impl NodeType {
