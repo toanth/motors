@@ -560,7 +560,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // to verify our belief.
                 // I think it's common to have a minimum depth for doing LMR, but not having that gained elo.
                 let mut reduction = 0;
-                if !in_check && num_uninteresting_visited > 2 && depth >= 3 {
+                let lmr_depth = 2 + is_pv_node as isize;
+                if !in_check && num_uninteresting_visited > 2 && depth >= lmr_depth {
                     reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8;
                     if !is_pv_node {
                         reduction += 1;
