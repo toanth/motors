@@ -21,16 +21,12 @@ type AtomicTTEntry = AtomicU128;
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, FromRepr)]
 #[repr(u8)]
 enum OptionalNodeType {
-    NodeTypeFailHigh,
-    NodeTypeExact,
-    NodeTypeFailLow,
     #[default]
-    Empty,
+    Empty = 0,
+    NodeTypeFailHigh = NodeType::FailHigh as u8,
+    NodeTypeExact = NodeType::Exact as u8,
+    NodeTypeFailLow = NodeType::FailLow as u8,
 }
-
-const_assert_eq!(NodeTypeFailHigh as usize, NodeType::FailHigh as usize);
-const_assert_eq!(NodeTypeExact as usize, NodeType::Exact as usize);
-const_assert_eq!(NodeTypeFailLow as usize, NodeType::FailLow as usize);
 
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 #[repr(C)]
