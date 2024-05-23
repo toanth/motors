@@ -348,7 +348,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         mut depth: isize,
         mut alpha: Score,
         beta: Score,
-        expected_node_type: NodeType,
+        mut expected_node_type: NodeType,
         sender: &SearchSender<Chessboard>,
     ) -> Score {
         debug_assert!(alpha < beta);
@@ -402,6 +402,19 @@ impl<E: Eval<Chessboard>> Caps<E> {
             {
                 self.state.statistics.tt_cutoff(MainSearch, bound);
                 return tt_entry.score;
+            }
+            // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
+            // at what the type of this node is going to be.
+            if !is_pv_node {
+                if bound == Exact {
+                    expected_node_type = if tt_entry.score <= alpha {
+                        FailLow
+                    } else {
+                        FailHigh
+                    }
+                } else {
+                    expected_node_type = bound;
+                }
             }
 
             best_move = tt_entry.mov;
@@ -546,13 +559,14 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
                 // to verify our belief.
                 let mut reduction = 0;
-                let lmr_depth = 3;
+                let lmr_depth = 3 - (expected_node_type == FailLow) as isize;
                 if !in_check && num_uninteresting_visited > 2 && depth >= lmr_depth {
                     reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8;
                     if !is_pv_node {
                         reduction += 1;
                     }
                 }
+                // this ensures that check extensions prevent going into qsearch while in check
                 reduction = reduction.min(depth - 1);
 
                 score = -self.negamax(
