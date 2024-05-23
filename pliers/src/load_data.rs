@@ -1,5 +1,5 @@
 use crate::eval::Eval;
-use crate::gd::{Datapoint, Dataset, Float, Outcome, Position};
+use crate::gd::{Dataset, Float, Outcome};
 use colored::Colorize;
 use gears::games::Board;
 use gears::general::common::{parse_fp_from_str, Res};
@@ -22,16 +22,17 @@ pub struct ParseResult<B: Board> {
 
 /// Avoids having to specify the generic Board argument each time.
 #[derive(Default)]
-pub struct FenReader<B: Board> {
+pub struct FenReader<B: Board, E: Eval<B>> {
     _phantom_data: PhantomData<B>,
+    _phantom_data2: PhantomData<E>,
 }
 
-impl<B: Board> FenReader<B> {
+impl<B: Board, E: Eval<B>> FenReader<B, E> {
     fn parse_wdl(input: &mut SplitWhitespace) -> Res<Outcome> {
         // This would be a great time to use the `.remainder()` method, but that isn't stable :/
         let wdl = input.next().ok_or_else(|| "Missing wdl".to_string())?;
-        const IGNORED: [char; 7] = ['\"', '\'', '[', '(', '{', ' ', '\t'];
-        let wdl = wdl.trim_start_matches(&IGNORED);
+        const IGNORED: [char; 10] = ['\"', '\'', '[', ']', '(', ')', '{', '}', ' ', '\t'];
+        let wdl = wdl.trim_matches(&IGNORED);
         for (key, value) in WDL_MAP {
             if wdl.starts_with(key) {
                 return Ok(Outcome::new(value));
@@ -43,7 +44,7 @@ impl<B: Board> FenReader<B> {
         Err(format!("'{}' is not a valid wdl", wdl.red()))
     }
 
-    fn read_fen_and_res(input: &str) -> Res<ParseResult<B>> {
+    fn read_annotated_fen(input: &str) -> Res<ParseResult<B>> {
         let mut input = input.split_whitespace();
         let pos = B::read_fen_and_advance_input(&mut input)?;
         // skip up to one token between the end of the fen and the wdl
@@ -52,28 +53,40 @@ impl<B: Board> FenReader<B> {
         Ok(ParseResult { pos, outcome })
     }
 
-    pub fn load_from_str(annotated_fens: &str) -> Res<Vec<ParseResult<B>>> {
-        let mut res = vec![];
-        for line in annotated_fens.lines() {
-            res.push(Self::read_fen_and_res(line)?);
+    fn load_datapoint_from_annotated_fen(
+        input: &str,
+        line_num: usize,
+        dataset: &mut Dataset<E::D>,
+    ) -> Res<()> {
+        let parse_res = Self::read_annotated_fen(input).map_err(|err| {
+            format!(
+                "Error in line {line_num}: Couldn't parse FEN '{}': {err}",
+                input.bold()
+            )
+        })?;
+        // in the future, this would be a good place to filter the dataset.
+        dataset
+            .datapoints
+            .push(E::extract_features(&parse_res.pos, parse_res.outcome));
+        Ok(())
+    }
+
+    pub fn load_from_str(annotated_fens: &str) -> Res<Dataset<E::D>> {
+        let mut res = Dataset::new(E::NUM_FEATURES);
+        for (idx, line) in annotated_fens.lines().enumerate() {
+            Self::load_datapoint_from_annotated_fen(line, idx, &mut res)?;
         }
         Ok(res)
     }
 
-    pub fn load_from_file(file: File) -> Res<Vec<ParseResult<B>>> {
+    pub fn load_from_file(file: File) -> Res<Dataset<E::D>> {
         let reader = BufReader::new(file);
-        let mut res = vec![];
+        let mut res = Dataset::new(E::NUM_FEATURES);
         let mut line_no = 1;
-        for line in reader.lines() {
+        for (idx, line) in reader.lines().enumerate() {
             let line = line.map_err(|err| format!("Failed to read line {line_no}: {err}"))?;
-            let line = Self::read_fen_and_res(line.as_str()).map_err(|err| {
-                format!(
-                    "Error in line {line_no}: Couldn't parse FEN '{}': {err}",
-                    line.bold()
-                )
-            })?;
-            res.push(line);
-            if line_no % 10_000 == 0 {
+            Self::load_datapoint_from_annotated_fen(&line, idx, &mut res)?;
+            if line_no % 100_000 == 0 {
                 println!("Loading...  Loaded {line_no} fens so far");
             }
             line_no += 1;
@@ -81,31 +94,4 @@ impl<B: Board> FenReader<B> {
         println!("Loaded {line_no} fens in total");
         Ok(res)
     }
-}
-
-pub fn parse_res_to_dataset<B: Board, E: Eval<B>>(parsed: &[ParseResult<B>]) -> Dataset {
-    let mut res = Vec::with_capacity(parsed.len());
-    let mut num_parsed = 0;
-    for p in parsed {
-        let position = E::features(&p.pos);
-        res.push(Datapoint {
-            position,
-            outcome: p.outcome,
-        });
-        num_parsed += 1;
-        if num_parsed % 10_000 == 0 {
-            println!("Parsed {num_parsed} positions");
-        }
-    }
-    res
-}
-
-pub fn parse_from_str<B: Board, E: Eval<B>>(fens: &str) -> Res<Dataset> {
-    let res = FenReader::<B>::load_from_str(fens)?;
-    Ok(parse_res_to_dataset::<B, E>(&res))
-}
-
-pub fn parse_from_file<B: Board, E: Eval<B>>(file: File) -> Res<Dataset> {
-    let res = FenReader::<B>::load_from_file(file)?;
-    Ok(parse_res_to_dataset::<B, E>(&res))
 }

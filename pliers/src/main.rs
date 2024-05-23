@@ -2,8 +2,8 @@ use crate::eval::chess::caps_hce_eval::CapsHceEval;
 use crate::eval::chess::material_only_eval::MaterialOnlyEval;
 use crate::eval::chess::piston_eval::PistonEval;
 use crate::eval::Eval;
-use crate::gd::{do_optimize, Adam, EvalScale, Optimizer, SimpleGDOptimizer};
-use crate::load_data::{parse_res_to_dataset, FenReader};
+use crate::gd::{do_optimize, Adam, Datapoint, EvalScale, Optimizer, TaperedDatapoint};
+use crate::load_data::FenReader;
 use gears::games::chess::Chessboard;
 use gears::games::Board;
 use gears::general::common::Res;
@@ -14,23 +14,26 @@ pub mod eval;
 pub mod gd;
 pub mod load_data;
 
-pub fn optimize<B: Board, E: Eval<B>, O: Optimizer>(file_name: &str) -> Res<()> {
+pub fn optimize<B: Board, E: Eval<B>, O: Optimizer<E::D>>(file_name: &str) -> Res<()> {
+    #[cfg(debug_assertions)]
+    println!("Running in debug mode. Run in release mode for increased performance.");
     let file = File::open(Path::new(file_name))
         .map_err(|err| format!("Could not open file '{file_name}': {err}"))?;
-    let features = FenReader::<B>::load_from_file(file)?;
-    let dataset = parse_res_to_dataset::<B, E>(&features);
-    drop(features);
+    let dataset = FenReader::<B, E>::load_from_file(file)?;
     let scale = EvalScale::default();
-    let mut optimizer = O::new(&dataset, scale);
-    let weights = do_optimize(&dataset, scale, 1000, E::formatter(), &mut optimizer);
-    println!("{}", E::formatter().with_weights(weights));
+    let mut optimizer = O::new(dataset.as_batch(), scale);
+    let e = E::default();
+    let weights = do_optimize(dataset.as_batch(), scale, 2000, &e, &mut optimizer);
+    println!("{}", e.formatter(&weights));
     Ok(())
 }
 
 fn main() {
     if let Err(err) =
-        optimize::<Chessboard, PistonEval, Adam>("pliers/datasets/chess/quiet-labeled.v7.epd")
-    // optimize::<Chessboard, PistonEval, Adam>("pliers/datasets/chess/lichess-big3-resolved.book")
+        // optimize::<Chessboard, PistonEval, Adam>("pliers/datasets/chess/quiet-labeled.v7.epd")
+        optimize::<Chessboard, PistonEval, Adam>(
+            "pliers/datasets/chess/lichess-big3-resolved.book",
+        )
     {
         eprintln!("{err}");
     }

@@ -1,6 +1,5 @@
-use crate::eval::Eval;
-use crate::gd::{Feature, FeatureT, Position, Weights};
-use gears::games::chess::pieces::UncoloredChessPiece::King;
+use crate::eval::{Eval, FormatWeights, WeightFormatter};
+use crate::gd::{Feature, NonTaperedDatapoint, Outcome, Trace, Weights};
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::Chessboard;
 use gears::games::Color;
@@ -12,29 +11,31 @@ use strum::IntoEnumIterator;
 #[derive(Debug, Default)]
 pub struct MaterialOnlyEval {}
 
+impl WeightFormatter for MaterialOnlyEval {
+    fn format_impl(&self) -> (fn(&mut Formatter, &Weights) -> std::fmt::Result) {
+        |f: &mut Formatter<'_>, weights: &Weights| {
+            for piece in UncoloredChessPiece::non_king_pieces() {
+                writeln!(f, "{0}:\t{1}", piece.name(), weights[piece as usize])?
+            }
+            Ok(())
+        }
+    }
+}
+
 impl Eval<Chessboard> for MaterialOnlyEval {
     const NUM_FEATURES: usize = NUM_CHESS_PIECES - 1;
 
-    fn features(pos: &Chessboard) -> Position {
-        let mut res = vec![Feature::default(); Self::NUM_FEATURES];
+    type D = NonTaperedDatapoint;
+
+    fn feature_trace(pos: &Chessboard) -> Trace {
+        let mut trace = Trace::default();
         for color in Color::iter() {
             for piece in UncoloredChessPiece::non_king_pieces() {
-                let num_pieces = pos.colored_piece_bb(color, piece).num_set_bits() as i8;
-                if color == White {
-                    res[piece as usize].0 += num_pieces as FeatureT;
-                } else {
-                    res[piece as usize].0 -= num_pieces as FeatureT;
-                }
+                let num_pieces = pos.colored_piece_bb(color, piece).num_set_bits() as isize;
+                trace.increment_by(piece as usize, color, num_pieces);
             }
         }
-        res
-    }
-
-    fn format_impl(f: &mut Formatter<'_>, weights: &Weights) -> std::fmt::Result {
-        for piece in UncoloredChessPiece::non_king_pieces() {
-            writeln!(f, "{0}:\t{1}", piece.name(), weights[piece as usize])?
-        }
-        Ok(())
+        trace
     }
 }
 
@@ -47,7 +48,7 @@ mod tests {
     #[test]
     pub fn startpos_test() {
         let board = Chessboard::default();
-        let features = MaterialOnlyEval::features(&board);
+        let features = MaterialOnlyEval::extract_features(&board);
         assert_eq!(features.len(), 5);
         for f in features {
             assert_eq!(f.0, 0);
@@ -56,13 +57,14 @@ mod tests {
 
     pub fn lucena_test() {
         let board = Chessboard::from_name("lucena").unwrap();
-        let features = MaterialOnlyEval::features(&board);
+        let features = MaterialOnlyEval::extract_features(&board, Outcome::new(1.0)).features;
         assert_eq!(features.len(), 5);
         for (i, f) in features.iter().enumerate() {
+            assert_eq!(i, f.idx());
             if i == Pawn as usize {
-                assert_eq!(f.0, 1);
+                assert_eq!(f.float(), 1.0);
             } else {
-                assert_eq!(f.0, 0);
+                assert_eq!(f.float(), 0.0);
             }
         }
     }

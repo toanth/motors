@@ -1,47 +1,40 @@
-use crate::gd::{Float, Position, Weights};
+use crate::gd::{Datapoint, Outcome, Trace, Weights};
 use gears::games::Board;
 use gears::general::bitboards::RawBitboard;
 use std::fmt::{Display, Formatter};
 
 pub mod chess;
 
-pub struct FormatWeights {
-    weights: Option<Weights>,
-    format_fn: fn(&mut Formatter<'_>, &Weights) -> std::fmt::Result,
-    num_features: usize,
+pub struct FormatWeights<'a> {
+    format_weights: fn(&mut Formatter<'_>, &Weights) -> std::fmt::Result,
+    weights: &'a Weights,
 }
 
-impl FormatWeights {
-    pub fn new<B: Board, E: Eval<B>>() -> Self {
-        Self {
-            weights: None,
-            format_fn: E::format_impl,
-            num_features: E::NUM_FEATURES,
+impl<'a> Display for FormatWeights<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        (self.format_weights)(f, self.weights)
+    }
+}
+
+pub trait WeightFormatter {
+    fn formatter<'a>(&'a self, weights: &'a Weights) -> FormatWeights {
+        FormatWeights {
+            format_weights: self.format_impl(),
+            weights,
         }
     }
-    pub fn with_weights(&mut self, weights: Weights) -> &Self {
-        self.weights = Some(weights);
-        self
-    }
+
+    fn format_impl(&self) -> (fn(f: &mut Formatter, weights: &Weights) -> std::fmt::Result);
 }
 
-impl Display for FormatWeights {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        assert_eq!(self.weights.as_ref().unwrap().len(), self.num_features);
-        (self.format_fn)(f, self.weights.as_ref().unwrap())
-    }
-}
-
-pub trait Eval<B: Board>: Default {
+pub trait Eval<B: Board>: WeightFormatter + Default {
     const NUM_FEATURES: usize;
-    fn features(pos: &B) -> Position;
 
-    fn format_impl(f: &mut Formatter<'_>, weights: &Weights) -> std::fmt::Result;
+    type D: Datapoint;
 
-    fn formatter() -> FormatWeights
-    where
-        Self: Sized,
-    {
-        FormatWeights::new::<B, Self>()
+    fn extract_features(pos: &B, outcome: Outcome) -> Self::D {
+        Self::D::new(Self::feature_trace(pos), outcome)
     }
+
+    fn feature_trace(pos: &B) -> Trace;
 }

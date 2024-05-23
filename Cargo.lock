@@ -561,6 +561,7 @@ dependencies = [
  "derive_more",
  "gears",
  "rand",
+ "rayon",
  "strum",
  "strum_macros",
 ]
