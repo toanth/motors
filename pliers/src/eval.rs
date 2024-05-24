@@ -1,4 +1,4 @@
-use crate::gd::{Datapoint, Outcome, TraceTrait, Weights};
+use crate::gd::{Datapoint, EvalScale, Outcome, TraceTrait, Weights};
 use crate::load_data::{Filter, NoFilter};
 use gears::games::Board;
 use gears::general::bitboards::RawBitboard;
@@ -41,4 +41,8 @@ pub trait Eval<B: Board>: WeightFormatter + Default {
     }
 
     fn feature_trace(pos: &B) -> impl TraceTrait;
+
+    fn eval_scale() -> EvalScale {
+        EvalScale::default()
+    }
 }

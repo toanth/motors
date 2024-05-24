@@ -5,8 +5,8 @@ use crate::eval::chess::{
 };
 use crate::eval::{Eval, WeightFormatter};
 use crate::gd::{
-    Datapoint, Feature, Float, Outcome, PhaseMultiplier, SimpleTrace, TaperedDatapoint, TraceTrait,
-    Weights,
+    Datapoint, EvalScale, Feature, Float, Outcome, PhaseMultiplier, SimpleTrace, TaperedDatapoint,
+    TraceTrait, Weights,
 };
 use crate::load_data::NoFilter;
 use gears::games::chess::pieces::UncoloredChessPiece::{King, Pawn, Rook};
@@ -54,7 +54,7 @@ impl WeightFormatter for CapsHceEval {
         |f: &mut Formatter<'_>, weights: &Weights| {
             assert_eq!(weights.len(), Self::NUM_WEIGHTS);
             write_psqts(f, weights)?;
-            writeln!("\n#[rustfmt::skip]");
+            writeln!(f, "\n#[rustfmt::skip]")?;
             writeln!(f, "const PASSED_PAWNS: [[i32; NUM_SQUARES]; 2] = [")?;
             write_phased_psqt(
                 f,
@@ -100,6 +100,10 @@ impl Eval<Chessboard> for CapsHceEval {
 
     fn feature_trace(pos: &Chessboard) -> Trace {
         Self::trace(pos)
+    }
+
+    fn eval_scale() -> EvalScale {
+        EvalScale(130.0)
     }
 }
 

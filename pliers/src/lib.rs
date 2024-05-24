@@ -24,9 +24,9 @@ pub fn optimize<B: Board, E: Eval<B>, O: Optimizer<E::D>>(file_list: &[String]) 
     for file_name in file_list {
         dataset.union(FenReader::<B, E>::load_from_file(file_name)?);
     }
-    let scale = EvalScale::default();
-    let mut optimizer = O::new(dataset.as_batch(), scale);
     let e = E::default();
+    let scale = E::eval_scale();
+    let mut optimizer = O::new(dataset.as_batch(), scale);
     let weights = optimize_entire_batch(dataset.as_batch(), scale, 2000, &e, &mut optimizer);
     println!("{}", e.formatter(&weights));
     Ok(())
