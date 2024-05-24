@@ -1,5 +1,6 @@
 use crate::eval::{Eval, FormatWeights, WeightFormatter};
-use crate::gd::{Feature, NonTaperedDatapoint, Outcome, Trace, Weights};
+use crate::gd::{Feature, NonTaperedDatapoint, Outcome, SimpleTrace, Weights};
+use crate::load_data::NoFilter;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::Chessboard;
 use gears::games::Color;
@@ -23,12 +24,14 @@ impl WeightFormatter for MaterialOnlyEval {
 }
 
 impl Eval<Chessboard> for MaterialOnlyEval {
-    const NUM_FEATURES: usize = NUM_CHESS_PIECES - 1;
+    const NUM_WEIGHTS: usize = NUM_CHESS_PIECES - 1;
+    const NUM_FEATURES: usize = Self::NUM_WEIGHTS;
 
     type D = NonTaperedDatapoint;
+    type Filter = NoFilter;
 
-    fn feature_trace(pos: &Chessboard) -> Trace {
-        let mut trace = Trace::default();
+    fn feature_trace(pos: &Chessboard) -> SimpleTrace {
+        let mut trace = SimpleTrace::for_features(Self::NUM_FEATURES);
         for color in Color::iter() {
             for piece in UncoloredChessPiece::non_king_pieces() {
                 let num_pieces = pos.colored_piece_bb(color, piece).num_set_bits() as isize;
@@ -48,7 +51,7 @@ mod tests {
     #[test]
     pub fn startpos_test() {
         let board = Chessboard::default();
-        let features = MaterialOnlyEval::extract_features(&board);
+        let features = MaterialOnlyEval::feature_trace(&board);
         assert_eq!(features.len(), 5);
         for f in features {
             assert_eq!(f.0, 0);

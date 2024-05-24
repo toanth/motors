@@ -1,11 +1,13 @@
 use crate::eval::Eval;
-use crate::gd::{Dataset, Float, Outcome};
+use crate::gd::{Datapoint, Dataset, Float, Outcome};
 use colored::Colorize;
 use gears::games::Board;
 use gears::general::common::{parse_fp_from_str, Res};
+use std::fmt::Pointer;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::marker::PhantomData;
+use std::path::Path;
 use std::str::SplitWhitespace;
 
 const WDL_MAP: [(&str, Float); 4] = [
@@ -16,8 +18,21 @@ const WDL_MAP: [(&str, Float); 4] = [
 ];
 
 pub struct ParseResult<B: Board> {
-    pos: B,
-    outcome: Outcome,
+    pub pos: B,
+    pub outcome: Outcome,
+}
+
+pub trait Filter<B: Board> {
+    /// returns an iteraor because it's possible for a `Filter` to return more than one position per input position.
+    fn filter(pos: ParseResult<B>) -> impl IntoIterator<Item = ParseResult<B>>;
+}
+
+pub struct NoFilter {}
+
+impl<B: Board> Filter<B> for NoFilter {
+    fn filter(pos: ParseResult<B>) -> impl IntoIterator<Item = ParseResult<B>> {
+        [pos]
+    }
 }
 
 /// Avoids having to specify the generic Board argument each time.
@@ -64,34 +79,42 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
                 input.bold()
             )
         })?;
-        // in the future, this would be a good place to filter the dataset.
-        dataset
-            .datapoints
-            .push(E::extract_features(&parse_res.pos, parse_res.outcome));
+        for datapoint in E::Filter::filter(parse_res) {
+            dataset
+                .datapoints
+                .push(E::extract_features(&datapoint.pos, datapoint.outcome))
+        }
         Ok(())
     }
 
     pub fn load_from_str(annotated_fens: &str) -> Res<Dataset<E::D>> {
-        let mut res = Dataset::new(E::NUM_FEATURES);
+        let mut res = Dataset::new(E::NUM_WEIGHTS);
         for (idx, line) in annotated_fens.lines().enumerate() {
             Self::load_datapoint_from_annotated_fen(line, idx, &mut res)?;
         }
         Ok(res)
     }
 
-    pub fn load_from_file(file: File) -> Res<Dataset<E::D>> {
+    pub fn load_from_file(file_name: &str) -> Res<Dataset<E::D>> {
+        let file = File::open(Path::new(file_name))
+            .map_err(|err| format!("Could not open file '{file_name}': {err}"))?;
+        let file = BufReader::new(file);
+        println!("Loading FENs from file '{}'", file_name.bold());
         let reader = BufReader::new(file);
-        let mut res = Dataset::new(E::NUM_FEATURES);
+        let mut res = Dataset::new(E::NUM_WEIGHTS);
         let mut line_no = 1;
         for (idx, line) in reader.lines().enumerate() {
             let line = line.map_err(|err| format!("Failed to read line {line_no}: {err}"))?;
             Self::load_datapoint_from_annotated_fen(&line, idx, &mut res)?;
             if line_no % 100_000 == 0 {
-                println!("Loading...  Loaded {line_no} fens so far");
+                println!("Loading...  Read {line_no} lines so far");
             }
             line_no += 1;
         }
-        println!("Loaded {line_no} fens in total");
+        println!(
+            "Read {line_no} fens in total, after filtering there are {} positions",
+            res.datapoints.len()
+        );
         Ok(res)
     }
 }

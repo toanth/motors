@@ -1,25 +1,54 @@
 use crate::eval::chess::PhaseType::*;
-use crate::gd::{Feature, Float, PhaseMultiplier, Trace, Weight, Weights};
+use crate::gd::{Feature, Float, PhaseMultiplier, SimpleTrace, Weight, Weights};
+use crate::load_data::{Filter, ParseResult};
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
 use gears::games::chess::Chessboard;
 use gears::games::Color;
+use gears::games::Color::White;
 use gears::general::bitboards::RawBitboard;
 use std::f32::consts::E;
-use std::fmt::Formatter;
+use std::fmt::{Display, Formatter};
 use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
 pub mod caps_hce_eval;
 pub mod material_only_eval;
 pub mod piston_eval;
 
+pub struct SkipChecks {}
+
+impl Filter<Chessboard> for SkipChecks {
+    fn filter(pos: ParseResult<Chessboard>) -> Option<ParseResult<Chessboard>> {
+        if pos.pos.is_in_check() {
+            None
+        } else {
+            Some(pos)
+        }
+    }
+}
+
+// TODO: Qsearch filter
+
 const NUM_PHASES: usize = 2;
 const CHESS_PHASE_VALUES: [usize; NUM_CHESS_PIECES] = [0, 1, 1, 2, 4, 0];
 
+const NUM_PSQT_FEATURES: usize = NUM_CHESS_PIECES * NUM_SQUARES;
+
+#[derive(Debug, Copy, Clone, EnumIter)]
 enum PhaseType {
     Mg,
     Eg,
+}
+
+impl Display for PhaseType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Mg => write!(f, "mg"),
+            Eg => write!(f, "eg"),
+        }
+    }
 }
 
 pub fn chess_phase(pos: &Chessboard) -> Float {
@@ -30,59 +59,58 @@ pub fn chess_phase(pos: &Chessboard) -> Float {
 }
 
 fn to_feature_idx(piece: UncoloredChessPiece, color: Color, square: ChessSquare) -> usize {
-    let sq_idx = match color {
-        Color::White => square.flip().index(),
-        Color::Black => square.index(),
-    };
-    NUM_SQUARES * piece as usize + sq_idx
+    NUM_SQUARES * piece as usize + square.flip_if(color == White).index()
 }
 
-fn psqt_features(pos: &Chessboard, trace: &mut Trace) {
-    assert_eq!(trace.white.len(), trace.black.len());
-    let base_idx = trace.black.len();
-    trace
-        .white
-        .append(&mut vec![0; NUM_CHESS_PIECES * NUM_SQUARES]);
-    trace
-        .black
-        .append(&mut vec![0; NUM_CHESS_PIECES * NUM_SQUARES]);
+fn psqt_trace(pos: &Chessboard) -> SimpleTrace {
+    let mut trace = SimpleTrace::for_features(NUM_PSQT_FEATURES);
     trace.phase = chess_phase(pos);
     for color in Color::iter() {
         for piece in UncoloredChessPiece::pieces() {
             let mut bb = pos.colored_piece_bb(color, piece);
             while bb.has_set_bit() {
                 let square = ChessSquare::new(bb.pop_lsb());
-                let idx = base_idx + to_feature_idx(piece, color, square);
+                let idx = to_feature_idx(piece, color, square);
                 trace.increment(idx, color);
             }
         }
     }
+    trace
 }
 
-fn write_psqt(f: &mut Formatter<'_>, weights: &[Weight]) -> std::fmt::Result {
+fn write_phased_psqt(
+    f: &mut Formatter<'_>,
+    weights: &[Weight],
+    piece_idx: usize,
+    piece_name: &str,
+) -> std::fmt::Result {
+    for phase in PhaseType::iter() {
+        writeln!(f, "\t// {piece_name} {phase}")?;
+        write!(f, "\t[")?;
+        for square in 0..NUM_SQUARES {
+            if square % 8 == 0 {
+                writeln!(f)?;
+                write!(f, "\t\t")?;
+            }
+            write!(
+                f,
+                "{:4}, ",
+                weights[64 * 2 * piece_idx + 2 * square + phase as usize].rounded()
+            )?;
+        }
+        writeln!(f)?;
+        writeln!(f, "\t],")?;
+    }
+    Ok(())
+}
+
+fn write_psqts(f: &mut Formatter<'_>, weights: &[Weight]) -> std::fmt::Result {
     writeln!(
         f,
         "const PSQTS: [[i32; NUM_SQUARES]; NUM_CHESS_PIECES * 2] = ["
     )?;
-    let phase_names = ["mg", "eg"];
     for piece in UncoloredChessPiece::pieces() {
-        for phase in 0..2 {
-            writeln!(f, "\t// {0} {1}", piece.name(), phase_names[phase])?;
-            write!(f, "\t[")?;
-            for square in 0..NUM_SQUARES {
-                if square % 8 == 0 {
-                    writeln!(f)?;
-                    write!(f, "\t\t")?;
-                }
-                write!(
-                    f,
-                    "{:4}, ",
-                    weights[64 * 2 * piece as usize + 2 * square + phase].rounded()
-                )?;
-            }
-            writeln!(f)?;
-            writeln!(f, "\t],")?;
-        }
+        write_phased_psqt(f, weights, piece as usize, piece.name())?;
     }
     writeln!(f, "];")?;
     Ok(())

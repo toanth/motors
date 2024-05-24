@@ -126,6 +126,13 @@ impl ChessSquare {
         self.flip_up_down(ChessboardSize::default())
     }
 
+    pub fn flip_if(self, flip: bool) -> Self {
+        match flip {
+            true => self.flip(),
+            false => self,
+        }
+    }
+
     pub fn north(self) -> ChessSquare {
         debug_assert_ne!(self.rank(), 7);
         Self::new(self.index() + 8)

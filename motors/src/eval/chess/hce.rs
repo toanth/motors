@@ -198,9 +198,9 @@ const PIECE_PHASE: [i32; 6] = [0, 1, 1, 2, 4, 0];
 
 enum FileOpenness {
     Open,
+    Closed,
     SemiOpen,
     SemiClosed,
-    Closed,
 }
 
 fn file_openness(file: DimT, our_pawns: ChessBitboard, their_pawns: ChessBitboard) -> FileOpenness {

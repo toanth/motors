@@ -1,8 +1,10 @@
 use crate::eval::{Eval, WeightFormatter};
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
 use gears::games::Color;
+use rand::prelude::SliceRandom;
+use rand::thread_rng;
 use rayon::prelude::*;
-use std::fmt::Formatter;
+use std::fmt::{Debug, Formatter};
 use std::iter::Sum;
 use std::ops::{DivAssign, MulAssign};
 use std::time::Instant;
@@ -108,8 +110,8 @@ pub struct Weights(Vec<Weight>);
 pub type Gradient = Weights;
 
 impl Weights {
-    pub fn new(num_features: usize) -> Self {
-        Self(vec![Weight(0.0); num_features])
+    pub fn new(num_weights: usize) -> Self {
+        Self(vec![Weight(0.0); num_weights])
     }
     pub fn num_weights(&self) -> usize {
         self.0.len()
@@ -205,14 +207,28 @@ impl Feature {
 #[derive(Debug, Copy, Clone)]
 pub struct PhaseMultiplier(Float);
 
+pub trait TraceTrait: Debug + Default {
+    fn as_features(&self, idx_offset: usize) -> Vec<Feature>;
+    fn phase(&self) -> Float {
+        1.0
+    }
+}
+
 #[derive(Debug, Default)]
-pub struct Trace {
+pub struct SimpleTrace {
     pub white: Vec<isize>,
     pub black: Vec<isize>,
     pub phase: Float,
 }
 
-impl Trace {
+impl SimpleTrace {
+    pub fn for_features(num_features: usize) -> Self {
+        Self {
+            white: vec![0; num_features],
+            black: vec![0; num_features],
+            phase: 0.0,
+        }
+    }
     pub fn increment(&mut self, idx: usize, color: Color) {
         self.increment_by(idx, color, 1);
     }
@@ -223,24 +239,32 @@ impl Trace {
             Color::Black => self.black[idx] += amount,
         };
     }
+}
 
-    pub fn as_features(&self) -> Vec<Feature> {
+impl TraceTrait for SimpleTrace {
+    fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
         assert_eq!(self.white.len(), self.black.len());
         let mut res = vec![];
         for i in 0..self.white.len() {
             let diff = self.white[i] - self.black[i];
             if diff != 0 {
+                let idx = i + idx_offset;
                 assert!(diff >= FeatureT::MIN as isize && diff <= FeatureT::MAX as isize);
-                assert!(res.len() <= u16::MAX as usize);
+                assert!(res.len() < u16::MAX as usize);
+                assert!(idx <= u16::MAX as usize);
                 let feature = Feature {
                     feature: diff as FeatureT,
-                    idx: i as u16,
+                    idx: idx as u16,
                 };
                 res.push(feature);
             }
         }
         res.sort_by(|a, b| a.idx().cmp(&b.idx()));
         res
+    }
+
+    fn phase(&self) -> Float {
+        self.phase
     }
 }
 
@@ -256,7 +280,7 @@ impl WeightedFeature {
 }
 
 pub trait Datapoint: Clone + Send + Sync {
-    fn new(trace: Trace, outcome: Outcome) -> Self;
+    fn new<T: TraceTrait>(trace: T, outcome: Outcome) -> Self;
     fn outcome(&self) -> Outcome;
     fn features(&self) -> impl Iterator<Item = WeightedFeature>;
 }
@@ -268,9 +292,9 @@ pub struct NonTaperedDatapoint {
 }
 
 impl Datapoint for NonTaperedDatapoint {
-    fn new(trace: Trace, outcome: Outcome) -> Self {
+    fn new<T: TraceTrait>(trace: T, outcome: Outcome) -> Self {
         Self {
-            features: trace.as_features(),
+            features: trace.as_features(0),
             outcome,
         }
     }
@@ -294,11 +318,11 @@ pub struct TaperedDatapoint {
 }
 
 impl Datapoint for TaperedDatapoint {
-    fn new(trace: Trace, outcome: Outcome) -> Self {
+    fn new<T: TraceTrait>(trace: T, outcome: Outcome) -> Self {
         Self {
-            features: trace.as_features(),
+            features: trace.as_features(0),
             outcome,
-            phase: PhaseMultiplier(trace.phase),
+            phase: PhaseMultiplier(trace.phase()),
         }
     }
 
@@ -323,20 +347,30 @@ impl Datapoint for TaperedDatapoint {
 #[derive(Debug)]
 pub struct Dataset<D: Datapoint> {
     pub datapoints: Vec<D>,
-    pub num_features: usize,
+    pub num_weights: usize,
 }
 
 impl<D: Datapoint> Dataset<D> {
-    pub fn new(num_features: usize) -> Self {
+    pub fn new(num_weights: usize) -> Self {
         Self {
             datapoints: vec![],
-            num_features,
+            num_weights,
         }
     }
+
+    pub fn union(&mut self, mut other: Dataset<D>) {
+        assert_eq!(self.num_weights, other.num_weights);
+        self.datapoints.append(&mut other.datapoints);
+    }
+
+    pub fn shuffle(&mut self) {
+        self.datapoints.shuffle(&mut thread_rng());
+    }
+
     pub fn as_batch(&self) -> Batch<D> {
         Batch {
             datapoints: &self.datapoints,
-            num_features: self.num_features,
+            num_weights: self.num_weights,
         }
     }
 }
@@ -344,14 +378,15 @@ impl<D: Datapoint> Dataset<D> {
 #[derive(Debug)]
 pub struct Batch<'a, D: Datapoint> {
     pub datapoints: &'a [D],
-    pub num_features: usize,
+    pub num_weights: usize,
 }
 
+// deriving Copy, Clone doesn't work for some reason
 impl<D: Datapoint> Clone for Batch<'_, D> {
     fn clone(&self) -> Self {
         Self {
             datapoints: self.datapoints,
-            num_features: self.num_features,
+            num_weights: self.num_weights,
         }
     }
 }
@@ -460,18 +495,17 @@ pub fn compute_gradient<D: Datapoint>(
     }
 }
 
-pub fn do_optimize<D: Datapoint>(
+pub fn optimize_entire_batch<D: Datapoint>(
     batch: Batch<D>,
     eval_scale: EvalScale,
     num_epochs: usize,
     format_weights: &dyn WeightFormatter,
     optimizer: &mut dyn Optimizer<D>,
 ) -> Weights {
-    // TODO: AdamW?
-    let mut weights = Weights::new(batch.num_features);
+    let mut weights = Weights::new(batch.num_weights);
     // Since weights are initially 0, use a very high lr for the first couple of iterations.
     optimizer.lr_drop(0.25); // increases lr by a factor of
-    let mut prev_loss = 0.0;
+    let mut prev_loss = Float::INFINITY;
     let start = Instant::now();
     for epoch in 0..num_epochs {
         optimizer.iteration(&mut weights, batch, eval_scale, epoch);
@@ -495,6 +529,8 @@ pub fn do_optimize<D: Datapoint>(
         }
         if epoch == 20.min(num_epochs / 100) {
             optimizer.lr_drop(4.0); // undo the raised lr.
+        } else if epoch == num_epochs / 2 {
+            optimizer.lr_drop(2.0);
         }
     }
     weights
@@ -506,7 +542,7 @@ fn adam_optimize<D: Datapoint>(
     num_epochs: usize,
     format_weights: &dyn WeightFormatter,
 ) -> Weights {
-    do_optimize(
+    optimize_entire_batch(
         batch,
         eval_scale,
         num_epochs,
@@ -523,10 +559,6 @@ pub trait Optimizer<D: Datapoint> {
     // can be less than 1 to increase the lr.
     fn lr_drop(&mut self, factor: Float);
 
-    // fn num_features(&self) -> usize {
-    //     N
-    // }
-
     fn iteration(
         &mut self,
         weights: &mut Weights,
@@ -541,7 +573,7 @@ pub trait Optimizer<D: Datapoint> {
         eval_scale: EvalScale,
         num_iterations: usize,
     ) -> Weights {
-        let mut weights = Weights::new(batch.num_features);
+        let mut weights = Weights::new(batch.num_weights);
         for i in 0..num_iterations {
             self.iteration(&mut weights, batch, eval_scale, i);
         }
@@ -599,7 +631,6 @@ impl Default for AdamHyperParams {
 impl AdamHyperParams {
     fn for_eval_scale(eval_scale: EvalScale) -> Self {
         Self {
-            /// We can use relatively large step sizes since our objective function is pretty nice
             alpha: eval_scale.0 / 10.0,
             /// Setting these values too low can introduce crazy swings in the eval values and loss when it would
             /// otherwise appear converged -- maybe because of numerical instability?
@@ -628,18 +659,14 @@ impl<D: Datapoint> Optimizer<D> for Adam {
         let hyper_params = AdamHyperParams::for_eval_scale(eval_scale);
         Self {
             hyper_params,
-            m: Weights::new(batch.num_features),
-            v: Weights::new(batch.num_features),
+            m: Weights::new(batch.num_weights),
+            v: Weights::new(batch.num_weights),
         }
     }
 
     fn lr_drop(&mut self, factor: Float) {
         self.hyper_params.alpha /= factor;
     }
-
-    // fn num_features(&self) -> Option<usize> {
-    //     Some(self.v.len())
-    // }
 
     fn iteration(
         &mut self,

@@ -1,4 +1,5 @@
-use crate::gd::{Datapoint, Outcome, Trace, Weights};
+use crate::gd::{Datapoint, Outcome, TraceTrait, Weights};
+use crate::load_data::{Filter, NoFilter};
 use gears::games::Board;
 use gears::general::bitboards::RawBitboard;
 use std::fmt::{Display, Formatter};
@@ -28,13 +29,16 @@ pub trait WeightFormatter {
 }
 
 pub trait Eval<B: Board>: WeightFormatter + Default {
+    const NUM_WEIGHTS: usize;
     const NUM_FEATURES: usize;
 
     type D: Datapoint;
+
+    type Filter: Filter<B>;
 
     fn extract_features(pos: &B, outcome: Outcome) -> Self::D {
         Self::D::new(Self::feature_trace(pos), outcome)
     }
 
-    fn feature_trace(pos: &B) -> Trace;
+    fn feature_trace(pos: &B) -> impl TraceTrait;
 }

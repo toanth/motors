@@ -169,7 +169,7 @@ impl Board for Chessboard {
 
     fn bench_positions() -> Vec<Self> {
         let fens = [
-            // fens from Stormphrax, ultimately from bitgenie
+            // fens from Stormphrax, ultimately from bitgenie, with some new fens.
             "r3k2r/2pb1ppp/2pp1q2/p7/1nP1B3/1P2P3/P2N1PPP/R2QK2R w KQkq a6 0 14",
             "4rrk1/2p1b1p1/p1p3q1/4p3/2P2n1p/1P1NR2P/PB3PP1/3R1QK1 b - - 2 24",
             "r3qbrk/6p1/2b2pPp/p3pP1Q/PpPpP2P/3P1B2/2PB3K/R5R1 w - - 16 42",
@@ -220,6 +220,8 @@ impl Board for Chessboard {
             "2rr2k1/1p4bp/p1q1p1p1/4Pp1n/2PB4/1PN3P1/P3Q2P/2RR2K1 w - f6 0 20",
             "3br1k1/p1pn3p/1p3n2/5pNq/2P1p3/1PN3PP/P2Q1PB1/4R1K1 w - - 0 23",
             "2r2b2/5p2/5k2/p1r1pP2/P2pB3/1P3P2/K1P3R1/7R w - - 23 93",
+            "1r1r2k1/1p2qp1p/6p1/p1QB1b2/5Pn1/N1R1P1P1/PP5P/R1B3K1 b - - 4 23",
+            "2bk2rq/2p1pprp/2p1n3/p2pPQ2/N2P4/4RN1P/PPP2RP1/6K1 w - - 5 24",
         ];
         fens.map(|fen| Self::from_fen(fen).unwrap())
             .iter()
