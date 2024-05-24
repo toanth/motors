@@ -10,6 +10,9 @@ use std::ops::{DivAssign, MulAssign};
 use std::time::Instant;
 
 // TODO: Better value
+/// Not doing multithreading for small batch sizes isn't only meant to improve performance,
+/// it also makes it easier to debug problems with the eval because stack traces and debugger steps
+/// are simpler.
 const MIN_MULTITHREADING_BATCH_SIZE: usize = 10_000;
 
 pub type Float = f64;
@@ -26,7 +29,7 @@ impl Display for CpScore {
 
 /// The wr prediction, based on the CpScore (between 0 and 1).
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
-pub struct WrScore(Float);
+pub struct WrScore(pub Float);
 
 /// `WrScore` is used for the converted score returned by the eval, `Outcome` for the actual outcome
 pub type Outcome = WrScore;
@@ -45,21 +48,14 @@ impl Display for WrScore {
 }
 
 /// The eval scale stretches the sigmoid horizontally, so a larger eval scale means that
-/// a larger eval value is necessary to count as "surely lost/won". It determines how to convert a `CpScore` to a `WrScore`
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Display)]
-pub struct EvalScale(pub Float);
+/// a larger eval value is necessary to count as "surely lost/won". It determines how to convert a `CpScore` to a `WrScore`.
+pub type ScalingFactor = Float;
 
-impl Default for EvalScale {
-    fn default() -> Self {
-        Self(110.0) // gives roughly the normal piece values, expressed as centipawns
-    }
+pub fn sigmoid(x: Float, scale: ScalingFactor) -> Float {
+    1.0 / (1.0 + (-x / scale).exp())
 }
 
-pub fn sigmoid(x: Float, scale: EvalScale) -> Float {
-    1.0 / (1.0 + (-x / scale.0).exp())
-}
-
-pub fn cp_to_wr(cp: CpScore, eval_scale: EvalScale) -> WrScore {
+pub fn cp_to_wr(cp: CpScore, eval_scale: ScalingFactor) -> WrScore {
     WrScore(sigmoid(cp.0 as Float, eval_scale))
 }
 
@@ -72,7 +68,7 @@ pub fn sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
     delta * delta
 }
 
-pub fn sample_loss_for_cp(eval: CpScore, outcome: Outcome, eval_scale: EvalScale) -> Float {
+pub fn sample_loss_for_cp(eval: CpScore, outcome: Outcome, eval_scale: ScalingFactor) -> Float {
     let wr_prediction = cp_to_wr(eval, eval_scale);
     sample_loss(wr_prediction, outcome)
 }
@@ -418,13 +414,17 @@ pub fn cp_eval_for_weights<D: Datapoint>(weights: &Weights, position: &D) -> CpS
 pub fn wr_prediction_for_weights<D: Datapoint>(
     weights: &Weights,
     position: &D,
-    eval_scale: EvalScale,
+    eval_scale: ScalingFactor,
 ) -> WrScore {
     let eval = cp_eval_for_weights(weights, position);
     cp_to_wr(eval, eval_scale)
 }
 
-pub fn loss<D: Datapoint>(weights: &Weights, batch: Batch<'_, D>, eval_scale: EvalScale) -> Float {
+pub fn loss<D: Datapoint>(
+    weights: &Weights,
+    batch: Batch<'_, D>,
+    eval_scale: ScalingFactor,
+) -> Float {
     let sum = if batch.len() >= MIN_MULTITHREADING_BATCH_SIZE {
         batch
             .par_iter()
@@ -455,11 +455,11 @@ pub fn loss<D: Datapoint>(weights: &Weights, batch: Batch<'_, D>, eval_scale: Ev
 pub fn compute_gradient<D: Datapoint>(
     weights: &Weights,
     batch: Batch<D>,
-    eval_scale: EvalScale,
+    eval_scale: ScalingFactor,
 ) -> Gradient {
     // the 2 is a constant factor and could be dropped because we don't need to preserve the magnitude of the gradient,
     // but let's be correct and keep it.
-    let constant_factor = 2.0 * eval_scale.0 / batch.len() as f64;
+    let constant_factor = 2.0 * eval_scale / batch.len() as f64;
     if batch.len() >= MIN_MULTITHREADING_BATCH_SIZE {
         batch
             .datapoints
@@ -470,10 +470,8 @@ pub fn compute_gradient<D: Datapoint>(
                     let wr_prediction = wr_prediction_for_weights(weights, data, eval_scale).0;
 
                     // constant factors have been moved outside the loop
-                    let scaled_delta = constant_factor
-                        * (wr_prediction - data.outcome().0)
-                        * wr_prediction
-                        * (1.0 - wr_prediction);
+                    let scaled_delta =
+                        (wr_prediction - data.outcome().0) * wr_prediction * (1.0 - wr_prediction);
                     grad.update(data, scaled_delta);
                     grad
                 },
@@ -485,12 +483,13 @@ pub fn compute_gradient<D: Datapoint>(
                     a
                 },
             )
+            * constant_factor
     } else {
         let mut grad = Gradient::new(weights.num_weights());
         for data in batch.iter() {
             let wr_prediction = wr_prediction_for_weights(weights, data, eval_scale).0;
 
-            // constant factors have been moved outside the loop
+            // TODO: Multiply with `constant_factor` outside the loop?
             let scaled_delta = constant_factor
                 * (wr_prediction - data.outcome().0)
                 * wr_prediction
@@ -503,7 +502,7 @@ pub fn compute_gradient<D: Datapoint>(
 
 pub fn optimize_entire_batch<D: Datapoint>(
     batch: Batch<D>,
-    eval_scale: EvalScale,
+    eval_scale: ScalingFactor,
     num_epochs: usize,
     format_weights: &dyn WeightFormatter,
     optimizer: &mut dyn Optimizer<D>,
@@ -536,7 +535,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
         if epoch == 20.min(num_epochs / 100) {
             optimizer.lr_drop(4.0); // undo the raised lr.
         } else if epoch == num_epochs / 2 {
-            optimizer.lr_drop(2.0);
+            optimizer.lr_drop(1.5);
         }
     }
     weights
@@ -544,7 +543,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
 
 fn adam_optimize<D: Datapoint>(
     batch: Batch<D>,
-    eval_scale: EvalScale,
+    eval_scale: ScalingFactor,
     num_epochs: usize,
     format_weights: &dyn WeightFormatter,
 ) -> Weights {
@@ -558,7 +557,7 @@ fn adam_optimize<D: Datapoint>(
 }
 
 pub trait Optimizer<D: Datapoint> {
-    fn new(batch: Batch<D>, eval_scale: EvalScale) -> Self
+    fn new(batch: Batch<D>, eval_scale: ScalingFactor) -> Self
     where
         Self: Sized;
 
@@ -569,7 +568,7 @@ pub trait Optimizer<D: Datapoint> {
         &mut self,
         weights: &mut Weights,
         batch: Batch<'_, D>,
-        eval_scale: EvalScale,
+        eval_scale: ScalingFactor,
         i: usize,
     );
 
@@ -578,7 +577,7 @@ pub trait Optimizer<D: Datapoint> {
     fn optimize_simple(
         &mut self,
         batch: Batch<'_, D>,
-        eval_scale: EvalScale,
+        eval_scale: ScalingFactor,
         num_iterations: usize,
     ) -> Weights {
         let mut weights = Weights::new(batch.num_weights);
@@ -594,9 +593,9 @@ pub struct SimpleGDOptimizer {
 }
 
 impl<D: Datapoint> Optimizer<D> for SimpleGDOptimizer {
-    fn new(_batch: Batch<D>, eval_scale: EvalScale) -> Self {
+    fn new(_batch: Batch<D>, eval_scale: ScalingFactor) -> Self {
         Self {
-            alpha: eval_scale.0 / 4.0,
+            alpha: eval_scale / 4.0,
         }
     }
 
@@ -608,7 +607,7 @@ impl<D: Datapoint> Optimizer<D> for SimpleGDOptimizer {
         &mut self,
         weights: &mut Weights,
         batch: Batch<D>,
-        eval_scale: EvalScale,
+        eval_scale: ScalingFactor,
         _i: usize,
     ) {
         let gradient = compute_gradient(weights, batch, eval_scale);
@@ -630,16 +629,16 @@ pub struct AdamHyperParams {
     pub epsilon: Float,
 }
 
-impl Default for AdamHyperParams {
-    fn default() -> Self {
-        Self::for_eval_scale(EvalScale::default())
-    }
-}
+// impl Default for AdamHyperParams {
+//     fn default() -> Self {
+//         Self::for_eval_scale(100.0)
+//     }
+// }
 
 impl AdamHyperParams {
-    fn for_eval_scale(eval_scale: EvalScale) -> Self {
+    fn for_eval_scale(eval_scale: ScalingFactor) -> Self {
         Self {
-            alpha: eval_scale.0 / 10.0,
+            alpha: eval_scale / 10.0,
             /// Setting these values too low can introduce crazy swings in the eval values and loss when it would
             /// otherwise appear converged -- maybe because of numerical instability?
             beta1: 0.9, // 0.8,
@@ -663,7 +662,7 @@ pub struct Adam {
 }
 
 impl<D: Datapoint> Optimizer<D> for Adam {
-    fn new(batch: Batch<D>, eval_scale: EvalScale) -> Self {
+    fn new(batch: Batch<D>, eval_scale: ScalingFactor) -> Self {
         let hyper_params = AdamHyperParams::for_eval_scale(eval_scale);
         Self {
             hyper_params,
@@ -680,7 +679,7 @@ impl<D: Datapoint> Optimizer<D> for Adam {
         &mut self,
         weights: &mut Weights,
         batch: Batch<D>,
-        eval_scale: EvalScale,
+        eval_scale: ScalingFactor,
         iteration: usize,
     ) {
         let iteration = iteration + 1;
@@ -721,7 +720,7 @@ mod tests {
                 num_weights: 2,
             };
             for eval_scale in 1..100 {
-                let loss = loss(&weights, batch, EvalScale(eval_scale as Float));
+                let loss = loss(&weights, batch, eval_scale as ScalingFactor);
                 if outcome == 0.5 {
                     assert_eq!(loss, 0.0);
                 } else {
@@ -743,7 +742,7 @@ mod tests {
                 datapoints: data_points.as_slice(),
                 num_weights: 1,
             };
-            let gradient = compute_gradient(&weights, batch, EvalScale(1.0));
+            let gradient = compute_gradient(&weights, batch, 1.0);
             assert_eq!(gradient.len(), 1);
             let gradient = gradient[0].0;
             assert_eq!(-gradient, 0.5 * 0.5 * 0.5 * 2.0 * outcome.signum());
@@ -753,7 +752,7 @@ mod tests {
     #[test]
     // testcase that contains only 1 position with only 1 feature
     pub fn trivial_test() {
-        let scaling_factor = EvalScale(100.0);
+        let scaling_factor = 100.0;
         for feature in [1, 2, -1, 0] {
             for initial_weight in [0.0, 0.1, 100.0, -1.2] {
                 for outcome in [0.0, 0.5, 1.0, 0.9, 0.499] {
@@ -816,22 +815,19 @@ mod tests {
                 num_weights: 3,
             };
             for _ in 0..100 {
-                let grad = compute_gradient(&weights, batch, EvalScale(1.0));
+                let grad = compute_gradient(&weights, batch, 1.0);
                 let old_weights = weights.clone();
                 weights -= &grad;
-                assert!(
-                    loss(&weights, batch, EvalScale(1.0))
-                        <= loss(&old_weights, batch, EvalScale(1.0))
-                );
+                assert!(loss(&weights, batch, 1.0) <= loss(&old_weights, batch, 1.0));
             }
-            let loss = loss(&weights, batch, EvalScale(1.0));
+            let loss = loss(&weights, batch, 1.0);
             assert!(loss <= 0.01);
         }
     }
 
     #[test]
     pub fn two_features_test() {
-        let scale = EvalScale(500.0);
+        let scale = 500.0;
         for outcome in [0.0, 0.5, 1.0] {
             let mut weights = Weights(vec![Weight(123.987), Weight(-987.123)]);
             let position = vec![Feature::new(3, 0), Feature::new(-3, 1)];
@@ -867,7 +863,7 @@ mod tests {
 
     #[test]
     pub fn two_positions_test() {
-        let scale = EvalScale(1000.0);
+        let scale = 1000.0;
         let win = NonTaperedDatapoint {
             features: vec![Feature::new(1, 0), Feature::new(-1, 1)],
             outcome: WrScore(1.0),
@@ -937,16 +933,16 @@ mod tests {
             num_weights: 3,
         };
         for _ in 0..500 {
-            let grad = compute_gradient(&weights, batch, EvalScale(1.0));
+            let grad = compute_gradient(&weights, batch, 1.0);
             println!(
                 "current weights: {0}, current loss: {1}, gradient: {2}",
                 weights,
-                loss(&weights, batch, EvalScale(1.0)),
+                loss(&weights, batch, 1.0),
                 grad,
             );
             let old_weights = weights.clone();
             weights -= &grad;
-            assert!(loss(&weights, batch, EvalScale(1.0)) <= loss(&weights, batch, EvalScale(1.0)));
+            assert!(loss(&weights, batch, 1.0) <= loss(&weights, batch, 1.0));
         }
         assert!(weights[0].0 >= 0.0);
         assert!(weights[1].0 >= 0.0);
@@ -963,7 +959,7 @@ mod tests {
     #[test]
     pub fn adam_one_weight_test() {
         for outcome in [0.0, 0.5, 1.0] {
-            let eval_scale = EvalScale(10000.0);
+            let eval_scale = 10000.0;
             let dataset = vec![NonTaperedDatapoint {
                 features: vec![Feature::new(1, 0)],
                 outcome: Outcome::new(outcome),

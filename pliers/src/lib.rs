@@ -2,9 +2,10 @@ use crate::eval::chess::caps_hce_eval::CapsHceEval;
 use crate::eval::chess::material_only_eval::MaterialOnlyEval;
 use crate::eval::chess::piston_eval::PistonEval;
 use crate::eval::Eval;
+use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
-    optimize_entire_batch, Adam, Batch, Datapoint, Dataset, EvalScale, Optimizer, TaperedDatapoint,
-    Weights,
+    optimize_entire_batch, Adam, Batch, Datapoint, Dataset, Optimizer, ScalingFactor,
+    TaperedDatapoint, Weights,
 };
 use crate::load_data::{FenReader, Filter};
 use gears::games::chess::Chessboard;
@@ -25,9 +26,10 @@ pub fn optimize<B: Board, E: Eval<B>, O: Optimizer<E::D>>(file_list: &[String]) 
         dataset.union(FenReader::<B, E>::load_from_file(file_name)?);
     }
     let e = E::default();
-    let scale = E::eval_scale();
-    let mut optimizer = O::new(dataset.as_batch(), scale);
-    let weights = optimize_entire_batch(dataset.as_batch(), scale, 2000, &e, &mut optimizer);
+    let batch = dataset.as_batch();
+    let scale = E::eval_scale().to_scaling_factor(batch);
+    let mut optimizer = O::new(batch, scale);
+    let weights = optimize_entire_batch(batch, scale, 2000, &e, &mut optimizer);
     println!("{}", e.formatter(&weights));
     Ok(())
 }
@@ -43,7 +45,7 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
     let fen = format!("{} [1.0]", pos.as_fen());
     println!("(FEN: {fen}\n");
     let dataset = FenReader::<Chessboard, E>::load_from_str(&fen).unwrap();
-    let scale = EvalScale::default();
+    let scale = ScalingFactor::default();
     let mut optimizer = Adam::new(dataset.as_batch(), scale);
     let e = E::default();
     let _ = optimize_entire_batch(dataset.as_batch(), scale, 1, &e, &mut optimizer);
@@ -78,7 +80,7 @@ mod tests {
         // the kings are on mirrored positions and cancel each other out
         assert_eq!(positions.datapoints[0].features.len(), 0);
         assert_eq!(positions.datapoints[1].features.len(), 1);
-        let eval_scale = EvalScale::default();
+        let eval_scale = ScalingFactor::default();
         let batch = positions.batch(0, 1);
         let mut optimizer = Adam::new(batch, eval_scale);
         let startpos_weights = optimize_entire_batch(
@@ -113,7 +115,7 @@ mod tests {
             UncoloredChessPiece::Queen => 9,
             _ => panic!("not a non-king piece"),
         };
-        let eval_scale = EvalScale(10.0);
+        let eval_scale = 10.0;
         let mut fens = String::default();
         for piece in UncoloredChessPiece::non_king_pieces() {
             let str = format!(

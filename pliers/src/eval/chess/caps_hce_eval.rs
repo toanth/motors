@@ -3,10 +3,11 @@ use crate::eval::chess::{
     psqt_trace, write_phased_psqt, write_psqts, PhaseType, SkipChecks, NUM_PHASES,
     NUM_PSQT_FEATURES,
 };
-use crate::eval::{Eval, WeightFormatter};
+use crate::eval::EvalScale::Scale;
+use crate::eval::{Eval, EvalScale, WeightFormatter};
 use crate::gd::{
-    Datapoint, EvalScale, Feature, Float, Outcome, PhaseMultiplier, SimpleTrace, TaperedDatapoint,
-    TraceTrait, Weights,
+    Datapoint, Feature, Float, Outcome, PhaseMultiplier, ScalingFactor, SimpleTrace,
+    TaperedDatapoint, TraceTrait, Weights,
 };
 use crate::load_data::NoFilter;
 use gears::games::chess::pieces::UncoloredChessPiece::{King, Pawn, Rook};
@@ -103,7 +104,7 @@ impl Eval<Chessboard> for CapsHceEval {
     }
 
     fn eval_scale() -> EvalScale {
-        EvalScale(130.0)
+        Scale(180.0)
     }
 }
 
