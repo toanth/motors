@@ -54,7 +54,8 @@ impl WeightFormatter for CapsHceEval {
         |f: &mut Formatter<'_>, weights: &Weights| {
             assert_eq!(weights.len(), Self::NUM_WEIGHTS);
             write_psqts(f, weights)?;
-            writeln!(f, "const PASSED_PAWNS: [[i32; NUM_SQUARES]; 2] = ")?;
+            writeln!("\n#[rustfmt::skip]");
+            writeln!(f, "const PASSED_PAWNS: [[i32; NUM_SQUARES]; 2] = [")?;
             write_phased_psqt(
                 f,
                 &weights[NUM_PHASES * NUM_PSQT_FEATURES..],
@@ -68,7 +69,7 @@ impl WeightFormatter for CapsHceEval {
                     for phase in PhaseType::iter() {
                         writeln!(
                             f,
-                            "const {piece}_{openness}_FILE_{} = {value}",
+                            "const {piece}_{openness}_FILE_{}: i32 = {value};",
                             phase.to_string().to_ascii_uppercase(),
                             value = weights[idx].rounded()
                         )?;

@@ -84,13 +84,14 @@ fn write_phased_psqt(
     piece_idx: usize,
     piece_name: &str,
 ) -> std::fmt::Result {
+    const TAB: &str = "    "; // Use 4 spaces for a tab.
     for phase in PhaseType::iter() {
-        writeln!(f, "\t// {piece_name} {phase}")?;
-        write!(f, "\t[")?;
+        writeln!(f, "{TAB}// {piece_name} {phase}")?;
+        write!(f, "{TAB}[")?;
         for square in 0..NUM_SQUARES {
             if square % 8 == 0 {
                 writeln!(f)?;
-                write!(f, "\t\t")?;
+                write!(f, "{TAB}{TAB}")?;
             }
             write!(
                 f,
@@ -99,7 +100,7 @@ fn write_phased_psqt(
             )?;
         }
         writeln!(f)?;
-        writeln!(f, "\t],")?;
+        writeln!(f, "{TAB}],")?;
     }
     Ok(())
 }

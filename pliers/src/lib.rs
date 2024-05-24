@@ -39,8 +39,9 @@ pub fn optimize_chess_eval<E: Eval<Chessboard>>(file_list: &[String]) -> Res<()>
 
 /// Function intended for debugging the eval, uses a single simple position.
 pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
-    println!("STARTING DEBUG POSITION OUTPUT:");
+    println!("\nSTARTING DEBUG POSITION OUTPUT:");
     let fen = format!("{} [1.0]", pos.as_fen());
+    println!("(FEN: {fen}\n");
     let dataset = FenReader::<Chessboard, E>::load_from_str(&fen).unwrap();
     let scale = EvalScale::default();
     let mut optimizer = Adam::new(dataset.as_batch(), scale);
