@@ -58,10 +58,8 @@ pub fn debug_eval_on_lucena<E: Eval<Chessboard>>() {
 mod tests {
     use super::*;
     use crate::eval::chess::material_only_eval::MaterialOnlyEval;
-    use crate::gd::{
-        adam_optimize, cp_eval_for_weights, cp_to_wr, loss, Adam, CpScore, FeatureT, Float, Outcome,
-    };
-    use crate::load_data::parse_from_str;
+    use crate::eval::WeightFormatter;
+    use crate::gd::{cp_eval_for_weights, cp_to_wr, loss, Adam, CpScore, Float, Outcome};
     use gears::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};
     use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
     use gears::games::Color::White;
@@ -71,30 +69,36 @@ mod tests {
     pub fn two_chess_positions_test() {
         let positions = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 [0.5]
         7k/8/8/8/8/8/8/R6K w - - 0 1 [1-0]";
-        let positions = FenReader::<Chessboard>::load_from_str(positions).unwrap();
-        assert_eq!(positions.len(), 2);
-        let positions = parse_res_to_dataset::<Chessboard, CapsHceEval>(&positions);
-        assert_eq!(positions.len(), 2);
-        assert_eq!(positions[0].outcome, Outcome::new(0.5));
-        assert_eq!(positions[1].outcome, Outcome::new(1.0));
-        // TODO: This breaks as soon as there are new eval features, so write a psqt-only tuner and use that.
-        assert_eq!(positions[1].position.len(), NUM_PIECE_SQUARE_ENTRIES);
+        let positions = FenReader::<Chessboard, PistonEval>::load_from_str(positions).unwrap();
+        assert_eq!(positions.datapoints.len(), 2);
+        assert_eq!(positions.datapoints[0].outcome, Outcome::new(0.5));
+        assert_eq!(positions.datapoints[1].outcome, Outcome::new(1.0));
+        assert_eq!(positions.num_weights, NUM_PIECE_SQUARE_ENTRIES * 2);
         // the kings are on mirrored positions and cancel each other out
-        assert_eq!(
-            positions[1]
-                .position
-                .iter()
-                .filter(|f| f.0 != 0 as FeatureT)
-                .count(),
-            1
-        );
+        assert_eq!(positions.datapoints[0].features.len(), 0);
+        assert_eq!(positions.datapoints[1].features.len(), 1);
         let eval_scale = EvalScale::default();
-        let startpos_weights =
-            adam_optimize(&positions[0..1], eval_scale, 100, CapsHceEval::formatter());
-        let startpos_eval = cp_eval_for_weights(&startpos_weights, &positions[0].position);
+        let batch = positions.batch(0, 1);
+        let mut optimizer = Adam::new(batch, eval_scale);
+        let startpos_weights = optimize_entire_batch(
+            batch,
+            eval_scale,
+            100,
+            &PistonEval::default(),
+            &mut optimizer,
+        );
+        let startpos_eval = cp_eval_for_weights(&startpos_weights, &positions.datapoints[0]);
         assert_eq!(startpos_eval, CpScore(0.0));
-        let weights = adam_optimize(&positions, eval_scale, 100, CapsHceEval::formatter());
-        let loss = loss(&weights, &positions, eval_scale);
+        let batch = positions.as_batch();
+        let mut optimizer = Adam::new(batch, eval_scale);
+        let weights = optimize_entire_batch(
+            batch,
+            eval_scale,
+            100,
+            &PistonEval::default(),
+            &mut optimizer,
+        );
+        let loss = loss(&weights, batch, eval_scale);
         assert!(loss <= 0.01);
     }
 
@@ -118,8 +122,9 @@ mod tests {
             );
             fens += &str;
         }
-        let datapoints = parse_from_str::<Chessboard, MaterialOnlyEval>(&fens).unwrap();
-        let weights = Adam::new(&datapoints, eval_scale).optimize(&datapoints, eval_scale, 2000);
+        let datapoints = FenReader::<Chessboard, MaterialOnlyEval>::load_from_str(&fens).unwrap();
+        let batch = datapoints.as_batch();
+        let weights = Adam::new(batch, eval_scale).optimize_simple(batch, eval_scale, 2000);
         assert_eq!(weights.len(), 5);
         let weight = weights[0];
         for piece in UncoloredChessPiece::non_king_pieces() {

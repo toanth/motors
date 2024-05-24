@@ -23,7 +23,8 @@ pub struct ParseResult<B: Board> {
 }
 
 pub trait Filter<B: Board> {
-    /// returns an iteraor because it's possible for a `Filter` to return more than one position per input position.
+    /// Returns an iterator because it's possible for a `Filter` to return more than one position per input position.
+    /// Filtering could also include running a low-depth search with an engine to relabel the outcome.
     fn filter(pos: ParseResult<B>) -> impl IntoIterator<Item = ParseResult<B>>;
 }
 

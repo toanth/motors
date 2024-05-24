@@ -19,6 +19,7 @@ use crate::search::multithreading::{EngineWrapper, SearchSender};
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
 use crate::search::statistics::{SearchType, Statistics};
 use crate::search::tt::TT;
+use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use crate::search::Searching::*;
 
 #[cfg(feature = "chess")]
@@ -536,16 +537,27 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, FromRepr)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, FromRepr)]
 #[repr(u8)]
 pub enum NodeType {
-    #[default]
-    Empty,
-    LowerBound,
-    // score greater than beta, cut-node
-    Exact,
-    // score between alpha and beta, PV node (important node!)
-    UpperBound, // score less than alpha, all-node (relatively rare, but makes parent a cut-node)
+    /// Don't use 0 because that's used to represent the empty node type for the internal TT representation
+    /// score is a lower bound >= beta, cut-node (the most common node type)
+    FailHigh = 1,
+    /// score known exactly in `(alpha, beta)`, PV node (very rare, but those are the most important nodes)
+    Exact = 2,
+    /// score between alpha and beta, PV node (important node!)
+    FailLow = 3, // score is an upper bound <= alpha, all-node (relatively rare, but makes parent a cut-node)
+}
+
+impl NodeType {
+    pub fn inverse(self) -> Self {
+        // Could maybe try some bit twiddling tricks in case the compiler doesn't already do that
+        match self {
+            FailHigh => FailLow,
+            Exact => Exact,
+            FailLow => FailHigh,
+        }
+    }
 }
 
 pub fn run_bench<B: Board>(engine: &mut dyn Benchable<B>) -> BenchResult {

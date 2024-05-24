@@ -45,6 +45,7 @@ impl Eval<Chessboard> for MaterialOnlyEval {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gd::TraceTrait;
     use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
     use gears::games::Board;
 
@@ -52,10 +53,7 @@ mod tests {
     pub fn startpos_test() {
         let board = Chessboard::default();
         let features = MaterialOnlyEval::feature_trace(&board);
-        assert_eq!(features.len(), 5);
-        for f in features {
-            assert_eq!(f.0, 0);
-        }
+        assert_eq!(features.as_features(0).len(), 0);
     }
 
     pub fn lucena_test() {

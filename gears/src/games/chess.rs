@@ -452,14 +452,14 @@ impl Board for Chessboard {
         } else {
             Some(ChessSquare::from_str(ep_square)?)
         };
-        let halfmove_clock = words.next().unwrap_or("0");
+        let halfmove_clock = words.next().unwrap_or("");
         // Some FENs don't contain the halfmove clock and fullmove number, so assume that's the case if parsing
         // the halfmove clock fails -- but don't do this for the fullmove number.
         if let Ok(halfmove_clock) = halfmove_clock.parse::<usize>() {
             board.ply_100_ctr = halfmove_clock;
             let fullmove_number = words.next().ok_or_else(|| {
                 format!(
-                    "The FEN contained a valid halfmove clock ('{}') but no fullmove counter",
+                    "The FEN contains a valid halfmove clock ('{}') but no fullmove counter",
                     halfmove_clock
                 )
             })?;

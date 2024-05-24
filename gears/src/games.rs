@@ -1,3 +1,4 @@
+use colored::Colorize;
 use std::cmp::max;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -871,10 +872,11 @@ pub trait Board:
     /// Reads in a compact textual description of the board, such that `B::from_fen(board.as_fen()) == b` holds.
     fn from_fen(string: &str) -> Res<Self> {
         let mut words = string.split_whitespace();
-        let res = Self::read_fen_and_advance_input(&mut words)?;
+        let res = Self::read_fen_and_advance_input(&mut words)
+            .map_err(|err| format!("Failed to parse FEN {}: {err}", string.bold()))?;
         if words.next().is_some() {
             return Err(format!(
-                "Input contained additional characters after fen: {string}"
+                "Input contained additional characters after FEN: {string}"
             ));
         }
         Ok(res)

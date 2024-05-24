@@ -373,6 +373,12 @@ impl<D: Datapoint> Dataset<D> {
             num_weights: self.num_weights,
         }
     }
+    pub fn batch(&self, start_idx: usize, end_idx: usize) -> Batch<D> {
+        Batch {
+            datapoints: &self.datapoints[start_idx..end_idx],
+            num_weights: self.num_weights,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -567,7 +573,9 @@ pub trait Optimizer<D: Datapoint> {
         i: usize,
     );
 
-    fn optimize(
+    /// A simple but generic optimization procedure. Usually, calling `do_optimize` results (directly or through
+    /// the `optimize` function in `lib.rs`) results in faster convergence. This function is primarily useful for debugging.
+    fn optimize_simple(
         &mut self,
         batch: Batch<'_, D>,
         eval_scale: EvalScale,
@@ -704,12 +712,16 @@ mod tests {
         let weights = Weights(vec![Weight(0.0); 42]);
         let no_features = vec![Feature::default(); 42];
         for outcome in [0.0, 0.5, 1.0] {
-            let dataset = vec![Datapoint {
-                position: no_features.clone(),
+            let dataset = vec![NonTaperedDatapoint {
+                features: no_features.clone(),
                 outcome: Outcome::new(outcome),
             }];
+            let batch = Batch {
+                datapoints: dataset.as_slice(),
+                num_weights: 2,
+            };
             for eval_scale in 1..100 {
-                let loss = loss(&weights, &dataset, EvalScale(eval_scale as Float));
+                let loss = loss(&weights, batch, EvalScale(eval_scale as Float));
                 if outcome == 0.5 {
                     assert_eq!(loss, 0.0);
                 } else {
@@ -723,11 +735,15 @@ mod tests {
     pub fn compute_gradient_test() {
         let weights = Weights(vec![Weight(0.0)]);
         for outcome in [0.0_f64, 0.5, 1.0] {
-            let data_points = [Datapoint {
-                position: vec![Feature::new(1)],
+            let data_points = [NonTaperedDatapoint {
+                features: vec![Feature::new(1, 0)],
                 outcome: Outcome::new(1.0),
             }];
-            let gradient = compute_gradient(&weights, &data_points, EvalScale(1.0));
+            let batch = Batch {
+                datapoints: data_points.as_slice(),
+                num_weights: 1,
+            };
+            let gradient = compute_gradient(&weights, batch, EvalScale(1.0));
             assert_eq!(gradient.len(), 1);
             let gradient = gradient[0].0;
             assert_eq!(-gradient, 0.5 * 0.5 * 0.5 * 2.0 * outcome.signum());
@@ -742,14 +758,16 @@ mod tests {
             for initial_weight in [0.0, 0.1, 100.0, -1.2] {
                 for outcome in [0.0, 0.5, 1.0, 0.9, 0.499] {
                     let mut weights = Weights(vec![Weight(initial_weight)]);
-                    let position = vec![Feature::new(feature)];
-                    let datapoint = Datapoint {
-                        position: position.clone(),
+                    let position = vec![Feature::new(feature, 0)];
+                    let datapoint = NonTaperedDatapoint {
+                        features: position.clone(),
                         outcome: Outcome::new(outcome),
                     };
-                    let dataset = vec![datapoint];
+                    let mut dataset = Dataset::new(1);
+                    dataset.datapoints.push(datapoint);
+                    let batch = dataset.as_batch();
                     for _ in 0..100 {
-                        let grad = compute_gradient(&weights, &dataset, scaling_factor);
+                        let grad = compute_gradient(&weights, batch, scaling_factor);
                         let old_weights = weights.clone();
                         weights -= &grad;
                         // println!("loss {0}, initial weight {initial_weight}, weights {weights}, gradient {grad}, eval {1}, predicted {2}, outcome {outcome}, feature {feature}, scaling factor {scaling_factor}", loss(&weights, &dataset, scaling_factor), cp_eval_for_weights(&weights, &dataset[0].position), wr_prediction_for_weights(&weights, &dataset[0].position, scaling_factor));
@@ -766,11 +784,11 @@ mod tests {
                             );
                         }
                         assert!(
-                            loss(&weights, &dataset, scaling_factor)
-                                <= loss(&old_weights, &dataset, scaling_factor)
+                            loss(&weights, batch, scaling_factor)
+                                <= loss(&old_weights, batch, scaling_factor)
                         );
                     }
-                    let loss = loss(&weights, &dataset, scaling_factor);
+                    let loss = loss(&weights, batch, scaling_factor);
                     if feature != 0 {
                         // pure gradient descent with a small scaling factor can take some time to converge
                         assert!(
@@ -787,22 +805,26 @@ mod tests {
     pub fn simple_test() {
         for outcome in [0.0, 0.5, 1.0] {
             let mut weights = Weights(vec![Weight(0.0), Weight(1.0), Weight(-1.0)]);
-            let position = vec![Feature::new(1), Feature::new(-1), Feature::new(2)];
-            let datapoint = Datapoint {
-                position: position.clone(),
+            let position = vec![Feature::new(1, 0), Feature::new(-1, 1), Feature::new(2, 2)];
+            let datapoint = NonTaperedDatapoint {
+                features: position.clone(),
                 outcome: Outcome::new(outcome),
             };
             let dataset = vec![datapoint];
+            let batch = Batch {
+                datapoints: dataset.as_slice(),
+                num_weights: 3,
+            };
             for _ in 0..100 {
-                let grad = compute_gradient(&weights, &dataset, EvalScale(1.0));
+                let grad = compute_gradient(&weights, batch, EvalScale(1.0));
                 let old_weights = weights.clone();
                 weights -= &grad;
                 assert!(
-                    loss(&weights, &dataset, EvalScale(1.0))
-                        <= loss(&old_weights, &dataset, EvalScale(1.0))
+                    loss(&weights, batch, EvalScale(1.0))
+                        <= loss(&old_weights, batch, EvalScale(1.0))
                 );
             }
-            let loss = loss(&weights, &dataset, EvalScale(1.0));
+            let loss = loss(&weights, batch, EvalScale(1.0));
             assert!(loss <= 0.01);
         }
     }
@@ -812,23 +834,27 @@ mod tests {
         let scale = EvalScale(500.0);
         for outcome in [0.0, 0.5, 1.0] {
             let mut weights = Weights(vec![Weight(123.987), Weight(-987.123)]);
-            let position = vec![Feature::new(3), Feature::new(-3)];
-            let datapoint = Datapoint {
-                position: position.clone(),
+            let position = vec![Feature::new(3, 0), Feature::new(-3, 1)];
+            let datapoint = NonTaperedDatapoint {
+                features: position.clone(),
                 outcome: Outcome::new(outcome),
             };
             let dataset = vec![datapoint];
+            let batch = Batch {
+                datapoints: dataset.as_slice(),
+                num_weights: 2,
+            };
             let mut lr = 1.0;
             for _ in 0..100 {
-                let grad = compute_gradient(&weights, &dataset, scale);
+                let grad = compute_gradient(&weights, batch, scale);
                 let old_weights = weights.clone();
                 weights -= &(grad.clone() * lr);
-                let current_loss = loss(&weights, &dataset, scale);
-                let old_loss = loss(&old_weights, &dataset, scale);
+                let current_loss = loss(&weights, batch, scale);
+                let old_loss = loss(&old_weights, batch, scale);
                 assert!(current_loss <= old_loss);
                 lr *= 0.99;
             }
-            let loss = loss(&weights, &dataset, scale);
+            let loss = loss(&weights, batch, scale);
             assert!(loss <= 0.01);
             if outcome == 0.5 {
                 assert_eq!(weights[0].0.signum(), weights[1].0.signum());
@@ -842,15 +868,19 @@ mod tests {
     #[test]
     pub fn two_positions_test() {
         let scale = EvalScale(1000.0);
-        let win = Datapoint {
-            position: vec![Feature::new(1), Feature::new(-1)],
+        let win = NonTaperedDatapoint {
+            features: vec![Feature::new(1, 0), Feature::new(-1, 1)],
             outcome: WrScore(1.0),
         };
-        let lose = Datapoint {
-            position: vec![Feature::new(-1), Feature::new(1)],
+        let lose = NonTaperedDatapoint {
+            features: vec![Feature::new(-1, 0), Feature::new(1, 1)],
             outcome: WrScore(0.0),
         };
         let dataset = vec![win, lose];
+        let batch = Batch {
+            datapoints: dataset.as_slice(),
+            num_weights: 2,
+        };
         let weights_dist = Uniform::new(-100.0, 100.0);
         let mut rng = thread_rng();
         for _ in 0..100 {
@@ -860,10 +890,10 @@ mod tests {
             ]);
             let mut weights_copy = weights.clone();
             for _ in 0..200 {
-                let grad = compute_gradient(&weights, &dataset, scale);
+                let grad = compute_gradient(&weights, batch, scale);
                 weights -= &grad;
             }
-            let remaining_loss = loss(&weights, &dataset, scale);
+            let remaining_loss = loss(&weights, batch, scale);
             assert!(remaining_loss <= 0.001);
             assert!(weights[0].0 >= 100.0);
             assert!(weights[1].0 <= -100.0);
@@ -871,13 +901,13 @@ mod tests {
             type AnyOptimizer = Box<dyn Optimizer<NonTaperedDatapoint>>;
             let mut optimizers: [AnyOptimizer; 2] = [
                 Box::new(SimpleGDOptimizer { alpha: 1.0 }),
-                Box::new(Adam::new(&dataset, scale)),
+                Box::new(Adam::new(batch, scale)),
             ];
             for mut optimizer in optimizers {
-                for i in 0..100 {
-                    optimizer.iteration(&mut weights_copy, &dataset, scale, i);
+                for i in 0..200 {
+                    optimizer.iteration(&mut weights_copy, batch, scale, i);
                 }
-                let remaining_loss = loss(&weights_copy, &dataset, scale);
+                let remaining_loss = loss(&weights_copy, batch, scale);
                 assert!(remaining_loss <= 0.001);
                 assert!(weights[0].0 >= 100.0);
                 assert!(weights[1].0 <= -100.0);
@@ -888,34 +918,35 @@ mod tests {
     #[test]
     pub fn three_positions_test() {
         let mut weights = Weights(vec![Weight(0.4), Weight(1.0), Weight(2.0)]);
-        let draw_datapoint = Datapoint {
-            position: vec![Feature::new(0), Feature::new(0), Feature::new(0)],
+        let draw_datapoint = NonTaperedDatapoint {
+            features: vec![Feature::new(0, 0), Feature::new(0, 1), Feature::new(0, 2)],
             outcome: Outcome::new(0.5),
         };
-        let lose_datapoint = Datapoint {
-            position: vec![Feature::new(-1), Feature::new(-1), Feature::new(0)],
+        let lose_datapoint = NonTaperedDatapoint {
+            features: vec![Feature::new(-1, 0), Feature::new(-1, 1), Feature::new(0, 2)],
             outcome: Outcome::new(0.0),
         };
-        let win_datapoint = Datapoint {
-            position: vec![Feature::new(1), Feature::new(1), Feature::new(0)],
+        let win_datapoint = NonTaperedDatapoint {
+            features: vec![Feature::new(1, 0), Feature::new(1, 1), Feature::new(0, 2)],
             outcome: Outcome::new(1.0),
         };
 
         let dataset = vec![draw_datapoint, win_datapoint, lose_datapoint];
+        let batch = Batch {
+            datapoints: dataset.as_slice(),
+            num_weights: 3,
+        };
         for _ in 0..500 {
-            let grad = compute_gradient(&weights, &dataset, EvalScale(1.0));
+            let grad = compute_gradient(&weights, batch, EvalScale(1.0));
             println!(
                 "current weights: {0}, current loss: {1}, gradient: {2}",
                 weights,
-                loss(&weights, &dataset, EvalScale(1.0)),
+                loss(&weights, batch, EvalScale(1.0)),
                 grad,
             );
             let old_weights = weights.clone();
             weights -= &grad;
-            assert!(
-                loss(&weights, &dataset, EvalScale(1.0))
-                    <= loss(&weights, &dataset, EvalScale(1.0))
-            );
+            assert!(loss(&weights, batch, EvalScale(1.0)) <= loss(&weights, batch, EvalScale(1.0)));
         }
         assert!(weights[0].0 >= 0.0);
         assert!(weights[1].0 >= 0.0);
@@ -933,12 +964,16 @@ mod tests {
     pub fn adam_one_weight_test() {
         for outcome in [0.0, 0.5, 1.0] {
             let eval_scale = EvalScale(10000.0);
-            let dataset = vec![Datapoint {
-                position: vec![Feature::new(1)],
+            let dataset = vec![NonTaperedDatapoint {
+                features: vec![Feature::new(1, 0)],
                 outcome: Outcome::new(outcome),
             }];
-            let mut adam = Adam::new(&dataset, eval_scale);
-            let weights = adam.optimize(&dataset, eval_scale, 20);
+            let batch = Batch {
+                datapoints: dataset.as_slice(),
+                num_weights: 1,
+            };
+            let mut adam = Adam::new(batch, eval_scale);
+            let weights = adam.optimize_simple(batch, eval_scale, 20);
             assert_eq!(weights.len(), 1);
             let weight = weights[0].0;
             assert_eq!(weight.signum(), (outcome - 0.5).signum());
