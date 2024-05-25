@@ -638,12 +638,12 @@ impl AdamHyperParams {
             /// Setting these values too low can introduce crazy swings in the eval values and loss when it would
             /// otherwise appear converged -- maybe because of numerical instability?
             beta1: 0.9, // 0.8,
-            beta2: 0.995,
+            beta2: 0.999,
             /// When the gradient goes down to zero, we can run into numerical instability issues when dividing by the
             /// square root of the uncentered variance, Set epsilon relatively large to counter this effect. This can
             /// happen when a weight has almost converged or (if something else went wrong) when a weight got tuned so
             /// large that the sigmoid gradient vanishes.
-            epsilon: 1e-6,
+            epsilon: 1e-8,
         }
     }
 }

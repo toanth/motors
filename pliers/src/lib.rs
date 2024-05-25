@@ -19,6 +19,13 @@ pub mod gd;
 pub mod load_data;
 
 pub fn optimize<B: Board, E: Eval<B>, O: Optimizer<E::D>>(file_list: &[String]) -> Res<()> {
+    optimize_for::<B, E, O>(file_list, 2000)
+}
+
+pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
+    file_list: &[String],
+    num_epochs: usize,
+) -> Res<()> {
     #[cfg(debug_assertions)]
     println!("Running in debug mode. Run in release mode for increased performance.");
     let mut dataset = Dataset::new(E::NUM_WEIGHTS);
@@ -29,7 +36,7 @@ pub fn optimize<B: Board, E: Eval<B>, O: Optimizer<E::D>>(file_list: &[String]) 
     let batch = dataset.as_batch();
     let scale = E::eval_scale().to_scaling_factor(batch, &e);
     let mut optimizer = O::new(batch, scale);
-    let weights = optimize_entire_batch(batch, scale, 2000, &e, &mut optimizer);
+    let weights = optimize_entire_batch(batch, scale, num_epochs, &e, &mut optimizer);
     println!(
         "Scaling factor: {scale:.2}, eval:\n{}",
         e.formatter(&weights)
@@ -54,7 +61,14 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
     };
     let mut optimizer = Adam::new(dataset.as_batch(), scale);
     let e = E::default();
-    let _ = optimize_entire_batch(dataset.as_batch(), scale, 1, &e, &mut optimizer);
+    let weights = optimize_entire_batch(dataset.as_batch(), scale, 1, &e, &mut optimizer);
+    assert_eq!(weights.len(), E::NUM_WEIGHTS);
+    println!(
+        "There are {0} weights and {1} out of {2} active features",
+        weights.len(),
+        dataset.datapoints[0].features().count(),
+        E::NUM_FEATURES
+    );
     println!("\nEND DEBUG POSITION OUTPUT\n");
 }
 
