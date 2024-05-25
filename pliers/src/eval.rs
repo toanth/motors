@@ -103,7 +103,7 @@ fn grad_for_eval_scale<D: Datapoint>(
         let prediction = cp_to_wr(cp_eval, eval_scale);
         let outcome = data.outcome().0;
         let sample_grad =
-            (prediction.0 - outcome) * prediction.0 * (1.0 - prediction.0) * cp_eval.0.signum();
+            (prediction.0 - outcome) * prediction.0 * (1.0 - prediction.0) * cp_eval.0;
         scaled_grad += sample_grad;
         loss += sample_loss(prediction, data.outcome());
     }
@@ -139,7 +139,6 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
         weights.len()
     );
     let mut scale = 100.0;
-    let loss_threshold = 0.01;
     let mut prev_dir = None;
     assert!(
         !weights.iter().all(|w| w.0 == 0.0),
@@ -156,13 +155,10 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
             because the eval fails to accurately predict the used datasets. You can always fall back to hand-picking an \
             eval scale in case this doesn't work, or try again with different datasets");
         }
-        let (dir, loss) = grad_for_eval_scale(&weights, batch, scale);
-        if loss < loss_threshold {
-            break;
-        }
+        let (dir, _loss) = grad_for_eval_scale(&weights, batch, scale);
         if prev_dir.is_none() {
             prev_dir = Some(dir);
-        } else if prev_dir.unwrap() != dir || scale >= 1e9 || scale <= 1e-9 {
+        } else if prev_dir.unwrap() != dir {
             break;
         }
         match dir {
@@ -175,10 +171,11 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
         Up => (scale / 2.0, scale),
         Down => (scale, scale * 2.0),
     };
+    let loss_threshold = 0.01;
     loop {
         scale = (upper_bound + lower_bound) / 2.0;
         let (dir, loss) = grad_for_eval_scale(&weights, batch, scale);
-        if loss < loss_threshold || upper_bound - scale <= 0.1 {
+        if loss < loss_threshold || upper_bound - scale <= 0.01 {
             return scale;
         }
         match dir {

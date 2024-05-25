@@ -27,7 +27,10 @@ use crate::games::{
 };
 use crate::general::bitboards::chess::{ChessBitboard, BLACK_SQUARES, WHITE_SQUARES};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
-use crate::general::common::{EntityList, GenericSelect, Res, StaticallyNamedEntity};
+use crate::general::common::Description::NoDescription;
+use crate::general::common::{
+    parse_int_from_str, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
+};
 use crate::general::move_list::EagerNonAllocMoveList;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
@@ -118,6 +121,22 @@ impl Board for Chessboard {
 
     fn startpos(_: Self::Settings) -> Self {
         Self::from_fen(START_FEN).expect("Internal error: Couldn't parse startpos fen")
+    }
+
+    fn from_name(name: &str) -> Res<Self> {
+        // this is the default implementation in the parent trait
+        select_name_static(
+            name,
+            &Self::name_to_pos_map(),
+            "position",
+            Self::game_name(),
+            NoDescription,
+        )
+        .map(|f| (f.val)())
+        .or_else(|err| {
+            Self::parse_numbered_startpos(name)
+                .map_err(|err2| format!("{err} It's also not a (D)FRC startpos [{err2}]."))
+        })
     }
 
     fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
@@ -272,6 +291,10 @@ impl Board for Chessboard {
         }
     }
 
+    fn colored_piece_on_idx(&self, idx: usize) -> Self::Piece {
+        self.colored_piece_on(ChessSquare::new(idx))
+    }
+
     fn uncolored_piece_on(&self, square: Self::Coordinates) -> UncoloredChessPiece {
         let idx = square.index();
         UncoloredChessPiece::from_uncolored_idx(
@@ -280,10 +303,6 @@ impl Board for Chessboard {
                 .position(|bb| bb.is_bit_set_at(idx))
                 .unwrap_or(NUM_CHESS_PIECES),
         )
-    }
-
-    fn colored_piece_on_idx(&self, idx: usize) -> Self::Piece {
-        self.colored_piece_on(ChessSquare::new(idx))
     }
 
     fn pseudolegal_moves(&self) -> Self::MoveList {
@@ -676,8 +695,8 @@ impl Chessboard {
                 || piece == King
                 || piece == Rook
         );
-        // use ^ instead of | for to merge the from and to bitboards because in chess960 castling
-        // it's possible that from == to or that there's another piece on the target square
+        // use ^ instead of | for to merge the from and to bitboards because in chess960 castling,
+        // it is possible that from == to or that there's another piece on the target square
         let bb = RawStandardBitboard((1 << self.to_idx(from)) ^ (1 << self.to_idx(to)));
         let color = self.active_player;
         self.color_bbs[color as usize] ^= bb;
@@ -823,6 +842,23 @@ impl Chessboard {
         res.hash = res.compute_zobrist();
         res.verify_position_legal(Assertion).expect("Internal error: Setting up a Chess960 starting position resulted in an invalid position");
         Ok(res)
+    }
+
+    fn parse_numbered_startpos(name: &str) -> Res<Self> {
+        for prefix in ["chess960-", "chess", "frc-", "frc"] {
+            if let Some(remaining) = name.strip_prefix(prefix) {
+                return parse_int_from_str(remaining, "chess960 startpos number")
+                    .and_then(|num| Self::chess_960_startpos(num));
+            }
+        }
+        for prefix in ["dfrc-", "dfrc"] {
+            if let Some(remaining) = name.strip_prefix(prefix) {
+                return parse_int_from_str(remaining, "dfrc startpos number")
+                    .and_then(|num: usize| Self::dfrc_startpos(num / 960, num % 960));
+            }
+        }
+        Err(format!("(D)FRC positions must be of the format {0} or {1}, with N < 960 and M < 921600, e.g. frc123",
+            "frc<N>".bold(), "dfrc<M>".bold()))
     }
 }
 

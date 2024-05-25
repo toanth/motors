@@ -1023,7 +1023,7 @@ where
                     .parse::<usize>()
                     .unwrap();
                 if num_skipped == 0 {
-                    return Err("fen position can't contain the number 0".to_string());
+                    return Err("FEN position can't contain the number 0".to_string());
                 }
                 *idx += num_skipped;
             }
@@ -1036,11 +1036,17 @@ where
                 continue;
             }
             let symbol = <B::Piece as ColoredPiece>::ColoredPieceType::from_ascii_char(c)
-                .ok_or_else(|| format!("Invalid character: {c}"))?;
+                .ok_or_else(|| {
+                    format!(
+                        "Invalid character in {0} FEN position description (not a piece): {1}",
+                        B::game_name(),
+                        c.to_string().red()
+                    )
+                })?;
             handle_skipped(i, skipped_digits, &mut square)?;
             skipped_digits = 0;
             if square >= board.num_squares() {
-                return Err(format!("fen position contains at least {square} squares, but the board only has {0} squares", board.num_squares()));
+                return Err(format!("FEN position contains at least {square} squares, but the board only has {0} squares", board.num_squares()));
             }
 
             // let player = symbol.color().ok_or_else(|| "Invalid format: Empty square can't appear as part of nnk fen (should be number of consecutive empty squares) ".to_string())?;

@@ -44,7 +44,7 @@ pub type Res<T> = Result<T, String>;
 pub fn parse_fp_from_str<T: Float + FromStr>(as_str: &str, name: &str) -> Res<T> {
     as_str
         .parse::<T>()
-        .map_err(|_err| format!("couldn't parse {name} ('{as_str}')"))
+        .map_err(|_err| format!("Couldn't parse {name} ('{as_str}')"))
 }
 
 pub fn parse_int_from_str<T: PrimInt + FromStr>(as_str: &str, name: &str) -> Res<T> {
@@ -52,14 +52,14 @@ pub fn parse_int_from_str<T: PrimInt + FromStr>(as_str: &str, name: &str) -> Res
     // so we just write the error message ourselves
     as_str
         .parse::<T>()
-        .map_err(|_err| format!("couldn't parse {name} ('{as_str}')"))
+        .map_err(|_err| format!("Couldn't parse {name} ('{as_str}')"))
 }
 
 pub fn parse_int<T: PrimInt + FromStr + Display>(
     words: &mut SplitWhitespace,
     name: &str,
 ) -> Res<T> {
-    parse_int_from_str(words.next().ok_or_else(|| format!("missing {name}"))?, name)
+    parse_int_from_str(words.next().ok_or_else(|| format!("Missing {name}"))?, name)
 }
 
 pub fn parse_int_from_stdin<T: PrimInt + FromStr>() -> Res<T> {
