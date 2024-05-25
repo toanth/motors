@@ -76,7 +76,8 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
     ) -> Res<()> {
         let parse_res = Self::read_annotated_fen(input).map_err(|err| {
             format!(
-                "Error in line {line_num}: Couldn't parse FEN '{}': {err}",
+                "Error in line {0}: Couldn't parse FEN '{1}': {err}",
+                line_num + 1,
                 input.bold()
             )
         })?;
@@ -103,17 +104,17 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         println!("Loading FENs from file '{}'", file_name.bold());
         let reader = BufReader::new(file);
         let mut res = Dataset::new(E::NUM_WEIGHTS);
-        let mut line_no = 1;
-        for (idx, line) in reader.lines().enumerate() {
-            let line = line.map_err(|err| format!("Failed to read line {line_no}: {err}"))?;
-            Self::load_datapoint_from_annotated_fen(&line, idx, &mut res)?;
-            if line_no % 100_000 == 0 {
-                println!("Loading...  Read {line_no} lines so far");
+        let mut line_num = 0;
+        for line in reader.lines() {
+            line_num += 1;
+            let line = line.map_err(|err| format!("Failed to read line {line_num}: {err}"))?;
+            Self::load_datapoint_from_annotated_fen(&line, line_num - 1, &mut res)?;
+            if line_num % 100_000 == 0 {
+                println!("Loading...  Read {line_num} lines so far");
             }
-            line_no += 1;
         }
         println!(
-            "Read {line_no} fens in total, after filtering there are {} positions",
+            "Read {line_num} fens in total, after filtering there are {} positions",
             res.datapoints.len()
         );
         Ok(res)

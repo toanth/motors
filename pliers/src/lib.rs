@@ -1,8 +1,8 @@
 use crate::eval::chess::caps_hce_eval::CapsHceEval;
 use crate::eval::chess::material_only_eval::MaterialOnlyEval;
 use crate::eval::chess::piston_eval::PistonEval;
-use crate::eval::Eval;
 use crate::eval::EvalScale::{InitialWeights, Scale};
+use crate::eval::{Eval, EvalScale};
 use crate::gd::{
     optimize_entire_batch, Adam, Batch, Datapoint, Dataset, Optimizer, ScalingFactor,
     TaperedDatapoint, Weights,
@@ -27,10 +27,13 @@ pub fn optimize<B: Board, E: Eval<B>, O: Optimizer<E::D>>(file_list: &[String]) 
     }
     let e = E::default();
     let batch = dataset.as_batch();
-    let scale = E::eval_scale().to_scaling_factor(batch);
+    let scale = E::eval_scale().to_scaling_factor(batch, &e);
     let mut optimizer = O::new(batch, scale);
     let weights = optimize_entire_batch(batch, scale, 2000, &e, &mut optimizer);
-    println!("{}", e.formatter(&weights));
+    println!(
+        "Scaling factor: {scale:.2}, eval:\n{}",
+        e.formatter(&weights)
+    );
     Ok(())
 }
 
@@ -45,7 +48,10 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
     let fen = format!("{} [1.0]", pos.as_fen());
     println!("(FEN: {fen}\n");
     let dataset = FenReader::<Chessboard, E>::load_from_str(&fen).unwrap();
-    let scale = ScalingFactor::default();
+    let scale = match E::eval_scale() {
+        Scale(scale) => scale,
+        InitialWeights(_) => 100.0, // Tuning the scaling factor one a single position is just going to result in inf or 0.
+    };
     let mut optimizer = Adam::new(dataset.as_batch(), scale);
     let e = E::default();
     let _ = optimize_entire_batch(dataset.as_batch(), scale, 1, &e, &mut optimizer);
@@ -80,8 +86,8 @@ mod tests {
         // the kings are on mirrored positions and cancel each other out
         assert_eq!(positions.datapoints[0].features.len(), 0);
         assert_eq!(positions.datapoints[1].features.len(), 1);
-        let eval_scale = ScalingFactor::default();
         let batch = positions.batch(0, 1);
+        let eval_scale = 100.0;
         let mut optimizer = Adam::new(batch, eval_scale);
         let startpos_weights = optimize_entire_batch(
             batch,

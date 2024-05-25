@@ -56,15 +56,11 @@ pub fn sigmoid(x: Float, scale: ScalingFactor) -> Float {
 }
 
 pub fn cp_to_wr(cp: CpScore, eval_scale: ScalingFactor) -> WrScore {
-    WrScore(sigmoid(cp.0 as Float, eval_scale))
-}
-
-pub fn sample_delta(wr_prediction: WrScore, outcome: Outcome) -> Float {
-    wr_prediction.0 - outcome.0
+    WrScore(sigmoid(cp.0, eval_scale))
 }
 
 pub fn sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
-    let delta = sample_delta(wr_prediction, outcome);
+    let delta = wr_prediction.0 - outcome.0;
     delta * delta
 }
 
@@ -101,7 +97,7 @@ impl Weight {
 /// So instead, the size is known runtime.
 
 #[derive(Debug, Default, Clone, Deref, DerefMut)]
-pub struct Weights(Vec<Weight>);
+pub struct Weights(pub Vec<Weight>);
 
 pub type Gradient = Weights;
 
