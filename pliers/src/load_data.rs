@@ -115,7 +115,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
             )
         })?;
         for datapoint in E::Filter::filter(parse_res) {
-            dataset.datapoints.push(E::extract_features(
+            dataset.push(E::extract_features(
                 &datapoint.pos,
                 datapoint.outcome,
                 datapoint.weight,
@@ -137,11 +137,11 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
             .map_err(|err| format!("Could not open file '{}': {err}", input_file.name))?;
         let file = BufReader::new(file);
         let perspective = input_file.perspective;
+        let weight = input_file.weight.unwrap_or(1.0);
         println!(
-            "Loading FENs from file '{}' (Outcomes are {perspective} relative)",
+            "Loading FENs from file '{0}' (Outcomes are {perspective} relative), sampling weight: {weight:.1}",
             input_file.name.bold()
         );
-        let weight = input_file.weight.unwrap_or(1.0);
         let reader = BufReader::new(file);
         let mut res = Dataset::new(E::NUM_WEIGHTS);
         let mut line_num = 0;
@@ -161,7 +161,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         }
         println!(
             "Read {line_num} fens in total, after filtering there are {} positions",
-            res.datapoints.len()
+            res.data().len()
         );
         Ok(res)
     }

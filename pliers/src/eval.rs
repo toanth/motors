@@ -1,8 +1,8 @@
 use crate::eval::Direction::{Down, Up};
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
-    cp_eval_for_weights, cp_to_wr, sample_loss, wr_prediction_for_weights, Batch, Datapoint, Float,
-    Outcome, ScalingFactor, TraceTrait, Weights,
+    cp_eval_for_weights, cp_to_wr, sample_loss, scaled_sample_grad, wr_prediction_for_weights,
+    Batch, Datapoint, Float, Outcome, ScalingFactor, TraceTrait, Weights,
 };
 use crate::load_data::{Filter, NoFilter};
 use derive_more::Display;
@@ -101,13 +101,13 @@ fn grad_for_eval_scale<D: Datapoint>(
     for data in batch.datapoints {
         let cp_eval = cp_eval_for_weights(&weights, data);
         let prediction = cp_to_wr(cp_eval, eval_scale);
-        let outcome = data.outcome().0;
+        let outcome = data.outcome();
         let sample_grad =
-            (prediction.0 - outcome) * prediction.0 * (1.0 - prediction.0) * cp_eval.0;
+            scaled_sample_grad(prediction, outcome, data.sampling_weight()) * cp_eval.0;
         scaled_grad += sample_grad;
-        loss += sample_loss(prediction, data.outcome());
+        loss += sample_loss(prediction, data.outcome(), data.sampling_weight());
     }
-    loss /= batch.datapoints.len() as Float;
+    loss /= batch.weight_sum as Float;
     // the gradient tells us how we need to change 1/eval_scale to maximize the loss, which is the same direction
     // as changing eval_scale to minimize the loss.
     let dir = if scaled_grad > 0.0 { Up } else { Down };

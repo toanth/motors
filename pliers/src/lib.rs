@@ -113,7 +113,7 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
     println!(
         "There are {0} weights and {1} out of {2} active features",
         weights.len(),
-        dataset.datapoints[0].features().count(),
+        dataset.data()[0].features().count(),
         E::NUM_FEATURES
     );
     println!("\nEND DEBUG POSITION OUTPUT\n");
@@ -145,7 +145,7 @@ mod tests {
         assert_eq!(positions.datapoints.len(), 2);
         assert_eq!(positions.datapoints[0].outcome, Outcome::new(0.5));
         assert_eq!(positions.datapoints[1].outcome, Outcome::new(1.0));
-        assert_eq!(positions.num_weights, NUM_PIECE_SQUARE_ENTRIES * 2);
+        assert_eq!(positions.weights_in_pos, NUM_PIECE_SQUARE_ENTRIES * 2);
         // the kings are on mirrored positions and cancel each other out
         assert_eq!(positions.datapoints[0].features.len(), 0);
         assert_eq!(positions.datapoints[1].features.len(), 1);

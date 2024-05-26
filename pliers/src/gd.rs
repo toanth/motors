@@ -60,14 +60,23 @@ pub fn cp_to_wr(cp: CpScore, eval_scale: ScalingFactor) -> WrScore {
     WrScore(sigmoid(cp.0, eval_scale))
 }
 
-pub fn sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
+pub fn sample_loss(wr_prediction: WrScore, outcome: Outcome, sample_weight: Float) -> Float {
     let delta = wr_prediction.0 - outcome.0;
-    delta * delta
+    delta * delta * sample_weight
 }
 
-pub fn sample_loss_for_cp(eval: CpScore, outcome: Outcome, eval_scale: ScalingFactor) -> Float {
+pub fn sample_loss_for_cp(
+    eval: CpScore,
+    outcome: Outcome,
+    eval_scale: ScalingFactor,
+    sample_weight: Float,
+) -> Float {
     let wr_prediction = cp_to_wr(eval, eval_scale);
-    sample_loss(wr_prediction, outcome)
+    sample_loss(wr_prediction, outcome, sample_weight)
+}
+
+pub fn scaled_sample_grad(prediction: WrScore, outcome: Outcome, sample_weight: Float) -> Float {
+    (prediction.0 - outcome.0) * prediction.0 * (1.0 - prediction.0) * sample_weight
 }
 
 #[derive(
@@ -276,6 +285,10 @@ pub trait Datapoint: Clone + Send + Sync {
     fn new<T: TraceTrait>(trace: T, outcome: Outcome, weight: Float) -> Self;
     fn outcome(&self) -> Outcome;
     fn features(&self) -> impl Iterator<Item = WeightedFeature>;
+    /// A value of 2.0 effectively duplicates this datapoint, so it will influence the gradient twice as much.
+    fn sampling_weight(&self) -> Float {
+        1.0
+    }
 }
 
 /// A simple Datapoint that ignores phase and weight.
@@ -329,37 +342,49 @@ impl Datapoint for TaperedDatapoint {
     fn features(&self) -> impl Iterator<Item = WeightedFeature> {
         self.features.iter().flat_map(|feature| {
             [
-                WeightedFeature::new(
-                    feature.idx() * 2,
-                    feature.float() * self.phase.0 * self.weight,
-                ),
+                WeightedFeature::new(feature.idx() * 2, feature.float() * self.phase.0),
                 WeightedFeature::new(
                     feature.idx() * 2 + 1,
-                    feature.float() * (1.0 - self.phase.0) * self.weight,
+                    feature.float() * (1.0 - self.phase.0),
                 ),
             ]
         })
+    }
+    fn sampling_weight(&self) -> Float {
+        self.weight
     }
 }
 
 // TODO: Let `Dataset` own the list of features and `D` objects only hold a slice of features
 #[derive(Debug)]
 pub struct Dataset<D: Datapoint> {
-    pub datapoints: Vec<D>,
-    pub num_weights: usize,
+    datapoints: Vec<D>,
+    weights_in_pos: usize,
+    sampling_weight_sum: Float,
 }
 
 impl<D: Datapoint> Dataset<D> {
     pub fn new(num_weights: usize) -> Self {
         Self {
             datapoints: vec![],
-            num_weights,
+            weights_in_pos: num_weights,
+            sampling_weight_sum: 0.0,
         }
     }
 
+    pub fn data(&self) -> &[D] {
+        &self.datapoints
+    }
+
+    pub fn push(&mut self, datapoint: D) {
+        self.sampling_weight_sum += datapoint.sampling_weight();
+        self.datapoints.push(datapoint);
+    }
+
     pub fn union(&mut self, mut other: Dataset<D>) {
-        assert_eq!(self.num_weights, other.num_weights);
+        assert_eq!(self.weights_in_pos, other.weights_in_pos);
         self.datapoints.append(&mut other.datapoints);
+        self.sampling_weight_sum += other.sampling_weight_sum;
     }
 
     pub fn shuffle(&mut self) {
@@ -369,13 +394,15 @@ impl<D: Datapoint> Dataset<D> {
     pub fn as_batch(&self) -> Batch<D> {
         Batch {
             datapoints: &self.datapoints,
-            num_weights: self.num_weights,
+            num_weights: self.weights_in_pos,
+            weight_sum: self.sampling_weight_sum,
         }
     }
     pub fn batch(&self, start_idx: usize, end_idx: usize) -> Batch<D> {
         Batch {
             datapoints: &self.datapoints[start_idx..end_idx],
-            num_weights: self.num_weights,
+            num_weights: self.weights_in_pos,
+            weight_sum: self.sampling_weight_sum,
         }
     }
 }
@@ -384,6 +411,7 @@ impl<D: Datapoint> Dataset<D> {
 pub struct Batch<'a, D: Datapoint> {
     pub datapoints: &'a [D],
     pub num_weights: usize,
+    pub weight_sum: Float,
 }
 
 // deriving Copy, Clone doesn't work for some reason
@@ -392,6 +420,7 @@ impl<D: Datapoint> Clone for Batch<'_, D> {
         Self {
             datapoints: self.datapoints,
             num_weights: self.num_weights,
+            weight_sum: self.weight_sum,
         }
     }
 }
@@ -433,7 +462,7 @@ pub fn loss<D: Datapoint>(
             .par_iter()
             .map(|datapoint| {
                 let eval = wr_prediction_for_weights(weights, datapoint, eval_scale);
-                let loss = sample_loss(eval, datapoint.outcome());
+                let loss = sample_loss(eval, datapoint.outcome(), datapoint.sampling_weight());
                 debug_assert!(loss >= 0.0);
                 loss
             })
@@ -442,16 +471,16 @@ pub fn loss<D: Datapoint>(
         let mut res = Float::default();
         for datapoint in batch.iter() {
             let eval = wr_prediction_for_weights(weights, datapoint, eval_scale);
-            let loss = sample_loss(eval, datapoint.outcome());
+            let loss = sample_loss(eval, datapoint.outcome(), datapoint.sampling_weight());
             debug_assert!(loss >= 0.0);
-            res += loss;
+            res += loss * datapoint.sampling_weight();
         }
         res
     };
-    sum / batch.len() as Float
+    sum / batch.weight_sum as Float
 }
 
-/// Computes the gradient of the loss function:
+/// Computes the scaled gradient of the loss function:
 /// The loss function of a single sample is `(sigmoid(sample, scale) - outcome) ^ 2`,
 /// so per the chain rule, the derivative is `2 * (sigmoid(sample, scale) - outcome) * sigmoid'(sample, scale)`,
 /// where the derivative of the sigmoid, sigmoid', is `scale * sigmoid(sample, scale) * (1 - sigmoid(sample, scale)`.
@@ -460,9 +489,7 @@ pub fn compute_gradient<D: Datapoint>(
     batch: Batch<D>,
     eval_scale: ScalingFactor,
 ) -> Gradient {
-    // the 2 is a constant factor and could be dropped because we don't need to preserve the magnitude of the gradient,
-    // but let's be correct and keep it.
-    let constant_factor = 2.0 * eval_scale / batch.len() as f64;
+    let constant_factor = 2.0 * eval_scale / batch.weight_sum;
     if batch.len() >= MIN_MULTITHREADING_BATCH_SIZE {
         batch
             .datapoints
@@ -470,11 +497,11 @@ pub fn compute_gradient<D: Datapoint>(
             .fold(
                 || Gradient::new(weights.num_weights()),
                 |mut grad: Gradient, data: &D| {
-                    let wr_prediction = wr_prediction_for_weights(weights, data, eval_scale).0;
+                    let wr_prediction = wr_prediction_for_weights(weights, data, eval_scale);
 
                     // constant factors have been moved outside the loop
                     let scaled_delta =
-                        (wr_prediction - data.outcome().0) * wr_prediction * (1.0 - wr_prediction);
+                        scaled_sample_grad(wr_prediction, data.outcome(), data.sampling_weight());
                     grad.update(data, scaled_delta);
                     grad
                 },
@@ -496,7 +523,8 @@ pub fn compute_gradient<D: Datapoint>(
             let scaled_delta = constant_factor
                 * (wr_prediction - data.outcome().0)
                 * wr_prediction
-                * (1.0 - wr_prediction);
+                * (1.0 - wr_prediction)
+                * data.sampling_weight();
             grad.update(data, scaled_delta);
         }
         grad
