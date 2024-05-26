@@ -122,12 +122,13 @@ fn write_phased_psqt(
                 writeln!(f)?;
                 write!(f, "{TAB}{TAB}")?;
             }
-            let mut val = 0.0;
-            for rank_delta in -1..=1 {
-                for file_delta in -1..1 {
-                    val += get(weights, piece_idx, square, rank_delta, file_delta, phase);
-                }
-            }
+            // let mut val = 0.0;
+            // for rank_delta in -1..=1 {
+            //     for file_delta in -1..1 {
+            //         val += get(weights, piece_idx, square, rank_delta, file_delta, phase);
+            //     }
+            // }
+            let val = weights[64 * 2 * piece_idx + 2 * square + phase as usize].0;
 
             write!(f, "{:4}, ", val.round())?;
         }

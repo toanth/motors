@@ -49,8 +49,8 @@ pub trait Eval<B: Board>: WeightFormatter + Default {
 
     type Filter: Filter<B>;
 
-    fn extract_features(pos: &B, outcome: Outcome) -> Self::D {
-        Self::D::new(Self::feature_trace(pos), outcome)
+    fn extract_features(pos: &B, outcome: Outcome, weight: Float) -> Self::D {
+        Self::D::new(Self::feature_trace(pos), outcome, weight)
     }
 
     fn feature_trace(pos: &B) -> impl TraceTrait;

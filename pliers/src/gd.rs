@@ -273,11 +273,12 @@ impl WeightedFeature {
 }
 
 pub trait Datapoint: Clone + Send + Sync {
-    fn new<T: TraceTrait>(trace: T, outcome: Outcome) -> Self;
+    fn new<T: TraceTrait>(trace: T, outcome: Outcome, weight: Float) -> Self;
     fn outcome(&self) -> Outcome;
     fn features(&self) -> impl Iterator<Item = WeightedFeature>;
 }
 
+/// A simple Datapoint that ignores phase and weight.
 #[derive(Debug, Clone)]
 pub struct NonTaperedDatapoint {
     pub features: Vec<Feature>,
@@ -285,7 +286,7 @@ pub struct NonTaperedDatapoint {
 }
 
 impl Datapoint for NonTaperedDatapoint {
-    fn new<T: TraceTrait>(trace: T, outcome: Outcome) -> Self {
+    fn new<T: TraceTrait>(trace: T, outcome: Outcome, _weight: Float) -> Self {
         Self {
             features: trace.as_features(0),
             outcome,
@@ -308,14 +309,16 @@ pub struct TaperedDatapoint {
     pub features: Vec<Feature>,
     pub outcome: Outcome,
     pub phase: PhaseMultiplier,
+    pub weight: Float,
 }
 
 impl Datapoint for TaperedDatapoint {
-    fn new<T: TraceTrait>(trace: T, outcome: Outcome) -> Self {
+    fn new<T: TraceTrait>(trace: T, outcome: Outcome, weight: Float) -> Self {
         Self {
             features: trace.as_features(0),
             outcome,
             phase: PhaseMultiplier(trace.phase()),
+            weight,
         }
     }
 
@@ -326,10 +329,13 @@ impl Datapoint for TaperedDatapoint {
     fn features(&self) -> impl Iterator<Item = WeightedFeature> {
         self.features.iter().flat_map(|feature| {
             [
-                WeightedFeature::new(feature.idx() * 2, feature.float() * self.phase.0),
+                WeightedFeature::new(
+                    feature.idx() * 2,
+                    feature.float() * self.phase.0 * self.weight,
+                ),
                 WeightedFeature::new(
                     feature.idx() * 2 + 1,
-                    feature.float() * (1.0 - self.phase.0),
+                    feature.float() * (1.0 - self.phase.0) * self.weight,
                 ),
             ]
         })
@@ -519,8 +525,8 @@ pub fn optimize_entire_batch<D: Datapoint>(
                 format_weights.display(&weights)
             );
             let elapsed = start.elapsed();
-            // If no weight changed by more than 0.1 within the last 50 epochs, stop.
-            let mut max_diff = Float::NEG_INFINITY;
+            // If no weight changed by more than 0.05 within the last 50 epochs, stop.
+            let mut max_diff: Float = 0.0;
             for i in 0..prev_weights.len() {
                 let diff = weights[i].0 - prev_weights[i].0;
                 if diff.abs() > max_diff.abs() {
@@ -537,7 +543,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
             if loss <= 0.001 && epoch >= 20 {
                 break;
             }
-            if max_diff <= 5 && epoch >= 50 {
+            if max_diff.abs() <= 0.05 && epoch >= 50 {
                 break;
             }
             prev_weights = weights.0.clone();

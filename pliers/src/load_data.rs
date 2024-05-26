@@ -24,6 +24,7 @@ const WDL_MAP: [(&str, Float); 4] = [
 pub struct ParseResult<B: Board> {
     pub pos: B,
     pub outcome: Outcome,
+    pub weight: Float,
 }
 
 pub trait Filter<B: Board> {
@@ -40,8 +41,9 @@ impl<B: Board> Filter<B> for NoFilter {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Display, Deserialize)]
+#[derive(Debug, Copy, Default, Clone, PartialEq, Eq, Display, Deserialize)]
 pub enum Perspective {
+    #[default]
     White,
     SideToMove,
 }
@@ -49,7 +51,9 @@ pub enum Perspective {
 #[derive(Debug, Deserialize)]
 pub struct AnnotatedFenFile {
     pub name: String,
+    #[serde(default)]
     pub perspective: Perspective,
+    pub weight: Option<Float>,
 }
 
 /// Avoids having to specify the generic Board argument each time.
@@ -76,7 +80,11 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         Err(format!("'{}' is not a valid wdl", wdl.red()))
     }
 
-    fn read_annotated_fen(input: &str, perspective: Perspective) -> Res<ParseResult<B>> {
+    fn read_annotated_fen(
+        input: &str,
+        perspective: Perspective,
+        weight: Float,
+    ) -> Res<ParseResult<B>> {
         let mut input = input.split_whitespace();
         let pos = B::read_fen_and_advance_input(&mut input)?;
         // skip up to one token between the end of the fen and the wdl
@@ -85,16 +93,21 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         if perspective == SideToMove && pos.active_player() == Black {
             outcome.0 = 1.0 - outcome.0;
         }
-        Ok(ParseResult { pos, outcome })
+        Ok(ParseResult {
+            pos,
+            outcome,
+            weight,
+        })
     }
 
     fn load_datapoint_from_annotated_fen(
         input: &str,
         line_num: usize,
         perspective: Perspective,
+        weight: Float,
         dataset: &mut Dataset<E::D>,
     ) -> Res<()> {
-        let parse_res = Self::read_annotated_fen(input, perspective).map_err(|err| {
+        let parse_res = Self::read_annotated_fen(input, perspective, weight).map_err(|err| {
             format!(
                 "Error in line {0}: Couldn't parse FEN '{1}': {err}",
                 line_num + 1,
@@ -102,9 +115,11 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
             )
         })?;
         for datapoint in E::Filter::filter(parse_res) {
-            dataset
-                .datapoints
-                .push(E::extract_features(&datapoint.pos, datapoint.outcome))
+            dataset.datapoints.push(E::extract_features(
+                &datapoint.pos,
+                datapoint.outcome,
+                datapoint.weight,
+            ))
         }
         Ok(())
     }
@@ -112,7 +127,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
     pub fn load_from_str(annotated_fens: &str, perspective: Perspective) -> Res<Dataset<E::D>> {
         let mut res = Dataset::new(E::NUM_WEIGHTS);
         for (idx, line) in annotated_fens.lines().enumerate() {
-            Self::load_datapoint_from_annotated_fen(line, idx, perspective, &mut res)?;
+            Self::load_datapoint_from_annotated_fen(line, idx, perspective, 1.0, &mut res)?;
         }
         Ok(res)
     }
@@ -126,13 +141,20 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
             "Loading FENs from file '{}' (Outcomes are {perspective} relative)",
             input_file.name.bold()
         );
+        let weight = input_file.weight.unwrap_or(1.0);
         let reader = BufReader::new(file);
         let mut res = Dataset::new(E::NUM_WEIGHTS);
         let mut line_num = 0;
         for line in reader.lines() {
             line_num += 1;
             let line = line.map_err(|err| format!("Failed to read line {line_num}: {err}"))?;
-            Self::load_datapoint_from_annotated_fen(&line, line_num - 1, perspective, &mut res)?;
+            Self::load_datapoint_from_annotated_fen(
+                &line,
+                line_num - 1,
+                perspective,
+                weight,
+                &mut res,
+            )?;
             if line_num % 100_000 == 0 {
                 println!("Loading...  Read {line_num} lines so far");
             }
