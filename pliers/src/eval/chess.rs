@@ -83,7 +83,7 @@ fn psqt_trace(pos: &Chessboard) -> SimpleTrace {
 #[rustfmt::skip]
 const BLOOM: [[Float; 3]; 3] = [
     [0.025, 0.05,  0.025],
-    [0.05,  0.8,   0.05],
+    [0.05,  0.7,   0.05],
     [0.025, 0.05,  0.025]
 ];
 
