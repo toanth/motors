@@ -1,6 +1,7 @@
 use crate::eval::chess::PhaseType::*;
 use crate::gd::{Feature, Float, PhaseMultiplier, SimpleTrace, Weight, Weights};
 use crate::load_data::{Filter, ParseResult};
+use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
@@ -81,9 +82,9 @@ fn psqt_trace(pos: &Chessboard) -> SimpleTrace {
 /// Apply a simple blur on the PSQTs to reduce noise.
 #[rustfmt::skip]
 const BLOOM: [[Float; 3]; 3] = [
-    [0.05, 0.1,  0.05],
-    [0.1,  0.4,  0.1],
-    [0.05, 0.1,  0.05]
+    [0.025, 0.05,  0.025],
+    [0.05,  0.8,   0.05],
+    [0.025, 0.05,  0.025]
 ];
 
 fn get(
@@ -94,7 +95,12 @@ fn get(
     file_delta: isize,
     phase: PhaseType,
 ) -> Float {
-    let rank = (square as isize / 8 + rank_delta).clamp(0, 7);
+    let (min_rank, max_rank) = if piece_idx == Pawn as usize {
+        (1, 6)
+    } else {
+        (0, 7)
+    };
+    let rank = (square as isize / 8 + rank_delta).clamp(min_rank, max_rank);
     let file = (square as isize % 8 + file_delta).clamp(0, 7);
     let square = rank * 8 + file;
     let bloom_multiplier = BLOOM[(rank_delta + 1) as usize][(file_delta + 1) as usize];

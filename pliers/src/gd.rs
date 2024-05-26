@@ -528,7 +528,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
                 .unwrap_or(u64::MAX);
             println!(
                 "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
-                maximum weight change in: {2:.3}",
+                maximum weight change to 50 epochs ago: {2:.2}",
                 epoch as f32 / elapsed.as_secs_f32(),
                 (prev_loss - loss) * 1_000_000.0,
                 max_diff as Float / 100.0,
