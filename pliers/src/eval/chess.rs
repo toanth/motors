@@ -78,6 +78,29 @@ fn psqt_trace(pos: &Chessboard) -> SimpleTrace {
     trace
 }
 
+/// Apply a simple blur on the PSQTs to reduce noise.
+#[rustfmt::skip]
+const BLOOM: [[Float; 3]; 3] = [
+    [0.05, 0.1,  0.05],
+    [0.1,  0.4,  0.1],
+    [0.05, 0.1,  0.05]
+];
+
+fn get(
+    weights: &[Weight],
+    piece_idx: usize,
+    square: usize,
+    rank_delta: isize,
+    file_delta: isize,
+    phase: PhaseType,
+) -> Float {
+    let rank = (square as isize / 8 + rank_delta).clamp(0, 7);
+    let file = (square as isize % 8 + file_delta).clamp(0, 7);
+    let square = rank * 8 + file;
+    let bloom_multiplier = BLOOM[(rank_delta + 1) as usize][(file_delta + 1) as usize];
+    weights[64 * 2 * piece_idx + 2 * square as usize + phase as usize].0 * bloom_multiplier
+}
+
 fn write_phased_psqt(
     f: &mut Formatter<'_>,
     weights: &[Weight],
@@ -93,11 +116,14 @@ fn write_phased_psqt(
                 writeln!(f)?;
                 write!(f, "{TAB}{TAB}")?;
             }
-            write!(
-                f,
-                "{:4}, ",
-                weights[64 * 2 * piece_idx + 2 * square + phase as usize].rounded()
-            )?;
+            let mut val = 0.0;
+            for rank_delta in -1..=1 {
+                for file_delta in -1..1 {
+                    val += get(weights, piece_idx, square, rank_delta, file_delta, phase);
+                }
+            }
+
+            write!(f, "{:4}, ", val.round())?;
         }
         writeln!(f)?;
         writeln!(f, "{TAB}],")?;

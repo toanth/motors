@@ -8,6 +8,7 @@ use std::fmt::{Debug, Formatter};
 use std::iter::Sum;
 use std::ops::{DivAssign, MulAssign};
 use std::time::Instant;
+use std::usize;
 
 // TODO: Better value
 /// Not doing multithreading for small batch sizes isn't only meant to improve performance,
@@ -503,6 +504,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
     format_weights: &dyn WeightFormatter,
     optimizer: &mut dyn Optimizer<D>,
 ) -> Weights {
+    let mut prev_weights: Vec<Weight> = vec![];
     let mut weights = Weights::new(batch.num_weights);
     // Since weights are initially 0, use a very high lr for the first couple of iterations.
     optimizer.lr_drop(0.25); // increases lr by a factor of
@@ -517,16 +519,29 @@ pub fn optimize_entire_batch<D: Datapoint>(
                 format_weights.display(&weights)
             );
             let elapsed = start.elapsed();
+            // If no weight changed by more than 0.1 within the last 50 epochs, stop.
+            let max_diff = prev_weights
+                .iter()
+                .zip(weights.0.iter())
+                .map(|(a, b)| ((a.0 - b.0).abs() * 100.0).round() as u64)
+                .max()
+                .unwrap_or(u64::MAX);
             println!(
-                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), loss: {loss}, loss got smaller by: 1/1_000_000 * {1}",
+                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
+                maximum weight change in: {2:.3}",
                 epoch as f32 / elapsed.as_secs_f32(),
                 (prev_loss - loss) * 1_000_000.0,
+                max_diff as Float / 100.0,
                 elapsed = elapsed.as_secs()
             );
-            prev_loss = loss;
-            if loss <= 0.01 && epoch >= 20 {
+            if loss <= 0.001 && epoch >= 20 {
                 break;
             }
+            if max_diff <= 5 && epoch >= 50 {
+                break;
+            }
+            prev_weights = weights.0.clone();
+            prev_loss = loss;
         }
         if epoch == 20.min(num_epochs / 100) {
             optimizer.lr_drop(4.0); // undo the raised lr.
