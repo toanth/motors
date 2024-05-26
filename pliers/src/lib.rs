@@ -7,46 +7,93 @@ use crate::gd::{
     optimize_entire_batch, Adam, Batch, Datapoint, Dataset, Optimizer, ScalingFactor,
     TaperedDatapoint, Weights,
 };
-use crate::load_data::{FenReader, Filter};
+use crate::load_data::Perspective::White;
+use crate::load_data::{AnnotatedFenFile, FenReader, Filter};
 use gears::games::chess::Chessboard;
 use gears::games::Board;
 use gears::general::common::Res;
+use serde_json::from_reader;
+use std::env::args;
 use std::fs::File;
+use std::io::BufReader;
 use std::path::Path;
+use std::process::exit;
 
 pub mod eval;
 pub mod gd;
 pub mod load_data;
 
-pub fn optimize<B: Board, E: Eval<B>, O: Optimizer<E::D>>(file_list: &[String]) -> Res<()> {
-    optimize_for::<B, E, O>(file_list, 2000)
+/// The 'main function' of this library. You can call the functions below if you want more control,
+/// but this is the easiest way to use the tuner. Simply call this function with your eval,
+/// e.g. `run::<Chessboard, MaterialOnlyEval>()`. Make sure to provide a JSON file with a list of datasets.
+/// The filenames in that JSON file should be either absolute or relative to the location of the JSON file.
+pub fn run<B: Board, E: Eval<B>>() {
+    if let Err(err) = try_to_run::<B, E>() {
+        eprintln!("{err}");
+        exit(1)
+    }
+}
+
+pub fn try_to_run<B: Board, E: Eval<B>>() -> Res<()> {
+    let files = get_datasets::<B>()?;
+    optimize::<B, E>(files.as_ref())
+}
+
+pub fn get_datasets<B: Board>() -> Res<Vec<AnnotatedFenFile>> {
+    let default_path = format!("pliers/datasets/{}/datasets.json", B::game_name());
+    let json_file_path = args().nth(1).unwrap_or(default_path);
+    let json_file_path = Path::new(&json_file_path);
+    let json_file = File::open(json_file_path).map_err(|err| format!(
+        "Could not open the dataset json file: {err}. Check that the path is correct, maybe try using an absolute path. \
+        The current path is '{}'.", json_file_path.display()
+    ))?;
+    let mut files: Vec<AnnotatedFenFile> = from_reader(BufReader::new(json_file))
+        .map_err(|err| format!("Couldn't read the JSON file: {err}"))?;
+
+    if files.is_empty() {
+        return Err(
+            "The json file appears to be empty. Please add at least one dataset".to_string(),
+        );
+    }
+    // Ideally, the `AnnotatedFenFile` would store a `PathBuf`, but that makes serialization more difficult.
+    for file in files.iter_mut() {
+        file.name = json_file_path
+            .parent()
+            .unwrap()
+            .join(Path::new(&file.name))
+            .to_str()
+            .unwrap()
+            .to_string();
+    }
+    Ok(files)
+}
+
+pub fn optimize<B: Board, E: Eval<B>>(file_list: &[AnnotatedFenFile]) -> Res<()> {
+    optimize_for::<B, E, Adam>(file_list, 2000)
 }
 
 pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
-    file_list: &[String],
+    file_list: &[AnnotatedFenFile],
     num_epochs: usize,
 ) -> Res<()> {
     #[cfg(debug_assertions)]
     println!("Running in debug mode. Run in release mode for increased performance.");
     let mut dataset = Dataset::new(E::NUM_WEIGHTS);
-    for file_name in file_list {
-        dataset.union(FenReader::<B, E>::load_from_file(file_name)?);
+    for file in file_list {
+        dataset.union(FenReader::<B, E>::load_from_file(file)?);
     }
     let e = E::default();
     let batch = dataset.as_batch();
     let scale = E::eval_scale().to_scaling_factor(batch, &e);
     let mut optimizer = O::new(batch, scale);
     let weights = optimize_entire_batch(batch, scale, num_epochs, &e, &mut optimizer);
-    println!(
-        "Scaling factor: {scale:.2}, eval:\n{}",
-        e.formatter(&weights)
-    );
+    println!("Scaling factor: {scale:.2}, eval:\n{}", e.display(&weights));
     Ok(())
 }
 
-pub fn optimize_chess_eval<E: Eval<Chessboard>>(file_list: &[String]) -> Res<()> {
+pub fn optimize_chess_eval<E: Eval<Chessboard>>(file_list: &[AnnotatedFenFile]) -> Res<()> {
     debug_eval_on_lucena::<E>();
-    optimize::<Chessboard, E, Adam>(file_list)
+    optimize::<Chessboard, E>(file_list)
 }
 
 /// Function intended for debugging the eval, uses a single simple position.
@@ -54,7 +101,7 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
     println!("\nSTARTING DEBUG POSITION OUTPUT:");
     let fen = format!("{} [1.0]", pos.as_fen());
     println!("(FEN: {fen}\n");
-    let dataset = FenReader::<Chessboard, E>::load_from_str(&fen).unwrap();
+    let dataset = FenReader::<Chessboard, E>::load_from_str(&fen, White).unwrap();
     let scale = match E::eval_scale() {
         Scale(scale) => scale,
         InitialWeights(_) => 100.0, // Tuning the scaling factor one a single position is just going to result in inf or 0.
@@ -83,6 +130,7 @@ mod tests {
     use crate::eval::chess::material_only_eval::MaterialOnlyEval;
     use crate::eval::WeightFormatter;
     use crate::gd::{cp_eval_for_weights, cp_to_wr, loss, Adam, CpScore, Float, Outcome};
+    use crate::load_data::Perspective::SideToMove;
     use gears::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};
     use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
     use gears::games::Color::White;
@@ -92,7 +140,8 @@ mod tests {
     pub fn two_chess_positions_test() {
         let positions = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 [0.5]
         7k/8/8/8/8/8/8/R6K w - - 0 1 [1-0]";
-        let positions = FenReader::<Chessboard, PistonEval>::load_from_str(positions).unwrap();
+        let positions =
+            FenReader::<Chessboard, PistonEval>::load_from_str(positions, SideToMove).unwrap();
         assert_eq!(positions.datapoints.len(), 2);
         assert_eq!(positions.datapoints[0].outcome, Outcome::new(0.5));
         assert_eq!(positions.datapoints[1].outcome, Outcome::new(1.0));
@@ -145,7 +194,8 @@ mod tests {
             );
             fens += &str;
         }
-        let datapoints = FenReader::<Chessboard, MaterialOnlyEval>::load_from_str(&fens).unwrap();
+        let datapoints =
+            FenReader::<Chessboard, MaterialOnlyEval>::load_from_str(&fens, SideToMove).unwrap();
         let batch = datapoints.as_batch();
         let weights = Adam::new(batch, eval_scale).optimize_simple(batch, eval_scale, 2000);
         assert_eq!(weights.len(), 5);

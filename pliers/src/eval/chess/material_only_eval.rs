@@ -13,7 +13,7 @@ use strum::IntoEnumIterator;
 pub struct MaterialOnlyEval {}
 
 impl WeightFormatter for MaterialOnlyEval {
-    fn format_impl(&self) -> (fn(&mut Formatter, &Weights) -> std::fmt::Result) {
+    fn display_impl(&self) -> (fn(&mut Formatter, &Weights) -> std::fmt::Result) {
         |f: &mut Formatter<'_>, weights: &Weights| {
             for piece in UncoloredChessPiece::non_king_pieces() {
                 writeln!(f, "{0}:\t{1}", piece.name(), weights[piece as usize])?

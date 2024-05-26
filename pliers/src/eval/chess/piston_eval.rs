@@ -15,7 +15,7 @@ use strum::IntoEnumIterator;
 pub struct PistonEval {}
 
 impl WeightFormatter for PistonEval {
-    fn format_impl(&self) -> (fn(&mut Formatter, &Weights) -> std::fmt::Result) {
+    fn display_impl(&self) -> (fn(&mut Formatter, &Weights) -> std::fmt::Result) {
         |f: &mut Formatter<'_>, weights: &Weights| write_psqts(f, weights)
     }
 }

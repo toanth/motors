@@ -514,7 +514,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
             let loss = loss(&weights, batch, eval_scale);
             println!(
                 "Epoch {epoch} complete, weights:\n {}",
-                format_weights.formatter(&weights)
+                format_weights.display(&weights)
             );
             let elapsed = start.elapsed();
             println!(

@@ -51,7 +51,7 @@ impl TraceTrait for Trace {
 pub struct CapsHceEval {}
 
 impl WeightFormatter for CapsHceEval {
-    fn format_impl(&self) -> (fn(&mut Formatter, &Weights) -> std::fmt::Result) {
+    fn display_impl(&self) -> (fn(&mut Formatter, &Weights) -> std::fmt::Result) {
         |f: &mut Formatter<'_>, weights: &Weights| {
             assert_eq!(weights.len(), Self::NUM_WEIGHTS);
             write_psqts(f, weights)?;
@@ -66,7 +66,7 @@ impl WeightFormatter for CapsHceEval {
             writeln!(f, "];")?;
             let mut idx = (NUM_PSQT_FEATURES + NUM_PASSED_PAWN_FEATURES) * NUM_PHASES;
             for piece in ["ROOK", "KING"] {
-                for openness in ["OPEN", "SEMIOPEN", "CLOSED"] {
+                for openness in ["OPEN", "CLOSED", "SEMIOPEN"] {
                     for phase in PhaseType::iter() {
                         writeln!(
                             f,
@@ -235,16 +235,16 @@ impl Eval<Chessboard> for CapsHceEval {
         }
         weights.push(Weight(ROOK_OPEN_FILE_MG as Float));
         weights.push(Weight(ROOK_OPEN_FILE_EG as Float));
-        weights.push(Weight(ROOK_SEMIOPEN_FILE_MG as Float));
-        weights.push(Weight(ROOK_SEMIOPEN_FILE_EG as Float));
         weights.push(Weight(ROOK_CLOSED_FILE_MG as Float));
         weights.push(Weight(ROOK_CLOSED_FILE_EG as Float));
+        weights.push(Weight(ROOK_SEMIOPEN_FILE_MG as Float));
+        weights.push(Weight(ROOK_SEMIOPEN_FILE_EG as Float));
         weights.push(Weight(KING_OPEN_FILE_MG as Float));
         weights.push(Weight(KING_OPEN_FILE_EG as Float));
-        weights.push(Weight(KING_SEMIOPEN_FILE_MG as Float));
-        weights.push(Weight(KING_SEMIOPEN_FILE_EG as Float));
         weights.push(Weight(KING_CLOSED_FILE_MG as Float));
         weights.push(Weight(KING_CLOSED_FILE_EG as Float));
+        weights.push(Weight(KING_SEMIOPEN_FILE_MG as Float));
+        weights.push(Weight(KING_SEMIOPEN_FILE_EG as Float));
         InitialWeights(Weights(weights))
     }
 }

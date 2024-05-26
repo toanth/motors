@@ -13,14 +13,14 @@ use std::fmt::Formatter;
 pub mod chess;
 
 pub trait WeightFormatter {
-    fn formatter<'a>(&'a self, weights: &'a Weights) -> FormatWeights {
+    fn display<'a>(&'a self, weights: &'a Weights) -> FormatWeights {
         FormatWeights {
-            format_weights: self.format_impl(),
+            format_weights: self.display_impl(),
             weights,
         }
     }
 
-    fn format_impl(&self) -> (fn(f: &mut Formatter, weights: &Weights) -> std::fmt::Result);
+    fn display_impl(&self) -> (fn(f: &mut Formatter, weights: &Weights) -> std::fmt::Result);
 }
 
 pub enum EvalScale {
@@ -146,7 +146,7 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
     );
     println!(
         "Optimizing scaling factor for eval:\n{}",
-        eval.formatter(&weights)
+        eval.display(&weights)
     );
     // First, do exponential search to find an interval in which we know that the optimal value lies.
     loop {
