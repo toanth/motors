@@ -82,9 +82,9 @@ fn psqt_trace(pos: &Chessboard) -> SimpleTrace {
 /// Apply a simple blur on the PSQTs to reduce noise.
 #[rustfmt::skip]
 const BLOOM: [[Float; 3]; 3] = [
-    [0.025, 0.05,  0.025],
-    [0.05,  0.7,   0.05],
-    [0.025, 0.05,  0.025]
+    [0.01, 0.02,  0.01],
+    [0.05, 0.82,  0.05],
+    [0.01, 0.02,  0.01]
 ];
 
 fn get(

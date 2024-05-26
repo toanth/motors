@@ -520,18 +520,18 @@ pub fn optimize_entire_batch<D: Datapoint>(
             );
             let elapsed = start.elapsed();
             // If no weight changed by more than 0.1 within the last 50 epochs, stop.
-            let max_diff = prev_weights
-                .iter()
-                .zip(weights.0.iter())
-                .map(|(a, b)| ((a.0 - b.0).abs() * 100.0).round() as u64)
-                .max()
-                .unwrap_or(u64::MAX);
+            let mut max_diff = Float::NEG_INFINITY;
+            for i in 0..prev_weights.len() {
+                let diff = weights[i].0 - prev_weights[i].0;
+                if diff.abs() > max_diff.abs() {
+                    max_diff = diff;
+                }
+            }
             println!(
                 "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
-                maximum weight change to 50 epochs ago: {2:.2}",
+                maximum weight change to 50 epochs ago: {max_diff:.2}",
                 epoch as f32 / elapsed.as_secs_f32(),
                 (prev_loss - loss) * 1_000_000.0,
-                max_diff as Float / 100.0,
                 elapsed = elapsed.as_secs()
             );
             if loss <= 0.001 && epoch >= 20 {
