@@ -87,7 +87,10 @@ pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
     let scale = E::eval_scale().to_scaling_factor(batch, &e);
     let mut optimizer = O::new(batch, scale);
     let weights = optimize_entire_batch(batch, scale, num_epochs, &e, &mut optimizer);
-    println!("Scaling factor: {scale:.2}, eval:\n{}", e.display(&weights));
+    println!(
+        "Scaling factor: {scale:.2}, eval:\n{}",
+        e.display(&weights, &[])
+    );
     Ok(())
 }
 

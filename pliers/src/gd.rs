@@ -322,16 +322,14 @@ pub struct TaperedDatapoint {
     pub features: Vec<Feature>,
     pub outcome: Outcome,
     pub phase: PhaseMultiplier,
-    pub weight: Float,
 }
 
 impl Datapoint for TaperedDatapoint {
-    fn new<T: TraceTrait>(trace: T, outcome: Outcome, weight: Float) -> Self {
+    fn new<T: TraceTrait>(trace: T, outcome: Outcome, _weight: Float) -> Self {
         Self {
             features: trace.as_features(0),
             outcome,
             phase: PhaseMultiplier(trace.phase()),
-            weight,
         }
     }
 
@@ -350,6 +348,30 @@ impl Datapoint for TaperedDatapoint {
             ]
         })
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct WeightedDatapoint {
+    pub inner: TaperedDatapoint,
+    pub weight: Float,
+}
+
+impl Datapoint for WeightedDatapoint {
+    fn new<T: TraceTrait>(trace: T, outcome: Outcome, weight: Float) -> Self {
+        Self {
+            inner: TaperedDatapoint::new(trace, outcome, weight),
+            weight,
+        }
+    }
+
+    fn outcome(&self) -> Outcome {
+        self.inner.outcome
+    }
+
+    fn features(&self) -> impl Iterator<Item = WeightedFeature> {
+        self.inner.features()
+    }
+
     fn sampling_weight(&self) -> Float {
         self.weight
     }
@@ -550,7 +572,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
             let loss = loss(&weights, batch, eval_scale);
             println!(
                 "Epoch {epoch} complete, weights:\n {}",
-                format_weights.display(&weights)
+                format_weights.display(&weights, &prev_weights)
             );
             let elapsed = start.elapsed();
             // If no weight changed by more than 0.05 within the last 50 epochs, stop.

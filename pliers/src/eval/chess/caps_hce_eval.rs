@@ -4,12 +4,13 @@ use crate::eval::chess::{
     NUM_PSQT_FEATURES,
 };
 use crate::eval::EvalScale::{InitialWeights, Scale};
-use crate::eval::{Eval, EvalScale, WeightFormatter};
+use crate::eval::{changed_at_least, Eval, EvalScale, WeightFormatter};
 use crate::gd::{
     Datapoint, Feature, Float, Outcome, PhaseMultiplier, ScalingFactor, SimpleTrace,
-    TaperedDatapoint, TraceTrait, Weight, Weights,
+    TaperedDatapoint, TraceTrait, Weight, WeightedDatapoint, Weights,
 };
 use crate::load_data::NoFilter;
+use colored::Colorize;
 use gears::games::chess::pieces::UncoloredChessPiece::{King, Pawn, Rook};
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
@@ -51,28 +52,35 @@ impl TraceTrait for Trace {
 pub struct CapsHceEval {}
 
 impl WeightFormatter for CapsHceEval {
-    fn display_impl(&self) -> (fn(&mut Formatter, &Weights) -> std::fmt::Result) {
-        |f: &mut Formatter<'_>, weights: &Weights| {
+    fn display_impl(&self) -> (fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result) {
+        |f: &mut Formatter<'_>, weights: &Weights, old_weights: &[Weight]| {
+            let special = changed_at_least(1.0, weights, old_weights);
             assert_eq!(weights.len(), Self::NUM_WEIGHTS);
-            write_psqts(f, weights)?;
+
+            write_psqts(f, weights, &special)?;
             writeln!(f, "\n#[rustfmt::skip]")?;
             writeln!(f, "const PASSED_PAWNS: [[i32; NUM_SQUARES]; 2] = [")?;
             write_phased_psqt(
                 f,
                 &weights[NUM_PHASES * NUM_PSQT_FEATURES..],
+                &special,
                 0,
                 "passed pawns",
             )?;
             writeln!(f, "];")?;
+
             let mut idx = (NUM_PSQT_FEATURES + NUM_PASSED_PAWN_FEATURES) * NUM_PHASES;
             for piece in ["ROOK", "KING"] {
                 for openness in ["OPEN", "CLOSED", "SEMIOPEN"] {
                     for phase in PhaseType::iter() {
+                        let mut value = format!("{}", weights[idx].rounded());
+                        if special[idx] {
+                            value = value.red().to_string();
+                        }
                         writeln!(
                             f,
                             "const {piece}_{openness}_FILE_{}: i32 = {value};",
-                            phase.to_string().to_ascii_uppercase(),
-                            value = weights[idx].rounded()
+                            phase.to_string().to_ascii_uppercase()
                         )?;
                         idx += 1;
                     }
@@ -96,7 +104,7 @@ impl Eval<Chessboard> for CapsHceEval {
         + NUM_ROOK_OPENNESS_FEATURES
         + NUM_KING_OPENNESS_FEATURES;
 
-    type D = TaperedDatapoint;
+    type D = WeightedDatapoint;
     type Filter = SkipChecks;
 
     fn feature_trace(pos: &Chessboard) -> Trace {

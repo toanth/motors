@@ -1,6 +1,7 @@
 use crate::eval::chess::PhaseType::*;
 use crate::gd::{Feature, Float, PhaseMultiplier, SimpleTrace, Weight, Weights};
 use crate::load_data::{Filter, ParseResult};
+use colored::Colorize;
 use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
@@ -110,6 +111,7 @@ fn get(
 fn write_phased_psqt(
     f: &mut Formatter<'_>,
     weights: &[Weight],
+    special: &[bool],
     piece_idx: usize,
     piece_name: &str,
 ) -> std::fmt::Result {
@@ -128,9 +130,14 @@ fn write_phased_psqt(
             //         val += get(weights, piece_idx, square, rank_delta, file_delta, phase);
             //     }
             // }
-            let val = weights[64 * 2 * piece_idx + 2 * square + phase as usize].0;
+            let idx = 64 * 2 * piece_idx + 2 * square + phase as usize;
+            let val = weights[idx].0;
 
-            write!(f, "{:4}, ", val.round())?;
+            if special[idx] {
+                write!(f, "{}, ", format!("{:4}", val.round()).red())?;
+            } else {
+                write!(f, "{:4}, ", val.round())?;
+            }
         }
         writeln!(f)?;
         writeln!(f, "{TAB}],")?;
@@ -138,13 +145,17 @@ fn write_phased_psqt(
     Ok(())
 }
 
-fn write_psqts(f: &mut Formatter<'_>, weights: &[Weight]) -> std::fmt::Result {
+fn write_psqts(
+    f: &mut Formatter<'_>,
+    weights: &[Weight],
+    special_entries: &[bool],
+) -> std::fmt::Result {
     writeln!(
         f,
         "const PSQTS: [[i32; NUM_SQUARES]; NUM_CHESS_PIECES * 2] = ["
     )?;
     for piece in UncoloredChessPiece::pieces() {
-        write_phased_psqt(f, weights, piece as usize, piece.name())?;
+        write_phased_psqt(f, weights, special_entries, piece as usize, piece.name())?;
     }
     writeln!(f, "];")?;
     Ok(())

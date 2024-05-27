@@ -2,7 +2,7 @@ use crate::eval::Direction::{Down, Up};
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
     cp_eval_for_weights, cp_to_wr, sample_loss, scaled_sample_grad, wr_prediction_for_weights,
-    Batch, Datapoint, Float, Outcome, ScalingFactor, TraceTrait, Weights,
+    Batch, Datapoint, Float, Outcome, ScalingFactor, TraceTrait, Weight, Weights,
 };
 use crate::load_data::{Filter, NoFilter};
 use derive_more::Display;
@@ -13,14 +13,27 @@ use std::fmt::Formatter;
 pub mod chess;
 
 pub trait WeightFormatter {
-    fn display<'a>(&'a self, weights: &'a Weights) -> FormatWeights {
+    fn display<'a>(&'a self, weights: &'a Weights, old_weights: &'a [Weight]) -> FormatWeights {
         FormatWeights {
             format_weights: self.display_impl(),
             weights,
+            old_weights,
         }
     }
 
-    fn display_impl(&self) -> (fn(f: &mut Formatter, weights: &Weights) -> std::fmt::Result);
+    fn display_impl(
+        &self,
+    ) -> (fn(f: &mut Formatter, weights: &Weights, old_weights: &[Weight]) -> std::fmt::Result);
+}
+
+pub fn changed_at_least(threshold: Float, weights: &Weights, old_weights: &[Weight]) -> Vec<bool> {
+    let mut res = vec![false; weights.len()];
+    if old_weights.len() == weights.len() {
+        for i in 0..old_weights.len() {
+            res[i] = (weights[i].0 - old_weights[i].0).abs() >= threshold;
+        }
+    }
+    res
 }
 
 pub enum EvalScale {
@@ -74,13 +87,14 @@ pub trait Eval<B: Board>: WeightFormatter + Default {
 /// Here follow implementation details of the eval.
 
 pub struct FormatWeights<'a> {
-    format_weights: fn(&mut Formatter<'_>, &Weights) -> std::fmt::Result,
+    format_weights: fn(&mut Formatter<'_>, &Weights, &[Weight]) -> std::fmt::Result,
     weights: &'a Weights,
+    old_weights: &'a [Weight],
 }
 
 impl<'a> Display for FormatWeights<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        (self.format_weights)(f, self.weights)
+        (self.format_weights)(f, self.weights, self.old_weights)
     }
 }
 
@@ -146,7 +160,7 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
     );
     println!(
         "Optimizing scaling factor for eval:\n{}",
-        eval.display(&weights)
+        eval.display(&weights, &[])
     );
     // First, do exponential search to find an interval in which we know that the optimal value lies.
     loop {

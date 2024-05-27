@@ -1,5 +1,5 @@
 use crate::eval::{Eval, FormatWeights, WeightFormatter};
-use crate::gd::{Feature, NonTaperedDatapoint, Outcome, SimpleTrace, Weights};
+use crate::gd::{Feature, NonTaperedDatapoint, Outcome, SimpleTrace, TraceTrait, Weight, Weights};
 use crate::load_data::NoFilter;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::Chessboard;
@@ -13,8 +13,8 @@ use strum::IntoEnumIterator;
 pub struct MaterialOnlyEval {}
 
 impl WeightFormatter for MaterialOnlyEval {
-    fn display_impl(&self) -> (fn(&mut Formatter, &Weights) -> std::fmt::Result) {
-        |f: &mut Formatter<'_>, weights: &Weights| {
+    fn display_impl(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
+        |f: &mut Formatter<'_>, weights: &Weights, _old_weights: &[Weight]| {
             for piece in UncoloredChessPiece::non_king_pieces() {
                 writeln!(f, "{0}:\t{1}", piece.name(), weights[piece as usize])?
             }
@@ -30,7 +30,7 @@ impl Eval<Chessboard> for MaterialOnlyEval {
     type D = NonTaperedDatapoint;
     type Filter = NoFilter;
 
-    fn feature_trace(pos: &Chessboard) -> SimpleTrace {
+    fn feature_trace(pos: &Chessboard) -> impl TraceTrait {
         let mut trace = SimpleTrace::for_features(Self::NUM_FEATURES);
         for color in Color::iter() {
             for piece in UncoloredChessPiece::non_king_pieces() {
