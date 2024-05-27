@@ -88,6 +88,10 @@ const BLOOM: [[Float; 3]; 3] = [
     [0.01, 0.02,  0.01]
 ];
 
+fn index(piece_idx: usize, square: usize, phase: PhaseType) -> usize {
+    64 * 2 * piece_idx + 2 * square + phase as usize
+}
+
 fn get(
     weights: &[Weight],
     piece_idx: usize,
@@ -105,7 +109,7 @@ fn get(
     let file = (square as isize % 8 + file_delta).clamp(0, 7);
     let square = rank * 8 + file;
     let bloom_multiplier = BLOOM[(rank_delta + 1) as usize][(file_delta + 1) as usize];
-    weights[64 * 2 * piece_idx + 2 * square as usize + phase as usize].0 * bloom_multiplier
+    weights[index(piece_idx, square as usize, phase)].0 * bloom_multiplier
 }
 
 fn write_phased_psqt(
@@ -124,14 +128,13 @@ fn write_phased_psqt(
                 writeln!(f)?;
                 write!(f, "{TAB}{TAB}")?;
             }
-            // let mut val = 0.0;
-            // for rank_delta in -1..=1 {
-            //     for file_delta in -1..1 {
-            //         val += get(weights, piece_idx, square, rank_delta, file_delta, phase);
-            //     }
-            // }
-            let idx = 64 * 2 * piece_idx + 2 * square + phase as usize;
-            let val = weights[idx].0;
+            let mut val = 0.0;
+            for rank_delta in -1..=1 {
+                for file_delta in -1..1 {
+                    val += get(weights, piece_idx, square, rank_delta, file_delta, phase);
+                }
+            }
+            let idx = index(piece_idx, square, phase);
 
             if special[idx] {
                 write!(f, "{}, ", format!("{:4}", val.round()).red())?;
