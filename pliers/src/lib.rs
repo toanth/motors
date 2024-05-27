@@ -84,7 +84,7 @@ pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
     }
     let e = E::default();
     let batch = dataset.as_batch();
-    let scale = E::eval_scale().to_scaling_factor(batch, &e);
+    let scale = e.eval_scale().to_scaling_factor(batch, &e);
     let mut optimizer = O::new(batch, scale);
     let weights = optimize_entire_batch(batch, scale, num_epochs, &e, &mut optimizer);
     println!(
@@ -104,13 +104,13 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
     println!("\nSTARTING DEBUG POSITION OUTPUT:");
     let fen = format!("{} [1.0]", pos.as_fen());
     println!("(FEN: {fen}\n");
+    let e = E::default();
     let dataset = FenReader::<Chessboard, E>::load_from_str(&fen, White).unwrap();
-    let scale = match E::eval_scale() {
+    let scale = match e.eval_scale() {
         Scale(scale) => scale,
         InitialWeights(_) => 100.0, // Tuning the scaling factor one a single position is just going to result in inf or 0.
     };
     let mut optimizer = Adam::new(dataset.as_batch(), scale);
-    let e = E::default();
     let weights = optimize_entire_batch(dataset.as_batch(), scale, 1, &e, &mut optimizer);
     assert_eq!(weights.len(), E::NUM_WEIGHTS);
     println!(
@@ -131,7 +131,7 @@ pub fn debug_eval_on_lucena<E: Eval<Chessboard>>() {
 mod tests {
     use super::*;
     use crate::eval::chess::material_only_eval::MaterialOnlyEval;
-    use crate::eval::WeightFormatter;
+    use crate::eval::WeightsInterpretation;
     use crate::gd::{cp_eval_for_weights, cp_to_wr, loss, Adam, CpScore, Float, Outcome};
     use crate::load_data::Perspective::SideToMove;
     use gears::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};

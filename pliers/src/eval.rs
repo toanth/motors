@@ -12,20 +12,6 @@ use std::fmt::Formatter;
 
 pub mod chess;
 
-pub trait WeightFormatter {
-    fn display<'a>(&'a self, weights: &'a Weights, old_weights: &'a [Weight]) -> FormatWeights {
-        FormatWeights {
-            format_weights: self.display_impl(),
-            weights,
-            old_weights,
-        }
-    }
-
-    fn display_impl(
-        &self,
-    ) -> (fn(f: &mut Formatter, weights: &Weights, old_weights: &[Weight]) -> std::fmt::Result);
-}
-
 pub fn changed_at_least(threshold: Float, weights: &Weights, old_weights: &[Weight]) -> Vec<bool> {
     let mut res = vec![false; weights.len()];
     if old_weights.len() == weights.len() {
@@ -54,34 +40,95 @@ impl EvalScale {
     }
 }
 
-pub trait Eval<B: Board>: WeightFormatter + Default {
-    const NUM_WEIGHTS: usize;
-    const NUM_FEATURES: usize;
-
-    type D: Datapoint;
-
-    type Filter: Filter<B>;
-
-    fn extract_features(pos: &B, outcome: Outcome, weight: Float) -> Self::D {
-        Self::D::new(Self::feature_trace(pos), outcome, weight)
+pub trait WeightsInterpretation {
+    /// This function should not be implemented directly. Instead, implement `display_impl`.
+    fn display<'a>(&'a self, weights: &'a Weights, old_weights: &'a [Weight]) -> FormatWeights {
+        FormatWeights {
+            format_weights: self.display_impl(),
+            weights,
+            old_weights,
+        }
     }
 
-    fn feature_trace(pos: &B) -> impl TraceTrait;
+    /// This function should not be called directly, but implemented by a `struct` that implements this trait.
+    /// Its purpose is to return a function that prints the weights in a format that can be used by the actual engine.
+    /// The `old_weights` parameter can safely be ignored, its purpose is to highlight changes in weights in a
+    /// human-readably way, such as by coloring weights with large changes red. The `changed_at_least` function
+    /// can be called to help implement this.
+    fn display_impl(
+        &self,
+    ) -> (fn(f: &mut Formatter, weights: &Weights, old_weights: &[Weight]) -> std::fmt::Result);
 
-    fn eval_scale() -> EvalScale {
-        if let Some(weights) = Self::initial_weights() {
+    /// The eval scale is used to convert a centipawn score (in (-infinity, infinity))to a winrate prediction
+    /// (in [-1, 1]). For chess, a Scale of 100 corresponds *very* roughly to a pawn value of 100 centipawns.
+    /// Many engines are sensitive to scaling the eval by a linear factor like this, so the option to tune it
+    /// automatically based on existing weights is meant to be used for importing an existing eval.
+    /// See below for a more in-depth explanation; in general, explicitly setting the scale is preferred as that is
+    /// more robust to e.g. changes in the dataset and doesn't drift over time.
+    fn eval_scale(&self) -> EvalScale {
+        if let Some(weights) = self.initial_weights() {
             InitialWeights(weights)
         } else {
             Scale(110.0) // gives roughly the normal piece values, expressed as centipawns, for chess
         }
     }
 
+    /// If this returns `false`, then the tuned weights are initialized to the return value of `initial_weights`.
+    /// If that function returns `None`, the program panics.
+    /// If this function returns `true`, weights are initialized to zero, which makes it easier to debug the eval and to
+    /// get consistent results that don't hide problems with the eval, like the gradient of a weight being always zero,
+    /// which happens if a feature doesn't appear in the dataset -- in this case, the initial weight will remain unchanged.
+    fn retune_from_zero(&self) -> bool {
+        true
+    }
+
     /// When using this tuner for existing weights, this function can be used to compute an eval scaling factor based on
     /// those weights. Note that the result can heavily depend on the datasets used and can fail for an eval that frequently
     /// misspredicts who's winning, see `tune_scaling_factor` below for a more in-depth explanation.
-    fn initial_weights() -> Option<Weights> {
+    /// It can also be used as a starting point to retune weights from, which can drastically speed up the tuning process,
+    /// but can also influence the results sometimes (which can be a good thing), if gradients are essentially zero.
+    /// An example of this would be squares at the 8th rank in the middlegame king piece square table; this basically never
+    /// happens, so the tuned weights don't influence the loss much and the gradient can vanish.
+    fn initial_weights(&self) -> Option<Weights> {
         None
     }
+}
+
+/// Using this tuner for means implementing this trait.
+pub trait Eval<B: Board>: WeightsInterpretation + Default {
+    /// For a normal, non-tapered, eval, the number of weights is the same as the number of features.
+    /// For a tapered eval, it's twice the number of features. It would also be perfectly fine, if unusual,
+    /// to only taper some features or to use 3 phases.
+    const NUM_WEIGHTS: usize;
+
+    /// A feature is a property of the position that gets recognized by the eval.
+    /// For example, for a piece square table only eval, the number of features is the number
+    /// of squares times the number of pieces. Each feature value counts how often the feature appears in a position,
+    /// from white's perspective (so the equivalent black feature count gets subtracted). See also `feature_trace`.
+    const NUM_FEATURES: usize;
+
+    /// How a position is represented in the tuner. `NonTaperedDatapoint` should be the default choice,
+    /// `TaperedDatapoint` is obviously useful for tapered eval, and `WeightedDatapoint` is the combination of a
+    /// `TaperedDatapoint` and a sampling weight; this is rarely useful, see also its Documentation.
+    type D: Datapoint;
+
+    /// The `Filter` gets applied when loading a position. It can be used to e.g. remove noisy positions, such as
+    /// when a king is in check in chess, or to perform a quiescent search on them to quieten them down, to change the
+    /// outcome of a position by interpolating with the eval of an engine, to expand a single position into several
+    /// related positions, etc.
+    type Filter: Filter<B>;
+
+    /// This method gets called when loading a dataset; it converts a position into a Datapoint (which mostly means
+    /// a list of features). It can be implemented directly, but the recommended route is to implement `feature_trace` instead.
+    fn extract_features(pos: &B, outcome: Outcome, weight: Float) -> Self::D {
+        Self::D::new(Self::feature_trace(pos), outcome, weight)
+    }
+
+    /// The advantage of implementing this method over `extract_features` is that it's often much more convenient to
+    /// calculate the trace, which then gets turned into a `Datapoint` in a separate step. A trace lists how often a
+    /// feature appears for each player, so unlike a Datapoint, it still contains semantic information instead of a
+    /// single one-dimensional list of feature counts.
+    fn feature_trace(pos: &B) -> impl TraceTrait;
 }
 
 /// Here follow implementation details of the eval.

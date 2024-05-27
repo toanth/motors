@@ -4,7 +4,7 @@ use crate::eval::chess::{
     NUM_PSQT_FEATURES,
 };
 use crate::eval::EvalScale::{InitialWeights, Scale};
-use crate::eval::{changed_at_least, Eval, EvalScale, WeightFormatter};
+use crate::eval::{changed_at_least, Eval, EvalScale, WeightsInterpretation};
 use crate::gd::{
     Datapoint, Feature, Float, Outcome, PhaseMultiplier, ScalingFactor, SimpleTrace,
     TaperedDatapoint, TraceTrait, Weight, WeightedDatapoint, Weights,
@@ -51,7 +51,7 @@ impl TraceTrait for Trace {
 #[derive(Debug, Default)]
 pub struct CapsHceEval {}
 
-impl WeightFormatter for CapsHceEval {
+impl WeightsInterpretation for CapsHceEval {
     fn display_impl(&self) -> (fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result) {
         |f: &mut Formatter<'_>, weights: &Weights, old_weights: &[Weight]| {
             let special = changed_at_least(1.0, weights, old_weights);
@@ -90,28 +90,8 @@ impl WeightFormatter for CapsHceEval {
             Ok(())
         }
     }
-}
 
-const NUM_ROOK_OPENNESS_FEATURES: usize = 3;
-const NUM_KING_OPENNESS_FEATURES: usize = 3;
-const NUM_PASSED_PAWN_FEATURES: usize = NUM_SQUARES;
-
-impl Eval<Chessboard> for CapsHceEval {
-    const NUM_WEIGHTS: usize = Self::NUM_FEATURES * NUM_PHASES;
-
-    const NUM_FEATURES: usize = NUM_PIECE_SQUARE_ENTRIES
-        + NUM_PASSED_PAWN_FEATURES
-        + NUM_ROOK_OPENNESS_FEATURES
-        + NUM_KING_OPENNESS_FEATURES;
-
-    type D = TaperedDatapoint;
-    type Filter = SkipChecks;
-
-    fn feature_trace(pos: &Chessboard) -> Trace {
-        Self::trace(pos)
-    }
-
-    fn eval_scale() -> EvalScale {
+    fn initial_weights(&self) -> Option<Weights> {
         const PSQTS: [[i32; 64]; 12] = [
             // pawn mg
             [
@@ -253,7 +233,31 @@ impl Eval<Chessboard> for CapsHceEval {
         weights.push(Weight(KING_CLOSED_FILE_EG as Float));
         weights.push(Weight(KING_SEMIOPEN_FILE_MG as Float));
         weights.push(Weight(KING_SEMIOPEN_FILE_EG as Float));
-        InitialWeights(Weights(weights))
+        Some(Weights(weights))
+    }
+
+    fn retune_from_zero(&self) -> bool {
+        false
+    }
+}
+
+const NUM_ROOK_OPENNESS_FEATURES: usize = 3;
+const NUM_KING_OPENNESS_FEATURES: usize = 3;
+const NUM_PASSED_PAWN_FEATURES: usize = NUM_SQUARES;
+
+impl Eval<Chessboard> for CapsHceEval {
+    const NUM_WEIGHTS: usize = Self::NUM_FEATURES * NUM_PHASES;
+
+    const NUM_FEATURES: usize = NUM_PIECE_SQUARE_ENTRIES
+        + NUM_PASSED_PAWN_FEATURES
+        + NUM_ROOK_OPENNESS_FEATURES
+        + NUM_KING_OPENNESS_FEATURES;
+
+    type D = TaperedDatapoint;
+    type Filter = SkipChecks;
+
+    fn feature_trace(pos: &Chessboard) -> Trace {
+        Self::trace(pos)
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::eval::chess::{chess_phase, psqt_trace, write_psqts, NUM_PHASES};
-use crate::eval::{changed_at_least, Eval, WeightFormatter};
+use crate::eval::{changed_at_least, Eval, WeightsInterpretation};
 use crate::gd::{
     Feature, Outcome, PhaseMultiplier, SimpleTrace, TaperedDatapoint, Weight, Weights,
 };
@@ -16,7 +16,7 @@ use strum::IntoEnumIterator;
 #[derive(Debug, Default)]
 pub struct PistonEval {}
 
-impl WeightFormatter for PistonEval {
+impl WeightsInterpretation for PistonEval {
     fn display_impl(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
         |f: &mut Formatter<'_>, weights: &Weights, old_weights: &[Weight]| {
             write_psqts(f, weights, &changed_at_least(5.0, weights, old_weights))

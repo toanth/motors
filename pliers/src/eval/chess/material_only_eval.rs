@@ -1,4 +1,4 @@
-use crate::eval::{Eval, FormatWeights, WeightFormatter};
+use crate::eval::{Eval, FormatWeights, WeightsInterpretation};
 use crate::gd::{Feature, NonTaperedDatapoint, Outcome, SimpleTrace, TraceTrait, Weight, Weights};
 use crate::load_data::NoFilter;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
@@ -12,7 +12,7 @@ use strum::IntoEnumIterator;
 #[derive(Debug, Default)]
 pub struct MaterialOnlyEval {}
 
-impl WeightFormatter for MaterialOnlyEval {
+impl WeightsInterpretation for MaterialOnlyEval {
     fn display_impl(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
         |f: &mut Formatter<'_>, weights: &Weights, _old_weights: &[Weight]| {
             for piece in UncoloredChessPiece::non_king_pieces() {

@@ -1,4 +1,4 @@
-use crate::eval::{Eval, WeightFormatter};
+use crate::eval::{Eval, WeightsInterpretation};
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
 use gears::games::Color;
 use rand::prelude::SliceRandom;
@@ -557,13 +557,19 @@ pub fn optimize_entire_batch<D: Datapoint>(
     batch: Batch<D>,
     eval_scale: ScalingFactor,
     num_epochs: usize,
-    format_weights: &dyn WeightFormatter,
+    weights_interpretation: &dyn WeightsInterpretation,
     optimizer: &mut dyn Optimizer<D>,
 ) -> Weights {
     let mut prev_weights: Vec<Weight> = vec![];
     let mut weights = Weights::new(batch.num_weights);
-    // Since weights are initially 0, use a very high lr for the first couple of iterations.
-    optimizer.lr_drop(0.25); // increases lr by a factor of
+    if weights_interpretation.retune_from_zero() {
+        // Since weights are initially 0, use a very high lr for the first couple of iterations.
+        optimizer.lr_drop(0.25); // increases lr by a factor of
+    } else {
+        weights = weights_interpretation
+            .initial_weights()
+            .expect("if `retune_from_zero()` returns `false`, there must be initial weights");
+    }
     let mut prev_loss = Float::INFINITY;
     let start = Instant::now();
     for epoch in 0..num_epochs {
@@ -572,7 +578,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
             let loss = loss(&weights, batch, eval_scale);
             println!(
                 "Epoch {epoch} complete, weights:\n {}",
-                format_weights.display(&weights, &prev_weights)
+                weights_interpretation.display(&weights, &prev_weights)
             );
             let elapsed = start.elapsed();
             // If no weight changed by more than 0.05 within the last 50 epochs, stop.
@@ -612,7 +618,7 @@ fn adam_optimize<D: Datapoint>(
     batch: Batch<D>,
     eval_scale: ScalingFactor,
     num_epochs: usize,
-    format_weights: &dyn WeightFormatter,
+    format_weights: &dyn WeightsInterpretation,
 ) -> Weights {
     optimize_entire_batch(
         batch,
