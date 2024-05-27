@@ -104,7 +104,7 @@ impl Eval<Chessboard> for CapsHceEval {
         + NUM_ROOK_OPENNESS_FEATURES
         + NUM_KING_OPENNESS_FEATURES;
 
-    type D = WeightedDatapoint;
+    type D = TaperedDatapoint;
     type Filter = SkipChecks;
 
     fn feature_trace(pos: &Chessboard) -> Trace {
