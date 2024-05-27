@@ -89,6 +89,7 @@ pub trait WeightsInterpretation {
     /// but can also influence the results sometimes (which can be a good thing), if gradients are essentially zero.
     /// An example of this would be squares at the 8th rank in the middlegame king piece square table; this basically never
     /// happens, so the tuned weights don't influence the loss much and the gradient can vanish.
+    /// Despite those features not appearing in many games, they can still influence search and have a noticeable elo impact.
     fn initial_weights(&self) -> Option<Weights> {
         None
     }
