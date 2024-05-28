@@ -304,7 +304,7 @@ impl WeightsInterpretation for CapsHceEval {
     }
 
     fn eval_scale(&self) -> EvalScale {
-        Scale(110.0)
+        Scale(120.0)
     }
 }
 
