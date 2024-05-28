@@ -558,7 +558,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // LMR (Late Move Reductions): Trust the move ordering (mostly the quiet history heuristic, at least currently)
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
                 // to verify our belief.
-                // I think it's common to have a minimum depth for doing LMR, but not having that gained elo.
+                // TODO: I think it's common to have a minimum depth for doing LMR, but not having that gained elo.
+                // Maybe that's a scaling issue and only gained at STC?
                 let mut reduction = 0;
                 if !in_check && num_uninteresting_visited > 2 {
                     // the number of nodes grows exponentially with the depth, so in order to not reduce away too many
@@ -566,7 +567,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     // make the reduction logarithmic in the depth. This results in much more aggressive pruning at lower
                     // depths than the previous formula.
                     reduction =
-                        (1 + depth / 2).ilog2() as isize + (num_uninteresting_visited - 2) / 8;
+                        1 + (1 + depth / 4).ilog2() as isize + (num_uninteresting_visited - 2) / 8;
                     if !is_pv_node {
                         reduction += 1;
                     }
