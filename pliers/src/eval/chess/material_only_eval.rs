@@ -58,7 +58,7 @@ mod tests {
 
     pub fn lucena_test() {
         let board = Chessboard::from_name("lucena").unwrap();
-        let features = MaterialOnlyEval::extract_features(&board, Outcome::new(1.0)).features;
+        let features = MaterialOnlyEval::extract_features(&board, Outcome::new(1.0), 1.0).features;
         assert_eq!(features.len(), 5);
         for (i, f) in features.iter().enumerate() {
             assert_eq!(i, f.idx());

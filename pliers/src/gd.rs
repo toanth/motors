@@ -815,6 +815,7 @@ mod tests {
             let batch = Batch {
                 datapoints: dataset.as_slice(),
                 num_weights: 2,
+                weight_sum: 2.0,
             };
             for eval_scale in 1..100 {
                 let loss = loss(&weights, batch, eval_scale as ScalingFactor);
@@ -838,6 +839,7 @@ mod tests {
             let batch = Batch {
                 datapoints: data_points.as_slice(),
                 num_weights: 1,
+                weight_sum: 1.0,
             };
             let gradient = compute_gradient(&weights, batch, 1.0);
             assert_eq!(gradient.len(), 1);
@@ -910,6 +912,7 @@ mod tests {
             let batch = Batch {
                 datapoints: dataset.as_slice(),
                 num_weights: 3,
+                weight_sum: 3.0,
             };
             for _ in 0..100 {
                 let grad = compute_gradient(&weights, batch, 1.0);
@@ -936,6 +939,7 @@ mod tests {
             let batch = Batch {
                 datapoints: dataset.as_slice(),
                 num_weights: 2,
+                weight_sum: 2.0,
             };
             let mut lr = 1.0;
             for _ in 0..100 {
@@ -973,6 +977,7 @@ mod tests {
         let batch = Batch {
             datapoints: dataset.as_slice(),
             num_weights: 2,
+            weight_sum: 2.0,
         };
         let weights_dist = Uniform::new(-100.0, 100.0);
         let mut rng = thread_rng();
@@ -1028,6 +1033,7 @@ mod tests {
         let batch = Batch {
             datapoints: dataset.as_slice(),
             num_weights: 3,
+            weight_sum: 3.0,
         };
         for _ in 0..500 {
             let grad = compute_gradient(&weights, batch, 1.0);
@@ -1064,6 +1070,7 @@ mod tests {
             let batch = Batch {
                 datapoints: dataset.as_slice(),
                 num_weights: 1,
+                weight_sum: 1.0,
             };
             let mut adam = Adam::new(batch, eval_scale);
             let weights = adam.optimize_simple(batch, eval_scale, 20);

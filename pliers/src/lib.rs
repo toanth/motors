@@ -69,7 +69,7 @@ pub fn get_datasets<B: Board>() -> Res<Vec<AnnotatedFenFile>> {
 }
 
 pub fn optimize<B: Board, E: Eval<B>>(file_list: &[AnnotatedFenFile]) -> Res<()> {
-    optimize_for::<B, E, Adam>(file_list, 2000)
+    optimize_for::<B, E, Adam>(file_list, 3000)
 }
 
 pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
@@ -143,13 +143,13 @@ mod tests {
         7k/8/8/8/8/8/8/R6K w - - 0 1 [1-0]";
         let positions =
             FenReader::<Chessboard, PistonEval>::load_from_str(positions, SideToMove).unwrap();
-        assert_eq!(positions.datapoints.len(), 2);
-        assert_eq!(positions.datapoints[0].outcome, Outcome::new(0.5));
-        assert_eq!(positions.datapoints[1].outcome, Outcome::new(1.0));
-        assert_eq!(positions.weights_in_pos, NUM_PIECE_SQUARE_ENTRIES * 2);
+        assert_eq!(positions.data().len(), 2);
+        assert_eq!(positions.data()[0].outcome, Outcome::new(0.5));
+        assert_eq!(positions.data()[1].outcome, Outcome::new(1.0));
+        assert_eq!(positions.num_weights(), NUM_PIECE_SQUARE_ENTRIES * 2);
         // the kings are on mirrored positions and cancel each other out
-        assert_eq!(positions.datapoints[0].features.len(), 0);
-        assert_eq!(positions.datapoints[1].features.len(), 1);
+        assert_eq!(positions.data()[0].features.len(), 0);
+        assert_eq!(positions.data()[1].features.len(), 1);
         let batch = positions.batch(0, 1);
         let eval_scale = 100.0;
         let mut optimizer = Adam::new(batch, eval_scale);
@@ -160,7 +160,7 @@ mod tests {
             &PistonEval::default(),
             &mut optimizer,
         );
-        let startpos_eval = cp_eval_for_weights(&startpos_weights, &positions.datapoints[0]);
+        let startpos_eval = cp_eval_for_weights(&startpos_weights, &positions.data()[0]);
         assert_eq!(startpos_eval, CpScore(0.0));
         let batch = positions.as_batch();
         let mut optimizer = Adam::new(batch, eval_scale);
