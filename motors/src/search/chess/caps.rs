@@ -567,7 +567,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     // make the reduction logarithmic in the depth. This results in much more aggressive pruning at lower
                     // depths than the previous formula.
                     reduction =
-                        1 + (1 + depth / 4).ilog2() as isize + (num_uninteresting_visited - 2) / 8;
+                        (1 + depth / 2).ilog2() as isize + (num_uninteresting_visited - 2) / 8;
                     if !is_pv_node {
                         reduction += 1;
                     }
