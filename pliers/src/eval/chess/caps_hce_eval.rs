@@ -299,6 +299,10 @@ impl WeightsInterpretation for CapsHceEval {
         false
     }
 
+    fn interpolate_decay(&self) -> Option<Float> {
+        Some(0.9998)
+    }
+
     fn eval_scale(&self) -> EvalScale {
         Scale(125.0)
     }

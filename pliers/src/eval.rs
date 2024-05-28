@@ -2,7 +2,7 @@ use crate::eval::Direction::{Down, Up};
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
     cp_eval_for_weights, cp_to_wr, sample_loss, scaled_sample_grad, wr_prediction_for_weights,
-    Batch, Datapoint, Float, Outcome, ScalingFactor, TraceTrait, Weight, Weights,
+    Batch, Datapoint, Dataset, Float, Outcome, ScalingFactor, TraceTrait, Weight, Weights,
 };
 use crate::load_data::{Filter, NoFilter};
 use derive_more::Display;
@@ -20,6 +20,50 @@ pub fn changed_at_least(threshold: Float, weights: &Weights, old_weights: &[Weig
         }
     }
     res
+}
+
+/// Returns a vector of `<Float`s, where each entry counts to how often the corresponding feature appears in the
+/// dataset, weighted by the sampling weight of its datapoint (which should usually be 1.0).
+/// This can be used to give a very rough idea of the variance of the weight.
+pub fn count_occurrences<D: Datapoint>(batch: Batch<D>) -> Vec<Float> {
+    let mut res = vec![0.0; batch.num_weights];
+    for datapoint in batch.iter() {
+        for feature in datapoint.features() {
+            res[feature.idx] += feature.weight.abs() * datapoint.sampling_weight();
+        }
+    }
+    res
+}
+
+pub fn interpolate(
+    occurrences: &[Float],
+    weights: &mut Weights,
+    interpretation: &dyn WeightsInterpretation,
+) {
+    if let Some(decay) = interpretation.interpolate_decay() {
+        assert!(
+            decay >= 0.0 && decay < 1.0,
+            "decay must be in [0, 1) -- if you want no decay, simply return `None` in `initial_weights`."
+        );
+        let initial_weights = interpretation
+            .initial_weights()
+            .expect("Initial weights are needed for interpolating");
+        assert_eq!(
+            initial_weights.num_weights(),
+            weights.num_weights(),
+            "weights don't match up with initial weights"
+        );
+        assert_eq!(
+            occurrences.len(),
+            weights.num_weights(),
+            "occurrences appear to have been generated for different weights"
+        );
+        for (idx, weight) in weights.iter_mut().enumerate() {
+            let factor = decay.powf(occurrences[idx]);
+            assert!(factor >= 0.0 && factor <= 1.0, "internal error");
+            *weight = initial_weights[idx] * factor + *weight * (1.0 - factor);
+        }
+    }
 }
 
 pub enum EvalScale {
@@ -80,6 +124,14 @@ pub trait WeightsInterpretation {
     /// which happens if a feature doesn't appear in the dataset -- in this case, the initial weight will remain unchanged.
     fn retune_from_zero(&self) -> bool {
         true
+    }
+
+    /// If this is `Some(decay)`, `initial_weights` must return `Some(initial)`. Interpolate initial weights with the tuned
+    /// weights, where the interpolation factor of an initial weight is the sum of the weight times the absolute value
+    /// of the feature, summed over all positions. This is useful for getting prior knowledge into the tuned values in cases
+    /// where features very rarely appear in the dataset, e.g. a king on the opponent's backrank in the middle game.
+    fn interpolate_decay(&self) -> Option<Float> {
+        None
     }
 
     /// When using this tuner for existing weights, this function can be used to compute an eval scaling factor based on

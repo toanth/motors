@@ -1,4 +1,4 @@
-use crate::eval::{Eval, WeightsInterpretation};
+use crate::eval::{count_occurrences, interpolate, Eval, WeightsInterpretation};
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
 use gears::games::Color;
 use rand::prelude::SliceRandom;
@@ -270,9 +270,9 @@ impl TraceTrait for SimpleTrace {
     }
 }
 
-struct WeightedFeature {
-    weight: Float,
-    idx: usize,
+pub struct WeightedFeature {
+    pub weight: Float,
+    pub idx: usize,
 }
 
 impl WeightedFeature {
@@ -392,6 +392,10 @@ impl<D: Datapoint> Dataset<D> {
             weights_in_pos: num_weights,
             sampling_weight_sum: 0.0,
         }
+    }
+
+    pub fn num_weights(&self) -> usize {
+        self.weights_in_pos
     }
 
     pub fn data(&self) -> &[D] {
@@ -627,6 +631,26 @@ fn adam_optimize<D: Datapoint>(
         format_weights,
         &mut Adam::new(batch, eval_scale),
     )
+}
+
+pub fn print_optimized_weights<D: Datapoint>(
+    weights: &Weights,
+    batch: Batch<D>,
+    scale: ScalingFactor,
+    interpretation: &dyn WeightsInterpretation,
+) {
+    let occurrence_counts = count_occurrences(batch);
+    let occurrences = Weights(occurrence_counts.iter().map(|o| Weight(*o)).collect());
+    println!(
+        "Occurrences:\n{}",
+        interpretation.display(&occurrences, &[])
+    );
+    let mut weights = weights.clone();
+    interpolate(&occurrence_counts, &mut weights, interpretation);
+    println!(
+        "Scaling factor: {scale:.2}, eval:\n{}",
+        interpretation.display(&weights, &[])
+    );
 }
 
 pub trait Optimizer<D: Datapoint> {

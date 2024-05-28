@@ -4,8 +4,8 @@ use crate::eval::chess::piston_eval::PistonEval;
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::eval::{Eval, EvalScale};
 use crate::gd::{
-    optimize_entire_batch, Adam, Batch, Datapoint, Dataset, Optimizer, ScalingFactor,
-    TaperedDatapoint, Weights,
+    optimize_entire_batch, print_optimized_weights, Adam, Batch, Datapoint, Dataset, Optimizer,
+    ScalingFactor, TaperedDatapoint, Weights,
 };
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader, Filter};
@@ -87,10 +87,7 @@ pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
     let scale = e.eval_scale().to_scaling_factor(batch, &e);
     let mut optimizer = O::new(batch, scale);
     let weights = optimize_entire_batch(batch, scale, num_epochs, &e, &mut optimizer);
-    println!(
-        "Scaling factor: {scale:.2}, eval:\n{}",
-        e.display(&weights, &[])
-    );
+    print_optimized_weights(&weights, batch, scale, &e);
     Ok(())
 }
 
@@ -119,6 +116,7 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
         dataset.data()[0].features().count(),
         E::NUM_FEATURES
     );
+    print_optimized_weights(&weights, dataset.as_batch(), scale, &e);
     println!("\nEND DEBUG POSITION OUTPUT\n");
 }
 
