@@ -561,12 +561,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // TODO: I think it's common to have a minimum depth for doing LMR, but not having that gained elo.
                 // Maybe that's a scaling issue and only gained at STC?
                 let mut reduction = 0;
-                if !in_check && num_uninteresting_visited > 2 {
+                if !in_check && num_uninteresting_visited > 2 && depth > 1 {
                     // the number of nodes grows exponentially with the depth, so in order to not reduce away too many
                     // nodes at higher depths (especially since the reduced-depth searches are going to apply lmr themselves),
                     // make the reduction logarithmic in the depth. This results in much more aggressive pruning at lower
                     // depths than the previous formula.
-                    reduction = depth.ilog2() as isize + (num_uninteresting_visited - 2) / 8;
+                    reduction = (depth - 1).ilog2() as isize + (num_uninteresting_visited - 2) / 8;
                     if !is_pv_node {
                         reduction += 1;
                     }
