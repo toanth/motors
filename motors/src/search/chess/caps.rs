@@ -559,9 +559,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
                 // to verify our belief.
                 // I think it's common to have a minimum depth for doing LMR, but not having that gained elo.
+                // Although the number of interesting moves is usually pretty small, the number of legal moves can be
+                // greater than 200. So use a logarithmic reduction so that we don't penalize very late moves too heavily.
                 let mut reduction = 0;
                 if !in_check && num_uninteresting_visited > 2 {
-                    reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8;
+                    reduction = 1 + depth / 8 + num_uninteresting_visited.ilog2() as isize;
                     if !is_pv_node {
                         reduction += 1;
                     }
