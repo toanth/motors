@@ -1,14 +1,10 @@
-use crate::eval::chess::caps_hce_eval::CapsHceEval;
-use crate::eval::chess::material_only_eval::MaterialOnlyEval;
-use crate::eval::chess::piston_eval::PistonEval;
+use crate::eval::Eval;
 use crate::eval::EvalScale::{InitialWeights, Scale};
-use crate::eval::{Eval, EvalScale};
 use crate::gd::{
-    optimize_entire_batch, print_optimized_weights, Adam, Batch, Datapoint, Dataset, Optimizer,
-    ScalingFactor, TaperedDatapoint, Weights,
+    optimize_entire_batch, print_optimized_weights, Adam, Datapoint, Dataset, Optimizer,
 };
 use crate::load_data::Perspective::White;
-use crate::load_data::{AnnotatedFenFile, FenReader, Filter};
+use crate::load_data::{AnnotatedFenFile, FenReader};
 use gears::games::chess::Chessboard;
 use gears::games::Board;
 use gears::general::common::Res;
@@ -103,6 +99,7 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
     println!("(FEN: {fen}\n");
     let e = E::default();
     let dataset = FenReader::<Chessboard, E>::load_from_str(&fen, White).unwrap();
+    assert_eq!(dataset.num_weights(), E::NUM_WEIGHTS);
     let scale = match e.eval_scale() {
         Scale(scale) => scale,
         InitialWeights(_) => 100.0, // Tuning the scaling factor one a single position is just going to result in inf or 0.
@@ -129,7 +126,8 @@ pub fn debug_eval_on_lucena<E: Eval<Chessboard>>() {
 mod tests {
     use super::*;
     use crate::eval::chess::material_only_eval::MaterialOnlyEval;
-    use crate::eval::WeightsInterpretation;
+
+    use crate::eval::chess::piston_eval::PistonEval;
     use crate::gd::{cp_eval_for_weights, cp_to_wr, loss, Adam, CpScore, Float, Outcome};
     use crate::load_data::Perspective::SideToMove;
     use gears::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};
@@ -202,7 +200,7 @@ mod tests {
         assert_eq!(weights.len(), 5);
         let weight = weights[0];
         for piece in UncoloredChessPiece::non_king_pieces() {
-            let ratio = weights[piece as usize].0 / weights[0].0;
+            let ratio = weights[piece as usize].0 / weight.0;
             assert!((ratio - piece_val(piece) as Float).abs() <= 0.1);
         }
     }

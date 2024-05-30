@@ -780,7 +780,6 @@ where
 pub mod chess {
     use derive_more::Display;
 
-    use crate::games::chess::squares::{A_FILE_NO, H_FILE_NO};
     use crate::games::Color::*;
     use crate::games::{Color, GridCoordinates, GridSize};
 
@@ -913,20 +912,36 @@ pub mod chess {
         pub const fn new(raw: RawStandardBitboard) -> Self {
             Self { raw }
         }
+
         pub const fn from_u64(bb: u64) -> Self {
             Self::new(RawStandardBitboard(bb))
         }
+
         pub fn single_piece(idx: usize) -> Self {
             Self::new(RawStandardBitboard::single_piece(idx))
         }
+
         pub fn rank_no(idx: DimT) -> Self {
             Self::rank(idx, ChessboardSize::default())
         }
+
         pub fn file_no(idx: DimT) -> Self {
             Self::file(idx, ChessboardSize::default())
         }
+
         pub fn pawn_ranks() -> Self {
             Self::from_u64(0x00ff_0000_0000_ff00)
+        }
+
+        pub fn pawn_advance(self, color: Color) -> Self {
+            match color {
+                White => self.north(),
+                Black => self.south(),
+            }
+        }
+
+        pub const fn to_u64(self) -> u64 {
+            self.raw.0
         }
     }
 
@@ -1006,11 +1021,11 @@ pub mod chess {
 
         // specialization of the generic trait method for performance
         fn diag_for_sq(sq: ChessSquare, _size: ChessboardSize) -> Self {
-            CHESS_DIAGONALS[sq.index()]
+            CHESS_DIAGONALS[sq.idx()]
         }
 
         fn anti_diag_for_sq(sq: ChessSquare, _size: ChessboardSize) -> Self {
-            CHESS_ANTI_DIAGONALS[sq.index()]
+            CHESS_ANTI_DIAGONALS[sq.idx()]
         }
     }
 

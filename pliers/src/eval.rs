@@ -1,13 +1,12 @@
 use crate::eval::Direction::{Down, Up};
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
-    cp_eval_for_weights, cp_to_wr, sample_loss, scaled_sample_grad, wr_prediction_for_weights,
-    Batch, Datapoint, Dataset, Float, Outcome, ScalingFactor, TraceTrait, Weight, Weights,
+    cp_eval_for_weights, cp_to_wr, sample_loss, scaled_sample_grad, Batch, Datapoint, Float,
+    Outcome, ScalingFactor, TraceTrait, Weight, Weights,
 };
-use crate::load_data::{Filter, NoFilter};
+use crate::load_data::Filter;
 use derive_more::Display;
 use gears::games::Board;
-use gears::general::bitboards::RawBitboard;
 use std::fmt::Formatter;
 
 pub mod chess;
@@ -42,7 +41,7 @@ pub fn interpolate(
 ) {
     if let Some(decay) = interpretation.interpolate_decay() {
         assert!(
-            decay >= 0.0 && decay < 1.0,
+            (0.0..1.0).contains(&decay),
             "decay must be in [0, 1) -- if you want no decay, simply return `None` in `initial_weights`."
         );
         let initial_weights = interpretation
@@ -60,7 +59,7 @@ pub fn interpolate(
         );
         for (idx, weight) in weights.iter_mut().enumerate() {
             let factor = decay.powf(occurrences[idx]);
-            assert!(factor >= 0.0 && factor <= 1.0, "internal error");
+            assert!((0.0..1.0).contains(&factor), "internal error");
             *weight = initial_weights[idx] * factor + *weight * (1.0 - factor);
         }
     }
@@ -101,7 +100,7 @@ pub trait WeightsInterpretation {
     /// can be called to help implement this.
     fn display_impl(
         &self,
-    ) -> (fn(f: &mut Formatter, weights: &Weights, old_weights: &[Weight]) -> std::fmt::Result);
+    ) -> fn(f: &mut Formatter, weights: &Weights, old_weights: &[Weight]) -> std::fmt::Result;
 
     /// The eval scale is used to convert a centipawn score (in (-infinity, infinity))to a winrate prediction
     /// (in [-1, 1]). For chess, a Scale of 100 corresponds *very* roughly to a pawn value of 100 centipawns.
@@ -213,7 +212,7 @@ fn grad_for_eval_scale<D: Datapoint>(
     let mut scaled_grad = 0.0;
     let mut loss = 0.0;
     for data in batch.datapoints {
-        let cp_eval = cp_eval_for_weights(&weights, data);
+        let cp_eval = cp_eval_for_weights(weights, data);
         let prediction = cp_to_wr(cp_eval, eval_scale);
         let outcome = data.outcome();
         let sample_grad =

@@ -67,7 +67,7 @@ impl Chessboard {
         // This needs to handle the case of the opponent recapturing with a pawn promotion.
         if piece_see_value(our_victim) - piece_see_value(original_moving_piece) >= beta
             && !(square.is_backrank()
-                && (PAWN_CAPTURES[color as usize][square.index()]
+                && (PAWN_CAPTURES[color as usize][square.idx()]
                     & self.colored_piece_bb(color.other(), Pawn))
                 .has_set_bit())
         {
@@ -97,7 +97,7 @@ impl Chessboard {
         let mut see_attack = |attacker: ChessSquare,
                               all_remaining_attackers: &mut ChessBitboard,
                               piece: UncoloredChessPiece| {
-            let idx = attacker.index();
+            let idx = attacker.idx();
             // `&= !` instead of `^` because in the case of a regular pawn move, the moving pawn wasn't part of the attacker bb.
             *all_remaining_attackers &= !ChessBitboard::single_piece(idx);
             removed_attackers |= ChessBitboard::single_piece(idx);

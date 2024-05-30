@@ -1,10 +1,9 @@
-use crate::eval::{Eval, FormatWeights, WeightsInterpretation};
-use crate::gd::{Feature, NonTaperedDatapoint, Outcome, SimpleTrace, TraceTrait, Weight, Weights};
+use crate::eval::{Eval, WeightsInterpretation};
+use crate::gd::{NonTaperedDatapoint, Outcome, SimpleTrace, TraceTrait, Weight, Weights};
 use crate::load_data::NoFilter;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::Chessboard;
 use gears::games::Color;
-use gears::games::Color::White;
 use gears::general::bitboards::RawBitboard;
 use std::fmt::Formatter;
 use strum::IntoEnumIterator;
@@ -56,10 +55,11 @@ mod tests {
         assert_eq!(features.as_features(0).len(), 0);
     }
 
+    #[test]
     pub fn lucena_test() {
         let board = Chessboard::from_name("lucena").unwrap();
         let features = MaterialOnlyEval::extract_features(&board, Outcome::new(1.0), 1.0).features;
-        assert_eq!(features.len(), 5);
+        assert_eq!(features.len(), 1);
         for (i, f) in features.iter().enumerate() {
             assert_eq!(i, f.idx());
             if i == Pawn as usize {

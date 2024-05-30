@@ -25,7 +25,7 @@ impl PrecomputedZobristKeys {
         color: Color,
         square: ChessSquare,
     ) -> ZobristHash {
-        self.piece_square_keys[square.index() * 12 + piece as usize * 2 + color as usize]
+        self.piece_square_keys[square.idx() * 12 + piece as usize * 2 + color as usize]
     }
 }
 

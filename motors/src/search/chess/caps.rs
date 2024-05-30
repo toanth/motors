@@ -10,7 +10,7 @@ use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::{Chessboard, MAX_CHESS_MOVES_IN_POS};
-use gears::games::{Board, BoardHistory, ColoredPiece, Move, ZobristRepetition2Fold};
+use gears::games::{Board, BoardHistory};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
 use gears::search::{
@@ -490,7 +490,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         let mut num_uninteresting_visited = 0;
         self.state.search_stack[ply].tried_quiets.clear();
 
-        let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(
+        let move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(
             pos.pseudolegal_moves(),
             self.score_move_fn(pos, best_move, ply),
         );
@@ -747,7 +747,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             best_move = tt_entry.mov;
         }
 
-        let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> = MovePicker::new(
+        let move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> = MovePicker::new(
             pos.tactical_pseudolegal(),
             self.score_move_fn(pos, best_move, ply),
         );

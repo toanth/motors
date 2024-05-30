@@ -1,6 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
-use std::mem::take;
 use std::ops::Deref;
 use std::time::{Duration, Instant};
 
@@ -16,8 +15,7 @@ use gears::search::{
 use gears::ugi::{EngineOption, EngineOptionName};
 
 use crate::search::multithreading::{EngineWrapper, SearchSender};
-use crate::search::statistics::SearchType::{MainSearch, Qsearch};
-use crate::search::statistics::{SearchType, Statistics};
+use crate::search::statistics::Statistics;
 use crate::search::tt::TT;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use crate::search::Searching::*;
@@ -163,7 +161,7 @@ impl<B: Board, E: Engine<B>> AbstractEngineBuilder<B> for EngineBuilder<B, E> {
     }
 
     fn build_for_bench(&self) -> Box<dyn Benchable<B>> {
-        Box::new(E::default())
+        Box::<E>::default()
     }
 
     fn can_use_multiple_threads(&self) -> bool {
@@ -257,7 +255,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
 
     #[inline(always)]
     fn should_stop(&mut self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
-        if (self.should_stop_impl(limit, sender)) {
+        if self.should_stop_impl(limit, sender) {
             self.search_state_mut().mark_search_should_end();
             true
         } else {
@@ -366,7 +364,7 @@ impl<B: Board> SearchStackEntry<B> for EmptySearchStackEntry {
     }
 }
 
-trait CustomInfo: Default + Clone + Debug {
+pub trait CustomInfo: Default + Clone + Debug {
     fn tt(&self) -> Option<&TT> {
         None
     }
@@ -379,7 +377,7 @@ trait CustomInfo: Default + Clone + Debug {
 }
 
 #[derive(Default, Clone, Debug)]
-struct NoCustomInfo {}
+pub struct NoCustomInfo {}
 
 impl CustomInfo for NoCustomInfo {}
 

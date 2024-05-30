@@ -190,16 +190,13 @@ pub fn to_name_and_optional_description<T: NamedEntity + ?Sized>(
     }
 }
 
-pub fn select_name_dyn<'a, T: NamedEntity>(
+pub fn select_name_dyn<'a, T: NamedEntity + ?Sized>(
     name: &str,
     list: &'a [Box<T>],
     typ: &str,
     game_name: &str,
     descr: Description,
-) -> Res<&'a T>
-where
-    T: ?Sized,
-{
+) -> Res<&'a T> {
     select_name_impl(
         name,
         list,

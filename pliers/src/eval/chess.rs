@@ -1,20 +1,19 @@
 use crate::eval::chess::PhaseType::*;
-use crate::gd::{Feature, Float, PhaseMultiplier, SimpleTrace, Weight, Weights};
+use crate::gd::{Float, SimpleTrace, Weight};
 use crate::load_data::{Filter, ParseResult};
 use colored::Colorize;
 use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
-use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
 use gears::games::chess::Chessboard;
 use gears::games::Color;
 use gears::games::Color::White;
 use gears::general::bitboards::RawBitboard;
-use std::f32::consts::E;
 use std::fmt::{Display, Formatter};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
+#[cfg(feature = "caps")]
 pub mod caps_hce_eval;
 pub mod material_only_eval;
 pub mod piston_eval;
@@ -47,8 +46,8 @@ enum PhaseType {
 impl Display for PhaseType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Mg => write!(f, "mg"),
-            Eg => write!(f, "eg"),
+            Mg => write!(f, "MG"),
+            Eg => write!(f, "EG"),
         }
     }
 }
@@ -61,7 +60,7 @@ pub fn chess_phase(pos: &Chessboard) -> Float {
 }
 
 fn to_feature_idx(piece: UncoloredChessPiece, color: Color, square: ChessSquare) -> usize {
-    NUM_SQUARES * piece as usize + square.flip_if(color == White).index()
+    NUM_SQUARES * piece as usize + square.flip_if(color == White).idx()
 }
 
 fn psqt_trace(pos: &Chessboard) -> SimpleTrace {
@@ -80,37 +79,37 @@ fn psqt_trace(pos: &Chessboard) -> SimpleTrace {
     trace
 }
 
-/// Apply a simple blur on the PSQTs to reduce noise.
-#[rustfmt::skip]
-const BLOOM: [[Float; 3]; 3] = [
-    [0.01, 0.02,  0.01],
-    [0.05, 0.82,  0.05],
-    [0.01, 0.02,  0.01]
-];
+// /// Apply a simple blur on the PSQTs to reduce noise.
+// #[rustfmt::skip]
+// const BLOOM: [[Float; 3]; 3] = [
+//     [0.01, 0.02,  0.01],
+//     [0.05, 0.82,  0.05],
+//     [0.01, 0.02,  0.01]
+// ];
 
 fn index(piece_idx: usize, square: usize, phase: PhaseType) -> usize {
     64 * 2 * piece_idx + 2 * square + phase as usize
 }
 
-fn get(
-    weights: &[Weight],
-    piece_idx: usize,
-    square: usize,
-    rank_delta: isize,
-    file_delta: isize,
-    phase: PhaseType,
-) -> Float {
-    let (min_rank, max_rank) = if piece_idx == Pawn as usize {
-        (1, 6)
-    } else {
-        (0, 7)
-    };
-    let rank = (square as isize / 8 + rank_delta).clamp(min_rank, max_rank);
-    let file = (square as isize % 8 + file_delta).clamp(0, 7);
-    let square = rank * 8 + file;
-    let bloom_multiplier = BLOOM[(rank_delta + 1) as usize][(file_delta + 1) as usize];
-    weights[index(piece_idx, square as usize, phase)].0 * bloom_multiplier
-}
+// fn get(
+//     weights: &[Weight],
+//     piece_idx: usize,
+//     square: usize,
+//     rank_delta: isize,
+//     file_delta: isize,
+//     phase: PhaseType,
+// ) -> Float {
+//     let (min_rank, max_rank) = if piece_idx == Pawn as usize {
+//         (1, 6)
+//     } else {
+//         (0, 7)
+//     };
+//     let rank = (square as isize / 8 + rank_delta).clamp(min_rank, max_rank);
+//     let file = (square as isize % 8 + file_delta).clamp(0, 7);
+//     let square = rank * 8 + file;
+//     let bloom_multiplier = BLOOM[(rank_delta + 1) as usize][(file_delta + 1) as usize];
+//     weights[index(piece_idx, square as usize, phase)].0 * bloom_multiplier
+// }
 
 fn write_phased_psqt(
     f: &mut Formatter<'_>,

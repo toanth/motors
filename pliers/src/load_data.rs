@@ -1,5 +1,5 @@
 use crate::eval::Eval;
-use crate::gd::{Datapoint, Dataset, Float, Outcome};
+use crate::gd::{Dataset, Float, Outcome};
 use crate::load_data::Perspective::SideToMove;
 use colored::Colorize;
 use derive_more::Display;
@@ -7,11 +7,10 @@ use gears::games::Board;
 use gears::games::Color::Black;
 use gears::general::common::{parse_fp_from_str, Res};
 use serde::Deserialize;
-use std::fmt::Pointer;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::str::SplitWhitespace;
 
 const WDL_MAP: [(&str, Float); 4] = [

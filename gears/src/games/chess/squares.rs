@@ -2,8 +2,8 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use crate::games::{
-    Coordinates, DimT, GridCoordinates, GridSize, Height, RectangularCoordinates, RectangularSize,
-    Size, Width,
+    Color, Coordinates, DimT, GridCoordinates, GridSize, Height, RectangularCoordinates,
+    RectangularSize, Size, Width,
 };
 use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::common::Res;
@@ -35,7 +35,7 @@ impl Size<ChessSquare> for ChessboardSize {
     }
 
     fn to_idx(self, coordinates: ChessSquare) -> usize {
-        coordinates.index()
+        coordinates.idx()
     }
 
     fn to_coordinates(self, idx: usize) -> ChessSquare {
@@ -107,10 +107,10 @@ impl ChessSquare {
     }
 
     pub fn bb(self) -> ChessBitboard {
-        ChessBitboard::single_piece(self.index())
+        ChessBitboard::single_piece(self.idx())
     }
 
-    pub fn index(self) -> usize {
+    pub fn idx(self) -> usize {
         self.idx as usize
     }
 
@@ -133,27 +133,27 @@ impl ChessSquare {
         }
     }
 
-    pub fn north(self) -> ChessSquare {
+    pub fn north(self) -> Self {
         debug_assert_ne!(self.rank(), 7);
-        Self::new(self.index() + 8)
+        Self::new(self.idx() + 8)
     }
 
-    pub fn south(self) -> ChessSquare {
+    pub fn south(self) -> Self {
         debug_assert_ne!(self.rank(), 0);
-        Self::new(self.index() - 8)
+        Self::new(self.idx() - 8)
     }
 
-    pub fn east(self) -> ChessSquare {
+    pub fn east(self) -> Self {
         debug_assert_ne!(self.file(), H_FILE_NO);
-        Self::new(self.index() + 1)
+        Self::new(self.idx() + 1)
     }
 
-    pub fn west(self) -> ChessSquare {
+    pub fn west(self) -> Self {
         debug_assert_ne!(self.file(), A_FILE_NO);
-        Self::new(self.index() - 1)
+        Self::new(self.idx() - 1)
     }
 
-    pub fn pawn_move_to_center(self) -> ChessSquare {
+    pub fn pawn_move_to_center(self) -> Self {
         debug_assert_ne!(self.rank() % 7, 0);
         if self.rank() < 4 {
             self.north()
@@ -162,9 +162,20 @@ impl ChessSquare {
         }
     }
 
+    pub fn pawn_advance(self, color: Color) -> Self {
+        match color {
+            Color::White => self.north(),
+            Color::Black => self.south(),
+        }
+    }
+
     pub fn is_backrank(self) -> bool {
         let rank = self.rank();
         rank == 0 || rank == 7
+    }
+
+    pub fn iter() -> impl Iterator<Item = Self> {
+        (0..64).map(ChessSquare::new)
     }
 }
 

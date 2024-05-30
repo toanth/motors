@@ -269,7 +269,7 @@ impl Board for Chessboard {
     }
 
     fn to_idx(&self, square: Self::Coordinates) -> usize {
-        square.index()
+        square.idx()
     }
 
     fn to_coordinates(&self, idx: usize) -> Self::Coordinates {
@@ -277,7 +277,7 @@ impl Board for Chessboard {
     }
 
     fn colored_piece_on(&self, square: Self::Coordinates) -> Self::Piece {
-        let idx = square.index();
+        let idx = square.idx();
         let uncolored = self.uncolored_piece_on(square);
         let color = if self.colored_bb(Black).is_bit_set_at(idx) {
             Black
@@ -296,7 +296,7 @@ impl Board for Chessboard {
     }
 
     fn uncolored_piece_on(&self, square: Self::Coordinates) -> UncoloredChessPiece {
-        let idx = square.index();
+        let idx = square.idx();
         UncoloredChessPiece::from_uncolored_idx(
             self.piece_bbs
                 .iter()
@@ -531,7 +531,7 @@ impl Board for Chessboard {
         for color in Color::iter() {
             for side in CastleRight::iter() {
                 let has_eligible_rook =
-                    (ChessBitboard::single_piece(self.rook_start_square(color, side).index())
+                    (ChessBitboard::single_piece(self.rook_start_square(color, side).idx())
                         & self.colored_piece_bb(color, Rook))
                     .is_single_piece();
                 if self.castling.can_castle(color, side) && !has_eligible_rook {
@@ -848,7 +848,7 @@ impl Chessboard {
         for prefix in ["chess960-", "chess", "frc-", "frc"] {
             if let Some(remaining) = name.strip_prefix(prefix) {
                 return parse_int_from_str(remaining, "chess960 startpos number")
-                    .and_then(|num| Self::chess_960_startpos(num));
+                    .and_then(Self::chess_960_startpos);
             }
         }
         for prefix in ["dfrc-", "dfrc"] {

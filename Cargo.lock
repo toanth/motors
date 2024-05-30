@@ -560,6 +560,7 @@ dependencies = [
  "colored",
  "derive_more",
  "gears",
+ "motors",
  "rand",
  "rayon",
  "serde",

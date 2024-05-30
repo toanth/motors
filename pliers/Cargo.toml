@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 gears = { path = "../gears" }
+motors = { path = "../motors", optional = true }
 derive_more = "1.0.0-beta.6"
 rand = "0.8.5"
 strum = "0.26.2"
@@ -17,4 +18,4 @@ serde_json = "1.0.117"
 serde = { version = "1.0.197", features = ["derive"] }
 
 [features]
-tapered = []
+caps = ["dep:motors"]

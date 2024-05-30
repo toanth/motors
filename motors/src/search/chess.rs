@@ -1,6 +1,7 @@
 #[cfg(feature = "caps")]
 pub mod caps;
 
+#[cfg(test)]
 mod tests {
     use std::str::FromStr;
 

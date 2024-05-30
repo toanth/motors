@@ -1,17 +1,10 @@
-use crate::eval::chess::{chess_phase, psqt_trace, write_psqts, NUM_PHASES};
+use crate::eval::chess::{psqt_trace, write_psqts, NUM_PHASES};
 use crate::eval::{changed_at_least, Eval, WeightsInterpretation};
-use crate::gd::{
-    Feature, Outcome, PhaseMultiplier, SimpleTrace, TaperedDatapoint, Weight, Weights,
-};
+use crate::gd::{SimpleTrace, TaperedDatapoint, TraceTrait, Weight, Weights};
 use crate::load_data::NoFilter;
-use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
-use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
 use gears::games::chess::Chessboard;
-use gears::games::{Color, Coordinates};
-use gears::general::bitboards::RawBitboard;
 use std::fmt::Formatter;
-use strum::IntoEnumIterator;
 
 #[derive(Debug, Default)]
 pub struct PistonEval {}
@@ -32,7 +25,7 @@ impl Eval<Chessboard> for PistonEval {
     type D = TaperedDatapoint;
     type Filter = NoFilter;
 
-    fn feature_trace(pos: &Chessboard) -> SimpleTrace {
+    fn feature_trace(pos: &Chessboard) -> impl TraceTrait {
         psqt_trace(pos)
     }
 }

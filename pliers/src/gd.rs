@@ -1,11 +1,10 @@
-use crate::eval::{count_occurrences, interpolate, Eval, WeightsInterpretation};
+use crate::eval::{count_occurrences, interpolate, WeightsInterpretation};
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
 use gears::games::Color;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
-use std::iter::Sum;
 use std::ops::{DivAssign, MulAssign};
 use std::time::Instant;
 use std::usize;
@@ -37,7 +36,7 @@ pub type Outcome = WrScore;
 
 impl WrScore {
     pub fn new(val: Float) -> Self {
-        assert!(val >= 0.0 && val <= 1.0);
+        assert!((0.0..=1.0).contains(&val));
         Self(val)
     }
 }
@@ -261,7 +260,7 @@ impl TraceTrait for SimpleTrace {
                 res.push(feature);
             }
         }
-        res.sort_by(|a, b| a.idx().cmp(&b.idx()));
+        res.sort_by_key(|a| a.idx());
         res
     }
 
@@ -573,6 +572,11 @@ pub fn optimize_entire_batch<D: Datapoint>(
         weights = weights_interpretation
             .initial_weights()
             .expect("if `retune_from_zero()` returns `false`, there must be initial weights");
+        assert_eq!(
+            weights.num_weights(),
+            batch.num_weights,
+            "Incorrect number of initial weights"
+        );
     }
     let mut prev_loss = Float::INFINITY;
     let start = Instant::now();
@@ -606,7 +610,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
             if max_diff.abs() <= 0.05 && epoch >= 50 {
                 break;
             }
-            prev_weights = weights.0.clone();
+            prev_weights.clone_from(&weights.0);
             prev_loss = loss;
         }
         if epoch == 20.min(num_epochs / 100) {
@@ -736,14 +740,10 @@ impl AdamHyperParams {
     fn for_eval_scale(eval_scale: ScalingFactor) -> Self {
         Self {
             alpha: eval_scale / 10.0,
-            /// Setting these values too low can introduce crazy swings in the eval values and loss when it would
-            /// otherwise appear converged -- maybe because of numerical instability?
-            beta1: 0.9, // 0.8,
+            // Setting these values too low can introduce crazy swings in the eval values and loss when it would
+            // otherwise appear converged -- maybe because of numerical instability?
+            beta1: 0.9,
             beta2: 0.999,
-            /// When the gradient goes down to zero, we can run into numerical instability issues when dividing by the
-            /// square root of the uncentered variance, Set epsilon relatively large to counter this effect. This can
-            /// happen when a weight has almost converged or (if something else went wrong) when a weight got tuned so
-            /// large that the sigmoid gradient vanishes.
             epsilon: 1e-8,
         }
     }
@@ -789,9 +789,8 @@ impl<D: Datapoint> Optimizer<D> for Adam {
             self.v[i] = self.v[i] * beta2 + gradient[i] * gradient[i].0 * (1.0 - beta2);
             let unbiased_m = self.m[i] / (1.0 - beta1.powi(iteration as i32));
             let unbiased_v = self.v[i] / (1.0 - beta2.powi(iteration as i32));
-            weights[i] = weights[i]
-                - unbiased_m * self.hyper_params.alpha
-                    / (unbiased_v.0.sqrt() + self.hyper_params.epsilon)
+            weights[i] -= unbiased_m * self.hyper_params.alpha
+                / (unbiased_v.0.sqrt() + self.hyper_params.epsilon)
         }
     }
 }
@@ -814,15 +813,15 @@ mod tests {
             }];
             let batch = Batch {
                 datapoints: dataset.as_slice(),
-                num_weights: 2,
-                weight_sum: 2.0,
+                num_weights: 1,
+                weight_sum: 1.0,
             };
             for eval_scale in 1..100 {
                 let loss = loss(&weights, batch, eval_scale as ScalingFactor);
                 if outcome == 0.5 {
                     assert_eq!(loss, 0.0);
                 } else {
-                    assert!((loss - 0.25).abs() <= 0.0001);
+                    assert!((loss - 0.25).abs() <= 0.0001, "{loss} {outcome}");
                 }
             }
         }
@@ -862,7 +861,7 @@ mod tests {
                         outcome: Outcome::new(outcome),
                     };
                     let mut dataset = Dataset::new(1);
-                    dataset.datapoints.push(datapoint);
+                    dataset.push(datapoint);
                     let batch = dataset.as_batch();
                     for _ in 0..100 {
                         let grad = compute_gradient(&weights, batch, scaling_factor);
@@ -881,10 +880,10 @@ mod tests {
                                 })
                             );
                         }
-                        assert!(
-                            loss(&weights, batch, scaling_factor)
-                                <= loss(&old_weights, batch, scaling_factor)
-                        );
+                        let new_loss = loss(&weights, batch, scaling_factor);
+                        let old_loss = loss(&old_weights, batch, scaling_factor);
+                        assert!(new_loss >= 0.0, "{new_loss}");
+                        assert!(new_loss <= old_loss, "new loss: {new_loss}, old loss: {old_loss}, feature {feature}, initial weight {initial_weight}, outcome {outcome}");
                     }
                     let loss = loss(&weights, batch, scaling_factor);
                     if feature != 0 {
@@ -938,8 +937,8 @@ mod tests {
             let dataset = vec![datapoint];
             let batch = Batch {
                 datapoints: dataset.as_slice(),
-                num_weights: 2,
-                weight_sum: 2.0,
+                num_weights: 1,
+                weight_sum: 1.0,
             };
             let mut lr = 1.0;
             for _ in 0..100 {
@@ -952,7 +951,7 @@ mod tests {
                 lr *= 0.99;
             }
             let loss = loss(&weights, batch, scale);
-            assert!(loss <= 0.01);
+            assert!(loss <= 0.01, "{loss}");
             if outcome == 0.5 {
                 assert_eq!(weights[0].0.signum(), weights[1].0.signum());
                 assert!((weights[0].0.abs() - weights[1].0.abs()).abs() <= 0.00000001);
@@ -997,7 +996,7 @@ mod tests {
             assert!(weights[1].0 <= -100.0);
 
             type AnyOptimizer = Box<dyn Optimizer<NonTaperedDatapoint>>;
-            let mut optimizers: [AnyOptimizer; 2] = [
+            let optimizers: [AnyOptimizer; 2] = [
                 Box::new(SimpleGDOptimizer { alpha: 1.0 }),
                 Box::new(Adam::new(batch, scale)),
             ];
@@ -1045,7 +1044,7 @@ mod tests {
             );
             let old_weights = weights.clone();
             weights -= &grad;
-            assert!(loss(&weights, batch, 1.0) <= loss(&weights, batch, 1.0));
+            assert!(loss(&weights, batch, 1.0) <= loss(&old_weights, batch, 1.0));
         }
         assert!(weights[0].0 >= 0.0);
         assert!(weights[1].0 >= 0.0);

@@ -61,7 +61,7 @@ pub struct ChessMove(u16);
 
 impl ChessMove {
     pub fn new(from: ChessSquare, to: ChessSquare, flags: ChessMoveFlags) -> Self {
-        let idx = from.index() + (to.index() << 6) + ((flags as usize) << 12);
+        let idx = from.idx() + (to.idx() << 6) + ((flags as usize) << 12);
         Self(idx as u16)
     }
 
@@ -104,7 +104,7 @@ impl ChessMove {
     pub fn is_non_ep_capture(self, board: &Chessboard) -> bool {
         board
             .colored_bb(board.active_player.other())
-            .is_bit_set_at(self.dest_square().index())
+            .is_bit_set_at(self.dest_square().idx())
     }
 
     pub fn captured(self, board: &Chessboard) -> UncoloredChessPiece {
@@ -231,7 +231,7 @@ impl Move<Chessboard> for ChessMove {
         {
             flags = EnPassant;
         }
-        let res = from.index() + (to.index() << 6) + ((flags as usize) << 12);
+        let res = from.idx() + (to.idx() << 6) + ((flags as usize) << 12);
         Ok(ChessMove(res as u16))
     }
 
