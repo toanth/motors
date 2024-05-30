@@ -4,6 +4,7 @@ use gears::games::Color;
 use gears::games::Color::*;
 use gears::general::bitboards::chess::ChessBitboard;
 use gears::general::bitboards::Bitboard;
+use std::fmt::{Display, Formatter};
 use strum_macros::EnumIter;
 
 pub mod hce;
@@ -14,6 +15,15 @@ pub mod pst_only;
 pub enum PhaseType {
     Mg,
     Eg,
+}
+
+impl Display for PhaseType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PhaseType::Mg => write!(f, "MG"),
+            PhaseType::Eg => write!(f, "EG"),
+        }
+    }
 }
 
 /// Has to be in the same order as the FileOpenness in hce.rs.

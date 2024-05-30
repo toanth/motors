@@ -1,17 +1,15 @@
-use crate::eval::chess::PhaseType::*;
-use crate::gd::{Float, SimpleTrace, Weight};
+use crate::gd::{Float, SimpleTrace, Weight, Weights};
 use crate::load_data::{Filter, ParseResult};
 use colored::Colorize;
-use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::Chessboard;
 use gears::games::Color;
 use gears::games::Color::White;
 use gears::general::bitboards::RawBitboard;
+use motors::eval::chess::PhaseType;
 use std::fmt::{Display, Formatter};
 use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
 
 #[cfg(feature = "caps")]
 pub mod caps_hce_eval;
@@ -36,15 +34,6 @@ const NUM_PHASES: usize = 2;
 const CHESS_PHASE_VALUES: [usize; NUM_CHESS_PIECES] = [0, 1, 1, 2, 4, 0];
 
 const NUM_PSQT_FEATURES: usize = NUM_CHESS_PIECES * NUM_SQUARES;
-
-impl Display for PhaseType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Mg => write!(f, "MG"),
-            Eg => write!(f, "EG"),
-        }
-    }
-}
 
 pub fn chess_phase(pos: &Chessboard) -> Float {
     let phase: usize = UncoloredChessPiece::non_king_pieces()

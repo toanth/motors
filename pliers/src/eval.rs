@@ -59,7 +59,7 @@ pub fn interpolate(
         );
         for (idx, weight) in weights.iter_mut().enumerate() {
             let factor = decay.powf(occurrences[idx]);
-            assert!((0.0..1.0).contains(&factor), "internal error");
+            assert!((0.0..=1.0).contains(&factor), "internal error");
             *weight = initial_weights[idx] * factor + *weight * (1.0 - factor);
         }
     }

@@ -1,7 +1,6 @@
 use crate::eval::chess::caps_hce_eval::FileOpenness::*;
 use crate::eval::chess::{
-    psqt_trace, write_phased_psqt, write_psqts, PhaseType, SkipChecks, NUM_PHASES,
-    NUM_PSQT_FEATURES,
+    psqt_trace, write_phased_psqt, write_psqts, SkipChecks, NUM_PHASES, NUM_PSQT_FEATURES,
 };
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::eval::{changed_at_least, Eval, EvalScale, WeightsInterpretation};
@@ -21,7 +20,7 @@ use gears::games::{Board, Color, DimT};
 use gears::general::bitboards::chess::{ChessBitboard, A_FILE};
 use gears::general::bitboards::{Bitboard, RawBitboard};
 use motors::eval::chess::{
-    pawn_shield_idx, FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS, PAWN_SHIELD_SHIFT,
+    pawn_shield_idx, FileOpenness, PhaseType, NUM_PAWN_SHIELD_CONFIGURATIONS, PAWN_SHIELD_SHIFT,
 };
 use std::fmt::Formatter;
 use strum::IntoEnumIterator;
@@ -79,10 +78,7 @@ impl WeightsInterpretation for CapsHceEval {
             for piece in ["ROOK", "KING"] {
                 for openness in ["OPEN", "CLOSED", "SEMIOPEN"] {
                     for phase in PhaseType::iter() {
-                        let mut value = format!("{}", weights[idx].rounded());
-                        if special[idx] {
-                            value = value.red().to_string();
-                        }
+                        let value = weights[idx].to_string(special[idx]);
                         writeln!(f, "const {piece}_{openness}_FILE_{phase}: i32 = {value};")?;
                         idx += 1;
                     }
@@ -90,12 +86,12 @@ impl WeightsInterpretation for CapsHceEval {
             }
             writeln!(
                 f,
-                "const PAWN_SHIELDS: [[i32; NUM_PHASES]; NUM_PAWN_SHIELD_CONFIGURATIONS] = [\n"
+                "const PAWN_SHIELDS: [[i32; NUM_PHASES]; NUM_PAWN_SHIELD_CONFIGURATIONS] = ["
             )?;
             for _ in 0..NUM_PAWN_SHIELD_CONFIGURATIONS {
                 write!(f, "[")?;
                 for _phase in PhaseType::iter() {
-                    write!(f, "{}, ", weights[idx].rounded())?;
+                    write!(f, "{}, ", weights[idx].to_string(special[idx]))?;
                     idx += 1;
                 }
                 write!(f, "], ")?;
@@ -280,8 +276,10 @@ impl WeightsInterpretation for CapsHceEval {
         const KING_CLOSED_FILE_MG: i32 = 15;
         const KING_CLOSED_FILE_EG: i32 = -16;
 
+        // Use a default value of -100 because pawn shield configurations that don't appear in the training data
+        // are probably bad
         const PAWN_SHIELDS: [[i32; NUM_PHASES]; NUM_PAWN_SHIELD_CONFIGURATIONS] =
-            [[0; NUM_PHASES]; NUM_PAWN_SHIELD_CONFIGURATIONS];
+            [[-100; NUM_PHASES]; NUM_PAWN_SHIELD_CONFIGURATIONS];
 
         let mut weights = vec![];
         for piece in UncoloredChessPiece::pieces() {
@@ -324,6 +322,10 @@ impl WeightsInterpretation for CapsHceEval {
 
     fn eval_scale(&self) -> EvalScale {
         Scale(120.0)
+    }
+
+    fn interpolate_decay(&self) -> Option<Float> {
+        Some(0.99) // a relatively small value (far away from 1) because some pawn shield configurations are very uncommon
     }
 }
 

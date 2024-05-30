@@ -1,4 +1,5 @@
 use crate::eval::{count_occurrences, interpolate, WeightsInterpretation};
+use colored::Colorize;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
 use gears::games::Color;
 use rand::prelude::SliceRandom;
@@ -98,6 +99,14 @@ pub struct Weight(pub Float);
 impl Weight {
     pub fn rounded(self) -> i32 {
         self.0.round() as i32
+    }
+
+    pub fn to_string(self, special: bool) -> String {
+        if special {
+            format!("{}", self.0.round()).red().to_string()
+        } else {
+            format!("{}", self.0.round())
+        }
     }
 }
 
@@ -615,7 +624,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
         }
         if epoch == 20.min(num_epochs / 100) {
             optimizer.lr_drop(4.0); // undo the raised lr.
-        } else if epoch == num_epochs / 2 {
+        } else if epoch == num_epochs * 3 / 4 {
             optimizer.lr_drop(1.5);
         }
     }
