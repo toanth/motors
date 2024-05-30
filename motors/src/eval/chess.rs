@@ -4,10 +4,17 @@ use gears::games::Color;
 use gears::games::Color::*;
 use gears::general::bitboards::chess::ChessBitboard;
 use gears::general::bitboards::Bitboard;
+use strum_macros::EnumIter;
 
 pub mod hce;
 pub mod material_only;
 pub mod pst_only;
+
+#[derive(Debug, Copy, Clone, EnumIter)]
+pub enum PhaseType {
+    Mg,
+    Eg,
+}
 
 /// Has to be in the same order as the FileOpenness in hce.rs.
 /// `SemiClosed` is last because it doesn't get counted.

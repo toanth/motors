@@ -37,12 +37,6 @@ const CHESS_PHASE_VALUES: [usize; NUM_CHESS_PIECES] = [0, 1, 1, 2, 4, 0];
 
 const NUM_PSQT_FEATURES: usize = NUM_CHESS_PIECES * NUM_SQUARES;
 
-#[derive(Debug, Copy, Clone, EnumIter)]
-enum PhaseType {
-    Mg,
-    Eg,
-}
-
 impl Display for PhaseType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {

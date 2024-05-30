@@ -1,6 +1,8 @@
 use strum::IntoEnumIterator;
 
-use crate::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS, NUM_PHASES};
+use crate::eval::chess::{
+    pawn_shield_idx, FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS, NUM_PHASES,
+};
 use gears::games::chess::pieces::UncoloredChessPiece::{Pawn, Rook};
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
@@ -13,6 +15,7 @@ use gears::general::bitboards::RawBitboard;
 use gears::search::Score;
 
 use crate::eval::chess::hce::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
+use crate::eval::chess::PhaseType::{Eg, Mg};
 use crate::eval::Eval;
 
 #[derive(Default, Debug)]
@@ -341,7 +344,8 @@ impl Eval<Chessboard> for HandCraftedEval {
                 }
             }
             // King on (semi)open/closed file
-            let king_file = pos.king_square(color).file();
+            let king_square = pos.king_square(color);
+            let king_file = king_square.file();
             match file_openness(king_file, our_pawns, their_pawns) {
                 Open => {
                     mg += Score(KING_OPEN_FILE_MG);
@@ -357,6 +361,8 @@ impl Eval<Chessboard> for HandCraftedEval {
                     eg += Score(KING_CLOSED_FILE_EG);
                 }
             }
+            mg += Score(PAWN_SHIELDS[pawn_shield_idx(our_pawns, king_square, color)][Mg as usize]);
+            eg += Score(PAWN_SHIELDS[pawn_shield_idx(our_pawns, king_square, color)][Eg as usize]);
 
             for piece in UncoloredChessPiece::pieces() {
                 let mut bb = pos.colored_piece_bb(color, piece);
