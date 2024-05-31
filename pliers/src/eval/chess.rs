@@ -11,7 +11,6 @@ use motors::eval::chess::PhaseType;
 use std::fmt::{Display, Formatter};
 use strum::IntoEnumIterator;
 
-#[cfg(feature = "caps")]
 pub mod caps_hce_eval;
 pub mod material_only_eval;
 pub mod piston_eval;

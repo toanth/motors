@@ -276,10 +276,10 @@ impl WeightsInterpretation for CapsHceEval {
         const KING_CLOSED_FILE_MG: i32 = 15;
         const KING_CLOSED_FILE_EG: i32 = -16;
 
-        // Use a default value of -100 because pawn shield configurations that don't appear in the training data
+        // Use a default value of -50 because pawn shield configurations that don't appear in the training data
         // are probably bad
         const PAWN_SHIELDS: [[i32; NUM_PHASES]; NUM_PAWN_SHIELD_CONFIGURATIONS] =
-            [[-100; NUM_PHASES]; NUM_PAWN_SHIELD_CONFIGURATIONS];
+            [[-50; NUM_PHASES]; NUM_PAWN_SHIELD_CONFIGURATIONS];
 
         let mut weights = vec![];
         for piece in UncoloredChessPiece::pieces() {
@@ -325,7 +325,7 @@ impl WeightsInterpretation for CapsHceEval {
     }
 
     fn interpolate_decay(&self) -> Option<Float> {
-        Some(0.99) // a relatively small value (far away from 1) because some pawn shield configurations are very uncommon
+        Some(0.98) // a relatively small value (far away from 1) because some pawn shield configurations are very uncommon
     }
 }
 

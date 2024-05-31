@@ -1,5 +1,6 @@
+use gears::cli::Game::Chess;
 use gears::games::chess::pieces::NUM_CHESS_PIECES;
-use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
+use gears::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO, NUM_SQUARES};
 use gears::games::Color;
 use gears::games::Color::*;
 use gears::general::bitboards::chess::ChessBitboard;
@@ -69,11 +70,32 @@ pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: C
     let mut bb = pawns >> PAWN_SHIELD_SHIFT[king.idx()];
     // TODO: pext if available
     let file = king.file();
-    if file == 0 {
+    // Only use one bucket for several uncommon patterns to increase sample count for tuning.
+    // (TODO: Maybe don't do that in the actual eval to slightly increase performance, by copying this value into all buckets)
+    let rank_mask = if file == A_FILE_NO || file == H_FILE_NO {
+        0x3
+    } else {
+        0x7
+    };
+    let upper_rank_mask = rank_mask << 8;
+    if bb.0 & rank_mask == rank_mask && bb.0 & upper_rank_mask != 0 {
+        return if file == A_FILE_NO || file == H_FILE_NO {
+            (1 << 6) + (1 << 4) - 1
+        } else {
+            (1 << 6) - 1
+        };
+    } else if bb.0 & upper_rank_mask == upper_rank_mask && bb.0 & rank_mask != 0 {
+        return if file == A_FILE_NO || file == H_FILE_NO {
+            (1 << 6) + (1 << 4) - 2
+        } else {
+            (1 << 6) - 2
+        };
+    }
+    if file == A_FILE_NO {
         bb &= ChessBitboard::from_u64(0x303);
         let base_idx = (bb.0 | (bb.0 >> (8 - 2))) as usize & 0x3f;
         base_idx + (1 << 6)
-    } else if file == 7 {
+    } else if file == H_FILE_NO {
         bb &= ChessBitboard::from_u64(0x303);
         let base_idx = (bb.0 | (bb.0 >> (8 - 2))) as usize & 0x3f;
         base_idx + (1 << 6) + (1 << 4)
@@ -149,17 +171,34 @@ mod tests {
         } else {
             vec![-1, 0, 1]
         };
-        for (i, delta_file) in file_deltas.iter().enumerate() {
-            for delta_rank in [1, 2] {
+        let mut rank_full = [true, true];
+        let mut rank_empty = [true, true];
+        for delta_rank in [1, 2] {
+            let rank = king.rank() as usize + delta_rank;
+            if rank >= 8 {
+                continue;
+            }
+            for (i, delta_file) in file_deltas.iter().enumerate() {
                 let file = king.file() as isize + delta_file;
-                let rank = king.rank() as usize + delta_rank;
-                if file < 0 || file >= 8 || rank >= 8 {
+                if file < 0 || file >= 8 {
                     continue;
                 }
                 let square = ChessSquare::from_rank_file(rank as DimT, file as DimT);
                 if pawns.is_bit_set_at(square.idx()) {
                     res += 1 << (i + (delta_rank - 1) * file_deltas.len());
+                    rank_empty[delta_rank - 1] = false;
+                } else {
+                    rank_full[delta_rank - 1] = false;
                 }
+            }
+        }
+        for i in 0..2 {
+            if rank_full[i] && !rank_empty[(i + 1) % 2] {
+                return if king.file() == A_FILE_NO || king.file() == H_FILE_NO {
+                    (1 << 6) + (1 << 4) - i - 1
+                } else {
+                    (1 << 6) - i - 1
+                };
             }
         }
         res
