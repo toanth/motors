@@ -1,5 +1,5 @@
 use gears::games::chess::pieces::NUM_CHESS_PIECES;
-use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
+use gears::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO, NUM_SQUARES};
 use gears::games::Color;
 use gears::games::Color::*;
 use gears::general::bitboards::chess::ChessBitboard;
@@ -69,17 +69,24 @@ pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: C
     let mut bb = pawns >> PAWN_SHIELD_SHIFT[king.idx()];
     // TODO: pext if available
     let file = king.file();
-    if file == 0 {
+    if file == A_FILE_NO || file == H_FILE_NO {
         bb &= ChessBitboard::from_u64(0x303);
-        let base_idx = (bb.0 | (bb.0 >> (8 - 2))) as usize & 0x3f;
-        base_idx + (1 << 6)
-    } else if file == 7 {
-        bb &= ChessBitboard::from_u64(0x303);
-        let base_idx = (bb.0 | (bb.0 >> (8 - 2))) as usize & 0x3f;
-        base_idx + (1 << 6) + (1 << 4)
+        let mut pattern = (bb.0 | (bb.0 >> (8 - 2))) as usize & 0x3f;
+        if pattern.count_ones() > 2 {
+            pattern = 0b11_11;
+        }
+        if file == A_FILE_NO {
+            (1 << 6) + pattern
+        } else {
+            (1 << 6) + (1 << 4) + pattern
+        }
     } else {
         bb &= ChessBitboard::from_u64(0x707);
-        (bb.0 | (bb.0 >> (8 - 3))) as usize & 0x7f
+        let mut pattern = (bb.0 | (bb.0 >> (8 - 3))) as usize & 0x7f;
+        if pattern.count_ones() > 3 {
+            pattern = 0b111_111;
+        }
+        pattern
     }
 }
 
@@ -149,6 +156,8 @@ mod tests {
         } else {
             vec![-1, 0, 1]
         };
+        let base = res;
+        let mut num_pawns = 0;
         for (i, delta_file) in file_deltas.iter().enumerate() {
             for delta_rank in [1, 2] {
                 let file = king.file() as isize + delta_file;
@@ -159,8 +168,12 @@ mod tests {
                 let square = ChessSquare::from_rank_file(rank as DimT, file as DimT);
                 if pawns.is_bit_set_at(square.idx()) {
                     res += 1 << (i + (delta_rank - 1) * file_deltas.len());
+                    num_pawns += 1;
                 }
             }
+        }
+        if num_pawns > file_deltas.len() {
+            return base + (1 << (2 * file_deltas.len())) - 1;
         }
         res
     }

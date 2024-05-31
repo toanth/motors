@@ -88,13 +88,20 @@ impl WeightsInterpretation for CapsHceEval {
                 f,
                 "const PAWN_SHIELDS: [[i32; NUM_PHASES]; NUM_PAWN_SHIELD_CONFIGURATIONS] = ["
             )?;
-            for _ in 0..NUM_PAWN_SHIELD_CONFIGURATIONS {
+            for i in 0..NUM_PAWN_SHIELD_CONFIGURATIONS {
+                let config = if i < 1 << 6 {
+                    format!("{i:#06b}")
+                } else if i < (1 << 6) + (1 << 4) {
+                    format!("{:#04b}", i - (1 << 6))
+                } else {
+                    format!("{:#04b}", i - (1 << 6) - (1 << 4))
+                };
                 write!(f, "[")?;
                 for _phase in PhaseType::iter() {
                     write!(f, "{}, ", weights[idx].to_string(special[idx]))?;
                     idx += 1;
                 }
-                write!(f, "], ")?;
+                write!(f, "] /*{config}*/,")?;
             }
             writeln!(f, "];")?;
             assert_eq!(idx, Self::NUM_WEIGHTS);

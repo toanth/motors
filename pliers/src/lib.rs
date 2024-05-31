@@ -65,7 +65,7 @@ pub fn get_datasets<B: Board>() -> Res<Vec<AnnotatedFenFile>> {
 }
 
 pub fn optimize<B: Board, E: Eval<B>>(file_list: &[AnnotatedFenFile]) -> Res<()> {
-    optimize_for::<B, E, Adam>(file_list, 4000)
+    optimize_for::<B, E, Adam>(file_list, 2000)
 }
 
 pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
