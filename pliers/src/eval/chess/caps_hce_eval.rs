@@ -59,7 +59,7 @@ pub struct CapsHceEval {}
 impl WeightsInterpretation for CapsHceEval {
     fn display_impl(&self) -> (fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result) {
         |f: &mut Formatter<'_>, weights: &Weights, old_weights: &[Weight]| {
-            let special = changed_at_least(1.0, weights, old_weights);
+            let special = changed_at_least(-1.0, weights, old_weights);
             assert_eq!(weights.len(), Self::NUM_WEIGHTS);
 
             write_psqts(f, weights, &special)?;

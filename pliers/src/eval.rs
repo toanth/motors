@@ -11,11 +11,18 @@ use std::fmt::Formatter;
 
 pub mod chess;
 
+/// Returns a `Vec` of `bool` that where the ith entry is `true` iff the absolute difference between `weights[i]` and
+/// `old_weights[i]` is at least `threshole`. If `threshold` is negative, this is instead true iff the rounded values
+/// differ (i.e. 0.49 and 0.51 would be different, but not 0.51 and 1.23).
 pub fn changed_at_least(threshold: Float, weights: &Weights, old_weights: &[Weight]) -> Vec<bool> {
     let mut res = vec![false; weights.len()];
     if old_weights.len() == weights.len() {
         for i in 0..old_weights.len() {
-            res[i] = (weights[i].0 - old_weights[i].0).abs() >= threshold;
+            if threshold < 0.0 {
+                res[i] = weights[i].rounded() != old_weights[i].rounded()
+            } else {
+                res[i] = (weights[i].0 - old_weights[i].0).abs() >= threshold;
+            }
         }
     }
     res

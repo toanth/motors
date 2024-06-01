@@ -12,7 +12,7 @@ pub struct PistonEval {}
 impl WeightsInterpretation for PistonEval {
     fn display_impl(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
         |f: &mut Formatter<'_>, weights: &Weights, old_weights: &[Weight]| {
-            write_psqts(f, weights, &changed_at_least(5.0, weights, old_weights))
+            write_psqts(f, weights, &changed_at_least(-1.0, weights, old_weights))
         }
     }
 }
