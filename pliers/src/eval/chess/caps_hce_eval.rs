@@ -107,7 +107,7 @@ impl WeightsInterpretation for CapsHceEval {
 
             writeln!(
                 f,
-                "const VIRTUAL_QUEEN_MOBILITY: [i32; NUM_VIRTUAL_QUEEN_MOBILITY_FEATURES] = ["
+                "const VIRTUAL_QUEEN_MOBILITY: [[i32; NUM_PHASES]; NUM_VIRTUAL_QUEEN_MOBILITY_FEATURES] = ["
             )?;
             for _ in 0..NUM_VIRTUAL_QUEEN_MOBILITY_FEATURES {
                 write!(f, "[")?;
@@ -316,7 +316,7 @@ impl WeightsInterpretation for CapsHceEval {
             [[-100; NUM_PHASES]; NUM_PAWN_SHIELD_CONFIGURATIONS];
 
         const VIRTUAL_QUEEN_MOBILITY: [[i32; NUM_PHASES]; NUM_VIRTUAL_QUEEN_MOBILITY_FEATURES] =
-            [[-100; NUM_PHASES]; NUM_VIRTUAL_QUEEN_MOBILITY_FEATURES];
+            [[0; NUM_PHASES]; NUM_VIRTUAL_QUEEN_MOBILITY_FEATURES];
 
         let mut weights = vec![];
         for piece in UncoloredChessPiece::pieces() {
