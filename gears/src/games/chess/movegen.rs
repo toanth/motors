@@ -322,13 +322,17 @@ impl Chessboard {
     }
 
     /// All the following methods can be called with squares that do not contain the specified piece.
-    /// This makes sense because it allows to find all pieces able to attack a given square.
+    /// This makes sense because it allows to find all pieces able to attack a given square,
+    /// and to compute "virtual" mobility.
 
-    fn normal_king_moves_from_square(square: ChessSquare, filter: ChessBitboard) -> ChessBitboard {
+    pub fn normal_king_moves_from_square(
+        square: ChessSquare,
+        filter: ChessBitboard,
+    ) -> ChessBitboard {
         KINGS[square.idx()] & filter
     }
 
-    fn knight_moves_from_square(square: ChessSquare, filter: ChessBitboard) -> ChessBitboard {
+    pub fn knight_moves_from_square(square: ChessSquare, filter: ChessBitboard) -> ChessBitboard {
         KNIGHTS[square.idx()] & filter
     }
 
@@ -336,7 +340,18 @@ impl Chessboard {
         PAWN_CAPTURES[color as usize][square.idx()]
     }
 
-    fn gen_sliders_from_square(
+    pub fn queen_moves_from_square(&self, square: ChessSquare, color: Color) -> ChessBitboard {
+        let square_bb = if self.is_occupied(square) {
+            square.bb()
+        } else {
+            ChessBitboard::default()
+        };
+        let filter = !self.colored_bb(color);
+        self.gen_sliders_from_square(square, SliderMove::Rook, filter, square_bb)
+            | self.gen_sliders_from_square(square, SliderMove::Bishop, filter, square_bb)
+    }
+
+    pub fn gen_sliders_from_square(
         &self,
         square: ChessSquare,
         slider_move: SliderMove,
