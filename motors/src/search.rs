@@ -291,7 +291,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
 
     /// This should return the static eval (possibly with WDL normalization) without doing any kind of search.
     /// For engines like `RandomMover` where there is no static eval, this should return `Score(0)`.
-    fn get_static_eval(&mut self, pos: B) -> Score;
+    fn static_eval(&mut self, pos: B) -> Score;
 
     /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
     fn forget(&mut self) {

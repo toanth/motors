@@ -157,7 +157,7 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
         &mut self.state
     }
 
-    fn get_static_eval(&mut self, pos: B) -> Score {
+    fn static_eval(&mut self, pos: B) -> Score {
         self.eval.eval(pos)
     }
 }

@@ -163,7 +163,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
     }
 
     fn get_static_eval(&mut self, pos: B) {
-        let eval = self.engine.get_static_eval(pos);
+        let eval = self.engine.static_eval(pos);
         self.search_sender.send_static_eval(eval);
     }
 
