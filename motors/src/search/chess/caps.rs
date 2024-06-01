@@ -449,8 +449,13 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // Use `improving` to better distinguish between blunders by our opponent and a generally good static eval
         // relative to `beta` --  there may be other positional factors that aren't being reflected by the static eval,
         // (like imminent threads) so don't prune too aggressively if we're not improving.
+        // Be more careful about pruning too aggressively if the node is expected to fail low -- we should not rfp
+        // a true fail low node, but our expectation may also be wrong.
         if can_prune {
-            let margin = (120 - (improving as i32 * 64)) * depth as i32;
+            let mut margin = (120 - (improving as i32 * 64)) * depth as i32;
+            if expected_node_type == FailHigh {
+                margin /= 2;
+            }
             if depth < 4 && eval >= beta + Score(margin) {
                 return eval;
             }
