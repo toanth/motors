@@ -15,6 +15,7 @@ use crate::general::common::{
     parse_int, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
 };
 use crate::general::move_list::MoveList;
+use crate::general::squares::{RectangularCoordinates, RectangularSize};
 use crate::output::OutputBuilder;
 use crate::search::Depth;
 use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
@@ -22,11 +23,12 @@ use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, Play
 #[cfg(feature = "mnk")]
 pub mod mnk;
 
+mod ataxx;
 #[cfg(feature = "chess")]
 pub mod chess;
 
-// TODO: Make color depend on the game, because e.g. in go black goes first, and in ataxx the colors are blue and red
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, EnumIter)]
+/// White is always the first player, Black is always the second. TODO: Change naming to redlect this.
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Hash, EnumIter)]
 pub enum Color {
     #[default]
     White = 0,
@@ -199,108 +201,6 @@ pub trait Coordinates: Eq + Copy + Debug + Default + FromStr<Err = String> + Dis
 
 pub type DimT = u8;
 
-pub trait RectangularCoordinates: Coordinates {
-    fn from_row_column(row: DimT, column: DimT) -> Self;
-    fn row(self) -> DimT;
-    fn column(self) -> DimT;
-}
-
-// Computes the L1 norm of a - b
-pub fn manhattan_distance<C: RectangularCoordinates>(a: C, b: C) -> usize {
-    a.row().abs_diff(b.row()) as usize + a.column().abs_diff(b.column()) as usize
-}
-
-// Compute the supremum norm of a - b
-pub fn sup_distance<C: RectangularCoordinates>(a: C, b: C) -> usize {
-    max(a.row().abs_diff(b.row()), a.column().abs_diff(b.column())) as usize
-}
-
-#[derive(Clone, Copy, Eq, PartialOrd, PartialEq, Debug, Default)]
-pub struct GridCoordinates {
-    pub row: DimT,
-    pub column: DimT,
-}
-
-impl Coordinates for GridCoordinates {
-    type Size = GridSize;
-
-    fn flip_up_down(self, size: Self::Size) -> Self {
-        GridCoordinates {
-            row: size.height.0 - 1 - self.row,
-            column: self.column,
-        }
-    }
-
-    fn flip_left_right(self, size: Self::Size) -> Self {
-        GridCoordinates {
-            row: self.row,
-            column: size.width.0 - 1 - self.column,
-        }
-    }
-
-    fn no_coordinates() -> Self {
-        GridCoordinates {
-            row: DimT::MAX,
-            column: DimT::MAX,
-        }
-    }
-}
-
-impl RectangularCoordinates for GridCoordinates {
-    fn from_row_column(row: DimT, column: DimT) -> Self {
-        GridCoordinates { row, column }
-    }
-
-    fn row(self) -> DimT {
-        self.row
-    }
-
-    fn column(self) -> DimT {
-        self.column
-    }
-}
-
-impl FromStr for GridCoordinates {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut s = s.trim().chars();
-
-        let file = s.next().ok_or("Empty input")?;
-        let mut words = s.as_str().split_whitespace();
-        let rank: usize = parse_int(&mut words, "rank (row)")?;
-        if words.count() > 0 {
-            return Err("too many words".to_string());
-        }
-        Self::algebraic_coordinate(file, rank)
-    }
-}
-
-impl Display for GridCoordinates {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{0}{1}",
-            file_to_char(self.column),
-            self.row + 1 // output 1-indexed
-        )
-    }
-}
-
-impl GridCoordinates {
-    pub fn algebraic_coordinate(file: char, rank: usize) -> Res<Self> {
-        if !file.is_ascii_alphabetic() {
-            return Err("file (column) must be a valid ascii letter".to_string());
-        }
-        let column = char_to_file(file.to_ascii_lowercase());
-        let rank = DimT::try_from(rank).map_err(|err| err.to_string())?;
-        Ok(GridCoordinates {
-            column,
-            row: rank.wrapping_sub(1),
-        })
-    }
-}
-
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Default)]
 pub struct Height(pub DimT);
 
@@ -342,80 +242,6 @@ pub trait Size<C: Coordinates>: Eq + PartialEq + Copy + Clone + Display + Debug 
     }
 
     fn coordinates_valid(self, coordinates: C) -> bool;
-}
-
-pub trait RectangularSize<C: RectangularCoordinates>: Size<C> {
-    fn height(self) -> Height;
-    fn width(self) -> Width;
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
-pub struct GridSize {
-    pub height: Height,
-    pub width: Width,
-}
-
-impl Display for GridSize {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{0}x{1}", self.height.0, self.width.0)
-    }
-}
-
-impl GridSize {
-    pub const fn new(height: Height, width: Width) -> Self {
-        Self { height, width }
-    }
-
-    pub const fn chess() -> Self {
-        Self::new(Height(8), Width(8))
-    }
-
-    pub const fn tictactoe() -> Self {
-        Self::new(Height(3), Width(3))
-    }
-
-    pub const fn connect4() -> Self {
-        Self::new(Height(6), Width(7))
-    }
-}
-
-impl Size<GridCoordinates> for GridSize {
-    fn num_squares(self) -> usize {
-        self.height.val() * self.width.val()
-    }
-
-    // fn to_coordinates(self, idx: usize) -> GridCoordinates {
-    //     GridCoordinates {
-    //         row: idx / self.width().0,
-    //         column: idx % self.width().0,
-    //     }
-    // }
-
-    fn to_idx(self, coordinates: GridCoordinates) -> usize {
-        coordinates.row() as usize * self.width.val() + coordinates.column() as usize
-    }
-
-    fn to_coordinates(self, idx: usize) -> GridCoordinates {
-        GridCoordinates {
-            // TODO: Handle overflows?
-            row: (idx / self.width.val()) as DimT,
-            column: (idx % self.width.val()) as DimT,
-        }
-    }
-
-    fn coordinates_valid(self, coordinates: GridCoordinates) -> bool {
-        coordinates.row() < self.height().0 && coordinates.column() < self.width().0
-    }
-}
-
-impl RectangularSize<GridCoordinates> for GridSize {
-    fn height(self) -> Height {
-        self.height
-    }
-
-    fn width(self) -> Width {
-        self.width
-    }
 }
 
 pub trait MoveFlags: Eq + Copy + Debug + Default {}
@@ -474,7 +300,7 @@ pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Send {
         }
     }
 
-    fn from_usize(val: usize) -> Option<Self>;
+    fn from_usize_unchecked(val: usize) -> Self;
 
     fn to_underlying(self) -> Self::Underlying;
 }
@@ -831,6 +657,8 @@ pub trait Board:
     /// Only called when there are no legal moves.
     /// In that case, the function returns the game state from the current player's perspective.
     /// Note that this doesn't check that there are indeed no legal moves to avoid paying the performance cost of that.
+    /// This assumes that having no legal moves available automatically ends the game. If it is legal to pass,
+    /// the movegen should generate a passing move.
     fn no_moves_result(&self) -> PlayerResult;
 
     /// Returns true iff the game is lost for player who can now move, like being checkmated in chess.

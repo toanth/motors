@@ -14,8 +14,9 @@ use strum_macros::EnumIter;
 use crate::games::chess::squares::ChessSquare;
 #[cfg(feature = "chess")]
 use crate::games::chess::squares::ChessboardSize;
-use crate::games::{DimT, RectangularCoordinates, RectangularSize, Size};
+use crate::games::{DimT, Size};
 use crate::general::common::{pop_lsb128, pop_lsb64};
+use crate::general::squares::{RectangularCoordinates, RectangularSize};
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Direction {
@@ -173,8 +174,26 @@ pub trait RawBitboard:
         self.to_primitive().trailing_zeros() as usize
     }
 
-    fn num_set_bits(self) -> usize {
+    fn num_ones(self) -> usize {
         self.to_primitive().count_ones() as usize
+    }
+
+    fn ones(self) -> BitIterator<Self> {
+        BitIterator(self)
+    }
+}
+
+pub struct BitIterator<B: RawBitboard>(B);
+
+impl<B: RawBitboard> Iterator for BitIterator<B> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.0.is_zero() {
+            None
+        } else {
+            Some(self.0.pop_lsb())
+        }
     }
 }
 
@@ -184,6 +203,7 @@ pub trait RawBitboard:
     Eq,
     PartialEq,
     Default,
+    Hash,
     Not,
     BitOr,
     BitOrAssign,
@@ -576,6 +596,19 @@ where
     fn north_west(self) -> Self {
         self.north().west()
     }
+
+    fn moore_neighbors(self) -> Self {
+        let line = self | self.south() | self.north();
+        line | line.west() | line.east()
+    }
+
+    fn extended_moore_neighbors(self, radius: usize) -> Self {
+        let mut res = self;
+        for _ in 0..radius {
+            res = res.moore_neighbors();
+        }
+        res
+    }
 }
 
 // Deriving Eq and Partial Eq means that irrelevant bits are also getting compared.
@@ -776,11 +809,10 @@ where
 /// Treated specially because some operations are much simpler and faster for 8x8 boards.
 #[cfg(feature = "chess")]
 pub mod chess {
-    use derive_more::Display;
-
-    use crate::games::chess::squares::{A_FILE_NO, H_FILE_NO};
+    use crate::games::Color;
     use crate::games::Color::*;
-    use crate::games::{Color, GridCoordinates, GridSize};
+    use crate::general::squares::{GridCoordinates, GridSize};
+    use derive_more::Display;
 
     use super::*;
 
@@ -890,6 +922,7 @@ pub mod chess {
         Eq,
         PartialEq,
         Default,
+        Hash,
         Not,
         BitOr,
         BitOrAssign,
@@ -1037,8 +1070,9 @@ pub const fn remove_ones_below(bb: u128, idx: usize) -> u128 {
 #[cfg(test)]
 mod tests {
     use crate::games::mnk::MnkBitboard;
-    use crate::games::{GridSize, Height, Width};
+    use crate::games::{Height, Width};
     use crate::general::bitboards::{remove_ones_above, remove_ones_below, Bitboard};
+    use crate::general::squares::GridSize;
 
     #[test]
     fn remove_ones_above_test() {

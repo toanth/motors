@@ -177,8 +177,9 @@ mod bitboards {
 
     mod extended_board {
         use crate::games::mnk::MnkBitboard;
-        use crate::games::{GridCoordinates, GridSize, Height, RectangularCoordinates, Width};
+        use crate::games::{Height, Width};
         use crate::general::bitboards::{Bitboard, ExtendedRawBitboard, RawBitboard};
+        use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates};
 
         const LARGER_THAN_64_BIT: u128 = 1 << 64;
 

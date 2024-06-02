@@ -1,9 +1,10 @@
 use strum::IntoEnumIterator;
 
-use gears::games::{Board, GridSize, Size};
-use gears::games::mnk::{MnkBitboard, MNKBoard};
+use gears::games::mnk::{MNKBoard, MnkBitboard};
+use gears::games::{Board, Size};
 use gears::general::bitboards::{Bitboard, RawBitboard, RayDirections};
 use gears::general::common::pop_lsb128;
+use gears::general::squares::GridSize;
 use gears::search::Score;
 
 use crate::eval::Eval;

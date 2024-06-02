@@ -9,7 +9,6 @@ use strum::IntoEnumIterator;
 
 use crate::games::mnk::Symbol::{Empty, O, X};
 use crate::games::Color::{Black, White};
-use crate::games::GridSize;
 use crate::games::PlayerResult::Draw;
 use crate::games::*;
 use crate::general::bitboards::{
@@ -17,6 +16,7 @@ use crate::general::bitboards::{
 };
 use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
+use crate::general::squares::{GridCoordinates, GridSize};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub enum Symbol {
@@ -36,25 +36,25 @@ impl AbstractPieceType for Symbol {
 
     fn to_ascii_char(self) -> char {
         match self {
-            Symbol::X => 'X',
-            Symbol::O => 'O',
-            Symbol::Empty => '.',
+            X => 'X',
+            O => 'O',
+            Empty => '.',
         }
     }
 
     fn to_utf8_char(self) -> char {
         match self {
-            Symbol::X => UNICODE_X,
-            Symbol::O => UNICODE_O,
-            Symbol::Empty => '.',
+            X => UNICODE_X,
+            O => UNICODE_O,
+            Empty => '.',
         }
     }
 
     fn from_utf8_char(c: char) -> Option<Self> {
         match c {
-            ' ' => Some(Symbol::Empty),
-            'X' | UNICODE_X => Some(Symbol::X),
-            'O' | UNICODE_O => Some(Symbol::O),
+            ' ' => Some(Empty),
+            'X' | UNICODE_X => Some(X),
+            'O' | UNICODE_O => Some(O),
             _ => None,
         }
     }
@@ -82,8 +82,8 @@ impl ColoredPieceType for Symbol {
 
     fn color(self) -> Option<Color> {
         match self {
-            Symbol::X => Some(Color::White),
-            Symbol::O => Some(Color::Black),
+            X => Some(White),
+            O => Some(Black),
             _ => None,
         }
     }
@@ -191,17 +191,17 @@ impl Move<MNKBoard> for FillSquare {
         GridCoordinates::from_str(s).map(|target| FillSquare { target })
     }
 
-    fn from_extended_text(_s: &str, _board: &MNKBoard) -> Res<Self> {
-        todo!()
+    fn from_extended_text(s: &str, board: &MNKBoard) -> Res<Self> {
+        Self::from_compact_text(s, board)
     }
 
-    fn from_usize(val: usize) -> Option<Self> {
-        Some(Self {
+    fn from_usize_unchecked(val: usize) -> Self {
+        Self {
             target: GridCoordinates::from_row_column(
                 ((val >> 8) & 0xff) as DimT,
                 (val & 0xff) as DimT,
             ),
-        })
+        }
     }
 
     fn to_underlying(self) -> Self::Underlying {

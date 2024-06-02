@@ -329,8 +329,8 @@ impl Move<Chessboard> for ChessMove {
         Ok(res.0)
     }
 
-    fn from_usize(val: usize) -> Option<Self> {
-        Some(Self(val as u16))
+    fn from_usize_unchecked(val: usize) -> Self {
+        Self(val as u16)
     }
 
     fn to_underlying(self) -> Self::Underlying {

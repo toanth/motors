@@ -41,7 +41,6 @@ pub mod zobrist;
 
 const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w HAha - 0 1";
 
-// TODO: Support Chess960 eventually
 #[derive(Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct ChessSettings {}
 
@@ -89,7 +88,7 @@ impl StaticallyNamedEntity for Chessboard {
     where
         Self: Sized,
     {
-        "Chess or Chess960(WIP, not yet supported) game"
+        "Chess or Chess960 game"
     }
 }
 
@@ -404,13 +403,12 @@ impl Board for Chessboard {
             .ep_square
             .map(|sq| sq.to_string())
             .unwrap_or("-".to_string());
+        let stm = match self.active_player {
+            White => 'w',
+            Black => 'b',
+        };
         res + &format!(
             " {stm} {castle_rights} {ep_square} {halfmove_clock} {move_number}",
-            stm = if self.active_player == White {
-                "w"
-            } else {
-                "b"
-            },
             halfmove_clock = self.ply_100_ctr,
             move_number = self.fullmove_ctr() + 1
         )
@@ -534,13 +532,13 @@ impl Board for Chessboard {
         for piece in ColoredChessPiece::pieces() {
             let color = piece.color().unwrap();
             let mut bb = self.colored_piece_bb(color, piece.uncolor());
-            if bb.num_set_bits() > 20 {
+            if bb.num_ones() > 20 {
                 // Catch this now to prevent crashes down the line because the move list is too small for made-up invalid positions.
                 // (This is lax enough to allow many invalid positions that likely won't lead to a crash)
                 return Err(format!(
                     "There are {0} {color} {piece}s in this position. There can never be more than 10 pieces \
                     of the same type in a legal chess position (but this implementation accepts up to 20)",
-                    bb.num_set_bits()
+                    bb.num_ones()
                 ));
             }
             for other_piece in ColoredChessPiece::pieces() {
@@ -1069,11 +1067,11 @@ mod tests {
                 board.king_square(White).flip_up_down(board.size()),
                 board.king_square(Black)
             );
-            assert_eq!(board.piece_bb(Pawn).num_set_bits(), 16);
-            assert_eq!(board.piece_bb(Knight).num_set_bits(), 4);
-            assert_eq!(board.piece_bb(Bishop).num_set_bits(), 4);
-            assert_eq!(board.piece_bb(Rook).num_set_bits(), 4);
-            assert_eq!(board.piece_bb(Queen).num_set_bits(), 2);
+            assert_eq!(board.piece_bb(Pawn).num_ones(), 16);
+            assert_eq!(board.piece_bb(Knight).num_ones(), 4);
+            assert_eq!(board.piece_bb(Bishop).num_ones(), 4);
+            assert_eq!(board.piece_bb(Rook).num_ones(), 4);
+            assert_eq!(board.piece_bb(Queen).num_ones(), 2);
             startpos_found |= board == Chessboard::default();
         }
         assert!(startpos_found);

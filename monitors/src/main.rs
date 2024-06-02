@@ -2,20 +2,21 @@ use std::process::abort;
 
 use itertools::Itertools;
 
-use gears::{AnyRunnable, create_selected_output_builders, output_builder_from_str};
 use gears::cli::Game;
-use gears::games::{Board, OutputList, RectangularBoard, RectangularCoordinates};
 use gears::games::chess::Chessboard;
 use gears::games::mnk::MNKBoard;
-use gears::general::common::{Res, select_name_dyn};
+use gears::games::{Board, OutputList, RectangularBoard};
 use gears::general::common::Description::WithDescription;
+use gears::general::common::{select_name_dyn, Res};
+use gears::general::squares::RectangularCoordinates;
 use gears::output::{normal_outputs, required_outputs};
+use gears::{create_selected_output_builders, output_builder_from_str, AnyRunnable};
 
-use crate::cli::{CommandLineArgs, HumanArgs, parse_cli, PlayerArgs};
+use crate::cli::{parse_cli, CommandLineArgs, HumanArgs, PlayerArgs};
 use crate::play::player::PlayerBuilder;
 use crate::play::ugi_client::RunClient;
-use crate::ui::{InputBuilder, InputList};
 use crate::ui::text_input::TextInputBuilder;
+use crate::ui::{InputBuilder, InputList};
 
 pub mod cli;
 pub mod play;
