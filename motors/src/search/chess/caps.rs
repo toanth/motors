@@ -464,11 +464,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // Be more careful about pruning too aggressively if the node is expected to fail low -- we should not rfp
         // a true fail low node, but our expectation may also be wrong.
         if can_prune {
-            let mut margin = (150 - (improving as i32 * 64)) * depth as i32;
-            if expected_node_type == FailHigh {
-                margin /= 2;
-            }
-            if depth < 4 && eval >= beta + Score(margin) {
+            let margin = (120 - (improving as i32 * 64)) * depth as i32;
+            let max_depth = 4 + (expected_node_type == FailHigh) as isize;
+            if depth <= max_depth && eval >= beta + Score(margin) {
                 return eval;
             }
 
