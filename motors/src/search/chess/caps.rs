@@ -505,9 +505,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
             } else {
                 300 + 64 * depth
             };
+            let max_depth = 3 + regressing as isize;
             if can_prune
                 && best_score > MAX_SCORE_LOST
-                && depth <= 3
+                && depth <= max_depth
                 && (num_uninteresting_visited >= 8 + 8 * depth
                     || (eval + Score(fp_margin as i32) < alpha && move_score < KILLER_SCORE))
             {
