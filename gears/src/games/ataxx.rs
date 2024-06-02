@@ -10,7 +10,7 @@ use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::Color::{Black, White};
 use crate::games::{
     board_to_string, position_fen_part, AbstractPieceType, Board, Color, ColoredPiece, Coordinates,
-    GenericPiece, Settings, ZobristHash,
+    GenericPiece, SelfChecks, Settings, ZobristHash,
 };
 use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::bitboards::RawBitboard;
@@ -230,7 +230,7 @@ impl Board for AtaxxBoard {
         board_to_string(self, AtaxxPiece::to_utf8_char, flip)
     }
 
-    fn verify_position_legal(&self) -> Res<()> {
+    fn verify_position_legal(&self, checks: SelfChecks) -> Res<()> {
         let mut overlap = self.colors[0] & self.colors[1];
         if overlap.has_set_bit() {
             return Err(format!(

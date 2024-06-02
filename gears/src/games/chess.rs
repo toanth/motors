@@ -3,6 +3,7 @@ use std::num::NonZeroUsize;
 use std::str::{FromStr, SplitWhitespace};
 
 use bitintr::Popcnt;
+use colored::Colorize;
 use itertools::Itertools;
 use rand::prelude::IteratorRandom;
 use rand::Rng;
@@ -18,14 +19,18 @@ use crate::games::chess::pieces::{
 use crate::games::chess::squares::{ChessSquare, ChessboardSize, NUM_SQUARES};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::Color::{Black, White};
+use crate::games::SelfChecks::{Assertion, CheckFen};
 use crate::games::{
     board_to_string, file_to_char, position_fen_part, read_position_fen, AbstractPieceType, Board,
-    BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, Move, NameToPos, Settings,
-    UncoloredPieceType, ZobristHash, ZobristRepetition3Fold,
+    BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, Move, NameToPos, SelfChecks,
+    Settings, UncoloredPieceType, ZobristHash, ZobristRepetition3Fold,
 };
 use crate::general::bitboards::chess::{ChessBitboard, BLACK_SQUARES, WHITE_SQUARES};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
-use crate::general::common::{EntityList, GenericSelect, Res, StaticallyNamedEntity};
+use crate::general::common::Description::NoDescription;
+use crate::general::common::{
+    parse_int_from_str, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
+};
 use crate::general::move_list::EagerNonAllocMoveList;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
@@ -117,6 +122,22 @@ impl Board for Chessboard {
         Self::from_fen(START_FEN).expect("Internal error: Couldn't parse startpos fen")
     }
 
+    fn from_name(name: &str) -> Res<Self> {
+        // this is the default implementation in the parent trait
+        select_name_static(
+            name,
+            &Self::name_to_pos_map(),
+            "position",
+            Self::game_name(),
+            NoDescription,
+        )
+        .map(|f| (f.val)())
+        .or_else(|err| {
+            Self::parse_numbered_startpos(name)
+                .map_err(|err2| format!("{err} It's also not a (D)FRC startpos [{err2}]."))
+        })
+    }
+
     fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
         vec![
             GenericSelect {
@@ -166,7 +187,7 @@ impl Board for Chessboard {
 
     fn bench_positions() -> Vec<Self> {
         let fens = [
-            // fens from Stormphrax, ultimately from bitgenie
+            // fens from Stormphrax, ultimately from bitgenie, with some new fens.
             "r3k2r/2pb1ppp/2pp1q2/p7/1nP1B3/1P2P3/P2N1PPP/R2QK2R w KQkq a6 0 14",
             "4rrk1/2p1b1p1/p1p3q1/4p3/2P2n1p/1P1NR2P/PB3PP1/3R1QK1 b - - 2 24",
             "r3qbrk/6p1/2b2pPp/p3pP1Q/PpPpP2P/3P1B2/2PB3K/R5R1 w - - 16 42",
@@ -217,6 +238,9 @@ impl Board for Chessboard {
             "2rr2k1/1p4bp/p1q1p1p1/4Pp1n/2PB4/1PN3P1/P3Q2P/2RR2K1 w - f6 0 20",
             "3br1k1/p1pn3p/1p3n2/5pNq/2P1p3/1PN3PP/P2Q1PB1/4R1K1 w - - 0 23",
             "2r2b2/5p2/5k2/p1r1pP2/P2pB3/1P3P2/K1P3R1/7R w - - 23 93",
+            "1r1r2k1/1p2qp1p/6p1/p1QB1b2/5Pn1/N1R1P1P1/PP5P/R1B3K1 b - - 4 23",
+            "2bk2rq/2p1pprp/2p1n3/p2pPQ2/N2P4/4RN1P/PPP2RP1/6K1 w - - 5 24",
+            "2r2rk1/1p3pbp/p3ppp1/8/8/1P2N1P1/1PPP2PP/2KR3R w - - 42 42",
         ];
         fens.map(|fen| Self::from_fen(fen).unwrap())
             .iter()
@@ -245,7 +269,7 @@ impl Board for Chessboard {
     }
 
     fn to_idx(&self, square: Self::Coordinates) -> usize {
-        square.index()
+        square.idx()
     }
 
     fn to_coordinates(&self, idx: usize) -> Self::Coordinates {
@@ -253,7 +277,7 @@ impl Board for Chessboard {
     }
 
     fn colored_piece_on(&self, square: Self::Coordinates) -> Self::Piece {
-        let idx = square.index();
+        let idx = square.idx();
         let uncolored = self.uncolored_piece_on(square);
         let color = if self.colored_bb(Black).is_bit_set_at(idx) {
             Black
@@ -267,18 +291,18 @@ impl Board for Chessboard {
         }
     }
 
+    fn colored_piece_on_idx(&self, idx: usize) -> Self::Piece {
+        self.colored_piece_on(ChessSquare::new(idx))
+    }
+
     fn uncolored_piece_on(&self, square: Self::Coordinates) -> UncoloredChessPiece {
-        let idx = square.index();
+        let idx = square.idx();
         UncoloredChessPiece::from_uncolored_idx(
             self.piece_bbs
                 .iter()
                 .position(|bb| bb.is_bit_set_at(idx))
                 .unwrap_or(NUM_CHESS_PIECES),
         )
-    }
-
-    fn colored_piece_on_idx(&self, idx: usize) -> Self::Piece {
-        self.colored_piece_on(ChessSquare::new(idx))
     }
 
     fn pseudolegal_moves(&self) -> Self::MoveList {
@@ -446,19 +470,32 @@ impl Board for Chessboard {
         } else {
             Some(ChessSquare::from_str(ep_square)?)
         };
-        let halfmove_clock = words.next().unwrap_or("0");
-        board.ply_100_ctr = halfmove_clock
-            .parse::<usize>()
-            .map_err(|err| format!("Couldn't parse halfmove clock: {err}"))?;
-        let fullmove_number = words.next().unwrap_or("1");
-        let fullmove_number = fullmove_number
-            .parse::<NonZeroUsize>()
-            .map_err(|err| format!("Couldn't parse fullmove counter: {err}"))?;
-        board.ply = (fullmove_number.get() - 1) * 2 + (color == Black) as usize;
+        let halfmove_clock = words.next().unwrap_or("");
+        // Some FENs don't contain the halfmove clock and fullmove number, so assume that's the case if parsing
+        // the halfmove clock fails -- but don't do this for the fullmove number.
+        if let Ok(halfmove_clock) = halfmove_clock.parse::<usize>() {
+            board.ply_100_ctr = halfmove_clock;
+            let fullmove_number = words.next().ok_or_else(|| {
+                format!(
+                    "The FEN contains a valid halfmove clock ('{}') but no fullmove counter",
+                    halfmove_clock
+                )
+            })?;
+            let fullmove_number = fullmove_number.parse::<NonZeroUsize>().map_err(|err| {
+                format!(
+                    "Couldn't parse fullmove counter '{}': {err}",
+                    fullmove_number.red()
+                )
+            })?;
+            board.ply = (fullmove_number.get() - 1) * 2 + (color == Black) as usize;
+        } else {
+            board.ply_100_ctr = 0;
+            board.ply = (color == Black) as usize;
+        }
         board.active_player = color;
         board.castling = castling_rights;
         board.hash = board.compute_zobrist();
-        board.verify_position_legal()?;
+        board.verify_position_legal(CheckFen)?;
         Ok(board)
     }
 
@@ -470,7 +507,7 @@ impl Board for Chessboard {
         board_to_string(self, ChessPiece::to_utf8_char, flip)
     }
 
-    fn verify_position_legal(&self) -> Res<()> {
+    fn verify_position_legal(&self, checks: SelfChecks) -> Res<()> {
         for color in Color::iter() {
             if !self.colored_piece_bb(color, King).is_single_piece() {
                 return Err(format!("The {color} player does not have exactly one king"));
@@ -493,7 +530,7 @@ impl Board for Chessboard {
         for color in Color::iter() {
             for side in CastleRight::iter() {
                 let has_eligible_rook =
-                    (ChessBitboard::single_piece(self.rook_start_square(color, side).index())
+                    (ChessBitboard::single_piece(self.rook_start_square(color, side).idx())
                         & self.colored_piece_bb(color, Rook))
                     .is_single_piece();
                 if self.castling.can_castle(color, side) && !has_eligible_rook {
@@ -541,31 +578,37 @@ impl Board for Chessboard {
                     bb.num_ones()
                 ));
             }
-            for other_piece in ColoredChessPiece::pieces() {
-                if other_piece == piece {
-                    continue;
-                }
-                if (bb & self.colored_piece_bb(other_piece.color().unwrap(), other_piece.uncolor()))
+            if checks != CheckFen {
+                for other_piece in ColoredChessPiece::pieces() {
+                    if other_piece == piece {
+                        continue;
+                    }
+                    if (bb
+                        & self
+                            .colored_piece_bb(other_piece.color().unwrap(), other_piece.uncolor()))
                     .has_set_bit()
-                {
-                    return Err(format!(
-                        "There are two pieces on the same square: {piece} and {other_piece}"
-                    ));
+                    {
+                        return Err(format!(
+                            "There are two pieces on the same square: {piece} and {other_piece}"
+                        ));
+                    }
+                }
+                while bb.has_set_bit() {
+                    let square = ChessSquare::new(bb.pop_lsb());
+                    hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece.uncolor(), color, square);
                 }
             }
-            while bb.has_set_bit() {
-                let square = ChessSquare::new(bb.pop_lsb());
-                hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece.uncolor(), color, square);
+        }
+        if checks != CheckFen {
+            if hash != self.compute_zobrist() {
+                return Err("Internal error: Compute_zobrist() gives a different result from computing the zobrist hash piece by piece".to_string());
             }
-        }
-        if hash != self.compute_zobrist() {
-            return Err("Internal error: Compute_zobrist() gives a different result from computing the zobrist hash piece by piece".to_string());
-        }
-        if hash != self.hash {
-            return Err(format!(
-                "Error: The zobrist hash doesn't match (should be {hash} but is {0}",
-                self.hash
-            ));
+            if hash != self.hash {
+                return Err(format!(
+                    "Error: The zobrist hash doesn't match (should be {hash} but is {0}",
+                    self.hash
+                ));
+            }
         }
         Ok(())
     }
@@ -651,8 +694,8 @@ impl Chessboard {
                 || piece == King
                 || piece == Rook
         );
-        // use ^ instead of | for to merge the from and to bitboards because in chess960 castling
-        // it's possible that from == to or that there's another piece on the target square
+        // use ^ instead of | for to merge the from and to bitboards because in chess960 castling,
+        // it is possible that from == to or that there's another piece on the target square
         let bb = RawStandardBitboard((1 << self.to_idx(from)) ^ (1 << self.to_idx(to)));
         let color = self.active_player;
         self.color_bbs[color as usize] ^= bb;
@@ -796,8 +839,25 @@ impl Chessboard {
         res.color_bbs[White as usize] = RawStandardBitboard::default();
         Self::chess960_startpos_white(white_num, White, &mut res)?;
         res.hash = res.compute_zobrist();
-        res.verify_position_legal().expect("Internal error: Setting up a Chess960 starting position resulted in an invalid position");
+        res.verify_position_legal(Assertion).expect("Internal error: Setting up a Chess960 starting position resulted in an invalid position");
         Ok(res)
+    }
+
+    fn parse_numbered_startpos(name: &str) -> Res<Self> {
+        for prefix in ["chess960-", "chess", "frc-", "frc"] {
+            if let Some(remaining) = name.strip_prefix(prefix) {
+                return parse_int_from_str(remaining, "chess960 startpos number")
+                    .and_then(Self::chess_960_startpos);
+            }
+        }
+        for prefix in ["dfrc-", "dfrc"] {
+            if let Some(remaining) = name.strip_prefix(prefix) {
+                return parse_int_from_str(remaining, "dfrc startpos number")
+                    .and_then(|num: usize| Self::dfrc_startpos(num / 960, num % 960));
+            }
+        }
+        Err(format!("(D)FRC positions must be of the format {0} or {1}, with N < 960 and M < 921600, e.g. frc123",
+            "frc<N>".bold(), "dfrc<M>".bold()))
     }
 }
 
@@ -1058,7 +1118,7 @@ mod tests {
         let mut startpos_found = false;
         for i in 0..960 {
             let board = Chessboard::chess_960_startpos(i).unwrap();
-            assert!(board.verify_position_legal().is_ok());
+            assert!(board.verify_position_legal(Assertion).is_ok());
             assert!(fens.insert(board.as_fen()));
             let num_moves = board.pseudolegal_moves().len();
             assert!((18..=21).contains(&num_moves)); // 21 legal moves because castling can be legal

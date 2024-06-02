@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use rand::thread_rng;
 
-use gears::games::{Board, BoardHistory, ZobristRepetition2Fold};
+use gears::games::{Board, BoardHistory};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
     game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, SCORE_LOST,
@@ -163,6 +163,7 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
 }
 
 impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
+    #[allow(clippy::too_many_arguments)]
     fn negamax(
         &mut self,
         pos: B,

@@ -1,5 +1,4 @@
-use rand::rngs::StdRng;
-use rand::{thread_rng, Rng, SeedableRng};
+use rand::{thread_rng, Rng};
 
 use gears::games::Board;
 use gears::search::{Score, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};

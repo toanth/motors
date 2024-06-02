@@ -32,7 +32,7 @@ impl Chessboard {
             Pawn => self.gen_pawn_moves(&mut list, false),
             Knight => {
                 return Self::knight_moves_from_square(mov.src_square(), filter)
-                    .is_bit_set_at(mov.dest_square().index());
+                    .is_bit_set_at(mov.dest_square().idx());
             }
             Bishop => self.gen_slider_moves(SliderMove::Bishop, &mut list, filter),
             Rook => self.gen_slider_moves(SliderMove::Rook, &mut list, filter),
@@ -50,8 +50,8 @@ impl Chessboard {
     /// Pretend there is a king of color `us` at `square` and test if it is in check.
     pub fn is_in_check_on_square(&self, us: Color, square: ChessSquare) -> bool {
         let them = us.other();
-        let idx = square.index();
-        let attacks = KNIGHTS[square.index()];
+        let idx = square.idx();
+        let attacks = KNIGHTS[square.idx()];
         if (attacks & self.colored_piece_bb(them, Knight)).has_set_bit() {
             return true;
         }
@@ -84,7 +84,7 @@ impl Chessboard {
             return true;
         }
         // this can't happen in a legal position, but it can happen in pseudolegal movegen
-        (KINGS[square.index()] & self.colored_piece_bb(them, King)).has_set_bit()
+        (KINGS[square.idx()] & self.colored_piece_bb(them, King)).has_set_bit()
     }
 
     pub fn gen_all_pseudolegal_moves(&self) -> ChessMoveList {
@@ -118,7 +118,7 @@ impl Chessboard {
         let capturable = opponent
             | self
                 .ep_square
-                .map(|s| ChessBitboard::single_piece(s.index()))
+                .map(|s| ChessBitboard::single_piece(s.idx()))
                 .unwrap_or_default();
         if color == White {
             regular_pawn_moves = ((pawns << 8) & free, 8);
@@ -325,15 +325,15 @@ impl Chessboard {
     /// This makes sense because it allows to find all pieces able to attack a given square.
 
     fn normal_king_moves_from_square(square: ChessSquare, filter: ChessBitboard) -> ChessBitboard {
-        KINGS[square.index()] & filter
+        KINGS[square.idx()] & filter
     }
 
     fn knight_moves_from_square(square: ChessSquare, filter: ChessBitboard) -> ChessBitboard {
-        KNIGHTS[square.index()] & filter
+        KNIGHTS[square.idx()] & filter
     }
 
     pub fn single_pawn_captures(color: Color, square: ChessSquare) -> ChessBitboard {
-        PAWN_CAPTURES[color as usize][square.index()]
+        PAWN_CAPTURES[color as usize][square.idx()]
     }
 
     fn gen_sliders_from_square(
@@ -358,7 +358,7 @@ impl Chessboard {
     pub fn all_attacking(&self, square: ChessSquare) -> ChessBitboard {
         let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
         let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
-        let square_bb = ChessBitboard::single_piece(square.index());
+        let square_bb = ChessBitboard::single_piece(square.idx());
         let square_bb_if_occupied = if self.is_occupied(square) {
             square_bb
         } else {

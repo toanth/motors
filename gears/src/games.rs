@@ -1,3 +1,4 @@
+use colored::Colorize;
 use std::cmp::max;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -439,6 +440,12 @@ impl<B: Board> BoardHistory<B> for ZobristRepetition3Fold {
 
 type NameToPos<B> = GenericSelect<fn() -> B>;
 
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+pub enum SelfChecks {
+    CheckFen,
+    Assertion,
+}
+
 /// Currently, a game is completely determined by the `Board` type:
 /// The type implementing `Board` contains all the necessary information about the rules of the game.
 /// However, a `Board` is assumed to be markovian and needs to satisfy `Copy` and `'static`.
@@ -693,16 +700,19 @@ pub trait Board:
     /// Reads in a compact textual description of the board, such that `B::from_fen(board.as_fen()) == b` holds.
     fn from_fen(string: &str) -> Res<Self> {
         let mut words = string.split_whitespace();
-        let res = Self::read_fen_and_advance_input(&mut words)?;
+        let res = Self::read_fen_and_advance_input(&mut words)
+            .map_err(|err| format!("Failed to parse FEN {}: {err}", string.bold()))?;
         if words.next().is_some() {
             return Err(format!(
-                "Input contained additional characters after fen: {string}"
+                "Input contained additional characters after FEN: {string}"
             ));
         }
         Ok(res)
     }
 
-    fn read_fen_and_advance_input(string: &mut SplitWhitespace) -> Res<Self>;
+    /// Like `from_fen`, but changes the `input` argument to contain the reining input instead of panicking when there's
+    /// any remaining input after reading the fen.
+    fn read_fen_and_advance_input(input: &mut SplitWhitespace) -> Res<Self>;
 
     /// Returns an ASCII art representation of the board.
     /// This is not meant to return a FEN, but instead a diagram where the pieces
@@ -717,7 +727,9 @@ pub trait Board:
     /// Verifies that the position is legal. This function is meant to be used in `assert!`s
     /// and for validating input, such as FENs, not to be used for filtering positions after a call to `make_move`
     /// (it should  already be ensured that the move results in a legal position or `None` through other means).
-    fn verify_position_legal(&self) -> Res<()>;
+    /// If `checks` is `Assertion`, this performs internal validity checks, which is useful for asserting that there are no
+    /// bugs in the implementation, but unnecessary if this function is only called to check the validity of a FEN.
+    fn verify_position_legal(&self, checks: SelfChecks) -> Res<()>;
 }
 
 pub fn game_result_slow<B: Board, H: BoardHistory<B>>(
@@ -839,7 +851,7 @@ where
                     .parse::<usize>()
                     .unwrap();
                 if num_skipped == 0 {
-                    return Err("fen position can't contain the number 0".to_string());
+                    return Err("FEN position can't contain the number 0".to_string());
                 }
                 *idx += num_skipped;
             }
@@ -852,11 +864,17 @@ where
                 continue;
             }
             let symbol = <B::Piece as ColoredPiece>::ColoredPieceType::from_ascii_char(c)
-                .ok_or_else(|| format!("Invalid character: {c}"))?;
+                .ok_or_else(|| {
+                    format!(
+                        "Invalid character in {0} FEN position description (not a piece): {1}",
+                        B::game_name(),
+                        c.to_string().red()
+                    )
+                })?;
             handle_skipped(i, skipped_digits, &mut square)?;
             skipped_digits = 0;
             if square >= board.num_squares() {
-                return Err(format!("fen position contains at least {square} squares, but the board only has {0} squares", board.num_squares()));
+                return Err(format!("FEN position contains at least {square} squares, but the board only has {0} squares", board.num_squares()));
             }
 
             // let player = symbol.color().ok_or_else(|| "Invalid format: Empty square can't appear as part of nnk fen (should be number of consecutive empty squares) ".to_string())?;
@@ -891,6 +909,7 @@ mod tests {
     use crate::games::chess::Chessboard;
     use crate::games::mnk::MNKBoard;
     use crate::games::Board;
+    use crate::games::SelfChecks::Assertion;
 
     use super::*;
 
@@ -900,7 +919,7 @@ mod tests {
             let ply = pos.halfmove_ctr_since_start();
             // use a new hash set per position because bench positions can be only one ply away from each other
             let mut hashes = HashSet::new();
-            assert!(pos.verify_position_legal().is_ok());
+            assert!(pos.verify_position_legal(Assertion).is_ok());
             assert!(pos.match_result_slow().is_none());
             assert_eq!(B::from_fen(&pos.as_fen()).unwrap(), pos);
             let hash = pos.zobrist_hash().0;
@@ -920,7 +939,7 @@ mod tests {
                 let new_pos = pos.make_move(mov);
                 assert_eq!(new_pos.is_some(), pos.is_pseudolegal_move_legal(mov));
                 let Some(new_pos) = new_pos else { continue };
-                assert!(new_pos.verify_position_legal().is_ok());
+                assert!(new_pos.verify_position_legal(Assertion).is_ok());
                 assert_eq!(new_pos.active_player().other(), pos.active_player());
                 assert_ne!(new_pos.as_fen(), pos.as_fen());
                 assert_eq!(B::from_fen(&new_pos.as_fen()).unwrap(), new_pos);

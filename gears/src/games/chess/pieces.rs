@@ -8,8 +8,8 @@ use crate::games::chess::pieces::ColoredChessPiece::BlackPawn;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::squares::ChessSquare;
 
-use crate::games::{AbstractPieceType, Color, ColoredPieceType, GenericPiece, UncoloredPieceType};
 use crate::games::Color::Black;
+use crate::games::{AbstractPieceType, Color, ColoredPieceType, GenericPiece, UncoloredPieceType};
 
 pub const NUM_CHESS_PIECES: usize = 6;
 pub const NUM_COLORS: usize = 2;
@@ -153,6 +153,7 @@ impl UncoloredPieceType for UncoloredChessPiece {
     type Colored = ColoredChessPiece;
 
     fn from_uncolored_idx(idx: usize) -> Self {
+        // TODO: Might be unnecessarily slow? Test using a match instead.
         Self::iter().nth(idx).unwrap()
     }
 }

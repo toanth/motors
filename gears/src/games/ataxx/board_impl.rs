@@ -4,6 +4,7 @@ use crate::games::ataxx::{
     AtaxxBitboard, AtaxxBoard, AtaxxMoveList, AtaxxSettings, INVALID_EDGE_MASK,
 };
 use crate::games::Color::{Black, White};
+use crate::games::SelfChecks::CheckFen;
 use crate::games::{read_position_fen, Board, Color, Move, ZobristHash};
 use crate::general::bitboards::chess::KINGS;
 use crate::general::bitboards::{Bitboard, RawBitboard};
@@ -76,14 +77,14 @@ impl AtaxxBoard {
             return self;
         }
         debug_assert!(
-            mov.typ() == Cloning || self.color_bb(color).is_bit_set_at(mov.src_square().index())
+            mov.typ() == Cloning || self.color_bb(color).is_bit_set_at(mov.src_square().idx())
         );
-        debug_assert!(self.empty_bb().is_bit_set_at(mov.dest_square().index()));
+        debug_assert!(self.empty_bb().is_bit_set_at(mov.dest_square().idx()));
         if mov.typ() == Leaping {
             self.colors[color as usize] &= !mov.src_square().bb();
         }
         let dest = mov.dest_square();
-        let in_range = KINGS[dest.index()];
+        let in_range = KINGS[dest.idx()];
         let new_pieces = (self.colors[color.other() as usize] & in_range) | dest.bb();
         self.colors[color.other() as usize] ^= new_pieces;
         self.colors[color as usize] ^= new_pieces;
@@ -95,17 +96,17 @@ impl AtaxxBoard {
             return self.legal_moves_slow().is_empty();
         }
         let empty = self.empty_bb();
-        if !empty.is_bit_set_at(mov.dest_square().index()) {
+        if !empty.is_bit_set_at(mov.dest_square().idx()) {
             return false;
         }
         if mov.typ() == Cloning {
             self.active_bb()
                 .moore_neighbors()
-                .is_bit_set_at(mov.dest_square().index())
+                .is_bit_set_at(mov.dest_square().idx())
         } else {
             self.active_bb()
                 .extended_moore_neighbors(2)
-                .is_bit_set_at(mov.dest_square().index())
+                .is_bit_set_at(mov.dest_square().idx())
         }
     }
 
@@ -156,7 +157,7 @@ impl AtaxxBoard {
             board.ply_100_ctr = 0;
         }
         board.active_player = color;
-        board.verify_position_legal()?;
+        board.verify_position_legal(CheckFen)?;
         Ok(board)
     }
 }

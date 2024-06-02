@@ -1,5 +1,5 @@
 use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T1};
-use std::mem::{size_of, transmute, transmute_copy};
+use std::mem::{size_of, transmute_copy};
 use std::ptr::addr_of;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
@@ -151,7 +151,7 @@ impl TT {
         let num_bits = new_size.ilog2() as u64;
         let new_size = 1 << num_bits; // round down to power of two
         let mut arr = vec![];
-        arr.resize_with(new_size, || AtomicU128::default());
+        arr.resize_with(new_size, AtomicU128::default);
         Self {
             tt: Arc::new(SharedTTState { arr }),
             mask: new_size - 1,
@@ -185,7 +185,7 @@ impl TT {
         hash.0 as usize & self.mask
     }
 
-    pub fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {
+    pub(super) fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {
         debug_assert!(
             entry.score.0.abs() + ply as i32 <= SCORE_WON.0,
             "score {score} ply {ply}",
@@ -212,7 +212,7 @@ impl TT {
         self.tt.arr[idx].store(entry.to_packed(), Relaxed);
     }
 
-    pub fn load<B: Board>(&self, hash: ZobristHash, ply: usize) -> Option<TTEntry<B>> {
+    pub(super) fn load<B: Board>(&self, hash: ZobristHash, ply: usize) -> Option<TTEntry<B>> {
         let idx = self.index_of(hash);
         let mut entry = TTEntry::from_packed(self.tt.arr[idx].load(Relaxed));
         // Mate score adjustments, see `store`
@@ -262,7 +262,7 @@ mod test {
                 Score(i * i * (i % 2 * 2 - 1)),
                 mov,
                 i as isize,
-                NodeType::from_repr(i as u8 % 3).unwrap(),
+                NodeType::from_repr(i as u8 % 3 + 1).unwrap(),
             );
             let converted = entry.to_packed();
             assert_eq!(TTEntry::from_packed(converted), entry);
@@ -284,7 +284,8 @@ mod test {
                 );
                 let depth = thread_rng().sample(Uniform::new(1, 100));
                 let bound =
-                    OptionalNodeType::from_repr(thread_rng().sample(Uniform::new(0, 3))).unwrap();
+                    OptionalNodeType::from_repr(thread_rng().sample(Uniform::new(0, 3)) + 1)
+                        .unwrap();
                 let entry: TTEntry<Chessboard> = TTEntry {
                     hash: pos.zobrist_hash(),
                     score,

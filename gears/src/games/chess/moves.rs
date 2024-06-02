@@ -1,3 +1,4 @@
+use colored::Colorize;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
@@ -60,7 +61,7 @@ pub struct ChessMove(u16);
 
 impl ChessMove {
     pub fn new(from: ChessSquare, to: ChessSquare, flags: ChessMoveFlags) -> Self {
-        let idx = from.index() + (to.index() << 6) + ((flags as usize) << 12);
+        let idx = from.idx() + (to.idx() << 6) + ((flags as usize) << 12);
         Self(idx as u16)
     }
 
@@ -103,7 +104,7 @@ impl ChessMove {
     pub fn is_non_ep_capture(self, board: &Chessboard) -> bool {
         board
             .colored_bb(board.active_player.other())
-            .is_bit_set_at(self.dest_square().index())
+            .is_bit_set_at(self.dest_square().idx())
     }
 
     pub fn captured(self, board: &Chessboard) -> UncoloredChessPiece {
@@ -230,7 +231,7 @@ impl Move<Chessboard> for ChessMove {
         {
             flags = EnPassant;
         }
-        let res = from.index() + (to.index() << 6) + ((flags as usize) << 12);
+        let res = from.idx() + (to.idx() << 6) + ((flags as usize) << 12);
         Ok(ChessMove(res as u16))
     }
 
@@ -666,11 +667,11 @@ impl<'a> MoveParser<'a> {
     fn parse_square_rank_or_file(&mut self) -> Res<()> {
         let file = self
             .current_char()
-            .ok_or_else(|| format!("Move '{}' is too short", self.consumed()))?;
+            .ok_or_else(|| format!("Move '{}' is too short", self.consumed().red()))?;
         self.advance_char();
         let rank = self
             .current_char()
-            .ok_or_else(|| format!("Move '{}' is too short", self.consumed()))?;
+            .ok_or_else(|| format!("Move '{}' is too short", self.consumed().red()))?;
         match ChessSquare::from_chars(file, rank) {
             Ok(sq) => {
                 self.advance_char();
@@ -683,9 +684,9 @@ impl<'a> MoveParser<'a> {
                 x => {
                     // doesn't reset the current char, but that's fine because we're aborting anyway
                     return Err(if self.piece == Empty && !self.is_capture {
-                        format!("A move must start with a valid file, rank or piece, but '{x}' is neither")
+                        format!("A move must start with a valid file, rank or piece, but '{}' is neither", x.to_string().red())
                     } else {
-                        format!("'{x}' is not a valid file or rank")
+                        format!("'{}' is not a valid file or rank", x.to_string().red())
                     });
                 }
             },

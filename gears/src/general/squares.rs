@@ -4,7 +4,8 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, Size, Width};
+use crate::games::chess::squares::ChessSquare;
+use crate::games::{char_to_file, file_to_char, Color, Coordinates, DimT, Height, Size, Width};
 use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::common::{parse_int, Res};
 
@@ -203,7 +204,7 @@ impl<const H: usize, const W: usize> Size<SmallGridSquare<H, W>> for SmallGridSi
     }
 
     fn to_idx(self, coordinates: SmallGridSquare<H, W>) -> usize {
-        coordinates.index()
+        coordinates.idx()
     }
 
     fn to_coordinates(self, idx: usize) -> SmallGridSquare<H, W> {
@@ -294,10 +295,10 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
     }
 
     pub fn bb(self) -> ChessBitboard {
-        ChessBitboard::single_piece(self.index())
+        ChessBitboard::single_piece(self.idx())
     }
 
-    pub fn index(self) -> usize {
+    pub fn idx(self) -> usize {
         self.idx as usize
     }
 
@@ -309,24 +310,35 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
         self.column()
     }
 
+    pub fn flip(self) -> Self {
+        self.flip_up_down(SmallGridSize::default())
+    }
+
+    pub fn flip_if(self, flip: bool) -> Self {
+        match flip {
+            true => self.flip(),
+            false => self,
+        }
+    }
+
     pub fn north_unchecked(self) -> Self {
         debug_assert_ne!(self.rank(), 7);
-        Self::new(self.index() + 8)
+        Self::new(self.idx() + 8)
     }
 
     pub fn south_unchecked(self) -> Self {
         debug_assert_ne!(self.rank(), 0);
-        Self::new(self.index() - 8)
+        Self::new(self.idx() - 8)
     }
 
     pub fn east_unchecked(self) -> Self {
         debug_assert_ne!(self.file() as usize, W);
-        Self::new(self.index() + 1)
+        Self::new(self.idx() + 1)
     }
 
     pub fn west_unchecked(self) -> Self {
         debug_assert_ne!(self.file(), 0);
-        Self::new(self.index() - 1)
+        Self::new(self.idx() - 1)
     }
 
     pub fn pawn_move_to_center(self) -> Self {
@@ -338,9 +350,20 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
         }
     }
 
+    pub fn pawn_advance_unchecked(self, color: Color) -> Self {
+        match color {
+            Color::White => self.north_unchecked(),
+            Color::Black => self.south_unchecked(),
+        }
+    }
+
     pub fn is_backrank(self) -> bool {
         let rank = self.rank();
         rank == 0 || rank == H as DimT - 1
+    }
+
+    pub fn iter() -> impl Iterator<Item = Self> {
+        (0..64).map(Self::new)
     }
 }
 

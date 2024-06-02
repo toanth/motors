@@ -1,7 +1,7 @@
 [workspace]
 # Otherwise, cargo complains that the crates use an edition that implies resolver="2", but this still defaults to resolver="1"
 resolver = "2"
-members = ["motors", "gears", "monitors"]
+members = ["motors", "gears", "monitors", "pliers"]
 
 [profile.release]
 lto = true
