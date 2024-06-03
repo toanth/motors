@@ -505,10 +505,15 @@ impl<E: Eval<Chessboard>> Caps<E> {
             } else {
                 300 + 64 * depth
             };
+            let lmp_threshold = if regressing {
+                6 + 4 * depth
+            } else {
+                8 + 8 * depth
+            };
             if can_prune
                 && best_score > MAX_SCORE_LOST
                 && depth <= 3
-                && (num_uninteresting_visited >= 8 + 8 * depth
+                && (num_uninteresting_visited >= lmp_threshold
                     || (eval + Score(fp_margin as i32) < alpha && move_score < KILLER_SCORE))
             {
                 break;
