@@ -759,7 +759,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         let mut children_visited = 0;
         for (mov, score) in move_picker.into_iter() {
             debug_assert!(mov.is_tactical(&pos));
-            if score < 0 {
+            if score < 0 && children_visited > 0 {
                 // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
                 break;
             }
