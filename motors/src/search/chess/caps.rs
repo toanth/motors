@@ -757,8 +757,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
             self.score_move_fn(pos, best_move, ply),
         );
         let mut children_visited = 0;
-        for (mov, _score) in move_picker.into_iter() {
+        for (mov, score) in move_picker.into_iter() {
             debug_assert!(mov.is_tactical(&pos));
+            if score < 0 {
+                // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
+                break;
+            }
             let new_pos =
                 pos.make_move_and_prefetch_tt(mov, |hash| self.state.custom.tt.prefetch(hash));
             if new_pos.is_none() {
