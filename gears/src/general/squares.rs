@@ -206,9 +206,7 @@ impl<const H: usize, const W: usize> Size<SmallGridSquare<H, W>> for SmallGridSi
     }
 
     fn to_coordinates_unchecked(self, internal_key: usize) -> SmallGridSquare<H, W> {
-        SmallGridSquare {
-            idx: internal_key as u8,
-        }
+        SmallGridSquare::unchecked(internal_key)
     }
 
     fn valid_coordinates(self) -> impl Iterator<Item = SmallGridSquare<H, W>> {
@@ -306,14 +304,7 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
         ChessBitboard::single_piece(self.bb_idx())
     }
 
-    /// Enumerates all squares from 0 to n. Note that this is not necessarily the same as `bb_idx`,
-    /// which returns the index in a bitboard using a length of 8 per row.
-    // pub fn idx(self) -> usize {
-    //     assert_eq!(W, 8);
-    //     self.idx as usize
-    // }
-
-    /// Note that this isn't the same as `idx` because the bitboard assumes a 8x8 board for efficiency reasons.
+    /// Note that this isn't necessarily consecutive because the bitboard assumes a 8x8 board for efficiency reasons.
     pub fn bb_idx(self) -> usize {
         self.idx as usize
     }

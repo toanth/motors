@@ -152,14 +152,12 @@ impl Chessboard {
         ] {
             let mut bb = move_type.0;
             for to in bb.ones() {
-                let idx = to.bb_idx();
-                let from = ChessSquare::from_bb_index((idx as isize - move_type.1) as usize);
-                let to = ChessSquare::from_bb_index(idx);
+                let from = ChessSquare::from_bb_index((to.to_u8() as isize - move_type.1) as usize);
                 let is_capture = from.file() != to.file();
                 let mut flag = Normal;
-                if to == self.ep_square.unwrap_or(ChessSquare::no_coordinates()) {
+                if self.ep_square.is_some_and(|sq| sq == to) {
                     flag = EnPassant;
-                } else if to.rank() == 0 || to.rank() == 7 {
+                } else if to.is_backrank() {
                     for flag in [PromoQueen, PromoKnight] {
                         list.push(ChessMove::new(from, to, flag));
                     }

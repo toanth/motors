@@ -465,6 +465,13 @@ where
         bb
     }
 
+    fn flip_if(self, flip: bool) -> Self {
+        match flip {
+            true => self.flip_up_down(),
+            false => self,
+        }
+    }
+
     fn get_piece_file(self) -> usize {
         debug_assert!(self.is_single_piece());
         self.trailing_zeros() % self.internal_width()

@@ -53,9 +53,9 @@ fn do_perft<T: Board>(depth: usize, pos: T) -> u64 {
     if depth == 0 {
         return 1;
     }
-    if pos.game_result_no_movegen().is_some() {
-        return 0; // the game is over (e.g. 50mr)
-    }
+    // if pos.game_result_no_movegen().is_some() {
+    //     return 0; // the game is over (e.g. 50mr)
+    // }
     for mov in pos.pseudolegal_moves() {
         if let Some(new_pos) = pos.make_move(mov) {
             nodes += do_perft(depth - 1, new_pos);

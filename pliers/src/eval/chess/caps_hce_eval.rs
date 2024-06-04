@@ -389,13 +389,9 @@ impl CapsHceEval {
             let pawns = our_pawns;
 
             for pawn in pawns.ones() {
-                let idx = pawn.bb_idx();
                 // Passed pawns.
-                let in_front = if color == White {
-                    A_FILE << (idx + 8)
-                } else {
-                    A_FILE >> (64 - idx)
-                };
+                let in_front =
+                    (A_FILE << (pawn.flip_if(color == Black).bb_idx() + 8)).flip_if(color == Black);
                 let blocking = in_front | in_front.west() | in_front.east();
                 if (in_front & our_pawns).is_zero() && (blocking & their_pawns).is_zero() {
                     let square = pawn.flip_if(color == White).bb_idx();
