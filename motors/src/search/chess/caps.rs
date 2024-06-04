@@ -771,12 +771,16 @@ impl<E: Eval<Chessboard>> Caps<E> {
             children_visited += 1;
             self.state.statistics.count_legal_make_move(Qsearch);
             self.state.board_history.push(&pos);
-            let score = if children_visited == 1 {
-                -self.qsearch(new_pos.unwrap(), -beta, -alpha, ply + 1)
+            let mut score;
+            if children_visited == 1 {
+                score = -self.qsearch(new_pos.unwrap(), -beta, -alpha, ply + 1)
             } else {
-                /// PVS, see main search.
-                -self.qsearch(new_pos.unwrap(), -(alpha + 1), -alpha, ply + 1)
-            };
+                // PVS, see main search.
+                score = -self.qsearch(new_pos.unwrap(), -(alpha + 1), -alpha, ply + 1);
+                if score > alpha {
+                    score = -self.qsearch(new_pos.unwrap(), -beta, -alpha, ply + 1);
+                }
+            }
             self.state.board_history.pop(&pos);
             best_score = best_score.max(score);
             if score <= alpha {
