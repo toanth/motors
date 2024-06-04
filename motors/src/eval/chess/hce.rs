@@ -366,21 +366,16 @@ impl Eval<Chessboard> for HandCraftedEval {
             for piece in UncoloredChessPiece::pieces() {
                 let mut bb = pos.colored_piece_bb(color, piece);
                 for mut square in bb.ones() {
-                    let idx = square.bb_idx();
+                    let idx = square.flip_if(color == White).bb_idx();
                     let mg_table = piece as usize * 2;
                     let eg_table = mg_table + 1;
-                    square = square.flip_if(color == White);
                     mg += Score(PSQTS[mg_table][idx]);
                     eg += Score(PSQTS[eg_table][idx]);
                     phase += PIECE_PHASE[piece as usize];
 
                     // Passed pawns.
                     if piece == Pawn {
-                        let in_front = if color == White {
-                            A_FILE << (idx + 8)
-                        } else {
-                            A_FILE >> (64 - idx)
-                        };
+                        let in_front = (A_FILE << (idx + 8)).flip_if(color == Black);
                         let blocking = in_front | in_front.west() | in_front.east();
                         if (in_front & our_pawns).is_zero() && (blocking & their_pawns).is_zero() {
                             mg += Score(PASSED_PAWNS[0][idx]);
