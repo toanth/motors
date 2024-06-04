@@ -465,7 +465,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if depth >= 3 && eval >= beta {
                 self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
-                let reduction = 3 + depth / 4;
+                let reduction = 3 + depth / 4 + improving as isize;
                 let score = -self.negamax(
                     new_pos,
                     limit,
@@ -505,10 +505,15 @@ impl<E: Eval<Chessboard>> Caps<E> {
             } else {
                 300 + 64 * depth
             };
+            let lmp_threshold = if regressing {
+                6 + 4 * depth
+            } else {
+                8 + 8 * depth
+            };
             if can_prune
                 && best_score > MAX_SCORE_LOST
                 && depth <= 3
-                && (num_uninteresting_visited >= 8 + 8 * depth
+                && (num_uninteresting_visited >= lmp_threshold
                     || (eval + Score(fp_margin as i32) < alpha && move_score < KILLER_SCORE))
             {
                 break;
@@ -752,8 +757,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
             self.score_move_fn(pos, best_move, ply),
         );
         let mut children_visited = 0;
-        for (mov, _score) in move_picker.into_iter() {
+        for (mov, score) in move_picker.into_iter() {
             debug_assert!(mov.is_tactical(&pos));
+            if score < 0 {
+                // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
+                break;
+            }
             let new_pos =
                 pos.make_move_and_prefetch_tt(mov, |hash| self.state.custom.tt.prefetch(hash));
             if new_pos.is_none() {
