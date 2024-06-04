@@ -32,7 +32,7 @@ impl Chessboard {
             Pawn => self.gen_pawn_moves(&mut list, false),
             Knight => {
                 return Self::knight_moves_from_square(mov.src_square(), filter)
-                    .is_bit_set_at(mov.dest_square().idx());
+                    .is_bit_set_at(mov.dest_square().bb_idx());
             }
             Bishop => self.gen_slider_moves(SliderMove::Bishop, &mut list, filter),
             Rook => self.gen_slider_moves(SliderMove::Rook, &mut list, filter),
@@ -50,12 +50,11 @@ impl Chessboard {
     /// Pretend there is a king of color `us` at `square` and test if it is in check.
     pub fn is_in_check_on_square(&self, us: Color, square: ChessSquare) -> bool {
         let them = us.other();
-        let idx = square.idx();
-        let attacks = KNIGHTS[square.idx()];
+        let attacks = KNIGHTS[square.bb_idx()];
         if (attacks & self.colored_piece_bb(them, Knight)).has_set_bit() {
             return true;
         }
-        let bb = ChessBitboard::single_piece(idx);
+        let bb = square.bb();
         let blockers = self.occupied_bb() & !bb;
         let attacks = ChessBitboard::bishop_attacks(square, blockers);
         if (attacks & (self.colored_piece_bb(them, Bishop) | self.colored_piece_bb(them, Queen)))
@@ -80,11 +79,11 @@ impl Chessboard {
                     | ((their_pawns & !ChessBitboard::file_no(A_FILE_NO)) << 7)
             }
         };
-        if pawn_attacks.is_bit_set_at(idx) {
+        if (pawn_attacks & bb).has_set_bit() {
             return true;
         }
         // this can't happen in a legal position, but it can happen in pseudolegal movegen
-        (KINGS[square.idx()] & self.colored_piece_bb(them, King)).has_set_bit()
+        (KINGS[square.bb_idx()] & self.colored_piece_bb(them, King)).has_set_bit()
     }
 
     pub fn gen_all_pseudolegal_moves(&self) -> ChessMoveList {
@@ -115,11 +114,7 @@ impl Chessboard {
         let double_pawn_moves;
         let left_pawn_captures;
         let right_pawn_captures;
-        let capturable = opponent
-            | self
-                .ep_square
-                .map(|s| ChessBitboard::single_piece(s.idx()))
-                .unwrap_or_default();
+        let capturable = opponent | self.ep_square.map(|s| s.bb()).unwrap_or_default();
         if color == White {
             regular_pawn_moves = ((pawns << 8) & free, 8);
             double_pawn_moves = (
@@ -156,10 +151,10 @@ impl Chessboard {
             double_pawn_moves,
         ] {
             let mut bb = move_type.0;
-            while bb.has_set_bit() {
-                let idx = bb.pop_lsb();
-                let from = ChessSquare::new((idx as isize - move_type.1) as usize);
-                let to = ChessSquare::new(idx);
+            for to in bb.ones() {
+                let idx = to.bb_idx();
+                let from = ChessSquare::from_bb_index((idx as isize - move_type.1) as usize);
+                let to = ChessSquare::from_bb_index(idx);
                 let is_capture = from.file() != to.file();
                 let mut flag = Normal;
                 if to == self.ep_square.unwrap_or(ChessSquare::no_coordinates()) {
@@ -185,13 +180,13 @@ impl Chessboard {
     fn gen_king_moves(&self, list: &mut ChessMoveList, filter: ChessBitboard, only_captures: bool) {
         let color = self.active_player;
         let king = self.colored_piece_bb(color, King);
-        let king_square = ChessSquare::new(king.trailing_zeros());
+        let king_square = ChessSquare::from_bb_index(king.trailing_zeros());
         let mut moves = Self::normal_king_moves_from_square(king_square, filter);
         while moves.has_set_bit() {
             let target = moves.pop_lsb();
             list.push(ChessMove::new(
                 king_square,
-                ChessSquare::new(target),
+                ChessSquare::from_bb_index(target),
                 Normal,
             ));
         }
@@ -277,13 +272,10 @@ impl Chessboard {
     }
 
     fn gen_knight_moves(&self, list: &mut ChessMoveList, filter: ChessBitboard) {
-        let mut knights = self.colored_piece_bb(self.active_player, Knight);
-        while knights.has_set_bit() {
-            let square_idx = knights.pop_lsb();
-            let from = ChessSquare::new(square_idx);
+        let knights = self.colored_piece_bb(self.active_player, Knight);
+        for from in knights.ones() {
             let mut attacks = Self::knight_moves_from_square(from, filter);
-            while attacks.has_set_bit() {
-                let to = ChessSquare::new(attacks.pop_lsb());
+            for to in attacks.ones() {
                 list.push(ChessMove::new(from, to, Normal));
             }
         }
@@ -304,18 +296,10 @@ impl Chessboard {
             },
         );
         let queens = self.colored_piece_bb(color, Queen);
-        let mut pieces = non_queens | queens;
-        while pieces.has_set_bit() {
-            let idx = pieces.pop_lsb();
-            let from = ChessSquare::new(idx);
-            let mut attacks = self.gen_sliders_from_square(
-                from,
-                slider_move,
-                filter,
-                ChessBitboard::single_piece(idx),
-            );
-            while attacks.has_set_bit() {
-                let to = ChessSquare::new(attacks.pop_lsb());
+        let pieces = non_queens | queens;
+        for from in pieces.ones() {
+            let attacks = self.gen_sliders_from_square(from, slider_move, filter, from.bb());
+            for to in attacks.ones() {
                 list.push(ChessMove::new(from, to, Normal));
             }
         }
@@ -325,15 +309,15 @@ impl Chessboard {
     /// This makes sense because it allows to find all pieces able to attack a given square.
 
     fn normal_king_moves_from_square(square: ChessSquare, filter: ChessBitboard) -> ChessBitboard {
-        KINGS[square.idx()] & filter
+        KINGS[square.bb_idx()] & filter
     }
 
     fn knight_moves_from_square(square: ChessSquare, filter: ChessBitboard) -> ChessBitboard {
-        KNIGHTS[square.idx()] & filter
+        KNIGHTS[square.bb_idx()] & filter
     }
 
     pub fn single_pawn_captures(color: Color, square: ChessSquare) -> ChessBitboard {
-        PAWN_CAPTURES[color as usize][square.idx()]
+        PAWN_CAPTURES[color as usize][square.bb_idx()]
     }
 
     fn gen_sliders_from_square(
@@ -358,7 +342,7 @@ impl Chessboard {
     pub fn all_attacking(&self, square: ChessSquare) -> ChessBitboard {
         let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
         let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
-        let square_bb = ChessBitboard::single_piece(square.idx());
+        let square_bb = square.bb();
         let square_bb_if_occupied = if self.is_occupied(square) {
             square_bb
         } else {

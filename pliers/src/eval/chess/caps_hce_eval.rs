@@ -386,10 +386,10 @@ impl CapsHceEval {
             let our_pawns = pos.colored_piece_bb(color, Pawn);
             let their_pawns = pos.colored_piece_bb(color.other(), Pawn);
 
-            let mut pawns = our_pawns; // TODO: impl IntoIter for Bitboard
+            let pawns = our_pawns;
 
-            while pawns.has_set_bit() {
-                let idx = pawns.pop_lsb();
+            for pawn in pawns.ones() {
+                let idx = pawn.bb_idx();
                 // Passed pawns.
                 let in_front = if color == White {
                     A_FILE << (idx + 8)
@@ -398,16 +398,14 @@ impl CapsHceEval {
                 };
                 let blocking = in_front | in_front.west() | in_front.east();
                 if (in_front & our_pawns).is_zero() && (blocking & their_pawns).is_zero() {
-                    let square = ChessSquare::new(idx).flip_if(color == White).idx();
+                    let square = pawn.flip_if(color == White).bb_idx();
                     trace.passed_pawns.increment(square, color);
                 }
             }
             // Rooks on (semi)open/closed files (semi-closed files are handled by adjusting the base rook values during tuning)
-            let mut rooks = pos.colored_piece_bb(color, Rook);
-            while rooks.has_set_bit() {
-                let idx = rooks.pop_lsb();
-                let openness =
-                    Self::file_openness(ChessSquare::new(idx).file(), our_pawns, their_pawns);
+            let rooks = pos.colored_piece_bb(color, Rook);
+            for rook in rooks.ones() {
+                let openness = Self::file_openness(rook.file(), our_pawns, their_pawns);
                 if openness != SemiClosed {
                     // part of the normal piece value (i.e. part of the rook PSQT)
                     trace.rooks.increment(openness as usize, color);

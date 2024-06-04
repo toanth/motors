@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-gears = { path = "../gears", default-features = false}
+gears = { path = "../gears", default-features = false }
 
 rand = "0.8.5"
 num = "0.4.1"
@@ -15,11 +15,11 @@ dyn-clone = "1.0.17"
 itertools = "0.12.0"
 whoami = "1.5.1"
 lazy_static = "1.4.0"
-motors = { path = "../motors", optional = true, default-features = false}
+motors = { path = "../motors", optional = true, default-features = false }
 
 [features]
-default = ["motors", "motors/generic-engines", "chess", "mnk"]
+default = ["motors", "motors/generic-engines", "chess", "mnk", "ataxx"]
 motors = ["dep:motors"]
 chess = ["gears/chess", "motors?/chess", "motors?/chess-engines"]
 mnk = ["gears/mnk", "motors?/mnk", "motors?/mnk-engines"]
-
+ataxx = ["gears/ataxx", "motors?/ataxx", "motors?/ataxx-engines"]

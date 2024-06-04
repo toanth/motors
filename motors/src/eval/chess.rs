@@ -66,7 +66,7 @@ pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: C
         king = king.flip();
         pawns = pawns.flip_up_down();
     }
-    let mut bb = pawns >> PAWN_SHIELD_SHIFT[king.idx()];
+    let mut bb = pawns >> PAWN_SHIELD_SHIFT[king.bb_idx()];
     // TODO: pext if available
     let file = king.file();
     if file == A_FILE_NO || file == H_FILE_NO {
@@ -166,7 +166,7 @@ mod tests {
                     continue;
                 }
                 let square = ChessSquare::from_rank_file(rank as DimT, file as DimT);
-                if pawns.is_bit_set_at(square.idx()) {
+                if pawns.is_bit_set_at(square.bb_idx()) {
                     res += 1 << (i + (delta_rank - 1) * file_deltas.len());
                     num_pawns += 1;
                 }

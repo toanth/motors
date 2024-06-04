@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use crate::games::DimT;
 use crate::general::squares::{SmallGridSize, SmallGridSquare};
 

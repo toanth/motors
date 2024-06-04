@@ -22,8 +22,8 @@ use crate::games::Color::{Black, White};
 use crate::games::SelfChecks::{Assertion, CheckFen};
 use crate::games::{
     board_to_string, file_to_char, position_fen_part, read_position_fen, AbstractPieceType, Board,
-    BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, Move, NameToPos, SelfChecks,
-    Settings, UncoloredPieceType, ZobristHash, ZobristRepetition3Fold,
+    BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, NameToPos, SelfChecks, Settings,
+    UncoloredPieceType, ZobristHash, ZobristRepetition3Fold,
 };
 use crate::general::bitboards::chess::{ChessBitboard, BLACK_SQUARES, WHITE_SQUARES};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
@@ -126,7 +126,7 @@ impl Board for Chessboard {
         // this is the default implementation in the parent trait
         select_name_static(
             name,
-            &Self::name_to_pos_map(),
+            Self::name_to_pos_map().iter(),
             "position",
             Self::game_name(),
             NoDescription,
@@ -268,16 +268,8 @@ impl Board for Chessboard {
         ChessboardSize::default()
     }
 
-    fn to_idx(&self, square: Self::Coordinates) -> usize {
-        square.idx()
-    }
-
-    fn to_coordinates(&self, idx: usize) -> Self::Coordinates {
-        ChessSquare::new(idx)
-    }
-
     fn colored_piece_on(&self, square: Self::Coordinates) -> Self::Piece {
-        let idx = square.idx();
+        let idx = square.bb_idx();
         let uncolored = self.uncolored_piece_on(square);
         let color = if self.colored_bb(Black).is_bit_set_at(idx) {
             Black
@@ -291,12 +283,8 @@ impl Board for Chessboard {
         }
     }
 
-    fn colored_piece_on_idx(&self, idx: usize) -> Self::Piece {
-        self.colored_piece_on(ChessSquare::new(idx))
-    }
-
-    fn uncolored_piece_on(&self, square: Self::Coordinates) -> UncoloredChessPiece {
-        let idx = square.idx();
+    fn uncolored_piece_on(&self, square: ChessSquare) -> UncoloredChessPiece {
+        let idx = square.bb_idx();
         UncoloredChessPiece::from_uncolored_idx(
             self.piece_bbs
                 .iter()
@@ -529,10 +517,9 @@ impl Board for Chessboard {
 
         for color in Color::iter() {
             for side in CastleRight::iter() {
-                let has_eligible_rook =
-                    (ChessBitboard::single_piece(self.rook_start_square(color, side).idx())
-                        & self.colored_piece_bb(color, Rook))
-                    .is_single_piece();
+                let has_eligible_rook = (self.rook_start_square(color, side).bb()
+                    & self.colored_piece_bb(color, Rook))
+                .has_set_bit();
                 if self.castling.can_castle(color, side) && !has_eligible_rook {
                     return Err(format!("Color {color} can castle {side}, but there is no rook to castle (invalid castling flag in FEN?)"));
                 }
@@ -541,12 +528,16 @@ impl Board for Chessboard {
         let inactive_player = self.active_player.other();
 
         if let Some(ep_square) = self.ep_square {
-            if self
-                .colored_piece_on(ep_square.pawn_move_to_center())
-                .symbol
+            if ![2, 5].contains(&ep_square.rank()) {
+                return Err(format!(
+                    "FEN specifies invalid ep square (not on the third or sixth rank): '{ep_square}'"
+                ));
+            }
+            let remove_pawn_square = ep_square.pawn_advance_unchecked(inactive_player);
+            if self.colored_piece_on(remove_pawn_square).symbol
                 != ColoredChessPiece::new(inactive_player, Pawn)
             {
-                return Err(format!("FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {0}", ep_square.pawn_move_to_center()));
+                return Err(format!("FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}"));
             }
             hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[ep_square.file() as usize];
         }
@@ -568,7 +559,7 @@ impl Board for Chessboard {
 
         for piece in ColoredChessPiece::pieces() {
             let color = piece.color().unwrap();
-            let mut bb = self.colored_piece_bb(color, piece.uncolor());
+            let bb = self.colored_piece_bb(color, piece.uncolor());
             if bb.num_ones() > 20 {
                 // Catch this now to prevent crashes down the line because the move list is too small for made-up invalid positions.
                 // (This is lax enough to allow many invalid positions that likely won't lead to a crash)
@@ -593,8 +584,7 @@ impl Board for Chessboard {
                         ));
                     }
                 }
-                while bb.has_set_bit() {
-                    let square = ChessSquare::new(bb.pop_lsb());
+                for square in bb.ones() {
                     hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece.uncolor(), color, square);
                 }
             }
@@ -634,7 +624,7 @@ impl Chessboard {
     }
 
     pub fn is_occupied(&self, square: ChessSquare) -> bool {
-        self.occupied_bb().is_bit_set_at(self.to_idx(square))
+        self.occupied_bb().is_bit_set_at(square.bb_idx())
     }
 
     pub fn colored_piece_bb(&self, color: Color, piece: UncoloredChessPiece) -> ChessBitboard {
@@ -642,7 +632,7 @@ impl Chessboard {
     }
 
     fn try_place_piece(&mut self, square: ChessSquare, piece: ColoredChessPiece) -> Res<()> {
-        let idx = self.to_idx(square);
+        let idx = square.bb_idx();
         if idx >= NUM_SQUARES {
             return Err(format!("Coordinates {square} are outside the chess board"));
         }
@@ -657,18 +647,16 @@ impl Chessboard {
     }
 
     fn place_piece(&mut self, square: ChessSquare, piece: ColoredChessPiece) {
-        let idx = self.to_idx(square);
         debug_assert_eq!(
             self.colored_piece_on(square).symbol,
             ColoredChessPiece::Empty
         );
-        let bb = RawStandardBitboard(1 << idx);
+        let bb = square.bb().raw();
         self.piece_bbs[piece.uncolor() as usize] ^= bb;
         self.color_bbs[piece.color().unwrap() as usize] ^= bb;
     }
 
     fn remove_piece(&mut self, square: ChessSquare, piece: UncoloredChessPiece, color: Color) {
-        let idx = self.to_idx(square);
         debug_assert_eq!(
             self.colored_piece_on(square),
             ChessPiece {
@@ -676,7 +664,7 @@ impl Chessboard {
                 coordinates: square
             }
         );
-        let bb = ChessBitboard::single_piece(idx).raw();
+        let bb = square.bb().raw();
         self.piece_bbs[piece as usize] ^= bb;
         self.color_bbs[color as usize] ^= bb;
     }
@@ -696,7 +684,7 @@ impl Chessboard {
         );
         // use ^ instead of | for to merge the from and to bitboards because in chess960 castling,
         // it is possible that from == to or that there's another piece on the target square
-        let bb = RawStandardBitboard((1 << self.to_idx(from)) ^ (1 << self.to_idx(to)));
+        let bb = (from.bb() ^ to.bb()).raw();
         let color = self.active_player;
         self.color_bbs[color as usize] ^= bb;
         self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
@@ -748,7 +736,7 @@ impl Chessboard {
     }
 
     pub fn king_square(&self, color: Color) -> ChessSquare {
-        ChessSquare::new(self.colored_piece_bb(color, King).trailing_zeros())
+        ChessSquare::from_bb_index(self.colored_piece_bb(color, King).trailing_zeros())
     }
 
     pub fn is_in_check(&self) -> bool {
@@ -784,7 +772,10 @@ impl Chessboard {
         };
         let mut place_piece = |i: usize, typ: UncoloredChessPiece| {
             let bit = ith_zero(i, board.occupied_bb());
-            board.place_piece(ChessSquare::new(bit), ColoredChessPiece::new(White, typ));
+            board.place_piece(
+                ChessSquare::from_bb_index(bit),
+                ColoredChessPiece::new(White, typ),
+            );
             bit
         };
         let bsq_bishop = extract_factor(4) * 2;
@@ -947,10 +938,6 @@ mod tests {
             .into_iter()
             .sorted()
             .eq(moves.into_iter().sorted()));
-
-        // let mut engine = Caps::<MaterialOnlyEval>::default();
-        // let res = engine.search(board, SearchLimit::depth(4), ZobristHistoryBase::default());
-        // assert_eq!(res.score.unwrap(), Score(0));
     }
 
     #[test]
@@ -990,38 +977,38 @@ mod tests {
         let board = Chessboard::from_fen(endgame_fen).unwrap();
         let perft_res = perft(Depth::new(1), board);
         assert_eq!(perft_res.depth, Depth::new(1));
-        assert_eq!(perft_res.nodes.get(), 5 + 7 + 13 + 14);
+        assert_eq!(perft_res.nodes, 5 + 7 + 13 + 14);
         assert!(perft_res.time.as_millis() <= 1);
         let board = Chessboard::default();
         let perft_res = perft(Depth::new(1), board);
         assert_eq!(perft_res.depth, Depth::new(1));
-        assert_eq!(perft_res.nodes.get(), 20);
+        assert_eq!(perft_res.nodes, 20);
         assert!(perft_res.time.as_millis() <= 1);
         let perft_res = perft(Depth::new(2), board);
         assert_eq!(perft_res.depth, Depth::new(2));
-        assert_eq!(perft_res.nodes.get(), 20 * 20);
+        assert_eq!(perft_res.nodes, 20 * 20);
         assert!(perft_res.time.as_millis() <= 10);
 
         let board =
             Chessboard::from_fen("r1bqkbnr/1pppNppp/p1n5/8/8/8/PPPPPPPP/R1BQKBNR b KQkq - 0 3")
                 .unwrap();
         let perft_res = perft(Depth::new(1), board);
-        assert_eq!(perft_res.nodes.get(), 26);
-        assert_eq!(perft(Depth::new(3), board).nodes.get(), 16790);
+        assert_eq!(perft_res.nodes, 26);
+        assert_eq!(perft(Depth::new(3), board).nodes, 16790);
 
         let board = Chessboard::from_fen(
             "rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9",
         )
         .unwrap();
         let perft_res = perft(Depth::new(4), board);
-        assert_eq!(perft_res.nodes.get(), 890435);
+        assert_eq!(perft_res.nodes, 890435);
 
         // DFRC
         let board = Chessboard::from_fen(
             "r1q1k1rn/1p1ppp1p/1npb2b1/p1N3p1/8/1BP4P/PP1PPPP1/1RQ1KRBN w BFag - 0 9",
         )
         .unwrap();
-        assert_eq!(perft(Depth::new(4), board).nodes.get(), 1187103);
+        assert_eq!(perft(Depth::new(4), board).nodes, 1187103);
     }
 
     #[test]
@@ -1095,13 +1082,32 @@ mod tests {
     }
 
     #[test]
+    fn checkmate_test() {
+        let fen = "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3";
+        let pos = Chessboard::from_fen(fen).unwrap();
+        assert_eq!(pos.active_player, White);
+        assert_eq!(pos.ply, 4);
+        assert!(pos.verify_position_legal(Assertion).is_ok());
+        assert!(pos.is_in_check());
+        assert!(pos.is_in_check_on_square(White, pos.king_square(White)));
+        let moves = pos.pseudolegal_moves();
+        assert!(!moves.is_empty());
+        let moves = pos.legal_moves_slow();
+        assert!(moves.is_empty());
+        assert!(pos.is_game_lost_slow());
+        assert_eq!(pos.game_result_player_slow(), Some(Lose));
+        assert!(!pos.is_stalemate_slow());
+        assert!(pos.make_nullmove().is_none());
+    }
+
+    #[test]
     fn weird_position_test() {
         // There's a similar test in `motors`
         // This fen is actually a legal chess position
         let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
         let board = Chessboard::from_fen(fen).unwrap();
         assert_eq!(board.active_player, White);
-        assert_eq!(perft(Depth::new(3), board).nodes.get(), 568299);
+        assert_eq!(perft(Depth::new(3), board).nodes, 568299);
         // not a legal chess position, but the board should support this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
         let board = Chessboard::from_fen(fen).unwrap();

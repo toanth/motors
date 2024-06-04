@@ -1,10 +1,8 @@
-use static_assertions::const_assert;
 use std::cmp::max;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use crate::games::chess::squares::ChessSquare;
 use crate::games::{char_to_file, file_to_char, Color, Coordinates, DimT, Height, Size, Width};
 use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::common::{parse_int, Res};
@@ -27,7 +25,7 @@ pub fn sup_distance<C: RectangularCoordinates>(a: C, b: C) -> usize {
 
 #[derive(Clone, Copy, Eq, PartialOrd, PartialEq, Debug, Default)]
 pub struct GridCoordinates {
-    pub row: DimT,
+    pub row: DimT, // TODO: Store only one int
     pub column: DimT,
 }
 
@@ -114,6 +112,9 @@ impl GridCoordinates {
 pub trait RectangularSize<C: RectangularCoordinates>: Size<C> {
     fn height(self) -> Height;
     fn width(self) -> Width;
+    fn internal_width(self) -> usize {
+        self.width().val()
+    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
@@ -155,23 +156,20 @@ impl Size<GridCoordinates> for GridSize {
         self.height.val() * self.width.val()
     }
 
-    // fn to_coordinates(self, idx: usize) -> GridCoordinates {
-    //     GridCoordinates {
-    //         row: idx / self.width().0,
-    //         column: idx % self.width().0,
-    //     }
-    // }
-
-    fn to_idx(self, coordinates: GridCoordinates) -> usize {
+    fn to_internal_key(self, coordinates: GridCoordinates) -> usize {
         coordinates.row() as usize * self.width.val() + coordinates.column() as usize
     }
 
-    fn to_coordinates(self, idx: usize) -> GridCoordinates {
+    fn to_coordinates_unchecked(self, internal_key: usize) -> GridCoordinates {
         GridCoordinates {
             // TODO: Handle overflows?
-            row: (idx / self.width.val()) as DimT,
-            column: (idx % self.width.val()) as DimT,
+            row: (internal_key / self.width.val()) as DimT,
+            column: (internal_key % self.width.val()) as DimT,
         }
+    }
+
+    fn valid_coordinates(self) -> impl Iterator<Item = GridCoordinates> {
+        (0..self.num_squares()).map(move |i| self.to_coordinates_unchecked(i))
     }
 
     fn coordinates_valid(self, coordinates: GridCoordinates) -> bool {
@@ -190,7 +188,7 @@ impl RectangularSize<GridCoordinates> for GridSize {
 }
 
 #[derive(Debug, Default, Eq, PartialEq, Copy, Clone)]
-pub struct SmallGridSize<const Height: usize, const Width: usize> {}
+pub struct SmallGridSize<const H: usize, const W: usize> {}
 
 impl<const H: usize, const W: usize> Display for SmallGridSize<H, W> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -203,12 +201,18 @@ impl<const H: usize, const W: usize> Size<SmallGridSquare<H, W>> for SmallGridSi
         H * W
     }
 
-    fn to_idx(self, coordinates: SmallGridSquare<H, W>) -> usize {
-        coordinates.idx()
+    fn to_internal_key(self, coordinates: SmallGridSquare<H, W>) -> usize {
+        coordinates.bb_idx()
     }
 
-    fn to_coordinates(self, idx: usize) -> SmallGridSquare<H, W> {
-        SmallGridSquare { idx: idx as u8 }
+    fn to_coordinates_unchecked(self, internal_key: usize) -> SmallGridSquare<H, W> {
+        SmallGridSquare {
+            idx: internal_key as u8,
+        }
+    }
+
+    fn valid_coordinates(self) -> impl Iterator<Item = SmallGridSquare<H, W>> {
+        SmallGridSquare::iter()
     }
 
     fn coordinates_valid(self, coordinates: SmallGridSquare<H, W>) -> bool {
@@ -225,6 +229,10 @@ impl<const H: usize, const W: usize> RectangularSize<SmallGridSquare<H, W>>
 
     fn width(self) -> Width {
         Width(W as u8)
+    }
+
+    fn internal_width(self) -> usize {
+        8
     }
 }
 
@@ -249,11 +257,11 @@ impl<const H: usize, const W: usize> FromStr for SmallGridSquare<H, W> {
 }
 
 impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
-    pub const fn new(idx: usize) -> Self {
+    pub const fn from_bb_index(idx: usize) -> Self {
         assert!(W <= 8);
         assert!(H <= 8);
-        debug_assert!(idx < H * 8);
         debug_assert!(idx % 8 < W);
+        debug_assert!(idx / 8 < H);
         Self { idx: idx as u8 }
     }
 
@@ -262,7 +270,7 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
     }
 
     pub const fn from_coordinates(c: GridCoordinates) -> Self {
-        Self::new(c.row as usize * 8 + c.column as usize)
+        Self::from_bb_index(c.row as usize * 8 + c.column as usize)
     }
 
     pub const fn from_rank_file(rank: DimT, file: DimT) -> Self {
@@ -295,10 +303,18 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
     }
 
     pub fn bb(self) -> ChessBitboard {
-        ChessBitboard::single_piece(self.idx())
+        ChessBitboard::single_piece(self.bb_idx())
     }
 
-    pub fn idx(self) -> usize {
+    /// Enumerates all squares from 0 to n. Note that this is not necessarily the same as `bb_idx`,
+    /// which returns the index in a bitboard using a length of 8 per row.
+    // pub fn idx(self) -> usize {
+    //     assert_eq!(W, 8);
+    //     self.idx as usize
+    // }
+
+    /// Note that this isn't the same as `idx` because the bitboard assumes a 8x8 board for efficiency reasons.
+    pub fn bb_idx(self) -> usize {
         self.idx as usize
     }
 
@@ -322,32 +338,23 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
     }
 
     pub fn north_unchecked(self) -> Self {
-        debug_assert_ne!(self.rank(), 7);
-        Self::new(self.idx() + 8)
+        debug_assert_ne!(self.rank() as usize, H - 1);
+        Self::unchecked(self.bb_idx() + 8)
     }
 
     pub fn south_unchecked(self) -> Self {
         debug_assert_ne!(self.rank(), 0);
-        Self::new(self.idx() - 8)
+        Self::unchecked(self.bb_idx() - 8)
     }
 
     pub fn east_unchecked(self) -> Self {
-        debug_assert_ne!(self.file() as usize, W);
-        Self::new(self.idx() + 1)
+        debug_assert_ne!(self.file() as usize, W - 1);
+        Self::unchecked(self.bb_idx() + 1)
     }
 
     pub fn west_unchecked(self) -> Self {
         debug_assert_ne!(self.file(), 0);
-        Self::new(self.idx() - 1)
-    }
-
-    pub fn pawn_move_to_center(self) -> Self {
-        debug_assert_ne!(self.rank() % 7, 0);
-        if self.rank() < 4 {
-            self.north_unchecked()
-        } else {
-            self.south_unchecked()
-        }
+        Self::unchecked(self.bb_idx() - 1)
     }
 
     pub fn pawn_advance_unchecked(self, color: Color) -> Self {
@@ -363,7 +370,9 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        (0..64).map(Self::new)
+        (0..H)
+            .flat_map(|i| (8 * i)..(8 * i + W))
+            .map(Self::from_bb_index)
     }
 }
 
@@ -377,8 +386,8 @@ impl<const H: usize, const W: usize> Coordinates for SmallGridSquare<H, W> {
     type Size = SmallGridSize<H, W>;
 
     fn flip_up_down(self, _: Self::Size) -> Self {
+        // hopefully, this `if` will be evaluated at compile time
         if H == 8 {
-            // hopefully, this will be evaluated at compile time
             Self {
                 idx: self.idx ^ 0b111_000,
             }
@@ -408,10 +417,10 @@ impl<const H: usize, const W: usize> RectangularCoordinates for SmallGridSquare<
     }
 
     fn row(self) -> DimT {
-        self.idx / 8
+        self.idx / 8 as DimT
     }
 
     fn column(self) -> DimT {
-        self.idx % 8
+        self.idx % 8 as DimT
     }
 }

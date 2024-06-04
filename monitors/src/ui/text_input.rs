@@ -9,7 +9,7 @@ use itertools::Itertools;
 use rand::thread_rng;
 
 use gears::games::Color::{Black, White};
-use gears::games::{Board, BoardHistory, Color, Move};
+use gears::games::{Board, Color, Move};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
     parse_int_from_str, select_name_static, to_name_and_optional_description, NamedEntity, Res,
@@ -203,7 +203,7 @@ impl<B: Board> TextInputThread<B> {
                     return Ok(true);
                 }
                 Err(err) => {
-                    let func = select_name_static(command, &self.commands, "command", B::game_name(), NoDescription).map_err(|msg| format!("'{command}' is not a pseudolegal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?.func;
+                    let func = select_name_static(command, self.commands.iter(), "command", B::game_name(), NoDescription).map_err(|msg| format!("'{command}' is not a pseudolegal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?.func;
                     func(client, &mut words)?;
                 }
             }
@@ -224,10 +224,15 @@ impl<B: Board> TextInputThread<B> {
 
     fn print_help(commands: &[Command<B>], words: &mut SplitWhitespace) -> Res<()> {
         if let Some(name) = words.next() {
-            let desc =
-                select_name_static(name, commands, "command", B::game_name(), NoDescription)?
-                    .description
-                    .unwrap_or("No description available");
+            let desc = select_name_static(
+                name,
+                commands.iter(),
+                "command",
+                B::game_name(),
+                NoDescription,
+            )?
+            .description
+            .unwrap_or("No description available");
             println!("{}", desc);
         } else {
             println!("Input either a move (most formats based on algebraic notation are recognized) or a command. Valid commands are:");
@@ -419,7 +424,7 @@ impl<B: Board> TextInputThread<B> {
         } else {
             Engine(parse_engine(&mut words)?)
         };
-        let mut builder = PlayerBuilder::new(args);
+        let builder = PlayerBuilder::new(args);
         _ = builder.build(ugi_client)?;
         Ok(())
     }

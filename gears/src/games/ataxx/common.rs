@@ -1,13 +1,12 @@
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::common::AtaxxPieceType::{Blocked, Empty, Occupied};
-use crate::games::ataxx::AtaxxBoard;
+use crate::games::ataxx::{AtaxxBoard, AtaxxSquare};
 use crate::games::Color::{Black, White};
 use crate::games::{
     AbstractPieceType, Color, ColoredPieceType, Coordinates, DimT, Move, NoMoveFlags,
     UncoloredPieceType,
 };
 use crate::general::common::Res;
-use crate::general::squares::{SmallGridSize, SmallGridSquare};
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
@@ -24,10 +23,6 @@ pub const D_FILE_NO: DimT = 3;
 pub const E_FILE_NO: DimT = 4;
 pub const F_FILE_NO: DimT = 5;
 pub const G_FILE_NO: DimT = 6;
-
-pub type AtaxxSize = SmallGridSize<7, 7>;
-
-pub type AtaxxSquare = SmallGridSquare<7, 7>;
 
 #[derive(Debug, Default, Eq, PartialEq, Copy, Clone, EnumIter)]
 pub enum AtaxxPieceType {
@@ -51,7 +46,7 @@ impl AbstractPieceType for AtaxxPieceType {
     fn to_ascii_char(self) -> char {
         match self {
             Empty => '.',
-            Blocked => '#',
+            Blocked => '-',
             Occupied => 'x',
         }
     }
@@ -59,8 +54,8 @@ impl AbstractPieceType for AtaxxPieceType {
     fn from_utf8_char(c: char) -> Option<Self> {
         match c {
             '.' => Some(Empty),
-            '#' => Some(Blocked),
-            'x' => Some(Occupied),
+            '-' => Some(Blocked),
+            'o' | 'x' => Some(Occupied),
             _ => None,
         }
     }
@@ -101,7 +96,7 @@ impl AbstractPieceType for ColoredAtaxxPieceType {
     fn to_ascii_char(self) -> char {
         match self {
             ColoredAtaxxPieceType::Empty => '.',
-            ColoredAtaxxPieceType::Blocked => '#',
+            ColoredAtaxxPieceType::Blocked => '-',
             WhitePiece => 'x',
             BlackPiece => 'o',
         }
@@ -110,7 +105,7 @@ impl AbstractPieceType for ColoredAtaxxPieceType {
     fn from_utf8_char(c: char) -> Option<Self> {
         match c {
             '.' => Some(Self::Empty),
-            '#' => Some(Self::Blocked),
+            '-' => Some(Self::Blocked),
             'x' => Some(WhitePiece),
             'o' => Some(BlackPiece),
             _ => None,
@@ -160,7 +155,7 @@ pub struct AtaxxMove {
 
 impl Display for AtaxxMove {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        write!(f, "{0}", self.to_compact_text())
     }
 }
 
@@ -192,6 +187,9 @@ impl Move<AtaxxBoard> for AtaxxMove {
         if s.is_empty() {
             return Err("Empty input".to_string());
         }
+        if s == "0000" {
+            return Ok(Self::default());
+        }
         if s.len() != 2 && s.len() != 4 {
             return Err(format!(
                 "Incorrect move length: '{s}'. Must contain exactly one or two squares"
@@ -215,8 +213,8 @@ impl Move<AtaxxBoard> for AtaxxMove {
     }
 
     fn from_usize_unchecked(val: usize) -> Self {
-        let source = AtaxxSquare::new((val >> 8) & 0xff);
-        let target = AtaxxSquare::new(val & 0xff);
+        let source = AtaxxSquare::from_bb_index((val >> 8) & 0xff);
+        let target = AtaxxSquare::from_bb_index(val & 0xff);
         Self { target, source }
     }
 

@@ -4,7 +4,6 @@ use crate::search::statistics::SearchCounter::*;
 use crate::search::statistics::SearchType::*;
 use crate::search::NodeType;
 use derive_more::Display;
-use itertools::Itertools;
 use std::fmt::Formatter;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
