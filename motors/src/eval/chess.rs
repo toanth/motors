@@ -93,14 +93,19 @@ pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: C
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::eval::chess::hce::HandCraftedEval;
+    use crate::eval::chess::material_only::MaterialOnlyEval;
+    use crate::eval::chess::pst_only::PstOnlyEval;
+    use crate::eval::Eval;
     use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
     use gears::games::chess::Chessboard;
     use gears::games::{Board, DimT};
     use gears::general::bitboards::RawBitboard;
+    use gears::search::Score;
     use strum::IntoEnumIterator;
 
     #[test]
-    pub fn pawn_shield_startpos_test() {
+    fn pawn_shield_startpos_test() {
         let pos = Chessboard::default();
         let pawns = pos.piece_bb(Pawn);
         let white = pawn_shield_idx(pawns, pos.king_square(White), White);
@@ -128,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    pub fn pawn_shield_kiwipete_test() {
+    fn pawn_shield_kiwipete_test() {
         let pos = Chessboard::from_name("kiwipete").unwrap();
         let white = pawn_shield_idx(pos.piece_bb(Pawn), pos.king_square(White), White);
         let black = pawn_shield_idx(pos.piece_bb(Pawn), pos.king_square(Black), Black);
@@ -179,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    pub fn pawn_shield_bench_pos_test() {
+    fn pawn_shield_bench_pos_test() {
         for pos in Chessboard::bench_positions() {
             for square in ChessSquare::iter() {
                 for color in Color::iter() {
@@ -192,5 +197,20 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn generic_eval_test<E: Eval<Chessboard>>() {
+        let score = E::default().eval(Chessboard::default());
+        assert!(score.abs() <= Score(25));
+        assert!(score >= Score(0));
+        let score = E::default().eval(Chessboard::from_name("lucena").unwrap());
+        assert!(score >= Score(100));
+    }
+
+    #[test]
+    fn simple_eval_test() {
+        generic_eval_test::<MaterialOnlyEval>();
+        generic_eval_test::<PstOnlyEval>();
+        generic_eval_test::<HandCraftedEval>();
     }
 }
