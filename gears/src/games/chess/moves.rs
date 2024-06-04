@@ -61,7 +61,7 @@ pub struct ChessMove(u16);
 
 impl ChessMove {
     pub fn new(from: ChessSquare, to: ChessSquare, flags: ChessMoveFlags) -> Self {
-        let idx = from.idx() + (to.idx() << 6) + ((flags as usize) << 12);
+        let idx = from.bb_idx() + (to.bb_idx() << 6) + ((flags as usize) << 12);
         Self(idx as u16)
     }
 
@@ -104,7 +104,7 @@ impl ChessMove {
     pub fn is_non_ep_capture(self, board: &Chessboard) -> bool {
         board
             .colored_bb(board.active_player.other())
-            .is_bit_set_at(self.dest_square().idx())
+            .is_bit_set_at(self.dest_square().bb_idx())
     }
 
     pub fn captured(self, board: &Chessboard) -> UncoloredChessPiece {
@@ -157,11 +157,11 @@ impl Move<Chessboard> for ChessMove {
     type Underlying = u16;
 
     fn src_square(self) -> ChessSquare {
-        ChessSquare::new((self.0 & 0x3f) as usize)
+        ChessSquare::from_bb_index((self.0 & 0x3f) as usize)
     }
 
     fn dest_square(self) -> ChessSquare {
-        ChessSquare::new(((self.0 >> 6) & 0x3f) as usize)
+        ChessSquare::from_bb_index(((self.0 >> 6) & 0x3f) as usize)
     }
 
     fn flags(self) -> Self::Flags {
@@ -231,7 +231,7 @@ impl Move<Chessboard> for ChessMove {
         {
             flags = EnPassant;
         }
-        let res = from.idx() + (to.idx() << 6) + ((flags as usize) << 12);
+        let res = from.bb_idx() + (to.bb_idx() << 6) + ((flags as usize) << 12);
         Ok(ChessMove(res as u16))
     }
 
@@ -330,8 +330,8 @@ impl Move<Chessboard> for ChessMove {
         Ok(res.0)
     }
 
-    fn from_usize(val: usize) -> Option<Self> {
-        Some(Self(val as u16))
+    fn from_usize_unchecked(val: usize) -> Self {
+        Self(val as u16)
     }
 
     fn to_underlying(self) -> Self::Underlying {
@@ -931,7 +931,10 @@ impl<'a> MoveParser<'a> {
 mod tests {
     use crate::games::chess::moves::ChessMove;
     use crate::games::chess::Chessboard;
+    use crate::games::generic_tests::generic_tests;
     use crate::games::{Board, Move};
+
+    type GenericTests = generic_tests::GenericTests<Chessboard>;
 
     #[test]
     fn valid_algebraic_notation_test() {
@@ -992,21 +995,7 @@ mod tests {
 
     #[test]
     fn algebraic_notation_roundtrip_test() {
-        let positions = Chessboard::name_to_pos_map();
-        for pos in positions.into_iter() {
-            let pos = (pos.val)();
-            for mov in pos.legal_moves_slow() {
-                let encoded = mov.to_extended_text(&pos);
-                let decoded = ChessMove::from_extended_text(&encoded, &pos);
-                assert!(decoded.is_ok());
-                println!(
-                    "{encoded} | {0} | {1}",
-                    decoded.clone().unwrap(),
-                    pos.as_fen()
-                );
-                assert_eq!(decoded.unwrap(), mov);
-            }
-        }
+        GenericTests::long_notation_roundtrip_test();
     }
 
     #[test]

@@ -33,7 +33,7 @@ impl Eval<Chessboard> for MaterialOnlyEval {
         let mut trace = SimpleTrace::for_features(Self::NUM_FEATURES);
         for color in Color::iter() {
             for piece in UncoloredChessPiece::non_king_pieces() {
-                let num_pieces = pos.colored_piece_bb(color, piece).num_set_bits() as isize;
+                let num_pieces = pos.colored_piece_bb(color, piece).num_ones() as isize;
                 trace.increment_by(piece as usize, color, num_pieces);
             }
         }

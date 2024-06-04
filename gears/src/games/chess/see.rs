@@ -51,7 +51,10 @@ impl Chessboard {
             let mut current_attackers =
                 self.colored_piece_bb(color, piece) & all_remaining_attackers;
             if current_attackers.has_set_bit() {
-                return (Some(piece), ChessSquare::new(current_attackers.pop_lsb()));
+                return (
+                    Some(piece),
+                    ChessSquare::from_bb_index(current_attackers.pop_lsb()),
+                );
             };
         }
         (None, ChessSquare::no_coordinates())
@@ -67,7 +70,7 @@ impl Chessboard {
         // This needs to handle the case of the opponent recapturing with a pawn promotion.
         if piece_see_value(our_victim) - piece_see_value(original_moving_piece) >= beta
             && !(square.is_backrank()
-                && (PAWN_CAPTURES[color as usize][square.idx()]
+                && (PAWN_CAPTURES[color as usize][square.bb_idx()]
                     & self.colored_piece_bb(color.other(), Pawn))
                 .has_set_bit())
         {
@@ -97,7 +100,7 @@ impl Chessboard {
         let mut see_attack = |attacker: ChessSquare,
                               all_remaining_attackers: &mut ChessBitboard,
                               piece: UncoloredChessPiece| {
-            let idx = attacker.idx();
+            let idx = attacker.bb_idx();
             // `&= !` instead of `^` because in the case of a regular pawn move, the moving pawn wasn't part of the attacker bb.
             *all_remaining_attackers &= !ChessBitboard::single_piece(idx);
             removed_attackers |= ChessBitboard::single_piece(idx);
@@ -107,7 +110,7 @@ impl Chessboard {
             );
             let blockers_left = self.occupied_bb() ^ removed_attackers;
             // xrays for sliders
-            let ray_attacks = self.ray_attacks(square, ChessSquare::new(idx), blockers_left);
+            let ray_attacks = self.ray_attacks(square, attacker, blockers_left);
             let new_attack = ray_attacks & !(removed_attackers | *all_remaining_attackers);
             debug_assert!(new_attack.0.count_ones() <= 1);
             *all_remaining_attackers |= new_attack;

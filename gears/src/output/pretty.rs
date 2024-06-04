@@ -6,9 +6,9 @@ use colored::{Color, Colorize};
 use crate::games::Color::*;
 use crate::games::{
     AbstractPieceType, Board, ColoredPiece, ColoredPieceType, Coordinates, Move, RectangularBoard,
-    RectangularCoordinates,
 };
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
+use crate::general::squares::RectangularCoordinates;
 use crate::output::text_output::{TextStream, TextWriter};
 use crate::output::Message::Info;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};

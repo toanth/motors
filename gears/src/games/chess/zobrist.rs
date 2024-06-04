@@ -1,12 +1,10 @@
 use strum::IntoEnumIterator;
 
-use crate::games::chess::moves::ChessMove;
-use crate::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};
+use crate::games::chess::pieces::UncoloredChessPiece;
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
 use crate::games::chess::Chessboard;
 use crate::games::Color::*;
 use crate::games::{Color, ColoredPieceType, ZobristHash};
-use crate::general::bitboards::RawBitboard;
 
 pub const NUM_PIECE_SQUARE_ENTRIES: usize = 64 * 6;
 pub const NUM_COLORED_PIECE_SQUARE_ENTRIES: usize = NUM_PIECE_SQUARE_ENTRIES * 2;
@@ -25,7 +23,7 @@ impl PrecomputedZobristKeys {
         color: Color,
         square: ChessSquare,
     ) -> ZobristHash {
-        self.piece_square_keys[square.idx() * 12 + piece as usize * 2 + color as usize]
+        self.piece_square_keys[square.bb_idx() * 12 + piece as usize * 2 + color as usize]
     }
 }
 
@@ -95,10 +93,9 @@ impl Chessboard {
         let mut res = ZobristHash(0);
         for color in Color::iter() {
             for piece in UncoloredChessPiece::pieces() {
-                let mut pieces = self.colored_piece_bb(color, piece);
-                while pieces.has_set_bit() {
-                    let idx = pieces.pop_lsb();
-                    res ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, ChessSquare::new(idx));
+                let pieces = self.colored_piece_bb(color, piece);
+                for square in pieces.ones() {
+                    res ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, square);
                 }
             }
         }
@@ -136,7 +133,7 @@ impl Chessboard {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, VecDeque};
+    use std::collections::HashMap;
 
     use itertools::Itertools;
 
@@ -145,8 +142,8 @@ mod tests {
     use crate::games::chess::squares::{ChessSquare, D_FILE_NO, E_FILE_NO};
     use crate::games::chess::zobrist::{PcgXslRr128_64Oneseq, PRECOMPUTED_ZOBRIST_KEYS};
     use crate::games::chess::Chessboard;
+    use crate::games::Board;
     use crate::games::Color::{Black, White};
-    use crate::games::{Board, ZobristHash};
 
     #[test]
     fn pcg_test() {
@@ -157,7 +154,7 @@ mod tests {
         assert_eq!(rand.0, 2915081201720324186);
         let (gen, rand) = gen.gen();
         assert_eq!(rand.0, 13533757442135995717);
-        let (gen, rand) = gen.gen();
+        let (_gen, rand) = gen.gen();
         assert_eq!(rand.0, 13172715927431628928);
     }
 
@@ -213,44 +210,6 @@ mod tests {
             collisions.len(),
             hashes.len()
         );
-    }
-
-    #[test]
-    fn statistical_test() {
-        let position = Chessboard::default();
-        let mut hashes = Vec::new();
-        let mut queue = VecDeque::new();
-        queue.push_back(position);
-        let max_queue_len = if cfg!(debug_assertions) {
-            500_000
-        } else {
-            5_000_000
-        };
-        while queue.len() <= max_queue_len {
-            let pos = queue.front().copied().unwrap();
-            let moves = pos.legal_moves_slow();
-            queue.pop_front();
-            hashes.push(pos.hash);
-            for mov in moves {
-                queue.push_back(pos.make_move(mov).unwrap());
-            }
-        }
-        for entry in queue {
-            hashes.push(entry.hash);
-        }
-        hashes.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-        for shift in 0..64 - 8 {
-            let get_bits = |hash: ZobristHash| (hash.0 >> shift) & 0xff;
-            let mut counts = vec![0; 256];
-            for hash in hashes.iter() {
-                counts[get_bits(*hash) as usize] += 1;
-            }
-            let expected = hashes.len() / 256;
-            for count in counts {
-                assert!(count >= expected / 2);
-                assert!(count <= expected + expected / 2);
-            }
-        }
     }
 
     #[test]

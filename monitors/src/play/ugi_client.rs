@@ -6,25 +6,26 @@ use std::time::{Duration, Instant};
 
 use crossbeam_utils::sync::{Parker, Unparker};
 
-use gears::{
-    AbstractRun, AdjudicationReason, GameOver, GameOverReason, GameResult,
-    GameState, MatchResult, MatchStatus, output_builder_from_str, player_res_to_match_res, PlayerResult,
-};
-use gears::games::{Board, BoardHistory, Color, Move, ZobristRepetition3Fold};
 use gears::games::Color::{Black, White};
+use gears::games::{Board, BoardHistory, Color, Move, ZobristRepetition3Fold};
 use gears::general::common::Res;
-use gears::MatchStatus::{NotStarted, Ongoing, Over};
-use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::output::Message::{Error, Info, Warning};
+use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{SearchInfo, TimeControl};
 use gears::ugi::EngineOptionType::*;
+use gears::MatchStatus::{NotStarted, Ongoing, Over};
+use gears::Quitting::{QuitMatch, QuitProgram};
+use gears::{
+    output_builder_from_str, player_res_to_match_res, AbstractRun, AdjudicationReason, GameOver,
+    GameOverReason, GameResult, GameState, MatchResult, MatchStatus, PlayerResult, Quitting,
+};
 
 use crate::cli::CommandLineArgs;
 use crate::play::adjudication::{Adjudication, Adjudicator};
-use crate::play::player::{
-    EnginePlayer, HumanPlayerStatus, limit_to_ugi, Player, PlayerBuilder, Protocol,
-};
 use crate::play::player::Player::{Engine, Human};
+use crate::play::player::{
+    limit_to_ugi, EnginePlayer, HumanPlayerStatus, Player, PlayerBuilder, Protocol,
+};
 use crate::play::ugi_input::BestMoveAction;
 use crate::play::ugi_input::BestMoveAction::Ignore;
 use crate::play::ugi_input::EngineStatus::*;
@@ -741,7 +742,7 @@ impl<B: Board> RunClient<B> {
 }
 
 impl<B: Board> AbstractRun for RunClient<B> {
-    fn run(&mut self) {
+    fn run(&mut self) -> Quitting {
         {
             let mut guard = self.client.lock().unwrap();
             guard.new_match(0, 1);
@@ -754,5 +755,6 @@ impl<B: Board> AbstractRun for RunClient<B> {
         // exits. Therefore, we wait for the input thread(s) to terminate before exiting the main thread.
         self.input.join_threads();
         assert_eq!(Arc::strong_count(&self.client), 1);
+        QuitMatch
     }
 }

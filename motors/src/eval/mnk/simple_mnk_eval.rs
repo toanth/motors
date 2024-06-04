@@ -1,9 +1,9 @@
 use strum::IntoEnumIterator;
 
-use gears::games::{Board, GridSize, Size};
-use gears::games::mnk::{MnkBitboard, MNKBoard};
+use gears::games::mnk::{MNKBoard, MnkBitboard};
+use gears::games::Board;
 use gears::general::bitboards::{Bitboard, RawBitboard, RayDirections};
-use gears::general::common::pop_lsb128;
+use gears::general::squares::GridSize;
 use gears::search::Score;
 
 use crate::eval::Eval;
@@ -12,15 +12,12 @@ use crate::eval::Eval;
 pub struct SimpleMnkEval {}
 
 fn eval_player(bb: MnkBitboard, size: GridSize) -> i32 {
-    let mut remaining = bb;
     let blockers = !bb;
     let mut res = 0;
-    while remaining.0 != 0 {
-        let idx = pop_lsb128(&mut remaining.0) as usize;
-
+    for coords in bb.ones_for_size(size) {
         for dir in RayDirections::iter() {
             // TODO: Don't bitand with bb, bitand with !other_bb?
-            let run = (MnkBitboard::slider_attacks(size.to_coordinates(idx), blockers, dir) & bb)
+            let run = (MnkBitboard::slider_attacks(coords, blockers, dir) & bb)
                 .to_primitive()
                 .count_ones();
             res += 1 << run;

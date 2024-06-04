@@ -37,6 +37,18 @@ pub struct EngineOpts {
     pub mode: Mode,
 }
 
+impl EngineOpts {
+    pub fn for_game(game: Game, debug: bool) -> Self {
+        Self {
+            game,
+            engine: "default".to_string(),
+            outputs: vec![],
+            debug,
+            mode: Engine,
+        }
+    }
+}
+
 fn parse_bench(args: &mut ArgIter) -> Res<Option<Depth>> {
     let mut res = None;
     if let Some(next) = args.peek() {
@@ -69,13 +81,7 @@ fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts) -> Res<()> {
 }
 
 pub fn parse_cli(mut args: ArgIter) -> Res<EngineOpts> {
-    let mut res = EngineOpts {
-        game: Default::default(),
-        engine: "default".to_string(),
-        outputs: vec![],
-        debug: false,
-        mode: Engine,
-    };
+    let mut res = EngineOpts::for_game(Game::default(), false);
     while args.peek().is_some() {
         parse_option(&mut args, &mut res)?;
     }

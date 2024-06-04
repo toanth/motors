@@ -5,7 +5,7 @@ use crate::eval::chess::{
 };
 use gears::games::chess::pieces::UncoloredChessPiece::{Pawn, Rook};
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
-use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
+use gears::games::chess::squares::NUM_SQUARES;
 use gears::games::chess::Chessboard;
 use gears::games::Color::{Black, White};
 use gears::games::{Board, Color, DimT};
@@ -324,10 +324,9 @@ impl Eval<Chessboard> for HandCraftedEval {
             let their_pawns = pos.colored_piece_bb(color.other(), Pawn);
 
             // Rooks on (semi)open/closed files (semi-closed files are handled by adjusting the base rook values during tuning)
-            let mut rooks = pos.colored_piece_bb(color, Rook);
-            while rooks.has_set_bit() {
-                let idx = rooks.pop_lsb();
-                match file_openness(ChessSquare::new(idx).file(), our_pawns, their_pawns) {
+            let rooks = pos.colored_piece_bb(color, Rook);
+            for rook in rooks.ones() {
+                match file_openness(rook.file(), our_pawns, their_pawns) {
                     Open => {
                         mg += Score(ROOK_OPEN_FILE_MG);
                         eg += Score(ROOK_OPEN_FILE_EG);
@@ -366,16 +365,13 @@ impl Eval<Chessboard> for HandCraftedEval {
 
             for piece in UncoloredChessPiece::pieces() {
                 let mut bb = pos.colored_piece_bb(color, piece);
-                while bb.has_set_bit() {
-                    let idx = bb.pop_lsb();
+                for mut square in bb.ones() {
+                    let idx = square.bb_idx();
                     let mg_table = piece as usize * 2;
                     let eg_table = mg_table + 1;
-                    let square = match color {
-                        White => idx ^ 0b111_000,
-                        Black => idx,
-                    };
-                    mg += Score(PSQTS[mg_table][square]);
-                    eg += Score(PSQTS[eg_table][square]);
+                    square = square.flip_if(color == White);
+                    mg += Score(PSQTS[mg_table][idx]);
+                    eg += Score(PSQTS[eg_table][idx]);
                     phase += PIECE_PHASE[piece as usize];
 
                     // Passed pawns.
@@ -387,8 +383,8 @@ impl Eval<Chessboard> for HandCraftedEval {
                         };
                         let blocking = in_front | in_front.west() | in_front.east();
                         if (in_front & our_pawns).is_zero() && (blocking & their_pawns).is_zero() {
-                            mg += Score(PASSED_PAWNS[0][square]);
-                            eg += Score(PASSED_PAWNS[1][square]);
+                            mg += Score(PASSED_PAWNS[0][idx]);
+                            eg += Score(PASSED_PAWNS[1][idx]);
                         }
                     }
                 }

@@ -1,16 +1,16 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Instant;
 
+use crate::games::Color::White;
+use crate::games::{Board, Color};
+use crate::general::common::Description::WithDescription;
+use crate::general::common::{select_name_dyn, Res};
+use crate::output::OutputBuilder;
+use crate::search::TimeControl;
 use crate::AdjudicationReason::*;
 use crate::GameResult::Aborted;
-use crate::games::{Board, Color};
-use crate::games::Color::White;
-use crate::general::common::{Res, select_name_dyn};
-use crate::general::common::Description::WithDescription;
 use crate::MatchStatus::Over;
-use crate::output::OutputBuilder;
 use crate::PlayerResult::Win;
-use crate::search::TimeControl;
 
 pub mod cli;
 /// Anything related to the specific games, organized in submodules like "chess".
@@ -155,8 +155,14 @@ impl OutputArgs {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Quitting {
+    QuitProgram,
+    QuitMatch,
+}
+
 pub trait AbstractRun: Debug {
-    fn run(&mut self);
+    fn run(&mut self) -> Quitting;
 }
 
 /// `AnyRunnable` is a type-erased `AbstractRun`, and almost the only thing that isn't generic over the Game.
