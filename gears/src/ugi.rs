@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::str::{FromStr, SplitWhitespace};
 
 use crate::games::Board;
-use crate::general::common::Res;
+use crate::general::common::{NamedEntity, Res};
 
 /// Ugi-related helpers that are used by both `motors` and `monitors`.
 
@@ -70,7 +70,7 @@ impl Display for EngineOptionType {
         match self {
             EngineOptionType::Check(c) => {
                 if let Some(b) = c.default {
-                    write!(f, "default {b}")?;
+                    write!(f, " default {b}")?;
                 }
             }
             EngineOptionType::Spin(s) => {
@@ -92,7 +92,7 @@ impl Display for EngineOptionType {
                 let default = c
                     .default
                     .clone()
-                    .map(|_x| "default x".to_string())
+                    .map(|_x| " default x".to_string())
                     .unwrap_or_else(String::default);
                 for o in &c.options {
                     write!(f, " var {o}")?;
@@ -102,7 +102,7 @@ impl Display for EngineOptionType {
             EngineOptionType::Button => { /*nothing to do*/ }
             EngineOptionType::UString(s) => {
                 if let Some(string) = &s.default {
-                    write!(f, "value {string}")?;
+                    write!(f, " value {string}")?;
                 }
             }
         }
@@ -121,9 +121,9 @@ pub enum EngineOptionName {
     Other(String),
 }
 
-impl Display for EngineOptionName {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
+impl EngineOptionName {
+    pub fn name(&self) -> &str {
+        match self {
             EngineOptionName::Hash => "Hash",
             EngineOptionName::Threads => "Threads",
             EngineOptionName::Ponder => "Ponder",
@@ -131,8 +131,13 @@ impl Display for EngineOptionName {
             EngineOptionName::UciElo => "UCI_Elo",
             EngineOptionName::MoveOverhead => "MoveOverhead",
             EngineOptionName::Other(x) => x,
-        };
-        write!(f, "{s}")
+        }
+    }
+}
+
+impl Display for EngineOptionName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name())
     }
 }
 
@@ -145,6 +150,7 @@ impl FromStr for EngineOptionName {
             "threads" => EngineOptionName::Threads,
             "ponder" => EngineOptionName::Ponder,
             "multipv" => EngineOptionName::MultiPv,
+            "uci_elo" => EngineOptionName::UciElo,
             "move overhead" | "moveoverhead" => EngineOptionName::MoveOverhead,
             _ => EngineOptionName::Other(s.to_string()),
         })
@@ -174,6 +180,20 @@ impl Display for EngineOption {
             name = self.name,
             value = self.value
         )
+    }
+}
+
+impl NamedEntity for EngineOption {
+    fn short_name(&self) -> &str {
+        self.name.name()
+    }
+
+    fn long_name(&self) -> &str {
+        self.short_name()
+    }
+
+    fn description(&self) -> Option<&str> {
+        None
     }
 }
 

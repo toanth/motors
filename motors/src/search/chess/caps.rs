@@ -11,7 +11,8 @@ use gears::games::chess::pieces::UncoloredChessPiece::Empty;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::{Chessboard, MAX_CHESS_MOVES_IN_POS};
 use gears::games::{Board, BoardHistory};
-use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
+use gears::general::common::Description::{NoDescription, WithDescription};
+use gears::general::common::{select_name_static, NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
 use gears::search::{
     game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, MAX_SCORE_LOST,
@@ -19,7 +20,7 @@ use gears::search::{
 };
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::EngineOptionType::Spin;
-use gears::ugi::{EngineOption, UgiSpin};
+use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck, UgiSpin};
 
 use crate::eval::Eval;
 use crate::search::move_picker::MovePicker;
@@ -170,15 +171,39 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
                     max: Some(100),
                 }),
             },
+            EngineOption {
+                name: EngineOptionName::Other("UCI_Chess960".to_string()),
+                value: EngineOptionType::Check(UgiCheck {
+                    val: true,
+                    default: Some(true),
+                }),
+            },
         ];
         EngineInfo {
             name: self.long_name().to_string(),
-            version: "0.0.1".to_string(),
+            version: "0.1.0".to_string(),
             default_bench_depth: Depth::new(12),
             options,
             description: "CAPS (Chess Alpha-beta Pruning Search), a negamax-based chess engine"
                 .to_string(),
         }
+    }
+
+    fn set_option(&mut self, option: EngineOptionName, _value: String) -> Res<()> {
+        let name = option.name().to_string();
+        if let EngineOptionName::Other(name) = option {
+            if name == "UCI_Chess960" {
+                return Ok(());
+            }
+        }
+        select_name_static(
+            &name,
+            self.engine_info().options.iter(),
+            "uci option",
+            "chess",
+            NoDescription,
+        )?; // only called to produce an error message
+        Err("Unrecognized option name. Spelling error?".to_string())
     }
 }
 

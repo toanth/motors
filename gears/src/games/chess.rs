@@ -268,6 +268,15 @@ impl Board for Chessboard {
         ChessboardSize::default()
     }
 
+    fn is_piece_on(&self, coords: ChessSquare, piece: ColoredChessPiece) -> bool {
+        if let Some(color) = piece.color() {
+            self.colored_piece_bb(color, piece.uncolor())
+                .is_bit_set_at(coords.bb_idx())
+        } else {
+            self.empty_bb().is_bit_set_at(coords.bb_idx())
+        }
+    }
+
     fn colored_piece_on(&self, square: Self::Coordinates) -> Self::Piece {
         let idx = square.bb_idx();
         let uncolored = self.uncolored_piece_on(square);
@@ -969,6 +978,13 @@ mod tests {
             assert_eq!(fen, board.as_fen());
             assert_eq!(board, Chessboard::from_fen(&board.as_fen()).unwrap());
         }
+    }
+
+    #[test]
+    fn invalid_castle_right_test() {
+        let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w AQk - 0 1";
+        let board = Chessboard::from_fen(fen);
+        assert!(board.is_err());
     }
 
     #[test]

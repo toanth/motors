@@ -18,7 +18,6 @@ use crate::games::chess::squares::ChessSquare;
 #[cfg(feature = "chess")]
 use crate::games::chess::squares::ChessboardSize;
 use crate::games::{DimT, Size};
-use crate::general::bitboards::ataxx::AtaxxBitboard;
 use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::common::{pop_lsb128, pop_lsb64};
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, RectangularSize};

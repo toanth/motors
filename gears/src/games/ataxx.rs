@@ -180,6 +180,16 @@ impl Board for AtaxxBoard {
         AtaxxSize::default()
     }
 
+    fn is_piece_on(&self, sq: AtaxxSquare, piece: ColoredAtaxxPieceType) -> bool {
+        match piece {
+            Empty => self.empty_bb(),
+            Blocked => self.blocked_bb(),
+            WhitePiece => self.color_bb(White),
+            BlackPiece => self.color_bb(Black),
+        }
+        .is_bit_set_at(sq.bb_idx())
+    }
+
     fn colored_piece_on(&self, coordinates: Self::Coordinates) -> Self::Piece {
         let idx = coordinates.bb_idx();
         let typ = if self.colors[White as usize].is_bit_set_at(idx) {

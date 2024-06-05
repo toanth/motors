@@ -6,7 +6,7 @@ use crate::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO};
 use crate::games::chess::CastleRight::*;
 use crate::games::chess::{ChessMoveList, Chessboard};
 use crate::games::Color::*;
-use crate::games::{Board, Color, ColoredPiece, ColoredPieceType, Coordinates, Move};
+use crate::games::{Board, Color, ColoredPiece, ColoredPieceType, Move};
 use crate::general::bitboards::chess::{ChessBitboard, KINGS, KNIGHTS, PAWN_CAPTURES};
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
@@ -150,7 +150,7 @@ impl Chessboard {
             regular_pawn_moves,
             double_pawn_moves,
         ] {
-            let mut bb = move_type.0;
+            let bb = move_type.0;
             for to in bb.ones() {
                 let from = ChessSquare::from_bb_index((to.to_u8() as isize - move_type.1) as usize);
                 let is_capture = from.file() != to.file();
@@ -272,7 +272,7 @@ impl Chessboard {
     fn gen_knight_moves(&self, list: &mut ChessMoveList, filter: ChessBitboard) {
         let knights = self.colored_piece_bb(self.active_player, Knight);
         for from in knights.ones() {
-            let mut attacks = Self::knight_moves_from_square(from, filter);
+            let attacks = Self::knight_moves_from_square(from, filter);
             for to in attacks.ones() {
                 list.push(ChessMove::new(from, to, Normal));
             }

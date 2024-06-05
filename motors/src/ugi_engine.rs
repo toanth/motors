@@ -443,11 +443,17 @@ impl<B: Board> EngineUGI<B> {
                 self.handle_setoption(words)?;
             }
             "register" => return Err("'register' isn't supported".to_string()),
-            "ucinewgame" => {
+            "ucinewgame" | "uginewgame" | "clear" => {
                 self.state.engine.send_forget()?;
                 self.state.status = Run(NotStarted);
             }
             "ponderhit" => {} // ignore pondering
+            "flip" => {
+                self.state.board = self.state.board.make_nullmove().ok_or(format!(
+                    "Could not flip the side to move (board: '{}'",
+                    self.state.board.as_fen().bold()
+                ))?;
+            }
             "quit" => {
                 self.quit(QuitProgram)?;
             }
