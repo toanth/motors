@@ -1,5 +1,5 @@
 use crate::games::chess::moves::ChessMove;
-use crate::games::chess::moves::ChessMoveFlags::{Normal, PromoQueen};
+use crate::games::chess::moves::ChessMoveFlags::{NormalPawnMove, PromoQueen};
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use crate::games::chess::squares::ChessSquare;
@@ -64,8 +64,8 @@ impl Chessboard {
         debug_assert!(alpha < beta);
         let square = mov.dest_square();
         let mut color = self.active_player;
-        let original_moving_piece = self.colored_piece_on(mov.src_square()).uncolored();
-        let mut our_victim = self.colored_piece_on(square).uncolored();
+        let original_moving_piece = mov.uncolored_piece();
+        let mut our_victim = self.uncolored_piece_on(square);
         // A simple shortcut to avoid doing most of the work of SEE for a large portion of the cases it's called.
         // This needs to handle the case of the opponent recapturing with a pawn promotion.
         if piece_see_value(our_victim) - piece_see_value(original_moving_piece) >= beta
@@ -117,7 +117,7 @@ impl Chessboard {
             let (flags, new_piece) = if piece == Pawn && square.is_backrank() {
                 (PromoQueen, Queen)
             } else {
-                (Normal, piece)
+                (NormalPawnMove, piece) // the flag doesn't matter, as long as it's not a promo or castle
             };
             (ChessMove::new(attacker, square, flags), new_piece)
         };

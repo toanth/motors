@@ -1,5 +1,5 @@
-use crate::games::chess::moves::ChessMove;
 use crate::games::chess::moves::ChessMoveFlags::*;
+use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
 use crate::games::chess::pieces::ColoredChessPiece;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO};
@@ -20,19 +20,23 @@ enum SliderMove {
 // TODO: Use the north(), west(), etc. methods
 
 impl Chessboard {
-    // TODO: More efficient impl for sliders
+    // TODO: More efficient impl for sliders, castling king moves
     pub fn is_move_pseudolegal_impl(&self, mov: ChessMove) -> bool {
-        let piece = mov.piece(self);
-        if piece.is_empty() || piece.color().unwrap() != self.active_player {
+        let piece = mov.uncolored_piece();
+        let src = mov.src_square();
+        if !self
+            .colored_piece_bb(self.active_player, piece)
+            .is_bit_set_at(src.bb_idx())
+        {
             return false;
         }
         let mut list = ChessMoveList::default();
         let filter = !self.colored_bb(self.active_player);
-        match piece.uncolored() {
+        match piece {
             Pawn => self.gen_pawn_moves(&mut list, false),
             Knight => {
-                return Self::knight_moves_from_square(mov.src_square(), filter)
-                    .is_bit_set_at(mov.dest_square().bb_idx());
+                return Self::knight_moves_from_square(src, filter)
+                    .is_bit_set_at(mov.dest_square().bb_idx())
             }
             Bishop => self.gen_slider_moves(SliderMove::Bishop, &mut list, filter),
             Rook => self.gen_slider_moves(SliderMove::Rook, &mut list, filter),
@@ -40,7 +44,14 @@ impl Chessboard {
                 self.gen_slider_moves(SliderMove::Rook, &mut list, filter);
                 self.gen_slider_moves(SliderMove::Bishop, &mut list, filter);
             }
-            King => self.gen_king_moves(&mut list, filter, false),
+            King => {
+                if mov.is_castle() {
+                    self.gen_king_moves(&mut list, filter, false)
+                } else {
+                    return Self::normal_king_moves_from_square(src, filter)
+                        .is_bit_set_at(mov.dest_square().bb_idx());
+                }
+            }
             Empty => panic!(),
         }
         list.contains(&mov)
@@ -154,7 +165,7 @@ impl Chessboard {
             for to in bb.ones() {
                 let from = ChessSquare::from_bb_index((to.to_u8() as isize - move_type.1) as usize);
                 let is_capture = from.file() != to.file();
-                let mut flag = Normal;
+                let mut flag = NormalPawnMove;
                 if self.ep_square.is_some_and(|sq| sq == to) {
                     flag = EnPassant;
                 } else if to.is_backrank() {
@@ -185,7 +196,7 @@ impl Chessboard {
             list.push(ChessMove::new(
                 king_square,
                 ChessSquare::from_bb_index(target),
-                Normal,
+                NormalKingMove,
             ));
         }
         if only_captures {
@@ -274,7 +285,7 @@ impl Chessboard {
         for from in knights.ones() {
             let attacks = Self::knight_moves_from_square(from, filter);
             for to in attacks.ones() {
-                list.push(ChessMove::new(from, to, Normal));
+                list.push(ChessMove::new(from, to, KnightMove));
             }
         }
     }
@@ -286,19 +297,22 @@ impl Chessboard {
         filter: ChessBitboard,
     ) {
         let color = self.active_player;
-        let non_queens = self.colored_piece_bb(
-            color,
-            match slider_move {
-                SliderMove::Bishop => Bishop,
-                SliderMove::Rook => Rook,
-            },
-        );
+        let slider_type = match slider_move {
+            SliderMove::Bishop => Bishop,
+            SliderMove::Rook => Rook,
+        };
+        let non_queens = self.colored_piece_bb(color, slider_type);
         let queens = self.colored_piece_bb(color, Queen);
-        let pieces = non_queens | queens;
+        let pieces = queens | non_queens;
         for from in pieces.ones() {
             let attacks = self.gen_sliders_from_square(from, slider_move, filter, from.bb());
             for to in attacks.ones() {
-                list.push(ChessMove::new(from, to, Normal));
+                let move_type = if queens.is_bit_set_at(from.bb_idx()) {
+                    QueenMove
+                } else {
+                    ChessMoveFlags::normal_move(slider_type)
+                };
+                list.push(ChessMove::new(from, to, move_type));
             }
         }
     }

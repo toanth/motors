@@ -339,6 +339,10 @@ impl Board for AtaxxBoard {
         }
         Ok(())
     }
+
+    fn is_empty(&self, coords: Self::Coordinates) -> bool {
+        self.empty_bb().is_bit_set_at(coords.bb_idx())
+    }
 }
 
 #[cfg(test)]
