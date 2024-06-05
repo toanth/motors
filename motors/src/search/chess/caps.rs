@@ -196,7 +196,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
         limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
         let soft_limit = limit
             .fixed_time
-            .min(limit.tc.remaining / 32 + limit.tc.increment / 2)
+            .min((limit.tc.remaining.saturating_sub(limit.tc.increment)) / 32 + limit.tc.increment)
             .min(limit.tc.remaining / 4);
 
         sender.send_message(Debug, &format!(
@@ -229,7 +229,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
         let divisor = tc.moves_to_go.unwrap_or(usize::MAX).clamp(2, 4) as u32;
         // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
         // (assuming the move overhead is set correctly)
-        elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment / 2)
+        elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment)
     }
 
     #[inline(always)]
