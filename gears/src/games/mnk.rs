@@ -449,6 +449,12 @@ impl Board for MNKBoard {
         }
     }
 
+    fn is_empty(&self, coords: Self::Coordinates) -> bool {
+        let idx = self.size().to_internal_key(coords);
+        // slightly faster than calling `empty_bb()`
+        !self.occupied_bb().is_bit_set_at(idx)
+    }
+
     fn colored_piece_on(&self, coordinates: Self::Coordinates) -> Square {
         let idx = self.size().to_internal_key(coordinates);
         debug_assert!(self.white_bb & self.black_bb == ExtendedRawBitboard(0));

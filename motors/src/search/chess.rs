@@ -39,7 +39,7 @@ mod tests {
             ChessMove::new(
                 ChessSquare::from_str("d1").unwrap(),
                 ChessSquare::from_str("d6").unwrap(),
-                ChessMoveFlags::Normal
+                ChessMoveFlags::RookMove
             )
         );
         assert!(res.score.is_some());

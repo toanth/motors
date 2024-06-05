@@ -549,8 +549,12 @@ pub trait Board:
         self.size().num_squares()
     }
 
+    fn is_empty(&self, coords: Self::Coordinates) -> bool;
+
     /// Returns the piece at the given coordinates.
-    /// Should return the same as `piece_on_idx(self.to_idx(pos))`.
+    /// `uncolored_piece_on` can sometimes be implemented more efficiently, e.g. for chess,
+    /// but both methods can be relatively slow. For example, a chess move already stores the moving piece;
+    /// getting it from the chess move is more efficient than getting it from the board.
     fn colored_piece_on(&self, coords: Self::Coordinates) -> Self::Piece;
 
     /// Returns the uncolored piece type at the given coordinates.

@@ -221,7 +221,7 @@ mod tests {
         let mov = ChessMove::new(
             ChessSquare::from_rank_file(1, E_FILE_NO),
             ChessSquare::from_rank_file(3, E_FILE_NO),
-            ChessMoveFlags::Normal,
+            ChessMoveFlags::NormalPawnMove,
         );
         let new_pos = position.make_move(mov).unwrap();
         assert_eq!(new_pos.zobrist_hash(), new_pos.compute_zobrist());

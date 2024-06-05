@@ -268,6 +268,10 @@ impl Board for Chessboard {
         ChessboardSize::default()
     }
 
+    fn is_empty(&self, coords: Self::Coordinates) -> bool {
+        self.empty_bb().is_bit_set_at(coords.bb_idx())
+    }
+
     fn colored_piece_on(&self, square: Self::Coordinates) -> Self::Piece {
         let idx = square.bb_idx();
         let uncolored = self.uncolored_piece_on(square);
@@ -312,7 +316,7 @@ impl Board for Chessboard {
     }
 
     fn make_move(self, mov: Self::Move) -> Option<Self> {
-        self.make_move_impl(mov, mov.uncolored_piece(&self))
+        self.make_move_impl(mov)
     }
 
     fn make_nullmove(mut self) -> Option<Self> {
@@ -614,6 +618,10 @@ impl Chessboard {
         ChessBitboard::new(self.color_bbs[color as usize])
     }
 
+    pub fn active_player_bb(&self) -> ChessBitboard {
+        self.colored_bb(self.active_player)
+    }
+
     pub fn occupied_bb(&self) -> ChessBitboard {
         debug_assert!((self.colored_bb(White) & self.colored_bb(Black)).is_zero());
         self.colored_bb(White) | self.colored_bb(Black)
@@ -647,10 +655,7 @@ impl Chessboard {
     }
 
     fn place_piece(&mut self, square: ChessSquare, piece: ColoredChessPiece) {
-        debug_assert_eq!(
-            self.colored_piece_on(square).symbol,
-            ColoredChessPiece::Empty
-        );
+        debug_assert!(self.is_empty(square));
         let bb = square.bb().raw();
         self.piece_bbs[piece.uncolor() as usize] ^= bb;
         self.color_bbs[piece.color().unwrap() as usize] ^= bb;
@@ -671,7 +676,7 @@ impl Chessboard {
 
     fn move_piece(&mut self, from: ChessSquare, to: ChessSquare, piece: UncoloredChessPiece) {
         debug_assert_ne!(piece, Empty);
-        debug_assert_eq!(self.colored_piece_on(from).uncolored(), piece);
+        debug_assert_eq!(self.uncolored_piece_on(from), piece);
         debug_assert_eq!(
             self.active_player,
             self.colored_piece_on(from).color().unwrap()
@@ -1027,7 +1032,7 @@ mod tests {
             if !board.is_pseudolegal_move_legal(mov) {
                 continue;
             }
-            let checkmates = mov.uncolored_piece(&board) == Rook
+            let checkmates = mov.uncolored_piece() == Rook
                 && mov.dest_square() == ChessSquare::from_rank_file(7, G_FILE_NO);
             assert_eq!(board.is_game_won_after_slow(mov), checkmates);
             let new_board = board.make_move(mov).unwrap();
