@@ -39,7 +39,9 @@ use crate::search::{
 
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
+
 const KILLER_SCORE: i32 = i32::MAX - 200;
+const MAX_BAD_CAPTURE_SCORE: i32 = i32::MIN + 500; // TODO: Use `MoveScore` struct with methods for this
 
 #[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
 struct HistoryHeuristic([i32; 64 * 64]);
@@ -541,28 +543,34 @@ impl<E: Eval<Chessboard>> Caps<E> {
             self.score_move_fn(pos, best_move, ply),
         );
         for (mov, move_score) in move_picker.into_iter() {
-            // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
-            // so don't even bother looking at them in the last few layers.
-            // FP (Futility Pruning): If the static eval is far below alpha,
-            // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
-            // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
-            let fp_margin = if regressing {
-                200 + 32 * depth
-            } else {
-                300 + 64 * depth
-            };
-            let lmp_threshold = if regressing {
-                6 + 4 * depth
-            } else {
-                8 + 8 * depth
-            };
-            if can_prune
-                && best_score > MAX_SCORE_LOST
-                && depth <= 3
-                && (num_uninteresting_visited >= lmp_threshold
-                    || (eval + Score(fp_margin as i32) < alpha && move_score < KILLER_SCORE))
-            {
-                break;
+            if can_prune && best_score > MAX_SCORE_LOST {
+                // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
+                // so don't even bother looking at them in the last few layers.
+                let lmp_threshold = if regressing {
+                    6 + 4 * depth
+                } else {
+                    8 + 8 * depth
+                };
+                if depth <= 3 && num_uninteresting_visited >= lmp_threshold {
+                    break;
+                }
+                // FP (Futility Pruning): If the static eval is far below alpha,
+                // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
+                // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
+                let fp_margin = if regressing {
+                    200 + 32 * depth
+                } else {
+                    300 + 64 * depth
+                };
+                if depth <= 3 && eval + Score(fp_margin as i32) < alpha && move_score < KILLER_SCORE
+                {
+                    break;
+                }
+                /// See pruning: At low depths, skip bad captures. TODO: Maybe try also skipping bad quiets with continue?
+                let see_pruning_depth = 3;
+                if depth <= see_pruning_depth && move_score <= MAX_BAD_CAPTURE_SCORE {
+                    break;
+                }
             }
 
             let new_pos = pos.make_move(mov);
@@ -807,6 +815,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
         for (mov, score) in move_picker.into_iter() {
             debug_assert!(mov.is_tactical(&pos));
             if score < 0 {
+                // TODO: Use MAX_BAD_CAPTURE_SCORE instead, test that bench stays same (currently, there are no history
+                // moves in qsearch, but this might change with check evasions)
                 // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
                 break;
             }
