@@ -52,18 +52,18 @@ impl NamedEntity for Game {
         self.into()
     }
 
-    fn long_name(&self) -> &str {
-        self.into()
+    fn long_name(&self) -> String {
+        self.short_name().to_string()
     }
 
-    fn description(&self) -> Option<&str> {
+    fn description(&self) -> Option<String> {
         Some(match self {
             Game::Chess => "Normal Chess, Chess960 or Double Fisher Random Chess.",
             Game::Ataxx => return None,
             Game::Mnk => "m,n,k games are a generalization of Tic-Tac-Toe or Gomoku. Currently, this implementation \
                 only supports boards up to 128 squares.",
             _ => return None,
-        })
+        }.to_string())
     }
 }
 

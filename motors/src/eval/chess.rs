@@ -95,7 +95,7 @@ mod tests {
     use super::*;
     use crate::eval::chess::hce::HandCraftedEval;
     use crate::eval::chess::material_only::MaterialOnlyEval;
-    use crate::eval::chess::pst_only::PstOnlyEval;
+    use crate::eval::chess::pst_only::PistonEval;
     use crate::eval::Eval;
     use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
     use gears::games::chess::Chessboard;
@@ -210,7 +210,7 @@ mod tests {
     #[test]
     fn simple_eval_test() {
         generic_eval_test::<MaterialOnlyEval>();
-        generic_eval_test::<PstOnlyEval>();
+        generic_eval_test::<PistonEval>();
         generic_eval_test::<HandCraftedEval>();
     }
 }

@@ -69,11 +69,11 @@ impl NamedEntity for PrettyUI {
         PrettyUIBuilder::static_short_name()
     }
 
-    fn long_name(&self) -> &str {
-        PrettyUIBuilder::static_long_name()
+    fn long_name(&self) -> String {
+        PrettyUIBuilder::static_long_name().to_string()
     }
 
-    fn description(&self) -> Option<&str> {
+    fn description(&self) -> Option<String> {
         Some(PrettyUIBuilder::static_description())
     }
 }
@@ -131,12 +131,12 @@ impl StaticallyNamedEntity for PrettyUIBuilder {
         "pretty"
     }
 
-    fn static_long_name() -> &'static str {
-        "Pretty Text-based UI"
+    fn static_long_name() -> String {
+        "Pretty Text-based UI".to_string()
     }
 
-    fn static_description() -> &'static str {
-        "A text-based UI for rectangular boards, using unicode characters for pieces and different (background) colors"
+    fn static_description() -> String {
+        "A text-based UI for rectangular boards, using unicode characters for pieces and different (background) colors".to_string()
     }
 }
 

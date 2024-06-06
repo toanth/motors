@@ -5,12 +5,12 @@ use pliers::eval::chess::piston_eval::PistonEval;
 use pliers::{debug_eval_on_lucena, run};
 
 #[cfg(feature = "caps")]
-type Engine = CapsHceEval;
+type Eval = CapsHceEval;
 
 #[cfg(not(feature = "caps"))]
-type Engine = PistonEval;
+type Eval = PistonEval;
 
 fn main() {
-    debug_eval_on_lucena::<Engine>();
-    run::<Chessboard, Engine>();
+    debug_eval_on_lucena::<Eval>();
+    run::<Chessboard, Eval>();
 }

@@ -1,4 +1,6 @@
-use crate::eval::{count_occurrences, interpolate, WeightsInterpretation};
+//! Everything related to the actual optimization, using a Gradient Descent-based tuner ([`Adam`] by default).
+
+use crate::eval::{count_occurrences, display, interpolate, WeightsInterpretation};
 use colored::Colorize;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
 use gears::games::Color;
@@ -11,14 +13,21 @@ use std::time::Instant;
 use std::usize;
 
 // TODO: Better value
+/// If the batch size exceeds this value, a multithreaded implementation will be used for computing the gradient and loss.
 /// Not doing multithreading for small batch sizes isn't only meant to improve performance,
 /// it also makes it easier to debug problems with the eval because stack traces and debugger steps
 /// are simpler.
-const MIN_MULTITHREADING_BATCH_SIZE: usize = 10_000;
+pub const MIN_MULTITHREADING_BATCH_SIZE: usize = 10_000;
 
+/// Gradient Descent based tuning works with real numbers. This is the type used to represent those.
 pub type Float = f64;
 
 /// The result of calling the eval function.
+///
+/// Although a real eval function usually uses integer weights and only produces integer results,
+/// during tuning, weights are stored as [`Float`]s, which is why this type also wraps a [`Float`].
+/// Tuning works by comparing the actual [`Outcome`] to the predicted [`WrScore`].
+/// For this, the [`CpScore`] is converted into a [`WrScore`] by applying a [`sigmoid`].
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 pub struct CpScore(pub Float);
 
@@ -28,14 +37,16 @@ impl Display for CpScore {
     }
 }
 
-/// The wr prediction, based on the CpScore (between 0 and 1).
+/// The win rate prediction, based on the [`CpScore`] (between `0` and `1`).
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 pub struct WrScore(pub Float);
 
-/// `WrScore` is used for the converted score returned by the eval, `Outcome` for the actual outcome
+/// `WrScore` is used for the converted score returned by the eval, [`Outcome`] for the actual outcome.
 pub type Outcome = WrScore;
 
 impl WrScore {
+    /// Construct a new [`WrScore`] from a [`Float`].
+    /// panics if the [`Float`] is not within the interval `[-1, 1]`.
     pub fn new(val: Float) -> Self {
         assert!((0.0..=1.0).contains(&val));
         Self(val)
@@ -48,23 +59,31 @@ impl Display for WrScore {
     }
 }
 
-/// The eval scale stretches the sigmoid horizontally, so a larger eval scale means that
-/// a larger eval value is necessary to count as "surely lost/won". It determines how to convert a `CpScore` to a `WrScore`.
+/// The eval scale stretches the [`sigmoid`] horizontally, so a larger eval scale means that a larger eval value
+/// is necessary to count as "surely lost/won". It determines how to convert a [`CpScore`] to a [`WrScore`].
 pub type ScalingFactor = Float;
 
+/// [Logistic sigmoid](<https://en.wikipedia.org/wiki/Logistic_function#Mathematical_properties>),
+/// dividing `x` by a [`ScalingFactor`].
 pub fn sigmoid(x: Float, scale: ScalingFactor) -> Float {
     1.0 / (1.0 + (-x / scale).exp())
 }
 
+/// Convert an eval score to a win rate prediction by applying a [`sigmoid`].
 pub fn cp_to_wr(cp: CpScore, eval_scale: ScalingFactor) -> WrScore {
     WrScore(sigmoid(cp.0, eval_scale))
 }
 
+/// The *loss* of a single sample.
+///
+/// The loss is a measure of how wrong our prediction is; smaller values are better.
+/// This function computes the loss as the squared error, multiplied by the sampling weight.
 pub fn sample_loss(wr_prediction: WrScore, outcome: Outcome, sample_weight: Float) -> Float {
     let delta = wr_prediction.0 - outcome.0;
     delta * delta * sample_weight
 }
 
+/// The loss of an eval score, see [sample_loss].
 pub fn sample_loss_for_cp(
     eval: CpScore,
     outcome: Outcome,
@@ -75,10 +94,17 @@ pub fn sample_loss_for_cp(
     sample_loss(wr_prediction, outcome, sample_weight)
 }
 
+/// The *gradient* of the loss function, based on a single sample.
+///
+/// Constant factors are ignored by this function.
+/// Optimization works by changing weights into the opposite direction of the gradient.
 pub fn scaled_sample_grad(prediction: WrScore, outcome: Outcome, sample_weight: Float) -> Float {
     (prediction.0 - outcome.0) * prediction.0 * (1.0 - prediction.0) * sample_weight
 }
 
+/// A single weight.
+///
+/// Tuning works by changing the values of all weights in parallel to minimize the loss.
 #[derive(
     Debug,
     Display,
@@ -97,10 +123,13 @@ pub fn scaled_sample_grad(prediction: WrScore, outcome: Outcome, sample_weight: 
 pub struct Weight(pub Float);
 
 impl Weight {
+    /// Round this weight to the nearest integer.
     pub fn rounded(self) -> i32 {
         self.0.round() as i32
     }
 
+    /// Convert this weight into a string of the rounded value.
+    /// If `special` is [`true`], paint it red.
     pub fn to_string(self, special: bool) -> String {
         if special {
             format!("{}", self.0.round()).red().to_string()
@@ -110,19 +139,24 @@ impl Weight {
     }
 }
 
-/// In an ideal world, this would take the number N of weights as a generic parameter.
+/// In the tuner, a position and the gradient are represented as a list of weights.
+///
+/// In an ideal world, this struct would take the number N of weights as a generic parameter.
 /// However, const generics are very limited in (stable) Rust, which makes this a pain to implement.
-/// So instead, the size is known runtime.
-
+/// So instead, the size is only known at runtime.
 #[derive(Debug, Default, Clone, Deref, DerefMut)]
 pub struct Weights(pub Vec<Weight>);
 
+/// The gradient gives the opposite direction in which weights need to be changed to reduce the loss.
 pub type Gradient = Weights;
 
 impl Weights {
+    /// Construct a list of `num_weights` weights, all initialized to zero.
     pub fn new(num_weights: usize) -> Self {
         Self(vec![Weight(0.0); num_weights])
     }
+
+    /// The number of weights.
     pub fn num_weights(&self) -> usize {
         self.0.len()
     }
@@ -195,6 +229,17 @@ impl Weights {
 
 type FeatureT = i8;
 
+/// A feature can occur some fixed number of times in a position.
+///
+/// For example, one possible feature would be "number of rooks" in a chess position.
+/// This would be computed by subtracting the number of black rooks from the number of white rooks.
+/// Then, for each position, all weights corresponding to this feature are multiplied by the feature count
+/// and added up over all features to compute the [`CpScore`].
+///
+/// Because usually, most features will appear in a given position, the list of features is stored as a sparse array
+/// (i.e. only non-zero features are actually stored).
+/// Users should not generally have to deal with this type directly; building their `[trace]`(TraceTrait) on top of
+/// `[SimpleTrace]` should take care of constructing this struct.
 #[derive(Debug, Default, Copy, Clone, PartialOrd, PartialEq)]
 pub struct Feature {
     feature: FeatureT,
@@ -202,36 +247,95 @@ pub struct Feature {
 }
 
 impl Feature {
+    /// Constructs a new feature.
     pub fn new(feature: FeatureT, idx: u16) -> Self {
         Self { feature, idx }
     }
 
+    /// Converts the feature to a [`Float`].
     pub fn float(self) -> Float {
         self.feature as Float
     }
+    /// The zero-based index of this feature.
+    ///
+    /// Note that a feature may correspond to more than one weight;
+    /// [`TaperedDatapoint`] takes care of dealing with that.
     pub fn idx(self) -> usize {
         self.idx as usize
     }
 }
 
+/// A phased eval interpolates between middlegame and endgame [`Weight`]s using this multiplier.
+///
+/// This value should be in `[0, 1]`.
 #[derive(Debug, Copy, Clone)]
 pub struct PhaseMultiplier(Float);
 
+/// A trace stores extracted features of a position and can be converted to a list of [`Feature`]s.
+///
+/// This type is returned by the [`feature_trace`](super::eval::Eval::feature_trace) method.
+/// The simplest way to implement this trait is to make your strut contain several [`SimpleTrace`]s,
+/// which do the actual work of converting the trace to a list of features.
+///
+/// For example:
+/// ```
+/// use pliers::gd::{Feature, SimpleTrace, TraceTrait};
+/// #[derive(Debug, Default)]
+/// struct MyTrace {
+///     some_trace: SimpleTrace,
+///     some_other_trace: SimpleTrace,
+/// }
+///
+/// impl TraceTrait for MyTrace {
+///     fn as_features(&self, mut idx_offset: usize) -> Vec<Feature> {
+///         let mut res = self.some_trace.as_features(idx_offset);
+///         idx_offset += self.some_trace.max_num_features();
+///         res.append(&mut self.some_other_trace.as_features(idx_offset));
+///         res
+///     }
+///
+///     fn max_num_features(&self) -> usize {
+///         self.some_trace.max_num_features() + self.some_other_trace.max_num_features()
+///    }
+/// }
+/// ```
 pub trait TraceTrait: Debug + Default {
+    /// Converts the trace into a list of features.
+    ///
+    /// The simplest way to implement this function is to delegate the work to at least one `[SimpleTrace]`.
+    /// This function creates a sparse array of `[Feature]s`, where each entry is the number of times it appears for
+    /// the white player minus the number of times it appears for the black player.
     fn as_features(&self, idx_offset: usize) -> Vec<Feature>;
+    /// The phase value of this position. Some [`Datapoint`] implementations ignore this.
     fn phase(&self) -> Float {
         1.0
     }
+
+    /// The number of features that are being covered by this trace.
+    ///
+    /// Note that in many cases, not all features appear in a position, so the len of the result of
+    /// [`as_features`](Self::as_features) is often smaller than this value.
+    fn max_num_features(&self) -> usize;
 }
 
+/// The most basic trace, useful by itself or as a building block of custom traces.
+///
+/// Stores how often each feature occurs for both players, and a game phase.
+/// Unlike the final list of `Feature`s used during tuning, this uses a dense array representation,
+/// which means it is normal for most of the many entries to be zero.
 #[derive(Debug, Default)]
 pub struct SimpleTrace {
+    /// How often each feature appears for the white player.
     pub white: Vec<isize>,
+    /// How often each feature appears for the black player.
     pub black: Vec<isize>,
+    /// The phase value. Only needed for tapered evaluations.
     pub phase: Float,
 }
 
 impl SimpleTrace {
+    /// Create a trace of `num_feature` elements, all initialized to zero.
+    /// Also sets the `phase` to zero.
     pub fn for_features(num_features: usize) -> Self {
         Self {
             white: vec![0; num_features],
@@ -239,10 +343,12 @@ impl SimpleTrace {
             phase: 0.0,
         }
     }
+    /// Increment a given feature by one for the given player.
     pub fn increment(&mut self, idx: usize, color: Color) {
         self.increment_by(idx, color, 1);
     }
 
+    /// Increment a given feature by a given amount for the given player.
     pub fn increment_by(&mut self, idx: usize, color: Color, amount: isize) {
         match color {
             Color::White => self.white[idx] += amount,
@@ -276,10 +382,23 @@ impl TraceTrait for SimpleTrace {
     fn phase(&self) -> Float {
         self.phase
     }
+
+    fn max_num_features(&self) -> usize {
+        assert_eq!(self.black.len(), self.white.len());
+        self.white.len()
+    }
 }
 
+/// Struct used for tuning.
+///
+/// Each [`WeightedFeature`] of a [`Datapoint`] is multiplied by the corresponding current eval weight and added up
+/// to compute the [`CpScore`]. Users should not generally need to worry about this, unless they want to implement
+/// their own tuner.
 pub struct WeightedFeature {
+    /// The weight of this entry.
     pub weight: Float,
+    /// The index of the *weight* that this entry corresponds to.
+    /// This is not necessarily the same as the feature index if the eval is tapered.
     pub idx: usize,
 }
 
@@ -289,10 +408,28 @@ impl WeightedFeature {
     }
 }
 
+/// Represents a single position.
+///
+/// A position is represented as a list of weighted features, an outcome, and a sampling weight (default: 1.0).
+/// Note that this representation is completely independent of the actual game or evaluation function:
+/// Once the feature counts have been computed (this happens when loading the data), no part of the tuning process
+/// depends on the eval anymore, except for printing the current weights in a human-readable way.
 pub trait Datapoint: Clone + Send + Sync {
+    /// Creates a new [`Datapoint`] from a [trace](TraceTrait) and [outcome](Outcome).
+    ///
+    /// The `weight` is used for downweighting samples, but of the three provided trait implementations,
+    /// only [`WeightedDatapoint`] cares about this. It should rarely be needed.
     fn new<T: TraceTrait>(trace: T, outcome: Outcome, weight: Float) -> Self;
+
+    /// The outcome of this position, a [win rate prediction](Outcome) between `0` and `1`.
     fn outcome(&self) -> Outcome;
+
+    /// The list of weighted features that appear in this position.
+    ///
+    /// This weight can depend on the general weight of this datapoint as well as on the phase tapering factor
+    /// for a tapered eval.
     fn features(&self) -> impl Iterator<Item = WeightedFeature>;
+
     /// A value of 2.0 effectively duplicates this datapoint, so it will influence the gradient twice as much.
     fn sampling_weight(&self) -> Float {
         1.0
@@ -302,7 +439,9 @@ pub trait Datapoint: Clone + Send + Sync {
 /// A simple Datapoint that ignores phase and weight.
 #[derive(Debug, Clone)]
 pub struct NonTaperedDatapoint {
+    /// The list of features.
     pub features: Vec<Feature>,
+    /// The win rate prediction of the FEN (can be based on a WDL result or an engine's score).
     pub outcome: Outcome,
 }
 
@@ -325,10 +464,14 @@ impl Datapoint for NonTaperedDatapoint {
     }
 }
 
+/// A Datapoint where each feature corresponds to two weights, interpolated based on the game phase.
 #[derive(Debug, Clone)]
 pub struct TaperedDatapoint {
+    /// The features of this position.
     pub features: Vec<Feature>,
+    /// The win rate prediction of the FEN (can be based on the WDL result or an engine's score).
     pub outcome: Outcome,
+    /// The game phase.
     pub phase: PhaseMultiplier,
 }
 
@@ -358,9 +501,12 @@ impl Datapoint for TaperedDatapoint {
     }
 }
 
+/// Like [TaperedDatapoint], but additionally holds a weight that can be used to signify how important this position is.
 #[derive(Debug, Clone)]
 pub struct WeightedDatapoint {
+    /// The nested tapered datapoint.
     pub inner: TaperedDatapoint,
+    /// The sample weight of the datapoint. Set through the JSON list of datasets or by the [`Filter`](super::load_data::Filter).
     pub weight: Float,
 }
 
@@ -386,6 +532,9 @@ impl Datapoint for WeightedDatapoint {
 }
 
 // TODO: Let `Dataset` own the list of features and `D` objects only hold a slice of features
+/// The totality of all data points.
+///
+/// Most code should work with [`Batch`]es instead.
 #[derive(Debug)]
 pub struct Dataset<D: Datapoint> {
     datapoints: Vec<D>,
@@ -394,6 +543,7 @@ pub struct Dataset<D: Datapoint> {
 }
 
 impl<D: Datapoint> Dataset<D> {
+    /// Create a new dataset, where each data point consist of `num_weights` weights.
     pub fn new(num_weights: usize) -> Self {
         Self {
             datapoints: vec![],
@@ -402,29 +552,35 @@ impl<D: Datapoint> Dataset<D> {
         }
     }
 
+    /// The number of weights per position.
     pub fn num_weights(&self) -> usize {
         self.weights_in_pos
     }
 
+    /// Access the underlying array of data points.
     pub fn data(&self) -> &[D] {
         &self.datapoints
     }
 
+    /// Add a new datapoint.
     pub fn push(&mut self, datapoint: D) {
         self.sampling_weight_sum += datapoint.sampling_weight();
         self.datapoints.push(datapoint);
     }
 
+    /// Combine two datasets into one larger dataset without removing duplicate positions.
     pub fn union(&mut self, mut other: Dataset<D>) {
         assert_eq!(self.weights_in_pos, other.weights_in_pos);
         self.datapoints.append(&mut other.datapoints);
         self.sampling_weight_sum += other.sampling_weight_sum;
     }
 
+    /// Shuffle the dataset, which is useful when not tuning on the entire dataset.
     pub fn shuffle(&mut self) {
         self.datapoints.shuffle(&mut thread_rng());
     }
 
+    /// Converts the entire dataset into a single batch.
     pub fn as_batch(&self) -> Batch<D> {
         Batch {
             datapoints: &self.datapoints,
@@ -432,19 +588,33 @@ impl<D: Datapoint> Dataset<D> {
             weight_sum: self.sampling_weight_sum,
         }
     }
+
+    /// Turns a subset of the dataset into a batch.
+    ///
+    /// Note that this needs to compute the sum of sampling weights,
+    /// which makes this an `O(n)` operation, where `n` is the size of the returned batch.
     pub fn batch(&self, start_idx: usize, end_idx: usize) -> Batch<D> {
+        let datapoints = &self.datapoints[start_idx..end_idx];
+        let weight_sum = datapoints.iter().map(|d| d.sampling_weight()).sum();
         Batch {
-            datapoints: &self.datapoints[start_idx..end_idx],
+            datapoints,
             num_weights: self.weights_in_pos,
-            weight_sum: self.sampling_weight_sum,
+            weight_sum,
         }
     }
 }
 
+/// A list of data points on which the eval gets optimized.
 #[derive(Debug)]
 pub struct Batch<'a, D: Datapoint> {
+    /// The underlying array of data points.
     pub datapoints: &'a [D],
+    /// The number of weights per data point.
     pub num_weights: usize,
+    /// The sum of sampling weights.
+    ///
+    /// If all positions have a sampling weight if 1.0 (the default),
+    /// this is the same as the len of the `datapoints` slice.
     pub weight_sum: Float,
 }
 
@@ -469,6 +639,7 @@ impl<'a, D: Datapoint> Deref for Batch<'a, D> {
     }
 }
 
+/// Eval of a position, given the current weights.
 pub fn cp_eval_for_weights<D: Datapoint>(weights: &Weights, position: &D) -> CpScore {
     let mut res = 0.0;
     for feature in position.features() {
@@ -477,6 +648,7 @@ pub fn cp_eval_for_weights<D: Datapoint>(weights: &Weights, position: &D) -> CpS
     CpScore(res)
 }
 
+/// Win rate prediction of a position, given the current weights.
 pub fn wr_prediction_for_weights<D: Datapoint>(
     weights: &Weights,
     position: &D,
@@ -486,6 +658,7 @@ pub fn wr_prediction_for_weights<D: Datapoint>(
     cp_to_wr(eval, eval_scale)
 }
 
+/// Loss of a position, given the current weights.
 pub fn loss<D: Datapoint>(
     weights: &Weights,
     batch: Batch<'_, D>,
@@ -514,10 +687,14 @@ pub fn loss<D: Datapoint>(
     sum / batch.weight_sum as Float
 }
 
-/// Computes the scaled gradient of the loss function:
+/// Computes the gradient of the loss function over the entire batch.
+///
 /// The loss function of a single sample is `(sigmoid(sample, scale) - outcome) ^ 2`,
 /// so per the chain rule, the derivative is `2 * (sigmoid(sample, scale) - outcome) * sigmoid'(sample, scale)`,
 /// where the derivative of the sigmoid, sigmoid', is `scale * sigmoid(sample, scale) * (1 - sigmoid(sample, scale)`.
+/// Even though constant factors don't matter for gradient descent, this function still returns the exact gradient,
+/// without ignoring constant factors.
+/// The computation gets parallelized if the batch exceeds a size of [`MIN_MULTITHREADING_BATCH_SIZE`].
 pub fn compute_gradient<D: Datapoint>(
     weights: &Weights,
     batch: Batch<D>,
@@ -565,6 +742,10 @@ pub fn compute_gradient<D: Datapoint>(
     }
 }
 
+/// This is where the actual optimization happens.
+///
+/// Optimize the weights using the given [optimizer](Optimizer) for `num_epochs` epochs, where the gradient is computed
+/// over the entire batch each epoch. Regularly prints the current weights using the supplied [weights interpretation](WeightsInterpretation].
 pub fn optimize_entire_batch<D: Datapoint>(
     batch: Batch<D>,
     eval_scale: ScalingFactor,
@@ -595,7 +776,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
             let loss = loss(&weights, batch, eval_scale);
             println!(
                 "Epoch {epoch} complete, weights:\n {}",
-                weights_interpretation.display(&weights, &prev_weights)
+                display(weights_interpretation, &weights, &prev_weights)
             );
             let elapsed = start.elapsed();
             // If no weight changed by more than 0.05 within the last 50 epochs, stop.
@@ -631,6 +812,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
     weights
 }
 
+/// Convenience function for optimizing with the [`Adam`] optimizer.
 fn adam_optimize<D: Datapoint>(
     batch: Batch<D>,
     eval_scale: ScalingFactor,
@@ -646,6 +828,10 @@ fn adam_optimize<D: Datapoint>(
     )
 }
 
+/// Print the final weights once the optimization is complete.
+///
+/// Unlike the intermediate steps, this also prints how often each feature occurred, and optionally
+/// interpolates the tuned weights with the initial weights based on this sample count.
 pub fn print_optimized_weights<D: Datapoint>(
     weights: &Weights,
     batch: Batch<D>,
@@ -656,24 +842,31 @@ pub fn print_optimized_weights<D: Datapoint>(
     let occurrences = Weights(occurrence_counts.iter().map(|o| Weight(*o)).collect());
     println!(
         "Occurrences:\n{}",
-        interpretation.display(&occurrences, &[])
+        display(interpretation, &occurrences, &[])
     );
     let mut weights = weights.clone();
     interpolate(&occurrence_counts, &mut weights, interpretation);
     println!(
         "Scaling factor: {scale:.2}, Final eval:\n{}",
-        interpretation.display(&weights, &[])
+        display(interpretation, &weights, &[])
     );
 }
 
+/// Change the current weights each iteration by taking into account the gradient.
+///
+/// Different implementations mostly differ in their step size control.
 pub trait Optimizer<D: Datapoint> {
+    /// Create a new optimizer.
+    ///
+    /// The [`Batch`] and [`ScalingFactor`] can be used to set internal hyperparameters.
     fn new(batch: Batch<D>, eval_scale: ScalingFactor) -> Self
     where
         Self: Sized;
 
-    // can be less than 1 to increase the lr.
+    /// Can be less than 1 to increase the learning rate.
     fn lr_drop(&mut self, factor: Float);
 
+    /// A single iteration of the optimizer.
     fn iteration(
         &mut self,
         weights: &mut Weights,
@@ -682,8 +875,8 @@ pub trait Optimizer<D: Datapoint> {
         i: usize,
     );
 
-    /// A simple but generic optimization procedure. Usually, calling `do_optimize` results (directly or through
-    /// the `optimize` function in `lib.rs`) results in faster convergence. This function is primarily useful for debugging.
+    /// A simple but generic optimization procedure. Usually, calling [`optimize_entire_batch`] (directly or through
+    /// the [`optimize`](super::optimize) function) results in faster convergence. This function is primarily useful for debugging.
     fn optimize_simple(
         &mut self,
         batch: Batch<'_, D>,
@@ -698,7 +891,9 @@ pub trait Optimizer<D: Datapoint> {
     }
 }
 
+/// Gradient Descent optimizer that simply multiplies the gradient by the current learning rate `alpha`.
 pub struct SimpleGDOptimizer {
+    /// The learning rate.
     pub alpha: Float,
 }
 
@@ -727,6 +922,8 @@ impl<D: Datapoint> Optimizer<D> for SimpleGDOptimizer {
     }
 }
 
+/// Hyperparameters are parameters that control the optimization process and are not themselves
+/// automatically optimized.
 #[derive(Debug, Copy, Clone)]
 pub struct AdamHyperParams {
     /// Learning rate multiplier, an upper bound on the step size.
@@ -738,12 +935,6 @@ pub struct AdamHyperParams {
     /// Offset to avoid division by zero
     pub epsilon: Float,
 }
-
-// impl Default for AdamHyperParams {
-//     fn default() -> Self {
-//         Self::for_eval_scale(100.0)
-//     }
-// }
 
 impl AdamHyperParams {
     fn for_eval_scale(eval_scale: ScalingFactor) -> Self {
@@ -758,8 +949,10 @@ impl AdamHyperParams {
     }
 }
 
+/// The default tuner, an implementation of the very widely used [Adam](https://arxiv.org/abs/1412.6980) optimizer.
 #[derive(Debug)]
 pub struct Adam {
+    /// Hyperparameters. Should be set before starting to optimize.
     pub hyper_params: AdamHyperParams,
     /// first moment (exponentially moving average)
     m: Weights,

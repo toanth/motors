@@ -44,11 +44,11 @@ impl NamedEntity for Logger {
         LoggerBuilder::static_short_name()
     }
 
-    fn long_name(&self) -> &str {
-        LoggerBuilder::static_long_name()
+    fn long_name(&self) -> String {
+        LoggerBuilder::static_long_name().to_string()
     }
 
-    fn description(&self) -> Option<&str> {
+    fn description(&self) -> Option<String> {
         Some(LoggerBuilder::static_description())
     }
 }
@@ -139,12 +139,12 @@ impl StaticallyNamedEntity for LoggerBuilder {
         "logger"
     }
 
-    fn static_long_name() -> &'static str {
-        "UCI Logger"
+    fn static_long_name() -> String {
+        "UCI Logger".to_string()
     }
 
-    fn static_description() -> &'static str {
-        "A logger for all UCI communication"
+    fn static_description() -> String {
+        "A logger for all UCI communication".to_string()
     }
 }
 

@@ -46,12 +46,12 @@ impl<F> NamedEntity for TextSelection<F> {
         self.names.first().unwrap()
     }
 
-    fn long_name(&self) -> &str {
-        self.short_name()
+    fn long_name(&self) -> String {
+        self.short_name().to_string()
     }
 
-    fn description(&self) -> Option<&str> {
-        self.description
+    fn description(&self) -> Option<String> {
+        self.description.map(|s| s.to_string())
     }
 
     fn matches(&self, name: &str) -> bool {
@@ -542,12 +542,12 @@ impl StaticallyNamedEntity for TextInput {
         "text"
     }
 
-    fn static_long_name() -> &'static str {
-        "Text-based input"
+    fn static_long_name() -> String {
+        "Text-based input".to_string()
     }
 
-    fn static_description() -> &'static str {
-        "Use the console to change the match state"
+    fn static_description() -> String {
+        "Use the console to change the match state".to_string()
     }
 }
 
@@ -576,11 +576,11 @@ impl NamedEntity for TextInputBuilder {
         TextInput::static_short_name()
     }
 
-    fn long_name(&self) -> &str {
-        TextInput::static_long_name()
+    fn long_name(&self) -> String {
+        TextInput::static_long_name().to_string()
     }
 
-    fn description(&self) -> Option<&str> {
+    fn description(&self) -> Option<String> {
         Some(TextInput::static_description())
     }
 }

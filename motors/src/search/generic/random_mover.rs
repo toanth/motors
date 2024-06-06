@@ -58,18 +58,18 @@ impl<B: Board, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R>
         "random_mover"
     }
 
-    fn static_long_name() -> &'static str
+    fn static_long_name() -> String
     where
         Self: Sized,
     {
-        "Random Mover"
+        "Random Mover".to_string()
     }
 
-    fn static_description() -> &'static str
+    fn static_description() -> String
     where
         Self: Sized,
     {
-        "A very simple engine that always chooses a legal move uniformly at random"
+        "A very simple engine that always chooses a legal move uniformly at random".to_string()
     }
 }
 

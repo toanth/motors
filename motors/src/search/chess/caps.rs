@@ -1,4 +1,5 @@
 use arrayvec::ArrayVec;
+use std::any::TypeId;
 use std::cmp::min;
 use std::time::{Duration, Instant};
 
@@ -6,6 +7,9 @@ use derive_more::{Deref, DerefMut, Index, IndexMut};
 use itertools::Itertools;
 use rand::thread_rng;
 
+use crate::eval::chess::hce::HandCraftedEval;
+use crate::eval::chess::material_only::MaterialOnlyEval;
+use crate::eval::chess::pst_only::PistonEval;
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
 use gears::games::chess::see::SeeScore;
@@ -122,21 +126,38 @@ impl<E: Eval<Chessboard>> StaticallyNamedEntity for Caps<E> {
     where
         Self: Sized,
     {
-        "CAPS"
+        if [TypeId::of::<PistonEval>(), TypeId::of::<MaterialOnlyEval>()]
+            .contains(&TypeId::of::<E>())
+        {
+            E::static_short_name()
+        } else if TypeId::of::<E>() == TypeId::of::<HandCraftedEval>() {
+            "CAPS"
+        } else {
+            "CAPS-unknown-eval"
+        }
     }
 
-    fn static_long_name() -> &'static str
+    fn static_long_name() -> String
     where
         Self: Sized,
     {
-        "CAPS: Chess-playing Alpha-beta Pruning Search"
+        format!(
+            "CAPS: Chess-playing Alpha-beta Pruning Search, {} eval",
+            E::static_short_name()
+        )
     }
 
-    fn static_description() -> &'static str
+    fn static_description() -> String
     where
         Self: Sized,
     {
-        "Chess-playing Alpha-beta Pruning Search (CAPS), a chess engine. Currently very early in development and not yet all that strong (but still > 2k elo). Much larger than SᴍᴀʟʟCᴀᴘꜱ"
+        let elo = if TypeId::of::<E>() == TypeId::of::<HandCraftedEval>() {
+            " (but still >= 2.5k elo)"
+        } else {
+            ""
+        };
+        format!("Chess-playing Alpha-beta Pruning Search (CAPS), a chess engine. Currently early in development{elo}. \
+        Much larger than SᴍᴀʟʟCᴀᴘꜱ. Eval: {}", E::static_long_name())
     }
 }
 
@@ -859,7 +880,7 @@ mod tests {
     use gears::search::NodesLimit;
 
     use crate::eval::chess::hce::HandCraftedEval;
-    use crate::eval::chess::pst_only::PstOnlyEval;
+    use crate::eval::chess::pst_only::PistonEval;
     use crate::eval::rand_eval::RandEval;
 
     use super::*;
@@ -901,7 +922,7 @@ mod tests {
         ];
         for (fen, min, max) in list {
             let pos = Chessboard::from_fen(fen).unwrap();
-            let mut engine = Caps::<PstOnlyEval>::default();
+            let mut engine = Caps::<PistonEval>::default();
             let res = engine
                 .search_from_pos(pos, SearchLimit::nodes(NodesLimit::new(50_000).unwrap()))
                 .unwrap();
@@ -913,7 +934,7 @@ mod tests {
     #[test]
     fn lucena_test() {
         let pos = Chessboard::from_name("lucena").unwrap();
-        let mut engine = Caps::<PstOnlyEval>::default();
+        let mut engine = Caps::<PistonEval>::default();
         let res = engine
             .search_from_pos(pos, SearchLimit::depth(Depth::new(7)))
             .unwrap();

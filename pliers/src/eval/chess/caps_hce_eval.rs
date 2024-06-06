@@ -1,3 +1,5 @@
+//! The hand-crafted eval used by the `caps` chess engine.
+
 use crate::eval::chess::caps_hce_eval::FileOpenness::*;
 use crate::eval::chess::{
     psqt_trace, write_phased_psqt, write_psqts, SkipChecks, NUM_PHASES, NUM_PSQT_FEATURES,
@@ -37,13 +39,13 @@ struct Trace {
 impl TraceTrait for Trace {
     fn as_features(&self, mut idx_offset: usize) -> Vec<Feature> {
         let mut res = self.psqt.as_features(idx_offset);
-        idx_offset += NUM_PSQT_FEATURES;
+        idx_offset += self.psqt.max_num_features();
         res.append(&mut self.passed_pawns.as_features(idx_offset));
-        idx_offset += NUM_PASSED_PAWN_FEATURES;
+        idx_offset += self.passed_pawns.max_num_features();
         res.append(&mut self.rooks.as_features(idx_offset));
-        idx_offset += NUM_ROOK_OPENNESS_FEATURES;
+        idx_offset += self.rooks.max_num_features();
         res.append(&mut self.kings.as_features(idx_offset));
-        idx_offset += NUM_KING_OPENNESS_FEATURES;
+        idx_offset += self.kings.max_num_features();
         res.append(&mut self.pawn_shields.as_features(idx_offset));
         res
     }
@@ -51,13 +53,22 @@ impl TraceTrait for Trace {
     fn phase(&self) -> Float {
         self.psqt.phase
     }
+
+    fn max_num_features(&self) -> usize {
+        self.psqt.max_num_features()
+            + self.passed_pawns.max_num_features()
+            + self.kings.max_num_features()
+            + self.rooks.max_num_features()
+            + self.pawn_shields.max_num_features()
+    }
 }
 
+/// The hand-crafted eval used by the `caps` chess engine.
 #[derive(Debug, Default)]
 pub struct CapsHceEval {}
 
 impl WeightsInterpretation for CapsHceEval {
-    fn display_impl(&self) -> (fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result) {
+    fn display(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
         |f: &mut Formatter<'_>, weights: &Weights, old_weights: &[Weight]| {
             let special = changed_at_least(-1.0, weights, old_weights);
             assert_eq!(weights.len(), Self::NUM_WEIGHTS);

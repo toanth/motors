@@ -188,11 +188,11 @@ impl NamedEntity for EngineOption {
         self.name.name()
     }
 
-    fn long_name(&self) -> &str {
-        self.short_name()
+    fn long_name(&self) -> String {
+        format!("{self}")
     }
 
-    fn description(&self) -> Option<&str> {
+    fn description(&self) -> Option<String> {
         None
     }
 }

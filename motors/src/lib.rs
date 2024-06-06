@@ -20,8 +20,9 @@ use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArg
 use crate::cli::Mode::Bench;
 use crate::cli::{parse_cli, EngineOpts, Mode};
 use crate::eval::chess::hce::HandCraftedEval;
+use crate::eval::chess::material_only::MaterialOnlyEval;
 #[cfg(feature = "chess")]
-use crate::eval::chess::pst_only::PstOnlyEval;
+use crate::eval::chess::pst_only::PistonEval;
 #[cfg(feature = "mnk")]
 use crate::eval::mnk::simple_mnk_eval::SimpleMnkEval;
 use crate::eval::rand_eval::RandEval;
@@ -150,14 +151,27 @@ pub fn generic_engines<B: Board>() -> EngineList<B> {
     ]
 }
 
+/// Lists all user-selectable engines that can play chess. Further combinations are possible
+/// (e.g. using the generic negamax engine with a random eval), but don't appear here to keep the list short.
 #[cfg(feature = "chess")]
 pub fn list_chess_engines() -> EngineList<Chessboard> {
     let mut res = generic_engines();
     #[cfg(feature = "generic_negamax")]
     res.push(Box::new(EngineBuilder::<
         Chessboard,
-        GenericNegamax<Chessboard, PstOnlyEval>,
+        GenericNegamax<Chessboard, PistonEval>,
     >::new()));
+    #[cfg(feature = "caps")]
+    res.push(Box::new(EngineBuilder::<Chessboard, Caps<RandEval>>::new()));
+    #[cfg(feature = "caps")]
+    res.push(Box::new(
+        EngineBuilder::<Chessboard, Caps<MaterialOnlyEval>>::new(),
+    ));
+    #[cfg(feature = "caps")]
+    res.push(Box::new(
+        EngineBuilder::<Chessboard, Caps<PistonEval>>::new(),
+    ));
+    // The last engine in this list is the default engine
     #[cfg(feature = "caps")]
     res.push(Box::new(
         EngineBuilder::<Chessboard, Caps<HandCraftedEval>>::new(),
