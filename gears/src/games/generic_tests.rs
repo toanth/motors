@@ -7,7 +7,6 @@ pub(super) mod generic_tests {
     use itertools::Itertools;
     use std::collections::{HashSet, VecDeque};
     use std::marker::PhantomData;
-    use std::ptr::hash;
 
     pub struct GenericTests<B: Board> {
         _phantom: PhantomData<B>,
@@ -120,10 +119,10 @@ pub(super) mod generic_tests {
         }
 
         pub fn all_tests() {
+            Self::basic_test();
             Self::long_notation_roundtrip_test();
             Self::fen_roundtrip_test();
             Self::statistical_hash_test(B::default());
-            Self::basic_test()
         }
     }
 }
