@@ -202,7 +202,7 @@ impl<B: Board> GameState<B> for ClientState<B> {
 }
 
 /// The word `Client` is used instead of the more common term `Ugi GUI` to avoid confusion with regard to the actual GUI,
-/// and in keeping with the (unofficial, but vastly more detailed) UCI specification at https://expositor.dev/uci/doc/uci-draft-1.pdf
+/// and in keeping with the (unofficial, but vastly more detailed) UCI specification at <https://expositor.dev/uci/doc/uci-draft-1.pdf>
 #[derive(Debug)]
 pub struct Client<B: Board> {
     /// The state sub-object is necessary to appease the borrow checker, because output functions take

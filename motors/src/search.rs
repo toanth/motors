@@ -34,8 +34,21 @@ pub struct EngineInfo {
     pub version: String,
     pub default_bench_depth: Depth,
     pub options: Vec<EngineOption>,
-    pub description: String, // TODO: Use
-                             // TODO: NamedEntity?
+    pub description: String,
+}
+
+impl NamedEntity for EngineInfo {
+    fn short_name(&self) -> &str {
+        &self.name
+    }
+
+    fn long_name(&self) -> String {
+        format!("{0} {1}", self.name, self.version)
+    }
+
+    fn description(&self) -> Option<String> {
+        Some(self.description.clone())
+    }
 }
 
 #[derive(Debug)]
@@ -174,11 +187,11 @@ impl<B: Board, E: Engine<B>> StaticallyNamedEntity for EngineBuilder<B, E> {
         E::static_short_name()
     }
 
-    fn static_long_name() -> &'static str {
+    fn static_long_name() -> String {
         E::static_long_name()
     }
 
-    fn static_description() -> &'static str {
+    fn static_description() -> String {
         E::static_description()
     }
 }

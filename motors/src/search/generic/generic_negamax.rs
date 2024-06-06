@@ -47,15 +47,15 @@ impl<B: Board, E: Eval<B>> StaticallyNamedEntity for GenericNegamax<B, E> {
         "generic_negamax"
     }
 
-    fn static_long_name() -> &'static str {
-        "Generic Negamax"
+    fn static_long_name() -> String {
+        "Generic Negamax".to_string()
     }
 
-    fn static_description() -> &'static str
+    fn static_description() -> String
     where
         Self: Sized,
     {
-        "A simple alpha-bete pruning negamax implementation that doesn't use any game-specific information"
+        "A simple alpha-bete pruning negamax implementation that doesn't use any game-specific information".to_string()
     }
 }
 

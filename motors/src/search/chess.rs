@@ -12,7 +12,7 @@ mod tests {
     use gears::search::{Depth, Score, SearchLimit, SCORE_LOST, SCORE_WON};
 
     use crate::eval::chess::hce::HandCraftedEval;
-    use crate::eval::chess::pst_only::PstOnlyEval;
+    use crate::eval::chess::pst_only::PistonEval;
     use crate::eval::rand_eval::RandEval;
     use crate::search::chess::caps::Caps;
     use crate::search::generic::generic_negamax::GenericNegamax;
@@ -25,7 +25,7 @@ mod tests {
 
     #[test]
     fn caps_search_test() {
-        generic_search_test::<Caps<PstOnlyEval>>()
+        generic_search_test::<Caps<PistonEval>>()
     }
 
     fn generic_search_test<E: Engine<Chessboard>>() {

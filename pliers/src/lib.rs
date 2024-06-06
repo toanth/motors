@@ -1,3 +1,64 @@
+#![deny(missing_docs)]
+#![deny(missing_crate_level_docs)]
+#![deny(rustdoc::broken_intra_doc_links)]
+#![deny(rustdoc::private_intra_doc_links)]
+#![deny(rustdoc::invalid_codeblock_attributes)]
+#![deny(rustdoc::invalid_rust_codeblocks)]
+//! [`pliers`](crate) is a handcrafted eval tuning crate built on top of the [`gears`] crate.
+//!
+//! It is designed to be extensible to new games, but provides very strong support for chess out of the box,
+//! including a number of different example evaluation functions.
+//! To use it, you need to write your own eval function by implementing the [`Eval`] trait.
+//! Then, optimizing your eval weights with this library is as simple as calling the [`run`] function.
+//!
+//! # Example:
+//!
+//! ```
+//! type Eval = PistonEval;
+//! fn main() {
+//!     // Make sure the eval works as expected by running it on a single simple position.
+//!     debug_eval_on_lucena::<Eval>();
+//!     // Run the actual optimizer. This will periodically print out the current values as well as some
+//!     // statistics. Runs for `DEFAULT_NUM_EPOCHS` or until the weights don't change much anymore.
+//!     // Then, this will print out the final tuned weights and some additional information, like the number of times
+//!     // each feature appeared in the training dataset. Note that post-processing steps like interpolating with initial
+//!     // values are only performed for the final printed values.
+//!     run::<Chessboard, Eval>();
+//! }
+//! ```
+//!
+//! # Example 2:
+//!
+//! This example calls the [`optimize_for`] function directly to achieve greater control over the optimization process.
+//! There are even lower-level functions like [`optimize_entire_batch`] for yet greater control, but most users shouldn't
+//! need to bother with them.
+//! ```
+//! use gears::games::ataxx::AtaxxBoard;
+//! use gears::general::common::Res;
+//! use pliers::{get_datasets, optimize_for};
+//! use pliers::gd::SimpleGDOptimizer;
+//! use pliers::load_datasets_from_json;
+//! use std::path::Path;
+//!
+//! fn main() -> Res<()> {
+//!     // Alternatively, use `get_dataset` to read the command line for the location of a
+//!     // JSON file which contains the list of datasets or fallback to a game-specific location.
+//!     let path = "Some/hardcoded/path/../consider/not/doing/this.json";
+//!     let file_list = load_datasets_from_json(Path::new(path))?;
+//!     optimize_for::<AtaxxBoard, MyAtaxxEval, SimpleGDOptimizer>(&file_list, 1234)?;
+//!     Ok(())
+//! }
+//! ```
+//!
+//! [`pliers`](crate) is inspired by [this chess eval tuner](https://github.com/GediminasMasaitis/texel-tuner).
+//! It is currently missing the option to include additional scores, but provides a number of additional features:
+//! - Support for arbitrary board games built on top of the `gears` crate
+//! - Easily extensible
+//! - Faster tuning thanks to a sparse feature representation and faster automatic scaling factor selection.
+//! - Better printing of tuned values, with changing values highlighted in red
+//! - Prints more information in general, like the sample count, the maximum weight change, etc
+//! - Some additional, albeit rarely needed, features
+
 use crate::eval::Eval;
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
@@ -19,7 +80,11 @@ pub mod eval;
 pub mod gd;
 pub mod load_data;
 
-/// The 'main function' of this library. You can call the functions below if you want more control,
+const DEFAULT_NUM_EPOCHS: usize = 2000;
+
+/// The 'main function' of this library.
+///
+/// You can call one of the functions below if you want more control,
 /// but this is the easiest way to use the tuner. Simply call this function with your eval,
 /// e.g. `run::<Chessboard, MaterialOnlyEval>()`. Make sure to provide a JSON file with a list of datasets.
 /// The filenames in that JSON file should be either absolute or relative to the location of the JSON file.
@@ -30,15 +95,31 @@ pub fn run<B: Board, E: Eval<B>>() {
     }
 }
 
+/// like [`run`], but returns a `Res` instead of exiting on errors.
 pub fn try_to_run<B: Board, E: Eval<B>>() -> Res<()> {
     let files = get_datasets::<B>()?;
     optimize::<B, E>(files.as_ref())
 }
 
+/// Load a list datasets from a JSON file.
+///
+/// The path to this file is extracted from the first command line argument, with a game-specific fallback
+/// if no command line arguments are used.
 pub fn get_datasets<B: Board>() -> Res<Vec<AnnotatedFenFile>> {
     let default_path = format!("pliers/datasets/{}/datasets.json", B::game_name());
     let json_file_path = args().nth(1).unwrap_or(default_path);
     let json_file_path = Path::new(&json_file_path);
+    load_datasets_from_json(json_file_path)
+}
+
+/// Load a list of datasets from a JSON file.
+///
+/// Each dataset needs to have a `"path"` relative to the location of the JSON file.
+/// Additionally, it can have a [`"perspective"`][load_data::Perspective] field that tells the tuner how to interpret the results.
+/// The default value of this field is [`White`], but it is possible to specify
+/// [`SideToMove`][load_data::Perspective::SideToMove] instead. The [`weight`][load_data::AnnotatedFenFile::weight] field
+/// can be used to reduce the effect of lower-quality datasets. It is typically not needed.
+pub fn load_datasets_from_json(json_file_path: &Path) -> Res<Vec<AnnotatedFenFile>> {
     let json_file = File::open(json_file_path).map_err(|err| format!(
         "Could not open the dataset json file: {err}. Check that the path is correct, maybe try using an absolute path. \
         The current path is '{}'.", json_file_path.display()
@@ -53,10 +134,10 @@ pub fn get_datasets<B: Board>() -> Res<Vec<AnnotatedFenFile>> {
     }
     // Ideally, the `AnnotatedFenFile` would store a `PathBuf`, but that makes serialization more difficult.
     for file in files.iter_mut() {
-        file.name = json_file_path
+        file.path = json_file_path
             .parent()
             .unwrap()
-            .join(Path::new(&file.name))
+            .join(Path::new(&file.path))
             .to_str()
             .unwrap()
             .to_string();
@@ -64,10 +145,14 @@ pub fn get_datasets<B: Board>() -> Res<Vec<AnnotatedFenFile>> {
     Ok(files)
 }
 
+/// Optimize the eval with [`Adam`] on the supplied `file_list`.
 pub fn optimize<B: Board, E: Eval<B>>(file_list: &[AnnotatedFenFile]) -> Res<()> {
-    optimize_for::<B, E, Adam>(file_list, 2000)
+    optimize_for::<B, E, Adam>(file_list, DEFAULT_NUM_EPOCHS)
 }
 
+/// Optimize the eval with the given optimizer for the given number of epochs.
+///
+/// Runs the optimizer on the entire dataset.
 pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
     file_list: &[AnnotatedFenFile],
     num_epochs: usize,
@@ -87,6 +172,7 @@ pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
     Ok(())
 }
 
+/// Convenience wrapper for [`optimize`] for chess.
 pub fn optimize_chess_eval<E: Eval<Chessboard>>(file_list: &[AnnotatedFenFile]) -> Res<()> {
     debug_eval_on_lucena::<E>();
     optimize::<Chessboard, E>(file_list)
@@ -117,6 +203,7 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
     println!("\nEND DEBUG POSITION OUTPUT\n");
 }
 
+/// Debug a chess eval on the lucena position.
 pub fn debug_eval_on_lucena<E: Eval<Chessboard>>() {
     let pos = Chessboard::from_name("lucena").unwrap();
     debug_eval_on_pos::<Chessboard, E>(pos);

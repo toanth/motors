@@ -1,3 +1,5 @@
+//! A simple material-only eval that tunes piece weights.
+
 use crate::eval::{Eval, WeightsInterpretation};
 use crate::gd::{NonTaperedDatapoint, Outcome, SimpleTrace, TraceTrait, Weight, Weights};
 use crate::load_data::NoFilter;
@@ -8,11 +10,12 @@ use gears::general::bitboards::RawBitboard;
 use std::fmt::Formatter;
 use strum::IntoEnumIterator;
 
+/// A simple material-only eval that tunes piece weights.
 #[derive(Debug, Default)]
 pub struct MaterialOnlyEval {}
 
 impl WeightsInterpretation for MaterialOnlyEval {
-    fn display_impl(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
+    fn display(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
         |f: &mut Formatter<'_>, weights: &Weights, _old_weights: &[Weight]| {
             for piece in UncoloredChessPiece::non_king_pieces() {
                 writeln!(f, "{0}:\t{1}", piece.name(), weights[piece as usize])?

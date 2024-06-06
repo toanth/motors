@@ -14,7 +14,7 @@ use gears::games::Color::White;
 use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{
-    parse_duration_ms, parse_int, parse_int_from_str, to_name_and_optional_description,
+    parse_duration_ms, parse_int, parse_int_from_str, to_name_and_optional_description, NamedEntity,
 };
 use gears::general::common::{select_name_static, Res};
 use gears::general::perft::{perft, split_perft};
@@ -233,6 +233,8 @@ pub struct EngineUGI<B: Board> {
     state: EngineGameState<B>,
     output: Arc<Mutex<UgiOutput<B>>>,
     output_factories: OutputList<B>,
+    engine_factories: EngineList<B>,
+    search_sender: SearchSender<B>,
     move_overhead: Duration,
 }
 
@@ -305,7 +307,7 @@ impl<B: Board> EngineUGI<B> {
         let output = Arc::new(Mutex::new(UgiOutput::default()));
         let sender = SearchSender::new(output.clone());
         let board = B::default();
-        let engine = create_engine_from_str(&opts.engine, &all_engines, sender)?;
+        let engine = create_engine_from_str(&opts.engine, &all_engines, sender.clone())?;
         let board_state = BoardGameState {
             board,
             debug_mode: opts.debug,
@@ -333,6 +335,8 @@ impl<B: Board> EngineUGI<B> {
             state,
             output,
             output_factories: all_output_builders,
+            engine_factories: all_engines,
+            search_sender: sender,
             move_overhead: Duration::from_millis(DEFAULT_MOVE_OVERHEAD_MS),
         })
     }
@@ -457,7 +461,7 @@ impl<B: Board> EngineUGI<B> {
             "quit" => {
                 self.quit(QuitProgram)?;
             }
-            "quit_match" | "end_game" => {
+            "quit_match" | "end_game" | "qm" => {
                 self.quit(QuitMatch)?;
             }
             "query" => {
@@ -883,7 +887,7 @@ impl<B: Board> EngineUGI<B> {
         \n {print}: `print <output>` prints the game using the specified output, or all of the current outputs if none is given, \
         or `unicode` if no outputs are being used.\
         \n {log}: `log <logfile> starts logging to <logfile>; use `none` or `off` to turn off logging and `stdout` or `stderr` to print to those streams.\
-        \n {engine}: Loads another engine. TODO: Currently not supported.\
+        \n {engine}: Loads another engine for the same game. Use 'play' to change the game.\
         \n {perft}: Equivalent to `go perft`, but allows setting the position as last argument, e.g. `perft depth 3 position startpos` \
         or simply `perft` to use the current position and game-specific default depth.\
         \n {bench}: See `perft`, but replace 'perft' with 'bench'. The default depth is engine-specific.\
@@ -914,9 +918,21 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_engine(&mut self, words: &mut SplitWhitespace) -> Res<()> {
-        todo!("Currently, this is no longer implemented (and maybe not a good idea in general?) TODO: Implement")
-        // self.state.engine = create_engine_from_str(words.next().unwrap_or_default(), "")?;
-        // Ok(())
+        let Some(name) = words.next() else {
+            let info = self.state.engine.engine_info();
+            self.write_ugi(&format!(
+                "Engine: {0}\nDescription: {1}",
+                info.long_name(),
+                info.description
+            ));
+            return Ok(());
+        };
+        // catch invalid names before committing to shutting down the current engine
+        let engine =
+            create_engine_from_str(name, &self.engine_factories, self.search_sender.clone())?;
+        self.state.engine.send_quit()?;
+        self.state.engine = engine;
+        Ok(())
     }
 
     fn handle_play(&mut self, words: &mut SplitWhitespace) -> Res<()> {

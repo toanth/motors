@@ -65,18 +65,18 @@ impl StaticallyNamedEntity for AtaxxBoard {
         "ataxx"
     }
 
-    fn static_long_name() -> &'static str
+    fn static_long_name() -> String
     where
         Self: Sized,
     {
-        "ataxx game"
+        "Ataxx game".to_string()
     }
 
-    fn static_description() -> &'static str
+    fn static_description() -> String
     where
         Self: Sized,
     {
-        "Ataxx game. See 'https://en.wikipedia.org/wiki/Ataxx'."
+        "Ataxx game. See 'https://en.wikipedia.org/wiki/Ataxx'.".to_string()
     }
 }
 

@@ -12,6 +12,7 @@ use gears::games::{Board, Color, DimT};
 use gears::general::bitboards::chess::{ChessBitboard, A_FILE};
 use gears::general::bitboards::Bitboard;
 use gears::general::bitboards::RawBitboard;
+use gears::general::common::StaticallyNamedEntity;
 use gears::search::Score;
 
 use crate::eval::chess::hce::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
@@ -310,6 +311,29 @@ fn file_openness(file: DimT, our_pawns: ChessBitboard, their_pawns: ChessBitboar
         Closed
     } else {
         SemiClosed
+    }
+}
+
+impl StaticallyNamedEntity for HandCraftedEval {
+    fn static_short_name() -> &'static str
+    where
+        Self: Sized,
+    {
+        "hce"
+    }
+
+    fn static_long_name() -> String
+    where
+        Self: Sized,
+    {
+        "Hand Crafted Chess Eval".to_string()
+    }
+
+    fn static_description() -> String
+    where
+        Self: Sized,
+    {
+        "A classical evaluation for chess, based on piece square tables".to_string()
     }
 }
 

@@ -314,18 +314,18 @@ impl StaticallyNamedEntity for MNKBoard {
         "mnk"
     }
 
-    fn static_long_name() -> &'static str
+    fn static_long_name() -> String
     where
         Self: Sized,
     {
-        "m,n,k game"
+        "m,n,k game".to_string()
     }
 
-    fn static_description() -> &'static str
+    fn static_description() -> String
     where
         Self: Sized,
     {
-        "An m,n,k game is a generalization of games like Tic-Tac-Toe or Gomoku to boards of size mxn, where n in a row are needed to win"
+        "An m,n,k game is a generalization of games like Tic-Tac-Toe or Gomoku to boards of size mxn, where n in a row are needed to win".to_string()
     }
 }
 

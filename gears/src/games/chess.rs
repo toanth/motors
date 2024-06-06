@@ -82,18 +82,18 @@ impl StaticallyNamedEntity for Chessboard {
         "chess"
     }
 
-    fn static_long_name() -> &'static str
+    fn static_long_name() -> String
     where
         Self: Sized,
     {
-        "chess game"
+        "Chess game".to_string()
     }
 
-    fn static_description() -> &'static str
+    fn static_description() -> String
     where
         Self: Sized,
     {
-        "Chess or Chess960 game"
+        "Chess or Chess960 game".to_string()
     }
 }
 

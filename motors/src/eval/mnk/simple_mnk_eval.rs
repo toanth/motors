@@ -3,6 +3,7 @@ use strum::IntoEnumIterator;
 use gears::games::mnk::{MNKBoard, MnkBitboard};
 use gears::games::Board;
 use gears::general::bitboards::{Bitboard, RawBitboard, RayDirections};
+use gears::general::common::StaticallyNamedEntity;
 use gears::general::squares::GridSize;
 use gears::search::Score;
 
@@ -24,6 +25,29 @@ fn eval_player(bb: MnkBitboard, size: GridSize) -> i32 {
         }
     }
     res
+}
+
+impl StaticallyNamedEntity for SimpleMnkEval {
+    fn static_short_name() -> &'static str
+    where
+        Self: Sized,
+    {
+        "simple_mnk"
+    }
+
+    fn static_long_name() -> String
+    where
+        Self: Sized,
+    {
+        "Simple MNK eval".to_string()
+    }
+
+    fn static_description() -> String
+    where
+        Self: Sized,
+    {
+        "A very simple handcrafted eval for m,n,k games".to_string()
+    }
 }
 
 impl Eval<MNKBoard> for SimpleMnkEval {

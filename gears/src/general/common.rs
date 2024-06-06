@@ -82,10 +82,10 @@ pub trait NamedEntity: Debug {
     fn short_name(&self) -> &str;
 
     /// The long name can be prettier than the short name and consist of more than one word
-    fn long_name(&self) -> &str;
+    fn long_name(&self) -> String;
 
     /// The optional description.
-    fn description(&self) -> Option<&str>;
+    fn description(&self) -> Option<String>;
 
     fn matches(&self, name: &str) -> bool {
         self.short_name().eq_ignore_ascii_case(name)
@@ -97,11 +97,11 @@ pub trait StaticallyNamedEntity: NamedEntity {
     where
         Self: Sized;
 
-    fn static_long_name() -> &'static str
+    fn static_long_name() -> String
     where
         Self: Sized;
 
-    fn static_description() -> &'static str
+    fn static_description() -> String
     where
         Self: Sized;
 }
@@ -111,11 +111,11 @@ impl<T: StaticallyNamedEntity> NamedEntity for T {
         Self::static_short_name()
     }
 
-    fn long_name(&self) -> &str {
-        Self::static_long_name()
+    fn long_name(&self) -> String {
+        Self::static_long_name().to_string()
     }
 
-    fn description(&self) -> Option<&str> {
+    fn description(&self) -> Option<String> {
         Some(Self::static_description())
     }
 }
@@ -135,11 +135,11 @@ impl<T: Debug> NamedEntity for GenericSelect<T> {
         self.name
     }
 
-    fn long_name(&self) -> &str {
-        self.name
+    fn long_name(&self) -> String {
+        self.name.to_string()
     }
 
-    fn description(&self) -> Option<&str> {
+    fn description(&self) -> Option<String> {
         None
     }
 }
@@ -204,7 +204,9 @@ pub fn to_name_and_optional_description<T: NamedEntity + ?Sized>(
         format!(
             "\n{name:<18} {descr}",
             name = format!("'{}':", x.short_name().bold()),
-            descr = x.description().unwrap_or("<No description>")
+            descr = x
+                .description()
+                .unwrap_or_else(|| "<No description>".to_string())
         )
     } else {
         format!("'{}'", x.short_name().bold())

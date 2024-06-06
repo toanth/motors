@@ -1,6 +1,7 @@
 use rand::{thread_rng, Rng};
 
 use gears::games::Board;
+use gears::general::common::StaticallyNamedEntity;
 use gears::search::{Score, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
 
 use crate::eval::Eval;
@@ -15,6 +16,29 @@ impl Default for RandEval {
         Self {
             deterministic: true,
         }
+    }
+}
+
+impl StaticallyNamedEntity for RandEval {
+    fn static_short_name() -> &'static str
+    where
+        Self: Sized,
+    {
+        "random"
+    }
+
+    fn static_long_name() -> String
+    where
+        Self: Sized,
+    {
+        "Random eval".to_string()
+    }
+
+    fn static_description() -> String
+    where
+        Self: Sized,
+    {
+        "Returns random normal (i.e. not game over) scores. Can either be deterministic or truly random".to_string()
     }
 }
 
