@@ -14,7 +14,7 @@ use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::{Chessboard, MAX_CHESS_MOVES_IN_POS};
-use gears::games::{Board, BoardHistory};
+use gears::games::{game_result_no_movegen, Board, BoardHistory};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{select_name_static, NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
@@ -25,6 +25,8 @@ use gears::search::{
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::EngineOptionType::Spin;
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck, UgiSpin};
+use gears::PlayerResult;
+use gears::PlayerResult::Draw;
 
 use crate::eval::Eval;
 use crate::search::move_picker::MovePicker;
@@ -412,13 +414,13 @@ impl<E: Eval<Chessboard>> Caps<E> {
         debug_assert!(!root || is_pv_node); // root implies pv node
         debug_assert!(alpha + 1 == beta || is_pv_node); // alpha + 1 < beta implies Exact node
 
-        if !root
-            && (self.state.board_history.is_repetition(&pos)
-                || pos.is_50mr_draw()
-                || pos.has_insufficient_material())
-        {
-            return Score(0);
+        if !root {
+            if let Some(res) = game_result_no_movegen(&pos, &self.state.board_history) {
+                debug_assert_eq!(res, Draw);
+                return Score(0);
+            }
         }
+
         let in_check = pos.is_in_check();
         // Check extensions. Increase the depth by 1 if in check.
         // Do this before deciding whether to drop into qsearch.
