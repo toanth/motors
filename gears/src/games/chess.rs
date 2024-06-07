@@ -25,7 +25,9 @@ use crate::games::{
     BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, NameToPos, SelfChecks, Settings,
     UncoloredPieceType, ZobristHash, ZobristRepetition3Fold,
 };
-use crate::general::bitboards::chess::{ChessBitboard, BLACK_SQUARES, WHITE_SQUARES};
+use crate::general::bitboards::chess::{
+    ChessBitboard, BLACK_SQUARES, CORNER_SQUARES, WHITE_SQUARES,
+};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
@@ -371,34 +373,37 @@ impl Board for Chessboard {
         }
     }
 
-    /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules
-    fn cannot_reasonably_lose(&self, player: Color) -> bool {
-        let other = player.other();
-        if (self.colored_piece_bb(other, Pawn)
-            | self.colored_piece_bb(other, Rook)
-            | self.colored_piece_bb(other, Queen))
+    /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
+    /// return `false` if there is a realistic way to win).
+    fn can_reasonably_win(&self, player: Color) -> bool {
+        if self.colored_bb(player).is_single_piece() {
+            return false; // we only have our king left
+        }
+        // return true if the opponent has pawns because that can create possibilities to force them
+        // to restrict the king's mobility
+        if (self.piece_bb(Pawn)
+            | self.colored_piece_bb(player, Rook)
+            | self.colored_piece_bb(player, Queen))
         .has_set_bit()
+            || (self.colored_piece_bb(player.other(), King) & CORNER_SQUARES).has_set_bit()
+        {
+            return true;
+        }
+        // we have at most two knights and no other pieces
+        if self.colored_piece_bb(player, Bishop).is_zero()
+            && self.colored_piece_bb(player, Knight).num_ones() <= 2
+        {
+            // this can very rarely be incorrect because a mate with a knight is possible even without pawns
+            // and even if the king is not in the corner, but those cases are extremely rare
+            return false;
+        }
+        let bishops = self.colored_piece_bb(player, Bishop);
+        if self.colored_piece_bb(player, Knight).is_zero()
+            && ((bishops & WHITE_SQUARES).is_zero() || (bishops & BLACK_SQUARES).is_zero())
         {
             return false;
         }
-        if self.colored_bb(other).is_single_piece() {
-            return true; // opponent has only their king left
-        }
-        // opponent has at lest one knight or bishop, but no other pieces
-        if !self.colored_piece_bb(other, Bishop).has_set_bit()
-            && self.colored_piece_bb(other, Knight).is_single_piece()
-            && !self.piece_bb(Pawn).has_set_bit()
-        {
-            // this can very rarely be incorrect because a smothered mate with a knight is possible even without pawns
-            return true;
-        }
-        if !self.colored_piece_bb(other, Knight).has_set_bit()
-            && self.colored_piece_bb(other, Bishop).is_single_piece()
-            && !self.piece_bb(Pawn).has_set_bit()
-        {
-            return true;
-        }
-        false
+        true
     }
 
     fn zobrist_hash(&self) -> ZobristHash {
@@ -724,8 +729,6 @@ impl Chessboard {
     }
 
     pub fn has_insufficient_material(&self) -> bool {
-        // TODO: Test that this function works properly, especially for crazy edge cases like more than the
-        // starting number of knights or bishops for one player.
         if self.piece_bb(Pawn).has_set_bit() {
             return false;
         }
@@ -733,17 +736,14 @@ impl Chessboard {
             return false;
         }
         let bishops = self.piece_bb(Bishop);
-        if (bishops & BLACK_SQUARES).has_set_bit() && !(bishops & WHITE_SQUARES).is_zero() {
+        if (bishops & BLACK_SQUARES).has_set_bit() && (bishops & WHITE_SQUARES).has_set_bit() {
             return false; // opposite-colored bishops (even if they belong to different players)
         }
         if bishops.has_set_bit() && self.piece_bb(Knight).has_set_bit() {
             return false; // knight and bishop, or knight vs bishop
         }
-        let knights = self.piece_bb(Knight);
-        let white_knights = self.colored_piece_bb(White, Knight);
-        if knights.0.popcnt() >= 3
-            || ((knights ^ white_knights).has_set_bit() && white_knights.has_set_bit())
-        {
+        // a knight and any additional uncolored piece can create a mate (non-knight pieces have already been ruled out)
+        if self.piece_bb(Knight).num_ones() >= 2 {
             return false;
         }
         true
@@ -1162,5 +1162,53 @@ mod tests {
             startpos_found |= board == Chessboard::default();
         }
         assert!(startpos_found);
+    }
+
+    #[test]
+    fn insufficient_material_test() {
+        let insufficient = [
+            "8/4k3/8/8/8/8/8/2K5 w - - 0 1",
+            "8/4k3/8/8/8/8/5N2/2K5 w - - 0 1",
+            "8/8/8/6k1/8/2K5/5b2/6b1 w - - 0 1",
+            "8/8/3B4/7k/8/8/1K6/6b1 w - - 0 1",
+            "8/6B1/8/6k1/8/2K5/8/6b1 w - - 0 1",
+            "3b3B/2B5/1B1B4/B7/3b4/4b2k/5b2/1K6 w - - 0 1",
+            "3B3B/2B5/1B1B4/B6k/3B4/4B3/1K3B2/2B5 w - - 0 1",
+        ];
+        let sufficient = [
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "8/8/4k3/8/8/1K6/8/7R w - - 0 1",
+            "5r2/3R4/4k3/8/8/1K6/8/8 w - - 0 1",
+            "8/8/4k3/8/8/1K6/8/6BB w - - 0 1",
+            "8/8/4B3/8/8/7K/8/6bk w - - 0 1",
+            "3B3B/2B5/1B1B4/B6k/3B4/4B3/1K3B2/1B6 w - - 0 1",
+            "8/3k4/8/8/8/8/NNN5/1K6 w - - 0 1",
+        ];
+        let sufficient_but_unreasonable = [
+            "6B1/8/8/6k1/8/2K5/8/6b1 w - - 0 1",
+            "8/8/4B3/8/8/7K/8/6bk b - - 0 1",
+            "8/8/4B3/7k/8/8/1K6/6b1 w - - 0 1",
+            "8/3k4/8/8/8/8/1NN5/1K6 w - - 0 1",
+            "8/2nk4/8/8/8/8/1NN5/1K6 w - - 0 1",
+        ];
+        for fen in insufficient {
+            let board = Chessboard::from_fen(fen).unwrap();
+            assert!(board.has_insufficient_material(), "{fen}");
+            assert!(!board.can_reasonably_win(board.active_player), "{fen}");
+            assert!(
+                !board.can_reasonably_win(board.active_player.other()),
+                "{fen}"
+            );
+        }
+        for fen in sufficient {
+            let board = Chessboard::from_fen(fen).unwrap();
+            assert!(!board.has_insufficient_material(), "{fen}");
+            assert!(board.can_reasonably_win(board.active_player), "{fen}");
+        }
+        for fen in sufficient_but_unreasonable {
+            let board = Chessboard::from_fen(fen).unwrap();
+            assert!(!board.has_insufficient_material(), "{fen}");
+            assert!(!board.can_reasonably_win(board.active_player), "{fen}");
+        }
     }
 }

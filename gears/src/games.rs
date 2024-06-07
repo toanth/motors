@@ -687,15 +687,18 @@ pub trait Board:
             .map_or(false, |new_pos| new_pos.is_game_lost_slow())
     }
 
-    /// Returns true if it detects that `player` can not lose the game except by running out of time or making very stupid mistakes.
+    /// Returns `false` if it detects that `player` can not win the game except if the opponent runs out of time
+    /// or makes very dumb mistakes.
+    ///
     /// This is intended to be a comparatively cheap function and does not perform any kind of search.
-    /// Typical cases where this returns true include chess positions where the opponent has only their king left
-    /// but the current side still possesses enough material to mate (otherwise, the game would have ended in a draw).
-    /// The result of this function on a position where `game_result_slow` returns a `Some` is unspecified.
-    /// Always returning `false` would be a valid implementation of this method.
+    /// Typical cases where this returns false include chess positions where we only have our king left
+    /// but the opponent still possesses enough material to mate (otherwise, the game would have ended in a draw).
+    /// The result of this function on a position where [`game_result_slow`] returns a `Some` is unspecified.
+    /// This is an approximation; always returning `true` would be a valid implementation of this method.
     /// The implementation of this method for chess technically violates the FIDE rules (as does the insufficient material
-    /// draw condition), but that shouldn't be a problem in practice -- this rule is only meant ot be applied in human games anyway.
-    fn cannot_reasonably_lose(&self, player: Color) -> bool;
+    /// draw condition), but that shouldn't be a problem in practice -- this rule is only meant ot be applied in human games anyway,
+    /// and the FIDE rules are effectively uncheckable.
+    fn can_reasonably_win(&self, player: Color) -> bool;
 
     fn zobrist_hash(&self) -> ZobristHash;
 

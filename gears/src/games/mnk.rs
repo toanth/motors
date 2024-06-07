@@ -557,8 +557,8 @@ impl Board for MNKBoard {
         Draw
     }
 
-    fn cannot_reasonably_lose(&self, _player: Color) -> bool {
-        false
+    fn can_reasonably_win(&self, _player: Color) -> bool {
+        true
     }
 
     /// Not actually a zobrist hash function, but should work well enough

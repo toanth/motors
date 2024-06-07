@@ -277,8 +277,8 @@ impl Board for AtaxxBoard {
         self.game_result_player_slow().unwrap()
     }
 
-    fn cannot_reasonably_lose(&self, _player: Color) -> bool {
-        false
+    fn can_reasonably_win(&self, _player: Color) -> bool {
+        true
     }
 
     fn zobrist_hash(&self) -> ZobristHash {

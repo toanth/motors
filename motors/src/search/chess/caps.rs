@@ -412,7 +412,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
         debug_assert!(!root || is_pv_node); // root implies pv node
         debug_assert!(alpha + 1 == beta || is_pv_node); // alpha + 1 < beta implies Exact node
 
-        if !root && (self.state.board_history.is_repetition(&pos) || pos.is_50mr_draw()) {
+        if !root
+            && (self.state.board_history.is_repetition(&pos)
+                || pos.is_50mr_draw()
+                || pos.has_insufficient_material())
+        {
             return Score(0);
         }
         let in_check = pos.is_in_check();

@@ -364,7 +364,7 @@ impl<B: Board> Client<B> {
             // games with a human player
             let result = if (!self.state.get_player(White).is_engine()
                 || !self.state.get_player(Black).is_engine())
-                && self.board().cannot_reasonably_lose(color)
+                && !self.board().can_reasonably_win(color.other())
             {
                 PlayerResult::Draw
             } else {
