@@ -567,7 +567,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     break;
                 }
                 /// See pruning: At low depths, skip bad captures. TODO: Maybe try also skipping bad quiets with continue?
-                let see_pruning_depth = 3;
+                let see_pruning_depth = 4;
                 if depth <= see_pruning_depth && move_score <= MAX_BAD_CAPTURE_SCORE {
                     break;
                 }
