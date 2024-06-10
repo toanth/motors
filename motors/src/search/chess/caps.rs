@@ -14,7 +14,7 @@ use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::{Chessboard, MAX_CHESS_MOVES_IN_POS};
-use gears::games::{Board, BoardHistory};
+use gears::games::{Board, BoardHistory, Color, Move};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{select_name_static, NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
@@ -74,18 +74,23 @@ impl Default for HistoryHeuristic {
 struct ContHist(Vec<i32>); // Can't store this on the stack because it's too large.
 
 impl ContHist {
-    fn update(&mut self, mov: ChessMove, prev_mov: ChessMove, bonus: i32) {
-        let entry = &mut self[prev_mov.from_to_square() * 64 * 64 + mov.from_to_square()];
+    fn idx(mov: ChessMove, prev_move: ChessMove, color: Color) -> usize {
+        mov.uncolored_piece() as usize * mov.dest_square().bb_idx() * 64 * 6
+            + prev_move.uncolored_piece() as usize * prev_move.dest_square().bb_idx()
+            + color as usize * 64 * 6 * 64 * 6
+    }
+    fn update(&mut self, mov: ChessMove, prev_mov: ChessMove, bonus: i32, color: Color) {
+        let entry = &mut self[Self::idx(mov, prev_mov, color)];
         update_history_score(entry, bonus);
     }
-    fn score(&self, mov: ChessMove, prev_move: ChessMove) -> i32 {
-        self[prev_move.from_to_square() * 64 * 64 + mov.from_to_square()]
+    fn score(&self, mov: ChessMove, prev_move: ChessMove, color: Color) -> i32 {
+        self[Self::idx(mov, prev_move, color)]
     }
 }
 
 impl Default for ContHist {
     fn default() -> Self {
-        ContHist(vec![0; 64 * 64 * 64 * 64])
+        ContHist(vec![0; 2 * 6 * 64 * 6 * 64])
     }
 }
 
@@ -748,7 +753,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if mov.is_tactical(&pos) {
                 break;
             }
-            self.update_histories_and_killer(mov, depth, ply);
+            self.update_histories_and_killer(mov, depth, ply, pos.active_player());
             break;
         }
 
@@ -784,7 +789,13 @@ impl<E: Eval<Chessboard>> Caps<E> {
         best_score
     }
 
-    fn update_histories_and_killer(&mut self, mov: ChessMove, depth: isize, ply: usize) {
+    fn update_histories_and_killer(
+        &mut self,
+        mov: ChessMove,
+        depth: isize,
+        ply: usize,
+        color: Color,
+    ) {
         let split = self.state.search_stack.split_at_mut(ply + 1);
         let entry = split.0.last_mut().unwrap();
         let predecessor = &split.1[0];
@@ -796,12 +807,15 @@ impl<E: Eval<Chessboard>> Caps<E> {
         self.state.custom.history.update(mov, bonus);
         if ply > 0 {
             let prev_move = predecessor.last_tried_move;
-            self.state.custom.cont_hist.update(mov, prev_move, bonus);
+            self.state
+                .custom
+                .cont_hist
+                .update(mov, prev_move, bonus, color);
             for disappointing in entry.tried_quiets.iter().dropping_back(1) {
                 self.state
                     .custom
                     .cont_hist
-                    .update(*disappointing, prev_move, -bonus);
+                    .update(*disappointing, prev_move, -bonus, color);
             }
         }
     }
@@ -908,7 +922,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
             } else if captured == Empty {
                 let conthist_score = if ply > 0 {
                     let prev_move = self.state.search_stack[ply - 1].last_tried_move;
-                    self.state.custom.cont_hist.score(mov, prev_move)
+                    self.state
+                        .custom
+                        .cont_hist
+                        .score(mov, prev_move, board.active_player())
                 } else {
                     0
                 };
