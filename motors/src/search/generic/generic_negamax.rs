@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use rand::thread_rng;
 
-use gears::games::{Board, BoardHistory, ZobristRepetition2Fold};
+use gears::games::{Board, BoardHistory};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
     game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, SCORE_LOST,
@@ -14,7 +14,7 @@ use crate::eval::Eval;
 use crate::search::multithreading::SearchSender;
 use crate::search::statistics::SearchType::MainSearch;
 use crate::search::tt::TT;
-use crate::search::NodeType::{Exact, LowerBound, UpperBound};
+use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use crate::search::{
     ABSearchState, BenchResult, Benchable, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
     SearchState,
@@ -47,15 +47,15 @@ impl<B: Board, E: Eval<B>> StaticallyNamedEntity for GenericNegamax<B, E> {
         "generic_negamax"
     }
 
-    fn static_long_name() -> &'static str {
-        "Generic Negamax"
+    fn static_long_name() -> String {
+        "Generic Negamax".to_string()
     }
 
-    fn static_description() -> &'static str
+    fn static_description() -> String
     where
         Self: Sized,
     {
-        "A simple alpha-bete pruning negamax implementation that doesn't use any game-specific information"
+        "A simple alpha-bete pruning negamax implementation that doesn't use any game-specific information".to_string()
     }
 }
 
@@ -163,6 +163,7 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
 }
 
 impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
+    #[allow(clippy::too_many_arguments)]
     fn negamax(
         &mut self,
         pos: B,
@@ -230,9 +231,9 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
             break;
         }
         let node_type = if best_score >= beta {
-            LowerBound
+            FailHigh
         } else if best_score <= alpha {
-            UpperBound
+            FailLow
         } else {
             Exact
         };

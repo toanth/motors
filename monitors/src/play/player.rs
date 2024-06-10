@@ -172,7 +172,7 @@ impl<B: Board> EnginePlayer<B> {
             .unwrap()
     }
 
-    /// Outside code should use the send_ugi_message[_to] method of client because those also log communication
+    /// Outside code should use the `send_ugi_message\[_to\]` method of client because those also log communication
     pub fn write_ugi_impl(&mut self, msg: &str) -> Res<()> {
         use std::io::Write;
         writeln!(self.child_stdin, "{msg}").map_err(|err| err.to_string())

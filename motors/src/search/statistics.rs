@@ -1,16 +1,10 @@
 use crate::search::statistics::Mode::{Average, Percentage};
 use crate::search::statistics::NodeCounterType::{Begun, Completed};
-use crate::search::statistics::SearchCounter::{
-    CutoffAfterFirstChild, DepthAvg, LegalMakeMoveCalls, NodesStarted, NumCounters, PlyAvg,
-    TTMisses,
-};
+use crate::search::statistics::SearchCounter::*;
 use crate::search::statistics::SearchType::*;
 use crate::search::NodeType;
-use arrayvec::ArrayVec;
 use derive_more::Display;
-use itertools::Itertools;
-use std::fmt::{write, Formatter};
-use std::iter::Sum;
+use std::fmt::Formatter;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
@@ -24,10 +18,9 @@ pub struct NodeTypeCtr {
 impl NodeTypeCtr {
     fn increment(&mut self, node_type: NodeType) {
         let ctr = match node_type {
-            NodeType::Empty => panic!(),
-            NodeType::LowerBound => &mut self.fail_highs,
+            NodeType::FailHigh => &mut self.fail_highs,
             NodeType::Exact => &mut self.exact,
-            NodeType::UpperBound => &mut self.fail_lows,
+            NodeType::FailLow => &mut self.fail_lows,
         };
         *ctr += 1;
     }
@@ -424,7 +417,7 @@ impl IDSummary {
         let nodes = statistics.search(MainSearch).counters[NodesStarted as usize];
         Self {
             nodes,
-            statistics: statistics.clone(),
+            statistics: *statistics,
             depth,
         }
     }
@@ -463,18 +456,17 @@ impl Display for IDSummary {
             in_check = self.statistics.in_check
         )
         .unwrap();
-        let mut write_node_ctr =
-            |ctr: NodeTypeCtr, total: u64, name: &str, f: &mut Formatter<'_>| {
-                let total_completed = ctr.sum();
-                write!(
-                    f,
-                    ",  {name} fail low: {0}, exact: {1}, fail high: {2}",
-                    Self::format_ctr(Percentage, ctr.fail_lows, total, Some(total_completed)),
-                    Self::format_ctr(Percentage, ctr.exact, total, Some(total_completed)),
-                    Self::format_ctr(Percentage, ctr.fail_highs, total, Some(total_completed)),
-                )
-                .unwrap();
-            };
+        let write_node_ctr = |ctr: NodeTypeCtr, total: u64, name: &str, f: &mut Formatter<'_>| {
+            let total_completed = ctr.sum();
+            write!(
+                f,
+                ",  {name} fail low: {0}, exact: {1}, fail high: {2}",
+                Self::format_ctr(Percentage, ctr.fail_lows, total, Some(total_completed)),
+                Self::format_ctr(Percentage, ctr.exact, total, Some(total_completed)),
+                Self::format_ctr(Percentage, ctr.fail_highs, total, Some(total_completed)),
+            )
+            .unwrap();
+        };
         write_node_ctr(
             self.statistics.aw,
             self.statistics.aw.sum(),

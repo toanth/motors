@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use bitintr::Pdep;
 use colored::Colorize;
+use edit_distance::edit_distance;
 use itertools::Itertools;
 use num::{Float, PrimInt};
 
@@ -44,7 +45,7 @@ pub type Res<T> = Result<T, String>;
 pub fn parse_fp_from_str<T: Float + FromStr>(as_str: &str, name: &str) -> Res<T> {
     as_str
         .parse::<T>()
-        .map_err(|_err| format!("couldn't parse {name} ('{as_str}')"))
+        .map_err(|_err| format!("Couldn't parse {name} ('{as_str}')"))
 }
 
 pub fn parse_int_from_str<T: PrimInt + FromStr>(as_str: &str, name: &str) -> Res<T> {
@@ -52,14 +53,14 @@ pub fn parse_int_from_str<T: PrimInt + FromStr>(as_str: &str, name: &str) -> Res
     // so we just write the error message ourselves
     as_str
         .parse::<T>()
-        .map_err(|_err| format!("couldn't parse {name} ('{as_str}')"))
+        .map_err(|_err| format!("Couldn't parse {name} ('{as_str}')"))
 }
 
 pub fn parse_int<T: PrimInt + FromStr + Display>(
     words: &mut SplitWhitespace,
     name: &str,
 ) -> Res<T> {
-    parse_int_from_str(words.next().ok_or_else(|| format!("missing {name}"))?, name)
+    parse_int_from_str(words.next().ok_or_else(|| format!("Missing {name}"))?, name)
 }
 
 pub fn parse_int_from_stdin<T: PrimInt + FromStr>() -> Res<T> {
@@ -81,10 +82,10 @@ pub trait NamedEntity: Debug {
     fn short_name(&self) -> &str;
 
     /// The long name can be prettier than the short name and consist of more than one word
-    fn long_name(&self) -> &str;
+    fn long_name(&self) -> String;
 
     /// The optional description.
-    fn description(&self) -> Option<&str>;
+    fn description(&self) -> Option<String>;
 
     fn matches(&self, name: &str) -> bool {
         self.short_name().eq_ignore_ascii_case(name)
@@ -96,11 +97,11 @@ pub trait StaticallyNamedEntity: NamedEntity {
     where
         Self: Sized;
 
-    fn static_long_name() -> &'static str
+    fn static_long_name() -> String
     where
         Self: Sized;
 
-    fn static_description() -> &'static str
+    fn static_description() -> String
     where
         Self: Sized;
 }
@@ -110,11 +111,11 @@ impl<T: StaticallyNamedEntity> NamedEntity for T {
         Self::static_short_name()
     }
 
-    fn long_name(&self) -> &str {
-        Self::static_long_name()
+    fn long_name(&self) -> String {
+        Self::static_long_name().to_string()
     }
 
-    fn description(&self) -> Option<&str> {
+    fn description(&self) -> Option<String> {
         Some(Self::static_description())
     }
 }
@@ -134,11 +135,11 @@ impl<T: Debug> NamedEntity for GenericSelect<T> {
         self.name
     }
 
-    fn long_name(&self) -> &str {
-        self.name
+    fn long_name(&self) -> String {
+        self.name.to_string()
     }
 
-    fn description(&self) -> Option<&str> {
+    fn description(&self) -> Option<String> {
         None
     }
 }
@@ -149,22 +150,42 @@ pub enum Description {
     NoDescription,
 }
 
-fn select_name_impl<'a, T, F: Fn(&T) -> String, G: Fn(&T, &str) -> bool>(
+fn list_to_string<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String>(
+    iter: I,
+    to_name: F,
+) -> String {
+    itertools::intersperse(iter.map(|x| to_name(&x)), ", ".to_string()).collect::<String>()
+}
+
+fn select_name_impl<
+    'a,
+    I: ExactSizeIterator + Clone,
+    F: Fn(&I::Item) -> String,
+    G: Fn(&I::Item, &str) -> bool,
+>(
     name: &str,
-    list: &'a [T],
+    mut list: I,
     typ: &str,
     game_name: &str,
     to_name: F,
     compare: G,
-) -> Res<&'a T> {
-    let idx = list.iter().find_position(|entity| compare(entity, name));
+) -> Res<I::Item> {
+    let idx = list.clone().find_position(|entity| compare(entity, name));
     match idx {
         None => {
             let list_as_string = match list.len() {
                 0 => format!("There are no valid {typ} names (presumably your program version was built with those features disabled)"),
-                1 => format!("The only valid {typ} for this version of the program is {}", to_name(list.first().unwrap())),
-                _ => format!("Valid {typ} names are {}",
-                    itertools::intersperse(list.iter().map(to_name), ", ".to_string()).collect::<String>())
+                1 => format!("The only valid {typ} for this version of the program is {}", to_name(&list.next().unwrap())),
+                _ => {
+                    let near_matches = list.clone().filter(|x|
+                        edit_distance(&to_name(x).to_ascii_lowercase(), &format!("'{}'", name.to_ascii_lowercase().bold())) <= 3
+                    ).collect_vec();
+                    if near_matches.is_empty() {
+                        format!("Valid {typ} names are {}", list_to_string(list, to_name))
+                    } else {
+                        format!("Perhaps you meant: {}", list_to_string(near_matches.iter(), |x| to_name(x)))
+                    }
+                }
             };
             let game_name = game_name.bold();
             let name = name.red();
@@ -183,26 +204,25 @@ pub fn to_name_and_optional_description<T: NamedEntity + ?Sized>(
         format!(
             "\n{name:<18} {descr}",
             name = format!("'{}':", x.short_name().bold()),
-            descr = x.description().unwrap_or("<No description>")
+            descr = x
+                .description()
+                .unwrap_or_else(|| "<No description>".to_string())
         )
     } else {
         format!("'{}'", x.short_name().bold())
     }
 }
 
-pub fn select_name_dyn<'a, T: NamedEntity>(
+pub fn select_name_dyn<'a, T: NamedEntity + ?Sized>(
     name: &str,
     list: &'a [Box<T>],
     typ: &str,
     game_name: &str,
     descr: Description,
-) -> Res<&'a T>
-where
-    T: ?Sized,
-{
+) -> Res<&'a T> {
     select_name_impl(
         name,
-        list,
+        list.iter(),
         typ,
         game_name,
         |x| to_name_and_optional_description(x.as_ref(), descr),
@@ -214,9 +234,9 @@ where
 /// There's probably a way to avoid having the exact same 1 line implementation for `select_name_static` and `select_name_dyn`
 /// (the only difference is that `select_name_dyn` uses `Box<dyn T>` instead of `T` for the element type,
 /// and `Box<dyn T>` doesn't satisfy `NamedEntity`, even though it's possible to call all the trait methods on it.)
-pub fn select_name_static<'a, T: NamedEntity>(
+pub fn select_name_static<'a, T: NamedEntity, I: ExactSizeIterator<Item = &'a T> + Clone>(
     name: &str,
-    list: &'a [T],
+    list: I,
     typ: &str,
     game_name: &str,
     descr: Description,
@@ -226,7 +246,7 @@ pub fn select_name_static<'a, T: NamedEntity>(
         list,
         typ,
         game_name,
-        |x| to_name_and_optional_description(x, descr),
+        |x| to_name_and_optional_description(*x, descr),
         |e, s| e.matches(s),
     )
 }

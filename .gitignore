@@ -4,3 +4,4 @@
 caps
 *.pgn
 callgrind.out.*
+datasets/

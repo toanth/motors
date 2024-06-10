@@ -1,6 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
-use std::mem::take;
 use std::ops::Deref;
 use std::time::{Duration, Instant};
 
@@ -16,9 +15,9 @@ use gears::search::{
 use gears::ugi::{EngineOption, EngineOptionName};
 
 use crate::search::multithreading::{EngineWrapper, SearchSender};
-use crate::search::statistics::SearchType::{MainSearch, Qsearch};
-use crate::search::statistics::{SearchType, Statistics};
+use crate::search::statistics::Statistics;
 use crate::search::tt::TT;
+use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use crate::search::Searching::*;
 
 #[cfg(feature = "chess")]
@@ -35,8 +34,21 @@ pub struct EngineInfo {
     pub version: String,
     pub default_bench_depth: Depth,
     pub options: Vec<EngineOption>,
-    pub description: String, // TODO: Use
-                             // TODO: NamedEntity?
+    pub description: String,
+}
+
+impl NamedEntity for EngineInfo {
+    fn short_name(&self) -> &str {
+        &self.name
+    }
+
+    fn long_name(&self) -> String {
+        format!("{0} {1}", self.name, self.version)
+    }
+
+    fn description(&self) -> Option<String> {
+        Some(self.description.clone())
+    }
 }
 
 #[derive(Debug)]
@@ -162,7 +174,7 @@ impl<B: Board, E: Engine<B>> AbstractEngineBuilder<B> for EngineBuilder<B, E> {
     }
 
     fn build_for_bench(&self) -> Box<dyn Benchable<B>> {
-        Box::new(E::default())
+        Box::<E>::default()
     }
 
     fn can_use_multiple_threads(&self) -> bool {
@@ -175,11 +187,11 @@ impl<B: Board, E: Engine<B>> StaticallyNamedEntity for EngineBuilder<B, E> {
         E::static_short_name()
     }
 
-    fn static_long_name() -> &'static str {
+    fn static_long_name() -> String {
         E::static_long_name()
     }
 
-    fn static_description() -> &'static str {
+    fn static_description() -> String {
         E::static_description()
     }
 }
@@ -256,7 +268,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
 
     #[inline(always)]
     fn should_stop(&mut self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
-        if (self.should_stop_impl(limit, sender)) {
+        if self.should_stop_impl(limit, sender) {
             self.search_state_mut().mark_search_should_end();
             true
         } else {
@@ -365,7 +377,7 @@ impl<B: Board> SearchStackEntry<B> for EmptySearchStackEntry {
     }
 }
 
-trait CustomInfo: Default + Clone + Debug {
+pub trait CustomInfo: Default + Clone + Debug {
     fn tt(&self) -> Option<&TT> {
         None
     }
@@ -378,7 +390,7 @@ trait CustomInfo: Default + Clone + Debug {
 }
 
 #[derive(Default, Clone, Debug)]
-struct NoCustomInfo {}
+pub struct NoCustomInfo {}
 
 impl CustomInfo for NoCustomInfo {}
 
@@ -536,16 +548,27 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, FromRepr)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, FromRepr)]
 #[repr(u8)]
 pub enum NodeType {
-    #[default]
-    Empty,
-    LowerBound,
-    // score greater than beta, cut-node
-    Exact,
-    // score between alpha and beta, PV node (important node!)
-    UpperBound, // score less than alpha, all-node (relatively rare, but makes parent a cut-node)
+    /// Don't use 0 because that's used to represent the empty node type for the internal TT representation
+    /// score is a lower bound >= beta, cut-node (the most common node type)
+    FailHigh = 1,
+    /// score known exactly in `(alpha, beta)`, PV node (very rare, but those are the most important nodes)
+    Exact = 2,
+    /// score between alpha and beta, PV node (important node!)
+    FailLow = 3, // score is an upper bound <= alpha, all-node (relatively rare, but makes parent a cut-node)
+}
+
+impl NodeType {
+    pub fn inverse(self) -> Self {
+        // Could maybe try some bit twiddling tricks in case the compiler doesn't already do that
+        match self {
+            FailHigh => FailLow,
+            Exact => Exact,
+            FailLow => FailHigh,
+        }
+    }
 }
 
 pub fn run_bench<B: Board>(engine: &mut dyn Benchable<B>) -> BenchResult {

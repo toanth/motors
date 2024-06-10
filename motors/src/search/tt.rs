@@ -1,11 +1,12 @@
-use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T2};
-use std::mem::{size_of, transmute, transmute_copy};
+use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T1};
+use std::mem::{size_of, transmute_copy};
 use std::ptr::addr_of;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 
 use portable_atomic::AtomicU128;
 use static_assertions::const_assert_eq;
+use strum_macros::FromRepr;
 
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
@@ -13,18 +14,28 @@ use gears::games::{Board, Move, ZobristHash};
 use gears::search::{Score, SCORE_WON};
 
 use crate::search::NodeType;
-use crate::search::NodeType::Empty;
+use OptionalNodeType::*;
 
 type AtomicTTEntry = AtomicU128;
+
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, FromRepr)]
+#[repr(u8)]
+enum OptionalNodeType {
+    #[default]
+    Empty = 0,
+    NodeTypeFailHigh = NodeType::FailHigh as u8,
+    NodeTypeExact = NodeType::Exact as u8,
+    NodeTypeFailLow = NodeType::FailLow as u8,
+}
 
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 #[repr(C)]
 pub(super) struct TTEntry<B: Board> {
-    pub hash: ZobristHash, // 8 bytes
-    pub score: Score,      // 4 bytes
-    pub mov: B::Move,      // depends, 2 bytes for chess (atm never more)
-    pub depth: u8,         // 1 byte
-    pub bound: NodeType,   // 1 byte
+    pub hash: ZobristHash,   // 8 bytes
+    pub score: Score,        // 4 bytes
+    pub mov: B::Move,        // depends, 2 bytes for chess (atm never more)
+    pub depth: u8,           // 1 byte
+    bound: OptionalNodeType, // 1 byte
 }
 
 impl<B: Board> TTEntry<B> {
@@ -40,9 +51,14 @@ impl<B: Board> TTEntry<B> {
             score,
             mov,
             depth,
-            bound,
+            bound: OptionalNodeType::from_repr(bound as u8).unwrap(),
             hash,
         }
+    }
+
+    pub fn bound(&self) -> NodeType {
+        debug_assert!(self.bound != Empty);
+        NodeType::from_repr(self.bound as u8).unwrap()
     }
 
     #[cfg(feature = "unsafe")]
@@ -86,9 +102,9 @@ impl<B: Board> TTEntry<B> {
     fn from_packed_fallback(val: u128) -> Self {
         let hash = ZobristHash((val >> 64) as u64);
         let score = Score(((val >> (64 - 32)) & 0xffff_ffff) as i32);
-        let mov = B::Move::from_usize(((val >> 16) & 0xffff) as usize).unwrap();
+        let mov = B::Move::from_usize_unchecked(((val >> 16) & 0xffff) as usize);
         let depth = ((val >> 8) & 0xff) as u8;
-        let bound = NodeType::from_repr((val & 0xff) as u8).unwrap();
+        let bound = OptionalNodeType::from_repr((val & 0xff) as u8).unwrap();
         Self {
             hash,
             score,
@@ -135,7 +151,7 @@ impl TT {
         let num_bits = new_size.ilog2() as u64;
         let new_size = 1 << num_bits; // round down to power of two
         let mut arr = vec![];
-        arr.resize_with(new_size, || AtomicU128::default());
+        arr.resize_with(new_size, AtomicU128::default);
         Self {
             tt: Arc::new(SharedTTState { arr }),
             mask: new_size - 1,
@@ -169,7 +185,7 @@ impl TT {
         hash.0 as usize & self.mask
     }
 
-    pub fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {
+    pub(super) fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {
         debug_assert!(
             entry.score.0.abs() + ply as i32 <= SCORE_WON.0,
             "score {score} ply {ply}",
@@ -196,7 +212,7 @@ impl TT {
         self.tt.arr[idx].store(entry.to_packed(), Relaxed);
     }
 
-    pub fn load<B: Board>(&self, hash: ZobristHash, ply: usize) -> TTEntry<B> {
+    pub(super) fn load<B: Board>(&self, hash: ZobristHash, ply: usize) -> Option<TTEntry<B>> {
         let idx = self.index_of(hash);
         let mut entry = TTEntry::from_packed(self.tt.arr[idx].load(Relaxed));
         // Mate score adjustments, see `store`
@@ -208,7 +224,11 @@ impl TT {
             }
         }
         debug_assert!(entry.score.0.abs() <= SCORE_WON.0);
-        entry
+        if entry.bound == Empty || entry.hash != hash {
+            None
+        } else {
+            Some(entry)
+        }
     }
 
     #[inline(always)]
@@ -216,7 +236,7 @@ impl TT {
         if cfg!(feature = "unsafe") {
             unsafe {
                 #[cfg(all(target_arch = "x86_64", target_feature = "sse"))]
-                _mm_prefetch::<_MM_HINT_T2>(addr_of!(self.tt.arr[self.index_of(hash)]) as *const i8);
+                _mm_prefetch::<_MM_HINT_T1>(addr_of!(self.tt.arr[self.index_of(hash)]) as *const i8);
             }
         }
     }
@@ -242,7 +262,7 @@ mod test {
                 Score(i * i * (i % 2 * 2 - 1)),
                 mov,
                 i as isize,
-                NodeType::from_repr(i as u8 % 3).unwrap(),
+                NodeType::from_repr(i as u8 % 3 + 1).unwrap(),
             );
             let converted = entry.to_packed();
             assert_eq!(TTEntry::from_packed(converted), entry);
@@ -263,7 +283,9 @@ mod test {
                     thread_rng().sample(Uniform::new(MIN_NORMAL_SCORE.0, MAX_NORMAL_SCORE.0)),
                 );
                 let depth = thread_rng().sample(Uniform::new(1, 100));
-                let bound = NodeType::from_repr(thread_rng().sample(Uniform::new(0, 3))).unwrap();
+                let bound =
+                    OptionalNodeType::from_repr(thread_rng().sample(Uniform::new(0, 3)) + 1)
+                        .unwrap();
                 let entry: TTEntry<Chessboard> = TTEntry {
                     hash: pos.zobrist_hash(),
                     score,
@@ -276,7 +298,7 @@ mod test {
                 assert_eq!(val, entry);
                 let ply = thread_rng().sample(Uniform::new(0, 100));
                 tt.store(entry.clone(), ply);
-                let loaded = tt.load(entry.hash, ply);
+                let loaded = tt.load(entry.hash, ply).unwrap();
                 assert_eq!(entry, loaded);
             }
         }

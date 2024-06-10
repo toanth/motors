@@ -2,10 +2,13 @@ use itertools::Itertools;
 use strum_macros::EnumIter;
 
 use crate::games::chess::castling::CastleRight::*;
-use crate::games::chess::squares::{A_FILE_NO, H_FILE_NO, NUM_COLUMNS};
+use crate::games::chess::pieces::ColoredChessPiece;
+use crate::games::chess::pieces::UncoloredChessPiece::Rook;
+use crate::games::chess::squares::{ChessSquare, A_FILE_NO, B_FILE_NO, H_FILE_NO, NUM_COLUMNS};
 use crate::games::chess::Chessboard;
 use crate::games::Color::*;
-use crate::games::{char_to_file, Color, DimT};
+use crate::games::{char_to_file, Board, Color, ColoredPieceType, DimT};
+use crate::general::bitboards::RawBitboard;
 use crate::general::common::Res;
 
 #[derive(EnumIter, Copy, Clone, Eq, PartialEq, Debug, derive_more::Display)]
@@ -41,11 +44,19 @@ impl CastlingFlags {
             & (self.allowed_castling_directions() >> (color as usize * 2 + castle_right as usize))
     }
 
-    pub(super) fn set_castle_right(&mut self, color: Color, castle_right: CastleRight, file: DimT) {
+    pub(super) fn set_castle_right(
+        &mut self,
+        color: Color,
+        castle_right: CastleRight,
+        file: DimT,
+    ) -> Res<()> {
         debug_assert!((file as usize) < NUM_COLUMNS);
-        debug_assert!(!self.can_castle(color, castle_right));
+        if self.can_castle(color, castle_right) {
+            return Err(format!("Trying to set the {color} {castle_right} twice"));
+        }
         self.0 |= (file as u16) << Self::shift(color, castle_right);
-        self.0 |= 1 << (12 + color as usize * 2 + castle_right as usize)
+        self.0 |= 1 << (12 + color as usize * 2 + castle_right as usize);
+        Ok(())
     }
 
     pub(super) fn unset_castle_right(&mut self, color: Color, castle_right: CastleRight) {
@@ -71,12 +82,20 @@ impl CastlingFlags {
             ));
         }
         if !rights.chars().all_unique() {
-            return Err(format!("duplicate castling right letter in '{rights}'"));
+            return Err(format!("Duplicate castling right letter in '{rights}'"));
         }
 
         for c in rights.chars() {
             let color = if c.is_ascii_uppercase() { White } else { Black };
+            let rank = match color {
+                White => 0,
+                Black => 7,
+            };
             let king_file = board.king_square(color).file();
+            debug_assert_eq!(
+                board.king_square(color),
+                ChessSquare::from_rank_file(rank, king_file)
+            );
             let side = |file: DimT| {
                 if file < king_file {
                     Queenside
@@ -84,17 +103,45 @@ impl CastlingFlags {
                     Kingside
                 }
             };
-            match c.to_ascii_lowercase() {
-                'k' | 'h' => self.set_castle_right(color, Kingside, H_FILE_NO),
-                'q' | 'a' => self.set_castle_right(color, Queenside, A_FILE_NO),
-                x => {
-                    if matches!(x, 'b'..='g') {
-                        let file = char_to_file(x);
-                        self.set_castle_right(color, side(file), file);
-                    } else {
-                        return Err(format!("invalid character in castling rights: '{x}'"));
+            // support normal chess style castling fens for chess960 and hope it's unambiguous
+            // (`verify_position_legal` will return an error if there is no such rook).
+            let mut find_rook = |side: CastleRight| {
+                let (start, end) = match side {
+                    Queenside => (A_FILE_NO, king_file),
+                    Kingside => (king_file, H_FILE_NO),
+                };
+                for file in start..end {
+                    if board.is_piece_on(
+                        ChessSquare::from_rank_file(rank, file),
+                        ColoredChessPiece::new(color, Rook),
+                    ) {
+                        self.set_castle_right(color, side, file)?;
+                        return Ok(());
                     }
                 }
+                return Err(format!(
+                    "There is no {side} rook to castle with for the {color} player"
+                ));
+            };
+            match c.to_ascii_lowercase() {
+                'q' => find_rook(Queenside)?,
+                'k' => {
+                    // the `if` isn't just a small performance improvement, it's also necessary if there is a rook on the
+                    // g file, for example (for chess960, this is ambiguous, but just picking one is fine).
+                    if board.is_piece_on(
+                        ChessSquare::from_rank_file(rank, H_FILE_NO),
+                        ColoredChessPiece::new(color, Rook),
+                    ) {
+                        self.set_castle_right(color, Kingside, H_FILE_NO)?;
+                    } else {
+                        find_rook(Kingside)?
+                    }
+                }
+                x @ 'a'..='h' => {
+                    let file = char_to_file(x);
+                    self.set_castle_right(color, side(file), file)?;
+                }
+                x => return Err(format!("invalid character in castling rights: '{x}'")),
             }
         }
         Ok(self)
