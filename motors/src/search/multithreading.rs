@@ -148,7 +148,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         self.engine.set_tt(tt);
         let search_res = self
             .engine
-            .search(pos, limit, history, &mut self.search_sender)?;
+            .search(pos, limit, history, self.search_sender.clone())?;
 
         self.search_sender.send_search_res(search_res);
         Ok(())

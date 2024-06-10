@@ -237,7 +237,6 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
         &mut self,
         pos: Chessboard,
         mut limit: SearchLimit,
-        sender: &mut SearchSender<Chessboard>,
     ) -> Res<SearchResult<Chessboard>> {
         limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
         let soft_limit = limit
@@ -245,7 +244,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
             .min((limit.tc.remaining.saturating_sub(limit.tc.increment)) / 32 + limit.tc.increment)
             .min(limit.tc.remaining / 4);
 
-        sender.send_message(Debug, &format!(
+        self.state.sender.send_message(Debug, &format!(
             "Starting search with limit {time}ms, {incr}ms increment, max {fixed}ms, mate in {mate} plies, max depth {depth}, max {nodes} nodes, soft limit {soft}ms",
             time = limit.tc.remaining.as_millis(),
             incr = limit.tc.increment.as_millis(),
@@ -256,7 +255,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
             soft = soft_limit.as_millis(),
         ));
 
-        let chosen_move = match self.aspiration(pos, limit, soft_limit, sender) {
+        let chosen_move = match self.aspiration(pos, limit, soft_limit) {
             Some(mov) => mov,
             None => {
                 eprintln!("Warning: Not even a single iteration finished");
@@ -313,7 +312,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
         pos: Chessboard,
         limit: SearchLimit,
         soft_limit: Duration,
-        sender: &mut SearchSender<Chessboard>,
     ) -> Option<ChessMove> {
         let mut chosen_move = self.state.best_move;
         let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth).get() as isize;
@@ -334,7 +332,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 alpha,
                 beta,
                 Exact,
-                sender,
             );
             assert!(
                 !(iteration_score != SCORE_TIME_UP
@@ -345,7 +342,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 iteration_score.0,
                 self.state.depth().get(),
             );
-            sender.send_message(
+            self.state.sender.send_message(
                 Debug,
                 &format!(
                     "depth {depth}, score {0}, radius {1}, interval ({2}, {3})",
@@ -361,8 +358,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
             }
             self.state.score = iteration_score;
             if iteration_score > alpha && iteration_score < beta {
-                sender.send_search_info(self.search_info()); // do this before incrementing the depth
-                                                             // make sure that alpha and beta are at least 2 apart, to recognize PV nodes.
+                self.state.sender.send_search_info(self.search_info()); // do this before incrementing the depth
+                                                                        // make sure that alpha and beta are at least 2 apart, to recognize PV nodes.
                 window_radius = Score(1.max(window_radius.0 / 2));
                 self.state.statistics.aw_exact(); // increases the depth
             } else {
@@ -395,7 +392,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
         mut alpha: Score,
         beta: Score,
         mut expected_node_type: NodeType,
-        sender: &SearchSender<Chessboard>,
     ) -> Score {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= DEPTH_HARD_LIMIT.get());
@@ -524,7 +520,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     -beta,
                     -beta + 1,
                     FailLow, // the child node is expected to fail low, leading to a fail high in this node
-                    sender,
                 );
                 self.state.board_history.pop(&pos);
                 if score >= beta {
@@ -607,7 +602,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     -beta,
                     -alpha,
                     expected_child_type,
-                    sender,
                 );
             } else {
                 // LMR (Late Move Reductions): Trust the move ordering (mostly the quiet history heuristic, at least currently)
@@ -632,7 +626,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     -(alpha + 1),
                     -alpha,
                     expected_child_type,
-                    sender,
                 );
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
@@ -646,7 +639,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
                         -(alpha + 1),
                         -alpha,
                         expected_child_type,
-                        sender,
                     );
                 }
                 // If the full-depth search also performed better than expected, do a full-depth search with the
@@ -655,16 +647,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 if alpha < score && score < beta {
                     debug_assert_eq!(expected_node_type, Exact);
                     self.state.statistics.lmr_second_retry();
-                    score = -self.negamax(
-                        new_pos,
-                        limit,
-                        ply + 1,
-                        depth - 1,
-                        -beta,
-                        -alpha,
-                        Exact,
-                        sender,
-                    );
+                    score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, Exact);
                 }
             }
 
@@ -680,7 +663,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 "depth {depth} ply {ply} old len {debug_history_len} new len {} child {children_visited}", self.state.board_history.0.0.len()
             );
             // Check for cancellation right after searching a move to avoid storing incorrect information in the TT.
-            if self.should_stop(limit, sender) {
+            if self.should_stop(limit) {
                 return SCORE_TIME_UP;
             }
             debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);

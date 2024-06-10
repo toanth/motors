@@ -103,12 +103,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         false
     }
 
-    fn do_search(
-        &mut self,
-        pos: B,
-        _: SearchLimit,
-        _sender: &mut SearchSender<B>,
-    ) -> Res<SearchResult<B>> {
+    fn do_search(&mut self, pos: B, _: SearchLimit) -> Res<SearchResult<B>> {
         self.chosen_move = pos
             .random_legal_move(&mut self.rng)
             .expect("search() called in a position with no legal moves");
