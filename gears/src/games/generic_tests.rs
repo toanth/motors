@@ -3,7 +3,7 @@
 #[cfg(test)]
 pub(super) mod generic_tests {
     use crate::games::SelfChecks::Assertion;
-    use crate::games::{Board, Move, ZobristHash};
+    use crate::games::{Board, Move, NoHistory, ZobristHash};
     use itertools::Itertools;
     use std::collections::{HashSet, VecDeque};
     use std::marker::PhantomData;
@@ -86,7 +86,7 @@ pub(super) mod generic_tests {
                 // use a new hash set per position because bench positions can be only one ply away from each other
                 let mut hashes = HashSet::new();
                 assert!(pos.verify_position_legal(Assertion).is_ok());
-                assert!(pos.match_result_slow().is_none());
+                assert!(pos.match_result_slow(&NoHistory::default()).is_none());
                 assert_eq!(B::from_fen(&pos.as_fen()).unwrap(), pos);
                 let hash = pos.zobrist_hash().0;
                 hashes.insert(hash);

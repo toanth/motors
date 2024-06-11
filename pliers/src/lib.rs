@@ -14,6 +14,7 @@
 //! # Example:
 //!
 //! ```
+//! # use motors::eval::chess::piston::PistonEval;
 //! type Eval = PistonEval;
 //! fn main() {
 //!     // Make sure the eval works as expected by running it on a single simple position.
@@ -33,12 +34,14 @@
 //! There are even lower-level functions like [`optimize_entire_batch`] for yet greater control, but most users shouldn't
 //! need to bother with them.
 //! ```
-//! use gears::games::ataxx::AtaxxBoard;
-//! use gears::general::common::Res;
-//! use pliers::{get_datasets, optimize_for};
-//! use pliers::gd::SimpleGDOptimizer;
-//! use pliers::load_datasets_from_json;
-//! use std::path::Path;
+//! # use gears::games::ataxx::AtaxxBoard;
+//! # use gears::general::common::Res;
+//! # use pliers::{get_datasets, optimize_for};
+//! # use pliers::gd::SimpleGDOptimizer;
+//! # use pliers::load_datasets_from_json;
+//! # use std::path::Path;
+//! # use motors::eval::rand_eval::RandEval;
+//! # type MyAtaxxEval = RandEval;
 //!
 //! fn main() -> Res<()> {
 //!     // Alternatively, use `get_dataset` to read the command line for the location of a

@@ -8,8 +8,8 @@ use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::Color::{Black, White};
 use crate::games::SelfChecks::*;
 use crate::games::{
-    board_to_string, position_fen_part, Board, Color, ColoredPiece, Coordinates, GenericPiece,
-    SelfChecks, Settings, ZobristHash,
+    board_to_string, position_fen_part, Board, BoardHistory, Color, ColoredPiece, Coordinates,
+    GenericPiece, NoHistory, SelfChecks, Settings, ZobristHash,
 };
 use crate::general::bitboards::ataxx::{AtaxxBitboard, INVALID_EDGE_MASK};
 use crate::general::bitboards::{RawBitboard, RawStandardBitboard};
@@ -245,7 +245,10 @@ impl Board for AtaxxBoard {
         self.is_move_legal_impl(mov)
     }
 
-    fn game_result_no_movegen(&self) -> Option<PlayerResult> {
+    fn player_result_no_movegen<H: BoardHistory<Self>>(
+        &self,
+        _history: &H,
+    ) -> Option<PlayerResult> {
         let color = self.active_player;
         if self.color_bb(color).is_zero() {
             return Some(Lose);
@@ -267,14 +270,14 @@ impl Board for AtaxxBoard {
         })
     }
 
-    fn game_result_player_slow(&self) -> Option<PlayerResult> {
-        self.game_result_no_movegen()
+    fn player_result_slow<H: BoardHistory<Self>>(&self, _history: &H) -> Option<PlayerResult> {
+        self.player_result_no_movegen(_history)
     }
 
     /// If a player has no legal moves, a null move is generated, so this doesn't require any special handling during search.
     /// But if there are no pieces left, the player loses the game.
     fn no_moves_result(&self) -> PlayerResult {
-        self.game_result_player_slow().unwrap()
+        self.player_result_slow(&NoHistory::default()).unwrap()
     }
 
     fn can_reasonably_win(&self, _player: Color) -> bool {

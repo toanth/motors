@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use crossbeam_utils::sync::{Parker, Unparker};
 
 use gears::games::Color::{Black, White};
-use gears::games::{Board, BoardHistory, Color, Move, ZobristRepetition3Fold};
+use gears::games::{Board, BoardHistory, Color, Move, ZobristHistory};
 use gears::general::common::Res;
 use gears::output::Message::{Error, Info, Warning};
 use gears::output::{Message, OutputBox, OutputBuilder};
@@ -44,7 +44,7 @@ pub struct UgiMatchState<B: Board> {
     /// Current board state (does not include history), should be cheap to copy
     pub board: B,
     /// Needed for repetition detection
-    pub board_history: ZobristRepetition3Fold,
+    pub board_history: ZobristHistory<B>,
     /// Needed to reconstruct the match, such as for the PGN export.
     pub move_history: Vec<B::Move>,
     /// useful for gui matches to allow a "restart" option
@@ -77,7 +77,7 @@ impl<B: Board> UgiMatchState<B> {
     fn reset(&mut self) {
         self.board = self.initial_pos;
         self.move_history.clear();
-        <ZobristRepetition3Fold as BoardHistory<B>>::clear(&mut self.board_history);
+        self.board_history.clear();
         self.board_history.push(&self.board);
         self.status = NotStarted;
     }
@@ -458,7 +458,8 @@ impl<B: Board> Client<B> {
     }
 
     fn compute_match_result(&mut self) -> Option<MatchResult> {
-        if let Some(res) = self.match_state().board.match_result_slow() {
+        let state = self.match_state();
+        if let Some(res) = state.board.match_result_slow(&state.board_history) {
             return Some(res);
         }
         self.adjudicator.adjudicate(&self.state)
@@ -598,8 +599,7 @@ impl<B: Board> Client<B> {
     pub fn rewind_to_ply(&mut self, ply: usize) -> Res<()> {
         assert!(ply <= self.match_state().move_history.len());
         debug_assert!(
-            self.match_state().board_history.0 .0.len()
-                == self.match_state().move_history.len() + 1
+            self.match_state().board_history.len() == self.match_state().move_history.len() + 1
         );
         let initial_pos = self.match_state().initial_pos;
         let mut moves = self.match_state().move_history.clone();

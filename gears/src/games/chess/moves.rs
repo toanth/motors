@@ -18,7 +18,7 @@ use crate::games::chess::Chessboard;
 use crate::games::Color::{Black, White};
 use crate::games::{
     char_to_file, file_to_char, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType,
-    DimT, Move, MoveFlags, ZobristHash,
+    DimT, Move, MoveFlags, NoHistory, ZobristHash,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::common::Res;

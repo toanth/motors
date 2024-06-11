@@ -7,7 +7,7 @@ use colored::Colorize;
 use dyn_clone::{clone_box, DynClone};
 use strum_macros::FromRepr;
 
-use gears::games::{Board, ZobristHistoryBase, ZobristRepetition2Fold};
+use gears::games::{Board, ZobristHistory};
 use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
 use gears::search::{
     Depth, NodesLimit, Score, SearchInfo, SearchLimit, SearchResult, TimeControl, SCORE_WON,
@@ -220,7 +220,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         self.search(
             pos,
             limit,
-            ZobristHistoryBase::default(),
+            ZobristHistory::default(),
             SearchSender::no_sender(),
         )
     }
@@ -229,11 +229,10 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         &mut self,
         pos: B,
         limit: SearchLimit,
-        history: ZobristHistoryBase,
-        mut sender: SearchSender<B>,
+        history: ZobristHistory<B>,
+        sender: SearchSender<B>,
     ) -> Res<SearchResult<B>> {
-        self.search_state_mut()
-            .new_search(ZobristRepetition2Fold(history), sender);
+        self.search_state_mut().new_search(history, sender);
         let res = self.do_search(pos, limit);
         let search_state = self.search_state_mut();
         search_state.end_search();
@@ -344,7 +343,7 @@ pub trait SearchState<B: Board>: Debug + Clone {
     fn start_time(&self) -> Instant;
     fn score(&self) -> Score;
     fn forget(&mut self, hard: bool);
-    fn new_search(&mut self, history: ZobristRepetition2Fold, sender: SearchSender<B>);
+    fn new_search(&mut self, history: ZobristHistory<B>, sender: SearchSender<B>);
     fn end_search(&mut self) {
         self.mark_search_should_end();
         self.statistics_mut().end_search();
@@ -394,7 +393,7 @@ impl CustomInfo for NoCustomInfo {}
 #[derive(Debug, Clone)]
 pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo> {
     search_stack: Vec<E>,
-    board_history: ZobristRepetition2Fold,
+    board_history: ZobristHistory<B>,
     custom: C,
     best_move: Option<B::Move>,
     searching: Searching,
@@ -415,7 +414,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
         let start_time = Instant::now();
         Self {
             search_stack,
-            board_history: ZobristRepetition2Fold::default(),
+            board_history: ZobristHistory::default(),
             start_time,
             score: Score(0),
             best_move: None,
@@ -498,7 +497,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
         }
         self.sender = SearchSender::no_sender();
         self.start_time = Instant::now();
-        self.board_history = ZobristRepetition2Fold::default(); // will get overwritten later
+        self.board_history = ZobristHistory::default(); // will get overwritten later
         self.score = Score(0);
         self.best_move = None;
         self.searching = Stop;
@@ -506,7 +505,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
         self.statistics = Statistics::default();
     }
 
-    fn new_search(&mut self, history: ZobristRepetition2Fold, sender: SearchSender<B>) {
+    fn new_search(&mut self, history: ZobristHistory<B>, sender: SearchSender<B>) {
         self.forget(false);
         self.board_history = history;
         self.sender = sender;

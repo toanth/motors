@@ -538,7 +538,10 @@ impl Board for MNKBoard {
             && self.colored_piece_on(mov.target).symbol == Empty
     }
 
-    fn game_result_no_movegen(&self) -> Option<PlayerResult> {
+    fn player_result_no_movegen<H: BoardHistory<Self>>(
+        &self,
+        _history: &H,
+    ) -> Option<PlayerResult> {
         // check for win before checking full board
         if self.is_game_lost() {
             Some(Lose)
@@ -549,8 +552,8 @@ impl Board for MNKBoard {
         }
     }
 
-    fn game_result_player_slow(&self) -> Option<PlayerResult> {
-        self.game_result_no_movegen()
+    fn player_result_slow<H: BoardHistory<Self>>(&self, _history: &H) -> Option<PlayerResult> {
+        self.player_result_no_movegen(_history)
     }
 
     fn no_moves_result(&self) -> PlayerResult {

@@ -174,7 +174,7 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
             .statistics
             .count_node_started(MainSearch, ply, true);
 
-        if let Some(res) = pos.game_result_no_movegen() {
+        if let Some(res) = pos.player_result_no_movegen(&self.state.board_history) {
             return game_result_to_score(res, ply);
         }
         if depth <= 0 {
@@ -196,7 +196,7 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
 
             let score = -self.negamax(new_pos.unwrap(), limit, ply + 1, depth - 1, -beta, -alpha);
 
-            self.state.board_history.pop(&new_pos.unwrap());
+            self.state.board_history.pop();
 
             if self.should_stop(limit) {
                 return SCORE_TIME_UP;

@@ -9,12 +9,12 @@ use rand::thread_rng;
 
 use crate::eval::chess::hce::HandCraftedEval;
 use crate::eval::chess::material_only::MaterialOnlyEval;
-use crate::eval::chess::pst_only::PistonEval;
+use crate::eval::chess::piston::PistonEval;
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::{Chessboard, MAX_CHESS_MOVES_IN_POS};
-use gears::games::{Board, BoardHistory};
+use gears::games::{n_fold_repetition, Board, BoardHistory};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{select_name_static, NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
@@ -396,7 +396,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= DEPTH_HARD_LIMIT.get());
         debug_assert!(depth <= DEPTH_SOFT_LIMIT.get() as isize);
-        debug_assert!(self.state.board_history.0 .0.len() >= ply);
+        debug_assert!(self.state.board_history.0.len() >= ply);
         self.state
             .statistics
             .count_node_started(MainSearch, ply, false);
@@ -409,8 +409,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
         debug_assert!(alpha + 1 == beta || is_pv_node); // alpha + 1 < beta implies Exact node
 
         if !root
-            && (self.state.board_history.is_repetition(&pos)
-                || pos.is_50mr_draw()
+            && (n_fold_repetition(
+                2,
+                &self.state.board_history,
+                &pos,
+                pos.halfmove_repetition_clock(),
+            ) || pos.is_50mr_draw()
                 || pos.has_insufficient_material())
         {
             return Score(0);
@@ -521,7 +525,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     -beta + 1,
                     FailLow, // the child node is expected to fail low, leading to a fail high in this node
                 );
-                self.state.board_history.pop(&pos);
+                self.state.board_history.pop();
                 if score >= beta {
                     return score.min(MIN_SCORE_WON);
                 }
@@ -578,7 +582,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // O(1). Resets the child's pv length so that it's not the maximum length it used to be.
             self.state.search_stack[ply + 1].pv.clear();
 
-            let debug_history_len = self.state.board_history.0 .0.len();
+            let debug_history_len = self.state.board_history.len();
 
             let expected_child_type = if expected_node_type == Exact && children_visited > 1 {
                 FailHigh
@@ -655,12 +659,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // TODO: Use move score?
                 self.state.search_stack[ply].tried_quiets.push(mov);
             }
-            self.state.board_history.pop(&pos);
+            self.state.board_history.pop();
 
             debug_assert_eq!(
-                self.state.board_history.0.0.len(),
+                self.state.board_history.len(),
                 debug_history_len,
-                "depth {depth} ply {ply} old len {debug_history_len} new len {} child {children_visited}", self.state.board_history.0.0.len()
+                "depth {depth} ply {ply} old len {debug_history_len} new len {} child {children_visited}", self.state.board_history.len()
             );
             // Check for cancellation right after searching a move to avoid storing incorrect information in the TT.
             if self.should_stop(limit) {
@@ -806,7 +810,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             self.state.statistics.count_legal_make_move(Qsearch);
             self.state.board_history.push(&pos);
             let score = -self.qsearch(new_pos.unwrap(), -beta, -alpha, ply + 1);
-            self.state.board_history.pop(&pos);
+            self.state.board_history.pop();
             best_score = best_score.max(score);
             if score <= alpha {
                 continue;
@@ -863,11 +867,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
 #[cfg(test)]
 mod tests {
     use gears::games::chess::Chessboard;
-    use gears::games::{Move, ZobristHistoryBase};
+    use gears::games::{Move, ZobristHistory};
     use gears::search::NodesLimit;
 
     use crate::eval::chess::hce::HandCraftedEval;
-    use crate::eval::chess::pst_only::PistonEval;
+    use crate::eval::chess::piston::PistonEval;
     use crate::eval::rand_eval::RandEval;
 
     use super::*;
@@ -883,8 +887,8 @@ mod tests {
                     .search(
                         board,
                         SearchLimit::depth(Depth::new(depth)),
-                        ZobristHistoryBase::default(),
-                        &mut SearchSender::no_sender(),
+                        ZobristHistory::default(),
+                        SearchSender::no_sender(),
                     )
                     .unwrap();
                 assert!(res.score.unwrap().is_game_won_score());

@@ -21,9 +21,9 @@ use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::Color::{Black, White};
 use crate::games::SelfChecks::{Assertion, CheckFen};
 use crate::games::{
-    board_to_string, file_to_char, position_fen_part, read_position_fen, AbstractPieceType, Board,
-    BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, NameToPos, SelfChecks, Settings,
-    UncoloredPieceType, ZobristHash, ZobristRepetition3Fold,
+    board_to_string, file_to_char, n_fold_repetition, position_fen_part, read_position_fen,
+    AbstractPieceType, Board, BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, NameToPos,
+    SelfChecks, Settings, UncoloredPieceType, ZobristHash,
 };
 use crate::general::bitboards::chess::{
     ChessBitboard, BLACK_SQUARES, CORNER_SQUARES, WHITE_SQUARES,
@@ -345,16 +345,21 @@ impl Board for Chessboard {
         self.is_move_pseudolegal_impl(mov)
     }
 
-    fn game_result_no_movegen(&self) -> Option<PlayerResult> {
-        // 3-fold repetition requires the history, using the free function `game_result_no_movegen`
-        if self.is_50mr_draw() || self.has_insufficient_material() {
+    fn player_result_no_movegen<H: BoardHistory<Chessboard>>(
+        &self,
+        history: &H,
+    ) -> Option<PlayerResult> {
+        if self.is_50mr_draw()
+            || self.has_insufficient_material()
+            || self.is_3fold_repetition(history)
+        {
             return Some(Draw);
         }
         None
     }
 
-    fn game_result_player_slow(&self) -> Option<PlayerResult> {
-        if let Some(res) = self.game_result_no_movegen() {
+    fn player_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult> {
+        if let Some(res) = self.player_result_no_movegen(history) {
             return Some(res);
         }
         let no_moves = self.legal_moves_slow().is_empty();
@@ -717,11 +722,10 @@ impl Chessboard {
     /// Note that this function isn't entire correct according to the FIDE rules because it doesn't check for legality,
     /// so a position with a possible pseudolegal but illegal en passant move would be considered different from
     /// its repetition, where the en passant move wouldn't be possible
-    /// TODO: There should be a ZobristRepetition3FoldPedanticChess that actually does movegen, there could also be a more pedantic
-    /// insufficient_material function that wouldn't count 2 knights vs king as draw
+    /// TODO: Should there be a ZobristRepetition3FoldPedanticChess that actually does movegen?
     /// TODO: Only set the ep square if there are pseudolegal en passants possible
-    pub fn is_3fold_repetition(&self, history: &ZobristRepetition3Fold) -> bool {
-        history.game_result(self).is_some()
+    pub fn is_3fold_repetition<H: BoardHistory<Self>>(&self, history: &H) -> bool {
+        n_fold_repetition(3, history, self, self.ply_100_ctr)
     }
 
     pub fn is_stalemate_slow(&self) -> bool {
@@ -879,8 +883,7 @@ mod tests {
 
     use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
     use crate::games::{
-        game_result_no_movegen, Coordinates, Move, RectangularBoard, RectangularCoordinates,
-        ZobristRepetition2Fold,
+        Coordinates, Move, NoHistory, RectangularBoard, RectangularCoordinates, ZobristHistory,
     };
     use crate::general::perft::perft;
     use crate::search::Depth;
@@ -921,7 +924,7 @@ mod tests {
         }
         assert!(!board.is_in_check());
         assert!(!board.is_stalemate_slow());
-        assert!(!board.is_3fold_repetition(&ZobristRepetition3Fold::default()));
+        assert!(!board.is_3fold_repetition(&ZobristHistory::default()));
         assert!(!board.has_insufficient_material());
         assert!(!board.is_50mr_draw());
         assert_eq!(board.colored_bb(White), ChessBitboard::from_u64(0xffff));
@@ -1072,21 +1075,34 @@ mod tests {
         let moves = [
             "g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1", "f6g8", "e2e4",
         ];
-        let mut hist_3_fold = ZobristRepetition3Fold::default();
-        let mut hist_2_fold = ZobristRepetition2Fold::default();
+        let mut hist = ZobristHistory::default();
         assert_ne!(new_hash, board.zobrist_hash());
         for (i, mov) in moves.iter().enumerate() {
-            assert_eq!(i > 3, hist_2_fold.is_repetition(&board));
-            assert_eq!(i > 7, hist_3_fold.is_repetition(&board));
+            assert_eq!(
+                i > 3,
+                n_fold_repetition(2, &hist, &board, board.ply_100_ctr)
+            );
+            assert_eq!(
+                i > 7,
+                n_fold_repetition(3, &hist, &board, board.ply_100_ctr)
+            );
             assert_eq!(
                 i == 8,
-                game_result_no_movegen(&board, &hist_3_fold).is_some_and(|r| r == Draw)
+                board
+                    .player_result_no_movegen(&hist)
+                    .is_some_and(|r| r == Draw)
             );
-            hist_3_fold.push(&board);
-            hist_2_fold.push(&board);
+            hist.push(&board);
             let mov = ChessMove::from_compact_text(mov, &board).unwrap();
             board = board.make_move(mov).unwrap();
-            assert!(board.game_result_no_movegen().is_none());
+            assert_eq!(
+                n_fold_repetition(3, &hist, &board, board.ply_100_ctr),
+                board.is_3fold_repetition(&hist)
+            );
+            assert_eq!(
+                board.is_3fold_repetition(&hist),
+                board.player_result_no_movegen(&hist).is_some()
+            );
         }
         board = Chessboard::from_name("lucena").unwrap();
         assert_eq!(board.active_player, White);
@@ -1097,7 +1113,7 @@ mod tests {
                 .make_move(ChessMove::from_compact_text(mov, &board).unwrap())
                 .unwrap();
             assert_ne!(board.zobrist_hash(), hash);
-            assert!(!hist_2_fold.is_repetition(&board));
+            assert!(!n_fold_repetition(2, &hist, &board, 12345));
         }
         assert_eq!(board.active_player, Black);
     }
@@ -1116,7 +1132,7 @@ mod tests {
         let moves = pos.legal_moves_slow();
         assert!(moves.is_empty());
         assert!(pos.is_game_lost_slow());
-        assert_eq!(pos.game_result_player_slow(), Some(Lose));
+        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
         assert!(!pos.is_stalemate_slow());
         assert!(pos.make_nullmove().is_none());
     }
