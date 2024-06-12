@@ -512,9 +512,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // A more careful implementation would do a verification search to check for zugzwang, and possibly avoid even trying
             // nmp in a position with no pieces except the king and pawns.
             // TODO: Verification search.
-            // TODO: Board history interaction?
             // TODO: beta + offset? It's possible to nmp twice in a row because of the tempo bonus and null windows
-            if depth >= 3 && eval >= beta {
+            if depth >= 3 && eval >= beta + 10 {
                 self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
                 let reduction = 3 + depth / 4 + improving as isize;
