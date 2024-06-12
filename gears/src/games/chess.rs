@@ -332,7 +332,8 @@ impl Board for Chessboard {
 
     fn make_nullmove(mut self) -> Option<Self> {
         self.ply += 1;
-        self.ply_100_ctr += 1;
+        // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove
+        self.ply_100_ctr = 0;
         if self.ep_square.is_some() {
             self.hash ^=
                 PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[self.ep_square.unwrap().file() as usize];

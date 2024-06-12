@@ -1,7 +1,6 @@
 use arrayvec::ArrayVec;
 use std::any::TypeId;
 use std::cmp::min;
-use std::mem::take;
 use std::time::{Duration, Instant};
 
 use derive_more::{Deref, DerefMut, Index, IndexMut};
@@ -516,7 +515,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // TODO: Board history interaction?
             // TODO: beta + offset? It's possible to nmp twice in a row because of the tempo bonus and null windows
             if depth >= 3 && eval >= beta {
-                let hist = take(&mut self.state.board_history);
+                self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
                 let reduction = 3 + depth / 4 + improving as isize;
                 let score = -self.negamax(
@@ -528,7 +527,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     -beta + 1,
                     FailLow, // the child node is expected to fail low, leading to a fail high in this node
                 );
-                self.state.board_history = hist;
+                self.state.board_history.pop();
                 if score >= beta {
                     return score.min(MIN_SCORE_WON);
                 }
