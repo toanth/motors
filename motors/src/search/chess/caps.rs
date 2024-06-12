@@ -1,6 +1,7 @@
 use arrayvec::ArrayVec;
 use std::any::TypeId;
 use std::cmp::min;
+use std::mem::take;
 use std::time::{Duration, Instant};
 
 use derive_more::{Deref, DerefMut, Index, IndexMut};
@@ -14,7 +15,7 @@ use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::{Chessboard, MAX_CHESS_MOVES_IN_POS};
-use gears::games::{n_fold_repetition, Board, BoardHistory};
+use gears::games::{n_fold_repetition, Board, BoardHistory, ZobristHistory};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{select_name_static, NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
@@ -68,6 +69,7 @@ impl Default for HistoryHeuristic {
 struct Additional {
     history: HistoryHeuristic,
     tt: TT,
+    original_board_hist: ZobristHistory<Chessboard>,
 }
 
 impl CustomInfo for Additional {
@@ -254,6 +256,8 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
             fixed = limit.fixed_time.as_millis(),
             soft = soft_limit.as_millis(),
         ));
+        // Use 3fold repetition detection for positions before the root node and 2fold for positions during search.
+        self.state.custom.original_board_hist = take(&mut self.state.board_history);
 
         let chosen_move = match self.aspiration(pos, limit, soft_limit) {
             Some(mov) => mov,
@@ -408,13 +412,16 @@ impl<E: Eval<Chessboard>> Caps<E> {
         debug_assert!(!root || is_pv_node); // root implies pv node
         debug_assert!(alpha + 1 == beta || is_pv_node); // alpha + 1 < beta implies Exact node
 
+        let ply_100_ctr = pos.halfmove_repetition_clock();
         if !root
-            && (n_fold_repetition(
-                2,
-                &self.state.board_history,
-                &pos,
-                pos.halfmove_repetition_clock(),
-            ) || pos.is_50mr_draw()
+            && (n_fold_repetition(2, &self.state.board_history, &pos, ply_100_ctr)
+                || n_fold_repetition(
+                    3,
+                    &self.state.custom.original_board_hist,
+                    &pos,
+                    ply_100_ctr.saturating_sub(ply),
+                )
+                || pos.is_50mr_draw()
                 || pos.has_insufficient_material())
         {
             return Score(0);
