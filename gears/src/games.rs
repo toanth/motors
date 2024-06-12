@@ -412,7 +412,7 @@ pub fn n_fold_repetition<B: Board, H: BoardHistory<B>>(
         // in many, but not all, games, we could increase this to 4
         return false;
     }
-    for i in (4..=stop).step_by(2) {
+    for i in (2..=stop).step_by(2) {
         if history.is_repetition(pos, i) {
             count -= 1;
             if count <= 1 {

@@ -256,8 +256,9 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
             fixed = limit.fixed_time.as_millis(),
             soft = soft_limit.as_millis(),
         ));
-        // Use 3fold repetition detection for positions before the root node and 2fold for positions during search.
+        // Use 3fold repetition detection for positions before and including the root node and 2fold for positions during search.
         self.state.custom.original_board_hist = take(&mut self.state.board_history);
+        self.state.custom.original_board_hist.push(&pos);
 
         let chosen_move = match self.aspiration(pos, limit, soft_limit) {
             Some(mov) => mov,
@@ -519,8 +520,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // A more careful implementation would do a verification search to check for zugzwang, and possibly avoid even trying
             // nmp in a position with no pieces except the king and pawns.
             // TODO: Verification search.
-            // TODO: Board history interaction?
-            // TODO: beta + offset? It's possible to nmp twice in a row because of the tempo bonus and null windows
             if depth >= 3 && eval >= beta {
                 self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
