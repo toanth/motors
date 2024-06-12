@@ -1,6 +1,7 @@
 use arrayvec::ArrayVec;
 use std::any::TypeId;
 use std::cmp::min;
+use std::mem::take;
 use std::time::{Duration, Instant};
 
 use derive_more::{Deref, DerefMut, Index, IndexMut};
@@ -494,12 +495,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
             depth -= 1;
         }
 
-        // RFP (Reverse Futility Pruning): If eval is far above beta, it's likely that our opponent
-        // blundered in a previous move of the search, so if the depth is low, don't even bother searching further.
-        // Use `improving` to better distinguish between blunders by our opponent and a generally good static eval
-        // relative to `beta` --  there may be other positional factors that aren't being reflected by the static eval,
-        // (like imminent threads) so don't prune too aggressively if we're not improving.
         if can_prune {
+            // RFP (Reverse Futility Pruning): If eval is far above beta, it's likely that our opponent
+            // blundered in a previous move of the search, so if the depth is low, don't even bother searching further.
+            // Use `improving` to better distinguish between blunders by our opponent and a generally good static eval
+            // relative to `beta` --  there may be other positional factors that aren't being reflected by the static eval,
+            // (like imminent threads) so don't prune too aggressively if we're not improving.
             let margin = (120 - (improving as i32 * 64)) * depth as i32;
             if depth < 4 && eval >= beta + Score(margin) {
                 return eval;
@@ -512,8 +513,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // A more careful implementation would do a verification search to check for zugzwang, and possibly avoid even trying
             // nmp in a position with no pieces except the king and pawns.
             // TODO: Verification search.
+            // TODO: Board history interaction?
+            // TODO: beta + offset? It's possible to nmp twice in a row because of the tempo bonus and null windows
             if depth >= 3 && eval >= beta {
-                self.state.board_history.push(&pos);
+                let hist = take(&mut self.state.board_history);
                 let new_pos = pos.make_nullmove().unwrap();
                 let reduction = 3 + depth / 4 + improving as isize;
                 let score = -self.negamax(
@@ -525,7 +528,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     -beta + 1,
                     FailLow, // the child node is expected to fail low, leading to a fail high in this node
                 );
-                self.state.board_history.pop();
+                self.state.board_history = hist;
                 if score >= beta {
                     return score.min(MIN_SCORE_WON);
                 }
