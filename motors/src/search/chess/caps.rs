@@ -34,13 +34,13 @@ use crate::search::statistics::SearchType::{MainSearch, Qsearch};
 use crate::search::tt::{TTEntry, TT};
 use crate::search::NodeType::*;
 use crate::search::{
-    ABSearchState, BenchResult, Benchable, CustomInfo, Engine, EngineInfo, NodeType, Pv,
-    SearchStackEntry, SearchState, DEFAULT_CHECK_TIME_INTERVAL,
+    ABSearchState, BenchResult, Benchable, CustomInfo, Engine, EngineInfo, MoveScore, MoveScorer,
+    NodeType, Pv, SearchStackEntry, SearchState, DEFAULT_CHECK_TIME_INTERVAL,
 };
 
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
-const KILLER_SCORE: i32 = i32::MAX - 200;
+const KILLER_SCORE: MoveScore = MoveScore(i32::MAX - 200);
 
 #[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
 struct HistoryHeuristic([i32; 64 * 64]);
@@ -104,13 +104,13 @@ impl SearchStackEntry<Chessboard> for CapsSearchStackEntry {
     }
 }
 
-type State = ABSearchState<Chessboard, CapsSearchStackEntry, Additional>;
+type CapsState = ABSearchState<Chessboard, CapsSearchStackEntry, Additional>;
 
 /// Chess-playing Alpha-beta Pruning Search, or in short, CAPS.
 /// Larger than SᴍᴀʟʟCᴀᴘꜱ.
 #[derive(Debug)]
 pub struct Caps<E: Eval<Chessboard>> {
-    state: State,
+    state: CapsState,
     eval: E,
 }
 
@@ -497,7 +497,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
         // because the move ordering won't be great, so don't spend too much time on this node.
         // Instead, search it with reduced depth to fill the TT entry so that we can re-search it faster the next time
-        // we see this node.
+        // we see this node. If there was no TT entry because the node failed low, this node probably isn't that interesting,
+        // so reducing the depth also makes sense in this case.
         if depth > 4 && best_move == ChessMove::default() {
             depth -= 1;
         }
@@ -549,11 +550,14 @@ impl<E: Eval<Chessboard>> Caps<E> {
         let mut num_uninteresting_visited = 0;
         self.state.search_stack[ply].tried_quiets.clear();
 
-        let move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(
-            pos.pseudolegal_moves(),
-            self.score_move_fn(pos, best_move, ply),
-        );
-        for (mov, move_score) in move_picker.into_iter() {
+        let mut move_picker =
+            MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
+        let move_scorer = CapsMoveScorer {
+            board: pos,
+            ply,
+            tt_move: best_move,
+        };
+        while let Some((mov, move_score)) = move_picker.next(&move_scorer, &self.state) {
             // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
             // so don't even bother looking at them in the last few layers.
             // FP (Futility Pruning): If the static eval is far below alpha,
@@ -639,7 +643,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     depth - 1 - reduction,
                     -(alpha + 1),
                     -alpha,
-                    expected_child_type,
+                    expected_child_type, // TODO: We expect lmr reduced nodes to be fail high nodes
                 );
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
@@ -689,7 +693,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             }
             // We've raised alpha. For most nodes, this results in an immediate beta cutoff because we're using a null window.
             alpha = score;
-            // only set best_move on raising `alpha` instead of `best_score` because fail low nodes should store the
+            // Only set best_move on raising `alpha` instead of `best_score` because fail low nodes should store the
             // default move, which is either the TT move (if there was a TT hit) or the null move.
             best_move = mov;
 
@@ -702,7 +706,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             pv.push(ply, best_move, child_pv);
 
             if score < beta {
-                // We're in a PVS PV node and didn't fail high (yet, but probably won't), so look at the other moves.
+                // We're in a PVS PV node and this move raised alpha but didn't cause a fail high, so look at the other moves.
                 // PVS PV nodes are rare
                 bound_so_far = Exact;
                 continue;
@@ -760,7 +764,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         best_score
     }
 
-    /// Search only "tactical" moves to quieten down the position before calling eval.
+    /// Search only "tactical" moves to quieten down the position before calling eval
     fn qsearch(&mut self, pos: Chessboard, mut alpha: Score, beta: Score, ply: usize) -> Score {
         self.state.statistics.count_node_started(Qsearch, ply, true);
         // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
@@ -800,14 +804,17 @@ impl<E: Eval<Chessboard>> Caps<E> {
             best_move = tt_entry.mov;
         }
 
-        let move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> = MovePicker::new(
-            pos.tactical_pseudolegal(),
-            self.score_move_fn(pos, best_move, ply),
-        );
+        let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
+            MovePicker::new(pos, best_move, true);
+        let move_scorer = CapsMoveScorer {
+            board: pos,
+            ply,
+            tt_move: best_move,
+        };
         let mut children_visited = 0;
-        for (mov, score) in move_picker.into_iter() {
+        while let Some((mov, score)) = move_picker.next(&move_scorer, &self.state) {
             debug_assert!(mov.is_tactical(&pos));
-            if score < 0 {
+            if score < MoveScore(0) {
                 // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
                 break;
             }
@@ -842,34 +849,37 @@ impl<E: Eval<Chessboard>> Caps<E> {
         self.state.custom.tt.store(tt_entry, ply);
         best_score
     }
+}
+
+struct CapsMoveScorer {
+    board: Chessboard,
+    ply: usize,
+    tt_move: ChessMove,
+}
+
+impl MoveScorer<Chessboard> for CapsMoveScorer {
+    type State = CapsState;
 
     /// Order moves so that the most promising moves are searched first.
     /// The most promising move is always the TT move, because that is backed up by search.
     /// After that follow various heuristics.
-    fn score_move_fn(
-        &self,
-        board: Chessboard,
-        tt_move: ChessMove,
-        ply: usize,
-    ) -> impl Fn(ChessMove) -> i32 + '_ {
+    fn score_move(&self, mov: ChessMove, state: &CapsState) -> MoveScore {
         // The move list is iterated backwards, which is why better moves get higher scores
-        move |mov| {
-            let captured = mov.captured(&board);
-            if mov == tt_move {
-                i32::MAX
-            } else if mov == self.state.search_stack[ply].killer {
-                KILLER_SCORE
-            } else if captured == Empty {
-                self.state.custom.history[mov.from_to_square()]
+        let captured = mov.captured(&self.board);
+        if mov == self.tt_move {
+            MoveScore::MAX
+        } else if mov == state.search_stack[self.ply].killer {
+            KILLER_SCORE
+        } else if captured == Empty {
+            MoveScore(state.custom.history[mov.from_to_square()])
+        } else {
+            let base_val = if self.board.see_at_least(mov, SeeScore(0)) {
+                i32::MAX - 100
             } else {
-                let base_val = if board.see_at_least(mov, SeeScore(0)) {
-                    i32::MAX - 100
-                } else {
-                    i32::MIN + 100
-                };
-                // the offset applied to `base_val` can be negative, because pawns have index 0.
-                base_val + captured as i32 * 10 - mov.uncolored_piece() as i32
-            }
+                i32::MIN + 100
+            };
+            // the offset applied to `base_val` can be negative, because pawns have index 0.
+            MoveScore(base_val + captured as i32 * 10 - mov.uncolored_piece() as i32)
         }
     }
 }

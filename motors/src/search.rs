@@ -4,6 +4,7 @@ use std::ops::Deref;
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
+use derive_more::{Add, Sub};
 use dyn_clone::{clone_box, DynClone};
 use strum_macros::FromRepr;
 
@@ -312,6 +313,19 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     fn can_use_multiple_threads() -> bool
     where
         Self: Sized;
+}
+
+#[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub)]
+struct MoveScore(pub i32);
+
+impl MoveScore {
+    const MAX: MoveScore = MoveScore(i32::MAX);
+    const MIN: MoveScore = MoveScore(i32::MIN);
+}
+
+pub trait MoveScorer<B: Board> {
+    type State: SearchState<B>;
+    fn score_move(&self, mov: B::Move, state: &Self::State) -> MoveScore;
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
