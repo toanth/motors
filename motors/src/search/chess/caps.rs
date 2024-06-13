@@ -15,7 +15,7 @@ use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Empty;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::{Chessboard, MAX_CHESS_MOVES_IN_POS};
-use gears::games::{n_fold_repetition, Board, BoardHistory, ZobristHistory};
+use gears::games::{n_fold_repetition, Board, BoardHistory, Move, ZobristHistory};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{select_name_static, NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;

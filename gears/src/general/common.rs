@@ -170,7 +170,7 @@ fn select_name_impl<
     to_name: F,
     compare: G,
 ) -> Res<I::Item> {
-    let idx = list.clone().find_position(|entity| compare(entity, name));
+    let idx = list.clone().find(|entity| compare(entity, name));
     match idx {
         None => {
             let list_as_string = match list.len() {
@@ -192,7 +192,7 @@ fn select_name_impl<
             Err(format!(
                 "Couldn't find {typ} '{name}' for the current game ({game_name}). {list_as_string}."))
         }
-        Some((_, res)) => Ok(res),
+        Some(res) => Ok(res),
     }
 }
 

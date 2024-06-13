@@ -274,6 +274,10 @@ pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Send {
     /// Move flags. Not all Move implementations have them, in which case `Flags` can be `NoMoveFlags`
     fn flags(self) -> Self::Flags;
 
+    /// Tactical moves can drastically change the position and are often searched first, such as captures and queen or
+    /// knight promotions in chess. Always returning `false` is a valid choice.
+    fn is_tactical(self, board: &B) -> bool;
+
     /// Return a compact and easy to parse move representation, such as <from_square><to_square> as used by UCI
     fn to_compact_text(self) -> String;
 

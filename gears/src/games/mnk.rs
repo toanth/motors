@@ -184,6 +184,10 @@ impl Move<MNKBoard> for FillSquare {
         NoMoveFlags {}
     }
 
+    fn is_tactical(self, _board: &MNKBoard) -> bool {
+        false
+    }
+
     fn to_compact_text(self) -> String {
         self.target.to_string()
     }

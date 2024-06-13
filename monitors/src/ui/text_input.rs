@@ -450,13 +450,13 @@ impl<B: Board> TextInputThread<B> {
                     name = words
                         .next()
                         .ok_or_else(|| "Expected an output name after 'remove'".to_string())?;
-                    match client.outputs.iter().find_position(|o| o.matches(name)) {
+                    match client.outputs.iter().position(|o| o.matches(name)) {
                         None => {
                             return Err(format!(
                                 "There is no output with name '{name}' currently in use"
                             ))
                         }
-                        Some((idx, _output)) => {
+                        Some(idx) => {
                             client.outputs.remove(idx);
                         }
                     }
