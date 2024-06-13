@@ -1,3 +1,4 @@
+use crate::games::chess::castling::CastleRight;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
 use crate::games::chess::pieces::ColoredChessPiece;
@@ -20,41 +21,53 @@ enum SliderMove {
 // TODO: Use the north(), west(), etc. methods
 
 impl Chessboard {
-    // TODO: More efficient impl for sliders, castling king moves
+    // TODO: More efficient impl for pawns and castling king moves
     pub fn is_move_pseudolegal_impl(&self, mov: ChessMove) -> bool {
         let piece = mov.uncolored_piece();
         let src = mov.src_square();
+        let dest_idx = mov.dest_square().bb_idx();
+        let color = self.active_player;
         if !self
-            .colored_piece_bb(self.active_player, piece)
+            .colored_piece_bb(color, piece)
             .is_bit_set_at(src.bb_idx())
         {
             return false;
         }
-        let mut list = ChessMoveList::default();
-        let filter = !self.colored_bb(self.active_player);
+        let filter = !self.colored_bb(color);
         match piece {
-            Pawn => self.gen_pawn_moves(&mut list, false),
-            Knight => {
-                return Self::knight_moves_from_square(src, filter)
-                    .is_bit_set_at(mov.dest_square().bb_idx())
+            Pawn => {
+                let mut list = ChessMoveList::default();
+                self.gen_pawn_moves(&mut list, false);
+                list.contains(&mov)
             }
-            Bishop => self.gen_slider_moves(SliderMove::Bishop, &mut list, filter),
-            Rook => self.gen_slider_moves(SliderMove::Rook, &mut list, filter),
+            Knight => Self::knight_moves_from_square(src, filter)
+                .is_bit_set_at(mov.dest_square().bb_idx()),
+            Bishop => self
+                .gen_sliders_from_square(src, SliderMove::Bishop, filter, src.bb())
+                .is_bit_set_at(dest_idx), //self.gen_slider_moves(SliderMove::Bishop, &mut list, filter),
+            Rook => self
+                .gen_sliders_from_square(src, SliderMove::Rook, filter, src.bb())
+                .is_bit_set_at(dest_idx), //self.gen_slider_moves(SliderMove::Rook, &mut list, filter),
             Queen => {
-                self.gen_slider_moves(SliderMove::Rook, &mut list, filter);
-                self.gen_slider_moves(SliderMove::Bishop, &mut list, filter);
+                self.gen_sliders_from_square(src, SliderMove::Bishop, filter, src.bb())
+                    .is_bit_set_at(dest_idx)
+                    || self
+                        .gen_sliders_from_square(src, SliderMove::Rook, filter, src.bb())
+                        .is_bit_set_at(dest_idx)
             }
             King => {
                 if mov.is_castle() {
-                    self.gen_king_moves(&mut list, filter, false)
+                    (self.rook_start_square(color, Kingside) == mov.dest_square()
+                        && self.is_castling_pseudolegal(Kingside))
+                        || (self.rook_start_square(color, Queenside) == mov.dest_square()
+                            && self.is_castling_pseudolegal(Queenside))
                 } else {
-                    return Self::normal_king_moves_from_square(src, filter)
-                        .is_bit_set_at(mov.dest_square().bb_idx());
+                    Self::normal_king_moves_from_square(src, filter)
+                        .is_bit_set_at(mov.dest_square().bb_idx())
                 }
             }
             Empty => panic!(),
         }
-        list.contains(&mov)
     }
 
     /// used for castling and to implement `is_in_check`:
@@ -186,22 +199,10 @@ impl Chessboard {
         }
     }
 
-    fn gen_king_moves(&self, list: &mut ChessMoveList, filter: ChessBitboard, only_captures: bool) {
+    fn is_castling_pseudolegal(&self, side: CastleRight) -> bool {
         let color = self.active_player;
+        let king_square = self.king_square(color);
         let king = self.colored_piece_bb(color, King);
-        let king_square = ChessSquare::from_bb_index(king.trailing_zeros());
-        let mut moves = Self::normal_king_moves_from_square(king_square, filter);
-        while moves.has_set_bit() {
-            let target = moves.pop_lsb();
-            list.push(ChessMove::new(
-                king_square,
-                ChessSquare::from_bb_index(target),
-                NormalKingMove,
-            ));
-        }
-        if only_captures {
-            return;
-        }
         // Castling, handling the general (D)FRC case.
         let king_file = king_square.file() as usize;
         const KING_QUEENSIDE_BB: [ChessBitboard; 8] = [
@@ -244,39 +245,57 @@ impl Chessboard {
             ChessBitboard::new(RawStandardBitboard(0b0010_0000)),
             ChessBitboard::new(RawStandardBitboard(0b0110_0000)),
         ];
-        if self.castling.can_castle(color, Queenside) {
-            let rook = self.rook_start_square(color, Queenside);
-            let queenside_rook_bb = rook.bb();
-            let rook_free_bb = ROOK_QUEENSIDE_BB
-                [self.castling.rook_start_file(color, Queenside) as usize]
-                << (color as usize * 7 * 8);
-            let king_free_bb = KING_QUEENSIDE_BB[king_file] << (color as usize * 7 * 8);
-            if ((self.occupied_bb() ^ queenside_rook_bb) & king_free_bb).is_zero()
+        let (rook_free_bb, king_free_bb) = match side {
+            Queenside => (
+                ROOK_QUEENSIDE_BB[self.castling.rook_start_file(color, Queenside) as usize]
+                    << (color as usize * 7 * 8),
+                KING_QUEENSIDE_BB[king_file] << (color as usize * 7 * 8),
+            ),
+            Kingside => (
+                ROOK_KINGSIDE_BB[self.castling.rook_start_file(color, Kingside) as usize]
+                    << (color as usize * 7 * 8),
+                KING_KINGSIDE_BB[king_file] << (color as usize * 7 * 8),
+            ),
+        };
+        if self.castling.can_castle(color, side) {
+            let rook = self.rook_start_square(color, side);
+            if ((self.occupied_bb() ^ rook.bb()) & king_free_bb).is_zero()
                 && ((self.occupied_bb() ^ king) & rook_free_bb).is_zero()
             {
                 debug_assert_eq!(
                     self.colored_piece_on(rook).symbol,
                     ColoredChessPiece::new(color, Rook)
                 );
-                list.push(ChessMove::new(king_square, rook, CastleQueenside));
+                return true;
             }
         }
-        if self.castling.can_castle(color, Kingside) {
+        false
+    }
+
+    fn gen_king_moves(&self, list: &mut ChessMoveList, filter: ChessBitboard, only_captures: bool) {
+        let color = self.active_player;
+        let king = self.colored_piece_bb(color, King);
+        let king_square = ChessSquare::from_bb_index(king.trailing_zeros());
+        let mut moves = Self::normal_king_moves_from_square(king_square, filter);
+        while moves.has_set_bit() {
+            let target = moves.pop_lsb();
+            list.push(ChessMove::new(
+                king_square,
+                ChessSquare::from_bb_index(target),
+                NormalKingMove,
+            ));
+        }
+        if only_captures {
+            return;
+        }
+        // Castling, handling the general (D)FRC case.
+        if self.is_castling_pseudolegal(Queenside) {
+            let rook = self.rook_start_square(color, Queenside);
+            list.push(ChessMove::new(king_square, rook, CastleQueenside))
+        }
+        if self.is_castling_pseudolegal(Kingside) {
             let rook = self.rook_start_square(color, Kingside);
-            let kingside_rook_bb = rook.bb();
-            let rook_free_bb = ROOK_KINGSIDE_BB
-                [self.castling.rook_start_file(color, Kingside) as usize]
-                << (color as usize * 7 * 8);
-            let king_free_bb = KING_KINGSIDE_BB[king_file] << (color as usize * 7 * 8);
-            if ((self.occupied_bb() ^ kingside_rook_bb) & king_free_bb).is_zero()
-                && ((self.occupied_bb() ^ king) & rook_free_bb).is_zero()
-            {
-                debug_assert_eq!(
-                    self.colored_piece_on(rook).symbol,
-                    ColoredChessPiece::new(color, Rook)
-                );
-                list.push(ChessMove::new(king_square, rook, CastleKingside));
-            }
+            list.push(ChessMove::new(king_square, rook, CastleKingside))
         }
     }
 

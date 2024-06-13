@@ -521,6 +521,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // nmp in a position with no pieces except the king and pawns.
             // TODO: Verification search.
             if depth >= 3 && eval >= beta {
+                // `make_nullmove` resets the 50mr counter, so we don't consider positions after a nullmove as repetitions,
+                // but we can still get TT cutoffs
                 self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
                 let reduction = 3 + depth / 4 + improving as isize;
