@@ -9,7 +9,7 @@ use strum_macros::EnumIter;
 
 pub mod hce;
 pub mod material_only;
-pub mod pst_only;
+pub mod piston;
 
 #[derive(Debug, Copy, Clone, EnumIter)]
 pub enum PhaseType {
@@ -95,13 +95,18 @@ mod tests {
     use super::*;
     use crate::eval::chess::hce::HandCraftedEval;
     use crate::eval::chess::material_only::MaterialOnlyEval;
-    use crate::eval::chess::pst_only::PistonEval;
+    use crate::eval::chess::piston::PistonEval;
     use crate::eval::Eval;
+    use crate::search::chess::caps::Caps;
+    use crate::search::multithreading::SearchSender;
+    use crate::search::Engine;
+    use gears::games::chess::moves::ChessMove;
     use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
     use gears::games::chess::Chessboard;
-    use gears::games::{Board, DimT};
+    use gears::games::{Board, BoardHistory, DimT, Move, ZobristHistory};
     use gears::general::bitboards::RawBitboard;
-    use gears::search::Score;
+    use gears::search::{Depth, Score, SearchLimit};
+    use gears::PlayerResult::Draw;
     use strum::IntoEnumIterator;
 
     #[test]

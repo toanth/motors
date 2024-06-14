@@ -22,7 +22,7 @@ use crate::cli::{parse_cli, EngineOpts, Mode};
 use crate::eval::chess::hce::HandCraftedEval;
 use crate::eval::chess::material_only::MaterialOnlyEval;
 #[cfg(feature = "chess")]
-use crate::eval::chess::pst_only::PistonEval;
+use crate::eval::chess::piston::PistonEval;
 #[cfg(feature = "mnk")]
 use crate::eval::mnk::simple_mnk_eval::SimpleMnkEval;
 use crate::eval::rand_eval::RandEval;

@@ -1,6 +1,8 @@
 use colored::Colorize;
+use std::cmp::min;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
+use std::marker::PhantomData;
 use std::str::{FromStr, SplitWhitespace};
 
 use derive_more::BitXorAssign;
@@ -272,6 +274,10 @@ pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Send {
     /// Move flags. Not all Move implementations have them, in which case `Flags` can be `NoMoveFlags`
     fn flags(self) -> Self::Flags;
 
+    /// Tactical moves can drastically change the position and are often searched first, such as captures and queen or
+    /// knight promotions in chess. Always returning `false` is a valid choice.
+    fn is_tactical(self, board: &B) -> bool;
+
     /// Return a compact and easy to parse move representation, such as <from_square><to_square> as used by UCI
     fn to_compact_text(self) -> String;
 
@@ -319,12 +325,10 @@ pub struct ZobristHash(pub u64);
 pub trait Settings: Eq + Copy + Debug + Default {}
 
 pub trait BoardHistory<B: Board>: Default + Debug + Clone + 'static {
-    fn game_result(&self, board: &B) -> Option<PlayerResult>;
-    fn is_repetition(&self, board: &B) -> bool {
-        self.game_result(board).is_some()
-    }
+    fn len(&self) -> usize;
+    fn is_repetition(&self, board: &B, plies_ago: usize) -> bool;
     fn push(&mut self, board: &B);
-    fn pop(&mut self, _board: &B);
+    fn pop(&mut self);
     fn clear(&mut self);
 }
 
@@ -332,23 +336,35 @@ pub trait BoardHistory<B: Board>: Default + Debug + Clone + 'static {
 pub struct NoHistory {}
 
 impl<B: Board> BoardHistory<B> for NoHistory {
-    fn game_result(&self, _board: &B) -> Option<PlayerResult> {
-        None
+    fn len(&self) -> usize {
+        0
+    }
+
+    fn is_repetition(&self, board: &B, plies_ago: usize) -> bool {
+        false
     }
 
     fn push(&mut self, _board: &B) {}
 
-    fn pop(&mut self, _board: &B) {}
+    fn pop(&mut self) {}
 
     fn clear(&mut self) {}
 }
 
 #[derive(Clone, Eq, PartialEq, Default, Debug)]
-pub struct ZobristHistoryBase(pub Vec<ZobristHash>);
+pub struct ZobristHistory<B: Board>(pub Vec<ZobristHash>, PhantomData<B>);
 
-impl ZobristHistoryBase {
-    fn push(&mut self, hash: ZobristHash) {
-        self.0.push(hash);
+impl<B: Board> BoardHistory<B> for ZobristHistory<B> {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn is_repetition(&self, pos: &B, plies_ago: usize) -> bool {
+        pos.zobrist_hash() == self.0[self.0.len() - plies_ago]
+    }
+
+    fn push(&mut self, pos: &B) {
+        self.0.push(pos.zobrist_hash());
     }
 
     fn pop(&mut self) {
@@ -361,46 +377,26 @@ impl ZobristHistoryBase {
     }
 }
 
-fn find_repetition(
-    hash: ZobristHash,
-    max_history: usize,
-    history: &ZobristHistoryBase,
-    mut count: usize,
-) -> bool {
-    let stop = 0.max(history.0.len() as isize - max_history as isize);
-    for i in iter::range_step_inclusive(history.0.len() as isize - 4, stop, -2) {
-        if history.0[i as usize] == hash {
-            count -= 1;
-            if count <= 1 {
-                return true;
-            }
-        }
+/// Compares the actual board states as opposed to only comparing the hashes. This still isn't always entirely correct --
+/// For example, the FIDE rule state that the set of legal moves must be identical, which is not the case
+/// if the ep square is set but the pawn is pinned and can't actually take.
+#[derive(Debug, Default, Clone)]
+pub struct BoardCopyHistory<B: Board>(Vec<B>);
+
+impl<B: Board> BoardHistory<B> for BoardCopyHistory<B> {
+    fn len(&self) -> usize {
+        self.0.len()
     }
-    false
-}
 
-#[derive(Clone, Eq, PartialEq, Default, Debug)]
-pub struct ZobristRepetition2Fold(pub ZobristHistoryBase);
-
-impl<B: Board> BoardHistory<B> for ZobristRepetition2Fold {
-    fn game_result(&self, board: &B) -> Option<PlayerResult> {
-        match find_repetition(
-            board.zobrist_hash(),
-            board.halfmove_repetition_clock(),
-            &self.0,
-            2,
-        ) {
-            true => Some(Draw),
-            false => None,
-        }
+    fn is_repetition(&self, board: &B, plies_ago: usize) -> bool {
+        self.0[self.len() - plies_ago] == *board
     }
 
     fn push(&mut self, board: &B) {
-        self.0.push(board.zobrist_hash())
+        self.0.push(*board)
     }
 
-    // the _board parameter is only there to deduce the trait
-    fn pop(&mut self, _board: &B) {
+    fn pop(&mut self) {
         self.0.pop();
     }
 
@@ -409,38 +405,26 @@ impl<B: Board> BoardHistory<B> for ZobristRepetition2Fold {
     }
 }
 
-#[derive(Default, Debug, Eq, PartialEq, Clone)]
-pub struct ZobristRepetition3Fold(pub ZobristHistoryBase);
-
-/// The threefold repetition rule is pretty common in games where repetitions regularly occur.
-/// Only relies on the hashes, which isn't always entirely correct --
-/// For example, the FIDE rule state that the set of legal moves must be identical, which is not the case
-/// if the ep square is set (and therefore part of the hash) but the pawn is pinned and can't actually take.
-/// TODO: Write another implementation that actually checks for that, to be used by the game manager.
-impl<B: Board> BoardHistory<B> for ZobristRepetition3Fold {
-    fn game_result(&self, board: &B) -> Option<PlayerResult> {
-        match find_repetition(
-            board.zobrist_hash(),
-            board.halfmove_repetition_clock(),
-            &self.0,
-            3,
-        ) {
-            true => Some(Draw),
-            false => None,
+pub fn n_fold_repetition<B: Board, H: BoardHistory<B>>(
+    mut count: usize,
+    history: &H,
+    pos: &B,
+    max_lookback: usize,
+) -> bool {
+    let stop = min(history.len(), max_lookback);
+    if stop < 2 {
+        // in many, but not all, games, we could increase this to 4
+        return false;
+    }
+    for i in (2..=stop).step_by(2) {
+        if history.is_repetition(pos, i) {
+            count -= 1;
+            if count <= 1 {
+                return true;
+            }
         }
     }
-
-    fn push(&mut self, board: &B) {
-        self.0.push(board.zobrist_hash())
-    }
-
-    fn pop(&mut self, _board: &B) {
-        self.0.pop()
-    }
-
-    fn clear(&mut self) {
-        self.0.clear()
-    }
+    false
 }
 
 type NameToPos<B> = GenericSelect<fn() -> B>;
@@ -645,7 +629,7 @@ pub trait Board:
         self.make_move(mov).is_some()
     }
 
-    fn game_result_no_movegen(&self) -> Option<PlayerResult>;
+    fn player_result_no_movegen<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult>;
 
     /// Returns the result (win/draw/loss), if any. Can be potentially slow because it can require movegen.
     /// If movegen is used anyway (such as in an ab search), it is usually better to call `game_result_no_movegen`
@@ -655,10 +639,10 @@ pub trait Board:
     /// Note that many implementations never return `PlayerResult::Win` because the active player can't win the game,
     /// which is the case because the current player is flipped after the winning move.
     /// For example, being checkmated in chess is a loss for the current player.
-    fn game_result_player_slow(&self) -> Option<PlayerResult>;
+    fn player_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult>;
 
-    fn match_result_slow(&self) -> Option<MatchResult> {
-        let player_res = self.game_result_player_slow()?;
+    fn match_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<MatchResult> {
+        let player_res = self.player_result_slow(history)?;
         let game_over = GameOver {
             result: player_res,
             reason: GameOverReason::Normal,
@@ -673,10 +657,11 @@ pub trait Board:
     /// the movegen should generate a passing move.
     fn no_moves_result(&self) -> PlayerResult;
 
-    /// Returns true iff the game is lost for player who can now move, like being checkmated in chess.
+    /// Returns true iff the game is lost for the player who can now move, like being checkmated in chess.
     /// Using `game_result_no_movegen()` and `no_moves_result()` is often the faster option if movegen is needed anyway
     fn is_game_lost_slow(&self) -> bool {
-        self.game_result_player_slow().is_some_and(|x| x == Lose)
+        self.player_result_slow(&NoHistory::default())
+            .is_some_and(|x| x == Lose)
     }
 
     /// Returns true iff the game is won for the current player after making the given move.
@@ -688,7 +673,7 @@ pub trait Board:
     }
 
     /// Returns `false` if it detects that `player` can not win the game except if the opponent runs out of time
-    /// or makes very dumb mistakes.
+    /// or makes "very dumb" mistakes.
     ///
     /// This is intended to be a comparatively cheap function and does not perform any kind of search.
     /// Typical cases where this returns false include chess positions where we only have our king left
@@ -738,24 +723,6 @@ pub trait Board:
     /// If `checks` is `Assertion`, this performs internal validity checks, which is useful for asserting that there are no
     /// bugs in the implementation, but unnecessary if this function is only called to check the validity of a FEN.
     fn verify_position_legal(&self, checks: SelfChecks) -> Res<()>;
-}
-
-pub fn game_result_slow<B: Board, H: BoardHistory<B>>(
-    board: &B,
-    history: &H,
-) -> Option<PlayerResult> {
-    board
-        .game_result_player_slow()
-        .or_else(|| history.game_result(board))
-}
-
-pub fn game_result_no_movegen<B: Board, H: BoardHistory<B>>(
-    board: &B,
-    history: &H,
-) -> Option<PlayerResult> {
-    board
-        .game_result_no_movegen()
-        .or_else(|| history.game_result(board))
 }
 
 pub trait RectangularBoard: Board {

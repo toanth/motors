@@ -175,6 +175,10 @@ impl Move<AtaxxBoard> for AtaxxMove {
         NoMoveFlags::default()
     }
 
+    fn is_tactical(self, _board: &AtaxxBoard) -> bool {
+        false
+    }
+
     fn to_compact_text(self) -> String {
         match self.typ() {
             Leaping => format!("{0}{1}", self.source, self.target),

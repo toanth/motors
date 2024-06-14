@@ -11,7 +11,7 @@ use itertools::Itertools;
 
 use gears::cli::{select_game, Game};
 use gears::games::Color::White;
-use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
+use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristHistory};
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{
     parse_duration_ms, parse_int, parse_int_from_str, to_name_and_optional_description, NamedEntity,
@@ -74,7 +74,7 @@ struct BoardGameState<B: Board> {
     debug_mode: bool,
     status: ProgramStatus,
     mov_hist: Vec<B::Move>,
-    board_hist: ZobristRepetition3Fold,
+    board_hist: ZobristHistory<B>,
     initial_pos: B,
     last_played_color: Color,
 }
@@ -97,7 +97,7 @@ impl<B: Board> BoardGameState<B> {
             .make_move(mov)
             .ok_or_else(|| format!("Illegal move {mov} (pseudolegal)"))?;
         if self.debug_mode {
-            if let Some(res) = self.board.match_result_slow() {
+            if let Some(res) = self.board.match_result_slow(&self.board_hist) {
                 return Err(format!("The game is over ({0}, reason: {1}) after move {mov}, which results in the following position: {2}", res.result, res.reason, self.board.as_fen()));
             }
         }
@@ -107,7 +107,7 @@ impl<B: Board> BoardGameState<B> {
     fn clear_state(&mut self) {
         self.board = self.initial_pos;
         self.mov_hist.clear();
-        <ZobristRepetition3Fold as BoardHistory<B>>::clear(&mut self.board_hist);
+        self.board_hist.clear();
         self.status = Run(NotStarted);
     }
 
@@ -313,7 +313,7 @@ impl<B: Board> EngineUGI<B> {
             debug_mode: opts.debug,
             status: Run(NotStarted),
             mov_hist: vec![],
-            board_hist: ZobristRepetition3Fold::default(),
+            board_hist: ZobristHistory::default(),
             initial_pos: B::default(),
             last_played_color: Default::default(),
         };
@@ -663,7 +663,7 @@ impl<B: Board> EngineUGI<B> {
             Normal => self.state.engine.start_search(
                 self.state.board,
                 limit,
-                self.state.board_hist.0.clone(),
+                self.state.board_hist.clone(),
             )?,
             Perft => {
                 let msg = format!("{0}", perft(limit.depth, self.state.board));

@@ -23,7 +23,7 @@ use whoami::fallible::realname;
 
 use gears::games::chess::Chessboard;
 use gears::games::Color::{Black, White};
-use gears::games::{Board, BoardHistory, Color, Move, ZobristRepetition3Fold};
+use gears::games::{Board, BoardHistory, Color, Move};
 use gears::general::common::{parse_int_from_str, Res};
 use gears::output::Message::*;
 use gears::output::{OutputBox, OutputBuilder};
