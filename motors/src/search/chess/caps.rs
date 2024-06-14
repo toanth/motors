@@ -563,6 +563,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // but we can still get TT cutoffs
                 self.state.board_history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
+                self.state.search_stack[ply].last_tried_move = ChessMove::default();
                 let reduction = 3 + depth / 4 + improving as isize;
                 let score = -self.negamax(
                     new_pos,
@@ -797,9 +798,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
         ply: usize,
         color: Color,
     ) {
-        let split = self.state.search_stack.split_at_mut(ply + 1);
-        let entry = split.0.last_mut().unwrap();
-        let predecessor = &split.1[0];
+        let (before, now) = self.state.search_stack.split_at_mut(ply);
+        let entry = &mut now[0];
         let bonus = (depth * depth) as i32;
         entry.killer = mov;
         for disappointing in entry.tried_quiets.iter().dropping_back(1) {
@@ -807,7 +807,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
         }
         self.state.custom.history.update(mov, bonus);
         if ply > 0 {
+            let predecessor = before.last_mut().unwrap();
             let prev_move = predecessor.last_tried_move;
+            if prev_move == ChessMove::default() {
+                return; // Ignore NMP null moves
+            }
             self.state
                 .custom
                 .cont_hist
