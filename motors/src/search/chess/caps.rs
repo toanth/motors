@@ -76,8 +76,8 @@ struct ContHist(Vec<i32>); // Can't store this on the stack because it's too lar
 
 impl ContHist {
     fn idx(mov: ChessMove, prev_move: ChessMove, color: Color) -> usize {
-        mov.uncolored_piece() as usize * mov.dest_square().bb_idx() * 64 * 6
-            + prev_move.uncolored_piece() as usize * prev_move.dest_square().bb_idx()
+        (mov.uncolored_piece() as usize + mov.dest_square().bb_idx() * 6)
+            + (prev_move.uncolored_piece() as usize + prev_move.dest_square().bb_idx() * 6) * 64 * 6
             + color as usize * 64 * 6 * 64 * 6
     }
     fn update(&mut self, mov: ChessMove, prev_mov: ChessMove, bonus: i32, color: Color) {
