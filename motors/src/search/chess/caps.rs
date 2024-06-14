@@ -637,12 +637,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
             let debug_history_len = self.state.board_history.len();
 
-            let expected_child_type = if expected_node_type == Exact && children_visited > 1 {
-                FailHigh
-            } else {
-                expected_node_type.inverse()
-            };
-
             self.state.board_history.push(&pos);
             // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove
             // that the other moves are worse, which we can do with a zero window search. Should this assumption fail,
@@ -658,7 +652,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     depth - 1,
                     -beta,
                     -alpha,
-                    expected_child_type,
+                    expected_node_type.inverse(),
                 );
             } else {
                 // LMR (Late Move Reductions): Trust the move ordering (mostly the quiet history heuristic, at least currently)
@@ -682,7 +676,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     depth - 1 - reduction,
                     -(alpha + 1),
                     -alpha,
-                    expected_child_type, // TODO: We expect lmr reduced nodes to be fail high nodes
+                    FailHigh,
                 );
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
@@ -695,7 +689,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                         depth - 1,
                         -(alpha + 1),
                         -alpha,
-                        expected_child_type,
+                        FailHigh, // we still expect a fail high here
                     );
                 }
                 // If the full-depth search also performed better than expected, do a full-depth search with the
