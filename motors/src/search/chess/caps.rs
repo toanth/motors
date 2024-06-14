@@ -923,9 +923,8 @@ impl MoveScorer<Chessboard> for CapsMoveScorer {
     fn score_move(&self, mov: ChessMove, state: &CapsState) -> MoveScore {
         // The move list is iterated backwards, which is why better moves get higher scores
         let captured = mov.captured(&self.board);
-        if mov == self.tt_move {
-            MoveScore::MAX
-        } else if mov == state.search_stack[self.ply].killer {
+        // No need to check against the TT move because that's already handled by the move picker
+        if mov == state.search_stack[self.ply].killer {
             KILLER_SCORE
         } else if captured == Empty {
             let conthist_score = if self.ply > 0 {
@@ -944,7 +943,7 @@ impl MoveScorer<Chessboard> for CapsMoveScorer {
             } else {
                 i32::MIN + 100
             };
-            // the offset applied to `base_val` can be negative, because pawns have index 0.
+            // The offset applied to `base_val` can be negative, because pawns have index 0.
             MoveScore(base_val + captured as i32 * 10 - mov.uncolored_piece() as i32)
         }
     }
