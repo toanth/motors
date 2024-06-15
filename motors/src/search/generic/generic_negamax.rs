@@ -80,6 +80,7 @@ impl<B: Board, E: Eval<B>> Benchable<B> for GenericNegamax<B, E> {
 
     fn engine_info(&self) -> EngineInfo {
         EngineInfo {
+            short_name: self.short_name().to_string(),
             name: self.long_name().to_string(),
             version: "0.0.0".to_string(),
             default_bench_depth: Depth::new(4),

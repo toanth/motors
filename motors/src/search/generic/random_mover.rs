@@ -82,6 +82,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Benchable<B> for RandomMover
 
     fn engine_info(&self) -> EngineInfo {
         EngineInfo {
+            short_name: self.short_name().to_string(),
             name: self.long_name().to_string(),
             version: "0.1.0".to_string(),
             default_bench_depth: Depth::new(1), // ignored as the engine will just pick a random move no matter what

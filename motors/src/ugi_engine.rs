@@ -17,7 +17,7 @@ use gears::general::common::{
     parse_duration_ms, parse_int, parse_int_from_str, to_name_and_optional_description, NamedEntity,
 };
 use gears::general::common::{select_name_static, Res};
-use gears::general::perft::{perft, split_perft};
+use gears::general::perft::{perft, perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
@@ -31,10 +31,10 @@ use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchSt
 
 use crate::cli::EngineOpts;
 use crate::search::multithreading::{EngineWrapper, Receiver, SearchSender, Sender};
-use crate::search::{BenchResult, EngineList};
+use crate::search::{run_bench_with_depth, BenchResult, EngineList};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
-use crate::{create_engine_from_str, create_match};
+use crate::{create_engine_bench_from_str, create_engine_from_str, create_match};
 
 const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
 
@@ -692,25 +692,43 @@ impl<B: Board> EngineUGI<B> {
     fn handle_perft_or_bench(&mut self, typ: SearchType, words: &mut SplitWhitespace) -> Res<()> {
         let mut board = self.state.board;
         let mut limit = SearchLimit::infinite();
+        let mut complete = false;
         while let Some(word) = words.next() {
             match word {
                 "position" | "pos" | "p" => board = self.load_position_into_copy(words)?,
                 "depth" | "d" => {
                     limit.depth = Depth::new(parse_int(words, "depth number")?);
                 }
+                "complete" => complete = true,
                 x => {
                     if let Ok(depth) = parse_int_from_str(x, "depth") {
                         limit.depth = Depth::new(depth);
                     } else {
                         return Err(format!(
-                            "unrecognized bench/perft argument '{}', expected 'position', 'depth' or the depth value",
+                            "unrecognized bench/perft argument '{}', expected 'position', 'complete', 'depth' or the depth value",
                             x.red()
                         ));
                     }
                 }
             }
         }
-        self.start_search(typ, limit)
+        if complete {
+            let res = match typ {
+                Perft => perft_for(limit.depth, B::bench_positions()).to_string(),
+                Bench => {
+                    let mut engine = create_engine_bench_from_str(
+                        self.state.engine.engine_info().short_name(),
+                        &self.engine_factories,
+                    )?;
+                    run_bench_with_depth(engine.as_mut(), limit.depth).to_string()
+                },
+                _ => return Err(format!("Can only use the '{}' option with bench or perft, not splitperft or normal runs", "complete".bold()))
+            };
+            self.write_ugi(&res);
+            Ok(())
+        } else {
+            self.start_search(typ, limit)
+        }
     }
 
     fn handle_eval(&mut self, words: &mut SplitWhitespace) -> Res<()> {

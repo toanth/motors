@@ -10,8 +10,10 @@ use strum_macros::FromRepr;
 
 use gears::games::{Board, ZobristHistory};
 use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
+use gears::general::perft::{perft, PerftRes};
 use gears::search::{
-    Depth, NodesLimit, Score, SearchInfo, SearchLimit, SearchResult, TimeControl, SCORE_WON,
+    Depth, NodesLimit, Score, SearchInfo, SearchLimit, SearchResult, TimeControl, MAX_DEPTH,
+    SCORE_WON,
 };
 use gears::ugi::{EngineOption, EngineOptionName};
 
@@ -31,6 +33,7 @@ mod tt;
 
 #[derive(Default, Debug, Clone)]
 pub struct EngineInfo {
+    pub short_name: String,
     pub name: String,
     pub version: String,
     pub default_bench_depth: Depth,
@@ -40,7 +43,7 @@ pub struct EngineInfo {
 
 impl NamedEntity for EngineInfo {
     fn short_name(&self) -> &str {
-        &self.name
+        &self.short_name
     }
 
     fn long_name(&self) -> String {
@@ -602,7 +605,7 @@ pub fn run_bench_with_depth<B: Board>(
     engine: &mut dyn Benchable<B>,
     mut depth: Depth,
 ) -> BenchResult {
-    if depth.get() <= 0 {
+    if depth.get() <= 0 || depth == MAX_DEPTH {
         depth = engine.engine_info().default_bench_depth
     }
     let mut sum = BenchResult::default();
