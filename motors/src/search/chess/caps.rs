@@ -183,7 +183,8 @@ pub struct Caps<E: Eval<Chessboard>> {
 impl<E: Eval<Chessboard>> Default for Caps<E> {
     fn default() -> Self {
         Self {
-            state: ABSearchState::new(DEPTH_HARD_LIMIT),
+            // + 2 because we're accessing ply + 2 when clearing killer moves
+            state: ABSearchState::new(DEPTH_HARD_LIMIT + Depth::new(2)),
             eval: E::default(),
         }
     }
@@ -557,11 +558,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
         self.state.search_stack[ply].eval = eval;
 
         self.state.search_stack[ply].tried_moves.clear();
-        // `improving` and `regressing` compare the current static eval with the static eval 2 plies ago to recognize
-        // blunders. `improving` detects potential blunders by our opponent and `regressing` detects potential blunders
-        // by us. TODO: Currently, this uses the TT score when possible. Think about if there are unintended consequences.
-        let improving = ply >= 2 && eval - self.state.search_stack[ply - 2].eval > Score(50);
-        let regressing = ply >= 2 && eval - self.state.search_stack[ply - 2].eval < Score(-50);
+        // like the commonly used `improving` and `regressing`, these variables compare the current static eval with
+        // the static eval 2 plies ago to recognize blunders. Conceptually, `improving` and `regressing` can be seen as
+        // a prediction for how the eval is going to evolve, while these variables are more about cutting early after bad moves.
+        // TODO: Currently, this uses the TT score when possible. Think about if there are unintended consequences.
+        let they_blundered = ply >= 2 && eval - self.state.search_stack[ply - 2].eval > Score(50);
+        let we_blundered = ply >= 2 && eval - self.state.search_stack[ply - 2].eval < Score(-50);
         debug_assert!(!eval.is_game_over_score());
         // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
         // because the move ordering won't be great, so don't spend too much time on this node.
@@ -575,10 +577,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
         if can_prune {
             // RFP (Reverse Futility Pruning): If eval is far above beta, it's likely that our opponent
             // blundered in a previous move of the search, so if the depth is low, don't even bother searching further.
-            // Use `improving` to better distinguish between blunders by our opponent and a generally good static eval
+            // Use `they_blundered` to better distinguish between blunders by our opponent and a generally good static eval
             // relative to `beta` --  there may be other positional factors that aren't being reflected by the static eval,
-            // (like imminent threads) so don't prune too aggressively if we're not improving.
-            let margin = (120 - (improving as i32 * 64)) * depth as i32;
+            // (like imminent threads) so don't prune too aggressively if our opponent hasn't blundered.
+            let margin = (120 - (they_blundered as i32 * 64)) * depth as i32;
             if depth < 4 && eval >= beta + Score(margin) {
                 return eval;
             }
@@ -599,7 +601,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 self.state.search_stack[ply]
                     .tried_moves
                     .push(ChessMove::default());
-                let reduction = 3 + depth / 4 + improving as isize;
+                let reduction = 3 + depth / 4 + they_blundered as isize;
                 let score = -self.negamax(
                     new_pos,
                     limit,
@@ -617,11 +619,15 @@ impl<E: Eval<Chessboard>> Caps<E> {
             }
         }
 
-        // an uninteresting move is a quiet move or bad capture unless it's the TT or killer move
+        // An uninteresting move is a quiet move or bad capture unless it's the TT or killer move
         // (i.e. it's every move that gets ordered after the killer). The name is a bit dramatic, the first few of those
         // can still be good candidates to explore.
         let mut num_uninteresting_visited = 0;
         debug_assert!(self.state.search_stack[ply].tried_moves.is_empty());
+        // Killer moves are supposed to remember good moves from related positions, but if the LCA of two positions is
+        // strictly more than 2 plies ago, the positions are probably not very closely related. Clear the killer to prevent
+        // ordering a move first that probably turns out to be unimportant.
+        self.state.search_stack[ply + 2].killer = ChessMove::default();
 
         let mut move_picker =
             MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
@@ -636,12 +642,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // FP (Futility Pruning): If the static eval is far below alpha,
             // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
             // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
-            let fp_margin = if regressing {
+            let fp_margin = if we_blundered {
                 200 + 32 * depth
             } else {
                 300 + 64 * depth
             };
-            let lmp_threshold = if regressing {
+            let lmp_threshold = if we_blundered {
                 6 + 4 * depth
             } else {
                 8 + 8 * depth
@@ -675,8 +681,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove
             // that the other moves are worse, which we can do with a zero window search. Should this assumption fail,
             // re-search with a full window.
-            // A better (but very slightly more complicated) implementation would be to do 2 researches, first with a
-            // null window but the full depth, and only then without a null window and at the full depth.
             let mut score;
             if self.state.search_stack[ply].tried_moves.len() == 1 {
                 score = -self.negamax(
