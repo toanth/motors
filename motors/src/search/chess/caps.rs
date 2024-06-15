@@ -129,11 +129,7 @@ impl CustomInfo for Additional {
     }
 
     fn new_search(&mut self) {
-        for value in self.history.iter_mut() {
-            *value /= 4;
-        }
-        // don't update conthist and capthist value, the malus already takes care of that
-        // TODO: Test not updating main history values
+        // don't update history values, malus and gravity already take care of that
     }
 
     fn forget(&mut self) {
@@ -183,8 +179,7 @@ pub struct Caps<E: Eval<Chessboard>> {
 impl<E: Eval<Chessboard>> Default for Caps<E> {
     fn default() -> Self {
         Self {
-            // + 2 because we're accessing ply + 2 when clearing killer moves
-            state: ABSearchState::new(DEPTH_HARD_LIMIT + Depth::new(2)),
+            state: ABSearchState::new(DEPTH_HARD_LIMIT),
             eval: E::default(),
         }
     }
@@ -229,8 +224,6 @@ impl<E: Eval<Chessboard>> StaticallyNamedEntity for Caps<E> {
         Much larger than SᴍᴀʟʟCᴀᴘꜱ. Eval: {}", E::static_long_name())
     }
 }
-
-// impl<E: Eval<Chessboard>> EngineBase for Caps<E> {}
 
 impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
     fn bench(&mut self, pos: Chessboard, depth: Depth) -> BenchResult {
@@ -624,10 +617,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // can still be good candidates to explore.
         let mut num_uninteresting_visited = 0;
         debug_assert!(self.state.search_stack[ply].tried_moves.is_empty());
-        // Killer moves are supposed to remember good moves from related positions, but if the LCA of two positions is
-        // strictly more than 2 plies ago, the positions are probably not very closely related. Clear the killer to prevent
-        // ordering a move first that probably turns out to be unimportant.
-        self.state.search_stack[ply + 2].killer = ChessMove::default();
 
         let mut move_picker =
             MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
