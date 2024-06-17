@@ -1,33 +1,24 @@
 //! The hand-crafted eval used by the `caps` chess engine.
 
-use crate::eval::chess::caps_hce_eval::FileOpenness::*;
 use crate::eval::chess::{
     psqt_trace, write_phased_psqt, write_psqts, SkipChecks, NUM_PHASES, NUM_PSQT_FEATURES,
 };
-use crate::eval::EvalScale::{InitialWeights, Scale};
+use crate::eval::EvalScale::Scale;
 use crate::eval::{changed_at_least, Eval, EvalScale, WeightsInterpretation};
-use crate::gd::{
-    BasicTrace, Datapoint, Feature, Float, Outcome, PhaseMultiplier, ScalingFactor, SimpleTrace,
-    SingleFeatureTrace, TaperedDatapoint, TraceNFeatures, TraceTrait, Weight, WeightedDatapoint,
-    Weights,
-};
-use crate::load_data::NoFilter;
-use colored::Colorize;
+use crate::gd::{BasicTrace, Float, TaperedDatapoint, TraceNFeatures, TraceTrait, Weight, Weights};
 use gears::games::chess::pieces::UncoloredChessPiece::{King, Pawn, Rook};
-use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
-use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
+use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES, NUM_COLORS};
+use gears::games::chess::squares::NUM_SQUARES;
 use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
 use gears::games::chess::Chessboard;
 use gears::games::Color::*;
-use gears::games::{Board, Color, DimT};
-use gears::general::bitboards::chess::{ChessBitboard, A_FILE};
+use gears::games::{Board, Color};
+use gears::general::bitboards::chess::A_FILE;
 use gears::general::bitboards::{Bitboard, RawBitboard};
 use motors::eval::chess::hce::file_openness;
-use motors::eval::chess::{
-    pawn_shield_idx, FileOpenness, PhaseType, NUM_PAWN_SHIELD_CONFIGURATIONS, PAWN_SHIELD_SHIFT,
-};
+use motors::eval::chess::FileOpenness::SemiClosed;
+use motors::eval::chess::{pawn_shield_idx, PhaseType, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use std::fmt::Formatter;
-use std::process::id;
 use strum::IntoEnumIterator;
 
 #[derive(Debug, Default)]
@@ -38,35 +29,24 @@ struct Trace {
     rooks: TraceNFeatures<NUM_ROOK_OPENNESS_FEATURES>,
     pawn_shields: TraceNFeatures<NUM_PAWN_SHIELD_CONFIGURATIONS>,
     pawn_protection: TraceNFeatures<NUM_PAWN_PROTECTION_FEATURES>,
+    pawn_attack: TraceNFeatures<NUM_PAWN_ATTACK_FEATURES>,
 }
 
 impl TraceTrait for Trace {
-    fn as_features(&self, mut idx_offset: usize) -> Vec<Feature> {
-        let mut res = self.psqt.as_features(idx_offset);
-        idx_offset += self.psqt.max_num_features();
-        res.append(&mut self.passed_pawns.as_features(idx_offset));
-        idx_offset += self.passed_pawns.max_num_features();
-        res.append(&mut self.rooks.as_features(idx_offset));
-        idx_offset += self.rooks.max_num_features();
-        res.append(&mut self.kings.as_features(idx_offset));
-        idx_offset += self.kings.max_num_features();
-        res.append(&mut self.pawn_shields.as_features(idx_offset));
-        idx_offset += self.pawn_shields.max_num_features();
-        res.append(&mut self.pawn_protection.as_features(idx_offset));
-        res
+    fn nested_traces(&self) -> Vec<&dyn TraceTrait> {
+        vec![
+            &self.psqt,
+            &self.passed_pawns,
+            &self.kings,
+            &self.rooks,
+            &self.pawn_shields,
+            &self.pawn_protection,
+            &self.pawn_attack,
+        ]
     }
 
     fn phase(&self) -> Float {
         self.psqt.phase()
-    }
-
-    fn max_num_features(&self) -> usize {
-        self.psqt.max_num_features()
-            + self.passed_pawns.max_num_features()
-            + self.kings.max_num_features()
-            + self.rooks.max_num_features()
-            + self.pawn_shields.max_num_features()
-            + self.pawn_protection.max_num_features()
     }
 }
 
@@ -131,6 +111,19 @@ impl WeightsInterpretation for CapsHceEval {
                 for _phase in PhaseType::iter() {
                     write!(f, "{}, ", weights[idx].to_string(special[idx]))?;
                     idx += 1
+                }
+                write!(f, "], ")?;
+            }
+            writeln!(f, "\n];")?;
+            writeln!(
+                f,
+                "const PAWN_ATTACKS: [[i32; NUM_PHASES]; NUM_CHESS_PIECES] = ["
+            )?;
+            for _feature in 0..NUM_PAWN_ATTACK_FEATURES {
+                write!(f, "[")?;
+                for _phase in PhaseType::iter() {
+                    write!(f, "{}, ", weights[idx].to_string(special[idx]))?;
+                    idx += 1;
                 }
                 write!(f, "], ")?;
             }
@@ -321,6 +314,8 @@ impl WeightsInterpretation for CapsHceEval {
 
         const PAWN_PROTECTION: [[i32; NUM_PHASES]; NUM_PAWN_PROTECTION_FEATURES] =
             [[0; NUM_PHASES]; NUM_PAWN_PROTECTION_FEATURES];
+        const PAWN_ATTACKS: [[i32; NUM_PHASES]; NUM_CHESS_PIECES] =
+            [[0; NUM_PHASES]; NUM_CHESS_PIECES];
 
         let mut weights = vec![];
         for piece in UncoloredChessPiece::pieces() {
@@ -361,6 +356,9 @@ impl WeightsInterpretation for CapsHceEval {
                 ));
             }
         }
+        for attacked in PAWN_ATTACKS.iter().flatten() {
+            weights.push(Weight(*attacked as Float));
+        }
         Some(Weights(weights))
     }
 
@@ -381,6 +379,7 @@ const NUM_ROOK_OPENNESS_FEATURES: usize = 3;
 const NUM_KING_OPENNESS_FEATURES: usize = 3;
 const NUM_PASSED_PAWN_FEATURES: usize = NUM_SQUARES;
 const NUM_PAWN_PROTECTION_FEATURES: usize = NUM_CHESS_PIECES;
+const NUM_PAWN_ATTACK_FEATURES: usize = NUM_CHESS_PIECES;
 
 impl Eval<Chessboard> for CapsHceEval {
     const NUM_WEIGHTS: usize = Self::NUM_FEATURES * NUM_PHASES;
@@ -390,7 +389,8 @@ impl Eval<Chessboard> for CapsHceEval {
         + NUM_ROOK_OPENNESS_FEATURES
         + NUM_KING_OPENNESS_FEATURES
         + NUM_PAWN_SHIELD_CONFIGURATIONS
-        + NUM_PAWN_PROTECTION_FEATURES;
+        + NUM_PAWN_PROTECTION_FEATURES
+        + NUM_PAWN_ATTACK_FEATURES;
 
     type D = TaperedDatapoint;
     type Filter = SkipChecks;
@@ -420,12 +420,18 @@ impl CapsHceEval {
             }
 
             for piece in UncoloredChessPiece::pieces() {
-                let protected_by_pawns =
-                    our_pawns.pawn_attacks(color) & pos.colored_piece_bb(color, piece);
+                let pawn_attacks = our_pawns.pawn_attacks(color);
+                let protected_by_pawns = pawn_attacks & pos.colored_piece_bb(color, piece);
                 trace.pawn_protection.increment_by(
                     piece as usize,
                     color,
                     protected_by_pawns.num_ones() as isize,
+                );
+                let attacked_by_pawns = pawn_attacks & pos.colored_piece_bb(color.other(), piece);
+                trace.pawn_attack.increment_by(
+                    piece as usize,
+                    color,
+                    attacked_by_pawns.num_ones() as isize,
                 );
             }
 
