@@ -90,9 +90,10 @@ impl Default for CaptHist {
     }
 }
 
-/// Continuation history. Many moves have a "natural" response, so use that for move ordering:
-/// Instead of only learning which quiet moves are good, learn which quiet moves are good after our
-/// opponent played a given move.
+/// Continuation history.
+/// Used for Countermove History (CMH, 1 ply ago) and Follow-up Move History (FMH, 2 plies ago).
+/// Unlike the main quiet history heuristic, this in indexed by the previous piece, previous target square,
+/// current piece, current target square, and color.
 #[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
 struct ContHist(Vec<i32>); // Can't store this on the stack because it's too large.
 
@@ -120,7 +121,14 @@ impl Default for ContHist {
 #[derive(Debug, Clone, Default)]
 struct Additional {
     history: HistoryHeuristic,
-    cont_hist: ContHist,
+    /// Many moves have a "natural" response, so use that for move ordering:
+    /// Instead of only learning which quiet moves are good, learn which quiet moves are good after our
+    /// opponent played a given move.
+    countermove_hist: ContHist,
+    /// Often, a move works because it is immediately followed by some other move, which completes the tactic.
+    /// Keep track of such quiet follow-up moves. This is exactly the same as the countermove history, but considers
+    /// our previous move instead of the opponent's previous move, i.e. the move 2 plies ago instead of 1 ply ago.
+    follow_up_move_hist: ContHist,
     capt_hist: CaptHist,
     tt: TT,
     original_board_hist: ZobristHistory<Chessboard>,
@@ -142,7 +150,10 @@ impl CustomInfo for Additional {
         for value in self.capt_hist.0.iter_mut().flatten().flatten() {
             *value = 0;
         }
-        for value in self.cont_hist.iter_mut() {
+        for value in self.countermove_hist.iter_mut() {
+            *value = 0;
+        }
+        for value in self.follow_up_move_hist.iter_mut() {
             *value = 0;
         }
     }
@@ -833,6 +844,29 @@ impl Caps {
         best_score
     }
 
+    fn update_continuation_hist(
+        mov: ChessMove,
+        prev_move: ChessMove,
+        depth: isize,
+        color: Color,
+        pos: &Chessboard,
+        hist: &mut ContHist,
+        failed: &[ChessMove],
+    ) {
+        let bonus = (depth * depth) as i32;
+        if prev_move == ChessMove::default() {
+            return; // Ignore NMP null moves
+        }
+        hist.update(mov, prev_move, bonus, color);
+        for disappointing in failed
+            .iter()
+            .dropping_back(1)
+            .filter(|m| !m.is_tactical(pos))
+        {
+            hist.update(*disappointing, prev_move, -bonus, color);
+        }
+    }
+
     fn update_histories_and_killer(
         &mut self,
         pos: &Chessboard,
@@ -870,25 +904,27 @@ impl Caps {
         }
         self.state.custom.history.update(mov, bonus);
         if ply > 0 {
-            let predecessor = before.last_mut().unwrap();
-            let prev_move = predecessor.last_tried_move();
-            if prev_move == ChessMove::default() {
-                return; // Ignore NMP null moves
-            }
-            self.state
-                .custom
-                .cont_hist
-                .update(mov, prev_move, bonus, color);
-            for disappointing in entry
-                .tried_moves
-                .iter()
-                .dropping_back(1)
-                .filter(|m| !m.is_tactical(pos))
-            {
-                self.state
-                    .custom
-                    .cont_hist
-                    .update(*disappointing, prev_move, -bonus, color);
+            let parent = before.last_mut().unwrap();
+            Self::update_continuation_hist(
+                mov,
+                parent.last_tried_move(),
+                depth,
+                color,
+                pos,
+                &mut self.state.custom.countermove_hist,
+                &entry.tried_moves,
+            );
+            if ply > 1 {
+                let grandparent = &mut before[before.len() - 2];
+                Self::update_continuation_hist(
+                    mov,
+                    grandparent.last_tried_move(),
+                    depth,
+                    color,
+                    pos,
+                    &mut self.state.custom.follow_up_move_hist,
+                    &entry.tried_moves,
+                );
             }
         }
     }
@@ -1022,16 +1058,27 @@ impl MoveScorer<Chessboard> for CapsMoveScorer {
         if mov == state.search_stack[self.ply].killer {
             KILLER_SCORE
         } else if !mov.is_tactical(&self.board) {
-            let conthist_score = if self.ply > 0 {
+            let countermove_score = if self.ply > 0 {
                 let prev_move = state.search_stack[self.ply - 1].last_tried_move();
                 state
                     .custom
-                    .cont_hist
+                    .countermove_hist
                     .score(mov, prev_move, self.board.active_player())
             } else {
                 0
             };
-            MoveScore(state.custom.history[mov.from_to_square()] + conthist_score)
+            let follow_up_score = if self.ply > 1 {
+                let prev_move = state.search_stack[self.ply - 2].last_tried_move();
+                state
+                    .custom
+                    .follow_up_move_hist
+                    .score(mov, prev_move, self.board.active_player())
+            } else {
+                0
+            };
+            MoveScore(
+                state.custom.history[mov.from_to_square()] + countermove_score + follow_up_score,
+            )
         } else {
             let captured = mov.captured(&self.board);
             let base_val = if self.board.see_at_least(mov, SeeScore(0)) {
