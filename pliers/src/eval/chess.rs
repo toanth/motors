@@ -1,6 +1,6 @@
 //! Contains chess evaluation functions, and some shared code that is generally useful for them,
 //! such as the [`SkipChecks`] [`Filter`].
-use crate::gd::{Float, SimpleTrace, Weight, Weights};
+use crate::gd::{BasicTrace, Float, SimpleTrace, TraceNFeatures, Weight, Weights};
 use crate::load_data::{Filter, ParseResult};
 use colored::Colorize;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
@@ -52,7 +52,7 @@ fn to_feature_idx(piece: UncoloredChessPiece, color: Color, square: ChessSquare)
     NUM_SQUARES * piece as usize + square.flip_if(color == White).bb_idx()
 }
 
-fn psqt_trace(pos: &Chessboard) -> SimpleTrace {
+fn psqt_trace(pos: &Chessboard) -> TraceNFeatures<NUM_PSQT_FEATURES> {
     let mut trace = SimpleTrace::for_features(NUM_PSQT_FEATURES);
     trace.phase = chess_phase(pos);
     for color in Color::iter() {
@@ -64,7 +64,7 @@ fn psqt_trace(pos: &Chessboard) -> SimpleTrace {
             }
         }
     }
-    trace
+    TraceNFeatures(trace)
 }
 
 // /// Apply a simple blur on the PSQTs to reduce noise.

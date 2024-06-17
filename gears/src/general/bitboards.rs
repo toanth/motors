@@ -987,6 +987,11 @@ pub mod chess {
             }
         }
 
+        pub fn pawn_attacks(self, color: Color) -> Self {
+            let advanced = self.pawn_advance(color);
+            advanced.east() | advanced.west()
+        }
+
         /// not a trait method because it has to be `const`
         pub const fn to_u64(self) -> u64 {
             self.raw.0

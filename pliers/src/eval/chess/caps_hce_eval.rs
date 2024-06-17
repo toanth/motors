@@ -7,8 +7,9 @@ use crate::eval::chess::{
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::eval::{changed_at_least, Eval, EvalScale, WeightsInterpretation};
 use crate::gd::{
-    Datapoint, Feature, Float, Outcome, PhaseMultiplier, ScalingFactor, SimpleTrace,
-    TaperedDatapoint, TraceTrait, Weight, WeightedDatapoint, Weights,
+    BasicTrace, Datapoint, Feature, Float, Outcome, PhaseMultiplier, ScalingFactor, SimpleTrace,
+    SingleFeatureTrace, TaperedDatapoint, TraceNFeatures, TraceTrait, Weight, WeightedDatapoint,
+    Weights,
 };
 use crate::load_data::NoFilter;
 use colored::Colorize;
@@ -21,19 +22,22 @@ use gears::games::Color::*;
 use gears::games::{Board, Color, DimT};
 use gears::general::bitboards::chess::{ChessBitboard, A_FILE};
 use gears::general::bitboards::{Bitboard, RawBitboard};
+use motors::eval::chess::hce::file_openness;
 use motors::eval::chess::{
     pawn_shield_idx, FileOpenness, PhaseType, NUM_PAWN_SHIELD_CONFIGURATIONS, PAWN_SHIELD_SHIFT,
 };
 use std::fmt::Formatter;
+use std::process::id;
 use strum::IntoEnumIterator;
 
 #[derive(Debug, Default)]
 struct Trace {
-    psqt: SimpleTrace,
-    passed_pawns: SimpleTrace,
-    kings: SimpleTrace,
-    rooks: SimpleTrace,
-    pawn_shields: SimpleTrace,
+    psqt: TraceNFeatures<NUM_PIECE_SQUARE_ENTRIES>,
+    passed_pawns: TraceNFeatures<NUM_PASSED_PAWN_FEATURES>,
+    kings: TraceNFeatures<NUM_KING_OPENNESS_FEATURES>,
+    rooks: TraceNFeatures<NUM_ROOK_OPENNESS_FEATURES>,
+    pawn_shields: TraceNFeatures<NUM_PAWN_SHIELD_CONFIGURATIONS>,
+    pawn_protection: TraceNFeatures<NUM_PAWN_PROTECTION_FEATURES>,
 }
 
 impl TraceTrait for Trace {
@@ -47,11 +51,13 @@ impl TraceTrait for Trace {
         res.append(&mut self.kings.as_features(idx_offset));
         idx_offset += self.kings.max_num_features();
         res.append(&mut self.pawn_shields.as_features(idx_offset));
+        idx_offset += self.pawn_shields.max_num_features();
+        res.append(&mut self.pawn_protection.as_features(idx_offset));
         res
     }
 
     fn phase(&self) -> Float {
-        self.psqt.phase
+        self.psqt.phase()
     }
 
     fn max_num_features(&self) -> usize {
@@ -60,6 +66,7 @@ impl TraceTrait for Trace {
             + self.kings.max_num_features()
             + self.rooks.max_num_features()
             + self.pawn_shields.max_num_features()
+            + self.pawn_protection.max_num_features()
     }
 }
 
@@ -115,6 +122,19 @@ impl WeightsInterpretation for CapsHceEval {
                 write!(f, "] /*{config}*/,")?;
             }
             writeln!(f, "];")?;
+            writeln!(
+                f,
+                " const PAWN_PROTECTION: [[i32; NUM_PHASES]; NUM_CHESS_PIECES] = ["
+            )?;
+            for _feature in 0..NUM_PAWN_PROTECTION_FEATURES {
+                write!(f, "[")?;
+                for _phase in PhaseType::iter() {
+                    write!(f, "{}, ", weights[idx].to_string(special[idx]))?;
+                    idx += 1
+                }
+                write!(f, "], ")?;
+            }
+            writeln!(f, "\n];")?;
             assert_eq!(idx, Self::NUM_WEIGHTS);
             Ok(())
         }
@@ -299,6 +319,9 @@ impl WeightsInterpretation for CapsHceEval {
         const PAWN_SHIELDS: [[i32; NUM_PHASES]; NUM_PAWN_SHIELD_CONFIGURATIONS] =
             [[-100; NUM_PHASES]; NUM_PAWN_SHIELD_CONFIGURATIONS];
 
+        const PAWN_PROTECTION: [[i32; NUM_PHASES]; NUM_PAWN_PROTECTION_FEATURES] =
+            [[0; NUM_PHASES]; NUM_PAWN_PROTECTION_FEATURES];
+
         let mut weights = vec![];
         for piece in UncoloredChessPiece::pieces() {
             for square in 0..NUM_SQUARES {
@@ -331,6 +354,13 @@ impl WeightsInterpretation for CapsHceEval {
                 weights.push(Weight(pawn_shield[phase as usize] as Float));
             }
         }
+        for piece in UncoloredChessPiece::pieces() {
+            for phase in PhaseType::iter() {
+                weights.push(Weight(
+                    PAWN_PROTECTION[piece as usize][phase as usize] as Float,
+                ));
+            }
+        }
         Some(Weights(weights))
     }
 
@@ -350,6 +380,7 @@ impl WeightsInterpretation for CapsHceEval {
 const NUM_ROOK_OPENNESS_FEATURES: usize = 3;
 const NUM_KING_OPENNESS_FEATURES: usize = 3;
 const NUM_PASSED_PAWN_FEATURES: usize = NUM_SQUARES;
+const NUM_PAWN_PROTECTION_FEATURES: usize = NUM_CHESS_PIECES;
 
 impl Eval<Chessboard> for CapsHceEval {
     const NUM_WEIGHTS: usize = Self::NUM_FEATURES * NUM_PHASES;
@@ -358,7 +389,8 @@ impl Eval<Chessboard> for CapsHceEval {
         + NUM_PASSED_PAWN_FEATURES
         + NUM_ROOK_OPENNESS_FEATURES
         + NUM_KING_OPENNESS_FEATURES
-        + NUM_PAWN_SHIELD_CONFIGURATIONS;
+        + NUM_PAWN_SHIELD_CONFIGURATIONS
+        + NUM_PAWN_PROTECTION_FEATURES;
 
     type D = TaperedDatapoint;
     type Filter = SkipChecks;
@@ -369,37 +401,14 @@ impl Eval<Chessboard> for CapsHceEval {
 }
 
 impl CapsHceEval {
-    fn file_openness(
-        file: DimT,
-        our_pawns: ChessBitboard,
-        their_pawns: ChessBitboard,
-    ) -> FileOpenness {
-        let file = ChessBitboard::file_no(file);
-        if (file & our_pawns).is_zero() && (file & their_pawns).is_zero() {
-            Open
-        } else if (file & our_pawns).is_zero() {
-            SemiOpen
-        } else if (file & our_pawns).has_set_bit() && (file & their_pawns).has_set_bit() {
-            Closed
-        } else {
-            SemiClosed
-        }
-    }
-
     fn trace(pos: &Chessboard) -> Trace {
         let mut trace = Trace::default();
         trace.psqt = psqt_trace(pos);
-        trace.rooks = SimpleTrace::for_features(NUM_ROOK_OPENNESS_FEATURES);
-        trace.kings = SimpleTrace::for_features(NUM_KING_OPENNESS_FEATURES);
-        trace.passed_pawns = SimpleTrace::for_features(NUM_PASSED_PAWN_FEATURES);
-        trace.pawn_shields = SimpleTrace::for_features(NUM_PAWN_SHIELD_CONFIGURATIONS);
         for color in Color::iter() {
             let our_pawns = pos.colored_piece_bb(color, Pawn);
             let their_pawns = pos.colored_piece_bb(color.other(), Pawn);
 
-            let pawns = our_pawns;
-
-            for pawn in pawns.ones() {
+            for pawn in our_pawns.ones() {
                 // Passed pawns.
                 let in_front =
                     (A_FILE << (pawn.flip_if(color == Black).bb_idx() + 8)).flip_if(color == Black);
@@ -409,10 +418,21 @@ impl CapsHceEval {
                     trace.passed_pawns.increment(square, color);
                 }
             }
+
+            for piece in UncoloredChessPiece::pieces() {
+                let protected_by_pawns =
+                    our_pawns.pawn_attacks(color) & pos.colored_piece_bb(color, piece);
+                trace.pawn_protection.increment_by(
+                    piece as usize,
+                    color,
+                    protected_by_pawns.num_ones() as isize,
+                );
+            }
+
             // Rooks on (semi)open/closed files (semi-closed files are handled by adjusting the base rook values during tuning)
             let rooks = pos.colored_piece_bb(color, Rook);
             for rook in rooks.ones() {
-                let openness = Self::file_openness(rook.file(), our_pawns, their_pawns);
+                let openness = file_openness(rook.file(), our_pawns, their_pawns);
                 if openness != SemiClosed {
                     // part of the normal piece value (i.e. part of the rook PSQT)
                     trace.rooks.increment(openness as usize, color);
@@ -421,7 +441,7 @@ impl CapsHceEval {
             // King on (semi)open/closed file
             let king_square = pos.king_square(color);
             let king_file = king_square.file();
-            let openness = Self::file_openness(king_file, our_pawns, their_pawns);
+            let openness = file_openness(king_file, our_pawns, their_pawns);
             if openness != SemiClosed {
                 trace.kings.increment(openness as usize, color);
             }
