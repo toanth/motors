@@ -427,12 +427,18 @@ impl CapsHceEval {
                     color,
                     protected_by_pawns.num_ones() as isize,
                 );
-                let attacked_by_pawns = pawn_attacks & pos.colored_piece_bb(color.other(), piece);
-                trace.pawn_attack.increment_by(
-                    piece as usize,
-                    color,
-                    attacked_by_pawns.num_ones() as isize,
-                );
+                // a pawn attacking another pawn is itself attacked by a pawn, but since a pawn could be attacking two pawns
+                // at once this doesn't have to mean that the resulting feature count is zero. So manually exclude this
+                // because pawns attacking pawns don't necessarily create an immediate thread like pawns attacking pieces.
+                if piece != Pawn {
+                    let attacked_by_pawns =
+                        pawn_attacks & pos.colored_piece_bb(color.other(), piece);
+                    trace.pawn_attack.increment_by(
+                        piece as usize,
+                        color,
+                        attacked_by_pawns.num_ones() as isize,
+                    );
+                }
             }
 
             // Rooks on (semi)open/closed files (semi-closed files are handled by adjusting the base rook values during tuning)
