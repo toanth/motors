@@ -1029,7 +1029,9 @@ impl MoveScorer<Chessboard> for CapsMoveScorer {
                 0
             };
             MoveScore(
-                state.custom.history[mov.from_to_square()] + countermove_score + follow_up_score,
+                state.custom.history[mov.from_to_square()]
+                    + countermove_score
+                    + follow_up_score / 2,
             )
         } else {
             let captured = mov.captured(&self.board);
