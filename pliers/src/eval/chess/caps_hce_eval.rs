@@ -5,7 +5,10 @@ use crate::eval::chess::{
 };
 use crate::eval::EvalScale::Scale;
 use crate::eval::{changed_at_least, Eval, EvalScale, WeightsInterpretation};
-use crate::gd::{BasicTrace, Float, TaperedDatapoint, TraceNFeatures, TraceTrait, Weight, Weights};
+use crate::gd::{
+    BasicTrace, Float, SingleFeatureTrace, TaperedDatapoint, TraceNFeatures, TraceTrait, Weight,
+    Weights,
+};
 use gears::games::chess::pieces::UncoloredChessPiece::{King, Pawn, Rook};
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES, NUM_COLORS};
 use gears::games::chess::squares::NUM_SQUARES;
@@ -13,7 +16,7 @@ use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
 use gears::games::chess::Chessboard;
 use gears::games::Color::*;
 use gears::games::{Board, Color};
-use gears::general::bitboards::chess::A_FILE;
+use gears::general::bitboards::chess::{ChessBitboard, A_FILE};
 use gears::general::bitboards::{Bitboard, RawBitboard};
 use motors::eval::chess::hce::file_openness;
 use motors::eval::chess::FileOpenness::SemiClosed;
@@ -30,6 +33,7 @@ struct Trace {
     pawn_shields: TraceNFeatures<NUM_PAWN_SHIELD_CONFIGURATIONS>,
     pawn_protection: TraceNFeatures<NUM_PAWN_PROTECTION_FEATURES>,
     pawn_attack: TraceNFeatures<NUM_PAWN_ATTACK_FEATURES>,
+    isolate_pawns: SingleFeatureTrace,
 }
 
 impl TraceTrait for Trace {
@@ -42,6 +46,7 @@ impl TraceTrait for Trace {
             &self.pawn_shields,
             &self.pawn_protection,
             &self.pawn_attack,
+            &self.isolate_pawns,
         ]
     }
 
@@ -128,6 +133,18 @@ impl WeightsInterpretation for CapsHceEval {
                 write!(f, "], ")?;
             }
             writeln!(f, "\n];")?;
+            writeln!(
+                f,
+                "const ISOLATED_PAWN_MG: i32 = {};",
+                weights[idx].to_string(special[idx])
+            )?;
+            idx += 1;
+            writeln!(
+                f,
+                "const ISOLATED_PAWN_EG: i32 = {};",
+                weights[idx].to_string(special[idx])
+            )?;
+            idx += 1;
             assert_eq!(idx, Self::NUM_WEIGHTS);
             Ok(())
         }
@@ -316,6 +333,8 @@ impl WeightsInterpretation for CapsHceEval {
             [[0; NUM_PHASES]; NUM_PAWN_PROTECTION_FEATURES];
         const PAWN_ATTACKS: [[i32; NUM_PHASES]; NUM_CHESS_PIECES] =
             [[0; NUM_PHASES]; NUM_CHESS_PIECES];
+        const ISOLATED_PAWN_MG: i32 = 0;
+        const ISOLATED_PAWN_EG: i32 = 0;
 
         let mut weights = vec![];
         for piece in UncoloredChessPiece::pieces() {
@@ -359,6 +378,8 @@ impl WeightsInterpretation for CapsHceEval {
         for attacked in PAWN_ATTACKS.iter().flatten() {
             weights.push(Weight(*attacked as Float));
         }
+        weights.push(Weight(ISOLATED_PAWN_MG as Float));
+        weights.push(Weight(ISOLATED_PAWN_EG as Float));
         Some(Weights(weights))
     }
 
@@ -380,6 +401,7 @@ const NUM_KING_OPENNESS_FEATURES: usize = 3;
 const NUM_PASSED_PAWN_FEATURES: usize = NUM_SQUARES;
 const NUM_PAWN_PROTECTION_FEATURES: usize = NUM_CHESS_PIECES;
 const NUM_PAWN_ATTACK_FEATURES: usize = NUM_CHESS_PIECES;
+const ONE_ISOLATED_PAWN_FEATURE: usize = 1;
 
 impl Eval<Chessboard> for CapsHceEval {
     const NUM_WEIGHTS: usize = Self::NUM_FEATURES * NUM_PHASES;
@@ -390,7 +412,8 @@ impl Eval<Chessboard> for CapsHceEval {
         + NUM_KING_OPENNESS_FEATURES
         + NUM_PAWN_SHIELD_CONFIGURATIONS
         + NUM_PAWN_PROTECTION_FEATURES
-        + NUM_PAWN_ATTACK_FEATURES;
+        + NUM_PAWN_ATTACK_FEATURES
+        + ONE_ISOLATED_PAWN_FEATURE;
 
     type D = TaperedDatapoint;
     type Filter = SkipChecks;
@@ -416,6 +439,11 @@ impl CapsHceEval {
                 if (in_front & our_pawns).is_zero() && (blocking & their_pawns).is_zero() {
                     let square = pawn.flip_if(color == White).bb_idx();
                     trace.passed_pawns.increment(square, color);
+                }
+                let file = ChessBitboard::file_no(pawn.file());
+                let neighbors = file.west() | file.east();
+                if (neighbors & our_pawns).is_zero() {
+                    trace.isolate_pawns.increment(0, color);
                 }
             }
 
