@@ -25,8 +25,8 @@ use strum::IntoEnumIterator;
 struct Trace {
     psqt: TraceNFeatures<NUM_PIECE_SQUARE_ENTRIES>,
     passed_pawns: TraceNFeatures<NUM_PASSED_PAWN_FEATURES>,
-    kings: TraceNFeatures<NUM_KING_OPENNESS_FEATURES>,
     rooks: TraceNFeatures<NUM_ROOK_OPENNESS_FEATURES>,
+    kings: TraceNFeatures<NUM_KING_OPENNESS_FEATURES>,
     pawn_shields: TraceNFeatures<NUM_PAWN_SHIELD_CONFIGURATIONS>,
     pawn_protection: TraceNFeatures<NUM_PAWN_PROTECTION_FEATURES>,
     pawn_attack: TraceNFeatures<NUM_PAWN_ATTACK_FEATURES>,
@@ -37,8 +37,8 @@ impl TraceTrait for Trace {
         vec![
             &self.psqt,
             &self.passed_pawns,
-            &self.kings,
             &self.rooks,
+            &self.kings,
             &self.pawn_shields,
             &self.pawn_protection,
             &self.pawn_attack,
