@@ -5,8 +5,11 @@ use crate::eval::chess::{
 };
 use crate::eval::EvalScale::Scale;
 use crate::eval::{changed_at_least, Eval, EvalScale, WeightsInterpretation};
-use crate::gd::{BasicTrace, Float, TaperedDatapoint, TraceNFeatures, TraceTrait, Weight, Weights};
-use gears::games::chess::pieces::UncoloredChessPiece::{King, Pawn, Rook};
+use crate::gd::{
+    BasicTrace, Float, SingleFeatureTrace, TaperedDatapoint, TraceNFeatures, TraceTrait, Weight,
+    Weights,
+};
+use gears::games::chess::pieces::UncoloredChessPiece::{Bishop, King, Pawn, Rook};
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES, NUM_COLORS};
 use gears::games::chess::squares::NUM_SQUARES;
 use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
@@ -25,6 +28,7 @@ use strum::IntoEnumIterator;
 struct Trace {
     psqt: TraceNFeatures<NUM_PIECE_SQUARE_ENTRIES>,
     passed_pawns: TraceNFeatures<NUM_PASSED_PAWN_FEATURES>,
+    bishop_pair: SingleFeatureTrace,
     rooks: TraceNFeatures<NUM_ROOK_OPENNESS_FEATURES>,
     kings: TraceNFeatures<NUM_KING_OPENNESS_FEATURES>,
     pawn_shields: TraceNFeatures<NUM_PAWN_SHIELD_CONFIGURATIONS>,
@@ -37,6 +41,7 @@ impl TraceTrait for Trace {
         vec![
             &self.psqt,
             &self.passed_pawns,
+            &self.bishop_pair,
             &self.rooks,
             &self.kings,
             &self.pawn_shields,
@@ -71,8 +76,21 @@ impl WeightsInterpretation for CapsHceEval {
                 "passed pawns",
             )?;
             writeln!(f, "];")?;
-
             let mut idx = (NUM_PSQT_FEATURES + NUM_PASSED_PAWN_FEATURES) * NUM_PHASES;
+
+            writeln!(
+                f,
+                "const BISHOP_PAIR_MG: i32 = {};",
+                weights[idx].to_string(special[idx])
+            )?;
+            idx += 1;
+            writeln!(
+                f,
+                "const BISHOP_PAIR_EG: i32 = {};",
+                weights[idx].to_string(special[idx])
+            )?;
+            idx += 1;
+
             for piece in ["ROOK", "KING"] {
                 for openness in ["OPEN", "CLOSED", "SEMIOPEN"] {
                     for phase in PhaseType::iter() {
@@ -131,6 +149,18 @@ impl WeightsInterpretation for CapsHceEval {
             assert_eq!(idx, Self::NUM_WEIGHTS);
             Ok(())
         }
+    }
+
+    fn eval_scale(&self) -> EvalScale {
+        Scale(120.0)
+    }
+
+    fn retune_from_zero(&self) -> bool {
+        false
+    }
+
+    fn interpolate_decay(&self) -> Option<Float> {
+        Some(0.99) // a relatively small value (far away from 1) because some pawn shield configurations are very uncommon
     }
 
     fn initial_weights(&self) -> Option<Weights> {
@@ -294,6 +324,8 @@ impl WeightsInterpretation for CapsHceEval {
             ]
         ];
 
+        const BISHOP_PAIR_MG: i32 = 0;
+        const BISHOP_PAIR_EG: i32 = 0;
         const ROOK_OPEN_FILE_MG: i32 = 31;
         const ROOK_OPEN_FILE_EG: i32 = 12;
         const ROOK_SEMIOPEN_FILE_MG: i32 = 6;
@@ -332,6 +364,8 @@ impl WeightsInterpretation for CapsHceEval {
                 weights.push(Weight(PASSED_PAWNS[phase as usize][square] as Float));
             }
         }
+        weights.push(Weight(BISHOP_PAIR_MG as Float));
+        weights.push(Weight(BISHOP_PAIR_EG as Float));
         weights.push(Weight(ROOK_OPEN_FILE_MG as Float));
         weights.push(Weight(ROOK_OPEN_FILE_EG as Float));
         weights.push(Weight(ROOK_CLOSED_FILE_MG as Float));
@@ -344,6 +378,7 @@ impl WeightsInterpretation for CapsHceEval {
         weights.push(Weight(KING_CLOSED_FILE_EG as Float));
         weights.push(Weight(KING_SEMIOPEN_FILE_MG as Float));
         weights.push(Weight(KING_SEMIOPEN_FILE_EG as Float));
+
         for pawn_shield in PAWN_SHIELDS.iter() {
             for phase in PhaseType::iter() {
                 weights.push(Weight(pawn_shield[phase as usize] as Float));
@@ -361,18 +396,6 @@ impl WeightsInterpretation for CapsHceEval {
         }
         Some(Weights(weights))
     }
-
-    fn retune_from_zero(&self) -> bool {
-        false
-    }
-
-    fn eval_scale(&self) -> EvalScale {
-        Scale(120.0)
-    }
-
-    fn interpolate_decay(&self) -> Option<Float> {
-        Some(0.99) // a relatively small value (far away from 1) because some pawn shield configurations are very uncommon
-    }
 }
 
 const NUM_ROOK_OPENNESS_FEATURES: usize = 3;
@@ -380,11 +403,13 @@ const NUM_KING_OPENNESS_FEATURES: usize = 3;
 const NUM_PASSED_PAWN_FEATURES: usize = NUM_SQUARES;
 const NUM_PAWN_PROTECTION_FEATURES: usize = NUM_CHESS_PIECES;
 const NUM_PAWN_ATTACK_FEATURES: usize = NUM_CHESS_PIECES;
+const ONE_BISHOP_PAIR_FEATURE: usize = 1;
 
 impl Eval<Chessboard> for CapsHceEval {
     const NUM_WEIGHTS: usize = Self::NUM_FEATURES * NUM_PHASES;
 
     const NUM_FEATURES: usize = NUM_PIECE_SQUARE_ENTRIES
+        + ONE_BISHOP_PAIR_FEATURE
         + NUM_PASSED_PAWN_FEATURES
         + NUM_ROOK_OPENNESS_FEATURES
         + NUM_KING_OPENNESS_FEATURES
@@ -417,6 +442,9 @@ impl CapsHceEval {
                     let square = pawn.flip_if(color == White).bb_idx();
                     trace.passed_pawns.increment(square, color);
                 }
+            }
+            if pos.colored_piece_bb(color, Bishop).more_than_one_bit_set() {
+                trace.bishop_pair.increment(0, color);
             }
 
             for piece in UncoloredChessPiece::pieces() {

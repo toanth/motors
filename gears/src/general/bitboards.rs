@@ -165,6 +165,10 @@ pub trait RawBitboard:
     fn is_single_piece(self) -> bool;
     // apparently, the num crate doesn't provide a is_power_of_two() method
 
+    fn more_than_one_bit_set(self) -> bool {
+        (self & (self - Self::from_primitive(Self::Primitive::one()))).has_set_bit()
+    }
+
     fn is_bit_set_at(self, idx: usize) -> bool {
         ((self.to_primitive() >> idx) & Self::Primitive::one()) == Self::Primitive::one()
     }
