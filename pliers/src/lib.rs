@@ -115,7 +115,7 @@ fn maina() {
     run::<Chessboard, E>();
 }
 
-const DEFAULT_NUM_EPOCHS: usize = 2000;
+const DEFAULT_NUM_EPOCHS: usize = 4000;
 
 /// The 'main function' of this library.
 ///

@@ -228,6 +228,7 @@ pub trait Eval<B: Board>: WeightsInterpretation + Default {
     /// of squares times the number of pieces. Each feature value counts how often the feature appears in a position,
     /// from white's perspective (so the equivalent black feature count gets subtracted).
     /// See also [`feature_trace`](Self::feature_trace).
+    // TODO: Remove this requirement?
     const NUM_FEATURES: usize;
 
     /// How a position is represented in the tuner.
