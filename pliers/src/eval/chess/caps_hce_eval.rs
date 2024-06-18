@@ -33,7 +33,8 @@ struct Trace {
     pawn_shields: TraceNFeatures<NUM_PAWN_SHIELD_CONFIGURATIONS>,
     pawn_protection: TraceNFeatures<NUM_PAWN_PROTECTION_FEATURES>,
     pawn_attack: TraceNFeatures<NUM_PAWN_ATTACK_FEATURES>,
-    isolate_pawns: SingleFeatureTrace,
+    // an unsupported pawn is either isolated or backwards
+    unsupported_pawns: SingleFeatureTrace,
 }
 
 impl TraceTrait for Trace {
@@ -46,7 +47,7 @@ impl TraceTrait for Trace {
             &self.pawn_shields,
             &self.pawn_protection,
             &self.pawn_attack,
-            &self.isolate_pawns,
+            &self.unsupported_pawns,
         ]
     }
 
@@ -135,13 +136,13 @@ impl WeightsInterpretation for CapsHceEval {
             writeln!(f, "\n];")?;
             writeln!(
                 f,
-                "const ISOLATED_PAWN_MG: i32 = {};",
+                "const UNSUPPORTED_PAWN_MG: i32 = {};",
                 weights[idx].to_string(special[idx])
             )?;
             idx += 1;
             writeln!(
                 f,
-                "const ISOLATED_PAWN_EG: i32 = {};",
+                "const UNSUPPORTED_PAWN_EG: i32 = {};",
                 weights[idx].to_string(special[idx])
             )?;
             idx += 1;
@@ -333,8 +334,8 @@ impl WeightsInterpretation for CapsHceEval {
             [[0; NUM_PHASES]; NUM_PAWN_PROTECTION_FEATURES];
         const PAWN_ATTACKS: [[i32; NUM_PHASES]; NUM_CHESS_PIECES] =
             [[0; NUM_PHASES]; NUM_CHESS_PIECES];
-        const ISOLATED_PAWN_MG: i32 = 0;
-        const ISOLATED_PAWN_EG: i32 = 0;
+        const UNSUPPORTED_PAWN_MG: i32 = 0;
+        const UNSUPPORTED_PAWN_EG: i32 = 0;
 
         let mut weights = vec![];
         for piece in UncoloredChessPiece::pieces() {
@@ -378,8 +379,8 @@ impl WeightsInterpretation for CapsHceEval {
         for attacked in PAWN_ATTACKS.iter().flatten() {
             weights.push(Weight(*attacked as Float));
         }
-        weights.push(Weight(ISOLATED_PAWN_MG as Float));
-        weights.push(Weight(ISOLATED_PAWN_EG as Float));
+        weights.push(Weight(UNSUPPORTED_PAWN_MG as Float));
+        weights.push(Weight(UNSUPPORTED_PAWN_EG as Float));
         Some(Weights(weights))
     }
 
@@ -442,8 +443,9 @@ impl CapsHceEval {
                 }
                 let file = ChessBitboard::file_no(pawn.file());
                 let neighbors = file.west() | file.east();
-                if (neighbors & our_pawns).is_zero() {
-                    trace.isolate_pawns.increment(0, color);
+                let supporting = neighbors & !blocking;
+                if (supporting & our_pawns).is_zero() {
+                    trace.unsupported_pawns.increment(0, color);
                 }
             }
 
