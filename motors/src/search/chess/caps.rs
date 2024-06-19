@@ -33,9 +33,13 @@ use crate::search::tt::{TTEntry, TT};
 use crate::search::NodeType::*;
 use crate::search::*;
 
+/// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
+/// The maximum value of the `ply` parameter, i.e. the maximum depth (in plies) before qsearch is reached
 const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
+
 const HIST_DIVISOR: i32 = 1024;
+/// The TT move and good captures have a higher score, all other moves have a lower score.
 const KILLER_SCORE: MoveScore = MoveScore(i32::MAX - 100 * HIST_DIVISOR);
 
 /// Updates the history using the History Gravity technique,
@@ -226,13 +230,10 @@ impl<E: Eval<Chessboard>> StaticallyNamedEntity for Caps<E> {
     where
         Self: Sized,
     {
-        let elo = if TypeId::of::<E>() == TypeId::of::<HandCraftedEval>() {
-            " (but still >= 2.5k elo)"
-        } else {
-            ""
-        };
-        format!("Chess-playing Alpha-beta Pruning Search (CAPS), a chess engine. Currently early in development{elo}. \
-        Much larger than SᴍᴀʟʟCᴀᴘꜱ. Eval: {}", E::static_long_name())
+        "Chess-playing Alpha-beta Pruning Search (CAPS), a chess engine. \
+        Currently very early in development and not yet all that strong (but still > 2.5k elo). \
+        Much larger than SᴍᴀʟʟCᴀᴘꜱ"
+            .to_string()
     }
 }
 
@@ -253,7 +254,7 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
                     val: 4,
                     default: Some(4),
                     min: Some(0),
-                    max: Some(1_000_000), // use at most 1 terabyte (should be enough for anybody™)
+                    max: Some(10_000_000), // use at most 10 terabytes (should be enough for anybody™)
                 }),
             },
             EngineOption {
@@ -262,7 +263,7 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
                     val: 1,
                     default: Some(1),
                     min: Some(1),
-                    max: Some(100),
+                    max: Some(1000),
                 }),
             },
             EngineOption {
@@ -279,8 +280,9 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
             version: "0.1.0".to_string(),
             default_bench_depth: Depth::new(12),
             options,
-            description: "CAPS (Chess Alpha-beta Pruning Search), a negamax-based chess engine"
-                .to_string(),
+            description:
+                "CAPS (Chess-playing Alpha-beta Pruning Search), a negamax-based chess engine"
+                    .to_string(),
         }
     }
 
@@ -318,6 +320,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
             .min((limit.tc.remaining.saturating_sub(limit.tc.increment)) / 32 + limit.tc.increment)
             .min(limit.tc.remaining / 4);
 
+        // TODO: Use lambda for lazy evaluation in case debug is off
         self.state.sender.send_message(Debug, &format!(
             "Starting search with limit {time}ms, {incr}ms increment, max {fixed}ms, mate in {mate} plies, max depth {depth}, max {nodes} nodes, soft limit {soft}ms",
             time = limit.tc.remaining.as_millis(),
@@ -364,7 +367,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
         &mut self.state
     }
 
-    fn get_static_eval(&mut self, pos: Chessboard) -> Score {
+    fn static_eval(&mut self, pos: Chessboard) -> Score {
         self.eval.eval(pos)
     }
 
@@ -460,6 +463,13 @@ impl<E: Eval<Chessboard>> Caps<E> {
         chosen_move
     }
 
+    /// Recursive search function, the most important part of the engine. If the computed score of the current position
+    /// lies within the open interval `(alpha, beta)`, return the score. Otherwise, the returned score might not be exact,
+    /// but could be closer to the window than the true score. On top of that, there are **many** additional techniques
+    /// that can mess with the returned score, so that it's best not to assume too much: For example, it's not unlikely
+    /// that a re-search with the same depth returns a different score. Because of PVS, `alpha` is `beta - 1` in almost
+    /// all nodes, and most nodes either get cut off before reaching the move loop or produce a beta cutoff after
+    /// the first move.
     fn negamax(
         &mut self,
         pos: Chessboard,
@@ -584,7 +594,12 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // Use `they_blundered` to better distinguish between blunders by our opponent and a generally good static eval
             // relative to `beta` --  there may be other positional factors that aren't being reflected by the static eval,
             // (like imminent threads) so don't prune too aggressively if our opponent hasn't blundered.
-            let margin = (120 - (they_blundered as i32 * 64)) * depth as i32;
+            // Be more careful about pruning too aggressively if the node is expected to fail low -- we should not rfp
+            // a true fail low node, but our expectation may also be wrong.
+            let mut margin = (150 - (they_blundered as i32 * 64)) * depth as i32;
+            if expected_node_type == FailHigh {
+                margin /= 2;
+            }
             if depth < 4 && eval >= beta + Score(margin) {
                 return eval;
             }
@@ -1029,9 +1044,7 @@ impl MoveScorer<Chessboard> for CapsMoveScorer {
                 0
             };
             MoveScore(
-                state.custom.history[mov.from_to_square()]
-                    + countermove_score
-                    + follow_up_score / 2,
+                state.custom.history[mov.from_to_square()] + countermove_score + follow_up_score,
             )
         } else {
             let captured = mov.captured(&self.board);

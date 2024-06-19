@@ -97,16 +97,12 @@ mod tests {
     use crate::eval::chess::material_only::MaterialOnlyEval;
     use crate::eval::chess::piston::PistonEval;
     use crate::eval::Eval;
-    use crate::search::chess::caps::Caps;
-    use crate::search::multithreading::SearchSender;
     use crate::search::Engine;
-    use gears::games::chess::moves::ChessMove;
     use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
     use gears::games::chess::Chessboard;
-    use gears::games::{Board, BoardHistory, DimT, Move, ZobristHistory};
+    use gears::games::{Board, BoardHistory, DimT};
     use gears::general::bitboards::RawBitboard;
-    use gears::search::{Depth, Score, SearchLimit};
-    use gears::PlayerResult::Draw;
+    use gears::search::Score;
     use strum::IntoEnumIterator;
 
     #[test]

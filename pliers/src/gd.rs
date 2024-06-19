@@ -274,55 +274,89 @@ pub struct PhaseMultiplier(Float);
 /// A trace stores extracted features of a position and can be converted to a list of [`Feature`]s.
 ///
 /// This type is returned by the [`feature_trace`](super::eval::Eval::feature_trace) method.
-/// The simplest way to implement this trait is to make your strut contain several [`SimpleTrace`]s,
-/// which do the actual work of converting the trace to a list of features.
+/// The simplest way to implement this trait is to make your strut contain several [`SimpleTrace`]s or other
+/// pre-defined trace implementation, which do the actual work of converting the trace to a list of features.
 ///
 /// For example:
 /// ```
-/// use pliers::gd::{Feature, SimpleTrace, TraceTrait};
+/// use pliers::gd::{Feature, Float, SimpleTrace, TraceNFeatures, TraceTrait};
 /// #[derive(Debug, Default)]
 /// struct MyTrace {
 ///     some_trace: SimpleTrace,
-///     some_other_trace: SimpleTrace,
+///     some_other_trace: TraceNFeatures<42>,
 /// }
 ///
 /// impl TraceTrait for MyTrace {
-///     fn as_features(&self, mut idx_offset: usize) -> Vec<Feature> {
-///         let mut res = self.some_trace.as_features(idx_offset);
-///         idx_offset += self.some_trace.max_num_features();
-///         res.append(&mut self.some_other_trace.as_features(idx_offset));
-///         res
-///     }
+///     fn nested_traces(&self) -> Vec<&dyn TraceTrait> {
+///         vec![&self.some_trace, &self.some_other_trace]
+///    }
 ///
-///     fn max_num_features(&self) -> usize {
-///         self.some_trace.max_num_features() + self.some_other_trace.max_num_features()
+///     fn phase(&self) -> Float {
+///        1.0
 ///    }
 /// }
 /// ```
-pub trait TraceTrait: Debug + Default {
+pub trait TraceTrait: Debug {
     /// Converts the trace into a list of features.
     ///
-    /// The simplest way to implement this function is to delegate the work to at least one `[SimpleTrace]`.
-    /// This function creates a sparse array of `[Feature]s`, where each entry is the number of times it appears for
+    /// The default implementation of this function simply delegates the work to nested traces.
+    /// It is usually not necessary to override this default implementation.
+    /// This function creates a sparse array of [`Feature`]s, where each entry is the number of times it appears for
     /// the white player minus the number of times it appears for the black player.
-    fn as_features(&self, idx_offset: usize) -> Vec<Feature>;
-    /// The phase value of this position. Some [`Datapoint`] implementations ignore this.
-    fn phase(&self) -> Float {
-        1.0
+    fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
+        let mut res = vec![];
+        let mut offset = 0;
+        for nested in self.nested_traces() {
+            res.append(&mut nested.as_features(offset));
+            offset += nested.max_num_features();
+        }
+        res
     }
+
+    /// Returns an iterator of nested traces.
+    ///
+    /// A custom trace should be built on top of existing traces, such as [`TraceNFeatures`].
+    /// The order of traces in the returned `Vec` determines the offset used to convert the feature index of a single
+    /// trace into the feature index of the merged trace.
+    fn nested_traces(&self) -> Vec<&dyn TraceTrait>;
+
+    /// The phase value of this position. Some [`Datapoint`] implementations ignore this.
+    fn phase(&self) -> Float;
 
     /// The number of features that are being covered by this trace.
     ///
     /// Note that in many cases, not all features appear in a position, so the len of the result of
     /// [`as_features`](Self::as_features) is often smaller than this value.
-    fn max_num_features(&self) -> usize;
+    /// It is usually not necessary to override this method.
+    fn max_num_features(&self) -> usize {
+        self.nested_traces()
+            .iter()
+            .map(|trace| trace.max_num_features())
+            .sum()
+    }
 }
 
-/// The most basic trace, useful by itself or as a building block of custom traces.
+/// A trace that keeps track of a given feature, which is referred to by its index.
+///
+/// Can be used to build larger traces. It is usually not necessary to implement this trait yourself
+/// because [`SimpleTrace`] and [`TraceNFeatures`] already do.
+pub trait BasicTrace: TraceTrait {
+    /// Increment a given feature by one for the given player.
+    fn increment(&mut self, idx: usize, color: Color) {
+        self.increment_by(idx, color, 1);
+    }
+
+    /// Increment a given feature by a given amount for the given player.
+    fn increment_by(&mut self, idx: usize, color: Color, amount: isize);
+}
+
+/// The most basic trace, useful by itself or as a building block of custom traces, but [`TraceNFeatures`]
+/// should usually be preferred.
 ///
 /// Stores how often each feature occurs for both players, and a game phase.
 /// Unlike the final list of `Feature`s used during tuning, this uses a dense array representation,
 /// which means it is normal for most of the many entries to be zero.
+/// The [`TraceNFeatures]` struct is a thin wrapper around this struct which enforces the number of features matches.
 #[derive(Debug, Default)]
 pub struct SimpleTrace {
     /// How often each feature appears for the white player.
@@ -343,21 +377,11 @@ impl SimpleTrace {
             phase: 0.0,
         }
     }
-    /// Increment a given feature by one for the given player.
-    pub fn increment(&mut self, idx: usize, color: Color) {
-        self.increment_by(idx, color, 1);
-    }
-
-    /// Increment a given feature by a given amount for the given player.
-    pub fn increment_by(&mut self, idx: usize, color: Color, amount: isize) {
-        match color {
-            Color::White => self.white[idx] += amount,
-            Color::Black => self.black[idx] += amount,
-        };
-    }
 }
 
 impl TraceTrait for SimpleTrace {
+    /// A [`SimpleTrace`] does not contain any other traces, so this function does the actual work of converting
+    /// a trace into a list of features.
     fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
         assert_eq!(self.white.len(), self.black.len());
         let mut res = vec![];
@@ -379,6 +403,10 @@ impl TraceTrait for SimpleTrace {
         res
     }
 
+    fn nested_traces(&self) -> Vec<&dyn TraceTrait> {
+        vec![]
+    }
+
     fn phase(&self) -> Float {
         self.phase
     }
@@ -388,6 +416,52 @@ impl TraceTrait for SimpleTrace {
         self.white.len()
     }
 }
+
+impl BasicTrace for SimpleTrace {
+    fn increment_by(&mut self, idx: usize, color: Color, amount: isize) {
+        match color {
+            Color::White => self.white[idx] += amount,
+            Color::Black => self.black[idx] += amount,
+        };
+    }
+}
+
+/// Wraps a [`SimpleTrace`] by making sure it has the given maximum number of features.
+#[derive(Debug)]
+pub struct TraceNFeatures<const N: usize>(pub SimpleTrace);
+
+impl<const N: usize> Default for TraceNFeatures<N> {
+    fn default() -> Self {
+        Self(SimpleTrace::for_features(N))
+    }
+}
+
+impl<const N: usize> TraceTrait for TraceNFeatures<N> {
+    fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
+        assert_eq!(self.0.max_num_features(), N);
+        self.0.as_features(idx_offset)
+    }
+
+    fn nested_traces(&self) -> Vec<&dyn TraceTrait> {
+        self.0.nested_traces()
+    }
+
+    fn phase(&self) -> Float {
+        self.0.phase
+    }
+    fn max_num_features(&self) -> usize {
+        N
+    }
+}
+
+impl<const N: usize> BasicTrace for TraceNFeatures<N> {
+    fn increment_by(&mut self, idx: usize, color: Color, amount: isize) {
+        self.0.increment_by(idx, color, amount);
+    }
+}
+
+/// Trace for a single feature that can appear multiple times for both players.
+pub type SingleFeatureTrace = TraceNFeatures<1>;
 
 /// Struct used for tuning.
 ///
@@ -765,7 +839,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
         assert_eq!(
             weights.num_weights(),
             batch.num_weights,
-            "Incorrect number of initial weights"
+            "Incorrect number of initial weights. Maybe your `Eval::NUM_WEIGHTS` is incorrect or your initial_weights() returns incorrect weights?"
         );
     }
     let mut prev_loss = Float::INFINITY;
