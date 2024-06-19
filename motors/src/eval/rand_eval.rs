@@ -1,10 +1,9 @@
 use rand::{thread_rng, Rng};
 
+use crate::eval::Eval;
 use gears::games::Board;
 use gears::general::common::StaticallyNamedEntity;
-use gears::search::{Score, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
-
-use crate::eval::Eval;
+use gears::score::{Score, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
 
 #[derive(Debug)]
 pub struct RandEval {

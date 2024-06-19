@@ -4,14 +4,11 @@ use rand::thread_rng;
 
 use gears::games::{Board, BoardHistory};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
-use gears::search::{
-    game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, SCORE_LOST,
-    SCORE_TIME_UP, SCORE_WON,
-};
+use gears::score::{game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE_WON};
+use gears::search::{Depth, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::EngineOptionName;
 
 use crate::eval::Eval;
-use crate::search::multithreading::SearchSender;
 use crate::search::statistics::SearchType::MainSearch;
 use crate::search::tt::TT;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};

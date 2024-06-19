@@ -17,7 +17,7 @@ use std::mem::swap;
 pub struct SeeScore(pub i32);
 
 // TODO: Better values?
-const SEE_SCORES: [SeeScore; NUM_CHESS_PIECES + 1] = [
+pub const SEE_SCORES: [SeeScore; NUM_CHESS_PIECES + 1] = [
     SeeScore(100),
     SeeScore(300),
     SeeScore(300),

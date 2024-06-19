@@ -5,9 +5,9 @@ use rand::{thread_rng, Rng, RngCore, SeedableRng};
 
 use gears::games::Board;
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
-use gears::search::{Depth, NodesLimit, Score, SearchInfo, SearchLimit, SearchResult, TimeControl};
+use gears::score::Score;
+use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 
-use crate::search::multithreading::SearchSender;
 use crate::search::tt::TT;
 use crate::search::{
     ABSearchState, BenchResult, Benchable, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,

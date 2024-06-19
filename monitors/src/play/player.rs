@@ -27,9 +27,8 @@ use gears::games::{Board, BoardHistory, Color, Move};
 use gears::general::common::{parse_int_from_str, Res};
 use gears::output::Message::*;
 use gears::output::{OutputBox, OutputBuilder};
-use gears::search::{
-    Depth, NodesLimit, SearchInfo, SearchLimit, TimeControl, MAX_DEPTH, SCORE_LOST, SCORE_WON,
-};
+use gears::score::{SCORE_LOST, SCORE_WON};
+use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, TimeControl, MAX_DEPTH};
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
 use gears::MatchStatus::{Ongoing, Over};

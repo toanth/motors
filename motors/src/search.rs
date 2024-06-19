@@ -10,10 +10,9 @@ use strum_macros::FromRepr;
 
 use gears::games::{Board, ZobristHistory};
 use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
-use gears::general::perft::{perft, PerftRes};
+use gears::score::{Score, SCORE_WON};
 use gears::search::{
-    Depth, NodesLimit, Score, SearchInfo, SearchLimit, SearchResult, TimeControl, MAX_DEPTH,
-    SCORE_WON,
+    Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl, MAX_DEPTH,
 };
 use gears::ugi::{EngineOption, EngineOptionName};
 

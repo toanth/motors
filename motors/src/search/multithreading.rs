@@ -9,7 +9,8 @@ use gears::games::{Board, ZobristHistory};
 use gears::general::common::{parse_int_from_str, Res};
 use gears::output::Message;
 use gears::output::Message::{Debug, Error};
-use gears::search::{Depth, Score, SearchInfo, SearchLimit, SearchResult};
+use gears::score::Score;
+use gears::search::{Depth, SearchInfo, SearchLimit, SearchResult};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::{EngineOption, EngineOptionName};
 

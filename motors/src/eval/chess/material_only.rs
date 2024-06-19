@@ -3,7 +3,7 @@ use gears::games::chess::pieces::UncoloredChessPiece;
 use gears::games::chess::Chessboard;
 use gears::games::Board;
 use gears::general::common::StaticallyNamedEntity;
-use gears::search::Score;
+use gears::score::Score;
 
 #[derive(Debug, Default)]
 pub struct MaterialOnlyEval {}

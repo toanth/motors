@@ -9,7 +9,8 @@ mod tests {
     use gears::games::chess::squares::ChessSquare;
     use gears::games::chess::Chessboard;
     use gears::games::{n_fold_repetition, Board, BoardHistory, Move, ZobristHistory};
-    use gears::search::{Depth, Score, SearchLimit, SCORE_LOST, SCORE_WON};
+    use gears::score::{Score, SCORE_LOST, SCORE_WON};
+    use gears::search::{Depth, SearchLimit};
     use gears::PlayerResult::Draw;
 
     use crate::eval::chess::hce::HandCraftedEval;

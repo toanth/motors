@@ -102,7 +102,7 @@ mod tests {
     use gears::games::chess::Chessboard;
     use gears::games::{Board, BoardHistory, DimT};
     use gears::general::bitboards::RawBitboard;
-    use gears::search::Score;
+    use gears::score::Score;
     use strum::IntoEnumIterator;
 
     #[test]

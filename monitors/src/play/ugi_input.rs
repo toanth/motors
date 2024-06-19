@@ -6,7 +6,7 @@ use std::ops::Add;
 use std::process::ChildStdout;
 use std::str::{FromStr, SplitWhitespace};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use colored::Colorize;
 use itertools::Itertools;
@@ -14,7 +14,8 @@ use itertools::Itertools;
 use gears::games::{Board, Color, Move};
 use gears::general::common::{parse_duration_ms, parse_int_from_str, Res};
 use gears::output::Message::Debug;
-use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SCORE_LOST, SCORE_WON};
+use gears::score::{SCORE_LOST, SCORE_WON};
+use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit};
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
 use gears::MatchStatus::Over;

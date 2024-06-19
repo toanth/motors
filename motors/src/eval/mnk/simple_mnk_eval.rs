@@ -5,7 +5,7 @@ use gears::games::Board;
 use gears::general::bitboards::{Bitboard, RawBitboard, RayDirections};
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::squares::GridSize;
-use gears::search::Score;
+use gears::score::Score;
 
 use crate::eval::Eval;
 

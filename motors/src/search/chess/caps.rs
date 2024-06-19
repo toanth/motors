@@ -12,14 +12,15 @@ use crate::eval::chess::hce::HandCraftedEval;
 use crate::eval::chess::material_only::MaterialOnlyEval;
 use crate::eval::chess::piston::PistonEval;
 use gears::games::chess::moves::ChessMove;
-use gears::games::chess::pieces::UncoloredChessPiece;
-use gears::games::chess::pieces::UncoloredChessPiece::Empty;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::{Chessboard, MAX_CHESS_MOVES_IN_POS};
 use gears::games::{n_fold_repetition, Board, BoardHistory, Color, Move, ZobristHistory};
 use gears::general::common::Description::NoDescription;
 use gears::general::common::{select_name_static, NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
+use gears::score::{
+    game_result_to_score, MAX_SCORE_LOST, MIN_SCORE_WON, NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP,
+};
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::Spin;
@@ -1015,7 +1016,7 @@ impl MoveScorer<Chessboard> for CapsMoveScorer {
 #[cfg(test)]
 mod tests {
     use gears::games::chess::Chessboard;
-    use gears::games::{Move, ZobristHistory};
+    use gears::games::ZobristHistory;
     use gears::search::NodesLimit;
 
     use crate::eval::chess::hce::HandCraftedEval;

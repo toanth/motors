@@ -5,7 +5,7 @@ use gears::games::chess::Chessboard;
 use gears::games::{Board, Color};
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::StaticallyNamedEntity;
-use gears::search::Score;
+use gears::score::Score;
 
 use crate::eval::Eval;
 

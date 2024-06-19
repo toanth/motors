@@ -26,6 +26,8 @@ pub mod general;
 /// because it's very helpful to allow an engine to do debug printing and logging.
 /// Still, the monitors crate contains more advanced UIs, such as a GUI.
 pub mod output;
+/// Score and packed score
+pub mod score;
 /// Basic search helper types and functions that are used by `motors` and `monitors`
 pub mod search;
 /// Ugi helpers used both by `motors` and `monitors`

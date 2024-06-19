@@ -16,7 +16,8 @@ use gears::cli::{get_next_arg, get_next_int, get_next_nonzero_usize, parse_outpu
 use gears::general::common::{
     nonzero_u64, nonzero_usize, parse_duration_ms, parse_fp_from_str, parse_int_from_str, Res,
 };
-use gears::search::{Depth, Score, TimeControl};
+use gears::score::Score;
+use gears::search::{Depth, TimeControl};
 use gears::OutputArgs;
 
 use crate::cli::PlayerArgs::{Engine, Human};
