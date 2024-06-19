@@ -9,7 +9,7 @@ use itertools::Itertools;
 use rand::thread_rng;
 
 use gears::games::Color::{Black, White};
-use gears::games::{Board, BoardHistory, Color, Move};
+use gears::games::{Board, Color, Move};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
     parse_int_from_str, select_name_static, to_name_and_optional_description, NamedEntity, Res,
@@ -46,12 +46,12 @@ impl<F> NamedEntity for TextSelection<F> {
         self.names.first().unwrap()
     }
 
-    fn long_name(&self) -> &str {
-        self.short_name()
+    fn long_name(&self) -> String {
+        self.short_name().to_string()
     }
 
-    fn description(&self) -> Option<&str> {
-        self.description
+    fn description(&self) -> Option<String> {
+        self.description.map(|s| s.to_string())
     }
 
     fn matches(&self, name: &str) -> bool {
@@ -203,7 +203,7 @@ impl<B: Board> TextInputThread<B> {
                     return Ok(true);
                 }
                 Err(err) => {
-                    let func = select_name_static(command, &self.commands, "command", B::game_name(), NoDescription).map_err(|msg| format!("'{command}' is not a pseudolegal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?.func;
+                    let func = select_name_static(command, self.commands.iter(), "command", B::game_name(), NoDescription).map_err(|msg| format!("'{command}' is not a pseudolegal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?.func;
                     func(client, &mut words)?;
                 }
             }
@@ -224,10 +224,15 @@ impl<B: Board> TextInputThread<B> {
 
     fn print_help(commands: &[Command<B>], words: &mut SplitWhitespace) -> Res<()> {
         if let Some(name) = words.next() {
-            let desc =
-                select_name_static(name, commands, "command", B::game_name(), NoDescription)?
-                    .description
-                    .unwrap_or("No description available");
+            let desc = select_name_static(
+                name,
+                commands.iter(),
+                "command",
+                B::game_name(),
+                NoDescription,
+            )?
+            .description
+            .unwrap_or("No description available");
             println!("{}", desc);
         } else {
             println!("Input either a move (most formats based on algebraic notation are recognized) or a command. Valid commands are:");
@@ -419,7 +424,7 @@ impl<B: Board> TextInputThread<B> {
         } else {
             Engine(parse_engine(&mut words)?)
         };
-        let mut builder = PlayerBuilder::new(args);
+        let builder = PlayerBuilder::new(args);
         _ = builder.build(ugi_client)?;
         Ok(())
     }
@@ -445,13 +450,13 @@ impl<B: Board> TextInputThread<B> {
                     name = words
                         .next()
                         .ok_or_else(|| "Expected an output name after 'remove'".to_string())?;
-                    match client.outputs.iter().find_position(|o| o.matches(name)) {
+                    match client.outputs.iter().position(|o| o.matches(name)) {
                         None => {
                             return Err(format!(
                                 "There is no output with name '{name}' currently in use"
                             ))
                         }
-                        Some((idx, _output)) => {
+                        Some(idx) => {
                             client.outputs.remove(idx);
                         }
                     }
@@ -537,12 +542,12 @@ impl StaticallyNamedEntity for TextInput {
         "text"
     }
 
-    fn static_long_name() -> &'static str {
-        "Text-based input"
+    fn static_long_name() -> String {
+        "Text-based input".to_string()
     }
 
-    fn static_description() -> &'static str {
-        "Use the console to change the match state"
+    fn static_description() -> String {
+        "Use the console to change the match state".to_string()
     }
 }
 
@@ -571,11 +576,11 @@ impl NamedEntity for TextInputBuilder {
         TextInput::static_short_name()
     }
 
-    fn long_name(&self) -> &str {
-        TextInput::static_long_name()
+    fn long_name(&self) -> String {
+        TextInput::static_long_name().to_string()
     }
 
-    fn description(&self) -> Option<&str> {
+    fn description(&self) -> Option<String> {
         Some(TextInput::static_description())
     }
 }

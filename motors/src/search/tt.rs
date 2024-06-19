@@ -102,7 +102,7 @@ impl<B: Board> TTEntry<B> {
     fn from_packed_fallback(val: u128) -> Self {
         let hash = ZobristHash((val >> 64) as u64);
         let score = Score(((val >> (64 - 32)) & 0xffff_ffff) as i32);
-        let mov = B::Move::from_usize(((val >> 16) & 0xffff) as usize).unwrap();
+        let mov = B::Move::from_usize_unchecked(((val >> 16) & 0xffff) as usize);
         let depth = ((val >> 8) & 0xff) as u8;
         let bound = OptionalNodeType::from_repr((val & 0xff) as u8).unwrap();
         Self {

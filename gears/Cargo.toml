@@ -26,8 +26,10 @@ chrono = "0.4.31"
 static_assertions = "1.1.0"
 dyn-clone = "1.0.17"
 arrayvec = "0.7.4"
+edit-distance = "2.1.0"
 
 [features]
-default = ["chess", "mnk"]
+default = ["chess", "mnk", "ataxx"]
 chess = []
 mnk = []
+ataxx = []

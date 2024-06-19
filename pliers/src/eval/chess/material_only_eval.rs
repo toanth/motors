@@ -1,5 +1,9 @@
+//! A simple material-only eval that tunes piece weights.
+
 use crate::eval::{Eval, WeightsInterpretation};
-use crate::gd::{NonTaperedDatapoint, Outcome, SimpleTrace, TraceTrait, Weight, Weights};
+use crate::gd::{
+    BasicTrace, NonTaperedDatapoint, Outcome, SimpleTrace, TraceTrait, Weight, Weights,
+};
 use crate::load_data::NoFilter;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::Chessboard;
@@ -8,11 +12,12 @@ use gears::general::bitboards::RawBitboard;
 use std::fmt::Formatter;
 use strum::IntoEnumIterator;
 
+/// A simple material-only eval that tunes piece weights.
 #[derive(Debug, Default)]
 pub struct MaterialOnlyEval {}
 
 impl WeightsInterpretation for MaterialOnlyEval {
-    fn display_impl(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
+    fn display(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
         |f: &mut Formatter<'_>, weights: &Weights, _old_weights: &[Weight]| {
             for piece in UncoloredChessPiece::non_king_pieces() {
                 writeln!(f, "{0}:\t{1}", piece.name(), weights[piece as usize])?
@@ -33,7 +38,7 @@ impl Eval<Chessboard> for MaterialOnlyEval {
         let mut trace = SimpleTrace::for_features(Self::NUM_FEATURES);
         for color in Color::iter() {
             for piece in UncoloredChessPiece::non_king_pieces() {
-                let num_pieces = pos.colored_piece_bb(color, piece).num_set_bits() as isize;
+                let num_pieces = pos.colored_piece_bb(color, piece).num_ones() as isize;
                 trace.increment_by(piece as usize, color, num_pieces);
             }
         }

@@ -1,7 +1,8 @@
 use colored::Colorize;
-use std::cmp::max;
+use std::cmp::min;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
+use std::marker::PhantomData;
 use std::str::{FromStr, SplitWhitespace};
 
 use derive_more::BitXorAssign;
@@ -16,6 +17,7 @@ use crate::general::common::{
     parse_int, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
 };
 use crate::general::move_list::MoveList;
+use crate::general::squares::{RectangularCoordinates, RectangularSize};
 use crate::output::OutputBuilder;
 use crate::search::Depth;
 use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
@@ -23,11 +25,14 @@ use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, Play
 #[cfg(feature = "mnk")]
 pub mod mnk;
 
+#[cfg(feature = "ataxx")]
+pub mod ataxx;
 #[cfg(feature = "chess")]
 pub mod chess;
+mod generic_tests;
 
-// TODO: Make color depend on the game, because e.g. in go black goes first, and in ataxx the colors are blue and red
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, EnumIter)]
+/// White is always the first player, Black is always the second. TODO: Change naming to redlect this.
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Hash, EnumIter)]
 pub enum Color {
     #[default]
     White = 0,
@@ -183,11 +188,6 @@ pub fn char_to_file(file: char) -> DimT {
 // Assume 2D grid for now.
 pub trait Coordinates: Eq + Copy + Debug + Default + FromStr<Err = String> + Display {
     type Size: Size<Self>;
-    // fn new(_: usize, _: usize) -> Self;
-    //
-    // fn row(self) -> usize;
-    //
-    // fn column(self) -> usize;
 
     /// mirrors the coordinates vertically
     fn flip_up_down(self, size: Self::Size) -> Self;
@@ -199,108 +199,6 @@ pub trait Coordinates: Eq + Copy + Debug + Default + FromStr<Err = String> + Dis
 }
 
 pub type DimT = u8;
-
-pub trait RectangularCoordinates: Coordinates {
-    fn from_row_column(row: DimT, column: DimT) -> Self;
-    fn row(self) -> DimT;
-    fn column(self) -> DimT;
-}
-
-// Computes the L1 norm of a - b
-pub fn manhattan_distance<C: RectangularCoordinates>(a: C, b: C) -> usize {
-    a.row().abs_diff(b.row()) as usize + a.column().abs_diff(b.column()) as usize
-}
-
-// Compute the supremum norm of a - b
-pub fn sup_distance<C: RectangularCoordinates>(a: C, b: C) -> usize {
-    max(a.row().abs_diff(b.row()), a.column().abs_diff(b.column())) as usize
-}
-
-#[derive(Clone, Copy, Eq, PartialOrd, PartialEq, Debug, Default)]
-pub struct GridCoordinates {
-    pub row: DimT,
-    pub column: DimT,
-}
-
-impl Coordinates for GridCoordinates {
-    type Size = GridSize;
-
-    fn flip_up_down(self, size: Self::Size) -> Self {
-        GridCoordinates {
-            row: size.height.0 - 1 - self.row,
-            column: self.column,
-        }
-    }
-
-    fn flip_left_right(self, size: Self::Size) -> Self {
-        GridCoordinates {
-            row: self.row,
-            column: size.width.0 - 1 - self.column,
-        }
-    }
-
-    fn no_coordinates() -> Self {
-        GridCoordinates {
-            row: DimT::MAX,
-            column: DimT::MAX,
-        }
-    }
-}
-
-impl RectangularCoordinates for GridCoordinates {
-    fn from_row_column(row: DimT, column: DimT) -> Self {
-        GridCoordinates { row, column }
-    }
-
-    fn row(self) -> DimT {
-        self.row
-    }
-
-    fn column(self) -> DimT {
-        self.column
-    }
-}
-
-impl FromStr for GridCoordinates {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut s = s.trim().chars();
-
-        let file = s.next().ok_or("Empty input")?;
-        let mut words = s.as_str().split_whitespace();
-        let rank: usize = parse_int(&mut words, "rank (row)")?;
-        if words.count() > 0 {
-            return Err("too many words".to_string());
-        }
-        Self::algebraic_coordinate(file, rank)
-    }
-}
-
-impl Display for GridCoordinates {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{0}{1}",
-            file_to_char(self.column),
-            self.row + 1 // output 1-indexed
-        )
-    }
-}
-
-impl GridCoordinates {
-    pub fn algebraic_coordinate(file: char, rank: usize) -> Res<Self> {
-        if !file.is_ascii_alphabetic() {
-            return Err("file (column) must be a valid ascii letter".to_string());
-        }
-        let column = char_to_file(file.to_ascii_lowercase());
-        let rank = DimT::try_from(rank).map_err(|err| err.to_string())?;
-        Ok(GridCoordinates {
-            column,
-            row: rank.wrapping_sub(1),
-        })
-    }
-}
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Default)]
 pub struct Height(pub DimT);
@@ -329,9 +227,20 @@ impl Width {
 pub trait Size<C: Coordinates>: Eq + PartialEq + Copy + Clone + Display + Debug {
     fn num_squares(self) -> usize;
 
-    fn to_idx(self, coordinates: C) -> usize;
+    /// Converts coordinates into an internal key. This function is injective, but **no further guarantees** are
+    /// given. In particular, returned value do not have to be 0-based and do not have to be consecutive.
+    /// E.g. for Ataxx, this returns the index of embedding the ataxx board into a 8x8 board.
+    fn to_internal_key(self, coordinates: C) -> usize;
 
-    fn to_coordinates(self, idx: usize) -> C;
+    /// Converts an internal key into coordinates, the inverse of `to_internal_key`.
+    /// No further assumptions about which keys are valid should be made; in particular, there may be gaps in the set
+    /// of valid keys (e.g. 4 and 12 might be valid, but 10 might not be). Although this function is safe in the rust
+    /// sense, it doesn't guarantee any specified behavior for invalid keys.
+    fn to_coordinates_unchecked(self, internal_key: usize) -> C;
+
+    fn valid_coordinates(self) -> impl Iterator<Item = C>;
+
+    fn coordinates_valid(self, coordinates: C) -> bool;
 
     fn check_coordinates(self, coordinates: C) -> Res<C> {
         match self.coordinates_valid(coordinates) {
@@ -340,82 +249,6 @@ pub trait Size<C: Coordinates>: Eq + PartialEq + Copy + Clone + Display + Debug 
                 "Coordinates {coordinates} lie outside of the board (size {self})"
             )),
         }
-    }
-
-    fn coordinates_valid(self, coordinates: C) -> bool;
-}
-
-pub trait RectangularSize<C: RectangularCoordinates>: Size<C> {
-    fn height(self) -> Height;
-    fn width(self) -> Width;
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
-pub struct GridSize {
-    pub height: Height,
-    pub width: Width,
-}
-
-impl Display for GridSize {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{0}x{1}", self.height.0, self.width.0)
-    }
-}
-
-impl GridSize {
-    pub const fn new(height: Height, width: Width) -> Self {
-        Self { height, width }
-    }
-
-    pub const fn chess() -> Self {
-        Self::new(Height(8), Width(8))
-    }
-
-    pub const fn tictactoe() -> Self {
-        Self::new(Height(3), Width(3))
-    }
-
-    pub const fn connect4() -> Self {
-        Self::new(Height(6), Width(7))
-    }
-}
-
-impl Size<GridCoordinates> for GridSize {
-    fn num_squares(self) -> usize {
-        self.height.val() * self.width.val()
-    }
-
-    // fn to_coordinates(self, idx: usize) -> GridCoordinates {
-    //     GridCoordinates {
-    //         row: idx / self.width().0,
-    //         column: idx % self.width().0,
-    //     }
-    // }
-
-    fn to_idx(self, coordinates: GridCoordinates) -> usize {
-        coordinates.row() as usize * self.width.val() + coordinates.column() as usize
-    }
-
-    fn to_coordinates(self, idx: usize) -> GridCoordinates {
-        GridCoordinates {
-            // TODO: Handle overflows?
-            row: (idx / self.width.val()) as DimT,
-            column: (idx % self.width.val()) as DimT,
-        }
-    }
-
-    fn coordinates_valid(self, coordinates: GridCoordinates) -> bool {
-        coordinates.row() < self.height().0 && coordinates.column() < self.width().0
-    }
-}
-
-impl RectangularSize<GridCoordinates> for GridSize {
-    fn height(self) -> Height {
-        self.height
-    }
-
-    fn width(self) -> Width {
-        self.width
     }
 }
 
@@ -440,6 +273,10 @@ pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Send {
 
     /// Move flags. Not all Move implementations have them, in which case `Flags` can be `NoMoveFlags`
     fn flags(self) -> Self::Flags;
+
+    /// Tactical moves can drastically change the position and are often searched first, such as captures and queen or
+    /// knight promotions in chess. Always returning `false` is a valid choice.
+    fn is_tactical(self, board: &B) -> bool;
 
     /// Return a compact and easy to parse move representation, such as <from_square><to_square> as used by UCI
     fn to_compact_text(self) -> String;
@@ -475,7 +312,7 @@ pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Send {
         }
     }
 
-    fn from_usize(val: usize) -> Option<Self>;
+    fn from_usize_unchecked(val: usize) -> Self;
 
     fn to_underlying(self) -> Self::Underlying;
 }
@@ -488,12 +325,10 @@ pub struct ZobristHash(pub u64);
 pub trait Settings: Eq + Copy + Debug + Default {}
 
 pub trait BoardHistory<B: Board>: Default + Debug + Clone + 'static {
-    fn game_result(&self, board: &B) -> Option<PlayerResult>;
-    fn is_repetition(&self, board: &B) -> bool {
-        self.game_result(board).is_some()
-    }
+    fn len(&self) -> usize;
+    fn is_repetition(&self, board: &B, plies_ago: usize) -> bool;
     fn push(&mut self, board: &B);
-    fn pop(&mut self, _board: &B);
+    fn pop(&mut self);
     fn clear(&mut self);
 }
 
@@ -501,23 +336,35 @@ pub trait BoardHistory<B: Board>: Default + Debug + Clone + 'static {
 pub struct NoHistory {}
 
 impl<B: Board> BoardHistory<B> for NoHistory {
-    fn game_result(&self, _board: &B) -> Option<PlayerResult> {
-        None
+    fn len(&self) -> usize {
+        0
+    }
+
+    fn is_repetition(&self, board: &B, plies_ago: usize) -> bool {
+        false
     }
 
     fn push(&mut self, _board: &B) {}
 
-    fn pop(&mut self, _board: &B) {}
+    fn pop(&mut self) {}
 
     fn clear(&mut self) {}
 }
 
 #[derive(Clone, Eq, PartialEq, Default, Debug)]
-pub struct ZobristHistoryBase(pub Vec<ZobristHash>);
+pub struct ZobristHistory<B: Board>(pub Vec<ZobristHash>, PhantomData<B>);
 
-impl ZobristHistoryBase {
-    fn push(&mut self, hash: ZobristHash) {
-        self.0.push(hash);
+impl<B: Board> BoardHistory<B> for ZobristHistory<B> {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn is_repetition(&self, pos: &B, plies_ago: usize) -> bool {
+        pos.zobrist_hash() == self.0[self.0.len() - plies_ago]
+    }
+
+    fn push(&mut self, pos: &B) {
+        self.0.push(pos.zobrist_hash());
     }
 
     fn pop(&mut self) {
@@ -530,46 +377,26 @@ impl ZobristHistoryBase {
     }
 }
 
-fn find_repetition(
-    hash: ZobristHash,
-    max_history: usize,
-    history: &ZobristHistoryBase,
-    mut count: usize,
-) -> bool {
-    let stop = 0.max(history.0.len() as isize - max_history as isize);
-    for i in iter::range_step_inclusive(history.0.len() as isize - 4, stop, -2) {
-        if history.0[i as usize] == hash {
-            count -= 1;
-            if count <= 1 {
-                return true;
-            }
-        }
+/// Compares the actual board states as opposed to only comparing the hashes. This still isn't always entirely correct --
+/// For example, the FIDE rule state that the set of legal moves must be identical, which is not the case
+/// if the ep square is set but the pawn is pinned and can't actually take.
+#[derive(Debug, Default, Clone)]
+pub struct BoardCopyHistory<B: Board>(Vec<B>);
+
+impl<B: Board> BoardHistory<B> for BoardCopyHistory<B> {
+    fn len(&self) -> usize {
+        self.0.len()
     }
-    false
-}
 
-#[derive(Clone, Eq, PartialEq, Default, Debug)]
-pub struct ZobristRepetition2Fold(pub ZobristHistoryBase);
-
-impl<B: Board> BoardHistory<B> for ZobristRepetition2Fold {
-    fn game_result(&self, board: &B) -> Option<PlayerResult> {
-        match find_repetition(
-            board.zobrist_hash(),
-            board.halfmove_repetition_clock(),
-            &self.0,
-            2,
-        ) {
-            true => Some(Draw),
-            false => None,
-        }
+    fn is_repetition(&self, board: &B, plies_ago: usize) -> bool {
+        self.0[self.len() - plies_ago] == *board
     }
 
     fn push(&mut self, board: &B) {
-        self.0.push(board.zobrist_hash())
+        self.0.push(*board)
     }
 
-    // the _board parameter is only there to deduce the trait
-    fn pop(&mut self, _board: &B) {
+    fn pop(&mut self) {
         self.0.pop();
     }
 
@@ -578,38 +405,26 @@ impl<B: Board> BoardHistory<B> for ZobristRepetition2Fold {
     }
 }
 
-#[derive(Default, Debug, Eq, PartialEq, Clone)]
-pub struct ZobristRepetition3Fold(pub ZobristHistoryBase);
-
-/// The threefold repetition rule is pretty common in games where repetitions regularly occur.
-/// Only relies on the hashes, which isn't always entirely correct --
-/// For example, the FIDE rule state that the set of legal moves must be identical, which is not the case
-/// if the ep square is set (and therefore part of the hash) but the pawn is pinned and can't actually take.
-/// TODO: Write another implementation that actually checks for that, to be used by the game manager.
-impl<B: Board> BoardHistory<B> for ZobristRepetition3Fold {
-    fn game_result(&self, board: &B) -> Option<PlayerResult> {
-        match find_repetition(
-            board.zobrist_hash(),
-            board.halfmove_repetition_clock(),
-            &self.0,
-            3,
-        ) {
-            true => Some(Draw),
-            false => None,
+pub fn n_fold_repetition<B: Board, H: BoardHistory<B>>(
+    mut count: usize,
+    history: &H,
+    pos: &B,
+    max_lookback: usize,
+) -> bool {
+    let stop = min(history.len(), max_lookback);
+    if stop < 2 {
+        // in many, but not all, games, we could increase this to 4
+        return false;
+    }
+    for i in (2..=stop).step_by(2) {
+        if history.is_repetition(pos, i) {
+            count -= 1;
+            if count <= 1 {
+                return true;
+            }
         }
     }
-
-    fn push(&mut self, board: &B) {
-        self.0.push(board.zobrist_hash())
-    }
-
-    fn pop(&mut self, _board: &B) {
-        self.0.pop()
-    }
-
-    fn clear(&mut self) {
-        self.0.clear()
-    }
+    false
 }
 
 type NameToPos<B> = GenericSelect<fn() -> B>;
@@ -666,7 +481,7 @@ pub trait Board:
     fn from_name(name: &str) -> Res<Self> {
         select_name_static(
             name,
-            &Self::name_to_pos_map(),
+            Self::name_to_pos_map().iter(),
             "position",
             Self::game_name(),
             NoDescription,
@@ -718,32 +533,32 @@ pub trait Board:
         self.size().num_squares()
     }
 
-    /// Converts coordinates into an internal index.
-    fn to_idx(&self, pos: Self::Coordinates) -> usize {
-        self.size().to_idx(pos)
-    }
+    /// Returns `true` iff there is no piece on the given square.
+    fn is_empty(&self, coords: Self::Coordinates) -> bool;
 
-    /// Converts an index into coordinates, the reveres of `to_idx`
-    fn to_coordinates(&self, idx: usize) -> Self::Coordinates {
-        self.size().to_coordinates(idx)
+    /// Returns `true` iff a pice of the given type and color exists on the given coordinates.
+    /// Can sometimes be implemented more efficiently than by comparing `colored_piece_on`.
+    fn is_piece_on(
+        &self,
+        coords: Self::Coordinates,
+        piece: <Self::Piece as ColoredPiece>::ColoredPieceType,
+    ) -> bool {
+        self.colored_piece_on(coords).colored_piece_type() == piece
     }
 
     /// Returns the piece at the given coordinates.
-    /// Should return the same as `piece_on_idx(self.to_idx(pos))`.
-    fn colored_piece_on(&self, pos: Self::Coordinates) -> Self::Piece {
-        self.colored_piece_on_idx(self.to_idx(pos))
-    }
-
-    /// Returns the piece at the given index.
-    fn colored_piece_on_idx(&self, pos: usize) -> Self::Piece;
+    /// `uncolored_piece_on` can sometimes be implemented more efficiently, e.g. for chess,
+    /// but both methods can be relatively slow. For example, a chess move already stores the moving piece;
+    /// getting it from the chess move is more efficient than getting it from the board.
+    fn colored_piece_on(&self, coords: Self::Coordinates) -> Self::Piece;
 
     /// Returns the uncolored piece type at the given coordinates.
     /// Can sometimes be implemented more efficiently than `colored_piece_on`
     fn uncolored_piece_on(
         &self,
-        pos: Self::Coordinates,
+        coords: Self::Coordinates,
     ) -> <<Self::Piece as ColoredPiece>::ColoredPieceType as ColoredPieceType>::Uncolored {
-        self.colored_piece_on(pos).uncolored()
+        self.colored_piece_on(coords).uncolored()
     }
 
     /// Returns the default depth that should be used for perft if not otherwise specified.
@@ -814,7 +629,7 @@ pub trait Board:
         self.make_move(mov).is_some()
     }
 
-    fn game_result_no_movegen(&self) -> Option<PlayerResult>;
+    fn player_result_no_movegen<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult>;
 
     /// Returns the result (win/draw/loss), if any. Can be potentially slow because it can require movegen.
     /// If movegen is used anyway (such as in an ab search), it is usually better to call `game_result_no_movegen`
@@ -824,10 +639,10 @@ pub trait Board:
     /// Note that many implementations never return `PlayerResult::Win` because the active player can't win the game,
     /// which is the case because the current player is flipped after the winning move.
     /// For example, being checkmated in chess is a loss for the current player.
-    fn game_result_player_slow(&self) -> Option<PlayerResult>;
+    fn player_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult>;
 
-    fn match_result_slow(&self) -> Option<MatchResult> {
-        let player_res = self.game_result_player_slow()?;
+    fn match_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<MatchResult> {
+        let player_res = self.player_result_slow(history)?;
         let game_over = GameOver {
             result: player_res,
             reason: GameOverReason::Normal,
@@ -838,12 +653,15 @@ pub trait Board:
     /// Only called when there are no legal moves.
     /// In that case, the function returns the game state from the current player's perspective.
     /// Note that this doesn't check that there are indeed no legal moves to avoid paying the performance cost of that.
+    /// This assumes that having no legal moves available automatically ends the game. If it is legal to pass,
+    /// the movegen should generate a passing move.
     fn no_moves_result(&self) -> PlayerResult;
 
-    /// Returns true iff the game is lost for player who can now move, like being checkmated in chess.
+    /// Returns true iff the game is lost for the player who can now move, like being checkmated in chess.
     /// Using `game_result_no_movegen()` and `no_moves_result()` is often the faster option if movegen is needed anyway
     fn is_game_lost_slow(&self) -> bool {
-        self.game_result_player_slow().is_some_and(|x| x == Lose)
+        self.player_result_slow(&NoHistory::default())
+            .is_some_and(|x| x == Lose)
     }
 
     /// Returns true iff the game is won for the current player after making the given move.
@@ -854,15 +672,18 @@ pub trait Board:
             .map_or(false, |new_pos| new_pos.is_game_lost_slow())
     }
 
-    /// Returns true if it detects that `player` can not lose the game except by running out of time or making very stupid mistakes.
+    /// Returns `false` if it detects that `player` can not win the game except if the opponent runs out of time
+    /// or makes "very dumb" mistakes.
+    ///
     /// This is intended to be a comparatively cheap function and does not perform any kind of search.
-    /// Typical cases where this returns true include chess positions where the opponent has only their king left
-    /// but the current side still possesses enough material to mate (otherwise, the game would have ended in a draw).
-    /// The result of this function on a position where `game_result_slow` returns a `Some` is unspecified.
-    /// Always returning `false` would be a valid implementation of this method.
+    /// Typical cases where this returns false include chess positions where we only have our king left
+    /// but the opponent still possesses enough material to mate (otherwise, the game would have ended in a draw).
+    /// The result of this function on a position where [`game_result_slow`] returns a `Some` is unspecified.
+    /// This is an approximation; always returning `true` would be a valid implementation of this method.
     /// The implementation of this method for chess technically violates the FIDE rules (as does the insufficient material
-    /// draw condition), but that shouldn't be a problem in practice -- this rule is only meant ot be applied in human games anyway.
-    fn cannot_reasonably_lose(&self, player: Color) -> bool;
+    /// draw condition), but that shouldn't be a problem in practice -- this rule is only meant ot be applied in human games anyway,
+    /// and the FIDE rules are effectively uncheckable.
+    fn can_reasonably_win(&self, player: Color) -> bool;
 
     fn zobrist_hash(&self) -> ZobristHash;
 
@@ -904,28 +725,12 @@ pub trait Board:
     fn verify_position_legal(&self, checks: SelfChecks) -> Res<()>;
 }
 
-pub fn game_result_slow<B: Board, H: BoardHistory<B>>(
-    board: &B,
-    history: &H,
-) -> Option<PlayerResult> {
-    board
-        .game_result_player_slow()
-        .or_else(|| history.game_result(board))
-}
-
-pub fn game_result_no_movegen<B: Board, H: BoardHistory<B>>(
-    board: &B,
-    history: &H,
-) -> Option<PlayerResult> {
-    board
-        .game_result_no_movegen()
-        .or_else(|| history.game_result(board))
-}
-
 pub trait RectangularBoard: Board {
     fn height(&self) -> DimT;
 
     fn width(&self) -> DimT;
+
+    fn idx_to_coordinates(&self, idx: DimT) -> Self::Coordinates;
 }
 
 impl<T: Board> RectangularBoard for T
@@ -938,6 +743,10 @@ where
     }
     fn width(&self) -> DimT {
         self.size().width().0
+    }
+
+    fn idx_to_coordinates(&self, idx: DimT) -> Self::Coordinates {
+        Self::Coordinates::from_row_column(idx / self.width(), idx % self.width())
     }
 }
 
@@ -975,8 +784,10 @@ fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
     piece_to_char: F,
     flip: bool,
 ) -> String {
-    let mut squares = (0..pos.num_squares())
-        .map(|i| piece_to_char(pos.colored_piece_on_idx(i)))
+    let mut squares = pos
+        .size()
+        .valid_coordinates()
+        .map(|c| piece_to_char(pos.colored_piece_on(c)))
         .intersperse(' ')
         .collect_vec();
     squares.push(' ');
@@ -1052,7 +863,9 @@ where
             // let player = symbol.color().ok_or_else(|| "Invalid format: Empty square can't appear as part of nnk fen (should be number of consecutive empty squares) ".to_string())?;
             board = place_piece(
                 board,
-                board.to_coordinates(square).flip_up_down(board.size()),
+                board
+                    .idx_to_coordinates(square as DimT)
+                    .flip_up_down(board.size()),
                 symbol,
             )?;
             square += 1;
@@ -1076,62 +889,26 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
+    use crate::games::ataxx::AtaxxBoard;
     use crate::games::chess::Chessboard;
+    use crate::games::generic_tests::generic_tests::GenericTests;
     use crate::games::mnk::MNKBoard;
-    use crate::games::Board;
-    use crate::games::SelfChecks::Assertion;
-
-    use super::*;
-
-    fn basic_test<B: Board>() {
-        assert!(!B::bench_positions().is_empty());
-        for pos in B::bench_positions() {
-            let ply = pos.halfmove_ctr_since_start();
-            // use a new hash set per position because bench positions can be only one ply away from each other
-            let mut hashes = HashSet::new();
-            assert!(pos.verify_position_legal(Assertion).is_ok());
-            assert!(pos.match_result_slow().is_none());
-            assert_eq!(B::from_fen(&pos.as_fen()).unwrap(), pos);
-            let hash = pos.zobrist_hash().0;
-            hashes.insert(hash);
-            assert_ne!(hash, 0);
-            if B::are_all_pseudolegal_legal() {
-                assert_eq!(
-                    pos.legal_moves_slow().into_iter().count(),
-                    pos.pseudolegal_moves().into_iter().count()
-                );
-            }
-            for mov in pos.legal_moves_slow() {
-                assert!(pos.is_move_legal(mov));
-            }
-            for mov in pos.pseudolegal_moves() {
-                assert!(pos.is_move_pseudolegal(mov));
-                let new_pos = pos.make_move(mov);
-                assert_eq!(new_pos.is_some(), pos.is_pseudolegal_move_legal(mov));
-                let Some(new_pos) = new_pos else { continue };
-                assert!(new_pos.verify_position_legal(Assertion).is_ok());
-                assert_eq!(new_pos.active_player().other(), pos.active_player());
-                assert_ne!(new_pos.as_fen(), pos.as_fen());
-                assert_eq!(B::from_fen(&new_pos.as_fen()).unwrap(), new_pos);
-                assert_ne!(new_pos.zobrist_hash().0, hash); // Even for null moves, the side to move has changed
-                assert_eq!(new_pos.halfmove_ctr_since_start() - ply, 1);
-                assert!(!hashes.contains(&new_pos.zobrist_hash().0));
-                hashes.insert(new_pos.zobrist_hash().0);
-            }
-        }
-    }
 
     #[cfg(feature = "chess")]
     #[test]
-    fn basic_chess_test() {
-        basic_test::<Chessboard>()
+    fn generic_chess_test() {
+        GenericTests::<Chessboard>::all_tests()
     }
 
     #[cfg(feature = "mnk")]
     #[test]
-    fn basic_mnk_test() {
-        basic_test::<MNKBoard>()
+    fn generic_mnk_test() {
+        GenericTests::<MNKBoard>::all_tests()
+    }
+
+    #[cfg(feature = "ataxx")]
+    #[test]
+    fn generic_ataxx_test() {
+        GenericTests::<AtaxxBoard>::all_tests()
     }
 }

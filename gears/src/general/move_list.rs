@@ -13,6 +13,8 @@ pub trait MoveList<B: Board>: IntoIterator<Item = B::Move> {
     fn swap_remove_move(&mut self, idx: usize) -> B::Move;
 
     fn iter_moves(&self) -> impl Iterator<Item = &B::Move>;
+
+    fn remove(&mut self, to_remove: B::Move);
 }
 
 /// A list of moves that is computed all at once and stored in-place.
@@ -33,5 +35,11 @@ impl<B: Board, const N: usize> MoveList<B> for EagerNonAllocMoveList<B, N> {
 
     fn iter_moves(&self) -> impl Iterator<Item = &B::Move> {
         self.iter()
+    }
+
+    fn remove(&mut self, to_remove: B::Move) {
+        if let Some(idx) = self.iter().position(|m| *m == to_remove) {
+            self.swap_remove(idx);
+        }
     }
 }

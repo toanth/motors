@@ -5,7 +5,7 @@ use std::str::FromStr;
 use itertools::Itertools;
 use num::iter;
 use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
+use strum_macros::{EnumIter, FromRepr};
 
 use crate::games::chess::castling::CastleRight;
 use crate::games::chess::castling::CastleRight::*;
@@ -18,18 +18,23 @@ use crate::games::chess::Chessboard;
 use crate::games::Color::{Black, White};
 use crate::games::{
     char_to_file, file_to_char, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType,
-    DimT, Move, MoveFlags, ZobristHash,
+    DimT, Move, MoveFlags, NoHistory, ZobristHash,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::common::Res;
 
-#[derive(Copy, Clone, Eq, PartialEq, Default, Debug, EnumIter)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default, Debug, EnumIter, FromRepr)]
 pub enum ChessMoveFlags {
     #[default]
-    Normal,
-    EnPassant,
-    CastleQueenside,
+    NormalPawnMove,
+    KnightMove,
+    BishopMove,
+    RookMove,
+    QueenMove,
+    NormalKingMove,
     CastleKingside,
+    CastleQueenside,
+    EnPassant,
     PromoKnight,
     PromoBishop,
     PromoRook,
@@ -37,16 +42,32 @@ pub enum ChessMoveFlags {
 }
 
 impl ChessMoveFlags {
-    pub fn is_promo(self) -> bool {
-        // TODO: Could also maybe do this on the u16 move directly, by comparing against 1 << (6+6+2)
-        self as usize >= PromoKnight as usize
+    pub fn normal_move(piece: UncoloredChessPiece) -> Self {
+        Self::from_repr(piece as usize).unwrap()
     }
 
-    pub fn promo_piece(self) -> UncoloredChessPiece {
-        debug_assert!(self.is_promo());
-        UncoloredChessPiece::iter()
-            .nth((self as usize) - PromoKnight as usize + Knight as usize)
-            .unwrap()
+    fn is_promo(self) -> bool {
+        // TODO: Could also maybe do this on the u16 move directly, by comparing against 1 << (6+6+2)
+        self >= PromoKnight
+    }
+
+    fn promo_piece(self) -> UncoloredChessPiece {
+        if self < PromoKnight {
+            Empty
+        } else {
+            UncoloredChessPiece::from_repr(self as usize - PromoKnight as usize + Knight as usize)
+                .unwrap()
+        }
+    }
+
+    fn piece_type(self) -> UncoloredChessPiece {
+        if self <= NormalKingMove {
+            UncoloredChessPiece::from_repr(self as usize).unwrap()
+        } else if self >= EnPassant {
+            Pawn
+        } else {
+            King
+        }
     }
 }
 
@@ -55,17 +76,18 @@ impl MoveFlags for ChessMoveFlags {}
 /// Members are stored as follows:
 /// Bits 0-5: from square
 /// Bits 6 - 11: To square
-/// Bits 12-14: Move type
+/// Bits 12-15: Move type
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Ord, PartialOrd)]
 pub struct ChessMove(u16);
 
 impl ChessMove {
     pub fn new(from: ChessSquare, to: ChessSquare, flags: ChessMoveFlags) -> Self {
-        let idx = from.idx() + (to.idx() << 6) + ((flags as usize) << 12);
+        let idx = from.bb_idx() + (to.bb_idx() << 6) + ((flags as usize) << 12);
         Self(idx as u16)
     }
 
     pub fn square_of_pawn_taken_by_ep(self) -> Option<ChessSquare> {
+        // TODO: Use board.ep_square instead
         if self.flags() != EnPassant {
             return None;
         }
@@ -78,19 +100,21 @@ impl ChessMove {
     }
 
     pub fn piece(self, board: &Chessboard) -> ChessPiece {
-        board.colored_piece_on(self.src_square())
+        let source = self.src_square();
+        debug_assert!(board.is_occupied(source));
+        debug_assert!(board.active_player_bb().is_bit_set_at(source.bb_idx()));
+        ChessPiece {
+            symbol: ColoredChessPiece::new(board.active_player, self.flags().piece_type()),
+            coordinates: source,
+        }
     }
 
-    pub fn uncolored_piece(self, board: &Chessboard) -> UncoloredChessPiece {
-        board.uncolored_piece_on(self.src_square())
+    pub fn uncolored_piece(self) -> UncoloredChessPiece {
+        self.flags().piece_type()
     }
 
     pub fn uncolored_piece_on_target(self, board: &Chessboard) -> UncoloredChessPiece {
         board.uncolored_piece_on(self.dest_square())
-    }
-
-    pub fn is_tactical(self, board: &Chessboard) -> bool {
-        self.is_capture(board) || self.flags() == PromoQueen || self.flags() == PromoKnight
     }
 
     pub fn is_capture(self, board: &Chessboard) -> bool {
@@ -98,13 +122,14 @@ impl ChessMove {
     }
 
     pub fn is_ep(self) -> bool {
+        // TODO: Don't store that as flag, use board.ep_square
         self.flags() == EnPassant
     }
 
     pub fn is_non_ep_capture(self, board: &Chessboard) -> bool {
         board
             .colored_bb(board.active_player.other())
-            .is_bit_set_at(self.dest_square().idx())
+            .is_bit_set_at(self.dest_square().bb_idx())
     }
 
     pub fn captured(self, board: &Chessboard) -> UncoloredChessPiece {
@@ -113,7 +138,7 @@ impl ChessMove {
         } else if self.is_castle() {
             Empty
         } else {
-            board.colored_piece_on(self.dest_square()).uncolored()
+            board.uncolored_piece_on(self.dest_square())
         }
     }
 
@@ -122,19 +147,16 @@ impl ChessMove {
     }
 
     pub fn promo_piece(self) -> UncoloredChessPiece {
-        if self.is_promotion() {
-            self.flags().promo_piece()
-        } else {
-            Empty
-        }
+        self.flags().promo_piece()
     }
 
     pub fn is_castle(self) -> bool {
         self.flags() == CastleQueenside || self.flags() == CastleKingside
     }
 
-    pub fn castle_side(self) -> CastleRight {
-        if self.dest_square().file() < self.src_square().file() {
+    fn castle_side(self) -> CastleRight {
+        debug_assert!(self.is_castle());
+        if self.flags() == CastleQueenside {
             Queenside
         } else {
             Kingside
@@ -157,15 +179,19 @@ impl Move<Chessboard> for ChessMove {
     type Underlying = u16;
 
     fn src_square(self) -> ChessSquare {
-        ChessSquare::new((self.0 & 0x3f) as usize)
+        ChessSquare::from_bb_index((self.0 & 0x3f) as usize)
     }
 
     fn dest_square(self) -> ChessSquare {
-        ChessSquare::new(((self.0 >> 6) & 0x3f) as usize)
+        ChessSquare::from_bb_index(((self.0 >> 6) & 0x3f) as usize)
     }
 
     fn flags(self) -> Self::Flags {
         ChessMoveFlags::iter().nth((self.0 >> 12) as usize).unwrap()
+    }
+
+    fn is_tactical(self, board: &Chessboard) -> bool {
+        self.is_capture(board) || self.flags() == PromoQueen || self.flags() == PromoKnight
     }
 
     fn to_compact_text(self) -> String {
@@ -194,7 +220,7 @@ impl Move<Chessboard> for ChessMove {
         let from = ChessSquare::from_str(&s[..2])?;
         let mut to = ChessSquare::from_str(&s[2..4])?;
         let piece = board.colored_piece_on(from);
-        let mut flags = Normal;
+        let mut flags = ChessMoveFlags::normal_move(piece.uncolored());
         if s.len() > 4 {
             let promo = s.chars().nth(4).unwrap();
             match promo {
@@ -225,13 +251,10 @@ impl Move<Chessboard> for ChessMove {
                     CastleKingside
                 }
             }
-        } else if board.colored_piece_on(from).uncolored() == Pawn
-            && board.colored_piece_on(to).is_empty()
-            && from.file() != to.file()
-        {
+        } else if piece.uncolored() == Pawn && board.is_empty(to) && from.file() != to.file() {
             flags = EnPassant;
         }
-        let res = from.idx() + (to.idx() << 6) + ((flags as usize) << 12);
+        let res = from.bb_idx() + (to.bb_idx() << 6) + ((flags as usize) << 12);
         Ok(ChessMove(res as u16))
     }
 
@@ -330,8 +353,8 @@ impl Move<Chessboard> for ChessMove {
         Ok(res.0)
     }
 
-    fn from_usize(val: usize) -> Option<Self> {
-        Some(Self(val as u16))
+    fn from_usize_unchecked(val: usize) -> Self {
+        Self(val as u16)
     }
 
     fn to_underlying(self) -> Self::Underlying {
@@ -353,7 +376,7 @@ impl Chessboard {
         mov: ChessMove,
         prefetch: F,
     ) -> Option<Self> {
-        let piece = mov.uncolored_piece(&self);
+        let piece = mov.uncolored_piece();
         let hash = Self::new_zobrist_after_move(
             self.hash,
             self.active_player,
@@ -363,12 +386,13 @@ impl Chessboard {
         );
         // this is only an approximation of the new hash, but that is good enough
         prefetch(hash);
-        self.make_move_impl(mov, piece)
+        self.make_move_impl(mov)
     }
 
     /// Is only ever called on a copy of the board, so no need to undo the changes when a move gets aborted due to pseudo-legality.
-    pub fn make_move_impl(mut self, mov: ChessMove, piece: UncoloredChessPiece) -> Option<Self> {
-        debug_assert_eq!(piece, mov.uncolored_piece(&self));
+    pub(super) fn make_move_impl(mut self, mov: ChessMove) -> Option<Self> {
+        let piece = mov.uncolored_piece();
+        debug_assert_eq!(piece, self.uncolored_piece_on(mov.src_square()));
         let color = self.active_player;
         let other = color.other();
         let from = mov.src_square();
@@ -829,7 +853,7 @@ impl<'a> MoveParser<'a> {
         }
 
         let mut moves = board.gen_all_pseudolegal_moves().into_iter().filter(|mov| {
-            mov.uncolored_piece(board) == self.piece
+            mov.uncolored_piece() == self.piece
                 && mov.dest_square().file() == self.target_file.unwrap()
                 && !self
                     .target_rank
@@ -931,7 +955,10 @@ impl<'a> MoveParser<'a> {
 mod tests {
     use crate::games::chess::moves::ChessMove;
     use crate::games::chess::Chessboard;
+    use crate::games::generic_tests::generic_tests;
     use crate::games::{Board, Move};
+
+    type GenericTests = generic_tests::GenericTests<Chessboard>;
 
     #[test]
     fn valid_algebraic_notation_test() {
@@ -992,21 +1019,7 @@ mod tests {
 
     #[test]
     fn algebraic_notation_roundtrip_test() {
-        let positions = Chessboard::name_to_pos_map();
-        for pos in positions.into_iter() {
-            let pos = (pos.val)();
-            for mov in pos.legal_moves_slow() {
-                let encoded = mov.to_extended_text(&pos);
-                let decoded = ChessMove::from_extended_text(&encoded, &pos);
-                assert!(decoded.is_ok());
-                println!(
-                    "{encoded} | {0} | {1}",
-                    decoded.clone().unwrap(),
-                    pos.as_fen()
-                );
-                assert_eq!(decoded.unwrap(), mov);
-            }
-        }
+        GenericTests::long_notation_roundtrip_test();
     }
 
     #[test]

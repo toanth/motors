@@ -1,15 +1,16 @@
 use strum::IntoEnumIterator;
 
-use gears::games::{Board, Color};
-use gears::games::chess::Chessboard;
 use gears::games::chess::pieces::UncoloredChessPiece;
+use gears::games::chess::Chessboard;
+use gears::games::{Board, Color};
 use gears::general::bitboards::RawBitboard;
+use gears::general::common::StaticallyNamedEntity;
 use gears::search::Score;
 
 use crate::eval::Eval;
 
 #[derive(Default, Debug)]
-pub struct PstOnlyEval {}
+pub struct PistonEval {}
 
 /// Psqt values tuned on a combination of the zurichess and a dataset used by 4ku,
 /// created by GCP using his engine Stoofvlees and filtered by cj5716 using Stockfish at depth 9,
@@ -152,7 +153,30 @@ const PSQTS: [[i32; 64]; 12] = [
 
 const PIECE_PHASE: [i32; 6] = [0, 1, 1, 2, 4, 0];
 
-impl Eval<Chessboard> for PstOnlyEval {
+impl StaticallyNamedEntity for PistonEval {
+    fn static_short_name() -> &'static str
+    where
+        Self: Sized,
+    {
+        "PiSTOn"
+    }
+
+    fn static_long_name() -> String
+    where
+        Self: Sized,
+    {
+        "Piece Square Table Only Chess Eval".to_string()
+    }
+
+    fn static_description() -> String
+    where
+        Self: Sized,
+    {
+        "An chess evaluation function using only tapered piece square tables".to_string()
+    }
+}
+
+impl Eval<Chessboard> for PistonEval {
     fn eval(&self, pos: Chessboard) -> Score {
         let mut mg = Score(0);
         let mut eg = Score(0);

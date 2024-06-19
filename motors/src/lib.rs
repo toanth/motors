@@ -4,6 +4,7 @@ use dyn_clone::clone_box;
 use rand::rngs::StdRng;
 
 use gears::cli::{ArgIter, Game};
+use gears::games::ataxx::AtaxxBoard;
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
 #[cfg(feature = "mnk")]
@@ -13,15 +14,18 @@ use gears::general::common::Description::WithDescription;
 use gears::general::common::{select_name_dyn, Res};
 use gears::output::normal_outputs;
 use gears::search::Depth;
-use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs};
+use gears::Quitting::QuitMatch;
+use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs, Quitting};
 
 use crate::cli::Mode::Bench;
 use crate::cli::{parse_cli, EngineOpts, Mode};
 use crate::eval::chess::hce::HandCraftedEval;
+use crate::eval::chess::material_only::MaterialOnlyEval;
 #[cfg(feature = "chess")]
-use crate::eval::chess::pst_only::PstOnlyEval;
+use crate::eval::chess::piston::PistonEval;
 #[cfg(feature = "mnk")]
 use crate::eval::mnk::simple_mnk_eval::SimpleMnkEval;
+use crate::eval::rand_eval::RandEval;
 #[cfg(feature = "caps")]
 use crate::search::chess::caps::Caps;
 #[cfg(feature = "generic_negamax")]
@@ -55,13 +59,14 @@ impl<B: Board> BenchRun<B> {
 }
 
 impl<B: Board> AbstractRun for BenchRun<B> {
-    fn run(&mut self) {
+    fn run(&mut self) -> Quitting {
         let engine = self.engine.as_mut();
         let res = match self.depth {
             None => run_bench(engine),
             Some(depth) => run_bench_with_depth(engine, depth),
         };
         println!("{res}");
+        QuitMatch
     }
 }
 
@@ -126,6 +131,11 @@ fn list_chess_outputs() -> OutputList<Chessboard> {
 }
 
 #[cfg(feature = "mnk")]
+fn list_ataxx_outputs() -> OutputList<AtaxxBoard> {
+    normal_outputs::<AtaxxBoard>()
+}
+
+#[cfg(feature = "mnk")]
 fn list_mnk_outputs() -> OutputList<MNKBoard> {
     normal_outputs::<MNKBoard>()
 }
@@ -141,18 +151,42 @@ pub fn generic_engines<B: Board>() -> EngineList<B> {
     ]
 }
 
+/// Lists all user-selectable engines that can play chess. Further combinations are possible
+/// (e.g. using the generic negamax engine with a random eval), but don't appear here to keep the list short.
 #[cfg(feature = "chess")]
 pub fn list_chess_engines() -> EngineList<Chessboard> {
     let mut res = generic_engines();
     #[cfg(feature = "generic_negamax")]
     res.push(Box::new(EngineBuilder::<
         Chessboard,
-        GenericNegamax<Chessboard, PstOnlyEval>,
+        GenericNegamax<Chessboard, PistonEval>,
     >::new()));
+    #[cfg(feature = "caps")]
+    res.push(Box::new(EngineBuilder::<Chessboard, Caps<RandEval>>::new()));
+    #[cfg(feature = "caps")]
+    res.push(Box::new(
+        EngineBuilder::<Chessboard, Caps<MaterialOnlyEval>>::new(),
+    ));
+    #[cfg(feature = "caps")]
+    res.push(Box::new(
+        EngineBuilder::<Chessboard, Caps<PistonEval>>::new(),
+    ));
+    // The last engine in this list is the default engine
     #[cfg(feature = "caps")]
     res.push(Box::new(
         EngineBuilder::<Chessboard, Caps<HandCraftedEval>>::new(),
     ));
+    res
+}
+
+#[cfg(feature = "mnk")]
+pub fn list_ataxx_engine() -> EngineList<AtaxxBoard> {
+    let mut res = generic_engines();
+    #[cfg(feature = "generic_negamax")]
+    res.push(Box::new(EngineBuilder::<
+        AtaxxBoard,
+        GenericNegamax<AtaxxBoard, RandEval>, // TODO: Actual eval, game-specific engines
+    >::new()));
     res
 }
 
@@ -171,6 +205,8 @@ pub fn create_match(args: EngineOpts) -> Res<AnyRunnable> {
     match args.game {
         #[cfg(feature = "chess")]
         Game::Chess => create_match_for_game(args, list_chess_engines(), list_chess_outputs()),
+        #[cfg(feature = "ataxx")]
+        Game::Ataxx => create_match_for_game(args, list_ataxx_engine(), list_ataxx_outputs()),
         #[cfg(feature = "mnk")]
         Game::Mnk => create_match_for_game(args, list_mnk_engine(), list_mnk_outputs()),
     }

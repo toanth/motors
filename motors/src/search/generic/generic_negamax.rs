@@ -47,15 +47,15 @@ impl<B: Board, E: Eval<B>> StaticallyNamedEntity for GenericNegamax<B, E> {
         "generic_negamax"
     }
 
-    fn static_long_name() -> &'static str {
-        "Generic Negamax"
+    fn static_long_name() -> String {
+        "Generic Negamax".to_string()
     }
 
-    fn static_description() -> &'static str
+    fn static_description() -> String
     where
         Self: Sized,
     {
-        "A simple alpha-bete pruning negamax implementation that doesn't use any game-specific information"
+        "A simple alpha-bete pruning negamax implementation that doesn't use any game-specific information".to_string()
     }
 }
 
@@ -73,7 +73,6 @@ impl<B: Board, E: Eval<B>> Benchable<B> for GenericNegamax<B, E> {
             limit.depth.get() as isize,
             SCORE_LOST,
             SCORE_WON,
-            &SearchSender::no_sender(),
         );
         // TODO: Handle stop command in bench
         self.state.to_bench_res()
@@ -81,6 +80,7 @@ impl<B: Board, E: Eval<B>> Benchable<B> for GenericNegamax<B, E> {
 
     fn engine_info(&self) -> EngineInfo {
         EngineInfo {
+            short_name: self.short_name().to_string(),
             name: self.long_name().to_string(),
             version: "0.0.0".to_string(),
             default_bench_depth: Depth::new(4),
@@ -102,12 +102,7 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
         true
     }
 
-    fn do_search(
-        &mut self,
-        pos: B,
-        mut limit: SearchLimit,
-        sender: &mut SearchSender<B>,
-    ) -> Res<SearchResult<B>> {
+    fn do_search(&mut self, pos: B, mut limit: SearchLimit) -> Res<SearchResult<B>> {
         let mut chosen_move = self.state.best_move;
         let max_depth = MAX_DEPTH.min(limit.depth).get() as isize;
         limit.fixed_time = limit.fixed_time.min(limit.tc.remaining);
@@ -115,13 +110,13 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
         self.state.statistics.next_id_iteration();
 
         for depth in 1..=max_depth {
-            let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON, sender);
+            let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON);
             if self.state.search_cancelled() {
                 break;
             }
             self.state.score = iteration_score;
             chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
-            sender.send_search_info(self.search_info());
+            self.state.sender.send_search_info(self.search_info());
             // increases the depth. do this after sending the search info, but before deciding if the depth limit has been exceeded.
             self.state.statistics.next_id_iteration();
             if self.should_not_start_next_iteration(limit.fixed_time, max_depth, limit.mate) {
@@ -172,7 +167,6 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
         depth: isize,
         mut alpha: Score,
         beta: Score,
-        sender: &SearchSender<B>,
     ) -> Score {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= MAX_DEPTH.get() * 2);
@@ -181,7 +175,7 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
             .statistics
             .count_node_started(MainSearch, ply, true);
 
-        if let Some(res) = pos.game_result_no_movegen() {
+        if let Some(res) = pos.player_result_no_movegen(&self.state.board_history) {
             return game_result_to_score(res, ply);
         }
         if depth <= 0 {
@@ -201,19 +195,11 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
 
             self.state.board_history.push(&pos);
 
-            let score = -self.negamax(
-                new_pos.unwrap(),
-                limit,
-                ply + 1,
-                depth - 1,
-                -beta,
-                -alpha,
-                sender,
-            );
+            let score = -self.negamax(new_pos.unwrap(), limit, ply + 1, depth - 1, -beta, -alpha);
 
-            self.state.board_history.pop(&new_pos.unwrap());
+            self.state.board_history.pop();
 
-            if self.should_stop(limit, sender) {
+            if self.should_stop(limit) {
                 return SCORE_TIME_UP;
             }
 

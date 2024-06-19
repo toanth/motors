@@ -4,13 +4,16 @@ use std::ops::Deref;
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
+use derive_more::{Add, Sub};
 use dyn_clone::{clone_box, DynClone};
 use strum_macros::FromRepr;
 
-use gears::games::{Board, ZobristHistoryBase, ZobristRepetition2Fold};
+use gears::games::{Board, ZobristHistory};
 use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
+use gears::general::perft::{perft, PerftRes};
 use gears::search::{
-    Depth, NodesLimit, Score, SearchInfo, SearchLimit, SearchResult, TimeControl, SCORE_WON,
+    Depth, NodesLimit, Score, SearchInfo, SearchLimit, SearchResult, TimeControl, MAX_DEPTH,
+    SCORE_WON,
 };
 use gears::ugi::{EngineOption, EngineOptionName};
 
@@ -30,12 +33,26 @@ mod tt;
 
 #[derive(Default, Debug, Clone)]
 pub struct EngineInfo {
+    pub short_name: String,
     pub name: String,
     pub version: String,
     pub default_bench_depth: Depth,
     pub options: Vec<EngineOption>,
-    pub description: String, // TODO: Use
-                             // TODO: NamedEntity?
+    pub description: String,
+}
+
+impl NamedEntity for EngineInfo {
+    fn short_name(&self) -> &str {
+        &self.short_name
+    }
+
+    fn long_name(&self) -> String {
+        format!("{0} {1}", self.name, self.version)
+    }
+
+    fn description(&self) -> Option<String> {
+        Some(self.description.clone())
+    }
 }
 
 #[derive(Debug)]
@@ -174,11 +191,11 @@ impl<B: Board, E: Engine<B>> StaticallyNamedEntity for EngineBuilder<B, E> {
         E::static_short_name()
     }
 
-    fn static_long_name() -> &'static str {
+    fn static_long_name() -> String {
         E::static_long_name()
     }
 
-    fn static_description() -> &'static str {
+    fn static_description() -> String {
         E::static_description()
     }
 }
@@ -207,8 +224,8 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         self.search(
             pos,
             limit,
-            ZobristHistoryBase::default(),
-            &mut SearchSender::no_sender(),
+            ZobristHistory::default(),
+            SearchSender::no_sender(),
         )
     }
 
@@ -216,31 +233,25 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         &mut self,
         pos: B,
         limit: SearchLimit,
-        history: ZobristHistoryBase,
-        sender: &mut SearchSender<B>,
+        history: ZobristHistory<B>,
+        sender: SearchSender<B>,
     ) -> Res<SearchResult<B>> {
-        self.search_state_mut()
-            .new_search(ZobristRepetition2Fold(history));
-        let res = self.do_search(pos, limit, sender);
+        self.search_state_mut().new_search(history, sender);
+        let res = self.do_search(pos, limit);
         let search_state = self.search_state_mut();
         search_state.end_search();
-        sender.send_statistics(search_state.statistics());
+        search_state.send_statistics();
         search_state.aggregate_match_statistics();
         res
     }
 
     /// The important function.
-    fn do_search(
-        &mut self,
-        pos: B,
-        limit: SearchLimit,
-        sender: &mut SearchSender<B>,
-    ) -> Res<SearchResult<B>>;
+    fn do_search(&mut self, pos: B, limit: SearchLimit) -> Res<SearchResult<B>>;
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool;
 
     // Sensible default values, but engines may choose to check more/less frequently than every 4096 nodes
-    fn should_stop_impl(&self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
+    fn should_stop_impl(&self, limit: SearchLimit) -> bool {
         let state = self.search_state();
         // Do the less expensive checks first to avoid querying the time in each node
         if state.main_search_nodes() >= limit.nodes.get() || state.search_cancelled() {
@@ -250,12 +261,12 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
             return false;
         }
         self.time_up(limit.tc, limit.fixed_time, self.search_state().start_time())
-            || sender.should_stop()
+            || self.search_state().search_sender().should_stop()
     }
 
     #[inline(always)]
-    fn should_stop(&mut self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
-        if self.should_stop_impl(limit, sender) {
+    fn should_stop(&mut self, limit: SearchLimit) -> bool {
+        if self.should_stop_impl(limit) {
             self.search_state_mut().mark_search_should_end();
             true
         } else {
@@ -307,6 +318,19 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         Self: Sized;
 }
 
+#[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub)]
+struct MoveScore(pub i32);
+
+impl MoveScore {
+    const MAX: MoveScore = MoveScore(i32::MAX);
+    const MIN: MoveScore = MoveScore(i32::MIN);
+}
+
+pub trait MoveScorer<B: Board> {
+    type State: SearchState<B>;
+    fn score_move(&self, mov: B::Move, state: &Self::State) -> MoveScore;
+}
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Searching {
     Ongoing,
@@ -336,7 +360,7 @@ pub trait SearchState<B: Board>: Debug + Clone {
     fn start_time(&self) -> Instant;
     fn score(&self) -> Score;
     fn forget(&mut self, hard: bool);
-    fn new_search(&mut self, history: ZobristRepetition2Fold);
+    fn new_search(&mut self, history: ZobristHistory<B>, sender: SearchSender<B>);
     fn end_search(&mut self) {
         self.mark_search_should_end();
         self.statistics_mut().end_search();
@@ -346,6 +370,8 @@ pub trait SearchState<B: Board>: Debug + Clone {
     fn statistics(&self) -> &Statistics;
     fn statistics_mut(&mut self) -> &mut Statistics;
     fn aggregate_match_statistics(&mut self);
+    fn search_sender(&self) -> &SearchSender<B>;
+    fn send_statistics(&mut self);
 }
 
 pub trait SearchStackEntry<B: Board>: Default + Clone + Debug {
@@ -384,7 +410,7 @@ impl CustomInfo for NoCustomInfo {}
 #[derive(Debug, Clone)]
 pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo> {
     search_stack: Vec<E>,
-    board_history: ZobristRepetition2Fold,
+    board_history: ZobristHistory<B>,
     custom: C,
     best_move: Option<B::Move>,
     searching: Searching,
@@ -393,6 +419,7 @@ pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo> {
     score: Score,
     statistics: Statistics,
     match_statistics: Statistics, // statistics aggregated over all searches of the current match
+    sender: SearchSender<B>,
 }
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
@@ -404,7 +431,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
         let start_time = Instant::now();
         Self {
             search_stack,
-            board_history: ZobristRepetition2Fold::default(),
+            board_history: ZobristHistory::default(),
             start_time,
             score: Score(0),
             best_move: None,
@@ -413,6 +440,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
             custom,
             statistics: Statistics::default(),
             match_statistics: Default::default(),
+            sender: SearchSender::no_sender(),
         }
     }
 
@@ -484,8 +512,9 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
         } else {
             self.custom.new_search();
         }
+        self.sender = SearchSender::no_sender();
         self.start_time = Instant::now();
-        self.board_history = ZobristRepetition2Fold::default(); // will get overwritten later
+        self.board_history = ZobristHistory::default(); // will get overwritten later
         self.score = Score(0);
         self.best_move = None;
         self.searching = Stop;
@@ -493,9 +522,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
         self.statistics = Statistics::default();
     }
 
-    fn new_search(&mut self, history: ZobristRepetition2Fold) {
+    fn new_search(&mut self, history: ZobristHistory<B>, sender: SearchSender<B>) {
         self.forget(false);
         self.board_history = history;
+        self.sender = sender;
         self.searching = Ongoing;
     }
 
@@ -533,6 +563,14 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
     fn aggregate_match_statistics(&mut self) {
         self.match_statistics.aggregate_searches(&self.statistics);
     }
+
+    fn search_sender(&self) -> &SearchSender<B> {
+        &self.sender
+    }
+
+    fn send_statistics(&mut self) {
+        self.sender.send_statistics(&self.statistics);
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, FromRepr)]
@@ -567,7 +605,7 @@ pub fn run_bench_with_depth<B: Board>(
     engine: &mut dyn Benchable<B>,
     mut depth: Depth,
 ) -> BenchResult {
-    if depth.get() <= 0 {
+    if depth.get() <= 0 || depth == MAX_DEPTH {
         depth = engine.engine_info().default_bench_depth
     }
     let mut sum = BenchResult::default();

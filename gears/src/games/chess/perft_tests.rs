@@ -16,7 +16,7 @@ mod tests {
     fn kiwipete_test() {
         let board = Chessboard::from_name("kiwipete").unwrap();
         let res = perft(Depth::new(4), board);
-        assert_eq!(res.nodes.get(), 4085603);
+        assert_eq!(res.nodes, 4085603);
         // Disabled in debug mode because that would take too long. TODO: Optimize movegen.
         if !cfg!(debug_assertions) {
             // kiwipete after white castles (cheaper to run than increasing the depth of kiwipete, and failed perft once)
@@ -25,14 +25,14 @@ mod tests {
             )
             .unwrap();
             let res = perft(Depth::new(4), board);
-            assert_eq!(res.nodes.get(), 4119629);
+            assert_eq!(res.nodes, 4119629);
             // kiwipete after white plays a2a3
             let board = Chessboard::from_fen(
                 "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q1p/1PPBBPPP/R3K2R b KQkq - 0 1",
             )
             .unwrap();
             let res = perft(Depth::new(4), board);
-            assert_eq!(res.nodes.get(), 4627439);
+            assert_eq!(res.nodes, 4627439);
         }
     }
 
@@ -43,15 +43,15 @@ mod tests {
         )
         .unwrap();
         let res = perft(Depth::new(1), board);
-        assert_eq!(res.nodes.get(), 99);
+        assert_eq!(res.nodes, 99);
         assert!(res.time.as_millis() <= 1);
         let res = perft(Depth::new(2), board);
-        assert_eq!(res.nodes.get(), 6271);
+        assert_eq!(res.nodes, 6271);
         let res = perft(Depth::new(3), board);
-        assert_eq!(res.nodes.get(), 568299);
+        assert_eq!(res.nodes, 568299);
         if cfg!(not(debug_assertions)) {
             let res = perft(Depth::new(4), board);
-            assert_eq!(res.nodes.get(), 34807627);
+            assert_eq!(res.nodes, 34807627);
         }
     }
 
@@ -140,7 +140,7 @@ mod tests {
                         {
                             let res = perft(Depth::new(depth), board);
                             assert_eq!(res.depth.get(), depth);
-                            assert_eq!(res.nodes.get(), *expected_count);
+                            assert_eq!(res.nodes, *expected_count);
                             println!(
                                 "Thread {3}: Perft depth {0} took {1} ms, total time so far: {2}ms",
                                 res.depth.get(),

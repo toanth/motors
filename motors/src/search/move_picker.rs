@@ -1,24 +1,46 @@
+use crate::search::move_picker::MovePickerState::{BeginList, List, TTMove};
+use crate::search::{MoveScore, MoveScorer};
 use arrayvec::ArrayVec;
-use gears::games::Board;
+use gears::games::{Board, Move};
 use gears::general::move_list::MoveList;
 use itertools::Itertools;
 
 pub struct MovePicker<B: Board, const MAX_LEN: usize> {
-    moves: B::MoveList,
-    scores: ArrayVec<i32, MAX_LEN>,
+    state: MovePickerState<B, MAX_LEN>,
+    pos: B,
+    tactical_only: bool,
+    tt_move: B::Move,
 }
 
-impl<B: Board, const MAX_LEN: usize> MovePicker<B, MAX_LEN> {
-    /// Assumes that better moves have a *higher* score.
-    pub fn new<ScoreFn: Fn(B::Move) -> i32>(moves: B::MoveList, score_function: ScoreFn) -> Self {
+struct ScoredMoveList<B: Board, const MAX_LEN: usize> {
+    moves: B::MoveList,
+    scores: ArrayVec<MoveScore, MAX_LEN>,
+}
+
+impl<B: Board, const MAX_LEN: usize> ScoredMoveList<B, MAX_LEN> {
+    fn new<Scorer: MoveScorer<B>>(
+        tactical_only: bool,
+        pos: &B,
+        scorer: &Scorer,
+        state: &Scorer::State,
+        exclude: B::Move,
+    ) -> Self {
+        let mut moves = if tactical_only {
+            pos.tactical_pseudolegal()
+        } else {
+            pos.pseudolegal_moves()
+        };
+        if exclude != B::Move::default() {
+            moves.remove(exclude);
+        }
         let mut scores = ArrayVec::default();
         for mov in moves.iter_moves() {
-            scores.push(score_function(*mov))
+            scores.push(scorer.score_move(*mov, state))
         }
         Self { moves, scores }
     }
 
-    pub fn next_move_and_score(&mut self) -> Option<(B::Move, i32)> {
+    fn next(&mut self) -> Option<(B::Move, MoveScore)> {
         if self.scores.is_empty() {
             return None;
         }
@@ -30,23 +52,47 @@ impl<B: Board, const MAX_LEN: usize> MovePicker<B, MAX_LEN> {
     }
 }
 
-pub struct MovePickIter<B: Board, const MAX_LEN: usize> {
-    move_picker: MovePicker<B, MAX_LEN>,
+enum MovePickerState<B: Board, const MAX_LEN: usize> {
+    TTMove,
+    BeginList,
+    List(ScoredMoveList<B, MAX_LEN>),
 }
 
-impl<B: Board, const MAX_LEN: usize> Iterator for MovePickIter<B, MAX_LEN> {
-    type Item = (B::Move, i32);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.move_picker.next_move_and_score()
+impl<B: Board, const MAX_LEN: usize> MovePicker<B, MAX_LEN> {
+    /// Assumes that better moves have a *higher* score.
+    pub fn new(pos: B, best: B::Move, tactical_only: bool) -> Self {
+        // TODO: Test always playing the TT move in qsearch, even if not tactical
+        let state = if pos.is_move_pseudolegal(best) && (!tactical_only || best.is_tactical(&pos)) {
+            TTMove
+        } else {
+            BeginList
+        };
+        Self {
+            state,
+            pos,
+            tactical_only,
+            tt_move: best,
+        }
     }
-}
 
-impl<B: Board, const MAX_LEN: usize> IntoIterator for MovePicker<B, MAX_LEN> {
-    type Item = (B::Move, i32);
-    type IntoIter = MovePickIter<B, MAX_LEN>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        MovePickIter { move_picker: self }
+    pub fn next<Scorer: MoveScorer<B>>(
+        &mut self,
+        scorer: &Scorer,
+        state: &Scorer::State,
+    ) -> Option<(B::Move, MoveScore)> {
+        match &mut self.state {
+            TTMove => {
+                self.state = BeginList;
+                Some((self.tt_move, MoveScore::MAX))
+            }
+            BeginList => {
+                let mut list =
+                    ScoredMoveList::new(self.tactical_only, &self.pos, scorer, state, self.tt_move);
+                let res = list.next();
+                self.state = List(list);
+                res
+            }
+            List(list) => list.next(),
+        }
     }
 }

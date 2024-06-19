@@ -23,7 +23,7 @@ use whoami::fallible::realname;
 
 use gears::games::chess::Chessboard;
 use gears::games::Color::{Black, White};
-use gears::games::{Board, BoardHistory, Color, Move, ZobristRepetition3Fold};
+use gears::games::{Board, BoardHistory, Color, Move};
 use gears::general::common::{parse_int_from_str, Res};
 use gears::output::Message::*;
 use gears::output::{OutputBox, OutputBuilder};
@@ -172,7 +172,7 @@ impl<B: Board> EnginePlayer<B> {
             .unwrap()
     }
 
-    /// Outside code should use the send_ugi_message[_to] method of client because those also log communication
+    /// Outside code should use the `send_ugi_message\[_to\]` method of client because those also log communication
     pub fn write_ugi_impl(&mut self, msg: &str) -> Res<()> {
         use std::io::Write;
         writeln!(self.child_stdin, "{msg}").map_err(|err| err.to_string())

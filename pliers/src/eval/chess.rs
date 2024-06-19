@@ -1,4 +1,6 @@
-use crate::gd::{Float, SimpleTrace, Weight, Weights};
+//! Contains chess evaluation functions, and some shared code that is generally useful for them,
+//! such as the [`SkipChecks`] [`Filter`].
+use crate::gd::{BasicTrace, Float, SimpleTrace, TraceNFeatures, Weight, Weights};
 use crate::load_data::{Filter, ParseResult};
 use colored::Colorize;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
@@ -15,6 +17,7 @@ pub mod caps_hce_eval;
 pub mod material_only_eval;
 pub mod piston_eval;
 
+/// Remove positions where the side to move is in check.
 pub struct SkipChecks {}
 
 impl Filter<Chessboard> for SkipChecks {
@@ -34,31 +37,34 @@ const CHESS_PHASE_VALUES: [usize; NUM_CHESS_PIECES] = [0, 1, 1, 2, 4, 0];
 
 const NUM_PSQT_FEATURES: usize = NUM_CHESS_PIECES * NUM_SQUARES;
 
+/// Computes the game phase based on the number of pieces on the board.
+///
+/// The start position has a phase value of 24, and a position without any non-pawn, non-king pieces
+/// has a phase value of zero.
 pub fn chess_phase(pos: &Chessboard) -> Float {
     let phase: usize = UncoloredChessPiece::non_king_pieces()
-        .map(|piece| pos.piece_bb(piece).num_set_bits() * CHESS_PHASE_VALUES[piece as usize])
+        .map(|piece| pos.piece_bb(piece).num_ones() * CHESS_PHASE_VALUES[piece as usize])
         .sum();
     phase as Float / 24.0
 }
 
 fn to_feature_idx(piece: UncoloredChessPiece, color: Color, square: ChessSquare) -> usize {
-    NUM_SQUARES * piece as usize + square.flip_if(color == White).idx()
+    NUM_SQUARES * piece as usize + square.flip_if(color == White).bb_idx()
 }
 
-fn psqt_trace(pos: &Chessboard) -> SimpleTrace {
+fn psqt_trace(pos: &Chessboard) -> TraceNFeatures<NUM_PSQT_FEATURES> {
     let mut trace = SimpleTrace::for_features(NUM_PSQT_FEATURES);
     trace.phase = chess_phase(pos);
     for color in Color::iter() {
         for piece in UncoloredChessPiece::pieces() {
-            let mut bb = pos.colored_piece_bb(color, piece);
-            while bb.has_set_bit() {
-                let square = ChessSquare::new(bb.pop_lsb());
+            let bb = pos.colored_piece_bb(color, piece);
+            for square in bb.ones() {
                 let idx = to_feature_idx(piece, color, square);
                 trace.increment(idx, color);
             }
         }
     }
-    trace
+    TraceNFeatures(trace)
 }
 
 // /// Apply a simple blur on the PSQTs to reduce noise.

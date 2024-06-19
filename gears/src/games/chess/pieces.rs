@@ -38,7 +38,7 @@ pub const UNICODE_BLACK_ROOK: char = '♜';
 pub const UNICODE_BLACK_QUEEN: char = '♛';
 pub const UNICODE_BLACK_KING: char = '♚';
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, EnumIter)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, EnumIter, FromRepr)]
 pub enum UncoloredChessPiece {
     Pawn,
     Knight,

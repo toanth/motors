@@ -9,7 +9,7 @@ use strum_macros::EnumIter;
 
 pub mod hce;
 pub mod material_only;
-pub mod pst_only;
+pub mod piston;
 
 #[derive(Debug, Copy, Clone, EnumIter)]
 pub enum PhaseType {
@@ -66,7 +66,7 @@ pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: C
         king = king.flip();
         pawns = pawns.flip_up_down();
     }
-    let mut bb = pawns >> PAWN_SHIELD_SHIFT[king.idx()];
+    let mut bb = pawns >> PAWN_SHIELD_SHIFT[king.bb_idx()];
     // TODO: pext if available
     let file = king.file();
     if file == A_FILE_NO || file == H_FILE_NO {
@@ -93,14 +93,20 @@ pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: C
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::eval::chess::hce::HandCraftedEval;
+    use crate::eval::chess::material_only::MaterialOnlyEval;
+    use crate::eval::chess::piston::PistonEval;
+    use crate::eval::Eval;
+    use crate::search::Engine;
     use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
     use gears::games::chess::Chessboard;
-    use gears::games::{Board, DimT};
+    use gears::games::{Board, BoardHistory, DimT};
     use gears::general::bitboards::RawBitboard;
+    use gears::search::Score;
     use strum::IntoEnumIterator;
 
     #[test]
-    pub fn pawn_shield_startpos_test() {
+    fn pawn_shield_startpos_test() {
         let pos = Chessboard::default();
         let pawns = pos.piece_bb(Pawn);
         let white = pawn_shield_idx(pawns, pos.king_square(White), White);
@@ -128,7 +134,7 @@ mod tests {
     }
 
     #[test]
-    pub fn pawn_shield_kiwipete_test() {
+    fn pawn_shield_kiwipete_test() {
         let pos = Chessboard::from_name("kiwipete").unwrap();
         let white = pawn_shield_idx(pos.piece_bb(Pawn), pos.king_square(White), White);
         let black = pawn_shield_idx(pos.piece_bb(Pawn), pos.king_square(Black), Black);
@@ -166,7 +172,7 @@ mod tests {
                     continue;
                 }
                 let square = ChessSquare::from_rank_file(rank as DimT, file as DimT);
-                if pawns.is_bit_set_at(square.idx()) {
+                if pawns.is_bit_set_at(square.bb_idx()) {
                     res += 1 << (i + (delta_rank - 1) * file_deltas.len());
                     num_pawns += 1;
                 }
@@ -179,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    pub fn pawn_shield_bench_pos_test() {
+    fn pawn_shield_bench_pos_test() {
         for pos in Chessboard::bench_positions() {
             for square in ChessSquare::iter() {
                 for color in Color::iter() {
@@ -192,5 +198,20 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn generic_eval_test<E: Eval<Chessboard>>() {
+        let score = E::default().eval(Chessboard::default());
+        assert!(score.abs() <= Score(25));
+        assert!(score >= Score(0));
+        let score = E::default().eval(Chessboard::from_name("lucena").unwrap());
+        assert!(score >= Score(100));
+    }
+
+    #[test]
+    fn simple_eval_test() {
+        generic_eval_test::<MaterialOnlyEval>();
+        generic_eval_test::<PistonEval>();
+        generic_eval_test::<HandCraftedEval>();
     }
 }

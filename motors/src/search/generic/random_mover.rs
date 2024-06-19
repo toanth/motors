@@ -58,18 +58,18 @@ impl<B: Board, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R>
         "random_mover"
     }
 
-    fn static_long_name() -> &'static str
+    fn static_long_name() -> String
     where
         Self: Sized,
     {
-        "Random Mover"
+        "Random Mover".to_string()
     }
 
-    fn static_description() -> &'static str
+    fn static_description() -> String
     where
         Self: Sized,
     {
-        "A very simple engine that always chooses a legal move uniformly at random"
+        "A very simple engine that always chooses a legal move uniformly at random".to_string()
     }
 }
 
@@ -82,6 +82,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Benchable<B> for RandomMover
 
     fn engine_info(&self) -> EngineInfo {
         EngineInfo {
+            short_name: self.short_name().to_string(),
             name: self.long_name().to_string(),
             version: "0.1.0".to_string(),
             default_bench_depth: Depth::new(1), // ignored as the engine will just pick a random move no matter what
@@ -103,12 +104,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         false
     }
 
-    fn do_search(
-        &mut self,
-        pos: B,
-        _: SearchLimit,
-        _sender: &mut SearchSender<B>,
-    ) -> Res<SearchResult<B>> {
+    fn do_search(&mut self, pos: B, _: SearchLimit) -> Res<SearchResult<B>> {
         self.chosen_move = pos
             .random_legal_move(&mut self.rng)
             .expect("search() called in a position with no legal moves");
