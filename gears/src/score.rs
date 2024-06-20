@@ -21,12 +21,16 @@
 use crate::PlayerResult;
 use derive_more::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use num::ToPrimitive;
+use std::mem::size_of;
 use std::ops::Div;
 use std::usize;
 
-/// valid scores fit into 16 bits, but it's possible to temporarily overflow that range with some operations,
+/// Valid scores fit into 16 bits, but it's possible to temporarily overflow that range with some operations,
 /// e.g. when computing `score - previous_score`. So in order to avoid bugs related to that, simply use 32 bits.
 pub type ScoreT = i32;
+
+/// In some places, it's important to save space by using only the necessary 16 bits for a score.
+pub type CompactScoreT = i16;
 
 // TODO: Turn this into an enum that can also represent a win in n plies (and maybe a draw?)
 #[derive(
@@ -141,28 +145,28 @@ pub const fn is_valid_score(score: ScoreT) -> bool {
 /// at the same time, by treating them as the lower and upper half of a single value.
 /// This improves performance, which is especially important because the eval of a typical a/b engine is hot..
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Add, AddAssign, Sub, SubAssign, Neg)]
-pub struct PhasedScore(i32);
+pub struct PhasedScore(ScoreT);
+
+const COMPACT_SCORE_BITS: usize = size_of::<CompactScoreT>() * 8;
 
 impl PhasedScore {
-    /// To be able to store negative values in the lower half (the eg score) without the sign extension affecting
-    /// the upper half (the mg score), 1 << 15 is added internally to the mg score
-    pub const fn new(mg: i16, eg: i16) -> Self {
+    pub const fn new(mg: CompactScoreT, eg: CompactScoreT) -> Self {
         debug_assert!(is_valid_score(mg as ScoreT));
         debug_assert!(is_valid_score(eg as ScoreT));
-        Self(((mg as i32) << 16) + eg as i32)
+        Self(((mg as ScoreT) << COMPACT_SCORE_BITS) + eg as ScoreT)
     }
-    pub const fn underlying(self) -> i32 {
+    pub const fn underlying(self) -> ScoreT {
         self.0
     }
 
     pub const fn mg(self) -> Score {
         // The eg score could have overflown into the mg score, so add (1 << 15) to undo that overflow
         // with another potential overflow
-        Score(((self.0 + (1 << 15)) >> 16) as ScoreT)
+        Score(((self.0 + (1 << (COMPACT_SCORE_BITS - 1))) >> COMPACT_SCORE_BITS) as ScoreT)
     }
 
     pub const fn eg(self) -> Score {
-        Score(self.underlying() as i16 as ScoreT)
+        Score(self.underlying() as CompactScoreT as ScoreT)
     }
 
     pub fn taper(self, phase: isize, max_phase: isize) -> Score {
@@ -174,7 +178,7 @@ impl PhasedScore {
 }
 
 /// Same as [`PhasedScore::new`], but has a shorter name
-pub const fn p(mg: i16, eg: i16) -> PhasedScore {
+pub const fn p(mg: CompactScoreT, eg: CompactScoreT) -> PhasedScore {
     PhasedScore::new(mg, eg)
 }
 
@@ -199,7 +203,7 @@ impl MulAssign<usize> for PhasedScore {
                 .try_into()
                 .unwrap()
         ));
-        self.0 *= rhs as i32;
+        self.0 *= rhs as ScoreT;
     }
 }
 

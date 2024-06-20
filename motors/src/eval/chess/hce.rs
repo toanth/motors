@@ -225,7 +225,7 @@ const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = [
 
 // TODO: Differentiate between rooks and kings in front of / behind pawns?
 
-const PIECE_PHASE: [ScoreT; 6] = [0, 1, 1, 2, 4, 0];
+const PIECE_PHASE: [isize; 6] = [0, 1, 1, 2, 4, 0];
 
 pub fn file_openness(
     file: DimT,
@@ -318,6 +318,7 @@ impl Eval<Chessboard> for HandCraftedEval {
                     let square = unflipped_square.flip_if(color == White);
                     let idx = square.bb_idx();
                     score += PSQTS[piece as usize][idx];
+                    phase += PIECE_PHASE[piece as usize];
 
                     // Passed pawns.
                     if piece == Pawn {
