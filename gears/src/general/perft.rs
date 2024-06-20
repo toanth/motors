@@ -104,7 +104,7 @@ pub fn perft_for<B: Board, Iter: IntoIterator<Item = B>>(
         depth,
     };
     for pos in positions.into_iter() {
-        if depth.get() <= 0 || depth == MAX_DEPTH {
+        if depth.get() == 0 || depth == MAX_DEPTH {
             depth = pos.default_perft_depth();
         }
         let this_res = perft(depth, pos);

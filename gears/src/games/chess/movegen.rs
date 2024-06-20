@@ -7,7 +7,7 @@ use crate::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO};
 use crate::games::chess::CastleRight::*;
 use crate::games::chess::{ChessMoveList, Chessboard};
 use crate::games::Color::*;
-use crate::games::{Board, Color, ColoredPiece, ColoredPieceType, Move};
+use crate::games::{Board, Color, ColoredPieceType, Move};
 use crate::general::bitboards::chess::{ChessBitboard, KINGS, KNIGHTS, PAWN_CAPTURES};
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};

@@ -1,20 +1,17 @@
 use std::collections::HashMap;
-use std::env::Args;
 use std::iter::Peekable;
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::ops::Add;
 use std::path::PathBuf;
 use std::process::exit;
 use std::str::FromStr;
-use std::sync::MutexGuard;
 use std::time::Duration;
 
 use itertools::Itertools;
-use num::PrimInt;
 
 use gears::cli::{get_next_arg, get_next_int, get_next_nonzero_usize, parse_output, ArgIter, Game};
 use gears::general::common::{
-    nonzero_u64, nonzero_usize, parse_duration_ms, parse_fp_from_str, parse_int_from_str, Res,
+    nonzero_u64, parse_duration_ms, parse_fp_from_str, parse_int_from_str, Res,
 };
 use gears::score::Score;
 use gears::search::{Depth, TimeControl};
@@ -24,7 +21,6 @@ use crate::cli::PlayerArgs::{Engine, Human};
 use crate::cli::Protocol::{Uci, Ugi};
 use crate::play::adjudication::ScoreAdjudication;
 use crate::play::player::{Protocol, TimeMargin};
-use crate::play::ugi_client::Client;
 
 /// Since clap doesn't handle long arguments with a single `-`, but cutechess (and fastchess) use that format,
 /// this just writes the parser by hand

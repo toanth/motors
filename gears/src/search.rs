@@ -2,7 +2,6 @@ use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
-use std::usize;
 
 use derive_more::{Add, AddAssign, SubAssign};
 

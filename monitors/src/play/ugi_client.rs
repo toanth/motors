@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::mem::swap;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
@@ -6,15 +6,14 @@ use std::time::{Duration, Instant};
 
 use crossbeam_utils::sync::{Parker, Unparker};
 
-use gears::games::Color::{Black, White};
+use gears::games::Color::*;
 use gears::games::{Board, BoardHistory, Color, Move, ZobristHistory};
 use gears::general::common::Res;
-use gears::output::Message::{Error, Info, Warning};
+use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{SearchInfo, TimeControl};
-use gears::ugi::EngineOptionType::*;
-use gears::MatchStatus::{NotStarted, Ongoing, Over};
-use gears::Quitting::{QuitMatch, QuitProgram};
+use gears::MatchStatus::*;
+use gears::Quitting::*;
 use gears::{
     output_builder_from_str, player_res_to_match_res, AbstractRun, AdjudicationReason, GameOver,
     GameOverReason, GameResult, GameState, MatchResult, MatchStatus, PlayerResult, Quitting,
@@ -380,7 +379,7 @@ impl<B: Board> Client<B> {
 
     pub fn game_over(&mut self, result: MatchResult) {
         self.match_state().status = Over(result);
-        for mut output in self.outputs.iter_mut() {
+        for output in self.outputs.iter_mut() {
             output.inform_game_over(&self.state);
         }
     }
@@ -466,7 +465,7 @@ impl<B: Board> Client<B> {
     }
 
     pub fn show(&mut self) {
-        for mut output in self.outputs.iter_mut() {
+        for output in self.outputs.iter_mut() {
             output.show(&self.state);
         }
     }
@@ -476,7 +475,7 @@ impl<B: Board> Client<B> {
     }
 
     pub fn show_message(&mut self, typ: Message, message: &str) {
-        for mut output in self.outputs.iter_mut() {
+        for output in self.outputs.iter_mut() {
             output.display_message_with_state(&self.state, typ, message);
         }
     }
@@ -501,6 +500,7 @@ impl<B: Board> Client<B> {
         self.send_ugi_message_to(self.state.id(color), message)
     }
 
+    // TODO: Not used?!
     fn send_uginewgame(&mut self, color: Color) {
         let msg = match self.state.get_engine(color).proto {
             Protocol::Uci => "ucinewgame",
@@ -522,11 +522,11 @@ impl<B: Board> Client<B> {
         self.send_ugi_message(color, &self.ugi_output.as_string(&self.state));
     }
 
+    /// This function does no validation at all. This allows for greater flexibility when the user knows that
+    /// an engine supports options or even option types that the client isn't aware of.
+    /// However, this does mean that invalid user input can lead to engine crashes (but that's already the case
+    /// anyway, and not something the client can handle in general)
     pub fn send_setoption(&mut self, engine: PlayerId, name: &str, value: &str) {
-        /// This function does no validation at all. This allows for greater flexibility when the user knows that
-        /// an engine supports options or even option types that the client isn't aware of.
-        /// However, this does mean that invalid user input can lead to engine crashes (but that's already the case
-        /// anyway, and not something the client can handle in general)
         let msg = format!("setoption name {name} value {value}");
         self.send_ugi_message_to(engine, &msg);
     }

@@ -59,14 +59,6 @@ impl<F> NamedEntity for TextSelection<F> {
     }
 }
 
-fn select<F>(names: Vec<&'static str>, func: F) -> TextSelection<F> {
-    TextSelection {
-        names,
-        func,
-        description: None,
-    }
-}
-
 fn sel_descr<F>(names: Vec<&'static str>, func: F, description: &'static str) -> TextSelection<F> {
     TextSelection {
         names,
@@ -172,7 +164,7 @@ impl<B: Board> TextInputThread<B> {
 
     fn handle_input(
         &self,
-        mut ugi_client: Arc<Mutex<Client<B>>>,
+        ugi_client: Arc<Mutex<Client<B>>>,
         mut words: SplitWhitespace,
         input: &str,
     ) -> Res<bool> {

@@ -1,8 +1,6 @@
 use strum::IntoEnumIterator;
 
-use crate::eval::chess::{
-    pawn_shield_idx, FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS, NUM_PHASES,
-};
+use crate::eval::chess::{pawn_shield_idx, FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use gears::games::chess::pieces::UncoloredChessPiece::{Bishop, Pawn, Rook};
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::squares::NUM_SQUARES;
@@ -13,10 +11,9 @@ use gears::general::bitboards::chess::{ChessBitboard, A_FILE};
 use gears::general::bitboards::Bitboard;
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::StaticallyNamedEntity;
-use gears::score::{p, PhasedScore, Score, ScoreT};
+use gears::score::{p, PhasedScore, Score};
 
 use crate::eval::chess::hce::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
-use crate::eval::chess::PhaseType::{Eg, Mg};
 use crate::eval::Eval;
 
 #[derive(Default, Debug)]

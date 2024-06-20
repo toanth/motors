@@ -6,17 +6,16 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
-use crossbeam_channel::select;
 use itertools::Itertools;
 
 use gears::cli::{select_game, Game};
 use gears::games::Color::White;
 use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristHistory};
 use gears::general::common::Description::WithDescription;
+use gears::general::common::Res;
 use gears::general::common::{
     parse_duration_ms, parse_int, parse_int_from_str, to_name_and_optional_description, NamedEntity,
 };
-use gears::general::common::{select_name_static, Res};
 use gears::general::perft::{perft, perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
@@ -30,7 +29,7 @@ use gears::Quitting::{QuitMatch, QuitProgram};
 use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchStatus, Quitting};
 
 use crate::cli::EngineOpts;
-use crate::search::multithreading::{EngineWrapper, Receiver, SearchSender, Sender};
+use crate::search::multithreading::{EngineWrapper, SearchSender};
 use crate::search::{run_bench_with_depth, BenchResult, EngineList};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
@@ -345,13 +344,6 @@ impl<B: Board> EngineUGI<B> {
         self.output.lock().unwrap()
     }
 
-    fn handle_ugi(&mut self, stdin_receiver: Receiver<Res<String>>) -> Res<ProgramStatus> {
-        select! {
-            recv(stdin_receiver) -> input =>
-                self.parse_input(input.map_err(|err| err.to_string())??.split_whitespace()),
-        }
-    }
-
     fn ugi_loop(&mut self) -> Quitting {
         self.write_message(
             Debug,
@@ -642,17 +634,17 @@ impl<B: Board> EngineUGI<B> {
             .remaining
             .saturating_sub(self.move_overhead)
             .max(Duration::from_millis(1));
-        self.start_search(search_type, limit)
+        self.start_search(search_type, limit, self.state.board)
     }
 
-    fn start_search(&mut self, search_type: SearchType, mut limit: SearchLimit) -> Res<()> {
+    fn start_search(&mut self, search_type: SearchType, mut limit: SearchLimit, pos: B) -> Res<()> {
         self.write_message(
             Debug,
             &format!("Starting {search_type} search with tc {}", limit.tc),
         );
         self.state.status = Run(Ongoing);
         let default_depth = match search_type {
-            Perft | SplitPerft => self.state.board.default_perft_depth(),
+            Perft | SplitPerft => pos.default_perft_depth(),
             Bench => self.state.engine.engine_info().default_bench_depth,
             _ => limit.depth,
         };
@@ -660,23 +652,24 @@ impl<B: Board> EngineUGI<B> {
             limit.depth = default_depth;
         }
         match search_type {
-            Normal => self.state.engine.start_search(
-                self.state.board,
-                limit,
-                self.state.board_hist.clone(),
-            )?,
+            // this keeps the current history even if we're searching a different position, but that's probably not a problem
+            // and doing a normal search from a custom position isn't even implemented at the moment -- TODO: implement?
+            Normal => self
+                .state
+                .engine
+                .start_search(pos, limit, self.state.board_hist.clone())?,
             Perft => {
-                let msg = format!("{0}", perft(limit.depth, self.state.board));
+                let msg = format!("{0}", perft(limit.depth, pos));
                 self.write_ugi(&msg);
             }
             SplitPerft => {
-                let msg = format!("{0}", split_perft(limit.depth, self.state.board));
+                let msg = format!("{0}", split_perft(limit.depth, pos));
                 self.write_ugi(&msg);
             }
             Bench => {
                 self.state
                     .engine
-                    .start_bench(self.state.board, limit.depth)
+                    .start_bench(pos, limit.depth)
                     .expect("bench panic");
             }
         };
@@ -727,7 +720,7 @@ impl<B: Board> EngineUGI<B> {
             self.write_ugi(&res);
             Ok(())
         } else {
-            self.start_search(typ, limit)
+            self.start_search(typ, limit, board)
         }
     }
 
@@ -858,7 +851,7 @@ impl<B: Board> EngineUGI<B> {
                 // don't remove the error output, as there is basically no reason to do so
                 self.handle_log(&mut "none".split_whitespace())
             }
-            x => return Err(format!("Invalid debug option '{x}'")),
+            x => Err(format!("Invalid debug option '{x}'")),
         }
     }
 
@@ -980,7 +973,7 @@ impl<B: Board> EngineUGI<B> {
                         writeln!(
                             res,
                             "{name}: {value}",
-                            name = o.name.to_string(),
+                            name = o.name,
                             value = o.value.value_to_str()
                         )
                         .unwrap();
@@ -990,11 +983,10 @@ impl<B: Board> EngineUGI<B> {
                 x => {
                     match options
                         .iter()
-                        .map(|o| o)
                         .find(|o| o.name.to_string().eq_ignore_ascii_case(x))
                     {
                         Some(opt) => {
-                            format!("{0}: {1}", opt.name.to_string(), opt.value.value_to_str())
+                            format!("{0}: {1}", opt.name, opt.value.value_to_str())
                         }
                         None => {
                             return Err(format!(

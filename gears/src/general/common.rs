@@ -158,7 +158,6 @@ fn list_to_string<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String>(
 }
 
 fn select_name_impl<
-    'a,
     I: ExactSizeIterator + Clone,
     F: Fn(&I::Item) -> String,
     G: Fn(&I::Item, &str) -> bool,

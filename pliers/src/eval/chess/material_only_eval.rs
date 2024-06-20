@@ -1,9 +1,7 @@
 //! A simple material-only eval that tunes piece weights.
 
 use crate::eval::{Eval, WeightsInterpretation};
-use crate::gd::{
-    BasicTrace, NonTaperedDatapoint, Outcome, SimpleTrace, TraceTrait, Weight, Weights,
-};
+use crate::gd::{BasicTrace, NonTaperedDatapoint, SimpleTrace, TraceTrait, Weight, Weights};
 use crate::load_data::NoFilter;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::Chessboard;
@@ -49,7 +47,7 @@ impl Eval<Chessboard> for MaterialOnlyEval {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gd::TraceTrait;
+    use crate::gd::{Outcome, TraceTrait};
     use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
     use gears::games::Board;
 

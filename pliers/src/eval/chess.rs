@@ -1,17 +1,16 @@
 //! Contains chess evaluation functions, and some shared code that is generally useful for them,
 //! such as the [`SkipChecks`] [`Filter`].
 use crate::eval::write_phased_with_width;
-use crate::gd::{BasicTrace, Float, SimpleTrace, TraceNFeatures, Weight, Weights};
+use crate::gd::{BasicTrace, Float, SimpleTrace, TraceNFeatures, Weight};
 use crate::load_data::{Filter, ParseResult};
-use colored::Colorize;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::Chessboard;
 use gears::games::Color;
 use gears::games::Color::White;
 use gears::general::bitboards::RawBitboard;
-use motors::eval::chess::PhaseType;
-use std::fmt::{Display, Formatter};
+use motors::eval::chess::CHESS_PHASE_VALUES;
+use std::fmt::Formatter;
 use strum::IntoEnumIterator;
 
 pub mod caps_hce_eval;
@@ -22,6 +21,7 @@ pub mod piston_eval;
 pub struct SkipChecks {}
 
 impl Filter<Chessboard> for SkipChecks {
+    #[allow(refining_impl_trait)]
     fn filter(pos: ParseResult<Chessboard>) -> Option<ParseResult<Chessboard>> {
         if pos.pos.is_in_check() {
             None
@@ -34,7 +34,6 @@ impl Filter<Chessboard> for SkipChecks {
 // TODO: Qsearch filter
 
 const NUM_PHASES: usize = 2;
-const CHESS_PHASE_VALUES: [usize; NUM_CHESS_PIECES] = [0, 1, 1, 2, 4, 0];
 
 const NUM_PSQT_FEATURES: usize = NUM_CHESS_PIECES * NUM_SQUARES;
 

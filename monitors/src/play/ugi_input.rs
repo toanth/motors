@@ -14,7 +14,7 @@ use itertools::Itertools;
 use gears::games::{Board, Color, Move};
 use gears::general::common::{parse_duration_ms, parse_int_from_str, Res};
 use gears::output::Message::Debug;
-use gears::score::{Score, ScoreT, SCORE_LOST, SCORE_WON};
+use gears::score::{ScoreT, SCORE_LOST, SCORE_WON};
 use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit};
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
@@ -156,7 +156,7 @@ impl<B: Board> InputThread<B> {
 
     fn deal_with_error(&mut self, error: &str) -> bool {
         let id = self.id;
-        let mut name = String::default();
+        let name;
         match self.upgrade_client() {
             // If we can't access the client, this means there's no match running right now, so assume the program has been terminated
             None => return false,
@@ -500,7 +500,7 @@ impl<B: Board> InputThread<B> {
     }
 
     fn handle_info(
-        mut words: SplitWhitespace,
+        words: SplitWhitespace,
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
     ) -> Res<()> {

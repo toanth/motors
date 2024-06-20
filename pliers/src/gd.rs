@@ -306,7 +306,7 @@ pub trait TraceTrait: Debug {
     /// the white player minus the number of times it appears for the black player.
     fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
         let mut res = vec![];
-        let mut offset = 0;
+        let mut offset = idx_offset;
         for nested in self.nested_traces() {
             res.append(&mut nested.as_features(offset));
             offset += nested.max_num_features();
@@ -892,6 +892,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
 }
 
 /// Convenience function for optimizing with the [`Adam`] optimizer.
+#[allow(unused)]
 fn adam_optimize<D: Datapoint>(
     batch: Batch<D>,
     eval_scale: ScalingFactor,

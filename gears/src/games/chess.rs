@@ -2,7 +2,6 @@ use std::fmt::{Display, Formatter};
 use std::num::NonZeroUsize;
 use std::str::{FromStr, SplitWhitespace};
 
-use bitintr::Popcnt;
 use colored::Colorize;
 use itertools::Itertools;
 use rand::prelude::IteratorRandom;
@@ -828,10 +827,12 @@ impl Chessboard {
         }
         board
             .castling
-            .set_castle_right(color, Queenside, q_rook as DimT);
+            .set_castle_right(color, Queenside, q_rook as DimT)
+            .unwrap();
         board
             .castling
-            .set_castle_right(color, Kingside, k_rook as DimT);
+            .set_castle_right(color, Kingside, k_rook as DimT)
+            .unwrap();
         Ok(())
     }
 

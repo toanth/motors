@@ -4,9 +4,7 @@ use crate::eval::chess::{
     psqt_trace, write_phased_psqt, write_psqts, SkipChecks, NUM_PHASES, NUM_PSQT_FEATURES,
 };
 use crate::eval::EvalScale::Scale;
-use crate::eval::{
-    changed_at_least, write_phased, write_phased_with_width, Eval, EvalScale, WeightsInterpretation,
-};
+use crate::eval::{changed_at_least, write_phased, Eval, EvalScale, WeightsInterpretation};
 use crate::gd::{
     BasicTrace, Float, SingleFeatureTrace, TaperedDatapoint, TraceNFeatures, TraceTrait, Weight,
     Weights,
@@ -23,7 +21,7 @@ use gears::general::bitboards::chess::A_FILE;
 use gears::general::bitboards::{Bitboard, RawBitboard};
 use motors::eval::chess::hce::file_openness;
 use motors::eval::chess::FileOpenness::SemiClosed;
-use motors::eval::chess::{pawn_shield_idx, PhaseType, NUM_PAWN_SHIELD_CONFIGURATIONS};
+use motors::eval::chess::{pawn_shield_idx, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use std::fmt::Formatter;
 use strum::IntoEnumIterator;
 
@@ -182,7 +180,7 @@ impl Eval<Chessboard> for CapsHceEval {
     type D = TaperedDatapoint;
     type Filter = SkipChecks;
 
-    fn feature_trace(pos: &Chessboard) -> Trace {
+    fn feature_trace(pos: &Chessboard) -> impl TraceTrait {
         Self::trace(pos)
     }
 }
