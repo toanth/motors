@@ -130,11 +130,12 @@ impl Weight {
 
     /// Convert this weight into a string of the rounded value.
     /// If `special` is [`true`], paint it red.
-    pub fn to_string(self, special: bool) -> String {
+    /// The string takes up at least `width` characters
+    pub fn to_string(self, special: bool, width: usize) -> String {
         if special {
-            format!("{}", self.0.round()).red().to_string()
+            format!("{:width$}", self.0.round()).red().to_string()
         } else {
-            format!("{}", self.0.round())
+            format!("{:width$}", self.0.round())
         }
     }
 }
@@ -869,9 +870,13 @@ pub fn optimize_entire_batch<D: Datapoint>(
                 elapsed = elapsed.as_secs()
             );
             if loss <= 0.001 && epoch >= 20 {
+                println!("loss less than epsilon, stopping after {epoch} epochs");
                 break;
             }
             if max_diff.abs() <= 0.05 && epoch >= 50 {
+                println!(
+                    "Maximum absolute weight change less than 0.05, stopping after {epoch} epochs"
+                );
                 break;
             }
             prev_weights.clone_from(&weights.0);
@@ -1013,7 +1018,7 @@ pub struct AdamHyperParams {
 impl AdamHyperParams {
     fn for_eval_scale(eval_scale: ScalingFactor) -> Self {
         Self {
-            alpha: eval_scale / 10.0,
+            alpha: eval_scale / 20.0,
             // Setting these values too low can introduce crazy swings in the eval values and loss when it would
             // otherwise appear converged -- maybe because of numerical instability?
             beta1: 0.9,

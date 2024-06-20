@@ -19,7 +19,8 @@ use gears::general::common::Description::NoDescription;
 use gears::general::common::{select_name_static, NamedEntity, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
 use gears::score::{
-    game_result_to_score, MAX_SCORE_LOST, MIN_SCORE_WON, NO_SCORE_YET, SCORE_LOST, SCORE_TIME_UP,
+    game_result_to_score, ScoreT, MAX_SCORE_LOST, MIN_SCORE_WON, NO_SCORE_YET, SCORE_LOST,
+    SCORE_TIME_UP,
 };
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
@@ -586,7 +587,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // (like imminent threads) so don't prune too aggressively if our opponent hasn't blundered.
             // Be more careful about pruning too aggressively if the node is expected to fail low -- we should not rfp
             // a true fail low node, but our expectation may also be wrong.
-            let mut margin = (150 - (they_blundered as i32 * 64)) * depth as i32;
+            let mut margin = (150 - (they_blundered as ScoreT * 64)) * depth as ScoreT;
             if expected_node_type == FailHigh {
                 margin /= 2;
             }
@@ -661,7 +662,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 && best_score > MAX_SCORE_LOST
                 && depth <= 3
                 && (num_uninteresting_visited >= lmp_threshold
-                    || (eval + Score(fp_margin as i32) < alpha && move_score < KILLER_SCORE))
+                    || (eval + Score(fp_margin as ScoreT) < alpha && move_score < KILLER_SCORE))
             {
                 break;
             }

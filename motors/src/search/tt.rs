@@ -12,7 +12,7 @@ use crate::search::NodeType;
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
 use gears::games::{Board, Move, ZobristHash};
-use gears::score::{Score, SCORE_WON};
+use gears::score::{Score, ScoreT, SCORE_WON};
 use OptionalNodeType::*;
 
 type AtomicTTEntry = AtomicU128;
@@ -100,7 +100,7 @@ impl<B: Board> TTEntry<B> {
 
     fn from_packed_fallback(val: u128) -> Self {
         let hash = ZobristHash((val >> 64) as u64);
-        let score = Score(((val >> (64 - 32)) & 0xffff_ffff) as i32);
+        let score = Score(((val >> (64 - 32)) & 0xffff_ffff) as ScoreT);
         let mov = B::Move::from_usize_unchecked(((val >> 16) & 0xffff) as usize);
         let depth = ((val >> 8) & 0xff) as u8;
         let bound = OptionalNodeType::from_repr((val & 0xff) as u8).unwrap();
@@ -186,7 +186,7 @@ impl TT {
 
     pub(super) fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {
         debug_assert!(
-            entry.score.0.abs() + ply as i32 <= SCORE_WON.0,
+            entry.score.0.abs() + ply as ScoreT <= SCORE_WON.0,
             "score {score} ply {ply}",
             score = entry.score.0
         );
@@ -197,9 +197,9 @@ impl TT {
         // we undo that when storing mate scores, and reapply the penalty for the *current* ply when loading mate scores.
         if let Some(plies) = entry.score.plies_until_game_won() {
             if plies < 0 {
-                entry.score.0 -= ply as i32;
+                entry.score.0 -= ply as ScoreT;
             } else {
-                entry.score.0 += ply as i32;
+                entry.score.0 += ply as ScoreT;
             }
         }
         debug_assert!(
@@ -217,9 +217,9 @@ impl TT {
         // Mate score adjustments, see `store`
         if let Some(plies) = entry.score.plies_until_game_won() {
             if plies < 0 {
-                entry.score.0 += ply as i32;
+                entry.score.0 += ply as ScoreT;
             } else {
-                entry.score.0 -= ply as i32;
+                entry.score.0 -= ply as ScoreT;
             }
         }
         debug_assert!(entry.score.0.abs() <= SCORE_WON.0);

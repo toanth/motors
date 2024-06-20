@@ -292,7 +292,7 @@ mod tests {
             &mut optimizer,
         );
         let loss = loss(&weights, batch, eval_scale);
-        assert!(loss <= 0.01);
+        assert!(loss <= 0.01, "{loss}");
     }
 
     #[test]

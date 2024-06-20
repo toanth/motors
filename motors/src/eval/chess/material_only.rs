@@ -3,12 +3,12 @@ use gears::games::chess::pieces::UncoloredChessPiece;
 use gears::games::chess::Chessboard;
 use gears::games::Board;
 use gears::general::common::StaticallyNamedEntity;
-use gears::score::Score;
+use gears::score::{Score, ScoreT};
 
 #[derive(Debug, Default)]
 pub struct MaterialOnlyEval {}
 
-const MATERIAL_VALUE: [i32; 5] = [100, 300, 320, 500, 900];
+const MATERIAL_VALUE: [ScoreT; 5] = [100, 300, 320, 500, 900];
 
 impl StaticallyNamedEntity for MaterialOnlyEval {
     fn static_short_name() -> &'static str
@@ -39,7 +39,7 @@ impl Eval<Chessboard> for MaterialOnlyEval {
         let mut score = 0;
         for _ in 0..2 {
             for piece in UncoloredChessPiece::non_king_pieces() {
-                let num_pieces = pos.colored_piece_bb(color, piece).0.count_ones() as i32;
+                let num_pieces = pos.colored_piece_bb(color, piece).0.count_ones() as ScoreT;
                 score += num_pieces * MATERIAL_VALUE[piece as usize];
             }
             score = -score;

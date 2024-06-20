@@ -14,7 +14,7 @@ use itertools::Itertools;
 use gears::games::{Board, Color, Move};
 use gears::general::common::{parse_duration_ms, parse_int_from_str, Res};
 use gears::output::Message::Debug;
-use gears::score::{SCORE_LOST, SCORE_WON};
+use gears::score::{Score, ScoreT, SCORE_LOST, SCORE_WON};
 use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit};
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
@@ -564,7 +564,7 @@ impl<B: Board> InputThread<B> {
                         )?
                     }
                     "mate" => {
-                        let value: i32 = parse_int_from_str(
+                        let value: ScoreT = parse_int_from_str(
                             words
                                 .next()
                                 .ok_or_else(|| "missing ply value after 'score mate'")?,

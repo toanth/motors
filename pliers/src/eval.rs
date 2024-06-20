@@ -34,6 +34,28 @@ pub fn changed_at_least(threshold: Float, weights: &Weights, old_weights: &[Weig
     res
 }
 
+/// Like [`write_phased`], but each entry takes up at least `width` chars
+pub fn write_phased_with_width(
+    weights: &[Weight],
+    feature_idx: usize,
+    special: &[bool],
+    width: usize,
+) -> String {
+    let i = 2 * feature_idx;
+    format!(
+        "p({0}, {1})",
+        weights[i].to_string(special.get(i).copied().unwrap_or_default(), width),
+        weights[i + 1].to_string(special.get(i + 1).copied().unwrap_or_default(), width)
+    )
+}
+
+/// Convert a pair of weights to string, coloring each one red if the corresponding `special` entry is set.
+///
+/// The two weight indices are `feature_idx * 2` and `feature_idx * 2 + 1`.
+pub fn write_phased(weights: &[Weight], feature_idx: usize, special: &[bool]) -> String {
+    write_phased_with_width(weights, feature_idx, special, 0)
+}
+
 /// Returns a vector of [`Float`]s, where each entry counts to how often the corresponding feature appears in the
 /// dataset, weighted by the sampling weight of its datapoint (which should usually be `1.0`).
 /// This can be used to give a very rough idea of the variance of the weight.

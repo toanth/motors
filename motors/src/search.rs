@@ -10,7 +10,7 @@ use strum_macros::FromRepr;
 
 use gears::games::{Board, ZobristHistory};
 use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
-use gears::score::{Score, SCORE_WON};
+use gears::score::{Score, ScoreT, SCORE_WON};
 use gears::search::{
     Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl, MAX_DEPTH,
 };
@@ -282,7 +282,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         let state = self.search_state();
         state.start_time().elapsed() >= soft_limit
             || state.depth().get() as isize > max_depth
-            || state.score() >= Score(SCORE_WON.0 - mate_depth.get() as i32)
+            || state.score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT)
     }
 
     fn quit(&mut self) {

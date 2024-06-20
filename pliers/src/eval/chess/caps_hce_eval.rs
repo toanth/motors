@@ -4,19 +4,21 @@ use crate::eval::chess::{
     psqt_trace, write_phased_psqt, write_psqts, SkipChecks, NUM_PHASES, NUM_PSQT_FEATURES,
 };
 use crate::eval::EvalScale::Scale;
-use crate::eval::{changed_at_least, Eval, EvalScale, WeightsInterpretation};
+use crate::eval::{
+    changed_at_least, write_phased, write_phased_with_width, Eval, EvalScale, WeightsInterpretation,
+};
 use crate::gd::{
     BasicTrace, Float, SingleFeatureTrace, TaperedDatapoint, TraceNFeatures, TraceTrait, Weight,
     Weights,
 };
-use gears::games::chess::pieces::UncoloredChessPiece::{Bishop, King, Pawn, Rook};
-use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES, NUM_COLORS};
-use gears::games::chess::see::{SeeScore, SEE_SCORES};
+use gears::games::chess::pieces::UncoloredChessPiece::*;
+use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
+use gears::games::chess::see::SEE_SCORES;
 use gears::games::chess::squares::NUM_SQUARES;
 use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
 use gears::games::chess::Chessboard;
+use gears::games::Color;
 use gears::games::Color::*;
-use gears::games::{Board, Color};
 use gears::general::bitboards::chess::A_FILE;
 use gears::general::bitboards::{Bitboard, RawBitboard};
 use motors::eval::chess::hce::file_openness;
@@ -68,42 +70,37 @@ impl WeightsInterpretation for CapsHceEval {
 
             write_psqts(f, weights, &special)?;
             writeln!(f, "\n#[rustfmt::skip]")?;
-            writeln!(f, "const PASSED_PAWNS: [[i32; NUM_SQUARES]; 2] = [")?;
+            write!(f, "const PASSED_PAWNS: [PhasedScore; NUM_SQUARES] =")?;
             write_phased_psqt(
                 f,
                 &weights[NUM_PHASES * NUM_PSQT_FEATURES..],
                 &special,
                 0,
-                "passed pawns",
+                None,
             )?;
             writeln!(f, "];")?;
-            let mut idx = (NUM_PSQT_FEATURES + NUM_PASSED_PAWN_FEATURES) * NUM_PHASES;
+            let mut idx = NUM_PSQT_FEATURES + NUM_PASSED_PAWN_FEATURES;
 
             writeln!(
                 f,
-                "const BISHOP_PAIR_MG: i32 = {};",
-                weights[idx].to_string(special[idx])
-            )?;
-            idx += 1;
-            writeln!(
-                f,
-                "const BISHOP_PAIR_EG: i32 = {};",
-                weights[idx].to_string(special[idx])
+                "const BISHOP_PAIR: PhasedScore = {};",
+                write_phased(weights, idx, &special),
             )?;
             idx += 1;
 
             for piece in ["ROOK", "KING"] {
                 for openness in ["OPEN", "CLOSED", "SEMIOPEN"] {
-                    for phase in PhaseType::iter() {
-                        let value = weights[idx].to_string(special[idx]);
-                        writeln!(f, "const {piece}_{openness}_FILE_{phase}: i32 = {value};")?;
-                        idx += 1;
-                    }
+                    writeln!(
+                        f,
+                        "const {piece}_{openness}_FILE: PhasedScore = {};",
+                        write_phased(weights, idx, &special)
+                    )?;
+                    idx += 1;
                 }
             }
             writeln!(
                 f,
-                "const PAWN_SHIELDS: [[i32; NUM_PHASES]; NUM_PAWN_SHIELD_CONFIGURATIONS] = ["
+                "const PAWN_SHIELDS: [PhasedScore; NUM_PAWN_SHIELD_CONFIGURATIONS] = ["
             )?;
             for i in 0..NUM_PAWN_SHIELD_CONFIGURATIONS {
                 let config = if i < 1 << 6 {
@@ -113,41 +110,26 @@ impl WeightsInterpretation for CapsHceEval {
                 } else {
                     format!("{:#04b}", i - (1 << 6) - (1 << 4))
                 };
-                write!(f, "[")?;
-                for _phase in PhaseType::iter() {
-                    write!(f, "{}, ", weights[idx].to_string(special[idx]))?;
-                    idx += 1;
-                }
-                write!(f, "] /*{config}*/,")?;
+                write!(f, "{} /*{config}*/, ", write_phased(weights, idx, &special),)?;
+                idx += 1;
             }
             writeln!(f, "];")?;
             writeln!(
                 f,
-                " const PAWN_PROTECTION: [[i32; NUM_PHASES]; NUM_CHESS_PIECES] = ["
+                " const PAWN_PROTECTION: [PhasedScore; NUM_CHESS_PIECES] = ["
             )?;
             for _feature in 0..NUM_PAWN_PROTECTION_FEATURES {
-                write!(f, "[")?;
-                for _phase in PhaseType::iter() {
-                    write!(f, "{}, ", weights[idx].to_string(special[idx]))?;
-                    idx += 1
-                }
-                write!(f, "], ")?;
+                write!(f, "{}, ", write_phased(weights, idx, &special))?;
+                idx += 1
             }
             writeln!(f, "\n];")?;
-            writeln!(
-                f,
-                "const PAWN_ATTACKS: [[i32; NUM_PHASES]; NUM_CHESS_PIECES] = ["
-            )?;
+            writeln!(f, "const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = [")?;
             for _feature in 0..NUM_PAWN_ATTACK_FEATURES {
-                write!(f, "[")?;
-                for _phase in PhaseType::iter() {
-                    write!(f, "{}, ", weights[idx].to_string(special[idx]))?;
-                    idx += 1;
-                }
-                write!(f, "], ")?;
+                write!(f, "{}, ", write_phased(weights, idx, &special))?;
+                idx += 1;
             }
             writeln!(f, "\n];")?;
-            assert_eq!(idx, Self::NUM_WEIGHTS);
+            assert_eq!(idx, Self::NUM_FEATURES);
             Ok(())
         }
     }
