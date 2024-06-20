@@ -120,23 +120,10 @@ const_assert_eq!(size_of::<TTEntry<Chessboard>>(), size_of::<AtomicTTEntry>());
 
 pub(super) const DEFAULT_HASH_SIZE_MB: usize = 4;
 
-/// Ideally, a TT would be something like an `Arc<[AtomicTTEntry]>`, but creating an `Arc<Slice>` isn't exactly stable Rust.
-/// Another option would be to have some kind of TT owner and give each thread a reference to the TT, but that would require
-/// tons of lifetime annotations.
-/// So instead, a TT is an `Arc<Vec<AtomicTTEntry>>`. Note that resizing the TT during search will wait until the search is finished
-/// (all threads will receive a new reference)
-
-#[derive(Debug)]
-pub(super) struct SharedTTState {
-    arr: Vec<AtomicTTEntry>,
-}
-
-// TODO: Get rid of the double dereferencing by keeping a reference to the slice.
+/// Note that resizing the TT during search will wait until the search is finished
+/// (all threads will receive a new arc)
 #[derive(Clone, Debug)]
-pub struct TT {
-    tt: Arc<SharedTTState>,
-    mask: usize,
-}
+pub struct TT(pub Arc<[AtomicTTEntry]>);
 
 impl Default for TT {
     fn default() -> Self {
@@ -147,28 +134,27 @@ impl Default for TT {
 impl TT {
     pub fn new_with_bytes(size_in_bytes: usize) -> Self {
         let new_size = size_in_bytes / size_of::<AtomicTTEntry>();
-        let num_bits = new_size.ilog2() as u64;
-        let new_size = 1 << num_bits; // round down to power of two
-        let mut arr = vec![];
+        let mut arr = Vec::with_capacity(new_size);
         arr.resize_with(new_size, AtomicU128::default);
-        Self {
-            tt: Arc::new(SharedTTState { arr }),
-            mask: new_size - 1,
-        }
+        let tt = arr.into_boxed_slice().into();
+        Self(tt)
+    }
+
+    pub fn size(&self) -> usize {
+        self.0.len()
     }
 
     pub fn forget(&mut self) {
-        for entry in self.tt.arr.iter() {
+        for entry in self.0.iter() {
             entry.store(0, Relaxed);
         }
     }
 
     /// Counts the number of non-empty entries in the first 1k entries
     pub fn estimate_hashfull<B: Board>(&self) -> usize {
-        let len = 1000.min(self.tt.arr.len());
+        let len = 1000.min(self.size());
         let num_used = self
-            .tt
-            .arr
+            .0
             .iter()
             .take(len)
             .filter(|e: &&AtomicTTEntry| TTEntry::<B>::from_packed(e.load(Relaxed)).bound != Empty)
@@ -181,7 +167,8 @@ impl TT {
     }
 
     fn index_of(&self, hash: ZobristHash) -> usize {
-        hash.0 as usize & self.mask
+        // Uses the multiplication trick from here: <https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/>
+        ((hash.0 as u128 * self.size() as u128) >> (size_of::<usize>() * 8)) as usize
     }
 
     pub(super) fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {
@@ -208,12 +195,12 @@ impl TT {
             entry.score.0,
             won = entry.score.plies_until_game_won().unwrap_or(42),
         );
-        self.tt.arr[idx].store(entry.to_packed(), Relaxed);
+        self.0[idx].store(entry.to_packed(), Relaxed);
     }
 
     pub(super) fn load<B: Board>(&self, hash: ZobristHash, ply: usize) -> Option<TTEntry<B>> {
         let idx = self.index_of(hash);
-        let mut entry = TTEntry::from_packed(self.tt.arr[idx].load(Relaxed));
+        let mut entry = TTEntry::from_packed(self.0[idx].load(Relaxed));
         // Mate score adjustments, see `store`
         if let Some(plies) = entry.score.plies_until_game_won() {
             if plies < 0 {
@@ -235,7 +222,7 @@ impl TT {
         if cfg!(feature = "unsafe") {
             unsafe {
                 #[cfg(all(target_arch = "x86_64", target_feature = "sse"))]
-                _mm_prefetch::<_MM_HINT_T1>(addr_of!(self.tt.arr[self.index_of(hash)]) as *const i8);
+                _mm_prefetch::<_MM_HINT_T1>(addr_of!(self.0[self.index_of(hash)]) as *const i8);
             }
         }
     }
