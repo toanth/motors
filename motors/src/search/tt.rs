@@ -133,7 +133,7 @@ impl Default for TT {
 
 impl TT {
     pub fn new_with_bytes(size_in_bytes: usize) -> Self {
-        let new_size = size_in_bytes / size_of::<AtomicTTEntry>();
+        let new_size = 1.max(size_in_bytes / size_of::<AtomicTTEntry>());
         let mut arr = Vec::with_capacity(new_size);
         arr.resize_with(new_size, AtomicU128::default);
         let tt = arr.into_boxed_slice().into();
@@ -168,7 +168,7 @@ impl TT {
 
     fn index_of(&self, hash: ZobristHash) -> usize {
         // Uses the multiplication trick from here: <https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/>
-        ((hash.0 as u128 * self.size() as u128) >> (size_of::<usize>() * 8)) as usize
+        ((hash.0 as u128 * self.size() as u128) >> usize::BITS) as usize
     }
 
     pub(super) fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {
@@ -232,7 +232,7 @@ impl TT {
 mod test {
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
     use rand::distributions::Uniform;
-    use rand::{thread_rng, Rng};
+    use rand::{thread_rng, Rng, RngCore};
 
     use super::*;
 
@@ -286,6 +286,43 @@ mod test {
                 let loaded = tt.load(entry.hash, ply).unwrap();
                 assert_eq!(entry, loaded);
             }
+        }
+    }
+
+    #[test]
+    fn test_size() {
+        let sizes = [
+            1, 2, 3, 4, 8, 15, 16, 17, 79, 80, 81, 100, 12345, 0x1ff_ffff, 0x200_0000,
+        ];
+        for num_bytes in sizes {
+            let tt = TT::new_with_bytes(num_bytes);
+            let size = tt.size();
+            assert_eq!(size, 1.max(num_bytes / size_of::<AtomicTTEntry>()));
+            let mut occurrences = vec![0_u64; size];
+            let mut gen = thread_rng();
+            let num_samples = 200_000;
+            for i in 0..num_samples {
+                let idx = tt.index_of(ZobristHash(gen.next_u64()));
+                occurrences[idx] += 1;
+            }
+            let mut expected = num_samples as f64 / size as f64;
+            let min = occurrences.iter().min().copied().unwrap_or_default();
+            let max = occurrences.iter().max().copied().unwrap_or_default();
+            let std_dev = (occurrences.iter().map(|x| x * x).sum::<u64>() as f64 / size as f64
+                - expected * expected)
+                .sqrt();
+            assert!(
+                std_dev <= num_samples as f64 / 128.0,
+                "{std_dev} {expected} {size} {num_bytes}"
+            );
+            assert!(
+                expected - min as f64 <= num_samples as f64 / 128.0,
+                "{expected} {min} {size} {num_bytes}"
+            );
+            assert!(
+                max as f64 - expected <= num_samples as f64 / 128.0,
+                "{expected} {max} {size} {num_bytes}"
+            );
         }
     }
 }
