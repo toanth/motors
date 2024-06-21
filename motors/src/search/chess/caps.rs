@@ -647,11 +647,15 @@ impl<E: Eval<Chessboard>> Caps<E> {
             } else {
                 300 + 64 * depth
             };
-            let lmp_threshold = if we_blundered {
+            let mut lmp_threshold = if we_blundered {
                 6 + 4 * depth
             } else {
                 8 + 8 * depth
             };
+            // LMP faster if we expect to fail low anyway
+            if expected_node_type == FailLow {
+                lmp_threshold -= lmp_threshold / 4;
+            }
             if can_prune
                 && best_score > MAX_SCORE_LOST
                 && depth <= 3
