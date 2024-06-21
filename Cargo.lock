@@ -450,6 +450,7 @@ dependencies = [
  "motors",
  "num",
  "rand",
+ "strum",
  "whoami",
 ]
 

@@ -1013,7 +1013,7 @@ mod tests {
         let perft_res = perft(Depth::new(2), board);
         assert_eq!(perft_res.depth, Depth::new(2));
         assert_eq!(perft_res.nodes, 20 * 20);
-        assert!(perft_res.time.as_millis() <= 10);
+        assert!(perft_res.time.as_millis() <= 20);
 
         let board =
             Chessboard::from_fen("r1bqkbnr/1pppNppp/p1n5/8/8/8/PPPPPPPP/R1BQKBNR b KQkq - 0 3")

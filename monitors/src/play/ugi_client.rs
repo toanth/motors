@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crossbeam_utils::sync::{Parker, Unparker};
+use strum::IntoEnumIterator;
 
 use gears::games::Color::*;
 use gears::games::{Board, BoardHistory, Color, Move, ZobristHistory};
@@ -226,7 +227,7 @@ impl<B: Board> Client<B> {
     ) -> Res<Arc<Mutex<Self>>> {
         let initial_pos = match &args.start_pos {
             None => B::default(),
-            Some(fen) => B::from_fen(&fen)?,
+            Some(fen) => B::from_fen(fen)?,
         };
         let event = args
             .event
@@ -316,9 +317,9 @@ impl<B: Board> Client<B> {
 
     /// Resets the current match to the state before any moves were played.
     pub fn reset(&mut self) {
+        // A newly constructed UgiMatchState does not contain any players
         if self.match_state().p1 != NO_PLAYER {
-            // A newly constructed UgiMatchState does not contain any players
-            for color in [White, Black] {
+            for color in Color::iter() {
                 self.cancel_thinking(color);
                 self.state.get_player_mut(color).reset();
             }
@@ -413,7 +414,7 @@ impl<B: Board> Client<B> {
         if !self.board().is_move_pseudolegal(mov) {
             return Err(format!(
                 "The move '{}' is not pseudolegal in the current position",
-                mov.to_extended_text(&self.board())
+                mov.to_extended_text(self.board())
             ));
         }
         let Some(board) = self.board().make_move(mov) else {
@@ -500,7 +501,6 @@ impl<B: Board> Client<B> {
         self.send_ugi_message_to(self.state.id(color), message)
     }
 
-    // TODO: Not used?!
     fn send_uginewgame(&mut self, color: Color) {
         let msg = match self.state.get_engine(color).proto {
             Protocol::Uci => "ucinewgame",
@@ -509,6 +509,7 @@ impl<B: Board> Client<B> {
         self.send_ugi_message(color, msg);
     }
 
+    // TODO: Not used
     fn send_isready(&mut self, color: Color) {
         self.send_ugi_message(color, "isready");
         let engine = self.state.get_engine_mut(color);
@@ -641,7 +642,7 @@ impl<B: Board> Client<B> {
             self.cancel_thinking(color);
         }
         swap(&mut self.state.the_match.p1, &mut self.state.the_match.p2);
-        for color in [White, Black] {
+        for color in Color::iter() {
             if let Engine(engine) = self.state.get_player_mut(color) {
                 if let Some(m) = engine.current_match.as_mut() {
                     m.color = color;
@@ -680,13 +681,14 @@ impl<B: Board> Client<B> {
         self.reset();
     }
 
+    /// Start a new match from the original starting position, with the given players.
     pub fn new_match(&mut self, p1: PlayerId, p2: PlayerId) {
         assert!(p1 < self.state.num_players());
         assert!(p2 < self.state.num_players());
         self.reset();
         self.match_state().p1 = p1;
         self.match_state().p2 = p2;
-        for color in [White, Black] {
+        for color in Color::iter() {
             self.state.get_player_mut(color).assign_to_match(color);
         }
         self.start_match();
@@ -700,8 +702,14 @@ impl<B: Board> Client<B> {
         self.new_match(self.state.the_match.p2, self.state.the_match.p1)
     }
 
+    /// Start a match from any starting position with the current players.
     pub fn start_match(&mut self) {
         assert_eq!(self.match_state().status, NotStarted);
+        for color in Color::iter() {
+            if self.state.get_player(color).is_engine() {
+                self.send_uginewgame(color);
+            }
+        }
         self.show();
         self.match_state().status = Ongoing;
         let player = self.board().active_player();

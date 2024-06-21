@@ -7,7 +7,7 @@ use std::time::Duration;
 use bitintr::Pdep;
 use colored::Colorize;
 use edit_distance::edit_distance;
-use itertools::Itertools;
+use itertools::{Intersperse, Itertools};
 use num::{Float, PrimInt};
 
 use crate::general::common::Description::WithDescription;
@@ -154,7 +154,9 @@ fn list_to_string<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String>(
     iter: I,
     to_name: F,
 ) -> String {
-    itertools::intersperse(iter.map(|x| to_name(&x)), ", ".to_string()).collect::<String>()
+    iter.map(|x| to_name(&x))
+        .intersperse_(", ".to_string())
+        .collect::<String>()
 }
 
 fn select_name_impl<
@@ -257,6 +259,19 @@ pub fn nonzero_usize(val: usize, name: &str) -> Res<NonZeroUsize> {
 pub fn nonzero_u64(val: u64, name: &str) -> Res<NonZeroU64> {
     NonZeroU64::new(val).ok_or_else(|| format!("{name} can't be zero"))
 }
+
+/// Avoid the warning about [`Itertools::intersperse`] conflicting with a future [`Iter::intersperse`]
+/// and keep using a nicer syntax than of UFCS
+pub trait IterIntersperse: Itertools + Sized {
+    fn intersperse_(self, element: Self::Item) -> Intersperse<Self>
+    where
+        Self::Item: Clone,
+    {
+        itertools::intersperse(self, element)
+    }
+}
+
+impl<I: Itertools> IterIntersperse for I {}
 
 #[cfg(test)]
 mod tests {

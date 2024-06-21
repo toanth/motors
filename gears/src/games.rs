@@ -14,7 +14,8 @@ use strum_macros::EnumIter;
 use crate::games::PlayerResult::*;
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    parse_int, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
+    parse_int, select_name_static, EntityList, GenericSelect, IterIntersperse, Res,
+    StaticallyNamedEntity,
 };
 use crate::general::move_list::MoveList;
 use crate::general::squares::{RectangularCoordinates, RectangularSize};
@@ -788,11 +789,12 @@ fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
     piece_to_char: F,
     flip: bool,
 ) -> String {
+    use std::fmt::Write;
     let mut squares = pos
         .size()
         .valid_coordinates()
         .map(|c| piece_to_char(pos.colored_piece_on(c)))
-        .intersperse(' ')
+        .intersperse_(' ')
         .collect_vec();
     squares.push(' ');
     let mut rows = squares
@@ -806,8 +808,10 @@ fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
     rows.push(
         ('A'..)
             .take(pos.width() as usize)
-            .map(|c| format!("{c} "))
-            .collect(),
+            .fold(String::default(), |mut s, c| -> String {
+                write!(s, "{c} ").unwrap();
+                s
+            }),
     );
     rows.iter().flat_map(|x| x.chars()).collect::<String>() + "\n"
 }

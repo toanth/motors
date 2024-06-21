@@ -472,6 +472,7 @@ pub enum PlayerLimit {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Player<B: Board> {
     /// The usize is te index into the vec of engines stored in the match.
     Engine(EnginePlayer<B>),

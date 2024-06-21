@@ -118,7 +118,7 @@ pub fn create_client_match_for_game<B: Board>(
         }
     }
     let client = run_client.client.clone();
-    let builders = args.players.into_iter().map(|p| PlayerBuilder::new(p));
+    let builders = args.players.into_iter().map(PlayerBuilder::new);
     for builder in builders {
         builder.build(client.clone())?;
     }

@@ -186,6 +186,7 @@ impl Eval<Chessboard> for CapsHceEval {
 }
 
 impl CapsHceEval {
+    #[allow(clippy::field_reassign_with_default)]
     fn trace(pos: &Chessboard) -> Trace {
         let mut trace = Trace::default();
         trace.psqt = psqt_trace(pos);

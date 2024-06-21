@@ -149,6 +149,7 @@ pub struct HumanArgs {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum PlayerArgs {
     Human(HumanArgs),
     Engine(ClientEngineCliArgs),
@@ -191,9 +192,9 @@ fn parse_adjudication(args: &mut ArgIter, is_draw: bool) -> Res<ScoreAdjudicatio
         let (key, val) = parse_key_equals_value(&arg)?;
         let val = val?;
         match key {
-            "movecount" => res.move_number = parse_int_from_str(&val, "movecount")?,
-            "movenumber" => res.start_after = parse_int_from_str(&val, "movenumber")?,
-            "score" => res.score_threshold = Score(parse_int_from_str(&val, "score")?),
+            "movecount" => res.move_number = parse_int_from_str(val, "movecount")?,
+            "movenumber" => res.start_after = parse_int_from_str(val, "movenumber")?,
+            "score" => res.score_threshold = Score(parse_int_from_str(val, "score")?),
             "twosided" => twosided = bool::from_str(val).map_err(|err| err.to_string())?,
             _ => {
                 return Err(format!(
@@ -268,7 +269,7 @@ pub fn parse_human<Iter: Iterator<Item = String>>(args: &mut Peekable<Iter>) -> 
             x => return Err(format!("Unknown argument '{x}' for a human player")),
         }
     }
-    return Ok(res);
+    Ok(res)
 }
 
 fn print_help_message() {
@@ -296,11 +297,11 @@ pub fn combine_engine_args(
         .clone()
         .or_else(|| each.display_name.clone());
     if engine.cmd.is_empty() {
-        engine.cmd = each.cmd.clone();
+        engine.cmd.clone_from(&each.cmd);
     }
     engine.path = engine.path.clone().or_else(|| each.path.clone());
     if engine.engine_args.is_empty() {
-        engine.engine_args = each.engine_args.clone();
+        engine.engine_args.clone_from(&each.engine_args);
     }
     engine.add_debug_flag = add_debug_flag;
     engine.init_string = engine
@@ -308,16 +309,13 @@ pub fn combine_engine_args(
         .clone()
         .or_else(|| each.init_string.clone());
     engine.stderr = engine.stderr.clone().or_else(|| each.stderr.clone());
-    engine.proto = engine.proto.clone().or_else(|| each.proto.clone());
-    engine.tc = engine.tc.clone().or_else(|| each.tc.clone());
-    engine.move_time = engine.move_time.clone().or_else(|| each.move_time.clone());
-    engine.time_margin = engine
-        .time_margin
-        .clone()
-        .or_else(|| each.time_margin.clone());
+    engine.proto = engine.proto.or(each.proto);
+    engine.tc = engine.tc.or(each.tc);
+    engine.move_time = engine.move_time.or(each.move_time);
+    engine.time_margin = engine.time_margin.or(each.time_margin);
     engine.white_pov |= each.white_pov;
-    engine.depth = engine.depth.clone().or_else(|| each.depth.clone());
-    engine.nodes = engine.nodes.clone().or_else(|| each.nodes.clone());
+    engine.depth = engine.depth.or(each.depth);
+    engine.nodes = engine.nodes.or(each.nodes);
     each.custom_options.iter().for_each(|(key, value)| {
         engine
             .custom_options

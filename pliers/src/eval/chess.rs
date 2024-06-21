@@ -68,7 +68,7 @@ fn psqt_trace(pos: &Chessboard) -> TraceNFeatures<NUM_PSQT_FEATURES> {
 }
 
 fn index(piece_idx: usize, square: usize) -> usize {
-    64 * piece_idx + square as usize
+    64 * piece_idx + square
 }
 
 fn write_phased_psqt(

@@ -12,8 +12,8 @@ use gears::games::Color::{Black, White};
 use gears::games::{Board, Color, Move};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
-    parse_int_from_str, select_name_static, to_name_and_optional_description, NamedEntity, Res,
-    StaticallyNamedEntity,
+    parse_int_from_str, select_name_static, to_name_and_optional_description, IterIntersperse,
+    NamedEntity, Res, StaticallyNamedEntity,
 };
 use gears::output::Message::{Info, Warning};
 use gears::search::TimeControl;
@@ -135,7 +135,7 @@ impl<B: Board> TextInputThread<B> {
                     ugi_client
                         .lock()
                         .unwrap()
-                        .show_error(format!("Couldn't get input: {}", err.to_string()).as_str())
+                        .show_error(&format!("Couldn't get input: {}", err))
                 };
                 break;
             }
@@ -178,7 +178,7 @@ impl<B: Board> TextInputThread<B> {
             Self::handle_load_player(ugi_client.clone(), &mut words)?;
         } else {
             let mut client = ugi_client.lock().unwrap();
-            match B::Move::from_text(input, &client.board()) {
+            match B::Move::from_text(input, client.board()) {
                 Ok(mov) => {
                     let active_player = client
                         .active_player()
@@ -228,13 +228,13 @@ impl<B: Board> TextInputThread<B> {
             println!("{}", desc);
         } else {
             println!("Input either a move (most formats based on algebraic notation are recognized) or a command. Valid commands are:");
-            for cmd in commands.into_iter() {
+            for cmd in commands.iter() {
                 println!(
                     "{:25}  {description}",
                     cmd.names
                         .iter()
                         .map(|c| format!("'{}'", c.bold()))
-                        .intersperse(", ".to_string())
+                        .intersperse_(", ".to_string())
                         .collect::<String>()
                         + ":",
                     description = cmd.description.unwrap_or("<No description>")
@@ -287,7 +287,7 @@ impl<B: Board> TextInputThread<B> {
                 .legal_moves_slow()
                 .into_iter()
                 .map(|m| m.to_extended_text(&board))
-                .intersperse(", ".to_string())
+                .intersperse_(", ".to_string())
                 .collect::<String>()
         );
     }
@@ -307,14 +307,14 @@ impl<B: Board> TextInputThread<B> {
     }
 
     fn handle_stop(mut client: MutexGuard<Client<B>>, words: &mut SplitWhitespace) -> Res<()> {
-        let side = Self::get_side(&mut client, words, Active)?;
+        let side = Self::get_side(&client, words, Active)?;
         if !client.state.get_player(side).is_engine() {
             return Err(format!(
                 "The {side} player is a human and not an engine, so they can't be stopped"
             ));
         }
         match client.active_player() {
-            None => return Err("The match isn't running".to_string()),
+            None => Err("The match isn't running".to_string()),
             Some(p) => {
                 if p == side {
                     client.stop_thinking(side, Play);
@@ -327,8 +327,8 @@ impl<B: Board> TextInputThread<B> {
     }
 
     fn handle_position(mut client: MutexGuard<Client<B>>, words: &mut SplitWhitespace) -> Res<()> {
-        let board = client.board().clone();
-        client.reset_to_new_start_position(parse_ugi_position(words, &board)?);
+        let old_board = *client.board();
+        client.reset_to_new_start_position(parse_ugi_position(words, &old_board)?);
         let Some(word) = words.next() else {
             return Ok(());
         };
@@ -336,7 +336,7 @@ impl<B: Board> TextInputThread<B> {
             return Err(format!("Unrecognized word '{word}' after position command, expected either 'moves' or nothing"));
         }
         for mov in words {
-            let mov = B::Move::from_compact_text(mov, &client.board())
+            let mov = B::Move::from_compact_text(mov, client.board())
                 .map_err(|err| format!("Couldn't parse move: {err}"))?;
             client.play_move_internal(mov)?;
         }
@@ -361,7 +361,7 @@ impl<B: Board> TextInputThread<B> {
                     .players
                     .iter()
                     .map(|p| p.get_name())
-                    .intersperse(", ")
+                    .intersperse_(", ")
                     .collect::<String>()
             )
         })?;
@@ -480,7 +480,7 @@ impl<B: Board> TextInputThread<B> {
     }
 
     fn handle_info(mut client: MutexGuard<Client<B>>, words: &mut SplitWhitespace) -> Res<()> {
-        let color = Self::get_side(&mut client, words, Active)?;
+        let color = Self::get_side(&client, words, Active)?;
         match client.state.get_player_mut(color) {
             Player::Engine(engine) => {
                 println!(
@@ -513,7 +513,7 @@ impl<B: Board> TextInputThread<B> {
     }
 
     fn handle_send_ugi(mut client: MutexGuard<Client<B>>, words: &mut SplitWhitespace) -> Res<()> {
-        let player = Self::get_side(&mut client, words, Active)?;
+        let player = Self::get_side(&client, words, Active)?;
         if !client.state.get_player_mut(player).is_engine() {
             return Err(format!(
                 "The {player} player is not an engine and can't receive UGI commands"
