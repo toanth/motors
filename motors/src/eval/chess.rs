@@ -36,10 +36,9 @@ pub enum FileOpenness {
     SemiClosed,
 }
 
-const NUM_PHASES: usize = 2;
-const CHESS_PHASE_VALUES: [usize; NUM_CHESS_PIECES] = [0, 1, 1, 2, 4, 0];
+pub const CHESS_PHASE_VALUES: [usize; NUM_CHESS_PIECES] = [0, 1, 1, 2, 4, 0];
 
-const NUM_PSQT_FEATURES: usize = NUM_CHESS_PIECES * NUM_SQUARES;
+pub const NUM_PSQT_FEATURES: usize = NUM_CHESS_PIECES * NUM_SQUARES;
 
 pub const NUM_PAWN_SHIELD_CONFIGURATIONS: usize = (1 << 6) + (1 << 4) + (1 << 4);
 
@@ -97,10 +96,10 @@ mod tests {
     use crate::eval::chess::material_only::MaterialOnlyEval;
     use crate::eval::chess::piston::PistonEval;
     use crate::eval::Eval;
-    use crate::search::Engine;
+
     use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
     use gears::games::chess::Chessboard;
-    use gears::games::{Board, BoardHistory, DimT};
+    use gears::games::{Board, DimT};
     use gears::general::bitboards::RawBitboard;
     use gears::score::Score;
     use strum::IntoEnumIterator;
@@ -168,7 +167,7 @@ mod tests {
             for delta_rank in [1, 2] {
                 let file = king.file() as isize + delta_file;
                 let rank = king.rank() as usize + delta_rank;
-                if file < 0 || file >= 8 || rank >= 8 {
+                if !(0..8).contains(&file) || rank >= 8 {
                     continue;
                 }
                 let square = ChessSquare::from_rank_file(rank as DimT, file as DimT);

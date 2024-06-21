@@ -21,6 +21,7 @@ use crate::PlayerResult::{Draw, Lose, Win};
 use itertools::Itertools;
 use rand::prelude::SliceRandom;
 use rand::Rng;
+use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::str::SplitWhitespace;
 use strum::IntoEnumIterator;
@@ -261,12 +262,10 @@ impl Board for AtaxxBoard {
         }
         let our_pieces = self.color_bb(color).num_ones();
         let their_pieces = self.color_bb(color.other()).num_ones();
-        Some(if our_pieces > their_pieces {
-            Win
-        } else if our_pieces == their_pieces {
-            Draw
-        } else {
-            Lose
+        Some(match our_pieces.cmp(&their_pieces) {
+            Ordering::Less => Lose,
+            Ordering::Equal => Draw,
+            Ordering::Greater => Win,
         })
     }
 

@@ -18,6 +18,7 @@ pub trait MoveList<B: Board>: IntoIterator<Item = B::Move> {
 }
 
 /// A list of moves that is computed all at once and stored in-place.
+#[allow(type_alias_bounds)]
 pub type EagerNonAllocMoveList<B: Board, const N: usize> = ArrayVec<B::Move, N>;
 
 impl<B: Board, const N: usize> MoveList<B> for EagerNonAllocMoveList<B, N> {

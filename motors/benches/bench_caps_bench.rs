@@ -1,11 +1,11 @@
 use std::time::Duration;
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use gears::games::chess::Chessboard;
 use gears::search::Depth;
 use motors::eval::chess::hce::HandCraftedEval;
 use motors::search::chess::caps::Caps;
-use motors::search::{run_bench, run_bench_with_depth, Benchable};
+use motors::search::{run_bench_with_depth, Benchable};
 
 pub fn caps_startpos_bench(c: &mut Criterion) {
     c.bench_function("bench 12 startpos", |b| {

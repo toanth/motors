@@ -1,9 +1,8 @@
-use std::sync::{Arc, Mutex};
+use crate::play::ugi_client::Client;
 use dyn_clone::DynClone;
 use gears::games::Board;
 use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
-use gears::output::{OutputBox, OutputBuilder};
-use crate::play::ugi_client::Client;
+use std::sync::{Arc, Mutex};
 
 pub mod text_input;
 
@@ -21,11 +20,10 @@ pub mod text_input;
 //     }
 // }
 
-
 /// An `Input` tells the MatchState what to do. It isn't necessarily just a way for a human to enter input,
 /// it can also automatically run games, like a SPRT runner. Since the `Input` is in complete control of the match,
 /// this trait is almost empty
-pub trait Input<B: Board> : StaticallyNamedEntity {
+pub trait Input<B: Board>: StaticallyNamedEntity {
     fn assume_control(&mut self, ugi_client: Arc<Mutex<Client<B>>>);
 
     /// Called upon program termination. Should clean up and make sure that any threads are joined.
@@ -40,7 +38,10 @@ pub trait InputBuilder<B: Board>: NamedEntity + DynClone {
         if option.is_empty() {
             Ok(())
         } else {
-            Err(format!("Unrecognized option {option} for match input '{}'", self.long_name()))
+            Err(format!(
+                "Unrecognized option {option} for match input '{}'",
+                self.long_name()
+            ))
         }
     }
 }

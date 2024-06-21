@@ -776,7 +776,7 @@ mod test {
     #[test]
     fn movegen_test() {
         let board = MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(4), Width(5), 2));
-        let mut moves = board.pseudolegal_moves();
+        let moves = board.pseudolegal_moves();
         assert_eq!(moves.len(), 20);
         assert_eq!(
             MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(10), Width(9), 7))

@@ -168,7 +168,7 @@ impl TT {
 
     fn index_of(&self, hash: ZobristHash) -> usize {
         // Uses the multiplication trick from here: <https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/>
-        ((hash.0 as u128 * self.size() as u128) >> usize::BITS) as usize
+        ((hash.0 as u128 * self.size() as u128) >> usize::BITS as usize) as usize
     }
 
     pub(super) fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {
@@ -282,7 +282,7 @@ mod test {
                 let val = TTEntry::from_packed(packed);
                 assert_eq!(val, entry);
                 let ply = thread_rng().sample(Uniform::new(0, 100));
-                tt.store(entry.clone(), ply);
+                tt.store(entry, ply);
                 let loaded = tt.load(entry.hash, ply).unwrap();
                 assert_eq!(entry, loaded);
             }

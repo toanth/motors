@@ -4,7 +4,7 @@ use crate::games::chess::pieces::UncoloredChessPiece;
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
 use crate::games::chess::Chessboard;
 use crate::games::Color::*;
-use crate::games::{Color, ColoredPieceType, ZobristHash};
+use crate::games::{Color, ZobristHash};
 
 pub const NUM_PIECE_SQUARE_ENTRIES: usize = 64 * 6;
 pub const NUM_COLORED_PIECE_SQUARE_ENTRIES: usize = NUM_PIECE_SQUARE_ENTRIES * 2;
@@ -134,8 +134,6 @@ impl Chessboard {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-
-    use itertools::Itertools;
 
     use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
     use crate::games::chess::pieces::UncoloredChessPiece::{Bishop, Knight};

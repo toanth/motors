@@ -1,20 +1,20 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::mem::swap;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crossbeam_utils::sync::{Parker, Unparker};
+use strum::IntoEnumIterator;
 
-use gears::games::Color::{Black, White};
+use gears::games::Color::*;
 use gears::games::{Board, BoardHistory, Color, Move, ZobristHistory};
 use gears::general::common::Res;
-use gears::output::Message::{Error, Info, Warning};
+use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{SearchInfo, TimeControl};
-use gears::ugi::EngineOptionType::*;
-use gears::MatchStatus::{NotStarted, Ongoing, Over};
-use gears::Quitting::{QuitMatch, QuitProgram};
+use gears::MatchStatus::*;
+use gears::Quitting::*;
 use gears::{
     output_builder_from_str, player_res_to_match_res, AbstractRun, AdjudicationReason, GameOver,
     GameOverReason, GameResult, GameState, MatchResult, MatchStatus, PlayerResult, Quitting,
@@ -227,7 +227,7 @@ impl<B: Board> Client<B> {
     ) -> Res<Arc<Mutex<Self>>> {
         let initial_pos = match &args.start_pos {
             None => B::default(),
-            Some(fen) => B::from_fen(&fen)?,
+            Some(fen) => B::from_fen(fen)?,
         };
         let event = args
             .event
@@ -317,9 +317,9 @@ impl<B: Board> Client<B> {
 
     /// Resets the current match to the state before any moves were played.
     pub fn reset(&mut self) {
+        // A newly constructed UgiMatchState does not contain any players
         if self.match_state().p1 != NO_PLAYER {
-            // A newly constructed UgiMatchState does not contain any players
-            for color in [White, Black] {
+            for color in Color::iter() {
                 self.cancel_thinking(color);
                 self.state.get_player_mut(color).reset();
             }
@@ -380,7 +380,7 @@ impl<B: Board> Client<B> {
 
     pub fn game_over(&mut self, result: MatchResult) {
         self.match_state().status = Over(result);
-        for mut output in self.outputs.iter_mut() {
+        for output in self.outputs.iter_mut() {
             output.inform_game_over(&self.state);
         }
     }
@@ -414,7 +414,7 @@ impl<B: Board> Client<B> {
         if !self.board().is_move_pseudolegal(mov) {
             return Err(format!(
                 "The move '{}' is not pseudolegal in the current position",
-                mov.to_extended_text(&self.board())
+                mov.to_extended_text(self.board())
             ));
         }
         let Some(board) = self.board().make_move(mov) else {
@@ -466,7 +466,7 @@ impl<B: Board> Client<B> {
     }
 
     pub fn show(&mut self) {
-        for mut output in self.outputs.iter_mut() {
+        for output in self.outputs.iter_mut() {
             output.show(&self.state);
         }
     }
@@ -476,7 +476,7 @@ impl<B: Board> Client<B> {
     }
 
     pub fn show_message(&mut self, typ: Message, message: &str) {
-        for mut output in self.outputs.iter_mut() {
+        for output in self.outputs.iter_mut() {
             output.display_message_with_state(&self.state, typ, message);
         }
     }
@@ -509,6 +509,7 @@ impl<B: Board> Client<B> {
         self.send_ugi_message(color, msg);
     }
 
+    // TODO: Not used
     fn send_isready(&mut self, color: Color) {
         self.send_ugi_message(color, "isready");
         let engine = self.state.get_engine_mut(color);
@@ -522,11 +523,11 @@ impl<B: Board> Client<B> {
         self.send_ugi_message(color, &self.ugi_output.as_string(&self.state));
     }
 
+    /// This function does no validation at all. This allows for greater flexibility when the user knows that
+    /// an engine supports options or even option types that the client isn't aware of.
+    /// However, this does mean that invalid user input can lead to engine crashes (but that's already the case
+    /// anyway, and not something the client can handle in general)
     pub fn send_setoption(&mut self, engine: PlayerId, name: &str, value: &str) {
-        /// This function does no validation at all. This allows for greater flexibility when the user knows that
-        /// an engine supports options or even option types that the client isn't aware of.
-        /// However, this does mean that invalid user input can lead to engine crashes (but that's already the case
-        /// anyway, and not something the client can handle in general)
         let msg = format!("setoption name {name} value {value}");
         self.send_ugi_message_to(engine, &msg);
     }
@@ -641,7 +642,7 @@ impl<B: Board> Client<B> {
             self.cancel_thinking(color);
         }
         swap(&mut self.state.the_match.p1, &mut self.state.the_match.p2);
-        for color in [White, Black] {
+        for color in Color::iter() {
             if let Engine(engine) = self.state.get_player_mut(color) {
                 if let Some(m) = engine.current_match.as_mut() {
                     m.color = color;
@@ -680,13 +681,14 @@ impl<B: Board> Client<B> {
         self.reset();
     }
 
+    /// Start a new match from the original starting position, with the given players.
     pub fn new_match(&mut self, p1: PlayerId, p2: PlayerId) {
         assert!(p1 < self.state.num_players());
         assert!(p2 < self.state.num_players());
         self.reset();
         self.match_state().p1 = p1;
         self.match_state().p2 = p2;
-        for color in [White, Black] {
+        for color in Color::iter() {
             self.state.get_player_mut(color).assign_to_match(color);
         }
         self.start_match();
@@ -700,8 +702,14 @@ impl<B: Board> Client<B> {
         self.new_match(self.state.the_match.p2, self.state.the_match.p1)
     }
 
+    /// Start a match from any starting position with the current players.
     pub fn start_match(&mut self) {
         assert_eq!(self.match_state().status, NotStarted);
+        for color in Color::iter() {
+            if self.state.get_player(color).is_engine() {
+                self.send_uginewgame(color);
+            }
+        }
         self.show();
         self.match_state().status = Ongoing;
         let player = self.board().active_player();

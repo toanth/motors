@@ -18,7 +18,7 @@ use crate::games::chess::Chessboard;
 use crate::games::Color::{Black, White};
 use crate::games::{
     char_to_file, file_to_char, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType,
-    DimT, Move, MoveFlags, NoHistory, ZobristHash,
+    DimT, Move, MoveFlags, ZobristHash,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::common::Res;
@@ -955,7 +955,7 @@ impl<'a> MoveParser<'a> {
 mod tests {
     use crate::games::chess::moves::ChessMove;
     use crate::games::chess::Chessboard;
-    use crate::games::generic_tests::generic_tests;
+    use crate::games::generic_tests;
     use crate::games::{Board, Move};
 
     type GenericTests = generic_tests::GenericTests<Chessboard>;

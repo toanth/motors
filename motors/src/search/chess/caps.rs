@@ -29,10 +29,8 @@ use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck, Ugi
 
 use crate::eval::Eval;
 use crate::search::move_picker::MovePicker;
-use crate::search::multithreading::SearchSender;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
 use crate::search::tt::{TTEntry, TT};
-use crate::search::NodeType::*;
 use crate::search::*;
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
@@ -637,11 +635,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
         let mut move_picker =
             MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
-        let move_scorer = CapsMoveScorer {
-            board: pos,
-            ply,
-            tt_move: best_move,
-        };
+        let move_scorer = CapsMoveScorer { board: pos, ply };
         while let Some((mov, move_score)) = move_picker.next(&move_scorer, &self.state) {
             // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
             // so don't even bother looking at them in the last few layers.
@@ -927,11 +921,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         self.state.search_stack[ply].tried_moves.clear();
         let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
             MovePicker::new(pos, best_move, true);
-        let move_scorer = CapsMoveScorer {
-            board: pos,
-            ply,
-            tt_move: best_move,
-        };
+        let move_scorer = CapsMoveScorer { board: pos, ply };
         let mut children_visited = 0;
         while let Some((mov, score)) = move_picker.next(&move_scorer, &self.state) {
             debug_assert!(mov.is_tactical(&pos));
@@ -976,7 +966,6 @@ impl<E: Eval<Chessboard>> Caps<E> {
 struct CapsMoveScorer {
     board: Chessboard,
     ply: usize,
-    tt_move: ChessMove,
 }
 
 impl MoveScorer<Chessboard> for CapsMoveScorer {
