@@ -642,7 +642,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // FP (Futility Pruning): If the static eval is far below alpha,
             // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
             // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
-            let fp_margin = if we_blundered {
+            let mut fp_margin = if we_blundered {
                 200 + 32 * depth
             } else {
                 300 + 64 * depth
@@ -652,9 +652,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
             } else {
                 8 + 8 * depth
             };
-            // LMP faster if we expect to fail low anyway
+            // LMP faster if we expect to fail low anyway.
+            // Also, FP more aggressively for similar reasons.
             if expected_node_type == FailLow {
                 lmp_threshold -= lmp_threshold / 4;
+                fp_margin -= fp_margin / 4;
             }
             if can_prune
                 && best_score > MAX_SCORE_LOST
