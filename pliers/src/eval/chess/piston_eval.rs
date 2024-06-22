@@ -3,7 +3,7 @@
 
 use crate::eval::chess::{psqt_trace, write_psqts, NUM_PHASES};
 use crate::eval::{changed_at_least, Eval, WeightsInterpretation};
-use crate::gd::{SimpleTrace, TaperedDatapoint, TraceTrait, Weight, Weights};
+use crate::gd::{TaperedDatapoint, TraceTrait, Weight, Weights};
 use crate::load_data::NoFilter;
 use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
 use gears::games::chess::Chessboard;

@@ -318,7 +318,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
 }
 
 #[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub)]
-struct MoveScore(pub i32);
+pub struct MoveScore(pub i32);
 
 impl MoveScore {
     const MAX: MoveScore = MoveScore(i32::MAX);
@@ -604,7 +604,7 @@ pub fn run_bench_with_depth<B: Board>(
     engine: &mut dyn Benchable<B>,
     mut depth: Depth,
 ) -> BenchResult {
-    if depth.get() <= 0 || depth == MAX_DEPTH {
+    if depth.get() == 0 || depth == MAX_DEPTH {
         depth = engine.engine_info().default_bench_depth
     }
     let mut sum = BenchResult::default();

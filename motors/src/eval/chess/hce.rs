@@ -1,8 +1,6 @@
 use strum::IntoEnumIterator;
 
-use crate::eval::chess::{
-    pawn_shield_idx, FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS, NUM_PHASES,
-};
+use crate::eval::chess::{pawn_shield_idx, FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::{Bishop, Empty, King, Pawn, Rook};
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
@@ -438,9 +436,9 @@ impl Eval<Chessboard> for HandCraftedEval {
         mov: ChessMove,
         new_pos: Chessboard,
     ) -> Score {
-        /// Eval isn't called on nodes with a PV node TT entry, so it's possible that eval was not called on the previous
-        /// position. Zobrist hash collisions should be rare enough not to matter, since they would require the previous
-        /// position to be a PV node with the same hash as the current node
+        // Eval isn't called on nodes with a PV node TT entry, so it's possible that eval was not called on the previous
+        // position. Zobrist hash collisions should be rare enough not to matter, since they would require the previous
+        // position to be a PV node with the same hash as the current node
         if old_pos.zobrist_hash() != self.old_hash {
             return self.eval(new_pos);
         }

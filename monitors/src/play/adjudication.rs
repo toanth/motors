@@ -1,4 +1,4 @@
-use crate::play::ugi_client::{ClientState, UgiMatchState};
+use crate::play::ugi_client::ClientState;
 use gears::games::Board;
 use gears::games::Color::{Black, White};
 use gears::score::Score;

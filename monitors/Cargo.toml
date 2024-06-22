@@ -9,6 +9,7 @@ gears = { path = "../gears", default-features = false }
 rand = "0.8.5"
 num = "0.4.1"
 colored = "2.0.4"
+strum = "0.26.2"
 crossbeam-channel = "0.5.8"
 crossbeam-utils = "0.8.19"
 dyn-clone = "1.0.17"

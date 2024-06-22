@@ -10,7 +10,6 @@ use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
 use std::ops::{DivAssign, MulAssign};
 use std::time::Instant;
-use std::usize;
 
 // TODO: Better value
 /// If the batch size exceeds this value, a multithreaded implementation will be used for computing the gradient and loss.
@@ -306,7 +305,7 @@ pub trait TraceTrait: Debug {
     /// the white player minus the number of times it appears for the black player.
     fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
         let mut res = vec![];
-        let mut offset = 0;
+        let mut offset = idx_offset;
         for nested in self.nested_traces() {
             res.append(&mut nested.as_features(offset));
             offset += nested.max_num_features();
@@ -680,7 +679,7 @@ impl<D: Datapoint> Dataset<D> {
 }
 
 /// A list of data points on which the eval gets optimized.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Batch<'a, D: Datapoint> {
     /// The underlying array of data points.
     pub datapoints: &'a [D],
@@ -693,17 +692,7 @@ pub struct Batch<'a, D: Datapoint> {
     pub weight_sum: Float,
 }
 
-// deriving Copy, Clone doesn't work for some reason
-impl<D: Datapoint> Clone for Batch<'_, D> {
-    fn clone(&self) -> Self {
-        Self {
-            datapoints: self.datapoints,
-            num_weights: self.num_weights,
-            weight_sum: self.weight_sum,
-        }
-    }
-}
-
+// deriving `Copy` doesn't work for some reason, because apparently `D` would have to be copyable for that?
 impl<D: Datapoint> Copy for Batch<'_, D> {}
 
 impl<'a, D: Datapoint> Deref for Batch<'a, D> {
@@ -892,6 +881,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
 }
 
 /// Convenience function for optimizing with the [`Adam`] optimizer.
+#[allow(unused)]
 fn adam_optimize<D: Datapoint>(
     batch: Batch<D>,
     eval_scale: ScalingFactor,
@@ -1081,6 +1071,7 @@ mod tests {
     use super::*;
     use rand::distributions::{Distribution, Uniform};
     use rand::thread_rng;
+    use std::cmp::Ordering;
     use std::cmp::Ordering::Equal;
 
     #[test]
@@ -1152,12 +1143,10 @@ mod tests {
                         if initial_weight == 0.0 && grad.0[0].0.abs() > 0.0000001 {
                             assert_eq!(
                                 weights.0[0].0.partial_cmp(&old_weights[0].0),
-                                outcome.partial_cmp(&0.5).map(|x| if feature < 0 {
-                                    x.reverse()
-                                } else if feature == 0 {
-                                    Equal
-                                } else {
-                                    x
+                                outcome.partial_cmp(&0.5).map(|x| match feature.cmp(&0) {
+                                    Ordering::Less => x.reverse(),
+                                    Equal => Equal,
+                                    Ordering::Greater => x,
                                 })
                             );
                         }

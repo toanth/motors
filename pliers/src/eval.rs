@@ -5,7 +5,6 @@
 
 use crate::eval::Direction::{Down, Up};
 use crate::eval::EvalScale::{InitialWeights, Scale};
-use crate::gd;
 use crate::gd::{
     cp_eval_for_weights, cp_to_wr, sample_loss, scaled_sample_grad, Batch, Datapoint, Float,
     Outcome, ScalingFactor, TraceTrait, Weight, Weights,

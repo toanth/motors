@@ -21,9 +21,7 @@
 use crate::PlayerResult;
 use derive_more::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use num::ToPrimitive;
-use std::mem::size_of;
 use std::ops::Div;
-use std::usize;
 
 /// Valid scores fit into 16 bits, but it's possible to temporarily overflow that range with some operations,
 /// e.g. when computing `score - previous_score`. So in order to avoid bugs related to that, simply use 32 bits.
@@ -149,7 +147,7 @@ pub struct PhasedScore(ScoreT);
 
 pub type PhaseType = isize;
 
-const COMPACT_SCORE_BITS: usize = size_of::<CompactScoreT>() * 8;
+const COMPACT_SCORE_BITS: usize = CompactScoreT::BITS as usize;
 
 impl PhasedScore {
     pub const fn new(mg: CompactScoreT, eg: CompactScoreT) -> Self {
@@ -222,7 +220,25 @@ mod tests {
         for i in -200..123 {
             for j in -321..99 {
                 v.push((i, j));
-                let score = p(i, j);
+                let phased = p(i, j);
+                assert_eq!(
+                    phased.mg().0,
+                    i as ScoreT,
+                    "{0} {i} {j} -- {1:X}, {2} {3}",
+                    phased.mg(),
+                    phased.underlying(),
+                    phased.underlying() >> 16,
+                    phased.underlying() & 0xffff,
+                );
+                assert_eq!(
+                    phased.eg().0,
+                    j as ScoreT,
+                    "{0} {i} {j} -- {1:X}, {2} {3}",
+                    phased.mg(),
+                    phased.underlying(),
+                    phased.underlying() >> 16,
+                    phased.underlying() & 0xffff,
+                );
             }
         }
         v.shuffle(&mut thread_rng());
@@ -233,18 +249,6 @@ mod tests {
             let mg_b = Score(mg_b as ScoreT);
             let eg_a = Score(eg_a as ScoreT);
             let eg_b = Score(eg_b as ScoreT);
-            assert_eq!(
-                taper_a.mg(),
-                mg_a,
-                "{0} {mg_a} {eg_a} -- {1:X}, {2} {3}",
-                taper_a.mg(),
-                taper_a.underlying(),
-                taper_a.underlying() >> 16,
-                taper_a.underlying() & 0xffff,
-            );
-            assert_eq!(taper_a.eg(), eg_a);
-            assert_eq!(taper_b.mg(), mg_b);
-            assert_eq!(taper_b.eg(), eg_b);
             let sum = taper_a + taper_b;
             assert_eq!(
                 sum.mg(),
