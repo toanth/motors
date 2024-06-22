@@ -656,7 +656,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             // Also, FP more aggressively for similar reasons.
             if expected_node_type == FailLow {
                 lmp_threshold -= lmp_threshold / 4;
-                fp_margin -= fp_margin / 4;
+                fp_margin -= fp_margin / 8;
             }
             if can_prune
                 && best_score > MAX_SCORE_LOST
