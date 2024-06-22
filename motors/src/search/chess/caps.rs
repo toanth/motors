@@ -609,7 +609,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 self.state.search_stack[ply]
                     .tried_moves
                     .push(ChessMove::default());
-                let reduction = 3 + depth / 4 + they_blundered as isize;
+                let reduction = 3
+                    + depth / 4
+                    + they_blundered as isize
+                    + (expected_node_type == FailHigh) as isize;
                 let score = -self.negamax(
                     new_pos,
                     limit,
@@ -652,7 +655,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
             } else {
                 8 + 8 * depth
             };
-            // LMP faster if we expect to fail low anyway
+            // LMP sooner if we expect to fail low anyway
             if expected_node_type == FailLow {
                 lmp_threshold -= lmp_threshold / 4;
             }
