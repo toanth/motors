@@ -754,6 +754,10 @@ impl Chessboard {
         true
     }
 
+    pub fn ep_square(&self) -> Option<ChessSquare> {
+        self.ep_square
+    }
+
     pub fn king_square(&self, color: Color) -> ChessSquare {
         ChessSquare::from_bb_index(self.colored_piece_bb(color, King).trailing_zeros())
     }

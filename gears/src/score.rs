@@ -147,6 +147,8 @@ pub const fn is_valid_score(score: ScoreT) -> bool {
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Add, AddAssign, Sub, SubAssign, Neg)]
 pub struct PhasedScore(ScoreT);
 
+pub type PhaseType = isize;
+
 const COMPACT_SCORE_BITS: usize = size_of::<CompactScoreT>() * 8;
 
 impl PhasedScore {
@@ -169,9 +171,9 @@ impl PhasedScore {
         Score(self.underlying() as CompactScoreT as ScoreT)
     }
 
-    pub fn taper(self, phase: isize, max_phase: isize) -> Score {
+    pub fn taper(self, phase: PhaseType, max_phase: PhaseType) -> Score {
         Score(
-            ((self.mg().0 as isize * phase + self.eg().0 as isize * (max_phase - phase))
+            ((self.mg().0 as PhaseType * phase + self.eg().0 as PhaseType * (max_phase - phase))
                 / max_phase) as ScoreT,
         )
     }

@@ -154,7 +154,7 @@ impl ChessMove {
         self.flags() == CastleQueenside || self.flags() == CastleKingside
     }
 
-    fn castle_side(self) -> CastleRight {
+    pub fn castle_side(self) -> CastleRight {
         debug_assert!(self.is_castle());
         if self.flags() == CastleQueenside {
             Queenside
@@ -365,9 +365,13 @@ impl Move<Chessboard> for ChessMove {
 }
 
 impl Chessboard {
+    pub fn backrank(color: Color) -> DimT {
+        7 * color as DimT
+    }
+
     pub fn rook_start_square(&self, color: Color, side: CastleRight) -> ChessSquare {
         let file = self.castling.rook_start_file(color, side);
-        let rank = 7 * color as DimT;
+        let rank = Self::backrank(color);
         ChessSquare::from_rank_file(rank, file)
     }
 

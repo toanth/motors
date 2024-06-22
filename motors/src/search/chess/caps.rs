@@ -156,6 +156,7 @@ struct CapsSearchStackEntry {
     killer: ChessMove,
     pv: Pv<Chessboard, { DEPTH_HARD_LIMIT.get() }>,
     tried_moves: ArrayVec<ChessMove, MAX_CHESS_MOVES_IN_POS>,
+    pos: Chessboard,
     eval: Score,
 }
 
@@ -553,14 +554,15 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if bound == Exact && !tt_entry.score.is_game_over_score() {
                 tt_entry.score
             } else {
-                self.eval.eval(pos)
+                self.eval(pos, ply)
             }
         } else {
             self.state.statistics.tt_miss(MainSearch);
-            self.eval.eval(pos)
+            self.eval(pos, ply)
         };
 
         self.state.search_stack[ply].eval = eval;
+        self.state.search_stack[ply].pos = pos;
 
         self.state.search_stack[ply].tried_moves.clear();
         // like the commonly used `improving` and `regressing`, these variables compare the current static eval with
@@ -889,7 +891,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         self.state.statistics.count_node_started(Qsearch, ply, true);
         // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
-        let mut best_score = self.eval.eval(pos);
+        let mut best_score = self.eval(pos, ply);
         let mut bound_so_far = FailLow;
         if best_score >= beta {
             return best_score;
@@ -970,6 +972,16 @@ impl<E: Eval<Chessboard>> Caps<E> {
             TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
         self.state.custom.tt.store(tt_entry, ply);
         best_score
+    }
+
+    fn eval(&mut self, pos: Chessboard, ply: usize) -> Score {
+        if ply == 0 {
+            self.eval.eval(pos)
+        } else {
+            let old_pos = &self.state.search_stack[ply - 1].pos;
+            let mov = &self.state.search_stack[ply - 1].last_tried_move();
+            self.eval.eval_incremental(old_pos, *mov, pos)
+        }
     }
 }
 

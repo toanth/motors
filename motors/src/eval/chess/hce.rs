@@ -3,24 +3,29 @@ use strum::IntoEnumIterator;
 use crate::eval::chess::{
     pawn_shield_idx, FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS, NUM_PHASES,
 };
-use gears::games::chess::pieces::UncoloredChessPiece::{Bishop, Pawn, Rook};
+use gears::games::chess::moves::ChessMove;
+use gears::games::chess::pieces::UncoloredChessPiece::{Bishop, Empty, King, Pawn, Rook};
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
-use gears::games::chess::squares::NUM_SQUARES;
+use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::Chessboard;
 use gears::games::Color::{Black, White};
-use gears::games::{Board, Color, DimT};
+use gears::games::{Board, Color, DimT, Move, ZobristHash};
 use gears::general::bitboards::chess::{ChessBitboard, A_FILE};
 use gears::general::bitboards::Bitboard;
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::StaticallyNamedEntity;
-use gears::score::{p, PhasedScore, Score, ScoreT};
+use gears::score::{p, PhaseType, PhasedScore, Score};
 
 use crate::eval::chess::hce::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
-use crate::eval::chess::PhaseType::{Eg, Mg};
 use crate::eval::Eval;
 
 #[derive(Default, Debug)]
-pub struct HandCraftedEval {}
+pub struct HandCraftedEval {
+    old_hash: ZobristHash,
+    old_phase: PhaseType,
+    // scores are stored from the perspective of the current player
+    player_psqt_score: PhasedScore,
+}
 
 /// Eval values tuned on a combination of the zurichess dataset and a dataset used by 4ku,
 /// created by GCP using his engine Stoofvlees and filtered by cj5716 using Stockfish at depth 9,
@@ -223,9 +228,10 @@ const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = [
     p(0, 0),
 ];
 
+const TEMPO: Score = Score(10);
 // TODO: Differentiate between rooks and kings in front of / behind pawns?
 
-const PIECE_PHASE: [isize; 6] = [0, 1, 1, 2, 4, 0];
+const PIECE_PHASE: [PhaseType; 6] = [0, 1, 1, 2, 4, 0];
 
 pub fn file_openness(
     file: DimT,
@@ -267,84 +273,195 @@ impl StaticallyNamedEntity for HandCraftedEval {
     }
 }
 
-impl Eval<Chessboard> for HandCraftedEval {
-    fn eval(&self, pos: Chessboard) -> Score {
-        let mut score = PhasedScore::default();
-        let mut phase = 0;
-
+impl HandCraftedEval {
+    fn psqt(&self, pos: &Chessboard) -> PhasedScore {
+        let mut res = PhasedScore::default();
         for color in Color::iter() {
-            let our_pawns = pos.colored_piece_bb(color, Pawn);
-            let their_pawns = pos.colored_piece_bb(color.other(), Pawn);
-
-            if pos.colored_piece_bb(color, Bishop).more_than_one_bit_set() {
-                score += BISHOP_PAIR;
-            }
-            // Rooks on (semi)open/closed files (semi-closed files are handled by adjusting the base rook values during tuning)
-            let rooks = pos.colored_piece_bb(color, Rook);
-            for rook in rooks.ones() {
-                match file_openness(rook.file(), our_pawns, their_pawns) {
-                    Open => {
-                        score += ROOK_OPEN_FILE;
-                    }
-                    SemiOpen => {
-                        score += ROOK_SEMIOPEN_FILE;
-                    }
-                    SemiClosed => {}
-                    Closed => {
-                        score += ROOK_CLOSED_FILE;
-                    }
+            for piece in UncoloredChessPiece::pieces() {
+                for square in pos.colored_piece_bb(color, piece).ones() {
+                    let square_idx = square.flip_if(color == White).bb_idx();
+                    res += PSQTS[piece as usize][square_idx];
                 }
             }
-            // King on (semi)open/closed file
-            let king_square = pos.king_square(color);
-            let king_file = king_square.file();
-            match file_openness(king_file, our_pawns, their_pawns) {
+            res = -res;
+        }
+        res
+    }
+
+    fn bishop_pair(&self, pos: Chessboard, color: Color) -> PhasedScore {
+        if pos.colored_piece_bb(color, Bishop).more_than_one_bit_set() {
+            BISHOP_PAIR
+        } else {
+            PhasedScore::default()
+        }
+    }
+
+    fn pawn_shield(&self, pos: Chessboard, color: Color) -> PhasedScore {
+        let our_pawns = pos.colored_piece_bb(color, Pawn);
+        let king_square = pos.king_square(color);
+        PAWN_SHIELDS[pawn_shield_idx(our_pawns, king_square, color)]
+    }
+
+    fn pawns(&self, pos: Chessboard, color: Color) -> PhasedScore {
+        let our_pawns = pos.colored_piece_bb(color, Pawn);
+        let their_pawns = pos.colored_piece_bb(color.other(), Pawn);
+        let mut score = PhasedScore::default();
+
+        for square in our_pawns.ones() {
+            let normalized_square = square.flip_if(color == White);
+            let in_front =
+                (A_FILE << (square.flip_if(color == Black).bb_idx() + 8)).flip_if(color == Black);
+            let blocking = in_front | in_front.west() | in_front.east();
+            if (in_front & our_pawns).is_zero() && (blocking & their_pawns).is_zero() {
+                score += PASSED_PAWNS[normalized_square.bb_idx()];
+            }
+        }
+        for piece in UncoloredChessPiece::pieces() {
+            let bb = pos.colored_piece_bb(color, piece);
+            let pawn_attacks = our_pawns.pawn_attacks(color);
+            let protected_by_pawns = pawn_attacks & bb;
+            score += PAWN_PROTECTION[piece as usize] * protected_by_pawns.num_ones();
+            let attacked_by_pawns = pawn_attacks & pos.colored_piece_bb(color.other(), piece);
+            score += PAWN_ATTACKS[piece as usize] * attacked_by_pawns.num_ones();
+        }
+
+        score
+    }
+
+    fn rook_and_king(&self, pos: Chessboard, color: Color) -> PhasedScore {
+        let mut score = PhasedScore::default();
+        let our_pawns = pos.colored_piece_bb(color, Pawn);
+        let their_pawns = pos.colored_piece_bb(color.other(), Pawn);
+        // Rooks on (semi)open/closed files (semi-closed files are handled by adjusting the base rook values during tuning)
+        let rooks = pos.colored_piece_bb(color, Rook);
+        for rook in rooks.ones() {
+            match file_openness(rook.file(), our_pawns, their_pawns) {
                 Open => {
-                    score += KING_OPEN_FILE;
+                    score += ROOK_OPEN_FILE;
                 }
                 SemiOpen => {
-                    score += KING_SEMIOPEN_FILE;
+                    score += ROOK_SEMIOPEN_FILE;
                 }
                 SemiClosed => {}
                 Closed => {
-                    score += KING_CLOSED_FILE;
+                    score += ROOK_CLOSED_FILE;
                 }
             }
-            score += PAWN_SHIELDS[pawn_shield_idx(our_pawns, king_square, color)];
-
-            for piece in UncoloredChessPiece::pieces() {
-                let bb = pos.colored_piece_bb(color, piece);
-                for unflipped_square in bb.ones() {
-                    let square = unflipped_square.flip_if(color == White);
-                    let idx = square.bb_idx();
-                    score += PSQTS[piece as usize][idx];
-                    phase += PIECE_PHASE[piece as usize];
-
-                    // Passed pawns.
-                    if piece == Pawn {
-                        let in_front = (A_FILE
-                            << (unflipped_square.flip_if(color == Black).bb_idx() + 8))
-                            .flip_if(color == Black);
-                        let blocking = in_front | in_front.west() | in_front.east();
-                        if (in_front & our_pawns).is_zero() && (blocking & their_pawns).is_zero() {
-                            score += PASSED_PAWNS[idx];
-                        }
-                    }
-                }
-                let pawn_attacks = our_pawns.pawn_attacks(color);
-                let protected_by_pawns = pawn_attacks & bb;
-                score += PAWN_PROTECTION[piece as usize] * protected_by_pawns.num_ones();
-                let attacked_by_pawns = pawn_attacks & pos.colored_piece_bb(color.other(), piece);
-                score += PAWN_ATTACKS[piece as usize] * attacked_by_pawns.num_ones();
-            }
-            score = -score;
         }
+        // King on (semi)open/closed file
+        let king_square = pos.king_square(color);
+        let king_file = king_square.file();
+        match file_openness(king_file, our_pawns, their_pawns) {
+            Open => {
+                score += KING_OPEN_FILE;
+            }
+            SemiOpen => {
+                score += KING_SEMIOPEN_FILE;
+            }
+            SemiClosed => {}
+            Closed => {
+                score += KING_CLOSED_FILE;
+            }
+        }
+        score
+    }
+
+    fn incremental_psqt(
+        &mut self,
+        old_pos: &Chessboard,
+        mov: ChessMove,
+        new_pos: Chessboard,
+    ) -> PhasedScore {
+        debug_assert_eq!(old_pos.zobrist_hash(), self.old_hash);
+        debug_assert_eq!(old_pos.active_player(), new_pos.active_player().other());
+        let color = old_pos.active_player();
+        // the current player has been flipped
+        let mut psqt_score = -self.player_psqt_score;
+        let piece = mov.uncolored_piece();
+        let captured = mov.captured(old_pos);
+        psqt_score -= PSQTS[piece as usize][mov.src_square().bb_idx()];
+        if mov.is_castle() {
+            let side = mov.castle_side();
+            psqt_score += PSQTS[King as usize][new_pos.king_square(color).bb_idx()];
+            let rook_dest_square =
+                ChessSquare::from_rank_file(Chessboard::backrank(color), side.rook_dest_file());
+            psqt_score += PSQTS[Rook as usize][rook_dest_square.bb_idx()];
+            psqt_score -= PSQTS[Rook as usize][old_pos.rook_start_square(color, side).bb_idx()];
+        } else if mov.promo_piece() == Empty {
+            psqt_score += PSQTS[piece as usize][mov.dest_square().bb_idx()];
+        } else {
+            psqt_score += PSQTS[mov.promo_piece() as usize][mov.dest_square().bb_idx()];
+        }
+        if mov.is_ep() {
+            psqt_score -= PSQTS[Pawn as usize][old_pos.ep_square().unwrap().bb_idx()];
+        } else {
+            psqt_score -= PSQTS[captured as usize][mov.dest_square().bb_idx()];
+        }
+        psqt_score
+    }
+
+    fn finalize(&self, score: PhasedScore, phase: PhaseType, color: Color) -> Score {
         let score = score.taper(phase, 24);
-        let tempo = Score(10);
-        tempo
-            + match pos.active_player() {
+        TEMPO
+            + match color {
                 White => score,
                 Black => -score,
             }
+    }
+}
+
+impl Eval<Chessboard> for HandCraftedEval {
+    fn eval(&mut self, pos: Chessboard) -> Score {
+        let psqt_score = self.psqt(&pos);
+
+        let mut score = PhasedScore::default();
+        let mut phase2 = 0;
+
+        for color in Color::iter() {
+            score += self.bishop_pair(pos, color);
+            score += self.pawns(pos, color);
+            score += self.pawn_shield(pos, color);
+            score += self.rook_and_king(pos, color);
+
+            score = -score;
+        }
+        for piece in UncoloredChessPiece::non_king_pieces() {
+            phase2 += pos.piece_bb(piece).num_ones() as isize * PIECE_PHASE[piece as usize];
+        }
+        score += psqt_score;
+        self.finalize(score, phase2, pos.active_player())
+    }
+
+    fn eval_incremental(
+        &mut self,
+        old_pos: &Chessboard,
+        mov: ChessMove,
+        new_pos: Chessboard,
+    ) -> Score {
+        /// Eval isn't called on nodes with a PV node TT entry, so it's possible that eval was not called on the previous
+        /// position. Zobrist hash collisions should be rare enough not to matter, since they would require the previous
+        /// position to be a PV node with the same hash as the current node
+        if old_pos.zobrist_hash() != self.old_hash {
+            return self.eval(new_pos);
+        }
+        let mut score = self.incremental_psqt(old_pos, mov, new_pos);
+        let captured = mov.captured(old_pos);
+        self.old_phase -= PIECE_PHASE[captured as usize];
+        let mut rel_score = PhasedScore::default();
+        for color in Color::iter() {
+            rel_score += self.bishop_pair(new_pos, color);
+            rel_score += self.pawns(new_pos, color);
+            rel_score += self.pawn_shield(new_pos, color);
+            rel_score += self.rook_and_king(new_pos, color);
+            rel_score = -rel_score;
+        }
+        score += rel_score;
+        let res = self.finalize(score, self.old_phase, new_pos.active_player());
+        debug_assert_eq!(res, self.eval(new_pos));
+        res
+    }
+
+    fn undo_move(&mut self, _current_pos: Chessboard, _mov: ChessMove, _previous_pos: Chessboard) {
+        todo!()
     }
 }
