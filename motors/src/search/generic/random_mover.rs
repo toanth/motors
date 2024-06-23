@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use rand::{thread_rng, Rng, RngCore, SeedableRng};
 
+use crate::eval::Eval;
 use gears::games::Board;
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::score::Score;
@@ -143,5 +144,9 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
 
     fn static_eval(&mut self, _pos: B) -> Score {
         Score(0)
+    }
+
+    fn with_eval(_eval: Box<dyn Eval<B>>) -> Self {
+        Self::default()
     }
 }

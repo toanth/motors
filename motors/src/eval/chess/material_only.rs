@@ -5,7 +5,7 @@ use gears::games::Board;
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{Score, ScoreT};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct MaterialOnlyEval {}
 
 const MATERIAL_VALUE: [ScoreT; 5] = [100, 300, 320, 500, 900];

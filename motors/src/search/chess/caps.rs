@@ -174,47 +174,36 @@ impl CapsSearchStackEntry {
 
 type CapsState = ABSearchState<Chessboard, CapsSearchStackEntry, Additional>;
 
+type DefaultEval = HandCraftedEval;
+
 /// Chess-playing Alpha-beta Pruning Search, or in short, CAPS.
 /// Larger than SᴍᴀʟʟCᴀᴘꜱ.
 #[derive(Debug)]
-pub struct Caps<E: Eval<Chessboard>> {
+pub struct Caps {
     state: CapsState,
-    eval: E,
+    eval: Box<dyn Eval<Chessboard>>,
 }
 
-impl<E: Eval<Chessboard>> Default for Caps<E> {
+impl Default for Caps {
     fn default() -> Self {
-        Self {
-            state: ABSearchState::new(DEPTH_HARD_LIMIT),
-            eval: E::default(),
-        }
+        // TODO: Make sure this doesn't inadvertently make other threads use a different eval
+        Self::with_eval(Box::new(DefaultEval::default()))
     }
 }
 
-impl<E: Eval<Chessboard>> StaticallyNamedEntity for Caps<E> {
+impl StaticallyNamedEntity for Caps {
     fn static_short_name() -> &'static str
     where
         Self: Sized,
     {
-        if [TypeId::of::<PistonEval>(), TypeId::of::<MaterialOnlyEval>()]
-            .contains(&TypeId::of::<E>())
-        {
-            E::static_short_name()
-        } else if TypeId::of::<E>() == TypeId::of::<HandCraftedEval>() {
-            "CAPS"
-        } else {
-            "CAPS-unknown-eval"
-        }
+        "CAPS"
     }
 
     fn static_long_name() -> String
     where
         Self: Sized,
     {
-        format!(
-            "CAPS: Chess-playing Alpha-beta Pruning Search, {} eval",
-            E::static_short_name()
-        )
+        format!("CAPS: Chess-playing Alpha-beta Pruning Search",)
     }
 
     fn static_description() -> String
@@ -222,13 +211,13 @@ impl<E: Eval<Chessboard>> StaticallyNamedEntity for Caps<E> {
         Self: Sized,
     {
         "Chess-playing Alpha-beta Pruning Search (CAPS), a chess engine. \
-        Currently very early in development and not yet all that strong (but still > 2.5k elo). \
+        Currently early in development, but still around 3k elo with a hand crafted eval. \
         Much larger than SᴍᴀʟʟCᴀᴘꜱ"
             .to_string()
     }
 }
 
-impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
+impl Benchable<Chessboard> for Caps {
     fn bench(&mut self, pos: Chessboard, depth: Depth) -> BenchResult {
         self.state.forget(true);
         let mut limit = SearchLimit::infinite();
@@ -295,7 +284,7 @@ impl<E: Eval<Chessboard>> Benchable<Chessboard> for Caps<E> {
     }
 }
 
-impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
+impl Engine<Chessboard> for Caps {
     fn set_tt(&mut self, tt: TT) {
         self.state.custom.tt = tt;
     }
@@ -358,20 +347,26 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
         &mut self.state
     }
 
-    fn static_eval(&mut self, pos: Chessboard) -> Score {
-        self.eval.eval(&pos)
-    }
-
     fn can_use_multiple_threads() -> bool
     where
         Self: Sized,
     {
         true
     }
+    fn with_eval(eval: Box<dyn Eval<Chessboard>>) -> Self {
+        Self {
+            state: ABSearchState::new(DEPTH_HARD_LIMIT),
+            eval,
+        }
+    }
+
+    fn static_eval(&mut self, pos: Chessboard) -> Score {
+        self.eval.eval(&pos)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
-impl<E: Eval<Chessboard>> Caps<E> {
+impl Caps {
     /// Aspiration Windows (AW): Assume that the score will be close to the score from the previous iteration
     /// of Iterative Deepening, so use alpha, beta bounds around that score to prune more aggressively.
     /// This means that it's possible for the root to fail low (or high), which is always something to consider:
@@ -666,11 +661,9 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 break;
             }
 
-            let new_pos = pos.make_move(mov);
-            if new_pos.is_none() {
+            let Some(new_pos) = pos.make_move(mov) else {
                 continue; // illegal pseudolegal move
-            }
-            let new_pos = new_pos.unwrap();
+            };
             if move_score < KILLER_SCORE {
                 num_uninteresting_visited += 1;
             }
@@ -744,7 +737,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 }
             }
 
-            self.state.board_history.pop();
+            self.undo_move(&new_pos, ply);
 
             debug_assert_eq!(
                 self.state.board_history.len(),
@@ -933,15 +926,15 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
                 break;
             }
-            let new_pos =
-                pos.make_move_and_prefetch_tt(mov, |hash| self.state.custom.tt.prefetch(hash));
-            if new_pos.is_none() {
+            let Some(new_pos) =
+                pos.make_move_and_prefetch_tt(mov, |hash| self.state.custom.tt.prefetch(hash))
+            else {
                 continue;
-            }
+            };
             self.record_move(mov, pos, ply, Qsearch);
             children_visited += 1;
-            let score = -self.qsearch(new_pos.unwrap(), -beta, -alpha, ply + 1);
-            self.undo_move(ply);
+            let score = -self.qsearch(new_pos, -beta, -alpha, ply + 1);
+            self.undo_move(&new_pos, ply);
             best_score = best_score.max(score);
             if score <= alpha {
                 continue;
@@ -970,7 +963,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
         } else {
             let old_pos = &self.state.search_stack[ply - 1].pos;
             let mov = &self.state.search_stack[ply - 1].last_tried_move();
-            self.eval.eval_incremental(old_pos, *mov, &pos)
+            self.eval.eval_incremental(old_pos, *mov, &pos, ply)
         }
     }
 
@@ -980,15 +973,14 @@ impl<E: Eval<Chessboard>> Caps<E> {
         self.state.search_stack[ply].tried_moves.clear();
     }
 
-    fn record_move(&mut self, mov: ChessMove, pos: Chessboard, ply: usize, typ: SearchType) {
-        self.state.board_history.push(&pos);
+    fn record_move(&mut self, mov: ChessMove, old_pos: Chessboard, ply: usize, typ: SearchType) {
+        self.state.board_history.push(&old_pos);
         self.state.search_stack[ply].tried_moves.push(mov);
         self.state.statistics.count_legal_make_move(typ);
     }
 
-    fn undo_move(&mut self, ply: usize) {
+    fn undo_move(&mut self, new_pos: &Chessboard, ply: usize) {
         self.state.board_history.pop();
-        self.state.search_stack[ply].tried_moves.pop();
     }
 }
 
@@ -1050,7 +1042,7 @@ mod tests {
         // run multiple times to get different random numbers from the eval function
         for depth in 1..=3 {
             for _ in 0..100 {
-                let mut engine = Caps::<RandEval>::default();
+                let mut engine = Caps::for_eval::<RandEval>();
                 let res = engine
                     .search(
                         board,
@@ -1081,7 +1073,7 @@ mod tests {
         ];
         for (fen, min, max) in list {
             let pos = Chessboard::from_fen(fen).unwrap();
-            let mut engine = Caps::<PistonEval>::default();
+            let mut engine = Caps::for_eval::<PistonEval>();
             let res = engine
                 .search_from_pos(pos, SearchLimit::nodes(NodesLimit::new(50_000).unwrap()))
                 .unwrap();
@@ -1093,7 +1085,7 @@ mod tests {
     #[test]
     fn lucena_test() {
         let pos = Chessboard::from_name("lucena").unwrap();
-        let mut engine = Caps::<PistonEval>::default();
+        let mut engine = Caps::for_eval::<PistonEval>();
         let res = engine
             .search_from_pos(pos, SearchLimit::depth(Depth::new(7)))
             .unwrap();
@@ -1104,7 +1096,7 @@ mod tests {
     #[test]
     fn philidor_test() {
         let pos = Chessboard::from_name("philidor").unwrap();
-        let mut engine = Caps::<HandCraftedEval>::default();
+        let mut engine = Caps::for_eval::<HandCraftedEval>();
         let res =
             engine.search_from_pos(pos, SearchLimit::nodes(NodesLimit::new(100_000).unwrap()));
         // TODO: More aggressive bound once the engine is stronger

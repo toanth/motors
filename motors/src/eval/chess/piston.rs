@@ -9,7 +9,7 @@ use gears::score::{PhasedScore, Score, ScoreT};
 
 use crate::eval::Eval;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct PistonEval {}
 
 /// Psqt values tuned on a combination of the zurichess and a dataset used by 4ku,

@@ -143,7 +143,7 @@ fn list_mnk_outputs() -> OutputList<MNKBoard> {
 pub fn generic_engines<B: Board>() -> EngineList<B> {
     vec![
         #[cfg(feature = "random_mover")]
-        Box::new(EngineBuilder::<B, RandomMover<B, StdRng>>::default()),
+        Box::new(EngineBuilder::<B, RandomMover<B, StdRng>, RandEval>::default()),
         // Does not contain GenericNegamax because that takes the eval function as generic argument, which
         // depends on the game (TODO: include with a game-independent eval?)
         // #[cfg(feature = "generic_negamax")]
@@ -159,22 +159,23 @@ pub fn list_chess_engines() -> EngineList<Chessboard> {
     #[cfg(feature = "generic_negamax")]
     res.push(Box::new(EngineBuilder::<
         Chessboard,
-        GenericNegamax<Chessboard, PistonEval>,
+        GenericNegamax<Chessboard>,
+        MaterialOnlyEval,
     >::new()));
     #[cfg(feature = "caps")]
-    res.push(Box::new(EngineBuilder::<Chessboard, Caps<RandEval>>::new()));
+    res.push(Box::new(EngineBuilder::<Chessboard, Caps, RandEval>::new()));
     #[cfg(feature = "caps")]
     res.push(Box::new(
-        EngineBuilder::<Chessboard, Caps<MaterialOnlyEval>>::new(),
+        EngineBuilder::<Chessboard, Caps, MaterialOnlyEval>::new(),
     ));
     #[cfg(feature = "caps")]
     res.push(Box::new(
-        EngineBuilder::<Chessboard, Caps<PistonEval>>::new(),
+        EngineBuilder::<Chessboard, Caps, PistonEval>::new(),
     ));
     // The last engine in this list is the default engine
     #[cfg(feature = "caps")]
     res.push(Box::new(
-        EngineBuilder::<Chessboard, Caps<HandCraftedEval>>::new(),
+        EngineBuilder::<Chessboard, Caps, HandCraftedEval>::new(),
     ));
     res
 }
@@ -185,7 +186,8 @@ pub fn list_ataxx_engine() -> EngineList<AtaxxBoard> {
     #[cfg(feature = "generic_negamax")]
     res.push(Box::new(EngineBuilder::<
         AtaxxBoard,
-        GenericNegamax<AtaxxBoard, RandEval>, // TODO: Actual eval, game-specific engines
+        GenericNegamax<AtaxxBoard>,
+        RandEval, // TODO: Actual eval, game-specific engines
     >::new()));
     res
 }
@@ -196,7 +198,8 @@ pub fn list_mnk_engine() -> EngineList<MNKBoard> {
     #[cfg(feature = "generic_negamax")]
     res.push(Box::new(EngineBuilder::<
         MNKBoard,
-        GenericNegamax<MNKBoard, SimpleMnkEval>,
+        GenericNegamax<MNKBoard>,
+        SimpleMnkEval,
     >::new()));
     res
 }

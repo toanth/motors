@@ -9,7 +9,7 @@ use gears::score::{Score, ScoreT};
 
 use crate::eval::Eval;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SimpleMnkEval {}
 
 fn eval_player(bb: MnkBitboard, size: GridSize) -> ScoreT {

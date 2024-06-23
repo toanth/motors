@@ -5,7 +5,7 @@ use gears::games::Board;
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{Score, ScoreT, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RandEval {
     deterministic: bool,
 }

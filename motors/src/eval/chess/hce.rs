@@ -18,10 +18,10 @@ use gears::score::{PhaseType, PhasedScore, Score};
 use crate::eval::chess::hce::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
 use crate::eval::Eval;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct HandCraftedEval {
-    old_hash: ZobristHash,
-    old_phase: PhaseType,
+    hash: ZobristHash,
+    phase: PhaseType,
     // scores are stored from the perspective of the white player
     psqt_score: PhasedScore,
 }
@@ -167,18 +167,35 @@ impl HandCraftedEval {
 
     fn undo_incremental_psqt(
         &mut self,
-        new_pos: &Chessboard,
+        current_pos: &Chessboard,
         mov: ChessMove,
         old_pos: &Chessboard,
     ) {
-        let delta = Self::psqt_delta(old_pos, mov, new_pos);
-        self.psqt_score -= delta;
+        debug_assert_eq!(self.psqt_score, Self::psqt(current_pos));
+        if mov != ChessMove::default() {
+            debug_assert_eq!(
+                &old_pos.make_move(mov).unwrap(),
+                current_pos,
+                " {old_pos} {0} {current_pos} {mov}",
+                { old_pos.make_move(mov).unwrap() }
+            );
+            let (psqt_delta, phase_delta) = Self::psqt_delta(old_pos, mov, current_pos);
+            self.psqt_score -= psqt_delta;
+            self.phase -= phase_delta;
+        }
+        debug_assert_eq!(self.psqt_score, Self::psqt(old_pos));
+        debug_assert_eq!(self.phase, Self::eval_from_scratch(old_pos).0.phase);
     }
 
-    fn psqt_delta(old_pos: &Chessboard, mov: ChessMove, new_pos: &Chessboard) -> PhasedScore {
+    fn psqt_delta(
+        old_pos: &Chessboard,
+        mov: ChessMove,
+        new_pos: &Chessboard,
+    ) -> (PhasedScore, PhaseType) {
         let moving_player = old_pos.active_player();
         // the current player has been flipped
         let mut delta = PhasedScore::default();
+        let mut phase_delta = PhaseType::default();
         let piece = mov.uncolored_piece();
         let captured = mov.captured(old_pos);
         let src_square = mov.src_square().flip_if(moving_player == White).bb_idx();
@@ -197,18 +214,23 @@ impl HandCraftedEval {
             delta += PSQTS[piece as usize][dest_square.bb_idx()];
         } else {
             delta += PSQTS[mov.promo_piece() as usize][dest_square.bb_idx()];
+            phase_delta += PIECE_PHASE[mov.promo_piece() as usize];
         }
         if mov.is_ep() {
             delta -= PSQTS[Pawn as usize][old_pos.ep_square().unwrap().bb_idx()];
         } else if captured != Empty {
             // capturing a piece increases our score by the piece's psqt value
             delta += PSQTS[captured as usize][dest_square.flip().bb_idx()];
+            phase_delta -= PIECE_PHASE[captured as usize];
         }
         // the position is always evaluated from white's perspective
-        match moving_player {
-            White => delta,
-            Black => -delta,
-        }
+        (
+            match moving_player {
+                White => delta,
+                Black => -delta,
+            },
+            phase_delta,
+        )
     }
 
     fn finalize(score: PhasedScore, phase: PhaseType, color: Color) -> Score {
@@ -222,7 +244,7 @@ impl HandCraftedEval {
 
     fn eval_from_scratch(pos: &Chessboard) -> (HandCraftedEval, PhasedScore) {
         let mut state = HandCraftedEval::default();
-        state.old_hash = pos.zobrist_hash();
+        state.hash = pos.zobrist_hash();
         state.psqt_score = Self::psqt(&pos);
         let mut score = PhasedScore::default();
         let mut phase = 0;
@@ -238,7 +260,7 @@ impl HandCraftedEval {
         for piece in UncoloredChessPiece::non_king_pieces() {
             phase += pos.piece_bb(piece).num_ones() as isize * PIECE_PHASE[piece as usize];
         }
-        state.old_phase = phase;
+        state.phase = phase;
         score += state.psqt_score;
         (state, score)
     }
@@ -248,7 +270,7 @@ impl Eval<Chessboard> for HandCraftedEval {
     fn eval(&mut self, pos: &Chessboard) -> Score {
         let (state, score) = Self::eval_from_scratch(pos);
         *self = state;
-        Self::finalize(score, self.old_phase, pos.active_player())
+        Self::finalize(score, self.phase, pos.active_player())
     }
 
     fn eval_incremental(
@@ -256,32 +278,37 @@ impl Eval<Chessboard> for HandCraftedEval {
         old_pos: &Chessboard,
         mov: ChessMove,
         new_pos: &Chessboard,
+        ply: usize,
     ) -> Score {
+        // TODO: Store stack of eval states indexed by ply
         // Eval isn't called on nodes with a PV node TT entry, so it's possible that eval was not called on the previous
         // position. Zobrist hash collisions should be rare enough not to matter, since they would require the previous
         // position to be a PV node with the same hash as the current node
-        if old_pos.zobrist_hash() != self.old_hash {
+        if old_pos.zobrist_hash() != self.hash {
             return self.eval(new_pos);
         } else if mov != ChessMove::default() {
             // null moves are encoded as a1a1, but it's possible that there's a "captured" piece on a1
-            debug_assert_eq!(Self::psqt(old_pos), self.psqt_score);
+            debug_assert_eq!(
+                Self::psqt(old_pos),
+                self.psqt_score,
+                "{0} {1} {old_pos} {new_pos} {mov}",
+                Self::psqt(old_pos),
+                self.psqt_score
+            );
             debug_assert_eq!(&old_pos.make_move(mov).unwrap(), new_pos);
-            self.psqt_score += Self::psqt_delta(old_pos, mov, new_pos);
+            let (psqt_delta, phase_delta) = Self::psqt_delta(old_pos, mov, new_pos);
+            self.psqt_score += psqt_delta;
+            self.phase += phase_delta;
             debug_assert_eq!(
                 self.psqt_score,
                 Self::psqt(new_pos),
                 "{0} {1} {2} {old_pos} {new_pos} {mov}",
                 self.psqt_score,
                 Self::psqt(new_pos),
-                Self::psqt_delta(old_pos, mov, new_pos),
+                Self::psqt_delta(old_pos, mov, new_pos).0,
             );
-            let captured = mov.captured(old_pos);
-            let promo = mov.promo_piece();
-            debug_assert_eq!(PIECE_PHASE[Pawn as usize], 0);
-            debug_assert_eq!(PIECE_PHASE[Empty as usize], 0);
-            self.old_phase += PIECE_PHASE[promo as usize] - PIECE_PHASE[captured as usize];
         }
-        self.old_hash = new_pos.zobrist_hash();
+        self.hash = new_pos.zobrist_hash();
         let mut score = PhasedScore::default();
         for color in Color::iter() {
             score += Self::bishop_pair(new_pos, color);
@@ -297,14 +324,16 @@ impl Eval<Chessboard> for HandCraftedEval {
             "{score} {} {old_pos} {new_pos} {mov}",
             Self::eval_from_scratch(new_pos).1
         );
-        Self::finalize(score, self.old_phase, new_pos.active_player())
+        Self::finalize(score, self.phase, new_pos.active_player())
     }
 
-    fn undo_move(
-        &mut self,
-        _current_pos: &Chessboard,
-        _mov: ChessMove,
-        _previous_pos: &Chessboard,
-    ) {
-    }
+    // fn undo_move(&mut self, current_pos: &Chessboard, mov: ChessMove, previous_pos: &Chessboard) {
+    //     debug_assert_eq!(
+    //         self.hash,
+    //         current_pos.zobrist_hash(),
+    //         "{previous_pos} {current_pos}"
+    //     );
+    //     self.undo_incremental_psqt(current_pos, mov, previous_pos);
+    //     self.hash = previous_pos.zobrist_hash();
+    // }
 }

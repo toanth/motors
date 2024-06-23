@@ -8,6 +8,7 @@ use derive_more::{Add, Sub};
 use dyn_clone::{clone_box, DynClone};
 use strum_macros::FromRepr;
 
+use crate::eval::Eval;
 use gears::games::{Board, ZobristHistory};
 use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
 use gears::score::{Score, ScoreT, SCORE_WON};
@@ -153,25 +154,35 @@ impl<B: Board> EngineWrapperBuilder<B> {
 
 pub type EngineList<B> = EntityList<Box<dyn AbstractEngineBuilder<B>>>;
 
-#[derive(Debug, Default)]
-pub struct EngineBuilder<B: Board, E: Engine<B>> {
+#[derive(Debug)]
+pub struct EngineBuilder<B: Board, E: Engine<B>, F: Eval<B>> {
     _phantom_b: PhantomData<B>,
     _phantom_e: PhantomData<E>,
+    _phantom_eval: PhantomData<F>,
 }
 
-impl<B: Board, E: Engine<B>> Clone for EngineBuilder<B, E> {
+impl<B: Board, E: Engine<B>, F: Eval<B>> Default for EngineBuilder<B, E, F> {
+    fn default() -> Self {
+        Self {
+            _phantom_b: Default::default(),
+            _phantom_e: Default::default(),
+            _phantom_eval: Default::default(),
+        }
+    }
+}
+impl<B: Board, E: Engine<B>, F: Eval<B>> Clone for EngineBuilder<B, E, F> {
     fn clone(&self) -> Self {
         Self::default()
     }
 }
 
-impl<B: Board, E: Engine<B>> EngineBuilder<B, E> {
+impl<B: Board, E: Engine<B>, F: Eval<B>> EngineBuilder<B, E, F> {
     pub fn new() -> Self {
         Self::default()
     }
 }
 
-impl<B: Board, E: Engine<B>> AbstractEngineBuilder<B> for EngineBuilder<B, E> {
+impl<B: Board, E: Engine<B>, F: Eval<B>> AbstractEngineBuilder<B> for EngineBuilder<B, E, F> {
     fn build(&self, sender: SearchSender<B>, tt: TT) -> EngineWrapper<B> {
         EngineWrapper::new_with_tt(E::default(), sender, clone_box(self), tt)
     }
@@ -185,9 +196,9 @@ impl<B: Board, E: Engine<B>> AbstractEngineBuilder<B> for EngineBuilder<B, E> {
     }
 }
 
-impl<B: Board, E: Engine<B>> StaticallyNamedEntity for EngineBuilder<B, E> {
+impl<B: Board, E: Engine<B>, F: Eval<B>> StaticallyNamedEntity for EngineBuilder<B, E, F> {
     fn static_short_name() -> &'static str {
-        E::static_short_name()
+        E::static_short_name() // TODO: Also use Eval short name?
     }
 
     fn static_long_name() -> String {
@@ -299,10 +310,6 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         self.search_state().to_search_info()
     }
 
-    /// This should return the static eval (possibly with WDL normalization) without doing any kind of search.
-    /// For engines like `RandomMover` where there is no static eval, this should return `Score(0)`.
-    fn static_eval(&mut self, pos: B) -> Score;
-
     /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
     fn forget(&mut self) {
         self.search_state_mut().forget(true);
@@ -315,6 +322,16 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     fn can_use_multiple_threads() -> bool
     where
         Self: Sized;
+
+    fn with_eval(eval: Box<dyn Eval<B>>) -> Self;
+
+    fn for_eval<E: Eval<B> + Default>() -> Self {
+        Self::with_eval(Box::new(E::default()))
+    }
+
+    /// This should return the static eval (possibly with WDL normalization) without doing any kind of search.
+    /// For engines like `RandomMover` where there is no static eval, this should return `Score(0)`.
+    fn static_eval(&mut self, pos: B) -> Score;
 }
 
 #[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub)]
