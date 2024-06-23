@@ -704,7 +704,7 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 let mut reduction = 0;
                 if !in_check && num_uninteresting_visited > 2 {
                     reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8;
-                    if !is_pv_node {
+                    if expected_node_type == FailHigh {
                         reduction += 1;
                     }
                 }
