@@ -704,9 +704,11 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 let mut reduction = 0;
                 if !in_check && num_uninteresting_visited > 2 {
                     reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8;
-                    if expected_node_type == FailHigh {
-                        reduction += 1;
-                    }
+                    reduction += match expected_node_type {
+                        FailHigh => 2,
+                        Exact => 0,
+                        FailLow => 1,
+                    };
                 }
                 // this ensures that check extensions prevent going into qsearch while in check
                 reduction = reduction.min(depth - 1);
