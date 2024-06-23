@@ -369,8 +369,12 @@ impl Chessboard {
         7 * color as DimT
     }
 
+    pub fn rook_start_file(&self, color: Color, side: CastleRight) -> DimT {
+        self.castling.rook_start_file(color, side)
+    }
+
     pub fn rook_start_square(&self, color: Color, side: CastleRight) -> ChessSquare {
-        let file = self.castling.rook_start_file(color, side);
+        let file = self.rook_start_file(color, side);
         let rank = Self::backrank(color);
         ChessSquare::from_rank_file(rank, file)
     }

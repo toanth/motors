@@ -21,6 +21,7 @@
 use crate::PlayerResult;
 use derive_more::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use num::ToPrimitive;
+use std::fmt::{Display, Formatter};
 use std::ops::Div;
 
 /// Valid scores fit into 16 bits, but it's possible to temporarily overflow that range with some operations,
@@ -144,6 +145,12 @@ pub const fn is_valid_score(score: ScoreT) -> bool {
 /// This improves performance, which is especially important because the eval of a typical a/b engine is hot..
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Add, AddAssign, Sub, SubAssign, Neg)]
 pub struct PhasedScore(ScoreT);
+
+impl Display for PhasedScore {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({0}, {1})", self.mg(), self.eg())
+    }
+}
 
 pub type PhaseType = isize;
 

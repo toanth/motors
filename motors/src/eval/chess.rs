@@ -8,6 +8,7 @@ use std::fmt::{Display, Formatter};
 use strum_macros::EnumIter;
 
 pub mod hce;
+pub mod hce_values;
 pub mod material_only;
 pub mod piston;
 
@@ -200,10 +201,10 @@ mod tests {
     }
 
     fn generic_eval_test<E: Eval<Chessboard>>() {
-        let score = E::default().eval(Chessboard::default());
+        let score = E::default().eval(&Chessboard::default());
         assert!(score.abs() <= Score(25));
         assert!(score >= Score(0));
-        let score = E::default().eval(Chessboard::from_name("lucena").unwrap());
+        let score = E::default().eval(&Chessboard::from_name("lucena").unwrap());
         assert!(score >= Score(100));
     }
 

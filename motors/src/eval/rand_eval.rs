@@ -42,7 +42,7 @@ impl StaticallyNamedEntity for RandEval {
 }
 
 impl<B: Board> Eval<B> for RandEval {
-    fn eval(&mut self, pos: B) -> Score {
+    fn eval(&mut self, pos: &B) -> Score {
         if self.deterministic {
             // deterministic and faster than seeding a rng while still being good enough
             let random = (pos.zobrist_hash().0

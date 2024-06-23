@@ -177,7 +177,7 @@ impl StaticallyNamedEntity for PistonEval {
 }
 
 impl Eval<Chessboard> for PistonEval {
-    fn eval(&mut self, pos: Chessboard) -> Score {
+    fn eval(&mut self, pos: &Chessboard) -> Score {
         let mut mg = Score(0);
         let mut eg = Score(0);
         let mut phase = 0;

@@ -29,6 +29,7 @@ use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck, Ugi
 
 use crate::eval::Eval;
 use crate::search::move_picker::MovePicker;
+use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
 use crate::search::tt::{TTEntry, TT};
 use crate::search::*;
@@ -358,7 +359,7 @@ impl<E: Eval<Chessboard>> Engine<Chessboard> for Caps<E> {
     }
 
     fn static_eval(&mut self, pos: Chessboard) -> Score {
-        self.eval.eval(pos)
+        self.eval.eval(&pos)
     }
 
     fn can_use_multiple_threads() -> bool
@@ -559,10 +560,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
             self.eval(pos, ply)
         };
 
-        self.state.search_stack[ply].eval = eval;
-        self.state.search_stack[ply].pos = pos;
+        self.record_pos(pos, eval, ply);
 
-        self.state.search_stack[ply].tried_moves.clear();
         // like the commonly used `improving` and `regressing`, these variables compare the current static eval with
         // the static eval 2 plies ago to recognize blunders. Conceptually, `improving` and `regressing` can be seen as
         // a prediction for how the eval is going to evolve, while these variables are more about cutting early after bad moves.
@@ -672,18 +671,17 @@ impl<E: Eval<Chessboard>> Caps<E> {
                 continue; // illegal pseudolegal move
             }
             let new_pos = new_pos.unwrap();
-            self.state.statistics.count_legal_make_move(MainSearch);
-            self.state.search_stack[ply].tried_moves.push(mov);
             if move_score < KILLER_SCORE {
                 num_uninteresting_visited += 1;
             }
 
             // O(1). Resets the child's pv length so that it's not the maximum length it used to be.
+            // TODO: Do this in `record_move`?
             self.state.search_stack[ply + 1].pv.clear();
 
             let debug_history_len = self.state.board_history.len();
 
-            self.state.board_history.push(&pos);
+            self.record_move(mov, pos, ply, MainSearch);
             // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove
             // that the other moves are worse, which we can do with a zero window search. Should this assumption fail,
             // re-search with a full window.
@@ -923,8 +921,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
             }
             best_move = tt_entry.mov;
         }
+        self.record_pos(pos, best_score, ply);
 
-        self.state.search_stack[ply].tried_moves.clear();
         let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
             MovePicker::new(pos, best_move, true);
         let move_scorer = CapsMoveScorer { board: pos, ply };
@@ -940,12 +938,10 @@ impl<E: Eval<Chessboard>> Caps<E> {
             if new_pos.is_none() {
                 continue;
             }
+            self.record_move(mov, pos, ply, Qsearch);
             children_visited += 1;
-            self.state.statistics.count_legal_make_move(Qsearch);
-            self.state.board_history.push(&pos);
-            self.state.search_stack[ply].tried_moves.push(mov);
             let score = -self.qsearch(new_pos.unwrap(), -beta, -alpha, ply + 1);
-            self.state.board_history.pop();
+            self.undo_move(ply);
             best_score = best_score.max(score);
             if score <= alpha {
                 continue;
@@ -970,12 +966,29 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
     fn eval(&mut self, pos: Chessboard, ply: usize) -> Score {
         if ply == 0 {
-            self.eval.eval(pos)
+            self.eval.eval(&pos)
         } else {
             let old_pos = &self.state.search_stack[ply - 1].pos;
             let mov = &self.state.search_stack[ply - 1].last_tried_move();
-            self.eval.eval_incremental(old_pos, *mov, pos)
+            self.eval.eval_incremental(old_pos, *mov, &pos)
         }
+    }
+
+    fn record_pos(&mut self, pos: Chessboard, eval: Score, ply: usize) {
+        self.state.search_stack[ply].pos = pos;
+        self.state.search_stack[ply].eval = eval;
+        self.state.search_stack[ply].tried_moves.clear();
+    }
+
+    fn record_move(&mut self, mov: ChessMove, pos: Chessboard, ply: usize, typ: SearchType) {
+        self.state.board_history.push(&pos);
+        self.state.search_stack[ply].tried_moves.push(mov);
+        self.state.statistics.count_legal_make_move(typ);
+    }
+
+    fn undo_move(&mut self, ply: usize) {
+        self.state.board_history.pop();
+        self.state.search_stack[ply].tried_moves.pop();
     }
 }
 

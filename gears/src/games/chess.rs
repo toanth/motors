@@ -878,7 +878,7 @@ impl Chessboard {
 
 impl Display for Chessboard {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{0}", self.as_unicode_diagram(false))
+        write!(f, "{0}", self.as_fen())
     }
 }
 

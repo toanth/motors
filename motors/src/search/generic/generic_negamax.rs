@@ -150,7 +150,7 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
     }
 
     fn static_eval(&mut self, pos: B) -> Score {
-        self.eval.eval(pos)
+        self.eval.eval(&pos)
     }
 }
 
@@ -176,7 +176,7 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
             return game_result_to_score(res, ply);
         }
         if depth <= 0 {
-            return self.eval.eval(pos);
+            return self.eval.eval(&pos);
         }
 
         let mut best_score = SCORE_LOST;
