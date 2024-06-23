@@ -62,6 +62,7 @@ impl NamedEntity for Game {
             Game::Ataxx => return None,
             Game::Mnk => "m,n,k games are a generalization of Tic-Tac-Toe or Gomoku. Currently, this implementation \
                 only supports boards up to 128 squares.",
+            #[allow(unreachable_patterns)]
             _ => return None,
         }.to_string())
     }

@@ -5,14 +5,14 @@ use gears::games::Board;
 use gears::general::bitboards::{Bitboard, RawBitboard, RayDirections};
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::squares::GridSize;
-use gears::search::Score;
+use gears::score::{Score, ScoreT};
 
 use crate::eval::Eval;
 
 #[derive(Debug, Default)]
 pub struct SimpleMnkEval {}
 
-fn eval_player(bb: MnkBitboard, size: GridSize) -> i32 {
+fn eval_player(bb: MnkBitboard, size: GridSize) -> ScoreT {
     let blockers = !bb;
     let mut res = 0;
     for coords in bb.ones_for_size(size) {

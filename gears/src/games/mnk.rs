@@ -184,6 +184,10 @@ impl Move<MNKBoard> for FillSquare {
         NoMoveFlags {}
     }
 
+    fn is_tactical(self, _board: &MNKBoard) -> bool {
+        false
+    }
+
     fn to_compact_text(self) -> String {
         self.target.to_string()
     }
@@ -538,7 +542,10 @@ impl Board for MNKBoard {
             && self.colored_piece_on(mov.target).symbol == Empty
     }
 
-    fn game_result_no_movegen(&self) -> Option<PlayerResult> {
+    fn player_result_no_movegen<H: BoardHistory<Self>>(
+        &self,
+        _history: &H,
+    ) -> Option<PlayerResult> {
         // check for win before checking full board
         if self.is_game_lost() {
             Some(Lose)
@@ -549,16 +556,16 @@ impl Board for MNKBoard {
         }
     }
 
-    fn game_result_player_slow(&self) -> Option<PlayerResult> {
-        self.game_result_no_movegen()
+    fn player_result_slow<H: BoardHistory<Self>>(&self, _history: &H) -> Option<PlayerResult> {
+        self.player_result_no_movegen(_history)
     }
 
     fn no_moves_result(&self) -> PlayerResult {
         Draw
     }
 
-    fn cannot_reasonably_lose(&self, _player: Color) -> bool {
-        false
+    fn can_reasonably_win(&self, _player: Color) -> bool {
+        true
     }
 
     /// Not actually a zobrist hash function, but should work well enough
@@ -769,7 +776,7 @@ mod test {
     #[test]
     fn movegen_test() {
         let board = MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(4), Width(5), 2));
-        let mut moves = board.pseudolegal_moves();
+        let moves = board.pseudolegal_moves();
         assert_eq!(moves.len(), 20);
         assert_eq!(
             MNKBoard::empty_possibly_invalid(MnkSettings::new(Height(10), Width(9), 7))

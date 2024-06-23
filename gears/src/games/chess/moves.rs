@@ -117,10 +117,6 @@ impl ChessMove {
         board.uncolored_piece_on(self.dest_square())
     }
 
-    pub fn is_tactical(self, board: &Chessboard) -> bool {
-        self.is_capture(board) || self.flags() == PromoQueen || self.flags() == PromoKnight
-    }
-
     pub fn is_capture(self, board: &Chessboard) -> bool {
         self.is_ep() || self.is_non_ep_capture(board)
     }
@@ -192,6 +188,10 @@ impl Move<Chessboard> for ChessMove {
 
     fn flags(self) -> Self::Flags {
         ChessMoveFlags::iter().nth((self.0 >> 12) as usize).unwrap()
+    }
+
+    fn is_tactical(self, board: &Chessboard) -> bool {
+        self.is_capture(board) || self.flags() == PromoQueen || self.flags() == PromoKnight
     }
 
     fn to_compact_text(self) -> String {
@@ -955,7 +955,7 @@ impl<'a> MoveParser<'a> {
 mod tests {
     use crate::games::chess::moves::ChessMove;
     use crate::games::chess::Chessboard;
-    use crate::games::generic_tests::generic_tests;
+    use crate::games::generic_tests;
     use crate::games::{Board, Move};
 
     type GenericTests = generic_tests::GenericTests<Chessboard>;

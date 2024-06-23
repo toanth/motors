@@ -13,7 +13,11 @@
 //!
 //! # Example:
 //!
-//! ```
+//! ```no_run
+//! # use gears::games::chess::Chessboard;
+//! # use motors::eval::*;
+//! # use pliers::*;
+//! # use pliers::eval::chess::piston_eval::PistonEval;
 //! type Eval = PistonEval;
 //! fn main() {
 //!     // Make sure the eval works as expected by running it on a single simple position.
@@ -32,13 +36,36 @@
 //! This example calls the [`optimize_for`] function directly to achieve greater control over the optimization process.
 //! There are even lower-level functions like [`optimize_entire_batch`] for yet greater control, but most users shouldn't
 //! need to bother with them.
-//! ```
-//! use gears::games::ataxx::AtaxxBoard;
-//! use gears::general::common::Res;
-//! use pliers::{get_datasets, optimize_for};
-//! use pliers::gd::SimpleGDOptimizer;
-//! use pliers::load_datasets_from_json;
-//! use std::path::Path;
+//! ```no_run
+//! # use gears::games::ataxx::AtaxxBoard;
+//! # use gears::general::common::Res;
+//! # use pliers::*;
+//! # use pliers::gd::*;
+//! # use pliers::eval::*;
+//! # use pliers::load_data::*;
+//! # use pliers::load_datasets_from_json;
+//! # use std::path::Path;
+//! # use std::fmt::Formatter;
+//!
+//! # #[derive(Debug, Default)]
+//! # struct MyAtaxxEval {}
+//!
+//! # impl WeightsInterpretation for MyAtaxxEval {
+//! #    fn display(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
+//! #        todo!()
+//! #    }
+//! # }
+//!
+//! # impl Eval<AtaxxBoard> for MyAtaxxEval {
+//! #    const NUM_WEIGHTS: usize = 0;
+//! #    const NUM_FEATURES: usize = 0;
+//! #    type D = NonTaperedDatapoint;
+//! #    type Filter = NoFilter;
+//!
+//! #    fn feature_trace(pos: &AtaxxBoard) -> impl TraceTrait {
+//! #        SimpleTrace::default()
+//! #    }
+//! # }
 //!
 //! fn main() -> Res<()> {
 //!     // Alternatively, use `get_dataset` to read the command line for the location of a
@@ -80,7 +107,7 @@ pub mod eval;
 pub mod gd;
 pub mod load_data;
 
-const DEFAULT_NUM_EPOCHS: usize = 2000;
+const DEFAULT_NUM_EPOCHS: usize = 4000;
 
 /// The 'main function' of this library.
 ///
@@ -257,7 +284,7 @@ mod tests {
             &mut optimizer,
         );
         let loss = loss(&weights, batch, eval_scale);
-        assert!(loss <= 0.01);
+        assert!(loss <= 0.01, "{loss}");
     }
 
     #[test]

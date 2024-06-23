@@ -4,11 +4,10 @@ use strum_macros::EnumIter;
 use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::pieces::ColoredChessPiece;
 use crate::games::chess::pieces::UncoloredChessPiece::Rook;
-use crate::games::chess::squares::{ChessSquare, A_FILE_NO, B_FILE_NO, H_FILE_NO, NUM_COLUMNS};
+use crate::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO, NUM_COLUMNS};
 use crate::games::chess::Chessboard;
 use crate::games::Color::*;
 use crate::games::{char_to_file, Board, Color, ColoredPieceType, DimT};
-use crate::general::bitboards::RawBitboard;
 use crate::general::common::Res;
 
 #[derive(EnumIter, Copy, Clone, Eq, PartialEq, Debug, derive_more::Display)]
@@ -119,9 +118,9 @@ impl CastlingFlags {
                         return Ok(());
                     }
                 }
-                return Err(format!(
+                Err(format!(
                     "There is no {side} rook to castle with for the {color} player"
-                ));
+                ))
             };
             match c.to_ascii_lowercase() {
                 'q' => find_rook(Queenside)?,

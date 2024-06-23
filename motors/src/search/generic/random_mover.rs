@@ -5,9 +5,9 @@ use rand::{thread_rng, Rng, RngCore, SeedableRng};
 
 use gears::games::Board;
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
-use gears::search::{Depth, NodesLimit, Score, SearchInfo, SearchLimit, SearchResult, TimeControl};
+use gears::score::Score;
+use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 
-use crate::search::multithreading::SearchSender;
 use crate::search::tt::TT;
 use crate::search::{
     ABSearchState, BenchResult, Benchable, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
@@ -82,6 +82,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Benchable<B> for RandomMover
 
     fn engine_info(&self) -> EngineInfo {
         EngineInfo {
+            short_name: self.short_name().to_string(),
             name: self.long_name().to_string(),
             version: "0.1.0".to_string(),
             default_bench_depth: Depth::new(1), // ignored as the engine will just pick a random move no matter what
@@ -103,12 +104,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         false
     }
 
-    fn do_search(
-        &mut self,
-        pos: B,
-        _: SearchLimit,
-        _sender: &mut SearchSender<B>,
-    ) -> Res<SearchResult<B>> {
+    fn do_search(&mut self, pos: B, _: SearchLimit) -> Res<SearchResult<B>> {
         self.chosen_move = pos
             .random_legal_move(&mut self.rng)
             .expect("search() called in a position with no legal moves");
@@ -145,7 +141,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         &mut self._state
     }
 
-    fn get_static_eval(&mut self, _pos: B) -> Score {
+    fn static_eval(&mut self, _pos: B) -> Score {
         Score(0)
     }
 }

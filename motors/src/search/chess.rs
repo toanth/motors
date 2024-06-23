@@ -8,14 +8,18 @@ mod tests {
     use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
     use gears::games::chess::squares::ChessSquare;
     use gears::games::chess::Chessboard;
-    use gears::games::{Board, Move};
-    use gears::search::{Depth, Score, SearchLimit, SCORE_LOST, SCORE_WON};
+    use gears::games::{n_fold_repetition, Board, BoardHistory, Move, ZobristHistory};
+    use gears::score::{Score, SCORE_LOST, SCORE_WON};
+    use gears::search::{Depth, SearchLimit};
+    use gears::PlayerResult::Draw;
 
     use crate::eval::chess::hce::HandCraftedEval;
-    use crate::eval::chess::pst_only::PistonEval;
+    use crate::eval::chess::material_only::MaterialOnlyEval;
+    use crate::eval::chess::piston::PistonEval;
     use crate::eval::rand_eval::RandEval;
     use crate::search::chess::caps::Caps;
     use crate::search::generic::generic_negamax::GenericNegamax;
+    use crate::search::multithreading::SearchSender;
     use crate::search::Engine;
 
     #[test]
@@ -69,6 +73,49 @@ mod tests {
                 .unwrap();
             assert_eq!(res.score.unwrap(), SCORE_LOST + 2);
             assert_eq!(res.chosen_move.to_compact_text(), "h1g1");
+        }
+    }
+
+    #[test]
+    fn repetition_test() {
+        // the only winning move leads to a repeated position; all other moves lose
+        let mut board = Chessboard::from_fen("8/8/3k3q/8/1K6/8/8/R7 w - - 0 1").unwrap();
+        let movelist = ["Ra6+", "Kd7", "Ra1", "Kd6"];
+        let mut hist = ZobristHistory::default();
+        for _ in 0..2 {
+            for mov in movelist {
+                let mov = ChessMove::from_extended_text(mov, &board).unwrap();
+                board = board.make_move(mov).unwrap();
+                assert!(board.player_result_slow(&hist).is_none());
+                hist.push(&board);
+            }
+        }
+        let mov = ChessMove::from_extended_text(movelist[0], &board).unwrap();
+        let new_board = board.make_move(mov).unwrap();
+        assert!(new_board.is_in_check());
+        assert!(new_board.is_3fold_repetition(&hist));
+        assert!(new_board
+            .player_result_slow(&hist)
+            .is_some_and(|r| r == Draw));
+        assert!(n_fold_repetition(
+            2,
+            &hist,
+            &new_board,
+            new_board.halfmove_repetition_clock(),
+        ));
+        hist.pop();
+        let mut engine = Caps::<MaterialOnlyEval>::default();
+        for depth in 1..10 {
+            let res = engine
+                .search(
+                    board,
+                    SearchLimit::depth(Depth::new(depth)),
+                    hist.clone(),
+                    SearchSender::no_sender(),
+                )
+                .unwrap();
+            assert_eq!(res.chosen_move, mov);
+            assert_eq!(res.score.unwrap(), Score(0));
         }
     }
 }

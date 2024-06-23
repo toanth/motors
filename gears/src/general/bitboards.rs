@@ -165,6 +165,10 @@ pub trait RawBitboard:
     fn is_single_piece(self) -> bool;
     // apparently, the num crate doesn't provide a is_power_of_two() method
 
+    fn more_than_one_bit_set(self) -> bool {
+        (self & (self - Self::from_primitive(Self::Primitive::one()))).has_set_bit()
+    }
+
     fn is_bit_set_at(self, idx: usize) -> bool {
         ((self.to_primitive() >> idx) & Self::Primitive::one()) == Self::Primitive::one()
     }
@@ -925,8 +929,9 @@ pub mod chess {
         res
     };
 
-    pub const WHITE_SQUARES: ChessBitboard = ChessBitboard::from_u64(0xaaaa_aaaa_aaaa_aaaa);
-    pub const BLACK_SQUARES: ChessBitboard = ChessBitboard::from_u64(0x5555_5555_5555_5555);
+    pub const WHITE_SQUARES: ChessBitboard = ChessBitboard::from_u64(0x55aa_55aa_55aa_55aa);
+    pub const BLACK_SQUARES: ChessBitboard = ChessBitboard::from_u64(0xaa55_aa55_aa55_aa55);
+    pub const CORNER_SQUARES: ChessBitboard = ChessBitboard::from_u64(0x8100_0000_0000_0081);
 
     pub const A_FILE: ChessBitboard = ChessBitboard::from_u64(0x0101_0101_0101_0101);
     pub const FIRST_RANK: ChessBitboard = ChessBitboard::from_u64(0xFF);
@@ -984,6 +989,11 @@ pub mod chess {
                 White => self.north(),
                 Black => self.south(),
             }
+        }
+
+        pub fn pawn_attacks(self, color: Color) -> Self {
+            let advanced = self.pawn_advance(color);
+            advanced.east() | advanced.west()
         }
 
         /// not a trait method because it has to be `const`

@@ -6,15 +6,16 @@ use std::ops::Add;
 use std::process::ChildStdout;
 use std::str::{FromStr, SplitWhitespace};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use colored::Colorize;
 use itertools::Itertools;
 
 use gears::games::{Board, Color, Move};
 use gears::general::common::{parse_duration_ms, parse_int_from_str, Res};
-use gears::output::Message::Debug;
-use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SCORE_LOST, SCORE_WON};
+use gears::output::Message::*;
+use gears::score::{ScoreT, SCORE_LOST, SCORE_WON};
+use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit};
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
 use gears::MatchStatus::Over;
@@ -89,12 +90,12 @@ impl EngineStatus {
 
     pub fn thinking_since(&mut self) -> Option<Instant> {
         match self {
-            ThinkingSince(time) => Some(time.clone()),
-            Ping(time) => Some(time.clone()),
+            ThinkingSince(time) => Some(*time),
+            Ping(time) => Some(*time),
             Idle => None,
             Sync => None,
             WaitingUgiOk => None,
-            Halt(Play(time)) => Some(time.clone()),
+            Halt(Play(time)) => Some(*time),
             Halt(Ignore) => None,
         }
     }
@@ -145,17 +146,19 @@ impl<B: Board> InputThread<B> {
             child_stdout,
         };
 
-        if let Err(e) = engine_input_data.main_loop() {
-            let keep_running = engine_input_data.deal_with_error(&e);
-            if !keep_running {
-                return;
+        loop {
+            if let Err(e) = engine_input_data.main_loop() {
+                let keep_running = engine_input_data.deal_with_error(&e);
+                if !keep_running {
+                    return;
+                }
             }
         }
     }
 
     fn deal_with_error(&mut self, error: &str) -> bool {
         let id = self.id;
-        let mut name = String::default();
+        let name;
         match self.upgrade_client() {
             // If we can't access the client, this means there's no match running right now, so assume the program has been terminated
             None => return false,
@@ -195,7 +198,7 @@ impl<B: Board> InputThread<B> {
         if self
             .child_stdout
             .read_line(&mut str)
-            .map_err(|err| format!("Couldn't read input: {}", err.to_string()))?
+            .map_err(|err| format!("Couldn't read input: {}", err))?
             == 0
         {
             let name = self
@@ -237,7 +240,10 @@ impl<B: Board> InputThread<B> {
     fn handle_ugi(&mut self, ugi_str: &str) -> Res<MatchStatus> {
         let mut words = ugi_str.split_whitespace();
         // If the client doesn't exist anymore, this thread will join without printing an error message
-        let client = self.upgrade_client().ok_or_else(|| String::default())?;
+        // But still return a useful error message to be on the safe side.
+        let client = self
+            .upgrade_client()
+            .ok_or_else(|| "Client no longer exists".to_string())?;
         let mut client = client.lock().unwrap();
         let player = self.get_engine(&client);
         let engine_name = player.display_name.clone();
@@ -454,9 +460,8 @@ impl<B: Board> InputThread<B> {
                 "Engine message doesn't end after 'readyok', the next word is {next}"
             ));
         }
-        match &engine.status {
-            Sync => engine.status = Idle,
-            _ => {}
+        if engine.status == Sync {
+            engine.status = Idle;
         }
         Ok(())
     }
@@ -472,10 +477,8 @@ impl<B: Board> InputThread<B> {
         let engine = client.state.get_engine_mut(color);
         engine.status = Idle;
 
-        let mov = words
-            .next()
-            .ok_or_else(|| "missing move after 'bestmove'")?;
-        match B::Move::from_text(mov, &client.board()) {
+        let mov = words.next().ok_or("missing move after 'bestmove'")?;
+        match B::Move::from_text(mov, client.board()) {
             Err(err) => {
                 let game_over = GameOver {
                     result: PlayerResult::Lose,
@@ -499,7 +502,7 @@ impl<B: Board> InputThread<B> {
     }
 
     fn handle_info(
-        mut words: SplitWhitespace,
+        words: SplitWhitespace,
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
     ) -> Res<()> {
@@ -556,17 +559,13 @@ impl<B: Board> InputThread<B> {
                 "score" => match value {
                     "cp" | "lowerbound" | "upperbound" => {
                         res.score.0 = parse_int_from_str(
-                            words
-                                .next()
-                                .ok_or_else(|| "missing score value after 'score cp'")?,
+                            words.next().ok_or("missing score value after 'score cp'")?,
                             "cp",
                         )?
                     }
                     "mate" => {
-                        let value: i32 = parse_int_from_str(
-                            words
-                                .next()
-                                .ok_or_else(|| "missing ply value after 'score mate'")?,
+                        let value: ScoreT = parse_int_from_str(
+                            words.next().ok_or("missing ply value after 'score mate'")?,
                             "mate",
                         )?;
                         res.score = if value >= 0 {
@@ -641,7 +640,7 @@ impl<B: Board> InputThread<B> {
             let setting = next.unwrap();
             let mut value = option
                 .next()
-                .ok_or_else(|| "Missing value after option {setting}")?;
+                .ok_or("Missing value after option {setting}")?;
             match setting.to_lowercase().as_str() {
                 "default" => match &mut res.value {
                     Check(c) => match value.to_lowercase().as_str() {

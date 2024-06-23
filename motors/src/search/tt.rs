@@ -8,12 +8,11 @@ use portable_atomic::AtomicU128;
 use static_assertions::const_assert_eq;
 use strum_macros::FromRepr;
 
+use crate::search::NodeType;
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
 use gears::games::{Board, Move, ZobristHash};
-use gears::search::{Score, SCORE_WON};
-
-use crate::search::NodeType;
+use gears::score::{Score, ScoreT, SCORE_WON};
 use OptionalNodeType::*;
 
 type AtomicTTEntry = AtomicU128;
@@ -101,7 +100,7 @@ impl<B: Board> TTEntry<B> {
 
     fn from_packed_fallback(val: u128) -> Self {
         let hash = ZobristHash((val >> 64) as u64);
-        let score = Score(((val >> (64 - 32)) & 0xffff_ffff) as i32);
+        let score = Score(((val >> (64 - 32)) & 0xffff_ffff) as ScoreT);
         let mov = B::Move::from_usize_unchecked(((val >> 16) & 0xffff) as usize);
         let depth = ((val >> 8) & 0xff) as u8;
         let bound = OptionalNodeType::from_repr((val & 0xff) as u8).unwrap();
@@ -121,23 +120,10 @@ const_assert_eq!(size_of::<TTEntry<Chessboard>>(), size_of::<AtomicTTEntry>());
 
 pub(super) const DEFAULT_HASH_SIZE_MB: usize = 4;
 
-/// Ideally, a TT would be something like an `Arc<[AtomicTTEntry]>`, but creating an `Arc<Slice>` isn't exactly stable Rust.
-/// Another option would be to have some kind of TT owner and give each thread a reference to the TT, but that would require
-/// tons of lifetime annotations.
-/// So instead, a TT is an `Arc<Vec<AtomicTTEntry>>`. Note that resizing the TT during search will wait until the search is finished
-/// (all threads will receive a new reference)
-
-#[derive(Debug)]
-pub(super) struct SharedTTState {
-    arr: Vec<AtomicTTEntry>,
-}
-
-// TODO: Get rid of the double dereferencing by keeping a reference to the slice.
+/// Note that resizing the TT during search will wait until the search is finished
+/// (all threads will receive a new arc)
 #[derive(Clone, Debug)]
-pub struct TT {
-    tt: Arc<SharedTTState>,
-    mask: usize,
-}
+pub struct TT(pub Arc<[AtomicTTEntry]>);
 
 impl Default for TT {
     fn default() -> Self {
@@ -147,29 +133,28 @@ impl Default for TT {
 
 impl TT {
     pub fn new_with_bytes(size_in_bytes: usize) -> Self {
-        let new_size = size_in_bytes / size_of::<AtomicTTEntry>();
-        let num_bits = new_size.ilog2() as u64;
-        let new_size = 1 << num_bits; // round down to power of two
-        let mut arr = vec![];
+        let new_size = 1.max(size_in_bytes / size_of::<AtomicTTEntry>());
+        let mut arr = Vec::with_capacity(new_size);
         arr.resize_with(new_size, AtomicU128::default);
-        Self {
-            tt: Arc::new(SharedTTState { arr }),
-            mask: new_size - 1,
-        }
+        let tt = arr.into_boxed_slice().into();
+        Self(tt)
+    }
+
+    pub fn size(&self) -> usize {
+        self.0.len()
     }
 
     pub fn forget(&mut self) {
-        for entry in self.tt.arr.iter() {
+        for entry in self.0.iter() {
             entry.store(0, Relaxed);
         }
     }
 
     /// Counts the number of non-empty entries in the first 1k entries
     pub fn estimate_hashfull<B: Board>(&self) -> usize {
-        let len = 1000.min(self.tt.arr.len());
+        let len = 1000.min(self.size());
         let num_used = self
-            .tt
-            .arr
+            .0
             .iter()
             .take(len)
             .filter(|e: &&AtomicTTEntry| TTEntry::<B>::from_packed(e.load(Relaxed)).bound != Empty)
@@ -182,12 +167,13 @@ impl TT {
     }
 
     fn index_of(&self, hash: ZobristHash) -> usize {
-        hash.0 as usize & self.mask
+        // Uses the multiplication trick from here: <https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/>
+        ((hash.0 as u128 * self.size() as u128) >> usize::BITS as usize) as usize
     }
 
     pub(super) fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {
         debug_assert!(
-            entry.score.0.abs() + ply as i32 <= SCORE_WON.0,
+            entry.score.0.abs() + ply as ScoreT <= SCORE_WON.0,
             "score {score} ply {ply}",
             score = entry.score.0
         );
@@ -198,9 +184,9 @@ impl TT {
         // we undo that when storing mate scores, and reapply the penalty for the *current* ply when loading mate scores.
         if let Some(plies) = entry.score.plies_until_game_won() {
             if plies < 0 {
-                entry.score.0 -= ply as i32;
+                entry.score.0 -= ply as ScoreT;
             } else {
-                entry.score.0 += ply as i32;
+                entry.score.0 += ply as ScoreT;
             }
         }
         debug_assert!(
@@ -209,18 +195,18 @@ impl TT {
             entry.score.0,
             won = entry.score.plies_until_game_won().unwrap_or(42),
         );
-        self.tt.arr[idx].store(entry.to_packed(), Relaxed);
+        self.0[idx].store(entry.to_packed(), Relaxed);
     }
 
     pub(super) fn load<B: Board>(&self, hash: ZobristHash, ply: usize) -> Option<TTEntry<B>> {
         let idx = self.index_of(hash);
-        let mut entry = TTEntry::from_packed(self.tt.arr[idx].load(Relaxed));
+        let mut entry = TTEntry::from_packed(self.0[idx].load(Relaxed));
         // Mate score adjustments, see `store`
         if let Some(plies) = entry.score.plies_until_game_won() {
             if plies < 0 {
-                entry.score.0 += ply as i32;
+                entry.score.0 += ply as ScoreT;
             } else {
-                entry.score.0 -= ply as i32;
+                entry.score.0 -= ply as ScoreT;
             }
         }
         debug_assert!(entry.score.0.abs() <= SCORE_WON.0);
@@ -236,7 +222,7 @@ impl TT {
         if cfg!(feature = "unsafe") {
             unsafe {
                 #[cfg(all(target_arch = "x86_64", target_feature = "sse"))]
-                _mm_prefetch::<_MM_HINT_T1>(addr_of!(self.tt.arr[self.index_of(hash)]) as *const i8);
+                _mm_prefetch::<_MM_HINT_T1>(addr_of!(self.0[self.index_of(hash)]) as *const i8);
             }
         }
     }
@@ -244,10 +230,9 @@ impl TT {
 
 #[cfg(test)]
 mod test {
+    use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
     use rand::distributions::Uniform;
-    use rand::{thread_rng, Rng};
-
-    use gears::search::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
+    use rand::{thread_rng, Rng, RngCore};
 
     use super::*;
 
@@ -297,10 +282,47 @@ mod test {
                 let val = TTEntry::from_packed(packed);
                 assert_eq!(val, entry);
                 let ply = thread_rng().sample(Uniform::new(0, 100));
-                tt.store(entry.clone(), ply);
+                tt.store(entry, ply);
                 let loaded = tt.load(entry.hash, ply).unwrap();
                 assert_eq!(entry, loaded);
             }
+        }
+    }
+
+    #[test]
+    fn test_size() {
+        let sizes = [
+            1, 2, 3, 4, 8, 15, 16, 17, 79, 80, 81, 100, 12345, 0x1ff_ffff, 0x200_0000,
+        ];
+        for num_bytes in sizes {
+            let tt = TT::new_with_bytes(num_bytes);
+            let size = tt.size();
+            assert_eq!(size, 1.max(num_bytes / size_of::<AtomicTTEntry>()));
+            let mut occurrences = vec![0_u64; size];
+            let mut gen = thread_rng();
+            let num_samples = 200_000;
+            for i in 0..num_samples {
+                let idx = tt.index_of(ZobristHash(gen.next_u64()));
+                occurrences[idx] += 1;
+            }
+            let mut expected = num_samples as f64 / size as f64;
+            let min = occurrences.iter().min().copied().unwrap_or_default();
+            let max = occurrences.iter().max().copied().unwrap_or_default();
+            let std_dev = (occurrences.iter().map(|x| x * x).sum::<u64>() as f64 / size as f64
+                - expected * expected)
+                .sqrt();
+            assert!(
+                std_dev <= num_samples as f64 / 128.0,
+                "{std_dev} {expected} {size} {num_bytes}"
+            );
+            assert!(
+                expected - min as f64 <= num_samples as f64 / 128.0,
+                "{expected} {min} {size} {num_bytes}"
+            );
+            assert!(
+                max as f64 - expected <= num_samples as f64 / 128.0,
+                "{expected} {max} {size} {num_bytes}"
+            );
         }
     }
 }

@@ -5,11 +5,12 @@ use std::thread::spawn;
 
 use crossbeam_channel::unbounded;
 
-use gears::games::{Board, ZobristHistoryBase};
+use gears::games::{Board, ZobristHistory};
 use gears::general::common::{parse_int_from_str, Res};
 use gears::output::Message;
 use gears::output::Message::{Debug, Error};
-use gears::search::{Depth, Score, SearchInfo, SearchLimit, SearchResult};
+use gears::score::Score;
+use gears::search::{Depth, SearchInfo, SearchLimit, SearchResult};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::{EngineOption, EngineOptionName};
 
@@ -28,7 +29,7 @@ pub enum EngineReceives<B: Board> {
     Quit,
     Forget,
     SetOption(EngineOptionName, String),
-    Search(B, SearchLimit, ZobristHistoryBase, TT),
+    Search(B, SearchLimit, ZobristHistory<B>, TT),
     Bench(B, Depth),
     Eval(B),
 }
@@ -136,7 +137,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         &mut self,
         pos: B,
         limit: SearchLimit,
-        history: ZobristHistoryBase,
+        history: ZobristHistory<B>,
         tt: TT,
     ) -> Res<()> {
         if self.engine.is_currently_searching() {
@@ -148,7 +149,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         self.engine.set_tt(tt);
         let search_res = self
             .engine
-            .search(pos, limit, history, &mut self.search_sender)?;
+            .search(pos, limit, history, self.search_sender.clone())?;
 
         self.search_sender.send_search_res(search_res);
         Ok(())
@@ -163,7 +164,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
     }
 
     fn get_static_eval(&mut self, pos: B) {
-        let eval = self.engine.get_static_eval(pos);
+        let eval = self.engine.static_eval(pos);
         self.search_sender.send_static_eval(eval);
     }
 
@@ -271,7 +272,7 @@ impl<B: Board> EngineWrapper<B> {
         &mut self,
         pos: B,
         limit: SearchLimit,
-        history: ZobristHistoryBase,
+        history: ZobristHistory<B>,
     ) -> Res<()> {
         if self.is_primary() {
             self.search_sender.reset_stop();

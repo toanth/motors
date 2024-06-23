@@ -1,123 +1,15 @@
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
-use std::ops::{Div, Mul};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
-use std::usize;
 
-use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
+use derive_more::{Add, AddAssign, SubAssign};
 
 use crate::games::{Board, Move};
 use crate::general::common::parse_fp_from_str;
-use crate::PlayerResult;
-
-/// Anything related to search that is also used by `monitors`, and therefore doesn't belong in `motors`.
-
-// TODO: Turn this into an enum that can also represent a win in n plies (and maybe a draw?)
-#[derive(
-    Default,
-    Debug,
-    Eq,
-    PartialEq,
-    Ord,
-    PartialOrd,
-    Copy,
-    Clone,
-    Add,
-    Sub,
-    Neg,
-    AddAssign,
-    SubAssign,
-    derive_more::Display,
-)]
-pub struct Score(pub i32);
-
-impl Add<i32> for Score {
-    type Output = Score;
-
-    fn add(self, rhs: i32) -> Self::Output {
-        Score(self.0 + rhs)
-    }
-}
-
-impl Sub<i32> for Score {
-    type Output = Score;
-
-    fn sub(self, rhs: i32) -> Self::Output {
-        Score(self.0 - rhs)
-    }
-}
-
-impl Mul<i32> for Score {
-    type Output = Score;
-
-    fn mul(self, rhs: i32) -> Self::Output {
-        Score(self.0 * rhs)
-    }
-}
-
-impl Div<i32> for Score {
-    type Output = Score;
-
-    fn div(self, rhs: i32) -> Self::Output {
-        Score(self.0 / rhs)
-    }
-}
-
-impl Score {
-    pub fn is_game_won_score(self) -> bool {
-        self >= MIN_SCORE_WON
-    }
-    pub fn is_game_lost_score(self) -> bool {
-        self <= MAX_SCORE_LOST
-    }
-    pub fn is_game_over_score(self) -> bool {
-        self.is_game_won_score() || self.is_game_lost_score()
-    }
-    /// Returns a negative number of plies if the game is lost
-    pub fn plies_until_game_won(self) -> Option<isize> {
-        if self.is_game_won_score() {
-            Some((SCORE_WON - self).0 as isize)
-        } else if self.is_game_lost_score() {
-            Some((SCORE_LOST - self).0 as isize)
-        } else {
-            None
-        }
-    }
-    /// Returns a negative number if the game is lost
-    pub fn moves_until_game_won(self) -> Option<isize> {
-        self.plies_until_game_won()
-            .map(|n| (n as f32 / 2f32).ceil() as isize)
-    }
-
-    pub fn plies_until_game_over(self) -> Option<isize> {
-        self.plies_until_game_won().map(|x| x.abs())
-    }
-
-    pub fn abs(self) -> Self {
-        Self(self.0.abs())
-    }
-}
-
-pub const SCORE_LOST: Score = Score(-31_000);
-pub const SCORE_WON: Score = Score(31_000);
-pub const SCORE_TIME_UP: Score = Score(SCORE_WON.0 + 1000);
-// can't use + directly because derive_more's + isn't `const`
-pub const MIN_SCORE_WON: Score = Score(SCORE_WON.0 - 1000);
-pub const MAX_SCORE_LOST: Score = Score(SCORE_LOST.0 + 1000);
-pub const MIN_NORMAL_SCORE: Score = Score(MAX_SCORE_LOST.0 + 1);
-pub const MAX_NORMAL_SCORE: Score = Score(MIN_SCORE_WON.0 - 1);
-pub const NO_SCORE_YET: Score = Score(SCORE_LOST.0 - 100);
+use crate::score::Score;
 
 pub const MAX_DEPTH: Depth = Depth(10_000);
-
-pub fn game_result_to_score(res: PlayerResult, ply: usize) -> Score {
-    match res {
-        PlayerResult::Win => SCORE_WON - ply as i32,
-        PlayerResult::Lose => SCORE_LOST + ply as i32,
-        PlayerResult::Draw => Score(0),
-    }
-}
 
 #[derive(Eq, PartialEq, Debug, Default)]
 pub struct SearchResult<B: Board> {
@@ -312,7 +204,9 @@ impl TimeControl {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, AddAssign, SubAssign)]
+#[derive(
+    Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Add, AddAssign, SubAssign,
+)]
 pub struct Depth(usize);
 
 impl Depth {

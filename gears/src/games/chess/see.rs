@@ -4,7 +4,7 @@ use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use crate::games::chess::squares::ChessSquare;
 use crate::games::chess::Chessboard;
-use crate::games::{AbstractPieceType, Board, Color, ColoredPiece, Coordinates, Move};
+use crate::games::{AbstractPieceType, Board, Color, Coordinates, Move};
 use crate::general::bitboards::chess::{ChessBitboard, PAWN_CAPTURES};
 use crate::general::bitboards::RayDirections::Vertical;
 use crate::general::bitboards::{Bitboard, RawBitboard};
@@ -17,7 +17,7 @@ use std::mem::swap;
 pub struct SeeScore(pub i32);
 
 // TODO: Better values?
-const SEE_SCORES: [SeeScore; NUM_CHESS_PIECES + 1] = [
+pub const SEE_SCORES: [SeeScore; NUM_CHESS_PIECES + 1] = [
     SeeScore(100),
     SeeScore(300),
     SeeScore(300),

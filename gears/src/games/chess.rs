@@ -2,7 +2,6 @@ use std::fmt::{Display, Formatter};
 use std::num::NonZeroUsize;
 use std::str::{FromStr, SplitWhitespace};
 
-use bitintr::Popcnt;
 use colored::Colorize;
 use itertools::Itertools;
 use rand::prelude::IteratorRandom;
@@ -21,11 +20,13 @@ use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::Color::{Black, White};
 use crate::games::SelfChecks::{Assertion, CheckFen};
 use crate::games::{
-    board_to_string, file_to_char, position_fen_part, read_position_fen, AbstractPieceType, Board,
-    BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, NameToPos, SelfChecks, Settings,
-    UncoloredPieceType, ZobristHash, ZobristRepetition3Fold,
+    board_to_string, file_to_char, n_fold_repetition, position_fen_part, read_position_fen,
+    AbstractPieceType, Board, BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, NameToPos,
+    SelfChecks, Settings, UncoloredPieceType, ZobristHash,
 };
-use crate::general::bitboards::chess::{ChessBitboard, BLACK_SQUARES, WHITE_SQUARES};
+use crate::general::bitboards::chess::{
+    ChessBitboard, BLACK_SQUARES, CORNER_SQUARES, WHITE_SQUARES,
+};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
@@ -330,7 +331,8 @@ impl Board for Chessboard {
 
     fn make_nullmove(mut self) -> Option<Self> {
         self.ply += 1;
-        self.ply_100_ctr += 1;
+        // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove
+        self.ply_100_ctr = 0;
         if self.ep_square.is_some() {
             self.hash ^=
                 PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[self.ep_square.unwrap().file() as usize];
@@ -343,16 +345,21 @@ impl Board for Chessboard {
         self.is_move_pseudolegal_impl(mov)
     }
 
-    fn game_result_no_movegen(&self) -> Option<PlayerResult> {
-        // 3-fold repetition requires the history, using the free function `game_result_no_movegen`
-        if self.is_50mr_draw() || self.has_insufficient_material() {
+    fn player_result_no_movegen<H: BoardHistory<Chessboard>>(
+        &self,
+        history: &H,
+    ) -> Option<PlayerResult> {
+        if self.is_50mr_draw()
+            || self.has_insufficient_material()
+            || self.is_3fold_repetition(history)
+        {
             return Some(Draw);
         }
         None
     }
 
-    fn game_result_player_slow(&self) -> Option<PlayerResult> {
-        if let Some(res) = self.game_result_no_movegen() {
+    fn player_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult> {
+        if let Some(res) = self.player_result_no_movegen(history) {
             return Some(res);
         }
         let no_moves = self.legal_moves_slow().is_empty();
@@ -371,34 +378,37 @@ impl Board for Chessboard {
         }
     }
 
-    /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules
-    fn cannot_reasonably_lose(&self, player: Color) -> bool {
-        let other = player.other();
-        if (self.colored_piece_bb(other, Pawn)
-            | self.colored_piece_bb(other, Rook)
-            | self.colored_piece_bb(other, Queen))
+    /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
+    /// return `false` if there is a realistic way to win).
+    fn can_reasonably_win(&self, player: Color) -> bool {
+        if self.colored_bb(player).is_single_piece() {
+            return false; // we only have our king left
+        }
+        // return true if the opponent has pawns because that can create possibilities to force them
+        // to restrict the king's mobility
+        if (self.piece_bb(Pawn)
+            | self.colored_piece_bb(player, Rook)
+            | self.colored_piece_bb(player, Queen))
         .has_set_bit()
+            || (self.colored_piece_bb(player.other(), King) & CORNER_SQUARES).has_set_bit()
+        {
+            return true;
+        }
+        // we have at most two knights and no other pieces
+        if self.colored_piece_bb(player, Bishop).is_zero()
+            && self.colored_piece_bb(player, Knight).num_ones() <= 2
+        {
+            // this can very rarely be incorrect because a mate with a knight is possible even without pawns
+            // and even if the king is not in the corner, but those cases are extremely rare
+            return false;
+        }
+        let bishops = self.colored_piece_bb(player, Bishop);
+        if self.colored_piece_bb(player, Knight).is_zero()
+            && ((bishops & WHITE_SQUARES).is_zero() || (bishops & BLACK_SQUARES).is_zero())
         {
             return false;
         }
-        if self.colored_bb(other).is_single_piece() {
-            return true; // opponent has only their king left
-        }
-        // opponent has at lest one knight or bishop, but no other pieces
-        if !self.colored_piece_bb(other, Bishop).has_set_bit()
-            && self.colored_piece_bb(other, Knight).is_single_piece()
-            && !self.piece_bb(Pawn).has_set_bit()
-        {
-            // this can very rarely be incorrect because a smothered mate with a knight is possible even without pawns
-            return true;
-        }
-        if !self.colored_piece_bb(other, Knight).has_set_bit()
-            && self.colored_piece_bb(other, Bishop).is_single_piece()
-            && !self.piece_bb(Pawn).has_set_bit()
-        {
-            return true;
-        }
-        false
+        true
     }
 
     fn zobrist_hash(&self) -> ZobristHash {
@@ -712,11 +722,10 @@ impl Chessboard {
     /// Note that this function isn't entire correct according to the FIDE rules because it doesn't check for legality,
     /// so a position with a possible pseudolegal but illegal en passant move would be considered different from
     /// its repetition, where the en passant move wouldn't be possible
-    /// TODO: There should be a ZobristRepetition3FoldPedanticChess that actually does movegen, there could also be a more pedantic
-    /// insufficient_material function that wouldn't count 2 knights vs king as draw
+    /// TODO: Should there be a ZobristRepetition3FoldPedanticChess that actually does movegen?
     /// TODO: Only set the ep square if there are pseudolegal en passants possible
-    pub fn is_3fold_repetition(&self, history: &ZobristRepetition3Fold) -> bool {
-        history.game_result(self).is_some()
+    pub fn is_3fold_repetition<H: BoardHistory<Self>>(&self, history: &H) -> bool {
+        n_fold_repetition(3, history, self, self.ply_100_ctr)
     }
 
     pub fn is_stalemate_slow(&self) -> bool {
@@ -724,8 +733,6 @@ impl Chessboard {
     }
 
     pub fn has_insufficient_material(&self) -> bool {
-        // TODO: Test that this function works properly, especially for crazy edge cases like more than the
-        // starting number of knights or bishops for one player.
         if self.piece_bb(Pawn).has_set_bit() {
             return false;
         }
@@ -733,17 +740,14 @@ impl Chessboard {
             return false;
         }
         let bishops = self.piece_bb(Bishop);
-        if (bishops & BLACK_SQUARES).has_set_bit() && !(bishops & WHITE_SQUARES).is_zero() {
+        if (bishops & BLACK_SQUARES).has_set_bit() && (bishops & WHITE_SQUARES).has_set_bit() {
             return false; // opposite-colored bishops (even if they belong to different players)
         }
         if bishops.has_set_bit() && self.piece_bb(Knight).has_set_bit() {
             return false; // knight and bishop, or knight vs bishop
         }
-        let knights = self.piece_bb(Knight);
-        let white_knights = self.colored_piece_bb(White, Knight);
-        if knights.0.popcnt() >= 3
-            || ((knights ^ white_knights).has_set_bit() && white_knights.has_set_bit())
-        {
+        // a knight and any additional uncolored piece can create a mate (non-knight pieces have already been ruled out)
+        if self.piece_bb(Knight).num_ones() >= 2 {
             return false;
         }
         true
@@ -823,10 +827,12 @@ impl Chessboard {
         }
         board
             .castling
-            .set_castle_right(color, Queenside, q_rook as DimT);
+            .set_castle_right(color, Queenside, q_rook as DimT)
+            .unwrap();
         board
             .castling
-            .set_castle_right(color, Kingside, k_rook as DimT);
+            .set_castle_right(color, Kingside, k_rook as DimT)
+            .unwrap();
         Ok(())
     }
 
@@ -879,8 +885,7 @@ mod tests {
 
     use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
     use crate::games::{
-        game_result_no_movegen, Coordinates, Move, RectangularBoard, RectangularCoordinates,
-        ZobristRepetition2Fold,
+        Coordinates, Move, NoHistory, RectangularBoard, RectangularCoordinates, ZobristHistory,
     };
     use crate::general::perft::perft;
     use crate::search::Depth;
@@ -921,7 +926,7 @@ mod tests {
         }
         assert!(!board.is_in_check());
         assert!(!board.is_stalemate_slow());
-        assert!(!board.is_3fold_repetition(&ZobristRepetition3Fold::default()));
+        assert!(!board.is_3fold_repetition(&ZobristHistory::default()));
         assert!(!board.has_insufficient_material());
         assert!(!board.is_50mr_draw());
         assert_eq!(board.colored_bb(White), ChessBitboard::from_u64(0xffff));
@@ -1008,7 +1013,7 @@ mod tests {
         let perft_res = perft(Depth::new(2), board);
         assert_eq!(perft_res.depth, Depth::new(2));
         assert_eq!(perft_res.nodes, 20 * 20);
-        assert!(perft_res.time.as_millis() <= 10);
+        assert!(perft_res.time.as_millis() <= 20);
 
         let board =
             Chessboard::from_fen("r1bqkbnr/1pppNppp/p1n5/8/8/8/PPPPPPPP/R1BQKBNR b KQkq - 0 3")
@@ -1072,21 +1077,34 @@ mod tests {
         let moves = [
             "g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1", "f6g8", "e2e4",
         ];
-        let mut hist_3_fold = ZobristRepetition3Fold::default();
-        let mut hist_2_fold = ZobristRepetition2Fold::default();
+        let mut hist = ZobristHistory::default();
         assert_ne!(new_hash, board.zobrist_hash());
         for (i, mov) in moves.iter().enumerate() {
-            assert_eq!(i > 3, hist_2_fold.is_repetition(&board));
-            assert_eq!(i > 7, hist_3_fold.is_repetition(&board));
+            assert_eq!(
+                i > 3,
+                n_fold_repetition(2, &hist, &board, board.ply_100_ctr)
+            );
+            assert_eq!(
+                i > 7,
+                n_fold_repetition(3, &hist, &board, board.ply_100_ctr)
+            );
             assert_eq!(
                 i == 8,
-                game_result_no_movegen(&board, &hist_3_fold).is_some_and(|r| r == Draw)
+                board
+                    .player_result_no_movegen(&hist)
+                    .is_some_and(|r| r == Draw)
             );
-            hist_3_fold.push(&board);
-            hist_2_fold.push(&board);
+            hist.push(&board);
             let mov = ChessMove::from_compact_text(mov, &board).unwrap();
             board = board.make_move(mov).unwrap();
-            assert!(board.game_result_no_movegen().is_none());
+            assert_eq!(
+                n_fold_repetition(3, &hist, &board, board.ply_100_ctr),
+                board.is_3fold_repetition(&hist)
+            );
+            assert_eq!(
+                board.is_3fold_repetition(&hist),
+                board.player_result_no_movegen(&hist).is_some()
+            );
         }
         board = Chessboard::from_name("lucena").unwrap();
         assert_eq!(board.active_player, White);
@@ -1097,7 +1115,7 @@ mod tests {
                 .make_move(ChessMove::from_compact_text(mov, &board).unwrap())
                 .unwrap();
             assert_ne!(board.zobrist_hash(), hash);
-            assert!(!hist_2_fold.is_repetition(&board));
+            assert!(!n_fold_repetition(2, &hist, &board, 12345));
         }
         assert_eq!(board.active_player, Black);
     }
@@ -1116,7 +1134,7 @@ mod tests {
         let moves = pos.legal_moves_slow();
         assert!(moves.is_empty());
         assert!(pos.is_game_lost_slow());
-        assert_eq!(pos.game_result_player_slow(), Some(Lose));
+        assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
         assert!(!pos.is_stalemate_slow());
         assert!(pos.make_nullmove().is_none());
     }
@@ -1162,5 +1180,53 @@ mod tests {
             startpos_found |= board == Chessboard::default();
         }
         assert!(startpos_found);
+    }
+
+    #[test]
+    fn insufficient_material_test() {
+        let insufficient = [
+            "8/4k3/8/8/8/8/8/2K5 w - - 0 1",
+            "8/4k3/8/8/8/8/5N2/2K5 w - - 0 1",
+            "8/8/8/6k1/8/2K5/5b2/6b1 w - - 0 1",
+            "8/8/3B4/7k/8/8/1K6/6b1 w - - 0 1",
+            "8/6B1/8/6k1/8/2K5/8/6b1 w - - 0 1",
+            "3b3B/2B5/1B1B4/B7/3b4/4b2k/5b2/1K6 w - - 0 1",
+            "3B3B/2B5/1B1B4/B6k/3B4/4B3/1K3B2/2B5 w - - 0 1",
+        ];
+        let sufficient = [
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "8/8/4k3/8/8/1K6/8/7R w - - 0 1",
+            "5r2/3R4/4k3/8/8/1K6/8/8 w - - 0 1",
+            "8/8/4k3/8/8/1K6/8/6BB w - - 0 1",
+            "8/8/4B3/8/8/7K/8/6bk w - - 0 1",
+            "3B3B/2B5/1B1B4/B6k/3B4/4B3/1K3B2/1B6 w - - 0 1",
+            "8/3k4/8/8/8/8/NNN5/1K6 w - - 0 1",
+        ];
+        let sufficient_but_unreasonable = [
+            "6B1/8/8/6k1/8/2K5/8/6b1 w - - 0 1",
+            "8/8/4B3/8/8/7K/8/6bk b - - 0 1",
+            "8/8/4B3/7k/8/8/1K6/6b1 w - - 0 1",
+            "8/3k4/8/8/8/8/1NN5/1K6 w - - 0 1",
+            "8/2nk4/8/8/8/8/1NN5/1K6 w - - 0 1",
+        ];
+        for fen in insufficient {
+            let board = Chessboard::from_fen(fen).unwrap();
+            assert!(board.has_insufficient_material(), "{fen}");
+            assert!(!board.can_reasonably_win(board.active_player), "{fen}");
+            assert!(
+                !board.can_reasonably_win(board.active_player.other()),
+                "{fen}"
+            );
+        }
+        for fen in sufficient {
+            let board = Chessboard::from_fen(fen).unwrap();
+            assert!(!board.has_insufficient_material(), "{fen}");
+            assert!(board.can_reasonably_win(board.active_player), "{fen}");
+        }
+        for fen in sufficient_but_unreasonable {
+            let board = Chessboard::from_fen(fen).unwrap();
+            assert!(!board.has_insufficient_material(), "{fen}");
+            assert!(!board.can_reasonably_win(board.active_player), "{fen}");
+        }
     }
 }

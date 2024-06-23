@@ -7,7 +7,7 @@ use crate::games::Color::*;
 use crate::games::{
     AbstractPieceType, Board, ColoredPiece, ColoredPieceType, Coordinates, Move, RectangularBoard,
 };
-use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
+use crate::general::common::{IterIntersperse, NamedEntity, Res, StaticallyNamedEntity};
 use crate::general::squares::RectangularCoordinates;
 use crate::output::text_output::{TextStream, TextWriter};
 use crate::output::Message::Info;
@@ -117,7 +117,10 @@ where
         _ = writeln!(
             res,
             " {0}",
-            itertools::intersperse(('A'..).take(pos.width() as usize), ' ').collect::<String>()
+            ('A'..)
+                .take(pos.width() as usize)
+                .intersperse_(' ')
+                .collect::<String>()
         );
         res
     }

@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use gears::games::Board;
 use gears::general::common::StaticallyNamedEntity;
-use gears::search::Score;
+use gears::score::Score;
 
 pub mod rand_eval;
 
