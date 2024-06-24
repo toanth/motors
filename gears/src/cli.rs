@@ -13,7 +13,7 @@ use itertools::Itertools;
 use num::PrimInt;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
-use strum_macros::{EnumIter, IntoStaticStr};
+use strum_macros::EnumIter;
 
 #[derive(
     Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Display, derive_more::FromStr, EnumIter,

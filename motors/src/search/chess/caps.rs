@@ -1,5 +1,4 @@
 use arrayvec::ArrayVec;
-use std::any::TypeId;
 use std::cmp::min;
 use std::mem::take;
 use std::time::{Duration, Instant};
@@ -9,13 +8,12 @@ use itertools::Itertools;
 use rand::thread_rng;
 
 use crate::eval::chess::lite::LiTEval;
-use crate::eval::chess::piston::PistonEval;
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::{Chessboard, MAX_CHESS_MOVES_IN_POS};
 use gears::games::{n_fold_repetition, Board, BoardHistory, Color, Move, ZobristHistory};
 use gears::general::common::Description::NoDescription;
-use gears::general::common::{select_name_static, NamedEntity, Res, StaticallyNamedEntity};
+use gears::general::common::{select_name_static, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
 use gears::score::{
     game_result_to_score, ScoreT, MAX_SCORE_LOST, MIN_SCORE_WON, NO_SCORE_YET, SCORE_LOST,
@@ -253,20 +251,7 @@ impl Benchable<Chessboard> for Caps {
                 }),
             },
         ];
-        EngineInfo {
-            short_name: self.short_name().to_string(),
-            name: format!(
-                "{0}, with eval: {1}",
-                self.long_name(),
-                self.eval.long_name()
-            ),
-            version: "0.1.0".to_string(),
-            default_bench_depth: Depth::new(12),
-            options,
-            description:
-                "CAPS (Chess-playing Alpha-beta Pruning Search), a negamax-based chess engine"
-                    .to_string(),
-        }
+        EngineInfo::new(self, self.eval.as_ref(), "0.1.0", Depth::new(12), options)
     }
 
     fn set_option(&mut self, option: EngineOptionName, _value: String) -> Res<()> {
@@ -290,6 +275,10 @@ impl Benchable<Chessboard> for Caps {
 impl Engine<Chessboard> for Caps {
     fn set_tt(&mut self, tt: TT) {
         self.state.custom.tt = tt;
+    }
+
+    fn set_eval(&mut self, eval: Box<dyn Eval<Chessboard>>) {
+        self.eval = eval;
     }
 
     fn do_search(
@@ -740,7 +729,7 @@ impl Caps {
                 }
             }
 
-            self.undo_move(&new_pos, ply);
+            self.undo_move();
 
             debug_assert_eq!(
                 self.state.board_history.len(),
@@ -937,7 +926,7 @@ impl Caps {
             self.record_move(mov, pos, ply, Qsearch);
             children_visited += 1;
             let score = -self.qsearch(new_pos, -beta, -alpha, ply + 1);
-            self.undo_move(&new_pos, ply);
+            self.undo_move();
             best_score = best_score.max(score);
             if score <= alpha {
                 continue;
@@ -982,7 +971,7 @@ impl Caps {
         self.state.statistics.count_legal_make_move(typ);
     }
 
-    fn undo_move(&mut self, new_pos: &Chessboard, ply: usize) {
+    fn undo_move(&mut self) {
         self.state.board_history.pop();
     }
 }

@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use strum::IntoEnumIterator;
 
 use crate::eval::chess::lite_values::*;
@@ -50,7 +51,7 @@ pub fn file_openness(
 }
 
 impl StaticallyNamedEntity for LiTEval {
-    fn static_short_name() -> &'static str
+    fn static_short_name() -> impl Display
     where
         Self: Sized,
     {
@@ -61,7 +62,7 @@ impl StaticallyNamedEntity for LiTEval {
     where
         Self: Sized,
     {
-        "Chess LiTE -- Linear Tuned Eval for Chess".to_string()
+        "Chess LiTE: Linear Tuned Eval for Chess".to_string()
     }
 
     fn static_description() -> String

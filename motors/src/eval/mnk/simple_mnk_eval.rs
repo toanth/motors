@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use strum::IntoEnumIterator;
 
 use gears::games::mnk::{MNKBoard, MnkBitboard};
@@ -28,7 +29,7 @@ fn eval_player(bb: MnkBitboard, size: GridSize) -> ScoreT {
 }
 
 impl StaticallyNamedEntity for SimpleMnkEval {
-    fn static_short_name() -> &'static str
+    fn static_short_name() -> impl Display
     where
         Self: Sized,
     {

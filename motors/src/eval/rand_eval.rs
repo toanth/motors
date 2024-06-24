@@ -1,4 +1,5 @@
 use rand::{thread_rng, Rng};
+use std::fmt::Display;
 
 use crate::eval::Eval;
 use gears::games::Board;
@@ -19,7 +20,7 @@ impl Default for RandEval {
 }
 
 impl StaticallyNamedEntity for RandEval {
-    fn static_short_name() -> &'static str
+    fn static_short_name() -> impl Display
     where
         Self: Sized,
     {

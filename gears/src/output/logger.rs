@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::str::SplitWhitespace;
 
 use itertools::Itertools;
@@ -135,7 +136,7 @@ impl LoggerBuilder {
 }
 
 impl StaticallyNamedEntity for LoggerBuilder {
-    fn static_short_name() -> &'static str {
+    fn static_short_name() -> impl Display {
         "logger"
     }
 

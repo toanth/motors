@@ -76,7 +76,7 @@ impl Default for Chessboard {
 }
 
 impl StaticallyNamedEntity for Chessboard {
-    fn static_short_name() -> &'static str
+    fn static_short_name() -> impl Display
     where
         Self: Sized,
     {

@@ -120,6 +120,37 @@ impl<T: StaticallyNamedEntity> NamedEntity for T {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct Name {
+    pub short: String,
+    pub long: String,
+    pub description: Option<String>,
+}
+
+impl NamedEntity for Name {
+    fn short_name(&self) -> String {
+        self.short.clone()
+    }
+
+    fn long_name(&self) -> String {
+        self.long.clone()
+    }
+
+    fn description(&self) -> Option<String> {
+        self.description.clone()
+    }
+}
+
+impl Name {
+    pub fn new<T: NamedEntity + ?Sized>(t: &T) -> Self {
+        Self {
+            short: t.short_name(),
+            long: t.long_name(),
+            description: t.description(),
+        }
+    }
+}
+
 pub type EntityList<T> = Vec<T>;
 // T is usually of a dyn trait
 pub type DynEntityList<T> = Vec<Box<T>>;
