@@ -557,6 +557,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
                     || (bound == FailLow && tt_entry.score <= eval))
             {
                 eval = tt_entry.score;
+            } else {
+                eval = (eval + tt_entry.score) / 2;
             }
         } else {
             self.state.statistics.tt_miss(MainSearch);
