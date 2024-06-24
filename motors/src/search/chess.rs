@@ -13,18 +13,18 @@ mod tests {
     use gears::search::{Depth, SearchLimit};
     use gears::PlayerResult::Draw;
 
-    use crate::eval::chess::hce::HandCraftedEval;
+    use crate::eval::chess::lite::LiTEval;
     use crate::eval::chess::material_only::MaterialOnlyEval;
     use crate::eval::chess::piston::PistonEval;
     use crate::eval::rand_eval::RandEval;
     use crate::search::chess::caps::Caps;
-    use crate::search::generic::generic_negamax::GenericNegamax;
+    use crate::search::generic::gaps::Gaps;
     use crate::search::multithreading::SearchSender;
     use crate::search::Engine;
 
     #[test]
     fn generic_negamax_test() {
-        generic_search_test(GenericNegamax::<Chessboard>::default())
+        generic_search_test(Gaps::<Chessboard>::default())
     }
 
     #[test]
@@ -56,7 +56,7 @@ mod tests {
         // this fen is actually a legal chess position
         let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
         let board = Chessboard::from_fen(fen).unwrap();
-        let mut engine = Caps::for_eval::<HandCraftedEval>();
+        let mut engine = Caps::for_eval::<LiTEval>();
         let res = engine
             .search_from_pos(board, SearchLimit::nodes_(5_000))
             .unwrap();

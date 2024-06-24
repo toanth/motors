@@ -1,6 +1,6 @@
 use strum::IntoEnumIterator;
 
-use crate::eval::chess::hce_values::*;
+use crate::eval::chess::lite_values::*;
 use crate::eval::chess::{pawn_shield_idx, FileOpenness};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::{Bishop, Empty, King, Pawn, Rook};
@@ -15,11 +15,11 @@ use gears::general::bitboards::RawBitboard;
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{PhaseType, PhasedScore, Score};
 
-use crate::eval::chess::hce::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
+use crate::eval::chess::lite::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
 use crate::eval::Eval;
 
 #[derive(Default, Debug, Clone)]
-pub struct HandCraftedEval {
+pub struct LiTEval {
     hash: ZobristHash,
     phase: PhaseType,
     // scores are stored from the perspective of the white player
@@ -49,19 +49,19 @@ pub fn file_openness(
     }
 }
 
-impl StaticallyNamedEntity for HandCraftedEval {
+impl StaticallyNamedEntity for LiTEval {
     fn static_short_name() -> &'static str
     where
         Self: Sized,
     {
-        "hce"
+        "LiTE"
     }
 
     fn static_long_name() -> String
     where
         Self: Sized,
     {
-        "Hand Crafted Chess Eval".to_string()
+        "Chess LiTE -- Linear Tuned Eval for Chess".to_string()
     }
 
     fn static_description() -> String
@@ -72,7 +72,7 @@ impl StaticallyNamedEntity for HandCraftedEval {
     }
 }
 
-impl HandCraftedEval {
+impl LiTEval {
     fn psqt(pos: &Chessboard) -> PhasedScore {
         let mut res = PhasedScore::default();
         for color in Color::iter() {
@@ -203,11 +203,14 @@ impl HandCraftedEval {
         delta -= PSQTS[piece as usize][src_square];
         if mov.is_castle() {
             let side = mov.castle_side();
-            delta += PSQTS[King as usize][new_pos.king_square(moving_player).bb_idx()];
+            delta += PSQTS[King as usize][new_pos
+                .king_square(moving_player)
+                .flip_if(moving_player == White)
+                .bb_idx()];
             // since PSQTs are player-relative, castling always takes place on the 0th rank
-            let rook_dest_square = ChessSquare::from_rank_file(0, side.rook_dest_file());
+            let rook_dest_square = ChessSquare::from_rank_file(7, side.rook_dest_file());
             let rook_start_square =
-                ChessSquare::from_rank_file(0, old_pos.rook_start_file(moving_player, side));
+                ChessSquare::from_rank_file(7, old_pos.rook_start_file(moving_player, side));
             delta += PSQTS[Rook as usize][rook_dest_square.bb_idx()];
             delta -= PSQTS[Rook as usize][rook_start_square.bb_idx()];
         } else if mov.promo_piece() == Empty {
@@ -217,9 +220,9 @@ impl HandCraftedEval {
             phase_delta += PIECE_PHASE[mov.promo_piece() as usize];
         }
         if mov.is_ep() {
-            delta -= PSQTS[Pawn as usize][old_pos.ep_square().unwrap().bb_idx()];
+            delta += PSQTS[Pawn as usize][dest_square.flip().south_unchecked().bb_idx()];
         } else if captured != Empty {
-            // capturing a piece increases our score by the piece's psqt value
+            // capturing a piece increases our score by the piece's psqt value from the opponent's point of view
             delta += PSQTS[captured as usize][dest_square.flip().bb_idx()];
             phase_delta -= PIECE_PHASE[captured as usize];
         }
@@ -242,8 +245,8 @@ impl HandCraftedEval {
             }
     }
 
-    fn eval_from_scratch(pos: &Chessboard) -> (HandCraftedEval, PhasedScore) {
-        let mut state = HandCraftedEval::default();
+    fn eval_from_scratch(pos: &Chessboard) -> (LiTEval, PhasedScore) {
+        let mut state = LiTEval::default();
         state.hash = pos.zobrist_hash();
         state.psqt_score = Self::psqt(&pos);
         let mut score = PhasedScore::default();
@@ -266,7 +269,7 @@ impl HandCraftedEval {
     }
 }
 
-impl Eval<Chessboard> for HandCraftedEval {
+impl Eval<Chessboard> for LiTEval {
     fn eval(&mut self, pos: &Chessboard) -> Score {
         let (state, score) = Self::eval_from_scratch(pos);
         *self = state;

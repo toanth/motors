@@ -65,8 +65,8 @@ where
 }
 
 impl NamedEntity for PrettyUI {
-    fn short_name(&self) -> &str {
-        PrettyUIBuilder::static_short_name()
+    fn short_name(&self) -> String {
+        PrettyUIBuilder::static_short_name().to_string()
     }
 
     fn long_name(&self) -> String {

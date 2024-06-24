@@ -19,7 +19,7 @@ use gears::games::Color;
 use gears::games::Color::*;
 use gears::general::bitboards::chess::A_FILE;
 use gears::general::bitboards::{Bitboard, RawBitboard};
-use motors::eval::chess::hce::file_openness;
+use motors::eval::chess::lite::file_openness;
 use motors::eval::chess::FileOpenness::SemiClosed;
 use motors::eval::chess::{pawn_shield_idx, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use std::fmt::Formatter;

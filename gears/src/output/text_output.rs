@@ -106,7 +106,7 @@ pub enum DisplayType {
 }
 
 impl NamedEntity for DisplayType {
-    fn short_name(&self) -> &str {
+    fn short_name(&self) -> String {
         match self {
             Unicode => "unicode",
             Ascii => "ascii",
@@ -116,6 +116,7 @@ impl NamedEntity for DisplayType {
             Ugi => "ugi",
             MsgOnly => "messages",
         }
+        .to_string()
     }
 
     fn long_name(&self) -> String {
@@ -268,16 +269,11 @@ impl BoardToText {
 struct TextOutput {
     writer: TextWriter,
     to_text: BoardToText,
-    name: Option<&'static str>,
+    name: Option<String>,
 }
 
 impl TextOutput {
-    fn new(
-        typ: DisplayType,
-        is_engine: bool,
-        writer: TextWriter,
-        name: Option<&'static str>,
-    ) -> Self {
+    fn new(typ: DisplayType, is_engine: bool, writer: TextWriter, name: Option<String>) -> Self {
         Self {
             to_text: BoardToText { typ, is_engine },
             writer,
@@ -287,8 +283,8 @@ impl TextOutput {
 }
 
 impl NamedEntity for TextOutput {
-    fn short_name(&self) -> &str {
-        self.name.unwrap_or(self.to_text.typ.short_name())
+    fn short_name(&self) -> String {
+        self.name.clone().unwrap_or(self.to_text.typ.short_name())
     }
 
     fn long_name(&self) -> String {
@@ -325,7 +321,7 @@ pub struct TextOutputBuilder {
     pub typ: DisplayType,
     pub stream: Option<TextStream>,
     pub accepted: Vec<Message>,
-    short_name: Option<&'static str>,
+    short_name: Option<String>,
 }
 
 impl Clone for TextOutputBuilder {
@@ -334,7 +330,7 @@ impl Clone for TextOutputBuilder {
             typ: self.typ,
             stream: None,
             accepted: self.accepted.clone(),
-            short_name: self.short_name,
+            short_name: self.short_name.clone(),
         }
     }
 }
@@ -349,12 +345,12 @@ impl TextOutputBuilder {
         }
     }
 
-    pub fn messages_for(accepted: Vec<Message>, short_name: &'static str) -> Self {
+    pub fn messages_for(accepted: Vec<Message>, short_name: &str) -> Self {
         Self {
             typ: MsgOnly,
             stream: None,
             accepted,
-            short_name: Some(short_name),
+            short_name: Some(short_name.to_string()),
         }
     }
 
@@ -367,18 +363,21 @@ impl TextOutputBuilder {
             self.typ,
             is_engine,
             TextWriter::new_for(stream, self.accepted.clone()),
-            self.short_name,
+            self.short_name.clone(),
         )))
     }
 }
 
 impl NamedEntity for TextOutputBuilder {
-    fn short_name(&self) -> &str {
-        self.short_name.unwrap_or_else(|| self.typ.short_name())
+    fn short_name(&self) -> String {
+        self.short_name
+            .clone()
+            .unwrap_or_else(|| self.typ.short_name())
     }
 
     fn long_name(&self) -> String {
         self.short_name
+            .clone()
             .map(|s| s.to_string())
             .unwrap_or_else(|| self.typ.long_name())
     }

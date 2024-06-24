@@ -59,7 +59,7 @@ impl Display for AtaxxBoard {
 }
 
 impl StaticallyNamedEntity for AtaxxBoard {
-    fn static_short_name() -> &'static str
+    fn static_short_name() -> impl Display
     where
         Self: Sized,
     {

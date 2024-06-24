@@ -67,7 +67,7 @@ pub fn create_input_from_str<B: Board>(
         name,
         list,
         "input",
-        B::game_name(),
+        &B::game_name(),
         WithDescription,
     )?);
     ui_builder.set_option(opts)?;

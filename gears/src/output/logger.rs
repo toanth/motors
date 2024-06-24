@@ -40,8 +40,8 @@ impl Logger {
 }
 
 impl NamedEntity for Logger {
-    fn short_name(&self) -> &str {
-        LoggerBuilder::static_short_name()
+    fn short_name(&self) -> String {
+        LoggerBuilder::static_short_name().to_string()
     }
 
     fn long_name(&self) -> String {

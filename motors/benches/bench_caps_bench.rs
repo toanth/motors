@@ -3,21 +3,21 @@ use std::time::Duration;
 use criterion::{criterion_group, criterion_main, Criterion};
 use gears::games::chess::Chessboard;
 use gears::search::Depth;
-use motors::eval::chess::hce::HandCraftedEval;
+use motors::eval::chess::lite::LiTEval;
 use motors::search::chess::caps::Caps;
 use motors::search::{run_bench_with_depth, Benchable};
 
 pub fn caps_startpos_bench(c: &mut Criterion) {
     c.bench_function("bench 12 startpos", |b| {
         let pos = Chessboard::default();
-        let mut engine = Caps::<HandCraftedEval>::default();
+        let mut engine = Caps::<LiTEval>::default();
         b.iter(|| engine.bench(pos, Depth::new(12)));
     });
 }
 
 pub fn caps_normal_bench_depth_7(c: &mut Criterion) {
     c.bench_function("normal bench", |b| {
-        let mut engine = Caps::<HandCraftedEval>::default();
+        let mut engine = Caps::<LiTEval>::default();
         b.iter(|| run_bench_with_depth(&mut engine, Depth::new(7)));
     });
 }

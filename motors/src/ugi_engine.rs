@@ -474,6 +474,9 @@ impl<B: Board> EngineUGI<B> {
             "engine" => {
                 self.handle_engine(words)?;
             }
+            "set-eval" => {
+                self.handle_set_eval(words)?;
+            }
             "play" => {
                 self.handle_play(words)?;
             }
@@ -523,7 +526,7 @@ impl<B: Board> EngineUGI<B> {
     fn id(&self) -> String {
         let info = self.state.engine.engine_info();
         format!(
-            "id name Motors - {0} {1}\nid author ToTheAnd",
+            "id name Motors -- Engine {0}, version {1}\nid author ToTheAnd",
             info.name, info.version
         )
     }
@@ -710,7 +713,7 @@ impl<B: Board> EngineUGI<B> {
                 Perft => perft_for(limit.depth, B::bench_positions()).to_string(),
                 Bench => {
                     let mut engine = create_engine_bench_from_str(
-                        self.state.engine.engine_info().short_name(),
+                        &self.state.engine.engine_info().short_name(),
                         &self.engine_factories,
                     )?;
                     run_bench_with_depth(engine.as_mut(), limit.depth).to_string()
@@ -944,6 +947,10 @@ impl<B: Board> EngineUGI<B> {
         self.state.engine.send_quit()?;
         self.state.engine = engine;
         Ok(())
+    }
+
+    fn handle_set_eval(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+        todo!()
     }
 
     fn handle_play(&mut self, words: &mut SplitWhitespace) -> Res<()> {

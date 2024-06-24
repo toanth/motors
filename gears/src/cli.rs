@@ -16,17 +16,7 @@ use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, IntoStaticStr};
 
 #[derive(
-    Copy,
-    Clone,
-    Eq,
-    PartialEq,
-    Ord,
-    PartialOrd,
-    Debug,
-    IntoStaticStr,
-    Display,
-    derive_more::FromStr,
-    EnumIter,
+    Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Display, derive_more::FromStr, EnumIter,
 )]
 pub enum Game {
     /// Normal Chess, Chess960 or Double Fisher Random Chess.
@@ -48,8 +38,8 @@ impl Default for Game {
 }
 
 impl NamedEntity for Game {
-    fn short_name(&self) -> &str {
-        self.into()
+    fn short_name(&self) -> String {
+        self.to_string()
     }
 
     fn long_name(&self) -> String {
@@ -59,7 +49,7 @@ impl NamedEntity for Game {
     fn description(&self) -> Option<String> {
         Some(match self {
             Game::Chess => "Normal Chess, Chess960 or Double Fisher Random Chess.",
-            Game::Ataxx => return None,
+            Game::Ataxx => "Ataxx is a simple but challenging game played on a 7x7 grid where your goal is to convert your opponent's pieces",
             Game::Mnk => "m,n,k games are a generalization of Tic-Tac-Toe or Gomoku. Currently, this implementation \
                 only supports boards up to 128 squares.",
             #[allow(unreachable_patterns)]

@@ -7,8 +7,8 @@ use gears::general::bitboards::Bitboard;
 use std::fmt::{Display, Formatter};
 use strum_macros::EnumIter;
 
-pub mod hce;
-pub mod hce_values;
+pub mod lite;
+pub mod lite_values;
 pub mod material_only;
 pub mod piston;
 
@@ -27,7 +27,7 @@ impl Display for PhaseType {
     }
 }
 
-/// Has to be in the same order as the FileOpenness in hce.rs.
+/// Has to be in the same order as the FileOpenness in lite.
 /// `SemiClosed` is last because it doesn't get counted.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum FileOpenness {
@@ -93,7 +93,7 @@ pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: C
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::chess::hce::HandCraftedEval;
+    use crate::eval::chess::lite::LiTEval;
     use crate::eval::chess::material_only::MaterialOnlyEval;
     use crate::eval::chess::piston::PistonEval;
     use crate::eval::Eval;
@@ -212,6 +212,6 @@ mod tests {
     fn simple_eval_test() {
         generic_eval_test::<MaterialOnlyEval>();
         generic_eval_test::<PistonEval>();
-        generic_eval_test::<HandCraftedEval>();
+        generic_eval_test::<LiTEval>();
     }
 }

@@ -379,7 +379,7 @@ impl PlayerBuilder {
         replace: Option<PlayerId>,
     ) -> Res<PlayerId> {
         let copy = self;
-        let path = Self::get_engine_path_and_set_args(&mut args, B::game_name())?;
+        let path = Self::get_engine_path_and_set_args(&mut args, &B::game_name())?;
         if !path.is_file() {
             return Err(format!(
                 "The specified engine path '{}' does not point to a file (make sure the path and command are set correctly)",

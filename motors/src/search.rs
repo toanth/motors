@@ -42,8 +42,8 @@ pub struct EngineInfo {
 }
 
 impl NamedEntity for EngineInfo {
-    fn short_name(&self) -> &str {
-        &self.short_name
+    fn short_name(&self) -> String {
+        self.short_name.clone()
     }
 
     fn long_name(&self) -> String {
@@ -154,37 +154,30 @@ impl<B: Board> EngineWrapperBuilder<B> {
 
 pub type EngineList<B> = EntityList<Box<dyn AbstractEngineBuilder<B>>>;
 
-#[derive(Debug)]
-pub struct EngineBuilder<B: Board, E: Engine<B>, F: Eval<B>> {
+#[derive(Debug, Default)]
+pub struct EngineBuilder<B: Board, E: Engine<B>, F: Eval<B> + Default> {
     _phantom_b: PhantomData<B>,
     _phantom_e: PhantomData<E>,
     _phantom_eval: PhantomData<F>,
 }
 
-impl<B: Board, E: Engine<B>, F: Eval<B>> Default for EngineBuilder<B, E, F> {
-    fn default() -> Self {
-        Self {
-            _phantom_b: Default::default(),
-            _phantom_e: Default::default(),
-            _phantom_eval: Default::default(),
-        }
-    }
-}
-impl<B: Board, E: Engine<B>, F: Eval<B>> Clone for EngineBuilder<B, E, F> {
+impl<B: Board, E: Engine<B>, F: Eval<B> + Default> Clone for EngineBuilder<B, E, F> {
     fn clone(&self) -> Self {
         Self::default()
     }
 }
 
-impl<B: Board, E: Engine<B>, F: Eval<B>> EngineBuilder<B, E, F> {
+impl<B: Board, E: Engine<B>, F: Eval<B> + Default> EngineBuilder<B, E, F> {
     pub fn new() -> Self {
         Self::default()
     }
 }
 
-impl<B: Board, E: Engine<B>, F: Eval<B>> AbstractEngineBuilder<B> for EngineBuilder<B, E, F> {
+impl<B: Board, E: Engine<B>, F: Eval<B> + Default> AbstractEngineBuilder<B>
+    for EngineBuilder<B, E, F>
+{
     fn build(&self, sender: SearchSender<B>, tt: TT) -> EngineWrapper<B> {
-        EngineWrapper::new_with_tt(E::default(), sender, clone_box(self), tt)
+        EngineWrapper::new_with_tt(E::for_eval::<F>(), sender, clone_box(self), tt)
     }
 
     fn build_for_bench(&self) -> Box<dyn Benchable<B>> {
@@ -196,17 +189,30 @@ impl<B: Board, E: Engine<B>, F: Eval<B>> AbstractEngineBuilder<B> for EngineBuil
     }
 }
 
-impl<B: Board, E: Engine<B>, F: Eval<B>> StaticallyNamedEntity for EngineBuilder<B, E, F> {
-    fn static_short_name() -> &'static str {
-        E::static_short_name() // TODO: Also use Eval short name?
+impl<B: Board, E: Engine<B>, F: Eval<B> + Default> StaticallyNamedEntity
+    for EngineBuilder<B, E, F>
+{
+    fn static_short_name() -> impl Display {
+        format!("{0}-{1}", E::static_short_name(), F::static_short_name())
     }
 
     fn static_long_name() -> String {
-        E::static_long_name()
+        format!(
+            "{0}: {1}; {2}: {3}",
+            "Engine".bold(),
+            E::static_long_name(),
+            "Eval".bold(),
+            F::static_long_name()
+        )
     }
 
     fn static_description() -> String {
-        E::static_description()
+        format!(
+            "{0}\n    {1}: {2}",
+            E::static_description(),
+            "Eval".bold(),
+            F::static_description()
+        )
     }
 }
 

@@ -19,7 +19,7 @@ use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArg
 
 use crate::cli::Mode::Bench;
 use crate::cli::{parse_cli, EngineOpts, Mode};
-use crate::eval::chess::hce::HandCraftedEval;
+use crate::eval::chess::lite::LiTEval;
 use crate::eval::chess::material_only::MaterialOnlyEval;
 #[cfg(feature = "chess")]
 use crate::eval::chess::piston::PistonEval;
@@ -29,7 +29,7 @@ use crate::eval::rand_eval::RandEval;
 #[cfg(feature = "caps")]
 use crate::search::chess::caps::Caps;
 #[cfg(feature = "generic_negamax")]
-use crate::search::generic::generic_negamax::GenericNegamax;
+use crate::search::generic::gaps::Gaps;
 #[cfg(feature = "random_mover")]
 use crate::search::generic::random_mover::RandomMover;
 use crate::search::multithreading::{EngineWrapper, SearchSender};
@@ -81,7 +81,7 @@ pub fn create_engine_from_str_impl<B: Board>(
         name,
         engines,
         "engine",
-        B::game_name(),
+        &B::game_name(),
         WithDescription,
     )?))
 }
@@ -159,7 +159,7 @@ pub fn list_chess_engines() -> EngineList<Chessboard> {
     #[cfg(feature = "generic_negamax")]
     res.push(Box::new(EngineBuilder::<
         Chessboard,
-        GenericNegamax<Chessboard>,
+        Gaps<Chessboard>,
         MaterialOnlyEval,
     >::new()));
     #[cfg(feature = "caps")]
@@ -174,9 +174,7 @@ pub fn list_chess_engines() -> EngineList<Chessboard> {
     ));
     // The last engine in this list is the default engine
     #[cfg(feature = "caps")]
-    res.push(Box::new(
-        EngineBuilder::<Chessboard, Caps, HandCraftedEval>::new(),
-    ));
+    res.push(Box::new(EngineBuilder::<Chessboard, Caps, LiTEval>::new()));
     res
 }
 
@@ -186,7 +184,7 @@ pub fn list_ataxx_engine() -> EngineList<AtaxxBoard> {
     #[cfg(feature = "generic_negamax")]
     res.push(Box::new(EngineBuilder::<
         AtaxxBoard,
-        GenericNegamax<AtaxxBoard>,
+        Gaps<AtaxxBoard>,
         RandEval, // TODO: Actual eval, game-specific engines
     >::new()));
     res
@@ -198,7 +196,7 @@ pub fn list_mnk_engine() -> EngineList<MNKBoard> {
     #[cfg(feature = "generic_negamax")]
     res.push(Box::new(EngineBuilder::<
         MNKBoard,
-        GenericNegamax<MNKBoard>,
+        Gaps<MNKBoard>,
         SimpleMnkEval,
     >::new()));
     res

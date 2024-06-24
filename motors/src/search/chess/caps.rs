@@ -8,8 +8,7 @@ use derive_more::{Deref, DerefMut, Index, IndexMut};
 use itertools::Itertools;
 use rand::thread_rng;
 
-use crate::eval::chess::hce::HandCraftedEval;
-use crate::eval::chess::material_only::MaterialOnlyEval;
+use crate::eval::chess::lite::LiTEval;
 use crate::eval::chess::piston::PistonEval;
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::see::SeeScore;
@@ -174,7 +173,7 @@ impl CapsSearchStackEntry {
 
 type CapsState = ABSearchState<Chessboard, CapsSearchStackEntry, Additional>;
 
-type DefaultEval = HandCraftedEval;
+type DefaultEval = LiTEval;
 
 /// Chess-playing Alpha-beta Pruning Search, or in short, CAPS.
 /// Larger than SᴍᴀʟʟCᴀᴘꜱ.
@@ -192,7 +191,7 @@ impl Default for Caps {
 }
 
 impl StaticallyNamedEntity for Caps {
-    fn static_short_name() -> &'static str
+    fn static_short_name() -> impl Display
     where
         Self: Sized,
     {
@@ -256,7 +255,11 @@ impl Benchable<Chessboard> for Caps {
         ];
         EngineInfo {
             short_name: self.short_name().to_string(),
-            name: self.long_name().to_string(),
+            name: format!(
+                "{0}, with eval: {1}",
+                self.long_name(),
+                self.eval.long_name()
+            ),
             version: "0.1.0".to_string(),
             default_bench_depth: Depth::new(12),
             options,
@@ -1030,7 +1033,7 @@ mod tests {
     use gears::games::ZobristHistory;
     use gears::search::NodesLimit;
 
-    use crate::eval::chess::hce::HandCraftedEval;
+    use crate::eval::chess::lite::LiTEval;
     use crate::eval::chess::piston::PistonEval;
     use crate::eval::rand_eval::RandEval;
 
@@ -1096,11 +1099,26 @@ mod tests {
     #[test]
     fn philidor_test() {
         let pos = Chessboard::from_name("philidor").unwrap();
-        let mut engine = Caps::for_eval::<HandCraftedEval>();
+        let mut engine = Caps::for_eval::<LiTEval>();
         let res =
             engine.search_from_pos(pos, SearchLimit::nodes(NodesLimit::new(100_000).unwrap()));
         // TODO: More aggressive bound once the engine is stronger
         assert!(res.unwrap().score.unwrap().abs() <= Score(200));
+    }
+
+    #[test]
+    fn kiwipete_test() {
+        let pos = Chessboard::from_name("kiwipete").unwrap();
+        let mut engine = Caps::for_eval::<LiTEval>();
+        let res = engine
+            .search_from_pos(pos, SearchLimit::nodes(NodesLimit::new(12_345).unwrap()))
+            .unwrap();
+
+        assert!(res.score.unwrap().abs() <= Score(64));
+        assert_eq!(
+            res.chosen_move,
+            ChessMove::from_compact_text("e2a6", &pos).unwrap()
+        );
     }
 
     #[test]
@@ -1130,7 +1148,7 @@ mod tests {
         ];
         for (fen, mov) in fens {
             let pos = Chessboard::from_fen(fen).unwrap();
-            let mut engine = Caps::<HandCraftedEval>::default();
+            let mut engine = Caps::<LiTEval>::default();
             let mut limit = SearchLimit::depth(Depth::new(18));
             limit.mate = Depth::new(10);
             limit.fixed_time = Duration::from_secs(2);

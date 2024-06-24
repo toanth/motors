@@ -23,28 +23,28 @@ const MAX_DEPTH: Depth = Depth::new(100);
 type DefaultEval = RandEval;
 
 #[derive(Debug)]
-pub struct GenericNegamax<B: Board> {
+pub struct Gaps<B: Board> {
     state: ABSearchState<B, EmptySearchStackEntry, NoCustomInfo>,
     eval: Box<dyn Eval<B>>,
     tt: TT,
 }
 
-impl<B: Board> Default for GenericNegamax<B> {
+impl<B: Board> Default for Gaps<B> {
     fn default() -> Self {
         Self::with_eval(Box::new(DefaultEval::default()))
     }
 }
 
-impl<B: Board> StaticallyNamedEntity for GenericNegamax<B> {
+impl<B: Board> StaticallyNamedEntity for Gaps<B> {
     fn static_short_name() -> &'static str
     where
         Self: Sized,
     {
-        "generic_negamax"
+        "GAPS"
     }
 
     fn static_long_name() -> String {
-        "Generic Negamax".to_string()
+        "GAPS -- Generic Alpha-beta Pruning Search".to_string()
     }
 
     fn static_description() -> String
@@ -55,9 +55,7 @@ impl<B: Board> StaticallyNamedEntity for GenericNegamax<B> {
     }
 }
 
-// impl<B: Board> EngineBase for GenericNegamax<B> {}
-
-impl<B: Board> Benchable<B> for GenericNegamax<B> {
+impl<B: Board> Benchable<B> for Gaps<B> {
     fn bench(&mut self, pos: B, depth: Depth) -> BenchResult {
         self.state.forget(true);
         let mut limit = SearchLimit::infinite();
@@ -90,7 +88,7 @@ impl<B: Board> Benchable<B> for GenericNegamax<B> {
     }
 }
 
-impl<B: Board> Engine<B> for GenericNegamax<B> {
+impl<B: Board> Engine<B> for Gaps<B> {
     fn can_use_multiple_threads() -> bool
     where
         Self: Sized,
@@ -161,7 +159,7 @@ impl<B: Board> Engine<B> for GenericNegamax<B> {
     }
 }
 
-impl<B: Board> GenericNegamax<B> {
+impl<B: Board> Gaps<B> {
     #[allow(clippy::too_many_arguments)]
     fn negamax(
         &mut self,

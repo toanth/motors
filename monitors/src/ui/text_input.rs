@@ -42,12 +42,12 @@ impl<F> Debug for TextSelection<F> {
 }
 
 impl<F> NamedEntity for TextSelection<F> {
-    fn short_name(&self) -> &str {
-        self.names.first().unwrap()
+    fn short_name(&self) -> String {
+        self.names.first().unwrap().to_string()
     }
 
     fn long_name(&self) -> String {
-        self.short_name().to_string()
+        self.short_name()
     }
 
     fn description(&self) -> Option<String> {
@@ -195,7 +195,7 @@ impl<B: Board> TextInputThread<B> {
                     return Ok(true);
                 }
                 Err(err) => {
-                    let func = select_name_static(command, self.commands.iter(), "command", B::game_name(), NoDescription).map_err(|msg| format!("'{command}' is not a pseudolegal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?.func;
+                    let func = select_name_static(command, self.commands.iter(), "command", &B::game_name(), NoDescription).map_err(|msg| format!("'{command}' is not a pseudolegal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?.func;
                     func(client, &mut words)?;
                 }
             }
@@ -220,7 +220,7 @@ impl<B: Board> TextInputThread<B> {
                 name,
                 commands.iter(),
                 "command",
-                B::game_name(),
+                &B::game_name(),
                 NoDescription,
             )?
             .description
@@ -564,8 +564,8 @@ impl<B: Board> Input<B> for TextInput {
 pub struct TextInputBuilder {}
 
 impl NamedEntity for TextInputBuilder {
-    fn short_name(&self) -> &str {
-        TextInput::static_short_name()
+    fn short_name(&self) -> String {
+        TextInput::static_short_name().to_string()
     }
 
     fn long_name(&self) -> String {

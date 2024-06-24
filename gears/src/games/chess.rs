@@ -129,7 +129,7 @@ impl Board for Chessboard {
             name,
             Self::name_to_pos_map().iter(),
             "position",
-            Self::game_name(),
+            &Self::game_name(),
             NoDescription,
         )
         .map(|f| (f.val)())
