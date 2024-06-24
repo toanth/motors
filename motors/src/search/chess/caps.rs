@@ -516,7 +516,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
         // In case of a collision, if there's no best_move to store because the node failed low,
         // store a null move in the TT. This helps IIR.
         let mut best_move = ChessMove::default();
-        let eval = if let Some(tt_entry) = tt.load::<Chessboard>(pos.zobrist_hash(), ply) {
+        let mut eval = self.eval.eval(pos);
+        if let Some(tt_entry) = tt.load::<Chessboard>(pos.zobrist_hash(), ply) {
             let bound = tt_entry.bound();
             debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
 
@@ -542,20 +543,23 @@ impl<E: Eval<Chessboard>> Caps<E> {
                         FailHigh
                     }
                 } else {
+                    // TODO: Base instead on relation between tt score and window?
+                    // Or only update if the difference between tt score and the window is large?
                     expected_node_type = bound;
                 }
             }
 
             best_move = tt_entry.mov;
             // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.s
-            if bound == Exact && !tt_entry.score.is_game_over_score() {
-                tt_entry.score
-            } else {
-                self.eval.eval(pos)
+            if !tt_entry.score.is_game_over_score()
+                && (bound == Exact
+                    || (bound == FailHigh && tt_entry.score >= eval)
+                    || (bound == FailLow && tt_entry.score <= eval))
+            {
+                eval = tt_entry.score;
             }
         } else {
             self.state.statistics.tt_miss(MainSearch);
-            self.eval.eval(pos)
         };
 
         self.state.search_stack[ply].eval = eval;
