@@ -551,14 +551,8 @@ impl<E: Eval<Chessboard>> Caps<E> {
 
             best_move = tt_entry.mov;
             // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.s
-            if !tt_entry.score.is_game_over_score()
-                && (bound == Exact
-                    || (bound == FailHigh && tt_entry.score >= eval)
-                    || (bound == FailLow && tt_entry.score <= eval))
-            {
+            if !tt_entry.score.is_game_over_score() {
                 eval = tt_entry.score;
-            } else {
-                eval = (eval + tt_entry.score) / 2;
             }
         } else {
             self.state.statistics.tt_miss(MainSearch);
