@@ -11,7 +11,7 @@ use crate::gd::{
 };
 use gears::games::chess::pieces::UncoloredChessPiece::*;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
-use gears::games::chess::see::SEE_SCORES;
+use gears::games::chess::see::piece_see_value;
 use gears::games::chess::squares::NUM_SQUARES;
 use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
 use gears::games::chess::Chessboard;
@@ -147,7 +147,7 @@ impl WeightsInterpretation for CapsHceEval {
     fn initial_weights(&self) -> Option<Weights> {
         let mut weights = vec![Weight(0.0); Self::NUM_WEIGHTS];
         for piece in UncoloredChessPiece::non_king_pieces() {
-            let piece_val = Weight(SEE_SCORES[piece as usize].0 as Float);
+            let piece_val = Weight(piece_see_value(piece).0 as Float);
             for square in 0..NUM_SQUARES {
                 let i = piece as usize * 64 + square;
                 weights[2 * i] = piece_val;
