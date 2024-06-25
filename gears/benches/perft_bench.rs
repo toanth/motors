@@ -3,6 +3,8 @@ use std::time::Duration;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use gears::games::chess::Chessboard;
 use gears::games::Board;
+use gears::games::Color::White;
+use gears::general::bitboards::RawBitboard;
 use gears::general::perft::perft;
 use gears::search::Depth;
 
@@ -85,6 +87,37 @@ pub fn play_pawn_moves(c: &mut Criterion) {
     play_moves(c, "play bishop moves", PAWNS_FEN);
 }
 
+pub fn bitboard_ones_bench(c: &mut Criterion) {
+    c.bench_function("bitboard ones", |b| {
+        let positions = Chessboard::bench_positions();
+        b.iter(|| {
+            for pos in positions.iter() {
+                let mut sum = 0;
+                for piece in pos.colored_bb(White).ones() {
+                    sum += piece.bb_idx();
+                }
+                black_box(sum);
+            }
+        })
+    });
+}
+
+pub fn bitboard_poplsb_bench(c: &mut Criterion) {
+    c.bench_function("bitboard poplsb", |b| {
+        let positions = Chessboard::bench_positions();
+        b.iter(|| {
+            let mut sum = 0;
+            for pos in positions.iter() {
+                let mut bb = pos.colored_bb(White);
+                while bb.has_set_bit() {
+                    sum += bb.pop_lsb();
+                }
+                black_box(sum);
+            }
+        })
+    });
+}
+
 criterion_group! {
     name = benches;
     config = Criterion::default().measurement_time(Duration::from_secs(20)).noise_threshold(0.03);
@@ -100,7 +133,9 @@ criterion_group! {
     play_knight_moves,
     play_bishop_moves,
     play_rook_moves,
-    play_queen_moves
+    play_queen_moves,
+    bitboard_ones_bench,
+    bitboard_poplsb_bench,
 }
 
 criterion_main!(benches);

@@ -7,7 +7,7 @@ use std::str::SplitWhitespace;
 use crate::games::Color::{Black, White};
 use crate::games::{Board, Move};
 use crate::general::common::{NamedEntity, Res};
-use crate::output::text_output::DisplayType::MsgOnly;
+use crate::output::text_output::DisplayType::*;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
 use crate::MatchStatus::Ongoing;
 use crate::{AdjudicationReason, GameOverReason, GameResult, GameState, MatchStatus};
@@ -106,40 +106,42 @@ pub enum DisplayType {
 }
 
 impl NamedEntity for DisplayType {
-    fn short_name(&self) -> &str {
+    fn short_name(&self) -> String {
         match self {
-            DisplayType::Unicode => "unicode",
-            DisplayType::Ascii => "ascii",
-            DisplayType::Fen => "fen",
-            DisplayType::Pgn => "pgn",
-            DisplayType::Uci => "uci",
-            DisplayType::Ugi => "ugi",
-            DisplayType::MsgOnly => "messages",
+            Unicode => "unicode",
+            Ascii => "ascii",
+            Fen => "fen",
+            Pgn => "pgn",
+            Uci => "uci",
+            Ugi => "ugi",
+            MsgOnly => "messages",
         }
+        .to_string()
     }
 
-    fn long_name(&self) -> &str {
+    fn long_name(&self) -> String {
         match self {
-            DisplayType::Unicode => "Unicode Diagram",
-            DisplayType::Ascii => "ASCII Diagram",
-            DisplayType::Fen => "Fen",
-            DisplayType::Pgn => "PGN",
-            DisplayType::Uci => "UCI",
-            DisplayType::Ugi => "UGI",
-            DisplayType::MsgOnly => "Only Messages",
+            Unicode => "Unicode Diagram",
+            Ascii => "ASCII Diagram",
+            Fen => "Fen",
+            Pgn => "PGN",
+            Uci => "UCI",
+            Ugi => "UGI",
+            MsgOnly => "Only Messages",
         }
+        .to_string()
     }
 
-    fn description(&self) -> Option<&str> {
+    fn description(&self) -> Option<String> {
         Some(match self {
-            DisplayType::Unicode => "A textual 2D representation of the position using unicode characters. For many games, this is the same as the ASCII representation, but e.g. for chess it uses chess symbols like '♔'",
-            DisplayType::Ascii => "A textual 2D representation of the position using \"normal\" english characters. E.g. for chess, this represents the white king as 'K' and a black queen as 'q'",
-            DisplayType::Fen => "A compact textual representation of the position. For chess, this is the Forsyth–Edwards Notation, and for other games it's a similar notation based on chess FENs",
-            DisplayType::Pgn => "A textual representation of the entire match. For chess, this is the Portable Games Notation, and for other games it's a similar notation based on chess PGNs",
-            DisplayType::Uci => "A textual representation of the match using the machine-readable UGI notation that gets used for engine-GUI communication. UCI for chess and the very slightly different UGI protocol for other games",
-            DisplayType::Ugi => "Same as 'UCI'",
-            DisplayType::MsgOnly => "Doesn't print the match or current position at all, but will display messages"
-        })
+            Unicode => "A textual 2D representation of the position using unicode characters. For many games, this is the same as the ASCII representation, but e.g. for chess it uses chess symbols like '♔'",
+            Ascii => "A textual 2D representation of the position using \"normal\" english characters. E.g. for chess, this represents the white king as 'K' and a black queen as 'q'",
+            Fen => "A compact textual representation of the position. For chess, this is the Forsyth–Edwards Notation, and for other games it's a similar notation based on chess FENs",
+            Pgn => "A textual representation of the entire match. For chess, this is the Portable Games Notation, and for other games it's a similar notation based on chess PGNs",
+            Uci => "A textual representation of the match using the machine-readable UGI notation that gets used for engine-GUI communication. UCI for chess and the very slightly different UGI protocol for other games",
+            Ugi => "Same as 'UCI'",
+            MsgOnly => "Doesn't print the match or current position at all, but will display messages"
+        }.to_string())
     }
 }
 
@@ -267,16 +269,11 @@ impl BoardToText {
 struct TextOutput {
     writer: TextWriter,
     to_text: BoardToText,
-    name: Option<&'static str>,
+    name: Option<String>,
 }
 
 impl TextOutput {
-    fn new(
-        typ: DisplayType,
-        is_engine: bool,
-        writer: TextWriter,
-        name: Option<&'static str>,
-    ) -> Self {
+    fn new(typ: DisplayType, is_engine: bool, writer: TextWriter, name: Option<String>) -> Self {
         Self {
             to_text: BoardToText { typ, is_engine },
             writer,
@@ -286,15 +283,15 @@ impl TextOutput {
 }
 
 impl NamedEntity for TextOutput {
-    fn short_name(&self) -> &str {
-        self.name.unwrap_or(self.to_text.typ.short_name())
+    fn short_name(&self) -> String {
+        self.name.clone().unwrap_or(self.to_text.typ.short_name())
     }
 
-    fn long_name(&self) -> &str {
+    fn long_name(&self) -> String {
         self.to_text.typ.long_name()
     }
 
-    fn description(&self) -> Option<&str> {
+    fn description(&self) -> Option<String> {
         self.to_text.typ.description()
     }
 }
@@ -324,7 +321,7 @@ pub struct TextOutputBuilder {
     pub typ: DisplayType,
     pub stream: Option<TextStream>,
     pub accepted: Vec<Message>,
-    short_name: Option<&'static str>,
+    short_name: Option<String>,
 }
 
 impl Clone for TextOutputBuilder {
@@ -333,7 +330,7 @@ impl Clone for TextOutputBuilder {
             typ: self.typ,
             stream: None,
             accepted: self.accepted.clone(),
-            short_name: self.short_name,
+            short_name: self.short_name.clone(),
         }
     }
 }
@@ -348,12 +345,12 @@ impl TextOutputBuilder {
         }
     }
 
-    pub fn messages_for(accepted: Vec<Message>, short_name: &'static str) -> Self {
+    pub fn messages_for(accepted: Vec<Message>, short_name: &str) -> Self {
         Self {
             typ: MsgOnly,
             stream: None,
             accepted,
-            short_name: Some(short_name),
+            short_name: Some(short_name.to_string()),
         }
     }
 
@@ -366,21 +363,26 @@ impl TextOutputBuilder {
             self.typ,
             is_engine,
             TextWriter::new_for(stream, self.accepted.clone()),
-            self.short_name,
+            self.short_name.clone(),
         )))
     }
 }
 
 impl NamedEntity for TextOutputBuilder {
-    fn short_name(&self) -> &str {
-        self.short_name.unwrap_or_else(|| self.typ.short_name())
+    fn short_name(&self) -> String {
+        self.short_name
+            .clone()
+            .unwrap_or_else(|| self.typ.short_name())
     }
 
-    fn long_name(&self) -> &str {
-        self.short_name.unwrap_or_else(|| self.typ.long_name())
+    fn long_name(&self) -> String {
+        self.short_name
+            .clone()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| self.typ.long_name())
     }
 
-    fn description(&self) -> Option<&str> {
+    fn description(&self) -> Option<String> {
         self.typ.description()
     }
 }

@@ -1,13 +1,14 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::time::{Duration, Instant};
 
 use rand::{thread_rng, Rng, RngCore, SeedableRng};
 
+use crate::eval::Eval;
 use gears::games::Board;
-use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
-use gears::search::{Depth, NodesLimit, Score, SearchInfo, SearchLimit, SearchResult, TimeControl};
+use gears::general::common::{Res, StaticallyNamedEntity};
+use gears::score::Score;
+use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 
-use crate::search::multithreading::SearchSender;
 use crate::search::tt::TT;
 use crate::search::{
     ABSearchState, BenchResult, Benchable, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
@@ -51,25 +52,25 @@ impl<B: Board, R: SeedRng> Default for RandomMover<B, R> {
 // }
 
 impl<B: Board, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R> {
-    fn static_short_name() -> &'static str
+    fn static_short_name() -> impl Display
     where
         Self: Sized,
     {
-        "random_mover"
+        "random"
     }
 
-    fn static_long_name() -> &'static str
+    fn static_long_name() -> String
     where
         Self: Sized,
     {
-        "Random Mover"
+        "Random Mover".to_string()
     }
 
-    fn static_description() -> &'static str
+    fn static_description() -> String
     where
         Self: Sized,
     {
-        "A very simple engine that always chooses a legal move uniformly at random"
+        "A very simple engine that always chooses a legal move uniformly at random. Doesn't need an eval".to_string()
     }
 }
 
@@ -81,13 +82,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Benchable<B> for RandomMover
     }
 
     fn engine_info(&self) -> EngineInfo {
-        EngineInfo {
-            name: self.long_name().to_string(),
-            version: "0.1.0".to_string(),
-            default_bench_depth: Depth::new(1), // ignored as the engine will just pick a random move no matter what
-            options: Vec::default(),
-            description: "An Engine that simply plays a random legal move".to_string(),
-        }
+        EngineInfo::new_without_eval(self, "0.1.0", Depth::new(1), vec![])
     }
 }
 
@@ -103,12 +98,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         false
     }
 
-    fn do_search(
-        &mut self,
-        pos: B,
-        _: SearchLimit,
-        _sender: &mut SearchSender<B>,
-    ) -> Res<SearchResult<B>> {
+    fn do_search(&mut self, pos: B, _: SearchLimit) -> Res<SearchResult<B>> {
         self.chosen_move = pos
             .random_legal_move(&mut self.rng)
             .expect("search() called in a position with no legal moves");
@@ -145,7 +135,15 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         &mut self._state
     }
 
-    fn get_static_eval(&mut self, _pos: B) -> Score {
+    fn static_eval(&mut self, _pos: B) -> Score {
         Score(0)
+    }
+
+    fn with_eval(_eval: Box<dyn Eval<B>>) -> Self {
+        Self::default()
+    }
+
+    fn set_eval(&mut self, _eval: Box<dyn Eval<B>>) {
+        // do nothing
     }
 }

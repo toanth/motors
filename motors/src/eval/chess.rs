@@ -7,9 +7,10 @@ use gears::general::bitboards::Bitboard;
 use std::fmt::{Display, Formatter};
 use strum_macros::EnumIter;
 
-pub mod hce;
+pub mod lite;
+pub mod lite_values;
 pub mod material_only;
-pub mod pst_only;
+pub mod piston;
 
 #[derive(Debug, Copy, Clone, EnumIter)]
 pub enum PhaseType {
@@ -26,7 +27,7 @@ impl Display for PhaseType {
     }
 }
 
-/// Has to be in the same order as the FileOpenness in hce.rs.
+/// Has to be in the same order as the FileOpenness in lite.
 /// `SemiClosed` is last because it doesn't get counted.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum FileOpenness {
@@ -36,10 +37,9 @@ pub enum FileOpenness {
     SemiClosed,
 }
 
-const NUM_PHASES: usize = 2;
-const CHESS_PHASE_VALUES: [usize; NUM_CHESS_PIECES] = [0, 1, 1, 2, 4, 0];
+pub const CHESS_PHASE_VALUES: [usize; NUM_CHESS_PIECES] = [0, 1, 1, 2, 4, 0];
 
-const NUM_PSQT_FEATURES: usize = NUM_CHESS_PIECES * NUM_SQUARES;
+pub const NUM_PSQT_FEATURES: usize = NUM_CHESS_PIECES * NUM_SQUARES;
 
 pub const NUM_PAWN_SHIELD_CONFIGURATIONS: usize = (1 << 6) + (1 << 4) + (1 << 4);
 
@@ -66,7 +66,7 @@ pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: C
         king = king.flip();
         pawns = pawns.flip_up_down();
     }
-    let mut bb = pawns >> PAWN_SHIELD_SHIFT[king.idx()];
+    let mut bb = pawns >> PAWN_SHIELD_SHIFT[king.bb_idx()];
     // TODO: pext if available
     let file = king.file();
     if file == A_FILE_NO || file == H_FILE_NO {
@@ -93,14 +93,20 @@ pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: C
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::eval::chess::lite::LiTEval;
+    use crate::eval::chess::material_only::MaterialOnlyEval;
+    use crate::eval::chess::piston::PistonEval;
+    use crate::eval::Eval;
+
     use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
     use gears::games::chess::Chessboard;
     use gears::games::{Board, DimT};
     use gears::general::bitboards::RawBitboard;
+    use gears::score::Score;
     use strum::IntoEnumIterator;
 
     #[test]
-    pub fn pawn_shield_startpos_test() {
+    fn pawn_shield_startpos_test() {
         let pos = Chessboard::default();
         let pawns = pos.piece_bb(Pawn);
         let white = pawn_shield_idx(pawns, pos.king_square(White), White);
@@ -128,7 +134,7 @@ mod tests {
     }
 
     #[test]
-    pub fn pawn_shield_kiwipete_test() {
+    fn pawn_shield_kiwipete_test() {
         let pos = Chessboard::from_name("kiwipete").unwrap();
         let white = pawn_shield_idx(pos.piece_bb(Pawn), pos.king_square(White), White);
         let black = pawn_shield_idx(pos.piece_bb(Pawn), pos.king_square(Black), Black);
@@ -162,11 +168,11 @@ mod tests {
             for delta_rank in [1, 2] {
                 let file = king.file() as isize + delta_file;
                 let rank = king.rank() as usize + delta_rank;
-                if file < 0 || file >= 8 || rank >= 8 {
+                if !(0..8).contains(&file) || rank >= 8 {
                     continue;
                 }
                 let square = ChessSquare::from_rank_file(rank as DimT, file as DimT);
-                if pawns.is_bit_set_at(square.idx()) {
+                if pawns.is_bit_set_at(square.bb_idx()) {
                     res += 1 << (i + (delta_rank - 1) * file_deltas.len());
                     num_pawns += 1;
                 }
@@ -179,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    pub fn pawn_shield_bench_pos_test() {
+    fn pawn_shield_bench_pos_test() {
         for pos in Chessboard::bench_positions() {
             for square in ChessSquare::iter() {
                 for color in Color::iter() {
@@ -192,5 +198,20 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn generic_eval_test<E: Eval<Chessboard> + Default>() {
+        let score = E::default().eval(&Chessboard::default());
+        assert!(score.abs() <= Score(25));
+        assert!(score >= Score(0));
+        let score = E::default().eval(&Chessboard::from_name("lucena").unwrap());
+        assert!(score >= Score(100));
+    }
+
+    #[test]
+    fn simple_eval_test() {
+        generic_eval_test::<MaterialOnlyEval>();
+        generic_eval_test::<PistonEval>();
+        generic_eval_test::<LiTEval>();
     }
 }

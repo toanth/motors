@@ -1,26 +1,25 @@
+use std::fmt::Display;
 use strum::IntoEnumIterator;
 
-use gears::games::{Board, GridSize, Size};
-use gears::games::mnk::{MnkBitboard, MNKBoard};
+use gears::games::mnk::{MNKBoard, MnkBitboard};
+use gears::games::Board;
 use gears::general::bitboards::{Bitboard, RawBitboard, RayDirections};
-use gears::general::common::pop_lsb128;
-use gears::search::Score;
+use gears::general::common::StaticallyNamedEntity;
+use gears::general::squares::GridSize;
+use gears::score::{Score, ScoreT};
 
 use crate::eval::Eval;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SimpleMnkEval {}
 
-fn eval_player(bb: MnkBitboard, size: GridSize) -> i32 {
-    let mut remaining = bb;
+fn eval_player(bb: MnkBitboard, size: GridSize) -> ScoreT {
     let blockers = !bb;
     let mut res = 0;
-    while remaining.0 != 0 {
-        let idx = pop_lsb128(&mut remaining.0) as usize;
-
+    for coords in bb.ones_for_size(size) {
         for dir in RayDirections::iter() {
             // TODO: Don't bitand with bb, bitand with !other_bb?
-            let run = (MnkBitboard::slider_attacks(size.to_coordinates(idx), blockers, dir) & bb)
+            let run = (MnkBitboard::slider_attacks(coords, blockers, dir) & bb)
                 .to_primitive()
                 .count_ones();
             res += 1 << run;
@@ -29,8 +28,31 @@ fn eval_player(bb: MnkBitboard, size: GridSize) -> i32 {
     res
 }
 
+impl StaticallyNamedEntity for SimpleMnkEval {
+    fn static_short_name() -> impl Display
+    where
+        Self: Sized,
+    {
+        "simple_mnk"
+    }
+
+    fn static_long_name() -> String
+    where
+        Self: Sized,
+    {
+        "Simple MNK eval".to_string()
+    }
+
+    fn static_description() -> String
+    where
+        Self: Sized,
+    {
+        "A very simple handcrafted eval for m,n,k games".to_string()
+    }
+}
+
 impl Eval<MNKBoard> for SimpleMnkEval {
-    fn eval(&self, pos: MNKBoard) -> Score {
+    fn eval(&mut self, pos: &MNKBoard) -> Score {
         Score(
             eval_player(pos.active_player_bb(), pos.size())
                 - eval_player(pos.inactive_player_bb(), pos.size()),

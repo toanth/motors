@@ -1,4 +1,4 @@
-use std::fmt::Write;
+use std::fmt::{Display, Write};
 use std::io::stdout;
 
 use colored::{Color, Colorize};
@@ -6,9 +6,9 @@ use colored::{Color, Colorize};
 use crate::games::Color::*;
 use crate::games::{
     AbstractPieceType, Board, ColoredPiece, ColoredPieceType, Coordinates, Move, RectangularBoard,
-    RectangularCoordinates,
 };
-use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
+use crate::general::common::{IterIntersperse, NamedEntity, Res, StaticallyNamedEntity};
+use crate::general::squares::RectangularCoordinates;
 use crate::output::text_output::{TextStream, TextWriter};
 use crate::output::Message::Info;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
@@ -65,15 +65,15 @@ where
 }
 
 impl NamedEntity for PrettyUI {
-    fn short_name(&self) -> &str {
-        PrettyUIBuilder::static_short_name()
+    fn short_name(&self) -> String {
+        PrettyUIBuilder::static_short_name().to_string()
     }
 
-    fn long_name(&self) -> &str {
-        PrettyUIBuilder::static_long_name()
+    fn long_name(&self) -> String {
+        PrettyUIBuilder::static_long_name().to_string()
     }
 
-    fn description(&self) -> Option<&str> {
+    fn description(&self) -> Option<String> {
         Some(PrettyUIBuilder::static_description())
     }
 }
@@ -117,7 +117,10 @@ where
         _ = writeln!(
             res,
             " {0}",
-            itertools::intersperse(('A'..).take(pos.width() as usize), ' ').collect::<String>()
+            ('A'..)
+                .take(pos.width() as usize)
+                .intersperse_(' ')
+                .collect::<String>()
         );
         res
     }
@@ -127,16 +130,16 @@ where
 pub struct PrettyUIBuilder {}
 
 impl StaticallyNamedEntity for PrettyUIBuilder {
-    fn static_short_name() -> &'static str {
+    fn static_short_name() -> impl Display {
         "pretty"
     }
 
-    fn static_long_name() -> &'static str {
-        "Pretty Text-based UI"
+    fn static_long_name() -> String {
+        "Pretty Text-based UI".to_string()
     }
 
-    fn static_description() -> &'static str {
-        "A text-based UI for rectangular boards, using unicode characters for pieces and different (background) colors"
+    fn static_description() -> String {
+        "A text-based UI for rectangular boards, using unicode characters for pieces and different (background) colors".to_string()
     }
 }
 

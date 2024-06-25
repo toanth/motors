@@ -1,21 +1,21 @@
 use std::process::abort;
 
-use itertools::Itertools;
-
-use gears::{AnyRunnable, create_selected_output_builders, output_builder_from_str};
 use gears::cli::Game;
-use gears::games::{Board, OutputList, RectangularBoard, RectangularCoordinates};
+use gears::games::ataxx::AtaxxBoard;
 use gears::games::chess::Chessboard;
 use gears::games::mnk::MNKBoard;
-use gears::general::common::{Res, select_name_dyn};
+use gears::games::{Board, OutputList, RectangularBoard};
 use gears::general::common::Description::WithDescription;
+use gears::general::common::{select_name_dyn, Res};
+use gears::general::squares::RectangularCoordinates;
 use gears::output::{normal_outputs, required_outputs};
+use gears::{create_selected_output_builders, output_builder_from_str, AnyRunnable};
 
-use crate::cli::{CommandLineArgs, HumanArgs, parse_cli, PlayerArgs};
+use crate::cli::{parse_cli, CommandLineArgs, HumanArgs, PlayerArgs};
 use crate::play::player::PlayerBuilder;
 use crate::play::ugi_client::RunClient;
-use crate::ui::{InputBuilder, InputList};
 use crate::ui::text_input::TextInputBuilder;
+use crate::ui::{InputBuilder, InputList};
 
 pub mod cli;
 pub mod play;
@@ -50,6 +50,10 @@ fn list_chess_uis() -> (OutputList<Chessboard>, InputList<Chessboard>) {
     normal_uis::<Chessboard>()
 }
 
+fn list_ataxx_uis() -> (OutputList<AtaxxBoard>, InputList<AtaxxBoard>) {
+    normal_uis::<AtaxxBoard>()
+}
+
 fn list_mnk_uis() -> (OutputList<MNKBoard>, InputList<MNKBoard>) {
     normal_uis::<MNKBoard>()
 }
@@ -63,7 +67,7 @@ pub fn create_input_from_str<B: Board>(
         name,
         list,
         "input",
-        B::game_name(),
+        &B::game_name(),
         WithDescription,
     )?);
     ui_builder.set_option(opts)?;
@@ -82,22 +86,14 @@ pub fn map_ui_to_input_and_output(ui: &str) -> (&str, &str) {
 // TODO: Use #[cfg()] to conditionally include `motors` and its engines
 
 pub fn create_match(args: CommandLineArgs) -> Res<AnyRunnable> {
-    // match mode {
-    //     Gui(options) => {
     match args.game {
-        Game::Chess => create_gui_match_for_game(args, list_chess_uis()),
-        Game::Mnk => create_gui_match_for_game(args, list_mnk_uis()),
+        Game::Chess => create_client_match_for_game(args, list_chess_uis()),
+        Game::Mnk => create_client_match_for_game(args, list_mnk_uis()),
+        Game::Ataxx => create_client_match_for_game(args, list_ataxx_uis()),
     }
-    // }
-    //     mode => {
-    //         #[cfg(feature = "motors")]
-    //         return motors::create_match(game, mode);
-    //         return Err(format!("The command line argument '{}' can't be used with this version of `monitors` because it doesn't include any engines.", mode));
-    //     }
-    // }
 }
 
-pub fn create_gui_match_for_game<B: Board>(
+pub fn create_client_match_for_game<B: Board>(
     mut args: CommandLineArgs,
     uis: (OutputList<B>, InputList<B>),
 ) -> Res<AnyRunnable> {
@@ -118,12 +114,12 @@ pub fn create_gui_match_for_game<B: Board>(
         let mut client_mutex = run_client.client.lock().unwrap();
         client_mutex.state.debug = args.debug;
         for output in outputs {
-            client_mutex.add_output(output);
+            client_mutex.add_output(output)?;
         }
     }
     let client = run_client.client.clone();
-    let mut builders = args.players.into_iter().map(|p| PlayerBuilder::new(p));
-    for mut builder in builders {
+    let builders = args.players.into_iter().map(PlayerBuilder::new);
+    for builder in builders {
         builder.build(client.clone())?;
     }
 

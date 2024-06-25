@@ -1,21 +1,23 @@
+use std::fmt::Display;
 use strum::IntoEnumIterator;
 
-use gears::games::{Board, Color};
-use gears::games::chess::Chessboard;
 use gears::games::chess::pieces::UncoloredChessPiece;
+use gears::games::chess::Chessboard;
+use gears::games::{Board, Color};
 use gears::general::bitboards::RawBitboard;
-use gears::search::Score;
+use gears::general::common::StaticallyNamedEntity;
+use gears::score::{PhasedScore, Score, ScoreT};
 
 use crate::eval::Eval;
 
-#[derive(Default, Debug)]
-pub struct PstOnlyEval {}
+#[derive(Default, Debug, Clone)]
+pub struct PistonEval {}
 
 /// Psqt values tuned on a combination of the zurichess and a dataset used by 4ku,
 /// created by GCP using his engine Stoofvlees and filtered by cj5716 using Stockfish at depth 9,
 /// using this tuner: https://github.com/GediminasMasaitis/texel-tuner.
 #[rustfmt::skip]
-const PSQTS: [[i32; 64]; 12] = [
+const PSQTS: [[ScoreT; 64]; 12] = [
     // pawn mg
     [
         0, 0, 0, 0, 0, 0, 0, 0,
@@ -150,10 +152,33 @@ const PSQTS: [[i32; 64]; 12] = [
     ],
 ];
 
-const PIECE_PHASE: [i32; 6] = [0, 1, 1, 2, 4, 0];
+const PIECE_PHASE: [isize; 6] = [0, 1, 1, 2, 4, 0];
 
-impl Eval<Chessboard> for PstOnlyEval {
-    fn eval(&self, pos: Chessboard) -> Score {
+impl StaticallyNamedEntity for PistonEval {
+    fn static_short_name() -> impl Display
+    where
+        Self: Sized,
+    {
+        "PiSTOn"
+    }
+
+    fn static_long_name() -> String
+    where
+        Self: Sized,
+    {
+        "PiSTOn: Piece Square Table Only Chess Eval".to_string()
+    }
+
+    fn static_description() -> String
+    where
+        Self: Sized,
+    {
+        "A chess evaluation function using only tapered piece square tables".to_string()
+    }
+}
+
+impl Eval<Chessboard> for PistonEval {
+    fn eval(&mut self, pos: &Chessboard) -> Score {
         let mut mg = Score(0);
         let mut eg = Score(0);
         let mut phase = 0;
@@ -176,7 +201,8 @@ impl Eval<Chessboard> for PstOnlyEval {
             mg = -mg;
             eg = -eg;
         }
-        let score = (mg * phase + eg * (24 - phase)) / 24;
+        // TODO: Store phased scores in the PSQTs.
+        let score = PhasedScore::new(mg.0 as i16, eg.0 as i16).taper(phase, 24);
         match pos.active_player() {
             Color::White => score,
             Color::Black => -score,

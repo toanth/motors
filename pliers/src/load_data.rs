@@ -1,3 +1,5 @@
+//! Everything related to loading and converting lists of annotated FENs into a [`Dataset`].
+
 use crate::eval::Eval;
 use crate::gd::{Dataset, Float, Outcome};
 use crate::load_data::Perspective::SideToMove;
@@ -20,18 +22,31 @@ const WDL_MAP: [(&str, Float); 4] = [
     ("1-0", 1.0),
 ];
 
+/// A parsed FEN with metadata.
+///
+/// The weight is inherited from the dataset but can also be changed by the [`Filter`], just like all members.
 pub struct ParseResult<B: Board> {
+    /// The loaded position.
     pub pos: B,
+    /// The predicted winrate or WDL result.
     pub outcome: Outcome,
+    /// Setting a weight less than 1 can be used to make samples have a smaller effect.
+    /// This can be useful if there is a small, high-quality dataset, and a large but lower-quality dataset.
+    /// Usually, this should not be necessary. The better course of action is always to use better datasets.
     pub weight: Float,
 }
 
+/// Describes criteria tha FENs to be used for tuning.
+///
+/// The most basic implementation is [`NoFilter`], which simply accepts every fen.
+/// Another, chess-specific, filter is [`SkipChecks`](super::eval::chess::SkipChecks), which removes positions where the side to move is in check.
 pub trait Filter<B: Board> {
-    /// Returns an iterator because it's possible for a `Filter` to return more than one position per input position.
+    /// Returns an iterator because it's possible for a [`Filter`] to return more than one position per input position.
     /// Filtering could also include running a low-depth search with an engine to relabel the outcome.
     fn filter(pos: ParseResult<B>) -> impl IntoIterator<Item = ParseResult<B>>;
 }
 
+/// Doesn't filter any positions, the neutral element of the [`Filter`] monoid.
 pub struct NoFilter {}
 
 impl<B: Board> Filter<B> for NoFilter {
@@ -40,24 +55,37 @@ impl<B: Board> Filter<B> for NoFilter {
     }
 }
 
+/// How to interpret outcome annotations in a FEN.
+///
+/// If this is [`White`](Self::White), a value of `1.0` is interpreted as a win for white (the default).
+/// If this is [`SideToMove`](Self::SideToMove), a value of `1.0` is interpreted as a win for the current player.
 #[derive(Debug, Copy, Default, Clone, PartialEq, Eq, Display, Deserialize)]
 pub enum Perspective {
+    /// Scores are from white's perspective.
     #[default]
     White,
+    /// Scores are from the perspective of the current player.
     SideToMove,
 }
 
+/// A file that consists of a list of annotated FENs.
+///
+/// Loaded from the JSON config file.
 #[derive(Debug, Deserialize)]
 pub struct AnnotatedFenFile {
-    pub name: String,
+    /// The path to the list of FENs.
+    pub path: String,
     #[serde(default)]
+    /// How to interpret result annotations.
     pub perspective: Perspective,
+    /// Optional weight used to reduce the impact of large but low-quality datasets when there is also a smaller but
+    /// higher-quality dataset. Not usually necessary.
     pub weight: Option<Float>,
 }
 
-/// Avoids having to specify the generic Board argument each time.
+/// A struct to avoid having to specify the generic [`Board`] and [`Eval`] arguments each time.
 #[derive(Default)]
-pub struct FenReader<B: Board, E: Eval<B>> {
+pub(super) struct FenReader<B: Board, E: Eval<B>> {
     _phantom_data: PhantomData<B>,
     _phantom_data2: PhantomData<E>,
 }
@@ -123,6 +151,9 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         Ok(())
     }
 
+    /// Load FENs from a [`&str`] instead of a file.
+    ///
+    /// This is primarily intended for debugging and small examples.
     pub fn load_from_str(annotated_fens: &str, perspective: Perspective) -> Res<Dataset<E::D>> {
         let mut res = Dataset::new(E::NUM_WEIGHTS);
         for (idx, line) in annotated_fens.lines().enumerate() {
@@ -131,15 +162,19 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         Ok(res)
     }
 
+    /// Load annotated FENs from a file.
+    ///
+    /// Regularly prints ou the number of loaded FENs.
+    /// Fails if there is any invalid FEN in the dataset.
     pub fn load_from_file(input_file: &AnnotatedFenFile) -> Res<Dataset<E::D>> {
-        let file = File::open(Path::new(&input_file.name))
-            .map_err(|err| format!("Could not open file '{}': {err}", input_file.name))?;
+        let file = File::open(Path::new(&input_file.path))
+            .map_err(|err| format!("Could not open file '{}': {err}", input_file.path))?;
         let file = BufReader::new(file);
         let perspective = input_file.perspective;
         let weight = input_file.weight.unwrap_or(1.0);
         println!(
             "Loading FENs from file '{0}' (Outcomes are {perspective} relative), sampling weight: {weight:.1}",
-            input_file.name.bold()
+            input_file.path.bold()
         );
         let reader = BufReader::new(file);
         let mut res = Dataset::new(E::NUM_WEIGHTS);

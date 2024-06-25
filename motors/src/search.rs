@@ -4,13 +4,17 @@ use std::ops::Deref;
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
+use derive_more::{Add, Sub};
 use dyn_clone::{clone_box, DynClone};
 use strum_macros::FromRepr;
 
-use gears::games::{Board, ZobristHistoryBase, ZobristRepetition2Fold};
-use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
+use crate::eval::rand_eval::RandEval;
+use crate::eval::Eval;
+use gears::games::{Board, ZobristHistory};
+use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
+use gears::score::{Score, ScoreT, SCORE_WON};
 use gears::search::{
-    Depth, NodesLimit, Score, SearchInfo, SearchLimit, SearchResult, TimeControl, SCORE_WON,
+    Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl, MAX_DEPTH,
 };
 use gears::ugi::{EngineOption, EngineOptionName};
 
@@ -30,12 +34,107 @@ mod tt;
 
 #[derive(Default, Debug, Clone)]
 pub struct EngineInfo {
-    pub name: String,
-    pub version: String,
-    pub default_bench_depth: Depth,
-    pub options: Vec<EngineOption>,
-    pub description: String, // TODO: Use
-                             // TODO: NamedEntity?
+    engine: Name,
+    eval: Option<Name>,
+    version: String,
+    default_bench_depth: Depth,
+    options: Vec<EngineOption>,
+}
+
+impl NamedEntity for EngineInfo {
+    fn short_name(&self) -> String {
+        if let Some(eval) = self.eval.clone() {
+            format!("{0}-{1}", self.engine.short_name(), eval.short_name())
+        } else {
+            self.engine.short_name()
+        }
+    }
+
+    fn long_name(&self) -> String {
+        if let Some(eval) = self.eval.clone() {
+            format!(
+                "{0} -- Version {1}. Eval {2}",
+                self.engine.long_name(),
+                self.version,
+                eval.long_name()
+            )
+        } else {
+            format!("{} -- Version {1}", self.engine.long_name(), self.version)
+        }
+    }
+
+    fn description(&self) -> Option<String> {
+        let eval = self
+            .eval
+            .clone()
+            .map(|e| {
+                format!(
+                    "\nEval: {}",
+                    e.clone().description.unwrap_or_else(|| e.long_name())
+                )
+            })
+            .unwrap_or_default();
+        let desc = format!(
+            "Searcher: {0}{eval}",
+            self.engine.description().unwrap_or(self.engine.long_name()),
+        );
+        Some(desc)
+    }
+}
+
+impl EngineInfo {
+    pub fn new_without_eval<B: Board, E: Engine<B>>(
+        engine: &E,
+        version: &str,
+        default_bench_depth: Depth,
+        options: Vec<EngineOption>,
+    ) -> Self {
+        let mut res = Self::new(
+            engine,
+            &RandEval::default(),
+            version,
+            default_bench_depth,
+            options,
+        );
+        res.eval = None;
+        res
+    }
+
+    pub fn new<B: Board, E: Engine<B>>(
+        engine: &E,
+        eval: &dyn Eval<B>,
+        version: &str,
+        default_bench_depth: Depth,
+        options: Vec<EngineOption>,
+    ) -> Self {
+        Self {
+            engine: Name::new(engine),
+            eval: Some(Name::new(eval)),
+            version: version.to_string(),
+            default_bench_depth,
+            options,
+        }
+    }
+
+    pub fn engine(&self) -> &Name {
+        &self.engine
+    }
+
+    pub fn eval(&self) -> &Option<Name> {
+        &self.eval
+    }
+
+    pub fn default_bench_depth(&self) -> Depth {
+        self.default_bench_depth
+    }
+
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    fn set_eval<B: Board>(&mut self, eval: &dyn Eval<B>) {
+        self.eval = Some(Name::new(eval))
+    }
 }
 
 #[derive(Debug)]
@@ -100,68 +199,134 @@ impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
     }
 }
 
-/// A trait because this type erases over the Engine being built.
-pub trait AbstractEngineBuilder<B: Board>: NamedEntity + DynClone {
-    fn build(&self, sender: SearchSender<B>, tt: TT) -> EngineWrapper<B>;
+pub trait AbstractEvalBuilder<B: Board>: NamedEntity + DynClone {
+    fn build(&self) -> Box<dyn Eval<B>>;
+}
 
-    fn build_for_bench(&self) -> Box<dyn Benchable<B>>;
+#[derive(Debug, Default)]
+pub struct EvalBuilder<B: Board, E: Eval<B> + Default> {
+    _phantom_board: PhantomData<B>,
+    _phantom_eval: PhantomData<E>,
+}
+
+impl<B: Board, E: Eval<B> + Default> Clone for EvalBuilder<B, E> {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl<B: Board, E: Eval<B> + Default> StaticallyNamedEntity for EvalBuilder<B, E> {
+    fn static_short_name() -> impl Display
+    where
+        Self: Sized,
+    {
+        E::static_short_name()
+    }
+
+    fn static_long_name() -> String
+    where
+        Self: Sized,
+    {
+        E::static_long_name()
+    }
+
+    fn static_description() -> String
+    where
+        Self: Sized,
+    {
+        E::static_description()
+    }
+}
+
+impl<B: Board, E: Eval<B> + Default> AbstractEvalBuilder<B> for EvalBuilder<B, E> {
+    fn build(&self) -> Box<dyn Eval<B>> {
+        Box::new(E::default())
+    }
+}
+
+pub type EvalList<B> = EntityList<Box<dyn AbstractEvalBuilder<B>>>;
+
+/// A trait because this type erases over the Engine being built.
+/// There are two related concepts: `Engine` and `Searcher`.
+/// A searcher is an algorithm like caps or gaps, an engine is a searcher plus an eval.
+pub trait AbstractSearcherBuilder<B: Board>: NamedEntity + DynClone {
+    fn build(&self, engine_builder: EngineBuilder<B>, tt: TT) -> EngineWrapper<B>;
+
+    fn build_for_bench(&self, eval_builder: &dyn AbstractEvalBuilder<B>) -> Box<dyn Benchable<B>>;
 
     fn can_use_multiple_threads(&self) -> bool;
 }
 
 #[derive(Debug)]
-pub struct EngineWrapperBuilder<B: Board> {
-    builder: Box<dyn AbstractEngineBuilder<B>>,
+pub struct EngineBuilder<B: Board> {
+    search_builder: Box<dyn AbstractSearcherBuilder<B>>,
+    eval_builder: Box<dyn AbstractEvalBuilder<B>>,
     sender: SearchSender<B>,
 }
 
-impl<B: Board> Clone for EngineWrapperBuilder<B> {
+impl<B: Board> Clone for EngineBuilder<B> {
     fn clone(&self) -> Self {
         Self {
-            builder: clone_box(self.builder.deref()),
+            search_builder: clone_box(self.search_builder.deref()),
+            eval_builder: clone_box(self.eval_builder.deref()),
             sender: self.sender.clone(),
         }
     }
 }
 
-impl<B: Board> EngineWrapperBuilder<B> {
-    pub fn new(builder: Box<dyn AbstractEngineBuilder<B>>, sender: SearchSender<B>) -> Self {
-        Self { builder, sender }
+impl<B: Board> EngineBuilder<B> {
+    pub fn new(
+        search_builder: Box<dyn AbstractSearcherBuilder<B>>,
+        eval_builder: Box<dyn AbstractEvalBuilder<B>>,
+        sender: SearchSender<B>,
+    ) -> Self {
+        Self {
+            search_builder,
+            eval_builder,
+            sender,
+        }
     }
 
-    pub fn build(&self) -> EngineWrapper<B> {
-        let sender = self.sender.clone();
-        self.builder.build(sender, TT::default())
+    pub fn build_wrapper(&self) -> EngineWrapper<B> {
+        let cloned = self.clone();
+        self.search_builder.build(cloned, TT::default())
     }
 }
 
-pub type EngineList<B> = EntityList<Box<dyn AbstractEngineBuilder<B>>>;
+pub type SearcherList<B> = EntityList<Box<dyn AbstractSearcherBuilder<B>>>;
 
 #[derive(Debug, Default)]
-pub struct EngineBuilder<B: Board, E: Engine<B>> {
+pub struct SearcherBuilder<B: Board, E: Engine<B> + Default> {
     _phantom_b: PhantomData<B>,
     _phantom_e: PhantomData<E>,
 }
 
-impl<B: Board, E: Engine<B>> Clone for EngineBuilder<B, E> {
+impl<B: Board, E: Engine<B>> Clone for SearcherBuilder<B, E> {
     fn clone(&self) -> Self {
-        Self::default()
+        Self {
+            _phantom_b: PhantomData::default(),
+            _phantom_e: PhantomData::default(),
+        }
     }
 }
 
-impl<B: Board, E: Engine<B>> EngineBuilder<B, E> {
+impl<B: Board, E: Engine<B>> SearcherBuilder<B, E> {
     pub fn new() -> Self {
         Self::default()
     }
 }
 
-impl<B: Board, E: Engine<B>> AbstractEngineBuilder<B> for EngineBuilder<B, E> {
-    fn build(&self, sender: SearchSender<B>, tt: TT) -> EngineWrapper<B> {
-        EngineWrapper::new_with_tt(E::default(), sender, clone_box(self), tt)
+impl<B: Board, E: Engine<B>> AbstractSearcherBuilder<B> for SearcherBuilder<B, E> {
+    fn build(&self, engine_builder: EngineBuilder<B>, tt: TT) -> EngineWrapper<B> {
+        EngineWrapper::new_with_tt(
+            E::with_eval(engine_builder.eval_builder.build()),
+            engine_builder,
+            tt,
+        )
     }
 
-    fn build_for_bench(&self) -> Box<dyn Benchable<B>> {
-        Box::<E>::default()
+    fn build_for_bench(&self, eval_builder: &dyn AbstractEvalBuilder<B>) -> Box<dyn Benchable<B>> {
+        Box::new(E::with_eval(eval_builder.build()))
     }
 
     fn can_use_multiple_threads(&self) -> bool {
@@ -169,16 +334,16 @@ impl<B: Board, E: Engine<B>> AbstractEngineBuilder<B> for EngineBuilder<B, E> {
     }
 }
 
-impl<B: Board, E: Engine<B>> StaticallyNamedEntity for EngineBuilder<B, E> {
-    fn static_short_name() -> &'static str {
+impl<B: Board, E: Engine<B>> StaticallyNamedEntity for SearcherBuilder<B, E> {
+    fn static_short_name() -> impl Display {
         E::static_short_name()
     }
 
-    fn static_long_name() -> &'static str {
+    fn static_long_name() -> String {
         E::static_long_name()
     }
 
-    fn static_description() -> &'static str {
+    fn static_description() -> String {
         E::static_description()
     }
 }
@@ -203,12 +368,14 @@ const DEFAULT_CHECK_TIME_INTERVAL: u64 = 2048;
 pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     fn set_tt(&mut self, tt: TT);
 
+    fn set_eval(&mut self, eval: Box<dyn Eval<B>>);
+
     fn search_from_pos(&mut self, pos: B, limit: SearchLimit) -> Res<SearchResult<B>> {
         self.search(
             pos,
             limit,
-            ZobristHistoryBase::default(),
-            &mut SearchSender::no_sender(),
+            ZobristHistory::default(),
+            SearchSender::no_sender(),
         )
     }
 
@@ -216,31 +383,25 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         &mut self,
         pos: B,
         limit: SearchLimit,
-        history: ZobristHistoryBase,
-        sender: &mut SearchSender<B>,
+        history: ZobristHistory<B>,
+        sender: SearchSender<B>,
     ) -> Res<SearchResult<B>> {
-        self.search_state_mut()
-            .new_search(ZobristRepetition2Fold(history));
-        let res = self.do_search(pos, limit, sender);
+        self.search_state_mut().new_search(history, sender);
+        let res = self.do_search(pos, limit);
         let search_state = self.search_state_mut();
         search_state.end_search();
-        sender.send_statistics(search_state.statistics());
+        search_state.send_statistics();
         search_state.aggregate_match_statistics();
         res
     }
 
     /// The important function.
-    fn do_search(
-        &mut self,
-        pos: B,
-        limit: SearchLimit,
-        sender: &mut SearchSender<B>,
-    ) -> Res<SearchResult<B>>;
+    fn do_search(&mut self, pos: B, limit: SearchLimit) -> Res<SearchResult<B>>;
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool;
 
     // Sensible default values, but engines may choose to check more/less frequently than every 4096 nodes
-    fn should_stop_impl(&self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
+    fn should_stop_impl(&self, limit: SearchLimit) -> bool {
         let state = self.search_state();
         // Do the less expensive checks first to avoid querying the time in each node
         if state.main_search_nodes() >= limit.nodes.get() || state.search_cancelled() {
@@ -250,12 +411,12 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
             return false;
         }
         self.time_up(limit.tc, limit.fixed_time, self.search_state().start_time())
-            || sender.should_stop()
+            || self.search_state().search_sender().should_stop()
     }
 
     #[inline(always)]
-    fn should_stop(&mut self, limit: SearchLimit, sender: &SearchSender<B>) -> bool {
-        if self.should_stop_impl(limit, sender) {
+    fn should_stop(&mut self, limit: SearchLimit) -> bool {
+        if self.should_stop_impl(limit) {
             self.search_state_mut().mark_search_should_end();
             true
         } else {
@@ -272,7 +433,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         let state = self.search_state();
         state.start_time().elapsed() >= soft_limit
             || state.depth().get() as isize > max_depth
-            || state.score() >= Score(SCORE_WON.0 - mate_depth.get() as i32)
+            || state.score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT)
     }
 
     fn quit(&mut self) {
@@ -289,10 +450,6 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         self.search_state().to_search_info()
     }
 
-    /// This should return the static eval (possibly with WDL normalization) without doing any kind of search.
-    /// For engines like `RandomMover` where there is no static eval, this should return `Score(0)`.
-    fn get_static_eval(&mut self, pos: B) -> Score;
-
     /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
     fn forget(&mut self) {
         self.search_state_mut().forget(true);
@@ -305,6 +462,29 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     fn can_use_multiple_threads() -> bool
     where
         Self: Sized;
+
+    fn with_eval(eval: Box<dyn Eval<B>>) -> Self;
+
+    fn for_eval<E: Eval<B> + Default>() -> Self {
+        Self::with_eval(Box::new(E::default()))
+    }
+
+    /// This should return the static eval (possibly with WDL normalization) without doing any kind of search.
+    /// For engines like `RandomMover` where there is no static eval, this should return `Score(0)`.
+    fn static_eval(&mut self, pos: B) -> Score;
+}
+
+#[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub)]
+pub struct MoveScore(pub i32);
+
+impl MoveScore {
+    const MAX: MoveScore = MoveScore(i32::MAX);
+    const MIN: MoveScore = MoveScore(i32::MIN);
+}
+
+pub trait MoveScorer<B: Board> {
+    type State: SearchState<B>;
+    fn score_move(&self, mov: B::Move, state: &Self::State) -> MoveScore;
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -336,7 +516,7 @@ pub trait SearchState<B: Board>: Debug + Clone {
     fn start_time(&self) -> Instant;
     fn score(&self) -> Score;
     fn forget(&mut self, hard: bool);
-    fn new_search(&mut self, history: ZobristRepetition2Fold);
+    fn new_search(&mut self, history: ZobristHistory<B>, sender: SearchSender<B>);
     fn end_search(&mut self) {
         self.mark_search_should_end();
         self.statistics_mut().end_search();
@@ -346,6 +526,8 @@ pub trait SearchState<B: Board>: Debug + Clone {
     fn statistics(&self) -> &Statistics;
     fn statistics_mut(&mut self) -> &mut Statistics;
     fn aggregate_match_statistics(&mut self);
+    fn search_sender(&self) -> &SearchSender<B>;
+    fn send_statistics(&mut self);
 }
 
 pub trait SearchStackEntry<B: Board>: Default + Clone + Debug {
@@ -384,7 +566,7 @@ impl CustomInfo for NoCustomInfo {}
 #[derive(Debug, Clone)]
 pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo> {
     search_stack: Vec<E>,
-    board_history: ZobristRepetition2Fold,
+    board_history: ZobristHistory<B>,
     custom: C,
     best_move: Option<B::Move>,
     searching: Searching,
@@ -393,6 +575,7 @@ pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo> {
     score: Score,
     statistics: Statistics,
     match_statistics: Statistics, // statistics aggregated over all searches of the current match
+    sender: SearchSender<B>,
 }
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
@@ -404,7 +587,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
         let start_time = Instant::now();
         Self {
             search_stack,
-            board_history: ZobristRepetition2Fold::default(),
+            board_history: ZobristHistory::default(),
             start_time,
             score: Score(0),
             best_move: None,
@@ -413,6 +596,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
             custom,
             statistics: Statistics::default(),
             match_statistics: Default::default(),
+            sender: SearchSender::no_sender(),
         }
     }
 
@@ -484,8 +668,9 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
         } else {
             self.custom.new_search();
         }
+        self.sender = SearchSender::no_sender();
         self.start_time = Instant::now();
-        self.board_history = ZobristRepetition2Fold::default(); // will get overwritten later
+        self.board_history = ZobristHistory::default(); // will get overwritten later
         self.score = Score(0);
         self.best_move = None;
         self.searching = Stop;
@@ -493,9 +678,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
         self.statistics = Statistics::default();
     }
 
-    fn new_search(&mut self, history: ZobristRepetition2Fold) {
+    fn new_search(&mut self, history: ZobristHistory<B>, sender: SearchSender<B>) {
         self.forget(false);
         self.board_history = history;
+        self.sender = sender;
         self.searching = Ongoing;
     }
 
@@ -533,6 +719,14 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
     fn aggregate_match_statistics(&mut self) {
         self.match_statistics.aggregate_searches(&self.statistics);
     }
+
+    fn search_sender(&self) -> &SearchSender<B> {
+        &self.sender
+    }
+
+    fn send_statistics(&mut self) {
+        self.sender.send_statistics(&self.statistics);
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, FromRepr)]
@@ -567,7 +761,7 @@ pub fn run_bench_with_depth<B: Board>(
     engine: &mut dyn Benchable<B>,
     mut depth: Depth,
 ) -> BenchResult {
-    if depth.get() <= 0 {
+    if depth.get() == 0 || depth == MAX_DEPTH {
         depth = engine.engine_info().default_bench_depth
     }
     let mut sum = BenchResult::default();

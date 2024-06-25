@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::str::SplitWhitespace;
 
 use itertools::Itertools;
@@ -40,15 +41,15 @@ impl Logger {
 }
 
 impl NamedEntity for Logger {
-    fn short_name(&self) -> &str {
-        LoggerBuilder::static_short_name()
+    fn short_name(&self) -> String {
+        LoggerBuilder::static_short_name().to_string()
     }
 
-    fn long_name(&self) -> &str {
-        LoggerBuilder::static_long_name()
+    fn long_name(&self) -> String {
+        LoggerBuilder::static_long_name().to_string()
     }
 
-    fn description(&self) -> Option<&str> {
+    fn description(&self) -> Option<String> {
         Some(LoggerBuilder::static_description())
     }
 }
@@ -135,16 +136,16 @@ impl LoggerBuilder {
 }
 
 impl StaticallyNamedEntity for LoggerBuilder {
-    fn static_short_name() -> &'static str {
+    fn static_short_name() -> impl Display {
         "logger"
     }
 
-    fn static_long_name() -> &'static str {
-        "UCI Logger"
+    fn static_long_name() -> String {
+        "UCI Logger".to_string()
     }
 
-    fn static_description() -> &'static str {
-        "A logger for all UCI communication"
+    fn static_description() -> String {
+        "A logger for all UCI communication".to_string()
     }
 }
 

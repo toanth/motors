@@ -11,12 +11,16 @@ use derive_more::{
 use num::{One, PrimInt, Unsigned, Zero};
 use strum_macros::EnumIter;
 
+#[cfg(feature = "ataxx")]
+use crate::games::ataxx::AtaxxSize;
 #[cfg(feature = "chess")]
 use crate::games::chess::squares::ChessSquare;
 #[cfg(feature = "chess")]
 use crate::games::chess::squares::ChessboardSize;
-use crate::games::{DimT, RectangularCoordinates, RectangularSize, Size};
+use crate::games::{DimT, Size};
+use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::common::{pop_lsb128, pop_lsb64};
+use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, RectangularSize};
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Direction {
@@ -89,17 +93,11 @@ const fn compute_anti_diagonal_bbs() -> [[u128; 128]; MAX_WIDTH] {
     }
     res
 }
-//
-// const RANKS: [u128; 12] = compute_rank_bbs();
-//
-// const DIAGONALS: [[[u128; 23]; 12]; 12] = compute_all_diag_bbs(false);
-//
-// const ANTI_DIAGONALS: [[[u128; 23]; 12]; 12] = compute_all_diag_bbs(true);
 
-// TODO: Store as array of structs? Probably best to change that when there is a working search
-// to run a sprt, only increasing bench nps might not be worth it
+// TODO: Store as array of structs? Could speed up mnk
 
-const MAX_WIDTH: usize = 12;
+// allow width of at most 26 to prevent issues with square notation (26 letters in the alphabet)
+pub const MAX_WIDTH: usize = 26;
 
 const STEPS: [u128; 128] = compute_step_bbs();
 
@@ -167,6 +165,10 @@ pub trait RawBitboard:
     fn is_single_piece(self) -> bool;
     // apparently, the num crate doesn't provide a is_power_of_two() method
 
+    fn more_than_one_bit_set(self) -> bool {
+        (self & (self - Self::from_primitive(Self::Primitive::one()))).has_set_bit()
+    }
+
     fn is_bit_set_at(self, idx: usize) -> bool {
         ((self.to_primitive() >> idx) & Self::Primitive::one()) == Self::Primitive::one()
     }
@@ -175,8 +177,26 @@ pub trait RawBitboard:
         self.to_primitive().trailing_zeros() as usize
     }
 
-    fn num_set_bits(self) -> usize {
+    fn num_ones(self) -> usize {
         self.to_primitive().count_ones() as usize
+    }
+
+    fn one_indices(self) -> BitIterator<Self> {
+        BitIterator(self)
+    }
+}
+
+pub struct BitIterator<B: RawBitboard>(B);
+
+impl<B: RawBitboard> Iterator for BitIterator<B> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.0.is_zero() {
+            None
+        } else {
+            Some(self.0.pop_lsb())
+        }
     }
 }
 
@@ -186,6 +206,7 @@ pub trait RawBitboard:
     Eq,
     PartialEq,
     Default,
+    Hash,
     Not,
     BitOr,
     BitOrAssign,
@@ -360,33 +381,33 @@ where
 
     fn rank_0(size: C::Size) -> Self {
         Self::from_raw(
-            R::from_primitive((R::Primitive::one() << size.width().val()) - R::Primitive::one()),
+            R::from_primitive((R::Primitive::one() << size.internal_width()) - R::Primitive::one()),
             size,
         )
     }
 
     fn file_0(size: C::Size) -> Self {
-        Self::from_raw(R::from_u128(STEPS[size.width().val()]), size)
+        Self::from_raw(R::from_u128(STEPS[size.internal_width()]), size)
     }
 
     fn rank(idx: DimT, size: C::Size) -> Self {
         debug_assert!(idx < size.height().0);
-        Self::rank_0(size) << (idx as usize * size.width().val())
+        Self::rank_0(size) << (idx as usize * size.internal_width())
     }
 
     fn file(idx: DimT, size: C::Size) -> Self {
-        debug_assert!(idx < size.height().0);
+        debug_assert!(idx < size.width().0);
         Self::file_0(size) << idx as usize
     }
 
     fn diag_for_sq(sq: C, size: C::Size) -> Self {
         debug_assert!(size.coordinates_valid(sq));
-        Self::from_u128(DIAGONALS[size.width().val()][size.to_idx(sq)], size)
+        Self::from_u128(DIAGONALS[size.internal_width()][size.to_internal_key(sq)], size)
     }
 
     fn anti_diag_for_sq(sq: C, size: C::Size) -> Self {
         debug_assert!(size.coordinates_valid(sq));
-        Self::from_u128(ANTI_DIAGONALS[size.width().val()][size.to_idx(sq)], size)
+        Self::from_u128(ANTI_DIAGONALS[size.internal_width()][size.to_internal_key(sq)], size)
     }
 
     fn raw(self) -> R;
@@ -397,6 +418,10 @@ where
         self.size().width().val()
     }
 
+    fn internal_width(self) -> usize {
+        self.size().internal_width()
+    }
+
     fn height(self) -> usize {
         self.size().height().val()
     }
@@ -404,7 +429,7 @@ where
     fn piece_coordinates(self) -> C {
         debug_assert!(self.is_single_piece());
         let idx = self.trailing_zeros();
-        self.size().to_coordinates(idx)
+        self.size().to_coordinates_unchecked(idx)
     }
 
     // TODO: The following two methods are likely very slow. Find something faster
@@ -432,8 +457,8 @@ where
         let rank_mask = Self::rank_0(size);
         // flip ranks linearly
         for i in 0..size.height().val() / 2 {
-            let lower_shift = i * size.width().val();
-            let upper_shift = (size.height().val() - 1 - i) * size.width().val();
+            let lower_shift = i * self.internal_width();
+            let upper_shift = (size.height().val() - 1 - i) * self.internal_width();
             let lower_rank = (bb >> lower_shift) & rank_mask;
             let upper_rank = (bb >> upper_shift) & rank_mask;
             let xor = lower_rank ^ upper_rank;
@@ -443,14 +468,21 @@ where
         bb
     }
 
+    fn flip_if(self, flip: bool) -> Self {
+        match flip {
+            true => self.flip_up_down(),
+            false => self,
+        }
+    }
+
     fn get_piece_file(self) -> usize {
         debug_assert!(self.is_single_piece());
-        self.trailing_zeros() % self.size().width().val()
+        self.trailing_zeros() % self.internal_width()
     }
 
     fn get_piece_rank(self) -> usize {
         debug_assert!(self.is_single_piece());
-        self.trailing_zeros() / self.size().width().val()
+        self.trailing_zeros() / self.internal_width()
     }
 
     /// Returns a bitboard where exactly the bits in the inclusive interval [low, high] are set,
@@ -480,7 +512,7 @@ where
     fn hyperbola_quintessence_non_horizontal(square: C, blockers: Self, ray: Self) -> Self {
         debug_assert_eq!(blockers.size(), ray.size());
         Self::hyperbola_quintessence(
-            ray.size().to_idx(square),
+            ray.size().to_internal_key(square),
             blockers,
             |x| x.flip_up_down(),
             ray,
@@ -491,7 +523,7 @@ where
         let size = blockers.size();
         let rank = square.row();
         let rank_bb = Self::rank(rank, size);
-        Self::hyperbola_quintessence(size.to_idx(square), blockers, |x| x.flip_left_right(rank as usize), rank_bb)
+        Self::hyperbola_quintessence(size.to_internal_key(square), blockers, |x| x.flip_left_right(rank as usize), rank_bb)
     }
 
     fn vertical_attacks(square: C, blockers: Self) -> Self {
@@ -548,11 +580,11 @@ where
     }
 
     fn north(self) -> Self {
-        self << self.width()
+        self << self.internal_width()
     }
 
     fn south(self) -> Self {
-        self >> self.width()
+        self >> self.internal_width()
     }
 
     fn east(self) -> Self {
@@ -577,6 +609,23 @@ where
 
     fn north_west(self) -> Self {
         self.north().west()
+    }
+
+    fn moore_neighbors(self) -> Self {
+        let line = self | self.south() | self.north();
+        line | line.west() | line.east()
+    }
+
+    fn extended_moore_neighbors(self, radius: usize) -> Self {
+        let mut res = self;
+        for _ in 0..radius {
+            res = res.moore_neighbors();
+        }
+        res
+    }
+
+    fn ones_for_size(self, size: C::Size) -> impl Iterator<Item=C> {
+        self.one_indices().map(move |i| size.to_coordinates_unchecked(i))
     }
 }
 
@@ -628,6 +677,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> DerefMut for DefaultBitboard<R, 
     }
 }
 
+/// Necessary for hyperbola quintessence.
 impl<R: RawBitboard, C: RectangularCoordinates> Sub for DefaultBitboard<R, C>
 where
     C::Size: RectangularSize<C>,
@@ -765,29 +815,29 @@ where
         Self { raw, size }
     }
 
-    fn size(self) -> C::Size {
-        self.size
-    }
-
     fn raw(self) -> R {
         self.raw
     }
+
+    fn size(self) -> C::Size {
+        self.size
+    }
 }
 
-/// Bitboards for Chessboards. (Not necessarily only for chess, e.g. checkers would use the same bitboards).
+/// 8x8 bitboards Chessboards. Not necessarily only for chess, e.g. checkers would use the same bitboard.
 /// Treated specially because some operations are much simpler and faster for 8x8 boards.
-#[cfg(feature = "chess")]
 pub mod chess {
-    use derive_more::Display;
-
+    use crate::games::chess::squares::NUM_SQUARES;
+    use crate::games::Color;
     use crate::games::Color::*;
-    use crate::games::{Color, GridCoordinates, GridSize};
+    use crate::general::squares::{GridCoordinates, GridSize};
+    use derive_more::Display;
 
     use super::*;
 
     /// Some of the (automatically derived) methods of ChessBitbiard aren't `const`,
     /// so use `u64` for all `const fn`s.
-    const CHESS_DIAGONALS: [ChessBitboard; 64] = {
+    pub const CHESS_DIAGONALS: [ChessBitboard; 64] = {
         let mut res = [ChessBitboard::from_u64(0); 64];
         let mut i = 0;
         while i < 64 {
@@ -797,7 +847,7 @@ pub mod chess {
         res
     };
 
-    const CHESS_ANTI_DIAGONALS: [ChessBitboard; 64] = {
+    pub const CHESS_ANTI_DIAGONALS: [ChessBitboard; 64] = {
         let mut res = [ChessBitboard::from_u64(0); 64];
         let mut i = 0;
         while i < 64 {
@@ -856,7 +906,7 @@ pub mod chess {
         res
     };
 
-    pub const KINGS: [ChessBitboard; 64] = {
+    pub const KINGS: [ChessBitboard; NUM_SQUARES] = {
         let mut res = [ChessBitboard::from_u64(0); 64];
         let mut i = 0;
         while i < 64 {
@@ -879,8 +929,9 @@ pub mod chess {
         res
     };
 
-    pub const WHITE_SQUARES: ChessBitboard = ChessBitboard::from_u64(0xaaaa_aaaa_aaaa_aaaa);
-    pub const BLACK_SQUARES: ChessBitboard = ChessBitboard::from_u64(0x5555_5555_5555_5555);
+    pub const WHITE_SQUARES: ChessBitboard = ChessBitboard::from_u64(0x55aa_55aa_55aa_55aa);
+    pub const BLACK_SQUARES: ChessBitboard = ChessBitboard::from_u64(0xaa55_aa55_aa55_aa55);
+    pub const CORNER_SQUARES: ChessBitboard = ChessBitboard::from_u64(0x8100_0000_0000_0081);
 
     pub const A_FILE: ChessBitboard = ChessBitboard::from_u64(0x0101_0101_0101_0101);
     pub const FIRST_RANK: ChessBitboard = ChessBitboard::from_u64(0xFF);
@@ -891,6 +942,7 @@ pub mod chess {
         Eq,
         PartialEq,
         Default,
+        Hash,
         Not,
         BitOr,
         BitOrAssign,
@@ -903,7 +955,6 @@ pub mod chess {
         Shr,
         ShrAssign,
     )]
-    #[cfg(feature = "chess")]
     pub struct ChessBitboard {
         raw: RawStandardBitboard,
     }
@@ -940,8 +991,18 @@ pub mod chess {
             }
         }
 
+        pub fn pawn_attacks(self, color: Color) -> Self {
+            let advanced = self.pawn_advance(color);
+            advanced.east() | advanced.west()
+        }
+
+        /// not a trait method because it has to be `const`
         pub const fn to_u64(self) -> u64 {
             self.raw.0
+        }
+
+        pub fn ones(self) -> impl Iterator<Item = ChessSquare> {
+            self.ones_for_size(ChessboardSize::default())
         }
     }
 
@@ -982,12 +1043,25 @@ pub mod chess {
             Self { raw }
         }
 
-        fn size(self) -> ChessboardSize {
-            ChessboardSize::default()
+        fn file_0(_size: ChessboardSize) -> Self {
+            Self::from_u64(0x0101_0101_0101_0101)
+        }
+
+        // specialization of the generic trait method for performance
+        fn diag_for_sq(sq: ChessSquare, _size: ChessboardSize) -> Self {
+            CHESS_DIAGONALS[sq.bb_idx()]
+        }
+
+        fn anti_diag_for_sq(sq: ChessSquare, _size: ChessboardSize) -> Self {
+            CHESS_ANTI_DIAGONALS[sq.bb_idx()]
         }
 
         fn raw(self) -> RawStandardBitboard {
             self.raw
+        }
+
+        fn size(self) -> ChessboardSize {
+            ChessboardSize::default()
         }
 
         // idea from here: https://stackoverflow.com/questions/2602823/in-c-c-whats-the-simplest-way-to-reverse-the-order-of-bits-in-a-byte/2603254#2603254
@@ -1014,19 +1088,6 @@ pub mod chess {
             debug_assert!(self.raw().0.is_power_of_two());
             self.0.trailing_zeros() as usize / 8
         }
-
-        fn file_0(_size: ChessboardSize) -> Self {
-            Self::from_u64(0x0101_0101_0101_0101)
-        }
-
-        // specialization of the generic trait method for performance
-        fn diag_for_sq(sq: ChessSquare, _size: ChessboardSize) -> Self {
-            CHESS_DIAGONALS[sq.idx()]
-        }
-
-        fn anti_diag_for_sq(sq: ChessSquare, _size: ChessboardSize) -> Self {
-            CHESS_ANTI_DIAGONALS[sq.idx()]
-        }
     }
 
     impl Sub for ChessBitboard {
@@ -1034,6 +1095,182 @@ pub mod chess {
 
         fn sub(self, rhs: Self) -> Self::Output {
             ChessBitboard::new(self.raw - rhs.raw)
+        }
+    }
+}
+
+pub mod ataxx {
+    use super::*;
+    use crate::games::ataxx::AtaxxSquare;
+    use crate::general::bitboards::chess::{A_FILE, CHESS_ANTI_DIAGONALS, CHESS_DIAGONALS};
+
+    pub const INVALID_EDGE_MASK: AtaxxBitboard = AtaxxBitboard::from_u64(0xff80_8080_8080_8080);
+
+    const fn precompute_single_leaping_attacks(square_idx: usize) -> u64 {
+        let ab_file = A_FILE.to_u64() | (A_FILE.to_u64() << 1);
+        let gh_file = ab_file << 6;
+        let square = 1 << square_idx;
+        let square_not_ab_file = square & !ab_file;
+        let square_not_gh_file = square & !gh_file;
+        let square_not_a_file = square & !A_FILE.to_u64();
+        let square_not_h_file = square & !(A_FILE.to_u64() << 7);
+
+        (square << 16)
+            | (square >> 16)
+            | (square_not_ab_file >> 2)
+            | (square_not_ab_file >> 10)
+            | (square_not_ab_file >> 18)
+            | (square_not_ab_file << 6)
+            | (square_not_ab_file << 14)
+            | (square_not_gh_file << 2)
+            | (square_not_gh_file << 10)
+            | (square_not_gh_file << 18)
+            | (square_not_gh_file >> 6)
+            | (square_not_gh_file >> 14)
+            | (square_not_a_file >> 17)
+            | (square_not_a_file << 15)
+            | (square_not_h_file << 17)
+            | (square_not_h_file >> 15)
+    }
+
+    pub const LEAPING: [AtaxxBitboard; 64] = {
+        let mut res = [AtaxxBitboard::from_u64(0); 64];
+        let mut i = 0;
+        while i < 64 {
+            res[i] = AtaxxBitboard::from_u64(precompute_single_leaping_attacks(i));
+            i += 1;
+        }
+        res
+    };
+
+    #[derive(
+        Copy,
+        Clone,
+        Eq,
+        PartialEq,
+        Default,
+        Hash,
+        Not,
+        BitOr,
+        BitOrAssign,
+        BitAnd,
+        BitAndAssign,
+        BitXor,
+        BitXorAssign,
+        Shl,
+        ShlAssign,
+        Shr,
+        ShrAssign,
+    )]
+    pub struct AtaxxBitboard {
+        raw: RawStandardBitboard,
+    }
+
+    impl Debug for AtaxxBitboard {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "Ataxx Bitboard {:#x}", self.0)
+        }
+    }
+
+    impl Display for AtaxxBitboard {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            Display::fmt(
+                &DefaultBitboard::<RawStandardBitboard, GridCoordinates>::from_raw(
+                    self.raw(),
+                    GridSize::ataxx(),
+                ),
+                f,
+            )
+        }
+    }
+
+    impl Deref for AtaxxBitboard {
+        type Target = RawStandardBitboard;
+
+        fn deref(&self) -> &Self::Target {
+            &self.raw
+        }
+    }
+
+    impl DerefMut for AtaxxBitboard {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.raw
+        }
+    }
+
+    impl Sub for AtaxxBitboard {
+        type Output = Self;
+
+        fn sub(self, rhs: Self) -> Self::Output {
+            Self {
+                raw: self.raw - rhs.raw,
+            }
+        }
+    }
+
+    impl AtaxxBitboard {
+        pub const fn new(raw: RawStandardBitboard) -> Self {
+            Self { raw }
+        }
+
+        pub const fn from_u64(bb: u64) -> Self {
+            Self::new(RawStandardBitboard(bb))
+        }
+
+        pub fn single_piece(idx: usize) -> Self {
+            Self::new(RawStandardBitboard::single_piece(idx))
+        }
+
+        pub fn rank_no(idx: DimT) -> Self {
+            Self::rank(idx, AtaxxSize::default())
+        }
+
+        pub fn file_no(idx: DimT) -> Self {
+            Self::file(idx, AtaxxSize::default())
+        }
+
+        pub fn ones(self) -> impl Iterator<Item = AtaxxSquare> {
+            self.ones_for_size(AtaxxSize::default())
+        }
+    }
+
+    impl Bitboard<RawStandardBitboard, AtaxxSquare> for AtaxxBitboard {
+        fn from_raw(raw: RawStandardBitboard, _size: AtaxxSize) -> Self {
+            Self { raw }
+        }
+
+        fn file_0(_size: AtaxxSize) -> Self {
+            Self::from_u64(0x0001_0101_0101_0101)
+        }
+
+        // specialization of the generic trait method for performance
+        fn diag_for_sq(sq: AtaxxSquare, _size: AtaxxSize) -> Self {
+            Self::new(CHESS_DIAGONALS[sq.bb_idx()].raw())
+        }
+
+        fn anti_diag_for_sq(sq: AtaxxSquare, _size: AtaxxSize) -> Self {
+            Self::new(CHESS_ANTI_DIAGONALS[sq.bb_idx()].raw())
+        }
+
+        fn raw(self) -> RawStandardBitboard {
+            self.raw
+        }
+
+        fn size(self) -> AtaxxSize {
+            AtaxxSize::default()
+        }
+
+        fn flip_left_right(self, rank: usize) -> AtaxxBitboard {
+            AtaxxBitboard::new(
+                ChessBitboard::new(self.raw)
+                    .east()
+                    .flip_left_right(rank)
+                    .raw(),
+            )
+        }
+
+        fn flip_up_down(self) -> Self {
+            Self::from_u64((self.0 << 8).swap_bytes())
         }
     }
 }
@@ -1053,9 +1290,25 @@ pub const fn remove_ones_below(bb: u128, idx: usize) -> u128 {
 
 #[cfg(test)]
 mod tests {
+    use super::chess::*;
+    use super::*;
     use crate::games::mnk::MnkBitboard;
-    use crate::games::{GridSize, Height, Width};
-    use crate::general::bitboards::{remove_ones_above, remove_ones_below, Bitboard};
+    use crate::games::{Height, Width};
+    use crate::general::bitboards::ataxx::LEAPING;
+    use crate::general::squares::GridSize;
+
+    #[test]
+    fn precomputed_test() {
+        for i in 0..64 {
+            let bb = ChessBitboard::single_piece(i);
+            let king = bb.west() | bb.east() | bb;
+            let king = king.south() | king.north() | king;
+            let leaping = king.west() | king.east() | king;
+            let leaping = leaping.south() | leaping.north() | leaping;
+            assert_eq!(KINGS[i], king ^ bb);
+            assert_eq!(LEAPING[i].raw(), leaping.raw() & !king.raw());
+        }
+    }
 
     #[test]
     fn remove_ones_above_test() {

@@ -1,17 +1,22 @@
+//! [`gears`](crate) is a board game library. It deals with board representation, move generation, FEN parsing, etc.
+//! It is designed to be easily extensible to new games. [`gears`](crate) forms the foundation of the `motors`, `monitors`
+//! and `pliers` crates, which deal with engines, UI, and tuning, respectively.
+
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Instant;
 
+use crate::games::Color::White;
+use crate::games::{Board, Color};
+use crate::general::common::Description::WithDescription;
+use crate::general::common::{select_name_dyn, Res};
+use crate::output::OutputBuilder;
+use crate::search::TimeControl;
 use crate::AdjudicationReason::*;
 use crate::GameResult::Aborted;
-use crate::games::{Board, Color};
-use crate::games::Color::White;
-use crate::general::common::{Res, select_name_dyn};
-use crate::general::common::Description::WithDescription;
 use crate::MatchStatus::Over;
-use crate::output::OutputBuilder;
 use crate::PlayerResult::Win;
-use crate::search::TimeControl;
 
+/// A few helpers for interacting with the command line.
 pub mod cli;
 /// Anything related to the specific games, organized in submodules like "chess".
 pub mod games;
@@ -21,6 +26,8 @@ pub mod general;
 /// because it's very helpful to allow an engine to do debug printing and logging.
 /// Still, the monitors crate contains more advanced UIs, such as a GUI.
 pub mod output;
+/// Score and packed score
+pub mod score;
 /// Basic search helper types and functions that are used by `motors` and `monitors`
 pub mod search;
 /// Ugi helpers used both by `motors` and `monitors`
@@ -61,7 +68,7 @@ impl MatchStatus {
     }
 }
 
-/// Low-Level Result of a match from a MatchManager's perspective
+/// Low-level result of a match from a MatchManager's perspective
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum GameResult {
     P1Win,
@@ -155,18 +162,28 @@ impl OutputArgs {
     }
 }
 
-pub trait AbstractRun: Debug {
-    fn run(&mut self);
+/// The user can decide to quit either the current match or the entire program.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Quitting {
+    QuitProgram,
+    QuitMatch,
 }
 
-/// `AnyRunnable` is a type-erased `AbstractRun`, and almost the only thing that isn't generic over the Game.
+/// Base trait for the different modes in which the user can run the program.
+/// It only contains one method: [`run`].
+pub trait AbstractRun: Debug {
+    fn run(&mut self) -> Quitting;
+}
+
+/// `AnyRunnable` is a type-erased [`AbstractRun`], and almost the only thing that isn't generic over the Game.
 /// Pretty much the entire program is spent inside the match manager.
 pub type AnyRunnable = Box<dyn AbstractRun>;
 
+/// The current state of the match.
 pub trait GameState<B: Board> {
     fn initial_pos(&self) -> B;
     fn get_board(&self) -> B;
-    fn game_name(&self) -> &'static str {
+    fn game_name(&self) -> String {
         B::game_name()
     }
     fn move_history(&self) -> &[B::Move];
@@ -199,7 +216,7 @@ pub fn output_builder_from_str<B: Board>(
         name,
         list,
         "output",
-        B::game_name(),
+        &B::game_name(),
         WithDescription,
     )?))
 }

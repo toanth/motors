@@ -6,17 +6,17 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
-use crossbeam_channel::select;
 use itertools::Itertools;
 
+use gears::cli::{select_game, Game};
 use gears::games::Color::White;
-use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristRepetition3Fold};
+use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristHistory};
 use gears::general::common::Description::WithDescription;
-use gears::general::common::Res;
 use gears::general::common::{
-    parse_duration_ms, parse_int, parse_int_from_str, to_name_and_optional_description,
+    parse_duration_ms, parse_int, parse_int_from_str, to_name_and_optional_description, NamedEntity,
 };
-use gears::general::perft::{perft, split_perft};
+use gears::general::common::{IterIntersperse, Res};
+use gears::general::perft::{perft, perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
@@ -25,38 +25,21 @@ use gears::ugi::EngineOptionName::{MoveOverhead, Threads};
 use gears::ugi::EngineOptionType::Spin;
 use gears::ugi::{parse_ugi_position, EngineOption, EngineOptionName, UgiSpin};
 use gears::MatchStatus::*;
-use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchStatus};
+use gears::Quitting::{QuitMatch, QuitProgram};
+use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchStatus, Quitting};
 
 use crate::cli::EngineOpts;
-use crate::create_engine_from_str;
-use crate::search::multithreading::{EngineWrapper, Receiver, SearchSender, Sender};
-use crate::search::{BenchResult, EngineList};
+use crate::search::multithreading::{EngineWrapper, SearchSender};
+use crate::search::{run_bench_with_depth, BenchResult, EvalList, SearcherList};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
+use crate::{
+    create_engine_bench_from_str, create_engine_from_str, create_eval_from_str, create_match,
+};
 
 const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
 
 // TODO: Ensure this conforms to https://expositor.dev/uci/doc/uci-draft-1.pdf
-
-fn ugi_input_thread(sender: Sender<Res<String>>) {
-    loop {
-        let mut input = String::default();
-        match stdin().read_line(&mut input) {
-            Ok(count) => {
-                if count == 0 {
-                    break;
-                }
-                if sender.send(Ok(input)).is_err() {
-                    break;
-                }
-            }
-            Err(e) => {
-                _ = sender.send(Err(format!("Failed to read input: {e}")));
-                break;
-            }
-        }
-    }
-}
 
 enum SearchType {
     Normal,
@@ -83,7 +66,7 @@ impl Display for SearchType {
 #[derive(Debug, Clone)]
 enum ProgramStatus {
     Run(MatchStatus),
-    Quit,
+    Quit(Quitting),
 }
 
 #[derive(Debug, Clone)]
@@ -92,7 +75,7 @@ struct BoardGameState<B: Board> {
     debug_mode: bool,
     status: ProgramStatus,
     mov_hist: Vec<B::Move>,
-    board_hist: ZobristRepetition3Fold,
+    board_hist: ZobristHistory<B>,
     initial_pos: B,
     last_played_color: Color,
 }
@@ -115,7 +98,7 @@ impl<B: Board> BoardGameState<B> {
             .make_move(mov)
             .ok_or_else(|| format!("Illegal move {mov} (pseudolegal)"))?;
         if self.debug_mode {
-            if let Some(res) = self.board.match_result_slow() {
+            if let Some(res) = self.board.match_result_slow(&self.board_hist) {
                 return Err(format!("The game is over ({0}, reason: {1}) after move {mov}, which results in the following position: {2}", res.result, res.reason, self.board.as_fen()));
             }
         }
@@ -125,7 +108,7 @@ impl<B: Board> BoardGameState<B> {
     fn clear_state(&mut self) {
         self.board = self.initial_pos;
         self.mov_hist.clear();
-        <ZobristRepetition3Fold as BoardHistory<B>>::clear(&mut self.board_hist);
+        self.board_hist.clear();
         self.status = Run(NotStarted);
     }
 
@@ -251,11 +234,14 @@ pub struct EngineUGI<B: Board> {
     state: EngineGameState<B>,
     output: Arc<Mutex<UgiOutput<B>>>,
     output_factories: OutputList<B>,
+    searcher_factories: SearcherList<B>,
+    eval_factories: EvalList<B>,
+    search_sender: SearchSender<B>,
     move_overhead: Duration,
 }
 
 impl<B: Board> AbstractRun for EngineUGI<B> {
-    fn run(&mut self) {
+    fn run(&mut self) -> Quitting {
         self.ugi_loop()
     }
 }
@@ -276,7 +262,7 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
     fn match_status(&self) -> MatchStatus {
         match self.status.clone() {
             Run(status) => status,
-            Quit => {
+            Quit(_) => {
                 panic!("It shouldn't be possible to call match_status when quitting the engine.")
             }
         }
@@ -318,18 +304,20 @@ impl<B: Board> EngineUGI<B> {
         opts: EngineOpts,
         mut selected_output_builders: OutputList<B>,
         all_output_builders: OutputList<B>,
-        all_engines: EngineList<B>,
+        all_searchers: SearcherList<B>,
+        all_evals: EvalList<B>,
     ) -> Res<Self> {
         let output = Arc::new(Mutex::new(UgiOutput::default()));
         let sender = SearchSender::new(output.clone());
         let board = B::default();
-        let engine = create_engine_from_str(&opts.engine, &all_engines, sender)?;
+        let engine =
+            create_engine_from_str(&opts.engine, &all_searchers, &all_evals, sender.clone())?;
         let board_state = BoardGameState {
             board,
             debug_mode: opts.debug,
             status: Run(NotStarted),
             mov_hist: vec![],
-            board_hist: ZobristRepetition3Fold::default(),
+            board_hist: ZobristHistory::default(),
             initial_pos: B::default(),
             last_played_color: Default::default(),
         };
@@ -351,6 +339,9 @@ impl<B: Board> EngineUGI<B> {
             state,
             output,
             output_factories: all_output_builders,
+            searcher_factories: all_searchers,
+            eval_factories: all_evals,
+            search_sender: sender,
             move_overhead: Duration::from_millis(DEFAULT_MOVE_OVERHEAD_MS),
         })
     }
@@ -359,14 +350,7 @@ impl<B: Board> EngineUGI<B> {
         self.output.lock().unwrap()
     }
 
-    fn handle_ugi(&mut self, stdin_receiver: Receiver<Res<String>>) -> Res<ProgramStatus> {
-        select! {
-            recv(stdin_receiver) -> input =>
-                self.parse_input(input.map_err(|err| err.to_string())??.split_whitespace()),
-        }
-    }
-
-    fn ugi_loop(&mut self) {
+    fn ugi_loop(&mut self) -> Quitting {
         self.write_message(
             Debug,
             &format!("Starting UGI loop (playing {})", B::game_name()),
@@ -389,18 +373,27 @@ impl<B: Board> EngineUGI<B> {
             }
 
             let res = self.parse_input(input.split_whitespace());
-            if let Err(err) = res {
-                self.write_message(Error, err.as_str());
-                if self.continue_on_error() {
-                    self.write_message(Debug, "Continuing... ('debug' is 'on')");
-                    continue;
+            match res {
+                Err(err) => {
+                    self.write_message(Error, err.as_str());
+                    // explicitly check this here so that continuing on error doesn't prevent us from quitting.
+                    if let Quit(quitting) = self.state.status {
+                        return quitting;
+                    }
+                    if self.continue_on_error() {
+                        self.write_message(Debug, "Continuing... ('debug' is 'on')");
+                        continue;
+                    }
+                    return QuitProgram;
                 }
-                return;
-            }
-            if let Ok(Quit) = res {
-                return;
+                Ok(status) => {
+                    if let Quit(quitting) = status {
+                        return quitting;
+                    }
+                }
             }
         }
+        QuitProgram
     }
 
     fn write_ugi(&mut self, message: &str) {
@@ -452,13 +445,22 @@ impl<B: Board> EngineUGI<B> {
                 self.handle_setoption(words)?;
             }
             "register" => return Err("'register' isn't supported".to_string()),
-            "ucinewgame" => {
+            "ucinewgame" | "uginewgame" | "clear" => {
                 self.state.engine.send_forget()?;
                 self.state.status = Run(NotStarted);
             }
             "ponderhit" => {} // ignore pondering
+            "flip" => {
+                self.state.board = self.state.board.make_nullmove().ok_or(format!(
+                    "Could not flip the side to move (board: '{}'",
+                    self.state.board.as_fen().bold()
+                ))?;
+            }
             "quit" => {
-                self.quit()?;
+                self.quit(QuitProgram)?;
+            }
+            "quit_match" | "end_game" | "qm" => {
+                self.quit(QuitMatch)?;
             }
             "query" => {
                 self.handle_query(words)?;
@@ -478,8 +480,11 @@ impl<B: Board> EngineUGI<B> {
             "engine" => {
                 self.handle_engine(words)?;
             }
+            "set-eval" => {
+                self.handle_set_eval(words)?;
+            }
             "play" => {
-                todo!("remove? probably not");
+                self.handle_play(words)?;
             }
             "perft" => {
                 self.handle_perft_or_bench(Perft, words)?;
@@ -498,8 +503,8 @@ impl<B: Board> EngineUGI<B> {
                 self.write_message(
                     Warning,
                     &format!(
-                        "Invalid token at start of UCI command '{x}', ignoring the entire command. \
-                        If you are a human, consider typing {} to see a list of recognized commands.", "help".bold()
+                        "Invalid token at start of UCI command '{0}', ignoring the entire command. \
+                        If you are a human, consider typing {1} to see a list of recognized commands.", x.red(), "help".bold()
                     ),
                 );
             }
@@ -516,17 +521,19 @@ impl<B: Board> EngineUGI<B> {
         Ok(self.state.status.clone())
     }
 
-    fn quit(&mut self) -> Res<()> {
+    fn quit(&mut self, typ: Quitting) -> Res<()> {
+        // Do this before sending `quit`: If that fails, we can still recognize that we wanted to quit,
+        // so that continuing on errors won't prevent us from quitting the program.
+        self.state.status = Quit(typ);
         self.state.engine.send_quit()?;
-        self.state.status = Quit;
         Ok(())
     }
 
     fn id(&self) -> String {
         let info = self.state.engine.engine_info();
         format!(
-            "id name Motors - {0} {1}\nid author ToTheAnd",
-            info.name, info.version
+            "id name Motors -- Engine {0}\nid author ToTheAnd",
+            info.long_name(),
         )
     }
 
@@ -625,7 +632,7 @@ impl<B: Board> EngineUGI<B> {
                         .max(Duration::from_millis(1));
                 }
                 "infinite" | "inf" => (), // "infinite" is the identity element of the bounded semilattice of `go` options
-                "perft" => search_type = Perft,
+                "perft" | "p" => search_type = Perft,
                 "splitperft" | "sp" => search_type = SplitPerft,
                 "bench" => search_type = Bench,
                 _ => return Err(format!("Unrecognized 'go' option: '{next_word}'")),
@@ -636,41 +643,42 @@ impl<B: Board> EngineUGI<B> {
             .remaining
             .saturating_sub(self.move_overhead)
             .max(Duration::from_millis(1));
-        self.start_search(search_type, limit)
+        self.start_search(search_type, limit, self.state.board)
     }
 
-    fn start_search(&mut self, search_type: SearchType, mut limit: SearchLimit) -> Res<()> {
+    fn start_search(&mut self, search_type: SearchType, mut limit: SearchLimit, pos: B) -> Res<()> {
         self.write_message(
             Debug,
             &format!("Starting {search_type} search with tc {}", limit.tc),
         );
         self.state.status = Run(Ongoing);
         let default_depth = match search_type {
-            Perft | SplitPerft => self.state.board.default_perft_depth(),
-            Bench => self.state.engine.engine_info().default_bench_depth,
+            Perft | SplitPerft => pos.default_perft_depth(),
+            Bench => self.state.engine.engine_info().default_bench_depth(),
             _ => limit.depth,
         };
         if limit.depth == Depth::MAX {
             limit.depth = default_depth;
         }
         match search_type {
-            Normal => self.state.engine.start_search(
-                self.state.board,
-                limit,
-                self.state.board_hist.0.clone(),
-            )?,
+            // this keeps the current history even if we're searching a different position, but that's probably not a problem
+            // and doing a normal search from a custom position isn't even implemented at the moment -- TODO: implement?
+            Normal => self
+                .state
+                .engine
+                .start_search(pos, limit, self.state.board_hist.clone())?,
             Perft => {
-                let msg = format!("{0}", perft(limit.depth, self.state.board));
+                let msg = format!("{0}", perft(limit.depth, pos));
                 self.write_ugi(&msg);
             }
             SplitPerft => {
-                let msg = format!("{0}", split_perft(limit.depth, self.state.board));
+                let msg = format!("{0}", split_perft(limit.depth, pos));
                 self.write_ugi(&msg);
             }
             Bench => {
                 self.state
                     .engine
-                    .start_bench(self.state.board, limit.depth)
+                    .start_bench(pos, limit.depth)
                     .expect("bench panic");
             }
         };
@@ -686,25 +694,44 @@ impl<B: Board> EngineUGI<B> {
     fn handle_perft_or_bench(&mut self, typ: SearchType, words: &mut SplitWhitespace) -> Res<()> {
         let mut board = self.state.board;
         let mut limit = SearchLimit::infinite();
+        let mut complete = false;
         while let Some(word) = words.next() {
             match word {
                 "position" | "pos" | "p" => board = self.load_position_into_copy(words)?,
                 "depth" | "d" => {
                     limit.depth = Depth::new(parse_int(words, "depth number")?);
                 }
+                "complete" => complete = true,
                 x => {
                     if let Ok(depth) = parse_int_from_str(x, "depth") {
                         limit.depth = Depth::new(depth);
                     } else {
                         return Err(format!(
-                            "unrecognized bench/perft argument '{}', expected 'position', 'depth' or the depth value",
+                            "unrecognized bench/perft argument '{}', expected 'position', 'complete', 'depth' or the depth value",
                             x.red()
                         ));
                     }
                 }
             }
         }
-        self.start_search(typ, limit)
+        if complete {
+            let res = match typ {
+                Perft => perft_for(limit.depth, B::bench_positions()).to_string(),
+                Bench => {
+                    let mut engine = create_engine_bench_from_str(
+                        &self.state.engine.engine_info().short_name(),
+                        &self.searcher_factories,
+                        &self.eval_factories,
+                    )?;
+                    run_bench_with_depth(engine.as_mut(), limit.depth).to_string()
+                },
+                _ => return Err(format!("Can only use the '{}' option with bench or perft, not splitperft or normal runs", "complete".bold()))
+            };
+            self.write_ugi(&res);
+            Ok(())
+        } else {
+            self.start_search(typ, limit, board)
+        }
     }
 
     fn handle_eval(&mut self, words: &mut SplitWhitespace) -> Res<()> {
@@ -834,7 +861,7 @@ impl<B: Board> EngineUGI<B> {
                 // don't remove the error output, as there is basically no reason to do so
                 self.handle_log(&mut "none".split_whitespace())
             }
-            x => return Err(format!("Invalid debug option '{x}'")),
+            x => Err(format!("Invalid debug option '{x}'")),
         }
     }
 
@@ -867,7 +894,7 @@ impl<B: Board> EngineUGI<B> {
         let engine_name = format!(
             "{0} ({1})",
             self.state.display_name.bold(),
-            self.state.engine.engine_info().name.bold()
+            self.state.engine.engine_info().long_name().bold()
         );
         let str = format!("{motors}: A work-in-progress collection of engines for various games, \
         currently playing {game_name}, using the engine {engine_name}.\
@@ -881,13 +908,15 @@ impl<B: Board> EngineUGI<B> {
         \n {print}: `print <output>` prints the game using the specified output, or all of the current outputs if none is given, \
         or `unicode` if no outputs are being used.\
         \n {log}: `log <logfile> starts logging to <logfile>; use `none` or `off` to turn off logging and `stdout` or `stderr` to print to those streams.\
-        \n {engine}: Loads another engine. TODO: Currently not supported.\
-        \n {play}: A simple match runner to play against the engine manually on the command line. TODO: Currently not supported.\
+        \n {engine}: Loads another engine for the same game. Use 'play' to change the game.\
         \n {perft}: Equivalent to `go perft`, but allows setting the position as last argument, e.g. `perft depth 3 position startpos` \
         or simply `perft` to use the current position and game-specific default depth.\
         \n {bench}: See `perft`, but replace 'perft' with 'bench'. The default depth is engine-specific.\
         \n {eval}: Prints the static eval of the current position, without doing any actual searching.\
+        \n {set_eval}: Loads another evaluation function for the same engine.\
         \n {option}: Prints the current value of the specified UGI option, or of all UGI options if no name is specified.\
+        \n {play}: Pause the current match and start a new match of the given game, e.g. 'play chess'. Once that receives \
+        '{quit_match}', exit the match and resume the current match.\
         \n {help}: Prints this help message. \
         \nThis command line interface is mainly intended for internal use, if you want to play against this engine or use it for analysis,\
         you should probably use a GUI, such as the WIP {monitors} project.",
@@ -898,11 +927,13 @@ impl<B: Board> EngineUGI<B> {
             print = "print | show | s | display".bold(),
             log = "log".bold(),
             engine = "engine".bold(),
-            play = "play".bold(),
             perft = "perft".bold(),
             bench = "bench".bold(),
             eval = "eval | e".bold(),
+            set_eval = "set-eval".bold(),
             option = "option".bold(),
+            play = "play".bold(),
+            quit_match = "quit_match".bold(),
             help = "help".bold(),
             monitors = "monitors".italic(),
         );
@@ -910,16 +941,65 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_engine(&mut self, words: &mut SplitWhitespace) -> Res<()> {
-        todo!("Currently, this is no longer implemented (and maybe not a good idea in general?) TODO: Implement")
-        // self.state.engine = create_engine_from_str(words.next().unwrap_or_default(), "")?;
-        // Ok(())
+        let Some(name) = words.next() else {
+            let info = self.state.engine.engine_info();
+            self.write_ugi(&format!(
+                "\n{alias}: {0}\n{engine}: {1}\n{description}: {2}",
+                info.short_name(),
+                info.long_name(),
+                info.description().unwrap_or_default(),
+                alias = "Alias".bold(),
+                engine = "Engine".bold(),
+                description = "Description".bold(),
+            ));
+            return Ok(());
+        };
+        // catch invalid names before committing to shutting down the current engine
+        let engine = create_engine_from_str(
+            name,
+            &self.searcher_factories,
+            &self.eval_factories,
+            self.search_sender.clone(),
+        )?;
+        self.state.engine.send_quit()?;
+        self.state.engine = engine;
+        Ok(())
+    }
+
+    fn handle_set_eval(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+        let Some(name) = words.next() else {
+            let name = self
+                .state
+                .engine
+                .engine_info()
+                .eval()
+                .clone()
+                .map(|e| e.short_name())
+                .unwrap_or("<eval unused>".to_string());
+            self.write_ugi(&format!("Current eval: {name}"));
+            return Ok(());
+        };
+        let eval = create_eval_from_str(name, &self.eval_factories)?.build();
+        self.state.engine.set_eval(eval)
+    }
+
+    fn handle_play(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+        let default = Game::default().to_string();
+        let game_name = words.next().unwrap_or(&default);
+        let game = select_game(game_name)?;
+        let opts = EngineOpts::for_game(game, self.state.debug_mode);
+        let mut nested_match = create_match(opts)?;
+        if nested_match.run() == QuitProgram {
+            self.quit(QuitProgram)?;
+        }
+        Ok(())
     }
 
     fn print_option(&self, words: &mut SplitWhitespace) -> Res<String> {
         let options = self.get_options();
         Ok(
             match words
-                .intersperse(" ")
+                .intersperse_(" ")
                 .collect::<String>()
                 .to_ascii_lowercase()
                 .as_str()
@@ -930,7 +1010,7 @@ impl<B: Board> EngineUGI<B> {
                         writeln!(
                             res,
                             "{name}: {value}",
-                            name = o.name.to_string(),
+                            name = o.name,
                             value = o.value.value_to_str()
                         )
                         .unwrap();
@@ -940,11 +1020,10 @@ impl<B: Board> EngineUGI<B> {
                 x => {
                     match options
                         .iter()
-                        .map(|o| o)
                         .find(|o| o.name.to_string().eq_ignore_ascii_case(x))
                     {
                         Some(opt) => {
-                            format!("{0}: {1}", opt.name.to_string(), opt.value.value_to_str())
+                            format!("{0}: {1}", opt.name, opt.value.value_to_str())
                         }
                         None => {
                             return Err(format!(
