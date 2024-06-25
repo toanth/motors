@@ -693,9 +693,13 @@ impl Caps {
                 let mut reduction = 0;
                 if !in_check && num_uninteresting_visited > 2 {
                     reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8;
-                    // Reduce bad captures and quiet moves with bad history scores more
+                    // Reduce bad captures and quiet moves with bad combined history scores more.
                     if move_score < -MoveScore(HIST_DIVISOR / 4) {
                         reduction += 1;
+                    } else if move_score > MoveScore(HIST_DIVISOR / 2) {
+                        // Since the TT and killer move and good captures are not lmr'ed,
+                        // this only applies to quiet moves with a good combined history score.
+                        reduction -= 1;
                     }
                     if !is_pv_node {
                         reduction += 1;
