@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::io::stdin;
 use std::str::{FromStr, SplitWhitespace};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -530,7 +530,7 @@ pub(super) struct TextInput {
 }
 
 impl StaticallyNamedEntity for TextInput {
-    fn static_short_name() -> &'static str {
+    fn static_short_name() -> impl Display {
         "text"
     }
 

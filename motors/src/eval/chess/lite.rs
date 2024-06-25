@@ -19,12 +19,17 @@ use gears::score::{PhaseType, PhasedScore, Score};
 use crate::eval::chess::lite::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
 use crate::eval::Eval;
 
-#[derive(Default, Debug, Clone)]
-pub struct LiTEval {
+#[derive(Debug, Default, Copy, Clone)]
+struct EvalState {
     hash: ZobristHash,
     phase: PhaseType,
     // scores are stored from the perspective of the white player
     psqt_score: PhasedScore,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct LiTEval {
+    stack: Vec<EvalState>,
 }
 
 const TEMPO: Score = Score(10);
@@ -166,28 +171,6 @@ impl LiTEval {
         score
     }
 
-    fn undo_incremental_psqt(
-        &mut self,
-        current_pos: &Chessboard,
-        mov: ChessMove,
-        old_pos: &Chessboard,
-    ) {
-        debug_assert_eq!(self.psqt_score, Self::psqt(current_pos));
-        if mov != ChessMove::default() {
-            debug_assert_eq!(
-                &old_pos.make_move(mov).unwrap(),
-                current_pos,
-                " {old_pos} {0} {current_pos} {mov}",
-                { old_pos.make_move(mov).unwrap() }
-            );
-            let (psqt_delta, phase_delta) = Self::psqt_delta(old_pos, mov, current_pos);
-            self.psqt_score -= psqt_delta;
-            self.phase -= phase_delta;
-        }
-        debug_assert_eq!(self.psqt_score, Self::psqt(old_pos));
-        debug_assert_eq!(self.phase, Self::eval_from_scratch(old_pos).0.phase);
-    }
-
     fn psqt_delta(
         old_pos: &Chessboard,
         mov: ChessMove,
@@ -246,8 +229,8 @@ impl LiTEval {
             }
     }
 
-    fn eval_from_scratch(pos: &Chessboard) -> (LiTEval, PhasedScore) {
-        let mut state = LiTEval::default();
+    fn eval_from_scratch(pos: &Chessboard) -> (EvalState, PhasedScore) {
+        let mut state = EvalState::default();
         state.hash = pos.zobrist_hash();
         state.psqt_score = Self::psqt(&pos);
         let mut score = PhasedScore::default();
@@ -268,51 +251,39 @@ impl LiTEval {
         score += state.psqt_score;
         (state, score)
     }
-}
 
-impl Eval<Chessboard> for LiTEval {
-    fn eval(&mut self, pos: &Chessboard) -> Score {
-        let (state, score) = Self::eval_from_scratch(pos);
-        *self = state;
-        Self::finalize(score, self.phase, pos.active_player())
-    }
-
-    fn eval_incremental(
-        &mut self,
+    fn incremental(
+        mut state: EvalState,
         old_pos: &Chessboard,
         mov: ChessMove,
         new_pos: &Chessboard,
-        ply: usize,
-    ) -> Score {
-        // TODO: Store stack of eval states indexed by ply
-        // Eval isn't called on nodes with a PV node TT entry, so it's possible that eval was not called on the previous
-        // position. Zobrist hash collisions should be rare enough not to matter, since they would require the previous
-        // position to be a PV node with the same hash as the current node
-        if old_pos.zobrist_hash() != self.hash {
-            return self.eval(new_pos);
-        } else if mov != ChessMove::default() {
+    ) -> (EvalState, PhasedScore) {
+        if old_pos.zobrist_hash() != state.hash {
+            return Self::eval_from_scratch(new_pos);
+        }
+        if mov != ChessMove::default() {
             // null moves are encoded as a1a1, but it's possible that there's a "captured" piece on a1
             debug_assert_eq!(
                 Self::psqt(old_pos),
-                self.psqt_score,
+                state.psqt_score,
                 "{0} {1} {old_pos} {new_pos} {mov}",
                 Self::psqt(old_pos),
-                self.psqt_score
+                state.psqt_score
             );
             debug_assert_eq!(&old_pos.make_move(mov).unwrap(), new_pos);
             let (psqt_delta, phase_delta) = Self::psqt_delta(old_pos, mov, new_pos);
-            self.psqt_score += psqt_delta;
-            self.phase += phase_delta;
+            state.psqt_score += psqt_delta;
+            state.phase += phase_delta;
             debug_assert_eq!(
-                self.psqt_score,
+                state.psqt_score,
                 Self::psqt(new_pos),
                 "{0} {1} {2} {old_pos} {new_pos} {mov}",
-                self.psqt_score,
+                state.psqt_score,
                 Self::psqt(new_pos),
                 Self::psqt_delta(old_pos, mov, new_pos).0,
             );
         }
-        self.hash = new_pos.zobrist_hash();
+        state.hash = new_pos.zobrist_hash();
         let mut score = PhasedScore::default();
         for color in Color::iter() {
             score += Self::bishop_pair(new_pos, color);
@@ -321,23 +292,39 @@ impl Eval<Chessboard> for LiTEval {
             score += Self::rook_and_king(new_pos, color);
             score = -score;
         }
-        score += self.psqt_score;
+        score += state.psqt_score;
         debug_assert_eq!(
             score,
             Self::eval_from_scratch(new_pos).1,
             "{score} {} {old_pos} {new_pos} {mov}",
             Self::eval_from_scratch(new_pos).1
         );
-        Self::finalize(score, self.phase, new_pos.active_player())
+        (state, score)
+    }
+}
+
+impl Eval<Chessboard> for LiTEval {
+    fn eval(&mut self, pos: &Chessboard) -> Score {
+        self.stack.clear();
+        let (state, score) = Self::eval_from_scratch(pos);
+        self.stack.push(state);
+        Self::finalize(score, state.phase, pos.active_player())
     }
 
-    // fn undo_move(&mut self, current_pos: &Chessboard, mov: ChessMove, previous_pos: &Chessboard) {
-    //     debug_assert_eq!(
-    //         self.hash,
-    //         current_pos.zobrist_hash(),
-    //         "{previous_pos} {current_pos}"
-    //     );
-    //     self.undo_incremental_psqt(current_pos, mov, previous_pos);
-    //     self.hash = previous_pos.zobrist_hash();
-    // }
+    // Zobrist hash collisions should be rare enough not to matter, and even when they occur,
+    // they won't cause a crash except for failing a debug assertion, which isn't enabled in release mode
+    fn eval_incremental(
+        &mut self,
+        old_pos: &Chessboard,
+        mov: ChessMove,
+        new_pos: &Chessboard,
+        ply: usize,
+    ) -> Score {
+        debug_assert!(self.stack.len() >= ply);
+        debug_assert!(ply > 0);
+        let entry = self.stack[ply - 1];
+        let (entry, score) = Self::incremental(entry, old_pos, mov, new_pos);
+        self.stack.resize(ply + 1, entry);
+        Self::finalize(score, entry.phase, new_pos.active_player())
+    }
 }

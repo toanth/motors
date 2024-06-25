@@ -32,10 +32,9 @@ mod tests {
         generic_search_test(Caps::for_eval::<PistonEval>())
     }
 
-    fn generic_search_test<E: Engine<Chessboard>>(engine: E) {
+    fn generic_search_test<E: Engine<Chessboard>>(mut engine: E) {
         let fen = "7r/pBrkqQ1p/3b4/5b2/8/6P1/PP2PP1P/R1BR2K1 w - - 1 17";
         let board = Chessboard::from_fen(fen).unwrap();
-        let mut engine = E::default();
         let res = engine
             .search_from_pos(board, SearchLimit::mate(Depth::new(5)))
             .unwrap();
