@@ -9,7 +9,7 @@ use rand::thread_rng;
 
 use crate::eval::chess::lite::LiTEval;
 use gears::games::chess::moves::ChessMove;
-use gears::games::chess::see::SeeScore;
+use gears::games::chess::see::{piece_see_value, SeeScore};
 use gears::games::chess::{Chessboard, MAX_CHESS_MOVES_IN_POS};
 use gears::games::{n_fold_repetition, Board, BoardHistory, Color, Move, ZobristHistory};
 use gears::general::common::Description::NoDescription;
@@ -910,6 +910,7 @@ impl Caps {
             }
             best_move = tt_entry.mov;
         }
+
         self.record_pos(pos, best_score, ply);
 
         let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
@@ -921,6 +922,15 @@ impl Caps {
             if score < MoveScore(0) {
                 // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
                 break;
+            } else {
+                // Delta Pruning: If the captured piece's value will not nearly be enough to meet alpha, don't bother.
+                // Since moves are ordered by captured piece value and bad captures are also pruned, we can
+                // use `break` instead of `continue`
+                let delta_pruning_margin =
+                    Score(piece_see_value(mov.captured(&pos)).0 as ScoreT + 200);
+                if best_score + delta_pruning_margin <= alpha {
+                    break;
+                }
             }
             let Some(new_pos) =
                 pos.make_move_and_prefetch_tt(mov, |hash| self.state.custom.tt.prefetch(hash))
