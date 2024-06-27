@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use std::fmt::Display;
 use strum::IntoEnumIterator;
 
@@ -151,6 +152,27 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
+    // fn mobility(pos: &Chessboard, color: Color) {
+    //     for typ in UncoloredChessPiece::pieces().dropping(1) {
+    //         for piece in pos.colored_piece_bb(color, typ).ones() {
+    //             let mobility = pos.all_attacking()
+    //         }
+    //     }
+    // }
+
+    fn recomputed_every_time(pos: &Chessboard) -> Tuned::Score {
+        let mut score = Tuned::Score::default();
+        for color in Color::iter() {
+            score += Self::bishop_pair(pos, color);
+            score += Self::pawns(pos, color);
+            score += Self::pawn_shield(pos, color);
+            score += Self::rook_and_king(pos, color);
+
+            score = -score;
+        }
+        score
+    }
+
     fn psqt_delta(
         old_pos: &Chessboard,
         mov: ChessMove,
@@ -201,25 +223,17 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
     fn eval_from_scratch(pos: &Chessboard) -> (EvalState<Tuned>, Tuned::Score) {
         let mut state = EvalState::default();
-        state.hash = pos.zobrist_hash();
-        state.psqt_score = Self::psqt(&pos);
-        let mut score = Tuned::Score::default();
+
         let mut phase = 0;
-
-        for color in Color::iter() {
-            score += Self::bishop_pair(pos, color);
-            score += Self::pawns(pos, color);
-            score += Self::pawn_shield(pos, color);
-            score += Self::rook_and_king(pos, color);
-
-            score = -score;
-        }
         for piece in UncoloredChessPiece::non_king_pieces() {
             phase += pos.piece_bb(piece).num_ones() as isize * PIECE_PHASE[piece as usize];
         }
         state.phase = phase;
-        let psqt_score: &Tuned::Score = &state.psqt_score;
-        score += psqt_score.clone();
+
+        let psqt_score = Self::psqt(pos);
+        state.psqt_score = psqt_score.clone();
+        state.hash = pos.zobrist_hash();
+        let score: Tuned::Score = Self::recomputed_every_time(pos) + psqt_score;
         (state, score)
     }
 
@@ -268,21 +282,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             );
         }
         state.hash = new_pos.zobrist_hash();
-        let mut score = Tuned::Score::default();
-        for color in Color::iter() {
-            score += Self::bishop_pair(new_pos, color);
-            score += Self::pawns(new_pos, color);
-            score += Self::pawn_shield(new_pos, color);
-            score += Self::rook_and_king(new_pos, color);
-            score = -score;
-        }
-        score += state.psqt_score.clone();
-        debug_assert_eq!(
-            score,
-            Self::eval_from_scratch(new_pos).1,
-            "{score} {} {old_pos} {new_pos} {mov}",
-            Self::eval_from_scratch(new_pos).1
-        );
+        let score = Self::recomputed_every_time(new_pos) + state.psqt_score.clone();
         (state, score)
     }
 }

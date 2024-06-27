@@ -1,8 +1,8 @@
 use crate::games::chess::castling::CastleRight;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
-use crate::games::chess::pieces::ColoredChessPiece;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
+use crate::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};
 use crate::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO};
 use crate::games::chess::CastleRight::*;
 use crate::games::chess::{ChessMoveList, Chessboard};
@@ -21,11 +21,70 @@ enum SliderMove {
 // TODO: Use the north(), west(), etc. methods
 
 impl Chessboard {
-    // TODO: More efficient impl for pawns and castling king moves
+    fn single_pawn_moves(
+        &self,
+        color: Color,
+        square: ChessSquare,
+        capture_filter: ChessBitboard,
+        push_filter: ChessBitboard,
+    ) -> ChessBitboard {
+        let captures = Self::single_pawn_captures(color, square) & capture_filter;
+        // the bitand here is necessary to prevent double pushes across blockers
+        let mut pushes = square.bb().pawn_advance(color) & push_filter;
+        if square.is_pawn_start_rank() {
+            pushes |= pushes.pawn_advance(color) & push_filter;
+        }
+        captures | pushes
+    }
+
+    /// castling moves can be special: For example, it's possible that a normal king move is legal, but a
+    /// chess960 castling move with the same source and dest square as the normal king move isn't, or the other way around.
+    /// for pawn moves, `filter` is only applied to captures; `pawn_push_filter` is used for non-captures
+    fn attacks_no_castle(
+        &self,
+        square: ChessSquare,
+        piece: UncoloredChessPiece,
+        color: Color,
+        filter: ChessBitboard,
+        pawn_push_filter: ChessBitboard,
+    ) -> ChessBitboard {
+        let square_bb_if_occupied = square.bb() & self.occupied_bb();
+        match piece {
+            Pawn => self.single_pawn_moves(color, square, filter, pawn_push_filter),
+            Knight => Self::knight_moves_from_square(square, filter),
+            Bishop => self.gen_sliders_from_square(
+                square,
+                SliderMove::Bishop,
+                filter,
+                square_bb_if_occupied,
+            ),
+            Rook => self.gen_sliders_from_square(
+                square,
+                SliderMove::Rook,
+                filter,
+                square_bb_if_occupied,
+            ),
+            Queen => {
+                self.gen_sliders_from_square(
+                    square,
+                    SliderMove::Bishop,
+                    filter,
+                    square_bb_if_occupied,
+                ) | self.gen_sliders_from_square(
+                    square,
+                    SliderMove::Rook,
+                    filter,
+                    square_bb_if_occupied,
+                )
+            }
+            King => Self::normal_king_moves_from_square(square, filter),
+            Empty => ChessBitboard::default(),
+        }
+    }
+
     pub fn is_move_pseudolegal_impl(&self, mov: ChessMove) -> bool {
         let piece = mov.uncolored_piece();
         let src = mov.src_square();
-        let dest_idx = mov.dest_square().bb_idx();
         let color = self.active_player;
         if !self
             .colored_piece_bb(color, piece)
@@ -33,81 +92,35 @@ impl Chessboard {
         {
             return false;
         }
-        let filter = !self.colored_bb(color);
-        match piece {
-            Pawn => {
-                let mut list = ChessMoveList::default();
-                self.gen_pawn_moves(&mut list, false);
-                list.contains(&mov)
-            }
-            Knight => Self::knight_moves_from_square(src, filter)
-                .is_bit_set_at(mov.dest_square().bb_idx()),
-            Bishop => self
-                .gen_sliders_from_square(src, SliderMove::Bishop, filter, src.bb())
-                .is_bit_set_at(dest_idx), //self.gen_slider_moves(SliderMove::Bishop, &mut list, filter),
-            Rook => self
-                .gen_sliders_from_square(src, SliderMove::Rook, filter, src.bb())
-                .is_bit_set_at(dest_idx), //self.gen_slider_moves(SliderMove::Rook, &mut list, filter),
-            Queen => {
-                self.gen_sliders_from_square(src, SliderMove::Bishop, filter, src.bb())
-                    .is_bit_set_at(dest_idx)
-                    || self
-                        .gen_sliders_from_square(src, SliderMove::Rook, filter, src.bb())
-                        .is_bit_set_at(dest_idx)
-            }
-            King => {
-                if mov.is_castle() {
-                    (self.rook_start_square(color, Kingside) == mov.dest_square()
-                        && self.is_castling_pseudolegal(Kingside))
-                        || (self.rook_start_square(color, Queenside) == mov.dest_square()
-                            && self.is_castling_pseudolegal(Queenside))
-                } else {
-                    Self::normal_king_moves_from_square(src, filter)
-                        .is_bit_set_at(mov.dest_square().bb_idx())
-                }
-            }
-            Empty => panic!(),
+        if mov.is_castle() {
+            (self.rook_start_square(color, Kingside) == mov.dest_square()
+                && self.is_castling_pseudolegal(Kingside))
+                || (self.rook_start_square(color, Queenside) == mov.dest_square()
+                    && self.is_castling_pseudolegal(Queenside))
+        } else if mov.uncolored_piece() == Pawn {
+            // let mut list = ChessMoveList::default();
+            // self.gen_pawn_moves(&mut list, false);
+            // list.contains(&mov)
+            let capturable =
+                self.colored_bb(color.other()) | self.ep_square.map(|s| s.bb()).unwrap_or_default();
+            self.single_pawn_moves(color, src, capturable, self.empty_bb())
+                .is_bit_set_at(mov.dest_square().bb_idx())
+        } else {
+            self.attacks_no_castle(
+                src,
+                mov.uncolored_piece(),
+                color,
+                !self.active_player_bb(),
+                ChessBitboard::default(),
+            )
+            .is_bit_set_at(mov.dest_square().bb_idx())
         }
     }
 
-    /// used for castling and to implement `is_in_check`:
+    /// Used for castling and to implement `is_in_check`:
     /// Pretend there is a king of color `us` at `square` and test if it is in check.
     pub fn is_in_check_on_square(&self, us: Color, square: ChessSquare) -> bool {
-        let them = us.other();
-        let attacks = KNIGHTS[square.bb_idx()];
-        if (attacks & self.colored_piece_bb(them, Knight)).has_set_bit() {
-            return true;
-        }
-        let bb = square.bb();
-        let blockers = self.occupied_bb() & !bb;
-        let attacks = ChessBitboard::bishop_attacks(square, blockers);
-        if (attacks & (self.colored_piece_bb(them, Bishop) | self.colored_piece_bb(them, Queen)))
-            .has_set_bit()
-        {
-            return true;
-        }
-        let attacks = ChessBitboard::rook_attacks(square, blockers);
-        if (attacks & (self.colored_piece_bb(them, Rook) | self.colored_piece_bb(them, Queen)))
-            .has_set_bit()
-        {
-            return true;
-        }
-        let their_pawns = self.colored_piece_bb(them, Pawn);
-        let pawn_attacks = match us {
-            White => {
-                ((their_pawns & !ChessBitboard::file_no(A_FILE_NO)) >> 9)
-                    | ((their_pawns & !ChessBitboard::file_no(H_FILE_NO)) >> 7)
-            }
-            Black => {
-                ((their_pawns & !ChessBitboard::file_no(H_FILE_NO)) << 9)
-                    | ((their_pawns & !ChessBitboard::file_no(A_FILE_NO)) << 7)
-            }
-        };
-        if (pawn_attacks & bb).has_set_bit() {
-            return true;
-        }
-        // this can't happen in a legal position, but it can happen in pseudolegal movegen
-        (KINGS[square.bb_idx()] & self.colored_piece_bb(them, King)).has_set_bit()
+        (self.all_attacking(square) & self.colored_bb(us.other())).has_set_bit()
     }
 
     pub fn gen_all_pseudolegal_moves(&self) -> ChessMoveList {

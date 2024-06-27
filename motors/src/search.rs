@@ -4,7 +4,7 @@ use std::ops::Deref;
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
-use derive_more::{Add, Sub};
+use derive_more::{Add, Neg, Sub};
 use dyn_clone::{clone_box, DynClone};
 use strum_macros::FromRepr;
 
@@ -474,7 +474,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     fn static_eval(&mut self, pos: B) -> Score;
 }
 
-#[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub)]
+#[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg)]
 pub struct MoveScore(pub i32);
 
 impl MoveScore {

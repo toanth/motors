@@ -18,6 +18,14 @@
 
 //! A trace is used in the eval function to gather information about the position.
 //! It is then converted to a list of features.
+//!
+//! Each eval function should define its custom trace. There are two main ways to do this:
+//! The easiest way is to build a custom trace on top of nested traces,
+//! usually of type [`SimpleTrace`], [`TraceNFeatures`] or [`SparseTrace`], and then write a custom implementation
+//! of the [`Eval::feature_trace`] method.
+//! Alternatively, the type [`SparseTrace`] implements the [`ScoreType`] trait, so it can be substituted for the score
+//! in an existing eval function. This avoids having to repeat the eval function implementation for the tuner.
+//! [`TuneLiTEval`] is an example of how such an implementation can look like.
 
 use crate::gd::{Feature, FeatureT, Float};
 use gears::games::Color;

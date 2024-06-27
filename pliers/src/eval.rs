@@ -284,6 +284,8 @@ pub trait Eval<B: Board>: WeightsInterpretation + Default {
     /// calculate the trace, which then gets turned into a [`Datapoint`] in a separate step. A trace lists how often a
     /// feature appears for each player, so unlike a Datapoint, it still contains semantic information instead of a
     /// single one-dimensional list of feature counts.
+    /// [`TuneLiTEval`] is an example for how an existing eval function can be used to create a feature trace without
+    /// needing to duplicate the eval implementation.
     fn feature_trace(pos: &B) -> impl TraceTrait;
 }
 

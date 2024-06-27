@@ -29,9 +29,9 @@ pub trait ScoreType:
     + Send
     + Eq
     + PartialEq
-    + Add
+    + Add<Output = Self>
     + AddAssign
-    + Sub
+    + Sub<Output = Self>
     + SubAssign
     + Neg<Output = Self>
     + Mul<usize, Output = Self>

@@ -14,7 +14,7 @@ use motors::eval::chess::CHESS_PHASE_VALUES;
 use std::fmt::Formatter;
 use strum::IntoEnumIterator;
 
-pub mod caps_hce_eval;
+pub mod lite;
 pub mod material_only_eval;
 pub mod piston_eval;
 
