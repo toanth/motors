@@ -84,7 +84,7 @@ fn write_phased_psqt(
         writeln!(f, "{TAB}// {piece}")?;
         write!(f, "{TAB}[")?;
     } else {
-        writeln!(f, "[")?;
+        write!(f, "[")?;
     }
     for square in 0..NUM_SQUARES {
         if square % 8 == 0 {
@@ -100,7 +100,7 @@ fn write_phased_psqt(
     if piece_name.is_some() {
         writeln!(f, "{TAB}],")?;
     } else {
-        writeln!(f, "{TAB}];")?;
+        writeln!(f, "];")?;
     }
 
     Ok(())

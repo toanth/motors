@@ -157,6 +157,10 @@ pub type PhaseType = isize;
 const COMPACT_SCORE_BITS: usize = CompactScoreT::BITS as usize;
 
 impl PhasedScore {
+    // `const`, unlike `default`
+    pub const fn zero() -> Self {
+        PhasedScore(0)
+    }
     pub const fn new(mg: CompactScoreT, eg: CompactScoreT) -> Self {
         debug_assert!(is_valid_score(mg as ScoreT));
         debug_assert!(is_valid_score(eg as ScoreT));

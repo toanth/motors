@@ -15,7 +15,7 @@ use gears::games::chess::Chessboard;
 use gears::games::Color;
 use gears::games::Color::*;
 use motors::eval::chess::lite::GenericLiTEval;
-use motors::eval::chess::lite_values::LiteValues;
+use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
 use motors::eval::chess::FileOpenness::SemiClosed;
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use std::fmt::Formatter;
@@ -24,12 +24,13 @@ use std::fmt::Formatter;
 struct LiTETrace {}
 
 impl LiTETrace {
+    const ONE_BISHOP_PAIR_FEATURE: usize = 1;
     const NUM_ROOK_OPENNESS_FEATURES: usize = 3;
     const NUM_KING_OPENNESS_FEATURES: usize = 3;
     const NUM_PASSED_PAWN_FEATURES: usize = NUM_SQUARES;
     const NUM_PAWN_PROTECTION_FEATURES: usize = NUM_CHESS_PIECES;
     const NUM_PAWN_ATTACK_FEATURES: usize = NUM_CHESS_PIECES;
-    const ONE_BISHOP_PAIR_FEATURE: usize = 1;
+    const NUM_MOBILITY_FEATURES: usize = (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1);
 
     const PASSED_PAWN_OFFSET: usize = NUM_PSQT_FEATURES;
     const BISHOP_PAIR_OFFSET: usize = Self::PASSED_PAWN_OFFSET + Self::NUM_PASSED_PAWN_FEATURES;
@@ -40,7 +41,8 @@ impl LiTETrace {
     const PAWN_PROTECTION_OFFSET: usize = Self::PAWN_SHIELD_OFFSET + NUM_PAWN_SHIELD_CONFIGURATIONS;
     const PAWN_ATTACKS_OFFSET: usize =
         Self::PAWN_PROTECTION_OFFSET + Self::NUM_PAWN_PROTECTION_FEATURES;
-    const NUM_FEATURES: usize = Self::PAWN_ATTACKS_OFFSET + Self::NUM_PAWN_ATTACK_FEATURES;
+    const MOBILITY_OFFSET: usize = Self::PAWN_ATTACKS_OFFSET + Self::NUM_PAWN_ATTACK_FEATURES;
+    const NUM_FEATURES: usize = Self::MOBILITY_OFFSET + Self::NUM_MOBILITY_FEATURES;
 }
 
 impl LiteValues for LiTETrace {
@@ -98,6 +100,11 @@ impl LiteValues for LiTETrace {
         let idx = Self::PAWN_ATTACKS_OFFSET + piece as usize;
         SparseTrace::new(idx)
     }
+
+    fn mobility(piece: UncoloredChessPiece, mobility: usize) -> Self::Score {
+        let idx = Self::MOBILITY_OFFSET + (piece as usize - 1) * (MAX_MOBILITY + 1) + mobility;
+        SparseTrace::new(idx)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -121,12 +128,11 @@ impl WeightsInterpretation for TuneLiTEval {
                 0,
                 None,
             )?;
-            writeln!(f, "];")?;
             let mut idx = LiTETrace::BISHOP_PAIR_OFFSET;
 
             writeln!(
                 f,
-                "const BISHOP_PAIR: PhasedScore = {};",
+                "\nconst BISHOP_PAIR: PhasedScore = {};",
                 write_phased(weights, idx, &special),
             )?;
             idx += 1;
@@ -172,6 +178,20 @@ impl WeightsInterpretation for TuneLiTEval {
                 idx += 1;
             }
             writeln!(f, "\n];")?;
+            writeln!(f, "\npub const MAX_MOBILITY: usize = 7 + 7 + 7 + 6;")?;
+            writeln!(
+                f,
+                "const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = ["
+            )?;
+            for _piece in UncoloredChessPiece::non_pawn_pieces() {
+                write!(f, "[")?;
+                for _mobility in 0..=MAX_MOBILITY {
+                    write!(f, "{}, ", write_phased(weights, idx, &special))?;
+                    idx += 1;
+                }
+                writeln!(f, "],")?;
+            }
+            writeln!(f, "];")?;
             assert_eq!(idx, Self::NUM_FEATURES);
             Ok(())
         }

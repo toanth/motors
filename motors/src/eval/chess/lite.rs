@@ -152,13 +152,20 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    // fn mobility(pos: &Chessboard, color: Color) {
-    //     for typ in UncoloredChessPiece::pieces().dropping(1) {
-    //         for piece in pos.colored_piece_bb(color, typ).ones() {
-    //             let mobility = pos.all_attacking()
-    //         }
-    //     }
-    // }
+    fn mobility(pos: &Chessboard, color: Color) -> Tuned::Score {
+        let mut score = Tuned::Score::default();
+        // TODO: Test excluding squares attacked by pawns.
+        let filter = !pos.colored_bb(color);
+        for piece in UncoloredChessPiece::non_pawn_pieces() {
+            for square in pos.colored_piece_bb(color, piece).ones() {
+                let attacks =
+                    pos.attacks_no_castle(square, piece, color, filter, ChessBitboard::default());
+                let mobility = attacks.num_ones();
+                score += Tuned::mobility(piece, mobility);
+            }
+        }
+        score
+    }
 
     fn recomputed_every_time(pos: &Chessboard) -> Tuned::Score {
         let mut score = Tuned::Score::default();
@@ -167,7 +174,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Self::pawns(pos, color);
             score += Self::pawn_shield(pos, color);
             score += Self::rook_and_king(pos, color);
-
+            score += Self::mobility(pos, color);
             score = -score;
         }
         score
