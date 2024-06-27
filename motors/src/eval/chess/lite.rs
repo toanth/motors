@@ -153,8 +153,10 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
     fn mobility(pos: &Chessboard, color: Color) -> Tuned::Score {
         let mut score = Tuned::Score::default();
-        // TODO: Test excluding squares attacked by pawns.
-        let filter = !pos.colored_bb(color);
+        let attacked = pos
+            .colored_piece_bb(color.other(), Pawn)
+            .pawn_attacks(color.other());
+        let filter = !pos.colored_bb(color) & !attacked;
         for piece in UncoloredChessPiece::non_pawn_pieces() {
             for square in pos.colored_piece_bb(color, piece).ones() {
                 let attacks =
