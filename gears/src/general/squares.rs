@@ -360,6 +360,11 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
         rank == 0 || rank == H as DimT - 1
     }
 
+    pub fn is_pawn_start_rank(self) -> bool {
+        let rank = self.rank();
+        rank == 1 || rank == H as DimT - 2
+    }
+
     pub fn iter() -> impl Iterator<Item = Self> {
         (0..H)
             .flat_map(|i| (8 * i)..(8 * i + W))
