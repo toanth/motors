@@ -29,8 +29,9 @@ impl LiTETrace {
     const NUM_KING_OPENNESS_FEATURES: usize = 3;
     const NUM_PASSED_PAWN_FEATURES: usize = NUM_SQUARES;
     const NUM_PAWN_PROTECTION_FEATURES: usize = NUM_CHESS_PIECES;
-    const NUM_PAWN_ATTACK_FEATURES: usize = NUM_CHESS_PIECES;
+    const NUM_PAWN_ATTACKS_FEATURES: usize = NUM_CHESS_PIECES;
     const NUM_MOBILITY_FEATURES: usize = (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1);
+    const NUM_THREAT_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
 
     const PASSED_PAWN_OFFSET: usize = NUM_PSQT_FEATURES;
     const BISHOP_PAIR_OFFSET: usize = Self::PASSED_PAWN_OFFSET + Self::NUM_PASSED_PAWN_FEATURES;
@@ -41,8 +42,10 @@ impl LiTETrace {
     const PAWN_PROTECTION_OFFSET: usize = Self::PAWN_SHIELD_OFFSET + NUM_PAWN_SHIELD_CONFIGURATIONS;
     const PAWN_ATTACKS_OFFSET: usize =
         Self::PAWN_PROTECTION_OFFSET + Self::NUM_PAWN_PROTECTION_FEATURES;
-    const MOBILITY_OFFSET: usize = Self::PAWN_ATTACKS_OFFSET + Self::NUM_PAWN_ATTACK_FEATURES;
-    const NUM_FEATURES: usize = Self::MOBILITY_OFFSET + Self::NUM_MOBILITY_FEATURES;
+    const MOBILITY_OFFSET: usize = Self::PAWN_ATTACKS_OFFSET + Self::NUM_PAWN_ATTACKS_FEATURES;
+    const THREAT_OFFSET: usize = Self::MOBILITY_OFFSET + Self::NUM_MOBILITY_FEATURES;
+
+    const NUM_FEATURES: usize = Self::THREAT_OFFSET + Self::NUM_THREAT_FEATURES;
 }
 
 impl LiteValues for LiTETrace {
@@ -91,8 +94,8 @@ impl LiteValues for LiTETrace {
     }
 
     fn pawn_attack(piece: UncoloredChessPiece) -> Self::Score {
-        // a pawn attacking another pawn is itself attacked by a pawn, but since a pawn could be attacking two pawns
-        // at once this doesn't have to mean that the resulting feature count is zero. So manually exclude this
+        // For example a pawn attacking another pawn is itself attacked by a pawn, but since a pawn could be attacking
+        // two pawns at once this doesn't have to mean that the resulting feature count is zero. So manually exclude this
         // because pawns attacking pawns don't necessarily create an immediate thread like pawns attacking pieces.
         if piece == Pawn {
             return SparseTrace::default();
@@ -103,6 +106,12 @@ impl LiteValues for LiTETrace {
 
     fn mobility(piece: UncoloredChessPiece, mobility: usize) -> Self::Score {
         let idx = Self::MOBILITY_OFFSET + (piece as usize - 1) * (MAX_MOBILITY + 1) + mobility;
+        SparseTrace::new(idx)
+    }
+
+    fn threats(attacking: UncoloredChessPiece, targeted: UncoloredChessPiece) -> Self::Score {
+        let idx =
+            Self::THREAT_OFFSET + (attacking as usize - 1) * NUM_CHESS_PIECES + targeted as usize;
         SparseTrace::new(idx)
     }
 }
@@ -172,10 +181,13 @@ impl WeightsInterpretation for TuneLiTEval {
                 idx += 1
             }
             writeln!(f, "\n];")?;
-            writeln!(f, "const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = [")?;
-            for _feature in 0..LiTETrace::NUM_PAWN_ATTACK_FEATURES {
+            writeln!(
+                f,
+                " const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = ["
+            )?;
+            for _feature in 0..LiTETrace::NUM_PAWN_ATTACKS_FEATURES {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                idx += 1;
+                idx += 1
             }
             writeln!(f, "\n];")?;
             writeln!(f, "\npub const MAX_MOBILITY: usize = 7 + 7 + 7 + 6;")?;
@@ -186,6 +198,19 @@ impl WeightsInterpretation for TuneLiTEval {
             for _piece in UncoloredChessPiece::non_pawn_pieces() {
                 write!(f, "[")?;
                 for _mobility in 0..=MAX_MOBILITY {
+                    write!(f, "{}, ", write_phased(weights, idx, &special))?;
+                    idx += 1;
+                }
+                writeln!(f, "],")?;
+            }
+            writeln!(f, "];")?;
+            writeln!(
+                f,
+                "const THREATS: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = ["
+            )?;
+            for _piece in UncoloredChessPiece::non_pawn_pieces() {
+                write!(f, "[")?;
+                for _threatened in UncoloredChessPiece::pieces() {
                     write!(f, "{}, ", write_phased(weights, idx, &special))?;
                     idx += 1;
                 }

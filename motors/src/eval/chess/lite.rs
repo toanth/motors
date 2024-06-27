@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use std::fmt::Display;
 use strum::IntoEnumIterator;
 
@@ -151,7 +152,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn mobility(pos: &Chessboard, color: Color) -> Tuned::Score {
+    fn mobility_and_threats(pos: &Chessboard, color: Color) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let attacked = pos
             .colored_piece_bb(color.other(), Pawn)
@@ -163,6 +164,10 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                     pos.attacks_no_castle(square, piece, color, filter, ChessBitboard::default());
                 let mobility = attacks.num_ones();
                 score += Tuned::mobility(piece, mobility);
+                for threatened_piece in UncoloredChessPiece::pieces() {
+                    let attacked = pos.colored_piece_bb(color.other(), threatened_piece) & attacks;
+                    score += Tuned::threats(piece, threatened_piece) * attacked.num_ones();
+                }
             }
         }
         score
@@ -175,7 +180,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Self::pawns(pos, color);
             score += Self::pawn_shield(pos, color);
             score += Self::rook_and_king(pos, color);
-            score += Self::mobility(pos, color);
+            score += Self::mobility_and_threats(pos, color);
             score = -score;
         }
         score
