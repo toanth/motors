@@ -32,6 +32,7 @@ impl LiTETrace {
     const NUM_PAWN_ATTACKS_FEATURES: usize = NUM_CHESS_PIECES;
     const NUM_MOBILITY_FEATURES: usize = (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1);
     const NUM_THREAT_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
+    const NUM_DEFENSE_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
 
     const PASSED_PAWN_OFFSET: usize = NUM_PSQT_FEATURES;
     const BISHOP_PAIR_OFFSET: usize = Self::PASSED_PAWN_OFFSET + Self::NUM_PASSED_PAWN_FEATURES;
@@ -44,8 +45,9 @@ impl LiTETrace {
         Self::PAWN_PROTECTION_OFFSET + Self::NUM_PAWN_PROTECTION_FEATURES;
     const MOBILITY_OFFSET: usize = Self::PAWN_ATTACKS_OFFSET + Self::NUM_PAWN_ATTACKS_FEATURES;
     const THREAT_OFFSET: usize = Self::MOBILITY_OFFSET + Self::NUM_MOBILITY_FEATURES;
+    const DEFENSE_OFFSET: usize = Self::THREAT_OFFSET + Self::NUM_THREAT_FEATURES;
 
-    const NUM_FEATURES: usize = Self::THREAT_OFFSET + Self::NUM_THREAT_FEATURES;
+    const NUM_FEATURES: usize = Self::DEFENSE_OFFSET + Self::NUM_DEFENSE_FEATURES;
 }
 
 impl LiteValues for LiTETrace {
@@ -112,6 +114,12 @@ impl LiteValues for LiTETrace {
     fn threats(attacking: UncoloredChessPiece, targeted: UncoloredChessPiece) -> Self::Score {
         let idx =
             Self::THREAT_OFFSET + (attacking as usize - 1) * NUM_CHESS_PIECES + targeted as usize;
+        SparseTrace::new(idx)
+    }
+
+    fn defended(protecting: UncoloredChessPiece, target: UncoloredChessPiece) -> Self::Score {
+        let idx =
+            Self::DEFENSE_OFFSET + (protecting as usize - 1) * NUM_CHESS_PIECES + target as usize;
         SparseTrace::new(idx)
     }
 }
@@ -207,6 +215,19 @@ impl WeightsInterpretation for TuneLiTEval {
             writeln!(
                 f,
                 "const THREATS: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = ["
+            )?;
+            for _piece in UncoloredChessPiece::non_pawn_pieces() {
+                write!(f, "[")?;
+                for _threatened in UncoloredChessPiece::pieces() {
+                    write!(f, "{}, ", write_phased(weights, idx, &special))?;
+                    idx += 1;
+                }
+                writeln!(f, "],")?;
+            }
+            writeln!(f, "];")?;
+            writeln!(
+                f,
+                "const DEFENDED: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = ["
             )?;
             for _piece in UncoloredChessPiece::non_pawn_pieces() {
                 write!(f, "[")?;
