@@ -1,66 +1,111 @@
 //! The hand-crafted eval used by the `caps` chess engine.
 
 use crate::eval::chess::{
-    psqt_trace, write_phased_psqt, write_psqts, SkipChecks, NUM_PHASES, NUM_PSQT_FEATURES,
+    write_phased_psqt, write_psqts, SkipChecks, NUM_PHASES, NUM_PSQT_FEATURES,
 };
 use crate::eval::EvalScale::Scale;
 use crate::eval::{changed_at_least, write_phased, Eval, EvalScale, WeightsInterpretation};
-use crate::gd::{
-    BasicTrace, Float, SingleFeatureTrace, TaperedDatapoint, TraceNFeatures, TraceTrait, Weight,
-    Weights,
-};
+use crate::gd::{Float, TaperedDatapoint, Weight, Weights};
+use crate::trace::{SparseTrace, TraceTrait};
 use gears::games::chess::pieces::UncoloredChessPiece::*;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::see::SEE_SCORES;
-use gears::games::chess::squares::NUM_SQUARES;
-use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
+use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::Chessboard;
 use gears::games::Color;
 use gears::games::Color::*;
-use gears::general::bitboards::chess::A_FILE;
-use gears::general::bitboards::{Bitboard, RawBitboard};
-use motors::eval::chess::lite::file_openness;
+use motors::eval::chess::lite::GenericLiTEval;
+use motors::eval::chess::lite_values::LiteValues;
 use motors::eval::chess::FileOpenness::SemiClosed;
-use motors::eval::chess::{pawn_shield_idx, NUM_PAWN_SHIELD_CONFIGURATIONS};
+use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use std::fmt::Formatter;
-use strum::IntoEnumIterator;
 
-#[derive(Debug, Default)]
-struct Trace {
-    psqt: TraceNFeatures<NUM_PIECE_SQUARE_ENTRIES>,
-    passed_pawns: TraceNFeatures<NUM_PASSED_PAWN_FEATURES>,
-    bishop_pair: SingleFeatureTrace,
-    rooks: TraceNFeatures<NUM_ROOK_OPENNESS_FEATURES>,
-    kings: TraceNFeatures<NUM_KING_OPENNESS_FEATURES>,
-    pawn_shields: TraceNFeatures<NUM_PAWN_SHIELD_CONFIGURATIONS>,
-    pawn_protection: TraceNFeatures<NUM_PAWN_PROTECTION_FEATURES>,
-    pawn_attack: TraceNFeatures<NUM_PAWN_ATTACK_FEATURES>,
+#[derive(Debug, Default, Copy, Clone)]
+struct LiTETrace {}
+
+impl LiTETrace {
+    const NUM_ROOK_OPENNESS_FEATURES: usize = 3;
+    const NUM_KING_OPENNESS_FEATURES: usize = 3;
+    const NUM_PASSED_PAWN_FEATURES: usize = NUM_SQUARES;
+    const NUM_PAWN_PROTECTION_FEATURES: usize = NUM_CHESS_PIECES;
+    const NUM_PAWN_ATTACK_FEATURES: usize = NUM_CHESS_PIECES;
+    const ONE_BISHOP_PAIR_FEATURE: usize = 1;
+
+    const PASSED_PAWN_OFFSET: usize = NUM_PSQT_FEATURES;
+    const BISHOP_PAIR_OFFSET: usize = Self::PASSED_PAWN_OFFSET + Self::NUM_PASSED_PAWN_FEATURES;
+    const ROOK_OPENNESS_OFFSET: usize = Self::BISHOP_PAIR_OFFSET + Self::ONE_BISHOP_PAIR_FEATURE;
+    const KING_OPENNESS_OFFSET: usize =
+        Self::ROOK_OPENNESS_OFFSET + Self::NUM_ROOK_OPENNESS_FEATURES;
+    const PAWN_SHIELD_OFFSET: usize = Self::KING_OPENNESS_OFFSET + Self::NUM_KING_OPENNESS_FEATURES;
+    const PAWN_PROTECTION_OFFSET: usize = Self::PAWN_SHIELD_OFFSET + NUM_PAWN_SHIELD_CONFIGURATIONS;
+    const PAWN_ATTACKS_OFFSET: usize =
+        Self::PAWN_PROTECTION_OFFSET + Self::NUM_PAWN_PROTECTION_FEATURES;
+    const NUM_FEATURES: usize = Self::PAWN_ATTACKS_OFFSET + Self::NUM_PAWN_ATTACK_FEATURES;
 }
 
-impl TraceTrait for Trace {
-    fn nested_traces(&self) -> Vec<&dyn TraceTrait> {
-        vec![
-            &self.psqt,
-            &self.passed_pawns,
-            &self.bishop_pair,
-            &self.rooks,
-            &self.kings,
-            &self.pawn_shields,
-            &self.pawn_protection,
-            &self.pawn_attack,
-        ]
+impl LiteValues for LiTETrace {
+    type Score = SparseTrace;
+
+    fn psqt(square: ChessSquare, piece: UncoloredChessPiece, color: Color) -> Self::Score {
+        let square = square.flip_if(color == White);
+        let idx = 0 + square.bb_idx() + piece as usize * NUM_SQUARES;
+        SparseTrace::new(idx)
     }
 
-    fn phase(&self) -> Float {
-        self.psqt.phase()
+    fn passed_pawn(square: ChessSquare) -> Self::Score {
+        let idx = Self::PASSED_PAWN_OFFSET + square.bb_idx();
+        SparseTrace::new(idx)
+    }
+
+    fn bishop_pair() -> Self::Score {
+        let idx = Self::BISHOP_PAIR_OFFSET;
+        SparseTrace::new(idx)
+    }
+
+    fn rook_openness(openness: FileOpenness) -> Self::Score {
+        if openness == SemiClosed {
+            return SparseTrace::default();
+        }
+        let idx = Self::ROOK_OPENNESS_OFFSET + openness as usize;
+        SparseTrace::new(idx)
+    }
+
+    fn king_openness(openness: FileOpenness) -> Self::Score {
+        if openness == SemiClosed {
+            return SparseTrace::default();
+        }
+        let idx = Self::KING_OPENNESS_OFFSET + openness as usize;
+        SparseTrace::new(idx)
+    }
+
+    fn pawn_shield(config: usize) -> Self::Score {
+        let idx = Self::PAWN_SHIELD_OFFSET + config;
+        SparseTrace::new(idx)
+    }
+
+    fn pawn_protection(piece: UncoloredChessPiece) -> Self::Score {
+        let idx = Self::PAWN_PROTECTION_OFFSET + piece as usize;
+        SparseTrace::new(idx)
+    }
+
+    fn pawn_attack(piece: UncoloredChessPiece) -> Self::Score {
+        // a pawn attacking another pawn is itself attacked by a pawn, but since a pawn could be attacking two pawns
+        // at once this doesn't have to mean that the resulting feature count is zero. So manually exclude this
+        // because pawns attacking pawns don't necessarily create an immediate thread like pawns attacking pieces.
+        if piece == Pawn {
+            return SparseTrace::default();
+        }
+        let idx = Self::PAWN_ATTACKS_OFFSET + piece as usize;
+        SparseTrace::new(idx)
     }
 }
 
-/// The hand-crafted eval used by the `caps` chess engine.
 #[derive(Debug, Default)]
-pub struct CapsHceEval {}
+/// Tuning the chess Linear Tuned Eval (LiTE) values.
+/// This is done by re-using the generic eval function but instantiating it with a trace instead of a score.
+pub struct TuneLiTEval {}
 
-impl WeightsInterpretation for CapsHceEval {
+impl WeightsInterpretation for TuneLiTEval {
     fn display(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
         |f: &mut Formatter<'_>, weights: &Weights, old_weights: &[Weight]| {
             let special = changed_at_least(-1.0, weights, old_weights);
@@ -77,7 +122,7 @@ impl WeightsInterpretation for CapsHceEval {
                 None,
             )?;
             writeln!(f, "];")?;
-            let mut idx = NUM_PSQT_FEATURES + NUM_PASSED_PAWN_FEATURES;
+            let mut idx = LiTETrace::BISHOP_PAIR_OFFSET;
 
             writeln!(
                 f,
@@ -116,13 +161,13 @@ impl WeightsInterpretation for CapsHceEval {
                 f,
                 " const PAWN_PROTECTION: [PhasedScore; NUM_CHESS_PIECES] = ["
             )?;
-            for _feature in 0..NUM_PAWN_PROTECTION_FEATURES {
+            for _feature in 0..LiTETrace::NUM_PAWN_PROTECTION_FEATURES {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
                 idx += 1
             }
             writeln!(f, "\n];")?;
             writeln!(f, "const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = [")?;
-            for _feature in 0..NUM_PAWN_ATTACK_FEATURES {
+            for _feature in 0..LiTETrace::NUM_PAWN_ATTACK_FEATURES {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
                 idx += 1;
             }
@@ -158,97 +203,14 @@ impl WeightsInterpretation for CapsHceEval {
     }
 }
 
-const NUM_ROOK_OPENNESS_FEATURES: usize = 3;
-const NUM_KING_OPENNESS_FEATURES: usize = 3;
-const NUM_PASSED_PAWN_FEATURES: usize = NUM_SQUARES;
-const NUM_PAWN_PROTECTION_FEATURES: usize = NUM_CHESS_PIECES;
-const NUM_PAWN_ATTACK_FEATURES: usize = NUM_CHESS_PIECES;
-const ONE_BISHOP_PAIR_FEATURE: usize = 1;
-
-impl Eval<Chessboard> for CapsHceEval {
-    const NUM_WEIGHTS: usize = Self::NUM_FEATURES * NUM_PHASES;
-
-    const NUM_FEATURES: usize = NUM_PIECE_SQUARE_ENTRIES
-        + ONE_BISHOP_PAIR_FEATURE
-        + NUM_PASSED_PAWN_FEATURES
-        + NUM_ROOK_OPENNESS_FEATURES
-        + NUM_KING_OPENNESS_FEATURES
-        + NUM_PAWN_SHIELD_CONFIGURATIONS
-        + NUM_PAWN_PROTECTION_FEATURES
-        + NUM_PAWN_ATTACK_FEATURES;
-
+impl Eval<Chessboard> for TuneLiTEval {
+    const NUM_WEIGHTS: usize = Self::NUM_FEATURES * 2;
+    const NUM_FEATURES: usize = LiTETrace::NUM_FEATURES;
     type D = TaperedDatapoint;
     type Filter = SkipChecks;
 
     fn feature_trace(pos: &Chessboard) -> impl TraceTrait {
-        Self::trace(pos)
-    }
-}
-
-impl CapsHceEval {
-    #[allow(clippy::field_reassign_with_default)]
-    fn trace(pos: &Chessboard) -> Trace {
-        let mut trace = Trace::default();
-        trace.psqt = psqt_trace(pos);
-        for color in Color::iter() {
-            let our_pawns = pos.colored_piece_bb(color, Pawn);
-            let their_pawns = pos.colored_piece_bb(color.other(), Pawn);
-
-            for pawn in our_pawns.ones() {
-                // Passed pawns.
-                let in_front =
-                    (A_FILE << (pawn.flip_if(color == Black).bb_idx() + 8)).flip_if(color == Black);
-                let blocking = in_front | in_front.west() | in_front.east();
-                if (in_front & our_pawns).is_zero() && (blocking & their_pawns).is_zero() {
-                    let square = pawn.flip_if(color == White).bb_idx();
-                    trace.passed_pawns.increment(square, color);
-                }
-            }
-            if pos.colored_piece_bb(color, Bishop).more_than_one_bit_set() {
-                trace.bishop_pair.increment(0, color);
-            }
-
-            for piece in UncoloredChessPiece::pieces() {
-                let pawn_attacks = our_pawns.pawn_attacks(color);
-                let protected_by_pawns = pawn_attacks & pos.colored_piece_bb(color, piece);
-                trace.pawn_protection.increment_by(
-                    piece as usize,
-                    color,
-                    protected_by_pawns.num_ones() as isize,
-                );
-                // a pawn attacking another pawn is itself attacked by a pawn, but since a pawn could be attacking two pawns
-                // at once this doesn't have to mean that the resulting feature count is zero. So manually exclude this
-                // because pawns attacking pawns don't necessarily create an immediate thread like pawns attacking pieces.
-                if piece != Pawn {
-                    let attacked_by_pawns =
-                        pawn_attacks & pos.colored_piece_bb(color.other(), piece);
-                    trace.pawn_attack.increment_by(
-                        piece as usize,
-                        color,
-                        attacked_by_pawns.num_ones() as isize,
-                    );
-                }
-            }
-
-            // Rooks on (semi)open/closed files (semi-closed files are handled by adjusting the base rook values during tuning)
-            let rooks = pos.colored_piece_bb(color, Rook);
-            for rook in rooks.ones() {
-                let openness = file_openness(rook.file(), our_pawns, their_pawns);
-                if openness != SemiClosed {
-                    // part of the normal piece value (i.e. part of the rook PSQT)
-                    trace.rooks.increment(openness as usize, color);
-                }
-            }
-            // King on (semi)open/closed file
-            let king_square = pos.king_square(color);
-            let king_file = king_square.file();
-            let openness = file_openness(king_file, our_pawns, their_pawns);
-            if openness != SemiClosed {
-                trace.kings.increment(openness as usize, color);
-            }
-            let pawn_shield = pawn_shield_idx(our_pawns, king_square, color);
-            trace.pawn_shields.increment(pawn_shield, color);
-        }
-        trace
+        let res = GenericLiTEval::<LiTETrace>::do_eval(pos);
+        res
     }
 }

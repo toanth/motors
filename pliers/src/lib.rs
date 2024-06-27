@@ -41,6 +41,7 @@
 //! # use gears::general::common::Res;
 //! # use pliers::*;
 //! # use pliers::gd::*;
+//! # use pliers::trace::*;
 //! # use pliers::eval::*;
 //! # use pliers::load_data::*;
 //! # use pliers::load_datasets_from_json;
@@ -106,6 +107,7 @@ use std::process::exit;
 pub mod eval;
 pub mod gd;
 pub mod load_data;
+pub mod trace;
 
 const DEFAULT_NUM_EPOCHS: usize = 4000;
 

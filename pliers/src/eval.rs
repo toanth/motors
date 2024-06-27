@@ -7,9 +7,10 @@ use crate::eval::Direction::{Down, Up};
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
     cp_eval_for_weights, cp_to_wr, sample_loss, scaled_sample_grad, Batch, Datapoint, Float,
-    Outcome, ScalingFactor, TraceTrait, Weight, Weights,
+    Outcome, ScalingFactor, Weight, Weights,
 };
 use crate::load_data::Filter;
+use crate::trace::TraceTrait;
 use derive_more::Display;
 use gears::games::Board;
 use std::fmt::Formatter;

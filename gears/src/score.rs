@@ -142,7 +142,7 @@ pub const fn is_valid_score(score: ScoreT) -> bool {
 
 /// Uses a SWAR (SIMD Within A Register) technique to store and manipulate middlegame and endgame scores
 /// at the same time, by treating them as the lower and upper half of a single value.
-/// This improves performance, which is especially important because the eval of a typical a/b engine is hot..
+/// This improves performance, which is especially important because the eval of a typical a/b engine is hot.
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Add, AddAssign, Sub, SubAssign, Neg)]
 pub struct PhasedScore(ScoreT);
 
