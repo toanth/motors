@@ -40,6 +40,9 @@ const HIST_DIVISOR: i32 = 1024;
 /// The TT move and good captures have a higher score, all other moves have a lower score.
 const KILLER_SCORE: MoveScore = MoveScore(i32::MAX - 100 * HIST_DIVISOR);
 
+const GOOD_SEE_BASE: MoveScore = MoveScore(MoveScore::MAX.0 - HIST_DIVISOR * 50);
+const BAD_SEE_BASE: MoveScore = MoveScore(MoveScore::MIN.0 + HIST_DIVISOR * 50);
+
 /// Updates the history using the History Gravity technique,
 /// which keeps history scores from growing arbitrarily large and scales the bonus/malus depending on how
 /// "unexpected" they are, i.e. by how much they differ from the current history scores.
@@ -693,9 +696,16 @@ impl Caps {
                 let mut reduction = 0;
                 if !in_check && num_uninteresting_visited > 2 {
                     reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8;
-                    // Reduce bad captures and quiet moves with bad combined history scores more.
                     if move_score < -MoveScore(HIST_DIVISOR / 4) {
-                        reduction += 1;
+                        // Reduce bad captures and quiet moves with bad combined history scores more.
+                        if move_score < BAD_SEE_BASE - MoveScore(HIST_DIVISOR / 4)
+                            || move_score > BAD_SEE_BASE + MoveScore(HIST_DIVISOR * 2)
+                        {
+                            reduction += 1;
+                        } else if move_score > BAD_SEE_BASE + MoveScore(HIST_DIVISOR / 4) {
+                            // Reduce bad captures with a good capture history score less.
+                            reduction -= 1;
+                        }
                     } else if move_score > MoveScore(HIST_DIVISOR / 2) {
                         // Since the TT and killer move and good captures are not lmr'ed,
                         // this only applies to quiet moves with a good combined history score.
@@ -1018,9 +1028,9 @@ impl MoveScorer<Chessboard> for CapsMoveScorer {
         } else {
             let captured = mov.captured(&self.board);
             let base_val = if self.board.see_at_least(mov, SeeScore(0)) {
-                MoveScore::MAX - MoveScore(HIST_DIVISOR * 50)
+                GOOD_SEE_BASE
             } else {
-                MoveScore::MIN + MoveScore(HIST_DIVISOR * 50)
+                BAD_SEE_BASE
             };
             let hist_val = state.custom.capt_hist.get(mov, self.board.active_player());
             base_val + MoveScore(captured as i32 * HIST_DIVISOR * 2) + hist_val
