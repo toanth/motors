@@ -42,6 +42,7 @@ const KILLER_SCORE: MoveScore = MoveScore(i32::MAX - 100 * HIST_DIVISOR);
 
 const GOOD_SEE_BASE: MoveScore = MoveScore(MoveScore::MAX.0 - HIST_DIVISOR * 50);
 const BAD_SEE_BASE: MoveScore = MoveScore(MoveScore::MIN.0 + HIST_DIVISOR * 50);
+const MAX_BAD_SEE_VALUE: MoveScore = MoveScore(BAD_SEE_BASE.0 + HIST_DIVISOR * 2);
 
 /// Updates the history using the History Gravity technique,
 /// which keeps history scores from growing arbitrarily large and scales the bonus/malus depending on how
@@ -697,14 +698,18 @@ impl Caps {
                 if !in_check && num_uninteresting_visited > 2 {
                     reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8;
                     if move_score < -MoveScore(HIST_DIVISOR / 4) {
-                        // Reduce bad captures and quiet moves with bad combined history scores more.
-                        if move_score < BAD_SEE_BASE - MoveScore(HIST_DIVISOR / 4)
-                            || move_score > BAD_SEE_BASE + MoveScore(HIST_DIVISOR * 2)
-                        {
+                        if move_score > MAX_BAD_SEE_VALUE {
+                            // Reduce quiet moves with a bad history value more.
                             reduction += 1;
-                        } else if move_score > BAD_SEE_BASE + MoveScore(HIST_DIVISOR / 4) {
-                            // Reduce bad captures with a good capture history score less.
-                            reduction -= 1;
+                        } else {
+                            let capthist_score =
+                                self.state.custom.capt_hist.get(mov, pos.active_player());
+                            // Reduce bad captures with a good capture history score less and those with a bad history score more.
+                            if capthist_score < MoveScore(-HIST_DIVISOR / 4) {
+                                reduction += 1;
+                            } else if capthist_score > MoveScore(HIST_DIVISOR / 4) {
+                                reduction -= 1;
+                            }
                         }
                     } else if move_score > MoveScore(HIST_DIVISOR / 2) {
                         // Since the TT and killer move and good captures are not lmr'ed,
