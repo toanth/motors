@@ -387,11 +387,13 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         sender: SearchSender<B>,
     ) -> Res<SearchResult<B>> {
         self.search_state_mut().new_search(history, sender);
+        self.search_state_mut().search_sender_mut().start_search();
         let res = self.do_search(pos, limit);
         let search_state = self.search_state_mut();
         search_state.end_search();
         search_state.send_statistics();
         search_state.aggregate_match_statistics();
+        self.search_state_mut().search_sender_mut().end_search();
         res
     }
 
@@ -527,6 +529,7 @@ pub trait SearchState<B: Board>: Debug + Clone {
     fn statistics_mut(&mut self) -> &mut Statistics;
     fn aggregate_match_statistics(&mut self);
     fn search_sender(&self) -> &SearchSender<B>;
+    fn search_sender_mut(&mut self) -> &mut SearchSender<B>;
     fn send_statistics(&mut self);
 }
 
@@ -722,6 +725,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
 
     fn search_sender(&self) -> &SearchSender<B> {
         &self.sender
+    }
+
+    fn search_sender_mut(&mut self) -> &mut SearchSender<B> {
+        &mut self.sender
     }
 
     fn send_statistics(&mut self) {

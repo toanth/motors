@@ -37,6 +37,14 @@ pub enum EngineReceives<B: Board> {
     SetEval(Box<dyn Eval<B>>),
 }
 
+#[derive(Debug, Default)]
+struct SearchSenderState {
+    searching: AtomicBool,
+    stop: AtomicBool,
+    ponder: AtomicBool,
+    print_result: AtomicBool,
+}
+
 /// A search sender is used for communication while the search is ongoing.
 /// This is therefore necessarily a part of the engine's interface, unlike the Engine thread, which only
 /// deals with starting searches and returning the results across threads, and is therefore unnecessary if
@@ -44,29 +52,70 @@ pub enum EngineReceives<B: Board> {
 #[derive(Debug, Clone)]
 pub struct SearchSender<B: Board> {
     output: Option<Arc<Mutex<UgiOutput<B>>>>,
+    sss: Arc<SearchSenderState>,
 }
 
 impl<B: Board> SearchSender<B> {
     pub fn new(output: Arc<Mutex<UgiOutput<B>>>) -> Self {
         Self {
             output: Some(output),
+            sss: Arc::new(SearchSenderState::default()),
         }
     }
 
     pub fn no_sender() -> Self {
-        Self { output: None }
+        Self {
+            output: None,
+            sss: Arc::new(SearchSenderState::default()),
+        }
+    }
+
+    pub fn set_ponder(&mut self, pondering: bool) {
+        self.sss.ponder.store(pondering, SeqCst);
+        self.sss.print_result.store(!pondering, SeqCst);
     }
 
     pub fn send_stop(&mut self) {
-        STOP.store(true, SeqCst);
+        // Set pondering to `false` before stopping the search such that the engine will output a `bestmove` as demanded by the spec:
+        // It doesn't matter if the engine threads reads `ponder` before it is updated, it will print the result in both cases.
+        self.sss.print_result.store(true, SeqCst);
+        self.sss.ponder.store(false, SeqCst);
+        self.sss.stop.store(true, SeqCst);
+        // wait until the search has finished to prevent race conditions
+        while self.sss.searching.load(SeqCst) {}
     }
 
-    pub fn reset_stop(&mut self) {
-        STOP.store(false, SeqCst);
+    pub fn start_search(&mut self) {
+        self.sss.searching.store(true, SeqCst);
+    }
+
+    pub fn end_search(&mut self) {
+        self.sss.searching.store(false, SeqCst);
+    }
+
+    pub fn reset(&mut self) {
+        // wait until any previous search has been stopped
+        while self.sss.searching.load(SeqCst) {}
+        self.sss.stop.store(false, SeqCst);
+        self.sss.ponder.store(false, SeqCst);
+        self.sss.print_result.store(true, SeqCst);
+    }
+
+    /// This function gets called both on a ponder hit and on a ponder miss; there is no distinction in how they
+    /// are handled. Still, a ponder hit is the better outcome because the search can reuse the learned values.
+    pub fn abort_pondering(&mut self) {
+        // We simply abort the current search. Since the state is persistent, this still helps a lot.
+        // This isn't the optimal implementation, but it's simple and ponder strength isn't a big concern.
+        self.sss.print_result.store(false, SeqCst);
+        self.sss.ponder.store(false, SeqCst);
+        // can only stop after having made sure the result won't be printed
+        self.sss.stop.store(true, SeqCst);
+        // wait until the search has finished to avoid race conditions
+        while self.sss.searching.load(SeqCst) {}
     }
 
     pub fn should_stop(&self) -> bool {
-        STOP.load(SeqCst)
+        self.sss.stop.load(SeqCst)
     }
 
     pub fn send_search_info(&mut self, info: SearchInfo<B>) {
@@ -77,7 +126,11 @@ impl<B: Board> SearchSender<B> {
 
     pub fn send_search_res(&mut self, res: SearchResult<B>) {
         if let Some(output) = &self.output {
-            output.lock().unwrap().show_search_res(res)
+            // Spin until pondering has been disabled, such as through a `stop` command or through a ponderhit
+            while self.sss.ponder.load(SeqCst) {}
+            if self.sss.print_result.load(SeqCst) {
+                output.lock().unwrap().show_search_res(res)
+            }
         }
     }
 
@@ -114,8 +167,6 @@ impl<B: Board> SearchSender<B> {
         self.output = None;
     }
 }
-
-pub static STOP: AtomicBool = AtomicBool::new(false);
 
 pub struct EngineThread<B: Board, E: Engine<B>> {
     engine: E,
@@ -274,12 +325,15 @@ impl<B: Board> EngineWrapper<B> {
         pos: B,
         limit: SearchLimit,
         history: ZobristHistory<B>,
+        ponder: bool,
     ) -> Res<()> {
         if self.is_primary() {
-            self.search_sender().reset_stop();
+            // reset `stop` first such that a finished ponder command won't print anything
+            self.search_sender().reset();
+            self.search_sender().set_ponder(ponder);
         }
         for o in self.secondary.iter_mut() {
-            o.start_search(pos, limit, history.clone())?;
+            o.start_search(pos, limit, history.clone(), ponder)?;
         }
         self.sender
             .send(Search(pos, limit, history, self.tt.clone()))
@@ -287,7 +341,7 @@ impl<B: Board> EngineWrapper<B> {
     }
 
     pub fn start_bench(&mut self, pos: B, depth: Depth) -> Res<()> {
-        self.search_sender().reset_stop();
+        self.search_sender().reset();
         self.sender
             .send(Bench(pos, depth))
             .map_err(|err| err.to_string())

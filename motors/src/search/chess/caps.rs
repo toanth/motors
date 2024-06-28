@@ -316,7 +316,13 @@ impl Engine<Chessboard> for Caps {
                     .expect("search() called in a position with no legal moves")
             }
         };
-        Ok(SearchResult::move_and_score(chosen_move, self.state.score))
+        Ok(SearchResult::new(
+            chosen_move,
+            self.state.score,
+            self.state.search_stack[0]
+                .pv()
+                .and_then(|pv| pv.get(1).copied()),
+        ))
     }
 
     fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
@@ -411,13 +417,18 @@ impl Caps {
                     depth = self.state.depth().get()
                 ),
             );
+
             if self.state.search_cancelled() {
+                self.state.sender.send_search_info(self.search_info()); // depth hasn't been incremented
                 break;
             }
+
             self.state.score = iteration_score;
+
             if iteration_score > alpha && iteration_score < beta {
                 self.state.sender.send_search_info(self.search_info()); // do this before incrementing the depth
-                                                                        // make sure that alpha and beta are at least 2 apart, to recognize PV nodes.
+
+                // make sure that alpha and beta are at least 2 apart, to recognize PV nodes.
                 window_radius = Score(1.max(window_radius.0 / 2));
                 self.state.statistics.aw_exact(); // increases the depth
             } else {

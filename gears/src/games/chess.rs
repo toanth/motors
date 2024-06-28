@@ -163,6 +163,10 @@ impl Board for Chessboard {
                 val: || Self::from_fen("8/7r/8/K1k5/8/8/4p3/8 b - - 10 11").unwrap(),
             },
             GenericSelect {
+                name: "draw_in_1",
+                val: || Self::from_fen("2B2k2/8/8/5B2/8/8/8/KR6 w - - 99 123").unwrap(),
+            },
+            GenericSelect {
                 name: "unusual",
                 val: || {
                     Self::from_fen(

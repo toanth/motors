@@ -15,6 +15,7 @@ pub const MAX_DEPTH: Depth = Depth(10_000);
 pub struct SearchResult<B: Board> {
     pub chosen_move: B::Move,
     pub score: Option<Score>,
+    pub ponder_move: Option<B::Move>,
 }
 
 impl<B: Board> SearchResult<B> {
@@ -29,7 +30,20 @@ impl<B: Board> SearchResult<B> {
         Self {
             chosen_move,
             score: Some(score),
+            ponder_move: None,
         }
+    }
+
+    pub fn new(chosen_move: B::Move, score: Score, ponder_move: Option<B::Move>) -> Self {
+        Self {
+            chosen_move,
+            score: Some(score),
+            ponder_move,
+        }
+    }
+
+    pub fn ponder_move(&self) -> Option<B::Move> {
+        self.ponder_move
     }
 }
 
