@@ -1116,9 +1116,14 @@ mod tests {
             .unwrap();
 
         assert!(res.score.unwrap().abs() <= Score(64));
-        assert_eq!(
-            res.chosen_move,
-            ChessMove::from_compact_text("e2a6", &pos).unwrap()
+        assert!(
+            [
+                ChessMove::from_compact_text("e2a6", &pos).unwrap(),
+                ChessMove::from_compact_text("d5e6", &pos).unwrap()
+            ]
+            .contains(&res.chosen_move),
+            "{}",
+            res.chosen_move
         );
     }
 
