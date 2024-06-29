@@ -151,23 +151,31 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn mobility_and_threats(pos: &Chessboard, color: Color) -> Tuned::Score {
+    fn mobility_and_threats(pos: &Chessboard) -> Tuned::Score {
         let mut score = Tuned::Score::default();
-        let attacked_by_pawn = pos
-            .colored_piece_bb(color.other(), Pawn)
-            .pawn_attacks(color.other());
+        let mut attacked_by_less_valuable = [
+            pos.colored_piece_bb(White, Pawn).pawn_attacks(White),
+            pos.colored_piece_bb(Black, Pawn).pawn_attacks(Black),
+        ];
         for piece in UncoloredChessPiece::non_pawn_pieces() {
-            for square in pos.colored_piece_bb(color, piece).ones() {
-                let attacks =
-                    pos.attacks_no_castle_or_pawn_push(square, piece, color) & !attacked_by_pawn;
-                let mobility = (attacks & !pos.colored_bb(color)).num_ones();
-                score += Tuned::mobility(piece, mobility);
-                for threatened_piece in UncoloredChessPiece::pieces() {
-                    let attacked = pos.colored_piece_bb(color.other(), threatened_piece) & attacks;
-                    score += Tuned::threats(piece, threatened_piece) * attacked.num_ones();
-                    let defended = pos.colored_piece_bb(color, threatened_piece) & attacks;
-                    score += Tuned::defended(piece, threatened_piece) * defended.num_ones();
+            for color in Color::iter() {
+                let mut piece_attacks = ChessBitboard::default();
+                for square in pos.colored_piece_bb(color, piece).ones() {
+                    let attacks = pos.attacks_no_castle_or_pawn_push(square, piece, color)
+                        & !attacked_by_less_valuable[color as usize];
+                    piece_attacks |= attacks;
+                    let mobility = (attacks & !pos.colored_bb(color)).num_ones();
+                    score += Tuned::mobility(piece, mobility);
+                    for threatened_piece in UncoloredChessPiece::pieces() {
+                        let attacked =
+                            pos.colored_piece_bb(color.other(), threatened_piece) & attacks;
+                        score += Tuned::threats(piece, threatened_piece) * attacked.num_ones();
+                        let defended = pos.colored_piece_bb(color, threatened_piece) & attacks;
+                        score += Tuned::defended(piece, threatened_piece) * defended.num_ones();
+                    }
                 }
+                attacked_by_less_valuable[color as usize] |= piece_attacks;
+                score = -score;
             }
         }
         score
@@ -180,9 +188,9 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Self::pawns(pos, color);
             score += Self::pawn_shield(pos, color);
             score += Self::rook_and_king(pos, color);
-            score += Self::mobility_and_threats(pos, color);
             score = -score;
         }
+        score += Self::mobility_and_threats(pos);
         score
     }
 
