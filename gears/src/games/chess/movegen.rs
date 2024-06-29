@@ -37,9 +37,9 @@ impl Chessboard {
         captures | pushes
     }
 
-    /// castling moves can be special: For example, it's possible that a normal king move is legal, but a
+    /// Castling moves can be special: For example, it's possible that a normal king move is legal, but a
     /// chess960 castling move with the same source and dest square as the normal king move isn't, or the other way around.
-    /// for pawn moves, `filter` is only applied to captures; `pawn_push_filter` is used for non-captures
+    /// For pawns, there's a difference between attacks and pushes, and this function ignores pushes.
     pub fn attacks_no_castle_or_pawn_push(
         &self,
         square: ChessSquare,

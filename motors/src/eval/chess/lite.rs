@@ -153,13 +153,13 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
     fn mobility_and_threats(pos: &Chessboard, color: Color) -> Tuned::Score {
         let mut score = Tuned::Score::default();
-        let attacked = pos
+        let attacked_by_pawn = pos
             .colored_piece_bb(color.other(), Pawn)
             .pawn_attacks(color.other());
-        let filter = !attacked;
         for piece in UncoloredChessPiece::non_pawn_pieces() {
             for square in pos.colored_piece_bb(color, piece).ones() {
-                let attacks = pos.attacks_no_castle_or_pawn_push(square, piece, color) & filter;
+                let attacks =
+                    pos.attacks_no_castle_or_pawn_push(square, piece, color) & !attacked_by_pawn;
                 let mobility = (attacks & !pos.colored_bb(color)).num_ones();
                 score += Tuned::mobility(piece, mobility);
                 for threatened_piece in UncoloredChessPiece::pieces() {
