@@ -161,10 +161,12 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             for color in Color::iter() {
                 let mut piece_attacks = ChessBitboard::default();
                 for square in pos.colored_piece_bb(color, piece).ones() {
-                    let attacks = pos.attacks_no_castle_or_pawn_push(square, piece, color)
-                        & !attacked_by_less_valuable[color as usize];
+                    let attacks = pos.attacks_no_castle_or_pawn_push(square, piece, color);
                     piece_attacks |= attacks;
-                    let mobility = (attacks & !pos.colored_bb(color)).num_ones();
+                    let mobility = (attacks
+                        & !pos.colored_bb(color)
+                        & !attacked_by_less_valuable[color.other() as usize])
+                        .num_ones();
                     score += Tuned::mobility(piece, mobility);
                     for threatened_piece in UncoloredChessPiece::pieces() {
                         let attacked =
