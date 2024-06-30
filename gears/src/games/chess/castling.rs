@@ -4,17 +4,34 @@ use strum_macros::EnumIter;
 use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::pieces::ColoredChessPiece;
 use crate::games::chess::pieces::UncoloredChessPiece::Rook;
-use crate::games::chess::squares::{ChessSquare, A_FILE_NO, B_FILE_NO, H_FILE_NO, NUM_COLUMNS};
+use crate::games::chess::squares::{
+    ChessSquare, A_FILE_NO, C_FILE_NO, D_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
+};
 use crate::games::chess::Chessboard;
 use crate::games::Color::*;
 use crate::games::{char_to_file, Board, Color, ColoredPieceType, DimT};
-use crate::general::bitboards::RawBitboard;
 use crate::general::common::Res;
 
 #[derive(EnumIter, Copy, Clone, Eq, PartialEq, Debug, derive_more::Display)]
 pub enum CastleRight {
     Queenside,
     Kingside,
+}
+
+impl CastleRight {
+    pub fn king_dest_file(self) -> DimT {
+        match self {
+            Queenside => C_FILE_NO,
+            Kingside => G_FILE_NO,
+        }
+    }
+
+    pub fn rook_dest_file(self) -> DimT {
+        match self {
+            Queenside => D_FILE_NO,
+            Kingside => F_FILE_NO,
+        }
+    }
 }
 
 #[derive(Eq, PartialEq, Default, Debug, Ord, PartialOrd, Copy, Clone)]
@@ -119,9 +136,9 @@ impl CastlingFlags {
                         return Ok(());
                     }
                 }
-                return Err(format!(
+                Err(format!(
                     "There is no {side} rook to castle with for the {color} player"
-                ));
+                ))
             };
             match c.to_ascii_lowercase() {
                 'q' => find_rook(Queenside)?,

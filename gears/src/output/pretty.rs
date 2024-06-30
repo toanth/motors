@@ -1,4 +1,4 @@
-use std::fmt::Write;
+use std::fmt::{Display, Write};
 use std::io::stdout;
 
 use colored::{Color, Colorize};
@@ -7,7 +7,7 @@ use crate::games::Color::*;
 use crate::games::{
     AbstractPieceType, Board, ColoredPiece, ColoredPieceType, Coordinates, Move, RectangularBoard,
 };
-use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
+use crate::general::common::{IterIntersperse, NamedEntity, Res, StaticallyNamedEntity};
 use crate::general::squares::RectangularCoordinates;
 use crate::output::text_output::{TextStream, TextWriter};
 use crate::output::Message::Info;
@@ -65,8 +65,8 @@ where
 }
 
 impl NamedEntity for PrettyUI {
-    fn short_name(&self) -> &str {
-        PrettyUIBuilder::static_short_name()
+    fn short_name(&self) -> String {
+        PrettyUIBuilder::static_short_name().to_string()
     }
 
     fn long_name(&self) -> String {
@@ -117,7 +117,10 @@ where
         _ = writeln!(
             res,
             " {0}",
-            itertools::intersperse(('A'..).take(pos.width() as usize), ' ').collect::<String>()
+            ('A'..)
+                .take(pos.width() as usize)
+                .intersperse_(' ')
+                .collect::<String>()
         );
         res
     }
@@ -127,7 +130,7 @@ where
 pub struct PrettyUIBuilder {}
 
 impl StaticallyNamedEntity for PrettyUIBuilder {
-    fn static_short_name() -> &'static str {
+    fn static_short_name() -> impl Display {
         "pretty"
     }
 

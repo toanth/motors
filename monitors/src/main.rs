@@ -1,7 +1,5 @@
 use std::process::abort;
 
-use itertools::Itertools;
-
 use gears::cli::Game;
 use gears::games::ataxx::AtaxxBoard;
 use gears::games::chess::Chessboard;
@@ -69,7 +67,7 @@ pub fn create_input_from_str<B: Board>(
         name,
         list,
         "input",
-        B::game_name(),
+        &B::game_name(),
         WithDescription,
     )?);
     ui_builder.set_option(opts)?;
@@ -120,8 +118,8 @@ pub fn create_client_match_for_game<B: Board>(
         }
     }
     let client = run_client.client.clone();
-    let mut builders = args.players.into_iter().map(|p| PlayerBuilder::new(p));
-    for mut builder in builders {
+    let builders = args.players.into_iter().map(PlayerBuilder::new);
+    for builder in builders {
         builder.build(client.clone())?;
     }
 

@@ -5,12 +5,12 @@
 
 use crate::eval::Direction::{Down, Up};
 use crate::eval::EvalScale::{InitialWeights, Scale};
-use crate::gd;
 use crate::gd::{
     cp_eval_for_weights, cp_to_wr, sample_loss, scaled_sample_grad, Batch, Datapoint, Float,
-    Outcome, ScalingFactor, TraceTrait, Weight, Weights,
+    Outcome, ScalingFactor, Weight, Weights,
 };
 use crate::load_data::Filter;
+use crate::trace::TraceTrait;
 use derive_more::Display;
 use gears::games::Board;
 use std::fmt::Formatter;
@@ -32,6 +32,28 @@ pub fn changed_at_least(threshold: Float, weights: &Weights, old_weights: &[Weig
         }
     }
     res
+}
+
+/// Like [`write_phased`], but each entry takes up at least `width` chars
+pub fn write_phased_with_width(
+    weights: &[Weight],
+    feature_idx: usize,
+    special: &[bool],
+    width: usize,
+) -> String {
+    let i = 2 * feature_idx;
+    format!(
+        "p({0}, {1})",
+        weights[i].to_string(special.get(i).copied().unwrap_or_default(), width),
+        weights[i + 1].to_string(special.get(i + 1).copied().unwrap_or_default(), width)
+    )
+}
+
+/// Convert a pair of weights to string, coloring each one red if the corresponding `special` entry is set.
+///
+/// The two weight indices are `feature_idx * 2` and `feature_idx * 2 + 1`.
+pub fn write_phased(weights: &[Weight], feature_idx: usize, special: &[bool]) -> String {
+    write_phased_with_width(weights, feature_idx, special, 0)
 }
 
 /// Returns a vector of [`Float`]s, where each entry counts to how often the corresponding feature appears in the
@@ -262,6 +284,8 @@ pub trait Eval<B: Board>: WeightsInterpretation + Default {
     /// calculate the trace, which then gets turned into a [`Datapoint`] in a separate step. A trace lists how often a
     /// feature appears for each player, so unlike a Datapoint, it still contains semantic information instead of a
     /// single one-dimensional list of feature counts.
+    /// [`TuneLiTEval`] is an example for how an existing eval function can be used to create a feature trace without
+    /// needing to duplicate the eval implementation.
     fn feature_trace(pos: &B) -> impl TraceTrait;
 }
 

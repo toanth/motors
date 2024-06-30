@@ -1,54 +1,36 @@
 use std::any::TypeId;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::env::current_exe;
+use std::fmt::Debug;
 use std::fmt::Write;
-use std::fmt::{Debug, Display, Formatter};
 use std::fs::File;
-use std::io;
-use std::io::{BufRead, BufReader};
-use std::num::{NonZeroU64, NonZeroUsize};
-use std::ops::{Add, AddAssign, Deref};
-use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
-use std::str::{FromStr, SplitWhitespace};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::io::BufReader;
+use std::ops::AddAssign;
+use std::path::PathBuf;
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::str::FromStr;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{sleep, Builder};
 use std::time::{Duration, Instant};
 
-use crossbeam_utils::sync::{Parker, Unparker};
-use itertools::Itertools;
 use lazy_static::lazy_static;
 use whoami::fallible::realname;
 
 use gears::games::chess::Chessboard;
-use gears::games::Color::{Black, White};
-use gears::games::{Board, BoardHistory, Color, Move};
-use gears::general::common::{parse_int_from_str, Res};
+use gears::games::{Board, Color};
+use gears::general::common::Res;
 use gears::output::Message::*;
-use gears::output::{OutputBox, OutputBuilder};
-use gears::search::{
-    Depth, NodesLimit, SearchInfo, SearchLimit, TimeControl, MAX_DEPTH, SCORE_LOST, SCORE_WON,
-};
-use gears::ugi::EngineOptionType::*;
-use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
-use gears::MatchStatus::{Ongoing, Over};
-use gears::{
-    player_res_to_match_res, AbstractRun, AdjudicationReason, GameOver, GameOverReason, GameState,
-    MatchStatus, PlayerResult,
-};
+use gears::search::{Depth, NodesLimit, SearchLimit, TimeControl, MAX_DEPTH};
+use gears::ugi::EngineOption;
 
-use crate::cli::{ClientEngineCliArgs, HumanArgs, PlayerArgs};
+use crate::cli::{ClientEngineCliArgs, PlayerArgs};
 use crate::play::player::EngineStatus::*;
 use crate::play::player::Player::{Engine, Human};
 use crate::play::player::Protocol::{Uci, Ugi};
 use crate::play::ugi_client::{Client, PlayerId};
-use crate::play::ugi_input::BestMoveAction::Play;
-use crate::play::ugi_input::HandleBestMove::Ignore;
 use crate::play::ugi_input::{
-    access_client, BestMoveAction, CurrentMatch, EngineStatus, HandleBestMove, InputThread,
+    BestMoveAction, CurrentMatch, EngineStatus, HandleBestMove, InputThread,
 };
-use crate::ui::Input;
 
 #[derive(Default, Debug)]
 /// Ensures that there are no two engines with the same name after ignoring case
@@ -195,7 +177,7 @@ fn send_initial_ugi_impl<B: Board>(
         Ugi => "ugi",
         Uci => "uci",
     };
-    /// Do this now and through the UgiGui so that it gets logged in debug mode.
+    // Do this now and through the UgiGui so that it gets logged in debug mode.
     client.lock().unwrap().send_ugi_message_to(id, msg);
 
     let start = Instant::now();
@@ -397,7 +379,7 @@ impl PlayerBuilder {
         replace: Option<PlayerId>,
     ) -> Res<PlayerId> {
         let copy = self;
-        let path = Self::get_engine_path_and_set_args(&mut args, B::game_name())?;
+        let path = Self::get_engine_path_and_set_args(&mut args, &B::game_name())?;
         if !path.is_file() {
             return Err(format!(
                 "The specified engine path '{}' does not point to a file (make sure the path and command are set correctly)",
@@ -490,6 +472,7 @@ pub enum PlayerLimit {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Player<B: Board> {
     /// The usize is te index into the vec of engines stored in the match.
     Engine(EnginePlayer<B>),

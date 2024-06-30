@@ -7,14 +7,15 @@ use std::str::{FromStr, SplitWhitespace};
 
 use derive_more::BitXorAssign;
 use itertools::Itertools;
-use num::{iter, PrimInt};
+use num::PrimInt;
 use rand::Rng;
 use strum_macros::EnumIter;
 
-use crate::games::PlayerResult::{Draw, Lose};
+use crate::games::PlayerResult::*;
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    parse_int, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
+    parse_int, select_name_static, EntityList, GenericSelect, IterIntersperse, Res,
+    StaticallyNamedEntity,
 };
 use crate::general::move_list::MoveList;
 use crate::general::squares::{RectangularCoordinates, RectangularSize};
@@ -29,6 +30,7 @@ pub mod mnk;
 pub mod ataxx;
 #[cfg(feature = "chess")]
 pub mod chess;
+#[cfg(test)]
 mod generic_tests;
 
 /// White is always the first player, Black is always the second. TODO: Change naming to redlect this.
@@ -326,6 +328,9 @@ pub trait Settings: Eq + Copy + Debug + Default {}
 
 pub trait BoardHistory<B: Board>: Default + Debug + Clone + 'static {
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     fn is_repetition(&self, board: &B, plies_ago: usize) -> bool;
     fn push(&mut self, board: &B);
     fn pop(&mut self);
@@ -340,7 +345,7 @@ impl<B: Board> BoardHistory<B> for NoHistory {
         0
     }
 
-    fn is_repetition(&self, board: &B, plies_ago: usize) -> bool {
+    fn is_repetition(&self, _board: &B, _plies_ago: usize) -> bool {
         false
     }
 
@@ -461,8 +466,8 @@ pub trait Board:
     type LegalMoveList: MoveList<Self> + FromIterator<Self::Move>;
 
     /// Returns the name of the game, such as 'chess'.
-    fn game_name() -> &'static str {
-        Self::static_short_name()
+    fn game_name() -> String {
+        Self::static_short_name().to_string()
     }
 
     /// The position returned by this function does not have to be legal, e.g. in chess it would
@@ -483,7 +488,7 @@ pub trait Board:
             name,
             Self::name_to_pos_map().iter(),
             "position",
-            Self::game_name(),
+            &Self::game_name(),
             NoDescription,
         )
         .map(|f| (f.val)())
@@ -784,11 +789,12 @@ fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
     piece_to_char: F,
     flip: bool,
 ) -> String {
+    use std::fmt::Write;
     let mut squares = pos
         .size()
         .valid_coordinates()
         .map(|c| piece_to_char(pos.colored_piece_on(c)))
-        .intersperse(' ')
+        .intersperse_(' ')
         .collect_vec();
     squares.push(' ');
     let mut rows = squares
@@ -802,8 +808,10 @@ fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
     rows.push(
         ('A'..)
             .take(pos.width() as usize)
-            .map(|c| format!("{c} "))
-            .collect(),
+            .fold(String::default(), |mut s, c| -> String {
+                write!(s, "{c} ").unwrap();
+                s
+            }),
     );
     rows.iter().flat_map(|x| x.chars()).collect::<String>() + "\n"
 }
@@ -891,7 +899,7 @@ where
 mod tests {
     use crate::games::ataxx::AtaxxBoard;
     use crate::games::chess::Chessboard;
-    use crate::games::generic_tests::generic_tests::GenericTests;
+    use crate::games::generic_tests::GenericTests;
     use crate::games::mnk::MNKBoard;
 
     #[cfg(feature = "chess")]

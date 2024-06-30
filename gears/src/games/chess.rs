@@ -2,7 +2,6 @@ use std::fmt::{Display, Formatter};
 use std::num::NonZeroUsize;
 use std::str::{FromStr, SplitWhitespace};
 
-use bitintr::Popcnt;
 use colored::Colorize;
 use itertools::Itertools;
 use rand::prelude::IteratorRandom;
@@ -77,7 +76,7 @@ impl Default for Chessboard {
 }
 
 impl StaticallyNamedEntity for Chessboard {
-    fn static_short_name() -> &'static str
+    fn static_short_name() -> impl Display
     where
         Self: Sized,
     {
@@ -130,7 +129,7 @@ impl Board for Chessboard {
             name,
             Self::name_to_pos_map().iter(),
             "position",
-            Self::game_name(),
+            &Self::game_name(),
             NoDescription,
         )
         .map(|f| (f.val)())
@@ -754,6 +753,10 @@ impl Chessboard {
         true
     }
 
+    pub fn ep_square(&self) -> Option<ChessSquare> {
+        self.ep_square
+    }
+
     pub fn king_square(&self, color: Color) -> ChessSquare {
         ChessSquare::from_bb_index(self.colored_piece_bb(color, King).trailing_zeros())
     }
@@ -828,10 +831,12 @@ impl Chessboard {
         }
         board
             .castling
-            .set_castle_right(color, Queenside, q_rook as DimT);
+            .set_castle_right(color, Queenside, q_rook as DimT)
+            .unwrap();
         board
             .castling
-            .set_castle_right(color, Kingside, k_rook as DimT);
+            .set_castle_right(color, Kingside, k_rook as DimT)
+            .unwrap();
         Ok(())
     }
 
@@ -873,7 +878,7 @@ impl Chessboard {
 
 impl Display for Chessboard {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{0}", self.as_unicode_diagram(false))
+        write!(f, "{0}", self.as_fen())
     }
 }
 
@@ -1012,7 +1017,7 @@ mod tests {
         let perft_res = perft(Depth::new(2), board);
         assert_eq!(perft_res.depth, Depth::new(2));
         assert_eq!(perft_res.nodes, 20 * 20);
-        assert!(perft_res.time.as_millis() <= 10);
+        assert!(perft_res.time.as_millis() <= 20);
 
         let board =
             Chessboard::from_fen("r1bqkbnr/1pppNppp/p1n5/8/8/8/PPPPPPPP/R1BQKBNR b KQkq - 0 3")

@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use gears::cli::{get_next_arg, get_next_int, parse_output, ArgIter, Game};
-use gears::general::common::Res;
+use gears::general::common::{parse_int_from_str, Res};
 use gears::search::Depth;
 use gears::OutputArgs;
 
@@ -57,6 +57,9 @@ fn parse_bench(args: &mut ArgIter) -> Res<Option<Depth>> {
             if args.peek().is_some_and(|a| a != "default") {
                 res = Some(Depth::new(get_next_int(args, "depth")?));
             }
+        } else if let Ok(val) = parse_int_from_str(&next, "bench depth") {
+            args.next();
+            res = Some(Depth::new(val));
         }
     }
     Ok(res)

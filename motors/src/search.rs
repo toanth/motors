@@ -4,16 +4,17 @@ use std::ops::Deref;
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
-use derive_more::{Add, Sub};
+use derive_more::{Add, Neg, Sub};
 use dyn_clone::{clone_box, DynClone};
 use strum_macros::FromRepr;
 
+use crate::eval::rand_eval::RandEval;
+use crate::eval::Eval;
 use gears::games::{Board, ZobristHistory};
-use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
-use gears::general::perft::{perft, PerftRes};
+use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
+use gears::score::{Score, ScoreT, SCORE_WON};
 use gears::search::{
-    Depth, NodesLimit, Score, SearchInfo, SearchLimit, SearchResult, TimeControl, MAX_DEPTH,
-    SCORE_WON,
+    Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl, MAX_DEPTH,
 };
 use gears::ugi::{EngineOption, EngineOptionName};
 
@@ -33,25 +34,106 @@ mod tt;
 
 #[derive(Default, Debug, Clone)]
 pub struct EngineInfo {
-    pub short_name: String,
-    pub name: String,
-    pub version: String,
-    pub default_bench_depth: Depth,
-    pub options: Vec<EngineOption>,
-    pub description: String,
+    engine: Name,
+    eval: Option<Name>,
+    version: String,
+    default_bench_depth: Depth,
+    options: Vec<EngineOption>,
 }
 
 impl NamedEntity for EngineInfo {
-    fn short_name(&self) -> &str {
-        &self.short_name
+    fn short_name(&self) -> String {
+        if let Some(eval) = self.eval.clone() {
+            format!("{0}-{1}", self.engine.short_name(), eval.short_name())
+        } else {
+            self.engine.short_name()
+        }
     }
 
     fn long_name(&self) -> String {
-        format!("{0} {1}", self.name, self.version)
+        if let Some(eval) = self.eval.clone() {
+            format!(
+                "{0} -- Version {1}. Eval {2}",
+                self.engine.long_name(),
+                self.version,
+                eval.long_name()
+            )
+        } else {
+            format!("{} -- Version {1}", self.engine.long_name(), self.version)
+        }
     }
 
     fn description(&self) -> Option<String> {
-        Some(self.description.clone())
+        let eval = self
+            .eval
+            .clone()
+            .map(|e| {
+                format!(
+                    "\nEval: {}",
+                    e.clone().description.unwrap_or_else(|| e.long_name())
+                )
+            })
+            .unwrap_or_default();
+        let desc = format!(
+            "Searcher: {0}{eval}",
+            self.engine.description().unwrap_or(self.engine.long_name()),
+        );
+        Some(desc)
+    }
+}
+
+impl EngineInfo {
+    pub fn new_without_eval<B: Board, E: Engine<B>>(
+        engine: &E,
+        version: &str,
+        default_bench_depth: Depth,
+        options: Vec<EngineOption>,
+    ) -> Self {
+        let mut res = Self::new(
+            engine,
+            &RandEval::default(),
+            version,
+            default_bench_depth,
+            options,
+        );
+        res.eval = None;
+        res
+    }
+
+    pub fn new<B: Board, E: Engine<B>>(
+        engine: &E,
+        eval: &dyn Eval<B>,
+        version: &str,
+        default_bench_depth: Depth,
+        options: Vec<EngineOption>,
+    ) -> Self {
+        Self {
+            engine: Name::new(engine),
+            eval: Some(Name::new(eval)),
+            version: version.to_string(),
+            default_bench_depth,
+            options,
+        }
+    }
+
+    pub fn engine(&self) -> &Name {
+        &self.engine
+    }
+
+    pub fn eval(&self) -> &Option<Name> {
+        &self.eval
+    }
+
+    pub fn default_bench_depth(&self) -> Depth {
+        self.default_bench_depth
+    }
+
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    fn set_eval<B: Board>(&mut self, eval: &dyn Eval<B>) {
+        self.eval = Some(Name::new(eval))
     }
 }
 
@@ -117,68 +199,134 @@ impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
     }
 }
 
-/// A trait because this type erases over the Engine being built.
-pub trait AbstractEngineBuilder<B: Board>: NamedEntity + DynClone {
-    fn build(&self, sender: SearchSender<B>, tt: TT) -> EngineWrapper<B>;
+pub trait AbstractEvalBuilder<B: Board>: NamedEntity + DynClone {
+    fn build(&self) -> Box<dyn Eval<B>>;
+}
 
-    fn build_for_bench(&self) -> Box<dyn Benchable<B>>;
+#[derive(Debug, Default)]
+pub struct EvalBuilder<B: Board, E: Eval<B> + Default> {
+    _phantom_board: PhantomData<B>,
+    _phantom_eval: PhantomData<E>,
+}
+
+impl<B: Board, E: Eval<B> + Default> Clone for EvalBuilder<B, E> {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl<B: Board, E: Eval<B> + Default> StaticallyNamedEntity for EvalBuilder<B, E> {
+    fn static_short_name() -> impl Display
+    where
+        Self: Sized,
+    {
+        E::static_short_name()
+    }
+
+    fn static_long_name() -> String
+    where
+        Self: Sized,
+    {
+        E::static_long_name()
+    }
+
+    fn static_description() -> String
+    where
+        Self: Sized,
+    {
+        E::static_description()
+    }
+}
+
+impl<B: Board, E: Eval<B> + Default> AbstractEvalBuilder<B> for EvalBuilder<B, E> {
+    fn build(&self) -> Box<dyn Eval<B>> {
+        Box::new(E::default())
+    }
+}
+
+pub type EvalList<B> = EntityList<Box<dyn AbstractEvalBuilder<B>>>;
+
+/// A trait because this type erases over the Engine being built.
+/// There are two related concepts: `Engine` and `Searcher`.
+/// A searcher is an algorithm like caps or gaps, an engine is a searcher plus an eval.
+pub trait AbstractSearcherBuilder<B: Board>: NamedEntity + DynClone {
+    fn build(&self, engine_builder: EngineBuilder<B>, tt: TT) -> EngineWrapper<B>;
+
+    fn build_for_bench(&self, eval_builder: &dyn AbstractEvalBuilder<B>) -> Box<dyn Benchable<B>>;
 
     fn can_use_multiple_threads(&self) -> bool;
 }
 
 #[derive(Debug)]
-pub struct EngineWrapperBuilder<B: Board> {
-    builder: Box<dyn AbstractEngineBuilder<B>>,
+pub struct EngineBuilder<B: Board> {
+    search_builder: Box<dyn AbstractSearcherBuilder<B>>,
+    eval_builder: Box<dyn AbstractEvalBuilder<B>>,
     sender: SearchSender<B>,
 }
 
-impl<B: Board> Clone for EngineWrapperBuilder<B> {
+impl<B: Board> Clone for EngineBuilder<B> {
     fn clone(&self) -> Self {
         Self {
-            builder: clone_box(self.builder.deref()),
+            search_builder: clone_box(self.search_builder.deref()),
+            eval_builder: clone_box(self.eval_builder.deref()),
             sender: self.sender.clone(),
         }
     }
 }
 
-impl<B: Board> EngineWrapperBuilder<B> {
-    pub fn new(builder: Box<dyn AbstractEngineBuilder<B>>, sender: SearchSender<B>) -> Self {
-        Self { builder, sender }
+impl<B: Board> EngineBuilder<B> {
+    pub fn new(
+        search_builder: Box<dyn AbstractSearcherBuilder<B>>,
+        eval_builder: Box<dyn AbstractEvalBuilder<B>>,
+        sender: SearchSender<B>,
+    ) -> Self {
+        Self {
+            search_builder,
+            eval_builder,
+            sender,
+        }
     }
 
-    pub fn build(&self) -> EngineWrapper<B> {
-        let sender = self.sender.clone();
-        self.builder.build(sender, TT::default())
+    pub fn build_wrapper(&self) -> EngineWrapper<B> {
+        let cloned = self.clone();
+        self.search_builder.build(cloned, TT::default())
     }
 }
 
-pub type EngineList<B> = EntityList<Box<dyn AbstractEngineBuilder<B>>>;
+pub type SearcherList<B> = EntityList<Box<dyn AbstractSearcherBuilder<B>>>;
 
 #[derive(Debug, Default)]
-pub struct EngineBuilder<B: Board, E: Engine<B>> {
+pub struct SearcherBuilder<B: Board, E: Engine<B> + Default> {
     _phantom_b: PhantomData<B>,
     _phantom_e: PhantomData<E>,
 }
 
-impl<B: Board, E: Engine<B>> Clone for EngineBuilder<B, E> {
+impl<B: Board, E: Engine<B>> Clone for SearcherBuilder<B, E> {
     fn clone(&self) -> Self {
-        Self::default()
+        Self {
+            _phantom_b: PhantomData::default(),
+            _phantom_e: PhantomData::default(),
+        }
     }
 }
 
-impl<B: Board, E: Engine<B>> EngineBuilder<B, E> {
+impl<B: Board, E: Engine<B>> SearcherBuilder<B, E> {
     pub fn new() -> Self {
         Self::default()
     }
 }
 
-impl<B: Board, E: Engine<B>> AbstractEngineBuilder<B> for EngineBuilder<B, E> {
-    fn build(&self, sender: SearchSender<B>, tt: TT) -> EngineWrapper<B> {
-        EngineWrapper::new_with_tt(E::default(), sender, clone_box(self), tt)
+impl<B: Board, E: Engine<B>> AbstractSearcherBuilder<B> for SearcherBuilder<B, E> {
+    fn build(&self, engine_builder: EngineBuilder<B>, tt: TT) -> EngineWrapper<B> {
+        EngineWrapper::new_with_tt(
+            E::with_eval(engine_builder.eval_builder.build()),
+            engine_builder,
+            tt,
+        )
     }
 
-    fn build_for_bench(&self) -> Box<dyn Benchable<B>> {
-        Box::<E>::default()
+    fn build_for_bench(&self, eval_builder: &dyn AbstractEvalBuilder<B>) -> Box<dyn Benchable<B>> {
+        Box::new(E::with_eval(eval_builder.build()))
     }
 
     fn can_use_multiple_threads(&self) -> bool {
@@ -186,8 +334,8 @@ impl<B: Board, E: Engine<B>> AbstractEngineBuilder<B> for EngineBuilder<B, E> {
     }
 }
 
-impl<B: Board, E: Engine<B>> StaticallyNamedEntity for EngineBuilder<B, E> {
-    fn static_short_name() -> &'static str {
+impl<B: Board, E: Engine<B>> StaticallyNamedEntity for SearcherBuilder<B, E> {
+    fn static_short_name() -> impl Display {
         E::static_short_name()
     }
 
@@ -219,6 +367,8 @@ const DEFAULT_CHECK_TIME_INTERVAL: u64 = 2048;
 
 pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     fn set_tt(&mut self, tt: TT);
+
+    fn set_eval(&mut self, eval: Box<dyn Eval<B>>);
 
     fn search_from_pos(&mut self, pos: B, limit: SearchLimit) -> Res<SearchResult<B>> {
         self.search(
@@ -283,7 +433,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         let state = self.search_state();
         state.start_time().elapsed() >= soft_limit
             || state.depth().get() as isize > max_depth
-            || state.score() >= Score(SCORE_WON.0 - mate_depth.get() as i32)
+            || state.score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT)
     }
 
     fn quit(&mut self) {
@@ -300,10 +450,6 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         self.search_state().to_search_info()
     }
 
-    /// This should return the static eval (possibly with WDL normalization) without doing any kind of search.
-    /// For engines like `RandomMover` where there is no static eval, this should return `Score(0)`.
-    fn static_eval(&mut self, pos: B) -> Score;
-
     /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
     fn forget(&mut self) {
         self.search_state_mut().forget(true);
@@ -316,10 +462,20 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
     fn can_use_multiple_threads() -> bool
     where
         Self: Sized;
+
+    fn with_eval(eval: Box<dyn Eval<B>>) -> Self;
+
+    fn for_eval<E: Eval<B> + Default>() -> Self {
+        Self::with_eval(Box::new(E::default()))
+    }
+
+    /// This should return the static eval (possibly with WDL normalization) without doing any kind of search.
+    /// For engines like `RandomMover` where there is no static eval, this should return `Score(0)`.
+    fn static_eval(&mut self, pos: B) -> Score;
 }
 
-#[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub)]
-struct MoveScore(pub i32);
+#[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg)]
+pub struct MoveScore(pub i32);
 
 impl MoveScore {
     const MAX: MoveScore = MoveScore(i32::MAX);
@@ -605,7 +761,7 @@ pub fn run_bench_with_depth<B: Board>(
     engine: &mut dyn Benchable<B>,
     mut depth: Depth,
 ) -> BenchResult {
-    if depth.get() <= 0 || depth == MAX_DEPTH {
+    if depth.get() == 0 || depth == MAX_DEPTH {
         depth = engine.engine_info().default_bench_depth
     }
     let mut sum = BenchResult::default();

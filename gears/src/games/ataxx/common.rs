@@ -16,12 +16,19 @@ use ColoredAtaxxPieceType::*;
 pub const NUM_ROWS: usize = 7;
 pub const NUM_COLUMNS: usize = 7;
 pub const NUM_SQUARES: usize = NUM_ROWS * NUM_COLUMNS;
+#[allow(unused)]
 pub const A_FILE_NO: DimT = 0;
+#[allow(unused)]
 pub const B_FILE_NO: DimT = 1;
+#[allow(unused)]
 pub const C_FILE_NO: DimT = 2;
+#[allow(unused)]
 pub const D_FILE_NO: DimT = 3;
+#[allow(unused)]
 pub const E_FILE_NO: DimT = 4;
+#[allow(unused)]
 pub const F_FILE_NO: DimT = 5;
+#[allow(unused)]
 pub const G_FILE_NO: DimT = 6;
 
 #[derive(Debug, Default, Eq, PartialEq, Copy, Clone, EnumIter)]

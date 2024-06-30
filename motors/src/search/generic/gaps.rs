@@ -1,17 +1,16 @@
+use std::fmt::Display;
 use std::time::{Duration, Instant};
 
 use rand::thread_rng;
 
 use gears::games::{Board, BoardHistory};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
-use gears::search::{
-    game_result_to_score, Depth, Score, SearchLimit, SearchResult, TimeControl, SCORE_LOST,
-    SCORE_TIME_UP, SCORE_WON,
-};
+use gears::score::{game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE_WON};
+use gears::search::{Depth, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::EngineOptionName;
 
+use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
-use crate::search::multithreading::SearchSender;
 use crate::search::statistics::SearchType::MainSearch;
 use crate::search::tt::TT;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
@@ -22,33 +21,31 @@ use crate::search::{
 
 const MAX_DEPTH: Depth = Depth::new(100);
 
+type DefaultEval = RandEval;
+
 #[derive(Debug)]
-pub struct GenericNegamax<B: Board, E: Eval<B>> {
+pub struct Gaps<B: Board> {
     state: ABSearchState<B, EmptySearchStackEntry, NoCustomInfo>,
-    eval: E,
+    eval: Box<dyn Eval<B>>,
     tt: TT,
 }
 
-impl<B: Board, E: Eval<B>> Default for GenericNegamax<B, E> {
+impl<B: Board> Default for Gaps<B> {
     fn default() -> Self {
-        Self {
-            state: ABSearchState::new(MAX_DEPTH),
-            eval: E::default(),
-            tt: TT::default(),
-        }
+        Self::with_eval(Box::new(DefaultEval::default()))
     }
 }
 
-impl<B: Board, E: Eval<B>> StaticallyNamedEntity for GenericNegamax<B, E> {
-    fn static_short_name() -> &'static str
+impl<B: Board> StaticallyNamedEntity for Gaps<B> {
+    fn static_short_name() -> impl Display
     where
         Self: Sized,
     {
-        "generic_negamax"
+        "GAPS"
     }
 
     fn static_long_name() -> String {
-        "Generic Negamax".to_string()
+        "GAPS: Generic Alpha-beta Pruning Search".to_string()
     }
 
     fn static_description() -> String
@@ -59,9 +56,7 @@ impl<B: Board, E: Eval<B>> StaticallyNamedEntity for GenericNegamax<B, E> {
     }
 }
 
-// impl<B: Board, E: Eval<B>> EngineBase for GenericNegamax<B, E> {}
-
-impl<B: Board, E: Eval<B>> Benchable<B> for GenericNegamax<B, E> {
+impl<B: Board> Benchable<B> for Gaps<B> {
     fn bench(&mut self, pos: B, depth: Depth) -> BenchResult {
         self.state.forget(true);
         let mut limit = SearchLimit::infinite();
@@ -79,14 +74,7 @@ impl<B: Board, E: Eval<B>> Benchable<B> for GenericNegamax<B, E> {
     }
 
     fn engine_info(&self) -> EngineInfo {
-        EngineInfo {
-            short_name: self.short_name().to_string(),
-            name: self.long_name().to_string(),
-            version: "0.0.0".to_string(),
-            default_bench_depth: Depth::new(4),
-            options: Vec::default(),
-            description: "A game-independent negamax engine. Currently very basic.".to_string(),
-        }
+        EngineInfo::new(self, self.eval.as_ref(), "0.0.1", Depth::new(4), vec![])
     }
 
     fn set_option(&mut self, option: EngineOptionName, value: String) -> Res<()> {
@@ -94,7 +82,7 @@ impl<B: Board, E: Eval<B>> Benchable<B> for GenericNegamax<B, E> {
     }
 }
 
-impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
+impl<B: Board> Engine<B> for Gaps<B> {
     fn can_use_multiple_threads() -> bool
     where
         Self: Sized,
@@ -152,12 +140,24 @@ impl<B: Board, E: Eval<B>> Engine<B> for GenericNegamax<B, E> {
         &mut self.state
     }
 
+    fn with_eval(eval: Box<dyn Eval<B>>) -> Self {
+        Self {
+            state: ABSearchState::new(MAX_DEPTH),
+            eval,
+            tt: TT::default(),
+        }
+    }
+
     fn static_eval(&mut self, pos: B) -> Score {
-        self.eval.eval(pos)
+        self.eval.eval(&pos)
+    }
+
+    fn set_eval(&mut self, eval: Box<dyn Eval<B>>) {
+        self.eval = eval;
     }
 }
 
-impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
+impl<B: Board> Gaps<B> {
     #[allow(clippy::too_many_arguments)]
     fn negamax(
         &mut self,
@@ -179,7 +179,7 @@ impl<B: Board, E: Eval<B>> GenericNegamax<B, E> {
             return game_result_to_score(res, ply);
         }
         if depth <= 0 {
-            return self.eval.eval(pos);
+            return self.eval.eval(&pos);
         }
 
         let mut best_score = SCORE_LOST;

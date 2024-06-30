@@ -1,16 +1,15 @@
 //! Everything related to the actual optimization, using a Gradient Descent-based tuner ([`Adam`] by default).
 
 use crate::eval::{count_occurrences, display, interpolate, WeightsInterpretation};
+use crate::trace::TraceTrait;
 use colored::Colorize;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
-use gears::games::Color;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
 use std::ops::{DivAssign, MulAssign};
 use std::time::Instant;
-use std::usize;
 
 // TODO: Better value
 /// If the batch size exceeds this value, a multithreaded implementation will be used for computing the gradient and loss.
@@ -130,11 +129,12 @@ impl Weight {
 
     /// Convert this weight into a string of the rounded value.
     /// If `special` is [`true`], paint it red.
-    pub fn to_string(self, special: bool) -> String {
+    /// The string takes up at least `width` characters
+    pub fn to_string(self, special: bool, width: usize) -> String {
         if special {
-            format!("{}", self.0.round()).red().to_string()
+            format!("{:width$}", self.0.round()).red().to_string()
         } else {
-            format!("{}", self.0.round())
+            format!("{:width$}", self.0.round())
         }
     }
 }
@@ -227,7 +227,7 @@ impl Weights {
     }
 }
 
-type FeatureT = i8;
+pub(super) type FeatureT = i8;
 
 /// A feature can occur some fixed number of times in a position.
 ///
@@ -271,203 +271,11 @@ impl Feature {
 #[derive(Debug, Copy, Clone)]
 pub struct PhaseMultiplier(Float);
 
-/// A trace stores extracted features of a position and can be converted to a list of [`Feature`]s.
-///
-/// This type is returned by the [`feature_trace`](super::eval::Eval::feature_trace) method.
-/// The simplest way to implement this trait is to make your strut contain several [`SimpleTrace`]s or other
-/// pre-defined trace implementation, which do the actual work of converting the trace to a list of features.
-///
-/// For example:
-/// ```
-/// use pliers::gd::{Feature, Float, SimpleTrace, TraceNFeatures, TraceTrait};
-/// #[derive(Debug, Default)]
-/// struct MyTrace {
-///     some_trace: SimpleTrace,
-///     some_other_trace: TraceNFeatures<42>,
-/// }
-///
-/// impl TraceTrait for MyTrace {
-///     fn nested_traces(&self) -> Vec<&dyn TraceTrait> {
-///         vec![&self.some_trace, &self.some_other_trace]
-///    }
-///
-///     fn phase(&self) -> Float {
-///        1.0
-///    }
-/// }
-/// ```
-pub trait TraceTrait: Debug {
-    /// Converts the trace into a list of features.
-    ///
-    /// The default implementation of this function simply delegates the work to nested traces.
-    /// It is usually not necessary to override this default implementation.
-    /// This function creates a sparse array of [`Feature`]s, where each entry is the number of times it appears for
-    /// the white player minus the number of times it appears for the black player.
-    fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
-        let mut res = vec![];
-        let mut offset = 0;
-        for nested in self.nested_traces() {
-            res.append(&mut nested.as_features(offset));
-            offset += nested.max_num_features();
-        }
-        res
-    }
-
-    /// Returns an iterator of nested traces.
-    ///
-    /// A custom trace should be built on top of existing traces, such as [`TraceNFeatures`].
-    /// The order of traces in the returned `Vec` determines the offset used to convert the feature index of a single
-    /// trace into the feature index of the merged trace.
-    fn nested_traces(&self) -> Vec<&dyn TraceTrait>;
-
-    /// The phase value of this position. Some [`Datapoint`] implementations ignore this.
-    fn phase(&self) -> Float;
-
-    /// The number of features that are being covered by this trace.
-    ///
-    /// Note that in many cases, not all features appear in a position, so the len of the result of
-    /// [`as_features`](Self::as_features) is often smaller than this value.
-    /// It is usually not necessary to override this method.
-    fn max_num_features(&self) -> usize {
-        self.nested_traces()
-            .iter()
-            .map(|trace| trace.max_num_features())
-            .sum()
-    }
-}
-
-/// A trace that keeps track of a given feature, which is referred to by its index.
-///
-/// Can be used to build larger traces. It is usually not necessary to implement this trait yourself
-/// because [`SimpleTrace`] and [`TraceNFeatures`] already do.
-pub trait BasicTrace: TraceTrait {
-    /// Increment a given feature by one for the given player.
-    fn increment(&mut self, idx: usize, color: Color) {
-        self.increment_by(idx, color, 1);
-    }
-
-    /// Increment a given feature by a given amount for the given player.
-    fn increment_by(&mut self, idx: usize, color: Color, amount: isize);
-}
-
-/// The most basic trace, useful by itself or as a building block of custom traces, but [`TraceNFeatures`]
-/// should usually be preferred.
-///
-/// Stores how often each feature occurs for both players, and a game phase.
-/// Unlike the final list of `Feature`s used during tuning, this uses a dense array representation,
-/// which means it is normal for most of the many entries to be zero.
-/// The [`TraceNFeatures]` struct is a thin wrapper around this struct which enforces the number of features matches.
-#[derive(Debug, Default)]
-pub struct SimpleTrace {
-    /// How often each feature appears for the white player.
-    pub white: Vec<isize>,
-    /// How often each feature appears for the black player.
-    pub black: Vec<isize>,
-    /// The phase value. Only needed for tapered evaluations.
-    pub phase: Float,
-}
-
-impl SimpleTrace {
-    /// Create a trace of `num_feature` elements, all initialized to zero.
-    /// Also sets the `phase` to zero.
-    pub fn for_features(num_features: usize) -> Self {
-        Self {
-            white: vec![0; num_features],
-            black: vec![0; num_features],
-            phase: 0.0,
-        }
-    }
-}
-
-impl TraceTrait for SimpleTrace {
-    /// A [`SimpleTrace`] does not contain any other traces, so this function does the actual work of converting
-    /// a trace into a list of features.
-    fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
-        assert_eq!(self.white.len(), self.black.len());
-        let mut res = vec![];
-        for i in 0..self.white.len() {
-            let diff = self.white[i] - self.black[i];
-            if diff != 0 {
-                let idx = i + idx_offset;
-                assert!(diff >= FeatureT::MIN as isize && diff <= FeatureT::MAX as isize);
-                assert!(res.len() < u16::MAX as usize);
-                assert!(idx <= u16::MAX as usize);
-                let feature = Feature {
-                    feature: diff as FeatureT,
-                    idx: idx as u16,
-                };
-                res.push(feature);
-            }
-        }
-        res.sort_by_key(|a| a.idx());
-        res
-    }
-
-    fn nested_traces(&self) -> Vec<&dyn TraceTrait> {
-        vec![]
-    }
-
-    fn phase(&self) -> Float {
-        self.phase
-    }
-
-    fn max_num_features(&self) -> usize {
-        assert_eq!(self.black.len(), self.white.len());
-        self.white.len()
-    }
-}
-
-impl BasicTrace for SimpleTrace {
-    fn increment_by(&mut self, idx: usize, color: Color, amount: isize) {
-        match color {
-            Color::White => self.white[idx] += amount,
-            Color::Black => self.black[idx] += amount,
-        };
-    }
-}
-
-/// Wraps a [`SimpleTrace`] by making sure it has the given maximum number of features.
-#[derive(Debug)]
-pub struct TraceNFeatures<const N: usize>(pub SimpleTrace);
-
-impl<const N: usize> Default for TraceNFeatures<N> {
-    fn default() -> Self {
-        Self(SimpleTrace::for_features(N))
-    }
-}
-
-impl<const N: usize> TraceTrait for TraceNFeatures<N> {
-    fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
-        assert_eq!(self.0.max_num_features(), N);
-        self.0.as_features(idx_offset)
-    }
-
-    fn nested_traces(&self) -> Vec<&dyn TraceTrait> {
-        self.0.nested_traces()
-    }
-
-    fn phase(&self) -> Float {
-        self.0.phase
-    }
-    fn max_num_features(&self) -> usize {
-        N
-    }
-}
-
-impl<const N: usize> BasicTrace for TraceNFeatures<N> {
-    fn increment_by(&mut self, idx: usize, color: Color, amount: isize) {
-        self.0.increment_by(idx, color, amount);
-    }
-}
-
-/// Trace for a single feature that can appear multiple times for both players.
-pub type SingleFeatureTrace = TraceNFeatures<1>;
-
 /// Struct used for tuning.
 ///
 /// Each [`WeightedFeature`] of a [`Datapoint`] is multiplied by the corresponding current eval weight and added up
 /// to compute the [`CpScore`]. Users should not generally need to worry about this, unless they want to implement
-/// their own tuner.
+/// their own tuning algorithm.
 pub struct WeightedFeature {
     /// The weight of this entry.
     pub weight: Float,
@@ -679,7 +487,7 @@ impl<D: Datapoint> Dataset<D> {
 }
 
 /// A list of data points on which the eval gets optimized.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Batch<'a, D: Datapoint> {
     /// The underlying array of data points.
     pub datapoints: &'a [D],
@@ -692,17 +500,7 @@ pub struct Batch<'a, D: Datapoint> {
     pub weight_sum: Float,
 }
 
-// deriving Copy, Clone doesn't work for some reason
-impl<D: Datapoint> Clone for Batch<'_, D> {
-    fn clone(&self) -> Self {
-        Self {
-            datapoints: self.datapoints,
-            num_weights: self.num_weights,
-            weight_sum: self.weight_sum,
-        }
-    }
-}
-
+// deriving `Copy` doesn't work for some reason, because apparently `D` would have to be copyable for that?
 impl<D: Datapoint> Copy for Batch<'_, D> {}
 
 impl<'a, D: Datapoint> Deref for Batch<'a, D> {
@@ -869,9 +667,13 @@ pub fn optimize_entire_batch<D: Datapoint>(
                 elapsed = elapsed.as_secs()
             );
             if loss <= 0.001 && epoch >= 20 {
+                println!("loss less than epsilon, stopping after {epoch} epochs");
                 break;
             }
             if max_diff.abs() <= 0.05 && epoch >= 50 {
+                println!(
+                    "Maximum absolute weight change less than 0.05, stopping after {epoch} epochs"
+                );
                 break;
             }
             prev_weights.clone_from(&weights.0);
@@ -887,6 +689,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
 }
 
 /// Convenience function for optimizing with the [`Adam`] optimizer.
+#[allow(unused)]
 fn adam_optimize<D: Datapoint>(
     batch: Batch<D>,
     eval_scale: ScalingFactor,
@@ -1013,7 +816,7 @@ pub struct AdamHyperParams {
 impl AdamHyperParams {
     fn for_eval_scale(eval_scale: ScalingFactor) -> Self {
         Self {
-            alpha: eval_scale / 10.0,
+            alpha: eval_scale / 20.0,
             // Setting these values too low can introduce crazy swings in the eval values and loss when it would
             // otherwise appear converged -- maybe because of numerical instability?
             beta1: 0.9,
@@ -1076,6 +879,7 @@ mod tests {
     use super::*;
     use rand::distributions::{Distribution, Uniform};
     use rand::thread_rng;
+    use std::cmp::Ordering;
     use std::cmp::Ordering::Equal;
 
     #[test]
@@ -1147,12 +951,10 @@ mod tests {
                         if initial_weight == 0.0 && grad.0[0].0.abs() > 0.0000001 {
                             assert_eq!(
                                 weights.0[0].0.partial_cmp(&old_weights[0].0),
-                                outcome.partial_cmp(&0.5).map(|x| if feature < 0 {
-                                    x.reverse()
-                                } else if feature == 0 {
-                                    Equal
-                                } else {
-                                    x
+                                outcome.partial_cmp(&0.5).map(|x| match feature.cmp(&0) {
+                                    Ordering::Less => x.reverse(),
+                                    Equal => Equal,
+                                    Ordering::Greater => x,
                                 })
                             );
                         }

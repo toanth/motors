@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use strum::IntoEnumIterator;
 
 use gears::games::mnk::{MNKBoard, MnkBitboard};
@@ -5,14 +6,14 @@ use gears::games::Board;
 use gears::general::bitboards::{Bitboard, RawBitboard, RayDirections};
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::squares::GridSize;
-use gears::search::Score;
+use gears::score::{Score, ScoreT};
 
 use crate::eval::Eval;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SimpleMnkEval {}
 
-fn eval_player(bb: MnkBitboard, size: GridSize) -> i32 {
+fn eval_player(bb: MnkBitboard, size: GridSize) -> ScoreT {
     let blockers = !bb;
     let mut res = 0;
     for coords in bb.ones_for_size(size) {
@@ -28,7 +29,7 @@ fn eval_player(bb: MnkBitboard, size: GridSize) -> i32 {
 }
 
 impl StaticallyNamedEntity for SimpleMnkEval {
-    fn static_short_name() -> &'static str
+    fn static_short_name() -> impl Display
     where
         Self: Sized,
     {
@@ -51,7 +52,7 @@ impl StaticallyNamedEntity for SimpleMnkEval {
 }
 
 impl Eval<MNKBoard> for SimpleMnkEval {
-    fn eval(&self, pos: MNKBoard) -> Score {
+    fn eval(&mut self, pos: &MNKBoard) -> Score {
         Score(
             eval_player(pos.active_player_bb(), pos.size())
                 - eval_player(pos.inactive_player_bb(), pos.size()),

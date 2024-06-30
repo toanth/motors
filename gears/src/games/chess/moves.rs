@@ -18,7 +18,7 @@ use crate::games::chess::Chessboard;
 use crate::games::Color::{Black, White};
 use crate::games::{
     char_to_file, file_to_char, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType,
-    DimT, Move, MoveFlags, NoHistory, ZobristHash,
+    DimT, Move, MoveFlags, ZobristHash,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::common::Res;
@@ -154,7 +154,7 @@ impl ChessMove {
         self.flags() == CastleQueenside || self.flags() == CastleKingside
     }
 
-    fn castle_side(self) -> CastleRight {
+    pub fn castle_side(self) -> CastleRight {
         debug_assert!(self.is_castle());
         if self.flags() == CastleQueenside {
             Queenside
@@ -365,9 +365,17 @@ impl Move<Chessboard> for ChessMove {
 }
 
 impl Chessboard {
+    pub fn backrank(color: Color) -> DimT {
+        7 * color as DimT
+    }
+
+    pub fn rook_start_file(&self, color: Color, side: CastleRight) -> DimT {
+        self.castling.rook_start_file(color, side)
+    }
+
     pub fn rook_start_square(&self, color: Color, side: CastleRight) -> ChessSquare {
-        let file = self.castling.rook_start_file(color, side);
-        let rank = 7 * color as DimT;
+        let file = self.rook_start_file(color, side);
+        let rank = Self::backrank(color);
         ChessSquare::from_rank_file(rank, file)
     }
 
@@ -955,7 +963,7 @@ impl<'a> MoveParser<'a> {
 mod tests {
     use crate::games::chess::moves::ChessMove;
     use crate::games::chess::Chessboard;
-    use crate::games::generic_tests::generic_tests;
+    use crate::games::generic_tests;
     use crate::games::{Board, Move};
 
     type GenericTests = generic_tests::GenericTests<Chessboard>;

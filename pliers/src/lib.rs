@@ -41,6 +41,7 @@
 //! # use gears::general::common::Res;
 //! # use pliers::*;
 //! # use pliers::gd::*;
+//! # use pliers::trace::*;
 //! # use pliers::eval::*;
 //! # use pliers::load_data::*;
 //! # use pliers::load_datasets_from_json;
@@ -106,14 +107,7 @@ use std::process::exit;
 pub mod eval;
 pub mod gd;
 pub mod load_data;
-use eval::chess::piston_eval::PistonEval;
-
-type E = PistonEval;
-
-fn maina() {
-    debug_eval_on_lucena::<E>();
-    run::<Chessboard, E>();
-}
+pub mod trace;
 
 const DEFAULT_NUM_EPOCHS: usize = 4000;
 
@@ -292,7 +286,7 @@ mod tests {
             &mut optimizer,
         );
         let loss = loss(&weights, batch, eval_scale);
-        assert!(loss <= 0.01);
+        assert!(loss <= 0.01, "{loss}");
     }
 
     #[test]
