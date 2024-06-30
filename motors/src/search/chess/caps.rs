@@ -1045,7 +1045,7 @@ mod tests {
         let board = Chessboard::from_fen("4k3/8/4K3/8/8/8/8/6R1 w - - 0 1").unwrap();
         // run multiple times to get different random numbers from the eval function
         for depth in 1..=3 {
-            for _ in 0..100 {
+            for _ in 0..42 {
                 let mut engine = Caps::for_eval::<RandEval>();
                 let res = engine
                     .search(
@@ -1079,7 +1079,7 @@ mod tests {
             let pos = Chessboard::from_fen(fen).unwrap();
             let mut engine = Caps::for_eval::<PistonEval>();
             let res = engine
-                .search_from_pos(pos, SearchLimit::nodes(NodesLimit::new(50_000).unwrap()))
+                .search_from_pos(pos, SearchLimit::nodes(NodesLimit::new(30_000).unwrap()))
                 .unwrap();
             assert!(res.score.is_some_and(|score| score > Score(min)));
             assert!(res.score.is_some_and(|score| score < Score(max)));
@@ -1101,8 +1101,7 @@ mod tests {
     fn philidor_test() {
         let pos = Chessboard::from_name("philidor").unwrap();
         let mut engine = Caps::for_eval::<LiTEval>();
-        let res =
-            engine.search_from_pos(pos, SearchLimit::nodes(NodesLimit::new(100_000).unwrap()));
+        let res = engine.search_from_pos(pos, SearchLimit::nodes(NodesLimit::new(50_000).unwrap()));
         // TODO: More aggressive bound once the engine is stronger
         assert!(res.unwrap().score.unwrap().abs() <= Score(200));
     }

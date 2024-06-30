@@ -244,7 +244,10 @@ mod tests {
     use crate::eval::chess::material_only_eval::MaterialOnlyEval;
 
     use crate::eval::chess::piston_eval::PistonEval;
-    use crate::gd::{cp_eval_for_weights, cp_to_wr, loss, Adam, CpScore, Float, Outcome};
+    use crate::gd::{
+        cp_eval_for_weights, cp_to_wr, loss, loss_for, quadratic_sample_loss, Adam, CpScore, Float,
+        Outcome,
+    };
     use crate::load_data::Perspective::SideToMove;
     use gears::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};
     use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
@@ -285,7 +288,7 @@ mod tests {
             &PistonEval::default(),
             &mut optimizer,
         );
-        let loss = loss(&weights, batch, eval_scale);
+        let loss = loss_for(&weights, batch, eval_scale, quadratic_sample_loss);
         assert!(loss <= 0.01, "{loss}");
     }
 

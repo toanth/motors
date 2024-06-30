@@ -76,10 +76,31 @@ pub fn cp_to_wr(cp: CpScore, eval_scale: ScalingFactor) -> WrScore {
 /// The *loss* of a single sample.
 ///
 /// The loss is a measure of how wrong our prediction is; smaller values are better.
-/// This function computes the loss as the squared error, multiplied by the sampling weight.
-pub fn sample_loss(wr_prediction: WrScore, outcome: Outcome, sample_weight: Float) -> Float {
+/// Although we use the cross entropy loss for gradient descend, this function instead returns the quadratic loss.
+/// There are a couple of reasons for this:
+/// - Under reasonable assumptions, minimizing the cross-entropy loss is equivalent to minimizing the quadratic loss
+/// - The quadratic loss is always zero for a perfect prediction, unlike the cross-entropy loss
+/// - The quadratic loss is slightly cheaper to compute and the loss is only used to display it to the user.
+/// The only exception is optimizing the scaling factor, which explicitly uses the cross-entropy loss.
+pub fn sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
+    quadratic_sample_loss(wr_prediction, outcome)
+}
+
+/// The quadratic sample is loss is the square of `wr_prediction - outcome)`.
+///
+/// Unlike the [`cross_entropy_sample_loss`], it is always zero if a prediction perfectly matches the outcome.
+pub fn quadratic_sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
     let delta = wr_prediction.0 - outcome.0;
-    delta * delta * sample_weight
+    return delta * delta;
+}
+
+/// The cross-entropy loss should be the default choice when optimizing anything where the output is a sigmoid.
+/// However, we only use the loss itself (as opposed to its gradient) for displaying it to the user,
+/// and for that, displaying the quadratic loss is fine.
+pub fn cross_entropy_sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
+    let expected = outcome.0;
+    let x = wr_prediction.0;
+    -(expected * x.ln() + (1.0 - expected) * (1.0 - x).ln())
 }
 
 /// The loss of an eval score, see [sample_loss].
@@ -90,15 +111,17 @@ pub fn sample_loss_for_cp(
     sample_weight: Float,
 ) -> Float {
     let wr_prediction = cp_to_wr(eval, eval_scale);
-    sample_loss(wr_prediction, outcome, sample_weight)
+    sample_loss(wr_prediction, outcome) * sample_weight
 }
 
-/// The *gradient* of the loss function, based on a single sample.
+/// The *gradient* of the loss function and sigmoid, based on a single sample.
 ///
 /// Constant factors are ignored by this function.
 /// Optimization works by changing weights into the opposite direction of the gradient.
+/// This is  `d/deval loss(prediction) = d/deval loss(sigmoid(eval, scaling_factor))`.
+/// Since `loss` is the cross-entropy loss, this cancels out to `(prediction.0 - outcome.0) * sample_weight`
 pub fn scaled_sample_grad(prediction: WrScore, outcome: Outcome, sample_weight: Float) -> Float {
-    (prediction.0 - outcome.0) * prediction.0 * (1.0 - prediction.0) * sample_weight
+    (prediction.0 - outcome.0) * sample_weight
 }
 
 /// A single weight.
@@ -536,12 +559,22 @@ pub fn loss<D: Datapoint>(
     batch: Batch<'_, D>,
     eval_scale: ScalingFactor,
 ) -> Float {
+    loss_for(weights, batch, eval_scale, sample_loss)
+}
+
+/// Loss of a position, given the current weights, using the `sample_loss` parameter to calculate the loss
+pub fn loss_for<D: Datapoint, L: Sync + Fn(WrScore, Outcome) -> Float>(
+    weights: &Weights,
+    batch: Batch<'_, D>,
+    eval_scale: ScalingFactor,
+    sample_loss: L,
+) -> Float {
     let sum = if batch.len() >= MIN_MULTITHREADING_BATCH_SIZE {
         batch
             .par_iter()
             .map(|datapoint| {
                 let eval = wr_prediction_for_weights(weights, datapoint, eval_scale);
-                let loss = sample_loss(eval, datapoint.outcome(), datapoint.sampling_weight());
+                let loss = sample_loss(eval, datapoint.outcome()) * datapoint.sampling_weight();
                 debug_assert!(loss >= 0.0);
                 loss
             })
@@ -550,7 +583,7 @@ pub fn loss<D: Datapoint>(
         let mut res = Float::default();
         for datapoint in batch.iter() {
             let eval = wr_prediction_for_weights(weights, datapoint, eval_scale);
-            let loss = sample_loss(eval, datapoint.outcome(), datapoint.sampling_weight());
+            let loss = sample_loss(eval, datapoint.outcome()) * datapoint.sampling_weight();
             debug_assert!(loss >= 0.0);
             res += loss * datapoint.sampling_weight();
         }
@@ -897,7 +930,12 @@ mod tests {
                 weight_sum: 1.0,
             };
             for eval_scale in 1..100 {
-                let loss = loss(&weights, batch, eval_scale as ScalingFactor);
+                let loss = loss_for(
+                    &weights,
+                    batch,
+                    eval_scale as ScalingFactor,
+                    quadratic_sample_loss,
+                );
                 if outcome == 0.5 {
                     assert_eq!(loss, 0.0);
                 } else {
@@ -961,9 +999,9 @@ mod tests {
                         let new_loss = loss(&weights, batch, scaling_factor);
                         let old_loss = loss(&old_weights, batch, scaling_factor);
                         assert!(new_loss >= 0.0, "{new_loss}");
-                        assert!(new_loss <= old_loss, "new loss: {new_loss}, old loss: {old_loss}, feature {feature}, initial weight {initial_weight}, outcome {outcome}");
+                        assert!(new_loss - old_loss <= 1e-10, "new loss: {new_loss}, old loss: {old_loss}, feature {feature}, initial weight {initial_weight}, outcome {outcome}");
                     }
-                    let loss = loss(&weights, batch, scaling_factor);
+                    let loss = loss_for(&weights, batch, scaling_factor, quadratic_sample_loss);
                     if feature != 0 {
                         // pure gradient descent with a small scaling factor can take some time to converge
                         assert!(
@@ -991,13 +1029,15 @@ mod tests {
                 num_weights: 3,
                 weight_sum: 3.0,
             };
-            for _ in 0..100 {
+            for i in 0..100 {
                 let grad = compute_gradient(&weights, batch, 1.0);
                 let old_weights = weights.clone();
                 weights -= &grad;
-                assert!(loss(&weights, batch, 1.0) <= loss(&old_weights, batch, 1.0));
+                let new_loss = loss(&weights, batch, 1.0);
+                let old_loss = loss(&old_weights, batch, 1.0);
+                assert!(new_loss - old_loss <= 1e-10, "{i}: {new_loss} {old_loss}");
             }
-            let loss = loss(&weights, batch, 1.0);
+            let loss = loss_for(&weights, batch, 1.0, quadratic_sample_loss);
             assert!(loss <= 0.01);
         }
     }
@@ -1028,7 +1068,7 @@ mod tests {
                 assert!(current_loss <= old_loss);
                 lr *= 0.99;
             }
-            let loss = loss(&weights, batch, scale);
+            let loss = loss_for(&weights, batch, scale, quadratic_sample_loss);
             assert!(loss <= 0.01, "{loss}");
             if outcome == 0.5 {
                 assert_eq!(weights[0].0.signum(), weights[1].0.signum());
@@ -1068,7 +1108,7 @@ mod tests {
                 let grad = compute_gradient(&weights, batch, scale);
                 weights -= &grad;
             }
-            let remaining_loss = loss(&weights, batch, scale);
+            let remaining_loss = loss_for(&weights, batch, scale, quadratic_sample_loss);
             assert!(remaining_loss <= 0.001);
             assert!(weights[0].0 >= 100.0);
             assert!(weights[1].0 <= -100.0);
@@ -1082,8 +1122,8 @@ mod tests {
                 for i in 0..200 {
                     optimizer.iteration(&mut weights_copy, batch, scale, i);
                 }
-                let remaining_loss = loss(&weights_copy, batch, scale);
-                assert!(remaining_loss <= 0.001);
+                let remaining_loss = loss_for(&weights_copy, batch, scale, quadratic_sample_loss);
+                assert!(remaining_loss <= 0.001, "{remaining_loss}");
                 assert!(weights[0].0 >= 100.0);
                 assert!(weights[1].0 <= -100.0);
             }
