@@ -758,7 +758,8 @@ pub fn print_optimized_weights<D: Datapoint>(
     let mut weights = weights.clone();
     interpolate(&occurrence_counts, &mut weights, interpretation);
     println!(
-        "Scaling factor: {scale:.2}, Final eval:\n{}",
+        "Scaling factor: {scale:.2}, {0}:\n{1}",
+        "Final eval".bold(),
         display(interpretation, &weights, &[])
     );
 }
