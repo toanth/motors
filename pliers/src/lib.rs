@@ -245,7 +245,7 @@ mod tests {
 
     use crate::eval::chess::piston_eval::PistonEval;
     use crate::gd::{
-        cp_eval_for_weights, cp_to_wr, loss, loss_for, quadratic_sample_loss, Adam, CpScore, Float,
+        cp_eval_for_weights, cp_to_wr, loss_for, quadratic_sample_loss, Adam, CpScore, Float,
         Outcome,
     };
     use crate::load_data::Perspective::SideToMove;

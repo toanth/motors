@@ -562,7 +562,8 @@ pub fn loss<D: Datapoint>(
     loss_for(weights, batch, eval_scale, sample_loss)
 }
 
-/// Loss of a position, given the current weights, using the `sample_loss` parameter to calculate the loss
+/// Loss of a position, given the current weights, using the `sample_loss` parameter to calculate
+/// the loss of a single sample.
 pub fn loss_for<D: Datapoint, L: Sync + Fn(WrScore, Outcome) -> Float>(
     weights: &Weights,
     batch: Batch<'_, D>,

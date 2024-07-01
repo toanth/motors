@@ -6,7 +6,7 @@ use crate::eval::chess::{
 use crate::eval::EvalScale::Scale;
 use crate::eval::{changed_at_least, write_phased, Eval, EvalScale, WeightsInterpretation};
 use crate::gd::{Float, TaperedDatapoint, Weight, Weights};
-use crate::trace::{SparseTrace, TraceTrait};
+use crate::trace::{SingleFeature, SparseTrace, TraceTrait};
 use gears::games::chess::pieces::UncoloredChessPiece::*;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::see::SEE_SCORES;
@@ -53,74 +53,74 @@ impl LiTETrace {
 impl LiteValues for LiTETrace {
     type Score = SparseTrace;
 
-    fn psqt(square: ChessSquare, piece: UncoloredChessPiece, color: Color) -> Self::Score {
+    fn psqt(square: ChessSquare, piece: UncoloredChessPiece, color: Color) -> SingleFeature {
         let square = square.flip_if(color == White);
         let idx = 0 + square.bb_idx() + piece as usize * NUM_SQUARES;
-        SparseTrace::new(idx)
+        SingleFeature::new(idx)
     }
 
-    fn passed_pawn(square: ChessSquare) -> Self::Score {
+    fn passed_pawn(square: ChessSquare) -> SingleFeature {
         let idx = Self::PASSED_PAWN_OFFSET + square.bb_idx();
-        SparseTrace::new(idx)
+        SingleFeature::new(idx)
     }
 
-    fn bishop_pair() -> Self::Score {
+    fn bishop_pair() -> SingleFeature {
         let idx = Self::BISHOP_PAIR_OFFSET;
-        SparseTrace::new(idx)
+        SingleFeature::new(idx)
     }
 
-    fn rook_openness(openness: FileOpenness) -> Self::Score {
+    fn rook_openness(openness: FileOpenness) -> SingleFeature {
         if openness == SemiClosed {
-            return SparseTrace::default();
+            return SingleFeature::no_feature();
         }
         let idx = Self::ROOK_OPENNESS_OFFSET + openness as usize;
-        SparseTrace::new(idx)
+        SingleFeature::new(idx)
     }
 
-    fn king_openness(openness: FileOpenness) -> Self::Score {
+    fn king_openness(openness: FileOpenness) -> SingleFeature {
         if openness == SemiClosed {
-            return SparseTrace::default();
+            return SingleFeature::no_feature();
         }
         let idx = Self::KING_OPENNESS_OFFSET + openness as usize;
-        SparseTrace::new(idx)
+        SingleFeature::new(idx)
     }
 
-    fn pawn_shield(config: usize) -> Self::Score {
+    fn pawn_shield(config: usize) -> SingleFeature {
         let idx = Self::PAWN_SHIELD_OFFSET + config;
-        SparseTrace::new(idx)
+        SingleFeature::new(idx)
     }
 
-    fn pawn_protection(piece: UncoloredChessPiece) -> Self::Score {
+    fn pawn_protection(piece: UncoloredChessPiece) -> SingleFeature {
         let idx = Self::PAWN_PROTECTION_OFFSET + piece as usize;
-        SparseTrace::new(idx)
+        SingleFeature::new(idx)
     }
 
-    fn pawn_attack(piece: UncoloredChessPiece) -> Self::Score {
+    fn pawn_attack(piece: UncoloredChessPiece) -> SingleFeature {
         // For example a pawn attacking another pawn is itself attacked by a pawn, but since a pawn could be attacking
         // two pawns at once this doesn't have to mean that the resulting feature count is zero. So manually exclude this
         // because pawns attacking pawns don't necessarily create an immediate thread like pawns attacking pieces.
         if piece == Pawn {
-            return SparseTrace::default();
+            return SingleFeature::no_feature();
         }
         let idx = Self::PAWN_ATTACKS_OFFSET + piece as usize;
-        SparseTrace::new(idx)
+        SingleFeature::new(idx)
     }
 
-    fn mobility(piece: UncoloredChessPiece, mobility: usize) -> Self::Score {
+    fn mobility(piece: UncoloredChessPiece, mobility: usize) -> SingleFeature {
         let idx = Self::MOBILITY_OFFSET + (piece as usize - 1) * (MAX_MOBILITY + 1) + mobility;
-        SparseTrace::new(idx)
+        SingleFeature::new(idx)
     }
 
-    fn threats(attacking: UncoloredChessPiece, targeted: UncoloredChessPiece) -> Self::Score {
+    fn threats(attacking: UncoloredChessPiece, targeted: UncoloredChessPiece) -> SingleFeature {
         let idx =
             Self::THREAT_OFFSET + (attacking as usize - 1) * NUM_CHESS_PIECES + targeted as usize;
-        SparseTrace::new(idx)
+        SingleFeature::new(idx)
     }
 
-    fn defended(protecting: UncoloredChessPiece, target: UncoloredChessPiece) -> Self::Score {
+    fn defended(protecting: UncoloredChessPiece, target: UncoloredChessPiece) -> SingleFeature {
         let idx =
             Self::DEFENSE_OFFSET + (protecting as usize - 1) * NUM_CHESS_PIECES + target as usize;
-        SparseTrace::new(idx)
+        SingleFeature::new(idx)
     }
 }
 

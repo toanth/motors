@@ -418,17 +418,32 @@ const DEFENDED: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = [
 pub trait LiteValues: Debug + Default + Copy + Clone + Send + 'static {
     type Score: ScoreType;
 
-    fn psqt(square: ChessSquare, piece: UncoloredChessPiece, color: Color) -> Self::Score;
-    fn passed_pawn(square: ChessSquare) -> Self::Score;
-    fn bishop_pair() -> Self::Score;
-    fn rook_openness(openness: FileOpenness) -> Self::Score;
-    fn king_openness(openness: FileOpenness) -> Self::Score;
-    fn pawn_shield(config: usize) -> Self::Score;
-    fn pawn_protection(piece: UncoloredChessPiece) -> Self::Score;
-    fn pawn_attack(piece: UncoloredChessPiece) -> Self::Score;
-    fn mobility(piece: UncoloredChessPiece, mobility: usize) -> Self::Score;
-    fn threats(attacking: UncoloredChessPiece, targeted: UncoloredChessPiece) -> Self::Score;
-    fn defended(protecting: UncoloredChessPiece, target: UncoloredChessPiece) -> Self::Score;
+    fn psqt(
+        square: ChessSquare,
+        piece: UncoloredChessPiece,
+        color: Color,
+    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn passed_pawn(square: ChessSquare) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn bishop_pair() -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn rook_openness(openness: FileOpenness) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn king_openness(openness: FileOpenness) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn pawn_shield(config: usize) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn pawn_protection(
+        piece: UncoloredChessPiece,
+    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn pawn_attack(piece: UncoloredChessPiece) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn mobility(
+        piece: UncoloredChessPiece,
+        mobility: usize,
+    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn threats(
+        attacking: UncoloredChessPiece,
+        targeted: UncoloredChessPiece,
+    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn defended(
+        protecting: UncoloredChessPiece,
+        target: UncoloredChessPiece,
+    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
 }
 
 /// Eval values tuned on a combination of the zurichess dataset and a dataset used by 4ku,

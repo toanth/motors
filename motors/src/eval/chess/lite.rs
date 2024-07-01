@@ -94,15 +94,21 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         res
     }
 
-    fn bishop_pair(pos: &Chessboard, color: Color) -> Tuned::Score {
+    fn bishop_pair(
+        pos: &Chessboard,
+        color: Color,
+    ) -> <Tuned::Score as ScoreType>::SingleFeatureScore {
         if pos.colored_piece_bb(color, Bishop).more_than_one_bit_set() {
             Tuned::bishop_pair()
         } else {
-            Tuned::Score::default()
+            Default::default()
         }
     }
 
-    fn pawn_shield(pos: &Chessboard, color: Color) -> Tuned::Score {
+    fn pawn_shield(
+        pos: &Chessboard,
+        color: Color,
+    ) -> <Tuned::Score as ScoreType>::SingleFeatureScore {
         let our_pawns = pos.colored_piece_bb(color, Pawn);
         let king_square = pos.king_square(color);
         let idx = pawn_shield_idx(our_pawns, king_square, color);
