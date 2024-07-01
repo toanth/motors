@@ -90,7 +90,7 @@
 use crate::eval::Eval;
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
-    optimize_entire_batch, print_optimized_weights, Adam, Datapoint, Dataset, Optimizer,
+    optimize_entire_batch, print_optimized_weights, AdamW, Datapoint, Dataset, Optimizer,
 };
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
@@ -176,7 +176,7 @@ pub fn load_datasets_from_json(json_file_path: &Path) -> Res<Vec<AnnotatedFenFil
 
 /// Optimize the eval with [`Adam`] on the supplied `file_list`.
 pub fn optimize<B: Board, E: Eval<B>>(file_list: &[AnnotatedFenFile]) -> Res<()> {
-    optimize_for::<B, E, Adam>(file_list, DEFAULT_NUM_EPOCHS)
+    optimize_for::<B, E, AdamW>(file_list, DEFAULT_NUM_EPOCHS)
 }
 
 /// Optimize the eval with the given optimizer for the given number of epochs.
@@ -219,7 +219,7 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
         Scale(scale) => scale,
         InitialWeights(_) => 100.0, // Tuning the scaling factor one a single position is just going to result in inf or 0.
     };
-    let mut optimizer = Adam::new(dataset.as_batch(), scale);
+    let mut optimizer = AdamW::new(dataset.as_batch(), scale);
     let weights = optimize_entire_batch(dataset.as_batch(), scale, 1, &e, &mut optimizer);
     assert_eq!(weights.len(), E::NUM_WEIGHTS);
     println!(
@@ -245,7 +245,7 @@ mod tests {
 
     use crate::eval::chess::piston_eval::PistonEval;
     use crate::gd::{
-        cp_eval_for_weights, cp_to_wr, loss_for, quadratic_sample_loss, Adam, CpScore, Float,
+        cp_eval_for_weights, cp_to_wr, loss_for, quadratic_sample_loss, AdamW, CpScore, Float,
         Outcome,
     };
     use crate::load_data::Perspective::SideToMove;
@@ -269,7 +269,7 @@ mod tests {
         assert_eq!(positions.data()[1].features.len(), 1);
         let batch = positions.batch(0, 1);
         let eval_scale = 100.0;
-        let mut optimizer = Adam::new(batch, eval_scale);
+        let mut optimizer = AdamW::new(batch, eval_scale);
         let startpos_weights = optimize_entire_batch(
             batch,
             eval_scale,
@@ -280,7 +280,7 @@ mod tests {
         let startpos_eval = cp_eval_for_weights(&startpos_weights, &positions.data()[0]);
         assert_eq!(startpos_eval, CpScore(0.0));
         let batch = positions.as_batch();
-        let mut optimizer = Adam::new(batch, eval_scale);
+        let mut optimizer = AdamW::new(batch, eval_scale);
         let weights = optimize_entire_batch(
             batch,
             eval_scale,
@@ -315,7 +315,7 @@ mod tests {
         let datapoints =
             FenReader::<Chessboard, MaterialOnlyEval>::load_from_str(&fens, SideToMove).unwrap();
         let batch = datapoints.as_batch();
-        let weights = Adam::new(batch, eval_scale).optimize_simple(batch, eval_scale, 2000);
+        let weights = AdamW::new(batch, eval_scale).optimize_simple(batch, eval_scale, 2000);
         assert_eq!(weights.len(), 5);
         let weight = weights[0];
         for piece in UncoloredChessPiece::non_king_pieces() {

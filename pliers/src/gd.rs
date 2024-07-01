@@ -597,15 +597,19 @@ pub fn loss_for<D: Datapoint, L: Sync + Fn(WrScore, Outcome) -> Float>(
 ///
 /// The loss function of a single sample is `(sigmoid(sample, scale) - outcome) ^ 2`,
 /// so per the chain rule, the derivative is `2 * (sigmoid(sample, scale) - outcome) * sigmoid'(sample, scale)`,
-/// where the derivative of the sigmoid, sigmoid', is `scale * sigmoid(sample, scale) * (1 - sigmoid(sample, scale)`.
-/// Even though constant factors don't matter for gradient descent, this function still returns the exact gradient,
-/// without ignoring constant factors.
+/// where the derivative of the sigmoid, sigmoid', is `1 / scale * sigmoid(sample, scale) * (1 - sigmoid(sample, scale)`.
+/// However, this function multiplies by `scale` instead of `1/scale`: If the scale is larger, we need correspondingly
+/// larger changes in the weights to see the same effect, even though the gradient is scaled down instead of up by that
+/// factor. Apart from that, thi function returns the correct gradient, i.e. the actual gradient can be recovered by
+/// dividing by `eval_scale * eval_scale`.
 /// The computation gets parallelized if the batch exceeds a size of [`MIN_MULTITHREADING_BATCH_SIZE`].
-pub fn compute_gradient<D: Datapoint>(
+pub fn compute_scaled_gradient<D: Datapoint>(
     weights: &Weights,
     batch: Batch<D>,
     eval_scale: ScalingFactor,
 ) -> Gradient {
+    // see above, it should strictly speaking be `/ eval_scale` but `*` is superior
+    // because it removes the effect of the eval scale
     let constant_factor = 2.0 * eval_scale / batch.weight_sum;
     if batch.len() >= MIN_MULTITHREADING_BATCH_SIZE {
         batch
@@ -713,10 +717,10 @@ pub fn optimize_entire_batch<D: Datapoint>(
             prev_weights.clone_from(&weights.0);
             prev_loss = loss;
         }
-        if epoch == 20.min(num_epochs / 100) {
+        if weights_interpretation.retune_from_zero() && epoch == 20.min(num_epochs / 100) {
             optimizer.lr_drop(4.0); // undo the raised lr.
-        } else if epoch == num_epochs * 3 / 4 {
-            optimizer.lr_drop(1.5);
+        } else if epoch == num_epochs / 2 {
+            optimizer.lr_drop(2.0);
         }
     }
     weights
@@ -724,7 +728,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
 
 /// Convenience function for optimizing with the [`Adam`] optimizer.
 #[allow(unused)]
-fn adam_optimize<D: Datapoint>(
+fn adamw_optimize<D: Datapoint>(
     batch: Batch<D>,
     eval_scale: ScalingFactor,
     num_epochs: usize,
@@ -735,7 +739,7 @@ fn adam_optimize<D: Datapoint>(
         eval_scale,
         num_epochs,
         format_weights,
-        &mut Adam::new(batch, eval_scale),
+        &mut AdamW::new(batch, eval_scale),
     )
 }
 
@@ -827,7 +831,7 @@ impl<D: Datapoint> Optimizer<D> for SimpleGDOptimizer {
         eval_scale: ScalingFactor,
         _i: usize,
     ) {
-        let gradient = compute_gradient(weights, batch, eval_scale);
+        let gradient = compute_scaled_gradient(weights, batch, eval_scale);
         for i in 0..weights.len() {
             weights[i].0 -= gradient[i].0 * self.alpha;
         }
@@ -838,7 +842,9 @@ impl<D: Datapoint> Optimizer<D> for SimpleGDOptimizer {
 /// automatically optimized.
 #[derive(Debug, Copy, Clone)]
 pub struct AdamHyperParams {
-    /// Learning rate multiplier, an upper bound on the step size.
+    /// Adam Learning rate multiplier, an upper bound on the step size.
+    /// This isn't quite the learning rate for AdamW because it doesn't apply to the weight decay term.
+    /// Currently, this implementation does not support a separate learning rate.
     pub alpha: Float,
     /// Exponential decay of the moving average of the gradient
     pub beta1: Float,
@@ -846,6 +852,9 @@ pub struct AdamHyperParams {
     pub beta2: Float,
     /// Offset to avoid division by zero
     pub epsilon: Float,
+    /// Exponential weight decay: Each weight is multiplied by `1 - lambda` each step before the scaled gradient is added.
+    /// Using a value of `0` results in the Adam optimizer.
+    pub lambda: Float,
 }
 
 impl AdamHyperParams {
@@ -857,13 +866,15 @@ impl AdamHyperParams {
             beta1: 0.9,
             beta2: 0.999,
             epsilon: 1e-8,
+            lambda: 1e-5,
         }
     }
 }
 
-/// The default tuner, an implementation of the very widely used [Adam](https://arxiv.org/abs/1412.6980) optimizer.
+/// The default tuner, an implementation of the very widely used [AdamW](https://arxiv.org/abs/1711.05101) optimizer,
+/// which extends the [Adam](https://arxiv.org/abs/1412.6980) optimizer with weight decay.
 #[derive(Debug)]
-pub struct Adam {
+pub struct AdamW {
     /// Hyperparameters. Should be set before starting to optimize.
     pub hyper_params: AdamHyperParams,
     /// first moment (exponentially moving average)
@@ -872,7 +883,17 @@ pub struct Adam {
     v: Weights,
 }
 
-impl<D: Datapoint> Optimizer<D> for Adam {
+impl AdamW {
+    /// Create a new `Adam` optimizer, which is the same as an [`AdamW`] optimizer with the `lambda` hyperparameter
+    /// set to zero.
+    pub fn adam<D: Datapoint>(batch: Batch<D>, eval_scale: ScalingFactor) -> Self {
+        let mut res = Self::new(batch, eval_scale);
+        res.hyper_params.lambda = 0.0;
+        res
+    }
+}
+
+impl<D: Datapoint> Optimizer<D> for AdamW {
     fn new(batch: Batch<D>, eval_scale: ScalingFactor) -> Self {
         let hyper_params = AdamHyperParams::for_eval_scale(eval_scale);
         Self {
@@ -896,15 +917,17 @@ impl<D: Datapoint> Optimizer<D> for Adam {
         let iteration = iteration + 1;
         let beta1 = self.hyper_params.beta1;
         let beta2 = self.hyper_params.beta2;
-        let gradient = compute_gradient(weights, batch, eval_scale);
+        let gradient = compute_scaled_gradient(weights, batch, eval_scale);
         for i in 0..gradient.len() {
             // biased since the values are initialized to 0, so the exponential moving average is wrong
             self.m[i] = self.m[i] * beta1 + gradient[i] * (1.0 - beta1);
             self.v[i] = self.v[i] * beta2 + gradient[i] * gradient[i].0 * (1.0 - beta2);
             let unbiased_m = self.m[i] / (1.0 - beta1.powi(iteration as i32));
             let unbiased_v = self.v[i] / (1.0 - beta2.powi(iteration as i32));
-            weights[i] -= unbiased_m * self.hyper_params.alpha
-                / (unbiased_v.0.sqrt() + self.hyper_params.epsilon)
+            let w = weights[i];
+            weights[i] -= w * self.hyper_params.lambda
+                + unbiased_m * self.hyper_params.alpha
+                    / (unbiased_v.0.sqrt() + self.hyper_params.epsilon)
         }
     }
 }
@@ -960,7 +983,7 @@ mod tests {
                 num_weights: 1,
                 weight_sum: 1.0,
             };
-            let gradient = compute_gradient(&weights, batch, 1.0);
+            let gradient = compute_scaled_gradient(&weights, batch, 1.0);
             assert_eq!(gradient.len(), 1);
             let gradient = gradient[0].0;
             assert_eq!(-gradient, 0.5 * 0.5 * 0.5 * 2.0 * outcome.signum());
@@ -984,7 +1007,7 @@ mod tests {
                     dataset.push(datapoint);
                     let batch = dataset.as_batch();
                     for _ in 0..100 {
-                        let grad = compute_gradient(&weights, batch, scaling_factor);
+                        let grad = compute_scaled_gradient(&weights, batch, scaling_factor);
                         let old_weights = weights.clone();
                         weights -= &grad;
                         // println!("loss {0}, initial weight {initial_weight}, weights {weights}, gradient {grad}, eval {1}, predicted {2}, outcome {outcome}, feature {feature}, scaling factor {scaling_factor}", loss(&weights, &dataset, scaling_factor), cp_eval_for_weights(&weights, &dataset[0].position), wr_prediction_for_weights(&weights, &dataset[0].position, scaling_factor));
@@ -1032,7 +1055,7 @@ mod tests {
                 weight_sum: 3.0,
             };
             for i in 0..100 {
-                let grad = compute_gradient(&weights, batch, 1.0);
+                let grad = compute_scaled_gradient(&weights, batch, 1.0);
                 let old_weights = weights.clone();
                 weights -= &grad;
                 let new_loss = loss(&weights, batch, 1.0);
@@ -1062,7 +1085,7 @@ mod tests {
             };
             let mut lr = 1.0;
             for _ in 0..100 {
-                let grad = compute_gradient(&weights, batch, scale);
+                let grad = compute_scaled_gradient(&weights, batch, scale);
                 let old_weights = weights.clone();
                 weights -= &(grad.clone() * lr);
                 let current_loss = loss(&weights, batch, scale);
@@ -1107,7 +1130,7 @@ mod tests {
             ]);
             let mut weights_copy = weights.clone();
             for _ in 0..200 {
-                let grad = compute_gradient(&weights, batch, scale);
+                let grad = compute_scaled_gradient(&weights, batch, scale);
                 weights -= &grad;
             }
             let remaining_loss = loss_for(&weights, batch, scale, quadratic_sample_loss);
@@ -1118,7 +1141,7 @@ mod tests {
             type AnyOptimizer = Box<dyn Optimizer<NonTaperedDatapoint>>;
             let optimizers: [AnyOptimizer; 2] = [
                 Box::new(SimpleGDOptimizer { alpha: 1.0 }),
-                Box::new(Adam::new(batch, scale)),
+                Box::new(AdamW::new(batch, scale)),
             ];
             for mut optimizer in optimizers {
                 for i in 0..200 {
@@ -1155,7 +1178,7 @@ mod tests {
             weight_sum: 3.0,
         };
         for _ in 0..500 {
-            let grad = compute_gradient(&weights, batch, 1.0);
+            let grad = compute_scaled_gradient(&weights, batch, 1.0);
             println!(
                 "current weights: {0}, current loss: {1}, gradient: {2}",
                 weights,
@@ -1191,7 +1214,7 @@ mod tests {
                 num_weights: 1,
                 weight_sum: 1.0,
             };
-            let mut adam = Adam::new(batch, eval_scale);
+            let mut adam = AdamW::new(batch, eval_scale);
             let weights = adam.optimize_simple(batch, eval_scale, 20);
             assert_eq!(weights.len(), 1);
             let weight = weights[0].0;
