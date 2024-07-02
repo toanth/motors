@@ -1,6 +1,7 @@
 //! Everything related to the actual optimization, using a Gradient Descent-based tuner ([`Adam`] by default).
 
 use crate::eval::{count_occurrences, display, interpolate, WeightsInterpretation};
+use crate::plots::Statistics;
 use crate::trace::TraceTrait;
 use colored::Colorize;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
@@ -665,9 +666,10 @@ pub fn optimize_entire_batch<D: Datapoint>(
     num_epochs: usize,
     weights_interpretation: &dyn WeightsInterpretation,
     optimizer: &mut dyn Optimizer<D>,
-) -> Weights {
+) -> (Weights, Statistics) {
     let mut prev_weights: Vec<Weight> = vec![];
     let mut weights = Weights::new(batch.num_weights);
+    let mut statistics = Statistics::default();
     let initial_lr_factor = if weights_interpretation.retune_from_zero() {
         0.25
     } else {
@@ -703,13 +705,16 @@ pub fn optimize_entire_batch<D: Datapoint>(
                     max_diff = diff;
                 }
             }
+            let quadratic_loss = loss_for(&weights, batch, eval_scale, quadratic_sample_loss);
+            statistics.losses.push(loss);
+            statistics.quadratic_losses.push(quadratic_loss);
+            statistics.max_deltas.push(max_diff);
             println!(
-                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), quadratic loss: {qloss}, (cross-entropy) loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
+                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), quadratic loss: {quadratic_loss}, (cross-entropy) loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
                 maximum weight change to 50 epochs ago: {max_diff:.2}",
                 epoch as f32 / elapsed.as_secs_f32(),
                 (prev_loss - loss) * 1_000_000.0,
                 elapsed = elapsed.as_secs(),
-                qloss = loss_for(&weights, batch, eval_scale, quadratic_sample_loss),
             );
             if loss <= 0.001 && epoch >= 20 {
                 println!("loss less than epsilon, stopping after {epoch} epochs");
@@ -730,7 +735,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
             optimizer.lr_drop(2.0);
         }
     }
-    weights
+    (weights, statistics)
 }
 
 /// Convenience function for optimizing with the [`AdamW`] optimizer.
@@ -748,6 +753,7 @@ fn adamw_optimize<D: Datapoint>(
         format_weights,
         &mut AdamW::new(batch, eval_scale),
     )
+    .0
 }
 
 /// Print the final weights once the optimization is complete.

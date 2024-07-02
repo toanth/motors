@@ -94,6 +94,7 @@ use crate::gd::{
 };
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
+use crate::plots::plot_statistics;
 use gears::games::chess::Chessboard;
 use gears::games::Board;
 use gears::general::common::Res;
@@ -101,12 +102,13 @@ use serde_json::from_reader;
 use std::env::args;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::exit;
 
 pub mod eval;
 pub mod gd;
 pub mod load_data;
+pub mod plots;
 pub mod trace;
 
 const DEFAULT_NUM_EPOCHS: usize = 4000;
@@ -135,7 +137,8 @@ pub fn try_to_run<B: Board, E: Eval<B>>() -> Res<()> {
 /// The path to this file is extracted from the first command line argument, with a game-specific fallback
 /// if no command line arguments are used.
 pub fn get_datasets<B: Board>() -> Res<Vec<AnnotatedFenFile>> {
-    let default_path = format!("pliers/datasets/{}/datasets.json", B::game_name());
+    let default_path = format!("pliers/datasets/{}/test-dataset.json", B::game_name());
+    // let default_path = format!("pliers/datasets/{}/datasets.json", B::game_name());
     let json_file_path = args().nth(1).unwrap_or(default_path);
     let json_file_path = Path::new(&json_file_path);
     load_datasets_from_json(json_file_path)
@@ -196,8 +199,9 @@ pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
     let batch = dataset.as_batch();
     let scale = e.eval_scale().to_scaling_factor(batch, &e);
     let mut optimizer = O::new(batch, scale);
-    let weights = optimize_entire_batch(batch, scale, num_epochs, &e, &mut optimizer);
+    let (weights, statistics) = optimize_entire_batch(batch, scale, num_epochs, &e, &mut optimizer);
     print_optimized_weights(&weights, batch, scale, &e);
+    plot_statistics(&statistics, 50, PathBuf::new()).map_err(|err| err.to_string())?;
     Ok(())
 }
 
@@ -220,7 +224,8 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
         InitialWeights(_) => 100.0, // Tuning the scaling factor one a single position is just going to result in inf or 0.
     };
     let mut optimizer = Adam::new(dataset.as_batch(), scale);
-    let weights = optimize_entire_batch(dataset.as_batch(), scale, 1, &e, &mut optimizer);
+    let (weights, _losses) =
+        optimize_entire_batch(dataset.as_batch(), scale, 1, &e, &mut optimizer);
     assert_eq!(weights.len(), E::NUM_WEIGHTS);
     println!(
         "There are {0} weights and {1} out of {2} active features",
