@@ -76,14 +76,13 @@ pub fn cp_to_wr(cp: CpScore, eval_scale: ScalingFactor) -> WrScore {
 /// The *loss* of a single sample.
 ///
 /// The loss is a measure of how wrong our prediction is; smaller values are better.
-/// For displaying the loss to the user, the quadratic sample loss is often the better choice:
+/// The loss itself is only used for displaying it to the user, but the derivative is used for optimizationn.
+/// This function uses the quadratic sample loss, which is often the better choice:
 /// - Under somewhat reasonable assumptions, minimizing the cross-entropy loss is equivalent to minimizing the quadratic loss
 /// - The quadratic loss is always zero for a perfect prediction, unlike the cross-entropy loss
 /// - The quadratic loss is slightly cheaper to compute
-/// Optimizing the scaling factor explicitly uses the cross-entropy loss, but apart from that the loss is only used for
-/// displaying it to the user.
 pub fn sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
-    cross_entropy_sample_loss(wr_prediction, outcome)
+    quadratic_sample_loss(wr_prediction, outcome)
 }
 
 /// The quadratic sample is loss is the square of `wr_prediction - outcome)`.
@@ -94,9 +93,8 @@ pub fn quadratic_sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float 
     return delta * delta;
 }
 
-/// The cross-entropy loss should be the default choice when optimizing anything where the output is a sigmoid.
-/// However, we only use the loss itself (as opposed to its gradient) for displaying it to the user,
-/// and for that, displaying the quadratic loss is fine.
+/// The cross-entropy is a good choice when optimizing anything where the output is a sigmoid, but it has some
+/// undesirable properties.
 pub fn cross_entropy_sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
     let expected = outcome.0;
     let epsilon = 1e-8;
@@ -124,7 +122,8 @@ pub fn sample_loss_for_cp(
 /// This is  `d/deval loss(prediction) = d/deval loss(sigmoid(eval, scaling_factor))`.
 /// Since `loss` is the cross-entropy loss, this cancels out to `(prediction.0 - outcome.0) * sample_weight`
 pub fn scaled_sample_grad(prediction: WrScore, outcome: Outcome, sample_weight: Float) -> Float {
-    (prediction.0 - outcome.0) * sample_weight
+    // (prediction.0 - outcome.0) * sample_weight
+    (prediction.0 - outcome.0) * prediction.0 * (1.0 - prediction.0) * sample_weight
 }
 
 /// A single weight.
@@ -704,12 +703,12 @@ pub fn optimize_entire_batch<D: Datapoint>(
                 }
             }
             println!(
-                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), quadratic loss: {qloss}, (cross-entropy) loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
+                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), cross-entropy loss: {celoss}, (quadratic) loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
                 maximum weight change to 50 epochs ago: {max_diff:.2}",
                 epoch as f32 / elapsed.as_secs_f32(),
                 (prev_loss - loss) * 1_000_000.0,
                 elapsed = elapsed.as_secs(),
-                qloss = loss_for(&weights, batch, eval_scale, quadratic_sample_loss),
+                celoss = loss_for(&weights, batch, eval_scale, cross_entropy_sample_loss),
             );
             if loss <= 0.001 && epoch >= 20 {
                 println!("loss less than epsilon, stopping after {epoch} epochs");
@@ -726,7 +725,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
         }
         if epoch == 20.min(num_epochs / 100) {
             optimizer.lr_drop(1.0 / initial_lr_factor); // undo the raised lr.
-        } else if epoch == num_epochs * 3 / 4 {
+        } else if epoch == num_epochs / 2 {
             optimizer.lr_drop(2.0);
         }
     }
