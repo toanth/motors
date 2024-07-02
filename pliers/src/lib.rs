@@ -90,7 +90,7 @@
 use crate::eval::Eval;
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
-    optimize_entire_batch, print_optimized_weights, AdamW, Datapoint, Dataset, Optimizer,
+    optimize_entire_batch, print_optimized_weights, Adam, Datapoint, Dataset, Optimizer,
 };
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
@@ -176,7 +176,7 @@ pub fn load_datasets_from_json(json_file_path: &Path) -> Res<Vec<AnnotatedFenFil
 
 /// Optimize the eval with [`Adam`] on the supplied `file_list`.
 pub fn optimize<B: Board, E: Eval<B>>(file_list: &[AnnotatedFenFile]) -> Res<()> {
-    optimize_for::<B, E, AdamW>(file_list, DEFAULT_NUM_EPOCHS)
+    optimize_for::<B, E, Adam>(file_list, DEFAULT_NUM_EPOCHS)
 }
 
 /// Optimize the eval with the given optimizer for the given number of epochs.
@@ -219,7 +219,7 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
         Scale(scale) => scale,
         InitialWeights(_) => 100.0, // Tuning the scaling factor one a single position is just going to result in inf or 0.
     };
-    let mut optimizer = AdamW::new(dataset.as_batch(), scale);
+    let mut optimizer = Adam::new(dataset.as_batch(), scale);
     let weights = optimize_entire_batch(dataset.as_batch(), scale, 1, &e, &mut optimizer);
     assert_eq!(weights.len(), E::NUM_WEIGHTS);
     println!(
@@ -284,7 +284,7 @@ mod tests {
         let weights = optimize_entire_batch(
             batch,
             eval_scale,
-            100,
+            500,
             &PistonEval::default(),
             &mut optimizer,
         );

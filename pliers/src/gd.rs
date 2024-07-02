@@ -76,14 +76,14 @@ pub fn cp_to_wr(cp: CpScore, eval_scale: ScalingFactor) -> WrScore {
 /// The *loss* of a single sample.
 ///
 /// The loss is a measure of how wrong our prediction is; smaller values are better.
-/// Although we use the cross entropy loss for gradient descend, this function instead returns the quadratic loss.
-/// There are a couple of reasons for this:
-/// - Under reasonable assumptions, minimizing the cross-entropy loss is equivalent to minimizing the quadratic loss
+/// For displaying the loss to the user, the quadratic sample loss is often the better choice:
+/// - Under somewhat reasonable assumptions, minimizing the cross-entropy loss is equivalent to minimizing the quadratic loss
 /// - The quadratic loss is always zero for a perfect prediction, unlike the cross-entropy loss
-/// - The quadratic loss is slightly cheaper to compute and the loss is only used to display it to the user.
-/// The only exception is optimizing the scaling factor, which explicitly uses the cross-entropy loss.
+/// - The quadratic loss is slightly cheaper to compute
+/// Optimizing the scaling factor explicitly uses the cross-entropy loss, but apart from that the loss is only used for
+/// displaying it to the user.
 pub fn sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
-    quadratic_sample_loss(wr_prediction, outcome)
+    cross_entropy_sample_loss(wr_prediction, outcome)
 }
 
 /// The quadratic sample is loss is the square of `wr_prediction - outcome)`.
@@ -99,8 +99,11 @@ pub fn quadratic_sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float 
 /// and for that, displaying the quadratic loss is fine.
 pub fn cross_entropy_sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
     let expected = outcome.0;
-    let x = wr_prediction.0;
-    -(expected * x.ln() + (1.0 - expected) * (1.0 - x).ln())
+    let epsilon = 1e-8;
+    let x = wr_prediction.0 * (1.0 - 2.0 * epsilon) + epsilon;
+    let res = -(expected * x.ln() + (1.0 - expected) * (1.0 - x).ln());
+    assert!(!res.is_nan());
+    res
 }
 
 /// The loss of an eval score, see [sample_loss].
@@ -665,10 +668,13 @@ pub fn optimize_entire_batch<D: Datapoint>(
 ) -> Weights {
     let mut prev_weights: Vec<Weight> = vec![];
     let mut weights = Weights::new(batch.num_weights);
-    if weights_interpretation.retune_from_zero() {
-        // Since weights are initially 0, use a very high lr for the first couple of iterations.
-        optimizer.lr_drop(0.25); // increases lr by a factor of
+    let initial_lr_factor = if weights_interpretation.retune_from_zero() {
+        0.25
     } else {
+        0.5
+    };
+    optimizer.lr_drop(initial_lr_factor);
+    if !weights_interpretation.retune_from_zero() {
         weights = weights_interpretation
             .initial_weights()
             .expect("if `retune_from_zero()` returns `false`, there must be initial weights");
@@ -698,11 +704,12 @@ pub fn optimize_entire_batch<D: Datapoint>(
                 }
             }
             println!(
-                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
+                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), quadratic loss: {qloss}, (cross-entropy) loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
                 maximum weight change to 50 epochs ago: {max_diff:.2}",
                 epoch as f32 / elapsed.as_secs_f32(),
                 (prev_loss - loss) * 1_000_000.0,
-                elapsed = elapsed.as_secs()
+                elapsed = elapsed.as_secs(),
+                qloss = loss_for(&weights, batch, eval_scale, quadratic_sample_loss),
             );
             if loss <= 0.001 && epoch >= 20 {
                 println!("loss less than epsilon, stopping after {epoch} epochs");
@@ -717,16 +724,16 @@ pub fn optimize_entire_batch<D: Datapoint>(
             prev_weights.clone_from(&weights.0);
             prev_loss = loss;
         }
-        if weights_interpretation.retune_from_zero() && epoch == 20.min(num_epochs / 100) {
-            optimizer.lr_drop(4.0); // undo the raised lr.
-        } else if epoch == num_epochs / 2 {
+        if epoch == 20.min(num_epochs / 100) {
+            optimizer.lr_drop(1.0 / initial_lr_factor); // undo the raised lr.
+        } else if epoch == num_epochs * 3 / 4 {
             optimizer.lr_drop(2.0);
         }
     }
     weights
 }
 
-/// Convenience function for optimizing with the [`Adam`] optimizer.
+/// Convenience function for optimizing with the [`AdamW`] optimizer.
 #[allow(unused)]
 fn adamw_optimize<D: Datapoint>(
     batch: Batch<D>,
@@ -841,7 +848,7 @@ impl<D: Datapoint> Optimizer<D> for SimpleGDOptimizer {
 /// Hyperparameters are parameters that control the optimization process and are not themselves
 /// automatically optimized.
 #[derive(Debug, Copy, Clone)]
-pub struct AdamHyperParams {
+pub struct AdamwHyperParams {
     /// Adam Learning rate multiplier, an upper bound on the step size.
     /// This isn't quite the learning rate for AdamW because it doesn't apply to the weight decay term.
     /// Currently, this implementation does not support a separate learning rate.
@@ -857,10 +864,10 @@ pub struct AdamHyperParams {
     pub lambda: Float,
 }
 
-impl AdamHyperParams {
+impl AdamwHyperParams {
     fn for_eval_scale(eval_scale: ScalingFactor) -> Self {
         Self {
-            alpha: eval_scale / 20.0,
+            alpha: eval_scale / 100.0,
             // Setting these values too low can introduce crazy swings in the eval values and loss when it would
             // otherwise appear converged -- maybe because of numerical instability?
             beta1: 0.9,
@@ -871,12 +878,39 @@ impl AdamHyperParams {
     }
 }
 
-/// The default tuner, an implementation of the very widely used [AdamW](https://arxiv.org/abs/1711.05101) optimizer,
-/// which extends the [Adam](https://arxiv.org/abs/1412.6980) optimizer with weight decay.
+/// The default tuner, an implementation of the widely used [Adam](https://arxiv.org/abs/1412.6980) optimizer,
+/// which is the same as the [`AdamW`] tuner without weight decay.
+pub struct Adam(AdamW);
+
+impl<D: Datapoint> Optimizer<D> for Adam {
+    fn new(batch: Batch<D>, eval_scale: ScalingFactor) -> Self
+    where
+        Self: Sized,
+    {
+        Self(AdamW::adam(batch, eval_scale))
+    }
+
+    fn lr_drop(&mut self, factor: Float) {
+        <AdamW as Optimizer<D>>::lr_drop(&mut self.0, factor);
+    }
+
+    fn iteration(
+        &mut self,
+        weights: &mut Weights,
+        batch: Batch<'_, D>,
+        eval_scale: ScalingFactor,
+        i: usize,
+    ) {
+        self.0.iteration(weights, batch, eval_scale, i)
+    }
+}
+
+/// An implementation of the very widely used [AdamW](https://arxiv.org/abs/1711.05101) optimizer,
+/// which extends the [`Adam`] optimizer with weight decay.
 #[derive(Debug)]
 pub struct AdamW {
     /// Hyperparameters. Should be set before starting to optimize.
-    pub hyper_params: AdamHyperParams,
+    pub hyper_params: AdamwHyperParams,
     /// first moment (exponentially moving average)
     m: Weights,
     /// second moment (exponentially moving average)
@@ -895,7 +929,7 @@ impl AdamW {
 
 impl<D: Datapoint> Optimizer<D> for AdamW {
     fn new(batch: Batch<D>, eval_scale: ScalingFactor) -> Self {
-        let hyper_params = AdamHyperParams::for_eval_scale(eval_scale);
+        let hyper_params = AdamwHyperParams::for_eval_scale(eval_scale);
         Self {
             hyper_params,
             m: Weights::new(batch.num_weights),
@@ -1139,8 +1173,9 @@ mod tests {
             assert!(weights[1].0 <= -100.0);
 
             type AnyOptimizer = Box<dyn Optimizer<NonTaperedDatapoint>>;
-            let optimizers: [AnyOptimizer; 2] = [
+            let optimizers: [AnyOptimizer; 3] = [
                 Box::new(SimpleGDOptimizer { alpha: 1.0 }),
+                Box::new(Adam::new(batch, scale)),
                 Box::new(AdamW::new(batch, scale)),
             ];
             for mut optimizer in optimizers {
@@ -1214,7 +1249,7 @@ mod tests {
                 num_weights: 1,
                 weight_sum: 1.0,
             };
-            let mut adam = AdamW::new(batch, eval_scale);
+            let mut adam = Adam::new(batch, eval_scale);
             let weights = adam.optimize_simple(batch, eval_scale, 20);
             assert_eq!(weights.len(), 1);
             let weight = weights[0].0;

@@ -251,10 +251,6 @@ impl WeightsInterpretation for TuneLiTEval {
         false
     }
 
-    fn interpolate_decay(&self) -> Option<Float> {
-        Some(0.99) // a relatively small value (far away from 1) because some pawn shield configurations are very uncommon
-    }
-
     fn initial_weights(&self) -> Option<Weights> {
         let mut weights = vec![Weight(0.0); Self::NUM_WEIGHTS];
         for piece in UncoloredChessPiece::non_king_pieces() {
