@@ -76,13 +76,14 @@ pub fn cp_to_wr(cp: CpScore, eval_scale: ScalingFactor) -> WrScore {
 /// The *loss* of a single sample.
 ///
 /// The loss is a measure of how wrong our prediction is; smaller values are better.
-/// The loss itself is only used for displaying it to the user, but the derivative is used for optimizationn.
-/// This function uses the quadratic sample loss, which is often the better choice:
+/// Apart from optimizing the scaling factor, the loss itself is only used for displaying it to the user,
+/// only the derivative is used for optimization.
+/// For displaying a loss, it often makes more sense to use the quadratic sample loss:
 /// - Under somewhat reasonable assumptions, minimizing the cross-entropy loss is equivalent to minimizing the quadratic loss
 /// - The quadratic loss is always zero for a perfect prediction, unlike the cross-entropy loss
 /// - The quadratic loss is slightly cheaper to compute
 pub fn sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
-    quadratic_sample_loss(wr_prediction, outcome)
+    cross_entropy_sample_loss(wr_prediction, outcome)
 }
 
 /// The quadratic sample is loss is the square of `wr_prediction - outcome)`.
@@ -122,8 +123,26 @@ pub fn sample_loss_for_cp(
 /// This is  `d/deval loss(prediction) = d/deval loss(sigmoid(eval, scaling_factor))`.
 /// Since `loss` is the cross-entropy loss, this cancels out to `(prediction.0 - outcome.0) * sample_weight`
 pub fn scaled_sample_grad(prediction: WrScore, outcome: Outcome, sample_weight: Float) -> Float {
-    // (prediction.0 - outcome.0) * sample_weight
+    scaled_sample_grad_cross_entropy(prediction, outcome, sample_weight)
+}
+
+/// The gradient of the quadratic loss applied to the sigmoid of the cp eval.
+/// This may give slightly better results than the cross-entropy loss, but it can take a lot longer to converge
+pub fn scaled_sample_grad_quadratic(
+    prediction: WrScore,
+    outcome: Outcome,
+    sample_weight: Float,
+) -> Float {
     (prediction.0 - outcome.0) * prediction.0 * (1.0 - prediction.0) * sample_weight
+}
+
+/// The gradient of the cross-entropy loss of the sigmoid of the cp eval. See [`scaled_sample_grad`].
+pub fn scaled_sample_grad_cross_entropy(
+    prediction: WrScore,
+    outcome: Outcome,
+    sample_weight: Float,
+) -> Float {
+    (prediction.0 - outcome.0) * sample_weight
 }
 
 /// A single weight.
@@ -703,12 +722,12 @@ pub fn optimize_entire_batch<D: Datapoint>(
                 }
             }
             println!(
-                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), cross-entropy loss: {celoss}, (quadratic) loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
+                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), quadratic loss: {qloss}, cross-entropy loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
                 maximum weight change to 50 epochs ago: {max_diff:.2}",
                 epoch as f32 / elapsed.as_secs_f32(),
                 (prev_loss - loss) * 1_000_000.0,
                 elapsed = elapsed.as_secs(),
-                celoss = loss_for(&weights, batch, eval_scale, cross_entropy_sample_loss),
+                qloss = loss_for(&weights, batch, eval_scale, quadratic_sample_loss),
             );
             if loss <= 0.001 && epoch >= 20 {
                 println!("loss less than epsilon, stopping after {epoch} epochs");

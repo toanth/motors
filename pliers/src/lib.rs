@@ -90,7 +90,7 @@
 use crate::eval::Eval;
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
-    optimize_entire_batch, print_optimized_weights, Adam, AdamW, Datapoint, Dataset, Optimizer,
+    optimize_entire_batch, print_optimized_weights, AdamW, Datapoint, Dataset, Optimizer,
 };
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
