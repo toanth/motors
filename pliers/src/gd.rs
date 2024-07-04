@@ -8,6 +8,7 @@ use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
+use std::marker::PhantomData;
 use std::ops::{DivAssign, MulAssign};
 use std::time::Instant;
 
@@ -73,6 +74,11 @@ pub fn cp_to_wr(cp: CpScore, eval_scale: ScalingFactor) -> WrScore {
     WrScore(sigmoid(cp.0, eval_scale))
 }
 
+/// Larger loss values mean that the prediction is less accurate.
+pub trait LossFn: Fn(WrScore, Outcome) -> Float + Sync + Copy {}
+
+impl<T: Fn(WrScore, Outcome) -> Float + Sync + Copy> LossFn for T {}
+
 /// The *loss* of a single sample.
 ///
 /// The loss is a measure of how wrong our prediction is; smaller values are better.
@@ -122,27 +128,31 @@ pub fn sample_loss_for_cp(
 /// Optimization works by changing weights into the opposite direction of the gradient.
 /// This is  `d/deval loss(prediction) = d/deval loss(sigmoid(eval, scaling_factor))`.
 /// Since `loss` is the cross-entropy loss, this cancels out to `(prediction.0 - outcome.0) * sample_weight`
-pub fn scaled_sample_grad(prediction: WrScore, outcome: Outcome, sample_weight: Float) -> Float {
-    scaled_sample_grad_cross_entropy(prediction, outcome, sample_weight)
+pub trait LossGradient: Sync + Copy {
+    /// Compute the gradient of the loss of the sigmoid of a single sample.
+    fn sample_gradient(score: WrScore, outcome: Outcome, weight: Float) -> Float;
 }
 
 /// The gradient of the quadratic loss applied to the sigmoid of the cp eval.
 /// This may give slightly better results than the cross-entropy loss, but it can take a lot longer to converge
-pub fn scaled_sample_grad_quadratic(
-    prediction: WrScore,
-    outcome: Outcome,
-    sample_weight: Float,
-) -> Float {
-    (prediction.0 - outcome.0) * prediction.0 * (1.0 - prediction.0) * sample_weight
+#[derive(Debug, Default, Copy, Clone)]
+pub struct QuadraticLoss {}
+
+impl LossGradient for QuadraticLoss {
+    fn sample_gradient(prediction: WrScore, outcome: Outcome, sample_weight: Float) -> Float {
+        (prediction.0 - outcome.0) * prediction.0 * (1.0 - prediction.0) * sample_weight
+    }
 }
 
-/// The gradient of the cross-entropy loss of the sigmoid of the cp eval. See [`scaled_sample_grad`].
-pub fn scaled_sample_grad_cross_entropy(
-    prediction: WrScore,
-    outcome: Outcome,
-    sample_weight: Float,
-) -> Float {
-    (prediction.0 - outcome.0) * sample_weight
+/// The cross-entropy loss. This can sometimes lead to faster convergence than the quadratic loss.
+#[derive(Debug, Default, Copy, Clone)]
+pub struct CrossEntropyLoss {}
+
+impl LossGradient for CrossEntropyLoss {
+    /// The gradient of the cross-entropy loss of the sigmoid of the cp eval. See [`scaled_sample_grad`].
+    fn sample_gradient(prediction: WrScore, outcome: Outcome, sample_weight: Float) -> Float {
+        (prediction.0 - outcome.0) * sample_weight
+    }
 }
 
 /// A single weight.
@@ -580,12 +590,12 @@ pub fn loss<D: Datapoint>(
     batch: Batch<'_, D>,
     eval_scale: ScalingFactor,
 ) -> Float {
-    loss_for(weights, batch, eval_scale, sample_loss)
+    loss_for(weights, batch, eval_scale, quadratic_sample_loss)
 }
 
 /// Loss of a position, given the current weights, using the `sample_loss` parameter to calculate
 /// the loss of a single sample.
-pub fn loss_for<D: Datapoint, L: Sync + Fn(WrScore, Outcome) -> Float>(
+pub fn loss_for<D: Datapoint, L: LossFn>(
     weights: &Weights,
     batch: Batch<'_, D>,
     eval_scale: ScalingFactor,
@@ -624,7 +634,17 @@ pub fn loss_for<D: Datapoint, L: Sync + Fn(WrScore, Outcome) -> Float>(
 /// factor. Apart from that, thi function returns the correct gradient, i.e. the actual gradient can be recovered by
 /// dividing by `eval_scale * eval_scale`.
 /// The computation gets parallelized if the batch exceeds a size of [`MIN_MULTITHREADING_BATCH_SIZE`].
-pub fn compute_scaled_gradient<D: Datapoint>(
+pub fn compute_scaled_gradient_with<D: Datapoint, G: LossGradient>(
+    weights: &Weights,
+    batch: Batch<D>,
+    eval_scale: ScalingFactor,
+    _loss: G,
+) -> Gradient {
+    compute_scaled_gradient::<D, G>(weights, batch, eval_scale)
+}
+
+/// Computes the scaled gradient (see [`compute_scaled_gradient_with`]) with the given sample gradient function.
+pub fn compute_scaled_gradient<D: Datapoint, G: LossGradient>(
     weights: &Weights,
     batch: Batch<D>,
     eval_scale: ScalingFactor,
@@ -643,7 +663,7 @@ pub fn compute_scaled_gradient<D: Datapoint>(
 
                     // constant factors have been moved outside the loop
                     let scaled_delta =
-                        scaled_sample_grad(wr_prediction, data.outcome(), data.sampling_weight());
+                        G::sample_gradient(wr_prediction, data.outcome(), data.sampling_weight());
                     grad.update(data, scaled_delta);
                     grad
                 },
@@ -663,17 +683,16 @@ pub fn compute_scaled_gradient<D: Datapoint>(
 
             // TODO: Multiply with `constant_factor` outside the loop?
             let scaled_delta = constant_factor
-                * scaled_sample_grad(wr_prediction, data.outcome(), data.sampling_weight());
+                * G::sample_gradient(wr_prediction, data.outcome(), data.sampling_weight());
             grad.update(data, scaled_delta);
         }
         grad
     }
 }
-
 /// This is where the actual optimization happens.
 ///
 /// Optimize the weights using the given [optimizer](Optimizer) for `num_epochs` epochs, where the gradient is computed
-/// over the entire batch each epoch. Regularly prints the current weights using the supplied [weights interpretation](WeightsInterpretation].
+/// over the entire batch each epoch. Regularly prints the current weights using the supplied [weights interpretation](WeightsInterpretation).
 pub fn optimize_entire_batch<D: Datapoint>(
     batch: Batch<D>,
     eval_scale: ScalingFactor,
@@ -750,7 +769,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
 
 /// Convenience function for optimizing with the [`AdamW`] optimizer.
 #[allow(unused)]
-fn adamw_optimize<D: Datapoint>(
+fn adamw_optimize<D: Datapoint, G: LossGradient>(
     batch: Batch<D>,
     eval_scale: ScalingFactor,
     num_epochs: usize,
@@ -761,7 +780,7 @@ fn adamw_optimize<D: Datapoint>(
         eval_scale,
         num_epochs,
         format_weights,
-        &mut AdamW::new(batch, eval_scale),
+        &mut AdamW::<G>::new(batch, eval_scale),
     )
 }
 
@@ -790,10 +809,18 @@ pub fn print_optimized_weights<D: Datapoint>(
     );
 }
 
+/// The default optimizer. Currently, this is [`Adam`].
+pub type DefaultOptimizer = Adam<QuadraticLoss>;
+
 /// Change the current weights each iteration by taking into account the gradient.
 ///
 /// Different implementations mostly differ in their step size control.
 pub trait Optimizer<D: Datapoint> {
+    /// The gradient of the loss function.
+    type Loss: LossGradient
+    where
+        Self: Sized;
+
     /// Create a new optimizer.
     ///
     /// The [`Batch`] and [`ScalingFactor`] can be used to set internal hyperparameters.
@@ -836,6 +863,10 @@ pub struct SimpleGDOptimizer {
 }
 
 impl<D: Datapoint> Optimizer<D> for SimpleGDOptimizer {
+    type Loss = QuadraticLoss
+    where
+        Self: Sized;
+
     fn new(_batch: Batch<D>, eval_scale: ScalingFactor) -> Self {
         Self {
             alpha: eval_scale / 4.0,
@@ -853,7 +884,8 @@ impl<D: Datapoint> Optimizer<D> for SimpleGDOptimizer {
         eval_scale: ScalingFactor,
         _i: usize,
     ) {
-        let gradient = compute_scaled_gradient(weights, batch, eval_scale);
+        let gradient =
+            compute_scaled_gradient_with(weights, batch, eval_scale, QuadraticLoss::default());
         for i in 0..weights.len() {
             weights[i].0 -= gradient[i].0 * self.alpha;
         }
@@ -895,9 +927,13 @@ impl AdamwHyperParams {
 
 /// The default tuner, an implementation of the widely used [Adam](https://arxiv.org/abs/1412.6980) optimizer,
 /// which is the same as the [`AdamW`] tuner without weight decay.
-pub struct Adam(AdamW);
+pub struct Adam<G: LossGradient>(AdamW<G>);
 
-impl<D: Datapoint> Optimizer<D> for Adam {
+impl<D: Datapoint, G: LossGradient> Optimizer<D> for Adam<G> {
+    type Loss = G
+    where
+        Self: Sized;
+
     fn new(batch: Batch<D>, eval_scale: ScalingFactor) -> Self
     where
         Self: Sized,
@@ -906,7 +942,7 @@ impl<D: Datapoint> Optimizer<D> for Adam {
     }
 
     fn lr_drop(&mut self, factor: Float) {
-        <AdamW as Optimizer<D>>::lr_drop(&mut self.0, factor);
+        <AdamW<G> as Optimizer<D>>::lr_drop(&mut self.0, factor);
     }
 
     fn iteration(
@@ -923,16 +959,17 @@ impl<D: Datapoint> Optimizer<D> for Adam {
 /// An implementation of the very widely used [AdamW](https://arxiv.org/abs/1711.05101) optimizer,
 /// which extends the [`Adam`] optimizer with weight decay.
 #[derive(Debug)]
-pub struct AdamW {
+pub struct AdamW<G: LossGradient> {
     /// Hyperparameters. Should be set before starting to optimize.
     pub hyper_params: AdamwHyperParams,
     /// first moment (exponentially moving average)
     m: Weights,
     /// second moment (exponentially moving average)
     v: Weights,
+    _phantom: PhantomData<G>,
 }
 
-impl AdamW {
+impl<G: LossGradient> AdamW<G> {
     /// Create a new `Adam` optimizer, which is the same as an [`AdamW`] optimizer with the `lambda` hyperparameter
     /// set to zero.
     pub fn adam<D: Datapoint>(batch: Batch<D>, eval_scale: ScalingFactor) -> Self {
@@ -942,13 +979,18 @@ impl AdamW {
     }
 }
 
-impl<D: Datapoint> Optimizer<D> for AdamW {
+impl<D: Datapoint, G: LossGradient> Optimizer<D> for AdamW<G> {
+    type Loss = G
+    where
+        Self: Sized;
+
     fn new(batch: Batch<D>, eval_scale: ScalingFactor) -> Self {
         let hyper_params = AdamwHyperParams::for_eval_scale(eval_scale);
         Self {
             hyper_params,
             m: Weights::new(batch.num_weights),
             v: Weights::new(batch.num_weights),
+            _phantom: Default::default(),
         }
     }
 
@@ -966,7 +1008,7 @@ impl<D: Datapoint> Optimizer<D> for AdamW {
         let iteration = iteration + 1;
         let beta1 = self.hyper_params.beta1;
         let beta2 = self.hyper_params.beta2;
-        let gradient = compute_scaled_gradient(weights, batch, eval_scale);
+        let gradient = compute_scaled_gradient::<D, G>(weights, batch, eval_scale);
         for i in 0..gradient.len() {
             // biased since the values are initialized to 0, so the exponential moving average is wrong
             self.m[i] = self.m[i] * beta1 + gradient[i] * (1.0 - beta1);
@@ -1032,7 +1074,9 @@ mod tests {
                 num_weights: 1,
                 weight_sum: 1.0,
             };
-            let gradient = compute_scaled_gradient(&weights, batch, 1.0);
+            let gradient = compute_scaled_gradient::<NonTaperedDatapoint, CrossEntropyLoss>(
+                &weights, batch, 1.0,
+            );
             assert_eq!(gradient.len(), 1);
             let gradient_value = gradient[0].0;
             let sgn = |x| {
@@ -1066,7 +1110,12 @@ mod tests {
                     dataset.push(datapoint);
                     let batch = dataset.as_batch();
                     for _ in 0..100 {
-                        let grad = compute_scaled_gradient(&weights, batch, scaling_factor);
+                        let grad = compute_scaled_gradient_with(
+                            &weights,
+                            batch,
+                            scaling_factor,
+                            QuadraticLoss::default(),
+                        );
                         let old_weights = weights.clone();
                         weights -= &(grad.clone() * 0.5);
                         // println!("loss {0}, initial weight {initial_weight}, weights {weights}, gradient {grad}, eval {1}, predicted {2}, outcome {outcome}, feature {feature}, scaling factor {scaling_factor}", loss(&weights, &dataset, scaling_factor), cp_eval_for_weights(&weights, &dataset[0].position), wr_prediction_for_weights(&weights, &dataset[0].position, scaling_factor));
@@ -1114,7 +1163,8 @@ mod tests {
                 weight_sum: 3.0,
             };
             for i in 0..100 {
-                let grad = compute_scaled_gradient(&weights, batch, 1.0);
+                let grad =
+                    compute_scaled_gradient_with(&weights, batch, 1.0, QuadraticLoss::default());
                 let old_weights = weights.clone();
                 weights -= &grad;
                 let new_loss = loss(&weights, batch, 1.0);
@@ -1144,7 +1194,12 @@ mod tests {
             };
             let mut lr = 0.2;
             for i in 0..100 {
-                let grad = compute_scaled_gradient(&weights, batch, scale);
+                let grad = compute_scaled_gradient_with(
+                    &weights,
+                    batch,
+                    scale,
+                    CrossEntropyLoss::default(),
+                );
                 let old_weights = weights.clone();
                 weights -= &(grad.clone() * lr);
                 let current_loss = loss(&weights, batch, scale);
@@ -1189,7 +1244,12 @@ mod tests {
             ]);
             let mut weights_copy = weights.clone();
             for _ in 0..200 {
-                let grad = compute_scaled_gradient(&weights, batch, scale);
+                let grad = compute_scaled_gradient_with(
+                    &weights,
+                    batch,
+                    scale,
+                    CrossEntropyLoss::default(),
+                );
                 weights -= &grad;
             }
             let remaining_loss = loss_for(&weights, batch, scale, quadratic_sample_loss);
@@ -1198,10 +1258,12 @@ mod tests {
             assert!(weights[1].0 <= -100.0);
 
             type AnyOptimizer = Box<dyn Optimizer<NonTaperedDatapoint>>;
-            let optimizers: [AnyOptimizer; 3] = [
+            let optimizers: [AnyOptimizer; 5] = [
                 Box::new(SimpleGDOptimizer { alpha: 1.0 }),
-                Box::new(Adam::new(batch, scale)),
-                Box::new(AdamW::new(batch, scale)),
+                Box::new(Adam::<QuadraticLoss>::new(batch, scale)),
+                Box::new(Adam::<CrossEntropyLoss>::new(batch, scale)),
+                Box::new(AdamW::<QuadraticLoss>::new(batch, scale)),
+                Box::new(AdamW::<CrossEntropyLoss>::new(batch, scale)),
             ];
             for mut optimizer in optimizers {
                 for i in 0..200 {
@@ -1238,7 +1300,7 @@ mod tests {
             weight_sum: 3.0,
         };
         for _ in 0..500 {
-            let grad = compute_scaled_gradient(&weights, batch, 1.0);
+            let grad = compute_scaled_gradient_with(&weights, batch, 1.0, QuadraticLoss::default());
             println!(
                 "current weights: {0}, current loss: {1}, gradient: {2}",
                 weights,
@@ -1274,7 +1336,7 @@ mod tests {
                 num_weights: 1,
                 weight_sum: 1.0,
             };
-            let mut adam = Adam::new(batch, eval_scale);
+            let mut adam = Adam::<QuadraticLoss>::new(batch, eval_scale);
             let weights = adam.optimize_simple(batch, eval_scale, 20);
             assert_eq!(weights.len(), 1);
             let weight = weights[0].0;
