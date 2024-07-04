@@ -4,7 +4,7 @@ use strum::IntoEnumIterator;
 use crate::eval::chess::lite_values::*;
 use crate::eval::chess::{pawn_shield_idx, FileOpenness};
 use gears::games::chess::moves::ChessMove;
-use gears::games::chess::pieces::UncoloredChessPiece::{Bishop, Empty, King, Pawn, Rook};
+use gears::games::chess::pieces::UncoloredChessPiece::{Bishop, Empty, King, Pawn, Queen, Rook};
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::squares::ChessSquare;
 use gears::games::chess::Chessboard;
@@ -163,9 +163,11 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             .colored_piece_bb(color.other(), Pawn)
             .pawn_attacks(color.other());
         for piece in UncoloredChessPiece::non_pawn_pieces() {
+            let mut all_attacked = ChessBitboard::default();
             for square in pos.colored_piece_bb(color, piece).ones() {
                 let attacks =
                     pos.attacks_no_castle_or_pawn_push(square, piece, color) & !attacked_by_pawn;
+                all_attacked |= attacks;
                 let mobility = (attacks & !pos.colored_bb(color)).num_ones();
                 score += Tuned::mobility(piece, mobility);
                 for threatened_piece in UncoloredChessPiece::pieces() {
@@ -173,6 +175,11 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                     score += Tuned::threats(piece, threatened_piece) * attacked.num_ones();
                     let defended = pos.colored_piece_bb(color, threatened_piece) & attacks;
                     score += Tuned::defended(piece, threatened_piece) * defended.num_ones();
+                }
+            }
+            if [Bishop, Rook, Queen].contains(&piece) {
+                for square in all_attacked.ones() {
+                    score += Tuned::attacked_squares(piece, square.flip_if(color == White));
                 }
             }
         }

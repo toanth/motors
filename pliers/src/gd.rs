@@ -659,14 +659,11 @@ pub fn compute_scaled_gradient<D: Datapoint>(
     } else {
         let mut grad = Gradient::new(weights.num_weights());
         for data in batch.iter() {
-            let wr_prediction = wr_prediction_for_weights(weights, data, eval_scale).0;
+            let wr_prediction = wr_prediction_for_weights(weights, data, eval_scale);
 
             // TODO: Multiply with `constant_factor` outside the loop?
             let scaled_delta = constant_factor
-                * (wr_prediction - data.outcome().0)
-                * wr_prediction
-                * (1.0 - wr_prediction)
-                * data.sampling_weight();
+                * scaled_sample_grad(wr_prediction, data.outcome(), data.sampling_weight());
             grad.update(data, scaled_delta);
         }
         grad
@@ -885,7 +882,7 @@ pub struct AdamwHyperParams {
 impl AdamwHyperParams {
     fn for_eval_scale(eval_scale: ScalingFactor) -> Self {
         Self {
-            alpha: eval_scale / 100.0,
+            alpha: eval_scale / 50.0,
             // Setting these values too low can introduce crazy swings in the eval values and loss when it would
             // otherwise appear converged -- maybe because of numerical instability?
             beta1: 0.9,
@@ -1028,7 +1025,7 @@ mod tests {
         for outcome in [0.0_f64, 0.5, 1.0] {
             let data_points = [NonTaperedDatapoint {
                 features: vec![Feature::new(1, 0)],
-                outcome: Outcome::new(1.0),
+                outcome: Outcome::new(outcome),
             }];
             let batch = Batch {
                 datapoints: data_points.as_slice(),
@@ -1037,15 +1034,25 @@ mod tests {
             };
             let gradient = compute_scaled_gradient(&weights, batch, 1.0);
             assert_eq!(gradient.len(), 1);
-            let gradient = gradient[0].0;
-            assert_eq!(-gradient, 0.5 * 0.5 * 0.5 * 2.0 * outcome.signum());
+            let gradient_value = gradient[0].0;
+            let sgn = |x| {
+                if x > 0.0 {
+                    1.0
+                } else if x < 0.0 {
+                    -1.0
+                } else {
+                    0.0
+                }
+            };
+            // assert_eq!(-gradient, 0.5 * 0.5 * 0.5 * 2.0 * outcome.signum());
+            assert_eq!(-gradient_value, sgn(outcome - 0.5), "{outcome}");
         }
     }
 
     #[test]
     // testcase that contains only 1 position with only 1 feature
     pub fn trivial_test() {
-        let scaling_factor = 100.0;
+        let scaling_factor = 42.0;
         for feature in [1, 2, -1, 0] {
             for initial_weight in [0.0, 0.1, 100.0, -1.2] {
                 for outcome in [0.0, 0.5, 1.0, 0.9, 0.499] {
@@ -1061,7 +1068,7 @@ mod tests {
                     for _ in 0..100 {
                         let grad = compute_scaled_gradient(&weights, batch, scaling_factor);
                         let old_weights = weights.clone();
-                        weights -= &grad;
+                        weights -= &(grad.clone() * 0.5);
                         // println!("loss {0}, initial weight {initial_weight}, weights {weights}, gradient {grad}, eval {1}, predicted {2}, outcome {outcome}, feature {feature}, scaling factor {scaling_factor}", loss(&weights, &dataset, scaling_factor), cp_eval_for_weights(&weights, &dataset[0].position), wr_prediction_for_weights(&weights, &dataset[0].position, scaling_factor));
                         if initial_weight == 0.0 && grad.0[0].0.abs() > 0.0000001 {
                             assert_eq!(
@@ -1135,15 +1142,15 @@ mod tests {
                 num_weights: 1,
                 weight_sum: 1.0,
             };
-            let mut lr = 1.0;
-            for _ in 0..100 {
+            let mut lr = 0.2;
+            for i in 0..100 {
                 let grad = compute_scaled_gradient(&weights, batch, scale);
                 let old_weights = weights.clone();
                 weights -= &(grad.clone() * lr);
                 let current_loss = loss(&weights, batch, scale);
                 let old_loss = loss(&old_weights, batch, scale);
-                assert!(current_loss <= old_loss);
-                lr *= 0.99;
+                assert!(current_loss <= old_loss, "{i} {current_loss} {old_loss}");
+                lr *= 0.9;
             }
             let loss = loss_for(&weights, batch, scale, quadratic_sample_loss);
             assert!(loss <= 0.01, "{loss}");

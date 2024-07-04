@@ -1,8 +1,6 @@
 //! The hand-crafted eval used by the `caps` chess engine.
 
-use crate::eval::chess::{
-    write_phased_psqt, write_psqts, SkipChecks, NUM_PHASES, NUM_PSQT_FEATURES,
-};
+use crate::eval::chess::{write_phased_psqt, write_psqts, SkipChecks, NUM_PSQT_FEATURES};
 use crate::eval::EvalScale::Scale;
 use crate::eval::{changed_at_least, write_phased, Eval, EvalScale, WeightsInterpretation};
 use crate::gd::{Float, TaperedDatapoint, Weight, Weights};
@@ -18,6 +16,7 @@ use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
 use motors::eval::chess::FileOpenness::SemiClosed;
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
+use motors::eval::ScoreType;
 use std::fmt::Formatter;
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -33,6 +32,7 @@ impl LiTETrace {
     const NUM_MOBILITY_FEATURES: usize = (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1);
     const NUM_THREAT_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
     const NUM_DEFENSE_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
+    const NUM_SQUARE_ATTACK_FEATURES: usize = NUM_SQUARES * 3;
 
     const PASSED_PAWN_OFFSET: usize = NUM_PSQT_FEATURES;
     const BISHOP_PAIR_OFFSET: usize = Self::PASSED_PAWN_OFFSET + Self::NUM_PASSED_PAWN_FEATURES;
@@ -46,8 +46,9 @@ impl LiTETrace {
     const MOBILITY_OFFSET: usize = Self::PAWN_ATTACKS_OFFSET + Self::NUM_PAWN_ATTACKS_FEATURES;
     const THREAT_OFFSET: usize = Self::MOBILITY_OFFSET + Self::NUM_MOBILITY_FEATURES;
     const DEFENSE_OFFSET: usize = Self::THREAT_OFFSET + Self::NUM_THREAT_FEATURES;
+    const SQUARE_ATTACK_OFFSET: usize = Self::DEFENSE_OFFSET + Self::NUM_DEFENSE_FEATURES;
 
-    const NUM_FEATURES: usize = Self::DEFENSE_OFFSET + Self::NUM_DEFENSE_FEATURES;
+    const NUM_FEATURES: usize = Self::SQUARE_ATTACK_OFFSET + Self::NUM_SQUARE_ATTACK_FEATURES;
 }
 
 impl LiteValues for LiTETrace {
@@ -122,6 +123,16 @@ impl LiteValues for LiTETrace {
             Self::DEFENSE_OFFSET + (protecting as usize - 1) * NUM_CHESS_PIECES + target as usize;
         SingleFeature::new(idx)
     }
+
+    fn attacked_squares(
+        piece: UncoloredChessPiece,
+        square: ChessSquare,
+    ) -> <Self::Score as ScoreType>::SingleFeatureScore {
+        let idx = Self::SQUARE_ATTACK_OFFSET
+            + (piece as usize - Bishop as usize) * NUM_SQUARES
+            + square.bb_idx();
+        SingleFeature::new(idx)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -138,13 +149,7 @@ impl WeightsInterpretation for TuneLiTEval {
             write_psqts(f, weights, &special)?;
             writeln!(f, "\n#[rustfmt::skip]")?;
             write!(f, "const PASSED_PAWNS: [PhasedScore; NUM_SQUARES] =")?;
-            write_phased_psqt(
-                f,
-                &weights[NUM_PHASES * NUM_PSQT_FEATURES..],
-                &special,
-                0,
-                None,
-            )?;
+            write_phased_psqt(f, &weights, &special, None, NUM_PSQT_FEATURES)?;
             let mut idx = LiTETrace::BISHOP_PAIR_OFFSET;
 
             writeln!(
@@ -236,6 +241,15 @@ impl WeightsInterpretation for TuneLiTEval {
                     idx += 1;
                 }
                 writeln!(f, "],")?;
+            }
+            writeln!(f, "];")?;
+            writeln!(
+                f,
+                "const ATTACKED_SQUARES: [[PhasedScore; NUM_SQUARES]; 3] = ["
+            )?;
+            for piece in [Bishop, Rook, Queen] {
+                write_phased_psqt(f, &weights, &special, Some(piece), idx)?;
+                idx += NUM_SQUARES;
             }
             writeln!(f, "];")?;
             assert_eq!(idx, Self::NUM_FEATURES);
