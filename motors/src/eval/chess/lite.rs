@@ -185,13 +185,6 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let king_square = pos.king_square(color);
         let king_file = king_square.file();
         score += Tuned::king_openness(file_openness(king_file, our_pawns, their_pawns));
-        let bishops = pos.colored_piece_bb(color, Bishop);
-        for bishop in bishops.ones() {
-            let (diag, len) = diagonal_openness(bishop, our_pawns, their_pawns);
-            score += Tuned::bishop_openness(diag, len);
-            let (anti_diag, len) = anti_diagonal_openness(bishop, our_pawns, their_pawns);
-            score += Tuned::bishop_openness(anti_diag, len);
-        }
         score
     }
 
@@ -200,12 +193,14 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let attacked_by_pawn = pos
             .colored_piece_bb(color.other(), Pawn)
             .pawn_attacks(color.other());
+        let king_zone = Chessboard::normal_king_moves_from_square(pos.king_square(color.other()));
+        if (pos.colored_piece_bb(color, Pawn).pawn_attacks(color) & king_zone).has_set_bit() {
+            score += Tuned::king_zone_attack(Pawn);
+        }
         for piece in UncoloredChessPiece::non_pawn_pieces() {
-            let mut all_attacked = ChessBitboard::default();
             for square in pos.colored_piece_bb(color, piece).ones() {
                 let attacks =
                     pos.attacks_no_castle_or_pawn_push(square, piece, color) & !attacked_by_pawn;
-                all_attacked |= attacks;
                 let mobility = (attacks & !pos.colored_bb(color)).num_ones();
                 score += Tuned::mobility(piece, mobility);
                 for threatened_piece in UncoloredChessPiece::pieces() {
@@ -213,6 +208,9 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                     score += Tuned::threats(piece, threatened_piece) * attacked.num_ones();
                     let defended = pos.colored_piece_bb(color, threatened_piece) & attacks;
                     score += Tuned::defended(piece, threatened_piece) * defended.num_ones();
+                }
+                if (attacks & king_zone).has_set_bit() {
+                    score += Tuned::king_zone_attack(piece);
                 }
             }
         }

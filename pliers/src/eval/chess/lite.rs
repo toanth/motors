@@ -18,7 +18,6 @@ use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use motors::eval::ScoreType;
 use std::fmt::Formatter;
-use strum::IntoEnumIterator;
 
 #[derive(Debug, Default, Copy, Clone)]
 struct LiTETrace {}
@@ -27,31 +26,29 @@ impl LiTETrace {
     const ONE_BISHOP_PAIR_FEATURE: usize = 1;
     const NUM_ROOK_OPENNESS_FEATURES: usize = 3;
     const NUM_KING_OPENNESS_FEATURES: usize = 3;
-    const NUM_BISHOP_OPENNESS_FEATURES: usize = 4 * 8;
     const NUM_PASSED_PAWN_FEATURES: usize = NUM_SQUARES;
     const NUM_PAWN_PROTECTION_FEATURES: usize = NUM_CHESS_PIECES;
     const NUM_PAWN_ATTACKS_FEATURES: usize = NUM_CHESS_PIECES;
     const NUM_MOBILITY_FEATURES: usize = (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1);
     const NUM_THREAT_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
     const NUM_DEFENSE_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
+    const NUM_KING_ZONE_ATTACK_FEATURES: usize = NUM_CHESS_PIECES;
 
     const PASSED_PAWN_OFFSET: usize = NUM_PSQT_FEATURES;
     const BISHOP_PAIR_OFFSET: usize = Self::PASSED_PAWN_OFFSET + Self::NUM_PASSED_PAWN_FEATURES;
     const ROOK_OPENNESS_OFFSET: usize = Self::BISHOP_PAIR_OFFSET + Self::ONE_BISHOP_PAIR_FEATURE;
     const KING_OPENNESS_OFFSET: usize =
         Self::ROOK_OPENNESS_OFFSET + Self::NUM_ROOK_OPENNESS_FEATURES;
-    const BISHOP_OPENNESS_OFFSET: usize =
-        Self::KING_OPENNESS_OFFSET + Self::NUM_KING_OPENNESS_FEATURES;
-    const PAWN_SHIELD_OFFSET: usize =
-        Self::BISHOP_OPENNESS_OFFSET + Self::NUM_BISHOP_OPENNESS_FEATURES;
+    const PAWN_SHIELD_OFFSET: usize = Self::KING_OPENNESS_OFFSET + Self::NUM_KING_OPENNESS_FEATURES;
     const PAWN_PROTECTION_OFFSET: usize = Self::PAWN_SHIELD_OFFSET + NUM_PAWN_SHIELD_CONFIGURATIONS;
     const PAWN_ATTACKS_OFFSET: usize =
         Self::PAWN_PROTECTION_OFFSET + Self::NUM_PAWN_PROTECTION_FEATURES;
     const MOBILITY_OFFSET: usize = Self::PAWN_ATTACKS_OFFSET + Self::NUM_PAWN_ATTACKS_FEATURES;
     const THREAT_OFFSET: usize = Self::MOBILITY_OFFSET + Self::NUM_MOBILITY_FEATURES;
     const DEFENSE_OFFSET: usize = Self::THREAT_OFFSET + Self::NUM_THREAT_FEATURES;
+    const KING_ZONE_ATTACK_OFFSET: usize = Self::DEFENSE_OFFSET + Self::NUM_DEFENSE_FEATURES;
 
-    const NUM_FEATURES: usize = Self::DEFENSE_OFFSET + Self::NUM_DEFENSE_FEATURES;
+    const NUM_FEATURES: usize = Self::KING_ZONE_ATTACK_OFFSET + Self::NUM_KING_ZONE_ATTACK_FEATURES;
 }
 
 impl LiteValues for LiTETrace {
@@ -86,15 +83,6 @@ impl LiteValues for LiTETrace {
             return SingleFeature::no_feature();
         }
         let idx = Self::KING_OPENNESS_OFFSET + openness as usize;
-        SingleFeature::new(idx)
-    }
-
-    fn bishop_openness(
-        openness: FileOpenness,
-        len: usize,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore {
-        debug_assert!(len <= 8);
-        let idx = Self::BISHOP_OPENNESS_OFFSET + openness as usize * 8 + len - 1;
         SingleFeature::new(idx)
     }
 
@@ -135,6 +123,13 @@ impl LiteValues for LiTETrace {
             Self::DEFENSE_OFFSET + (protecting as usize - 1) * NUM_CHESS_PIECES + target as usize;
         SingleFeature::new(idx)
     }
+
+    fn king_zone_attack(
+        attacking: UncoloredChessPiece,
+    ) -> <Self::Score as ScoreType>::SingleFeatureScore {
+        let idx = Self::KING_ZONE_ATTACK_OFFSET + attacking as usize;
+        SingleFeature::new(idx)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -171,16 +166,6 @@ impl WeightsInterpretation for TuneLiTEval {
                     idx += 1;
                 }
             }
-            writeln!(f, "const BISHOP_OPENNESS: [[PhasedScore; 8]; 4] = [")?;
-            for openness in FileOpenness::iter() {
-                write!(f, "    // {openness}\n    [")?;
-                for _len in 0..8 {
-                    write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                    idx += 1;
-                }
-                writeln!(f, "], ")?;
-            }
-            writeln!(f, "];")?;
             writeln!(
                 f,
                 "const PAWN_SHIELDS: [PhasedScore; NUM_PAWN_SHIELD_CONFIGURATIONS] = ["
@@ -253,6 +238,12 @@ impl WeightsInterpretation for TuneLiTEval {
                     idx += 1;
                 }
                 writeln!(f, "],")?;
+            }
+            writeln!(f, "];")?;
+            write!(f, "const KING_ZONE_ATTACK: [PhasedScore; 6] = [")?;
+            for _piece in UncoloredChessPiece::pieces() {
+                write!(f, "{}, ", write_phased(weights, idx, &special))?;
+                idx += 1;
             }
             writeln!(f, "];")?;
             assert_eq!(idx, Self::NUM_FEATURES);
