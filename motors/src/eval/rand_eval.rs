@@ -1,11 +1,12 @@
 use rand::{thread_rng, Rng};
+use std::fmt::Display;
 
 use crate::eval::Eval;
 use gears::games::Board;
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{Score, ScoreT, MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RandEval {
     deterministic: bool,
 }
@@ -19,7 +20,7 @@ impl Default for RandEval {
 }
 
 impl StaticallyNamedEntity for RandEval {
-    fn static_short_name() -> &'static str
+    fn static_short_name() -> impl Display
     where
         Self: Sized,
     {
@@ -42,7 +43,7 @@ impl StaticallyNamedEntity for RandEval {
 }
 
 impl<B: Board> Eval<B> for RandEval {
-    fn eval(&self, pos: B) -> Score {
+    fn eval(&mut self, pos: &B) -> Score {
         if self.deterministic {
             // deterministic and faster than seeding a rng while still being good enough
             let random = (pos.zobrist_hash().0

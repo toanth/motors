@@ -466,8 +466,8 @@ pub trait Board:
     type LegalMoveList: MoveList<Self> + FromIterator<Self::Move>;
 
     /// Returns the name of the game, such as 'chess'.
-    fn game_name() -> &'static str {
-        Self::static_short_name()
+    fn game_name() -> String {
+        Self::static_short_name().to_string()
     }
 
     /// The position returned by this function does not have to be legal, e.g. in chess it would
@@ -488,7 +488,7 @@ pub trait Board:
             name,
             Self::name_to_pos_map().iter(),
             "position",
-            Self::game_name(),
+            &Self::game_name(),
             NoDescription,
         )
         .map(|f| (f.val)())

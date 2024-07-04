@@ -1,9 +1,9 @@
 //! Everything related to the actual optimization, using a Gradient Descent-based tuner ([`Adam`] by default).
 
 use crate::eval::{count_occurrences, display, interpolate, WeightsInterpretation};
+use crate::trace::TraceTrait;
 use colored::Colorize;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
-use gears::games::Color;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use rayon::prelude::*;
@@ -76,10 +76,33 @@ pub fn cp_to_wr(cp: CpScore, eval_scale: ScalingFactor) -> WrScore {
 /// The *loss* of a single sample.
 ///
 /// The loss is a measure of how wrong our prediction is; smaller values are better.
-/// This function computes the loss as the squared error, multiplied by the sampling weight.
-pub fn sample_loss(wr_prediction: WrScore, outcome: Outcome, sample_weight: Float) -> Float {
+/// Apart from optimizing the scaling factor, the loss itself is only used for displaying it to the user,
+/// only the derivative is used for optimization.
+/// For displaying a loss, it often makes more sense to use the quadratic sample loss:
+/// - Under somewhat reasonable assumptions, minimizing the cross-entropy loss is equivalent to minimizing the quadratic loss
+/// - The quadratic loss is always zero for a perfect prediction, unlike the cross-entropy loss
+/// - The quadratic loss is slightly cheaper to compute
+pub fn sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
+    cross_entropy_sample_loss(wr_prediction, outcome)
+}
+
+/// The quadratic sample is loss is the square of `wr_prediction - outcome)`.
+///
+/// Unlike the [`cross_entropy_sample_loss`], it is always zero if a prediction perfectly matches the outcome.
+pub fn quadratic_sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
     let delta = wr_prediction.0 - outcome.0;
-    delta * delta * sample_weight
+    return delta * delta;
+}
+
+/// The cross-entropy is a good choice when optimizing anything where the output is a sigmoid, but it has some
+/// undesirable properties.
+pub fn cross_entropy_sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
+    let expected = outcome.0;
+    let epsilon = 1e-8;
+    let x = wr_prediction.0 * (1.0 - 2.0 * epsilon) + epsilon;
+    let res = -(expected * x.ln() + (1.0 - expected) * (1.0 - x).ln());
+    assert!(!res.is_nan());
+    res
 }
 
 /// The loss of an eval score, see [sample_loss].
@@ -90,15 +113,36 @@ pub fn sample_loss_for_cp(
     sample_weight: Float,
 ) -> Float {
     let wr_prediction = cp_to_wr(eval, eval_scale);
-    sample_loss(wr_prediction, outcome, sample_weight)
+    sample_loss(wr_prediction, outcome) * sample_weight
 }
 
-/// The *gradient* of the loss function, based on a single sample.
+/// The *gradient* of the loss function and sigmoid, based on a single sample.
 ///
 /// Constant factors are ignored by this function.
 /// Optimization works by changing weights into the opposite direction of the gradient.
+/// This is  `d/deval loss(prediction) = d/deval loss(sigmoid(eval, scaling_factor))`.
+/// Since `loss` is the cross-entropy loss, this cancels out to `(prediction.0 - outcome.0) * sample_weight`
 pub fn scaled_sample_grad(prediction: WrScore, outcome: Outcome, sample_weight: Float) -> Float {
+    scaled_sample_grad_cross_entropy(prediction, outcome, sample_weight)
+}
+
+/// The gradient of the quadratic loss applied to the sigmoid of the cp eval.
+/// This may give slightly better results than the cross-entropy loss, but it can take a lot longer to converge
+pub fn scaled_sample_grad_quadratic(
+    prediction: WrScore,
+    outcome: Outcome,
+    sample_weight: Float,
+) -> Float {
     (prediction.0 - outcome.0) * prediction.0 * (1.0 - prediction.0) * sample_weight
+}
+
+/// The gradient of the cross-entropy loss of the sigmoid of the cp eval. See [`scaled_sample_grad`].
+pub fn scaled_sample_grad_cross_entropy(
+    prediction: WrScore,
+    outcome: Outcome,
+    sample_weight: Float,
+) -> Float {
+    (prediction.0 - outcome.0) * sample_weight
 }
 
 /// A single weight.
@@ -227,7 +271,7 @@ impl Weights {
     }
 }
 
-type FeatureT = i8;
+pub(super) type FeatureT = i8;
 
 /// A feature can occur some fixed number of times in a position.
 ///
@@ -271,203 +315,11 @@ impl Feature {
 #[derive(Debug, Copy, Clone)]
 pub struct PhaseMultiplier(Float);
 
-/// A trace stores extracted features of a position and can be converted to a list of [`Feature`]s.
-///
-/// This type is returned by the [`feature_trace`](super::eval::Eval::feature_trace) method.
-/// The simplest way to implement this trait is to make your strut contain several [`SimpleTrace`]s or other
-/// pre-defined trace implementation, which do the actual work of converting the trace to a list of features.
-///
-/// For example:
-/// ```
-/// use pliers::gd::{Feature, Float, SimpleTrace, TraceNFeatures, TraceTrait};
-/// #[derive(Debug, Default)]
-/// struct MyTrace {
-///     some_trace: SimpleTrace,
-///     some_other_trace: TraceNFeatures<42>,
-/// }
-///
-/// impl TraceTrait for MyTrace {
-///     fn nested_traces(&self) -> Vec<&dyn TraceTrait> {
-///         vec![&self.some_trace, &self.some_other_trace]
-///    }
-///
-///     fn phase(&self) -> Float {
-///        1.0
-///    }
-/// }
-/// ```
-pub trait TraceTrait: Debug {
-    /// Converts the trace into a list of features.
-    ///
-    /// The default implementation of this function simply delegates the work to nested traces.
-    /// It is usually not necessary to override this default implementation.
-    /// This function creates a sparse array of [`Feature`]s, where each entry is the number of times it appears for
-    /// the white player minus the number of times it appears for the black player.
-    fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
-        let mut res = vec![];
-        let mut offset = idx_offset;
-        for nested in self.nested_traces() {
-            res.append(&mut nested.as_features(offset));
-            offset += nested.max_num_features();
-        }
-        res
-    }
-
-    /// Returns an iterator of nested traces.
-    ///
-    /// A custom trace should be built on top of existing traces, such as [`TraceNFeatures`].
-    /// The order of traces in the returned `Vec` determines the offset used to convert the feature index of a single
-    /// trace into the feature index of the merged trace.
-    fn nested_traces(&self) -> Vec<&dyn TraceTrait>;
-
-    /// The phase value of this position. Some [`Datapoint`] implementations ignore this.
-    fn phase(&self) -> Float;
-
-    /// The number of features that are being covered by this trace.
-    ///
-    /// Note that in many cases, not all features appear in a position, so the len of the result of
-    /// [`as_features`](Self::as_features) is often smaller than this value.
-    /// It is usually not necessary to override this method.
-    fn max_num_features(&self) -> usize {
-        self.nested_traces()
-            .iter()
-            .map(|trace| trace.max_num_features())
-            .sum()
-    }
-}
-
-/// A trace that keeps track of a given feature, which is referred to by its index.
-///
-/// Can be used to build larger traces. It is usually not necessary to implement this trait yourself
-/// because [`SimpleTrace`] and [`TraceNFeatures`] already do.
-pub trait BasicTrace: TraceTrait {
-    /// Increment a given feature by one for the given player.
-    fn increment(&mut self, idx: usize, color: Color) {
-        self.increment_by(idx, color, 1);
-    }
-
-    /// Increment a given feature by a given amount for the given player.
-    fn increment_by(&mut self, idx: usize, color: Color, amount: isize);
-}
-
-/// The most basic trace, useful by itself or as a building block of custom traces, but [`TraceNFeatures`]
-/// should usually be preferred.
-///
-/// Stores how often each feature occurs for both players, and a game phase.
-/// Unlike the final list of `Feature`s used during tuning, this uses a dense array representation,
-/// which means it is normal for most of the many entries to be zero.
-/// The [`TraceNFeatures]` struct is a thin wrapper around this struct which enforces the number of features matches.
-#[derive(Debug, Default)]
-pub struct SimpleTrace {
-    /// How often each feature appears for the white player.
-    pub white: Vec<isize>,
-    /// How often each feature appears for the black player.
-    pub black: Vec<isize>,
-    /// The phase value. Only needed for tapered evaluations.
-    pub phase: Float,
-}
-
-impl SimpleTrace {
-    /// Create a trace of `num_feature` elements, all initialized to zero.
-    /// Also sets the `phase` to zero.
-    pub fn for_features(num_features: usize) -> Self {
-        Self {
-            white: vec![0; num_features],
-            black: vec![0; num_features],
-            phase: 0.0,
-        }
-    }
-}
-
-impl TraceTrait for SimpleTrace {
-    /// A [`SimpleTrace`] does not contain any other traces, so this function does the actual work of converting
-    /// a trace into a list of features.
-    fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
-        assert_eq!(self.white.len(), self.black.len());
-        let mut res = vec![];
-        for i in 0..self.white.len() {
-            let diff = self.white[i] - self.black[i];
-            if diff != 0 {
-                let idx = i + idx_offset;
-                assert!(diff >= FeatureT::MIN as isize && diff <= FeatureT::MAX as isize);
-                assert!(res.len() < u16::MAX as usize);
-                assert!(idx <= u16::MAX as usize);
-                let feature = Feature {
-                    feature: diff as FeatureT,
-                    idx: idx as u16,
-                };
-                res.push(feature);
-            }
-        }
-        res.sort_by_key(|a| a.idx());
-        res
-    }
-
-    fn nested_traces(&self) -> Vec<&dyn TraceTrait> {
-        vec![]
-    }
-
-    fn phase(&self) -> Float {
-        self.phase
-    }
-
-    fn max_num_features(&self) -> usize {
-        assert_eq!(self.black.len(), self.white.len());
-        self.white.len()
-    }
-}
-
-impl BasicTrace for SimpleTrace {
-    fn increment_by(&mut self, idx: usize, color: Color, amount: isize) {
-        match color {
-            Color::White => self.white[idx] += amount,
-            Color::Black => self.black[idx] += amount,
-        };
-    }
-}
-
-/// Wraps a [`SimpleTrace`] by making sure it has the given maximum number of features.
-#[derive(Debug)]
-pub struct TraceNFeatures<const N: usize>(pub SimpleTrace);
-
-impl<const N: usize> Default for TraceNFeatures<N> {
-    fn default() -> Self {
-        Self(SimpleTrace::for_features(N))
-    }
-}
-
-impl<const N: usize> TraceTrait for TraceNFeatures<N> {
-    fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
-        assert_eq!(self.0.max_num_features(), N);
-        self.0.as_features(idx_offset)
-    }
-
-    fn nested_traces(&self) -> Vec<&dyn TraceTrait> {
-        self.0.nested_traces()
-    }
-
-    fn phase(&self) -> Float {
-        self.0.phase
-    }
-    fn max_num_features(&self) -> usize {
-        N
-    }
-}
-
-impl<const N: usize> BasicTrace for TraceNFeatures<N> {
-    fn increment_by(&mut self, idx: usize, color: Color, amount: isize) {
-        self.0.increment_by(idx, color, amount);
-    }
-}
-
-/// Trace for a single feature that can appear multiple times for both players.
-pub type SingleFeatureTrace = TraceNFeatures<1>;
-
 /// Struct used for tuning.
 ///
 /// Each [`WeightedFeature`] of a [`Datapoint`] is multiplied by the corresponding current eval weight and added up
 /// to compute the [`CpScore`]. Users should not generally need to worry about this, unless they want to implement
-/// their own tuner.
+/// their own tuning algorithm.
 pub struct WeightedFeature {
     /// The weight of this entry.
     pub weight: Float,
@@ -728,12 +580,23 @@ pub fn loss<D: Datapoint>(
     batch: Batch<'_, D>,
     eval_scale: ScalingFactor,
 ) -> Float {
+    loss_for(weights, batch, eval_scale, sample_loss)
+}
+
+/// Loss of a position, given the current weights, using the `sample_loss` parameter to calculate
+/// the loss of a single sample.
+pub fn loss_for<D: Datapoint, L: Sync + Fn(WrScore, Outcome) -> Float>(
+    weights: &Weights,
+    batch: Batch<'_, D>,
+    eval_scale: ScalingFactor,
+    sample_loss: L,
+) -> Float {
     let sum = if batch.len() >= MIN_MULTITHREADING_BATCH_SIZE {
         batch
             .par_iter()
             .map(|datapoint| {
                 let eval = wr_prediction_for_weights(weights, datapoint, eval_scale);
-                let loss = sample_loss(eval, datapoint.outcome(), datapoint.sampling_weight());
+                let loss = sample_loss(eval, datapoint.outcome()) * datapoint.sampling_weight();
                 debug_assert!(loss >= 0.0);
                 loss
             })
@@ -742,7 +605,7 @@ pub fn loss<D: Datapoint>(
         let mut res = Float::default();
         for datapoint in batch.iter() {
             let eval = wr_prediction_for_weights(weights, datapoint, eval_scale);
-            let loss = sample_loss(eval, datapoint.outcome(), datapoint.sampling_weight());
+            let loss = sample_loss(eval, datapoint.outcome()) * datapoint.sampling_weight();
             debug_assert!(loss >= 0.0);
             res += loss * datapoint.sampling_weight();
         }
@@ -755,15 +618,19 @@ pub fn loss<D: Datapoint>(
 ///
 /// The loss function of a single sample is `(sigmoid(sample, scale) - outcome) ^ 2`,
 /// so per the chain rule, the derivative is `2 * (sigmoid(sample, scale) - outcome) * sigmoid'(sample, scale)`,
-/// where the derivative of the sigmoid, sigmoid', is `scale * sigmoid(sample, scale) * (1 - sigmoid(sample, scale)`.
-/// Even though constant factors don't matter for gradient descent, this function still returns the exact gradient,
-/// without ignoring constant factors.
+/// where the derivative of the sigmoid, sigmoid', is `1 / scale * sigmoid(sample, scale) * (1 - sigmoid(sample, scale)`.
+/// However, this function multiplies by `scale` instead of `1/scale`: If the scale is larger, we need correspondingly
+/// larger changes in the weights to see the same effect, even though the gradient is scaled down instead of up by that
+/// factor. Apart from that, thi function returns the correct gradient, i.e. the actual gradient can be recovered by
+/// dividing by `eval_scale * eval_scale`.
 /// The computation gets parallelized if the batch exceeds a size of [`MIN_MULTITHREADING_BATCH_SIZE`].
-pub fn compute_gradient<D: Datapoint>(
+pub fn compute_scaled_gradient<D: Datapoint>(
     weights: &Weights,
     batch: Batch<D>,
     eval_scale: ScalingFactor,
 ) -> Gradient {
+    // see above, it should strictly speaking be `/ eval_scale` but `*` is superior
+    // because it removes the effect of the eval scale
     let constant_factor = 2.0 * eval_scale / batch.weight_sum;
     if batch.len() >= MIN_MULTITHREADING_BATCH_SIZE {
         batch
@@ -819,10 +686,13 @@ pub fn optimize_entire_batch<D: Datapoint>(
 ) -> Weights {
     let mut prev_weights: Vec<Weight> = vec![];
     let mut weights = Weights::new(batch.num_weights);
-    if weights_interpretation.retune_from_zero() {
-        // Since weights are initially 0, use a very high lr for the first couple of iterations.
-        optimizer.lr_drop(0.25); // increases lr by a factor of
+    let initial_lr_factor = if weights_interpretation.retune_from_zero() {
+        0.25
     } else {
+        0.5
+    };
+    optimizer.lr_drop(initial_lr_factor);
+    if !weights_interpretation.retune_from_zero() {
         weights = weights_interpretation
             .initial_weights()
             .expect("if `retune_from_zero()` returns `false`, there must be initial weights");
@@ -852,11 +722,12 @@ pub fn optimize_entire_batch<D: Datapoint>(
                 }
             }
             println!(
-                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
+                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), quadratic loss: {qloss}, cross-entropy loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
                 maximum weight change to 50 epochs ago: {max_diff:.2}",
                 epoch as f32 / elapsed.as_secs_f32(),
                 (prev_loss - loss) * 1_000_000.0,
-                elapsed = elapsed.as_secs()
+                elapsed = elapsed.as_secs(),
+                qloss = loss_for(&weights, batch, eval_scale, quadratic_sample_loss),
             );
             if loss <= 0.001 && epoch >= 20 {
                 println!("loss less than epsilon, stopping after {epoch} epochs");
@@ -872,17 +743,17 @@ pub fn optimize_entire_batch<D: Datapoint>(
             prev_loss = loss;
         }
         if epoch == 20.min(num_epochs / 100) {
-            optimizer.lr_drop(4.0); // undo the raised lr.
-        } else if epoch == num_epochs * 3 / 4 {
-            optimizer.lr_drop(1.5);
+            optimizer.lr_drop(1.0 / initial_lr_factor); // undo the raised lr.
+        } else if epoch == num_epochs / 2 {
+            optimizer.lr_drop(2.0);
         }
     }
     weights
 }
 
-/// Convenience function for optimizing with the [`Adam`] optimizer.
+/// Convenience function for optimizing with the [`AdamW`] optimizer.
 #[allow(unused)]
-fn adam_optimize<D: Datapoint>(
+fn adamw_optimize<D: Datapoint>(
     batch: Batch<D>,
     eval_scale: ScalingFactor,
     num_epochs: usize,
@@ -893,7 +764,7 @@ fn adam_optimize<D: Datapoint>(
         eval_scale,
         num_epochs,
         format_weights,
-        &mut Adam::new(batch, eval_scale),
+        &mut AdamW::new(batch, eval_scale),
     )
 }
 
@@ -916,7 +787,8 @@ pub fn print_optimized_weights<D: Datapoint>(
     let mut weights = weights.clone();
     interpolate(&occurrence_counts, &mut weights, interpretation);
     println!(
-        "Scaling factor: {scale:.2}, Final eval:\n{}",
+        "Scaling factor: {scale:.2}, {0}:\n{1}",
+        "Final eval".bold(),
         display(interpretation, &weights, &[])
     );
 }
@@ -984,7 +856,7 @@ impl<D: Datapoint> Optimizer<D> for SimpleGDOptimizer {
         eval_scale: ScalingFactor,
         _i: usize,
     ) {
-        let gradient = compute_gradient(weights, batch, eval_scale);
+        let gradient = compute_scaled_gradient(weights, batch, eval_scale);
         for i in 0..weights.len() {
             weights[i].0 -= gradient[i].0 * self.alpha;
         }
@@ -994,8 +866,10 @@ impl<D: Datapoint> Optimizer<D> for SimpleGDOptimizer {
 /// Hyperparameters are parameters that control the optimization process and are not themselves
 /// automatically optimized.
 #[derive(Debug, Copy, Clone)]
-pub struct AdamHyperParams {
-    /// Learning rate multiplier, an upper bound on the step size.
+pub struct AdamwHyperParams {
+    /// Adam Learning rate multiplier, an upper bound on the step size.
+    /// This isn't quite the learning rate for AdamW because it doesn't apply to the weight decay term.
+    /// Currently, this implementation does not support a separate learning rate.
     pub alpha: Float,
     /// Exponential decay of the moving average of the gradient
     pub beta1: Float,
@@ -1003,35 +877,77 @@ pub struct AdamHyperParams {
     pub beta2: Float,
     /// Offset to avoid division by zero
     pub epsilon: Float,
+    /// Exponential weight decay: Each weight is multiplied by `1 - lambda` each step before the scaled gradient is added.
+    /// Using a value of `0` results in the Adam optimizer.
+    pub lambda: Float,
 }
 
-impl AdamHyperParams {
+impl AdamwHyperParams {
     fn for_eval_scale(eval_scale: ScalingFactor) -> Self {
         Self {
-            alpha: eval_scale / 20.0,
+            alpha: eval_scale / 100.0,
             // Setting these values too low can introduce crazy swings in the eval values and loss when it would
             // otherwise appear converged -- maybe because of numerical instability?
             beta1: 0.9,
             beta2: 0.999,
             epsilon: 1e-8,
+            lambda: 1e-5,
         }
     }
 }
 
-/// The default tuner, an implementation of the very widely used [Adam](https://arxiv.org/abs/1412.6980) optimizer.
+/// The default tuner, an implementation of the widely used [Adam](https://arxiv.org/abs/1412.6980) optimizer,
+/// which is the same as the [`AdamW`] tuner without weight decay.
+pub struct Adam(AdamW);
+
+impl<D: Datapoint> Optimizer<D> for Adam {
+    fn new(batch: Batch<D>, eval_scale: ScalingFactor) -> Self
+    where
+        Self: Sized,
+    {
+        Self(AdamW::adam(batch, eval_scale))
+    }
+
+    fn lr_drop(&mut self, factor: Float) {
+        <AdamW as Optimizer<D>>::lr_drop(&mut self.0, factor);
+    }
+
+    fn iteration(
+        &mut self,
+        weights: &mut Weights,
+        batch: Batch<'_, D>,
+        eval_scale: ScalingFactor,
+        i: usize,
+    ) {
+        self.0.iteration(weights, batch, eval_scale, i)
+    }
+}
+
+/// An implementation of the very widely used [AdamW](https://arxiv.org/abs/1711.05101) optimizer,
+/// which extends the [`Adam`] optimizer with weight decay.
 #[derive(Debug)]
-pub struct Adam {
+pub struct AdamW {
     /// Hyperparameters. Should be set before starting to optimize.
-    pub hyper_params: AdamHyperParams,
+    pub hyper_params: AdamwHyperParams,
     /// first moment (exponentially moving average)
     m: Weights,
     /// second moment (exponentially moving average)
     v: Weights,
 }
 
-impl<D: Datapoint> Optimizer<D> for Adam {
+impl AdamW {
+    /// Create a new `Adam` optimizer, which is the same as an [`AdamW`] optimizer with the `lambda` hyperparameter
+    /// set to zero.
+    pub fn adam<D: Datapoint>(batch: Batch<D>, eval_scale: ScalingFactor) -> Self {
+        let mut res = Self::new(batch, eval_scale);
+        res.hyper_params.lambda = 0.0;
+        res
+    }
+}
+
+impl<D: Datapoint> Optimizer<D> for AdamW {
     fn new(batch: Batch<D>, eval_scale: ScalingFactor) -> Self {
-        let hyper_params = AdamHyperParams::for_eval_scale(eval_scale);
+        let hyper_params = AdamwHyperParams::for_eval_scale(eval_scale);
         Self {
             hyper_params,
             m: Weights::new(batch.num_weights),
@@ -1053,15 +969,17 @@ impl<D: Datapoint> Optimizer<D> for Adam {
         let iteration = iteration + 1;
         let beta1 = self.hyper_params.beta1;
         let beta2 = self.hyper_params.beta2;
-        let gradient = compute_gradient(weights, batch, eval_scale);
+        let gradient = compute_scaled_gradient(weights, batch, eval_scale);
         for i in 0..gradient.len() {
             // biased since the values are initialized to 0, so the exponential moving average is wrong
             self.m[i] = self.m[i] * beta1 + gradient[i] * (1.0 - beta1);
             self.v[i] = self.v[i] * beta2 + gradient[i] * gradient[i].0 * (1.0 - beta2);
             let unbiased_m = self.m[i] / (1.0 - beta1.powi(iteration as i32));
             let unbiased_v = self.v[i] / (1.0 - beta2.powi(iteration as i32));
-            weights[i] -= unbiased_m * self.hyper_params.alpha
-                / (unbiased_v.0.sqrt() + self.hyper_params.epsilon)
+            let w = weights[i];
+            weights[i] -= w * self.hyper_params.lambda
+                + unbiased_m * self.hyper_params.alpha
+                    / (unbiased_v.0.sqrt() + self.hyper_params.epsilon)
         }
     }
 }
@@ -1089,7 +1007,12 @@ mod tests {
                 weight_sum: 1.0,
             };
             for eval_scale in 1..100 {
-                let loss = loss(&weights, batch, eval_scale as ScalingFactor);
+                let loss = loss_for(
+                    &weights,
+                    batch,
+                    eval_scale as ScalingFactor,
+                    quadratic_sample_loss,
+                );
                 if outcome == 0.5 {
                     assert_eq!(loss, 0.0);
                 } else {
@@ -1112,7 +1035,7 @@ mod tests {
                 num_weights: 1,
                 weight_sum: 1.0,
             };
-            let gradient = compute_gradient(&weights, batch, 1.0);
+            let gradient = compute_scaled_gradient(&weights, batch, 1.0);
             assert_eq!(gradient.len(), 1);
             let gradient = gradient[0].0;
             assert_eq!(-gradient, 0.5 * 0.5 * 0.5 * 2.0 * outcome.signum());
@@ -1136,7 +1059,7 @@ mod tests {
                     dataset.push(datapoint);
                     let batch = dataset.as_batch();
                     for _ in 0..100 {
-                        let grad = compute_gradient(&weights, batch, scaling_factor);
+                        let grad = compute_scaled_gradient(&weights, batch, scaling_factor);
                         let old_weights = weights.clone();
                         weights -= &grad;
                         // println!("loss {0}, initial weight {initial_weight}, weights {weights}, gradient {grad}, eval {1}, predicted {2}, outcome {outcome}, feature {feature}, scaling factor {scaling_factor}", loss(&weights, &dataset, scaling_factor), cp_eval_for_weights(&weights, &dataset[0].position), wr_prediction_for_weights(&weights, &dataset[0].position, scaling_factor));
@@ -1153,9 +1076,9 @@ mod tests {
                         let new_loss = loss(&weights, batch, scaling_factor);
                         let old_loss = loss(&old_weights, batch, scaling_factor);
                         assert!(new_loss >= 0.0, "{new_loss}");
-                        assert!(new_loss <= old_loss, "new loss: {new_loss}, old loss: {old_loss}, feature {feature}, initial weight {initial_weight}, outcome {outcome}");
+                        assert!(new_loss - old_loss <= 1e-10, "new loss: {new_loss}, old loss: {old_loss}, feature {feature}, initial weight {initial_weight}, outcome {outcome}");
                     }
-                    let loss = loss(&weights, batch, scaling_factor);
+                    let loss = loss_for(&weights, batch, scaling_factor, quadratic_sample_loss);
                     if feature != 0 {
                         // pure gradient descent with a small scaling factor can take some time to converge
                         assert!(
@@ -1183,13 +1106,15 @@ mod tests {
                 num_weights: 3,
                 weight_sum: 3.0,
             };
-            for _ in 0..100 {
-                let grad = compute_gradient(&weights, batch, 1.0);
+            for i in 0..100 {
+                let grad = compute_scaled_gradient(&weights, batch, 1.0);
                 let old_weights = weights.clone();
                 weights -= &grad;
-                assert!(loss(&weights, batch, 1.0) <= loss(&old_weights, batch, 1.0));
+                let new_loss = loss(&weights, batch, 1.0);
+                let old_loss = loss(&old_weights, batch, 1.0);
+                assert!(new_loss - old_loss <= 1e-10, "{i}: {new_loss} {old_loss}");
             }
-            let loss = loss(&weights, batch, 1.0);
+            let loss = loss_for(&weights, batch, 1.0, quadratic_sample_loss);
             assert!(loss <= 0.01);
         }
     }
@@ -1212,7 +1137,7 @@ mod tests {
             };
             let mut lr = 1.0;
             for _ in 0..100 {
-                let grad = compute_gradient(&weights, batch, scale);
+                let grad = compute_scaled_gradient(&weights, batch, scale);
                 let old_weights = weights.clone();
                 weights -= &(grad.clone() * lr);
                 let current_loss = loss(&weights, batch, scale);
@@ -1220,7 +1145,7 @@ mod tests {
                 assert!(current_loss <= old_loss);
                 lr *= 0.99;
             }
-            let loss = loss(&weights, batch, scale);
+            let loss = loss_for(&weights, batch, scale, quadratic_sample_loss);
             assert!(loss <= 0.01, "{loss}");
             if outcome == 0.5 {
                 assert_eq!(weights[0].0.signum(), weights[1].0.signum());
@@ -1257,25 +1182,26 @@ mod tests {
             ]);
             let mut weights_copy = weights.clone();
             for _ in 0..200 {
-                let grad = compute_gradient(&weights, batch, scale);
+                let grad = compute_scaled_gradient(&weights, batch, scale);
                 weights -= &grad;
             }
-            let remaining_loss = loss(&weights, batch, scale);
+            let remaining_loss = loss_for(&weights, batch, scale, quadratic_sample_loss);
             assert!(remaining_loss <= 0.001);
             assert!(weights[0].0 >= 100.0);
             assert!(weights[1].0 <= -100.0);
 
             type AnyOptimizer = Box<dyn Optimizer<NonTaperedDatapoint>>;
-            let optimizers: [AnyOptimizer; 2] = [
+            let optimizers: [AnyOptimizer; 3] = [
                 Box::new(SimpleGDOptimizer { alpha: 1.0 }),
                 Box::new(Adam::new(batch, scale)),
+                Box::new(AdamW::new(batch, scale)),
             ];
             for mut optimizer in optimizers {
                 for i in 0..200 {
                     optimizer.iteration(&mut weights_copy, batch, scale, i);
                 }
-                let remaining_loss = loss(&weights_copy, batch, scale);
-                assert!(remaining_loss <= 0.001);
+                let remaining_loss = loss_for(&weights_copy, batch, scale, quadratic_sample_loss);
+                assert!(remaining_loss <= 0.001, "{remaining_loss}");
                 assert!(weights[0].0 >= 100.0);
                 assert!(weights[1].0 <= -100.0);
             }
@@ -1305,7 +1231,7 @@ mod tests {
             weight_sum: 3.0,
         };
         for _ in 0..500 {
-            let grad = compute_gradient(&weights, batch, 1.0);
+            let grad = compute_scaled_gradient(&weights, batch, 1.0);
             println!(
                 "current weights: {0}, current loss: {1}, gradient: {2}",
                 weights,

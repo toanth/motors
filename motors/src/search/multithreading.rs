@@ -4,9 +4,11 @@ use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 
 use crossbeam_channel::unbounded;
+use dyn_clone::clone_box;
 
+use crate::eval::Eval;
 use gears::games::{Board, ZobristHistory};
-use gears::general::common::{parse_int_from_str, Res};
+use gears::general::common::{parse_int_from_str, NamedEntity, Res};
 use gears::output::Message;
 use gears::output::Message::{Debug, Error};
 use gears::score::Score;
@@ -17,7 +19,7 @@ use gears::ugi::{EngineOption, EngineOptionName};
 use crate::search::multithreading::EngineReceives::*;
 use crate::search::statistics::{Statistics, Summary};
 use crate::search::tt::TT;
-use crate::search::{AbstractEngineBuilder, BenchResult, Engine, EngineInfo, SearchState};
+use crate::search::{BenchResult, Engine, EngineBuilder, EngineInfo, SearchState};
 use crate::ugi_engine::UgiOutput;
 
 pub type Sender<T> = crossbeam_channel::Sender<T>;
@@ -31,7 +33,8 @@ pub enum EngineReceives<B: Board> {
     SetOption(EngineOptionName, String),
     Search(B, SearchLimit, ZobristHistory<B>, TT),
     Bench(B, Depth),
-    Eval(B),
+    EvalFor(B),
+    SetEval(Box<dyn Eval<B>>),
 }
 
 /// A search sender is used for communication while the search is ongoing.
@@ -190,7 +193,8 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
             },
             Search(pos, limit, history, tt) => self.start_search(pos, limit, history, tt)?,
             Bench(pos, depth) => self.bench_single_position(pos, depth)?,
-            Eval(pos) => self.get_static_eval(pos),
+            EvalFor(pos) => self.get_static_eval(pos),
+            SetEval(eval) => self.engine.set_eval(eval),
         };
         Ok(false)
     }
@@ -229,11 +233,10 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
 #[derive(Debug)]
 pub struct EngineWrapper<B: Board> {
     sender: Sender<EngineReceives<B>>,
-    search_sender: SearchSender<B>,
     engine_info: EngineInfo,
     tt: TT,
     secondary: Vec<EngineWrapper<B>>,
-    builder: Box<dyn AbstractEngineBuilder<B>>,
+    builder: EngineBuilder<B>,
 }
 
 impl<B: Board> Drop for EngineWrapper<B> {
@@ -243,15 +246,10 @@ impl<B: Board> Drop for EngineWrapper<B> {
 }
 
 impl<B: Board> EngineWrapper<B> {
-    pub fn new_with_tt<E: Engine<B>>(
-        engine: E,
-        search_sender: SearchSender<B>,
-        builder: Box<dyn AbstractEngineBuilder<B>>,
-        tt: TT,
-    ) -> Self {
+    pub fn new_with_tt<E: Engine<B>>(engine: E, builder: EngineBuilder<B>, tt: TT) -> Self {
         let (sender, receiver) = unbounded();
         let info = engine.engine_info();
-        let search_sender_clone = search_sender.clone();
+        let search_sender = builder.sender.clone();
         let mut thread = EngineThread {
             engine,
             search_sender,
@@ -260,12 +258,15 @@ impl<B: Board> EngineWrapper<B> {
         spawn(move || thread.main_loop());
         EngineWrapper {
             sender,
-            search_sender: search_sender_clone,
             engine_info: info,
             tt,
             secondary: vec![],
             builder,
         }
+    }
+
+    fn search_sender(&mut self) -> &mut SearchSender<B> {
+        &mut self.builder.sender
     }
 
     pub fn start_search(
@@ -275,7 +276,7 @@ impl<B: Board> EngineWrapper<B> {
         history: ZobristHistory<B>,
     ) -> Res<()> {
         if self.is_primary() {
-            self.search_sender.reset_stop();
+            self.search_sender().reset_stop();
         }
         for o in self.secondary.iter_mut() {
             o.start_search(pos, limit, history.clone())?;
@@ -286,14 +287,16 @@ impl<B: Board> EngineWrapper<B> {
     }
 
     pub fn start_bench(&mut self, pos: B, depth: Depth) -> Res<()> {
-        self.search_sender.reset_stop();
+        self.search_sender().reset_stop();
         self.sender
             .send(Bench(pos, depth))
             .map_err(|err| err.to_string())
     }
 
     pub fn static_eval(&mut self, pos: B) -> Res<()> {
-        self.sender.send(Eval(pos)).map_err(|err| err.to_string())
+        self.sender
+            .send(EvalFor(pos))
+            .map_err(|err| err.to_string())
     }
 
     pub fn set_tt(&mut self, tt: TT) {
@@ -306,18 +309,17 @@ impl<B: Board> EngineWrapper<B> {
     pub fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()> {
         if name == Threads {
             let count: usize = parse_int_from_str(&value, "num threads")?;
-            if !self.builder.can_use_multiple_threads() && count != 1 {
+            if !self.builder.search_builder.can_use_multiple_threads() && count != 1 {
                 return Err(format!(
                     "The engine {} only supports 1 thread",
-                    self.engine_info.name
+                    self.engine_info.long_name()
                 ));
             }
             self.secondary.clear();
-            let mut sender = self.search_sender.clone();
+            let mut sender = self.search_sender().clone();
             sender.deactivate_output();
-            self.secondary.resize_with(count - 1, || {
-                self.builder.build(sender.clone(), self.tt.clone())
-            });
+            self.secondary
+                .resize_with(count - 1, || self.builder.build_wrapper());
             Ok(())
         } else if name == Hash {
             let value: usize = parse_int_from_str(&value, "hash size in mb")?;
@@ -334,18 +336,28 @@ impl<B: Board> EngineWrapper<B> {
         }
     }
 
+    pub fn set_eval(&mut self, eval: Box<dyn Eval<B>>) -> Res<()> {
+        for o in self.secondary.iter_mut() {
+            o.set_eval(clone_box(eval.as_ref()))?;
+        }
+        self.engine_info.set_eval(eval.as_ref());
+        self.sender
+            .send(SetEval(eval))
+            .map_err(|err| err.to_string())
+    }
+
     pub fn send_stop(&mut self) {
         for o in self.secondary.iter_mut() {
             o.send_stop();
         }
-        self.search_sender.send_stop();
+        self.search_sender().send_stop();
     }
 
     pub fn send_quit(&mut self) -> Res<()> {
         for o in self.secondary.iter_mut() {
             o.send_quit()?;
         }
-        self.search_sender.send_stop();
+        self.search_sender().send_stop();
         self.sender.send(Quit).map_err(|err| err.to_string())
     }
 
@@ -368,6 +380,6 @@ impl<B: Board> EngineWrapper<B> {
     }
 
     fn is_primary(&self) -> bool {
-        self.search_sender.output.is_some()
+        self.builder.sender.output.is_some()
     }
 }

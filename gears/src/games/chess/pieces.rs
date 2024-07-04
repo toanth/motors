@@ -59,6 +59,10 @@ impl UncoloredChessPiece {
         Self::iter().dropping_back(2)
     }
 
+    pub fn non_pawn_pieces() -> UncoloredChessPieceIter {
+        Self::pieces().dropping(1)
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Pawn => "pawn",

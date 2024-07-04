@@ -184,8 +184,8 @@ impl Display for EngineOption {
 }
 
 impl NamedEntity for EngineOption {
-    fn short_name(&self) -> &str {
-        self.name.name()
+    fn short_name(&self) -> String {
+        self.name.name().to_string()
     }
 
     fn long_name(&self) -> String {

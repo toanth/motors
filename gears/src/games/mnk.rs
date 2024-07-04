@@ -311,7 +311,7 @@ impl PartialEq<Self> for MNKBoard {
 impl Eq for MNKBoard {}
 
 impl StaticallyNamedEntity for MNKBoard {
-    fn static_short_name() -> &'static str
+    fn static_short_name() -> impl Display
     where
         Self: Sized,
     {

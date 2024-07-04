@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use strum::IntoEnumIterator;
 
 use gears::games::chess::pieces::UncoloredChessPiece;
@@ -9,7 +10,7 @@ use gears::score::{PhasedScore, Score, ScoreT};
 
 use crate::eval::Eval;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct PistonEval {}
 
 /// Psqt values tuned on a combination of the zurichess and a dataset used by 4ku,
@@ -154,7 +155,7 @@ const PSQTS: [[ScoreT; 64]; 12] = [
 const PIECE_PHASE: [isize; 6] = [0, 1, 1, 2, 4, 0];
 
 impl StaticallyNamedEntity for PistonEval {
-    fn static_short_name() -> &'static str
+    fn static_short_name() -> impl Display
     where
         Self: Sized,
     {
@@ -165,19 +166,19 @@ impl StaticallyNamedEntity for PistonEval {
     where
         Self: Sized,
     {
-        "Piece Square Table Only Chess Eval".to_string()
+        "PiSTOn: Piece Square Table Only Chess Eval".to_string()
     }
 
     fn static_description() -> String
     where
         Self: Sized,
     {
-        "An chess evaluation function using only tapered piece square tables".to_string()
+        "A chess evaluation function using only tapered piece square tables".to_string()
     }
 }
 
 impl Eval<Chessboard> for PistonEval {
-    fn eval(&self, pos: Chessboard) -> Score {
+    fn eval(&mut self, pos: &Chessboard) -> Score {
         let mut mg = Score(0);
         let mut eg = Score(0);
         let mut phase = 0;

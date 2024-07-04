@@ -183,7 +183,7 @@ pub type AnyRunnable = Box<dyn AbstractRun>;
 pub trait GameState<B: Board> {
     fn initial_pos(&self) -> B;
     fn get_board(&self) -> B;
-    fn game_name(&self) -> &'static str {
+    fn game_name(&self) -> String {
         B::game_name()
     }
     fn move_history(&self) -> &[B::Move];
@@ -216,7 +216,7 @@ pub fn output_builder_from_str<B: Board>(
         name,
         list,
         "output",
-        B::game_name(),
+        &B::game_name(),
         WithDescription,
     )?))
 }

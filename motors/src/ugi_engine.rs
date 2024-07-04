@@ -30,10 +30,12 @@ use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchSt
 
 use crate::cli::EngineOpts;
 use crate::search::multithreading::{EngineWrapper, SearchSender};
-use crate::search::{run_bench_with_depth, BenchResult, EngineList};
+use crate::search::{run_bench_with_depth, BenchResult, EvalList, SearcherList};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
-use crate::{create_engine_bench_from_str, create_engine_from_str, create_match};
+use crate::{
+    create_engine_bench_from_str, create_engine_from_str, create_eval_from_str, create_match,
+};
 
 const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
 
@@ -232,7 +234,8 @@ pub struct EngineUGI<B: Board> {
     state: EngineGameState<B>,
     output: Arc<Mutex<UgiOutput<B>>>,
     output_factories: OutputList<B>,
-    engine_factories: EngineList<B>,
+    searcher_factories: SearcherList<B>,
+    eval_factories: EvalList<B>,
     search_sender: SearchSender<B>,
     move_overhead: Duration,
 }
@@ -301,12 +304,14 @@ impl<B: Board> EngineUGI<B> {
         opts: EngineOpts,
         mut selected_output_builders: OutputList<B>,
         all_output_builders: OutputList<B>,
-        all_engines: EngineList<B>,
+        all_searchers: SearcherList<B>,
+        all_evals: EvalList<B>,
     ) -> Res<Self> {
         let output = Arc::new(Mutex::new(UgiOutput::default()));
         let sender = SearchSender::new(output.clone());
         let board = B::default();
-        let engine = create_engine_from_str(&opts.engine, &all_engines, sender.clone())?;
+        let engine =
+            create_engine_from_str(&opts.engine, &all_searchers, &all_evals, sender.clone())?;
         let board_state = BoardGameState {
             board,
             debug_mode: opts.debug,
@@ -334,7 +339,8 @@ impl<B: Board> EngineUGI<B> {
             state,
             output,
             output_factories: all_output_builders,
-            engine_factories: all_engines,
+            searcher_factories: all_searchers,
+            eval_factories: all_evals,
             search_sender: sender,
             move_overhead: Duration::from_millis(DEFAULT_MOVE_OVERHEAD_MS),
         })
@@ -474,6 +480,9 @@ impl<B: Board> EngineUGI<B> {
             "engine" => {
                 self.handle_engine(words)?;
             }
+            "set-eval" => {
+                self.handle_set_eval(words)?;
+            }
             "play" => {
                 self.handle_play(words)?;
             }
@@ -523,8 +532,8 @@ impl<B: Board> EngineUGI<B> {
     fn id(&self) -> String {
         let info = self.state.engine.engine_info();
         format!(
-            "id name Motors - {0} {1}\nid author ToTheAnd",
-            info.name, info.version
+            "id name Motors -- Engine {0}\nid author ToTheAnd",
+            info.long_name(),
         )
     }
 
@@ -645,7 +654,7 @@ impl<B: Board> EngineUGI<B> {
         self.state.status = Run(Ongoing);
         let default_depth = match search_type {
             Perft | SplitPerft => pos.default_perft_depth(),
-            Bench => self.state.engine.engine_info().default_bench_depth,
+            Bench => self.state.engine.engine_info().default_bench_depth(),
             _ => limit.depth,
         };
         if limit.depth == Depth::MAX {
@@ -710,8 +719,9 @@ impl<B: Board> EngineUGI<B> {
                 Perft => perft_for(limit.depth, B::bench_positions()).to_string(),
                 Bench => {
                     let mut engine = create_engine_bench_from_str(
-                        self.state.engine.engine_info().short_name(),
-                        &self.engine_factories,
+                        &self.state.engine.engine_info().short_name(),
+                        &self.searcher_factories,
+                        &self.eval_factories,
                     )?;
                     run_bench_with_depth(engine.as_mut(), limit.depth).to_string()
                 },
@@ -884,7 +894,7 @@ impl<B: Board> EngineUGI<B> {
         let engine_name = format!(
             "{0} ({1})",
             self.state.display_name.bold(),
-            self.state.engine.engine_info().name.bold()
+            self.state.engine.engine_info().long_name().bold()
         );
         let str = format!("{motors}: A work-in-progress collection of engines for various games, \
         currently playing {game_name}, using the engine {engine_name}.\
@@ -903,6 +913,7 @@ impl<B: Board> EngineUGI<B> {
         or simply `perft` to use the current position and game-specific default depth.\
         \n {bench}: See `perft`, but replace 'perft' with 'bench'. The default depth is engine-specific.\
         \n {eval}: Prints the static eval of the current position, without doing any actual searching.\
+        \n {set_eval}: Loads another evaluation function for the same engine.\
         \n {option}: Prints the current value of the specified UGI option, or of all UGI options if no name is specified.\
         \n {play}: Pause the current match and start a new match of the given game, e.g. 'play chess'. Once that receives \
         '{quit_match}', exit the match and resume the current match.\
@@ -919,6 +930,7 @@ impl<B: Board> EngineUGI<B> {
             perft = "perft".bold(),
             bench = "bench".bold(),
             eval = "eval | e".bold(),
+            set_eval = "set-eval".bold(),
             option = "option".bold(),
             play = "play".bold(),
             quit_match = "quit_match".bold(),
@@ -932,18 +944,43 @@ impl<B: Board> EngineUGI<B> {
         let Some(name) = words.next() else {
             let info = self.state.engine.engine_info();
             self.write_ugi(&format!(
-                "Engine: {0}\nDescription: {1}",
+                "\n{alias}: {0}\n{engine}: {1}\n{description}: {2}",
+                info.short_name(),
                 info.long_name(),
-                info.description
+                info.description().unwrap_or_default(),
+                alias = "Alias".bold(),
+                engine = "Engine".bold(),
+                description = "Description".bold(),
             ));
             return Ok(());
         };
         // catch invalid names before committing to shutting down the current engine
-        let engine =
-            create_engine_from_str(name, &self.engine_factories, self.search_sender.clone())?;
+        let engine = create_engine_from_str(
+            name,
+            &self.searcher_factories,
+            &self.eval_factories,
+            self.search_sender.clone(),
+        )?;
         self.state.engine.send_quit()?;
         self.state.engine = engine;
         Ok(())
+    }
+
+    fn handle_set_eval(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+        let Some(name) = words.next() else {
+            let name = self
+                .state
+                .engine
+                .engine_info()
+                .eval()
+                .clone()
+                .map(|e| e.short_name())
+                .unwrap_or("<eval unused>".to_string());
+            self.write_ugi(&format!("Current eval: {name}"));
+            return Ok(());
+        };
+        let eval = create_eval_from_str(name, &self.eval_factories)?.build();
+        self.state.engine.set_eval(eval)
     }
 
     fn handle_play(&mut self, words: &mut SplitWhitespace) -> Res<()> {

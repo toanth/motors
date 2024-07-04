@@ -79,7 +79,7 @@ pub fn parse_duration_ms(words: &mut SplitWhitespace, name: &str) -> Res<Duratio
 /// Examples are games ('chess', 'mnk', etc), engines ('caps', 'random', etc), and UIs ('fen', 'pretty', etc)
 pub trait NamedEntity: Debug {
     /// The short name must consist of a single word in lowercase letters and is usually used for text-based UIs
-    fn short_name(&self) -> &str;
+    fn short_name(&self) -> String;
 
     /// The long name can be prettier than the short name and consist of more than one word
     fn long_name(&self) -> String;
@@ -93,7 +93,7 @@ pub trait NamedEntity: Debug {
 }
 
 pub trait StaticallyNamedEntity: NamedEntity {
-    fn static_short_name() -> &'static str
+    fn static_short_name() -> impl Display
     where
         Self: Sized;
 
@@ -107,8 +107,8 @@ pub trait StaticallyNamedEntity: NamedEntity {
 }
 
 impl<T: StaticallyNamedEntity> NamedEntity for T {
-    fn short_name(&self) -> &str {
-        Self::static_short_name()
+    fn short_name(&self) -> String {
+        Self::static_short_name().to_string()
     }
 
     fn long_name(&self) -> String {
@@ -117,6 +117,37 @@ impl<T: StaticallyNamedEntity> NamedEntity for T {
 
     fn description(&self) -> Option<String> {
         Some(Self::static_description())
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Name {
+    pub short: String,
+    pub long: String,
+    pub description: Option<String>,
+}
+
+impl NamedEntity for Name {
+    fn short_name(&self) -> String {
+        self.short.clone()
+    }
+
+    fn long_name(&self) -> String {
+        self.long.clone()
+    }
+
+    fn description(&self) -> Option<String> {
+        self.description.clone()
+    }
+}
+
+impl Name {
+    pub fn new<T: NamedEntity + ?Sized>(t: &T) -> Self {
+        Self {
+            short: t.short_name(),
+            long: t.long_name(),
+            description: t.description(),
+        }
     }
 }
 
@@ -131,8 +162,8 @@ pub struct GenericSelect<T: Debug> {
 }
 
 impl<T: Debug> NamedEntity for GenericSelect<T> {
-    fn short_name(&self) -> &str {
-        self.name
+    fn short_name(&self) -> String {
+        self.name.to_string()
     }
 
     fn long_name(&self) -> String {

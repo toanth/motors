@@ -8,6 +8,8 @@ use derive_more::Display;
 use gears::games::Board;
 use gears::games::Color::Black;
 use gears::general::common::{parse_fp_from_str, Res};
+use rayon::iter::ParallelIterator;
+use rayon::prelude::ParallelBridge;
 use serde::Deserialize;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -177,26 +179,34 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
             input_file.path.bold()
         );
         let reader = BufReader::new(file);
-        let mut res = Dataset::new(E::NUM_WEIGHTS);
-        let mut line_num = 0;
-        for line in reader.lines() {
-            line_num += 1;
-            let line = line.map_err(|err| format!("Failed to read line {line_num}: {err}"))?;
-            Self::load_datapoint_from_annotated_fen(
-                &line,
-                line_num - 1,
-                perspective,
-                weight,
-                &mut res,
-            )?;
-            if line_num % 100_000 == 0 {
-                println!("Loading...  Read {line_num} lines so far");
-            }
-        }
+        let id = || (Dataset::new(E::NUM_WEIGHTS), 0);
+        let (dataset, num_lines) = reader
+            .lines()
+            .enumerate()
+            .par_bridge()
+            .try_fold(id, |(mut dataset, num_lines_so_far), (line_num, line)| {
+                let line = line.map_err(|err| format!("Failed to read line {line_num}: {err}"))?;
+                Self::load_datapoint_from_annotated_fen(
+                    &line,
+                    line_num,
+                    perspective,
+                    weight,
+                    &mut dataset,
+                )?;
+                if line_num % 100_000 == 0 {
+                    println!("Loading...  Read {line_num} lines so far");
+                }
+                Ok((dataset, num_lines_so_far + 1))
+            })
+            .try_reduce(id, |(mut a, a_lines), (b, b_lines)| {
+                a.union(b);
+                let res: Res<(Dataset<E::D>, i32)> = Ok((a, a_lines + b_lines));
+                res
+            })?;
         println!(
-            "Read {line_num} fens in total, after filtering there are {} positions",
-            res.data().len()
+            "Read {num_lines} fens in total, after filtering there are {} positions",
+            dataset.data().len()
         );
-        Ok(res)
+        Ok(dataset)
     }
 }

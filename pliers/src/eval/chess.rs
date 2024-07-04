@@ -1,8 +1,9 @@
 //! Contains chess evaluation functions, and some shared code that is generally useful for them,
 //! such as the [`SkipChecks`] [`Filter`].
 use crate::eval::write_phased_with_width;
-use crate::gd::{BasicTrace, Float, SimpleTrace, TraceNFeatures, Weight};
+use crate::gd::{Float, Weight};
 use crate::load_data::{Filter, ParseResult};
+use crate::trace::{BasicTrace, SimpleTrace, TraceNFeatures};
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::Chessboard;
@@ -13,7 +14,7 @@ use motors::eval::chess::CHESS_PHASE_VALUES;
 use std::fmt::Formatter;
 use strum::IntoEnumIterator;
 
-pub mod caps_hce_eval;
+pub mod lite;
 pub mod material_only_eval;
 pub mod piston_eval;
 
@@ -83,7 +84,7 @@ fn write_phased_psqt(
         writeln!(f, "{TAB}// {piece}")?;
         write!(f, "{TAB}[")?;
     } else {
-        writeln!(f, "[")?;
+        write!(f, "[")?;
     }
     for square in 0..NUM_SQUARES {
         if square % 8 == 0 {
@@ -99,7 +100,7 @@ fn write_phased_psqt(
     if piece_name.is_some() {
         writeln!(f, "{TAB}],")?;
     } else {
-        writeln!(f, "{TAB}];")?;
+        writeln!(f, "];")?;
     }
 
     Ok(())
@@ -112,7 +113,7 @@ fn write_psqts(
 ) -> std::fmt::Result {
     writeln!(
         f,
-        "const PSQTS: [[i32; NUM_SQUARES]; NUM_CHESS_PIECES * 2] = ["
+        "const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = ["
     )?;
     for piece in UncoloredChessPiece::pieces() {
         write_phased_psqt(

@@ -4,7 +4,9 @@ use strum_macros::EnumIter;
 use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::pieces::ColoredChessPiece;
 use crate::games::chess::pieces::UncoloredChessPiece::Rook;
-use crate::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO, NUM_COLUMNS};
+use crate::games::chess::squares::{
+    ChessSquare, A_FILE_NO, C_FILE_NO, D_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
+};
 use crate::games::chess::Chessboard;
 use crate::games::Color::*;
 use crate::games::{char_to_file, Board, Color, ColoredPieceType, DimT};
@@ -14,6 +16,22 @@ use crate::general::common::Res;
 pub enum CastleRight {
     Queenside,
     Kingside,
+}
+
+impl CastleRight {
+    pub fn king_dest_file(self) -> DimT {
+        match self {
+            Queenside => C_FILE_NO,
+            Kingside => G_FILE_NO,
+        }
+    }
+
+    pub fn rook_dest_file(self) -> DimT {
+        match self {
+            Queenside => D_FILE_NO,
+            Kingside => F_FILE_NO,
+        }
+    }
 }
 
 #[derive(Eq, PartialEq, Default, Debug, Ord, PartialOrd, Copy, Clone)]

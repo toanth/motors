@@ -21,6 +21,7 @@
 use crate::PlayerResult;
 use derive_more::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use num::ToPrimitive;
+use std::fmt::{Display, Formatter};
 use std::ops::Div;
 
 /// Valid scores fit into 16 bits, but it's possible to temporarily overflow that range with some operations,
@@ -141,13 +142,25 @@ pub const fn is_valid_score(score: ScoreT) -> bool {
 
 /// Uses a SWAR (SIMD Within A Register) technique to store and manipulate middlegame and endgame scores
 /// at the same time, by treating them as the lower and upper half of a single value.
-/// This improves performance, which is especially important because the eval of a typical a/b engine is hot..
+/// This improves performance, which is especially important because the eval of a typical a/b engine is hot.
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Add, AddAssign, Sub, SubAssign, Neg)]
 pub struct PhasedScore(ScoreT);
+
+impl Display for PhasedScore {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({0}, {1})", self.mg(), self.eg())
+    }
+}
+
+pub type PhaseType = isize;
 
 const COMPACT_SCORE_BITS: usize = CompactScoreT::BITS as usize;
 
 impl PhasedScore {
+    // `const`, unlike `default`
+    pub const fn zero() -> Self {
+        PhasedScore(0)
+    }
     pub const fn new(mg: CompactScoreT, eg: CompactScoreT) -> Self {
         debug_assert!(is_valid_score(mg as ScoreT));
         debug_assert!(is_valid_score(eg as ScoreT));
@@ -167,9 +180,9 @@ impl PhasedScore {
         Score(self.underlying() as CompactScoreT as ScoreT)
     }
 
-    pub fn taper(self, phase: isize, max_phase: isize) -> Score {
+    pub fn taper(self, phase: PhaseType, max_phase: PhaseType) -> Score {
         Score(
-            ((self.mg().0 as isize * phase + self.eg().0 as isize * (max_phase - phase))
+            ((self.mg().0 as PhaseType * phase + self.eg().0 as PhaseType * (max_phase - phase))
                 / max_phase) as ScoreT,
         )
     }

@@ -76,7 +76,7 @@ impl Default for Chessboard {
 }
 
 impl StaticallyNamedEntity for Chessboard {
-    fn static_short_name() -> &'static str
+    fn static_short_name() -> impl Display
     where
         Self: Sized,
     {
@@ -129,7 +129,7 @@ impl Board for Chessboard {
             name,
             Self::name_to_pos_map().iter(),
             "position",
-            Self::game_name(),
+            &Self::game_name(),
             NoDescription,
         )
         .map(|f| (f.val)())
@@ -753,6 +753,10 @@ impl Chessboard {
         true
     }
 
+    pub fn ep_square(&self) -> Option<ChessSquare> {
+        self.ep_square
+    }
+
     pub fn king_square(&self, color: Color) -> ChessSquare {
         ChessSquare::from_bb_index(self.colored_piece_bb(color, King).trailing_zeros())
     }
@@ -874,7 +878,7 @@ impl Chessboard {
 
 impl Display for Chessboard {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{0}", self.as_unicode_diagram(false))
+        write!(f, "{0}", self.as_fen())
     }
 }
 

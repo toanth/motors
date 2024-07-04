@@ -1,4 +1,4 @@
-use std::fmt::Write;
+use std::fmt::{Display, Write};
 use std::io::stdout;
 
 use colored::{Color, Colorize};
@@ -65,8 +65,8 @@ where
 }
 
 impl NamedEntity for PrettyUI {
-    fn short_name(&self) -> &str {
-        PrettyUIBuilder::static_short_name()
+    fn short_name(&self) -> String {
+        PrettyUIBuilder::static_short_name().to_string()
     }
 
     fn long_name(&self) -> String {
@@ -130,7 +130,7 @@ where
 pub struct PrettyUIBuilder {}
 
 impl StaticallyNamedEntity for PrettyUIBuilder {
-    fn static_short_name() -> &'static str {
+    fn static_short_name() -> impl Display {
         "pretty"
     }
 

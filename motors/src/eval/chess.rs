@@ -4,29 +4,13 @@ use gears::games::Color;
 use gears::games::Color::*;
 use gears::general::bitboards::chess::ChessBitboard;
 use gears::general::bitboards::Bitboard;
-use std::fmt::{Display, Formatter};
-use strum_macros::EnumIter;
 
-pub mod hce;
+pub mod lite;
+pub mod lite_values;
 pub mod material_only;
 pub mod piston;
 
-#[derive(Debug, Copy, Clone, EnumIter)]
-pub enum PhaseType {
-    Mg,
-    Eg,
-}
-
-impl Display for PhaseType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PhaseType::Mg => write!(f, "MG"),
-            PhaseType::Eg => write!(f, "EG"),
-        }
-    }
-}
-
-/// Has to be in the same order as the FileOpenness in hce.rs.
+/// Has to be in the same order as the FileOpenness in lite.
 /// `SemiClosed` is last because it doesn't get counted.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum FileOpenness {
@@ -92,7 +76,7 @@ pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: C
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::chess::hce::HandCraftedEval;
+    use crate::eval::chess::lite::LiTEval;
     use crate::eval::chess::material_only::MaterialOnlyEval;
     use crate::eval::chess::piston::PistonEval;
     use crate::eval::Eval;
@@ -199,11 +183,11 @@ mod tests {
         }
     }
 
-    fn generic_eval_test<E: Eval<Chessboard>>() {
-        let score = E::default().eval(Chessboard::default());
+    fn generic_eval_test<E: Eval<Chessboard> + Default>() {
+        let score = E::default().eval(&Chessboard::default());
         assert!(score.abs() <= Score(25));
         assert!(score >= Score(0));
-        let score = E::default().eval(Chessboard::from_name("lucena").unwrap());
+        let score = E::default().eval(&Chessboard::from_name("lucena").unwrap());
         assert!(score >= Score(100));
     }
 
@@ -211,6 +195,6 @@ mod tests {
     fn simple_eval_test() {
         generic_eval_test::<MaterialOnlyEval>();
         generic_eval_test::<PistonEval>();
-        generic_eval_test::<HandCraftedEval>();
+        generic_eval_test::<LiTEval>();
     }
 }

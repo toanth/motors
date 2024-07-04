@@ -1,10 +1,11 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::time::{Duration, Instant};
 
 use rand::{thread_rng, Rng, RngCore, SeedableRng};
 
+use crate::eval::Eval;
 use gears::games::Board;
-use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
+use gears::general::common::{Res, StaticallyNamedEntity};
 use gears::score::Score;
 use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 
@@ -51,11 +52,11 @@ impl<B: Board, R: SeedRng> Default for RandomMover<B, R> {
 // }
 
 impl<B: Board, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R> {
-    fn static_short_name() -> &'static str
+    fn static_short_name() -> impl Display
     where
         Self: Sized,
     {
-        "random_mover"
+        "random"
     }
 
     fn static_long_name() -> String
@@ -69,7 +70,7 @@ impl<B: Board, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R>
     where
         Self: Sized,
     {
-        "A very simple engine that always chooses a legal move uniformly at random".to_string()
+        "A very simple engine that always chooses a legal move uniformly at random. Doesn't need an eval".to_string()
     }
 }
 
@@ -81,14 +82,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Benchable<B> for RandomMover
     }
 
     fn engine_info(&self) -> EngineInfo {
-        EngineInfo {
-            short_name: self.short_name().to_string(),
-            name: self.long_name().to_string(),
-            version: "0.1.0".to_string(),
-            default_bench_depth: Depth::new(1), // ignored as the engine will just pick a random move no matter what
-            options: Vec::default(),
-            description: "An Engine that simply plays a random legal move".to_string(),
-        }
+        EngineInfo::new_without_eval(self, "0.1.0", Depth::new(1), vec![])
     }
 }
 
@@ -143,5 +137,13 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
 
     fn static_eval(&mut self, _pos: B) -> Score {
         Score(0)
+    }
+
+    fn with_eval(_eval: Box<dyn Eval<B>>) -> Self {
+        Self::default()
+    }
+
+    fn set_eval(&mut self, _eval: Box<dyn Eval<B>>) {
+        // do nothing
     }
 }

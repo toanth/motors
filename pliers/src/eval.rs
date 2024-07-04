@@ -7,9 +7,10 @@ use crate::eval::Direction::{Down, Up};
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
     cp_eval_for_weights, cp_to_wr, sample_loss, scaled_sample_grad, Batch, Datapoint, Float,
-    Outcome, ScalingFactor, TraceTrait, Weight, Weights,
+    Outcome, ScalingFactor, Weight, Weights,
 };
 use crate::load_data::Filter;
+use crate::trace::TraceTrait;
 use derive_more::Display;
 use gears::games::Board;
 use std::fmt::Formatter;
@@ -283,6 +284,8 @@ pub trait Eval<B: Board>: WeightsInterpretation + Default {
     /// calculate the trace, which then gets turned into a [`Datapoint`] in a separate step. A trace lists how often a
     /// feature appears for each player, so unlike a Datapoint, it still contains semantic information instead of a
     /// single one-dimensional list of feature counts.
+    /// [`TuneLiTEval`] is an example for how an existing eval function can be used to create a feature trace without
+    /// needing to duplicate the eval implementation.
     fn feature_trace(pos: &B) -> impl TraceTrait;
 }
 
@@ -320,7 +323,7 @@ fn grad_for_eval_scale<D: Datapoint>(
         let sample_grad =
             scaled_sample_grad(prediction, outcome, data.sampling_weight()) * cp_eval.0;
         scaled_grad += sample_grad;
-        loss += sample_loss(prediction, data.outcome(), data.sampling_weight());
+        loss += sample_loss(prediction, data.outcome()) * data.sampling_weight();
     }
     loss /= batch.weight_sum as Float;
     // the gradient tells us how we need to change 1/eval_scale to maximize the loss, which is the same direction

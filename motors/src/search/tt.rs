@@ -301,11 +301,11 @@ mod test {
             let mut occurrences = vec![0_u64; size];
             let mut gen = thread_rng();
             let num_samples = 200_000;
-            for i in 0..num_samples {
+            for _ in 0..num_samples {
                 let idx = tt.index_of(ZobristHash(gen.next_u64()));
                 occurrences[idx] += 1;
             }
-            let mut expected = num_samples as f64 / size as f64;
+            let expected = num_samples as f64 / size as f64;
             let min = occurrences.iter().min().copied().unwrap_or_default();
             let max = occurrences.iter().max().copied().unwrap_or_default();
             let std_dev = (occurrences.iter().map(|x| x * x).sum::<u64>() as f64 / size as f64
