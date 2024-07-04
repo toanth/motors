@@ -887,8 +887,8 @@ impl AdamwHyperParams {
             // otherwise appear converged -- maybe because of numerical instability?
             beta1: 0.9,
             beta2: 0.999,
-            epsilon: 1e-8,
-            lambda: 1e-5,
+            epsilon: 1e-7,
+            lambda: 1e-4,
         }
     }
 }
