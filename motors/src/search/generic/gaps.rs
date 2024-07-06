@@ -15,8 +15,8 @@ use crate::search::statistics::SearchType::MainSearch;
 use crate::search::tt::TT;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use crate::search::{
-    ABSearchState, BenchResult, Benchable, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
-    SearchState,
+    ABSearchState, BenchResult, Benchable, BestMoveCustomInfo, EmptySearchStackEntry, Engine,
+    EngineInfo, SearchState,
 };
 
 const MAX_DEPTH: Depth = Depth::new(100);
@@ -25,7 +25,7 @@ type DefaultEval = RandEval;
 
 #[derive(Debug)]
 pub struct Gaps<B: Board> {
-    state: ABSearchState<B, EmptySearchStackEntry, NoCustomInfo>,
+    state: ABSearchState<B, EmptySearchStackEntry, BestMoveCustomInfo<B>>,
     eval: Box<dyn Eval<B>>,
     tt: TT,
 }
@@ -91,7 +91,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
     }
 
     fn do_search(&mut self, pos: B, mut limit: SearchLimit) -> Res<SearchResult<B>> {
-        let mut chosen_move = self.state.best_move;
+        let mut chosen_move = self.state.custom.chosen_move;
         let max_depth = MAX_DEPTH.min(limit.depth).get() as isize;
         limit.fixed_time = limit.fixed_time.min(limit.tc.remaining);
 
@@ -103,7 +103,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
                 break;
             }
             self.state.score = iteration_score;
-            chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
+            chosen_move = self.state.custom.chosen_move; // only set now so that incomplete iterations are discarded
             self.state.sender.send_search_info(self.search_info());
             // increases the depth. do this after sending the search info, but before deciding if the depth limit has been exceeded.
             self.state.statistics.next_id_iteration();
@@ -209,7 +209,7 @@ impl<B: Board> Gaps<B> {
             alpha = alpha.max(score);
             best_score = score;
             if ply == 0 {
-                self.state.best_move = Some(mov);
+                self.state.custom.chosen_move = Some(mov);
             }
             if score < beta {
                 continue;

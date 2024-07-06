@@ -11,8 +11,8 @@ use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, Ti
 
 use crate::search::tt::TT;
 use crate::search::{
-    ABSearchState, BenchResult, Benchable, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
-    SearchState,
+    ABSearchState, BenchResult, Benchable, BestMoveCustomInfo, EmptySearchStackEntry, Engine,
+    EngineInfo, SearchState,
 };
 
 pub trait SeedRng: Rng + SeedableRng {}
@@ -22,7 +22,7 @@ impl<T> SeedRng for T where T: Rng + SeedableRng {}
 pub struct RandomMover<B: Board, R: SeedRng> {
     pub rng: R,
     chosen_move: B::Move,
-    _state: ABSearchState<B, EmptySearchStackEntry, NoCustomInfo>,
+    _state: ABSearchState<B, EmptySearchStackEntry, BestMoveCustomInfo<B>>,
 }
 
 impl<B: Board, R: SeedRng> Debug for RandomMover<B, R> {
@@ -99,6 +99,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
     }
 
     fn do_search(&mut self, pos: B, _: SearchLimit) -> Res<SearchResult<B>> {
+        self._state.statistics.next_id_iteration();
         self.chosen_move = pos
             .random_legal_move(&mut self.rng)
             .expect("search() called in a position with no legal moves");

@@ -40,8 +40,8 @@ pub enum EngineReceives<B: Board> {
 #[derive(Debug, Default)]
 struct SearchSenderState {
     searching: AtomicBool,
+    infinite: AtomicBool,
     stop: AtomicBool,
-    ponder: AtomicBool,
     print_result: AtomicBool,
 }
 
@@ -70,35 +70,35 @@ impl<B: Board> SearchSender<B> {
         }
     }
 
-    pub fn set_ponder(&mut self, pondering: bool) {
-        self.sss.ponder.store(pondering, SeqCst);
-        self.sss.print_result.store(!pondering, SeqCst);
+    pub fn search_infinite(&mut self, infinite: bool) {
+        self.sss.infinite.store(infinite, SeqCst);
+        self.sss.print_result.store(!infinite, SeqCst);
     }
 
     pub fn send_stop(&mut self) {
-        // Set pondering to `false` before stopping the search such that the engine will output a `bestmove` as demanded by the spec:
-        // It doesn't matter if the engine threads reads `ponder` before it is updated, it will print the result in both cases.
+        // Set `infinite` to `false` before stopping the search such that the engine will output a `bestmove`
+        // as demanded by the spec, such as when it stops pondering:
+        // It doesn't matter if the engine threads reads `infinite` before it is updated,
+        // it will print the result in both cases.
         self.sss.print_result.store(true, SeqCst);
-        self.sss.ponder.store(false, SeqCst);
+        self.sss.infinite.store(false, SeqCst);
         self.sss.stop.store(true, SeqCst);
         // wait until the search has finished to prevent race conditions
         while self.sss.searching.load(SeqCst) {}
     }
 
-    pub fn start_search(&mut self) {
-        self.sss.searching.store(true, SeqCst);
+    pub fn set_searching(&mut self, value: bool) {
+        self.sss.searching.store(value, SeqCst);
     }
 
-    pub fn end_search(&mut self) {
-        self.sss.searching.store(false, SeqCst);
-    }
-
-    pub fn reset(&mut self) {
+    pub fn new_search(&mut self, infinite: bool) {
+        // should be unnecessary but best to be certain
+        self.sss.stop.store(true, SeqCst);
         // wait until any previous search has been stopped
         while self.sss.searching.load(SeqCst) {}
-        self.sss.stop.store(false, SeqCst);
-        self.sss.ponder.store(false, SeqCst);
+        self.sss.infinite.store(infinite, SeqCst);
         self.sss.print_result.store(true, SeqCst);
+        self.sss.stop.store(false, SeqCst);
     }
 
     /// This function gets called both on a ponder hit and on a ponder miss; there is no distinction in how they
@@ -107,7 +107,7 @@ impl<B: Board> SearchSender<B> {
         // We simply abort the current search. Since the state is persistent, this still helps a lot.
         // This isn't the optimal implementation, but it's simple and ponder strength isn't a big concern.
         self.sss.print_result.store(false, SeqCst);
-        self.sss.ponder.store(false, SeqCst);
+        self.sss.infinite.store(false, SeqCst);
         // can only stop after having made sure the result won't be printed
         self.sss.stop.store(true, SeqCst);
         // wait until the search has finished to avoid race conditions
@@ -127,7 +127,7 @@ impl<B: Board> SearchSender<B> {
     pub fn send_search_res(&mut self, res: SearchResult<B>) {
         if let Some(output) = &self.output {
             // Spin until pondering has been disabled, such as through a `stop` command or through a ponderhit
-            while self.sss.ponder.load(SeqCst) {}
+            while self.sss.infinite.load(SeqCst) {}
             if self.sss.print_result.load(SeqCst) {
                 output.lock().unwrap().show_search_res(res)
             }
@@ -329,8 +329,7 @@ impl<B: Board> EngineWrapper<B> {
     ) -> Res<()> {
         if self.is_primary() {
             // reset `stop` first such that a finished ponder command won't print anything
-            self.search_sender().reset();
-            self.search_sender().set_ponder(ponder);
+            self.search_sender().new_search(limit.is_infinite());
         }
         for o in self.secondary.iter_mut() {
             o.start_search(pos, limit, history.clone(), ponder)?;
@@ -341,7 +340,7 @@ impl<B: Board> EngineWrapper<B> {
     }
 
     pub fn start_bench(&mut self, pos: B, depth: Depth) -> Res<()> {
-        self.search_sender().reset();
+        self.search_sender().new_search(false);
         self.sender
             .send(Bench(pos, depth))
             .map_err(|err| err.to_string())

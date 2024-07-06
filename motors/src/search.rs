@@ -186,7 +186,7 @@ impl<B: Board, const LIMIT: usize> Default for Pv<B, LIMIT> {
 }
 
 impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
-    pub fn push(&mut self, ply: usize, mov: B::Move, child_pv: &Pv<B, LIMIT>) {
+    pub fn extend(&mut self, ply: usize, mov: B::Move, child_pv: &Pv<B, LIMIT>) {
         self.list[ply] = mov;
         for i in ply + 1..child_pv.length {
             self.list[i] = child_pv.list[i];
@@ -387,13 +387,17 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         sender: SearchSender<B>,
     ) -> Res<SearchResult<B>> {
         self.search_state_mut().new_search(history, sender);
-        self.search_state_mut().search_sender_mut().start_search();
+        self.search_state_mut()
+            .search_sender_mut()
+            .set_searching(true);
         let res = self.do_search(pos, limit);
         let search_state = self.search_state_mut();
         search_state.end_search();
         search_state.send_statistics();
         search_state.aggregate_match_statistics();
-        self.search_state_mut().search_sender_mut().end_search();
+        self.search_state_mut()
+            .search_sender_mut()
+            .set_searching(false);
         res
     }
 
@@ -562,22 +566,23 @@ pub trait CustomInfo: Default + Clone + Debug {
 }
 
 #[derive(Default, Clone, Debug)]
-pub struct NoCustomInfo {}
+pub struct BestMoveCustomInfo<B: Board> {
+    pub chosen_move: Option<B::Move>,
+}
 
-impl CustomInfo for NoCustomInfo {}
+impl<B: Board> CustomInfo for BestMoveCustomInfo<B> {}
 
 #[derive(Debug, Clone)]
 pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo> {
     search_stack: Vec<E>,
     board_history: ZobristHistory<B>,
     custom: C,
-    best_move: Option<B::Move>,
     searching: Searching,
     should_stop: bool,
     start_time: Instant,
     score: Score,
     statistics: Statistics,
-    match_statistics: Statistics, // statistics aggregated over all searches of the current match
+    aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
     sender: SearchSender<B>,
 }
 
@@ -593,18 +598,22 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
             board_history: ZobristHistory::default(),
             start_time,
             score: Score(0),
-            best_move: None,
             searching: Stop,
             should_stop: false,
             custom,
             statistics: Statistics::default(),
-            match_statistics: Default::default(),
+            aggregated_statistics: Default::default(),
             sender: SearchSender::no_sender(),
         }
     }
 
     fn mov(&self) -> B::Move {
-        self.best_move.unwrap_or_default()
+        self.search_stack
+            .first()
+            .and_then(|e| e.pv())
+            .and_then(|pv| pv.first())
+            .copied()
+            .unwrap_or_default()
     }
 
     fn pv(&self) -> Vec<B::Move> {
@@ -620,6 +629,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
     fn hashfull(&self) -> Option<usize> {
         self.custom.tt().map(|tt| tt.estimate_hashfull::<B>())
     }
+
     fn seldepth(&self) -> Option<usize> {
         let res = self.statistics.sel_depth();
         if res == 0 {
@@ -628,6 +638,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
             Some(res)
         }
     }
+
     fn additional(&self) -> Option<String> {
         None
     }
@@ -675,7 +686,6 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
         self.start_time = Instant::now();
         self.board_history = ZobristHistory::default(); // will get overwritten later
         self.score = Score(0);
-        self.best_move = None;
         self.searching = Stop;
         self.should_stop = false;
         self.statistics = Statistics::default();
@@ -720,7 +730,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
 
     #[inline(always)]
     fn aggregate_match_statistics(&mut self) {
-        self.match_statistics.aggregate_searches(&self.statistics);
+        self.aggregated_statistics
+            .aggregate_searches(&self.statistics);
     }
 
     fn search_sender(&self) -> &SearchSender<B> {

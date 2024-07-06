@@ -182,7 +182,7 @@ impl TimeControl {
     }
 
     pub fn is_infinite(&self) -> bool {
-        self.remaining == Duration::MAX
+        self.remaining >= Duration::MAX - Duration::from_secs(1000)
     }
 
     pub fn update(&mut self, elapsed: Duration) {
@@ -241,7 +241,9 @@ impl Depth {
 
 pub type NodesLimit = NonZeroU64;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+// Don't derive Eq because that allows code like `limit == SearchLimit::infinite()`, which is bad because the remaining
+// time of `limit` might be slightly less while still being considered infinite.
+#[derive(Copy, Clone, Debug)]
 pub struct SearchLimit {
     pub tc: TimeControl,
     pub fixed_time: Duration,
@@ -308,5 +310,14 @@ impl SearchLimit {
 
     pub fn max_move_time(&self) -> Duration {
         self.fixed_time.min(self.tc.remaining)
+    }
+
+    pub fn is_infinite(&self) -> bool {
+        let inf = Self::infinite();
+        self.tc.is_infinite()
+            && self.mate == inf.mate
+            && self.depth == inf.depth
+            && self.nodes == inf.nodes
+            && self.fixed_time >= inf.fixed_time - Duration::from_secs(1000)
     }
 }

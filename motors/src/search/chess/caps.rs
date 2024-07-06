@@ -307,15 +307,14 @@ impl Engine<Chessboard> for Caps {
         self.state.custom.original_board_hist = take(&mut self.state.board_history);
         self.state.custom.original_board_hist.push(&pos);
 
-        let chosen_move = match self.aspiration(pos, limit, soft_limit) {
-            Some(mov) => mov,
-            None => {
-                eprintln!("Warning: Not even a single iteration finished");
-                let mut rng = thread_rng();
-                pos.random_legal_move(&mut rng)
-                    .expect("search() called in a position with no legal moves")
-            }
-        };
+        let mut chosen_move = self.aspiration(pos, limit, soft_limit);
+        if chosen_move == ChessMove::default() {
+            eprintln!("Warning: Not even a single iteration finished");
+            let mut rng = thread_rng();
+            chosen_move = pos
+                .random_legal_move(&mut rng)
+                .expect("search() called in a position with no legal moves")
+        }
         Ok(SearchResult::new(
             chosen_move,
             self.state.score,
@@ -376,8 +375,8 @@ impl Caps {
         pos: Chessboard,
         limit: SearchLimit,
         soft_limit: Duration,
-    ) -> Option<ChessMove> {
-        let mut chosen_move = self.state.best_move;
+    ) -> ChessMove {
+        let mut chosen_move = self.state.mov();
         let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth).get() as isize;
 
         let mut alpha = SCORE_LOST;
@@ -443,7 +442,7 @@ impl Caps {
             beta = (iteration_score + window_radius).min(SCORE_WON);
             // incomplete iterations and root nodes that failed low don't overwrite the `state.best_move`,
             // so it should be fine to unconditionally assign it to `chosen_move`
-            chosen_move = self.state.best_move;
+            chosen_move = self.state.mov();
             if self.should_not_start_next_iteration(soft_limit, max_depth, limit.mate) {
                 self.state.statistics.soft_limit_stop();
                 break;
@@ -778,13 +777,13 @@ impl Caps {
             // default move, which is either the TT move (if there was a TT hit) or the null move.
             best_move = mov;
 
-            // Update the PV. We only need to do that for PV nodes (could even only do that for non-fail highs, although that would
-            // truncate the pv on an aw fail high and it relies on details of this implementation), but for some reason,
-            // that resulted in a bench slowdown, so for now we're doing that everywhere. TODO: Retest this eventually.
+            // Update the PV. We only need to do that for PV nodes (we could even only do that for non-fail highs,
+            // ut that would truncate the pv on an aw fail high, it relies on details of this implementation, and it would
+            // mean we don't update the best move on a aw fail high before the search gets aborted).
             let split = self.state.search_stack.split_at_mut(ply + 1);
             let pv = &mut split.0.last_mut().unwrap().pv;
             let child_pv = &split.1[0].pv;
-            pv.push(ply, best_move, child_pv);
+            pv.extend(ply, best_move, child_pv);
 
             if score < beta {
                 // We're in a PVS PV node and this move raised alpha but didn't cause a fail high, so look at the other moves.
@@ -809,7 +808,6 @@ impl Caps {
 
         if ply == 0 {
             debug_assert!(!self.state.search_stack[ply].tried_moves.is_empty());
-            self.state.best_move = Some(best_move);
         } else if self.state.search_stack[ply].tried_moves.is_empty() {
             // TODO: Merge cached in-check branch
             return game_result_to_score(pos.no_moves_result(), ply);
