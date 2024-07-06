@@ -1,9 +1,11 @@
+use derive_more::Display;
 use gears::games::chess::pieces::NUM_CHESS_PIECES;
 use gears::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO, NUM_SQUARES};
 use gears::games::Color;
 use gears::games::Color::*;
 use gears::general::bitboards::chess::ChessBitboard;
 use gears::general::bitboards::Bitboard;
+use strum_macros::EnumIter;
 
 pub mod lite;
 pub mod lite_values;
@@ -12,13 +14,15 @@ pub mod piston;
 
 /// Has to be in the same order as the FileOpenness in lite.
 /// `SemiClosed` is last because it doesn't get counted.
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, EnumIter, Display)]
 pub enum FileOpenness {
     Open,
     Closed,
     SemiOpen,
     SemiClosed,
 }
+
+pub type DiagonalOpenness = FileOpenness;
 
 pub const CHESS_PHASE_VALUES: [usize; NUM_CHESS_PIECES] = [0, 1, 1, 2, 4, 0];
 

@@ -2,15 +2,17 @@ use std::fmt::Display;
 use strum::IntoEnumIterator;
 
 use crate::eval::chess::lite_values::*;
-use crate::eval::chess::{pawn_shield_idx, FileOpenness};
+use crate::eval::chess::{pawn_shield_idx, DiagonalOpenness, FileOpenness};
 use gears::games::chess::moves::ChessMove;
-use gears::games::chess::pieces::UncoloredChessPiece::{Bishop, Empty, King, Pawn, Rook};
+use gears::games::chess::pieces::UncoloredChessPiece::*;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::squares::ChessSquare;
 use gears::games::chess::Chessboard;
 use gears::games::Color::{Black, White};
 use gears::games::{Board, Color, DimT, Move, ZobristHash};
-use gears::general::bitboards::chess::{ChessBitboard, A_FILE};
+use gears::general::bitboards::chess::{
+    ChessBitboard, A_FILE, CHESS_ANTI_DIAGONALS, CHESS_DIAGONALS,
+};
 use gears::general::bitboards::Bitboard;
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::StaticallyNamedEntity;
@@ -40,21 +42,50 @@ pub const TEMPO: Score = Score(10);
 /// Includes a phase for the empty piece to simplify the implementation
 const PIECE_PHASE: [PhaseType; NUM_CHESS_PIECES + 1] = [0, 1, 1, 2, 4, 0, 0];
 
+fn openness(
+    ray: ChessBitboard,
+    our_pawns: ChessBitboard,
+    their_pawns: ChessBitboard,
+) -> FileOpenness {
+    if (ray & our_pawns).is_zero() && (ray & their_pawns).is_zero() {
+        Open
+    } else if (ray & our_pawns).is_zero() {
+        SemiOpen
+    } else if (ray & our_pawns).has_set_bit() && (ray & their_pawns).has_set_bit() {
+        Closed
+    } else {
+        SemiClosed
+    }
+}
+
 pub fn file_openness(
     file: DimT,
     our_pawns: ChessBitboard,
     their_pawns: ChessBitboard,
 ) -> FileOpenness {
     let file = ChessBitboard::file_no(file);
-    if (file & our_pawns).is_zero() && (file & their_pawns).is_zero() {
-        Open
-    } else if (file & our_pawns).is_zero() {
-        SemiOpen
-    } else if (file & our_pawns).has_set_bit() && (file & their_pawns).has_set_bit() {
-        Closed
-    } else {
-        SemiClosed
-    }
+    openness(file, our_pawns, their_pawns)
+}
+
+pub fn diagonal_openness(
+    square: ChessSquare,
+    our_pawns: ChessBitboard,
+    their_pawns: ChessBitboard,
+) -> (DiagonalOpenness, usize) {
+    let diag = CHESS_DIAGONALS[square.bb_idx()];
+    (openness(diag, our_pawns, their_pawns), diag.num_ones())
+}
+
+pub fn anti_diagonal_openness(
+    square: ChessSquare,
+    our_pawns: ChessBitboard,
+    their_pawns: ChessBitboard,
+) -> (DiagonalOpenness, usize) {
+    let anti_diag = CHESS_ANTI_DIAGONALS[square.bb_idx()];
+    (
+        openness(anti_diag, our_pawns, their_pawns),
+        anti_diag.num_ones(),
+    )
 }
 
 impl<Tuned: LiteValues> StaticallyNamedEntity for GenericLiTEval<Tuned> {
@@ -141,7 +172,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn rook_and_king(pos: &Chessboard, color: Color) -> Tuned::Score {
+    fn open_lines(pos: &Chessboard, color: Color) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let our_pawns = pos.colored_piece_bb(color, Pawn);
         let their_pawns = pos.colored_piece_bb(color.other(), Pawn);
@@ -162,6 +193,10 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let attacked_by_pawn = pos
             .colored_piece_bb(color.other(), Pawn)
             .pawn_attacks(color.other());
+        let king_zone = Chessboard::normal_king_moves_from_square(pos.king_square(color.other()));
+        if (pos.colored_piece_bb(color, Pawn).pawn_attacks(color) & king_zone).has_set_bit() {
+            score += Tuned::king_zone_attack(Pawn);
+        }
         for piece in UncoloredChessPiece::non_pawn_pieces() {
             for square in pos.colored_piece_bb(color, piece).ones() {
                 let attacks =
@@ -174,6 +209,9 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                     let defended = pos.colored_piece_bb(color, threatened_piece) & attacks;
                     score += Tuned::defended(piece, threatened_piece) * defended.num_ones();
                 }
+                if (attacks & king_zone).has_set_bit() {
+                    score += Tuned::king_zone_attack(piece);
+                }
             }
         }
         score
@@ -185,7 +223,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Self::bishop_pair(pos, color);
             score += Self::pawns(pos, color);
             score += Self::pawn_shield(pos, color);
-            score += Self::rook_and_king(pos, color);
+            score += Self::open_lines(pos, color);
             score += Self::mobility_and_threats(pos, color);
             score = -score;
         }
