@@ -323,7 +323,7 @@ fn grad_for_eval_scale<D: Datapoint>(
         let sample_grad =
             scaled_sample_grad(prediction, outcome, data.sampling_weight()) * cp_eval.0;
         scaled_grad += sample_grad;
-        loss += sample_loss(prediction, data.outcome(), data.sampling_weight());
+        loss += sample_loss(prediction, data.outcome()) * data.sampling_weight();
     }
     loss /= batch.weight_sum as Float;
     // the gradient tells us how we need to change 1/eval_scale to maximize the loss, which is the same direction

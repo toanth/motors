@@ -94,15 +94,21 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         res
     }
 
-    fn bishop_pair(pos: &Chessboard, color: Color) -> Tuned::Score {
+    fn bishop_pair(
+        pos: &Chessboard,
+        color: Color,
+    ) -> <Tuned::Score as ScoreType>::SingleFeatureScore {
         if pos.colored_piece_bb(color, Bishop).more_than_one_bit_set() {
             Tuned::bishop_pair()
         } else {
-            Tuned::Score::default()
+            Default::default()
         }
     }
 
-    fn pawn_shield(pos: &Chessboard, color: Color) -> Tuned::Score {
+    fn pawn_shield(
+        pos: &Chessboard,
+        color: Color,
+    ) -> <Tuned::Score as ScoreType>::SingleFeatureScore {
         let our_pawns = pos.colored_piece_bb(color, Pawn);
         let king_square = pos.king_square(color);
         let idx = pawn_shield_idx(our_pawns, king_square, color);
@@ -151,16 +157,23 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn mobility(pos: &Chessboard, color: Color) -> Tuned::Score {
+    fn mobility_and_threats(pos: &Chessboard, color: Color) -> Tuned::Score {
         let mut score = Tuned::Score::default();
-        // TODO: Test excluding squares attacked by pawns.
-        let filter = !pos.colored_bb(color);
+        let attacked_by_pawn = pos
+            .colored_piece_bb(color.other(), Pawn)
+            .pawn_attacks(color.other());
         for piece in UncoloredChessPiece::non_pawn_pieces() {
             for square in pos.colored_piece_bb(color, piece).ones() {
                 let attacks =
-                    pos.attacks_no_castle(square, piece, color, filter, ChessBitboard::default());
-                let mobility = attacks.num_ones();
+                    pos.attacks_no_castle_or_pawn_push(square, piece, color) & !attacked_by_pawn;
+                let mobility = (attacks & !pos.colored_bb(color)).num_ones();
                 score += Tuned::mobility(piece, mobility);
+                for threatened_piece in UncoloredChessPiece::pieces() {
+                    let attacked = pos.colored_piece_bb(color.other(), threatened_piece) & attacks;
+                    score += Tuned::threats(piece, threatened_piece) * attacked.num_ones();
+                    let defended = pos.colored_piece_bb(color, threatened_piece) & attacks;
+                    score += Tuned::defended(piece, threatened_piece) * defended.num_ones();
+                }
             }
         }
         score
@@ -173,7 +186,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Self::pawns(pos, color);
             score += Self::pawn_shield(pos, color);
             score += Self::rook_and_king(pos, color);
-            score += Self::mobility(pos, color);
+            score += Self::mobility_and_threats(pos, color);
             score = -score;
         }
         score

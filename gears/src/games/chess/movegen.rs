@@ -37,47 +37,28 @@ impl Chessboard {
         captures | pushes
     }
 
-    /// castling moves can be special: For example, it's possible that a normal king move is legal, but a
+    /// Castling moves can be special: For example, it's possible that a normal king move is legal, but a
     /// chess960 castling move with the same source and dest square as the normal king move isn't, or the other way around.
-    /// for pawn moves, `filter` is only applied to captures; `pawn_push_filter` is used for non-captures
-    pub fn attacks_no_castle(
+    /// For pawns, there's a difference between attacks and pushes, and this function ignores pushes.
+    pub fn attacks_no_castle_or_pawn_push(
         &self,
         square: ChessSquare,
         piece: UncoloredChessPiece,
         color: Color,
-        filter: ChessBitboard,
-        pawn_push_filter: ChessBitboard,
     ) -> ChessBitboard {
         let square_bb_if_occupied = square.bb() & self.occupied_bb();
         match piece {
-            Pawn => self.single_pawn_moves(color, square, filter, pawn_push_filter),
-            Knight => Self::knight_moves_from_square(square, filter),
-            Bishop => self.gen_sliders_from_square(
-                square,
-                SliderMove::Bishop,
-                filter,
-                square_bb_if_occupied,
-            ),
-            Rook => self.gen_sliders_from_square(
-                square,
-                SliderMove::Rook,
-                filter,
-                square_bb_if_occupied,
-            ),
-            Queen => {
-                self.gen_sliders_from_square(
-                    square,
-                    SliderMove::Bishop,
-                    filter,
-                    square_bb_if_occupied,
-                ) | self.gen_sliders_from_square(
-                    square,
-                    SliderMove::Rook,
-                    filter,
-                    square_bb_if_occupied,
-                )
+            Pawn => Self::single_pawn_captures(color, square),
+            Knight => Self::knight_moves_from_square(square),
+            Bishop => {
+                self.gen_sliders_from_square(square, SliderMove::Bishop, square_bb_if_occupied)
             }
-            King => Self::normal_king_moves_from_square(square, filter),
+            Rook => self.gen_sliders_from_square(square, SliderMove::Rook, square_bb_if_occupied),
+            Queen => {
+                self.gen_sliders_from_square(square, SliderMove::Bishop, square_bb_if_occupied)
+                    | self.gen_sliders_from_square(square, SliderMove::Rook, square_bb_if_occupied)
+            }
+            King => Self::normal_king_moves_from_square(square),
             Empty => ChessBitboard::default(),
         }
     }
@@ -98,21 +79,13 @@ impl Chessboard {
                 || (self.rook_start_square(color, Queenside) == mov.dest_square()
                     && self.is_castling_pseudolegal(Queenside))
         } else if mov.uncolored_piece() == Pawn {
-            // let mut list = ChessMoveList::default();
-            // self.gen_pawn_moves(&mut list, false);
-            // list.contains(&mov)
             let capturable =
                 self.colored_bb(color.other()) | self.ep_square.map(|s| s.bb()).unwrap_or_default();
             self.single_pawn_moves(color, src, capturable, self.empty_bb())
                 .is_bit_set_at(mov.dest_square().bb_idx())
         } else {
-            self.attacks_no_castle(
-                src,
-                mov.uncolored_piece(),
-                color,
-                !self.active_player_bb(),
-                ChessBitboard::default(),
-            )
+            (self.attacks_no_castle_or_pawn_push(src, mov.uncolored_piece(), color)
+                & !self.active_player_bb())
             .is_bit_set_at(mov.dest_square().bb_idx())
         }
     }
@@ -289,7 +262,7 @@ impl Chessboard {
         let color = self.active_player;
         let king = self.colored_piece_bb(color, King);
         let king_square = ChessSquare::from_bb_index(king.trailing_zeros());
-        let mut moves = Self::normal_king_moves_from_square(king_square, filter);
+        let mut moves = Self::normal_king_moves_from_square(king_square) & filter;
         while moves.has_set_bit() {
             let target = moves.pop_lsb();
             list.push(ChessMove::new(
@@ -315,7 +288,7 @@ impl Chessboard {
     fn gen_knight_moves(&self, list: &mut ChessMoveList, filter: ChessBitboard) {
         let knights = self.colored_piece_bb(self.active_player, Knight);
         for from in knights.ones() {
-            let attacks = Self::knight_moves_from_square(from, filter);
+            let attacks = Self::knight_moves_from_square(from) & filter;
             for to in attacks.ones() {
                 list.push(ChessMove::new(from, to, KnightMove));
             }
@@ -337,7 +310,7 @@ impl Chessboard {
         let queens = self.colored_piece_bb(color, Queen);
         let pieces = queens | non_queens;
         for from in pieces.ones() {
-            let attacks = self.gen_sliders_from_square(from, slider_move, filter, from.bb());
+            let attacks = self.gen_sliders_from_square(from, slider_move, from.bb()) & filter;
             for to in attacks.ones() {
                 let move_type = if queens.is_bit_set_at(from.bb_idx()) {
                     QueenMove
@@ -352,12 +325,12 @@ impl Chessboard {
     /// All the following methods can be called with squares that do not contain the specified piece.
     /// This makes sense because it allows to find all pieces able to attack a given square.
 
-    fn normal_king_moves_from_square(square: ChessSquare, filter: ChessBitboard) -> ChessBitboard {
-        KINGS[square.bb_idx()] & filter
+    fn normal_king_moves_from_square(square: ChessSquare) -> ChessBitboard {
+        KINGS[square.bb_idx()]
     }
 
-    fn knight_moves_from_square(square: ChessSquare, filter: ChessBitboard) -> ChessBitboard {
-        KNIGHTS[square.bb_idx()] & filter
+    fn knight_moves_from_square(square: ChessSquare) -> ChessBitboard {
+        KNIGHTS[square.bb_idx()]
     }
 
     pub fn single_pawn_captures(color: Color, square: ChessSquare) -> ChessBitboard {
@@ -368,7 +341,6 @@ impl Chessboard {
         &self,
         square: ChessSquare,
         slider_move: SliderMove,
-        filter: ChessBitboard,
         square_bb_if_occupied: ChessBitboard,
     ) -> ChessBitboard {
         let blockers = self.occupied_bb();
@@ -380,7 +352,7 @@ impl Chessboard {
                 ChessBitboard::rook_attacks(square, blockers ^ square_bb_if_occupied)
             }
         };
-        attacks & filter
+        attacks
     }
 
     pub fn all_attacking(&self, square: ChessSquare) -> ChessBitboard {
@@ -392,18 +364,12 @@ impl Chessboard {
         } else {
             ChessBitboard::default()
         };
-        self.gen_sliders_from_square(
-            square,
-            SliderMove::Rook,
-            rook_sliders,
-            square_bb_if_occupied,
-        ) | self.gen_sliders_from_square(
-            square,
-            SliderMove::Bishop,
-            bishop_sliders,
-            square_bb_if_occupied,
-        ) | Self::knight_moves_from_square(square, self.piece_bb(Knight))
-            | Self::normal_king_moves_from_square(square, self.piece_bb(King))
+        (rook_sliders
+            & self.gen_sliders_from_square(square, SliderMove::Rook, square_bb_if_occupied))
+            | (bishop_sliders
+                & self.gen_sliders_from_square(square, SliderMove::Bishop, square_bb_if_occupied))
+            | (Self::knight_moves_from_square(square) & self.piece_bb(Knight))
+            | (Self::normal_king_moves_from_square(square) & self.piece_bb(King))
             | Self::single_pawn_captures(Black, square) & self.colored_piece_bb(White, Pawn)
             | Self::single_pawn_captures(White, square) & self.colored_piece_bb(Black, Pawn)
     }
