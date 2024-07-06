@@ -185,6 +185,13 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let king_square = pos.king_square(color);
         let king_file = king_square.file();
         score += Tuned::king_openness(file_openness(king_file, our_pawns, their_pawns));
+        let bishops = pos.colored_piece_bb(color, Bishop);
+        for bishop in bishops.ones() {
+            let (diag, len) = diagonal_openness(bishop, our_pawns, their_pawns);
+            score += Tuned::bishop_openness(diag, len);
+            let (anti_diag, len) = anti_diagonal_openness(bishop, our_pawns, their_pawns);
+            score += Tuned::bishop_openness(anti_diag, len);
+        }
         score
     }
 
