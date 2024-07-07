@@ -387,17 +387,11 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         sender: SearchSender<B>,
     ) -> Res<SearchResult<B>> {
         self.search_state_mut().new_search(history, sender);
-        self.search_state_mut()
-            .search_sender_mut()
-            .set_searching(true);
         let res = self.do_search(pos, limit);
         let search_state = self.search_state_mut();
         search_state.end_search();
         search_state.send_statistics();
         search_state.aggregate_match_statistics();
-        self.search_state_mut()
-            .search_sender_mut()
-            .set_searching(false);
         res
     }
 
