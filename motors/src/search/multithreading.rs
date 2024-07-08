@@ -1,5 +1,5 @@
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
+use std::sync::atomic::{AtomicBool, AtomicI32};
 use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 
@@ -39,7 +39,7 @@ pub enum EngineReceives<B: Board> {
 
 #[derive(Debug, Default)]
 struct SearchSenderState {
-    searching: AtomicBool,
+    searching: AtomicI32,
     infinite: AtomicBool,
     stop: AtomicBool,
     dont_print_result: AtomicBool,
@@ -80,20 +80,24 @@ impl<B: Board> SearchSender<B> {
         self.sss.infinite.store(false, SeqCst);
         self.sss.stop.store(true, SeqCst);
         // wait until the search has finished to prevent race conditions
-        while self.sss.searching.load(SeqCst) {}
+        while self.sss.searching.load(SeqCst) != 0 {}
     }
 
     pub fn set_searching(&mut self, value: bool) {
-        self.sss.searching.store(value, SeqCst);
+        let val = match value {
+            true => 1,
+            false => -1,
+        };
+        self.sss.searching.fetch_add(val, SeqCst);
     }
 
     pub fn new_search(&mut self, infinite: bool) {
         // should be unnecessary for correct UCI messages, but best to be certain --
         // this takes care of receiving another `go` while a search is currently running
-        if self.sss.searching.load(SeqCst) {
+        if self.sss.searching.load(SeqCst) > 0 {
             self.sss.stop.store(true, SeqCst);
             // wait until any previous search has been stopped
-            while self.sss.searching.load(SeqCst) {}
+            while self.sss.searching.load(SeqCst) > 0 {}
         }
         self.sss.infinite.store(infinite, SeqCst);
         if infinite {
@@ -113,10 +117,10 @@ impl<B: Board> SearchSender<B> {
         self.sss.infinite.store(false, SeqCst);
         // If the infinite search hasn't finished yet (the normal case), we first need to make sure the search
         // has been stopped, then we can reset the `don't_print_result` marker.
-        if self.sss.searching.load(SeqCst) {
+        if self.sss.searching.load(SeqCst) > 0 {
             self.sss.stop.store(true, SeqCst);
             // wait until the search has finished to avoid race conditions
-            while self.sss.searching.load(SeqCst) {}
+            while self.sss.searching.load(SeqCst) > 0 {}
         }
         self.sss.dont_print_result.store(false, SeqCst);
     }
@@ -169,10 +173,6 @@ impl<B: Board> SearchSender<B> {
         if cfg!(feature = "statistics") && self.output.is_some() {
             self.send_message(Debug, &Summary::new(statistics).to_string());
         }
-    }
-
-    pub fn deactivate_output(&mut self) {
-        self.output = None;
     }
 }
 
@@ -379,15 +379,18 @@ impl<B: Board> EngineWrapper<B> {
                 ));
             }
             self.secondary.clear();
-            let mut sender = self.search_sender().clone();
-            sender.deactivate_output();
+            let sender = self.search_sender().output.take();
             self.secondary
                 .resize_with(count - 1, || self.builder.build_wrapper());
+            self.search_sender().output = sender;
             Ok(())
         } else if name == Hash {
             let value: usize = parse_int_from_str(&value, "hash size in mb")?;
             let size = value * 1_000_000;
             self.set_tt(TT::new_with_bytes(size));
+            for nested in self.secondary.iter_mut() {
+                nested.tt = self.tt.clone();
+            }
             Ok(())
         } else {
             for o in self.secondary.iter_mut() {
