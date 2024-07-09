@@ -11,8 +11,8 @@ use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, Ti
 
 use crate::search::tt::TT;
 use crate::search::{
-    ABSearchState, BenchResult, Benchable, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
-    SearchState,
+    ABSearchState, BenchLimit, BenchResult, Benchable, EmptySearchStackEntry, Engine, EngineInfo,
+    NoCustomInfo, SearchState,
 };
 
 pub trait SeedRng: Rng + SeedableRng {}
@@ -77,12 +77,18 @@ impl<B: Board, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R>
 // impl<B: Board, R: SeedRng + Clone + Send + 'static> EngineBase for RandomMover<B, R> {}
 
 impl<B: Board, R: SeedRng + Clone + Send + 'static> Benchable<B> for RandomMover<B, R> {
-    fn bench(&mut self, _position: B, _depth: Depth) -> BenchResult {
+    fn bench(&mut self, _position: B, _limit: BenchLimit) -> BenchResult {
         BenchResult::default()
     }
 
     fn engine_info(&self) -> EngineInfo {
-        EngineInfo::new_without_eval(self, "0.1.0", Depth::new(1), vec![])
+        EngineInfo::new_without_eval(
+            self,
+            "0.1.0",
+            Depth::new(1),
+            NodesLimit::new(1).unwrap(),
+            vec![],
+        )
     }
 }
 

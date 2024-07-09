@@ -32,12 +32,13 @@ pub mod multithreading;
 pub mod statistics;
 mod tt;
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct EngineInfo {
     engine: Name,
     eval: Option<Name>,
     version: String,
     default_bench_depth: Depth,
+    default_bench_nodes: NodesLimit,
     options: Vec<EngineOption>,
 }
 
@@ -87,6 +88,7 @@ impl EngineInfo {
         engine: &E,
         version: &str,
         default_bench_depth: Depth,
+        default_bench_nodes: NodesLimit,
         options: Vec<EngineOption>,
     ) -> Self {
         let mut res = Self::new(
@@ -94,6 +96,7 @@ impl EngineInfo {
             &RandEval::default(),
             version,
             default_bench_depth,
+            default_bench_nodes,
             options,
         );
         res.eval = None;
@@ -105,6 +108,7 @@ impl EngineInfo {
         eval: &dyn Eval<B>,
         version: &str,
         default_bench_depth: Depth,
+        default_bench_nodes: NodesLimit,
         options: Vec<EngineOption>,
     ) -> Self {
         Self {
@@ -112,6 +116,7 @@ impl EngineInfo {
             eval: Some(Name::new(eval)),
             version: version.to_string(),
             default_bench_depth,
+            default_bench_nodes,
             options,
         }
     }
@@ -126,6 +131,10 @@ impl EngineInfo {
 
     pub fn default_bench_depth(&self) -> Depth {
         self.default_bench_depth
+    }
+
+    pub fn default_bench_nodes(&self) -> NodesLimit {
+        self.default_bench_nodes
     }
 
     pub fn version(&self) -> &str {
@@ -348,8 +357,25 @@ impl<B: Board, E: Engine<B>> StaticallyNamedEntity for SearcherBuilder<B, E> {
     }
 }
 
+pub enum BenchLimit {
+    Depth(Depth),
+    Nodes(NodesLimit),
+}
+
+impl BenchLimit {
+    pub fn to_search_limit(self, depth_limit: Depth) -> SearchLimit {
+        let mut res = SearchLimit::infinite();
+        match self {
+            BenchLimit::Depth(depth) => res.depth = depth.min(depth_limit),
+            BenchLimit::Nodes(nodes) => res.nodes = nodes,
+        }
+        return res;
+    }
+}
+
 pub trait Benchable<B: Board>: StaticallyNamedEntity + Debug {
-    fn bench(&mut self, position: B, depth: Depth) -> BenchResult;
+    // TODO: Default implementation that calls serch_from_pos
+    fn bench(&mut self, position: B, limit: BenchLimit) -> BenchResult;
 
     /// Returns information about this engine, such as the name, version and default bench depth.
     fn engine_info(&self) -> EngineInfo;
@@ -754,19 +780,28 @@ impl NodeType {
 
 pub fn run_bench<B: Board>(engine: &mut dyn Benchable<B>) -> BenchResult {
     let depth = engine.engine_info().default_bench_depth;
-    run_bench_with_depth(engine, depth)
+    let nodes = engine.engine_info().default_bench_nodes;
+    run_bench_with_depth_and_nodes(engine, depth, nodes)
 }
 
-pub fn run_bench_with_depth<B: Board>(
+pub fn run_bench_with_depth_and_nodes<B: Board>(
     engine: &mut dyn Benchable<B>,
     mut depth: Depth,
+    mut nodes: NodesLimit,
 ) -> BenchResult {
     if depth.get() == 0 || depth == MAX_DEPTH {
         depth = engine.engine_info().default_bench_depth
     }
+    if nodes == NodesLimit::MAX {
+        nodes = engine.engine_info().default_bench_nodes;
+        assert!(nodes <= NodesLimit::new(10_000_000).unwrap());
+    }
     let mut sum = BenchResult::default();
     for position in B::bench_positions() {
-        let res = engine.bench(position, depth);
+        let res = engine.bench(position, BenchLimit::Depth(depth));
+        sum.nodes = NodesLimit::new(sum.nodes.get() + res.nodes.get()).unwrap();
+        sum.time += res.time;
+        let res = engine.bench(position, BenchLimit::Nodes(nodes));
         sum.nodes = NodesLimit::new(sum.nodes.get() + res.nodes.get()).unwrap();
         sum.time += res.time;
     }

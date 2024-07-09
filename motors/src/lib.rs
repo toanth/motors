@@ -34,8 +34,8 @@ use crate::search::generic::gaps::Gaps;
 use crate::search::generic::random_mover::RandomMover;
 use crate::search::multithreading::{EngineWrapper, SearchSender};
 use crate::search::{
-    run_bench, run_bench_with_depth, AbstractEvalBuilder, AbstractSearcherBuilder, Benchable,
-    EngineBuilder, EvalBuilder, EvalList, SearcherBuilder, SearcherList,
+    run_bench, run_bench_with_depth_and_nodes, AbstractEvalBuilder, AbstractSearcherBuilder,
+    Benchable, EngineBuilder, EvalBuilder, EvalList, SearcherBuilder, SearcherList,
 };
 use crate::ugi_engine::EngineUGI;
 
@@ -65,9 +65,10 @@ impl<B: Board> BenchRun<B> {
 impl<B: Board> AbstractRun for BenchRun<B> {
     fn run(&mut self) -> Quitting {
         let engine = self.engine.as_mut();
+        let nodes = engine.engine_info().default_bench_nodes();
         let res = match self.depth {
             None => run_bench(engine),
-            Some(depth) => run_bench_with_depth(engine, depth),
+            Some(depth) => run_bench_with_depth_and_nodes(engine, depth, nodes),
         };
         println!("{res}");
         QuitMatch
