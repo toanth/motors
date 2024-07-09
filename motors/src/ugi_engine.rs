@@ -211,16 +211,7 @@ impl<B: Board> UgiOutput<B> {
     }
 
     pub fn show_bench(&mut self, bench_result: BenchResult) {
-        self.write_ugi(&format!(
-            "depth {0}, time {2}ms, {1} nodes, {3} nps",
-            bench_result.depth.get(),
-            bench_result.nodes,
-            bench_result.time.as_millis(),
-            ((bench_result.nodes.get() as f64 / bench_result.time.as_millis() as f64 * 1000.0)
-                .round())
-            .to_string()
-            .red()
-        ));
+        self.write_ugi(&bench_result.to_string());
     }
 
     pub fn show_search_res(&mut self, search_result: SearchResult<B>) {

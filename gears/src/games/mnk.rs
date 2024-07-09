@@ -145,7 +145,7 @@ type Square = GenericPiece<GridCoordinates, Symbol>;
 //     }
 // }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 #[repr(C)]
 pub struct FillSquare {
     pub target: GridCoordinates,

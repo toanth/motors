@@ -774,6 +774,10 @@ impl Caps {
             );
             // Check for cancellation right after searching a move to avoid storing incorrect information in the TT.
             if self.should_stop(limit) {
+                if ply == 0 {
+                    self.state.search_stack[0].pv.list[0] =
+                        pos.random_legal_move(&mut thread_rng()).unwrap();
+                }
                 return SCORE_TIME_UP;
             }
             debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);

@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::time::{Duration, Instant};
@@ -151,6 +152,7 @@ pub struct BenchResult {
     pub nodes: NodesLimit,
     pub time: Duration,
     pub depth: Depth,
+    pub moves_hash: u64,
 }
 
 impl Default for BenchResult {
@@ -159,6 +161,7 @@ impl Default for BenchResult {
             nodes: NodesLimit::MIN,
             time: Duration::default(),
             depth: Depth::MIN,
+            moves_hash: 0,
         }
     }
 }
@@ -167,13 +170,15 @@ impl Display for BenchResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,
-            "depth {0}, time {2}ms, {1} nodes, {3} nps",
-            self.depth.get(),
-            self.nodes,
-            self.time.as_millis(),
-            ((self.nodes.get() as f64 / self.time.as_millis() as f64 * 1000.0).round())
+            "depth {0}, time {2} ms, {1} nodes, {3} nps, hash {4:X}",
+            self.depth.get().to_string().bold(),
+            self.nodes.to_string().bold(),
+            self.time.as_millis().to_string().red(),
+            (self.nodes.get() as f64 / self.time.as_millis() as f64 * 1000.0)
+                .round()
                 .to_string()
-                .red()
+                .red(),
+            self.moves_hash,
         )
     }
 }
@@ -683,10 +688,14 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
     }
 
     fn to_bench_res(&self) -> BenchResult {
+        let mut hasher = DefaultHasher::new();
+        self.mov().hash(&mut hasher);
+        let hash = hasher.finish();
         BenchResult {
             nodes: NodesLimit::new(self.uci_nodes()).unwrap(),
             time: self.start_time().elapsed(),
             depth: self.depth(),
+            moves_hash: hash,
         }
     }
 }
@@ -827,15 +836,19 @@ pub fn run_bench_with_depth_and_nodes<B: Board>(
         nodes = engine.engine_info().default_bench_nodes;
         assert!(nodes <= NodesLimit::new(10_000_000).unwrap());
     }
+    let mut hasher = DefaultHasher::new();
     let mut sum = BenchResult::default();
     for position in B::bench_positions() {
         let res = engine.bench(position, BenchLimit::Depth(depth));
         sum.nodes = NodesLimit::new(sum.nodes.get() + res.nodes.get()).unwrap();
         sum.time += res.time;
+        res.moves_hash.hash(&mut hasher);
         let res = engine.bench(position, BenchLimit::Nodes(nodes));
         sum.nodes = NodesLimit::new(sum.nodes.get() + res.nodes.get()).unwrap();
         sum.time += res.time;
+        res.moves_hash.hash(&mut hasher);
     }
     sum.depth = depth;
+    sum.moves_hash = hasher.finish();
     sum
 }

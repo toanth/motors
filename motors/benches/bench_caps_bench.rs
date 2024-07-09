@@ -2,23 +2,30 @@ use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use gears::games::chess::Chessboard;
-use gears::search::Depth;
+use gears::search::{Depth, NodesLimit};
 use motors::eval::chess::lite::LiTEval;
 use motors::search::chess::caps::Caps;
-use motors::search::{run_bench_with_depth, Benchable};
+use motors::search::{run_bench_with_depth_and_nodes, BenchLimit, Benchable, Engine};
 
 pub fn caps_startpos_bench(c: &mut Criterion) {
     c.bench_function("bench 12 startpos", |b| {
         let pos = Chessboard::default();
-        let mut engine = Caps::<LiTEval>::default();
-        b.iter(|| engine.bench(pos, Depth::new(12)));
+
+        let mut engine = Caps::for_eval::<LiTEval>();
+        b.iter(|| engine.bench(pos, BenchLimit::Depth(Depth::new(12))));
     });
 }
 
 pub fn caps_normal_bench_depth_7(c: &mut Criterion) {
     c.bench_function("normal bench", |b| {
-        let mut engine = Caps::<LiTEval>::default();
-        b.iter(|| run_bench_with_depth(&mut engine, Depth::new(7)));
+        let mut engine = Caps::for_eval::<LiTEval>();
+        b.iter(|| {
+            run_bench_with_depth_and_nodes(
+                &mut engine,
+                Depth::new(7),
+                NodesLimit::new(20_000).unwrap(),
+            )
+        });
     });
 }
 
