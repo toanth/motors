@@ -77,7 +77,7 @@ impl MoveFlags for ChessMoveFlags {}
 /// Bits 0-5: from square
 /// Bits 6 - 11: To square
 /// Bits 12-15: Move type
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Ord, PartialOrd)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Ord, PartialOrd, Hash)]
 pub struct ChessMove(u16);
 
 impl ChessMove {
