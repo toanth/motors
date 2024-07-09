@@ -12,14 +12,14 @@ use gears::general::common::{parse_int_from_str, NamedEntity, Res};
 use gears::output::Message;
 use gears::output::Message::{Debug, Error};
 use gears::score::Score;
-use gears::search::{Depth, SearchInfo, SearchLimit, SearchResult};
+use gears::search::{SearchInfo, SearchLimit, SearchResult};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::{EngineOption, EngineOptionName};
 
 use crate::search::multithreading::EngineReceives::*;
 use crate::search::statistics::{Statistics, Summary};
 use crate::search::tt::TT;
-use crate::search::{BenchResult, Engine, EngineBuilder, EngineInfo, SearchState};
+use crate::search::{BenchLimit, BenchResult, Engine, EngineBuilder, EngineInfo, SearchState};
 use crate::ugi_engine::UgiOutput;
 
 pub type Sender<T> = crossbeam_channel::Sender<T>;
@@ -32,7 +32,7 @@ pub enum EngineReceives<B: Board> {
     Forget,
     SetOption(EngineOptionName, String),
     Search(B, SearchLimit, ZobristHistory<B>, TT, Vec<B::Move>),
-    Bench(B, Depth),
+    Bench(B, BenchLimit),
     EvalFor(B),
     SetEval(Box<dyn Eval<B>>),
 }
@@ -224,10 +224,10 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         Ok(())
     }
 
-    fn bench_single_position(&mut self, pos: B, depth: Depth) -> Res<()> {
+    fn bench_single_position(&mut self, pos: B, limit: BenchLimit) -> Res<()> {
         // self.engine.stop();
         self.engine.forget();
-        let res = self.engine.bench(pos, depth);
+        let res = self.engine.bench(pos, limit);
         self.search_sender.send_bench_res(res);
         Ok(())
     }
@@ -260,7 +260,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
             Search(pos, limit, history, tt, moves) => {
                 self.start_search(pos, limit, history, tt, moves)?
             }
-            Bench(pos, depth) => self.bench_single_position(pos, depth)?,
+            Bench(pos, limit) => self.bench_single_position(pos, limit)?,
             EvalFor(pos) => self.get_static_eval(pos),
             SetEval(eval) => self.engine.set_eval(eval),
         };
@@ -357,10 +357,10 @@ impl<B: Board> EngineWrapper<B> {
             .map_err(|err| err.to_string())
     }
 
-    pub fn start_bench(&mut self, pos: B, depth: Depth) -> Res<()> {
+    pub fn start_bench(&mut self, pos: B, limit: BenchLimit) -> Res<()> {
         self.search_sender().new_search(false);
         self.sender
-            .send(Bench(pos, depth))
+            .send(Bench(pos, limit))
             .map_err(|err| err.to_string())
     }
 

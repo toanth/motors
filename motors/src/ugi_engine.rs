@@ -32,7 +32,9 @@ use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchSt
 
 use crate::cli::EngineOpts;
 use crate::search::multithreading::{EngineWrapper, SearchSender};
-use crate::search::{run_bench_with_depth, BenchResult, EvalList, SearcherList};
+use crate::search::{
+    run_bench_with_depth_and_nodes, BenchLimit, BenchResult, EvalList, SearcherList,
+};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
 use crate::{
@@ -748,7 +750,7 @@ impl<B: Board> EngineUGI<B> {
             Bench => {
                 self.state
                     .engine
-                    .start_bench(pos, limit.depth)
+                    .start_bench(pos, BenchLimit::Depth(limit.depth))
                     .expect("bench panic");
             }
         };
@@ -771,13 +773,17 @@ impl<B: Board> EngineUGI<B> {
                 "depth" | "d" => {
                     limit.depth = Depth::new(parse_int(words, "depth number")?);
                 }
+                "nodes" | "n" => {
+                    limit.nodes =
+                        NodesLimit::new(parse_int(words, "node count")?).unwrap_or(NodesLimit::MAX);
+                }
                 "complete" => complete = true,
                 x => {
                     if let Ok(depth) = parse_int_from_str(x, "depth") {
                         limit.depth = Depth::new(depth);
                     } else {
                         return Err(format!(
-                            "unrecognized bench/perft argument '{}', expected 'position', 'complete', 'depth' or the depth value",
+                            "unrecognized bench/perft argument '{}', expected 'position', 'complete', 'nodes', 'depth' or the depth value",
                             x.red()
                         ));
                     }
@@ -793,7 +799,7 @@ impl<B: Board> EngineUGI<B> {
                         &self.searcher_factories,
                         &self.eval_factories,
                     )?;
-                    run_bench_with_depth(engine.as_mut(), limit.depth).to_string()
+                    run_bench_with_depth_and_nodes(engine.as_mut(), limit.depth, limit.nodes).to_string()
                 },
                 _ => return Err(format!("Can only use the '{}' option with bench or perft, not splitperft or normal runs", "complete".bold()))
             };

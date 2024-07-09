@@ -215,10 +215,9 @@ impl StaticallyNamedEntity for Caps {
 }
 
 impl Benchable<Chessboard> for Caps {
-    fn bench(&mut self, pos: Chessboard, depth: Depth) -> BenchResult {
+    fn bench(&mut self, pos: Chessboard, limit: BenchLimit) -> BenchResult {
         self.state.forget(true);
-        let mut limit = SearchLimit::infinite();
-        limit.depth = DEPTH_SOFT_LIMIT.min(depth);
+        let limit = limit.to_search_limit(DEPTH_SOFT_LIMIT);
         let _ = self.search_from_pos(pos, limit);
         self.state.to_bench_res()
     }
@@ -251,7 +250,14 @@ impl Benchable<Chessboard> for Caps {
                 }),
             },
         ];
-        EngineInfo::new(self, self.eval.as_ref(), "0.1.0", Depth::new(12), options)
+        EngineInfo::new(
+            self,
+            self.eval.as_ref(),
+            "0.1.0",
+            Depth::new(12),
+            NodesLimit::new(30_000).unwrap(),
+            options,
+        )
     }
 
     fn set_option(&mut self, option: EngineOptionName, _value: String) -> Res<()> {

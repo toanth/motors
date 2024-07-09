@@ -6,7 +6,7 @@ use rand::thread_rng;
 use gears::games::{Board, BoardHistory};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::score::{game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE_WON};
-use gears::search::{Depth, SearchLimit, SearchResult, TimeControl};
+use gears::search::{Depth, NodesLimit, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::EngineOptionName;
 
 use crate::eval::rand_eval::RandEval;
@@ -15,8 +15,8 @@ use crate::search::statistics::SearchType::MainSearch;
 use crate::search::tt::TT;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use crate::search::{
-    ABSearchState, BenchResult, Benchable, BestMoveCustomInfo, EmptySearchStackEntry, Engine,
-    EngineInfo, SearchState,
+    ABSearchState, BenchLimit, BenchResult, Benchable, BestMoveCustomInfo, EmptySearchStackEntry,
+    Engine, EngineInfo, SearchState,
 };
 
 const MAX_DEPTH: Depth = Depth::new(100);
@@ -57,24 +57,22 @@ impl<B: Board> StaticallyNamedEntity for Gaps<B> {
 }
 
 impl<B: Board> Benchable<B> for Gaps<B> {
-    fn bench(&mut self, pos: B, depth: Depth) -> BenchResult {
+    fn bench(&mut self, pos: B, limit: BenchLimit) -> BenchResult {
         self.state.forget(true);
-        let mut limit = SearchLimit::infinite();
-        limit.depth = MAX_DEPTH.min(depth);
-        self.negamax(
-            pos,
-            limit,
-            0,
-            limit.depth.get() as isize,
-            SCORE_LOST,
-            SCORE_WON,
-        );
-        // TODO: Handle stop command in bench
+        let limit = limit.to_search_limit(MAX_DEPTH);
+        let _ = self.search_from_pos(pos, limit);
         self.state.to_bench_res()
     }
 
     fn engine_info(&self) -> EngineInfo {
-        EngineInfo::new(self, self.eval.as_ref(), "0.0.1", Depth::new(4), vec![])
+        EngineInfo::new(
+            self,
+            self.eval.as_ref(),
+            "0.0.1",
+            Depth::new(4),
+            NodesLimit::new(50_000).unwrap(),
+            vec![],
+        )
     }
 
     fn set_option(&mut self, option: EngineOptionName, value: String) -> Res<()> {
