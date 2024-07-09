@@ -1,5 +1,5 @@
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
+use std::sync::atomic::{AtomicBool, AtomicI32};
 use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 
@@ -39,10 +39,10 @@ pub enum EngineReceives<B: Board> {
 
 #[derive(Debug, Default)]
 struct SearchSenderState {
-    searching: AtomicBool,
+    searching: AtomicI32,
     infinite: AtomicBool,
     stop: AtomicBool,
-    print_result: AtomicBool,
+    dont_print_result: AtomicBool,
 }
 
 /// A search sender is used for communication while the search is ongoing.
@@ -70,34 +70,39 @@ impl<B: Board> SearchSender<B> {
         }
     }
 
-    pub fn search_infinite(&mut self, infinite: bool) {
-        self.sss.infinite.store(infinite, SeqCst);
-        self.sss.print_result.store(!infinite, SeqCst);
-    }
-
     pub fn send_stop(&mut self) {
         // Set `infinite` to `false` before stopping the search such that the engine will output a `bestmove`
         // as demanded by the spec, such as when it stops pondering:
         // It doesn't matter if the engine threads reads `infinite` before it is updated,
         // it will print the result in both cases.
-        self.sss.print_result.store(true, SeqCst);
+        // This function is only called when receiving a UCI "stop" command, so it's not performance critical
+        self.sss.dont_print_result.store(false, SeqCst);
         self.sss.infinite.store(false, SeqCst);
         self.sss.stop.store(true, SeqCst);
         // wait until the search has finished to prevent race conditions
-        while self.sss.searching.load(SeqCst) {}
+        while self.sss.searching.load(SeqCst) != 0 {}
     }
 
     pub fn set_searching(&mut self, value: bool) {
-        self.sss.searching.store(value, SeqCst);
+        let val = match value {
+            true => 1,
+            false => -1,
+        };
+        self.sss.searching.fetch_add(val, SeqCst);
     }
 
     pub fn new_search(&mut self, infinite: bool) {
-        // should be unnecessary but best to be certain
-        self.sss.stop.store(true, SeqCst);
-        // wait until any previous search has been stopped
-        while self.sss.searching.load(SeqCst) {}
+        // should be unnecessary for correct UCI messages, but best to be certain --
+        // this takes care of receiving another `go` while a search is currently running
+        if self.sss.searching.load(SeqCst) > 0 {
+            self.sss.stop.store(true, SeqCst);
+            // wait until any previous search has been stopped
+            while self.sss.searching.load(SeqCst) > 0 {}
+        }
         self.sss.infinite.store(infinite, SeqCst);
-        self.sss.print_result.store(true, SeqCst);
+        if infinite {
+            self.sss.dont_print_result.store(true, SeqCst);
+        }
         self.sss.stop.store(false, SeqCst);
     }
 
@@ -106,12 +111,18 @@ impl<B: Board> SearchSender<B> {
     pub fn abort_pondering(&mut self) {
         // We simply abort the current search. Since the state is persistent, this still helps a lot.
         // This isn't the optimal implementation, but it's simple and ponder strength isn't a big concern.
-        self.sss.print_result.store(false, SeqCst);
+
+        // If the search has already finished, it spins until `infinite` becomes `false`, so we need to reset `infinite`
+        // before waiting for `searching` to become `false`
         self.sss.infinite.store(false, SeqCst);
-        // can only stop after having made sure the result won't be printed
-        self.sss.stop.store(true, SeqCst);
-        // wait until the search has finished to avoid race conditions
-        while self.sss.searching.load(SeqCst) {}
+        // If the infinite search hasn't finished yet (the normal case), we first need to make sure the search
+        // has been stopped, then we can reset the `don't_print_result` marker.
+        if self.sss.searching.load(SeqCst) > 0 {
+            self.sss.stop.store(true, SeqCst);
+            // wait until the search has finished to avoid race conditions
+            while self.sss.searching.load(SeqCst) > 0 {}
+        }
+        self.sss.dont_print_result.store(false, SeqCst);
     }
 
     pub fn should_stop(&self) -> bool {
@@ -126,11 +137,12 @@ impl<B: Board> SearchSender<B> {
 
     pub fn send_search_res(&mut self, res: SearchResult<B>) {
         if let Some(output) = &self.output {
-            // Spin until pondering has been disabled, such as through a `stop` command or through a ponderhit
+            // Spin until infinite search has been disabled, either through a `stop` command or through a `ponderhit`
             while self.sss.infinite.load(SeqCst) {}
-            if self.sss.print_result.load(SeqCst) {
-                output.lock().unwrap().show_search_res(res)
+            if self.sss.dont_print_result.load(SeqCst) {
+                return;
             }
+            output.lock().unwrap().show_search_res(res);
         }
     }
 
@@ -161,10 +173,6 @@ impl<B: Board> SearchSender<B> {
         if cfg!(feature = "statistics") && self.output.is_some() {
             self.send_message(Debug, &Summary::new(statistics).to_string());
         }
-    }
-
-    pub fn deactivate_output(&mut self) {
-        self.output = None;
     }
 }
 
@@ -202,6 +210,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
             ));
         }
         self.engine.set_tt(tt);
+        self.search_sender.set_searching(true);
         let search_res = self.engine.search_moves(
             search_moves.into_iter(),
             pos,
@@ -211,6 +220,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         )?;
 
         self.search_sender.send_search_res(search_res);
+        self.search_sender.set_searching(false);
         Ok(())
     }
 
@@ -377,15 +387,18 @@ impl<B: Board> EngineWrapper<B> {
                 ));
             }
             self.secondary.clear();
-            let mut sender = self.search_sender().clone();
-            sender.deactivate_output();
+            let sender = self.search_sender().output.take();
             self.secondary
                 .resize_with(count - 1, || self.builder.build_wrapper());
+            self.search_sender().output = sender;
             Ok(())
         } else if name == Hash {
             let value: usize = parse_int_from_str(&value, "hash size in mb")?;
             let size = value * 1_000_000;
             self.set_tt(TT::new_with_bytes(size));
+            for nested in self.secondary.iter_mut() {
+                nested.tt = self.tt.clone();
+            }
             Ok(())
         } else {
             for o in self.secondary.iter_mut() {

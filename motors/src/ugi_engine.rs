@@ -6,7 +6,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
-use itertools::Itertools;
 
 use gears::cli::{select_game, Game};
 use gears::games::Color::White;
@@ -1118,29 +1117,25 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn get_options(&self) -> Vec<EngineOption> {
-        let mut res = self
-            .state
-            .engine
-            .get_options()
-            .iter()
-            .cloned()
-            .collect_vec();
-        res.push(EngineOption {
-            name: MoveOverhead,
-            value: Spin(UgiSpin {
-                val: self.move_overhead.as_millis() as i64,
-                default: Some(DEFAULT_MOVE_OVERHEAD_MS as i64),
-                min: Some(0),
-                max: Some(10_000),
-            }),
-        });
-        res.push(EngineOption {
-            name: EngineOptionName::Ponder,
-            value: EngineOptionType::Check(UgiCheck {
-                val: self.allow_ponder,
-                default: Some(false),
-            }),
-        });
+        let mut res = vec![
+            EngineOption {
+                name: MoveOverhead,
+                value: Spin(UgiSpin {
+                    val: self.move_overhead.as_millis() as i64,
+                    default: Some(DEFAULT_MOVE_OVERHEAD_MS as i64),
+                    min: Some(0),
+                    max: Some(10_000),
+                }),
+            },
+            EngineOption {
+                name: EngineOptionName::Ponder,
+                value: EngineOptionType::Check(UgiCheck {
+                    val: self.allow_ponder,
+                    default: Some(false),
+                }),
+            },
+        ];
+        res.extend(self.state.engine.get_options().iter().cloned());
         res
     }
 }
