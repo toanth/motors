@@ -45,6 +45,9 @@ impl<B: Board, const MAX_LEN: usize> ScoredMoveList<B, MAX_LEN> {
             return None;
         }
         let idx = self.scores.iter().position_max().unwrap();
+        if self.scores[idx] == MoveScore::IGNORE_MOVE {
+            return None;
+        }
         Some((
             self.moves.swap_remove_move(idx),
             self.scores.swap_remove(idx),

@@ -379,8 +379,9 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         )
     }
 
-    fn search(
+    fn search_moves<I: ExactSizeIterator<Item = B::Move>>(
         &mut self,
+        moves: I,
         pos: B,
         limit: SearchLimit,
         history: ZobristHistory<B>,
@@ -390,7 +391,7 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         self.search_state_mut()
             .search_sender_mut()
             .set_searching(true);
-        let res = self.do_search(pos, limit);
+        let res = self.do_search(pos, moves, limit);
         let search_state = self.search_state_mut();
         search_state.end_search();
         search_state.send_statistics();
@@ -401,8 +402,23 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         res
     }
 
+    fn search(
+        &mut self,
+        pos: B,
+        limit: SearchLimit,
+        history: ZobristHistory<B>,
+        sender: SearchSender<B>,
+    ) -> Res<SearchResult<B>> {
+        self.search_moves([].into_iter(), pos, limit, history, sender)
+    }
+
     /// The important function.
-    fn do_search(&mut self, pos: B, limit: SearchLimit) -> Res<SearchResult<B>>;
+    fn do_search<I: ExactSizeIterator<Item = B::Move>>(
+        &mut self,
+        pos: B,
+        moves: I,
+        limit: SearchLimit,
+    ) -> Res<SearchResult<B>>;
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool;
 
@@ -485,7 +501,8 @@ pub struct MoveScore(pub i32);
 
 impl MoveScore {
     const MAX: MoveScore = MoveScore(i32::MAX);
-    const MIN: MoveScore = MoveScore(i32::MIN);
+    const MIN: MoveScore = MoveScore(i32::MIN + 1);
+    const IGNORE_MOVE: MoveScore = MoveScore(i32::MIN);
 }
 
 pub trait MoveScorer<B: Board> {
@@ -576,6 +593,7 @@ impl<B: Board> CustomInfo for BestMoveCustomInfo<B> {}
 pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo> {
     search_stack: Vec<E>,
     board_history: ZobristHistory<B>,
+    search_moves: Vec<B::Move>,
     custom: C,
     searching: Searching,
     should_stop: bool,
@@ -604,6 +622,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
             statistics: Statistics::default(),
             aggregated_statistics: Default::default(),
             sender: SearchSender::no_sender(),
+            search_moves: vec![],
         }
     }
 

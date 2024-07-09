@@ -90,10 +90,20 @@ impl<B: Board> Engine<B> for Gaps<B> {
         true
     }
 
-    fn do_search(&mut self, pos: B, mut limit: SearchLimit) -> Res<SearchResult<B>> {
+    fn do_search<I: ExactSizeIterator<Item = B::Move>>(
+        &mut self,
+        pos: B,
+        moves: I,
+        mut limit: SearchLimit,
+    ) -> Res<SearchResult<B>> {
         let mut chosen_move = self.state.custom.chosen_move;
         let max_depth = MAX_DEPTH.min(limit.depth).get() as isize;
         limit.fixed_time = limit.fixed_time.min(limit.tc.remaining);
+        if moves.len() == 0 {
+            self.state.search_moves = pos.pseudolegal_moves().into_iter().collect();
+        } else {
+            self.state.search_moves = moves.collect();
+        }
 
         self.state.statistics.next_id_iteration();
 
@@ -186,6 +196,9 @@ impl<B: Board> Gaps<B> {
         let mut num_children = 0;
 
         for mov in pos.pseudolegal_moves() {
+            if ply == 0 && !self.state.search_moves.contains(&mov) {
+                continue;
+            }
             let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
                 continue; // illegal pseudolegal move

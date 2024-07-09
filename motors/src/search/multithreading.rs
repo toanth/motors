@@ -31,7 +31,7 @@ pub enum EngineReceives<B: Board> {
     Quit,
     Forget,
     SetOption(EngineOptionName, String),
-    Search(B, SearchLimit, ZobristHistory<B>, TT),
+    Search(B, SearchLimit, ZobristHistory<B>, TT, Vec<B::Move>),
     Bench(B, Depth),
     EvalFor(B),
     SetEval(Box<dyn Eval<B>>),
@@ -193,6 +193,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         limit: SearchLimit,
         history: ZobristHistory<B>,
         tt: TT,
+        search_moves: Vec<B::Move>,
     ) -> Res<()> {
         if self.engine.is_currently_searching() {
             return Err(format!(
@@ -201,9 +202,13 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
             ));
         }
         self.engine.set_tt(tt);
-        let search_res = self
-            .engine
-            .search(pos, limit, history, self.search_sender.clone())?;
+        let search_res = self.engine.search_moves(
+            search_moves.into_iter(),
+            pos,
+            limit,
+            history,
+            self.search_sender.clone(),
+        )?;
 
         self.search_sender.send_search_res(search_res);
         Ok(())
@@ -242,7 +247,9 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                 Threads => panic!("This should have already been handled by the engine owner"),
                 _ => self.engine.set_option(name, value)?, // TODO: Update info in UGI client
             },
-            Search(pos, limit, history, tt) => self.start_search(pos, limit, history, tt)?,
+            Search(pos, limit, history, tt, moves) => {
+                self.start_search(pos, limit, history, tt, moves)?
+            }
             Bench(pos, depth) => self.bench_single_position(pos, depth)?,
             EvalFor(pos) => self.get_static_eval(pos),
             SetEval(eval) => self.engine.set_eval(eval),
@@ -326,16 +333,17 @@ impl<B: Board> EngineWrapper<B> {
         limit: SearchLimit,
         history: ZobristHistory<B>,
         ponder: bool,
+        search_moves: Vec<B::Move>,
     ) -> Res<()> {
         if self.is_primary() {
             // reset `stop` first such that a finished ponder command won't print anything
             self.search_sender().new_search(limit.is_infinite());
         }
         for o in self.secondary.iter_mut() {
-            o.start_search(pos, limit, history.clone(), ponder)?;
+            o.start_search(pos, limit, history.clone(), ponder, search_moves.clone())?;
         }
         self.sender
-            .send(Search(pos, limit, history, self.tt.clone()))
+            .send(Search(pos, limit, history, self.tt.clone(), search_moves))
             .map_err(|err| err.to_string())
     }
 

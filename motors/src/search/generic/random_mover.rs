@@ -98,11 +98,21 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         false
     }
 
-    fn do_search(&mut self, pos: B, _: SearchLimit) -> Res<SearchResult<B>> {
+    fn do_search<I: ExactSizeIterator<Item = B::Move>>(
+        &mut self,
+        pos: B,
+        mut moves: I,
+        _: SearchLimit,
+    ) -> Res<SearchResult<B>> {
         self._state.statistics.next_id_iteration();
-        self.chosen_move = pos
-            .random_legal_move(&mut self.rng)
-            .expect("search() called in a position with no legal moves");
+        if moves.len() != 0 {
+            // there's no `is_empty` method
+            self.chosen_move = moves.nth(self.rng.gen_range(0..moves.len())).unwrap();
+        } else {
+            self.chosen_move = pos
+                .random_legal_move(&mut self.rng)
+                .expect("search() called in a position with no legal moves");
+        }
         Ok(SearchResult::move_only(self.chosen_move))
     }
 

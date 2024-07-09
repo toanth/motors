@@ -456,6 +456,7 @@ impl<B: Board> EngineUGI<B> {
                     )
                 })?,
                 self.state.board,
+                vec![],
             )?,
             "isready" => {
                 self.write_ugi("readyok");
@@ -612,10 +613,13 @@ impl<B: Board> EngineUGI<B> {
         let mut limit = SearchLimit::infinite();
         let is_white = self.state.board.active_player() == White;
         let mut search_type = Normal;
+        let mut search_moves = vec![];
+        let mut reading_moves = false;
         while let Some(next_word) = words.next() {
             match next_word {
                 "searchmoves" => {
-                    return Err("The 'go searchmoves' option is not implemented".to_string());
+                    reading_moves = true;
+                    continue;
                 }
                 "ponder" => search_type = Ponder, // setting different search types uses the last one specified
                 "wtime" | "p1time" | "wt" | "p1t" => {
@@ -664,18 +668,36 @@ impl<B: Board> EngineUGI<B> {
                 "perft" | "p" => search_type = Perft,
                 "splitperft" | "sp" => search_type = SplitPerft,
                 "bench" => search_type = Bench,
-                _ => return Err(format!("Unrecognized 'go' option: '{next_word}'")),
+                _ => {
+                    if reading_moves {
+                        let mov = B::Move::from_compact_text(next_word, &self.state.board)
+                            .map_err(|err| {
+                                format!("{err}. '{}' is not a valid 'go' option.", next_word.bold())
+                            })?;
+                        search_moves.push(mov);
+                        continue;
+                    } else {
+                        return Err(format!("Unrecognized 'go' option: '{next_word}'"));
+                    }
+                }
             }
+            reading_moves = false;
         }
         limit.tc.remaining = limit
             .tc
             .remaining
             .saturating_sub(self.move_overhead)
             .max(Duration::from_millis(1));
-        self.start_search(search_type, limit, self.state.board)
+        self.start_search(search_type, limit, self.state.board, search_moves)
     }
 
-    fn start_search(&mut self, search_type: SearchType, mut limit: SearchLimit, pos: B) -> Res<()> {
+    fn start_search(
+        &mut self,
+        search_type: SearchType,
+        mut limit: SearchLimit,
+        pos: B,
+        moves: Vec<B::Move>,
+    ) -> Res<()> {
         self.write_message(
             Debug,
             &format!("Starting {search_type} search with tc {}", limit.tc),
@@ -698,9 +720,13 @@ impl<B: Board> EngineUGI<B> {
                     self.state.ponder_limit = None;
                     self.search_sender.abort_pondering();
                 }
-                self.state
-                    .engine
-                    .start_search(pos, limit, self.state.board_hist.clone(), false)?
+                self.state.engine.start_search(
+                    pos,
+                    limit,
+                    self.state.board_hist.clone(),
+                    false,
+                    moves,
+                )?
             }
             Ponder => {
                 self.state.ponder_limit = Some(limit.clone());
@@ -709,6 +735,7 @@ impl<B: Board> EngineUGI<B> {
                     SearchLimit::infinite(), //always allocate infinite time for pondering
                     self.state.board_hist.clone(),
                     true,
+                    moves,
                 )?;
             }
             Perft => {
@@ -774,7 +801,7 @@ impl<B: Board> EngineUGI<B> {
             self.write_ugi(&res);
             Ok(())
         } else {
-            self.start_search(typ, limit, board)
+            self.start_search(typ, limit, board, vec![])
         }
     }
 

@@ -281,9 +281,10 @@ impl Engine<Chessboard> for Caps {
         self.eval = eval;
     }
 
-    fn do_search(
+    fn do_search<I: ExactSizeIterator<Item = ChessMove>>(
         &mut self,
         pos: Chessboard,
+        moves: I,
         mut limit: SearchLimit,
     ) -> Res<SearchResult<Chessboard>> {
         limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
@@ -306,6 +307,11 @@ impl Engine<Chessboard> for Caps {
         // Use 3fold repetition detection for positions before and including the root node and 2fold for positions during search.
         self.state.custom.original_board_hist = take(&mut self.state.board_history);
         self.state.custom.original_board_hist.push(&pos);
+        if moves.len() == 0 {
+            self.state.search_moves = pos.pseudolegal_moves().into_iter().collect_vec();
+        } else {
+            self.state.search_moves = moves.collect_vec();
+        }
 
         let mut chosen_move = self.aspiration(pos, limit, soft_limit);
         if chosen_move == ChessMove::default() {
@@ -1009,6 +1015,9 @@ impl MoveScorer<Chessboard> for CapsMoveScorer {
     /// The most promising move is always the TT move, because that is backed up by search.
     /// After that follow various heuristics.
     fn score_move(&self, mov: ChessMove, state: &CapsState) -> MoveScore {
+        if self.ply == 0 && !state.search_moves.contains(&mov) {
+            return MoveScore::IGNORE_MOVE;
+        }
         // The move list is iterated backwards, which is why better moves get higher scores
         // No need to check against the TT move because that's already handled by the move picker
         if mov == state.search_stack[self.ply].killer {
