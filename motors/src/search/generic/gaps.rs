@@ -15,8 +15,8 @@ use crate::search::statistics::SearchType::MainSearch;
 use crate::search::tt::TT;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use crate::search::{
-    ABSearchState, BenchLimit, BenchResult, Benchable, BestMoveCustomInfo, EmptySearchStackEntry,
-    Engine, EngineInfo, SearchState,
+    ABSearchState, AbstractEngine, BestMoveCustomInfo, EmptySearchStackEntry, Engine, EngineInfo,
+    SearchState,
 };
 
 const MAX_DEPTH: Depth = Depth::new(100);
@@ -56,12 +56,9 @@ impl<B: Board> StaticallyNamedEntity for Gaps<B> {
     }
 }
 
-impl<B: Board> Benchable<B> for Gaps<B> {
-    fn bench(&mut self, pos: B, limit: BenchLimit) -> BenchResult {
-        self.state.forget(true);
-        let limit = limit.to_search_limit(MAX_DEPTH);
-        let _ = self.search_from_pos(pos, limit);
-        self.state.to_bench_res()
+impl<B: Board> AbstractEngine<B> for Gaps<B> {
+    fn max_bench_depth(&self) -> Depth {
+        MAX_DEPTH
     }
 
     fn engine_info(&self) -> EngineInfo {

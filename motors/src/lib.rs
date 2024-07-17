@@ -65,7 +65,7 @@ impl<B: Board> BenchRun<B> {
 impl<B: Board> AbstractRun for BenchRun<B> {
     fn run(&mut self) -> Quitting {
         let engine = self.engine.as_mut();
-        let nodes = engine.engine_info().default_bench_nodes();
+        let nodes = engine.default_bench_nodes();
         let res = match self.depth {
             None => run_bench(engine),
             Some(depth) => run_bench_with_depth_and_nodes(engine, depth, nodes),

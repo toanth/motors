@@ -211,6 +211,11 @@ impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
     pub fn clear(&mut self) {
         self.length = 0;
     }
+
+    pub fn reset_to_move(&mut self, mov: B::Move) {
+        self.list[0] = mov;
+        self.length = 1;
+    }
 }
 
 pub trait AbstractEvalBuilder<B: Board>: NamedEntity + DynClone {
@@ -309,10 +314,19 @@ impl<B: Board> EngineBuilder<B> {
 
 pub type SearcherList<B> = EntityList<Box<dyn AbstractSearcherBuilder<B>>>;
 
-#[derive(Debug, Default)]
-pub struct SearcherBuilder<B: Board, E: Engine<B> + Default> {
+#[derive(Debug)]
+pub struct SearcherBuilder<B: Board, E: Engine<B>> {
     _phantom_b: PhantomData<B>,
     _phantom_e: PhantomData<E>,
+}
+
+impl<B: Board, E: Engine<B>> Default for SearcherBuilder<B, E> {
+    fn default() -> Self {
+        Self {
+            _phantom_b: Default::default(),
+            _phantom_e: Default::default(),
+        }
+    }
 }
 
 impl<B: Board, E: Engine<B>> Clone for SearcherBuilder<B, E> {
@@ -378,9 +392,15 @@ impl BenchLimit {
     }
 }
 
-pub trait Benchable<B: Board>: StaticallyNamedEntity + Debug {
-    // TODO: Default implementation that calls serch_from_pos
-    fn bench(&mut self, position: B, limit: BenchLimit) -> BenchResult;
+pub trait Benchable<B: Board>: Debug {
+    fn bench(&mut self, pos: B, limit: BenchLimit) -> BenchResult;
+
+    fn default_bench_nodes(&self) -> NodesLimit;
+    fn default_bench_depth(&self) -> Depth;
+}
+
+pub trait AbstractEngine<B: Board>: StaticallyNamedEntity + Benchable<B> {
+    fn max_bench_depth(&self) -> Depth;
 
     /// Returns information about this engine, such as the name, version and default bench depth.
     fn engine_info(&self) -> EngineInfo;
@@ -394,9 +414,25 @@ pub trait Benchable<B: Board>: StaticallyNamedEntity + Debug {
     }
 }
 
+impl<B: Board, E: Engine<B>> Benchable<B> for E {
+    fn bench(&mut self, pos: B, limit: BenchLimit) -> BenchResult {
+        let limit = limit.to_search_limit(self.max_bench_depth());
+        let _ = self.search_from_pos(pos, limit);
+        self.search_state().to_bench_res()
+    }
+
+    fn default_bench_nodes(&self) -> NodesLimit {
+        self.engine_info().default_bench_nodes
+    }
+
+    fn default_bench_depth(&self) -> Depth {
+        self.engine_info().default_bench_depth
+    }
+}
+
 const DEFAULT_CHECK_TIME_INTERVAL: u64 = 2048;
 
-pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
+pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
     fn set_tt(&mut self, tt: TT);
 
     fn set_eval(&mut self, eval: Box<dyn Eval<B>>);
@@ -506,13 +542,14 @@ pub trait Engine<B: Board>: Benchable<B> + Default + Send + 'static {
         !self.search_state().search_cancelled()
     }
 
-    fn can_use_multiple_threads() -> bool
-    where
-        Self: Sized;
+    fn can_use_multiple_threads() -> bool;
 
     fn with_eval(eval: Box<dyn Eval<B>>) -> Self;
 
-    fn for_eval<E: Eval<B> + Default>() -> Self {
+    fn for_eval<E: Eval<B> + Default>() -> Self
+    where
+        Self: Sized,
+    {
         Self::with_eval(Box::new(E::default()))
     }
 
@@ -577,6 +614,20 @@ pub trait SearchState<B: Board>: Debug + Clone {
     fn search_sender(&self) -> &SearchSender<B>;
     fn search_sender_mut(&mut self) -> &mut SearchSender<B>;
     fn send_statistics(&mut self);
+
+    fn mov(&self) -> B::Move;
+
+    fn to_bench_res(&self) -> BenchResult {
+        let mut hasher = DefaultHasher::new();
+        self.mov().hash(&mut hasher);
+        let hash = hasher.finish();
+        BenchResult {
+            nodes: NodesLimit::new(self.uci_nodes()).unwrap(),
+            time: self.start_time().elapsed(),
+            depth: self.depth(),
+            moves_hash: hash,
+        }
+    }
 }
 
 pub trait SearchStackEntry<B: Board>: Default + Clone + Debug {
@@ -651,15 +702,6 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
         }
     }
 
-    fn mov(&self) -> B::Move {
-        self.search_stack
-            .first()
-            .and_then(|e| e.pv())
-            .and_then(|pv| pv.first())
-            .copied()
-            .unwrap_or_default()
-    }
-
     fn pv(&self) -> Vec<B::Move> {
         if let Some(pv) = self.search_stack[0].pv() {
             assert!(!pv.is_empty());
@@ -685,18 +727,6 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
 
     fn additional(&self) -> Option<String> {
         None
-    }
-
-    fn to_bench_res(&self) -> BenchResult {
-        let mut hasher = DefaultHasher::new();
-        self.mov().hash(&mut hasher);
-        let hash = hasher.finish();
-        BenchResult {
-            nodes: NodesLimit::new(self.uci_nodes()).unwrap(),
-            time: self.start_time().elapsed(),
-            depth: self.depth(),
-            moves_hash: hash,
-        }
     }
 }
 
@@ -793,6 +823,15 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
     fn send_statistics(&mut self) {
         self.sender.send_statistics(&self.statistics);
     }
+
+    fn mov(&self) -> B::Move {
+        self.search_stack
+            .first()
+            .and_then(|e| e.pv())
+            .and_then(|pv| pv.first())
+            .copied()
+            .unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, FromRepr)]
@@ -819,8 +858,8 @@ impl NodeType {
 }
 
 pub fn run_bench<B: Board>(engine: &mut dyn Benchable<B>) -> BenchResult {
-    let depth = engine.engine_info().default_bench_depth;
-    let nodes = engine.engine_info().default_bench_nodes;
+    let depth = engine.default_bench_depth();
+    let nodes = engine.default_bench_nodes();
     run_bench_with_depth_and_nodes(engine, depth, nodes)
 }
 
@@ -830,15 +869,15 @@ pub fn run_bench_with_depth_and_nodes<B: Board>(
     mut nodes: NodesLimit,
 ) -> BenchResult {
     if depth.get() == 0 || depth == MAX_DEPTH {
-        depth = engine.engine_info().default_bench_depth
+        depth = engine.default_bench_depth()
     }
     if nodes == NodesLimit::MAX {
-        nodes = engine.engine_info().default_bench_nodes;
+        nodes = engine.default_bench_nodes();
         assert!(nodes <= NodesLimit::new(10_000_000).unwrap());
     }
     let mut hasher = DefaultHasher::new();
     let mut sum = BenchResult::default();
-    for position in B::bench_positions() {
+    for position in B::bench_positions().into_iter() {
         let res = engine.bench(position, BenchLimit::Depth(depth));
         sum.nodes = NodesLimit::new(sum.nodes.get() + res.nodes.get()).unwrap();
         sum.time += res.time;

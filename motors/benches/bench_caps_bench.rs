@@ -5,7 +5,7 @@ use gears::games::chess::Chessboard;
 use gears::search::{Depth, NodesLimit};
 use motors::eval::chess::lite::LiTEval;
 use motors::search::chess::caps::Caps;
-use motors::search::{run_bench_with_depth_and_nodes, BenchLimit, Benchable, Engine};
+use motors::search::{run_bench_with_depth_and_nodes, AbstractEngine, BenchLimit, Engine};
 
 pub fn caps_startpos_bench(c: &mut Criterion) {
     c.bench_function("bench 12 startpos", |b| {

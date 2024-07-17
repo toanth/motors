@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use itertools::Itertools;
-use rand::thread_rng;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 use crate::eval::chess::lite::LiTEval;
 use gears::games::chess::moves::ChessMove;
@@ -214,12 +215,9 @@ impl StaticallyNamedEntity for Caps {
     }
 }
 
-impl Benchable<Chessboard> for Caps {
-    fn bench(&mut self, pos: Chessboard, limit: BenchLimit) -> BenchResult {
-        self.state.forget(true);
-        let limit = limit.to_search_limit(DEPTH_SOFT_LIMIT);
-        let _ = self.search_from_pos(pos, limit);
-        self.state.to_bench_res()
+impl AbstractEngine<Chessboard> for Caps {
+    fn max_bench_depth(&self) -> Depth {
+        DEPTH_SOFT_LIMIT
     }
 
     fn engine_info(&self) -> EngineInfo {
@@ -319,20 +317,14 @@ impl Engine<Chessboard> for Caps {
             self.state.search_moves = moves.collect_vec();
         }
 
-        let mut chosen_move = self.aspiration(pos, limit, soft_limit);
-        if chosen_move == ChessMove::default() {
-            eprintln!("Warning: Not even a single iteration finished");
-            let mut rng = thread_rng();
-            chosen_move = pos
-                .random_legal_move(&mut rng)
-                .expect("search() called in a position with no legal moves")
-        }
-        Ok(SearchResult::new(
-            chosen_move,
+        self.aspiration(pos, limit, soft_limit);
+        // incomplete iterations and root nodes that failed low don't overwrite the `state.mov()`,
+        // so it should be fine to unconditionally assign it to `chosen_move`
+        let chosen_move = self.state.mov();
+        assert_ne!(chosen_move, ChessMove::default());
+        Ok(SearchResult::new_from_pv(
             self.state.score,
-            self.state.search_stack[0]
-                .pv()
-                .and_then(|pv| pv.get(1).copied()),
+            self.state.search_stack[0].pv().unwrap(),
         ))
     }
 
@@ -382,13 +374,7 @@ impl Caps {
     /// For example, the best move is not trustworthy if the root failed low (but because the TT move is ordered first,
     /// and the TT move at the root is always `state.best_move` (there can be no collisions because it's written to last),
     /// it should in theory still be trustworthy if the root failed high)
-    fn aspiration(
-        &mut self,
-        pos: Chessboard,
-        limit: SearchLimit,
-        soft_limit: Duration,
-    ) -> ChessMove {
-        let mut chosen_move = self.state.mov();
+    fn aspiration(&mut self, pos: Chessboard, limit: SearchLimit, soft_limit: Duration) {
         let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth).get() as isize;
 
         let mut alpha = SCORE_LOST;
@@ -430,6 +416,15 @@ impl Caps {
             );
 
             if self.state.search_cancelled() {
+                if self.state.mov() == ChessMove::default() {
+                    eprintln!("Warning: Not even a single iteration finished");
+                    let mut rng = StdRng::seed_from_u64(42); // keep everything deterministic
+                    let chosen_move = pos
+                        .random_legal_move(&mut rng)
+                        .expect("search() called in a position with no legal moves");
+                    self.state.search_stack[0].pv.clear();
+                    self.state.search_stack[0].pv.reset_to_move(chosen_move);
+                }
                 self.state.sender.send_search_info(self.search_info()); // depth hasn't been incremented
                 break;
             }
@@ -452,15 +447,11 @@ impl Caps {
             }
             alpha = (iteration_score - window_radius).max(SCORE_LOST);
             beta = (iteration_score + window_radius).min(SCORE_WON);
-            // incomplete iterations and root nodes that failed low don't overwrite the `state.best_move`,
-            // so it should be fine to unconditionally assign it to `chosen_move`
-            chosen_move = self.state.mov();
             if self.should_not_start_next_iteration(soft_limit, max_depth, limit.mate) {
                 self.state.statistics.soft_limit_stop();
                 break;
             }
         }
-        chosen_move
     }
 
     /// Recursive search function, the most important part of the engine. If the computed score of the current position
@@ -774,10 +765,6 @@ impl Caps {
             );
             // Check for cancellation right after searching a move to avoid storing incorrect information in the TT.
             if self.should_stop(limit) {
-                if ply == 0 {
-                    self.state.search_stack[0].pv.list[0] =
-                        pos.random_legal_move(&mut thread_rng()).unwrap();
-                }
                 return SCORE_TIME_UP;
             }
             debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);
