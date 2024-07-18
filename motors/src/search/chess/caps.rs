@@ -741,7 +741,7 @@ impl Caps {
                         depth - 1,
                         -(alpha + 1),
                         -alpha,
-                        FailHigh, // we still expect a fail high here
+                        FailHigh, // we still expect a fail high here   
                     );
                 }
                 // If the full-depth search also performed better than expected, do a full-depth search with the
@@ -763,7 +763,8 @@ impl Caps {
                 self.state.board_history.len(),
                 self.state.search_stack[ply].tried_moves.len()
             );
-            // Check for cancellation right after searching a move to avoid storing incorrect information in the TT.
+            // Check for cancellation right after searching a move to avoid storing incorrect information
+            // in the TT or PV.
             if self.should_stop(limit) {
                 return SCORE_TIME_UP;
             }
@@ -780,13 +781,14 @@ impl Caps {
             // default move, which is either the TT move (if there was a TT hit) or the null move.
             best_move = mov;
 
-            // Update the PV. We only need to do that for PV nodes (we could even only do that for non-fail highs,
-            // ut that would truncate the pv on an aw fail high, it relies on details of this implementation, and it would
-            // mean we don't update the best move on a aw fail high before the search gets aborted).
-            let split = self.state.search_stack.split_at_mut(ply + 1);
-            let pv = &mut split.0.last_mut().unwrap().pv;
-            let child_pv = &split.1[0].pv;
-            pv.extend(ply, best_move, child_pv);
+            // Update the PV. We only need to do this for PV nodes (we could even only do this for non-fail highs,
+            // if we didn't have to worry about aw fail high).
+            if is_pv_node {
+                let split = self.state.search_stack.split_at_mut(ply + 1);
+                let pv = &mut split.0.last_mut().unwrap().pv;
+                let child_pv = &split.1[0].pv;
+                pv.extend(ply, best_move, child_pv);
+            }
 
             if score < beta {
                 // We're in a PVS PV node and this move raised alpha but didn't cause a fail high, so look at the other moves.
