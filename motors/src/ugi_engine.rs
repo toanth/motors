@@ -25,6 +25,7 @@ use gears::ugi::EngineOptionName::{MoveOverhead, Threads};
 use gears::ugi::EngineOptionType::Spin;
 use gears::ugi::{
     parse_ugi_position, EngineOption, EngineOptionName, EngineOptionType, UgiCheck, UgiSpin,
+    UgiString,
 };
 use gears::MatchStatus::*;
 use gears::Quitting::{QuitMatch, QuitProgram};
@@ -463,7 +464,13 @@ impl<B: Board> EngineUGI<B> {
                 self.state.engine.send_forget()?;
                 self.state.status = Run(NotStarted);
             }
-            "register" => return Err("'register' isn't supported".to_string()),
+            "register" => {
+                self.write_message(
+                    Warning,
+                    &format!("{} isn't supported and will be ignored", "register".red()),
+                );
+                return Ok(self.state.status.clone());
+            }
             "flip" => {
                 self.state.board = self.state.board.make_nullmove().ok_or(format!(
                     "Could not flip the side to move (board: '{}'",
@@ -639,7 +646,9 @@ impl<B: Board> EngineUGI<B> {
                         limit.tc.increment = increment;
                     }
                 }
-                "movestogo" => limit.tc.moves_to_go = Some(parse_int(words, "'movestogo' number")?),
+                "movestogo" | "mtg" => {
+                    limit.tc.moves_to_go = Some(parse_int(words, "'movestogo' number")?)
+                }
                 "depth" | "d" => limit.depth = Depth::new(parse_int(words, "depth number")?),
                 "nodes" | "n" => {
                     limit.nodes = NodesLimit::new(parse_int(words, "node count")?)
@@ -1114,6 +1123,8 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn get_options(&self) -> Vec<EngineOption> {
+        let engine_info = self.state.engine.engine_info().engine().clone();
+        let eval_info = self.state.engine.engine_info().eval().clone();
         let mut res = vec![
             EngineOption {
                 name: MoveOverhead,
@@ -1129,6 +1140,20 @@ impl<B: Board> EngineUGI<B> {
                 value: EngineOptionType::Check(UgiCheck {
                     val: self.allow_ponder,
                     default: Some(false),
+                }),
+            },
+            EngineOption {
+                name: EngineOptionName::UCIEngineAbout,
+                value: EngineOptionType::UString(UgiString {
+                    val: "".to_string(),
+                    default: Some(format!(
+                        "Motors by ToTheAnd. Game: {2}. Engine: {0}. Eval: {1}  ",
+                        engine_info.description.unwrap_or(engine_info.long),
+                        eval_info
+                            .map(|i| i.description.unwrap_or(i.long))
+                            .unwrap_or("<none>".to_string()),
+                        B::game_name()
+                    )),
                 }),
             },
         ];

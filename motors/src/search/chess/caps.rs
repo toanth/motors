@@ -458,6 +458,8 @@ impl Caps {
             }
             alpha = (iteration_score - window_radius).max(SCORE_LOST);
             beta = (iteration_score + window_radius).min(SCORE_WON);
+            // TODO: Increase soft limit for an aw fail low? (Because we don't have a lot of information in that case,
+            // and risk playing a move we might have just found a refutation to)
             if self.should_not_start_next_iteration(soft_limit, max_depth, limit.mate) {
                 self.state.statistics.soft_limit_stop();
                 break;
