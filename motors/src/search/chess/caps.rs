@@ -741,7 +741,7 @@ impl Caps {
                         depth - 1,
                         -(alpha + 1),
                         -alpha,
-                        FailHigh, // we still expect a fail high here   
+                        FailHigh, // we still expect a fail high here
                     );
                 }
                 // If the full-depth search also performed better than expected, do a full-depth search with the
@@ -1170,7 +1170,7 @@ mod tests {
         ];
         for (fen, mov) in fens {
             let pos = Chessboard::from_fen(fen).unwrap();
-            let mut engine = Caps::<LiTEval>::default();
+            let mut engine = Caps::for_eval::<LiTEval>();
             let mut limit = SearchLimit::depth(Depth::new(18));
             limit.mate = Depth::new(10);
             limit.fixed_time = Duration::from_secs(2);

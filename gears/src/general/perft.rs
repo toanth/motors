@@ -50,8 +50,8 @@ impl<B: Board> Display for SplitPerftRes<B> {
 
 fn do_perft<T: Board>(depth: usize, pos: T) -> u64 {
     let mut nodes = 0;
-    if depth == 0 {
-        return 1;
+    if depth == 1 {
+        return pos.legal_moves_slow().into_iter().count() as u64;
     }
     // if pos.game_result_no_movegen().is_some() {
     //     return 0; // the game is over (e.g. 50mr)
@@ -67,7 +67,11 @@ fn do_perft<T: Board>(depth: usize, pos: T) -> u64 {
 
 pub fn perft<T: Board>(depth: Depth, pos: T) -> PerftRes {
     let start = Instant::now();
-    let nodes = do_perft(depth.get(), pos);
+    let nodes = if depth.get() == 0 {
+        1
+    } else {
+        do_perft(depth.get(), pos)
+    };
     let time = start.elapsed();
 
     PerftRes { time, nodes, depth }
@@ -80,7 +84,11 @@ pub fn split_perft<T: Board>(depth: Depth, pos: T) -> SplitPerftRes<T> {
     let mut children = vec![];
     for mov in pos.pseudolegal_moves() {
         if let Some(new_pos) = pos.make_move(mov) {
-            let child_nodes = do_perft(depth.get() - 1, new_pos);
+            let child_nodes = if depth.get() == 1 {
+                1
+            } else {
+                do_perft(depth.get() - 1, new_pos)
+            };
             children.push((mov, child_nodes));
             nodes += child_nodes;
         }
