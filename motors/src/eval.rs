@@ -22,6 +22,11 @@ pub trait Eval<B: Board>: Debug + Send + StaticallyNamedEntity + DynClone + 'sta
     }
 }
 
+/// There is only one implementation of this trait in this crate: [`PhasedScore`].
+///
+/// It should be easy to implement this for other scores, but the reason it's a trait is that in the [`pliers`] crate,
+/// there is a trace that also implements this trait so that it can be used for tuning without needing to duplicate the
+/// eval function.
 pub trait ScoreType:
     Debug
     + Default
@@ -31,13 +36,19 @@ pub trait ScoreType:
     + PartialEq
     + Add<Output = Self>
     + AddAssign
+    + Add<Self::SingleFeatureScore, Output = Self>
+    + AddAssign<Self::SingleFeatureScore>
     + Sub<Output = Self>
     + SubAssign
+    + Sub<Self::SingleFeatureScore, Output = Self>
+    + SubAssign<Self::SingleFeatureScore>
     + Neg<Output = Self>
     + Mul<usize, Output = Self>
+    + From<Self::SingleFeatureScore>
     + 'static
 {
     type Finalized: Default;
+    type SingleFeatureScore: Default + Mul<usize, Output = Self::SingleFeatureScore>;
 
     fn finalize(
         self,
@@ -50,6 +61,7 @@ pub trait ScoreType:
 
 impl ScoreType for PhasedScore {
     type Finalized = Score;
+    type SingleFeatureScore = Self;
 
     fn finalize(
         self,

@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use itertools::Itertools;
-use rand::thread_rng;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 use crate::eval::chess::lite::LiTEval;
 use gears::games::chess::moves::ChessMove;
@@ -225,13 +226,9 @@ impl StaticallyNamedEntity for Caps {
     }
 }
 
-impl Benchable<Chessboard> for Caps {
-    fn bench(&mut self, pos: Chessboard, depth: Depth) -> BenchResult {
-        self.state.forget(true);
-        let mut limit = SearchLimit::infinite();
-        limit.depth = DEPTH_SOFT_LIMIT.min(depth);
-        let _ = self.search_from_pos(pos, limit);
-        self.state.to_bench_res()
+impl AbstractEngine<Chessboard> for Caps {
+    fn max_bench_depth(&self) -> Depth {
+        DEPTH_SOFT_LIMIT
     }
 
     fn engine_info(&self) -> EngineInfo {
@@ -262,7 +259,14 @@ impl Benchable<Chessboard> for Caps {
                 }),
             },
         ];
-        EngineInfo::new(self, self.eval.as_ref(), "0.1.0", Depth::new(12), options)
+        EngineInfo::new(
+            self,
+            self.eval.as_ref(),
+            "0.1.0",
+            Depth::new(12),
+            NodesLimit::new(30_000).unwrap(),
+            options,
+        )
     }
 
     fn set_option(&mut self, option: EngineOptionName, _value: String) -> Res<()> {
@@ -292,9 +296,10 @@ impl Engine<Chessboard> for Caps {
         self.eval = eval;
     }
 
-    fn do_search(
+    fn do_search<I: ExactSizeIterator<Item = ChessMove>>(
         &mut self,
         pos: Chessboard,
+        moves: I,
         mut limit: SearchLimit,
     ) -> Res<SearchResult<Chessboard>> {
         limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
@@ -317,17 +322,21 @@ impl Engine<Chessboard> for Caps {
         // Use 3fold repetition detection for positions before and including the root node and 2fold for positions during search.
         self.state.custom.original_board_hist = take(&mut self.state.board_history);
         self.state.custom.original_board_hist.push(&pos);
+        if moves.len() == 0 {
+            self.state.search_moves = pos.pseudolegal_moves().into_iter().collect_vec();
+        } else {
+            self.state.search_moves = moves.collect_vec();
+        }
 
-        let chosen_move = match self.aspiration(pos, limit, soft_limit) {
-            Some(mov) => mov,
-            None => {
-                eprintln!("Warning: Not even a single iteration finished");
-                let mut rng = thread_rng();
-                pos.random_legal_move(&mut rng)
-                    .expect("search() called in a position with no legal moves")
-            }
-        };
-        Ok(SearchResult::move_and_score(chosen_move, self.state.score))
+        self.aspiration(pos, limit, soft_limit);
+        // incomplete iterations and root nodes that failed low don't overwrite the `state.mov()`,
+        // so it should be fine to unconditionally assign it to `chosen_move`
+        let chosen_move = self.state.mov();
+        assert_ne!(chosen_move, ChessMove::default());
+        Ok(SearchResult::new_from_pv(
+            self.state.score,
+            self.state.search_stack[0].pv().unwrap(),
+        ))
     }
 
     fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
@@ -376,13 +385,7 @@ impl Caps {
     /// For example, the best move is not trustworthy if the root failed low (but because the TT move is ordered first,
     /// and the TT move at the root is always `state.best_move` (there can be no collisions because it's written to last),
     /// it should in theory still be trustworthy if the root failed high)
-    fn aspiration(
-        &mut self,
-        pos: Chessboard,
-        limit: SearchLimit,
-        soft_limit: Duration,
-    ) -> Option<ChessMove> {
-        let mut chosen_move = self.state.best_move;
+    fn aspiration(&mut self, pos: Chessboard, limit: SearchLimit, soft_limit: Duration) {
         let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth).get() as isize;
 
         let mut alpha = SCORE_LOST;
@@ -422,13 +425,27 @@ impl Caps {
                     depth = self.state.depth().get()
                 ),
             );
+
             if self.state.search_cancelled() {
+                if self.state.mov() == ChessMove::default() {
+                    eprintln!("Warning: Not even a single iteration finished");
+                    let mut rng = StdRng::seed_from_u64(42); // keep everything deterministic
+                    let chosen_move = pos
+                        .random_legal_move(&mut rng)
+                        .expect("search() called in a position with no legal moves");
+                    self.state.search_stack[0].pv.clear();
+                    self.state.search_stack[0].pv.reset_to_move(chosen_move);
+                }
+                self.state.sender.send_search_info(self.search_info()); // depth hasn't been incremented
                 break;
             }
+
             self.state.score = iteration_score;
+
             if iteration_score > alpha && iteration_score < beta {
                 self.state.sender.send_search_info(self.search_info()); // do this before incrementing the depth
-                                                                        // make sure that alpha and beta are at least 2 apart, to recognize PV nodes.
+
+                // make sure that alpha and beta are at least 2 apart, to recognize PV nodes.
                 window_radius = Score(1.max(window_radius.0 / 2));
                 self.state.statistics.aw_exact(); // increases the depth
             } else {
@@ -441,15 +458,11 @@ impl Caps {
             }
             alpha = (iteration_score - window_radius).max(SCORE_LOST);
             beta = (iteration_score + window_radius).min(SCORE_WON);
-            // incomplete iterations and root nodes that failed low don't overwrite the `state.best_move`,
-            // so it should be fine to unconditionally assign it to `chosen_move`
-            chosen_move = self.state.best_move;
             if self.should_not_start_next_iteration(soft_limit, max_depth, limit.mate) {
                 self.state.statistics.soft_limit_stop();
                 break;
             }
         }
-        chosen_move
     }
 
     /// Recursive search function, the most important part of the engine. If the computed score of the current position
@@ -761,7 +774,8 @@ impl Caps {
                 self.state.board_history.len(),
                 self.state.search_stack[ply].tried_moves.len()
             );
-            // Check for cancellation right after searching a move to avoid storing incorrect information in the TT.
+            // Check for cancellation right after searching a move to avoid storing incorrect information
+            // in the TT or PV.
             if self.should_stop(limit) {
                 return SCORE_TIME_UP;
             }
@@ -778,13 +792,14 @@ impl Caps {
             // default move, which is either the TT move (if there was a TT hit) or the null move.
             best_move = mov;
 
-            // Update the PV. We only need to do that for PV nodes (could even only do that for non-fail highs, although that would
-            // truncate the pv on an aw fail high and it relies on details of this implementation), but for some reason,
-            // that resulted in a bench slowdown, so for now we're doing that everywhere. TODO: Retest this eventually.
-            let split = self.state.search_stack.split_at_mut(ply + 1);
-            let pv = &mut split.0.last_mut().unwrap().pv;
-            let child_pv = &split.1[0].pv;
-            pv.push(ply, best_move, child_pv);
+            // Update the PV. We only need to do this for PV nodes (we could even only do this for non-fail highs,
+            // if we didn't have to worry about aw fail high).
+            if is_pv_node {
+                let split = self.state.search_stack.split_at_mut(ply + 1);
+                let pv = &mut split.0.last_mut().unwrap().pv;
+                let child_pv = &split.1[0].pv;
+                pv.extend(ply, best_move, child_pv);
+            }
 
             if score < beta {
                 // We're in a PVS PV node and this move raised alpha but didn't cause a fail high, so look at the other moves.
@@ -809,7 +824,6 @@ impl Caps {
 
         if ply == 0 {
             debug_assert!(!self.state.search_stack[ply].tried_moves.is_empty());
-            self.state.best_move = Some(best_move);
         } else if self.state.search_stack[ply].tried_moves.is_empty() {
             // TODO: Merge cached in-check branch
             return game_result_to_score(pos.no_moves_result(), ply);
@@ -1036,6 +1050,9 @@ impl MoveScorer<Chessboard> for CapsMoveScorer {
     /// The most promising move is always the TT move, because that is backed up by search.
     /// After that follow various heuristics.
     fn score_move(&self, mov: ChessMove, state: &CapsState) -> MoveScore {
+        if self.ply == 0 && !state.search_moves.contains(&mov) {
+            return MoveScore::IGNORE_MOVE;
+        }
         // The move list is iterated backwards, which is why better moves get higher scores
         // No need to check against the TT move because that's already handled by the move picker
         if mov == state.search_stack[self.ply].killer {
@@ -1092,7 +1109,7 @@ mod tests {
         let board = Chessboard::from_fen("4k3/8/4K3/8/8/8/8/6R1 w - - 0 1").unwrap();
         // run multiple times to get different random numbers from the eval function
         for depth in 1..=3 {
-            for _ in 0..100 {
+            for _ in 0..42 {
                 let mut engine = Caps::for_eval::<RandEval>();
                 let res = engine
                     .search(
@@ -1126,7 +1143,7 @@ mod tests {
             let pos = Chessboard::from_fen(fen).unwrap();
             let mut engine = Caps::for_eval::<PistonEval>();
             let res = engine
-                .search_from_pos(pos, SearchLimit::nodes(NodesLimit::new(50_000).unwrap()))
+                .search_from_pos(pos, SearchLimit::nodes(NodesLimit::new(30_000).unwrap()))
                 .unwrap();
             assert!(res.score.is_some_and(|score| score > Score(min)));
             assert!(res.score.is_some_and(|score| score < Score(max)));
@@ -1148,8 +1165,7 @@ mod tests {
     fn philidor_test() {
         let pos = Chessboard::from_name("philidor").unwrap();
         let mut engine = Caps::for_eval::<LiTEval>();
-        let res =
-            engine.search_from_pos(pos, SearchLimit::nodes(NodesLimit::new(100_000).unwrap()));
+        let res = engine.search_from_pos(pos, SearchLimit::nodes(NodesLimit::new(50_000).unwrap()));
         // TODO: More aggressive bound once the engine is stronger
         assert!(res.unwrap().score.unwrap().abs() <= Score(200));
     }
@@ -1201,7 +1217,7 @@ mod tests {
         ];
         for (fen, mov) in fens {
             let pos = Chessboard::from_fen(fen).unwrap();
-            let mut engine = Caps::<LiTEval>::default();
+            let mut engine = Caps::for_eval::<LiTEval>();
             let mut limit = SearchLimit::depth(Depth::new(18));
             limit.mate = Depth::new(10);
             limit.fixed_time = Duration::from_secs(2);

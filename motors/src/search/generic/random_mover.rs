@@ -11,7 +11,7 @@ use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, Ti
 
 use crate::search::tt::TT;
 use crate::search::{
-    ABSearchState, BenchResult, Benchable, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
+    ABSearchState, AbstractEngine, BestMoveCustomInfo, EmptySearchStackEntry, Engine, EngineInfo,
     SearchState,
 };
 
@@ -22,7 +22,7 @@ impl<T> SeedRng for T where T: Rng + SeedableRng {}
 pub struct RandomMover<B: Board, R: SeedRng> {
     pub rng: R,
     chosen_move: B::Move,
-    _state: ABSearchState<B, EmptySearchStackEntry, NoCustomInfo>,
+    _state: ABSearchState<B, EmptySearchStackEntry, BestMoveCustomInfo<B>>,
 }
 
 impl<B: Board, R: SeedRng> Debug for RandomMover<B, R> {
@@ -76,13 +76,19 @@ impl<B: Board, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R>
 
 // impl<B: Board, R: SeedRng + Clone + Send + 'static> EngineBase for RandomMover<B, R> {}
 
-impl<B: Board, R: SeedRng + Clone + Send + 'static> Benchable<B> for RandomMover<B, R> {
-    fn bench(&mut self, _position: B, _depth: Depth) -> BenchResult {
-        BenchResult::default()
+impl<B: Board, R: SeedRng + Clone + Send + 'static> AbstractEngine<B> for RandomMover<B, R> {
+    fn max_bench_depth(&self) -> Depth {
+        Depth::new(1)
     }
 
     fn engine_info(&self) -> EngineInfo {
-        EngineInfo::new_without_eval(self, "0.1.0", Depth::new(1), vec![])
+        EngineInfo::new_without_eval(
+            self,
+            "0.1.0",
+            Depth::new(1),
+            NodesLimit::new(1).unwrap(),
+            vec![],
+        )
     }
 }
 
@@ -98,10 +104,21 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         false
     }
 
-    fn do_search(&mut self, pos: B, _: SearchLimit) -> Res<SearchResult<B>> {
-        self.chosen_move = pos
-            .random_legal_move(&mut self.rng)
-            .expect("search() called in a position with no legal moves");
+    fn do_search<I: ExactSizeIterator<Item = B::Move>>(
+        &mut self,
+        pos: B,
+        mut moves: I,
+        _: SearchLimit,
+    ) -> Res<SearchResult<B>> {
+        self._state.statistics.next_id_iteration();
+        if moves.len() != 0 {
+            // there's no `is_empty` method
+            self.chosen_move = moves.nth(self.rng.gen_range(0..moves.len())).unwrap();
+        } else {
+            self.chosen_move = pos
+                .random_legal_move(&mut self.rng)
+                .expect("search() called in a position with no legal moves");
+        }
         Ok(SearchResult::move_only(self.chosen_move))
     }
 

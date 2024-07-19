@@ -2,6 +2,7 @@ use colored::Colorize;
 use std::cmp::min;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
+use std::hash::Hash;
 use std::marker::PhantomData;
 use std::str::{FromStr, SplitWhitespace};
 
@@ -261,7 +262,7 @@ pub struct NoMoveFlags {}
 
 impl MoveFlags for NoMoveFlags {}
 
-pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Send {
+pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Hash + Send {
     type Flags: MoveFlags;
 
     type Underlying: PrimInt + Into<usize>;

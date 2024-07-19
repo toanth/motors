@@ -15,6 +15,7 @@ pub const MAX_DEPTH: Depth = Depth(10_000);
 pub struct SearchResult<B: Board> {
     pub chosen_move: B::Move,
     pub score: Option<Score>,
+    pub ponder_move: Option<B::Move>,
 }
 
 impl<B: Board> SearchResult<B> {
@@ -29,7 +30,25 @@ impl<B: Board> SearchResult<B> {
         Self {
             chosen_move,
             score: Some(score),
+            ponder_move: None,
         }
+    }
+
+    pub fn new(chosen_move: B::Move, score: Score, ponder_move: Option<B::Move>) -> Self {
+        Self {
+            chosen_move,
+            score: Some(score),
+            ponder_move,
+        }
+    }
+
+    pub fn new_from_pv(score: Score, pv: &[B::Move]) -> Self {
+        assert!(!pv.is_empty());
+        Self::new(pv[0], score, pv.get(1).copied())
+    }
+
+    pub fn ponder_move(&self) -> Option<B::Move> {
+        self.ponder_move
     }
 }
 
@@ -168,7 +187,7 @@ impl TimeControl {
     }
 
     pub fn is_infinite(&self) -> bool {
-        self.remaining == Duration::MAX
+        self.remaining >= Duration::MAX - Duration::from_secs(1000)
     }
 
     pub fn update(&mut self, elapsed: Duration) {
@@ -227,7 +246,9 @@ impl Depth {
 
 pub type NodesLimit = NonZeroU64;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+// Don't derive Eq because that allows code like `limit == SearchLimit::infinite()`, which is bad because the remaining
+// time of `limit` might be slightly less while still being considered infinite.
+#[derive(Copy, Clone, Debug)]
 pub struct SearchLimit {
     pub tc: TimeControl,
     pub fixed_time: Duration,
@@ -294,5 +315,14 @@ impl SearchLimit {
 
     pub fn max_move_time(&self) -> Duration {
         self.fixed_time.min(self.tc.remaining)
+    }
+
+    pub fn is_infinite(&self) -> bool {
+        let inf = Self::infinite();
+        self.tc.is_infinite()
+            && self.mate == inf.mate
+            && self.depth == inf.depth
+            && self.nodes == inf.nodes
+            && self.fixed_time >= inf.fixed_time - Duration::from_secs(1000)
     }
 }

@@ -154,7 +154,7 @@ impl ColoredPieceType for ColoredAtaxxPieceType {
 pub const MAX_ATAXX_MOVES_IN_POS: usize =
     NUM_SQUARES + 2 * ((NUM_ROWS - 2) * (NUM_COLUMNS - 2) * 2 + (NUM_ROWS - 2 + NUM_COLUMNS - 2));
 
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct AtaxxMove {
     source: AtaxxSquare,
     target: AtaxxSquare,

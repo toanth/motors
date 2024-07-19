@@ -6,7 +6,7 @@ use rand::thread_rng;
 use gears::games::{Board, BoardHistory};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::score::{game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE_WON};
-use gears::search::{Depth, SearchLimit, SearchResult, TimeControl};
+use gears::search::{Depth, NodesLimit, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::EngineOptionName;
 
 use crate::eval::rand_eval::RandEval;
@@ -15,7 +15,7 @@ use crate::search::statistics::SearchType::MainSearch;
 use crate::search::tt::TT;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use crate::search::{
-    ABSearchState, BenchResult, Benchable, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
+    ABSearchState, AbstractEngine, BestMoveCustomInfo, EmptySearchStackEntry, Engine, EngineInfo,
     SearchState,
 };
 
@@ -25,7 +25,7 @@ type DefaultEval = RandEval;
 
 #[derive(Debug)]
 pub struct Gaps<B: Board> {
-    state: ABSearchState<B, EmptySearchStackEntry, NoCustomInfo>,
+    state: ABSearchState<B, EmptySearchStackEntry, BestMoveCustomInfo<B>>,
     eval: Box<dyn Eval<B>>,
     tt: TT,
 }
@@ -56,25 +56,20 @@ impl<B: Board> StaticallyNamedEntity for Gaps<B> {
     }
 }
 
-impl<B: Board> Benchable<B> for Gaps<B> {
-    fn bench(&mut self, pos: B, depth: Depth) -> BenchResult {
-        self.state.forget(true);
-        let mut limit = SearchLimit::infinite();
-        limit.depth = MAX_DEPTH.min(depth);
-        self.negamax(
-            pos,
-            limit,
-            0,
-            limit.depth.get() as isize,
-            SCORE_LOST,
-            SCORE_WON,
-        );
-        // TODO: Handle stop command in bench
-        self.state.to_bench_res()
+impl<B: Board> AbstractEngine<B> for Gaps<B> {
+    fn max_bench_depth(&self) -> Depth {
+        MAX_DEPTH
     }
 
     fn engine_info(&self) -> EngineInfo {
-        EngineInfo::new(self, self.eval.as_ref(), "0.0.1", Depth::new(4), vec![])
+        EngineInfo::new(
+            self,
+            self.eval.as_ref(),
+            "0.0.1",
+            Depth::new(4),
+            NodesLimit::new(50_000).unwrap(),
+            vec![],
+        )
     }
 
     fn set_option(&mut self, option: EngineOptionName, value: String) -> Res<()> {
@@ -90,10 +85,20 @@ impl<B: Board> Engine<B> for Gaps<B> {
         true
     }
 
-    fn do_search(&mut self, pos: B, mut limit: SearchLimit) -> Res<SearchResult<B>> {
-        let mut chosen_move = self.state.best_move;
+    fn do_search<I: ExactSizeIterator<Item = B::Move>>(
+        &mut self,
+        pos: B,
+        moves: I,
+        mut limit: SearchLimit,
+    ) -> Res<SearchResult<B>> {
+        let mut chosen_move = self.state.custom.chosen_move;
         let max_depth = MAX_DEPTH.min(limit.depth).get() as isize;
         limit.fixed_time = limit.fixed_time.min(limit.tc.remaining);
+        if moves.len() == 0 {
+            self.state.search_moves = pos.pseudolegal_moves().into_iter().collect();
+        } else {
+            self.state.search_moves = moves.collect();
+        }
 
         self.state.statistics.next_id_iteration();
 
@@ -103,7 +108,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
                 break;
             }
             self.state.score = iteration_score;
-            chosen_move = self.state.best_move; // only set now so that incomplete iterations are discarded
+            chosen_move = self.state.custom.chosen_move; // only set now so that incomplete iterations are discarded
             self.state.sender.send_search_info(self.search_info());
             // increases the depth. do this after sending the search info, but before deciding if the depth limit has been exceeded.
             self.state.statistics.next_id_iteration();
@@ -186,6 +191,9 @@ impl<B: Board> Gaps<B> {
         let mut num_children = 0;
 
         for mov in pos.pseudolegal_moves() {
+            if ply == 0 && !self.state.search_moves.contains(&mov) {
+                continue;
+            }
             let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
                 continue; // illegal pseudolegal move
@@ -209,7 +217,7 @@ impl<B: Board> Gaps<B> {
             alpha = alpha.max(score);
             best_score = score;
             if ply == 0 {
-                self.state.best_move = Some(mov);
+                self.state.custom.chosen_move = Some(mov);
             }
             if score < beta {
                 continue;

@@ -42,6 +42,33 @@ type FeatureIndex = usize;
 
 type FeatureCount = isize;
 
+/// A single feature, building block of [`SparseTrace`].
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
+pub struct SingleFeature {
+    idx: FeatureIndex,
+    count: FeatureCount,
+}
+
+impl SingleFeature {
+    pub(super) fn new(idx: FeatureIndex) -> Self {
+        Self { idx, count: 1 }
+    }
+
+    pub(super) fn no_feature() -> Self {
+        Self::default()
+    }
+}
+
+impl Mul<usize> for SingleFeature {
+    type Output = Self;
+
+    fn mul(mut self, rhs: usize) -> Self::Output {
+        let rhs: FeatureCount = rhs.try_into().unwrap();
+        self.count = self.count * rhs;
+        self
+    }
+}
+
 /// A trace that stores a map from feature index to feature count.
 ///
 /// Implements `ScoreType` so that it can be used instead of a normal score for an existing eval.
@@ -53,15 +80,16 @@ pub struct SparseTrace {
     phase: Float,
 }
 
-impl SparseTrace {
-    /// Create a new [`SparseTrace`] for the given index with a feature count of 1.
-    pub fn new(index: usize) -> Self {
+impl From<SingleFeature> for SparseTrace {
+    fn from(value: SingleFeature) -> Self {
         Self {
-            map: HashMap::from([(index, 1)]),
+            map: HashMap::from([(value.idx, value.count)]),
             phase: 0.0,
         }
     }
+}
 
+impl SparseTrace {
     fn merge(&mut self, other: SparseTrace, negate_other: bool) {
         for (key, val) in other.map.iter() {
             let val = match negate_other {
@@ -124,6 +152,22 @@ impl AddAssign for SparseTrace {
     }
 }
 
+impl Add<SingleFeature> for SparseTrace {
+    type Output = Self;
+
+    fn add(mut self, rhs: SingleFeature) -> Self::Output {
+        self += rhs;
+        self
+    }
+}
+
+impl AddAssign<SingleFeature> for SparseTrace {
+    fn add_assign(&mut self, rhs: SingleFeature) {
+        let entry = self.map.entry(rhs.idx);
+        *entry.or_default() += rhs.count;
+    }
+}
+
 impl Sub for SparseTrace {
     type Output = Self;
 
@@ -136,6 +180,22 @@ impl Sub for SparseTrace {
 impl SubAssign for SparseTrace {
     fn sub_assign(&mut self, rhs: Self) {
         self.merge(rhs, true);
+    }
+}
+
+impl Sub<SingleFeature> for SparseTrace {
+    type Output = Self;
+
+    fn sub(mut self, rhs: SingleFeature) -> Self::Output {
+        self -= rhs;
+        self
+    }
+}
+
+impl SubAssign<SingleFeature> for SparseTrace {
+    fn sub_assign(&mut self, rhs: SingleFeature) {
+        let entry = self.map.entry(rhs.idx);
+        *entry.or_default() -= rhs.count;
     }
 }
 
@@ -171,6 +231,7 @@ impl Eq for SparseTrace {}
 
 impl ScoreType for SparseTrace {
     type Finalized = Self;
+    type SingleFeatureScore = SingleFeature;
 
     fn finalize(
         mut self,
