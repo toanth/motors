@@ -104,16 +104,21 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         false
     }
 
-    fn do_search<I: ExactSizeIterator<Item = B::Move>>(
+    fn do_search(
         &mut self,
         pos: B,
-        mut moves: I,
+        search_moves: Vec<B::Move>,
+        _multi_pv: usize,
         _: SearchLimit,
     ) -> Res<SearchResult<B>> {
         self._state.statistics.next_id_iteration();
-        if moves.len() != 0 {
-            // there's no `is_empty` method
-            self.chosen_move = moves.nth(self.rng.gen_range(0..moves.len())).unwrap();
+        // there's no `is_empty` method
+        let len = search_moves.len();
+        if len != 0 {
+            self.chosen_move = search_moves
+                .into_iter()
+                .nth(self.rng.gen_range(0..len))
+                .unwrap();
         } else {
             self.chosen_move = pos
                 .random_legal_move(&mut self.rng)
@@ -129,15 +134,12 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
             seldepth: None,
             time: Duration::default(),
             nodes: NodesLimit::new(1).unwrap(),
+            pv_num: 1,
             pv: vec![self.chosen_move],
             score: Score(0),
             hashfull: None,
             additional: None,
         }
-    }
-
-    fn forget(&mut self) {
-        // nothing to do
     }
 
     fn set_tt(&mut self, _tt: TT) {

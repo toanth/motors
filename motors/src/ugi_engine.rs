@@ -21,8 +21,8 @@ use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
-use gears::ugi::EngineOptionName::{MoveOverhead, Threads};
-use gears::ugi::EngineOptionType::Spin;
+use gears::ugi::EngineOptionName::*;
+use gears::ugi::EngineOptionType::*;
 use gears::ugi::{
     parse_ugi_position, EngineOption, EngineOptionName, EngineOptionType, UgiCheck, UgiSpin,
     UgiString,
@@ -61,7 +61,7 @@ impl Display for SearchType {
             "{}",
             match self {
                 Normal => "normal",
-                Ponder => "ponder",
+                SearchType::Ponder => "ponder",
                 Perft => "perft",
                 SplitPerft => "split perft",
                 Bench => "bench",
@@ -240,6 +240,7 @@ pub struct EngineUGI<B: Board> {
     eval_factories: EvalList<B>,
     search_sender: SearchSender<B>,
     move_overhead: Duration,
+    multi_pv: usize,
     allow_ponder: bool,
 }
 
@@ -347,6 +348,7 @@ impl<B: Board> EngineUGI<B> {
             eval_factories: all_evals,
             search_sender: sender,
             move_overhead: Duration::from_millis(DEFAULT_MOVE_OVERHEAD_MS),
+            multi_pv: 1,
             allow_ponder: false,
         })
     }
@@ -416,7 +418,7 @@ impl<B: Board> EngineUGI<B> {
     fn parse_input(&mut self, mut words: SplitWhitespace) -> Res<ProgramStatus> {
         self.output().write_ugi_input(words.clone());
         let words = &mut words;
-        let first_word = words.next().ok_or("Empty input")?;
+        let first_word = words.next().unwrap_or("<empty input>");
         match first_word {
             // put time-critical commands at the top
             "go" | "g" => {
@@ -450,6 +452,7 @@ impl<B: Board> EngineUGI<B> {
                 })?,
                 self.state.board,
                 vec![],
+                self.multi_pv,
             )?,
             "isready" => {
                 self.write_ugi("readyok");
@@ -518,6 +521,7 @@ impl<B: Board> EngineUGI<B> {
             }
             "eval" | "e" => self.handle_eval(words)?,
             "help" => self.print_help(),
+            "<empty input>" => {} // do nothing
             x => {
                 // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
                 // expositor UCI spec demands that an invalid token should cause the entire message to be ignored.
@@ -591,6 +595,9 @@ impl<B: Board> EngineUGI<B> {
                 self.move_overhead =
                     parse_duration_ms(&mut value.split_whitespace(), "move overhead")?;
             }
+            MultiPv => {
+                self.multi_pv = parse_int_from_str(&value, "multipv")?;
+            }
             _ => {
                 let value = value.trim().to_string();
                 self.state
@@ -612,15 +619,11 @@ impl<B: Board> EngineUGI<B> {
         let mut limit = SearchLimit::infinite();
         let is_white = self.state.board.active_player() == White;
         let mut search_type = Normal;
+        let mut multi_pv = self.multi_pv;
         let mut search_moves = vec![];
         let mut reading_moves = false;
         while let Some(next_word) = words.next() {
             match next_word {
-                "searchmoves" => {
-                    reading_moves = true;
-                    continue;
-                }
-                "ponder" => search_type = Ponder, // setting different search types uses the last one specified
                 "wtime" | "p1time" | "wt" | "p1t" => {
                     let time = parse_duration_ms(words, "wtime")?;
                     // always parse the duration, even if it isn't relevant
@@ -666,6 +669,14 @@ impl<B: Board> EngineUGI<B> {
                         .max(Duration::from_millis(1));
                 }
                 "infinite" | "inf" => (), // "infinite" is the identity element of the bounded semilattice of `go` options
+                "searchmoves" | "sm" => {
+                    reading_moves = true;
+                    continue;
+                }
+                "multipv" | "mpv" => {
+                    multi_pv = parse_int(words, "multipv")?;
+                }
+                "ponder" => search_type = SearchType::Ponder, // setting different search types uses the last one specified
                 "perft" | "p" => search_type = Perft,
                 "splitperft" | "sp" => search_type = SplitPerft,
                 "bench" => search_type = Bench,
@@ -689,7 +700,7 @@ impl<B: Board> EngineUGI<B> {
             .remaining
             .saturating_sub(self.move_overhead)
             .max(Duration::from_millis(1));
-        self.start_search(search_type, limit, self.state.board, search_moves)
+        self.start_search(search_type, limit, self.state.board, search_moves, multi_pv)
     }
 
     fn start_search(
@@ -698,6 +709,7 @@ impl<B: Board> EngineUGI<B> {
         mut limit: SearchLimit,
         pos: B,
         moves: Vec<B::Move>,
+        multi_pv: usize,
     ) -> Res<()> {
         self.write_message(
             Debug,
@@ -727,9 +739,10 @@ impl<B: Board> EngineUGI<B> {
                     self.state.board_hist.clone(),
                     false,
                     moves,
+                    multi_pv,
                 )?
             }
-            Ponder => {
+            SearchType::Ponder => {
                 self.state.ponder_limit = Some(limit.clone());
                 self.state.engine.start_search(
                     pos,
@@ -737,6 +750,7 @@ impl<B: Board> EngineUGI<B> {
                     self.state.board_hist.clone(),
                     true,
                     moves,
+                    multi_pv, // don't ignore multi_pv in pondering mode
                 )?;
             }
             Perft => {
@@ -806,7 +820,7 @@ impl<B: Board> EngineUGI<B> {
             self.write_ugi(&res);
             Ok(())
         } else {
-            self.start_search(typ, limit, board, vec![])
+            self.start_search(typ, limit, board, vec![], 1)
         }
     }
 
@@ -1140,6 +1154,15 @@ impl<B: Board> EngineUGI<B> {
                 value: EngineOptionType::Check(UgiCheck {
                     val: self.allow_ponder,
                     default: Some(false),
+                }),
+            },
+            EngineOption {
+                name: EngineOptionName::MultiPv,
+                value: Spin(UgiSpin {
+                    val: 1,
+                    default: Some(1),
+                    min: Some(1),
+                    max: Some(256),
                 }),
             },
             EngineOption {

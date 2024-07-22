@@ -59,6 +59,7 @@ pub struct SearchInfo<B: Board> {
     pub seldepth: Option<usize>,
     pub time: Duration,
     pub nodes: NodesLimit,
+    pub pv_num: usize,
     pub pv: Vec<B::Move>,
     pub score: Score,
     pub hashfull: Option<usize>,
@@ -73,6 +74,7 @@ impl<B: Board> Default for SearchInfo<B> {
             seldepth: None,
             time: Duration::default(),
             nodes: NodesLimit::MAX,
+            pv_num: 1,
             pv: vec![],
             score: Score::default(),
             hashfull: None,
@@ -110,9 +112,10 @@ impl<B: Board> Display for SearchInfo<B> {
         };
 
         write!(f,
-               "info depth {depth}{seldepth} score {score_str} time {time} nodes {nodes} nps {nps}{hashfull} pv {pv}{string}",
+               "info depth {depth}{seldepth} multipv {multipv} score {score_str} time {time} nodes {nodes} nps {nps}{hashfull} pv {pv}{string}",
                depth = self.depth.get(), time = self.time.as_millis(), nodes = self.nodes.get(),
                seldepth = self.seldepth.map(|d| format!(" seldepth {d}")).unwrap_or_default(),
+               multipv = self.pv_num + 1,
                nps = self.nps(),
                pv = self.pv.iter().map(|mv| mv.to_compact_text()).collect::<Vec<_>>().join(" "),
                hashfull = self.hashfull.map(|f| format!(" hashfull {f}")).unwrap_or_default(),

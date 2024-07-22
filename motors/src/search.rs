@@ -7,13 +7,14 @@ use std::time::{Duration, Instant};
 use colored::Colorize;
 use derive_more::{Add, Neg, Sub};
 use dyn_clone::{clone_box, DynClone};
+use itertools::Itertools;
 use strum_macros::FromRepr;
 
 use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
 use gears::games::{Board, ZobristHistory};
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
-use gears::score::{Score, ScoreT, SCORE_WON};
+use gears::score::{Score, ScoreT, SCORE_LOST, SCORE_WON};
 use gears::search::{
     Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl, MAX_DEPTH,
 };
@@ -397,6 +398,9 @@ pub trait Benchable<B: Board>: Debug {
 
     fn default_bench_nodes(&self) -> NodesLimit;
     fn default_bench_depth(&self) -> Depth;
+
+    /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
+    fn forget(&mut self);
 }
 
 pub trait AbstractEngine<B: Board>: StaticallyNamedEntity + Benchable<B> {
@@ -428,6 +432,10 @@ impl<B: Board, E: Engine<B>> Benchable<B> for E {
     fn default_bench_depth(&self) -> Depth {
         self.engine_info().default_bench_depth
     }
+
+    fn forget(&mut self) {
+        self.search_state_mut().forget(true);
+    }
 }
 
 const DEFAULT_CHECK_TIME_INTERVAL: u64 = 2048;
@@ -446,16 +454,22 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
         )
     }
 
-    fn search_moves<I: ExactSizeIterator<Item = B::Move>>(
+    fn search_moves_multi_pv(
         &mut self,
-        moves: I,
         pos: B,
+        mut moves: Vec<B::Move>, // empty means searching all moves
+        multi_pv: usize,
         limit: SearchLimit,
         history: ZobristHistory<B>,
         sender: SearchSender<B>,
     ) -> Res<SearchResult<B>> {
         self.search_state_mut().new_search(history, sender);
-        let res = self.do_search(pos, moves, limit);
+        // `search_moves` with only invalid moves behaves as if no 'moves' were specified, i.e. it searches all moves.
+        moves = moves
+            .into_iter()
+            .filter(|m| pos.is_move_legal(*m))
+            .collect_vec();
+        let res = self.do_search(pos, moves, multi_pv, limit);
         let search_state = self.search_state_mut();
         search_state.end_search();
         search_state.send_statistics();
@@ -470,14 +484,16 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
         history: ZobristHistory<B>,
         sender: SearchSender<B>,
     ) -> Res<SearchResult<B>> {
-        self.search_moves([].into_iter(), pos, limit, history, sender)
+        self.search_moves_multi_pv(pos, vec![], 1, limit, history, sender)
     }
 
     /// The important function.
-    fn do_search<I: ExactSizeIterator<Item = B::Move>>(
+    /// Should not be called directly (TODO: Rename to search_impl)
+    fn do_search(
         &mut self,
         pos: B,
-        moves: I,
+        search_moves: Vec<B::Move>,
+        multi_pv: usize,
         limit: SearchLimit,
     ) -> Res<SearchResult<B>>;
 
@@ -507,7 +523,7 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
         }
     }
 
-    fn should_not_start_next_iteration(
+    fn should_not_start_iteration(
         &self,
         soft_limit: Duration,
         max_depth: isize,
@@ -531,11 +547,6 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
     /// Can be called during search, only returns the information regarding the current thread.
     fn search_info(&self) -> SearchInfo<B> {
         self.search_state().to_search_info()
-    }
-
-    /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
-    fn forget(&mut self) {
-        self.search_state_mut().forget(true);
     }
 
     fn is_currently_searching(&self) -> bool {
@@ -564,7 +575,6 @@ pub struct MoveScore(pub i32);
 impl MoveScore {
     const MAX: MoveScore = MoveScore(i32::MAX);
     const MIN: MoveScore = MoveScore(i32::MIN + 1);
-    const IGNORE_MOVE: MoveScore = MoveScore(i32::MIN);
 }
 
 pub trait MoveScorer<B: Board> {
@@ -646,7 +656,7 @@ impl<B: Board> SearchStackEntry<B> for EmptySearchStackEntry {
     }
 }
 
-pub trait CustomInfo: Default + Clone + Debug {
+pub trait CustomInfo<B: Board>: Default + Clone + Debug {
     fn tt(&self) -> Option<&TT> {
         None
     }
@@ -656,6 +666,10 @@ pub trait CustomInfo: Default + Clone + Debug {
     fn forget(&mut self) {
         // do nothing
     }
+
+    fn best_move(&self) -> Option<B::Move> {
+        None
+    }
 }
 
 #[derive(Default, Clone, Debug)]
@@ -663,14 +677,39 @@ pub struct BestMoveCustomInfo<B: Board> {
     pub chosen_move: Option<B::Move>,
 }
 
-impl<B: Board> CustomInfo for BestMoveCustomInfo<B> {}
+impl<B: Board> CustomInfo<B> for BestMoveCustomInfo<B> {
+    fn best_move(&self) -> Option<B::Move> {
+        self.chosen_move
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+struct PVData<B: Board> {
+    alpha: Score,
+    beta: Score,
+    radius: Score,
+    best_move: B::Move,
+}
+
+impl<B: Board> Default for PVData<B> {
+    fn default() -> Self {
+        Self {
+            alpha: SCORE_LOST,
+            beta: SCORE_WON,
+            radius: Score(20),
+            best_move: B::Move::default(),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
-pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo> {
+pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     search_stack: Vec<E>,
     board_history: ZobristHistory<B>,
-    search_moves: Vec<B::Move>,
+    excluded_moves: Vec<B::Move>,
     custom: C,
+    multi_pvs: Vec<PVData<B>>,
+    pv_num: usize,
     searching: Searching,
     should_stop: bool,
     start_time: Instant,
@@ -680,7 +719,7 @@ pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo> {
     sender: SearchSender<B>,
 }
 
-impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
+impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> ABSearchState<B, E, C> {
     fn new(max_depth: Depth) -> Self {
         Self::new_with(vec![E::default(); max_depth.get()], C::default())
     }
@@ -698,7 +737,9 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
             statistics: Statistics::default(),
             aggregated_statistics: Default::default(),
             sender: SearchSender::no_sender(),
-            search_moves: vec![],
+            excluded_moves: vec![],
+            pv_num: 0,
+            multi_pvs: vec![],
         }
     }
 
@@ -730,7 +771,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> ABSearchState<B, E, C> {
     }
 }
 
-impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearchState<B, E, C> {
+impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSearchState<B, E, C> {
     fn searching(&self) -> Searching {
         self.searching
     }
@@ -767,6 +808,9 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
         self.searching = Stop;
         self.should_stop = false;
         self.statistics = Statistics::default();
+        for pv in self.multi_pvs.iter_mut() {
+            *pv = PVData::default();
+        }
     }
 
     fn new_search(&mut self, history: ZobristHistory<B>, sender: SearchSender<B>) {
@@ -787,6 +831,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
             seldepth: self.seldepth(),
             time: self.start_time().elapsed(),
             nodes: NodesLimit::new(self.uci_nodes()).unwrap(),
+            pv_num: self.pv_num,
             pv: self.pv(),
             score: self.score(),
             hashfull: self.hashfull(),
@@ -830,6 +875,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo> SearchState<B> for ABSearc
             .and_then(|e| e.pv())
             .and_then(|pv| pv.first())
             .copied()
+            .or_else(|| self.custom.best_move())
             .unwrap_or_default()
     }
 }
@@ -878,6 +924,7 @@ pub fn run_bench_with_depth_and_nodes<B: Board>(
     let mut hasher = DefaultHasher::new();
     let mut sum = BenchResult::default();
     for position in B::bench_positions().into_iter() {
+        // engine.forget();
         let res = engine.bench(position, BenchLimit::Depth(depth));
         sum.nodes = NodesLimit::new(sum.nodes.get() + res.nodes.get()).unwrap();
         sum.time += res.time;
