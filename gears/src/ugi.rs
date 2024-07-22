@@ -117,6 +117,7 @@ pub enum EngineOptionName {
     Ponder,
     MultiPv,
     UciElo,
+    UCIEngineAbout,
     MoveOverhead,
     Other(String),
 }
@@ -129,6 +130,7 @@ impl EngineOptionName {
             EngineOptionName::Ponder => "Ponder",
             EngineOptionName::MultiPv => "MultiPV",
             EngineOptionName::UciElo => "UCI_Elo",
+            EngineOptionName::UCIEngineAbout => "UCI_EngineAbout",
             EngineOptionName::MoveOverhead => "MoveOverhead",
             EngineOptionName::Other(x) => x,
         }

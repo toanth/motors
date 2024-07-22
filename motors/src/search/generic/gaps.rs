@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use std::fmt::Display;
 use std::time::{Duration, Instant};
 
@@ -85,36 +86,54 @@ impl<B: Board> Engine<B> for Gaps<B> {
         true
     }
 
-    fn do_search<I: ExactSizeIterator<Item = B::Move>>(
+    fn do_search(
         &mut self,
         pos: B,
-        moves: I,
+        search_moves: Vec<B::Move>,
+        multi_pv: usize,
         mut limit: SearchLimit,
     ) -> Res<SearchResult<B>> {
         let mut chosen_move = self.state.custom.chosen_move;
+        let mut score = Score::default();
         let max_depth = MAX_DEPTH.min(limit.depth).get() as isize;
         limit.fixed_time = limit.fixed_time.min(limit.tc.remaining);
-        if moves.len() == 0 {
-            self.state.search_moves = pos.pseudolegal_moves().into_iter().collect();
+        if search_moves.len() != 0 {
+            self.state.excluded_moves = pos
+                .pseudolegal_moves()
+                .into_iter()
+                .filter(|m| !search_moves.contains(&m))
+                .collect_vec();
         } else {
-            self.state.search_moves = moves.collect();
+            self.state.excluded_moves = vec![];
         }
 
         self.state.statistics.next_id_iteration();
 
-        for depth in 1..=max_depth {
-            let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON);
-            if self.state.search_cancelled() {
-                break;
+        'id: for depth in 1..=max_depth {
+            for pv_num in 0..multi_pv {
+                if self.should_not_start_iteration(limit.fixed_time, max_depth, limit.mate) {
+                    break 'id;
+                }
+                self.state.pv_num = pv_num;
+                let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON);
+                if self.state.search_cancelled() {
+                    break 'id;
+                }
+                self.state.score = iteration_score;
+                if pv_num == 0 {
+                    chosen_move = self.state.custom.chosen_move; // only set now so that incomplete iterations are discarded
+                    score = self.state.score;
+                }
+                self.state
+                    .excluded_moves
+                    .push(self.state.custom.chosen_move.unwrap());
+                self.state.sender.send_search_info(self.search_info());
+                // increases the depth. do this after sending the search info, but before deciding if the depth limit has been exceeded.
             }
-            self.state.score = iteration_score;
-            chosen_move = self.state.custom.chosen_move; // only set now so that incomplete iterations are discarded
-            self.state.sender.send_search_info(self.search_info());
-            // increases the depth. do this after sending the search info, but before deciding if the depth limit has been exceeded.
+            self.state
+                .excluded_moves
+                .truncate(self.state.excluded_moves.len() - multi_pv);
             self.state.statistics.next_id_iteration();
-            if self.should_not_start_next_iteration(limit.fixed_time, max_depth, limit.mate) {
-                break;
-            }
         }
 
         Ok(SearchResult::move_and_score(
@@ -124,7 +143,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
                 pos.random_legal_move(&mut rng)
                     .expect("search() called in a position with no legal moves")
             }),
-            self.state.score,
+            score,
         ))
     }
 
@@ -191,7 +210,7 @@ impl<B: Board> Gaps<B> {
         let mut num_children = 0;
 
         for mov in pos.pseudolegal_moves() {
-            if ply == 0 && !self.state.search_moves.contains(&mov) {
+            if ply == 0 && self.state.excluded_moves.contains(&mov) {
                 continue;
             }
             let new_pos = pos.make_move(mov);
@@ -239,5 +258,23 @@ impl<B: Board> Gaps<B> {
         } else {
             best_score
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::eval::chess::lite::LiTEval;
+    use crate::eval::mnk::simple_mnk_eval::SimpleMnkEval;
+    use crate::search::tests::generic_engine_test;
+    use gears::games::ataxx::AtaxxBoard;
+    use gears::games::chess::Chessboard;
+    use gears::games::mnk::MNKBoard;
+
+    #[test]
+    fn generic_test() {
+        generic_engine_test::<Chessboard, Gaps<Chessboard>>(Gaps::for_eval::<LiTEval>());
+        generic_engine_test::<MNKBoard, Gaps<MNKBoard>>(Gaps::for_eval::<SimpleMnkEval>());
+        generic_engine_test::<AtaxxBoard, Gaps<AtaxxBoard>>(Gaps::for_eval::<RandEval>());
     }
 }
