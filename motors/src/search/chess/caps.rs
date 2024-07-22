@@ -460,6 +460,9 @@ impl Caps {
             );
             // for multipv searches, we want to return the first pv. Create the result now so that it's not overwritten
             if self.state.pv_num == 0 {
+                if !self.state.search_cancelled() {
+                    self.state.score = pv_score;
+                }
                 // incomplete iterations and root nodes that failed low don't overwrite the `state.mov()`,
                 // so it should be fine to unconditionally assign here. We use self.state.score instead of pv_score
                 // because the latter would be incorrect for cancelled iterations.
@@ -467,7 +470,7 @@ impl Caps {
                     self.state.score,
                     self.state.search_stack[0].pv().unwrap(),
                 );
-            }
+            }   
             assert!(
                 !(pv_score != SCORE_TIME_UP
                     && pv_score.plies_until_game_over().is_some_and(|x| x <= 0)),
@@ -499,9 +502,6 @@ impl Caps {
                 }
                 self.state.sender.send_search_info(self.search_info()); // depth hasn't been incremented
                 return false;
-            }
-            if self.state.pv_num == 0 {
-                self.state.score = pv_score;
             }
 
             let exact = if pv_score > *alpha && pv_score < *beta {
@@ -640,7 +640,7 @@ impl Caps {
             self.state.statistics.tt_miss(MainSearch);
         };
         // the TT entry at the root is useless when doing multipv, but don't do this for a single pv search
-        // throws away the TT entry from previous searches at the root  
+        // throws away the TT entry from previous searches at the root
         if root && self.state.multi_pvs.len() > 1 {
             best_move = self.state.multi_pvs[self.state.pv_num].best_move;
         }
