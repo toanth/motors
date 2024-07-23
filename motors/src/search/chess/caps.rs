@@ -791,7 +791,7 @@ impl Caps {
                 let mut reduction = 0;
                 if !in_check && num_uninteresting_visited > 2 {
                     reduction =
-                        1 + depth / 8 + (num_uninteresting_visited as f64 + 1.0).sqrt() as isize;
+                        1 + depth / 8 + (num_uninteresting_visited + 1).ilog2() as isize - 2;
                     // Reduce bad captures and quiet moves with bad combined history scores more.
                     if move_score < -MoveScore(HIST_DIVISOR / 4) {
                         reduction += 1;
