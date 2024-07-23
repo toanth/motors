@@ -790,7 +790,8 @@ impl Caps {
                 // I think it's common to have a minimum depth for doing LMR, but not having that gained elo.
                 let mut reduction = 0;
                 if !in_check && num_uninteresting_visited > 2 {
-                    reduction = 1 + depth / 8 + (num_uninteresting_visited - 2) / 8;
+                    reduction =
+                        1 + depth / 8 + (num_uninteresting_visited as f64 + 1.0).sqrt() as isize;
                     // Reduce bad captures and quiet moves with bad combined history scores more.
                     if move_score < -MoveScore(HIST_DIVISOR / 4) {
                         reduction += 1;
