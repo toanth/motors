@@ -795,7 +795,7 @@ impl Caps {
                 // Then, the number of iterations to hit a depth of 1 would be log_2(depth).
                 let mut reduction = 0;
                 if !in_check && num_uninteresting_visited > 2 {
-                    reduction = (depth + 3).ilog2() as isize - 1
+                    reduction = (depth + 1      ).ilog2() as isize - 1
                         + (num_uninteresting_visited + 1).ilog2() as isize
                         - 2;
                     // Reduce bad captures and quiet moves with bad combined history scores more.
