@@ -795,12 +795,12 @@ impl Caps {
                 // Then, the number of iterations to hit a depth of 1 would be log_2(depth).
                 let mut reduction = 0;
                 if !in_check && num_uninteresting_visited > 2 {
-                    reduction = (depth + 1      ).ilog2() as isize - 1
+                    reduction = depth.ilog2() as isize - 1
                         + (num_uninteresting_visited + 1).ilog2() as isize
                         - 2;
                     // Reduce bad captures and quiet moves with bad combined history scores more.
                     if move_score < -MoveScore(HIST_DIVISOR / 4) {
-                        reduction += 1;
+                        reduction += 1; 
                     } else if move_score > MoveScore(HIST_DIVISOR / 2) {
                         // Since the TT and killer move and good captures are not lmr'ed,
                         // this only applies to quiet moves with a good combined history score.
@@ -811,7 +811,7 @@ impl Caps {
                     }
                 }
                 // this ensures that check extensions prevent going into qsearch while in check
-                reduction = reduction.min(depth - 1);
+                reduction = reduction.clamp(0, depth - 1);
 
                 score = -self.negamax(
                     new_pos,
