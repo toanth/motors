@@ -787,11 +787,17 @@ impl Caps {
                 // LMR (Late Move Reductions): Trust the move ordering (quiet history, continuation history and capture history heuristics)
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
                 // to verify our belief.
-                // I think it's common to have a minimum depth for doing LMR, but not having that gained elo.
+                // I think it's common to have a minimum depth for doing LMR, but not having that gained elo. Maybe retest that eventually.
+                // This implementation uses logarithmic scaling both for the move number and the depth. In both cases,
+                // a function that grows sub-linearly makes obvious sense, but the logarithm is an especially good choice for
+                // the depth-based reduction since that has a self-compounding effect (the reduced nodes are again lm-reduced),
+                // leading to exponential behaviour in the extreme: To see that, image all moves were reduced by depth/2.
+                // Then, the number of iterations to hit a depth of 1 would be log_2(depth).
                 let mut reduction = 0;
                 if !in_check && num_uninteresting_visited > 2 {
-                    reduction =
-                        1 + depth / 8 + (num_uninteresting_visited + 1).ilog2() as isize - 2;
+                    reduction = (depth + 2).ilog2() as isize - 1
+                        + (num_uninteresting_visited + 1).ilog2() as isize
+                        - 2;
                     // Reduce bad captures and quiet moves with bad combined history scores more.
                     if move_score < -MoveScore(HIST_DIVISOR / 4) {
                         reduction += 1;
