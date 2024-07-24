@@ -1157,7 +1157,7 @@ impl MoveScorer<Chessboard> for CapsMoveScorer {
             )
         } else {
             let captured = mov.captured(&self.board);
-            let base_val = if self.board.see_at_least(mov, SeeScore(0)) {
+            let base_val = if self.board.see_at_least(mov, SeeScore(1)) {
                 MoveScore::MAX - MoveScore(HIST_DIVISOR * 50)
             } else {
                 MoveScore::MIN + MoveScore(HIST_DIVISOR * 50)
