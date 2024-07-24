@@ -102,7 +102,7 @@ impl Display for EngineOptionType {
             EngineOptionType::Button => { /*nothing to do*/ }
             EngineOptionType::UString(s) => {
                 if let Some(string) = &s.default {
-                    write!(f, " value {string}")?;
+                    write!(f, " default {string}")?;
                 }
             }
         }
