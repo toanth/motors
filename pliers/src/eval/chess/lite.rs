@@ -8,7 +8,7 @@ use crate::trace::{SingleFeature, SparseTrace, TraceTrait};
 use gears::games::chess::pieces::UncoloredChessPiece::*;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::see::SEE_SCORES;
-use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
+use gears::games::chess::squares::{ChessSquare, NUM_ROWS, NUM_SQUARES};
 use gears::games::chess::Chessboard;
 use gears::games::Color;
 use gears::games::Color::*;
@@ -35,6 +35,7 @@ impl LiTETrace {
     const NUM_THREAT_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
     const NUM_DEFENSE_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
     const NUM_KING_ZONE_ATTACK_FEATURES: usize = NUM_CHESS_PIECES;
+    const NUM_PAWN_STORM_FEATURES: usize = NUM_ROWS; // index max(calculated as king rank - pawn rank + 1, 0)
 
     const PASSED_PAWN_OFFSET: usize = NUM_PSQT_FEATURES;
     const BISHOP_PAIR_OFFSET: usize = Self::PASSED_PAWN_OFFSET + Self::NUM_PASSED_PAWN_FEATURES;
@@ -52,8 +53,10 @@ impl LiTETrace {
     const THREAT_OFFSET: usize = Self::MOBILITY_OFFSET + Self::NUM_MOBILITY_FEATURES;
     const DEFENSE_OFFSET: usize = Self::THREAT_OFFSET + Self::NUM_THREAT_FEATURES;
     const KING_ZONE_ATTACK_OFFSET: usize = Self::DEFENSE_OFFSET + Self::NUM_DEFENSE_FEATURES;
+    const PAWN_STORM_OFFSET: usize =
+        Self::KING_ZONE_ATTACK_OFFSET + Self::NUM_KING_ZONE_ATTACK_FEATURES;
 
-    const NUM_FEATURES: usize = Self::KING_ZONE_ATTACK_OFFSET + Self::NUM_KING_ZONE_ATTACK_FEATURES;
+    const NUM_FEATURES: usize = Self::PAWN_STORM_OFFSET + Self::NUM_PAWN_STORM_FEATURES;
 }
 
 impl LiteValues for LiTETrace {
@@ -142,6 +145,11 @@ impl LiteValues for LiTETrace {
         attacking: UncoloredChessPiece,
     ) -> <Self::Score as ScoreType>::SingleFeatureScore {
         let idx = Self::KING_ZONE_ATTACK_OFFSET + attacking as usize;
+        SingleFeature::new(idx)
+    }
+
+    fn pawn_storm(rank_diff: usize) -> <Self::Score as ScoreType>::SingleFeatureScore {
+        let idx = Self::PAWN_STORM_OFFSET + rank_diff;
         SingleFeature::new(idx)
     }
 }
@@ -268,6 +276,12 @@ impl WeightsInterpretation for TuneLiTEval {
             writeln!(f, "];")?;
             write!(f, "const KING_ZONE_ATTACK: [PhasedScore; 6] = [")?;
             for _piece in UncoloredChessPiece::pieces() {
+                write!(f, "{}, ", write_phased(weights, idx, &special))?;
+                idx += 1;
+            }
+            writeln!(f, "];")?;
+            write!(f, "const PAWN_STORM: [PhasedScore; 8] = [")?;
+            for _rank_diff in 0..LiTETrace::NUM_PAWN_STORM_FEATURES {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
                 idx += 1;
             }

@@ -148,8 +148,9 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
     fn pawns(pos: &Chessboard, color: Color) -> Tuned::Score {
         let our_pawns = pos.colored_piece_bb(color, Pawn);
-        let their_pawns = pos.colored_piece_bb(color.other(), Pawn);
+        let their_pawns = pos.colored_piece_bb(!color, Pawn);
         let mut score = Tuned::Score::default();
+        let their_king = pos.king_square(!color).flip_if(color == White);
 
         for square in our_pawns.ones() {
             let normalized_square = square.flip_if(color == White);
@@ -158,6 +159,11 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             let blocking = in_front | in_front.west() | in_front.east();
             if (in_front & our_pawns).is_zero() && (blocking & their_pawns).is_zero() {
                 score += Tuned::passed_pawn(normalized_square);
+            }
+            if normalized_square.file().abs_diff(their_king.file()) <= 1 {
+                let rank_diff =
+                    (normalized_square.rank() + 1).saturating_sub(their_king.rank()) as usize;
+                score += Tuned::pawn_storm(rank_diff);
             }
         }
         for piece in UncoloredChessPiece::pieces() {
