@@ -1,5 +1,5 @@
 use arrayvec::ArrayVec;
-use std::cmp::min;
+use std::cmp::{min, Ordering};
 use std::mem::take;
 use std::time::{Duration, Instant};
 
@@ -1157,10 +1157,11 @@ impl MoveScorer<Chessboard> for CapsMoveScorer {
             )
         } else {
             let captured = mov.captured(&self.board);
-            let base_val = if self.board.see_at_least(mov, SeeScore(1)) {
-                MoveScore::MAX - MoveScore(HIST_DIVISOR * 50)
-            } else {
-                MoveScore::MIN + MoveScore(HIST_DIVISOR * 50)
+            let see_score = self.board.see(mov, SeeScore(-1), SeeScore(1));
+            let base_val = match see_score.cmp(&SeeScore(0)) {
+                Ordering::Less => MoveScore::MIN + MoveScore(HIST_DIVISOR * 50),
+                Ordering::Equal => MoveScore(0),
+                Ordering::Greater => MoveScore::MAX - MoveScore(HIST_DIVISOR * 50),
             };
             let hist_val = state.custom.capt_hist.get(mov, self.board.active_player());
             base_val + MoveScore(captured as i32 * HIST_DIVISOR * 2) + hist_val
