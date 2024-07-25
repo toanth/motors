@@ -1,5 +1,5 @@
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
+use std::sync::atomic::{AtomicBool, AtomicI32};
 use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 
@@ -12,14 +12,14 @@ use gears::general::common::{parse_int_from_str, NamedEntity, Res};
 use gears::output::Message;
 use gears::output::Message::{Debug, Error};
 use gears::score::Score;
-use gears::search::{Depth, SearchInfo, SearchLimit, SearchResult};
+use gears::search::{SearchInfo, SearchLimit, SearchResult};
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use gears::ugi::{EngineOption, EngineOptionName};
 
 use crate::search::multithreading::EngineReceives::*;
 use crate::search::statistics::{Statistics, Summary};
 use crate::search::tt::TT;
-use crate::search::{BenchResult, Engine, EngineBuilder, EngineInfo, SearchState};
+use crate::search::{BenchLimit, BenchResult, Engine, EngineBuilder, EngineInfo, SearchState};
 use crate::ugi_engine::UgiOutput;
 
 pub type Sender<T> = crossbeam_channel::Sender<T>;
@@ -31,10 +31,18 @@ pub enum EngineReceives<B: Board> {
     Quit,
     Forget,
     SetOption(EngineOptionName, String),
-    Search(B, SearchLimit, ZobristHistory<B>, TT),
-    Bench(B, Depth),
+    Search(B, SearchLimit, ZobristHistory<B>, TT, Vec<B::Move>, usize),
+    Bench(B, BenchLimit),
     EvalFor(B),
     SetEval(Box<dyn Eval<B>>),
+}
+
+#[derive(Debug, Default)]
+struct SearchSenderState {
+    searching: AtomicI32,
+    infinite: AtomicBool,
+    stop: AtomicBool,
+    dont_print_result: AtomicBool,
 }
 
 /// A search sender is used for communication while the search is ongoing.
@@ -44,29 +52,81 @@ pub enum EngineReceives<B: Board> {
 #[derive(Debug, Clone)]
 pub struct SearchSender<B: Board> {
     output: Option<Arc<Mutex<UgiOutput<B>>>>,
+    sss: Arc<SearchSenderState>,
 }
 
 impl<B: Board> SearchSender<B> {
     pub fn new(output: Arc<Mutex<UgiOutput<B>>>) -> Self {
         Self {
             output: Some(output),
+            sss: Arc::new(SearchSenderState::default()),
         }
     }
 
     pub fn no_sender() -> Self {
-        Self { output: None }
+        Self {
+            output: None,
+            sss: Arc::new(SearchSenderState::default()),
+        }
     }
 
     pub fn send_stop(&mut self) {
-        STOP.store(true, SeqCst);
+        // Set `infinite` to `false` before stopping the search such that the engine will output a `bestmove`
+        // as demanded by the spec, such as when it stops pondering:
+        // It doesn't matter if the engine threads reads `infinite` before it is updated,
+        // it will print the result in both cases.
+        // This function is only called when receiving a UCI "stop" command, so it's not performance critical
+        self.sss.dont_print_result.store(false, SeqCst);
+        self.sss.infinite.store(false, SeqCst);
+        self.sss.stop.store(true, SeqCst);
+        // wait until the search has finished to prevent race conditions
+        while self.sss.searching.load(SeqCst) != 0 {}
     }
 
-    pub fn reset_stop(&mut self) {
-        STOP.store(false, SeqCst);
+    pub fn set_searching(&mut self, value: bool) {
+        let val = match value {
+            true => 1,
+            false => -1,
+        };
+        self.sss.searching.fetch_add(val, SeqCst);
+    }
+
+    pub fn new_search(&mut self, infinite: bool) {
+        // should be unnecessary for correct UCI messages, but best to be certain --
+        // this takes care of receiving another `go` while a search is currently running
+        if self.sss.searching.load(SeqCst) > 0 {
+            self.sss.stop.store(true, SeqCst);
+            // wait until any previous search has been stopped
+            while self.sss.searching.load(SeqCst) > 0 {}
+        }
+        self.sss.infinite.store(infinite, SeqCst);
+        if infinite {
+            self.sss.dont_print_result.store(true, SeqCst);
+        }
+        self.sss.stop.store(false, SeqCst);
+    }
+
+    /// This function gets called both on a ponder hit and on a ponder miss; there is no distinction in how they
+    /// are handled. Still, a ponder hit is the better outcome because the search can reuse the learned values.
+    pub fn abort_pondering(&mut self) {
+        // We simply abort the current search. Since the state is persistent, this still helps a lot.
+        // This isn't the optimal implementation, but it's simple and ponder strength isn't a big concern.
+
+        // If the search has already finished, it spins until `infinite` becomes `false`, so we need to reset `infinite`
+        // before waiting for `searching` to become `false`
+        self.sss.infinite.store(false, SeqCst);
+        // If the infinite search hasn't finished yet (the normal case), we first need to make sure the search
+        // has been stopped, then we can reset the `don't_print_result` marker.
+        if self.sss.searching.load(SeqCst) > 0 {
+            self.sss.stop.store(true, SeqCst);
+            // wait until the search has finished to avoid race conditions
+            while self.sss.searching.load(SeqCst) > 0 {}
+        }
+        self.sss.dont_print_result.store(false, SeqCst);
     }
 
     pub fn should_stop(&self) -> bool {
-        STOP.load(SeqCst)
+        self.sss.stop.load(SeqCst)
     }
 
     pub fn send_search_info(&mut self, info: SearchInfo<B>) {
@@ -77,7 +137,12 @@ impl<B: Board> SearchSender<B> {
 
     pub fn send_search_res(&mut self, res: SearchResult<B>) {
         if let Some(output) = &self.output {
-            output.lock().unwrap().show_search_res(res)
+            // Spin until infinite search has been disabled, either through a `stop` command or through a `ponderhit`
+            while self.sss.infinite.load(SeqCst) {}
+            if self.sss.dont_print_result.load(SeqCst) {
+                return;
+            }
+            output.lock().unwrap().show_search_res(res);
         }
     }
 
@@ -109,13 +174,7 @@ impl<B: Board> SearchSender<B> {
             self.send_message(Debug, &Summary::new(statistics).to_string());
         }
     }
-
-    pub fn deactivate_output(&mut self) {
-        self.output = None;
-    }
 }
-
-pub static STOP: AtomicBool = AtomicBool::new(false);
 
 pub struct EngineThread<B: Board, E: Engine<B>> {
     engine: E,
@@ -142,6 +201,8 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         limit: SearchLimit,
         history: ZobristHistory<B>,
         tt: TT,
+        search_moves: Vec<B::Move>,
+        multi_pv: usize,
     ) -> Res<()> {
         if self.engine.is_currently_searching() {
             return Err(format!(
@@ -150,18 +211,25 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
             ));
         }
         self.engine.set_tt(tt);
-        let search_res = self
-            .engine
-            .search(pos, limit, history, self.search_sender.clone())?;
+        self.search_sender.set_searching(true);
+        let search_res = self.engine.search_moves_multi_pv(
+            pos,
+            search_moves,
+            multi_pv,
+            limit,
+            history,
+            self.search_sender.clone(),
+        )?;
 
         self.search_sender.send_search_res(search_res);
+        self.search_sender.set_searching(false);
         Ok(())
     }
 
-    fn bench_single_position(&mut self, pos: B, depth: Depth) -> Res<()> {
+    fn bench_single_position(&mut self, pos: B, limit: BenchLimit) -> Res<()> {
         // self.engine.stop();
         self.engine.forget();
-        let res = self.engine.bench(pos, depth);
+        let res = self.engine.bench(pos, limit);
         self.search_sender.send_bench_res(res);
         Ok(())
     }
@@ -191,8 +259,10 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                 Threads => panic!("This should have already been handled by the engine owner"),
                 _ => self.engine.set_option(name, value)?, // TODO: Update info in UGI client
             },
-            Search(pos, limit, history, tt) => self.start_search(pos, limit, history, tt)?,
-            Bench(pos, depth) => self.bench_single_position(pos, depth)?,
+            Search(pos, limit, history, tt, moves, multi_pv) => {
+                self.start_search(pos, limit, history, tt, moves, multi_pv)?
+            }
+            Bench(pos, limit) => self.bench_single_position(pos, limit)?,
             EvalFor(pos) => self.get_static_eval(pos),
             SetEval(eval) => self.engine.set_eval(eval),
         };
@@ -274,22 +344,40 @@ impl<B: Board> EngineWrapper<B> {
         pos: B,
         limit: SearchLimit,
         history: ZobristHistory<B>,
+        ponder: bool,
+        search_moves: Vec<B::Move>,
+        multi_pv: usize,
     ) -> Res<()> {
         if self.is_primary() {
-            self.search_sender().reset_stop();
+            // reset `stop` first such that a finished ponder command won't print anything
+            self.search_sender().new_search(limit.is_infinite());
         }
         for o in self.secondary.iter_mut() {
-            o.start_search(pos, limit, history.clone())?;
+            o.start_search(
+                pos,
+                limit,
+                history.clone(),
+                ponder,
+                search_moves.clone(),
+                multi_pv,
+            )?;
         }
         self.sender
-            .send(Search(pos, limit, history, self.tt.clone()))
+            .send(Search(
+                pos,
+                limit,
+                history,
+                self.tt.clone(),
+                search_moves,
+                multi_pv,
+            ))
             .map_err(|err| err.to_string())
     }
 
-    pub fn start_bench(&mut self, pos: B, depth: Depth) -> Res<()> {
-        self.search_sender().reset_stop();
+    pub fn start_bench(&mut self, pos: B, limit: BenchLimit) -> Res<()> {
+        self.search_sender().new_search(false);
         self.sender
-            .send(Bench(pos, depth))
+            .send(Bench(pos, limit))
             .map_err(|err| err.to_string())
     }
 
@@ -316,15 +404,18 @@ impl<B: Board> EngineWrapper<B> {
                 ));
             }
             self.secondary.clear();
-            let mut sender = self.search_sender().clone();
-            sender.deactivate_output();
+            let sender = self.search_sender().output.take();
             self.secondary
                 .resize_with(count - 1, || self.builder.build_wrapper());
+            self.search_sender().output = sender;
             Ok(())
         } else if name == Hash {
             let value: usize = parse_int_from_str(&value, "hash size in mb")?;
             let size = value * 1_000_000;
             self.set_tt(TT::new_with_bytes(size));
+            for nested in self.secondary.iter_mut() {
+                nested.tt = self.tt.clone();
+            }
             Ok(())
         } else {
             for o in self.secondary.iter_mut() {

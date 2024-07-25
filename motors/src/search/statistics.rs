@@ -140,7 +140,8 @@ pub enum SearchType {
 impl Statistics {
     #[inline(always)]
     pub fn end_search(&mut self) {
-        self.depth -= 1;
+        // saturating because it's possible to abort te search before even starting depth 1
+        self.depth = self.depth.saturating_sub(1);
     }
 }
 
@@ -205,7 +206,6 @@ impl Statistics {
     #[inline(always)]
     pub fn aw_exact(&mut self) {
         self.cur_mut().aw.exact += 1;
-        self.next_id_iteration();
     }
 
     pub fn next_id_iteration(&mut self) {
@@ -367,9 +367,7 @@ impl Statistics {
     pub fn aw_fail_low(&mut self) {}
 
     #[inline(always)]
-    pub fn aw_exact(&mut self) {
-        self.next_id_iteration();
-    }
+    pub fn aw_exact(&mut self) {}
 
     #[inline(always)]
     pub fn soft_limit_stop(&mut self) {

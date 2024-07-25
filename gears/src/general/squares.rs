@@ -23,7 +23,7 @@ pub fn sup_distance<C: RectangularCoordinates>(a: C, b: C) -> usize {
     max(a.row().abs_diff(b.row()), a.column().abs_diff(b.column())) as usize
 }
 
-#[derive(Clone, Copy, Eq, PartialOrd, PartialEq, Debug, Default)]
+#[derive(Clone, Copy, Eq, PartialOrd, PartialEq, Debug, Default, Hash)]
 pub struct GridCoordinates {
     pub row: DimT, // TODO: Store only one int
     pub column: DimT,
@@ -239,7 +239,7 @@ pub enum SquareColor {
     Black,
 }
 
-#[derive(Default, Debug, Eq, PartialEq, Copy, Clone)]
+#[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Hash)]
 pub struct SmallGridSquare<const H: usize, const W: usize> {
     idx: u8,
 }

@@ -6,8 +6,8 @@
 use crate::eval::Direction::{Down, Up};
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
-    cp_eval_for_weights, cp_to_wr, sample_loss, scaled_sample_grad, Batch, Datapoint, Float,
-    Outcome, ScalingFactor, Weight, Weights,
+    cp_eval_for_weights, cp_to_wr, sample_loss, Batch, Datapoint, DefaultOptimizer, Float,
+    LossGradient, Optimizer, Outcome, ScalingFactor, Weight, Weights,
 };
 use crate::load_data::Filter;
 use crate::trace::TraceTrait;
@@ -320,8 +320,11 @@ fn grad_for_eval_scale<D: Datapoint>(
         let cp_eval = cp_eval_for_weights(weights, data);
         let prediction = cp_to_wr(cp_eval, eval_scale);
         let outcome = data.outcome();
-        let sample_grad =
-            scaled_sample_grad(prediction, outcome, data.sampling_weight()) * cp_eval.0;
+        let sample_grad = <DefaultOptimizer as Optimizer<D>>::Loss::sample_gradient(
+            prediction,
+            outcome,
+            data.sampling_weight(),
+        ) * cp_eval.0;
         scaled_grad += sample_grad;
         loss += sample_loss(prediction, data.outcome()) * data.sampling_weight();
     }

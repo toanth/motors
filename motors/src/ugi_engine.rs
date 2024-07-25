@@ -6,14 +6,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
-use itertools::Itertools;
 
 use gears::cli::{select_game, Game};
 use gears::games::Color::White;
 use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristHistory};
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{
-    parse_duration_ms, parse_int, parse_int_from_str, to_name_and_optional_description, NamedEntity,
+    parse_bool_from_str, parse_duration_ms, parse_int, parse_int_from_str,
+    to_name_and_optional_description, NamedEntity,
 };
 use gears::general::common::{IterIntersperse, Res};
 use gears::general::perft::{perft, perft_for, split_perft};
@@ -21,16 +21,21 @@ use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
-use gears::ugi::EngineOptionName::{MoveOverhead, Threads};
-use gears::ugi::EngineOptionType::Spin;
-use gears::ugi::{parse_ugi_position, EngineOption, EngineOptionName, UgiSpin};
+use gears::ugi::EngineOptionName::*;
+use gears::ugi::EngineOptionType::*;
+use gears::ugi::{
+    parse_ugi_position, EngineOption, EngineOptionName, EngineOptionType, UgiCheck, UgiSpin,
+    UgiString,
+};
 use gears::MatchStatus::*;
 use gears::Quitting::{QuitMatch, QuitProgram};
 use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchStatus, Quitting};
 
 use crate::cli::EngineOpts;
 use crate::search::multithreading::{EngineWrapper, SearchSender};
-use crate::search::{run_bench_with_depth, BenchResult, EvalList, SearcherList};
+use crate::search::{
+    run_bench_with_depth_and_nodes, BenchLimit, BenchResult, EvalList, SearcherList,
+};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
 use crate::{
@@ -39,10 +44,11 @@ use crate::{
 
 const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
 
-// TODO: Ensure this conforms to https://expositor.dev/uci/doc/uci-draft-1.pdf
+// TODO: Ensure this conforms to <https://expositor.dev/uci/doc/uci-draft-1.pdf>
 
 enum SearchType {
     Normal,
+    Ponder,
     Perft,
     SplitPerft,
     Bench,
@@ -55,6 +61,7 @@ impl Display for SearchType {
             "{}",
             match self {
                 Normal => "normal",
+                SearchType::Ponder => "ponder",
                 Perft => "perft",
                 SplitPerft => "split perft",
                 Bench => "bench",
@@ -78,6 +85,7 @@ struct BoardGameState<B: Board> {
     board_hist: ZobristHistory<B>,
     initial_pos: B,
     last_played_color: Color,
+    ponder_limit: Option<SearchLimit>,
 }
 
 impl<B: Board> BoardGameState<B> {
@@ -204,23 +212,17 @@ impl<B: Board> UgiOutput<B> {
     }
 
     pub fn show_bench(&mut self, bench_result: BenchResult) {
-        self.write_ugi(&format!(
-            "depth {0}, time {2}ms, {1} nodes, {3} nps",
-            bench_result.depth.get(),
-            bench_result.nodes,
-            bench_result.time.as_millis(),
-            ((bench_result.nodes.get() as f64 / bench_result.time.as_millis() as f64 * 1000.0)
-                .round())
-            .to_string()
-            .red()
-        ));
+        self.write_ugi(&bench_result.to_string());
     }
 
     pub fn show_search_res(&mut self, search_result: SearchResult<B>) {
-        self.write_ugi(&format!(
-            "bestmove {best}",
-            best = search_result.chosen_move.to_compact_text()
-        ));
+        let best = search_result.chosen_move.to_compact_text();
+        if let Some(ponder) = search_result.ponder_move() {
+            let ponder = ponder.to_compact_text();
+            self.write_ugi(&format!("bestmove {best} ponder {ponder}"));
+        } else {
+            self.write_ugi(&format!("bestmove {best}"));
+        }
     }
 
     pub fn show_search_info(&mut self, info: SearchInfo<B>) {
@@ -238,6 +240,8 @@ pub struct EngineUGI<B: Board> {
     eval_factories: EvalList<B>,
     search_sender: SearchSender<B>,
     move_overhead: Duration,
+    multi_pv: usize,
+    allow_ponder: bool,
 }
 
 impl<B: Board> AbstractRun for EngineUGI<B> {
@@ -320,6 +324,7 @@ impl<B: Board> EngineUGI<B> {
             board_hist: ZobristHistory::default(),
             initial_pos: B::default(),
             last_played_color: Default::default(),
+            ponder_limit: None,
         };
         let state = EngineGameState {
             board_state,
@@ -343,6 +348,8 @@ impl<B: Board> EngineUGI<B> {
             eval_factories: all_evals,
             search_sender: sender,
             move_overhead: Duration::from_millis(DEFAULT_MOVE_OVERHEAD_MS),
+            multi_pv: 1,
+            allow_ponder: false,
         })
     }
 
@@ -411,7 +418,7 @@ impl<B: Board> EngineUGI<B> {
     fn parse_input(&mut self, mut words: SplitWhitespace) -> Res<ProgramStatus> {
         self.output().write_ugi_input(words.clone());
         let words = &mut words;
-        let first_word = words.next().ok_or("Empty input")?;
+        let first_word = words.next().unwrap_or("<empty input>");
         match first_word {
             // put time-critical commands at the top
             "go" | "g" => {
@@ -435,6 +442,18 @@ impl<B: Board> EngineUGI<B> {
                 self.write_ugi(self.write_ugi_options().as_str());
                 self.write_ugi("uciok");
             }
+            "ponderhit" => self.start_search(
+                Normal,
+                self.state.ponder_limit.ok_or_else(|| {
+                    format!(
+                        "The engine received a '{}' command but wasn't pondering",
+                        first_word.bold()
+                    )
+                })?,
+                self.state.board,
+                vec![],
+                self.multi_pv,
+            )?,
             "isready" => {
                 self.write_ugi("readyok");
             }
@@ -444,12 +463,17 @@ impl<B: Board> EngineUGI<B> {
             "setoption" => {
                 self.handle_setoption(words)?;
             }
-            "register" => return Err("'register' isn't supported".to_string()),
             "ucinewgame" | "uginewgame" | "clear" => {
                 self.state.engine.send_forget()?;
                 self.state.status = Run(NotStarted);
             }
-            "ponderhit" => {} // ignore pondering
+            "register" => {
+                self.write_message(
+                    Warning,
+                    &format!("{} isn't supported and will be ignored", "register".red()),
+                );
+                return Ok(self.state.status.clone());
+            }
             "flip" => {
                 self.state.board = self.state.board.make_nullmove().ok_or(format!(
                     "Could not flip the side to move (board: '{}'",
@@ -497,6 +521,7 @@ impl<B: Board> EngineUGI<B> {
             }
             "eval" | "e" => self.handle_eval(words)?,
             "help" => self.print_help(),
+            "<empty input>" => {} // do nothing
             x => {
                 // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
                 // expositor UCI spec demands that an invalid token should cause the entire message to be ignored.
@@ -541,7 +566,8 @@ impl<B: Board> EngineUGI<B> {
         let mut name = words.next().unwrap_or_default().to_ascii_lowercase();
         if name != "name" {
             return Err(format!(
-                "Invalid 'setoption' command: Expected 'name', got '{name};"
+                "Invalid 'setoption' command: Expected 'name', got '{};",
+                name.red()
             ));
         }
         name = String::default();
@@ -561,21 +587,31 @@ impl<B: Board> EngineUGI<B> {
             value = value + " " + next_word;
         }
         let name = EngineOptionName::from_str(name.trim()).unwrap();
-        if name == MoveOverhead {
-            self.move_overhead = parse_duration_ms(&mut value.split_whitespace(), "move overhead")?;
-            return Ok(());
+        match name {
+            EngineOptionName::Ponder => {
+                self.allow_ponder = parse_bool_from_str(&value, "ponder")?;
+            }
+            MoveOverhead => {
+                self.move_overhead =
+                    parse_duration_ms(&mut value.split_whitespace(), "move overhead")?;
+            }
+            MultiPv => {
+                self.multi_pv = parse_int_from_str(&value, "multipv")?;
+            }
+            _ => {
+                let value = value.trim().to_string();
+                self.state
+                    .engine
+                    .set_option(name.clone(), value.clone())
+                    .or_else(|err| {
+                        if name == Threads && value == "1" {
+                            Ok(())
+                        } else {
+                            Err(err)
+                        }
+                    })?;
+            }
         }
-        let value = value.trim().to_string();
-        self.state
-            .engine
-            .set_option(name.clone(), value.clone())
-            .or_else(|err| {
-                if name == Threads && value == "1" {
-                    Ok(())
-                } else {
-                    Err(err)
-                }
-            })?;
         Ok(())
     }
 
@@ -583,12 +619,11 @@ impl<B: Board> EngineUGI<B> {
         let mut limit = SearchLimit::infinite();
         let is_white = self.state.board.active_player() == White;
         let mut search_type = Normal;
+        let mut multi_pv = self.multi_pv;
+        let mut search_moves = vec![];
+        let mut reading_moves = false;
         while let Some(next_word) = words.next() {
             match next_word {
-                "searchmoves" => {
-                    return Err("The 'go searchmoves' option is not implemented".to_string());
-                }
-                "ponder" => return Err("Pondering is not (yet?) implemented".to_string()),
                 "wtime" | "p1time" | "wt" | "p1t" => {
                     let time = parse_duration_ms(words, "wtime")?;
                     // always parse the duration, even if it isn't relevant
@@ -614,17 +649,19 @@ impl<B: Board> EngineUGI<B> {
                         limit.tc.increment = increment;
                     }
                 }
-                "movestogo" => limit.tc.moves_to_go = Some(parse_int(words, "'movestogo' number")?),
+                "movestogo" | "mtg" => {
+                    limit.tc.moves_to_go = Some(parse_int(words, "'movestogo' number")?)
+                }
                 "depth" | "d" => limit.depth = Depth::new(parse_int(words, "depth number")?),
                 "nodes" | "n" => {
                     limit.nodes = NodesLimit::new(parse_int(words, "node count")?)
                         .ok_or_else(|| "node count can't be zero".to_string())?
                 }
-                "mate" => {
+                "mate" | "m" => {
                     let depth: usize = parse_int(words, "mate move count")?;
                     limit.mate = Depth::new(depth * 2) // 'mate' is given in moves instead of plies
                 }
-                "movetime" => {
+                "movetime" | "mt" => {
                     limit.fixed_time = parse_duration_ms(words, "time per move in milliseconds")?;
                     limit.fixed_time = limit
                         .fixed_time
@@ -632,21 +669,48 @@ impl<B: Board> EngineUGI<B> {
                         .max(Duration::from_millis(1));
                 }
                 "infinite" | "inf" => (), // "infinite" is the identity element of the bounded semilattice of `go` options
+                "searchmoves" | "sm" => {
+                    reading_moves = true;
+                    continue;
+                }
+                "multipv" | "mpv" => {
+                    multi_pv = parse_int(words, "multipv")?;
+                }
+                "ponder" => search_type = SearchType::Ponder, // setting different search types uses the last one specified
                 "perft" | "p" => search_type = Perft,
                 "splitperft" | "sp" => search_type = SplitPerft,
                 "bench" => search_type = Bench,
-                _ => return Err(format!("Unrecognized 'go' option: '{next_word}'")),
+                _ => {
+                    if reading_moves {
+                        let mov = B::Move::from_compact_text(next_word, &self.state.board)
+                            .map_err(|err| {
+                                format!("{err}. '{}' is not a valid 'go' option.", next_word.bold())
+                            })?;
+                        search_moves.push(mov);
+                        continue;
+                    } else {
+                        return Err(format!("Unrecognized 'go' option: '{next_word}'"));
+                    }
+                }
             }
+            reading_moves = false;
         }
         limit.tc.remaining = limit
             .tc
             .remaining
             .saturating_sub(self.move_overhead)
             .max(Duration::from_millis(1));
-        self.start_search(search_type, limit, self.state.board)
+        self.start_search(search_type, limit, self.state.board, search_moves, multi_pv)
     }
 
-    fn start_search(&mut self, search_type: SearchType, mut limit: SearchLimit, pos: B) -> Res<()> {
+    fn start_search(
+        &mut self,
+        search_type: SearchType,
+        mut limit: SearchLimit,
+        pos: B,
+        moves: Vec<B::Move>,
+        multi_pv: usize,
+    ) -> Res<()> {
         self.write_message(
             Debug,
             &format!("Starting {search_type} search with tc {}", limit.tc),
@@ -663,10 +727,32 @@ impl<B: Board> EngineUGI<B> {
         match search_type {
             // this keeps the current history even if we're searching a different position, but that's probably not a problem
             // and doing a normal search from a custom position isn't even implemented at the moment -- TODO: implement?
-            Normal => self
-                .state
-                .engine
-                .start_search(pos, limit, self.state.board_hist.clone())?,
+            Normal => {
+                // It doesn't matter if we got a ponderhit or a miss, we simply abort the ponder search and start a new search.
+                if self.state.ponder_limit.is_some() {
+                    self.state.ponder_limit = None;
+                    self.search_sender.abort_pondering();
+                }
+                self.state.engine.start_search(
+                    pos,
+                    limit,
+                    self.state.board_hist.clone(),
+                    false,
+                    moves,
+                    multi_pv,
+                )?
+            }
+            SearchType::Ponder => {
+                self.state.ponder_limit = Some(limit.clone());
+                self.state.engine.start_search(
+                    pos,
+                    SearchLimit::infinite(), //always allocate infinite time for pondering
+                    self.state.board_hist.clone(),
+                    true,
+                    moves,
+                    multi_pv, // don't ignore multi_pv in pondering mode
+                )?;
+            }
             Perft => {
                 let msg = format!("{0}", perft(limit.depth, pos));
                 self.write_ugi(&msg);
@@ -678,7 +764,7 @@ impl<B: Board> EngineUGI<B> {
             Bench => {
                 self.state
                     .engine
-                    .start_bench(pos, limit.depth)
+                    .start_bench(pos, BenchLimit::Depth(limit.depth))
                     .expect("bench panic");
             }
         };
@@ -701,13 +787,17 @@ impl<B: Board> EngineUGI<B> {
                 "depth" | "d" => {
                     limit.depth = Depth::new(parse_int(words, "depth number")?);
                 }
+                "nodes" | "n" => {
+                    limit.nodes =
+                        NodesLimit::new(parse_int(words, "node count")?).unwrap_or(NodesLimit::MAX);
+                }
                 "complete" => complete = true,
                 x => {
                     if let Ok(depth) = parse_int_from_str(x, "depth") {
                         limit.depth = Depth::new(depth);
                     } else {
                         return Err(format!(
-                            "unrecognized bench/perft argument '{}', expected 'position', 'complete', 'depth' or the depth value",
+                            "unrecognized bench/perft argument '{}', expected 'position', 'complete', 'nodes', 'depth' or the depth value",
                             x.red()
                         ));
                     }
@@ -723,14 +813,14 @@ impl<B: Board> EngineUGI<B> {
                         &self.searcher_factories,
                         &self.eval_factories,
                     )?;
-                    run_bench_with_depth(engine.as_mut(), limit.depth).to_string()
+                    run_bench_with_depth_and_nodes(engine.as_mut(), limit.depth, limit.nodes).to_string()
                 },
                 _ => return Err(format!("Can only use the '{}' option with bench or perft, not splitperft or normal runs", "complete".bold()))
             };
             self.write_ugi(&res);
             Ok(())
         } else {
-            self.start_search(typ, limit, board)
+            self.start_search(typ, limit, board, vec![], 1)
         }
     }
 
@@ -1047,22 +1137,50 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn get_options(&self) -> Vec<EngineOption> {
-        let mut res = self
-            .state
-            .engine
-            .get_options()
-            .iter()
-            .cloned()
-            .collect_vec();
-        res.push(EngineOption {
-            name: MoveOverhead,
-            value: Spin(UgiSpin {
-                val: self.move_overhead.as_millis() as i64,
-                default: Some(DEFAULT_MOVE_OVERHEAD_MS as i64),
-                min: Some(0),
-                max: Some(10_000),
-            }),
-        });
+        let engine_info = self.state.engine.engine_info().engine().clone();
+        let eval_info = self.state.engine.engine_info().eval().clone();
+        let mut res = vec![
+            EngineOption {
+                name: MoveOverhead,
+                value: Spin(UgiSpin {
+                    val: self.move_overhead.as_millis() as i64,
+                    default: Some(DEFAULT_MOVE_OVERHEAD_MS as i64),
+                    min: Some(0),
+                    max: Some(10_000),
+                }),
+            },
+            EngineOption {
+                name: EngineOptionName::Ponder,
+                value: EngineOptionType::Check(UgiCheck {
+                    val: self.allow_ponder,
+                    default: Some(false),
+                }),
+            },
+            EngineOption {
+                name: EngineOptionName::MultiPv,
+                value: Spin(UgiSpin {
+                    val: 1,
+                    default: Some(1),
+                    min: Some(1),
+                    max: Some(256),
+                }),
+            },
+            EngineOption {
+                name: EngineOptionName::UCIEngineAbout,
+                value: EngineOptionType::UString(UgiString {
+                    val: "".to_string(),
+                    default: Some(format!(
+                        "Motors by ToTheAnd. Game: {2}. Engine: {0}. Eval: {1}  ",
+                        engine_info.description.unwrap_or(engine_info.long),
+                        eval_info
+                            .map(|i| i.description.unwrap_or(i.long))
+                            .unwrap_or("<none>".to_string()),
+                        B::game_name()
+                    )),
+                }),
+            },
+        ];
+        res.extend(self.state.engine.get_options().iter().cloned());
         res
     }
 }

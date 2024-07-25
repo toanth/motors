@@ -15,6 +15,7 @@ pub const MAX_DEPTH: Depth = Depth(10_000);
 pub struct SearchResult<B: Board> {
     pub chosen_move: B::Move,
     pub score: Option<Score>,
+    pub ponder_move: Option<B::Move>,
 }
 
 impl<B: Board> SearchResult<B> {
@@ -29,7 +30,25 @@ impl<B: Board> SearchResult<B> {
         Self {
             chosen_move,
             score: Some(score),
+            ponder_move: None,
         }
+    }
+
+    pub fn new(chosen_move: B::Move, score: Score, ponder_move: Option<B::Move>) -> Self {
+        Self {
+            chosen_move,
+            score: Some(score),
+            ponder_move,
+        }
+    }
+
+    pub fn new_from_pv(score: Score, pv: &[B::Move]) -> Self {
+        assert!(!pv.is_empty());
+        Self::new(pv[0], score, pv.get(1).copied())
+    }
+
+    pub fn ponder_move(&self) -> Option<B::Move> {
+        self.ponder_move
     }
 }
 
@@ -40,6 +59,7 @@ pub struct SearchInfo<B: Board> {
     pub seldepth: Option<usize>,
     pub time: Duration,
     pub nodes: NodesLimit,
+    pub pv_num: usize,
     pub pv: Vec<B::Move>,
     pub score: Score,
     pub hashfull: Option<usize>,
@@ -54,6 +74,7 @@ impl<B: Board> Default for SearchInfo<B> {
             seldepth: None,
             time: Duration::default(),
             nodes: NodesLimit::MAX,
+            pv_num: 1,
             pv: vec![],
             score: Score::default(),
             hashfull: None,
@@ -91,9 +112,10 @@ impl<B: Board> Display for SearchInfo<B> {
         };
 
         write!(f,
-               "info depth {depth}{seldepth} score {score_str} time {time} nodes {nodes} nps {nps}{hashfull} pv {pv}{string}",
+               "info depth {depth}{seldepth} multipv {multipv} score {score_str} time {time} nodes {nodes} nps {nps}{hashfull} pv {pv}{string}",
                depth = self.depth.get(), time = self.time.as_millis(), nodes = self.nodes.get(),
                seldepth = self.seldepth.map(|d| format!(" seldepth {d}")).unwrap_or_default(),
+               multipv = self.pv_num + 1,
                nps = self.nps(),
                pv = self.pv.iter().map(|mv| mv.to_compact_text()).collect::<Vec<_>>().join(" "),
                hashfull = self.hashfull.map(|f| format!(" hashfull {f}")).unwrap_or_default(),
@@ -168,7 +190,7 @@ impl TimeControl {
     }
 
     pub fn is_infinite(&self) -> bool {
-        self.remaining == Duration::MAX
+        self.remaining >= Duration::MAX - Duration::from_secs(1000)
     }
 
     pub fn update(&mut self, elapsed: Duration) {
@@ -227,7 +249,9 @@ impl Depth {
 
 pub type NodesLimit = NonZeroU64;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+// Don't derive Eq because that allows code like `limit == SearchLimit::infinite()`, which is bad because the remaining
+// time of `limit` might be slightly less while still being considered infinite.
+#[derive(Copy, Clone, Debug)]
 pub struct SearchLimit {
     pub tc: TimeControl,
     pub fixed_time: Duration,
@@ -294,5 +318,14 @@ impl SearchLimit {
 
     pub fn max_move_time(&self) -> Duration {
         self.fixed_time.min(self.tc.remaining)
+    }
+
+    pub fn is_infinite(&self) -> bool {
+        let inf = Self::infinite();
+        self.tc.is_infinite()
+            && self.mate == inf.mate
+            && self.depth == inf.depth
+            && self.nodes == inf.nodes
+            && self.fixed_time >= inf.fixed_time - Duration::from_secs(1000)
     }
 }

@@ -68,20 +68,16 @@ fn psqt_trace(pos: &Chessboard) -> TraceNFeatures<NUM_PSQT_FEATURES> {
     TraceNFeatures(trace)
 }
 
-fn index(piece_idx: usize, square: usize) -> usize {
-    64 * piece_idx + square
-}
-
 fn write_phased_psqt(
     f: &mut Formatter<'_>,
     weights: &[Weight],
     special: &[bool],
-    piece_idx: usize,
-    piece_name: Option<&str>,
+    piece: Option<UncoloredChessPiece>,
+    offset: usize,
 ) -> std::fmt::Result {
     const TAB: &str = "    "; // Use 4 spaces for a tab.
-    if let Some(piece) = piece_name {
-        writeln!(f, "{TAB}// {piece}")?;
+    if let Some(piece) = piece {
+        writeln!(f, "{TAB}// {}", piece.name())?;
         write!(f, "{TAB}[")?;
     } else {
         write!(f, "[")?;
@@ -91,13 +87,13 @@ fn write_phased_psqt(
             writeln!(f)?;
             write!(f, "{TAB}{TAB}")?;
         }
-        let idx = index(piece_idx, square);
+        let idx = offset + square;
 
         let str = write_phased_with_width(weights, idx, special, 4);
         write!(f, "{str},{TAB}")?;
     }
     writeln!(f)?;
-    if piece_name.is_some() {
+    if piece.is_some() {
         writeln!(f, "{TAB}],")?;
     } else {
         writeln!(f, "];")?;
@@ -120,8 +116,8 @@ fn write_psqts(
             f,
             weights,
             special_entries,
-            piece as usize,
-            Some(piece.name()),
+            Some(piece),
+            64 * piece as usize,
         )?;
     }
     writeln!(f, "];")?;

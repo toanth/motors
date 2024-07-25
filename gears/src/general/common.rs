@@ -69,6 +69,22 @@ pub fn parse_int_from_stdin<T: PrimInt + FromStr>() -> Res<T> {
     parse_int_from_str(s.trim(), "integer")
 }
 
+pub fn parse_bool_from_str(input: &str, name: &str) -> Res<bool> {
+    if input.eq_ignore_ascii_case("true") {
+        Ok(true)
+    } else if input.eq_ignore_ascii_case("false") {
+        Ok(false)
+    } else {
+        Err(format!(
+            "Incorrect value for '{0}': Expected either '{1}' or '{2}', not '{3}'",
+            name.bold(),
+            "true".bold(),
+            "false".bold(),
+            input.red(),
+        ))
+    }
+}
+
 pub fn parse_duration_ms(words: &mut SplitWhitespace, name: &str) -> Res<Duration> {
     let num_ms: i64 = parse_int(words, name)?;
     // The UGI client can send negative remaining time.
