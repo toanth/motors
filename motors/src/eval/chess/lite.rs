@@ -150,6 +150,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let our_pawns = pos.colored_piece_bb(color, Pawn);
         let their_pawns = pos.colored_piece_bb(!color, Pawn);
         let mut score = Tuned::Score::default();
+        let our_king = pos.king_square(color).flip_if(color == White);
         let their_king = pos.king_square(!color).flip_if(color == White);
 
         for square in our_pawns.ones() {
@@ -160,7 +161,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             if (in_front & our_pawns).is_zero() && (blocking & their_pawns).is_zero() {
                 score += Tuned::passed_pawn(normalized_square);
             }
-            if normalized_square.file().abs_diff(their_king.file()) <= 1 {
+            let file = normalized_square.file();
+            if file.abs_diff(their_king.file()) <= 1 && file.abs_diff(our_king.file()) > 1 {
                 let rank_diff =
                     (normalized_square.rank() + 1).saturating_sub(their_king.rank()) as usize;
                 score += Tuned::pawn_storm(rank_diff);
