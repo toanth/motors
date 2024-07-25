@@ -8,7 +8,7 @@ use crate::trace::{SingleFeature, SparseTrace, TraceTrait};
 use gears::games::chess::pieces::UncoloredChessPiece::*;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::see::SEE_SCORES;
-use gears::games::chess::squares::{ChessSquare, NUM_ROWS, NUM_SQUARES};
+use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::Chessboard;
 use gears::games::Color;
 use gears::games::Color::*;
@@ -35,7 +35,7 @@ impl LiTETrace {
     const NUM_THREAT_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
     const NUM_DEFENSE_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
     const NUM_KING_ZONE_ATTACK_FEATURES: usize = NUM_CHESS_PIECES;
-    const NUM_PAWN_STORM_FEATURES: usize = NUM_ROWS - 1;
+    const NUM_PAWN_STORM_FEATURES: usize = 64;
 
     const PASSED_PAWN_OFFSET: usize = NUM_PSQT_FEATURES;
     const BISHOP_PAIR_OFFSET: usize = Self::PASSED_PAWN_OFFSET + Self::NUM_PASSED_PAWN_FEATURES;
@@ -148,8 +148,8 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(idx)
     }
 
-    fn pawn_storm(rank_diff: usize) -> <Self::Score as ScoreType>::SingleFeatureScore {
-        let idx = Self::PAWN_STORM_OFFSET + rank_diff;
+    fn pawn_storm(square: ChessSquare) -> <Self::Score as ScoreType>::SingleFeatureScore {
+        let idx = Self::PAWN_STORM_OFFSET + square.bb_idx();
         SingleFeature::new(idx)
     }
 }
@@ -280,12 +280,9 @@ impl WeightsInterpretation for TuneLiTEval {
                 idx += 1;
             }
             writeln!(f, "];")?;
-            write!(f, "const PAWN_STORM: [PhasedScore; 7] = [")?;
-            for _rank_diff in 0..LiTETrace::NUM_PAWN_STORM_FEATURES {
-                write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                idx += 1;
-            }
-            writeln!(f, "];")?;
+            write!(f, "const PAWN_STORM: [PhasedScore; NUM_SQUARES] =")?;
+            write_phased_psqt(f, &weights, &special, None, idx)?;
+            idx += NUM_SQUARES;
             assert_eq!(idx, Self::NUM_FEATURES);
             Ok(())
         }

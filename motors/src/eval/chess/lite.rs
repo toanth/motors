@@ -163,7 +163,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             }
             let file = normalized_square.file();
             if file.abs_diff(their_king.file()) <= 1 && file.abs_diff(our_king.file()) > 1 {
-                score += Tuned::pawn_storm(normalized_square.rank() as usize);
+                score += Tuned::pawn_storm(normalized_square);
             }
         }
         for piece in UncoloredChessPiece::pieces() {
