@@ -35,7 +35,7 @@ impl LiTETrace {
     const NUM_THREAT_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
     const NUM_DEFENSE_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
     const NUM_KING_ZONE_ATTACK_FEATURES: usize = NUM_CHESS_PIECES;
-    const NUM_PAWN_STORM_FEATURES: usize = NUM_ROWS; // index max(calculated as king rank - pawn rank + 1, 0)
+    const NUM_PAWN_STORM_FEATURES: usize = NUM_ROWS - 1;
 
     const PASSED_PAWN_OFFSET: usize = NUM_PSQT_FEATURES;
     const BISHOP_PAIR_OFFSET: usize = Self::PASSED_PAWN_OFFSET + Self::NUM_PASSED_PAWN_FEATURES;
@@ -280,7 +280,7 @@ impl WeightsInterpretation for TuneLiTEval {
                 idx += 1;
             }
             writeln!(f, "];")?;
-            write!(f, "const PAWN_STORM: [PhasedScore; 8] = [")?;
+            write!(f, "const PAWN_STORM: [PhasedScore; 7] = [")?;
             for _rank_diff in 0..LiTETrace::NUM_PAWN_STORM_FEATURES {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
                 idx += 1;
