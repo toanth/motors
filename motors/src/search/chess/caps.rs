@@ -713,12 +713,12 @@ impl Caps {
                 }
             }
 
-            /// Razoring. If static eval is far below alpha, it's unlikely that any quiet move can meet alpha, so call
-            /// qsearch immediately. If the result still doesn't raise alpha, just give up and return the qsearch score.
-            /// This obviously has the potential to miss quite a few tactics, so only do this at low depths and when
-            /// the difference between the static eval and alpha is really large.
-            let razoring_margin = Score(300) + Score(256) * depth as i32;
-                if depth < 3 && eval + razoring_margin <= alpha && !eval.is_game_over_score() {
+                // Razoring. If static eval is far below alpha, it's unlikely that any quiet move can meet alpha, so call
+            // qsearch immediately. If the result still doesn't raise alpha, just give up and return the qsearch score.
+            // This obviously has the potential to miss quite a few tactics, so only do this at low depths and when
+            // the difference between the static eval and alpha is really large.
+            let razoring_margin = Score(100) + Score(512) * depth as i32;
+            if depth < 3 && eval + razoring_margin <= alpha && !eval.is_game_lost_score() {
                 let qsearch_score = self.qsearch(pos, alpha, beta, ply);
                 if qsearch_score <= alpha {
                     return qsearch_score;
