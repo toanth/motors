@@ -626,11 +626,18 @@ pub trait SearchState<B: Board>: Debug + Clone {
     fn search_sender_mut(&mut self) -> &mut SearchSender<B>;
     fn send_statistics(&mut self);
 
+    fn pv(&self) -> Option<&[B::Move]>;
     fn mov(&self) -> B::Move;
 
     fn to_bench_res(&self) -> BenchResult {
         let mut hasher = DefaultHasher::new();
-        self.mov().hash(&mut hasher);
+        if let Some(pv) = self.pv() {
+            for mov in pv {
+                mov.hash(&mut hasher);
+            }
+        } else {
+            self.mov().hash(&mut hasher);
+        }
         let hash = hasher.finish();
         BenchResult {
             nodes: NodesLimit::new(self.uci_nodes()).unwrap(),
@@ -870,6 +877,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
         self.sender.send_statistics(&self.statistics);
     }
 
+    fn pv(&self) -> Option<&[B::Move]> {
+        self.search_stack.first().and_then(|e| e.pv())
+    }
+
     fn mov(&self) -> B::Move {
         self.search_stack
             .first()
@@ -907,10 +918,10 @@ impl NodeType {
 pub fn run_bench<B: Board>(engine: &mut dyn Benchable<B>) -> BenchResult {
     let depth = engine.default_bench_depth();
     let nodes = engine.default_bench_nodes();
-    run_bench_with_depth_and_nodes(engine, depth, nodes)
+    run_bench_with(engine, depth, nodes)
 }
 
-pub fn run_bench_with_depth_and_nodes<B: Board>(
+pub fn run_bench_with<B: Board>(
     engine: &mut dyn Benchable<B>,
     mut depth: Depth,
     mut nodes: NodesLimit,
