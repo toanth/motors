@@ -159,6 +159,12 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             if (in_front & our_pawns).is_zero() && (blocking & their_pawns).is_zero() {
                 score += Tuned::passed_pawn(normalized_square);
             }
+            let file = ChessBitboard::file_no(square.file());
+            let neighbors = file.west() | file.east();
+            let supporting = neighbors & !blocking;
+            if (supporting & our_pawns).is_zero() {
+                score += Tuned::unsupported_pawn();
+            }
         }
         for piece in UncoloredChessPiece::pieces() {
             let bb = pos.colored_piece_bb(color, piece);
