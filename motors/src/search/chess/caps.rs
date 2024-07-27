@@ -717,8 +717,8 @@ impl Caps {
             // qsearch immediately. If the result still doesn't raise alpha, just give up and return the qsearch score.
             // This obviously has the potential to miss quite a few tactics, so only do this at low depths and when
             // the difference between the static eval and alpha is really large.
-            let razoring_margin = Score(300) + Score(512) * depth as i32;
-            if depth < 3 && eval + razoring_margin <= alpha && !eval.is_game_lost_score() {
+            let razoring_margin = Score(800);
+            if depth == 1 && eval + razoring_margin <= alpha && !eval.is_game_lost_score() {
                 let qsearch_score = self.qsearch(pos, alpha, beta, ply);
                 if qsearch_score <= alpha {
                     return qsearch_score;
