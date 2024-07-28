@@ -17,7 +17,7 @@ use gears::general::common::Description::NoDescription;
 use gears::general::common::{select_name_static, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
 use gears::score::{
-    game_result_to_score, ScoreT, MAX_SCORE_LOST, MIN_SCORE_WON, NO_SCORE_YET, SCORE_LOST,
+    game_result_to_score, ScoreT, MAX_NORMAL_SCORE, MAX_SCORE_LOST, NO_SCORE_YET, SCORE_LOST,
     SCORE_TIME_UP,
 };
 use gears::search::*;
@@ -236,8 +236,8 @@ impl AbstractEngine<Chessboard> for Caps {
             EngineOption {
                 name: Hash,
                 value: Spin(UgiSpin {
-                    val: 4,
-                    default: Some(4),
+                    val: 64,
+                    default: Some(64),
                     min: Some(0),
                     max: Some(10_000_000), // use at most 10 terabytes (should be enough for anybody™)
                 }),
@@ -669,7 +669,7 @@ impl Caps {
             // blundered in a previous move of the search, so if the depth is low, don't even bother searching further.
             // Use `they_blundered` to better distinguish between blunders by our opponent and a generally good static eval
             // relative to `beta` --  there may be other positional factors that aren't being reflected by the static eval,
-            // (like imminent threads) so don't prune too aggressively if our opponent hasn't blundered.
+            // (like imminent threats) so don't prune too aggressively if our opponent hasn't blundered.
             // Be more careful about pruning too aggressively if the node is expected to fail low -- we should not rfp
             // a true fail low node, but our expectation may also be wrong.
             let mut margin = (150 - (they_blundered as ScoreT * 64)) * depth as ScoreT;
@@ -709,7 +709,7 @@ impl Caps {
                 self.state.search_stack[ply].tried_moves.pop();
                 self.state.board_history.pop();
                 if score >= beta {
-                    return score.min(MIN_SCORE_WON);
+                    return score.min(MAX_NORMAL_SCORE);
                 }
             }
         }
