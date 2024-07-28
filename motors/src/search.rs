@@ -465,9 +465,12 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
     ) -> Res<SearchResult<B>> {
         self.search_state_mut().new_search(history, sender);
         // `search_moves` with only invalid moves behaves as if no 'moves' were specified, i.e. it searches all moves.
+        // although this is rather expensive in general, the normal case (e.g. `go` without `searchmoves`) is that
+        // `moves` is empty, which makes this fast.
         moves = moves
             .into_iter()
             .filter(|m| pos.is_move_legal(*m))
+            .unique()
             .collect_vec();
         multi_pv = multi_pv.min(moves.len()).max(1);
         let res = self.do_search(pos, moves, multi_pv, limit);
@@ -962,6 +965,8 @@ mod tests {
             assert!(res.nodes.get() <= 100);
             let mut search_moves = p.pseudolegal_moves().into_iter().collect_vec();
             search_moves.truncate(search_moves.len() / 2);
+            search_moves.push(search_moves.first().copied().unwrap_or_default());
+            search_moves.push(B::Move::default());
             let multi_pv = search_moves.len() + 3;
             let res = engine
                 .search_moves_multi_pv(

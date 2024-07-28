@@ -86,6 +86,8 @@ impl ChessMove {
         Self(idx as u16)
     }
 
+    pub const NULL: Self = Self(0);
+
     pub fn square_of_pawn_taken_by_ep(self) -> Option<ChessSquare> {
         // TODO: Use board.ep_square instead
         if self.flags() != EnPassant {
