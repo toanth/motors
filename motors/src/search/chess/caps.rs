@@ -752,6 +752,15 @@ impl Caps {
                 break;
             }
 
+            // See Pruning: At low depths, don't even consider moves that would lose material according to SEE.
+            if can_prune
+                && depth <= 5
+                && move_score < KILLER_SCORE
+                && !pos.see_at_least(mov, SeeScore(-200 * depth as i32))
+            {
+                continue;
+            }
+
             if ply == 0 && self.state.excluded_moves.contains(&mov) {
                 continue;
             }
