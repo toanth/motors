@@ -10,9 +10,11 @@ use rand::SeedableRng;
 
 use crate::eval::chess::lite::LiTEval;
 use gears::games::chess::moves::ChessMove;
+use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::{Chessboard, MAX_CHESS_MOVES_IN_POS};
 use gears::games::{n_fold_repetition, Board, BoardHistory, Color, Move, ZobristHistory};
+use gears::general::bitboards::RawBitboard;
 use gears::general::common::Description::NoDescription;
 use gears::general::common::{select_name_static, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
@@ -687,7 +689,9 @@ impl Caps {
             // A more careful implementation would do a verification search to check for zugzwang, and possibly avoid even trying
             // nmp in a position with no pieces except the king and pawns.
             // TODO: Verification search.
-            if depth >= 3 && eval >= beta {
+            let has_nonpawns =
+                (pos.active_player_bb() & !pos.piece_bb(Pawn)).more_than_one_bit_set();
+            if depth >= 3 && eval >= beta && has_nonpawns {
                 // `make_nullmove` resets the 50mr counter, so we don't consider positions after a nullmove as repetitions,
                 // but we can still get TT cutoffs
                 self.state.board_history.push(&pos);
