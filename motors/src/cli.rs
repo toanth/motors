@@ -6,13 +6,14 @@ use gears::general::common::{parse_int_from_str, Res};
 use gears::search::Depth;
 use gears::OutputArgs;
 
-use crate::cli::Mode::{Bench, Engine};
+use crate::cli::Mode::{Bench, Engine, Perft};
 
 #[derive(Debug, Default, Copy, Clone)]
 pub enum Mode {
     #[default]
     Engine,
     Bench(Option<Depth>),
+    Perft(Option<Depth>),
 }
 
 impl Display for Mode {
@@ -20,6 +21,7 @@ impl Display for Mode {
         match self {
             Engine => write!(f, "engine"),
             Mode::Bench(_) => write!(f, "bench"),
+            Mode::Perft(_) => write!(f, "perft"),
         }
     }
 }
@@ -49,20 +51,27 @@ impl EngineOpts {
     }
 }
 
-fn parse_bench(args: &mut ArgIter) -> Res<Option<Depth>> {
-    let mut res = None;
+fn parse_depth(args: &mut ArgIter) -> Res<Option<Depth>> {
     if let Some(next) = args.peek() {
         if next == "-d" || next == "--depth" {
             args.next();
             if args.peek().is_some_and(|a| a != "default") {
-                res = Some(Depth::new(get_next_int(args, "depth")?));
+                return Ok(Some(Depth::new(get_next_int(args, "depth")?)));
             }
         } else if let Ok(val) = parse_int_from_str(&next, "bench depth") {
             args.next();
-            res = Some(Depth::new(val));
+            return Ok(Some(Depth::new(val)));
         }
     }
-    Ok(res)
+    Ok(None)
+}
+
+fn parse_bench(args: &mut ArgIter) -> Res<Option<Depth>> {
+    parse_depth(args)
+}
+
+fn parse_perft(args: &mut ArgIter) -> Res<Option<Depth>> {
+    parse_depth(args)
 }
 
 fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts) -> Res<()> {
@@ -74,11 +83,12 @@ fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts) -> Res<()> {
     }
     match key.as_str() {
         "bench" | "-bench" | "-b" => opts.mode = Bench(parse_bench(args)?),
+        "perft" | "-perft" | "-p" => opts.mode = Perft(parse_perft(args)?),
         "-engine" | "-e" => opts.engine = get_next_arg(args, "engine")?,
         "-game" | "-g" => opts.game = Game::from_str(&get_next_arg(args, "engine")?.to_lowercase()).map_err(|err| err.to_string())?,
         "-debug" | "-d" => opts.debug = true,
         "-additional-output" | "-output" | "-o" => parse_output(args, &mut opts.outputs)?,
-        x => return Err(format!("Unrecognized option '{x}'. Only 'bench', '--engine', '--game', '--debug' and '--outputs' are valid."))
+        x => return Err(format!("Unrecognized option '{x}'. Only 'bench', 'perft', '--engine', '--game', '--debug' and '--outputs' are valid."))
     }
     Ok(())
 }

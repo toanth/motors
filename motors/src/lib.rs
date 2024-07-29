@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::ops::Deref;
 
 use dyn_clone::clone_box;
@@ -12,12 +13,13 @@ use gears::games::mnk::MNKBoard;
 use gears::games::{Board, OutputList};
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{select_name_dyn, Res};
+use gears::general::perft::perft;
 use gears::output::normal_outputs;
 use gears::search::Depth;
-use gears::Quitting::QuitMatch;
+use gears::Quitting::*;
 use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs, Quitting};
 
-use crate::cli::Mode::Bench;
+use crate::cli::Mode::{Bench, Perft};
 use crate::cli::{parse_cli, EngineOpts, Mode};
 use crate::eval::chess::lite::LiTEval;
 use crate::eval::chess::material_only::MaterialOnlyEval;
@@ -56,7 +58,9 @@ impl<B: Board> BenchRun<B> {
         all_searchers: SearcherList<B>,
         all_evals: EvalList<B>,
     ) -> Res<Self> {
-        let Bench(depth) = options.mode else { panic!() };
+        let Bench(depth) = options.mode else {
+            unreachable!()
+        };
         let engine = create_engine_bench_from_str(&options.engine, &all_searchers, &all_evals)?;
         Ok(Self { engine, depth })
     }
@@ -71,7 +75,32 @@ impl<B: Board> AbstractRun for BenchRun<B> {
             Some(depth) => run_bench_with(engine, depth, nodes),
         };
         println!("{res}");
-        QuitMatch
+        QuitProgram
+    }
+}
+
+#[derive(Debug, Default)]
+struct PerftRun<B: Board> {
+    depth: Option<Depth>,
+    phantom_data: PhantomData<B>,
+}
+
+impl<B: Board> PerftRun<B> {
+    pub fn create(depth: Option<Depth>) -> Res<Self> {
+        Ok(Self {
+            depth,
+            ..Self::default()
+        })
+    }
+}
+
+impl<B: Board> AbstractRun for PerftRun<B> {
+    fn run(&mut self) -> Quitting {
+        let pos = B::default();
+        let depth = self.depth.unwrap_or(pos.default_perft_depth());
+        let res = perft(depth, pos);
+        println!("{res}");
+        QuitProgram
     }
 }
 
@@ -155,6 +184,7 @@ pub fn create_match_for_game<B: Board>(
                 evals,
             )?))
         }
+        Perft(depth) => Ok(Box::new(PerftRun::<B>::create(depth)?)),
     }
 }
 
