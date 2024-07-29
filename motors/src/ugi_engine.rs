@@ -381,6 +381,9 @@ impl<B: Board> EngineUGI<B> {
             match res {
                 Err(err) => {
                     self.write_message(Error, err.as_str());
+                    if !self.continue_on_error() {
+                        self.write_ugi(&format!("info error {err}"));
+                    }
                     // explicitly check this here so that continuing on error doesn't prevent us from quitting.
                     if let Quit(quitting) = self.state.status {
                         return quitting;
