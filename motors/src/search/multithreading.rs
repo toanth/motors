@@ -95,6 +95,8 @@ impl<B: Board> SearchSender<B> {
         // should be unnecessary for correct UCI messages, but best to be certain --
         // this takes care of receiving another `go` while a search is currently running
         if self.sss.searching.load(SeqCst) > 0 {
+            // if another infinite search is running, make sure it doesn't deadlock
+            self.sss.infinite.store(false, SeqCst);
             self.sss.stop.store(true, SeqCst);
             // wait until any previous search has been stopped
             while self.sss.searching.load(SeqCst) > 0 {}
