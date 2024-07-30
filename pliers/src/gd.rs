@@ -97,7 +97,7 @@ pub fn sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
 /// Unlike the [`cross_entropy_sample_loss`], it is always zero if a prediction perfectly matches the outcome.
 pub fn quadratic_sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
     let delta = wr_prediction.0 - outcome.0;
-    return delta * delta;
+    delta * delta
 }
 
 /// The cross-entropy is a good choice when optimizing anything where the output is a sigmoid, but it has some

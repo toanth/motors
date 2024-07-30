@@ -64,7 +64,7 @@ impl Mul<usize> for SingleFeature {
 
     fn mul(mut self, rhs: usize) -> Self::Output {
         let rhs: FeatureCount = rhs.try_into().unwrap();
-        self.count = self.count * rhs;
+        self.count *= rhs;
         self
     }
 }

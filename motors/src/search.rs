@@ -333,8 +333,8 @@ impl<B: Board, E: Engine<B>> Default for SearcherBuilder<B, E> {
 impl<B: Board, E: Engine<B>> Clone for SearcherBuilder<B, E> {
     fn clone(&self) -> Self {
         Self {
-            _phantom_b: PhantomData::default(),
-            _phantom_e: PhantomData::default(),
+            _phantom_b: PhantomData,
+            _phantom_e: PhantomData,
         }
     }
 }
@@ -389,7 +389,7 @@ impl BenchLimit {
             BenchLimit::Depth(depth) => res.depth = depth.min(depth_limit),
             BenchLimit::Nodes(nodes) => res.nodes = nodes,
         }
-        return res;
+        res
     }
 }
 

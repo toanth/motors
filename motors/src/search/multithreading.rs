@@ -140,7 +140,9 @@ impl<B: Board> SearchSender<B> {
     pub fn send_search_res(&mut self, res: SearchResult<B>) {
         if let Some(output) = &self.output {
             // Spin until infinite search has been disabled, either through a `stop` command or through a `ponderhit`
-            while self.sss.infinite.load(SeqCst) {}
+            while self.sss.infinite.load(SeqCst) {
+                std::hint::spin_loop()
+            }
             if self.sss.dont_print_result.load(SeqCst) {
                 return;
             }
@@ -346,7 +348,6 @@ impl<B: Board> EngineWrapper<B> {
         pos: B,
         limit: SearchLimit,
         history: ZobristHistory<B>,
-        ponder: bool,
         search_moves: Vec<B::Move>,
         multi_pv: usize,
     ) -> Res<()> {
@@ -355,14 +356,7 @@ impl<B: Board> EngineWrapper<B> {
             self.search_sender().new_search(limit.is_infinite());
         }
         for o in self.secondary.iter_mut() {
-            o.start_search(
-                pos,
-                limit,
-                history.clone(),
-                ponder,
-                search_moves.clone(),
-                multi_pv,
-            )?;
+            o.start_search(pos, limit, history.clone(), search_moves.clone(), multi_pv)?;
         }
         self.sender
             .send(Search(

@@ -97,11 +97,11 @@ impl<B: Board> Engine<B> for Gaps<B> {
         let mut score = Score::default();
         let max_depth = MAX_DEPTH.min(limit.depth).get() as isize;
         limit.fixed_time = limit.fixed_time.min(limit.tc.remaining);
-        if search_moves.len() != 0 {
+        if !search_moves.is_empty() {
             self.state.excluded_moves = pos
                 .pseudolegal_moves()
                 .into_iter()
-                .filter(|m| !search_moves.contains(&m))
+                .filter(|m| !search_moves.contains(m))
                 .collect_vec();
         } else {
             self.state.excluded_moves = vec![];

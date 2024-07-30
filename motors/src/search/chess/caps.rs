@@ -212,7 +212,7 @@ impl StaticallyNamedEntity for Caps {
     where
         Self: Sized,
     {
-        format!("CAPS: Chess-playing Alpha-beta Pruning Search",)
+        "CAPS: Chess-playing Alpha-beta Pruning Search".to_string()
     }
 
     fn static_description() -> String
@@ -323,14 +323,14 @@ impl Engine<Chessboard> for Caps {
         // Use 3fold repetition detection for positions before and including the root node and 2fold for positions during search.
         self.state.custom.original_board_hist = take(&mut self.state.board_history);
         self.state.custom.original_board_hist.push(&pos);
-        if search_moves.len() == 0 {
+        if search_moves.is_empty() {
             self.state.excluded_moves = vec![];
         } else {
             let moves = pos.legal_moves_slow();
             let num_legal_moves = moves.len();
             self.state.excluded_moves = moves
                 .into_iter()
-                .filter(|m| !search_moves.contains(&m))
+                .filter(|m| !search_moves.contains(m))
                 .collect_vec();
             assert!(self.state.excluded_moves.len() < num_legal_moves);
         }

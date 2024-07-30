@@ -65,7 +65,7 @@ impl LiteValues for LiTETrace {
 
     fn psqt(square: ChessSquare, piece: UncoloredChessPiece, color: Color) -> SingleFeature {
         let square = square.flip_if(color == White);
-        let idx = 0 + square.bb_idx() + piece as usize * NUM_SQUARES;
+        let idx = square.bb_idx() + piece as usize * NUM_SQUARES;
         SingleFeature::new(idx)
     }
 
@@ -169,7 +169,7 @@ impl WeightsInterpretation for TuneLiTEval {
             write_psqts(f, weights, &special)?;
             writeln!(f, "\n#[rustfmt::skip]")?;
             write!(f, "const PASSED_PAWNS: [PhasedScore; NUM_SQUARES] =")?;
-            write_phased_psqt(f, &weights, &special, None, NUM_PSQT_FEATURES)?;
+            write_phased_psqt(f, weights, &special, None, NUM_PSQT_FEATURES)?;
             let mut idx = LiTETrace::UNSUPPORTED_PAWN_OFFSET;
 
             writeln!(
@@ -321,7 +321,6 @@ impl Eval<Chessboard> for TuneLiTEval {
     type Filter = SkipChecks;
 
     fn feature_trace(pos: &Chessboard) -> impl TraceTrait {
-        let res = GenericLiTEval::<LiTETrace>::do_eval(pos);
-        res
+        GenericLiTEval::<LiTETrace>::do_eval(pos)
     }
 }

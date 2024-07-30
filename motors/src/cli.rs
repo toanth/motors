@@ -58,7 +58,7 @@ fn parse_depth(args: &mut ArgIter) -> Res<Option<Depth>> {
             if args.peek().is_some_and(|a| a != "default") {
                 return Ok(Some(Depth::new(get_next_int(args, "depth")?)));
             }
-        } else if let Ok(val) = parse_int_from_str(&next, "bench depth") {
+        } else if let Ok(val) = parse_int_from_str(next, "bench depth") {
             args.next();
             return Ok(Some(Depth::new(val)));
         }

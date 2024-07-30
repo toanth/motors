@@ -735,21 +735,19 @@ impl<B: Board> EngineUGI<B> {
                     self.search_sender.abort_pondering();
                 }
                 self.state.engine.start_search(
-                    pos,
+                    pos,    
                     limit,
                     self.state.board_hist.clone(),
-                    false,
                     moves,
                     multi_pv,
                 )?
             }
             SearchType::Ponder => {
-                self.state.ponder_limit = Some(limit.clone());
+                self.state.ponder_limit = Some(limit);
                 self.state.engine.start_search(
                     pos,
                     SearchLimit::infinite(), //always allocate infinite time for pondering
                     self.state.board_hist.clone(),
-                    true,
                     moves,
                     multi_pv, // don't ignore multi_pv in pondering mode
                 )?;

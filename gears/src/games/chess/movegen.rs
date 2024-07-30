@@ -350,15 +350,14 @@ impl Chessboard {
         square_bb_if_occupied: ChessBitboard,
     ) -> ChessBitboard {
         let blockers = self.occupied_bb();
-        let attacks = match slider_move {
+        match slider_move {
             SliderMove::Bishop => {
                 ChessBitboard::bishop_attacks(square, blockers ^ square_bb_if_occupied)
             }
             SliderMove::Rook => {
                 ChessBitboard::rook_attacks(square, blockers ^ square_bb_if_occupied)
             }
-        };
-        attacks
+        }
     }
 
     pub fn all_attacking(&self, square: ChessSquare) -> ChessBitboard {
