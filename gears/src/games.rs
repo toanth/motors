@@ -12,7 +12,7 @@ use num::PrimInt;
 use rand::Rng;
 use strum_macros::EnumIter;
 
-use crate::games::PlayerResult::*;
+use crate::games::PlayerResult::Lose;
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
     parse_int, select_name_static, EntityList, GenericSelect, IterIntersperse, Res,
@@ -43,6 +43,7 @@ pub enum Color {
 }
 
 impl Color {
+    #[must_use]
     pub fn other(self) -> Color {
         match self {
             Color::White => Color::Black,
@@ -76,6 +77,7 @@ pub trait AbstractPieceType: Eq + Copy + Debug + Default + Display {
         self.to_utf8_char()
     }
 
+    #[must_use]
     fn from_ascii_char(c: char) -> Option<Self> {
         Self::from_utf8_char(c)
     }
@@ -153,6 +155,7 @@ pub trait ColoredPiece: Eq + Copy + Debug + Default {
 }
 
 #[derive(Eq, PartialEq, Default, Debug, Copy, Clone)]
+#[must_use]
 pub struct GenericPiece<C: Coordinates, T: ColoredPieceType> {
     symbol: T,
     coordinates: C,
@@ -177,11 +180,13 @@ impl<C: Coordinates, T: ColoredPieceType> Display for GenericPiece<C, T> {
     }
 }
 
+#[must_use]
 pub fn file_to_char(file: DimT) -> char {
     debug_assert!(file < 26);
     (file + b'a') as char
 }
 
+#[must_use]
 pub fn char_to_file(file: char) -> DimT {
     debug_assert!(file >= 'a');
     debug_assert!(file <= 'z');
@@ -189,6 +194,7 @@ pub fn char_to_file(file: char) -> DimT {
 }
 
 // Assume 2D grid for now.
+#[must_use]
 pub trait Coordinates: Eq + Copy + Debug + Default + FromStr<Err = String> + Display {
     type Size: Size<Self>;
 
@@ -204,29 +210,36 @@ pub trait Coordinates: Eq + Copy + Debug + Default + FromStr<Err = String> + Dis
 pub type DimT = u8;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Default)]
+#[must_use]
 pub struct Height(pub DimT);
 
 impl Height {
+    #[must_use]
     pub fn get(self) -> DimT {
         self.0
     }
+    #[must_use]
     pub fn val(self) -> usize {
         self.0 as usize
     }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Default)]
+#[must_use]
 pub struct Width(pub DimT);
 
 impl Width {
+    #[must_use]
     pub fn get(self) -> DimT {
         self.0
     }
+    #[must_use]
     pub fn val(self) -> usize {
         self.0 as usize
     }
 }
 
+#[must_use]
 pub trait Size<C: Coordinates>: Eq + PartialEq + Copy + Clone + Display + Debug {
     fn num_squares(self) -> usize;
 
@@ -246,11 +259,12 @@ pub trait Size<C: Coordinates>: Eq + PartialEq + Copy + Clone + Display + Debug 
     fn coordinates_valid(self, coordinates: C) -> bool;
 
     fn check_coordinates(self, coordinates: C) -> Res<C> {
-        match self.coordinates_valid(coordinates) {
-            true => Ok(coordinates),
-            false => Err(format!(
+        if self.coordinates_valid(coordinates) {
+            Ok(coordinates)
+        } else {
+            Err(format!(
                 "Coordinates {coordinates} lie outside of the board (size {self})"
-            )),
+            ))
         }
     }
 }
@@ -281,7 +295,7 @@ pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Hash +
     /// knight promotions in chess. Always returning `false` is a valid choice.
     fn is_tactical(self, board: &B) -> bool;
 
-    /// Return a compact and easy to parse move representation, such as <from_square><to_square> as used by UCI
+    /// `to_square`
     fn to_compact_text(self) -> String;
 
     /// Parse a compact text representation emitted by `to_compact_text`, such as the one used by UCI
@@ -379,7 +393,7 @@ impl<B: Board> BoardHistory<B> for ZobristHistory<B> {
             .expect("ZobristHistory::pop() called on empty history");
     }
     fn clear(&mut self) {
-        self.0.clear()
+        self.0.clear();
     }
 }
 
@@ -399,7 +413,7 @@ impl<B: Board> BoardHistory<B> for BoardCopyHistory<B> {
     }
 
     fn push(&mut self, board: &B) {
-        self.0.push(*board)
+        self.0.push(*board);
     }
 
     fn pop(&mut self) {
@@ -407,7 +421,7 @@ impl<B: Board> BoardHistory<B> for BoardCopyHistory<B> {
     }
 
     fn clear(&mut self) {
-        self.0.clear()
+        self.0.clear();
     }
 }
 
@@ -467,6 +481,7 @@ pub trait Board:
     type LegalMoveList: MoveList<Self> + FromIterator<Self::Move>;
 
     /// Returns the name of the game, such as 'chess'.
+    #[must_use]
     fn game_name() -> String {
         Self::static_short_name().to_string()
     }
@@ -499,6 +514,7 @@ pub trait Board:
     /// Can be implemented by a concrete `Board`, which will make `from_name` recognize the name and lets the
     /// GUI know about supported positions.
     /// "startpos" is handled automatically in `from_name` but can be overwritten here.
+    #[must_use]
     fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
         vec![NameToPos {
             name: "startpos",
@@ -506,6 +522,7 @@ pub trait Board:
         }]
     }
 
+    #[must_use]
     fn bench_positions() -> Vec<Self> {
         Self::name_to_pos_map()
             .iter()
@@ -575,6 +592,7 @@ pub trait Board:
     }
 
     /// This function is used for optimizations and may safely return `false`.
+    #[must_use]
     fn are_all_pseudolegal_legal() -> bool {
         false
     }
@@ -601,7 +619,7 @@ pub trait Board:
 
     /// Returns a random legal move, that is, chooses a pseudorandom move from the set of legal moves.
     /// Can be implemented by generating all legal moves and randomly sampling one, so it's potentially
-    /// a very inefficient function, random_pseudolegal_move should be prefered if possible
+    /// `random_pseudolegal_move`
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move>;
 
     /// Returns a random pseudolegal move
@@ -615,7 +633,7 @@ pub trait Board:
 
     /// Makes a nullmove, i.e. flips the active player. While this action isn't strictly legal in most games,
     /// it's still very useful and necessary for null move pruning.
-    /// Just like make_move, this function may fail, such as when trying to do a nullmove while in check.
+    /// `make_move`
     fn make_nullmove(self) -> Option<Self>;
 
     /// Returns true iff the move is pseudolegal, that is, it can be played with `make_move` without
@@ -760,7 +778,7 @@ pub fn position_fen_part<T: RectangularBoard>(pos: &T) -> String
 where
     T::Coordinates: RectangularCoordinates,
 {
-    let mut res: String = Default::default();
+    let mut res: String = String::default();
     for y in (0..pos.height()).rev() {
         let mut empty_ctr = 0;
         for x in 0..pos.width() {
@@ -829,13 +847,10 @@ where
     debug_assert!(lines.clone().count() > 0);
 
     let mut square = 0;
-    for (line, line_num) in lines.zip(0..) {
+    for (line, line_num) in lines.zip(0_usize..) {
         let mut skipped_digits = 0;
         let square_before_line = square;
-        debug_assert_eq!(
-            square_before_line,
-            line_num as usize * board.width() as usize
-        );
+        debug_assert_eq!(square_before_line, line_num * board.width() as usize);
 
         let handle_skipped = |digit_in_line, skipped_digits, idx: &mut usize| {
             if skipped_digits > 0 {
@@ -906,18 +921,18 @@ mod tests {
     #[cfg(feature = "chess")]
     #[test]
     fn generic_chess_test() {
-        GenericTests::<Chessboard>::all_tests()
+        GenericTests::<Chessboard>::all_tests();
     }
 
     #[cfg(feature = "mnk")]
     #[test]
     fn generic_mnk_test() {
-        GenericTests::<MNKBoard>::all_tests()
+        GenericTests::<MNKBoard>::all_tests();
     }
 
     #[cfg(feature = "ataxx")]
     #[test]
     fn generic_ataxx_test() {
-        GenericTests::<AtaxxBoard>::all_tests()
+        GenericTests::<AtaxxBoard>::all_tests();
     }
 }

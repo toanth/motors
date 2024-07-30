@@ -50,8 +50,9 @@ pub struct GameOver {
     pub reason: GameOverReason,
 }
 
-/// Status of a match from a MatchManager's perspective.
+/// Status of a match from a `MatchManager`'s perspective.
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
+#[must_use]
 pub enum MatchStatus {
     #[default]
     NotStarted,
@@ -68,7 +69,7 @@ impl MatchStatus {
     }
 }
 
-/// Low-level result of a match from a MatchManager's perspective
+/// Low-level result of a match from a `MatchManager`'s perspective
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum GameResult {
     P1Win,
@@ -126,8 +127,9 @@ impl Display for GameOverReason {
     }
 }
 
-/// Result of a match from a MatchManager's perspective, with the reason for why it ended.
+/// Result of a match from a `MatchManager`'s perspective, with the reason for why it ended.
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[must_use]
 pub struct MatchResult {
     pub result: GameResult,
     pub reason: GameOverReason,
@@ -151,6 +153,7 @@ pub fn player_res_to_match_res(game_over: GameOver, color: Color) -> MatchResult
 }
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct OutputArgs {
     pub name: String,
     pub opts: Vec<String>,
@@ -164,6 +167,7 @@ impl OutputArgs {
 
 /// The user can decide to quit either the current match or the entire program.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[must_use]
 pub enum Quitting {
     QuitProgram,
     QuitMatch,
@@ -202,7 +206,7 @@ pub trait GameState<B: Board> {
     fn name(&self) -> &str;
     fn event(&self) -> String;
     fn site(&self) -> &str;
-    /// The name of the player, if known (i.e. display_name for the GUI and None for the other player of an engine)
+    /// The name of the player, if known (i.e. `display_name` for the GUI and None for the other player of an engine)
     fn player_name(&self, color: Color) -> Option<&str>;
     fn time(&self, color: Color) -> Option<TimeControl>;
     fn thinking_since(&self, color: Color) -> Option<Instant>;

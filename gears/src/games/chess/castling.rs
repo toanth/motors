@@ -13,12 +13,14 @@ use crate::games::{char_to_file, Board, Color, ColoredPieceType, DimT};
 use crate::general::common::Res;
 
 #[derive(EnumIter, Copy, Clone, Eq, PartialEq, Debug, derive_more::Display)]
+#[must_use]
 pub enum CastleRight {
     Queenside,
     Kingside,
 }
 
 impl CastleRight {
+    #[must_use]
     pub fn king_dest_file(self) -> DimT {
         match self {
             Queenside => C_FILE_NO,
@@ -26,6 +28,7 @@ impl CastleRight {
         }
     }
 
+    #[must_use]
     pub fn rook_dest_file(self) -> DimT {
         match self {
             Queenside => D_FILE_NO,
@@ -35,12 +38,14 @@ impl CastleRight {
 }
 
 #[derive(Eq, PartialEq, Default, Debug, Ord, PartialOrd, Copy, Clone)]
+#[must_use]
 /// Stores the queen/kingside castling files for white/black in 3 bits each and uses the upper 4 bits to store
 /// if castling is legal. More compact representations are possible because e.e. queenside castling to the h file
 /// is impossible, but don't really seem worth it.
 pub struct CastlingFlags(u16);
 
 impl CastlingFlags {
+    #[must_use]
     pub fn allowed_castling_directions(self) -> usize {
         (self.0 >> 12) as usize
     }
@@ -50,12 +55,14 @@ impl CastlingFlags {
     }
 
     /// This return value of this function can only be used if `can_castle` would return `true`.
+    #[must_use]
     pub fn rook_start_file(self, color: Color, castle_right: CastleRight) -> DimT {
         ((self.0 >> Self::shift(color, castle_right)) & 0x7) as DimT
     }
 
     /// Returns true iff castling rights haven't been lost. Note that this doesn't consider the current position,
     /// i.e. checks or pieces blocking the castling move aren't handled here.
+    #[must_use]
     pub fn can_castle(self, color: Color, castle_right: CastleRight) -> bool {
         1 == 1
             & (self.allowed_castling_directions() >> (color as usize * 2 + castle_right as usize))
@@ -71,7 +78,7 @@ impl CastlingFlags {
         if self.can_castle(color, castle_right) {
             return Err(format!("Trying to set the {color} {castle_right} twice"));
         }
-        self.0 |= (file as u16) << Self::shift(color, castle_right);
+        self.0 |= u16::from(file) << Self::shift(color, castle_right);
         self.0 |= 1 << (12 + color as usize * 2 + castle_right as usize);
         Ok(())
     }
@@ -151,7 +158,7 @@ impl CastlingFlags {
                     ) {
                         self.set_castle_right(color, Kingside, H_FILE_NO)?;
                     } else {
-                        find_rook(Kingside)?
+                        find_rook(Kingside)?;
                     }
                 }
                 x @ 'a'..='h' => {

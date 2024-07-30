@@ -1,4 +1,4 @@
-//!  PiSTOn is a Piece Square Table Only evaluation function.
+//!  `PiSTOn` is a Piece Square Table Only evaluation function.
 //! There is a weight for each of the 6 * 2 * 64 piece, phase, square combinations.
 
 use crate::eval::chess::{psqt_trace, write_psqts, NUM_PHASES};
@@ -10,7 +10,7 @@ use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
 use gears::games::chess::Chessboard;
 use std::fmt::Formatter;
 
-///  PiSTOn is a Piece Square Table Only evaluation function.
+///  `PiSTOn` is a Piece Square Table Only evaluation function.
 /// There is a weight for each of the 6 * 2 * 64 piece, phase, square combinations.
 #[derive(Debug, Default)]
 pub struct PistonEval {}

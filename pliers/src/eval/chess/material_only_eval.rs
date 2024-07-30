@@ -19,7 +19,7 @@ impl WeightsInterpretation for MaterialOnlyEval {
     fn display(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
         |f: &mut Formatter<'_>, weights: &Weights, _old_weights: &[Weight]| {
             for piece in UncoloredChessPiece::non_king_pieces() {
-                writeln!(f, "{0}:\t{1}", piece.name(), weights[piece as usize])?
+                writeln!(f, "{0}:\t{1}", piece.name(), weights[piece as usize])?;
             }
             Ok(())
         }

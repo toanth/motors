@@ -44,6 +44,8 @@ const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
 
 // TODO: Ensure this conforms to <https://expositor.dev/uci/doc/uci-draft-1.pdf>
 
+#[derive(Debug, Copy, Clone)]
+#[must_use]
 enum SearchType {
     Normal,
     Ponder,
@@ -174,8 +176,8 @@ pub struct UgiOutput<B: Board> {
 impl<B: Board> UgiOutput<B> {
     /// Part of the UGI specification, but not the UCI specification
 
-    fn write_response(&mut self, response: String) {
-        self.write_ugi(&format!("response {response}"))
+    fn write_response(&mut self, response: &str) {
+        self.write_ugi(&format!("response {response}"));
     }
 
     pub fn write_ugi(&mut self, message: &str) {
@@ -183,37 +185,37 @@ impl<B: Board> UgiOutput<B> {
         // TODO: Keep stdout mutex? Might make printing slightly faster and prevents everyone else from
         // accessing stdout, which is probably a good thing because it prevents sending invalid UCI commands
         println!("{message}");
-        for output in self.additional_outputs.iter_mut() {
+        for output in &mut self.additional_outputs {
             output.write_ugi_output(message, None);
         }
     }
 
     fn write_ugi_input(&mut self, msg: SplitWhitespace) {
-        for output in self.additional_outputs.iter_mut() {
-            output.write_ugi_input(msg.clone(), None)
+        for output in &mut self.additional_outputs {
+            output.write_ugi_input(msg.clone(), None);
         }
     }
 
     pub fn write_message(&mut self, typ: Message, msg: &str) {
-        for output in self.additional_outputs.iter_mut() {
+        for output in &mut self.additional_outputs {
             output.display_message(typ, msg);
         }
     }
 
     pub fn show(&mut self, m: &dyn GameState<B>) -> bool {
-        for output in self.additional_outputs.iter_mut() {
-            output.show(m)
+        for output in &mut self.additional_outputs {
+            output.show(m);
         }
         self.additional_outputs
             .iter()
             .any(|o| !o.is_logger() && o.prints_board())
     }
 
-    pub fn show_bench(&mut self, bench_result: BenchResult) {
+    pub fn show_bench(&mut self, bench_result: &BenchResult) {
         self.write_ugi(&bench_result.to_string());
     }
 
-    pub fn show_search_res(&mut self, search_result: SearchResult<B>) {
+    pub fn show_search_res(&mut self, search_result: &SearchResult<B>) {
         let best = search_result.chosen_move.to_compact_text();
         if let Some(ponder) = search_result.ponder_move() {
             let ponder = ponder.to_compact_text();
@@ -321,7 +323,7 @@ impl<B: Board> EngineUGI<B> {
             mov_hist: vec![],
             board_hist: ZobristHistory::default(),
             initial_pos: B::default(),
-            last_played_color: Default::default(),
+            last_played_color: Color::default(),
             ponder_limit: None,
         };
         let state = EngineGameState {
@@ -331,7 +333,7 @@ impl<B: Board> EngineUGI<B> {
         };
         let err_msg_builder = output_builder_from_str("error", &all_output_builders)?;
         selected_output_builders.push(err_msg_builder);
-        for builder in selected_output_builders.iter_mut() {
+        for builder in &mut selected_output_builders {
             output
                 .lock()
                 .unwrap()
@@ -381,6 +383,9 @@ impl<B: Board> EngineUGI<B> {
             match res {
                 Err(err) => {
                     self.write_message(Error, err.as_str());
+                    if !self.continue_on_error() {
+                        self.write_ugi(&format!("info error {err}"));
+                    }
                     // explicitly check this here so that continuing on error doesn't prevent us from quitting.
                     if let Quit(quitting) = self.state.status {
                         return quitting;
@@ -402,17 +407,18 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn write_ugi(&mut self, message: &str) {
-        self.output().write_ugi(message)
+        self.output().write_ugi(message);
     }
 
     fn write_message(&mut self, typ: Message, msg: &str) {
-        self.output().write_message(typ, msg)
+        self.output().write_message(typ, msg);
     }
 
     fn continue_on_error(&self) -> bool {
         self.state.debug_mode
     }
 
+    #[allow(clippy::too_many_lines)]
     fn parse_input(&mut self, mut words: SplitWhitespace) -> Res<ProgramStatus> {
         self.output().write_ugi_input(words.clone());
         let words = &mut words;
@@ -648,16 +654,16 @@ impl<B: Board> EngineUGI<B> {
                     }
                 }
                 "movestogo" | "mtg" => {
-                    limit.tc.moves_to_go = Some(parse_int(words, "'movestogo' number")?)
+                    limit.tc.moves_to_go = Some(parse_int(words, "'movestogo' number")?);
                 }
                 "depth" | "d" => limit.depth = Depth::new(parse_int(words, "depth number")?),
                 "nodes" | "n" => {
                     limit.nodes = NodesLimit::new(parse_int(words, "node count")?)
-                        .ok_or_else(|| "node count can't be zero".to_string())?
+                        .ok_or_else(|| "node count can't be zero".to_string())?;
                 }
                 "mate" | "m" => {
                     let depth: usize = parse_int(words, "mate move count")?;
-                    limit.mate = Depth::new(depth * 2) // 'mate' is given in moves instead of plies
+                    limit.mate = Depth::new(depth * 2); // 'mate' is given in moves instead of plies
                 }
                 "movetime" | "mt" => {
                     limit.fixed_time = parse_duration_ms(words, "time per move in milliseconds")?;
@@ -686,9 +692,8 @@ impl<B: Board> EngineUGI<B> {
                             })?;
                         search_moves.push(mov);
                         continue;
-                    } else {
-                        return Err(format!("Unrecognized 'go' option: '{next_word}'"));
                     }
+                    return Err(format!("Unrecognized 'go' option: '{next_word}'"));
                 }
             }
             reading_moves = false;
@@ -735,18 +740,16 @@ impl<B: Board> EngineUGI<B> {
                     pos,
                     limit,
                     self.state.board_hist.clone(),
-                    false,
                     moves,
                     multi_pv,
-                )?
+                )?;
             }
             SearchType::Ponder => {
-                self.state.ponder_limit = Some(limit.clone());
+                self.state.ponder_limit = Some(limit);
                 self.state.engine.start_search(
                     pos,
                     SearchLimit::infinite(), //always allocate infinite time for pondering
                     self.state.board_hist.clone(),
-                    true,
                     moves,
                     multi_pv, // don't ignore multi_pv in pondering mode
                 )?;
@@ -836,10 +839,10 @@ impl<B: Board> EngineUGI<B> {
         match words.next().ok_or("Missing argument to 'query'")? {
             "gameover" => self
                 .output()
-                .write_response(matches!(self.state.status, Run(Ongoing)).to_string()),
+                .write_response(&matches!(self.state.status, Run(Ongoing)).to_string()),
             "p1turn" => self
                 .output()
-                .write_response((self.state.board.active_player() == White).to_string()),
+                .write_response(&(self.state.board.active_player() == White).to_string()),
             "result" => {
                 let response = match &self.state.status {
                     Run(Over(res)) => match res.result {
@@ -850,7 +853,7 @@ impl<B: Board> EngineUGI<B> {
                     },
                     _ => "none",
                 };
-                self.output().write_response(response.to_string());
+                self.output().write_response(response);
             }
             s => return Err(format!("unrecognized option {s}")),
         }
@@ -887,10 +890,10 @@ impl<B: Board> EngineUGI<B> {
             } else {
                 output
                     .additional_outputs
-                    .retain(|o| !o.short_name().eq_ignore_ascii_case(next))
+                    .retain(|o| !o.short_name().eq_ignore_ascii_case(next));
             }
         } else if next.eq_ignore_ascii_case("list") {
-            for o in output.additional_outputs.iter() {
+            for o in &output.additional_outputs {
                 print!(
                     "{}",
                     to_name_and_optional_description(o.as_ref(), WithDescription)
@@ -927,17 +930,17 @@ impl<B: Board> EngineUGI<B> {
                 self.handle_output(&mut "info".split_whitespace())?;
                 self.write_message(Debug, "Debug mode enabled");
                 // don't change the log stream if it's already set
-                if !self
+                if self
                     .output()
                     .additional_outputs
                     .iter()
                     .any(|o| o.is_logger())
                 {
+                    Ok(())
+                } else {
                     // In case of an error here, still keep the debug mode set.
                     self.handle_log(&mut "".split_whitespace())
                         .map_err(|err| format!("Couldn't set the debug log file: '{err}'"))?;
-                    Ok(())
-                } else {
                     Ok(())
                 }
             }
@@ -1062,8 +1065,7 @@ impl<B: Board> EngineUGI<B> {
                 .engine_info()
                 .eval()
                 .clone()
-                .map(|e| e.short_name())
-                .unwrap_or("<eval unused>".to_string());
+                .map_or_else(|| "<eval unused>".to_string(), |e| e.short_name());
             self.write_ugi(&format!("Current eval: {name}"));
             return Ok(());
         };
@@ -1166,13 +1168,14 @@ impl<B: Board> EngineUGI<B> {
             EngineOption {
                 name: EngineOptionName::UCIEngineAbout,
                 value: EngineOptionType::UString(UgiString {
-                    val: "".to_string(),
+                    val: String::new(),
                     default: Some(format!(
                         "Motors by ToTheAnd. Game: {2}. Engine: {0}. Eval: {1}  ",
                         engine_info.description.unwrap_or(engine_info.long),
-                        eval_info
-                            .map(|i| i.description.unwrap_or(i.long))
-                            .unwrap_or("<none>".to_string()),
+                        eval_info.map_or_else(
+                            || "<none>".to_string(),
+                            |i| i.description.unwrap_or(i.long)
+                        ),
                         B::game_name()
                     )),
                 }),

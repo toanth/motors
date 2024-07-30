@@ -43,8 +43,8 @@ where
     let move_bg_color = Color::Red;
     let symbol = piece.uncolor().to_utf8_char();
     let no_coordinates = B::Coordinates::no_coordinates();
-    let bg_color = if square == last_move.map_or(no_coordinates, |m| m.src_square())
-        || square == last_move.map_or(no_coordinates, |m| m.dest_square())
+    let bg_color = if square == last_move.map_or(no_coordinates, B::Move::src_square)
+        || square == last_move.map_or(no_coordinates, B::Move::dest_square)
     {
         move_bg_color
     } else if (square.row() + square.column()) % 2 == 0 {
@@ -84,7 +84,7 @@ impl AbstractOutput for PrettyUI {
     }
 
     fn display_message(&mut self, typ: Message, message: &str) {
-        self.writer.display_message(typ, message)
+        self.writer.display_message(typ, message);
     }
 }
 

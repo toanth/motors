@@ -376,9 +376,9 @@ impl Eval<Chessboard> for LiTEval {
     ) -> Score {
         debug_assert!(self.stack.len() >= ply);
         debug_assert!(ply > 0);
-        let entry = self.stack[ply - 1].clone(); // `PhasedScore` is `Copy`, but tuning isn't
+        let entry = self.stack[ply - 1];
         let (entry, score) = Self::incremental(entry, old_pos, mov, new_pos);
-        self.stack.resize(ply + 1, entry.clone());
+        self.stack.resize(ply + 1, entry);
         score.finalize(entry.phase, 24, new_pos.active_player(), TEMPO)
     }
 }

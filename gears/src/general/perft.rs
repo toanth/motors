@@ -107,11 +107,11 @@ pub fn perft_for<B: Board, Iter: IntoIterator<Item = B>>(
     positions: Iter,
 ) -> PerftRes {
     let mut res = PerftRes {
-        time: Default::default(),
+        time: Duration::default(),
         nodes: 0,
         depth,
     };
-    for pos in positions.into_iter() {
+    for pos in positions {
         if depth.get() == 0 || depth == MAX_DEPTH {
             depth = pos.default_perft_depth();
         }

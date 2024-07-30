@@ -41,8 +41,8 @@ impl Message {
 }
 
 pub fn game_over_message(result: MatchResult) -> String {
-    let mut msg = String::new();
     use std::fmt::Write;
+    let mut msg = String::new();
     writeln!(msg, "!!! {} !!!", result.result).unwrap();
     match result.reason {
         GameOverReason::Normal => msg,
@@ -99,7 +99,7 @@ pub trait Output<B: Board>: AbstractOutput {
     }
 
     fn update_engine_info(&mut self, engine_name: &str, info: &SearchInfo<B>) {
-        self.display_message(Info, &format!("{engine_name}: {}", info))
+        self.display_message(Info, &format!("{engine_name}: {info}"));
     }
 }
 
@@ -119,7 +119,7 @@ pub trait OutputBuilder<B: Board>: NamedEntity + DynClone + Send {
 
     fn add_options(&mut self, options: &[String]) -> Res<()> {
         for option in options {
-            self.add_option(option.clone())?
+            self.add_option(option.clone())?;
         }
         Ok(())
     }
@@ -127,6 +127,7 @@ pub trait OutputBuilder<B: Board>: NamedEntity + DynClone + Send {
 
 pub type OutputBox<B> = Box<dyn Output<B>>;
 
+#[must_use]
 pub fn required_outputs<B: Board>() -> OutputList<B> {
     vec![
         Box::new(TextOutputBuilder::new(Ascii)),
@@ -146,6 +147,7 @@ pub fn required_outputs<B: Board>() -> OutputList<B> {
     ]
 }
 
+#[must_use]
 pub fn normal_outputs<B: RectangularBoard>() -> OutputList<B>
 where
     <B as Board>::Coordinates: RectangularCoordinates,

@@ -95,16 +95,16 @@ impl<B: Board> Engine<B> for Gaps<B> {
     ) -> Res<SearchResult<B>> {
         let mut chosen_move = self.state.custom.chosen_move;
         let mut score = Score::default();
-        let max_depth = MAX_DEPTH.min(limit.depth).get() as isize;
+        let max_depth = MAX_DEPTH.min(limit.depth).isize();
         limit.fixed_time = limit.fixed_time.min(limit.tc.remaining);
-        if search_moves.len() != 0 {
+        if search_moves.is_empty() {
+            self.state.excluded_moves = vec![];
+        } else {
             self.state.excluded_moves = pos
                 .pseudolegal_moves()
                 .into_iter()
-                .filter(|m| !search_moves.contains(&m))
+                .filter(|m| !search_moves.contains(m))
                 .collect_vec();
-        } else {
-            self.state.excluded_moves = vec![];
         }
 
         self.state.statistics.next_id_iteration();
@@ -194,7 +194,7 @@ impl<B: Board> Gaps<B> {
     ) -> Score {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= MAX_DEPTH.get() * 2);
-        debug_assert!(depth <= MAX_DEPTH.get() as isize);
+        debug_assert!(depth <= MAX_DEPTH.isize());
         self.state
             .statistics
             .count_node_started(MainSearch, ply, true);

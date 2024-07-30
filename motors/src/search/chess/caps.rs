@@ -79,7 +79,7 @@ impl CaptHist {
     fn update(&mut self, mov: ChessMove, color: Color, bonus: i32) {
         let entry =
             &mut self[color as usize][mov.uncolored_piece() as usize][mov.dest_square().bb_idx()];
-        update_history_score(entry, bonus)
+        update_history_score(entry, bonus);
     }
     fn get(&self, mov: ChessMove, color: Color) -> MoveScore {
         MoveScore(self[color as usize][mov.uncolored_piece() as usize][mov.dest_square().bb_idx()])
@@ -214,7 +214,7 @@ impl StaticallyNamedEntity for Caps {
     where
         Self: Sized,
     {
-        format!("CAPS: Chess-playing Alpha-beta Pruning Search",)
+        "CAPS: Chess-playing Alpha-beta Pruning Search".to_string()
     }
 
     fn static_description() -> String
@@ -325,14 +325,14 @@ impl Engine<Chessboard> for Caps {
         // Use 3fold repetition detection for positions before and including the root node and 2fold for positions during search.
         self.state.custom.original_board_hist = take(&mut self.state.board_history);
         self.state.custom.original_board_hist.push(&pos);
-        if search_moves.len() == 0 {
+        if search_moves.is_empty() {
             self.state.excluded_moves = vec![];
         } else {
             let moves = pos.legal_moves_slow();
             let num_legal_moves = moves.len();
             self.state.excluded_moves = moves
                 .into_iter()
-                .filter(|m| !search_moves.contains(&m))
+                .filter(|m| !search_moves.contains(m))
                 .collect_vec();
             assert!(self.state.excluded_moves.len() < num_legal_moves);
         }
@@ -352,12 +352,10 @@ impl Engine<Chessboard> for Caps {
         elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment)
     }
 
-    #[inline(always)]
     fn search_state(&self) -> &impl SearchState<Chessboard> {
         &self.state
     }
 
-    #[inline(always)]
     fn search_state_mut(&mut self) -> &mut impl SearchState<Chessboard> {
         &mut self.state
     }
@@ -393,7 +391,7 @@ impl Caps {
         soft_limit: Duration,
         multipv: usize,
     ) -> SearchResult<Chessboard> {
-        let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth).get() as isize;
+        let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth).isize();
 
         self.state.multi_pvs.resize(multipv, PVData::default());
 
@@ -425,7 +423,7 @@ impl Caps {
             }
             self.state
                 .excluded_moves
-                .truncate(self.state.excluded_moves.len() - multipv)
+                .truncate(self.state.excluded_moves.len() - multipv);
         }
     }
 
@@ -455,7 +453,7 @@ impl Caps {
                 pos,
                 limit,
                 0,
-                self.state.depth().get() as isize,
+                self.state.depth().isize(),
                 *alpha,
                 *beta,
                 Exact,
@@ -519,7 +517,7 @@ impl Caps {
                 if pv_score <= *alpha {
                     self.state.statistics.aw_fail_low();
                 } else {
-                    self.state.statistics.aw_fail_high()
+                    self.state.statistics.aw_fail_high();
                 }
                 false
             };
@@ -540,6 +538,7 @@ impl Caps {
     /// that a re-search with the same depth returns a different score. Because of PVS, `alpha` is `beta - 1` in almost
     /// all nodes, and most nodes either get cut off before reaching the move loop or produce a beta cutoff after
     /// the first move.
+    #[allow(clippy::too_many_lines)]
     fn negamax(
         &mut self,
         pos: Chessboard,
@@ -552,7 +551,7 @@ impl Caps {
     ) -> Score {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= DEPTH_HARD_LIMIT.get());
-        debug_assert!(depth <= DEPTH_SOFT_LIMIT.get() as isize);
+        debug_assert!(depth <= DEPTH_SOFT_LIMIT.isize());
         debug_assert!(self.state.board_history.0.len() >= ply);
         self.state
             .statistics
@@ -674,7 +673,7 @@ impl Caps {
             // (like imminent threats) so don't prune too aggressively if our opponent hasn't blundered.
             // Be more careful about pruning too aggressively if the node is expected to fail low -- we should not rfp
             // a true fail low node, but our expectation may also be wrong.
-            let mut margin = (150 - (they_blundered as ScoreT * 64)) * depth as ScoreT;
+            let mut margin = (150 - (ScoreT::from(they_blundered) * 64)) * depth as ScoreT;
             if expected_node_type == FailHigh {
                 margin /= 2;
             }
@@ -700,7 +699,7 @@ impl Caps {
                 self.state.search_stack[ply]
                     .tried_moves
                     .push(ChessMove::default());
-                let reduction = 3 + depth / 4 + they_blundered as isize;
+                let reduction = 3 + depth / 4 + isize::from(they_blundered);
                 let score = -self.negamax(
                     new_pos,
                     limit,

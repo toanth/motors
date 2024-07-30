@@ -40,6 +40,7 @@ pub enum HandleBestMove {
     Play(Instant),
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum BestMoveAction {
     /// Ignore the bestmove uci message sent by the engine upon receiving 'stop'.
     /// This is called in some failure cases to allow shutting down the engine
@@ -90,18 +91,14 @@ impl EngineStatus {
 
     pub fn thinking_since(&mut self) -> Option<Instant> {
         match self {
-            ThinkingSince(time) => Some(*time),
-            Ping(time) => Some(*time),
-            Idle => None,
-            Sync => None,
-            WaitingUgiOk => None,
-            Halt(Play(time)) => Some(*time),
-            Halt(Ignore) => None,
+            ThinkingSince(time) | Ping(time) | Halt(Play(time)) => Some(*time),
+            Idle | Sync | WaitingUgiOk | Halt(Ignore) => None,
         }
     }
 }
 
 #[derive(Debug)]
+#[must_use]
 pub struct CurrentMatch<B: Board> {
     pub search_info: Option<SearchInfo<B>>,
     pub limit: SearchLimit,
@@ -198,7 +195,7 @@ impl<B: Board> InputThread<B> {
         if self
             .child_stdout
             .read_line(&mut str)
-            .map_err(|err| format!("Couldn't read input: {}", err))?
+            .map_err(|err| format!("Couldn't read input: {err}"))?
             == 0
         {
             let name = self
@@ -247,7 +244,7 @@ impl<B: Board> InputThread<B> {
         let mut client = client.lock().unwrap();
         let player = self.get_engine(&client);
         let engine_name = player.display_name.clone();
-        for output in client.outputs.iter_mut() {
+        for output in &mut client.outputs {
             output.write_ugi_input(words.clone(), Some(&engine_name));
         }
         let player = self.get_engine(&client);
@@ -377,7 +374,7 @@ impl<B: Board> InputThread<B> {
             "info" => { /*ignore*/ }
             "bestmove" => {
                 if matches!(handle_best_move, Play(_)) {
-                    Self::handle_bestmove(words, client, color)?
+                    Self::handle_bestmove(words, client, color)?;
                 }
                 client.state.get_engine_mut(color).status = Idle;
             }
@@ -407,7 +404,7 @@ impl<B: Board> InputThread<B> {
         }
         client.show_message(
             Debug,
-            &format!("protocol version of engine '{}': '{version}'", name),
+            &format!("protocol version of engine '{name}': '{version}'"),
         );
         Ok(())
     }
@@ -530,7 +527,7 @@ impl<B: Board> InputThread<B> {
                 "seldepth" => res.seldepth = Some(parse_int_from_str(value, "seldepth")?),
                 "time" => res.time = parse_duration_ms(&mut value.split_whitespace(), "time")?,
                 "nodes" => {
-                    res.nodes = NodesLimit::new(parse_int_from_str(value, "nodes")?).unwrap()
+                    res.nodes = NodesLimit::new(parse_int_from_str(value, "nodes")?).unwrap();
                 }
                 "pv" => {
                     match B::Move::from_compact_text(value, &board) {
@@ -547,12 +544,11 @@ impl<B: Board> InputThread<B> {
                         if word.is_none() {
                             break;
                         }
-                        match B::Move::from_compact_text(word.unwrap(), &board) {
-                            Ok(mov) => pv_moves.push(mov),
-                            Err(_) => {
-                                words = undo_consume_word;
-                                break;
-                            }
+                        if let Ok(mov) = B::Move::from_compact_text(word.unwrap(), &board) {
+                            pv_moves.push(mov);
+                        } else {
+                            words = undo_consume_word;
+                            break;
                         }
                     }
                 }
@@ -561,7 +557,7 @@ impl<B: Board> InputThread<B> {
                         res.score.0 = parse_int_from_str(
                             words.next().ok_or("missing score value after 'score cp'")?,
                             "cp",
-                        )?
+                        )?;
                     }
                     "mate" => {
                         let value: ScoreT = parse_int_from_str(
@@ -585,6 +581,7 @@ impl<B: Board> InputThread<B> {
                     let message = value.to_string().add(" ").add(&words.join(" "));
                     return Err(format!("The engine sent a UGI error: '{message}'"));
                 }
+                // TODO: Handle multipv and some other info
                 "refutation" | "currline" | "multipv" => { /*completely ignored*/ }
                 "currmove" | "currmovenumber" | "hashfull" | "tbhits" | "sbhits" | "cpuload" => {}
                 _ => {}
@@ -592,7 +589,7 @@ impl<B: Board> InputThread<B> {
             if !pv_moves.is_empty() {
                 // handle multiple 'pv' in one response
                 res.pv = pv_moves;
-                pv_moves = Default::default();
+                pv_moves = Vec::default();
             }
         }
         client.update_info(engine, res)
