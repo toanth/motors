@@ -54,14 +54,14 @@ struct BenchRun<B: Board> {
 
 impl<B: Board> BenchRun<B> {
     pub fn create(
-        options: EngineOpts,
-        all_searchers: SearcherList<B>,
-        all_evals: EvalList<B>,
+        options: &EngineOpts,
+        all_searchers: &SearcherList<B>,
+        all_evals: &EvalList<B>,
     ) -> Res<Self> {
         let Bench(depth) = options.mode else {
             unreachable!()
         };
-        let engine = create_engine_bench_from_str(&options.engine, &all_searchers, &all_evals)?;
+        let engine = create_engine_bench_from_str(&options.engine, all_searchers, all_evals)?;
         Ok(Self { engine, depth })
     }
 }
@@ -86,11 +86,11 @@ struct PerftRun<B: Board> {
 }
 
 impl<B: Board> PerftRun<B> {
-    pub fn create(depth: Option<Depth>) -> Res<Self> {
-        Ok(Self {
+    pub fn create(depth: Option<Depth>) -> Self {
+        Self {
             depth,
             ..Self::default()
-        })
+        }
     }
 }
 
@@ -111,7 +111,7 @@ pub fn create_searcher_from_str<B: Board>(
     searchers: &SearcherList<B>,
 ) -> Res<Box<dyn AbstractSearcherBuilder<B>>> {
     if name == "default" {
-        return Ok(clone_box(searchers.last().unwrap().deref()));
+        return Ok(clone_box(&**searchers.last().unwrap()));
     }
     Ok(clone_box(select_name_dyn(
         name,
@@ -171,7 +171,7 @@ pub fn create_match_for_game<B: Board>(
     outputs: OutputList<B>,
 ) -> Res<AnyRunnable> {
     match args.mode {
-        Bench(_) => Ok(Box::new(BenchRun::create(args, searchers, evals)?)),
+        Bench(_) => Ok(Box::new(BenchRun::create(&args, &searchers, &evals)?)),
         Mode::Engine => {
             if args.debug {
                 args.outputs.push(OutputArgs::new("logger".to_string()));
@@ -184,7 +184,7 @@ pub fn create_match_for_game<B: Board>(
                 evals,
             )?))
         }
-        Perft(depth) => Ok(Box::new(PerftRun::<B>::create(depth)?)),
+        Perft(depth) => Ok(Box::new(PerftRun::<B>::create(depth))),
     }
 }
 

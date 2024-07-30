@@ -21,7 +21,7 @@ impl<B: Board, const MAX_LEN: usize> ScoredMoveList<B, MAX_LEN> {
     fn new<Scorer: MoveScorer<B>>(
         tactical_only: bool,
         pos: &B,
-        scorer: &Scorer,
+        move_scorer: &Scorer,
         state: &Scorer::State,
         exclude: B::Move,
     ) -> Self {
@@ -35,7 +35,7 @@ impl<B: Board, const MAX_LEN: usize> ScoredMoveList<B, MAX_LEN> {
         }
         let mut scores = ArrayVec::default();
         for mov in moves.iter_moves() {
-            scores.push(scorer.score_move(*mov, state))
+            scores.push(move_scorer.score_move(*mov, state));
         }
         Self { moves, scores }
     }

@@ -22,7 +22,6 @@ enum SliderMove {
 
 impl Chessboard {
     fn single_pawn_moves(
-        &self,
         color: Color,
         square: ChessSquare,
         capture_filter: ChessBitboard,
@@ -85,9 +84,9 @@ impl Chessboard {
                 || (self.rook_start_square(color, Queenside) == mov.dest_square()
                     && self.is_castling_pseudolegal(Queenside))
         } else if mov.uncolored_piece() == Pawn {
-            let capturable =
-                self.colored_bb(color.other()) | self.ep_square.map(|s| s.bb()).unwrap_or_default();
-            self.single_pawn_moves(color, src, capturable, self.empty_bb())
+            let capturable = self.colored_bb(color.other())
+                | self.ep_square.map(ChessSquare::bb).unwrap_or_default();
+            Self::single_pawn_moves(color, src, capturable, self.empty_bb())
                 .is_bit_set_at(mov.dest_square().bb_idx())
         } else {
             (self.attacks_no_castle_or_pawn_push(src, mov.uncolored_piece(), color)
@@ -130,7 +129,7 @@ impl Chessboard {
         let double_pawn_moves;
         let left_pawn_captures;
         let right_pawn_captures;
-        let capturable = opponent | self.ep_square.map(|s| s.bb()).unwrap_or_default();
+        let capturable = opponent | self.ep_square.map(ChessSquare::bb).unwrap_or_default();
         if color == White {
             regular_pawn_moves = ((pawns << 8) & free, 8);
             double_pawn_moves = (
@@ -283,11 +282,11 @@ impl Chessboard {
         // Castling, handling the general (D)FRC case.
         if self.is_castling_pseudolegal(Queenside) {
             let rook = self.rook_start_square(color, Queenside);
-            list.push(ChessMove::new(king_square, rook, CastleQueenside))
+            list.push(ChessMove::new(king_square, rook, CastleQueenside));
         }
         if self.is_castling_pseudolegal(Kingside) {
             let rook = self.rook_start_square(color, Kingside);
-            list.push(ChessMove::new(king_square, rook, CastleKingside))
+            list.push(ChessMove::new(king_square, rook, CastleKingside));
         }
     }
 

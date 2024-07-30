@@ -28,11 +28,11 @@ impl PrecomputedZobristKeys {
 }
 
 /// A simple `const` random number generator adapted from my C++ algebra implementation,
-/// originally from here: https://www.pcg-random.org/ (I hate that website)
+/// originally from here: <https://www.pcg-random.org/> (I hate that website)
 struct PcgXslRr128_64Oneseq(u128);
 
-const MUTLIPLIER: u128 = (2549297995355413924 << 64) + 4865540595714422341;
-const INCREMENT: u128 = (6364136223846793005 << 64) + 1442695040888963407;
+const MUTLIPLIER: u128 = (2_549_297_995_355_413_924 << 64) + 4_865_540_595_714_422_341;
+const INCREMENT: u128 = (6_364_136_223_846_793_005 << 64) + 1_442_695_040_888_963_407;
 
 // the pcg xsl rr 128 64 oneseq generator, aka pcg64_oneseq (most other pcg generators have additional problems)
 impl PcgXslRr128_64Oneseq {
@@ -146,14 +146,14 @@ mod tests {
     #[test]
     fn pcg_test() {
         let gen = PcgXslRr128_64Oneseq::new(42);
-        assert_eq!(gen.0 >> 64, 1610214578838163691);
-        assert_eq!(gen.0 & ((1 << 64) - 1), 13841303961814150380);
+        assert_eq!(gen.0 >> 64, 1_610_214_578_838_163_691);
+        assert_eq!(gen.0 & ((1 << 64) - 1), 13_841_303_961_814_150_380);
         let (gen, rand) = gen.gen();
-        assert_eq!(rand.0, 2915081201720324186);
+        assert_eq!(rand.0, 2_915_081_201_720_324_186);
         let (gen, rand) = gen.gen();
-        assert_eq!(rand.0, 13533757442135995717);
+        assert_eq!(rand.0, 13_533_757_442_135_995_717);
         let (_gen, rand) = gen.gen();
-        assert_eq!(rand.0, 13172715927431628928);
+        assert_eq!(rand.0, 13_172_715_927_431_628_928);
     }
 
     #[test]

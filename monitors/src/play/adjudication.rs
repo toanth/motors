@@ -27,6 +27,7 @@ pub struct Adjudicator {
 }
 
 impl Adjudicator {
+    #[must_use]
     pub fn new(
         resign: Option<ScoreAdjudication>,
         draw: Option<ScoreAdjudication>,

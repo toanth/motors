@@ -17,7 +17,7 @@ use gears::general::common::{
 };
 use gears::output::Message::{Info, Warning};
 use gears::search::TimeControl;
-use gears::ugi::parse_ugi_position;
+use gears::ugi::{parse_ugi_position, EngineOption};
 use gears::MatchStatus::{Ongoing, Over};
 use gears::{output_builder_from_str, GameState};
 
@@ -43,7 +43,7 @@ impl<F> Debug for TextSelection<F> {
 
 impl<F> NamedEntity for TextSelection<F> {
     fn short_name(&self) -> String {
-        self.names.first().unwrap().to_string()
+        (*self.names.first().unwrap()).to_string()
     }
 
     fn long_name(&self) -> String {
@@ -135,7 +135,7 @@ impl<B: Board> TextInputThread<B> {
                     ugi_client
                         .lock()
                         .unwrap()
-                        .show_error(&format!("Couldn't get input: {}", err))
+                        .show_error(&format!("Couldn't get input: {err}"));
                 };
                 break;
             }
@@ -155,7 +155,7 @@ impl<B: Board> TextInputThread<B> {
                         client
                             .lock()
                             .unwrap()
-                            .show_message(Warning, &format!("Ignoring input. {e}"))
+                            .show_message(Warning, &format!("Ignoring input. {e}"));
                     });
                 }
             }
@@ -225,10 +225,10 @@ impl<B: Board> TextInputThread<B> {
             )?
             .description
             .unwrap_or("No description available");
-            println!("{}", desc);
+            println!("{desc}");
         } else {
             println!("Input either a move (most formats based on algebraic notation are recognized) or a command. Valid commands are:");
-            for cmd in commands.iter() {
+            for cmd in commands {
                 println!(
                     "{:25}  {description}",
                     cmd.names
@@ -360,7 +360,7 @@ impl<B: Board> TextInputThread<B> {
                     .state
                     .players
                     .iter()
-                    .map(|p| p.get_name())
+                    .map(Player::get_name)
                     .intersperse_(", ")
                     .collect::<String>()
             )
@@ -406,7 +406,7 @@ impl<B: Board> TextInputThread<B> {
         ugi_client: Arc<Mutex<Client<B>>>,
         words: &mut SplitWhitespace,
     ) -> Res<()> {
-        let mut words = words.map(|w| w.to_string()).peekable();
+        let mut words = words.map(ToString::to_string).peekable();
         let args = if words
             .peek()
             .is_some_and(|w| w.eq_ignore_ascii_case("human"))
@@ -491,7 +491,11 @@ impl<B: Board> TextInputThread<B> {
                 );
                 println!(
                     "Options:\n{}",
-                    engine.options.iter().map(|o| o.to_string()).join("\n")
+                    engine
+                        .options
+                        .iter()
+                        .map(EngineOption::to_string)
+                        .join("\n")
                 );
             }
             Player::Human(human) => {
@@ -507,7 +511,7 @@ impl<B: Board> TextInputThread<B> {
                     .get_time()
                     .unwrap()
                     .remaining_to_string(client.state.thinking_since(color))
-            )
+            );
         }
         Ok(())
     }

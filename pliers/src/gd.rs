@@ -229,13 +229,13 @@ impl Display for Weights {
 
 impl AddAssign<&Self> for Weights {
     fn add_assign(&mut self, rhs: &Self) {
-        self.iter_mut().zip(rhs.iter()).for_each(|(a, b)| *a += *b)
+        self.iter_mut().zip(rhs.iter()).for_each(|(a, b)| *a += *b);
     }
 }
 
 impl SubAssign<&Self> for Weights {
     fn sub_assign(&mut self, rhs: &Self) {
-        self.iter_mut().zip(rhs.iter()).for_each(|(a, b)| *a -= *b)
+        self.iter_mut().zip(rhs.iter()).for_each(|(a, b)| *a -= *b);
     }
 }
 
@@ -437,7 +437,7 @@ impl Datapoint for TaperedDatapoint {
     }
 }
 
-/// Like [TaperedDatapoint], but additionally holds a weight that can be used to signify how important this position is.
+/// Like [`TaperedDatapoint`], but additionally holds a weight that can be used to signify how important this position is.
 #[derive(Debug, Clone)]
 pub struct WeightedDatapoint {
     /// The nested tapered datapoint.
@@ -531,7 +531,7 @@ impl<D: Datapoint> Dataset<D> {
     /// which makes this an `O(n)` operation, where `n` is the size of the returned batch.
     pub fn batch(&self, start_idx: usize, end_idx: usize) -> Batch<D> {
         let datapoints = &self.datapoints[start_idx..end_idx];
-        let weight_sum = datapoints.iter().map(|d| d.sampling_weight()).sum();
+        let weight_sum = datapoints.iter().map(Datapoint::sampling_weight).sum();
         Batch {
             datapoints,
             num_weights: self.weights_in_pos,
@@ -897,7 +897,7 @@ impl<D: Datapoint> Optimizer<D> for SimpleGDOptimizer {
 #[derive(Debug, Copy, Clone)]
 pub struct AdamwHyperParams {
     /// Adam Learning rate multiplier, an upper bound on the step size.
-    /// This isn't quite the learning rate for AdamW because it doesn't apply to the weight decay term.
+    /// This isn't quite the learning rate for [`AdamW`] because it doesn't apply to the weight decay term.
     /// Currently, this implementation does not support a separate learning rate.
     pub alpha: Float,
     /// Exponential decay of the moving average of the gradient
@@ -952,7 +952,7 @@ impl<D: Datapoint, G: LossGradient> Optimizer<D> for Adam<G> {
         eval_scale: ScalingFactor,
         i: usize,
     ) {
-        self.0.iteration(weights, batch, eval_scale, i)
+        self.0.iteration(weights, batch, eval_scale, i);
     }
 }
 
@@ -990,7 +990,7 @@ impl<D: Datapoint, G: LossGradient> Optimizer<D> for AdamW<G> {
             hyper_params,
             m: Weights::new(batch.num_weights),
             v: Weights::new(batch.num_weights),
-            _phantom: Default::default(),
+            _phantom: PhantomData::default(),
         }
     }
 
@@ -1018,7 +1018,7 @@ impl<D: Datapoint, G: LossGradient> Optimizer<D> for AdamW<G> {
             let w = weights[i];
             weights[i] -= w * self.hyper_params.lambda
                 + unbiased_m * self.hyper_params.alpha
-                    / (unbiased_v.0.sqrt() + self.hyper_params.epsilon)
+                    / (unbiased_v.0.sqrt() + self.hyper_params.epsilon);
         }
     }
 }
@@ -1211,7 +1211,7 @@ mod tests {
             assert!(loss <= 0.01, "{loss}");
             if outcome == 0.5 {
                 assert_eq!(weights[0].0.signum(), weights[1].0.signum());
-                assert!((weights[0].0.abs() - weights[1].0.abs()).abs() <= 0.00000001);
+                assert!((weights[0].0.abs() - weights[1].0.abs()).abs() <= 0.0000_0001);
             } else {
                 assert_eq!(weights[0].0 > weights[1].0, outcome > 0.5);
             }
@@ -1220,6 +1220,7 @@ mod tests {
 
     #[test]
     pub fn two_positions_test() {
+        type AnyOptimizer = Box<dyn Optimizer<NonTaperedDatapoint>>;
         let scale = 1000.0;
         let win = NonTaperedDatapoint {
             features: vec![Feature::new(1, 0), Feature::new(-1, 1)],
@@ -1257,7 +1258,6 @@ mod tests {
             assert!(weights[0].0 >= 100.0);
             assert!(weights[1].0 <= -100.0);
 
-            type AnyOptimizer = Box<dyn Optimizer<NonTaperedDatapoint>>;
             let optimizers: [AnyOptimizer; 5] = [
                 Box::new(SimpleGDOptimizer { alpha: 1.0 }),
                 Box::new(Adam::<QuadraticLoss>::new(batch, scale)),

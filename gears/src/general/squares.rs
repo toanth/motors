@@ -322,9 +322,10 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
     }
 
     pub fn flip_if(self, flip: bool) -> Self {
-        match flip {
-            true => self.flip(),
-            false => self,
+        if flip {
+            self.flip()
+        } else {
+            self
         }
     }
 

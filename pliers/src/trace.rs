@@ -91,12 +91,9 @@ impl From<SingleFeature> for SparseTrace {
 
 impl SparseTrace {
     fn merge(&mut self, other: SparseTrace, negate_other: bool) {
-        for (key, val) in other.map.iter() {
-            let val = match negate_other {
-                true => -*val,
-                false => *val,
-            };
-            match self.map.entry(*key) {
+        for (key, val) in other.map {
+            let val = if negate_other { -val } else { val };
+            match self.map.entry(key) {
                 Entry::Occupied(o) => {
                     *o.into_mut() += val;
                 }
@@ -111,7 +108,7 @@ impl SparseTrace {
 impl TraceTrait for SparseTrace {
     fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
         let mut res = vec![];
-        for (index, feature) in self.map.iter() {
+        for (index, feature) in &self.map {
             let count: FeatureT = (*feature).try_into().unwrap();
             if count != 0 {
                 res.push(Feature::new(
@@ -367,7 +364,7 @@ impl TraceTrait for SimpleTrace {
                 let idx = i + idx_offset;
                 assert!(diff >= FeatureT::MIN as isize && diff <= FeatureT::MAX as isize);
                 assert!(res.len() < u16::MAX as usize);
-                assert!(idx <= u16::MAX as usize);
+                assert!(u16::try_from(idx).is_ok());
                 let feature = Feature::new(diff as FeatureT, idx as u16);
                 res.push(feature);
             }

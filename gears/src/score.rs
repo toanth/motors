@@ -109,7 +109,7 @@ impl Score {
     }
 
     pub fn plies_until_game_over(self) -> Option<isize> {
-        self.plies_until_game_won().map(|x| x.abs())
+        self.plies_until_game_won().map(isize::abs)
     }
 
     pub fn abs(self) -> Self {
@@ -234,7 +234,7 @@ mod tests {
                 let phased = p(i, j);
                 assert_eq!(
                     phased.mg().0,
-                    i as ScoreT,
+                    ScoreT::from(i),
                     "{0} {i} {j} -- {1:X}, {2} {3}",
                     phased.mg(),
                     phased.underlying(),
@@ -243,7 +243,7 @@ mod tests {
                 );
                 assert_eq!(
                     phased.eg().0,
-                    j as ScoreT,
+                    ScoreT::from(j),
                     "{0} {i} {j} -- {1:X}, {2} {3}",
                     phased.mg(),
                     phased.underlying(),
@@ -256,10 +256,10 @@ mod tests {
         for ((mg_a, eg_a), (mg_b, eg_b)) in v.iter().copied().tuple_windows() {
             let taper_a = p(mg_a, eg_a);
             let taper_b = p(mg_b, eg_b);
-            let mg_a = Score(mg_a as ScoreT);
-            let mg_b = Score(mg_b as ScoreT);
-            let eg_a = Score(eg_a as ScoreT);
-            let eg_b = Score(eg_b as ScoreT);
+            let mg_a = Score(ScoreT::from(mg_a));
+            let mg_b = Score(ScoreT::from(mg_b));
+            let eg_a = Score(ScoreT::from(eg_a));
+            let eg_b = Score(ScoreT::from(eg_b));
             let sum = taper_a + taper_b;
             assert_eq!(
                 sum.mg(),

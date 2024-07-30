@@ -226,7 +226,7 @@ impl Move<AtaxxBoard> for AtaxxMove {
     fn from_usize_unchecked(val: usize) -> Self {
         let source = AtaxxSquare::from_bb_index((val >> 8) & 0xff);
         let target = AtaxxSquare::from_bb_index(val & 0xff);
-        Self { target, source }
+        Self { source, target }
     }
 
     fn to_underlying(self) -> Self::Underlying {
@@ -249,7 +249,7 @@ impl AtaxxMove {
     }
 
     pub fn leaping(source: AtaxxSquare, target: AtaxxSquare) -> Self {
-        Self { target, source }
+        Self { source, target }
     }
 
     pub fn typ(self) -> AtaxxMoveType {

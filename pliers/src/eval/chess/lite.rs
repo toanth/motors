@@ -156,7 +156,7 @@ impl LiteValues for LiTETrace {
 }
 
 #[derive(Debug, Default)]
-/// Tuning the chess Linear Tuned Eval (LiTE) values.
+/// Tuning the chess Linear Tuned Eval (`LiTE`) values.
 /// This is done by re-using the generic eval function but instantiating it with a trace instead of a score.
 pub struct TuneLiTEval {}
 
@@ -229,7 +229,7 @@ impl WeightsInterpretation for TuneLiTEval {
             )?;
             for _feature in 0..LiTETrace::NUM_PAWN_PROTECTION_FEATURES {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                idx += 1
+                idx += 1;
             }
             writeln!(f, "\n];")?;
             writeln!(
@@ -238,7 +238,7 @@ impl WeightsInterpretation for TuneLiTEval {
             )?;
             for _feature in 0..LiTETrace::NUM_PAWN_ATTACKS_FEATURES {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                idx += 1
+                idx += 1;
             }
             writeln!(f, "\n];")?;
             writeln!(f, "\npub const MAX_MOBILITY: usize = 7 + 7 + 7 + 6;")?;
@@ -255,32 +255,21 @@ impl WeightsInterpretation for TuneLiTEval {
                 writeln!(f, "],")?;
             }
             writeln!(f, "];")?;
-            writeln!(
-                f,
-                "const THREATS: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = ["
-            )?;
-            for _piece in UncoloredChessPiece::non_pawn_pieces() {
-                write!(f, "[")?;
-                for _threatened in UncoloredChessPiece::pieces() {
-                    write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                    idx += 1;
+            for name in ["THREATS", "DEFENDED"] {
+                writeln!(
+                    f,
+                    "const {name}: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = ["
+                )?;
+                for _piece in UncoloredChessPiece::non_pawn_pieces() {
+                    write!(f, "[")?;
+                    for _threatened in UncoloredChessPiece::pieces() {
+                        write!(f, "{}, ", write_phased(weights, idx, &special))?;
+                        idx += 1;
+                    }
+                    writeln!(f, "],")?;
                 }
-                writeln!(f, "],")?;
+                writeln!(f, "];")?;
             }
-            writeln!(f, "];")?;
-            writeln!(
-                f,
-                "const DEFENDED: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = ["
-            )?;
-            for _piece in UncoloredChessPiece::non_pawn_pieces() {
-                write!(f, "[")?;
-                for _threatened in UncoloredChessPiece::pieces() {
-                    write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                    idx += 1;
-                }
-                writeln!(f, "],")?;
-            }
-            writeln!(f, "];")?;
             write!(f, "const KING_ZONE_ATTACK: [PhasedScore; 6] = [")?;
             for _piece in UncoloredChessPiece::pieces() {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;

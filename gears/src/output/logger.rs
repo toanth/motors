@@ -94,12 +94,9 @@ impl<B: Board> Output<B> for Logger {
 
     fn display_message_with_state(&mut self, m: &dyn GameState<B>, typ: Message, message: &str) {
         self.display_message(typ, message);
-        match typ {
-            Message::Info => {}
-            _ => {
-                let str = self.as_string(m);
-                self.stream.write(typ.message_prefix(), &str)
-            }
+        if typ != Message::Info {
+            let str = self.as_string(m);
+            self.stream.write(typ.message_prefix(), &str);
         }
     }
 }

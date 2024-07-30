@@ -25,7 +25,7 @@ pub fn changed_at_least(threshold: Float, weights: &Weights, old_weights: &[Weig
     if old_weights.len() == weights.len() {
         for i in 0..old_weights.len() {
             if threshold < 0.0 {
-                res[i] = weights[i].rounded() != old_weights[i].rounded()
+                res[i] = weights[i].rounded() != old_weights[i].rounded();
             } else {
                 res[i] = (weights[i].0 - old_weights[i].0).abs() >= threshold;
             }
@@ -140,7 +140,7 @@ impl EvalScale {
     ) -> ScalingFactor {
         match self {
             Scale(scale) => scale,
-            InitialWeights(weights) => tune_scaling_factor(weights, batch, eval),
+            InitialWeights(weights) => tune_scaling_factor(&weights, batch, eval),
         }
     }
 }
@@ -337,7 +337,7 @@ fn grad_for_eval_scale<D: Datapoint>(
 }
 
 fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
-    weights: Weights,
+    weights: &Weights,
     batch: Batch<D>,
     eval: &E,
 ) -> ScalingFactor {
@@ -361,7 +361,7 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
     );
     println!(
         "Optimizing scaling factor for eval:\n{}",
-        display(eval, &weights, &[])
+        display(eval, weights, &[])
     );
     // First, do exponential search to find an interval in which we know that the optimal value lies.
     loop {
@@ -370,7 +370,7 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
             because the eval fails to accurately predict the used datasets. You can always fall back to hand-picking an \
             eval scale in case this doesn't work, or try again with different datasets");
         }
-        let (dir, _loss) = grad_for_eval_scale(&weights, batch, scale);
+        let (dir, _loss) = grad_for_eval_scale(weights, batch, scale);
         if prev_dir.is_none() {
             prev_dir = Some(dir);
         } else if prev_dir.unwrap() != dir {
@@ -389,7 +389,7 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
     let loss_threshold = 0.01;
     loop {
         scale = (upper_bound + lower_bound) / 2.0;
-        let (dir, loss) = grad_for_eval_scale(&weights, batch, scale);
+        let (dir, loss) = grad_for_eval_scale(weights, batch, scale);
         if loss < loss_threshold || upper_bound - scale <= 0.01 {
             return scale;
         }

@@ -255,7 +255,7 @@ mod tests {
         let see_score = board.see(
             ChessMove::from_compact_text("e5f4", &board).unwrap(),
             SeeScore(-1234),
-            SeeScore(567890),
+            SeeScore(567_890),
         );
         assert_eq!(see_score, SeeScore(0));
 

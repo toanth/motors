@@ -158,10 +158,10 @@ impl AtaxxBoard {
                 ColoredAtaxxPieceType::Empty => {}
                 ColoredAtaxxPieceType::Blocked => board.empty |= square.bb().raw(),
                 ColoredAtaxxPieceType::WhitePiece => {
-                    board.colors[White as usize] |= square.bb().raw()
+                    board.colors[White as usize] |= square.bb().raw();
                 }
                 ColoredAtaxxPieceType::BlackPiece => {
-                    board.colors[Black as usize] |= square.bb().raw()
+                    board.colors[Black as usize] |= square.bb().raw();
                 }
             }
             Ok(board)
@@ -184,9 +184,9 @@ impl AtaxxBoard {
             let fullmove_number = fullmove_number
                 .parse::<NonZeroUsize>()
                 .map_err(|err| format!("Couldn't parse fullmove counter: {err}"))?;
-            board.ply = (fullmove_number.get() - 1) * 2 + (color == Black) as usize;
+            board.ply = (fullmove_number.get() - 1) * 2 + usize::from(color == Black);
         } else {
-            board.ply = (color == Black) as usize;
+            board.ply = usize::from(color == Black);
             board.ply_100_ctr = 0;
         }
         board.active_player = color;

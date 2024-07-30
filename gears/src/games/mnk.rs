@@ -85,7 +85,7 @@ impl ColoredPieceType for Symbol {
         match self {
             X => Some(White),
             O => Some(Black),
-            _ => None,
+            Empty => None,
         }
     }
 
@@ -372,7 +372,7 @@ impl MNKBoard {
         self.settings.k as u32
     }
 
-    fn make_move_for_player(mut self, mov: <Self as Board>::Move, player: Color) -> Option<Self> {
+    fn make_move_for_player(mut self, mov: <Self as Board>::Move, player: Color) -> Self {
         debug_assert!(self.is_move_pseudolegal(mov));
 
         let placed_bb = ExtendedRawBitboard::single_piece(self.size().to_internal_key(mov.target));
@@ -384,7 +384,7 @@ impl MNKBoard {
         self.ply += 1;
         self.last_move = Some(mov);
         self.active_player = player.other();
-        Some(self)
+        self
     }
 }
 
@@ -486,7 +486,7 @@ impl Board for MNKBoard {
 
     fn pseudolegal_moves(&self) -> EagerNonAllocMoveList<Self, 128> {
         let mut empty = self.empty_bb();
-        let mut moves: EagerNonAllocMoveList<Self, 128> = Default::default();
+        let mut moves = EagerNonAllocMoveList::<Self, 128>::default();
         while empty.has_set_bit() {
             let idx = empty.pop_lsb();
             if idx >= self.num_squares() {
@@ -501,7 +501,7 @@ impl Board for MNKBoard {
     }
 
     fn tactical_pseudolegal(&self) -> Self::MoveList {
-        Default::default()
+        Self::MoveList::default()
     }
 
     fn random_legal_move<T: Rng>(&self, rng: &mut T) -> Option<Self::Move> {
@@ -529,7 +529,7 @@ impl Board for MNKBoard {
     // into lookup indices.
 
     fn make_move(self, mov: Self::Move) -> Option<Self> {
-        self.make_move_for_player(mov, self.active_player())
+        Some(self.make_move_for_player(mov, self.active_player()))
     }
 
     fn make_nullmove(mut self) -> Option<Self> {
@@ -556,8 +556,8 @@ impl Board for MNKBoard {
         }
     }
 
-    fn player_result_slow<H: BoardHistory<Self>>(&self, _history: &H) -> Option<PlayerResult> {
-        self.player_result_no_movegen(_history)
+    fn player_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult> {
+        self.player_result_no_movegen(history)
     }
 
     fn no_moves_result(&self) -> PlayerResult {
@@ -635,15 +635,10 @@ impl Board for MNKBoard {
 
         let mut board = MNKBoard::empty_possibly_invalid(settings);
 
-        let place_piece = |board: MNKBoard, target: GridCoordinates, symbol: Symbol| {
-            board
-                .make_move_for_player(FillSquare { target }, symbol.color().unwrap())
-                .ok_or_else(|| {
-                    format!(
-                        "Internal error: Couldn't place symbol {symbol} at coordinates {target}"
-                    )
-                })
-        };
+        let place_piece =
+            |board: MNKBoard, target: GridCoordinates, symbol: Symbol| -> Res<MNKBoard> {
+                Ok(board.make_move_for_player(FillSquare { target }, symbol.color().unwrap()))
+            };
 
         board = read_position_fen(position, board, place_piece)?;
 
@@ -893,24 +888,20 @@ mod test {
         );
         assert_eq!(board.as_fen(), "3 3 3 o 3/1X1/3");
 
-        let board = board
-            .make_move_for_player(
-                FillSquare {
-                    target: board.idx_to_coordinates(3),
-                },
-                White,
-            )
-            .unwrap();
+        let board = board.make_move_for_player(
+            FillSquare {
+                target: board.idx_to_coordinates(3),
+            },
+            White,
+        );
         assert_eq!(board.as_fen(), "3 3 3 o 3/XX1/3");
 
-        let board = board
-            .make_move_for_player(
-                FillSquare {
-                    target: board.idx_to_coordinates(5),
-                },
-                Black,
-            )
-            .unwrap();
+        let board = board.make_move_for_player(
+            FillSquare {
+                target: board.idx_to_coordinates(5),
+            },
+            Black,
+        );
         assert_eq!(board.as_fen(), "3 3 3 x 3/XXO/3");
 
         let board = MNKBoard::empty_possibly_invalid(MnkSettings {

@@ -21,7 +21,7 @@ pub enum TextStream {
 
 impl TextStream {
     pub fn write(&mut self, prefix: &str, msg: &str) {
-        _ = writeln!(self.stream(), "{prefix} {msg}")
+        _ = writeln!(self.stream(), "{prefix} {msg}");
     }
 
     pub fn stream(&mut self) -> &mut dyn Write {
@@ -152,7 +152,7 @@ pub struct BoardToText {
 }
 
 impl BoardToText {
-    fn match_to_pgn<B: Board>(&self, m: &dyn GameState<B>) -> String {
+    fn match_to_pgn<B: Board>(m: &dyn GameState<B>) -> String {
         let result = match m.match_status() {
             MatchStatus::Over(r) => match r.result {
                 GameResult::P1Win => "1-0",
@@ -204,7 +204,7 @@ impl BoardToText {
             if ply % 2 == 0 {
                 res += &format!("\n{}. {mov_str}", ply / 2 + 1);
             } else {
-                res += &format!(" {mov_str}")
+                res += &format!(" {mov_str}");
             }
             board = board.make_move(*mov).unwrap();
         }
@@ -249,18 +249,18 @@ impl BoardToText {
             swap(&mut time_below, &mut time_above);
         }
         match self.typ {
-            DisplayType::Ascii => format!(
+            Ascii => format!(
                 "{time_above}{}{time_below}",
                 m.get_board().as_ascii_diagram(flipped)
             ),
-            DisplayType::Unicode => format!(
+            Unicode => format!(
                 "{time_above}{}{time_below}",
                 m.get_board().as_unicode_diagram(flipped)
             ),
-            DisplayType::Fen => m.get_board().as_fen(),
-            DisplayType::Pgn => self.match_to_pgn(m),
-            DisplayType::Uci | DisplayType::Ugi => BoardToText::match_to_ugi(m),
-            DisplayType::MsgOnly => String::default(),
+            Fen => m.get_board().as_fen(),
+            Pgn => Self::match_to_pgn(m),
+            Uci | Ugi => BoardToText::match_to_ugi(m),
+            MsgOnly => String::default(),
         }
     }
 }
@@ -306,7 +306,7 @@ impl AbstractOutput for TextOutput {
     }
 
     fn display_message(&mut self, typ: Message, message: &str) {
-        self.writer.display_message(typ, message)
+        self.writer.display_message(typ, message);
     }
 }
 
@@ -378,8 +378,7 @@ impl NamedEntity for TextOutputBuilder {
     fn long_name(&self) -> String {
         self.short_name
             .clone()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| self.typ.long_name())
+            .map_or_else(|| self.typ.long_name(), |s| s.to_string())
     }
 
     fn description(&self) -> Option<String> {

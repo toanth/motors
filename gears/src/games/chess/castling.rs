@@ -71,7 +71,7 @@ impl CastlingFlags {
         if self.can_castle(color, castle_right) {
             return Err(format!("Trying to set the {color} {castle_right} twice"));
         }
-        self.0 |= (file as u16) << Self::shift(color, castle_right);
+        self.0 |= u16::from(file) << Self::shift(color, castle_right);
         self.0 |= 1 << (12 + color as usize * 2 + castle_right as usize);
         Ok(())
     }
@@ -151,7 +151,7 @@ impl CastlingFlags {
                     ) {
                         self.set_castle_right(color, Kingside, H_FILE_NO)?;
                     } else {
-                        find_rook(Kingside)?
+                        find_rook(Kingside)?;
                     }
                 }
                 x @ 'a'..='h' => {

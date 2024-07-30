@@ -469,9 +469,10 @@ where
     }
 
     fn flip_if(self, flip: bool) -> Self {
-        match flip {
-            true => self.flip_up_down(),
-            false => self,
+        if flip {
+            self.flip_up_down()
+        } else {
+            self
         }
     }
 
@@ -514,7 +515,7 @@ where
         Self::hyperbola_quintessence(
             ray.size().to_internal_key(square),
             blockers,
-            |x| x.flip_up_down(),
+            Self::flip_up_down,
             ray,
         )
     }
@@ -719,7 +720,7 @@ where
 {
     fn bitor_assign(&mut self, rhs: Self) {
         debug_assert_eq!(self.size(), rhs.size());
-        self.raw |= rhs.raw
+        self.raw |= rhs.raw;
     }
 }
 
@@ -741,7 +742,7 @@ where
 {
     fn bitand_assign(&mut self, rhs: Self) {
         debug_assert_eq!(self.size(), rhs.size());
-        self.raw &= rhs.raw
+        self.raw &= rhs.raw;
     }
 }
 
@@ -763,7 +764,7 @@ where
 {
     fn bitxor_assign(&mut self, rhs: Self) {
         debug_assert_eq!(self.size(), rhs.size());
-        self.raw ^= rhs.raw
+        self.raw ^= rhs.raw;
     }
 }
 
@@ -783,7 +784,7 @@ where
     C::Size: RectangularSize<C>,
 {
     fn shl_assign(&mut self, rhs: usize) {
-        self.raw <<= rhs
+        self.raw <<= rhs;
     }
 }
 
@@ -803,7 +804,7 @@ where
     C::Size: RectangularSize<C>,
 {
     fn shr_assign(&mut self, rhs: usize) {
-        self.raw >>= rhs
+        self.raw >>= rhs;
     }
 }
 
@@ -835,7 +836,7 @@ pub mod chess {
 
     use super::*;
 
-    /// Some of the (automatically derived) methods of ChessBitbiard aren't `const`,
+    /// Some of the (automatically derived) methods of `ChessBitboard` aren't `const`,
     /// so use `u64` for all `const fn`s.
     pub const CHESS_DIAGONALS: [ChessBitboard; 64] = {
         let mut res = [ChessBitboard::from_u64(0); 64];
@@ -860,39 +861,39 @@ pub mod chess {
     const fn precompute_single_knight_attacks(square_idx: usize) -> u64 {
         let this_knight: u64 = 1 << square_idx;
         let a_file: u64 = A_FILE.raw.0;
-        let knight_not_a_file = this_knight & !a_file;
-        let mut attacks = (knight_not_a_file << 15) | (knight_not_a_file >> 17);
-        let knight_not_h_file = this_knight & !(a_file << 7);
-        attacks |= (knight_not_h_file >> 15) | (knight_not_h_file << 17);
-        let knight_not_ab_file = knight_not_a_file & !(a_file << 1);
-        attacks |= (knight_not_ab_file << 6) | (knight_not_ab_file >> 10);
-        let knight_not_gh_file = knight_not_h_file & !(a_file << 6);
-        attacks |= (knight_not_gh_file >> 6) | (knight_not_gh_file << 10);
+        let not_a_file = this_knight & !a_file;
+        let mut attacks = (not_a_file << 15) | (not_a_file >> 17);
+        let not_h_file = this_knight & !(a_file << 7);
+        attacks |= (not_h_file >> 15) | (not_h_file << 17);
+        let not_ab_file = not_a_file & !(a_file << 1);
+        attacks |= (not_ab_file << 6) | (not_ab_file >> 10);
+        let not_gh_file = not_h_file & !(a_file << 6);
+        attacks |= (not_gh_file >> 6) | (not_gh_file << 10);
         attacks
     }
 
     const fn precompute_single_king_attacks(square_idx: usize) -> u64 {
         let king = 1 << square_idx;
         let a_file = A_FILE.raw.0;
-        let king_not_a_file = king & !a_file;
-        let king_not_h_file = king & !(a_file << 7);
+        let not_a_file = king & !a_file;
+        let not_h_file = king & !(a_file << 7);
         (king << 8)
             | (king >> 8)
-            | (king_not_a_file >> 1)
-            | (king_not_a_file << 7)
-            | (king_not_a_file >> 9)
-            | (king_not_h_file << 1)
-            | (king_not_h_file >> 7)
-            | (king_not_h_file << 9)
+            | (not_a_file >> 1)
+            | (not_a_file << 7)
+            | (not_a_file >> 9)
+            | (not_h_file << 1)
+            | (not_h_file >> 7)
+            | (not_h_file << 9)
     }
 
     const fn precompute_single_pawn_capture(color: Color, square_idx: usize) -> u64 {
         let pawn = 1 << square_idx;
-        let pawn_not_a_file = pawn & !A_FILE.raw.0;
-        let pawn_not_h_file = pawn & !(A_FILE.raw.0 << 7);
+        let not_a_file = pawn & !A_FILE.raw.0;
+        let not_h_file = pawn & !(A_FILE.raw.0 << 7);
         match color {
-            White => (pawn_not_a_file << 7) | (pawn_not_h_file << 9),
-            Black => (pawn_not_a_file >> 9) | (pawn_not_h_file >> 7),
+            White => (not_a_file << 7) | (not_h_file << 9),
+            Black => (not_a_file >> 9) | (not_h_file >> 7),
         }
     }
 
@@ -1070,9 +1071,9 @@ pub mod chess {
                 0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe, 0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf,
             ];
             let bb = self.0 >> (8 * rank);
-            Self::from_u64(
-                (LOOKUP[((bb >> 4) & 0xf) as usize] | (LOOKUP[(bb & 0xf) as usize] << 4)) as u64,
-            ) << (8 * rank)
+            Self::from_u64(u64::from(
+                LOOKUP[((bb >> 4) & 0xf) as usize] | (LOOKUP[(bb & 0xf) as usize] << 4),
+            )) << (8 * rank)
         }
 
         fn flip_up_down(self) -> Self {

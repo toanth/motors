@@ -64,7 +64,7 @@ impl<B: Board> UgiMatchState<B> {
         Self {
             status: NotStarted,
             board: initial_pos,
-            board_history: Default::default(),
+            board_history: ZobristHistory::default(),
             move_history: vec![],
             initial_pos,
             event,
@@ -380,14 +380,14 @@ impl<B: Board> Client<B> {
 
     pub fn game_over(&mut self, result: MatchResult) {
         self.match_state().status = Over(result);
-        for output in self.outputs.iter_mut() {
+        for output in &mut self.outputs {
             output.inform_game_over(&self.state);
         }
     }
 
     pub fn update_info(&mut self, id: PlayerId, info: SearchInfo<B>) -> Res<()> {
         let engine = self.state.get_engine_from_id_mut(id);
-        for output in self.outputs.iter_mut() {
+        for output in &mut self.outputs {
             output.update_engine_info(&engine.display_name, &info);
         }
         let current_match = engine.current_match.as_mut().ok_or_else(|| {
@@ -404,7 +404,7 @@ impl<B: Board> Client<B> {
                 "Engine {}: '{info}'",
                 self.state.get_engine_from_id(id).display_name
             ),
-        )
+        );
     }
 
     /// Plays a move without assuming that it comes from the current player, so this can be used to set up a position.
@@ -466,7 +466,7 @@ impl<B: Board> Client<B> {
     }
 
     pub fn show(&mut self) {
-        for output in self.outputs.iter_mut() {
+        for output in &mut self.outputs {
             output.show(&self.state);
         }
     }
@@ -476,7 +476,7 @@ impl<B: Board> Client<B> {
     }
 
     pub fn show_message(&mut self, typ: Message, message: &str) {
-        for output in self.outputs.iter_mut() {
+        for output in &mut self.outputs {
             output.display_message_with_state(&self.state, typ, message);
         }
     }
@@ -486,7 +486,7 @@ impl<B: Board> Client<B> {
     pub fn send_ugi_message_to(&mut self, engine: PlayerId, message: &str) {
         let engine = self.state.get_engine_from_id_mut(engine);
         let name = engine.display_name.clone();
-        for output in self.outputs.iter_mut() {
+        for output in &mut self.outputs {
             output.write_ugi_output(message, Some(&name));
         }
 
@@ -498,7 +498,7 @@ impl<B: Board> Client<B> {
     }
 
     pub fn send_ugi_message(&mut self, color: Color, message: &str) {
-        self.send_ugi_message_to(self.state.id(color), message)
+        self.send_ugi_message_to(self.state.id(color), message);
     }
 
     fn send_uginewgame(&mut self, color: Color) {
@@ -559,7 +559,7 @@ impl<B: Board> Client<B> {
 
     /// Sends a UGI 'stop' message and ignores the resulting 'bestmove' message.
     pub fn cancel_thinking(&mut self, color: Color) {
-        self.stop_thinking(color, Ignore)
+        self.stop_thinking(color, Ignore);
     }
 
     /// Sends a UGI 'stop' message and either ignores the resulting 'bestmove' message or plays it,
@@ -695,11 +695,11 @@ impl<B: Board> Client<B> {
     }
 
     pub fn restart(&mut self) {
-        self.new_match(self.state.the_match.p1, self.state.the_match.p2)
+        self.new_match(self.state.the_match.p1, self.state.the_match.p2);
     }
 
     pub fn restart_flipped_colors(&mut self) {
-        self.new_match(self.state.the_match.p2, self.state.the_match.p1)
+        self.new_match(self.state.the_match.p2, self.state.the_match.p1);
     }
 
     /// Start a match from any starting position with the current players.
@@ -713,7 +713,7 @@ impl<B: Board> Client<B> {
         self.show();
         self.match_state().status = Ongoing;
         let player = self.board().active_player();
-        self.start_thinking(player)
+        self.start_thinking(player);
     }
 
     pub fn active_player(&self) -> Option<Color> {

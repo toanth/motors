@@ -12,7 +12,7 @@ pub mod lite_values;
 pub mod material_only;
 pub mod piston;
 
-/// Has to be in the same order as the FileOpenness in lite.
+/// Has to be in the same order as the `FileOpenness` in `lite`.
 /// `SemiClosed` is last because it doesn't get counted.
 #[derive(Debug, Eq, PartialEq, Copy, Clone, EnumIter, Display)]
 pub enum FileOpenness {
@@ -105,7 +105,7 @@ mod tests {
         let a = pawn_shield_idx(pos.empty_bb(), pos.king_square(White), White);
         let b = pawn_shield_idx(pos.empty_bb(), pos.king_square(Black), Black);
         assert_eq!(a, b);
-        assert_eq!(a, 0b111000);
+        assert_eq!(a, 0b111_000);
         for file in 0..8 {
             let a = pawn_shield_idx(pawns, ChessSquare::from_rank_file(0, file), White);
             let b = pawn_shield_idx(pawns, ChessSquare::from_rank_file(7, file), Black);
@@ -126,7 +126,7 @@ mod tests {
         let white = pawn_shield_idx(pos.piece_bb(Pawn), pos.king_square(White), White);
         let black = pawn_shield_idx(pos.piece_bb(Pawn), pos.king_square(Black), Black);
         assert_eq!(white, 0b100);
-        assert_eq!(black, 0b010101);
+        assert_eq!(black, 0b010_101);
     }
 
     fn expected_pawn_shield_idx(

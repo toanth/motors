@@ -20,7 +20,7 @@ pub mod text_input;
 //     }
 // }
 
-/// An `Input` tells the MatchState what to do. It isn't necessarily just a way for a human to enter input,
+/// An `Input` tells the [`MatchState`] what to do. It isn't necessarily just a way for a human to enter input,
 /// it can also automatically run games, like a SPRT runner. Since the `Input` is in complete control of the match,
 /// this trait is almost empty
 pub trait Input<B: Board>: StaticallyNamedEntity {

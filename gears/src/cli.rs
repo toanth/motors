@@ -23,7 +23,7 @@ pub enum Game {
     #[cfg(feature = "chess")]
     Chess,
     #[cfg(feature = "ataxx")]
-    /// See https://en.wikipedia.org/wiki/Ataxx and https://github.com/EngineProgramming/engine-list?tab=readme-ov-file#ataxx-engines
+    /// See <https://en.wikipedia.org/wiki/Ataxx> and <https://github.com/EngineProgramming/engine-list?tab=readme-ov-file#ataxx-engines>
     Ataxx,
     /// m,n,k games are a generalization of Tic-Tac-Toe or Gomoku. Currently, this implementation only supports boards
     /// up to 128 squares.

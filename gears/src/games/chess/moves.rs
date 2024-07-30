@@ -400,6 +400,7 @@ impl Chessboard {
     }
 
     /// Is only ever called on a copy of the board, so no need to undo the changes when a move gets aborted due to pseudo-legality.
+    #[allow(clippy::too_many_lines)]
     pub(super) fn make_move_impl(mut self, mov: ChessMove) -> Option<Self> {
         let piece = mov.uncolored_piece();
         debug_assert_eq!(piece, self.uncolored_piece_on(mov.src_square()));
@@ -511,7 +512,7 @@ impl Chessboard {
         self.flip_side_to_move()
     }
 
-    /// Called at the end of make_nullmove and make_move.
+    /// Called at the end of `make_nullmove` and `make_move`.
     pub fn flip_side_to_move(mut self) -> Option<Self> {
         if self.is_in_check() {
             None
@@ -598,12 +599,12 @@ impl<'a> MoveParser<'a> {
 
     fn advance_char(&mut self) {
         if let Some(c) = self.current_char() {
-            self.num_bytes_read += c.len_utf8()
+            self.num_bytes_read += c.len_utf8();
         }
     }
 
     fn ignore_whitespace(&mut self) {
-        while self.current_char().is_some_and(|c| c.is_whitespace()) {
+        while self.current_char().is_some_and(char::is_whitespace) {
             self.advance_char();
         }
     }
@@ -671,7 +672,7 @@ impl<'a> MoveParser<'a> {
             'a'..='h' | 'A' | 'C' | 'E'..='H' | 'x' | ':' | '×' => (),
             _ => {
                 self.piece = ColoredChessPiece::from_utf8_char(current)
-                    .map(|c| c.uncolor())
+                    .map(ColoredChessPiece::uncolor)
                     .or_else(|| UncoloredChessPiece::from_utf8_char(current))
                     .ok_or_else(|| {
                         format!("The move starts with '{current}', which is not a piece or file")
@@ -895,7 +896,7 @@ impl<'a> MoveParser<'a> {
                         "any square".to_string()
                     }
                 };
-                let mut additional = "".to_string();
+                let mut additional = String::new();
                 if board.is_game_lost_slow() {
                     additional = format!(" ({} has been checkmated)", board.active_player);
                 } else if board.is_in_check() {
@@ -941,15 +942,14 @@ impl<'a> MoveParser<'a> {
             || incorrect_check
             || incorrect_capture
         {
-            let typ = match incorrect_mate {
-                true => "delivers checkmate",
-                false => match incorrect_check {
-                    true => "gives check",
-                    false => match incorrect_capture {
-                        true => "captures something",
-                        false => "captures en passant",
-                    },
-                },
+            let typ = if incorrect_mate {
+                "delivers checkmate"
+            } else if incorrect_check {
+                "gives check"
+            } else if incorrect_capture {
+                "captures something"
+            } else {
+                "captures en passant"
             };
             return Err(format!(
                 "The move notation '{0}' claims that it {typ}, but the move {1} actually doesn't",

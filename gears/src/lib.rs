@@ -50,7 +50,7 @@ pub struct GameOver {
     pub reason: GameOverReason,
 }
 
-/// Status of a match from a MatchManager's perspective.
+/// Status of a match from a `MatchManager`'s perspective.
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub enum MatchStatus {
     #[default]
@@ -68,7 +68,7 @@ impl MatchStatus {
     }
 }
 
-/// Low-level result of a match from a MatchManager's perspective
+/// Low-level result of a match from a `MatchManager`'s perspective
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum GameResult {
     P1Win,
@@ -126,7 +126,7 @@ impl Display for GameOverReason {
     }
 }
 
-/// Result of a match from a MatchManager's perspective, with the reason for why it ended.
+/// Result of a match from a `MatchManager`'s perspective, with the reason for why it ended.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct MatchResult {
     pub result: GameResult,
@@ -202,7 +202,7 @@ pub trait GameState<B: Board> {
     fn name(&self) -> &str;
     fn event(&self) -> String;
     fn site(&self) -> &str;
-    /// The name of the player, if known (i.e. display_name for the GUI and None for the other player of an engine)
+    /// The name of the player, if known (i.e. `display_name` for the GUI and None for the other player of an engine)
     fn player_name(&self, color: Color) -> Option<&str>;
     fn time(&self, color: Color) -> Option<TimeControl>;
     fn thinking_since(&self, color: Color) -> Option<Instant>;

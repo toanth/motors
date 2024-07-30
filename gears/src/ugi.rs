@@ -76,24 +76,18 @@ impl Display for EngineOptionType {
             EngineOptionType::Spin(s) => {
                 let default = s
                     .default
-                    .map(|x| format!(" default {}", x))
-                    .unwrap_or_else(String::default);
-                let min = s
-                    .min
-                    .map(|x| format!(" min {}", x))
-                    .unwrap_or_else(String::default);
-                let max = s
-                    .max
-                    .map(|x| format!(" max {}", x))
-                    .unwrap_or_else(String::default);
+                    .map(|x| format!(" default {x}"))
+                    .unwrap_or_default();
+                let min = s.min.map(|x| format!(" min {x}")).unwrap_or_default();
+                let max = s.max.map(|x| format!(" max {x}")).unwrap_or_default();
                 write!(f, "{default}{min}{max}")?;
             }
             EngineOptionType::Combo(c) => {
                 let default = c
                     .default
                     .clone()
-                    .map(|_x| " default x".to_string())
-                    .unwrap_or_else(String::default);
+                    .map(|x| format!(" default {x}"))
+                    .unwrap_or_default();
                 for o in &c.options {
                     write!(f, " var {o}")?;
                 }
