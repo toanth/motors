@@ -127,6 +127,7 @@ pub trait OutputBuilder<B: Board>: NamedEntity + DynClone + Send {
 
 pub type OutputBox<B> = Box<dyn Output<B>>;
 
+#[must_use]
 pub fn required_outputs<B: Board>() -> OutputList<B> {
     vec![
         Box::new(TextOutputBuilder::new(Ascii)),
@@ -146,6 +147,7 @@ pub fn required_outputs<B: Board>() -> OutputList<B> {
     ]
 }
 
+#[must_use]
 pub fn normal_outputs<B: RectangularBoard>() -> OutputList<B>
 where
     <B as Board>::Coordinates: RectangularCoordinates,

@@ -16,7 +16,7 @@ pub fn caps_startpos_bench(c: &mut Criterion) {
     });
 }
 
-pub fn caps_normal_bench_depth_7(c: &mut Criterion) {
+fn caps_normal_bench_depth_7(c: &mut Criterion) {
     c.bench_function("normal bench", |b| {
         let mut engine = Caps::for_eval::<LiTEval>();
         b.iter(|| run_bench_with(&mut engine, Depth::new(7), NodesLimit::new(20_000).unwrap()));

@@ -20,6 +20,7 @@ pub mod chess;
 /// Returns a [`Vec`] of [`bool`] where the ith entry is [`true`] iff the absolute difference between `weights[i]` and
 /// `old_weights[i]` is at least `threshold`. If `threshold` is negative, this is instead [`true`] iff the rounded
 /// values differ (i.e. `0.49` and `0.51` would be different, but not `0.51` and `1.23`).
+#[must_use]
 pub fn changed_at_least(threshold: Float, weights: &Weights, old_weights: &[Weight]) -> Vec<bool> {
     let mut res = vec![false; weights.len()];
     if old_weights.len() == weights.len() {
@@ -35,6 +36,7 @@ pub fn changed_at_least(threshold: Float, weights: &Weights, old_weights: &[Weig
 }
 
 /// Like [`write_phased`], but each entry takes up at least `width` chars
+#[must_use]
 pub fn write_phased_with_width(
     weights: &[Weight],
     feature_idx: usize,
@@ -52,6 +54,7 @@ pub fn write_phased_with_width(
 /// Convert a pair of weights to string, coloring each one red if the corresponding `special` entry is set.
 ///
 /// The two weight indices are `feature_idx * 2` and `feature_idx * 2 + 1`.
+#[must_use]
 pub fn write_phased(weights: &[Weight], feature_idx: usize, special: &[bool]) -> String {
     write_phased_with_width(weights, feature_idx, special, 0)
 }
@@ -59,6 +62,7 @@ pub fn write_phased(weights: &[Weight], feature_idx: usize, special: &[bool]) ->
 /// Returns a vector of [`Float`]s, where each entry counts to how often the corresponding feature appears in the
 /// dataset, weighted by the sampling weight of its datapoint (which should usually be `1.0`).
 /// This can be used to give a very rough idea of the variance of the weight.
+#[must_use]
 pub fn count_occurrences<D: Datapoint>(batch: Batch<D>) -> Vec<Float> {
     let mut res = vec![0.0; batch.num_weights];
     for datapoint in batch.iter() {
@@ -365,11 +369,10 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
     );
     // First, do exponential search to find an interval in which we know that the optimal value lies.
     loop {
-        if scale >= 1e9 || scale <= 1e-9 {
-            panic!("The eval scale doesn't seem to converge. This may be due to a bugged eval implementation or simply \
+        assert!(!(scale >= 1e9 || scale <= 1e-9),
+            "The eval scale doesn't seem to converge. This may be due to a bugged eval implementation or simply \
             because the eval fails to accurately predict the used datasets. You can always fall back to hand-picking an \
             eval scale in case this doesn't work, or try again with different datasets");
-        }
         let (dir, _loss) = grad_for_eval_scale(weights, batch, scale);
         if prev_dir.is_none() {
             prev_dir = Some(dir);

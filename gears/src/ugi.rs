@@ -8,12 +8,14 @@ use crate::general::common::{NamedEntity, Res};
 /// Ugi-related helpers that are used by both `motors` and `monitors`.
 
 #[derive(Default, Debug, Copy, Clone)]
+#[must_use]
 pub struct UgiCheck {
     pub val: bool,
     pub default: Option<bool>,
 }
 
 #[derive(Debug, Copy, Clone, Default)]
+#[must_use]
 pub struct UgiSpin {
     pub val: i64,
     pub default: Option<i64>,
@@ -22,6 +24,7 @@ pub struct UgiSpin {
 }
 
 #[derive(Debug, Clone, Default)]
+#[must_use]
 pub struct UgiCombo {
     pub val: String,
     pub default: Option<String>,
@@ -29,12 +32,14 @@ pub struct UgiCombo {
 }
 
 #[derive(Debug, Clone, Default)]
+#[must_use]
 pub struct UgiString {
     pub val: String,
     pub default: Option<String>,
 }
 
 #[derive(Clone, Debug)]
+#[must_use]
 pub enum EngineOptionType {
     Check(UgiCheck),
     Spin(UgiSpin),
@@ -105,6 +110,7 @@ impl Display for EngineOptionType {
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
+#[must_use]
 pub enum EngineOptionName {
     Hash,
     Threads,

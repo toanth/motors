@@ -102,6 +102,7 @@ impl<B: Board> Output<B> for Logger {
 }
 
 #[derive(Clone, Debug, Default)]
+#[must_use]
 pub struct LoggerBuilder {
     stream_name: String,
     options: Vec<String>,

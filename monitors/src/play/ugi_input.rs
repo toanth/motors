@@ -98,6 +98,7 @@ impl EngineStatus {
 }
 
 #[derive(Debug)]
+#[must_use]
 pub struct CurrentMatch<B: Board> {
     pub search_info: Option<SearchInfo<B>>,
     pub limit: SearchLimit,
@@ -544,7 +545,7 @@ impl<B: Board> InputThread<B> {
                             break;
                         }
                         if let Ok(mov) = B::Move::from_compact_text(word.unwrap(), &board) {
-                            pv_moves.push(mov)
+                            pv_moves.push(mov);
                         } else {
                             words = undo_consume_word;
                             break;

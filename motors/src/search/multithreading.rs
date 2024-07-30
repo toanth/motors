@@ -50,6 +50,7 @@ struct SearchSenderState {
 /// deals with starting searches and returning the results across threads, and is therefore unnecessary if
 /// the engine is used as a library.
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct SearchSender<B: Board> {
     output: Option<Arc<Mutex<UgiOutput<B>>>>,
     sss: Arc<SearchSenderState>,
@@ -149,13 +150,13 @@ impl<B: Board> SearchSender<B> {
             if self.sss.dont_print_result.load(SeqCst) {
                 return;
             }
-            output.lock().unwrap().show_search_res(res);
+            output.lock().unwrap().show_search_res(&res);
         }
     }
 
     pub fn send_bench_res(&mut self, res: BenchResult) {
         if let Some(output) = &self.output {
-            output.lock().unwrap().show_bench(res);
+            output.lock().unwrap().show_bench(&res);
         }
     }
 
@@ -307,6 +308,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
 /// Implementations of this trait live in the UGI thread and deal with forwarding the UGI commands to
 /// all engine threads and coordinating the different engine threads to arrive at only one chosen move.
 #[derive(Debug)]
+#[must_use]
 pub struct EngineWrapper<B: Board> {
     sender: Sender<EngineReceives<B>>,
     engine_info: EngineInfo,

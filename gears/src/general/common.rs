@@ -24,11 +24,13 @@ pub fn pop_lsb128(x: &mut u128) -> u32 {
     shift
 }
 
+#[must_use]
 pub fn ith_one_u64(idx: usize, val: u64) -> usize {
     debug_assert!(idx < val.count_ones() as usize);
     (1 << idx).pdep(val).trailing_zeros() as usize
 }
 
+#[must_use]
 pub fn ith_one_u128(idx: usize, val: u128) -> usize {
     let lower_bits = (val & u64::MAX as u128) as u64;
     let num_lower_ones = lower_bits.count_ones() as usize;
@@ -137,6 +139,7 @@ impl<T: StaticallyNamedEntity> NamedEntity for T {
 }
 
 #[derive(Debug, Clone, Default)]
+#[must_use]
 pub struct Name {
     pub short: String,
     pub long: String,

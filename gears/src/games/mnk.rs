@@ -210,11 +210,12 @@ impl Move<MNKBoard> for FillSquare {
     }
 
     fn to_underlying(self) -> Self::Underlying {
-        ((self.target.row as u16) << 8) | (self.target.column as u16)
+        (u16::from(self.target.row) << 8) | u16::from(self.target.column)
     }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[must_use]
 pub struct MnkSettings {
     height: DimT,
     width: DimT,
@@ -740,31 +741,31 @@ mod test {
     #[test]
     #[should_panic]
     fn dimension_test_invalid_k_0() {
-        MnkSettings::new(Height(4), Width(5), 0);
+        _ = MnkSettings::new(Height(4), Width(5), 0);
     }
 
     #[test]
     #[should_panic]
     fn dimension_test_invalid_k_too_large() {
-        MnkSettings::new(Height(4), Width(5), 6);
+        _ = MnkSettings::new(Height(4), Width(5), 6);
     }
 
     #[test]
     #[should_panic]
     fn dimension_test_invalid_zero_width() {
-        MnkSettings::new(Height(4), Width(0), 3);
+        _ = MnkSettings::new(Height(4), Width(0), 3);
     }
 
     #[test]
     #[should_panic]
     fn dimension_test_invalid_width_too_large() {
-        MnkSettings::new(Height(4), Width(33), 3);
+        _ = MnkSettings::new(Height(4), Width(33), 3);
     }
 
     #[test]
     #[should_panic]
     fn dimension_test_invalid_board_too_large() {
-        MnkSettings::new(Height(12), Width(11), 6);
+        _ = MnkSettings::new(Height(12), Width(11), 6);
     }
 
     // Only covers very basic cases, perft is used for mor more complex cases

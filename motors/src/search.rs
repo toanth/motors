@@ -34,6 +34,7 @@ pub mod statistics;
 mod tt;
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct EngineInfo {
     engine: Name,
     eval: Option<Name>,
@@ -323,8 +324,8 @@ pub struct SearcherBuilder<B: Board, E: Engine<B>> {
 impl<B: Board, E: Engine<B>> Default for SearcherBuilder<B, E> {
     fn default() -> Self {
         Self {
-            _phantom_b: PhantomData::default(),
-            _phantom_e: PhantomData::default(),
+            _phantom_b: PhantomData,
+            _phantom_e: PhantomData,
         }
     }
 }
@@ -376,6 +377,8 @@ impl<B: Board, E: Engine<B>> StaticallyNamedEntity for SearcherBuilder<B, E> {
     }
 }
 
+#[derive(Debug)]
+#[must_use]
 pub enum BenchLimit {
     Depth(Depth),
     Nodes(NodesLimit),
@@ -895,6 +898,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, FromRepr)]
 #[repr(u8)]
+#[must_use]
 pub enum NodeType {
     /// Don't use 0 because that's used to represent the empty node type for the internal TT representation
     /// score is a lower bound >= beta, cut-node (the most common node type)

@@ -354,7 +354,7 @@ mod bitboards {
             let size = GridSize::new(Height(3), Width(2));
             assert_eq!(
                 MnkBitboard::anti_diag_for_sq(GridCoordinates::from_row_column(0, 1), size,)
-                    & MnkBitboard::from_uint(0b111111, size),
+                    & MnkBitboard::from_uint(0b111_111, size),
                 MnkBitboard::from_uint(0b0110, size)
             );
 

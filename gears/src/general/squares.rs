@@ -24,6 +24,7 @@ pub fn sup_distance<C: RectangularCoordinates>(a: C, b: C) -> usize {
 }
 
 #[derive(Clone, Copy, Eq, PartialOrd, PartialEq, Debug, Default, Hash)]
+#[must_use]
 pub struct GridCoordinates {
     pub row: DimT, // TODO: Store only one int
     pub column: DimT,
@@ -118,6 +119,7 @@ pub trait RectangularSize<C: RectangularCoordinates>: Size<C> {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
+#[must_use]
 pub struct GridSize {
     pub height: Height,
     pub width: Width,
@@ -188,6 +190,7 @@ impl RectangularSize<GridCoordinates> for GridSize {
 }
 
 #[derive(Debug, Default, Eq, PartialEq, Copy, Clone)]
+#[must_use]
 pub struct SmallGridSize<const H: usize, const W: usize> {}
 
 impl<const H: usize, const W: usize> Display for SmallGridSize<H, W> {
@@ -234,12 +237,14 @@ impl<const H: usize, const W: usize> RectangularSize<SmallGridSquare<H, W>>
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum SquareColor {
     White,
     Black,
 }
 
 #[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Hash)]
+#[must_use]
 pub struct SmallGridSquare<const H: usize, const W: usize> {
     idx: u8,
 }

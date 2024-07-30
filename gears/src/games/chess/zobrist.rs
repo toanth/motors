@@ -118,6 +118,7 @@ impl Chessboard {
         self.hash = Self::new_zobrist_after_move(self.hash, self.active_player, piece, from, to);
     }
 
+    #[must_use]
     pub fn new_zobrist_after_move(
         mut old_hash: ZobristHash,
         color: Color,

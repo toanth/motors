@@ -230,7 +230,7 @@ impl Move<AtaxxBoard> for AtaxxMove {
     }
 
     fn to_underlying(self) -> Self::Underlying {
-        ((self.source.to_u8() as u16) << 8) | (self.target.to_u8() as u16)
+        (u16::from(self.source.to_u8()) << 8) | u16::from(self.target.to_u8())
     }
 }
 

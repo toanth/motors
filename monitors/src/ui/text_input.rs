@@ -51,7 +51,7 @@ impl<F> NamedEntity for TextSelection<F> {
     }
 
     fn description(&self) -> Option<String> {
-        self.description.map(|s| s.to_string())
+        self.description.map(ToString::to_string)
     }
 
     fn matches(&self, name: &str) -> bool {

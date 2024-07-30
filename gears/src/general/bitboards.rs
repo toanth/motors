@@ -52,7 +52,7 @@ const fn compute_diagonal_bbs() -> [[u128; 128]; MAX_WIDTH] {
         // can't use for loops in const functions
         let mut i: usize = 0;
         while i < 128 {
-            let diag = (i / width) as i32 - (i % width) as i32;
+            let diag = (i / width) as isize - (i % width) as isize;
             if diag > 0 {
                 let diag = diag as usize;
                 res[width][i] = STEPS[width + 1] << (diag * width);
@@ -107,6 +107,7 @@ const ANTI_DIAGONALS: [[u128; 128]; MAX_WIDTH] = compute_anti_diagonal_bbs();
 
 // This seems like a lot of boilerplate code.
 // Maybe there's a better way?
+#[must_use]
 pub trait RawBitboard:
     Copy
     + Clone
@@ -116,7 +117,7 @@ pub trait RawBitboard:
     + Sub<Output = Self>
     + Not<Output = Self>
     + BitAnd<Output = Self>
-    + BitAnd<usize>
+    + BitAnd<u64>
     + BitAndAssign
     + BitOr<Output = Self>
     + BitOrAssign
@@ -158,6 +159,7 @@ pub trait RawBitboard:
 
     fn pop_lsb(&mut self) -> usize;
 
+    #[must_use]
     fn single_piece(idx: usize) -> Self {
         Self::from_primitive(Self::Primitive::one() << idx)
     }
@@ -186,6 +188,7 @@ pub trait RawBitboard:
     }
 }
 
+#[must_use]
 pub struct BitIterator<B: RawBitboard>(B);
 
 impl<B: RawBitboard> Iterator for BitIterator<B> {
@@ -219,6 +222,7 @@ impl<B: RawBitboard> Iterator for BitIterator<B> {
     Shr,
     ShrAssign,
 )]
+#[must_use]
 pub struct RawStandardBitboard(pub u64);
 
 // TODO: Why are these methods not derived?
@@ -231,11 +235,11 @@ impl Sub for RawStandardBitboard {
     }
 }
 
-impl BitAnd<usize> for RawStandardBitboard {
-    type Output = usize;
+impl BitAnd<u64> for RawStandardBitboard {
+    type Output = u64;
 
-    fn bitand(self, rhs: usize) -> usize {
-        (self.0 as usize).bitand(rhs)
+    fn bitand(self, rhs: u64) -> u64 {
+        (self.0).bitand(rhs)
     }
 }
 
@@ -289,6 +293,7 @@ impl RawBitboard for RawStandardBitboard {
     Shr,
     ShrAssign,
 )]
+#[must_use]
 pub struct ExtendedRawBitboard(pub u128);
 
 impl Debug for ExtendedRawBitboard {
@@ -305,11 +310,11 @@ impl Sub for ExtendedRawBitboard {
     }
 }
 
-impl BitAnd<usize> for ExtendedRawBitboard {
-    type Output = usize;
+impl BitAnd<u64> for ExtendedRawBitboard {
+    type Output = u64;
 
-    fn bitand(self, rhs: usize) -> Self::Output {
-        (self.0 as usize).bitand(rhs)
+    fn bitand(self, rhs: u64) -> Self::Output {
+        (self.0 as u64).bitand(rhs)
     }
 }
 
@@ -345,6 +350,7 @@ pub enum RayDirections {
     AntiDiagonal,
 }
 
+#[must_use]
 pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     Copy
     + Clone
@@ -592,7 +598,7 @@ where
         (self & !Self::file(self.size().width().0 - 1, self.size())) << 1
     }
 
-    fn west(self) -> Self {
+        fn west(self) -> Self {
         (self & !Self::file(0, self.size())) >> 1
     }
 
@@ -634,6 +640,7 @@ where
 // This makes comparisons fast but shifts responsibility to the user to properly zero out those,
 // which can be confusing. TODO: Change?
 #[derive(Default, Copy, Clone, PartialEq, Eq, Debug)]
+#[must_use]
 pub struct DefaultBitboard<R: RawBitboard, C: RectangularCoordinates> {
     raw: R,
     size: C::Size,
@@ -858,6 +865,7 @@ pub mod chess {
         res
     };
 
+    #[allow(clippy::similar_names)]
     const fn precompute_single_knight_attacks(square_idx: usize) -> u64 {
         let this_knight: u64 = 1 << square_idx;
         let a_file: u64 = A_FILE.raw.0;
@@ -872,6 +880,7 @@ pub mod chess {
         attacks
     }
 
+    #[allow(clippy::similar_names)]
     const fn precompute_single_king_attacks(square_idx: usize) -> u64 {
         let king = 1 << square_idx;
         let a_file = A_FILE.raw.0;
@@ -887,6 +896,7 @@ pub mod chess {
             | (not_h_file << 9)
     }
 
+    #[allow(clippy::similar_names)]
     const fn precompute_single_pawn_capture(color: Color, square_idx: usize) -> u64 {
         let pawn = 1 << square_idx;
         let not_a_file = pawn & !A_FILE.raw.0;
@@ -956,6 +966,7 @@ pub mod chess {
         Shr,
         ShrAssign,
     )]
+    #[must_use]
     pub struct ChessBitboard {
         raw: RawStandardBitboard,
     }
@@ -998,6 +1009,7 @@ pub mod chess {
         }
 
         /// not a trait method because it has to be `const`
+        #[must_use]
         pub const fn to_u64(self) -> u64 {
             self.raw.0
         }
@@ -1107,6 +1119,7 @@ pub mod ataxx {
 
     pub const INVALID_EDGE_MASK: AtaxxBitboard = AtaxxBitboard::from_u64(0xff80_8080_8080_8080);
 
+    #[allow(clippy::similar_names)]
     const fn precompute_single_leaping_attacks(square_idx: usize) -> u64 {
         let ab_file = A_FILE.to_u64() | (A_FILE.to_u64() << 1);
         let gh_file = ab_file << 6;
@@ -1163,6 +1176,7 @@ pub mod ataxx {
         Shr,
         ShrAssign,
     )]
+    #[must_use]
     pub struct AtaxxBitboard {
         raw: RawStandardBitboard,
     }
@@ -1277,6 +1291,7 @@ pub mod ataxx {
 }
 
 // Ideally, this would be generic over the bitboard type, but then it couldn't be const.
+#[must_use]
 pub const fn remove_ones_above(bb: u128, idx: usize) -> u128 {
     if idx < 128 {
         bb & (u128::MAX >> (127 - idx))
@@ -1285,6 +1300,7 @@ pub const fn remove_ones_above(bb: u128, idx: usize) -> u128 {
     }
 }
 
+#[must_use]
 pub const fn remove_ones_below(bb: u128, idx: usize) -> u128 {
     bb & (u128::MAX << idx)
 }

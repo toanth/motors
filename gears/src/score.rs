@@ -48,6 +48,7 @@ pub type CompactScoreT = i16;
     SubAssign,
     derive_more::Display,
 )]
+#[must_use]
 pub struct Score(pub ScoreT);
 
 impl Add<ScoreT> for Score {
@@ -144,6 +145,7 @@ pub const fn is_valid_score(score: ScoreT) -> bool {
 /// at the same time, by treating them as the lower and upper half of a single value.
 /// This improves performance, which is especially important because the eval of a typical a/b engine is hot.
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Add, AddAssign, Sub, SubAssign, Neg)]
+#[must_use]
 pub struct PhasedScore(ScoreT);
 
 impl Display for PhasedScore {

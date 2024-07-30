@@ -389,7 +389,7 @@ impl Caps {
         soft_limit: Duration,
         multipv: usize,
     ) -> SearchResult<Chessboard> {
-        let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth).get() as isize;
+        let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth).isize();
 
         self.state.multi_pvs.resize(multipv, PVData::default());
 
@@ -451,7 +451,7 @@ impl Caps {
                 pos,
                 limit,
                 0,
-                self.state.depth().get() as isize,
+                self.state.depth().isize(),
                 *alpha,
                 *beta,
                 Exact,
@@ -549,7 +549,7 @@ impl Caps {
     ) -> Score {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= DEPTH_HARD_LIMIT.get());
-        debug_assert!(depth <= DEPTH_SOFT_LIMIT.get() as isize);
+        debug_assert!(depth <= DEPTH_SOFT_LIMIT.isize());
         debug_assert!(self.state.board_history.0.len() >= ply);
         self.state
             .statistics

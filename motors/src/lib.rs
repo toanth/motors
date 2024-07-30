@@ -1,5 +1,4 @@
 use std::marker::PhantomData;
-use std::ops::Deref;
 
 use dyn_clone::clone_box;
 use rand::rngs::StdRng;
@@ -127,7 +126,7 @@ pub fn create_eval_from_str<B: Board>(
     evals: &EvalList<B>,
 ) -> Res<Box<dyn AbstractEvalBuilder<B>>> {
     if name == "default" {
-        return Ok(clone_box(evals.last().unwrap().deref()));
+        return Ok(clone_box(&**evals.last().unwrap()));
     }
     Ok(clone_box(select_name_dyn(
         name,
@@ -189,25 +188,30 @@ pub fn create_match_for_game<B: Board>(
 }
 
 #[cfg(feature = "chess")]
+#[must_use]
 fn list_chess_outputs() -> OutputList<Chessboard> {
     normal_outputs::<Chessboard>()
 }
 
 #[cfg(feature = "ataxx")]
+#[must_use]
 fn list_ataxx_outputs() -> OutputList<AtaxxBoard> {
     normal_outputs::<AtaxxBoard>()
 }
 
 #[cfg(feature = "mnk")]
+#[must_use]
 fn list_mnk_outputs() -> OutputList<MNKBoard> {
     normal_outputs::<MNKBoard>()
 }
 
+#[must_use]
 pub fn generic_evals<B: Board>() -> EvalList<B> {
     vec![Box::new(EvalBuilder::<B, RandEval>::default())]
 }
 
 #[cfg(feature = "chess")]
+#[must_use]
 pub fn list_chess_evals() -> EvalList<Chessboard> {
     let mut res = generic_evals::<Chessboard>();
     res.push(Box::new(
@@ -219,17 +223,20 @@ pub fn list_chess_evals() -> EvalList<Chessboard> {
 }
 
 #[cfg(feature = "ataxx")]
+#[must_use]
 pub fn list_ataxx_evals() -> EvalList<AtaxxBoard> {
     generic_evals()
 }
 
 #[cfg(feature = "mnk")]
+#[must_use]
 pub fn list_mnk_evals() -> EvalList<MNKBoard> {
     let mut res = generic_evals::<MNKBoard>();
     res.push(Box::new(EvalBuilder::<MNKBoard, SimpleMnkEval>::default()));
     res
 }
 
+#[must_use]
 pub fn generic_searchers<B: Board>() -> SearcherList<B> {
     vec![
         #[cfg(feature = "random_mover")]
@@ -242,6 +249,7 @@ pub fn generic_searchers<B: Board>() -> SearcherList<B> {
 /// Lists all user-selectable searchers that can play chess.
 /// An engine is the combination of a searcher and an eval.
 #[cfg(feature = "chess")]
+#[must_use]
 pub fn list_chess_searchers() -> SearcherList<Chessboard> {
     let mut res = generic_searchers();
     // The last engine in this list is the default engine
@@ -251,11 +259,13 @@ pub fn list_chess_searchers() -> SearcherList<Chessboard> {
 }
 
 #[cfg(feature = "ataxx")]
+#[must_use]
 pub fn list_ataxx_searchers() -> SearcherList<AtaxxBoard> {
     generic_searchers()
 }
 
 #[cfg(feature = "mnk")]
+#[must_use]
 pub fn list_mnk_searchers() -> SearcherList<MNKBoard> {
     generic_searchers()
 }
@@ -292,7 +302,7 @@ pub fn run_program_with_args(args: ArgIter) -> Res<()> {
     let mode = args.mode;
     let mut the_match =
         create_match(args).map_err(|err| format!("Couldn't start the {mode}: {err}"))?;
-    the_match.run();
+    _ = the_match.run();
     Ok(())
 }
 

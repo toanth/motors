@@ -125,6 +125,7 @@ impl<B: Board> Display for SearchInfo<B> {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[must_use]
 pub struct TimeControl {
     pub remaining: Duration,
     pub increment: Duration,
@@ -229,6 +230,7 @@ impl TimeControl {
 #[derive(
     Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Add, AddAssign, SubAssign,
 )]
+#[must_use]
 pub struct Depth(usize);
 
 impl Depth {
@@ -237,6 +239,10 @@ impl Depth {
 
     pub const fn get(self) -> usize {
         self.0
+    }
+
+    pub const fn isize(self) -> isize {
+        self.0 as isize
     }
 
     pub const fn new(val: usize) -> Self {
@@ -250,6 +256,7 @@ pub type NodesLimit = NonZeroU64;
 // Don't derive Eq because that allows code like `limit == SearchLimit::infinite()`, which is bad because the remaining
 // time of `limit` might be slightly less while still being considered infinite.
 #[derive(Copy, Clone, Debug)]
+#[must_use]
 pub struct SearchLimit {
     pub tc: TimeControl,
     pub fixed_time: Duration,

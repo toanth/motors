@@ -52,6 +52,7 @@ pub struct GameOver {
 
 /// Status of a match from a `MatchManager`'s perspective.
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
+#[must_use]
 pub enum MatchStatus {
     #[default]
     NotStarted,
@@ -128,6 +129,7 @@ impl Display for GameOverReason {
 
 /// Result of a match from a `MatchManager`'s perspective, with the reason for why it ended.
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[must_use]
 pub struct MatchResult {
     pub result: GameResult,
     pub reason: GameOverReason,
@@ -151,6 +153,7 @@ pub fn player_res_to_match_res(game_over: GameOver, color: Color) -> MatchResult
 }
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct OutputArgs {
     pub name: String,
     pub opts: Vec<String>,
@@ -164,6 +167,7 @@ impl OutputArgs {
 
 /// The user can decide to quit either the current match or the entire program.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[must_use]
 pub enum Quitting {
     QuitProgram,
     QuitMatch,

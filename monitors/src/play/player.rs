@@ -40,6 +40,7 @@ lazy_static! {
 }
 
 impl NameSet {
+    #[must_use]
     pub fn make_name_unique(name: String) -> String {
         let mut guard = PLAYER_NAMES.lock().unwrap();
         let lowercase_name = name.to_lowercase();
@@ -71,6 +72,7 @@ impl Default for TimeMargin {
 }
 
 #[derive(Debug, Default, Copy, Clone)]
+#[must_use]
 pub enum Protocol {
     #[default] // will be set depending on the game
     Uci,
@@ -80,6 +82,7 @@ pub enum Protocol {
 // The EnginePlayer is a member of the UgiMatchState and owns the child process running the engine as well as the
 // thread listening for input from the child's stdout
 #[derive(Debug)]
+#[must_use]
 pub struct EnginePlayer<B: Board> {
     /// Only used by the `write_ugi_impl` method
     child_stdin: ChildStdin,
@@ -268,6 +271,7 @@ pub fn limit_to_ugi(
 }
 
 #[derive(Debug, Default)]
+#[must_use]
 pub enum HumanPlayerStatus {
     #[default]
     Idle,
@@ -275,6 +279,7 @@ pub enum HumanPlayerStatus {
 }
 
 #[derive(Debug, Default)]
+#[must_use]
 pub struct HumanPlayer {
     tc: TimeControl,
     original_tc: TimeControl,
@@ -283,6 +288,7 @@ pub struct HumanPlayer {
 }
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct PlayerBuilder {
     args: PlayerArgs,
 }

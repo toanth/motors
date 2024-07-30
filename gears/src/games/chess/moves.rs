@@ -24,6 +24,7 @@ use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::common::Res;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default, Debug, EnumIter, FromRepr)]
+#[must_use]
 pub enum ChessMoveFlags {
     #[default]
     NormalPawnMove,
@@ -78,6 +79,7 @@ impl MoveFlags for ChessMoveFlags {}
 /// Bits 6 - 11: To square
 /// Bits 12-15: Move type
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Ord, PartialOrd, Hash)]
+#[must_use]
 pub struct ChessMove(u16);
 
 impl ChessMove {
@@ -513,6 +515,7 @@ impl Chessboard {
     }
 
     /// Called at the end of `make_nullmove` and `make_move`.
+    #[must_use]
     pub fn flip_side_to_move(mut self) -> Option<Self> {
         if self.is_in_check() {
             None
@@ -780,7 +783,7 @@ impl<'a> MoveParser<'a> {
         }
         let piece = self.current_char().and_then(|c| {
             ColoredChessPiece::from_utf8_char(c)
-                .map(|p| p.uncolor())
+                .map(ColoredChessPiece::uncolor)
                 .or_else(|| UncoloredChessPiece::from_utf8_char(c))
         });
         if piece.is_some() {

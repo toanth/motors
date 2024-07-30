@@ -39,6 +39,7 @@ pub const UNICODE_BLACK_QUEEN: char = '♛';
 pub const UNICODE_BLACK_KING: char = '♚';
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default, EnumIter, FromRepr)]
+#[must_use]
 pub enum UncoloredChessPiece {
     Pawn,
     Knight,
@@ -164,6 +165,7 @@ impl UncoloredPieceType for UncoloredChessPiece {
 
 #[derive(Debug, Default, Eq, PartialEq, Copy, Clone, EnumIter, FromRepr)]
 #[repr(usize)]
+#[must_use]
 pub enum ColoredChessPiece {
     WhitePawn,
     WhiteKnight,

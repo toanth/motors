@@ -15,6 +15,7 @@ pub mod piston;
 /// Has to be in the same order as the `FileOpenness` in `lite`.
 /// `SemiClosed` is last because it doesn't get counted.
 #[derive(Debug, Eq, PartialEq, Copy, Clone, EnumIter, Display)]
+#[must_use]
 pub enum FileOpenness {
     Open,
     Closed,

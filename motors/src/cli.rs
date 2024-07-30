@@ -27,6 +27,7 @@ impl Display for Mode {
 }
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct EngineOpts {
     pub game: Game,
     /// The name of the engine

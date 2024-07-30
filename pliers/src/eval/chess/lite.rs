@@ -161,6 +161,8 @@ impl LiteValues for LiTETrace {
 pub struct TuneLiTEval {}
 
 impl WeightsInterpretation for TuneLiTEval {
+    // TODO: Make shorter
+    #[allow(clippy::too_many_lines)]
     fn display(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
         |f: &mut Formatter<'_>, weights: &Weights, old_weights: &[Weight]| {
             let special = changed_at_least(-1.0, weights, old_weights);

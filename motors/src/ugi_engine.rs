@@ -44,6 +44,8 @@ const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
 
 // TODO: Ensure this conforms to <https://expositor.dev/uci/doc/uci-draft-1.pdf>
 
+#[derive(Debug, Copy, Clone)]
+#[must_use]
 enum SearchType {
     Normal,
     Ponder,
@@ -209,11 +211,11 @@ impl<B: Board> UgiOutput<B> {
             .any(|o| !o.is_logger() && o.prints_board())
     }
 
-    pub fn show_bench(&mut self, bench_result: BenchResult) {
+    pub fn show_bench(&mut self, bench_result: &BenchResult) {
         self.write_ugi(&bench_result.to_string());
     }
 
-    pub fn show_search_res(&mut self, search_result: SearchResult<B>) {
+    pub fn show_search_res(&mut self, search_result: &SearchResult<B>) {
         let best = search_result.chosen_move.to_compact_text();
         if let Some(ponder) = search_result.ponder_move() {
             let ponder = ponder.to_compact_text();

@@ -101,14 +101,17 @@ impl Chessboard {
         (self.all_attacking(square) & self.colored_bb(us.other())).has_set_bit()
     }
 
+    #[must_use]
     pub fn gen_all_pseudolegal_moves(&self) -> ChessMoveList {
         self.gen_pseudolegal_moves(!self.colored_bb(self.active_player), false)
     }
 
+    #[must_use]
     pub fn gen_tactical_pseudolegal(&self) -> ChessMoveList {
         self.gen_pseudolegal_moves(self.colored_bb(self.active_player.other()), true)
     }
 
+    #[must_use]
     fn gen_pseudolegal_moves(&self, filter: ChessBitboard, only_tactical: bool) -> ChessMoveList {
         let mut list = ChessMoveList::default();
         self.gen_slider_moves(SliderMove::Bishop, &mut list, filter);

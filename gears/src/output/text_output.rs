@@ -74,6 +74,7 @@ impl TextStream {
 }
 
 #[derive(Debug)]
+#[must_use]
 pub struct TextWriter {
     pub stream: TextStream,
     pub accepted: Vec<Message>,
@@ -317,6 +318,7 @@ impl<B: Board> Output<B> for TextOutput {
 }
 
 #[derive(Default, Debug)]
+#[must_use]
 pub struct TextOutputBuilder {
     pub typ: DisplayType,
     pub stream: Option<TextStream>,

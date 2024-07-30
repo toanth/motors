@@ -155,6 +155,7 @@ pub trait ColoredPiece: Eq + Copy + Debug + Default {
 }
 
 #[derive(Eq, PartialEq, Default, Debug, Copy, Clone)]
+#[must_use]
 pub struct GenericPiece<C: Coordinates, T: ColoredPieceType> {
     symbol: T,
     coordinates: C,
@@ -193,6 +194,7 @@ pub fn char_to_file(file: char) -> DimT {
 }
 
 // Assume 2D grid for now.
+#[must_use]
 pub trait Coordinates: Eq + Copy + Debug + Default + FromStr<Err = String> + Display {
     type Size: Size<Self>;
 
@@ -208,6 +210,7 @@ pub trait Coordinates: Eq + Copy + Debug + Default + FromStr<Err = String> + Dis
 pub type DimT = u8;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Default)]
+#[must_use]
 pub struct Height(pub DimT);
 
 impl Height {
@@ -222,6 +225,7 @@ impl Height {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Default)]
+#[must_use]
 pub struct Width(pub DimT);
 
 impl Width {
@@ -235,6 +239,7 @@ impl Width {
     }
 }
 
+#[must_use]
 pub trait Size<C: Coordinates>: Eq + PartialEq + Copy + Clone + Display + Debug {
     fn num_squares(self) -> usize;
 
@@ -254,11 +259,12 @@ pub trait Size<C: Coordinates>: Eq + PartialEq + Copy + Clone + Display + Debug 
     fn coordinates_valid(self, coordinates: C) -> bool;
 
     fn check_coordinates(self, coordinates: C) -> Res<C> {
-        match self.coordinates_valid(coordinates) {
-            true => Ok(coordinates),
-            false => Err(format!(
+        if self.coordinates_valid(coordinates) {
+            Ok(coordinates)
+        } else {
+            Err(format!(
                 "Coordinates {coordinates} lie outside of the board (size {self})"
-            )),
+            ))
         }
     }
 }
@@ -772,7 +778,7 @@ pub fn position_fen_part<T: RectangularBoard>(pos: &T) -> String
 where
     T::Coordinates: RectangularCoordinates,
 {
-    let mut res: String = Default::default();
+    let mut res: String = String::default();
     for y in (0..pos.height()).rev() {
         let mut empty_ctr = 0;
         for x in 0..pos.width() {
@@ -841,13 +847,10 @@ where
     debug_assert!(lines.clone().count() > 0);
 
     let mut square = 0;
-    for (line, line_num) in lines.zip(0..) {
+    for (line, line_num) in lines.zip(0_usize..) {
         let mut skipped_digits = 0;
         let square_before_line = square;
-        debug_assert_eq!(
-            square_before_line,
-            line_num as usize * board.width() as usize
-        );
+        debug_assert_eq!(square_before_line, line_num * board.width() as usize);
 
         let handle_skipped = |digit_in_line, skipped_digits, idx: &mut usize| {
             if skipped_digits > 0 {

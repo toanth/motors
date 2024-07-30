@@ -114,7 +114,7 @@ impl TraceTrait for SparseTrace {
                 res.push(Feature::new(
                     (*feature).try_into().unwrap(),
                     (index + idx_offset).try_into().unwrap(),
-                ))
+                ));
             }
         }
         res.sort_by_key(|f| f.idx());
@@ -331,6 +331,7 @@ pub trait BasicTrace: TraceTrait {
 /// which means it is normal for most of the many entries to be zero.
 /// The [`TraceNFeatures]` struct is a thin wrapper around this struct which enforces the number of features matches.
 #[derive(Debug, Default, Clone)]
+#[must_use]
 pub struct SimpleTrace {
     /// How often each feature appears for the white player.
     pub white: Vec<isize>,
