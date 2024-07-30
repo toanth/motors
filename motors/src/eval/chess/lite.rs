@@ -16,6 +16,7 @@ use gears::general::bitboards::chess::{
 use gears::general::bitboards::Bitboard;
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::StaticallyNamedEntity;
+use gears::general::squares::sup_distance;
 use gears::score::{PhaseType, Score};
 
 use crate::eval::chess::lite::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
@@ -232,6 +233,15 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
+    fn simple_king_safety(pos: &Chessboard, color: Color) -> Tuned::Score {
+        let other_king = pos.king_square(!color);
+        let mut res = Tuned::Score::default();
+        for knight in pos.colored_piece_bb(color, Knight).ones() {
+            res += Tuned::knight_distance(sup_distance(other_king, knight));
+        }
+        res
+    }
+
     fn recomputed_every_time(pos: &Chessboard) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         for color in Color::iter() {
@@ -240,6 +250,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Self::pawn_shield(pos, color);
             score += Self::open_lines(pos, color);
             score += Self::mobility_and_threats(pos, color);
+            score += Self::simple_king_safety(pos, color);
             score = -score;
         }
         score

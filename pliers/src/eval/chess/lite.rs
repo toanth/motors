@@ -37,6 +37,7 @@ impl LiTETrace {
     const NUM_THREAT_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
     const NUM_DEFENSE_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
     const NUM_KING_ZONE_ATTACK_FEATURES: usize = NUM_CHESS_PIECES;
+    const NUM_KNIGHT_DISTANCE_FEATURES: usize = 8;
 
     const PASSED_PAWN_OFFSET: usize = NUM_PSQT_FEATURES;
     const UNSUPPORTED_PAWN_OFFSET: usize =
@@ -58,8 +59,10 @@ impl LiTETrace {
     const THREAT_OFFSET: usize = Self::MOBILITY_OFFSET + Self::NUM_MOBILITY_FEATURES;
     const DEFENSE_OFFSET: usize = Self::THREAT_OFFSET + Self::NUM_THREAT_FEATURES;
     const KING_ZONE_ATTACK_OFFSET: usize = Self::DEFENSE_OFFSET + Self::NUM_DEFENSE_FEATURES;
+    const KNIGHT_DISTANCE_OFFSET: usize =
+        Self::KING_ZONE_ATTACK_OFFSET + Self::NUM_KING_ZONE_ATTACK_FEATURES;
 
-    const NUM_FEATURES: usize = Self::KING_ZONE_ATTACK_OFFSET + Self::NUM_KING_ZONE_ATTACK_FEATURES;
+    const NUM_FEATURES: usize = Self::KNIGHT_DISTANCE_OFFSET + Self::NUM_KNIGHT_DISTANCE_FEATURES;
 }
 
 impl LiteValues for LiTETrace {
@@ -158,6 +161,11 @@ impl LiteValues for LiTETrace {
         attacking: UncoloredChessPiece,
     ) -> <Self::Score as ScoreType>::SingleFeatureScore {
         let idx = Self::KING_ZONE_ATTACK_OFFSET + attacking as usize;
+        SingleFeature::new(idx)
+    }
+
+    fn knight_distance(distance: usize) -> <Self::Score as ScoreType>::SingleFeatureScore {
+        let idx = Self::KNIGHT_DISTANCE_OFFSET + distance;
         SingleFeature::new(idx)
     }
 }
@@ -288,6 +296,12 @@ impl WeightsInterpretation for TuneLiTEval {
             }
             write!(f, "const KING_ZONE_ATTACK: [PhasedScore; 6] = [")?;
             for _piece in UncoloredChessPiece::pieces() {
+                write!(f, "{}, ", write_phased(weights, idx, &special))?;
+                idx += 1;
+            }
+            writeln!(f, "];")?;
+            writeln!(f, "const KNIGHT_DISTANCE: [PhasedScore; 8] = [")?;
+            for _dist in 0..8 {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
                 idx += 1;
             }

@@ -4,6 +4,7 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::marker::PhantomData;
+use std::ops::Not;
 use std::str::{FromStr, SplitWhitespace};
 
 use derive_more::BitXorAssign;
@@ -49,6 +50,14 @@ impl Color {
             Color::White => Color::Black,
             Color::Black => Color::White,
         }
+    }
+}
+
+impl Not for Color {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        self.other()
     }
 }
 

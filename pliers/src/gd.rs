@@ -387,10 +387,8 @@ pub struct NonTaperedDatapoint {
 
 impl Datapoint for NonTaperedDatapoint {
     fn new<T: TraceTrait>(trace: T, outcome: Outcome, _weight: Float) -> Self {
-        Self {
-            features: trace.as_features(0),
-            outcome,
-        }
+        let features = trace.as_features(0);
+        Self { features, outcome }
     }
 
     fn outcome(&self) -> Outcome {
@@ -743,12 +741,11 @@ pub fn optimize_entire_batch<D: Datapoint>(
                 }
             }
             println!(
-                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), quadratic loss: {loss}, cross-entropy loss: {celoss}, loss got smaller by: 1/1_000_000 * {1}, \
+                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), quadratic loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
                 maximum weight change to 50 epochs ago: {max_diff:.2}",
                 epoch as f32 / elapsed.as_secs_f32(),
                 (prev_loss - loss) * 1_000_000.0,
                 elapsed = elapsed.as_secs(),
-                celoss = loss_for(&weights, batch, eval_scale, cross_entropy_sample_loss),
             );
             if loss <= 0.001 && epoch >= 20 {
                 println!("loss less than epsilon, stopping after {epoch} epochs");

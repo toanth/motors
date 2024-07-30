@@ -370,7 +370,7 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
     // First, do exponential search to find an interval in which we know that the optimal value lies.
     loop {
         assert!(!(scale >= 1e9 || scale <= 1e-9),
-            "The eval scale doesn't seem to converge. This may be due to a bugged eval implementation or simply \
+                    "The eval scale doesn't seem to converge. This may be due to a bugged eval implementation or simply \
             because the eval fails to accurately predict the used datasets. You can always fall back to hand-picking an \
             eval scale in case this doesn't work, or try again with different datasets");
         let (dir, _loss) = grad_for_eval_scale(weights, batch, scale);
