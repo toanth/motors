@@ -166,6 +166,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 score += Tuned::unsupported_pawn();
             }
         }
+        let num_doubled_pawns = (our_pawns & (our_pawns.north())).num_ones();
+        score += Tuned::doubled_pawn() * num_doubled_pawns;
         for piece in UncoloredChessPiece::pieces() {
             let bb = pos.colored_piece_bb(color, piece);
             let pawn_attacks = our_pawns.pawn_attacks(color);

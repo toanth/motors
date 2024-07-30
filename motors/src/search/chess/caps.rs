@@ -254,7 +254,7 @@ impl AbstractEngine<Chessboard> for Caps {
                 }),
             },
             EngineOption {
-                name: EngineOptionName::Other("UCI_Chess960".to_string()),
+                name: Other("UCI_Chess960".to_string()),
                 value: EngineOptionType::Check(UgiCheck {
                     val: true,
                     default: Some(true),
@@ -273,7 +273,7 @@ impl AbstractEngine<Chessboard> for Caps {
 
     fn set_option(&mut self, option: EngineOptionName, _value: String) -> Res<()> {
         let name = option.name().to_string();
-        if let EngineOptionName::Other(name) = option {
+        if let Other(name) = option {
             if name == "UCI_Chess960" {
                 return Ok(());
             }
