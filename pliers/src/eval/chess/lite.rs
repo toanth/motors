@@ -37,7 +37,7 @@ impl LiTETrace {
     const NUM_THREAT_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
     const NUM_DEFENSE_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
     const NUM_KING_ZONE_ATTACK_FEATURES: usize = NUM_CHESS_PIECES;
-    const NUM_KNIGHT_DISTANCE_FEATURES: usize = 8;
+    const NUM_KNIGHT_DISTANCE_FEATURES: usize = 15;
 
     const PASSED_PAWN_OFFSET: usize = NUM_PSQT_FEATURES;
     const UNSUPPORTED_PAWN_OFFSET: usize =
@@ -300,8 +300,8 @@ impl WeightsInterpretation for TuneLiTEval {
                 idx += 1;
             }
             writeln!(f, "];")?;
-            writeln!(f, "const KNIGHT_DISTANCE: [PhasedScore; 8] = [")?;
-            for _dist in 0..8 {
+            writeln!(f, "const KNIGHT_DISTANCE: [PhasedScore; 15] = [")?;   
+            for _dist in 0..LiTETrace::NUM_KNIGHT_DISTANCE_FEATURES {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
                 idx += 1;
             }
