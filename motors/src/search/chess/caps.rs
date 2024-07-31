@@ -133,7 +133,13 @@ struct Additional {
     capt_hist: CaptHist,
     tt: TT,
     original_board_hist: ZobristHistory<Chessboard>,
-    nmp_disabled: bool,
+    nmp_disabled: [bool; 2],
+}
+
+impl Additional {
+    fn nmp_disabled_for(&mut self, color: Color) -> &mut bool {
+        &mut self.nmp_disabled[color as usize]
+    }
 }
 
 impl CustomInfo<Chessboard> for Additional {
@@ -677,7 +683,11 @@ impl Caps {
             // If we don't have non-pawn, non-king pieces, we're likely to be in zugzwang, so don't even try NMP.
             let has_nonpawns =
                 (pos.active_player_bb() & !pos.piece_bb(Pawn)).more_than_one_bit_set();
-            if depth >= 3 && eval >= beta && !self.state.custom.nmp_disabled && has_nonpawns {
+            if depth >= 3
+                && eval >= beta
+                && !*self.state.custom.nmp_disabled_for(pos.active_player())
+                && has_nonpawns
+            {
                 // `make_nullmove` resets the 50mr counter, so we don't consider positions after a nullmove as repetitions,
                 // but we can still get TT cutoffs
                 self.state.board_history.push(&pos);
@@ -698,23 +708,21 @@ impl Caps {
                 self.state.search_stack[ply].tried_moves.pop();
                 self.state.board_history.pop();
                 if score >= beta {
-                    // for shallow depths, don't bother with doing a verification search.
-                    if depth < 8 {
-                        // don't return unproven mate scores. Return beta instead since we still expect to fail high, but
-                        // don't really have any additional information (so clamping the score to `MAX_NORMAL_SCORE` would
-                        // be overly optimistic).
-                        if score.is_game_over_score() {
-                            return beta;
-                        }
+                    // For shallow depths, don't bother with doing a verification search to avoid useless re-searches,
+                    // unless we'd be storing a mate score -- we really want to avoid storing unproved mates in the TT.
+                    if depth < 8 && !score.is_game_won_score() {
                         return score;
                     }
-                    self.state.custom.nmp_disabled = true;
+                    *self.state.custom.nmp_disabled_for(pos.active_player()) = true;
+                    // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so use
+                    // `depth - reduction`.
                     let verification_score =
-                        self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh);
+                        self.negamax(pos, ply, depth - reduction, beta - 1, beta, FailHigh);
+                    *self.state.custom.nmp_disabled_for(pos.active_player()) = false;
+                    // The verification score is more trustworthy than the nmp score.
                     if verification_score >= beta {
                         return verification_score;
                     }
-                    self.state.custom.nmp_disabled = false;
                 }
             }
         }
