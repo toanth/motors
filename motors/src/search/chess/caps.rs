@@ -337,7 +337,8 @@ impl Engine<Chessboard> for Caps {
             assert!(self.state.excluded_moves.len() < num_legal_moves);
         }
 
-        let result = self.iterative_deepening(pos, limit, soft_limit, multipv);
+        self.state.limit = limit;
+        let result = self.iterative_deepening(pos, soft_limit, multipv);
         assert_ne!(result.chosen_move, ChessMove::default()); // TODO: Test go nodes 1
         Ok(result)
     }
@@ -387,11 +388,10 @@ impl Caps {
     fn iterative_deepening(
         &mut self,
         pos: Chessboard,
-        limit: SearchLimit,
         soft_limit: Duration,
         multipv: usize,
     ) -> SearchResult<Chessboard> {
-        let max_depth = DEPTH_SOFT_LIMIT.min(limit.depth).isize();
+        let max_depth = DEPTH_SOFT_LIMIT.min(self.state.limit.depth).isize();
 
         self.state.multi_pvs.resize(multipv, PVData::default());
 
@@ -403,7 +403,6 @@ impl Caps {
                 let mut pv_data = self.state.multi_pvs[pv_num];
                 let keep_searching = self.aspiration(
                     pos,
-                    limit,
                     soft_limit,
                     &mut pv_data.alpha,
                     &mut pv_data.beta,
@@ -436,7 +435,6 @@ impl Caps {
     fn aspiration(
         &mut self,
         pos: Chessboard,
-        limit: SearchLimit,
         soft_limit: Duration,
         alpha: &mut Score,
         beta: &mut Score,
@@ -445,19 +443,11 @@ impl Caps {
         result: &mut SearchResult<Chessboard>,
     ) -> bool {
         loop {
-            if self.should_not_start_iteration(soft_limit, max_depth, limit.mate) {
+            if self.should_not_start_iteration(soft_limit, max_depth, self.state.limit.mate) {
                 self.state.statistics.soft_limit_stop();
                 return false;
             }
-            let pv_score = self.negamax(
-                pos,
-                limit,
-                0,
-                self.state.depth().isize(),
-                *alpha,
-                *beta,
-                Exact,
-            );
+            let pv_score = self.negamax(pos, 0, self.state.depth().isize(), *alpha, *beta, Exact);
             // for multipv searches, we want to return the first pv. Create the result now so that it's not overwritten
             if self.state.pv_num == 0 {
                 if self.state.search_cancelled() {
@@ -542,7 +532,6 @@ impl Caps {
     fn negamax(
         &mut self,
         pos: Chessboard,
-        limit: SearchLimit,
         ply: usize,
         mut depth: isize,
         mut alpha: Score,
@@ -702,7 +691,6 @@ impl Caps {
                 let reduction = 3 + depth / 4 + isize::from(they_blundered);
                 let score = -self.negamax(
                     new_pos,
-                    limit,
                     ply + 1,
                     depth - 1 - reduction,
                     -beta,
@@ -779,7 +767,6 @@ impl Caps {
             if self.state.search_stack[ply].tried_moves.len() == 1 {
                 score = -self.negamax(
                     new_pos,
-                    limit,
                     ply + 1,
                     depth - 1,
                     -beta,
@@ -812,7 +799,6 @@ impl Caps {
 
                 score = -self.negamax(
                     new_pos,
-                    limit,
                     ply + 1,
                     depth - 1 - reduction,
                     -(alpha + 1),
@@ -825,7 +811,6 @@ impl Caps {
                     self.state.statistics.lmr_first_retry();
                     score = -self.negamax(
                         new_pos,
-                        limit,
                         ply + 1,
                         depth - 1,
                         -(alpha + 1),
@@ -839,7 +824,7 @@ impl Caps {
                 if alpha < score && score < beta {
                     debug_assert_eq!(expected_node_type, Exact);
                     self.state.statistics.lmr_second_retry();
-                    score = -self.negamax(new_pos, limit, ply + 1, depth - 1, -beta, -alpha, Exact);
+                    score = -self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha, Exact);
                 }
             }
 
@@ -854,7 +839,7 @@ impl Caps {
             );
             // Check for cancellation right after searching a move to avoid storing incorrect information
             // in the TT or PV.
-            if self.should_stop(limit) {
+            if self.should_stop(self.state.limit) {
                 return SCORE_TIME_UP;
             }
             debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);

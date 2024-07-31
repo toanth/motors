@@ -108,6 +108,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
         }
 
         self.state.statistics.next_id_iteration();
+        self.state.limit = limit;
 
         'id: for depth in 1..=max_depth {
             for pv_num in 0..multi_pv {
@@ -115,7 +116,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
                     break 'id;
                 }
                 self.state.pv_num = pv_num;
-                let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON);
+                let iteration_score = self.negamax(pos, 0, depth, SCORE_LOST, SCORE_WON);
                 if self.state.search_cancelled() {
                     break 'id;
                 }
@@ -186,7 +187,6 @@ impl<B: Board> Gaps<B> {
     fn negamax(
         &mut self,
         pos: B,
-        limit: SearchLimit,
         ply: usize,
         depth: isize,
         mut alpha: Score,
@@ -222,11 +222,11 @@ impl<B: Board> Gaps<B> {
 
             self.state.board_history.push(&pos);
 
-            let score = -self.negamax(new_pos.unwrap(), limit, ply + 1, depth - 1, -beta, -alpha);
+            let score = -self.negamax(new_pos.unwrap(), ply + 1, depth - 1, -beta, -alpha);
 
             self.state.board_history.pop();
 
-            if self.should_stop(limit) {
+            if self.should_stop(self.state.limit) {
                 return SCORE_TIME_UP;
             }
 

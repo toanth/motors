@@ -726,6 +726,7 @@ pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     searching: Searching,
     should_stop: bool,
     start_time: Instant,
+    limit: SearchLimit,
     score: Score,
     statistics: Statistics,
     aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
@@ -743,6 +744,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> ABSearchState<B, E, C> 
             search_stack,
             board_history: ZobristHistory::default(),
             start_time,
+            limit: SearchLimit::infinite(),
             score: Score(0),
             searching: Stop,
             should_stop: false,
