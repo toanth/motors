@@ -141,7 +141,7 @@ impl Board for Chessboard {
     type Piece = ChessPiece;
     type Move = ChessMove;
     type MoveList = ChessMoveList;
-    type LegalMoveList = ChessMoveList; // TODO: Implement staged movegen eventually
+    type LegalMoveList = ChessMoveList;
 
     fn empty_possibly_invalid(_: Self::Settings) -> Self {
         Self {

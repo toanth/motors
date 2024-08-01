@@ -3,7 +3,7 @@ use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};
-use crate::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO};
+use crate::games::chess::squares::ChessSquare;
 use crate::games::chess::CastleRight::*;
 use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, ChessMoveList, Chessboard};
@@ -17,8 +17,6 @@ enum SliderMove {
     Bishop,
     Rook,
 }
-
-// TODO: Use the north(), west(), etc. methods
 
 impl Chessboard {
     fn single_pawn_moves(
@@ -134,33 +132,21 @@ impl Chessboard {
         let right_pawn_captures;
         let capturable = opponent | self.ep_square.map(ChessSquare::bb).unwrap_or_default();
         if color == White {
-            regular_pawn_moves = ((pawns << 8) & free, 8);
+            regular_pawn_moves = (pawns.north() & free, 8);
             double_pawn_moves = (
-                ((pawns & ChessBitboard::rank_no(1)) << 16) & (free << 8) & free,
+                ((pawns & ChessBitboard::rank_no(1)) << 16) & free.north() & free,
                 16,
             );
-            right_pawn_captures = (
-                ((pawns & !ChessBitboard::file_no(H_FILE_NO)) << 9) & capturable,
-                9,
-            );
-            left_pawn_captures = (
-                ((pawns & !ChessBitboard::file_no(A_FILE_NO)) << 7) & capturable,
-                7,
-            );
+            right_pawn_captures = (pawns.north_east() & capturable, 9);
+            left_pawn_captures = (pawns.north_west() & capturable, 7);
         } else {
-            regular_pawn_moves = ((pawns >> 8) & free, -8);
+            regular_pawn_moves = (pawns.south() & free, -8);
             double_pawn_moves = (
-                ((pawns & ChessBitboard::rank_no(6)) >> 16) & (free >> 8) & free,
+                ((pawns & ChessBitboard::rank_no(6)) >> 16) & free.south() & free,
                 -16,
             );
-            right_pawn_captures = (
-                ((pawns & !ChessBitboard::file_no(A_FILE_NO)) >> 9) & capturable,
-                -9,
-            );
-            left_pawn_captures = (
-                ((pawns & !ChessBitboard::file_no(H_FILE_NO)) >> 7) & capturable,
-                -7,
-            );
+            right_pawn_captures = (pawns.south_west() & capturable, -9);
+            left_pawn_captures = (pawns.south_east() & capturable, -7);
         }
         for move_type in [
             right_pawn_captures,
