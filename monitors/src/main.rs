@@ -28,6 +28,7 @@ fn main() {
     }
 }
 
+#[must_use]
 pub fn text_based_inputs<B: Board>() -> InputList<B> {
     vec![
         Box::new(TextInputBuilder::default()),
@@ -35,10 +36,12 @@ pub fn text_based_inputs<B: Board>() -> InputList<B> {
     ]
 }
 
+#[must_use]
 pub fn required_uis<B: Board>() -> (OutputList<B>, InputList<B>) {
     (required_outputs(), text_based_inputs())
 }
 
+#[must_use]
 pub fn normal_uis<B: RectangularBoard>() -> (OutputList<B>, InputList<B>)
 where
     <B as Board>::Coordinates: RectangularCoordinates,
@@ -46,14 +49,17 @@ where
     (normal_outputs(), text_based_inputs()) // TODO: Add additional interactive uis, like a GUI
 }
 
+#[must_use]
 fn list_chess_uis() -> (OutputList<Chessboard>, InputList<Chessboard>) {
     normal_uis::<Chessboard>()
 }
 
+#[must_use]
 fn list_ataxx_uis() -> (OutputList<AtaxxBoard>, InputList<AtaxxBoard>) {
     normal_uis::<AtaxxBoard>()
 }
 
+#[must_use]
 fn list_mnk_uis() -> (OutputList<MNKBoard>, InputList<MNKBoard>) {
     normal_uis::<MNKBoard>()
 }
@@ -131,6 +137,6 @@ pub fn run_program() -> Res<()> {
 
     let mut the_match =
         create_match(args).map_err(|err| format!("Couldn't start the client: {err}"))?;
-    the_match.run();
+    _ = the_match.run();
     Ok(())
 }

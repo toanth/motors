@@ -8,12 +8,14 @@ use crate::general::common::{NamedEntity, Res};
 /// Ugi-related helpers that are used by both `motors` and `monitors`.
 
 #[derive(Default, Debug, Copy, Clone)]
+#[must_use]
 pub struct UgiCheck {
     pub val: bool,
     pub default: Option<bool>,
 }
 
 #[derive(Debug, Copy, Clone, Default)]
+#[must_use]
 pub struct UgiSpin {
     pub val: i64,
     pub default: Option<i64>,
@@ -22,6 +24,7 @@ pub struct UgiSpin {
 }
 
 #[derive(Debug, Clone, Default)]
+#[must_use]
 pub struct UgiCombo {
     pub val: String,
     pub default: Option<String>,
@@ -29,12 +32,14 @@ pub struct UgiCombo {
 }
 
 #[derive(Debug, Clone, Default)]
+#[must_use]
 pub struct UgiString {
     pub val: String,
     pub default: Option<String>,
 }
 
 #[derive(Clone, Debug)]
+#[must_use]
 pub enum EngineOptionType {
     Check(UgiCheck),
     Spin(UgiSpin),
@@ -76,24 +81,18 @@ impl Display for EngineOptionType {
             EngineOptionType::Spin(s) => {
                 let default = s
                     .default
-                    .map(|x| format!(" default {}", x))
-                    .unwrap_or_else(String::default);
-                let min = s
-                    .min
-                    .map(|x| format!(" min {}", x))
-                    .unwrap_or_else(String::default);
-                let max = s
-                    .max
-                    .map(|x| format!(" max {}", x))
-                    .unwrap_or_else(String::default);
+                    .map(|x| format!(" default {x}"))
+                    .unwrap_or_default();
+                let min = s.min.map(|x| format!(" min {x}")).unwrap_or_default();
+                let max = s.max.map(|x| format!(" max {x}")).unwrap_or_default();
                 write!(f, "{default}{min}{max}")?;
             }
             EngineOptionType::Combo(c) => {
                 let default = c
                     .default
                     .clone()
-                    .map(|_x| " default x".to_string())
-                    .unwrap_or_else(String::default);
+                    .map(|x| format!(" default {x}"))
+                    .unwrap_or_default();
                 for o in &c.options {
                     write!(f, " var {o}")?;
                 }
@@ -111,6 +110,7 @@ impl Display for EngineOptionType {
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
+#[must_use]
 pub enum EngineOptionName {
     Hash,
     Threads,

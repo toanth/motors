@@ -29,6 +29,8 @@ impl LiTETrace {
     const NUM_KING_OPENNESS_FEATURES: usize = 3;
     const NUM_BISHOP_OPENNESS_FEATURES: usize = 4 * 8;
     const NUM_PASSED_PAWN_FEATURES: usize = NUM_SQUARES;
+    const NUM_UNSUPPORTED_PAWN_FEATURES: usize = 1;
+    const NUM_DOUBLED_PAWN_FEATURES: usize = 1;
     const NUM_PAWN_PROTECTION_FEATURES: usize = NUM_CHESS_PIECES;
     const NUM_PAWN_ATTACKS_FEATURES: usize = NUM_CHESS_PIECES;
     const NUM_MOBILITY_FEATURES: usize = (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1);
@@ -37,7 +39,11 @@ impl LiTETrace {
     const NUM_KING_ZONE_ATTACK_FEATURES: usize = NUM_CHESS_PIECES;
 
     const PASSED_PAWN_OFFSET: usize = NUM_PSQT_FEATURES;
-    const BISHOP_PAIR_OFFSET: usize = Self::PASSED_PAWN_OFFSET + Self::NUM_PASSED_PAWN_FEATURES;
+    const UNSUPPORTED_PAWN_OFFSET: usize =
+        Self::PASSED_PAWN_OFFSET + Self::NUM_PASSED_PAWN_FEATURES;
+    const DOUBLED_PAWN_OFFSET: usize =
+        Self::UNSUPPORTED_PAWN_OFFSET + Self::NUM_UNSUPPORTED_PAWN_FEATURES;
+    const BISHOP_PAIR_OFFSET: usize = Self::DOUBLED_PAWN_OFFSET + Self::NUM_DOUBLED_PAWN_FEATURES;
     const ROOK_OPENNESS_OFFSET: usize = Self::BISHOP_PAIR_OFFSET + Self::ONE_BISHOP_PAIR_FEATURE;
     const KING_OPENNESS_OFFSET: usize =
         Self::ROOK_OPENNESS_OFFSET + Self::NUM_ROOK_OPENNESS_FEATURES;
@@ -61,12 +67,22 @@ impl LiteValues for LiTETrace {
 
     fn psqt(square: ChessSquare, piece: UncoloredChessPiece, color: Color) -> SingleFeature {
         let square = square.flip_if(color == White);
-        let idx = 0 + square.bb_idx() + piece as usize * NUM_SQUARES;
+        let idx = square.bb_idx() + piece as usize * NUM_SQUARES;
         SingleFeature::new(idx)
     }
 
     fn passed_pawn(square: ChessSquare) -> SingleFeature {
         let idx = Self::PASSED_PAWN_OFFSET + square.bb_idx();
+        SingleFeature::new(idx)
+    }
+
+    fn unsupported_pawn() -> <Self::Score as ScoreType>::SingleFeatureScore {
+        let idx = Self::UNSUPPORTED_PAWN_OFFSET;
+        SingleFeature::new(idx)
+    }
+
+    fn doubled_pawn() -> <Self::Score as ScoreType>::SingleFeatureScore {
+        let idx = Self::DOUBLED_PAWN_OFFSET;
         SingleFeature::new(idx)
     }
 
@@ -147,11 +163,13 @@ impl LiteValues for LiTETrace {
 }
 
 #[derive(Debug, Default)]
-/// Tuning the chess Linear Tuned Eval (LiTE) values.
+/// Tuning the chess Linear Tuned Eval (`LiTE`) values.
 /// This is done by re-using the generic eval function but instantiating it with a trace instead of a score.
 pub struct TuneLiTEval {}
 
 impl WeightsInterpretation for TuneLiTEval {
+    // TODO: Make shorter
+    #[allow(clippy::too_many_lines)]
     fn display(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
         |f: &mut Formatter<'_>, weights: &Weights, old_weights: &[Weight]| {
             let special = changed_at_least(-1.0, weights, old_weights);
@@ -160,8 +178,21 @@ impl WeightsInterpretation for TuneLiTEval {
             write_psqts(f, weights, &special)?;
             writeln!(f, "\n#[rustfmt::skip]")?;
             write!(f, "const PASSED_PAWNS: [PhasedScore; NUM_SQUARES] =")?;
-            write_phased_psqt(f, &weights, &special, None, NUM_PSQT_FEATURES)?;
-            let mut idx = LiTETrace::BISHOP_PAIR_OFFSET;
+            write_phased_psqt(f, weights, &special, None, NUM_PSQT_FEATURES)?;
+            let mut idx = LiTETrace::UNSUPPORTED_PAWN_OFFSET;
+
+            writeln!(
+                f,
+                "const UNSUPPORTED_PAWN: PhasedScore = {};",
+                write_phased(weights, idx, &special)
+            )?;
+            idx += 1;
+            writeln!(
+                f,
+                "const DOUBLED_PAWN: PhasedScore = {};",
+                write_phased(weights, idx, &special)
+            )?;
+            idx += 1;
 
             writeln!(
                 f,
@@ -214,7 +245,7 @@ impl WeightsInterpretation for TuneLiTEval {
             )?;
             for _feature in 0..LiTETrace::NUM_PAWN_PROTECTION_FEATURES {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                idx += 1
+                idx += 1;
             }
             writeln!(f, "\n];")?;
             writeln!(
@@ -223,7 +254,7 @@ impl WeightsInterpretation for TuneLiTEval {
             )?;
             for _feature in 0..LiTETrace::NUM_PAWN_ATTACKS_FEATURES {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                idx += 1
+                idx += 1;
             }
             writeln!(f, "\n];")?;
             writeln!(f, "\npub const MAX_MOBILITY: usize = 7 + 7 + 7 + 6;")?;
@@ -240,32 +271,21 @@ impl WeightsInterpretation for TuneLiTEval {
                 writeln!(f, "],")?;
             }
             writeln!(f, "];")?;
-            writeln!(
-                f,
-                "const THREATS: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = ["
-            )?;
-            for _piece in UncoloredChessPiece::non_pawn_pieces() {
-                write!(f, "[")?;
-                for _threatened in UncoloredChessPiece::pieces() {
-                    write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                    idx += 1;
+            for name in ["THREATS", "DEFENDED"] {
+                writeln!(
+                    f,
+                    "const {name}: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = ["
+                )?;
+                for _piece in UncoloredChessPiece::non_pawn_pieces() {
+                    write!(f, "[")?;
+                    for _threatened in UncoloredChessPiece::pieces() {
+                        write!(f, "{}, ", write_phased(weights, idx, &special))?;
+                        idx += 1;
+                    }
+                    writeln!(f, "],")?;
                 }
-                writeln!(f, "],")?;
+                writeln!(f, "];")?;
             }
-            writeln!(f, "];")?;
-            writeln!(
-                f,
-                "const DEFENDED: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = ["
-            )?;
-            for _piece in UncoloredChessPiece::non_pawn_pieces() {
-                write!(f, "[")?;
-                for _threatened in UncoloredChessPiece::pieces() {
-                    write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                    idx += 1;
-                }
-                writeln!(f, "],")?;
-            }
-            writeln!(f, "];")?;
             write!(f, "const KING_ZONE_ATTACK: [PhasedScore; 6] = [")?;
             for _piece in UncoloredChessPiece::pieces() {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
@@ -306,7 +326,6 @@ impl Eval<Chessboard> for TuneLiTEval {
     type Filter = SkipChecks;
 
     fn feature_trace(pos: &Chessboard) -> impl TraceTrait {
-        let res = GenericLiTEval::<LiTETrace>::do_eval(pos);
-        res
+        GenericLiTEval::<LiTETrace>::do_eval(pos)
     }
 }

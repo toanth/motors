@@ -17,14 +17,14 @@ const PAWNS_FEN: &str = "k7/3P3P/7p/1p3pP1/2P5/3Pp3/2PP3P/K7 w - f6 0 2";
 pub fn perft_startpos_bench(c: &mut Criterion) {
     c.bench_function("perft 4 startpos", |b| {
         let pos = Chessboard::default();
-        b.iter(|| perft(Depth::new(4), pos))
+        b.iter(|| perft(Depth::new(4), pos));
     });
 }
 
 pub fn perft_kiwipete_bench(c: &mut Criterion) {
     c.bench_function("perft 4 kiwipete", |b| {
         let pos = Chessboard::from_name("kiwipete").unwrap();
-        b.iter(|| perft(Depth::new(4), pos))
+        b.iter(|| perft(Depth::new(4), pos));
     });
 }
 
@@ -40,10 +40,10 @@ fn play_moves(c: &mut Criterion, name: &str, fen: &str) {
         let pos = Chessboard::from_fen(fen).unwrap();
         let moves = pos.pseudolegal_moves();
         b.iter(|| {
-            for m in moves.iter() {
+            for m in &moves {
                 black_box(black_box(pos).make_move(*m));
             }
-        })
+        });
     });
 }
 
@@ -91,14 +91,14 @@ pub fn bitboard_ones_bench(c: &mut Criterion) {
     c.bench_function("bitboard ones", |b| {
         let positions = Chessboard::bench_positions();
         b.iter(|| {
-            for pos in positions.iter() {
+            for pos in &positions {
                 let mut sum = 0;
                 for piece in pos.colored_bb(White).ones() {
                     sum += piece.bb_idx();
                 }
                 black_box(sum);
             }
-        })
+        });
     });
 }
 
@@ -107,14 +107,14 @@ pub fn bitboard_poplsb_bench(c: &mut Criterion) {
         let positions = Chessboard::bench_positions();
         b.iter(|| {
             let mut sum = 0;
-            for pos in positions.iter() {
+            for pos in &positions {
                 let mut bb = pos.colored_bb(White);
                 while bb.has_set_bit() {
                     sum += bb.pop_lsb();
                 }
                 black_box(sum);
             }
-        })
+        });
     });
 }
 

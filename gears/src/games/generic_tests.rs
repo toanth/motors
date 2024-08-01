@@ -13,7 +13,7 @@ pub struct GenericTests<B: Board> {
 impl<B: Board> GenericTests<B> {
     pub fn long_notation_roundtrip_test() {
         let positions = B::name_to_pos_map();
-        for pos in positions.into_iter() {
+        for pos in positions {
             let pos = (pos.val)();
             for mov in pos.legal_moves_slow() {
                 let encoded = mov.to_extended_text(&pos);
@@ -31,7 +31,7 @@ impl<B: Board> GenericTests<B> {
 
     pub fn fen_roundtrip_test() {
         let positions = B::bench_positions();
-        for pos in positions.into_iter() {
+        for pos in positions {
             assert_eq!(pos, B::from_fen(&pos.as_fen()).unwrap());
         }
     }
@@ -65,7 +65,7 @@ impl<B: Board> GenericTests<B> {
         for shift in 0..64 - 8 {
             let get_bits = |hash: ZobristHash| (hash.0 >> shift) & 0xff;
             let mut counts = vec![0; 256];
-            for hash in hashes.iter() {
+            for hash in &hashes {
                 counts[get_bits(*hash) as usize] += 1;
             }
             let expected = hashes.len() / 256;

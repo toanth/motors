@@ -94,9 +94,9 @@ pub(super) struct FenReader<B: Board, E: Eval<B>> {
 
 impl<B: Board, E: Eval<B>> FenReader<B, E> {
     fn parse_wdl(input: &mut SplitWhitespace) -> Res<Outcome> {
+        const IGNORED: [char; 10] = ['\"', '\'', '[', ']', '(', ')', '{', '}', ' ', '\t'];
         // This would be a great time to use the `.remainder()` method, but that isn't stable :/
         let wdl = input.next().ok_or_else(|| "Missing wdl".to_string())?;
-        const IGNORED: [char; 10] = ['\"', '\'', '[', ']', '(', ')', '{', '}', ' ', '\t'];
         let wdl = wdl.trim_matches(&IGNORED);
         for (key, value) in WDL_MAP {
             if wdl.starts_with(key) {
@@ -148,7 +148,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
                 &datapoint.pos,
                 datapoint.outcome,
                 datapoint.weight,
-            ))
+            ));
         }
         Ok(())
     }

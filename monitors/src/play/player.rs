@@ -28,9 +28,8 @@ use crate::play::player::EngineStatus::*;
 use crate::play::player::Player::{Engine, Human};
 use crate::play::player::Protocol::{Uci, Ugi};
 use crate::play::ugi_client::{Client, PlayerId};
-use crate::play::ugi_input::{
-    BestMoveAction, CurrentMatch, EngineStatus, HandleBestMove, InputThread,
-};
+use crate::play::ugi_input::HandleBestMove::Play;
+use crate::play::ugi_input::{BestMoveAction, CurrentMatch, EngineStatus, InputThread};
 
 #[derive(Default, Debug)]
 /// Ensures that there are no two engines with the same name after ignoring case
@@ -41,6 +40,7 @@ lazy_static! {
 }
 
 impl NameSet {
+    #[must_use]
     pub fn make_name_unique(name: String) -> String {
         let mut guard = PLAYER_NAMES.lock().unwrap();
         let lowercase_name = name.to_lowercase();
@@ -72,6 +72,7 @@ impl Default for TimeMargin {
 }
 
 #[derive(Debug, Default, Copy, Clone)]
+#[must_use]
 pub enum Protocol {
     #[default] // will be set depending on the game
     Uci,
@@ -81,6 +82,7 @@ pub enum Protocol {
 // The EnginePlayer is a member of the UgiMatchState and owns the child process running the engine as well as the
 // thread listening for input from the child's stdout
 #[derive(Debug)]
+#[must_use]
 pub struct EnginePlayer<B: Board> {
     /// Only used by the `write_ugi_impl` method
     child_stdin: ChildStdin,
@@ -218,7 +220,7 @@ fn send_initial_ugi<B: Board>(
     client: Arc<Mutex<Client<B>>>,
     id: PlayerId,
     init_string: Option<String>,
-    custom_options: HashMap<String, String>,
+    custom_options: &HashMap<String, String>,
 ) -> Res<()> {
     // TODO: initialized shouldn't be a member and instead be passed as parameter
     if let Some(init_string) = init_string {
@@ -227,7 +229,7 @@ fn send_initial_ugi<B: Board>(
 
     send_initial_ugi_impl(client.clone(), id, true)?;
 
-    for (name, value) in custom_options.iter() {
+    for (name, value) in custom_options {
         client.lock().unwrap().send_setoption(id, name, value);
     }
     Ok(())
@@ -269,6 +271,7 @@ pub fn limit_to_ugi(
 }
 
 #[derive(Debug, Default)]
+#[must_use]
 pub enum HumanPlayerStatus {
     #[default]
     Idle,
@@ -276,6 +279,7 @@ pub enum HumanPlayerStatus {
 }
 
 #[derive(Debug, Default)]
+#[must_use]
 pub struct HumanPlayer {
     tc: TimeControl,
     original_tc: TimeControl,
@@ -284,6 +288,7 @@ pub struct HumanPlayer {
 }
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct PlayerBuilder {
     args: PlayerArgs,
 }
@@ -350,9 +355,8 @@ impl PlayerBuilder {
                 // so this becomes 'monitors engine default'
                 if let Some(name) = &args.display_name {
                     return Err(format!("The engine name is set ('{name}') but the command isn't. Please specify a command (use 'motors-<name>' to use the built-in engine <name>)"));
-                } else {
-                    args.cmd = "motors-default".to_string();
                 }
+                args.cmd = "motors-default".to_string();
             }
             if let Some(engine) = args.cmd.strip_prefix("motors-") {
                 args.engine_args.push("motors".to_string());
@@ -456,11 +460,11 @@ impl PlayerBuilder {
         Builder::new()
             .name(format!("UGI input from engine {display_name}"))
             .spawn(move || {
-                InputThread::run_ugi_player_input_thread(id, weak, BufReader::new(stdout))
+                InputThread::run_ugi_player_input_thread(id, weak, BufReader::new(stdout));
             })
             .unwrap();
 
-        send_initial_ugi(client, id, args.init_string, args.custom_options)?;
+        send_initial_ugi(client, id, args.init_string, &args.custom_options)?;
 
         Ok(id)
     }
@@ -496,7 +500,7 @@ impl<B: Board> Player<B> {
     pub fn assign_to_match(&mut self, color: Color) {
         match self {
             Engine(ref mut engine) => {
-                engine.current_match = Some(CurrentMatch::new(engine.default_limit, color))
+                engine.current_match = Some(CurrentMatch::new(engine.default_limit, color));
             }
             Human(ref mut human) => human.tc = human.original_tc,
         }
@@ -567,9 +571,7 @@ impl<B: Board> Player<B> {
     pub fn thinking_since(&self) -> Option<Instant> {
         match self {
             Engine(engine) => match engine.status {
-                ThinkingSince(start) => Some(start),
-                Halt(HandleBestMove::Play(start)) => Some(start),
-                Ping(start) => Some(start),
+                ThinkingSince(start) | Halt(Play(start)) | Ping(start) => Some(start),
                 _ => None,
             },
             Human(human) => match human.status {

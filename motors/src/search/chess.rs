@@ -24,12 +24,12 @@ mod tests {
 
     #[test]
     fn generic_negamax_test() {
-        generic_search_test(Gaps::<Chessboard>::default())
+        generic_search_test(Gaps::<Chessboard>::default());
     }
 
     #[test]
     fn caps_search_test() {
-        generic_search_test(Caps::for_eval::<PistonEval>())
+        generic_search_test(Caps::for_eval::<PistonEval>());
     }
 
     fn generic_search_test<E: Engine<Chessboard>>(mut engine: E) {

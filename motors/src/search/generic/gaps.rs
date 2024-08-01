@@ -95,19 +95,20 @@ impl<B: Board> Engine<B> for Gaps<B> {
     ) -> Res<SearchResult<B>> {
         let mut chosen_move = self.state.custom.chosen_move;
         let mut score = Score::default();
-        let max_depth = MAX_DEPTH.min(limit.depth).get() as isize;
+        let max_depth = MAX_DEPTH.min(limit.depth).isize();
         limit.fixed_time = limit.fixed_time.min(limit.tc.remaining);
-        if search_moves.len() != 0 {
+        if search_moves.is_empty() {
+            self.state.excluded_moves = vec![];
+        } else {
             self.state.excluded_moves = pos
                 .pseudolegal_moves()
                 .into_iter()
-                .filter(|m| !search_moves.contains(&m))
+                .filter(|m| !search_moves.contains(m))
                 .collect_vec();
-        } else {
-            self.state.excluded_moves = vec![];
         }
 
         self.state.statistics.next_id_iteration();
+        self.state.limit = limit;
 
         'id: for depth in 1..=max_depth {
             for pv_num in 0..multi_pv {
@@ -115,7 +116,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
                     break 'id;
                 }
                 self.state.pv_num = pv_num;
-                let iteration_score = self.negamax(pos, limit, 0, depth, SCORE_LOST, SCORE_WON);
+                let iteration_score = self.negamax(pos, 0, depth, SCORE_LOST, SCORE_WON);
                 if self.state.search_cancelled() {
                     break 'id;
                 }
@@ -186,7 +187,6 @@ impl<B: Board> Gaps<B> {
     fn negamax(
         &mut self,
         pos: B,
-        limit: SearchLimit,
         ply: usize,
         depth: isize,
         mut alpha: Score,
@@ -194,7 +194,7 @@ impl<B: Board> Gaps<B> {
     ) -> Score {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= MAX_DEPTH.get() * 2);
-        debug_assert!(depth <= MAX_DEPTH.get() as isize);
+        debug_assert!(depth <= MAX_DEPTH.isize());
         self.state
             .statistics
             .count_node_started(MainSearch, ply, true);
@@ -222,11 +222,11 @@ impl<B: Board> Gaps<B> {
 
             self.state.board_history.push(&pos);
 
-            let score = -self.negamax(new_pos.unwrap(), limit, ply + 1, depth - 1, -beta, -alpha);
+            let score = -self.negamax(new_pos.unwrap(), ply + 1, depth - 1, -beta, -alpha);
 
             self.state.board_history.pop();
 
-            if self.should_stop(limit) {
+            if self.should_stop(self.state.limit) {
                 return SCORE_TIME_UP;
             }
 

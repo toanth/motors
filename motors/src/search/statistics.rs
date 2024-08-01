@@ -129,7 +129,7 @@ pub struct Statistics {
     soft_limit_stop: u64,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum SearchType {
     MainSearch,
     Qsearch,
@@ -421,22 +421,22 @@ impl IDSummary {
     }
 
     fn format_ctr(mode: Mode, val: u64, total: u64, total_completed: Option<u64>) -> String {
-        let rel = |total: u64| val as f64 / total as f64;
+        let relative = |total: u64| val as f64 / total as f64;
         let res = match mode {
             Percentage => {
                 format!(
                     "{val} ({:.1}%)",
-                    rel(total) * 100.0 /*multiply by 100.0 last for better precision*/
+                    relative(total) * 100.0 /*multiply by 100.0 last for better precision*/
                 )
             }
             Average => {
-                format!("avg {:.1}", rel(total))
+                format!("avg {:.1}", relative(total))
             }
         };
         if let Some(total) = total_completed {
             match mode {
-                Percentage => format!("{res} [{:.1}%]", rel(total) * 100.0),
-                Average => format!("{res} [{:.1}]", rel(total)),
+                Percentage => format!("{res} [{:.1}%]", relative(total) * 100.0),
+                Average => format!("{res} [{:.1}]", relative(total)),
             }
         } else {
             res
@@ -583,7 +583,7 @@ impl Display for Summary {
             "Stopped after reaching the soft limit: {}",
             self.soft_limit_stop
         )?;
-        for id in self.id_summary.iter() {
+        for id in &self.id_summary {
             writeln!(f, "{id}")?;
         }
         writeln!(f, "Total: {}", self.total)

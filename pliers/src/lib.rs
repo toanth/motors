@@ -162,7 +162,7 @@ pub fn load_datasets_from_json(json_file_path: &Path) -> Res<Vec<AnnotatedFenFil
         );
     }
     // Ideally, the `AnnotatedFenFile` would store a `PathBuf`, but that makes serialization more difficult.
-    for file in files.iter_mut() {
+    for file in &mut files {
         file.path = json_file_path
             .parent()
             .unwrap()
@@ -253,6 +253,7 @@ mod tests {
     use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
     use gears::games::Color::White;
     use gears::games::{AbstractPieceType, ColoredPieceType};
+    use UncoloredChessPiece::*;
 
     #[test]
     pub fn two_chess_positions_test() {
@@ -295,11 +296,10 @@ mod tests {
     #[test]
     pub fn chess_piece_values_test() {
         let piece_val = |piece| match piece {
-            UncoloredChessPiece::Pawn => 1,
-            UncoloredChessPiece::Knight => 3,
-            UncoloredChessPiece::Bishop => 3,
-            UncoloredChessPiece::Rook => 5,
-            UncoloredChessPiece::Queen => 9,
+            Pawn => 1,
+            Knight | Bishop => 3,
+            Rook => 5,
+            Queen => 9,
             _ => panic!("not a non-king piece"),
         };
         let eval_scale = 10.0;

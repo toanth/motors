@@ -14,6 +14,7 @@ use std::mem::swap;
 #[derive(
     Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Add, AddAssign, Sub, SubAssign, Neg,
 )]
+#[must_use]
 pub struct SeeScore(pub i32);
 
 // TODO: Better values?
@@ -156,6 +157,7 @@ impl Chessboard {
         }
     }
 
+    #[must_use]
     pub fn see_at_least(&self, mov: ChessMove, beta: SeeScore) -> bool {
         self.see(mov, beta - SeeScore(1), beta).0 >= beta.0
     }
@@ -255,7 +257,7 @@ mod tests {
         let see_score = board.see(
             ChessMove::from_compact_text("e5f4", &board).unwrap(),
             SeeScore(-1234),
-            SeeScore(567890),
+            SeeScore(567_890),
         );
         assert_eq!(see_score, SeeScore(0));
 

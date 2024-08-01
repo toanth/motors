@@ -159,7 +159,15 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             if (in_front & our_pawns).is_zero() && (blocking & their_pawns).is_zero() {
                 score += Tuned::passed_pawn(normalized_square);
             }
+            let file = ChessBitboard::file_no(square.file());
+            let neighbors = file.west() | file.east();
+            let supporting = neighbors & !blocking;
+            if (supporting & our_pawns).is_zero() {
+                score += Tuned::unsupported_pawn();
+            }
         }
+        let num_doubled_pawns = (our_pawns & (our_pawns.north())).num_ones();
+        score += Tuned::doubled_pawn() * num_doubled_pawns;
         for piece in UncoloredChessPiece::pieces() {
             let bb = pos.colored_piece_bb(color, piece);
             let pawn_attacks = our_pawns.pawn_attacks(color);
@@ -370,9 +378,9 @@ impl Eval<Chessboard> for LiTEval {
     ) -> Score {
         debug_assert!(self.stack.len() >= ply);
         debug_assert!(ply > 0);
-        let entry = self.stack[ply - 1].clone(); // `PhasedScore` is `Copy`, but tuning isn't
+        let entry = self.stack[ply - 1];
         let (entry, score) = Self::incremental(entry, old_pos, mov, new_pos);
-        self.stack.resize(ply + 1, entry.clone());
+        self.stack.resize(ply + 1, entry);
         score.finalize(entry.phase, 24, new_pos.active_player(), TEMPO)
     }
 }

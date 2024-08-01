@@ -113,7 +113,7 @@ impl Board for Chessboard {
             ply: 0,
             ply_100_ctr: 0,
             active_player: White,
-            castling: Default::default(),
+            castling: CastlingFlags::default(),
             ep_square: None,
             hash: ZobristHash(0),
         }
@@ -247,7 +247,7 @@ impl Board for Chessboard {
             "2bk2rq/2p1pprp/2p1n3/p2pPQ2/N2P4/4RN1P/PPP2RP1/6K1 w - - 5 24",
             "2r2rk1/1p3pbp/p3ppp1/8/8/1P2N1P1/1PPP2PP/2KR3R w - - 42 42",
             "7r/pBrkqQ1p/3b4/5b2/8/6P1/PP2PP1P/R1BR2K1 w - - 1 17", // mate in 2
-        ];  
+        ];
         fens.map(|fen| Self::from_fen(fen).unwrap())
             .iter()
             .copied()
@@ -441,8 +441,7 @@ impl Board for Chessboard {
         }
         let ep_square = self
             .ep_square
-            .map(|sq| sq.to_string())
-            .unwrap_or("-".to_string());
+            .map_or_else(|| "-".to_string(), |sq| sq.to_string());
         let stm = match self.active_player {
             White => 'w',
             Black => 'b',
@@ -493,8 +492,7 @@ impl Board for Chessboard {
             board.ply_100_ctr = halfmove_clock;
             let fullmove_number = words.next().ok_or_else(|| {
                 format!(
-                    "The FEN contains a valid halfmove clock ('{}') but no fullmove counter",
-                    halfmove_clock
+                    "The FEN contains a valid halfmove clock ('{halfmove_clock}') but no fullmove counter",
                 )
             })?;
             let fullmove_number = fullmove_number.parse::<NonZeroUsize>().map_err(|err| {
@@ -503,10 +501,10 @@ impl Board for Chessboard {
                     fullmove_number.red()
                 )
             })?;
-            board.ply = (fullmove_number.get() - 1) * 2 + (color == Black) as usize;
+            board.ply = (fullmove_number.get() - 1) * 2 + usize::from(color == Black);
         } else {
             board.ply_100_ctr = 0;
-            board.ply = (color == Black) as usize;
+            board.ply = usize::from(color == Black);
         }
         board.active_player = color;
         board.castling = castling_rights;
@@ -717,7 +715,7 @@ impl Chessboard {
         let color = self.active_player;
         self.color_bbs[color as usize] ^= bb;
         self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
-        self.update_zobrist_for_move(piece, from, to)
+        self.update_zobrist_for_move(piece, from, to);
     }
 
     pub fn is_50mr_draw(&self) -> bool {
@@ -727,7 +725,7 @@ impl Chessboard {
     /// Note that this function isn't entire correct according to the FIDE rules because it doesn't check for legality,
     /// so a position with a possible pseudolegal but illegal en passant move would be considered different from
     /// its repetition, where the en passant move wouldn't be possible
-    /// TODO: Should there be a ZobristRepetition3FoldPedanticChess that actually does movegen?
+    /// TODO: Should there be a `ZobristRepetition3FoldPedanticChess` that actually does movegen?
     /// TODO: Only set the ep square if there are pseudolegal en passants possible
     pub fn is_3fold_repetition<H: BoardHistory<Self>>(&self, history: &H) -> bool {
         n_fold_repetition(3, history, self, self.ply_100_ctr)
@@ -852,7 +850,7 @@ impl Chessboard {
     pub fn dfrc_startpos(white_num: usize, black_num: usize) -> Res<Self> {
         let mut res = Self::empty_possibly_invalid(ChessSettings::default());
         Self::chess960_startpos_white(black_num, Black, &mut res)?;
-        for bb in res.piece_bbs.iter_mut() {
+        for bb in &mut res.piece_bbs {
             *bb = ChessBitboard::new(*bb).flip_up_down().raw();
         }
         res.color_bbs[Black as usize] = res.colored_bb(White).flip_up_down().raw();
@@ -1036,14 +1034,14 @@ mod tests {
         )
         .unwrap();
         let perft_res = perft(Depth::new(4), board);
-        assert_eq!(perft_res.nodes, 890435);
+        assert_eq!(perft_res.nodes, 890_435);
 
         // DFRC
         let board = Chessboard::from_fen(
             "r1q1k1rn/1p1ppp1p/1npb2b1/p1N3p1/8/1BP4P/PP1PPPP1/1RQ1KRBN w BFag - 0 9",
         )
         .unwrap();
-        assert_eq!(perft(Depth::new(4), board).nodes, 1187103);
+        assert_eq!(perft(Depth::new(4), board).nodes, 1_187_103);
     }
 
     #[test]
@@ -1155,7 +1153,7 @@ mod tests {
         let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
         let board = Chessboard::from_fen(fen).unwrap();
         assert_eq!(board.active_player, White);
-        assert_eq!(perft(Depth::new(3), board).nodes, 568299);
+        assert_eq!(perft(Depth::new(3), board).nodes, 568_299);
         // not a legal chess position, but the board should support this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
         let board = Chessboard::from_fen(fen).unwrap();

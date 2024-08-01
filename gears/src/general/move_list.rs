@@ -20,7 +20,7 @@ pub type EagerNonAllocMoveList<B: Board, const N: usize> = ArrayVec<B::Move, N>;
 
 impl<B: Board, const N: usize> MoveList<B> for EagerNonAllocMoveList<B, N> {
     fn add_move(&mut self, mov: B::Move) {
-        self.push(mov)
+        self.push(mov);
     }
 
     fn swap_remove_move(&mut self, idx: usize) -> B::Move {

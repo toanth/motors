@@ -269,8 +269,8 @@ impl Board for AtaxxBoard {
         })
     }
 
-    fn player_result_slow<H: BoardHistory<Self>>(&self, _history: &H) -> Option<PlayerResult> {
-        self.player_result_no_movegen(_history)
+    fn player_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult> {
+        self.player_result_no_movegen(history)
     }
 
     /// If a player has no legal moves, a null move is generated, so this doesn't require any special handling during search.
