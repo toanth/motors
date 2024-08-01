@@ -2,7 +2,6 @@ use dyn_clone::DynClone;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
-use gears::games::Color::{Black, White};
 use gears::games::{Board, Color};
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{PhaseType, PhasedScore, Score};
@@ -50,11 +49,11 @@ pub trait ScoreType:
     type Finalized: Default;
     type SingleFeatureScore: Default + Mul<usize, Output = Self::SingleFeatureScore>;
 
-    fn finalize(
+    fn finalize<C: Color>(
         self,
         phase: PhaseType,
         max_phase: PhaseType,
-        color: Color,
+        color: C,
         tempo: Self::Finalized,
     ) -> Self::Finalized;
 }
@@ -63,18 +62,14 @@ impl ScoreType for PhasedScore {
     type Finalized = Score;
     type SingleFeatureScore = Self;
 
-    fn finalize(
+    fn finalize<C: Color>(
         self,
         phase: PhaseType,
         max_phase: PhaseType,
-        color: Color,
+        color: C,
         tempo: Self::Finalized,
     ) -> Score {
         let score = self.taper(phase, max_phase);
-        tempo
-            + match color {
-                White => score,
-                Black => -score,
-            }
+        tempo + if color.is_first() { score } else { -score }
     }
 }

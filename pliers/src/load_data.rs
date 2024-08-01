@@ -5,8 +5,7 @@ use crate::gd::{Dataset, Float, Outcome};
 use crate::load_data::Perspective::SideToMove;
 use colored::Colorize;
 use derive_more::Display;
-use gears::games::Board;
-use gears::games::Color::Black;
+use gears::games::{Board, Color};
 use gears::general::common::{parse_fp_from_str, Res};
 use rayon::iter::ParallelIterator;
 use rayon::prelude::ParallelBridge;
@@ -119,7 +118,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         // skip up to one token between the end of the fen and the wdl
         let mut outcome =
             Self::parse_wdl(&mut input).or_else(|err| Self::parse_wdl(&mut input).or(Err(err)))?;
-        if perspective == SideToMove && pos.active_player() == Black {
+        if perspective == SideToMove && pos.active_player() == B::Color::second() {
             outcome.0 = 1.0 - outcome.0;
         }
         Ok(ParseResult {

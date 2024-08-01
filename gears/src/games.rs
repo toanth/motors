@@ -4,13 +4,14 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::marker::PhantomData;
+use std::ops::Not;
 use std::str::{FromStr, SplitWhitespace};
 
 use derive_more::BitXorAssign;
 use itertools::Itertools;
 use num::PrimInt;
 use rand::Rng;
-use strum_macros::EnumIter;
+use strum::IntoEnumIterator;
 
 use crate::games::PlayerResult::Lose;
 use crate::general::common::Description::NoDescription;
@@ -34,30 +35,19 @@ pub mod chess;
 #[cfg(test)]
 mod generic_tests;
 
-/// White is always the first player, Black is always the second. TODO: Change naming to redlect this.
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Hash, EnumIter)]
-pub enum Color {
-    #[default]
-    White = 0,
-    Black = 1,
-}
-
-impl Color {
+pub trait Color:
+    Debug + Display + Default + Copy + Clone + PartialEq + Eq + Send + Hash + Not + IntoEnumIterator
+{
     #[must_use]
-    pub fn other(self) -> Color {
-        match self {
-            Color::White => Color::Black,
-            Color::Black => Color::White,
-        }
+    fn other(self) -> Self;
+    fn first() -> Self {
+        Self::default()
     }
-}
-
-impl Display for Color {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Color::White => write!(f, "white"),
-            Color::Black => write!(f, "black"),
-        }
+    fn second() -> Self {
+        Self::first().other()
+    }
+    fn is_first(self) -> bool {
+        self == Self::first()
     }
 }
 
@@ -88,16 +78,16 @@ pub trait AbstractPieceType: Eq + Copy + Debug + Default + Display {
     fn to_uncolored_idx(self) -> usize;
 }
 
-pub trait UncoloredPieceType: AbstractPieceType {
-    type Colored: ColoredPieceType;
+pub trait UncoloredPieceType<C: Color>: AbstractPieceType {
+    type Colored: ColoredPieceType<C>;
 
     fn from_uncolored_idx(idx: usize) -> Self;
 }
 
-pub trait ColoredPieceType: AbstractPieceType {
-    type Uncolored: UncoloredPieceType;
+pub trait ColoredPieceType<C: Color>: AbstractPieceType {
+    type Uncolored: UncoloredPieceType<C>;
 
-    fn color(self) -> Option<Color>;
+    fn color(self) -> Option<C>;
 
     fn uncolor(self) -> Self::Uncolored {
         Self::Uncolored::from_uncolored_idx(self.to_uncolored_idx())
@@ -105,33 +95,15 @@ pub trait ColoredPieceType: AbstractPieceType {
 
     fn to_colored_idx(self) -> usize;
 
-    fn new(color: Color, uncolored: Self::Uncolored) -> Self;
+    fn new(color: C, uncolored: Self::Uncolored) -> Self;
 }
 
-// pub trait UncoloredPiece: Eq + Copy + Debug + Default {
-//     type Coordinates: Coordinates;
-//     type UncoloredPieceType: UncoloredPieceType;
-//     fn coordinates(self) -> Self::Coordinates;
-//
-//     fn uncolored_piece_type(self) -> Self::UncoloredPieceType;
-//
-//     fn to_utf8_char(self) -> char {
-//         self.to_ascii_char()
-//     }
-//
-//     fn to_ascii_char(self) -> char;
-//
-//     fn is_empty(self) -> bool {
-//         self.uncolored_piece_type() == Self::UncoloredPieceType::empty()
-//     }
-// }
-
-pub trait ColoredPiece: Eq + Copy + Debug + Default {
-    type ColoredPieceType: ColoredPieceType;
+pub trait ColoredPiece<C: Color>: Eq + Copy + Debug + Default {
+    type ColoredPieceType: ColoredPieceType<C>;
     type Coordinates: Coordinates;
     fn coordinates(self) -> Self::Coordinates;
 
-    fn uncolored(self) -> <Self::ColoredPieceType as ColoredPieceType>::Uncolored {
+    fn uncolored(self) -> <Self::ColoredPieceType as ColoredPieceType<C>>::Uncolored {
         self.colored_piece_type().uncolor()
     }
 
@@ -149,19 +121,22 @@ pub trait ColoredPiece: Eq + Copy + Debug + Default {
 
     fn colored_piece_type(self) -> Self::ColoredPieceType;
 
-    fn color(self) -> Option<Color> {
+    fn color(self) -> Option<C> {
         self.colored_piece_type().color()
     }
 }
 
 #[derive(Eq, PartialEq, Default, Debug, Copy, Clone)]
 #[must_use]
-pub struct GenericPiece<C: Coordinates, T: ColoredPieceType> {
+pub struct GenericPiece<C: Coordinates, Col: Color, T: ColoredPieceType<Col>> {
     symbol: T,
     coordinates: C,
+    _phantom_data: PhantomData<Col>,
 }
 
-impl<C: Coordinates, T: ColoredPieceType> ColoredPiece for GenericPiece<C, T> {
+impl<C: Coordinates, Col: Color, T: ColoredPieceType<Col>> ColoredPiece<Col>
+    for GenericPiece<C, Col, T>
+{
     type ColoredPieceType = T;
     type Coordinates = C;
 
@@ -174,9 +149,19 @@ impl<C: Coordinates, T: ColoredPieceType> ColoredPiece for GenericPiece<C, T> {
     }
 }
 
-impl<C: Coordinates, T: ColoredPieceType> Display for GenericPiece<C, T> {
+impl<C: Coordinates, Col: Color, T: ColoredPieceType<Col>> Display for GenericPiece<C, Col, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.symbol, f)
+    }
+}
+
+impl<C: Coordinates, Col: Color, T: ColoredPieceType<Col>> GenericPiece<C, Col, T> {
+    pub fn new(symbol: T, coordinates: C) -> Self {
+        Self {
+            symbol,
+            coordinates,
+            _phantom_data: PhantomData,
+        }
     }
 }
 
@@ -475,7 +460,8 @@ pub trait Board:
 {
     type Settings: Settings;
     type Coordinates: Coordinates;
-    type Piece: ColoredPiece;
+    type Color: Color;
+    type Piece: ColoredPiece<Self::Color>;
     type Move: Move<Self>;
     type MoveList: MoveList<Self>;
     type LegalMoveList: MoveList<Self> + FromIterator<Self::Move>;
@@ -533,7 +519,7 @@ pub trait Board:
     fn settings(&self) -> Self::Settings;
 
     /// The player who can now move.
-    fn active_player(&self) -> Color;
+    fn active_player(&self) -> Self::Color;
 
     /// The number of moves (turns) since the start of the game.
     fn fullmove_ctr(&self) -> usize {
@@ -564,7 +550,7 @@ pub trait Board:
     fn is_piece_on(
         &self,
         coords: Self::Coordinates,
-        piece: <Self::Piece as ColoredPiece>::ColoredPieceType,
+        piece: <Self::Piece as ColoredPiece<Self::Color>>::ColoredPieceType,
     ) -> bool {
         self.colored_piece_on(coords).colored_piece_type() == piece
     }
@@ -580,7 +566,9 @@ pub trait Board:
     fn uncolored_piece_on(
         &self,
         coords: Self::Coordinates,
-    ) -> <<Self::Piece as ColoredPiece>::ColoredPieceType as ColoredPieceType>::Uncolored {
+    ) -> <<Self::Piece as ColoredPiece<Self::Color>>::ColoredPieceType as ColoredPieceType<
+        Self::Color,
+    >>::Uncolored {
         self.colored_piece_on(coords).uncolored()
     }
 
@@ -707,7 +695,7 @@ pub trait Board:
     /// The implementation of this method for chess technically violates the FIDE rules (as does the insufficient material
     /// draw condition), but that shouldn't be a problem in practice -- this rule is only meant ot be applied in human games anyway,
     /// and the FIDE rules are effectively uncheckable.
-    fn can_reasonably_win(&self, player: Color) -> bool;
+    fn can_reasonably_win(&self, player: Self::Color) -> bool;
 
     fn zobrist_hash(&self) -> ZobristHash;
 
@@ -841,7 +829,11 @@ fn read_position_fen<B: RectangularBoard, F>(
     place_piece: F,
 ) -> Result<B, String>
 where
-    F: Fn(B, B::Coordinates, <B::Piece as ColoredPiece>::ColoredPieceType) -> Result<B, String>,
+    F: Fn(
+        B,
+        B::Coordinates,
+        <B::Piece as ColoredPiece<B::Color>>::ColoredPieceType,
+    ) -> Result<B, String>,
 {
     let lines = position.split('/');
     debug_assert!(lines.clone().count() > 0);
@@ -870,7 +862,7 @@ where
                 skipped_digits += 1;
                 continue;
             }
-            let symbol = <B::Piece as ColoredPiece>::ColoredPieceType::from_ascii_char(c)
+            let symbol = <B::Piece as ColoredPiece<B::Color>>::ColoredPieceType::from_ascii_char(c)
                 .ok_or_else(|| {
                     format!(
                         "Invalid character in {0} FEN position description (not a piece): {1}",

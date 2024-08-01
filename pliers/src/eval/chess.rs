@@ -6,9 +6,8 @@ use crate::load_data::{Filter, ParseResult};
 use crate::trace::{BasicTrace, SimpleTrace, TraceNFeatures};
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
-use gears::games::chess::Chessboard;
-use gears::games::Color;
-use gears::games::Color::White;
+use gears::games::chess::ChessColor::White;
+use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::bitboards::RawBitboard;
 use motors::eval::chess::CHESS_PHASE_VALUES;
 use std::fmt::Formatter;
@@ -49,14 +48,14 @@ pub fn chess_phase(pos: &Chessboard) -> Float {
     phase as Float / 24.0
 }
 
-fn to_feature_idx(piece: UncoloredChessPiece, color: Color, square: ChessSquare) -> usize {
+fn to_feature_idx(piece: UncoloredChessPiece, color: ChessColor, square: ChessSquare) -> usize {
     NUM_SQUARES * piece as usize + square.flip_if(color == White).bb_idx()
 }
 
 fn psqt_trace(pos: &Chessboard) -> TraceNFeatures<NUM_PSQT_FEATURES> {
     let mut trace = SimpleTrace::for_features(NUM_PSQT_FEATURES);
     trace.phase = chess_phase(pos);
-    for color in Color::iter() {
+    for color in ChessColor::iter() {
         for piece in UncoloredChessPiece::pieces() {
             let bb = pos.colored_piece_bb(color, piece);
             for square in bb.ones() {

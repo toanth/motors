@@ -20,8 +20,8 @@ use crate::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use crate::eval::ScoreType;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
-use gears::games::Color;
-use gears::games::Color::*;
+use gears::games::chess::ChessColor;
+use gears::games::chess::ChessColor::White;
 use gears::score::{p, PhasedScore};
 use std::fmt::Debug;
 
@@ -442,7 +442,7 @@ pub trait LiteValues: Debug + Default + Copy + Clone + Send + 'static {
     fn psqt(
         square: ChessSquare,
         piece: UncoloredChessPiece,
-        color: Color,
+        color: ChessColor,
     ) -> <Self::Score as ScoreType>::SingleFeatureScore;
 
     fn passed_pawn(square: ChessSquare) -> <Self::Score as ScoreType>::SingleFeatureScore;
@@ -499,7 +499,7 @@ pub struct Lite {}
 impl LiteValues for Lite {
     type Score = PhasedScore;
 
-    fn psqt(square: ChessSquare, piece: UncoloredChessPiece, color: Color) -> Self::Score {
+    fn psqt(square: ChessSquare, piece: UncoloredChessPiece, color: ChessColor) -> Self::Score {
         PSQTS[piece as usize][square.flip_if(color == White).bb_idx()]
     }
 

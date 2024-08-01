@@ -1,7 +1,7 @@
 use crate::eval::Eval;
 use gears::games::chess::pieces::UncoloredChessPiece;
 use gears::games::chess::Chessboard;
-use gears::games::Board;
+use gears::games::{Board, Color};
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{Score, ScoreT};
 use std::fmt::Display;

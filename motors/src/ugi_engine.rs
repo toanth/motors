@@ -8,7 +8,6 @@ use std::time::{Duration, Instant};
 use colored::Colorize;
 
 use gears::cli::{select_game, Game};
-use gears::games::Color::White;
 use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristHistory};
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{
@@ -84,7 +83,7 @@ struct BoardGameState<B: Board> {
     mov_hist: Vec<B::Move>,
     board_hist: ZobristHistory<B>,
     initial_pos: B,
-    last_played_color: Color,
+    last_played_color: B::Color,
     ponder_limit: Option<SearchLimit>,
 }
 
@@ -284,7 +283,7 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
         "??"
     }
 
-    fn player_name(&self, color: Color) -> Option<&str> {
+    fn player_name(&self, color: B::Color) -> Option<&str> {
         if color == self.last_played_color {
             Some(self.name())
         } else {
@@ -292,13 +291,13 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
         }
     }
 
-    fn time(&self, _color: Color) -> Option<TimeControl> {
+    fn time(&self, _color: B::Color) -> Option<TimeControl> {
         // Technically, we get the time with 'go', but we can't trust it for the other player,
         // and we don't really need this for ourselves while we're thinking
         None
     }
 
-    fn thinking_since(&self, _color: Color) -> Option<Instant> {
+    fn thinking_since(&self, _color: B::Color) -> Option<Instant> {
         None
     }
 }
@@ -323,7 +322,7 @@ impl<B: Board> EngineUGI<B> {
             mov_hist: vec![],
             board_hist: ZobristHistory::default(),
             initial_pos: B::default(),
-            last_played_color: Color::default(),
+            last_played_color: B::Color::default(),
             ponder_limit: None,
         };
         let state = EngineGameState {
@@ -621,7 +620,7 @@ impl<B: Board> EngineUGI<B> {
 
     fn handle_go(&mut self, words: &mut SplitWhitespace) -> Res<()> {
         let mut limit = SearchLimit::infinite();
-        let is_white = self.state.board.active_player() == White;
+        let is_first = self.state.board.active_player().is_first();
         let mut search_type = Normal;
         let mut multi_pv = self.multi_pv;
         let mut search_moves = vec![];
@@ -631,25 +630,25 @@ impl<B: Board> EngineUGI<B> {
                 "wtime" | "p1time" | "wt" | "p1t" => {
                     let time = parse_duration_ms(words, "wtime")?;
                     // always parse the duration, even if it isn't relevant
-                    if is_white {
+                    if is_first {
                         limit.tc.remaining = time;
                     }
                 }
                 "btime" | "p2time" | "bt" | "p2t" => {
                     let time = parse_duration_ms(words, "btime")?;
-                    if !is_white {
+                    if !is_first {
                         limit.tc.remaining = time;
                     }
                 }
                 "winc" | "p1inc" | "wi" => {
                     let increment = parse_duration_ms(words, "winc")?;
-                    if is_white {
+                    if is_first {
                         limit.tc.increment = increment;
                     }
                 }
                 "binc" | "p2inc" | "bi" => {
                     let increment = parse_duration_ms(words, "binc")?;
-                    if !is_white {
+                    if !is_first {
                         limit.tc.increment = increment;
                     }
                 }
@@ -842,7 +841,7 @@ impl<B: Board> EngineUGI<B> {
                 .write_response(&matches!(self.state.status, Run(Ongoing)).to_string()),
             "p1turn" => self
                 .output()
-                .write_response(&(self.state.board.active_player() == White).to_string()),
+                .write_response(&(self.state.board.active_player().is_first()).to_string()),
             "result" => {
                 let response = match &self.state.status {
                     Run(Over(res)) => match res.result {

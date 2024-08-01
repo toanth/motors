@@ -12,8 +12,8 @@ use crate::eval::chess::lite::LiTEval;
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
 use gears::games::chess::see::SeeScore;
-use gears::games::chess::{Chessboard, MAX_CHESS_MOVES_IN_POS};
-use gears::games::{n_fold_repetition, Board, BoardHistory, Color, Move, ZobristHistory};
+use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
+use gears::games::{n_fold_repetition, Board, BoardHistory, Move, ZobristHistory};
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::Description::NoDescription;
 use gears::general::common::{select_name_static, Res, StaticallyNamedEntity};
@@ -76,12 +76,12 @@ impl Default for HistoryHeuristic {
 struct CaptHist([[[i32; 64]; 6]; 2]);
 
 impl CaptHist {
-    fn update(&mut self, mov: ChessMove, color: Color, bonus: i32) {
+    fn update(&mut self, mov: ChessMove, color: ChessColor, bonus: i32) {
         let entry =
             &mut self[color as usize][mov.uncolored_piece() as usize][mov.dest_square().bb_idx()];
         update_history_score(entry, bonus);
     }
-    fn get(&self, mov: ChessMove, color: Color) -> MoveScore {
+    fn get(&self, mov: ChessMove, color: ChessColor) -> MoveScore {
         MoveScore(self[color as usize][mov.uncolored_piece() as usize][mov.dest_square().bb_idx()])
     }
 }
@@ -100,16 +100,16 @@ impl Default for CaptHist {
 struct ContHist(Vec<i32>); // Can't store this on the stack because it's too large.
 
 impl ContHist {
-    fn idx(mov: ChessMove, prev_move: ChessMove, color: Color) -> usize {
+    fn idx(mov: ChessMove, prev_move: ChessMove, color: ChessColor) -> usize {
         (mov.uncolored_piece() as usize + mov.dest_square().bb_idx() * 6)
             + (prev_move.uncolored_piece() as usize + prev_move.dest_square().bb_idx() * 6) * 64 * 6
             + color as usize * 64 * 6 * 64 * 6
     }
-    fn update(&mut self, mov: ChessMove, prev_mov: ChessMove, bonus: i32, color: Color) {
+    fn update(&mut self, mov: ChessMove, prev_mov: ChessMove, bonus: i32, color: ChessColor) {
         let entry = &mut self[Self::idx(mov, prev_mov, color)];
         update_history_score(entry, bonus);
     }
-    fn score(&self, mov: ChessMove, prev_move: ChessMove, color: Color) -> i32 {
+    fn score(&self, mov: ChessMove, prev_move: ChessMove, color: ChessColor) -> i32 {
         self[Self::idx(mov, prev_move, color)]
     }
 }
@@ -913,7 +913,7 @@ impl Caps {
         mov: ChessMove,
         prev_move: ChessMove,
         depth: isize,
-        color: Color,
+        color: ChessColor,
         pos: &Chessboard,
         hist: &mut ContHist,
         failed: &[ChessMove],
@@ -938,7 +938,7 @@ impl Caps {
         mov: ChessMove,
         depth: isize,
         ply: usize,
-        color: Color,
+        color: ChessColor,
     ) {
         let (before, now) = self.state.search_stack.split_at_mut(ply);
         let entry = &mut now[0];

@@ -4,8 +4,8 @@ mod perft_test;
 
 use crate::games::ataxx::common::ColoredAtaxxPieceType::{BlackPiece, Blocked, Empty, WhitePiece};
 use crate::games::ataxx::common::{AtaxxMove, ColoredAtaxxPieceType, MAX_ATAXX_MOVES_IN_POS};
+use crate::games::ataxx::AtaxxColor::{Black, White};
 use crate::games::chess::pieces::NUM_COLORS;
-use crate::games::Color::{Black, White};
 use crate::games::SelfChecks::*;
 use crate::games::{
     board_to_string, position_fen_part, Board, BoardHistory, Color, ColoredPiece, Coordinates,
@@ -23,8 +23,10 @@ use rand::prelude::SliceRandom;
 use rand::Rng;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
+use std::ops::Not;
 use std::str::SplitWhitespace;
 use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
 pub struct AtaxxSettings {}
@@ -35,11 +37,35 @@ pub type AtaxxSize = SmallGridSize<7, 7>;
 
 pub type AtaxxSquare = SmallGridSquare<7, 7>;
 
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, derive_more::Display, EnumIter)]
+pub enum AtaxxColor {
+    #[default]
+    Black,
+    White,
+}
+
+impl Not for AtaxxColor {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        self.other()
+    }
+}
+
+impl Color for AtaxxColor {
+    fn other(self) -> Self {
+        match self {
+            Black => White,
+            White => Black,
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub struct AtaxxBoard {
     colors: [RawStandardBitboard; NUM_COLORS],
     empty: RawStandardBitboard,
-    active_player: Color,
+    active_player: AtaxxColor,
     ply_100_ctr: usize,
     ply: usize,
 }
@@ -81,7 +107,7 @@ impl StaticallyNamedEntity for AtaxxBoard {
     }
 }
 
-type AtaxxPiece = GenericPiece<AtaxxSquare, ColoredAtaxxPieceType>;
+type AtaxxPiece = GenericPiece<AtaxxSquare, AtaxxColor, ColoredAtaxxPieceType>;
 
 // for some reason, Chessboard::MoveList can be ambiguous? This should fix that
 pub type AtaxxMoveList = EagerNonAllocMoveList<AtaxxBoard, MAX_ATAXX_MOVES_IN_POS>;
@@ -89,18 +115,20 @@ pub type AtaxxMoveList = EagerNonAllocMoveList<AtaxxBoard, MAX_ATAXX_MOVES_IN_PO
 impl Board for AtaxxBoard {
     type Settings = AtaxxSettings;
     type Coordinates = AtaxxSquare;
+    type Color = AtaxxColor;
     type Piece = AtaxxPiece;
     type Move = AtaxxMove;
     type MoveList = AtaxxMoveList;
-    type LegalMoveList = Self::MoveList;
 
-    fn startpos(_settings: Self::Settings) -> Self {
-        Self::default()
-    }
+    type LegalMoveList = Self::MoveList;
 
     fn empty_possibly_invalid(_settings: Self::Settings) -> Self {
         let empty = AtaxxBitboard::default();
         Self::create(empty, empty, empty).unwrap()
+    }
+
+    fn startpos(_settings: Self::Settings) -> Self {
+        Self::default()
     }
 
     fn bench_positions() -> Vec<Self> {
@@ -165,7 +193,7 @@ impl Board for AtaxxBoard {
         AtaxxSettings::default()
     }
 
-    fn active_player(&self) -> Color {
+    fn active_player(&self) -> AtaxxColor {
         self.active_player
     }
 
@@ -179,6 +207,10 @@ impl Board for AtaxxBoard {
 
     fn size(&self) -> <Self::Coordinates as Coordinates>::Size {
         AtaxxSize::default()
+    }
+
+    fn is_empty(&self, coords: Self::Coordinates) -> bool {
+        self.empty_bb().is_bit_set_at(coords.bb_idx())
     }
 
     fn is_piece_on(&self, sq: AtaxxSquare, piece: ColoredAtaxxPieceType) -> bool {
@@ -202,10 +234,7 @@ impl Board for AtaxxBoard {
         } else {
             Blocked
         };
-        Self::Piece {
-            symbol: typ,
-            coordinates,
-        }
+        Self::Piece::new(typ, coordinates)
     }
 
     fn are_all_pseudolegal_legal() -> bool {
@@ -279,7 +308,7 @@ impl Board for AtaxxBoard {
         self.player_result_slow(&NoHistory::default()).unwrap()
     }
 
-    fn can_reasonably_win(&self, _player: Color) -> bool {
+    fn can_reasonably_win(&self, _player: AtaxxColor) -> bool {
         true
     }
 
@@ -330,7 +359,7 @@ impl Board for AtaxxBoard {
                 AtaxxSquare::from_bb_index(overlap.pop_lsb())
             ));
         }
-        for color in Color::iter() {
+        for color in AtaxxColor::iter() {
             let mut overlap = self.empty & self.colors[color as usize];
             if overlap.has_set_bit() {
                 return Err(format!(
@@ -340,10 +369,6 @@ impl Board for AtaxxBoard {
             }
         }
         Ok(())
-    }
-
-    fn is_empty(&self, coords: Self::Coordinates) -> bool {
-        self.empty_bb().is_bit_set_at(coords.bb_idx())
     }
 }
 

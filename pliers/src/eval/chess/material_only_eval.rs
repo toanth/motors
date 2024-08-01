@@ -5,8 +5,7 @@ use crate::gd::{NonTaperedDatapoint, Weight, Weights};
 use crate::load_data::NoFilter;
 use crate::trace::{BasicTrace, SimpleTrace, TraceTrait};
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
-use gears::games::chess::Chessboard;
-use gears::games::Color;
+use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::bitboards::RawBitboard;
 use std::fmt::Formatter;
 use strum::IntoEnumIterator;
@@ -35,7 +34,7 @@ impl Eval<Chessboard> for MaterialOnlyEval {
 
     fn feature_trace(pos: &Chessboard) -> impl TraceTrait {
         let mut trace = SimpleTrace::for_features(Self::NUM_FEATURES);
-        for color in Color::iter() {
+        for color in ChessColor::iter() {
             for piece in UncoloredChessPiece::non_king_pieces() {
                 let num_pieces = pos.colored_piece_bb(color, piece).num_ones() as isize;
                 trace.increment_by(piece as usize, color, num_pieces);

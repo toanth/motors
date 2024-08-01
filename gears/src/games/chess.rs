@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroUsize;
+use std::ops::Not;
 use std::str::{FromStr, SplitWhitespace};
 
 use colored::Colorize;
@@ -7,6 +8,7 @@ use itertools::Itertools;
 use rand::prelude::IteratorRandom;
 use rand::Rng;
 use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
 use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::castling::{CastleRight, CastlingFlags};
@@ -17,7 +19,7 @@ use crate::games::chess::pieces::{
 };
 use crate::games::chess::squares::{ChessSquare, ChessboardSize, NUM_SQUARES};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
-use crate::games::Color::{Black, White};
+use crate::games::chess::ChessColor::{Black, White};
 use crate::games::SelfChecks::{Assertion, CheckFen};
 use crate::games::{
     board_to_string, file_to_char, n_fold_repetition, position_fen_part, read_position_fen,
@@ -57,13 +59,47 @@ pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, MAX_CHESS_MOVES_IN_PO
 
 impl Settings for ChessSettings {}
 
+/// White is always the first player, Black is always the second
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Hash, EnumIter, derive_more::Display)]
+pub enum ChessColor {
+    #[default]
+    White = 0,
+    Black = 1,
+}
+
+impl Not for ChessColor {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        self.other()
+    }
+}
+
+impl Color for ChessColor {
+    #[must_use]
+    fn other(self) -> Self {
+        match self {
+            White => Black,
+            Black => White,
+        }
+    }
+
+    fn first() -> Self {
+        White
+    }
+
+    fn second() -> Self {
+        Black
+    }
+}
+
 #[derive(Eq, PartialEq, Debug, Copy, Clone)]
 pub struct Chessboard {
     piece_bbs: [RawStandardBitboard; NUM_CHESS_PIECES],
     color_bbs: [RawStandardBitboard; NUM_COLORS],
     ply: usize, // TODO: Test if using u32 or even u16 improves nps in perft (also for 50mr counter)
     ply_100_ctr: usize,
-    active_player: Color,
+    active_player: ChessColor,
     castling: CastlingFlags,
     ep_square: Option<ChessSquare>, // eventually, see if using Optional and Noned instead of Option improves nps
     hash: ZobristHash,
@@ -101,6 +137,7 @@ impl StaticallyNamedEntity for Chessboard {
 impl Board for Chessboard {
     type Settings = ChessSettings;
     type Coordinates = ChessSquare;
+    type Color = ChessColor;
     type Piece = ChessPiece;
     type Move = ChessMove;
     type MoveList = ChessMoveList;
@@ -258,7 +295,7 @@ impl Board for Chessboard {
         ChessSettings {}
     }
 
-    fn active_player(&self) -> Color {
+    fn active_player(&self) -> ChessColor {
         self.active_player
     }
 
@@ -296,10 +333,7 @@ impl Board for Chessboard {
             White // use white as color for `Empty` because that's what `new` expects
         };
         let typ = ColoredChessPiece::new(color, uncolored);
-        ChessPiece {
-            symbol: typ,
-            coordinates: square,
-        }
+        ChessPiece::new(typ, square)
     }
 
     fn uncolored_piece_on(&self, square: ChessSquare) -> UncoloredChessPiece {
@@ -385,7 +419,7 @@ impl Board for Chessboard {
 
     /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
     /// return `false` if there is a realistic way to win).
-    fn can_reasonably_win(&self, player: Color) -> bool {
+    fn can_reasonably_win(&self, player: ChessColor) -> bool {
         if self.colored_bb(player).is_single_piece() {
             return false; // we only have our king left
         }
@@ -425,7 +459,7 @@ impl Board for Chessboard {
         let mut castle_rights = String::default();
         // Always output chess960 castling rights. FEN output isn't necessary for UCI
         // and almost all tools support chess960 FEN notation.
-        for color in Color::iter() {
+        for color in ChessColor::iter() {
             for side in CastleRight::iter().rev() {
                 if self.castling.can_castle(color, side) {
                     let mut file = file_to_char(self.castling.rook_start_file(color, side));
@@ -522,7 +556,7 @@ impl Board for Chessboard {
     }
 
     fn verify_position_legal(&self, checks: SelfChecks) -> Res<()> {
-        for color in Color::iter() {
+        for color in ChessColor::iter() {
             if !self.colored_piece_bb(color, King).is_single_piece() {
                 return Err(format!("The {color} player does not have exactly one king"));
             }
@@ -541,7 +575,7 @@ impl Board for Chessboard {
             hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         }
 
-        for color in Color::iter() {
+        for color in ChessColor::iter() {
             for side in CastleRight::iter() {
                 let has_eligible_rook = (self.rook_start_square(color, side).bb()
                     & self.colored_piece_bb(color, Rook))
@@ -636,7 +670,7 @@ impl Chessboard {
         ChessBitboard::new(self.piece_bbs[piece.to_uncolored_idx()])
     }
 
-    pub fn colored_bb(&self, color: Color) -> ChessBitboard {
+    pub fn colored_bb(&self, color: ChessColor) -> ChessBitboard {
         ChessBitboard::new(self.color_bbs[color as usize])
     }
 
@@ -657,7 +691,7 @@ impl Chessboard {
         self.occupied_bb().is_bit_set_at(square.bb_idx())
     }
 
-    pub fn colored_piece_bb(&self, color: Color, piece: UncoloredChessPiece) -> ChessBitboard {
+    pub fn colored_piece_bb(&self, color: ChessColor, piece: UncoloredChessPiece) -> ChessBitboard {
         self.colored_bb(color) & self.piece_bb(piece)
     }
 
@@ -683,13 +717,10 @@ impl Chessboard {
         self.color_bbs[piece.color().unwrap() as usize] ^= bb;
     }
 
-    fn remove_piece(&mut self, square: ChessSquare, piece: UncoloredChessPiece, color: Color) {
+    fn remove_piece(&mut self, square: ChessSquare, piece: UncoloredChessPiece, color: ChessColor) {
         debug_assert_eq!(
             self.colored_piece_on(square),
-            ChessPiece {
-                symbol: ColoredChessPiece::new(color, piece),
-                coordinates: square
-            }
+            ChessPiece::new(ColoredChessPiece::new(color, piece), square)
         );
         let bb = square.bb().raw();
         self.piece_bbs[piece as usize] ^= bb;
@@ -760,7 +791,7 @@ impl Chessboard {
         self.ep_square
     }
 
-    pub fn king_square(&self, color: Color) -> ChessSquare {
+    pub fn king_square(&self, color: ChessColor) -> ChessSquare {
         ChessSquare::from_bb_index(self.colored_piece_bb(color, King).trailing_zeros())
     }
 
@@ -772,7 +803,7 @@ impl Chessboard {
         self.make_move(mov).is_some_and(|b| b.is_in_check())
     }
 
-    fn chess960_startpos_white(mut num: usize, color: Color, board: &mut Self) -> Res<()> {
+    fn chess960_startpos_white(mut num: usize, color: ChessColor, board: &mut Self) -> Res<()> {
         if num >= 960 {
             return Err(format!("There are only 960 starting positions in chess960 (0 to 959), so position {num} doesn't exist"));
         }
@@ -926,7 +957,7 @@ mod tests {
         assert_eq!(board.ply_100_ctr, 0);
         assert!(board.ep_square.is_none());
         assert_eq!(board.active_player(), White);
-        for color in Color::iter() {
+        for color in ChessColor::iter() {
             for side in CastleRight::iter() {
                 assert!(board.castling.can_castle(color, side));
             }
@@ -950,10 +981,7 @@ mod tests {
         let square = ChessSquare::from_rank_file(4, F_FILE_NO);
         assert_eq!(
             board.colored_piece_on(square),
-            ChessPiece {
-                symbol: ColoredChessPiece::Empty,
-                coordinates: square
-            }
+            ChessPiece::new(ColoredChessPiece::Empty, square)
         );
         assert_eq!(board.as_fen(), START_FEN);
         let moves = board.pseudolegal_moves();

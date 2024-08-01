@@ -3,7 +3,7 @@ use crate::games::chess::moves::ChessMoveFlags::{NormalPawnMove, PromoQueen};
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use crate::games::chess::squares::ChessSquare;
-use crate::games::chess::Chessboard;
+use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{AbstractPieceType, Board, Color, Coordinates, Move};
 use crate::general::bitboards::chess::{ChessBitboard, PAWN_CAPTURES};
 use crate::general::bitboards::RayDirections::Vertical;
@@ -45,7 +45,7 @@ pub fn move_see_value(mov: ChessMove, victim: UncoloredChessPiece) -> SeeScore {
 impl Chessboard {
     fn next_see_attacker(
         &self,
-        color: Color,
+        color: ChessColor,
         all_remaining_attackers: ChessBitboard,
     ) -> (Option<UncoloredChessPiece>, ChessSquare) {
         for piece in UncoloredChessPiece::pieces() {

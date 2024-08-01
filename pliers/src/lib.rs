@@ -251,7 +251,7 @@ mod tests {
     use crate::load_data::Perspective::SideToMove;
     use gears::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};
     use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
-    use gears::games::Color::White;
+    use gears::games::chess::ChessColor::White;
     use gears::games::{AbstractPieceType, ColoredPieceType};
     use UncoloredChessPiece::*;
 

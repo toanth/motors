@@ -5,8 +5,8 @@ use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};
 use crate::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO};
 use crate::games::chess::CastleRight::*;
-use crate::games::chess::{ChessMoveList, Chessboard};
-use crate::games::Color::*;
+use crate::games::chess::ChessColor::*;
+use crate::games::chess::{ChessColor, ChessMoveList, Chessboard};
 use crate::games::{Board, Color, ColoredPieceType, Move};
 use crate::general::bitboards::chess::{ChessBitboard, KINGS, KNIGHTS, PAWN_CAPTURES};
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
@@ -22,7 +22,7 @@ enum SliderMove {
 
 impl Chessboard {
     fn single_pawn_moves(
-        color: Color,
+        color: ChessColor,
         square: ChessSquare,
         capture_filter: ChessBitboard,
         push_filter: ChessBitboard,
@@ -43,7 +43,7 @@ impl Chessboard {
         &self,
         square: ChessSquare,
         piece: UncoloredChessPiece,
-        color: Color,
+        color: ChessColor,
     ) -> ChessBitboard {
         let square_bb_if_occupied = square.bb() & self.occupied_bb();
         match piece {
@@ -97,7 +97,7 @@ impl Chessboard {
 
     /// Used for castling and to implement `is_in_check`:
     /// Pretend there is a king of color `us` at `square` and test if it is in check.
-    pub fn is_in_check_on_square(&self, us: Color, square: ChessSquare) -> bool {
+    pub fn is_in_check_on_square(&self, us: ChessColor, square: ChessSquare) -> bool {
         (self.all_attacking(square) & self.colored_bb(us.other())).has_set_bit()
     }
 
@@ -341,7 +341,7 @@ impl Chessboard {
         KNIGHTS[square.bb_idx()]
     }
 
-    pub fn single_pawn_captures(color: Color, square: ChessSquare) -> ChessBitboard {
+    pub fn single_pawn_captures(color: ChessColor, square: ChessSquare) -> ChessBitboard {
         PAWN_CAPTURES[color as usize][square.bb_idx()]
     }
 

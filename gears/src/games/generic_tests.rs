@@ -1,7 +1,7 @@
 //! This module contains generic test functions that are completely independent of the actual game.
 //! Since those generics aren't instantiated here, there are no actual tests here.
 use crate::games::SelfChecks::Assertion;
-use crate::games::{Board, Move, NoHistory, ZobristHash};
+use crate::games::{Board, Color, Move, NoHistory, ZobristHash};
 use itertools::Itertools;
 use std::collections::{HashSet, VecDeque};
 use std::marker::PhantomData;

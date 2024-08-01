@@ -3,7 +3,6 @@ use std::io::stdout;
 
 use colored::{Color, Colorize};
 
-use crate::games::Color::*;
 use crate::games::{
     AbstractPieceType, Board, ColoredPiece, ColoredPieceType, Coordinates, Move, RectangularBoard,
 };
@@ -12,7 +11,7 @@ use crate::general::squares::RectangularCoordinates;
 use crate::output::text_output::{TextStream, TextWriter};
 use crate::output::Message::Info;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
-use crate::GameState;
+use crate::{games, GameState};
 
 // TODO: Should be a BoardToString variant
 #[derive(Debug)]
@@ -29,17 +28,17 @@ impl Default for PrettyUI {
 }
 
 fn color<B: Board>(
-    piece: <B::Piece as ColoredPiece>::ColoredPieceType,
+    piece: <B::Piece as ColoredPiece<B::Color>>::ColoredPieceType,
     square: B::Coordinates,
     last_move: Option<B::Move>,
 ) -> String
 where
     B::Coordinates: RectangularCoordinates,
 {
-    let white_bg_col = Color::White;
-    let black_bg_col = Color::Black;
-    let white_piece_col = Color::Green;
-    let black_piece_col = Color::Cyan;
+    let p1_bg_col = Color::White;
+    let p2_bg_col = Color::Black;
+    let p1_piece_col = Color::Green;
+    let p2_piece_col = Color::Cyan;
     let move_bg_color = Color::Red;
     let symbol = piece.uncolor().to_utf8_char();
     let no_coordinates = B::Coordinates::no_coordinates();
@@ -48,17 +47,17 @@ where
     {
         move_bg_color
     } else if (square.row() + square.column()) % 2 == 0 {
-        black_bg_col
+        p2_bg_col
     } else {
-        white_bg_col
+        p1_bg_col
     };
 
-    if piece == <B::Piece as ColoredPiece>::ColoredPieceType::empty() {
+    if piece == <B::Piece as ColoredPiece<B::Color>>::ColoredPieceType::empty() {
         "  ".to_string().color(Color::Black)
-    } else if piece.color().unwrap() == White {
-        (symbol.to_string() + " ").color(white_piece_col)
+    } else if piece.color().unwrap() == <B::Color as games::Color>::first() {
+        (symbol.to_string() + " ").color(p1_piece_col)
     } else {
-        (symbol.to_string() + " ").color(black_piece_col)
+        (symbol.to_string() + " ").color(p2_piece_col)
     }
     .on_color(bg_color)
     .to_string()

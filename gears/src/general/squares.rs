@@ -3,7 +3,8 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use crate::games::{char_to_file, file_to_char, Color, Coordinates, DimT, Height, Size, Width};
+use crate::games::chess::ChessColor;
+use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, Size, Width};
 use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::common::{parse_int, Res};
 
@@ -354,10 +355,10 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
         Self::unchecked(self.bb_idx() - 1)
     }
 
-    pub fn pawn_advance_unchecked(self, color: Color) -> Self {
+    pub fn pawn_advance_unchecked(self, color: ChessColor) -> Self {
         match color {
-            Color::White => self.north_unchecked(),
-            Color::Black => self.south_unchecked(),
+            ChessColor::White => self.north_unchecked(),
+            ChessColor::Black => self.south_unchecked(),
         }
     }
 

@@ -1,8 +1,8 @@
 use derive_more::Display;
 use gears::games::chess::pieces::NUM_CHESS_PIECES;
 use gears::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO, NUM_SQUARES};
-use gears::games::Color;
-use gears::games::Color::*;
+use gears::games::chess::ChessColor;
+use gears::games::chess::ChessColor::Black;
 use gears::general::bitboards::chess::ChessBitboard;
 use gears::general::bitboards::Bitboard;
 use strum_macros::EnumIter;
@@ -49,7 +49,11 @@ pub const PAWN_SHIELD_SHIFT: [usize; NUM_SQUARES] = {
     res
 };
 
-pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: Color) -> usize {
+pub fn pawn_shield_idx(
+    mut pawns: ChessBitboard,
+    mut king: ChessSquare,
+    color: ChessColor,
+) -> usize {
     if color == Black {
         king = king.flip();
         pawns = pawns.flip_up_down();
@@ -87,7 +91,8 @@ mod tests {
     use crate::eval::Eval;
 
     use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
-    use gears::games::chess::Chessboard;
+    use gears::games::chess::ChessColor::White;
+    use gears::games::chess::{ChessColor, Chessboard};
     use gears::games::{Board, DimT};
     use gears::general::bitboards::RawBitboard;
     use gears::score::Score;
@@ -133,7 +138,7 @@ mod tests {
     fn expected_pawn_shield_idx(
         mut pawns: ChessBitboard,
         mut king: ChessSquare,
-        color: Color,
+        color: ChessColor,
     ) -> usize {
         if color == Black {
             pawns = pawns.flip_up_down();
@@ -176,7 +181,7 @@ mod tests {
     fn pawn_shield_bench_pos_test() {
         for pos in Chessboard::bench_positions() {
             for square in ChessSquare::iter() {
-                for color in Color::iter() {
+                for color in ChessColor::iter() {
                     let _fen = pos.as_fen();
                     let pawns = pos.colored_piece_bb(color, Pawn);
                     let actual = pawn_shield_idx(pawns, square, color);

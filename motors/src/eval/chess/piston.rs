@@ -2,8 +2,8 @@ use std::fmt::Display;
 use strum::IntoEnumIterator;
 
 use gears::games::chess::pieces::UncoloredChessPiece;
-use gears::games::chess::Chessboard;
-use gears::games::{Board, Color};
+use gears::games::chess::{ChessColor, Chessboard};
+use gears::games::Board;
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{PhasedScore, Score, ScoreT};
@@ -182,7 +182,7 @@ impl Eval<Chessboard> for PistonEval {
         let mut mg = Score(0);
         let mut eg = Score(0);
         let mut phase = 0;
-        for color in Color::iter() {
+        for color in ChessColor::iter() {
             for piece in UncoloredChessPiece::pieces() {
                 let mut bb = pos.colored_piece_bb(color, piece);
                 while bb.has_set_bit() {
@@ -190,8 +190,8 @@ impl Eval<Chessboard> for PistonEval {
                     let mg_table = piece as usize * 2;
                     let eg_table = mg_table + 1;
                     let square = match color {
-                        Color::White => idx ^ 0b111_000,
-                        Color::Black => idx,
+                        ChessColor::White => idx ^ 0b111_000,
+                        ChessColor::Black => idx,
                     };
                     mg += Score(PSQTS[mg_table][square]);
                     eg += Score(PSQTS[eg_table][square]);
@@ -204,8 +204,8 @@ impl Eval<Chessboard> for PistonEval {
         // TODO: Store phased scores in the PSQTs.
         let score = PhasedScore::new(mg.0 as i16, eg.0 as i16).taper(phase, 24);
         match pos.active_player() {
-            Color::White => score,
-            Color::Black => -score,
+            ChessColor::White => score,
+            ChessColor::Black => -score,
         }
     }
 }

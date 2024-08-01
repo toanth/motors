@@ -9,9 +9,8 @@ use gears::games::chess::pieces::UncoloredChessPiece::*;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::see::SEE_SCORES;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
-use gears::games::chess::Chessboard;
-use gears::games::Color;
-use gears::games::Color::*;
+use gears::games::chess::ChessColor::White;
+use gears::games::chess::{ChessColor, Chessboard};
 use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
 use motors::eval::chess::FileOpenness::*;
@@ -65,7 +64,7 @@ impl LiTETrace {
 impl LiteValues for LiTETrace {
     type Score = SparseTrace;
 
-    fn psqt(square: ChessSquare, piece: UncoloredChessPiece, color: Color) -> SingleFeature {
+    fn psqt(square: ChessSquare, piece: UncoloredChessPiece, color: ChessColor) -> SingleFeature {
         let square = square.flip_if(color == White);
         let idx = square.bb_idx() + piece as usize * NUM_SQUARES;
         SingleFeature::new(idx)

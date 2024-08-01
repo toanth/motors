@@ -14,8 +14,8 @@ use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::pieces::{ChessPiece, ColoredChessPiece, UncoloredChessPiece};
 use crate::games::chess::squares::{ChessSquare, C_FILE_NO, D_FILE_NO, F_FILE_NO, G_FILE_NO};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
-use crate::games::chess::Chessboard;
-use crate::games::Color::{Black, White};
+use crate::games::chess::ChessColor::*;
+use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{
     char_to_file, file_to_char, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType,
     DimT, Move, MoveFlags, ZobristHash,
@@ -107,10 +107,10 @@ impl ChessMove {
         let source = self.src_square();
         debug_assert!(board.is_occupied(source));
         debug_assert!(board.active_player_bb().is_bit_set_at(source.bb_idx()));
-        ChessPiece {
-            symbol: ColoredChessPiece::new(board.active_player, self.flags().piece_type()),
-            coordinates: source,
-        }
+        ChessPiece::new(
+            ColoredChessPiece::new(board.active_player, self.flags().piece_type()),
+            source,
+        )
     }
 
     pub fn uncolored_piece(self) -> UncoloredChessPiece {
@@ -369,15 +369,15 @@ impl Move<Chessboard> for ChessMove {
 }
 
 impl Chessboard {
-    pub fn backrank(color: Color) -> DimT {
+    pub fn backrank(color: ChessColor) -> DimT {
         7 * color as DimT
     }
 
-    pub fn rook_start_file(&self, color: Color, side: CastleRight) -> DimT {
+    pub fn rook_start_file(&self, color: ChessColor, side: CastleRight) -> DimT {
         self.castling.rook_start_file(color, side)
     }
 
-    pub fn rook_start_square(&self, color: Color, side: CastleRight) -> ChessSquare {
+    pub fn rook_start_square(&self, color: ChessColor, side: CastleRight) -> ChessSquare {
         let file = self.rook_start_file(color, side);
         let rank = Self::backrank(color);
         ChessSquare::from_rank_file(rank, file)

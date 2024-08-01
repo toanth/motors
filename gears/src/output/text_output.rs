@@ -4,8 +4,7 @@ use std::mem::swap;
 use std::path::Path;
 use std::str::SplitWhitespace;
 
-use crate::games::Color::{Black, White};
-use crate::games::{Board, Move};
+use crate::games::{Board, Color, Move};
 use crate::general::common::{NamedEntity, Res};
 use crate::output::text_output::DisplayType::*;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
@@ -183,8 +182,8 @@ impl BoardToText {
         [Site \"{site}\"]\n\
         [Date \"{date}\"]\n\
         [Round \"1\"]\n\
-        [White \"{white}\"]\n\
-        [Black \"{black}\"]\n\
+        [{p1_name} \"{p1}\"]\n\
+        [{p2_name} \"{p2}\"]\n\
         [Result \"{result}\"]\n\
         [TimeControl \"??\"]\n\
         [Termination \"{termination}\"]\n\
@@ -196,8 +195,10 @@ impl BoardToText {
             site = m.site(),
             date = chrono::offset::Utc::now().to_rfc2822(),
             fen = m.initial_pos().as_fen(),
-            white = m.player_name(White).unwrap_or("??"),
-            black = m.player_name(Black).unwrap_or("??"),
+            p1 = m.player_name(B::Color::first()).unwrap_or("??"),
+            p2 = m.player_name(B::Color::second()).unwrap_or("??"),
+            p1_name = B::Color::first(),
+            p2_name = B::Color::second(),
         );
         let mut board = m.initial_pos();
         for (ply, mov) in m.move_history().iter().enumerate() {
@@ -237,15 +238,15 @@ impl BoardToText {
         let mut time_above = String::default();
         if m.match_status() == Ongoing {
             time_below = m
-                .time(White)
-                .map(|tc| tc.remaining_to_string(m.thinking_since(White)))
+                .time(B::Color::first())
+                .map(|tc| tc.remaining_to_string(m.thinking_since(B::Color::first())))
                 .unwrap_or_default();
             time_above = m
-                .time(Black)
-                .map(|tc| tc.remaining_to_string(m.thinking_since(Black)))
+                .time(B::Color::second())
+                .map(|tc| tc.remaining_to_string(m.thinking_since(B::Color::second())))
                 .unwrap_or_default();
         }
-        let flipped = m.active_player() == Black;
+        let flipped = m.active_player() == B::Color::second();
         if flipped {
             swap(&mut time_below, &mut time_above);
         }

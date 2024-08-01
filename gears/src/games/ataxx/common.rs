@@ -1,10 +1,9 @@
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::common::AtaxxPieceType::{Blocked, Empty, Occupied};
-use crate::games::ataxx::{AtaxxBoard, AtaxxSquare};
-use crate::games::Color::{Black, White};
+use crate::games::ataxx::AtaxxColor::{Black, White};
+use crate::games::ataxx::{AtaxxBoard, AtaxxColor, AtaxxSquare};
 use crate::games::{
-    AbstractPieceType, Color, ColoredPieceType, Coordinates, DimT, Move, NoMoveFlags,
-    UncoloredPieceType,
+    AbstractPieceType, ColoredPieceType, Coordinates, DimT, Move, NoMoveFlags, UncoloredPieceType,
 };
 use crate::general::common::Res;
 use std::fmt::{Debug, Display, Formatter};
@@ -72,7 +71,7 @@ impl AbstractPieceType for AtaxxPieceType {
     }
 }
 
-impl UncoloredPieceType for AtaxxPieceType {
+impl UncoloredPieceType<AtaxxColor> for AtaxxPieceType {
     type Colored = ColoredAtaxxPieceType;
 
     fn from_uncolored_idx(idx: usize) -> Self {
@@ -124,10 +123,10 @@ impl AbstractPieceType for ColoredAtaxxPieceType {
     }
 }
 
-impl ColoredPieceType for ColoredAtaxxPieceType {
+impl ColoredPieceType<AtaxxColor> for ColoredAtaxxPieceType {
     type Uncolored = AtaxxPieceType;
 
-    fn color(self) -> Option<Color> {
+    fn color(self) -> Option<AtaxxColor> {
         match self {
             WhitePiece => Some(White),
             BlackPiece => Some(Black),
@@ -139,7 +138,7 @@ impl ColoredPieceType for ColoredAtaxxPieceType {
         (self as usize).min(Occupied as usize)
     }
 
-    fn new(color: Color, uncolored: Self::Uncolored) -> Self {
+    fn new(color: AtaxxColor, uncolored: Self::Uncolored) -> Self {
         match uncolored {
             Occupied => match color {
                 White => WhitePiece,

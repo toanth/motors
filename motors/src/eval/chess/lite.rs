@@ -7,9 +7,10 @@ use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::*;
 use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use gears::games::chess::squares::ChessSquare;
-use gears::games::chess::Chessboard;
-use gears::games::Color::{Black, White};
-use gears::games::{Board, Color, DimT, Move, ZobristHash};
+use gears::games::chess::ChessColor::{Black, White};
+use gears::games::chess::{ChessColor, Chessboard};
+use gears::games::Color;
+use gears::games::{Board, DimT, Move, ZobristHash};
 use gears::general::bitboards::chess::{
     ChessBitboard, A_FILE, CHESS_ANTI_DIAGONALS, CHESS_DIAGONALS,
 };
@@ -114,7 +115,7 @@ impl<Tuned: LiteValues> StaticallyNamedEntity for GenericLiTEval<Tuned> {
 impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     fn psqt(pos: &Chessboard) -> Tuned::Score {
         let mut res = Tuned::Score::default();
-        for color in Color::iter() {
+        for color in ChessColor::iter() {
             for piece in UncoloredChessPiece::pieces() {
                 for square in pos.colored_piece_bb(color, piece).ones() {
                     res += Tuned::psqt(square, piece, color);
@@ -127,7 +128,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
     fn bishop_pair(
         pos: &Chessboard,
-        color: Color,
+        color: ChessColor,
     ) -> <Tuned::Score as ScoreType>::SingleFeatureScore {
         if pos.colored_piece_bb(color, Bishop).more_than_one_bit_set() {
             Tuned::bishop_pair()
@@ -138,7 +139,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
     fn pawn_shield(
         pos: &Chessboard,
-        color: Color,
+        color: ChessColor,
     ) -> <Tuned::Score as ScoreType>::SingleFeatureScore {
         let our_pawns = pos.colored_piece_bb(color, Pawn);
         let king_square = pos.king_square(color);
@@ -146,7 +147,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         Tuned::pawn_shield(idx)
     }
 
-    fn pawns(pos: &Chessboard, color: Color) -> Tuned::Score {
+    fn pawns(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let our_pawns = pos.colored_piece_bb(color, Pawn);
         let their_pawns = pos.colored_piece_bb(color.other(), Pawn);
         let mut score = Tuned::Score::default();
@@ -180,7 +181,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn open_lines(pos: &Chessboard, color: Color) -> Tuned::Score {
+    fn open_lines(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let our_pawns = pos.colored_piece_bb(color, Pawn);
         let their_pawns = pos.colored_piece_bb(color.other(), Pawn);
@@ -203,7 +204,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn mobility_and_threats(pos: &Chessboard, color: Color) -> Tuned::Score {
+    fn mobility_and_threats(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let attacked_by_pawn = pos
             .colored_piece_bb(color.other(), Pawn)
@@ -234,7 +235,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
     fn recomputed_every_time(pos: &Chessboard) -> Tuned::Score {
         let mut score = Tuned::Score::default();
-        for color in Color::iter() {
+        for color in ChessColor::iter() {
             score += Self::bishop_pair(pos, color);
             score += Self::pawns(pos, color);
             score += Self::pawn_shield(pos, color);

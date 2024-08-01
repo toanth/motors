@@ -2,9 +2,9 @@ use strum::IntoEnumIterator;
 
 use crate::games::chess::pieces::UncoloredChessPiece;
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
-use crate::games::chess::Chessboard;
-use crate::games::Color::*;
-use crate::games::{Color, ZobristHash};
+use crate::games::chess::ChessColor::*;
+use crate::games::chess::{ChessColor, Chessboard};
+use crate::games::ZobristHash;
 
 pub const NUM_PIECE_SQUARE_ENTRIES: usize = 64 * 6;
 pub const NUM_COLORED_PIECE_SQUARE_ENTRIES: usize = NUM_PIECE_SQUARE_ENTRIES * 2;
@@ -20,7 +20,7 @@ impl PrecomputedZobristKeys {
     pub fn piece_key(
         &self,
         piece: UncoloredChessPiece,
-        color: Color,
+        color: ChessColor,
         square: ChessSquare,
     ) -> ZobristHash {
         self.piece_square_keys[square.bb_idx() * 12 + piece as usize * 2 + color as usize]
@@ -91,7 +91,7 @@ pub const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
 impl Chessboard {
     pub fn compute_zobrist(&self) -> ZobristHash {
         let mut res = ZobristHash(0);
-        for color in Color::iter() {
+        for color in ChessColor::iter() {
             for piece in UncoloredChessPiece::pieces() {
                 let pieces = self.colored_piece_bb(color, piece);
                 for square in pieces.ones() {
@@ -121,7 +121,7 @@ impl Chessboard {
     #[must_use]
     pub fn new_zobrist_after_move(
         mut old_hash: ZobristHash,
-        color: Color,
+        color: ChessColor,
         piece: UncoloredChessPiece,
         from: ChessSquare,
         to: ChessSquare,
@@ -140,9 +140,9 @@ mod tests {
     use crate::games::chess::pieces::UncoloredChessPiece::{Bishop, Knight};
     use crate::games::chess::squares::{ChessSquare, D_FILE_NO, E_FILE_NO};
     use crate::games::chess::zobrist::{PcgXslRr128_64Oneseq, PRECOMPUTED_ZOBRIST_KEYS};
+    use crate::games::chess::ChessColor::*;
     use crate::games::chess::Chessboard;
     use crate::games::Board;
-    use crate::games::Color::{Black, White};
 
     #[test]
     fn pcg_test() {

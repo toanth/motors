@@ -7,7 +7,6 @@ use std::time::{Duration, Instant};
 use crossbeam_utils::sync::{Parker, Unparker};
 use strum::IntoEnumIterator;
 
-use gears::games::Color::*;
 use gears::games::{Board, BoardHistory, Color, Move, ZobristHistory};
 use gears::general::common::Res;
 use gears::output::Message::*;
@@ -81,6 +80,14 @@ impl<B: Board> UgiMatchState<B> {
         self.board_history.push(&self.board);
         self.status = NotStarted;
     }
+
+    fn player_mut(&mut self, color: B::Color) -> &mut PlayerId {
+        if color.is_first() {
+            &mut self.p1
+        } else {
+            &mut self.p2
+        }
+    }
 }
 
 /// This struct exists (instead of simply using `Client`) because the all-mighty borrow checker demands it.
@@ -101,10 +108,11 @@ pub struct ClientState<B: Board> {
 impl<B: Board> ClientState<B> {
     // Getters should be implemented as methods of the UgiMatchState, but all other functions, especially those that modify
     // the state, are better suited in the Client, because only the client can access outputs.
-    pub fn id(&self, color: Color) -> PlayerId {
-        match color {
-            White => self.the_match.p1,
-            Black => self.the_match.p2,
+    pub fn id(&self, color: B::Color) -> PlayerId {
+        if color.is_first() {
+            self.the_match.p1
+        } else {
+            self.the_match.p2
         }
     }
 
@@ -116,11 +124,11 @@ impl<B: Board> ClientState<B> {
         &self.players[id]
     }
 
-    pub fn get_player(&self, color: Color) -> &Player<B> {
+    pub fn get_player(&self, color: B::Color) -> &Player<B> {
         self.get_player_from_id(self.id(color))
     }
 
-    pub fn get_player_mut(&mut self, color: Color) -> &mut Player<B> {
+    pub fn get_player_mut(&mut self, color: B::Color) -> &mut Player<B> {
         self.get_player_from_id_mut(self.id(color))
     }
 
@@ -142,16 +150,17 @@ impl<B: Board> ClientState<B> {
         }
     }
 
-    pub fn get_engine(&self, color: Color) -> &EnginePlayer<B> {
+    pub fn get_engine(&self, color: B::Color) -> &EnginePlayer<B> {
         self.get_engine_from_id(self.id(color))
     }
 
-    pub(super) fn get_engine_mut(&mut self, color: Color) -> &mut EnginePlayer<B> {
+    pub(super) fn get_engine_mut(&mut self, color: B::Color) -> &mut EnginePlayer<B> {
         self.get_engine_from_id_mut(self.id(color))
     }
 
     pub fn contains_human(&self) -> bool {
-        !(self.get_player(White).is_engine() && self.get_player(Black).is_engine())
+        !(self.get_player(B::Color::first()).is_engine()
+            && self.get_player(B::Color::second()).is_engine())
     }
 
     pub fn num_players(&self) -> usize {
@@ -188,15 +197,15 @@ impl<B: Board> GameState<B> for ClientState<B> {
         &self.the_match.site
     }
 
-    fn player_name(&self, color: Color) -> Option<&str> {
+    fn player_name(&self, color: B::Color) -> Option<&str> {
         Some(self.get_player(color).get_name())
     }
 
-    fn time(&self, color: Color) -> Option<TimeControl> {
+    fn time(&self, color: B::Color) -> Option<TimeControl> {
         self.get_player(color).get_time()
     }
 
-    fn thinking_since(&self, color: Color) -> Option<Instant> {
+    fn thinking_since(&self, color: B::Color) -> Option<Instant> {
         self.get_player(color).thinking_since()
     }
 }
@@ -287,11 +296,11 @@ impl<B: Board> Client<B> {
         self.state.num_players() - 1
     }
 
-    pub fn get_color(&self, player: PlayerId) -> Option<Color> {
-        if self.state.id(White) == player {
-            Some(White)
-        } else if self.state.id(Black) == player {
-            Some(Black)
+    pub fn get_color(&self, player: PlayerId) -> Option<B::Color> {
+        if self.state.id(B::Color::first()) == player {
+            Some(B::Color::first())
+        } else if self.state.id(B::Color::second()) == player {
+            Some(B::Color::second())
         } else {
             None
         }
@@ -319,7 +328,7 @@ impl<B: Board> Client<B> {
     pub fn reset(&mut self) {
         // A newly constructed UgiMatchState does not contain any players
         if self.match_state().p1 != NO_PLAYER {
-            for color in Color::iter() {
+            for color in B::Color::iter() {
                 self.cancel_thinking(color);
                 self.state.get_player_mut(color).reset();
             }
@@ -328,8 +337,8 @@ impl<B: Board> Client<B> {
     }
 
     pub fn abort_match(&mut self) {
-        self.cancel_thinking(White);
-        self.cancel_thinking(Black);
+        self.cancel_thinking(B::Color::first());
+        self.cancel_thinking(B::Color::second());
         self.game_over(MatchResult {
             result: GameResult::Aborted,
             reason: GameOverReason::Adjudication(AdjudicationReason::AbortedByUser),
@@ -349,7 +358,7 @@ impl<B: Board> Client<B> {
         self.will_quit
     }
 
-    pub fn lose_on_time(&mut self, color: Color) {
+    pub fn lose_on_time(&mut self, color: B::Color) {
         let time = self.state.get_player_mut(color).get_original_tc();
         self.show_message(
             Warning,
@@ -362,8 +371,8 @@ impl<B: Board> Client<B> {
         if self.match_state().status == Ongoing {
             // Draw by adjudication when the opponent has insufficient mating material, only applied to
             // games with a human player
-            let result = if (!self.state.get_player(White).is_engine()
-                || !self.state.get_player(Black).is_engine())
+            let result = if (!self.state.get_player(B::Color::first()).is_engine()
+                || !self.state.get_player(B::Color::second()).is_engine())
                 && !self.board().can_reasonably_win(color.other())
             {
                 PlayerResult::Draw
@@ -497,11 +506,11 @@ impl<B: Board> Client<B> {
         }
     }
 
-    pub fn send_ugi_message(&mut self, color: Color, message: &str) {
+    pub fn send_ugi_message(&mut self, color: B::Color, message: &str) {
         self.send_ugi_message_to(self.state.id(color), message);
     }
 
-    fn send_uginewgame(&mut self, color: Color) {
+    fn send_uginewgame(&mut self, color: B::Color) {
         let msg = match self.state.get_engine(color).proto {
             Protocol::Uci => "ucinewgame",
             Protocol::Ugi => "uginewgame",
@@ -510,7 +519,7 @@ impl<B: Board> Client<B> {
     }
 
     // TODO: Not used
-    fn send_isready(&mut self, color: Color) {
+    fn send_isready(&mut self, color: B::Color) {
         self.send_ugi_message(color, "isready");
         let engine = self.state.get_engine_mut(color);
         match engine.status {
@@ -519,7 +528,7 @@ impl<B: Board> Client<B> {
         }
     }
 
-    fn send_position(&mut self, color: Color) {
+    fn send_position(&mut self, color: B::Color) {
         self.send_ugi_message(color, &self.ugi_output.as_string(&self.state));
     }
 
@@ -532,15 +541,19 @@ impl<B: Board> Client<B> {
         self.send_ugi_message_to(engine, &msg);
     }
 
-    fn send_go(&mut self, color: Color) {
-        let p1_time = self.state.get_player(White).get_time().unwrap();
-        let p2_time = self.state.get_player(Black).get_time().unwrap();
+    fn send_go(&mut self, color: B::Color) {
+        let p1_time = self.state.get_player(B::Color::first()).get_time().unwrap();
+        let p2_time = self
+            .state
+            .get_player(B::Color::second())
+            .get_time()
+            .unwrap();
         let engine = self.state.get_engine_mut(color);
         let msg = limit_to_ugi(engine.current_match().limit, p1_time, p2_time).unwrap();
         self.send_ugi_message(color, &msg);
     }
 
-    pub fn start_thinking(&mut self, color: Color) {
+    pub fn start_thinking(&mut self, color: B::Color) {
         if self.state.get_player_mut(color).is_engine() {
             assert!(matches!(self.state.get_engine_mut(color).status, Idle)); // TODO: Could this also be Halt?
             debug_assert!(self.state.get_engine(color).current_match.is_some());
@@ -550,7 +563,7 @@ impl<B: Board> Client<B> {
         self.state.get_player_mut(color).start_clock();
     }
 
-    pub fn stop_clock(&mut self, color: Color) {
+    pub fn stop_clock(&mut self, color: B::Color) {
         let player = self.state.get_player_mut(color);
         if player.update_clock_and_check_for_time_loss() {
             self.lose_on_time(color);
@@ -558,13 +571,13 @@ impl<B: Board> Client<B> {
     }
 
     /// Sends a UGI 'stop' message and ignores the resulting 'bestmove' message.
-    pub fn cancel_thinking(&mut self, color: Color) {
+    pub fn cancel_thinking(&mut self, color: B::Color) {
         self.stop_thinking(color, Ignore);
     }
 
     /// Sends a UGI 'stop' message and either ignores the resulting 'bestmove' message or plays it,
     /// in the case of an engine (for a human player, assert that `handle_best_move` is `Ignore`)
-    pub fn stop_thinking(&mut self, color: Color, bestmove_action: BestMoveAction) {
+    pub fn stop_thinking(&mut self, color: B::Color, bestmove_action: BestMoveAction) {
         match self.state.get_player_mut(color) {
             Engine(engine) => {
                 if matches!(engine.status, ThinkingSince(_)) {
@@ -642,7 +655,7 @@ impl<B: Board> Client<B> {
             self.cancel_thinking(color);
         }
         swap(&mut self.state.the_match.p1, &mut self.state.the_match.p2);
-        for color in Color::iter() {
+        for color in B::Color::iter() {
             if let Engine(engine) = self.state.get_player_mut(color) {
                 if let Some(m) = engine.current_match.as_mut() {
                     m.color = color;
@@ -654,17 +667,14 @@ impl<B: Board> Client<B> {
         }
     }
 
-    pub fn set_player(&mut self, color: Color, player: PlayerId) {
+    pub fn set_player(&mut self, color: B::Color, player: PlayerId) {
         let active_player = self.active_player();
         let old_player = self.state.get_player(color);
         let limit = old_player.get_limit();
         let original = old_player.get_original_tc();
         self.cancel_thinking(color);
         self.state.get_player_mut(color).reset();
-        match color {
-            White => self.match_state().p1 = player,
-            Black => self.match_state().p2 = player,
-        }
+        *self.match_state().player_mut(color) = player;
         let new_player = self.state.get_player_from_id_mut(player);
         new_player.assign_to_match(color);
         if let Some(limit) = limit {
@@ -688,7 +698,7 @@ impl<B: Board> Client<B> {
         self.reset();
         self.match_state().p1 = p1;
         self.match_state().p2 = p2;
-        for color in Color::iter() {
+        for color in B::Color::iter() {
             self.state.get_player_mut(color).assign_to_match(color);
         }
         self.start_match();
@@ -705,7 +715,7 @@ impl<B: Board> Client<B> {
     /// Start a match from any starting position with the current players.
     pub fn start_match(&mut self) {
         assert_eq!(self.match_state().status, NotStarted);
-        for color in Color::iter() {
+        for color in B::Color::iter() {
             if self.state.get_player(color).is_engine() {
                 self.send_uginewgame(color);
             }
@@ -716,7 +726,7 @@ impl<B: Board> Client<B> {
         self.start_thinking(player);
     }
 
-    pub fn active_player(&self) -> Option<Color> {
+    pub fn active_player(&self) -> Option<B::Color> {
         if self.state.the_match.status == Ongoing {
             Some(self.state.the_match.board.active_player())
         } else {

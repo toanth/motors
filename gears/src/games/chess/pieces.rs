@@ -8,8 +8,9 @@ use crate::games::chess::pieces::ColoredChessPiece::BlackPawn;
 use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::squares::ChessSquare;
 
-use crate::games::Color::Black;
-use crate::games::{AbstractPieceType, Color, ColoredPieceType, GenericPiece, UncoloredPieceType};
+use crate::games::chess::ChessColor;
+use crate::games::chess::ChessColor::*;
+use crate::games::{AbstractPieceType, ColoredPieceType, GenericPiece, UncoloredPieceType};
 
 pub const NUM_CHESS_PIECES: usize = 6;
 pub const NUM_COLORS: usize = 2;
@@ -154,7 +155,7 @@ impl AbstractPieceType for UncoloredChessPiece {
     }
 }
 
-impl UncoloredPieceType for UncoloredChessPiece {
+impl UncoloredPieceType<ChessColor> for UncoloredChessPiece {
     type Colored = ColoredChessPiece;
 
     fn from_uncolored_idx(idx: usize) -> Self {
@@ -302,13 +303,13 @@ impl AbstractPieceType for ColoredChessPiece {
     }
 }
 
-impl ColoredPieceType for ColoredChessPiece {
+impl ColoredPieceType<ChessColor> for ColoredChessPiece {
     type Uncolored = UncoloredChessPiece;
 
-    fn color(self) -> Option<Color> {
+    fn color(self) -> Option<ChessColor> {
         match self {
             ColoredChessPiece::Empty => None,
-            x => Color::iter().nth((x as u8 / BlackPawn as u8) as usize),
+            x => ChessColor::iter().nth((x as u8 / BlackPawn as u8) as usize),
         }
     }
 
@@ -316,9 +317,9 @@ impl ColoredPieceType for ColoredChessPiece {
         self as usize
     }
 
-    fn new(color: Color, uncolored: Self::Uncolored) -> Self {
+    fn new(color: ChessColor, uncolored: Self::Uncolored) -> Self {
         Self::from_repr((uncolored as usize) + (color as usize) * BLACK_OFFSET).unwrap()
     }
 }
 
-pub type ChessPiece = GenericPiece<ChessSquare, ColoredChessPiece>;
+pub type ChessPiece = GenericPiece<ChessSquare, ChessColor, ColoredChessPiece>;
