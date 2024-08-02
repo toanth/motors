@@ -883,6 +883,7 @@ impl<'a> MoveParser<'a> {
         });
         let res = match moves.next() {
             None => {
+                // invalid move, try to print a helpful error message
                 let f = |file: Option<DimT>, rank: Option<DimT>| {
                     if file.is_some() {
                         match rank {
@@ -967,6 +968,9 @@ impl<'a> MoveParser<'a> {
 #[cfg(test)]
 mod tests {
     use crate::games::chess::moves::ChessMove;
+    use crate::games::chess::pieces::UncoloredChessPiece::Bishop;
+    use crate::games::chess::squares::ChessSquare;
+    use crate::games::chess::ChessColor::White;
     use crate::games::chess::Chessboard;
     use crate::games::generic_tests;
     use crate::games::{Board, Move};
@@ -1037,18 +1041,26 @@ mod tests {
 
     #[test]
     fn castle_test() {
-        // TODO: (D)FRC
-        let pos = Chessboard::from_name("kiwipete").unwrap();
-        let moves = ["0-0", "0-0-0", "e1g1", "e1h1", "e1a1", "e1c1"];
-        for mov in moves {
-            let mov = ChessMove::from_text(mov, &pos);
-            if let Err(err) = mov {
-                eprintln!("{err}");
-                panic!();
+        let mut p = Chessboard::chess_960_startpos(42).unwrap();
+        p.remove_piece(ChessSquare::from_chars('f', '1').unwrap(), Bishop, White);
+        let tests: &[(Chessboard, &[&str])] = &[
+            (
+                Chessboard::from_name("kiwipete").unwrap(),
+                &["0-0", "0-0-0", "e1g1", "e1h1", "e1a1", "e1c1"],
+            ),
+            (p, &["0-0", "g1h1"]),
+        ];
+        for (pos, moves) in tests {
+            for mov in *moves {
+                let mov = ChessMove::from_text(mov, pos);
+                if let Err(err) = mov {
+                    eprintln!("{err}");
+                    panic!();
+                }
+                let mov = mov.unwrap();
+                assert!(mov.is_castle());
+                assert!(!mov.is_capture(&pos));
             }
-            let mov = mov.unwrap();
-            assert!(mov.is_castle());
-            assert!(!mov.is_capture(&pos));
         }
     }
 }

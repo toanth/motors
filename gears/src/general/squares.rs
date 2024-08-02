@@ -165,7 +165,6 @@ impl Size<GridCoordinates> for GridSize {
 
     fn to_coordinates_unchecked(self, internal_key: usize) -> GridCoordinates {
         GridCoordinates {
-            // TODO: Handle overflows?
             row: (internal_key / self.width.val()) as DimT,
             column: (internal_key % self.width.val()) as DimT,
         }

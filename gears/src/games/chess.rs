@@ -892,6 +892,10 @@ impl Chessboard {
         Ok(res)
     }
 
+    pub fn dfrc_startpos_from_single_num(num: usize) -> Res<Self> {
+        Self::dfrc_startpos(num / 960, num % 960)
+    }
+
     fn parse_numbered_startpos(name: &str) -> Res<Self> {
         for prefix in ["chess960-", "chess", "frc-", "frc"] {
             if let Some(remaining) = name.strip_prefix(prefix) {
@@ -902,7 +906,7 @@ impl Chessboard {
         for prefix in ["dfrc-", "dfrc"] {
             if let Some(remaining) = name.strip_prefix(prefix) {
                 return parse_int_from_str(remaining, "dfrc startpos number")
-                    .and_then(|num: usize| Self::dfrc_startpos(num / 960, num % 960));
+                    .and_then(|num: usize| Self::dfrc_startpos_from_single_num(num));
             }
         }
         Err(format!("(D)FRC positions must be of the format {0} or {1}, with N < 960 and M < 921600, e.g. frc123",

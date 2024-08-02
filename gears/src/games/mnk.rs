@@ -192,6 +192,12 @@ impl Display for FillSquare {
     }
 }
 
+impl FillSquare {
+    pub fn new(target: GridCoordinates) -> Self {
+        FillSquare { target }
+    }
+}
+
 impl Move<MNKBoard> for FillSquare {
     type Flags = NoMoveFlags;
     type Underlying = u16;
@@ -729,7 +735,6 @@ impl MNKBoard {
 }
 
 /// lots of tests, which should probably go to their own file?
-/// TODO: Add tests for `is_game_lost`
 #[cfg(test)]
 mod test {
     use crate::general::perft::{perft, split_perft};
@@ -1071,5 +1076,23 @@ mod test {
         assert!(!board.is_game_won_after_slow(FillSquare {
             target: board.idx_to_coordinates(0)
         }));
+    }
+
+    #[test]
+    fn game_over_test() {
+        let pos = MNKBoard::from_fen("3 3 3 x XX1/3/3").unwrap();
+        let mov = FillSquare::new(GridCoordinates::from_row_column(2, 2));
+        assert!(pos.is_game_won_after_slow(mov));
+        let new_pos = pos.make_move(mov).unwrap();
+        assert!(new_pos.is_game_lost());
+        assert_eq!(new_pos.last_move, Some(mov));
+        assert_eq!(
+            new_pos.player_result_slow(&NoHistory::default()),
+            Some(Lose)
+        );
+        assert_eq!(
+            new_pos.active_player_bb(),
+            MnkBitboard::from_uint(0, pos.size())
+        );
     }
 }

@@ -197,7 +197,6 @@ pub struct Caps {
 
 impl Default for Caps {
     fn default() -> Self {
-        // TODO: Make sure this doesn't inadvertently make other threads use a different eval
         Self::with_eval(Box::new(DefaultEval::default()))
     }
 }

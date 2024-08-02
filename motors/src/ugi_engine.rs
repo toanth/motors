@@ -287,7 +287,7 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
         if color == self.last_played_color {
             Some(self.name())
         } else {
-            None // TODO: Get the opponent's name from UGI? There's probably a way because that's required for contempt
+            None    // TODO: Get the opponent's name from UGI? There's probably a way because that's required for contempt
         }
     }
 
@@ -870,7 +870,22 @@ impl<B: Board> EngineUGI<B> {
                 // This is definitely not the fastest way to print something, but performance isn't a huge concern here
                 let mut output = output_builder_from_str(name, &self.output_factories)?
                     .for_engine(&self.state)?;
-                output.show(&self.state);
+                match words.next() {
+                    None => {
+                        output.show(&self.state);
+                    }
+                    Some("position") | Some("p") => {
+                        let old_board = self.state.board;
+                        self.state.board = self.load_position_into_copy(words)?;
+                        output.show(&self.state);
+                        self.state.board = old_board;
+                    }
+                    Some(x) => {
+                        return Err(format!(
+                                "Unrecognized input '{x}' after valid print command, should be either nothing or a valid 'position' command"
+                        ))
+                    }
+                }
             }
         }
         Ok(())
