@@ -103,7 +103,7 @@ mod tests {
                 .search_from_pos(board, SearchLimit::depth(Depth::new(i)))
                 .unwrap();
             assert_eq!(res.score.unwrap(), SCORE_LOST + 2);
-            assert_eq!(res.chosen_move.to_compact_text(), "h1g1");
+            assert_eq!(res.chosen_move.to_string(), "h1g1");
         }
     }
 

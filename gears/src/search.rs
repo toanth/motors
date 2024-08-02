@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use derive_more::{Add, AddAssign, SubAssign};
 
-use crate::games::{Board, Move};
+use crate::games::Board;
 use crate::general::common::parse_fp_from_str;
 use crate::score::Score;
 
@@ -116,15 +116,20 @@ impl<B: Board> Display for SearchInfo<B> {
         };
 
         write!(f,
-               "info depth {depth}{seldepth} multipv {multipv} score {score_str} time {time} nodes {nodes} nps {nps}{hashfull} pv {pv}{string}",
+               "info depth {depth}{seldepth} multipv {multipv} score {score_str} time {time} nodes {nodes} nps {nps}{hashfull} pv",
                depth = self.depth.get(), time = self.time.as_millis(), nodes = self.nodes.get(),
                seldepth = self.seldepth.map(|d| format!(" seldepth {d}")).unwrap_or_default(),
                multipv = self.pv_num + 1,
                nps = self.nps(),
-               pv = self.pv.iter().map(|mv| mv.to_compact_text()).collect::<Vec<_>>().join(" "),
                hashfull = self.hashfull.map(|f| format!(" hashfull {f}")).unwrap_or_default(),
-               string = self.additional.clone().map(|s| format!(" string {s}")).unwrap_or_default()
-        )
+        )?;
+        for mov in &self.pv {
+            write!(f, " {mov}")?;
+        }
+        if let Some(ref additional) = self.additional {
+            write!(f, " string {additional}")?;
+        }
+        Ok(())
     }
 }
 

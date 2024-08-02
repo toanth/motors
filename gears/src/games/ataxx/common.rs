@@ -6,6 +6,7 @@ use crate::games::{
     AbstractPieceType, ColoredPieceType, Coordinates, DimT, Move, NoMoveFlags, UncoloredPieceType,
 };
 use crate::general::common::Res;
+use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
@@ -160,8 +161,8 @@ pub struct AtaxxMove {
 }
 
 impl Display for AtaxxMove {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{0}", self.to_compact_text())
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.format_compact(f)
     }
 }
 
@@ -185,10 +186,10 @@ impl Move<AtaxxBoard> for AtaxxMove {
         false
     }
 
-    fn to_compact_text(self) -> String {
+    fn format_compact(self, f: &mut Formatter<'_>) -> fmt::Result {
         match self.typ() {
-            Leaping => format!("{0}{1}", self.source, self.target),
-            Cloning => format!("{}", self.target),
+            Leaping => write!(f, "{0}{1}", self.source, self.target),
+            Cloning => write!(f, "{}", self.target),
         }
     }
 

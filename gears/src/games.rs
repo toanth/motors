@@ -280,18 +280,28 @@ pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Hash +
     /// knight promotions in chess. Always returning `false` is a valid choice.
     fn is_tactical(self, board: &B) -> bool;
 
-    /// `to_square`
-    fn to_compact_text(self) -> String;
+    /// Compact text representation is used by UGI, e.g. for chess it's `<to><from><promo_piece_if_present>`.
+    fn format_compact(self, f: &mut Formatter<'_>) -> fmt::Result;
 
     /// Parse a compact text representation emitted by `to_compact_text`, such as the one used by UCI
     fn from_compact_text(s: &str, board: &B) -> Res<B::Move>;
 
     /// Returns a longer representation of the move that may require the board, such as long algebraic notation
-    fn to_extended_text(self, _board: &B) -> String {
-        self.to_compact_text()
+    fn format_extended(self, f: &mut Formatter<'_>, _board: &B) -> fmt::Result {
+        self.format_compact(f)
     }
 
-    /// Parse a longer text representation emitted by `to_extended_text`, such as long algebraic notation.
+    /// Returns a formatter object that implements `Display` such that it prints the result of `to_extended_text`.
+    fn extended_formatter(self, pos: B) -> ExtendedFormatter<B, Self> {
+        ExtendedFormatter { pos, mov: self }
+    }
+
+    /// A convenience method based on `format_extended` that returns a `String`.
+    fn to_extended_text(self, board: &B) -> String {
+        self.extended_formatter(*board).to_string()
+    }
+
+    /// Parse a longer text representation emitted by `format_extended`, such as long algebraic notation.
     /// May optionally also parse additional notation, such as short algebraic notation.
     fn from_extended_text(s: &str, board: &B) -> Res<B::Move>;
 
@@ -317,6 +327,18 @@ pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Hash +
     fn from_usize_unchecked(val: usize) -> Self;
 
     fn to_underlying(self) -> Self::Underlying;
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct ExtendedFormatter<B: Board, M: Move<B>> {
+    pos: B,
+    mov: M,
+}
+
+impl<B: Board, M: Move<B>> Display for ExtendedFormatter<B, M> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.mov.format_extended(f, &self.pos)
+    }
 }
 
 pub type OutputList<B> = EntityList<Box<dyn OutputBuilder<B>>>;

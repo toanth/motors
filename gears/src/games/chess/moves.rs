@@ -1,4 +1,5 @@
 use colored::Colorize;
+use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
@@ -174,7 +175,7 @@ impl ChessMove {
 
 impl Display for ChessMove {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{0}", self.to_compact_text())
+        self.format_compact(f)
     }
 }
 
@@ -198,9 +199,9 @@ impl Move<Chessboard> for ChessMove {
         self.is_capture(board) || self.flags() == PromoQueen || self.flags() == PromoKnight
     }
 
-    fn to_compact_text(self) -> String {
+    fn format_compact(self, f: &mut Formatter<'_>) -> fmt::Result {
         if self == Self::NULL {
-            return "0000".to_string();
+            return write!(f, "0000");
         }
         let flag = match self.flags() {
             PromoKnight => "n",
@@ -209,7 +210,8 @@ impl Move<Chessboard> for ChessMove {
             PromoQueen => "q",
             _ => "",
         };
-        format!(
+        write!(
+            f,
             "{from}{to}{flag}",
             from = self.src_square(),
             to = self.dest_square()
@@ -265,11 +267,11 @@ impl Move<Chessboard> for ChessMove {
         Ok(ChessMove(res as u16))
     }
 
-    fn to_extended_text(self, board: &Chessboard) -> String {
+    fn format_extended(self, f: &mut Formatter<'_>, board: &Chessboard) -> fmt::Result {
         if self.is_castle() {
             return match self.castle_side() {
-                Queenside => "O-O-O".to_string(),
-                Kingside => "O-O".to_string(),
+                Queenside => write!(f, "O-O-O"),
+                Kingside => write!(f, "O-O"),
             };
         }
         let piece = self.piece(board);
@@ -298,7 +300,7 @@ impl Move<Chessboard> for ChessMove {
             })
             .collect_vec();
         if moves.is_empty() {
-            return format!("<Illegal move {}>", self.to_compact_text());
+            return write!(f, "<Illegal move {}>", self);
         }
 
         if moves.len() > 1 {
@@ -345,7 +347,7 @@ impl Move<Chessboard> for ChessMove {
         } else if board.is_in_check() {
             res.push('+');
         }
-        res
+        write!(f, "{res}")
     }
 
     fn from_extended_text(s: &str, board: &Chessboard) -> Res<Self> {
@@ -353,7 +355,7 @@ impl Move<Chessboard> for ChessMove {
         if !res.1.is_empty() {
             return Err(format!(
                 "Additional input after move {0}: '{1}'",
-                res.0.to_extended_text(board),
+                res.0.to_string(),
                 res.1
             ));
         }

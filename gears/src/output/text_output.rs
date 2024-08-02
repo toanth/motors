@@ -204,7 +204,7 @@ impl BoardToText {
         );
         let mut board = m.initial_pos();
         for (ply, mov) in m.move_history().iter().enumerate() {
-            let mov_str = mov.to_extended_text(&board);
+            let mov_str = mov.extended_formatter(board);
             if ply % 2 == 0 {
                 res += &format!("\n{}. {mov_str}", ply / 2 + 1);
             } else {
@@ -221,14 +221,14 @@ impl BoardToText {
     }
 
     fn match_to_ugi<B: Board>(m: &dyn GameState<B>) -> String {
+        use std::fmt::Write;
         let pos = m.initial_pos().as_fen();
         if m.move_history().is_empty() {
             format!("position fen {pos}")
         } else {
             let mut res = format!("position fen {} moves ", m.initial_pos().as_fen());
             for mov in m.move_history() {
-                res += mov.to_compact_text().as_str();
-                res.push(' ');
+                write!(&mut res, "{mov} ").unwrap();
             }
             res
         }

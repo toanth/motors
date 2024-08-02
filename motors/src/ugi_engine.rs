@@ -213,9 +213,8 @@ impl<B: Board> UgiOutput<B> {
     }
 
     pub fn show_search_res(&mut self, search_result: &SearchResult<B>) {
-        let best = search_result.chosen_move.to_compact_text();
+        let best = search_result.chosen_move;
         if let Some(ponder) = search_result.ponder_move() {
-            let ponder = ponder.to_compact_text();
             self.write_ugi(&format!("bestmove {best} ponder {ponder}"));
         } else {
             self.write_ugi(&format!("bestmove {best}"));

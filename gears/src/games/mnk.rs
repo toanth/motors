@@ -218,8 +218,8 @@ impl Move<MNKBoard> for FillSquare {
         false
     }
 
-    fn to_compact_text(self) -> String {
-        self.target.to_string()
+    fn format_compact(self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.target)
     }
 
     fn from_compact_text(s: &str, _: &MNKBoard) -> Res<Self> {

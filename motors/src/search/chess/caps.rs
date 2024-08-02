@@ -1286,11 +1286,11 @@ mod tests {
                 .unwrap();
             println!(
                 "chosen move {0}, fen {1}",
-                res.chosen_move.to_extended_text(&pos),
+                res.chosen_move.format_extended(&pos),
                 pos.as_fen()
             );
             assert!(res.score.unwrap().is_game_won_score());
-            assert_eq!(res.chosen_move.to_compact_text(), mov);
+            assert_eq!(res.chosen_move.format_compact(), mov);
         }
     }
 }
