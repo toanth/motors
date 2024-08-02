@@ -38,6 +38,17 @@ pub struct UgiString {
     pub default: Option<String>,
 }
 
+impl UgiString {
+    pub fn value(&self) -> String {
+        // The UCI spec demands to send empty strings as '<empty>'
+        if self.val.is_empty() {
+            "<empty>".to_string()
+        } else {
+            self.val.clone()
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 #[must_use]
 pub enum EngineOptionType {
@@ -65,7 +76,7 @@ impl EngineOptionType {
             EngineOptionType::Spin(spin) => spin.val.to_string(),
             EngineOptionType::Combo(combo) => combo.val.to_string(),
             EngineOptionType::Button => "<Button>".to_string(),
-            EngineOptionType::UString(string) => string.val.clone(),
+            EngineOptionType::UString(string) => string.value(),
         }
     }
 }
@@ -117,6 +128,7 @@ pub enum EngineOptionName {
     Ponder,
     MultiPv,
     UciElo,
+    UCIOpponent,
     UCIEngineAbout,
     MoveOverhead,
     Other(String),
@@ -130,6 +142,7 @@ impl EngineOptionName {
             EngineOptionName::Ponder => "Ponder",
             EngineOptionName::MultiPv => "MultiPV",
             EngineOptionName::UciElo => "UCI_Elo",
+            EngineOptionName::UCIOpponent => "UCI_Opponent",
             EngineOptionName::UCIEngineAbout => "UCI_EngineAbout",
             EngineOptionName::MoveOverhead => "MoveOverhead",
             EngineOptionName::Other(x) => x,
@@ -152,6 +165,7 @@ impl FromStr for EngineOptionName {
             "threads" => EngineOptionName::Threads,
             "ponder" => EngineOptionName::Ponder,
             "multipv" => EngineOptionName::MultiPv,
+            "uci_opponent" => EngineOptionName::UCIOpponent,
             "uci_elo" => EngineOptionName::UciElo,
             "move overhead" | "moveoverhead" => EngineOptionName::MoveOverhead,
             _ => EngineOptionName::Other(s.to_string()),

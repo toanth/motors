@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
+use itertools::Itertools;
 
 use gears::cli::{select_game, Game};
 use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristHistory};
@@ -23,8 +24,7 @@ use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, Ti
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{
-    parse_ugi_position, EngineOption, EngineOptionName, EngineOptionType, UgiCheck, UgiSpin,
-    UgiString,
+    parse_ugi_position, EngineOption, EngineOptionName, UgiCheck, UgiSpin, UgiString,
 };
 use gears::MatchStatus::*;
 use gears::Quitting::{QuitMatch, QuitProgram};
@@ -147,6 +147,7 @@ struct EngineGameState<B: Board> {
     /// the same name play against each other, such as in a SPRT. It should be unique, however
     /// (the `monitors` client ensures that, but another GUI might not).
     display_name: String,
+    opponent_name: Option<String>,
 }
 
 impl<B: Board> Deref for EngineGameState<B> {
@@ -283,11 +284,11 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
         "??"
     }
 
-    fn player_name(&self, color: B::Color) -> Option<&str> {
+    fn player_name(&self, color: B::Color) -> Option<String> {
         if color == self.last_played_color {
-            Some(self.name())
+            Some(self.name().to_string())
         } else {
-            None    // TODO: Get the opponent's name from UGI? There's probably a way because that's required for contempt
+            self.opponent_name.clone()
         }
     }
 
@@ -315,6 +316,7 @@ impl<B: Board> EngineUGI<B> {
         let board = B::default();
         let engine =
             create_engine_from_str(&opts.engine, &all_searchers, &all_evals, sender.clone())?;
+        let display_name = engine.engine_info().short_name();
         let board_state = BoardGameState {
             board,
             debug_mode: opts.debug,
@@ -328,7 +330,8 @@ impl<B: Board> EngineUGI<B> {
         let state = EngineGameState {
             board_state,
             engine,
-            display_name: opts.engine,
+            display_name,
+            opponent_name: None,
         };
         let err_msg_builder = output_builder_from_str("error", &all_output_builders)?;
         selected_output_builders.push(err_msg_builder);
@@ -600,6 +603,24 @@ impl<B: Board> EngineUGI<B> {
             }
             MultiPv => {
                 self.multi_pv = parse_int_from_str(&value, "multipv")?;
+            }
+            UCIOpponent => {
+                let mut words = value.split_whitespace();
+                loop {
+                    match words.next() {
+                        None => {
+                            break;
+                        }
+                        Some(word)
+                            if word.eq_ignore_ascii_case("computer")
+                                || word.eq_ignore_ascii_case("human") =>
+                        {
+                            self.state.opponent_name = Some(words.join(" "));
+                            break;
+                        }
+                        _ => continue,
+                    }
+                }
             }
             _ => {
                 let value = value.trim().to_string();
@@ -1165,13 +1186,13 @@ impl<B: Board> EngineUGI<B> {
             },
             EngineOption {
                 name: EngineOptionName::Ponder,
-                value: EngineOptionType::Check(UgiCheck {
+                value: Check(UgiCheck {
                     val: self.allow_ponder,
                     default: Some(false),
                 }),
             },
             EngineOption {
-                name: EngineOptionName::MultiPv,
+                name: MultiPv,
                 value: Spin(UgiSpin {
                     val: 1,
                     default: Some(1),
@@ -1180,8 +1201,15 @@ impl<B: Board> EngineUGI<B> {
                 }),
             },
             EngineOption {
-                name: EngineOptionName::UCIEngineAbout,
-                value: EngineOptionType::UString(UgiString {
+                name: UCIOpponent,
+                value: UString(UgiString {
+                    default: None,
+                    val: self.state.opponent_name.clone().unwrap_or_default(),
+                }),
+            },
+            EngineOption {
+                name: UCIEngineAbout,
+                value: UString(UgiString {
                     val: String::new(),
                     default: Some(format!(
                         "Motors by ToTheAnd. Game: {2}. Engine: {0}. Eval: {1}  ",

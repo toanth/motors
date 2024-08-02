@@ -197,8 +197,8 @@ impl<B: Board> GameState<B> for ClientState<B> {
         &self.the_match.site
     }
 
-    fn player_name(&self, color: B::Color) -> Option<&str> {
-        Some(self.get_player(color).get_name())
+    fn player_name(&self, color: B::Color) -> Option<String> {
+        Some(self.get_player(color).get_name().to_string())
     }
 
     fn time(&self, color: B::Color) -> Option<TimeControl> {

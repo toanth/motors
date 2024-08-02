@@ -206,7 +206,7 @@ pub trait GameState<B: Board> {
     fn event(&self) -> String;
     fn site(&self) -> &str;
     /// The name of the player, if known (i.e. `display_name` for the GUI and None for the other player of an engine)
-    fn player_name(&self, color: B::Color) -> Option<&str>;
+    fn player_name(&self, color: B::Color) -> Option<String>;
     fn time(&self, color: B::Color) -> Option<TimeControl>;
     fn thinking_since(&self, color: B::Color) -> Option<Instant>;
 }

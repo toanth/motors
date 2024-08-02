@@ -195,8 +195,10 @@ impl BoardToText {
             site = m.site(),
             date = chrono::offset::Utc::now().to_rfc2822(),
             fen = m.initial_pos().as_fen(),
-            p1 = m.player_name(B::Color::first()).unwrap_or("??"),
-            p2 = m.player_name(B::Color::second()).unwrap_or("??"),
+            p1 = m.player_name(B::Color::first()).unwrap_or("??".to_string()),
+            p2 = m
+                .player_name(B::Color::second())
+                .unwrap_or("??".to_string()),
             p1_name = B::Color::first(),
             p2_name = B::Color::second(),
         );
