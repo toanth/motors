@@ -3,6 +3,7 @@ pub mod caps;
 
 #[cfg(test)]
 mod tests {
+    use rand::rngs::StdRng;
     use std::str::FromStr;
 
     use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
@@ -11,6 +12,7 @@ mod tests {
     use gears::games::{n_fold_repetition, Board, BoardHistory, Move, ZobristHistory};
     use gears::score::{Score, SCORE_LOST, SCORE_WON};
     use gears::search::{Depth, SearchLimit};
+    use gears::ugi::parse_ugi_position_and_moves;
     use gears::PlayerResult::Draw;
 
     use crate::eval::chess::lite::LiTEval;
@@ -19,6 +21,7 @@ mod tests {
     use crate::eval::rand_eval::RandEval;
     use crate::search::chess::caps::Caps;
     use crate::search::generic::gaps::Gaps;
+    use crate::search::generic::random_mover::RandomMover;
     use crate::search::multithreading::SearchSender;
     use crate::search::Engine;
 
@@ -30,6 +33,33 @@ mod tests {
     #[test]
     fn caps_search_test() {
         generic_search_test(Caps::for_eval::<PistonEval>());
+    }
+
+    #[test]
+    fn random_mover_test() {
+        mated_test(RandomMover::<Chessboard, StdRng>::default());
+    }
+
+    fn mated_test<E: Engine<Chessboard>>(mut engine: E) {
+        let game_over_pos = parse_ugi_position_and_moves(
+            &mut "mate_in_1 moves h7a7".split_whitespace(),
+            &Chessboard::default(),
+        )
+        .unwrap();
+        println!("{game_over_pos}");
+        assert!(game_over_pos.is_game_lost_slow());
+        for i in 1..123 {
+            let res = engine.search_from_pos(game_over_pos, SearchLimit::depth(Depth::new(i)));
+            assert!(res.is_ok());
+            let res = res.unwrap();
+            assert!(res.ponder_move.is_none());
+            assert_eq!(res.chosen_move, ChessMove::default());
+            let res = engine
+                .search_from_pos(game_over_pos, SearchLimit::nodes_(i as u64))
+                .unwrap();
+            assert!(res.ponder_move.is_none());
+            assert_eq!(res.chosen_move, ChessMove::default());
+        }
     }
 
     fn generic_search_test<E: Engine<Chessboard>>(mut engine: E) {
@@ -48,6 +78,8 @@ mod tests {
         );
         assert!(res.score.is_some());
         assert_eq!(res.score.unwrap(), SCORE_WON - 3);
+
+        mated_test(engine);
     }
 
     #[test]

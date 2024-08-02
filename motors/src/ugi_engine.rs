@@ -95,20 +95,17 @@ impl<B: Board> BoardGameState<B> {
         if let Run(Over(result)) = &self.status {
             return Err(format!(
                 "Cannot play move '{mov}' because the game is already over: {0} ({1}). The position is '{2}'",
-                result.result, result.reason, self.board.as_fen()
+                result.result, result.reason, self.board
             ));
         }
         self.board_hist.push(&self.board);
         self.mov_hist.push(mov);
-        self.board = self
-            .board
-            .make_move(mov)
-            .ok_or_else(|| format!("Illegal move {mov} (pseudolegal)"))?;
-        if self.debug_mode {
-            if let Some(res) = self.board.match_result_slow(&self.board_hist) {
-                return Err(format!("The game is over ({0}, reason: {1}) after move {mov}, which results in the following position: {2}", res.result, res.reason, self.board.as_fen()));
-            }
-        }
+        self.board = self.board.make_move(mov).ok_or_else(|| {
+            format!(
+                "Illegal move {mov} (pseudolegal but not legal) in position {}",
+                self.board
+            )
+        })?;
         Ok(())
     }
 
@@ -738,6 +735,10 @@ impl<B: Board> EngineUGI<B> {
             Debug,
             &format!("Starting {search_type} search with tc {}", limit.tc),
         );
+        if let Some(res) = pos.match_result_slow(&self.state.board_hist) {
+            self.write_message(Warning, &format!("Starting a {search_type} search in position '{2}', but the game is already over. {0}, reason: {1}.",
+                                                 res.result, res.reason, self.state.board.as_fen().bold()));
+        }
         self.state.status = Run(Ongoing);
         let default_depth = match search_type {
             Perft | SplitPerft => pos.default_perft_depth(),
@@ -779,6 +780,12 @@ impl<B: Board> EngineUGI<B> {
                 self.write_ugi(&msg);
             }
             SplitPerft => {
+                if limit.depth.get() == 0 {
+                    return Err(format!(
+                        "{} requires a depth of at least 1",
+                        "splitperft".bold()
+                    ));
+                }
                 let msg = format!("{0}", split_perft(limit.depth, pos));
                 self.write_ugi(&msg);
             }

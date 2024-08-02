@@ -19,8 +19,8 @@ use gears::general::common::Description::NoDescription;
 use gears::general::common::{select_name_static, Res, StaticallyNamedEntity};
 use gears::output::Message::Debug;
 use gears::score::{
-    game_result_to_score, ScoreT, MAX_NORMAL_SCORE, MAX_SCORE_LOST, NO_SCORE_YET, SCORE_LOST,
-    SCORE_TIME_UP,
+    game_result_to_score, ScoreT, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA,
+    NO_SCORE_YET, SCORE_TIME_UP,
 };
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
@@ -338,7 +338,6 @@ impl Engine<Chessboard> for Caps {
 
         self.state.limit = limit;
         let result = self.iterative_deepening(pos, soft_limit, multipv);
-        assert_ne!(result.chosen_move, ChessMove::default()); // TODO: Test go nodes 1
         Ok(result)
     }
 
@@ -471,13 +470,7 @@ impl Caps {
                     self.state.search_stack[0].pv().unwrap(),
                 );
             }
-            assert!(
-                !(pv_score != SCORE_TIME_UP
-                    && pv_score.plies_until_game_over().is_some_and(|x| x <= 0)),
-                "score {0} depth {1}",
-                pv_score.0,
-                self.state.depth().get(),
-            );
+
             self.state.sender.send_message(
                 Debug,
                 &format!(
@@ -502,7 +495,7 @@ impl Caps {
                 self.state.statistics.aw_exact();
                 true
             } else {
-                window_radius.0 *= 3;
+                window_radius.0 = SCORE_WON.0.min(window_radius.0 * 3);
                 if pv_score <= *alpha {
                     self.state.statistics.aw_fail_low();
                 } else {
@@ -510,8 +503,8 @@ impl Caps {
                 }
                 false
             };
-            *alpha = (pv_score - *window_radius).max(SCORE_LOST);
-            *beta = (pv_score + *window_radius).min(SCORE_WON);
+            *alpha = (pv_score - *window_radius).max(MIN_ALPHA);
+            *beta = (pv_score + *window_radius).min(MAX_BETA);
             // TODO: Increase soft limit for an aw fail low? (Because we don't have a lot of information in that case,
             // and risk playing a move we might have just found a refutation to)
             if exact {
@@ -884,9 +877,7 @@ impl Caps {
             self.state.search_stack[ply].tried_moves.len(),
         );
 
-        if ply == 0 {
-            debug_assert!(!self.state.search_stack[ply].tried_moves.is_empty());
-        } else if self.state.search_stack[ply].tried_moves.is_empty() {
+        if self.state.search_stack[ply].tried_moves.is_empty() {
             // TODO: Merge cached in-check branch
             return game_result_to_score(pos.no_moves_result(), ply);
         }

@@ -13,7 +13,7 @@ use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
 use gears::games::{Board, ZobristHistory};
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
-use gears::score::{Score, ScoreT, SCORE_LOST, SCORE_WON};
+use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, SCORE_WON};
 use gears::search::{
     Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl, MAX_DEPTH,
 };
@@ -676,9 +676,7 @@ pub trait CustomInfo<B: Board>: Default + Clone + Debug {
     fn new_search(&mut self) {
         self.forget();
     }
-    fn forget(&mut self) {
-        // do nothing
-    }
+    fn forget(&mut self);
 
     fn best_move(&self) -> Option<B::Move> {
         None
@@ -691,6 +689,9 @@ pub struct BestMoveCustomInfo<B: Board> {
 }
 
 impl<B: Board> CustomInfo<B> for BestMoveCustomInfo<B> {
+    fn forget(&mut self) {
+        self.chosen_move = None;
+    }
     fn best_move(&self) -> Option<B::Move> {
         self.chosen_move
     }
@@ -707,8 +708,8 @@ struct PVData<B: Board> {
 impl<B: Board> Default for PVData<B> {
     fn default() -> Self {
         Self {
-            alpha: SCORE_LOST,
-            beta: SCORE_WON,
+            alpha: MIN_ALPHA,
+            beta: MAX_BETA,
             radius: Score(20),
             best_move: B::Move::default(),
         }
@@ -760,12 +761,12 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> ABSearchState<B, E, C> 
 
     fn pv(&self) -> Vec<B::Move> {
         if let Some(pv) = self.search_stack[0].pv() {
-            assert!(!pv.is_empty());
-            assert_eq!(pv[0], self.mov());
-            Vec::from(pv)
-        } else {
-            vec![self.mov()]
+            if !pv.is_empty() {
+                assert_eq!(pv[0], self.mov());
+                return Vec::from(pv);
+            }
         }
+        vec![self.mov()]
     }
 
     fn hashfull(&self) -> Option<usize> {

@@ -43,8 +43,12 @@ impl<B: Board> SearchResult<B> {
     }
 
     pub fn new_from_pv(score: Score, pv: &[B::Move]) -> Self {
-        assert!(!pv.is_empty());
-        Self::new(pv[0], score, pv.get(1).copied())
+        // the pv may be empty if search is called in a position where the game is over
+        Self::new(
+            pv.get(0).copied().unwrap_or_default(),
+            score,
+            pv.get(1).copied(),
+        )
     }
 
     pub fn ponder_move(&self) -> Option<B::Move> {

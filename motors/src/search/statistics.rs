@@ -189,8 +189,10 @@ impl Statistics {
 
     #[inline(always)]
     pub fn uci_nodes(&self) -> u64 {
+        // + 1 because the root node also counts
         self.search(MainSearch).counters[LegalMakeMoveCalls as usize]
             + self.search(Qsearch).counters[LegalMakeMoveCalls as usize]
+            + 1
     }
 
     #[inline(always)]
@@ -389,7 +391,8 @@ impl Statistics {
 
     #[inline(always)]
     pub fn uci_nodes(&self) -> u64 {
-        self.legal_make_move_calls_main_search + self.legal_make_move_calls_qsearch
+        // + 1 because the root node also counts
+        self.legal_make_move_calls_main_search + self.legal_make_move_calls_qsearch + 1
     }
 
     #[inline(always)]

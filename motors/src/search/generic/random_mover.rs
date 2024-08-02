@@ -120,9 +120,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
                 .nth(self.rng.gen_range(0..len))
                 .unwrap();
         } else {
-            self.chosen_move = pos
-                .random_legal_move(&mut self.rng)
-                .expect("search() called in a position with no legal moves");
+            self.chosen_move = pos.random_legal_move(&mut self.rng).unwrap_or_default();
         }
         Ok(SearchResult::move_only(self.chosen_move))
     }

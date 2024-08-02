@@ -127,7 +127,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
                 }
                 self.state
                     .excluded_moves
-                    .push(self.state.custom.chosen_move.unwrap());
+                    .push(self.state.custom.chosen_move.unwrap_or_default());
                 self.state.sender.send_search_info(self.search_info());
                 // increases the depth. do this after sending the search info, but before deciding if the depth limit has been exceeded.
             }
@@ -141,8 +141,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
             chosen_move.unwrap_or_else(|| {
                 eprintln!("Warning: Not even a single iteration finished");
                 let mut rng = thread_rng();
-                pos.random_legal_move(&mut rng)
-                    .expect("search() called in a position with no legal moves")
+                pos.random_legal_move(&mut rng).unwrap_or_default()
             }),
             score,
         ))

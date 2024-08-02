@@ -2,7 +2,7 @@ use colored::Colorize;
 use std::fmt::{Display, Formatter};
 use std::str::{FromStr, SplitWhitespace};
 
-use crate::games::Board;
+use crate::games::{Board, Move};
 use crate::general::common::{NamedEntity, Res};
 
 /// Ugi-related helpers that are used by both `motors` and `monitors`.
@@ -231,4 +231,23 @@ pub fn parse_ugi_position<B: Board>(words: &mut SplitWhitespace, old_board: &B) 
             )
         })?,
     })
+}
+
+pub fn parse_ugi_position_and_moves<B: Board>(
+    words: &mut SplitWhitespace,
+    old_board: &B,
+) -> Res<B> {
+    let mut board = parse_ugi_position(words, old_board)?;
+    match words.next() {
+        None => return Ok(board),
+        Some("moves") => {}
+        Some(x) => return Err(format!("Expected either nothing or 'moves', got '{x}")),
+    }
+    for mov in words {
+        let mov = B::Move::from_compact_text(mov, &board)?;
+        board = board
+            .make_move(mov)
+            .ok_or_else(|| format!("move '{mov}' is not legal in position '{board}'"))?;
+    }
+    Ok(board)
 }

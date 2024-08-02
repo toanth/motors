@@ -199,6 +199,9 @@ impl Move<Chessboard> for ChessMove {
     }
 
     fn to_compact_text(self) -> String {
+        if self == Self::NULL {
+            return "0000".to_string();
+        }
         let flag = match self.flags() {
             PromoKnight => "n",
             PromoBishop => "b",
