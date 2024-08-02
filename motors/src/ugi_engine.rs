@@ -130,7 +130,7 @@ impl<B: Board> BoardGameState<B> {
         }
         for mov in words {
             let mov = B::Move::from_compact_text(mov, &self.board)
-                .map_err(|err| format!("Couldn't parse move: {err}"))?;
+                .map_err(|err| format!("Couldn't parse move '{}': {err}", mov.red()))?;
             self.make_move(mov)?;
         }
         self.last_played_color = self.board.active_player();

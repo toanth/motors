@@ -5,6 +5,7 @@ use crate::games::ataxx::{AtaxxBoard, AtaxxColor, AtaxxSquare};
 use crate::games::{AbstractPieceType, ColoredPieceType, Coordinates, DimT, UncoloredPieceType};
 use crate::general::common::Res;
 use crate::general::moves::{Move, NoMoveFlags};
+use colored::Colorize;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
@@ -199,6 +200,10 @@ impl Move<AtaxxBoard> for AtaxxMove {
         }
         if s == "0000" {
             return Ok(Self::default());
+        }
+        // Need to check this before creating slices because splitting unicode character panics.
+        if !s.is_ascii() {
+            return Err(format!("Move '{}' contains a non-ASCII character", s.red()));
         }
         if s.len() != 2 && s.len() != 4 {
             return Err(format!(

@@ -224,6 +224,10 @@ impl Move<Chessboard> for ChessMove {
         if s.is_empty() {
             return Err("Empty input".to_string());
         }
+        // Need to check this before creating slices because splitting unicode character panics.
+        if !s.is_ascii() {
+            return Err(format!("Move '{}' contains a non-ASCII character", s.red()));
+        }
         if s.len() < 4 {
             return Err(format!("Move too short: '{s}'. Must be <from square><to square>, e.g. e2e4, and possibly a promotion piece."));
         }
@@ -1033,6 +1037,7 @@ mod tests {
             "Rb8#", // check but not checkmate
             "Rd2",  // only pseudolegal
             "e3+",  // doesn't give check
+            "a2aß", // non-ASCII character in an unexpected position, mut not panic
         ];
         let pos = Chessboard::from_name("unusual").unwrap();
         for input in inputs {
