@@ -2,10 +2,9 @@ use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::common::AtaxxPieceType::{Blocked, Empty, Occupied};
 use crate::games::ataxx::AtaxxColor::{Black, White};
 use crate::games::ataxx::{AtaxxBoard, AtaxxColor, AtaxxSquare};
-use crate::games::{
-    AbstractPieceType, ColoredPieceType, Coordinates, DimT, Move, NoMoveFlags, UncoloredPieceType,
-};
+use crate::games::{AbstractPieceType, ColoredPieceType, Coordinates, DimT, UncoloredPieceType};
 use crate::general::common::Res;
+use crate::general::moves::{Move, NoMoveFlags};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;

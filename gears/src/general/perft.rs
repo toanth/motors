@@ -1,8 +1,8 @@
+use crate::general::board::Board;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
-use crate::games::Board;
 use crate::search::{Depth, MAX_DEPTH};
 
 #[derive(Copy, Clone, Debug)]

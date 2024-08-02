@@ -19,10 +19,11 @@ use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{
     char_to_file, file_to_char, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType,
-    DimT, Move, MoveFlags, ZobristHash,
+    DimT, ZobristHash,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::common::Res;
+use crate::general::moves::{Move, MoveFlags};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default, Debug, EnumIter, FromRepr)]
 #[must_use]
@@ -355,8 +356,7 @@ impl Move<Chessboard> for ChessMove {
         if !res.1.is_empty() {
             return Err(format!(
                 "Additional input after move {0}: '{1}'",
-                res.0.to_string(),
-                res.1
+                res.0, res.1
             ));
         }
         Ok(res.0)
@@ -978,7 +978,8 @@ mod tests {
     use crate::games::chess::ChessColor::White;
     use crate::games::chess::Chessboard;
     use crate::games::generic_tests;
-    use crate::games::{Board, Move};
+    use crate::games::Board;
+    use crate::general::moves::Move;
 
     type GenericTests = generic_tests::GenericTests<Chessboard>;
 
@@ -1064,7 +1065,7 @@ mod tests {
                 }
                 let mov = mov.unwrap();
                 assert!(mov.is_castle());
-                assert!(!mov.is_capture(&pos));
+                assert!(!mov.is_capture(pos));
             }
         }
     }

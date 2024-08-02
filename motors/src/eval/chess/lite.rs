@@ -10,13 +10,15 @@ use gears::games::chess::squares::ChessSquare;
 use gears::games::chess::ChessColor::{Black, White};
 use gears::games::chess::{ChessColor, Chessboard};
 use gears::games::Color;
-use gears::games::{Board, DimT, Move, ZobristHash};
+use gears::games::{DimT, ZobristHash};
 use gears::general::bitboards::chess::{
     ChessBitboard, A_FILE, CHESS_ANTI_DIAGONALS, CHESS_DIAGONALS,
 };
 use gears::general::bitboards::Bitboard;
 use gears::general::bitboards::RawBitboard;
+use gears::general::board::Board;
 use gears::general::common::StaticallyNamedEntity;
+use gears::general::moves::Move;
 use gears::score::{PhaseType, Score};
 
 use crate::eval::chess::lite::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};

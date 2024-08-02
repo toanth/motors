@@ -7,10 +7,11 @@ use crate::games::chess::squares::ChessSquare;
 use crate::games::chess::CastleRight::*;
 use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, ChessMoveList, Chessboard};
-use crate::games::{Board, Color, ColoredPieceType, Move};
+use crate::games::{Board, Color, ColoredPieceType};
 use crate::general::bitboards::chess::{ChessBitboard, KINGS, KNIGHTS, PAWN_CAPTURES};
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
+use crate::general::moves::Move;
 
 #[derive(Debug, Copy, Clone)]
 enum SliderMove {

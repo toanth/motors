@@ -2,9 +2,10 @@ use itertools::Itertools;
 use std::fmt::Display;
 use std::time::{Duration, Instant};
 
+use gears::games::BoardHistory;
+use gears::general::board::Board;
 use rand::thread_rng;
 
-use gears::games::{Board, BoardHistory};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::score::{game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE_WON};
 use gears::search::{Depth, NodesLimit, SearchLimit, SearchResult, TimeControl};

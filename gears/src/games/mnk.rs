@@ -15,8 +15,12 @@ use crate::general::bitboards::{
     remove_ones_above, Bitboard, DefaultBitboard, ExtendedRawBitboard, RawBitboard, RayDirections,
     MAX_WIDTH,
 };
+use crate::general::board::{
+    board_to_string, position_fen_part, read_position_fen, RectangularBoard, SelfChecks,
+};
 use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
+use crate::general::moves::{Move, NoMoveFlags};
 use crate::general::squares::{GridCoordinates, GridSize};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]

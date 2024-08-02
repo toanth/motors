@@ -6,13 +6,14 @@ use crate::games::ataxx::common::ColoredAtaxxPieceType::{BlackPiece, Blocked, Em
 use crate::games::ataxx::common::{AtaxxMove, ColoredAtaxxPieceType, MAX_ATAXX_MOVES_IN_POS};
 use crate::games::ataxx::AtaxxColor::{Black, White};
 use crate::games::chess::pieces::NUM_COLORS;
-use crate::games::SelfChecks::*;
 use crate::games::{
-    board_to_string, position_fen_part, Board, BoardHistory, Color, ColoredPiece, Coordinates,
-    GenericPiece, NoHistory, SelfChecks, Settings, ZobristHash,
+    Board, BoardHistory, Color, ColoredPiece, Coordinates, GenericPiece, NoHistory, Settings,
+    ZobristHash,
 };
 use crate::general::bitboards::ataxx::{AtaxxBitboard, INVALID_EDGE_MASK};
 use crate::general::bitboards::{RawBitboard, RawStandardBitboard};
+use crate::general::board::SelfChecks::CheckFen;
+use crate::general::board::{board_to_string, position_fen_part, SelfChecks};
 use crate::general::common::{Res, StaticallyNamedEntity};
 use crate::general::move_list::EagerNonAllocMoveList;
 use crate::general::squares::{SmallGridSize, SmallGridSquare};
@@ -375,7 +376,7 @@ impl Board for AtaxxBoard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::games::SelfChecks::Assertion;
+    use crate::general::board::SelfChecks::Assertion;
 
     #[test]
     fn startpos_test() {

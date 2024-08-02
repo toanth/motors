@@ -1,6 +1,6 @@
 use crate::play::ugi_client::Client;
 use dyn_clone::DynClone;
-use gears::games::Board;
+use gears::general::board::Board;
 use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
 use std::sync::{Arc, Mutex};
 

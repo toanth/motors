@@ -11,8 +11,9 @@ use std::time::Instant;
 use colored::Colorize;
 use itertools::Itertools;
 
-use gears::games::{Board, Move};
+use gears::general::board::Board;
 use gears::general::common::{parse_duration_ms, parse_int_from_str, Res};
+use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::score::{ScoreT, SCORE_LOST, SCORE_WON};
 use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit};

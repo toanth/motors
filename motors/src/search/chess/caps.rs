@@ -13,10 +13,11 @@ use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
-use gears::games::{n_fold_repetition, Board, BoardHistory, Move, ZobristHistory};
+use gears::games::{n_fold_repetition, BoardHistory, ZobristHistory};
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::Description::NoDescription;
 use gears::general::common::{select_name_static, Res, StaticallyNamedEntity};
+use gears::general::moves::Move;
 use gears::output::Message::Debug;
 use gears::score::{
     game_result_to_score, ScoreT, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA,
@@ -283,8 +284,8 @@ impl AbstractEngine<Chessboard> for Caps {
             "uci option",
             "chess",
             NoDescription,
-        )?; // only called to produce an error message
-        Err("Unrecognized option name. Spelling error?".to_string())
+        )
+        .map(|_| {}) // only called to produce an error message
     }
 }
 
@@ -310,7 +311,8 @@ impl Engine<Chessboard> for Caps {
             .min((limit.tc.remaining.saturating_sub(limit.tc.increment)) / 32 + limit.tc.increment)
             .min(limit.tc.remaining / 4);
 
-        // TODO: Use lambda for lazy evaluation in case debug is off
+        // Ideally, this would only evaluate the String argument if debug is on, but that's annoying to implement
+        // and would still require synchronization because debug mode might be turned on while the engine is searching
         self.state.sender.send_message(Debug, &format!(
             "Starting search with limit {time}ms, {incr}ms increment, max {fixed}ms, mate in {mate} plies, max depth {depth}, max {nodes} nodes, soft limit {soft}ms",
             time = limit.tc.remaining.as_millis(),

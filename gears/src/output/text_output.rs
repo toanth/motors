@@ -4,8 +4,10 @@ use std::mem::swap;
 use std::path::Path;
 use std::str::SplitWhitespace;
 
-use crate::games::{Board, Color, Move};
+use crate::games::Color;
+use crate::general::board::Board;
 use crate::general::common::{NamedEntity, Res};
+use crate::general::moves::Move;
 use crate::output::text_output::DisplayType::*;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
 use crate::MatchStatus::Ongoing;

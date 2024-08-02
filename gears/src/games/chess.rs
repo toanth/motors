@@ -20,16 +20,18 @@ use crate::games::chess::pieces::{
 use crate::games::chess::squares::{ChessSquare, ChessboardSize, NUM_SQUARES};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::chess::ChessColor::{Black, White};
-use crate::games::SelfChecks::{Assertion, CheckFen};
 use crate::games::{
-    board_to_string, file_to_char, n_fold_repetition, position_fen_part, read_position_fen,
-    AbstractPieceType, Board, BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, NameToPos,
-    SelfChecks, Settings, UncoloredPieceType, ZobristHash,
+    file_to_char, n_fold_repetition, AbstractPieceType, Board, BoardHistory, Color, ColoredPiece,
+    ColoredPieceType, DimT, Settings, UncoloredPieceType, ZobristHash,
 };
 use crate::general::bitboards::chess::{
     ChessBitboard, BLACK_SQUARES, CORNER_SQUARES, WHITE_SQUARES,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
+use crate::general::board::SelfChecks::{Assertion, CheckFen};
+use crate::general::board::{
+    board_to_string, position_fen_part, read_position_fen, NameToPos, SelfChecks,
+};
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
     parse_int_from_str, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
@@ -926,9 +928,10 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
-    use crate::games::{
-        Coordinates, Move, NoHistory, RectangularBoard, RectangularCoordinates, ZobristHistory,
-    };
+    use crate::games::{Coordinates, NoHistory, RectangularCoordinates, ZobristHistory};
+    use crate::general::board::RectangularBoard;
+    use crate::general::board::SelfChecks::Assertion;
+    use crate::general::moves::Move;
     use crate::general::perft::perft;
     use crate::search::Depth;
 

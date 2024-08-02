@@ -1,10 +1,10 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::time::{Duration, Instant};
 
+use gears::general::board::Board;
 use rand::{thread_rng, Rng, RngCore, SeedableRng};
 
 use crate::eval::Eval;
-use gears::games::Board;
 use gears::general::common::{Res, StaticallyNamedEntity};
 use gears::score::Score;
 use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};

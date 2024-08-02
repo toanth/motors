@@ -1,8 +1,9 @@
 use dyn_clone::DynClone;
+use gears::games::Color;
+use gears::general::board::Board;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
-use gears::games::{Board, Color};
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{PhaseType, PhasedScore, Score};
 

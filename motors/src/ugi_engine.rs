@@ -9,13 +9,15 @@ use colored::Colorize;
 use itertools::Itertools;
 
 use gears::cli::{select_game, Game};
-use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristHistory};
+use gears::games::{BoardHistory, Color, OutputList, ZobristHistory};
+use gears::general::board::Board;
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{
     parse_bool_from_str, parse_duration_ms, parse_int, parse_int_from_str,
     to_name_and_optional_description, NamedEntity,
 };
 use gears::general::common::{IterIntersperse, Res};
+use gears::general::moves::Move;
 use gears::general::perft::{perft, perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;

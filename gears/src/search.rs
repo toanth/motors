@@ -3,9 +3,9 @@ use std::num::NonZeroU64;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
+use crate::general::board::Board;
 use derive_more::{Add, AddAssign, SubAssign};
 
-use crate::games::Board;
 use crate::general::common::parse_fp_from_str;
 use crate::score::Score;
 
@@ -45,7 +45,7 @@ impl<B: Board> SearchResult<B> {
     pub fn new_from_pv(score: Score, pv: &[B::Move]) -> Self {
         // the pv may be empty if search is called in a position where the game is over
         Self::new(
-            pv.get(0).copied().unwrap_or_default(),
+            pv.first().copied().unwrap_or_default(),
             score,
             pv.get(1).copied(),
         )

@@ -9,7 +9,9 @@ mod tests {
     use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
     use gears::games::chess::squares::ChessSquare;
     use gears::games::chess::Chessboard;
-    use gears::games::{n_fold_repetition, Board, BoardHistory, Move, ZobristHistory};
+    use gears::games::{n_fold_repetition, BoardHistory, ZobristHistory};
+    use gears::general::board::Board;
+    use gears::general::moves::Move;
     use gears::score::{Score, SCORE_LOST, SCORE_WON};
     use gears::search::{Depth, SearchLimit};
     use gears::ugi::parse_ugi_position_and_moves;

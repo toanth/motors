@@ -93,8 +93,9 @@ mod tests {
     use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
     use gears::games::chess::ChessColor::White;
     use gears::games::chess::{ChessColor, Chessboard};
-    use gears::games::{Board, DimT};
+    use gears::games::DimT;
     use gears::general::bitboards::RawBitboard;
+    use gears::general::board::Board;
     use gears::score::Score;
     use strum::IntoEnumIterator;
 

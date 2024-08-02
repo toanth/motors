@@ -3,7 +3,7 @@ use std::str::SplitWhitespace;
 
 use itertools::Itertools;
 
-use crate::games::Board;
+use crate::general::board::Board;
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use crate::output::text_output::DisplayType::Fen;
 use crate::output::text_output::{BoardToText, TextStream};

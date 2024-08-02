@@ -7,8 +7,10 @@ use std::time::{Duration, Instant};
 use crossbeam_utils::sync::{Parker, Unparker};
 use strum::IntoEnumIterator;
 
-use gears::games::{Board, BoardHistory, Color, Move, ZobristHistory};
+use gears::games::{BoardHistory, Color, ZobristHistory};
+use gears::general::board::Board;
 use gears::general::common::Res;
+use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{SearchInfo, TimeControl};
@@ -423,7 +425,7 @@ impl<B: Board> Client<B> {
         if !self.board().is_move_pseudolegal(mov) {
             return Err(format!(
                 "The move '{}' is not pseudolegal in the current position",
-                mov.extended_formatter(*    self.board())
+                mov.extended_formatter(*self.board())
             ));
         }
         let Some(board) = self.board().make_move(mov) else {

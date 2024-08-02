@@ -95,7 +95,7 @@ use crate::gd::{
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
 use gears::games::chess::Chessboard;
-use gears::games::Board;
+use gears::general::board::Board;
 use gears::general::common::Res;
 use serde_json::from_reader;
 use std::env::args;

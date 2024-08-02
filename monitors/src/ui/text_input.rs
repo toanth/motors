@@ -8,12 +8,14 @@ use colored::Colorize;
 use itertools::Itertools;
 use rand::thread_rng;
 
-use gears::games::{Board, Color, Move};
+use gears::games::Color;
+use gears::general::board::Board;
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
     parse_int_from_str, select_name_static, to_name_and_optional_description, IterIntersperse,
     NamedEntity, Res, StaticallyNamedEntity,
 };
+use gears::general::moves::Move;
 use gears::output::Message::{Info, Warning};
 use gears::search::TimeControl;
 use gears::ugi::{parse_ugi_position, EngineOption};

@@ -5,7 +5,8 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Instant;
 
-use crate::games::{Board, Color};
+use crate::games::Color;
+use crate::general::board::Board;
 use crate::general::common::Description::WithDescription;
 use crate::general::common::{select_name_dyn, Res};
 use crate::output::OutputBuilder;

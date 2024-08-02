@@ -11,7 +11,9 @@ use strum_macros::FromRepr;
 use crate::search::NodeType;
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
-use gears::games::{Board, Move, ZobristHash};
+use gears::games::ZobristHash;
+use gears::general::board::Board;
+use gears::general::moves::Move;
 use gears::score::{Score, ScoreT, SCORE_WON};
 use OptionalNodeType::*;
 

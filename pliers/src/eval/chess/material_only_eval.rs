@@ -49,7 +49,7 @@ mod tests {
     use super::*;
     use crate::gd::Outcome;
     use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
-    use gears::games::Board;
+    use gears::general::board::Board;
 
     #[test]
     pub fn startpos_test() {

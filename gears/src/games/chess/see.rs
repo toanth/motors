@@ -4,10 +4,11 @@ use crate::games::chess::pieces::UncoloredChessPiece::*;
 use crate::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
 use crate::games::chess::squares::ChessSquare;
 use crate::games::chess::{ChessColor, Chessboard};
-use crate::games::{AbstractPieceType, Board, Color, Coordinates, Move};
+use crate::games::{AbstractPieceType, Board, Color, Coordinates};
 use crate::general::bitboards::chess::{ChessBitboard, PAWN_CAPTURES};
 use crate::general::bitboards::RayDirections::Vertical;
 use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::general::moves::Move;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use std::mem::swap;
 

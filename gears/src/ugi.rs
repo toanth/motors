@@ -1,9 +1,10 @@
+use crate::general::board::Board;
 use colored::Colorize;
 use std::fmt::{Display, Formatter};
 use std::str::{FromStr, SplitWhitespace};
 
-use crate::games::{Board, Move};
 use crate::general::common::{NamedEntity, Res};
+use crate::general::moves::Move;
 
 /// Ugi-related helpers that are used by both `motors` and `monitors`.
 

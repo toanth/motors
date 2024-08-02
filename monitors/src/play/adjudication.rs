@@ -1,5 +1,6 @@
 use crate::play::ugi_client::ClientState;
-use gears::games::{Board, Color};
+use gears::games::Color;
+use gears::general::board::Board;
 use gears::score::Score;
 use gears::{
     player_res_to_match_res, AdjudicationReason, GameOver, GameOverReason, GameResult, GameState,

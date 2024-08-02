@@ -3,10 +3,10 @@ use std::io::stdout;
 
 use colored::{Color, Colorize};
 
-use crate::games::{
-    AbstractPieceType, Board, ColoredPiece, ColoredPieceType, Coordinates, Move, RectangularBoard,
-};
+use crate::games::{AbstractPieceType, ColoredPiece, ColoredPieceType, Coordinates};
+use crate::general::board::{Board, RectangularBoard};
 use crate::general::common::{IterIntersperse, NamedEntity, Res, StaticallyNamedEntity};
+use crate::general::moves::Move;
 use crate::general::squares::RectangularCoordinates;
 use crate::output::text_output::{TextStream, TextWriter};
 use crate::output::Message::Info;
