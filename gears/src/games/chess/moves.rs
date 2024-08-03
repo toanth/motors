@@ -154,6 +154,11 @@ impl ChessMove {
         self.flags().is_promo()
     }
 
+    pub fn is_double_pawn_push(self) -> bool {
+        self.uncolored_piece() == Pawn
+            && self.dest_square().rank().abs_diff(self.src_square().rank()) == 2
+    }
+
     pub fn promo_piece(self) -> UncoloredChessPiece {
         self.flags().promo_piece()
     }
@@ -403,8 +408,18 @@ impl Chessboard {
         mov: ChessMove,
         prefetch: F,
     ) -> Option<Self> {
+        self.make_move_impl(mov, prefetch)
+    }
+
+    /// Is only ever called on a copy of the board, so no need to undo the changes when a move gets aborted due to pseudo-legality.
+    #[allow(clippy::too_many_lines)]
+    pub(super) fn make_move_impl<F: Fn(ZobristHash)>(
+        mut self,
+        mov: ChessMove,
+        prefetch: F,
+    ) -> Option<Self> {
         let piece = mov.uncolored_piece();
-        let hash = Self::new_zobrist_after_move(
+        let mut new_hash = Self::approximate_zobrist_after_move(
             self.hash,
             self.active_player,
             piece,
@@ -412,14 +427,7 @@ impl Chessboard {
             mov.dest_square(),
         );
         // this is only an approximation of the new hash, but that is good enough
-        prefetch(hash);
-        self.make_move_impl(mov)
-    }
-
-    /// Is only ever called on a copy of the board, so no need to undo the changes when a move gets aborted due to pseudo-legality.
-    #[allow(clippy::too_many_lines)]
-    pub(super) fn make_move_impl(mut self, mov: ChessMove) -> Option<Self> {
-        let piece = mov.uncolored_piece();
+        prefetch(new_hash);
         debug_assert_eq!(piece, self.uncolored_piece_on(mov.src_square()));
         let color = self.active_player;
         let other = color.other();
@@ -428,10 +436,10 @@ impl Chessboard {
         debug_assert_eq!(color, mov.piece(&self).color().unwrap());
         self.ply_100_ctr += 1;
         // remove old castling flags
-        self.hash ^=
+        new_hash ^=
             PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         if let Some(square) = self.ep_square {
-            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize];
+            new_hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize];
         }
         self.ep_square = None;
         if mov.is_castle() {
@@ -476,7 +484,11 @@ impl Chessboard {
                 self.colored_piece_on(rook_from).symbol == ColoredChessPiece::new(color, Rook)
             );
             self.move_piece(rook_from, rook_to, Rook);
+            new_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Rook, color, rook_to);
+            new_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Rook, color, rook_from);
+            new_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(King, color, to);
             to = ChessSquare::from_rank_file(from.rank(), to_file);
+            new_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(King, color, to);
         } else if mov.is_ep() {
             let taken_pawn = mov.square_of_pawn_taken_by_ep().unwrap();
             debug_assert_eq!(
@@ -484,14 +496,14 @@ impl Chessboard {
                 ColoredChessPiece::new(other, Pawn)
             );
             self.remove_piece(taken_pawn, Pawn, other);
-            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, other, taken_pawn);
+            new_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, other, taken_pawn);
             self.ply_100_ctr = 0;
         } else if mov.is_non_ep_capture(&self) {
             let captured = self.uncolored_piece_on(to);
             debug_assert_eq!(self.colored_piece_on(to).color().unwrap(), other);
             debug_assert_ne!(captured, King);
             self.remove_piece(to, captured, other);
-            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(captured, other, to);
+            new_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(captured, other, to);
             self.ply_100_ctr = 0;
         } else if piece == Pawn {
             self.ply_100_ctr = 0;
@@ -500,7 +512,7 @@ impl Chessboard {
                     (to.rank() + from.rank()) / 2,
                     to.file(),
                 ));
-                self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[to.file() as usize];
+                new_hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[to.file() as usize];
             }
         }
         if piece == King {
@@ -515,17 +527,18 @@ impl Chessboard {
         } else if to == self.rook_start_square(other, Kingside) {
             self.castling.unset_castle_right(other, Kingside);
         }
-        self.hash ^=
+        new_hash ^=
             PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         self.move_piece(from, to, piece);
         if mov.is_promotion() {
             let bb = to.bb().raw();
             self.piece_bbs[Pawn as usize] ^= bb;
             self.piece_bbs[mov.flags().promo_piece() as usize] ^= bb;
-            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, color, to);
-            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(mov.flags().promo_piece(), color, to);
+            new_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, color, to);
+            new_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(mov.flags().promo_piece(), color, to);
         }
         self.ply += 1;
+        self.hash = new_hash;
         self.flip_side_to_move()
     }
 
@@ -536,8 +549,6 @@ impl Chessboard {
             None
         } else {
             self.active_player = self.active_player.other();
-            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
-            debug_assert_eq!(self.hash, self.zobrist_hash());
             Some(self)
         }
     }

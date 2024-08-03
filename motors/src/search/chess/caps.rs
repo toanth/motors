@@ -13,7 +13,7 @@ use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
-use gears::games::{n_fold_repetition, BoardHistory, ZobristHistory};
+use gears::games::{n_fold_repetition, BoardHistory, ZobristHash, ZobristHistory};
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::Description::NoDescription;
 use gears::general::common::{select_name_static, Res, StaticallyNamedEntity};
@@ -381,6 +381,9 @@ impl Engine<Chessboard> for Caps {
 
 #[allow(clippy::too_many_arguments)]
 impl Caps {
+    fn prefetch(&self) -> impl Fn(ZobristHash) + '_ {
+        |hash| self.state.custom.tt.prefetch(hash)
+    }
     /// Iterative Deepening (ID): Do a depth 1 search, then a depth 2 search, then a depth 3 search, etc.
     /// This has two advantages: It allows the search to be stopped at any time, and it actually improves strength:
     /// The low-depth searches fill the TT and various heuristics, which improves move ordering and therefore results in
@@ -742,9 +745,7 @@ impl Caps {
             if ply == 0 && self.state.excluded_moves.contains(&mov) {
                 continue;
             }
-            let Some(new_pos) =
-                pos.make_move_and_prefetch_tt(mov, |hash| self.state.custom.tt.prefetch(hash))
-            else {
+            let Some(new_pos) = pos.make_move_and_prefetch_tt(mov, self.prefetch()) else {
                 continue; // illegal pseudolegal move
             };
             if move_score < KILLER_SCORE {
@@ -1043,9 +1044,7 @@ impl Caps {
                 // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
                 break;
             }
-            let Some(new_pos) =
-                pos.make_move_and_prefetch_tt(mov, |hash| self.state.custom.tt.prefetch(hash))
-            else {
+            let Some(new_pos) = pos.make_move_and_prefetch_tt(mov, self.prefetch()) else {
                 continue;
             };
             self.record_move(mov, pos, ply, Qsearch);

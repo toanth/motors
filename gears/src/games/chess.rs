@@ -367,7 +367,7 @@ impl Board for Chessboard {
     }
 
     fn make_move(self, mov: Self::Move) -> Option<Self> {
-        self.make_move_impl(mov)
+        self.make_move_impl(mov, |_hash| ())
     }
 
     fn make_nullmove(mut self) -> Option<Self> {
@@ -379,6 +379,7 @@ impl Board for Chessboard {
                 PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[self.ep_square.unwrap().file() as usize];
             self.ep_square = None;
         }
+        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         self.flip_side_to_move()
     }
 
@@ -748,7 +749,6 @@ impl Chessboard {
         let color = self.active_player;
         self.color_bbs[color as usize] ^= bb;
         self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
-        self.update_zobrist_for_move(piece, from, to);
     }
 
     pub fn is_50mr_draw(&self) -> bool {
