@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use std::ops::Not;
 use std::str::FromStr;
 
-use derive_more::BitXorAssign;
+use derive_more::{BitXor, BitXorAssign};
 use rand::Rng;
 use strum::IntoEnumIterator;
 
@@ -249,7 +249,9 @@ pub trait Size<C: Coordinates>: Eq + PartialEq + Copy + Clone + Display + Debug 
 
 pub type OutputList<B> = EntityList<Box<dyn OutputBuilder<B>>>;
 
-#[derive(Copy, Clone, Eq, PartialEq, Default, Debug, derive_more::Display, BitXorAssign)]
+#[derive(
+    Copy, Clone, Eq, PartialEq, Default, Debug, derive_more::Display, BitXor, BitXorAssign,
+)]
 pub struct ZobristHash(pub u64);
 
 pub trait Settings: Eq + Copy + Debug + Default {}

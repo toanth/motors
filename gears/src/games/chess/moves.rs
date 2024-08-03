@@ -427,6 +427,7 @@ impl Chessboard {
             mov.dest_square(),
         );
         // this is only an approximation of the new hash, but that is good enough
+        prefetch(new_hash ^ PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key);
         prefetch(new_hash);
         debug_assert_eq!(piece, self.uncolored_piece_on(mov.src_square()));
         let color = self.active_player;
