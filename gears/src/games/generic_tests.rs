@@ -3,6 +3,7 @@
 use crate::games::{Color, NoHistory, ZobristHash};
 use crate::general::board::Board;
 use crate::general::board::SelfChecks::Assertion;
+use crate::general::moves::Legality::Legal;
 use crate::general::moves::Move;
 use itertools::Itertools;
 use std::collections::{HashSet, VecDeque};
@@ -91,7 +92,7 @@ impl<B: Board> GenericTests<B> {
             let hash = pos.zobrist_hash().0;
             hashes.insert(hash);
             assert_ne!(hash, 0);
-            if B::are_all_pseudolegal_legal() {
+            if B::Move::legality() == Legal {
                 assert_eq!(
                     pos.legal_moves_slow().into_iter().count(),
                     pos.pseudolegal_moves().into_iter().count()

@@ -20,7 +20,8 @@ use crate::general::board::{
 };
 use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
-use crate::general::moves::{Move, NoMoveFlags};
+use crate::general::moves::Legality::Legal;
+use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
 use crate::general::squares::{GridCoordinates, GridSize};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
@@ -174,6 +175,7 @@ type Square = GenericPiece<GridCoordinates, MnkColor, Symbol>;
 // }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[must_use]
 #[repr(C)]
 pub struct FillSquare {
     pub target: GridCoordinates,
@@ -206,6 +208,10 @@ impl Move<MNKBoard> for FillSquare {
     type Flags = NoMoveFlags;
     type Underlying = u16;
 
+    fn legality() -> Legality {
+        Legal
+    }
+
     fn src_square(self) -> GridCoordinates {
         GridCoordinates::no_coordinates()
     }
@@ -234,13 +240,13 @@ impl Move<MNKBoard> for FillSquare {
         Self::from_compact_text(s, board)
     }
 
-    fn from_usize_unchecked(val: usize) -> Self {
-        Self {
+    fn from_usize_unchecked(val: usize) -> UntrustedMove<MNKBoard> {
+        UntrustedMove::from_move(Self {
             target: GridCoordinates::from_row_column(
                 ((val >> 8) & 0xff) as DimT,
                 (val & 0xff) as DimT,
             ),
-        }
+        })
     }
 
     fn to_underlying(self) -> Self::Underlying {
@@ -506,10 +512,6 @@ impl Board for MNKBoard {
             Empty
         };
         Square::new(symbol, coordinates)
-    }
-
-    fn are_all_pseudolegal_legal() -> bool {
-        true
     }
 
     fn pseudolegal_moves(&self) -> EagerNonAllocMoveList<Self, 128> {

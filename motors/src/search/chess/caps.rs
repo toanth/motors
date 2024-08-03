@@ -612,7 +612,9 @@ impl Caps {
                 }
             }
 
-            best_move = tt_entry.mov;
+            if let Some(mov) = tt_entry.mov.check_psuedolegal(&pos) {
+                best_move = mov;
+            }
             // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
             if !tt_entry.score.is_game_over_score()
                 && (bound == Exact
@@ -1023,7 +1025,9 @@ impl Caps {
                 self.state.statistics.tt_cutoff(Qsearch, bound);
                 return tt_entry.score;
             }
-            best_move = tt_entry.mov;
+            if let Some(mov) = tt_entry.mov.check_psuedolegal(&pos) {
+                best_move = mov;
+            }
         }
         self.record_pos(pos, best_score, ply);
 

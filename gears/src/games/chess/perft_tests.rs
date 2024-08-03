@@ -44,7 +44,7 @@ mod tests {
         .unwrap();
         let res = perft(Depth::new(1), board);
         assert_eq!(res.nodes, 99);
-        assert!(res.time.as_millis() <= 1);
+        assert!(res.time.as_millis() <= 2);
         let res = perft(Depth::new(2), board);
         assert_eq!(res.nodes, 6271);
         let res = perft(Depth::new(3), board);

@@ -25,6 +25,7 @@ use crate::general::common::{
     select_name_static, EntityList, GenericSelect, IterIntersperse, Res, StaticallyNamedEntity,
 };
 use crate::general::move_list::MoveList;
+use crate::general::moves::Legality::Legal;
 use crate::general::moves::Move;
 use crate::general::squares::{RectangularCoordinates, RectangularSize};
 use crate::search::Depth;
@@ -183,12 +184,6 @@ pub trait Board:
         Depth::new(5)
     }
 
-    /// This function is used for optimizations and may safely return `false`.
-    #[must_use]
-    fn are_all_pseudolegal_legal() -> bool {
-        false
-    }
-
     /// Returns a list of pseudo legal moves, that is, moves which can either be played using
     /// `make_move` or which will cause `make_move` to return `None`.
     fn pseudolegal_moves(&self) -> Self::MoveList;
@@ -200,7 +195,7 @@ pub trait Board:
     /// and will not return `None`. TODO: Add trait for efficient legal moves implementation.
     fn legal_moves_slow(&self) -> Self::LegalMoveList {
         let pseudo_legal = self.pseudolegal_moves();
-        if Self::are_all_pseudolegal_legal() {
+        if Self::Move::legality() == Legal {
             return pseudo_legal.into_iter().collect();
         }
         pseudo_legal
@@ -229,20 +224,22 @@ pub trait Board:
     fn make_nullmove(self) -> Option<Self>;
 
     /// Returns true iff the move is pseudolegal, that is, it can be played with `make_move` without
-    /// causing a panic.
+    /// causing a panic. When it is not certain that a move is definitely (pseudo)legal, `Untrusted<Move>`
+    /// should be used.
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool;
 
     /// Returns true iff the move is legal, that is, if it is pseudolegal and playing it with `make_move`
     /// would return Some result. `is_move_pseudolegal` can be much faster.
     fn is_move_legal(&self, mov: Self::Move) -> bool {
-        self.is_move_pseudolegal(mov)
-            && (Self::are_all_pseudolegal_legal() || self.is_pseudolegal_move_legal(mov))
+        // the call to `is_pseudolegal_move_legal` should get inlined, after which it should evaluate to `true` for
+        // boards with legal movegen
+        self.is_move_pseudolegal(mov) && self.is_pseudolegal_move_legal(mov)
     }
 
     /// Expects a pseudolegal move and returns if this move is also legal, which means that playing it with
     /// `make_move` returns `Some(new_board)`
     fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {
-        self.make_move(mov).is_some()
+        Self::Move::legality() == Legal || self.make_move(mov).is_some()
     }
 
     fn player_result_no_movegen<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult>;

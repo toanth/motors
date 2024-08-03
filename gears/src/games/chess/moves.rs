@@ -23,7 +23,8 @@ use crate::games::{
 };
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::common::Res;
-use crate::general::moves::{Move, MoveFlags};
+use crate::general::moves::Legality::PseudoLegal;
+use crate::general::moves::{Legality, Move, MoveFlags, UntrustedMove};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default, Debug, EnumIter, FromRepr)]
 #[must_use]
@@ -82,6 +83,7 @@ impl MoveFlags for ChessMoveFlags {}
 /// Bits 12-15: Move type
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Ord, PartialOrd, Hash)]
 #[must_use]
+#[repr(C)]
 pub struct ChessMove(u16);
 
 impl ChessMove {
@@ -183,6 +185,10 @@ impl Display for ChessMove {
 impl Move<Chessboard> for ChessMove {
     type Flags = ChessMoveFlags;
     type Underlying = u16;
+
+    fn legality() -> Legality {
+        PseudoLegal
+    }
 
     fn src_square(self) -> ChessSquare {
         ChessSquare::from_bb_index((self.0 & 0x3f) as usize)
@@ -366,8 +372,8 @@ impl Move<Chessboard> for ChessMove {
         Ok(res.0)
     }
 
-    fn from_usize_unchecked(val: usize) -> Self {
-        Self(val as u16)
+    fn from_usize_unchecked(val: usize) -> UntrustedMove<Chessboard> {
+        UntrustedMove::from_move(Self(val as u16))
     }
 
     fn to_underlying(self) -> Self::Underlying {
@@ -577,6 +583,13 @@ impl<'a> MoveParser<'a> {
             parser.parse_check_mate();
             parser.parse_annotation();
             parser.check_check_checkmate_captures_and_ep(mov, board)?;
+            if !board.is_move_pseudolegal(mov) {
+                // can't use `to_extended_text` because that requires pseudolegal moves.
+                return Err(format!(
+                    "Castling move '{}' is not pseudolegal in the current position",
+                    mov.to_string().red()
+                ));
+            }
             return Ok((mov, parser.remaining()));
         }
         parser.parse_piece()?;

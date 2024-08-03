@@ -4,7 +4,8 @@ use crate::games::ataxx::AtaxxColor::{Black, White};
 use crate::games::ataxx::{AtaxxBoard, AtaxxColor, AtaxxSquare};
 use crate::games::{AbstractPieceType, ColoredPieceType, Coordinates, DimT, UncoloredPieceType};
 use crate::general::common::Res;
-use crate::general::moves::{Move, NoMoveFlags};
+use crate::general::moves::Legality::Legal;
+use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
 use colored::Colorize;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -155,6 +156,7 @@ pub const MAX_ATAXX_MOVES_IN_POS: usize =
     NUM_SQUARES + 2 * ((NUM_ROWS - 2) * (NUM_COLUMNS - 2) * 2 + (NUM_ROWS - 2 + NUM_COLUMNS - 2));
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
+#[repr(C)]
 pub struct AtaxxMove {
     source: AtaxxSquare,
     target: AtaxxSquare,
@@ -169,6 +171,10 @@ impl Display for AtaxxMove {
 impl Move<AtaxxBoard> for AtaxxMove {
     type Flags = NoMoveFlags;
     type Underlying = u16;
+
+    fn legality() -> Legality {
+        Legal
+    }
 
     fn src_square(self) -> AtaxxSquare {
         self.source
@@ -227,10 +233,10 @@ impl Move<AtaxxBoard> for AtaxxMove {
         Self::from_compact_text(s, board)
     }
 
-    fn from_usize_unchecked(val: usize) -> Self {
+    fn from_usize_unchecked(val: usize) -> UntrustedMove<AtaxxBoard> {
         let source = AtaxxSquare::from_bb_index((val >> 8) & 0xff);
         let target = AtaxxSquare::from_bb_index(val & 0xff);
-        Self { source, target }
+        UntrustedMove::from_move(Self { source, target })
     }
 
     fn to_underlying(self) -> Self::Underlying {

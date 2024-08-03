@@ -13,7 +13,7 @@ use crate::search::NodeType;
 use gears::games::chess::Chessboard;
 use gears::games::ZobristHash;
 use gears::general::board::Board;
-use gears::general::moves::Move;
+use gears::general::moves::{Move, UntrustedMove};
 use gears::score::{Score, ScoreT, SCORE_WON};
 use OptionalNodeType::*;
 
@@ -32,11 +32,11 @@ enum OptionalNodeType {
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 #[repr(C)]
 pub(super) struct TTEntry<B: Board> {
-    pub hash: ZobristHash,   // 8 bytes
-    pub score: Score,        // 4 bytes
-    pub mov: B::Move,        // depends, 2 bytes for chess (atm never more)
-    pub depth: u8,           // 1 byte
-    bound: OptionalNodeType, // 1 byte
+    pub hash: ZobristHash,     // 8 bytes
+    pub score: Score,          // 4 bytes
+    pub mov: UntrustedMove<B>, // depends, 2 bytes for chess (atm never more)
+    pub depth: u8,             // 1 byte
+    bound: OptionalNodeType,   // 1 byte
 }
 
 impl<B: Board> TTEntry<B> {
@@ -50,7 +50,7 @@ impl<B: Board> TTEntry<B> {
         let depth = depth.clamp(0, u8::MAX as isize) as u8;
         Self {
             score,
-            mov,
+            mov: UntrustedMove::from_move(mov),
             depth,
             bound: OptionalNodeType::from_repr(bound as u8).unwrap(),
             hash,
@@ -276,7 +276,7 @@ mod test {
                 let entry: TTEntry<Chessboard> = TTEntry {
                     hash: pos.zobrist_hash(),
                     score,
-                    mov,
+                    mov: UntrustedMove::from_move(mov),
                     depth,
                     bound,
                 };

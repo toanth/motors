@@ -238,10 +238,6 @@ impl Board for AtaxxBoard {
         Self::Piece::new(typ, coordinates)
     }
 
-    fn are_all_pseudolegal_legal() -> bool {
-        true
-    }
-
     fn pseudolegal_moves(&self) -> Self::MoveList {
         self.legal_moves()
     }
