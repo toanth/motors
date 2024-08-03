@@ -742,7 +742,9 @@ impl Caps {
             if ply == 0 && self.state.excluded_moves.contains(&mov) {
                 continue;
             }
-            let Some(new_pos) = pos.make_move(mov) else {
+            let Some(new_pos) =
+                pos.make_move_and_prefetch_tt(mov, |hash| self.state.custom.tt.prefetch(hash))
+            else {
                 continue; // illegal pseudolegal move
             };
             if move_score < KILLER_SCORE {
