@@ -171,7 +171,7 @@ impl FromStr for TimeControl {
         if s == "infinite" || s == "∞" {
             return Ok(TimeControl::infinite());
         }
-        // For now, don't support movestogo TODO: Add support eventually
+        // For now, don't support movestogo TODO: Add support
         let mut parts = s.split('+');
         let start_time = parts.next().ok_or_else(|| "Empty TC".to_string())?;
         let start_time = parse_fp_from_str::<f64>(start_time.trim(), "the start time")?.max(0.0);

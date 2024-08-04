@@ -195,7 +195,7 @@ impl Board for Chessboard {
             },
             GenericSelect {
                 name: "philidor",
-                val: || Self::from_fen("3K4/r7/7R/2kp4/8/8/8/8 w - - 0 1").unwrap(),
+                val: || Self::from_fen("3k4/R7/7r/2KP4/8/8/8/8 w - - 0 1").unwrap(),
             },
             GenericSelect {
                 name: "mate_in_1",

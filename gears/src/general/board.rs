@@ -192,7 +192,7 @@ pub trait Board:
     fn tactical_pseudolegal(&self) -> Self::MoveList;
 
     /// Returns a list of legal moves, that is, moves that can be played using `make_move`
-    /// and will not return `None`. TODO: Add trait for efficient legal moves implementation.
+    /// and will not return `None`.
     fn legal_moves_slow(&self) -> Self::LegalMoveList {
         let pseudo_legal = self.pseudolegal_moves();
         if Self::Move::legality() == Legal {
