@@ -1044,7 +1044,7 @@ impl Caps {
                 // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
                 break;
             }
-            let Some(new_pos) = pos.make_move_and_prefetch_tt(mov, self.prefetch()) else {
+            let Some(new_pos) = pos.make_move(mov       ) else {
                 continue;
             };
             self.record_move(mov, pos, ply, Qsearch);

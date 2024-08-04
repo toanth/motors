@@ -99,7 +99,7 @@ impl Color for ChessColor {
 pub struct Chessboard {
     piece_bbs: [RawStandardBitboard; NUM_CHESS_PIECES],
     color_bbs: [RawStandardBitboard; NUM_COLORS],
-    ply: usize, // TODO: Test if using u32 or even u16 improves nps in perft (also for 50mr counter)
+    ply: usize,
     ply_100_ctr: usize,
     active_player: ChessColor,
     castling: CastlingFlags,
