@@ -5,8 +5,8 @@ use crate::eval::EvalScale::Scale;
 use crate::eval::{changed_at_least, write_phased, Eval, EvalScale, WeightsInterpretation};
 use crate::gd::{Float, TaperedDatapoint, Weight, Weights};
 use crate::trace::{SingleFeature, SparseTrace, TraceTrait};
-use gears::games::chess::pieces::UncoloredChessPiece::*;
-use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
+use gears::games::chess::pieces::ChessPieceType::*;
+use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::see::SEE_SCORES;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::ChessColor::White;
@@ -64,7 +64,7 @@ impl LiTETrace {
 impl LiteValues for LiTETrace {
     type Score = SparseTrace;
 
-    fn psqt(square: ChessSquare, piece: UncoloredChessPiece, color: ChessColor) -> SingleFeature {
+    fn psqt(square: ChessSquare, piece: ChessPieceType, color: ChessColor) -> SingleFeature {
         let square = square.flip_if(color == White);
         let idx = square.bb_idx() + piece as usize * NUM_SQUARES;
         SingleFeature::new(idx)
@@ -120,12 +120,12 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(idx)
     }
 
-    fn pawn_protection(piece: UncoloredChessPiece) -> SingleFeature {
+    fn pawn_protection(piece: ChessPieceType) -> SingleFeature {
         let idx = Self::PAWN_PROTECTION_OFFSET + piece as usize;
         SingleFeature::new(idx)
     }
 
-    fn pawn_attack(piece: UncoloredChessPiece) -> SingleFeature {
+    fn pawn_attack(piece: ChessPieceType) -> SingleFeature {
         // For example a pawn attacking another pawn is itself attacked by a pawn, but since a pawn could be attacking
         // two pawns at once this doesn't have to mean that the resulting feature count is zero. So manually exclude this
         // because pawns attacking pawns don't necessarily create an immediate thread like pawns attacking pieces.
@@ -136,25 +136,25 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(idx)
     }
 
-    fn mobility(piece: UncoloredChessPiece, mobility: usize) -> SingleFeature {
+    fn mobility(piece: ChessPieceType, mobility: usize) -> SingleFeature {
         let idx = Self::MOBILITY_OFFSET + (piece as usize - 1) * (MAX_MOBILITY + 1) + mobility;
         SingleFeature::new(idx)
     }
 
-    fn threats(attacking: UncoloredChessPiece, targeted: UncoloredChessPiece) -> SingleFeature {
+    fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> SingleFeature {
         let idx =
             Self::THREAT_OFFSET + (attacking as usize - 1) * NUM_CHESS_PIECES + targeted as usize;
         SingleFeature::new(idx)
     }
 
-    fn defended(protecting: UncoloredChessPiece, target: UncoloredChessPiece) -> SingleFeature {
+    fn defended(protecting: ChessPieceType, target: ChessPieceType) -> SingleFeature {
         let idx =
             Self::DEFENSE_OFFSET + (protecting as usize - 1) * NUM_CHESS_PIECES + target as usize;
         SingleFeature::new(idx)
     }
 
     fn king_zone_attack(
-        attacking: UncoloredChessPiece,
+        attacking: ChessPieceType,
     ) -> <Self::Score as ScoreType>::SingleFeatureScore {
         let idx = Self::KING_ZONE_ATTACK_OFFSET + attacking as usize;
         SingleFeature::new(idx)
@@ -261,7 +261,7 @@ impl WeightsInterpretation for TuneLiTEval {
                 f,
                 "const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = ["
             )?;
-            for _piece in UncoloredChessPiece::non_pawn_pieces() {
+            for _piece in ChessPieceType::non_pawn_pieces() {
                 write!(f, "[")?;
                 for _mobility in 0..=MAX_MOBILITY {
                     write!(f, "{}, ", write_phased(weights, idx, &special))?;
@@ -275,9 +275,9 @@ impl WeightsInterpretation for TuneLiTEval {
                     f,
                     "const {name}: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = ["
                 )?;
-                for _piece in UncoloredChessPiece::non_pawn_pieces() {
+                for _piece in ChessPieceType::non_pawn_pieces() {
                     write!(f, "[")?;
-                    for _threatened in UncoloredChessPiece::pieces() {
+                    for _threatened in ChessPieceType::pieces() {
                         write!(f, "{}, ", write_phased(weights, idx, &special))?;
                         idx += 1;
                     }
@@ -286,7 +286,7 @@ impl WeightsInterpretation for TuneLiTEval {
                 writeln!(f, "];")?;
             }
             write!(f, "const KING_ZONE_ATTACK: [PhasedScore; 6] = [")?;
-            for _piece in UncoloredChessPiece::pieces() {
+            for _piece in ChessPieceType::pieces() {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
                 idx += 1;
             }
@@ -306,7 +306,7 @@ impl WeightsInterpretation for TuneLiTEval {
 
     fn initial_weights(&self) -> Option<Weights> {
         let mut weights = vec![Weight(0.0); Self::NUM_WEIGHTS];
-        for piece in UncoloredChessPiece::non_king_pieces() {
+        for piece in ChessPieceType::non_king_pieces() {
             let piece_val = Weight(SEE_SCORES[piece as usize].0 as Float);
             for square in 0..NUM_SQUARES {
                 let i = piece as usize * 64 + square;

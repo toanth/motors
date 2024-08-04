@@ -11,8 +11,8 @@ use strum_macros::{EnumIter, FromRepr};
 use crate::games::chess::castling::CastleRight;
 use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::moves::ChessMoveFlags::*;
-use crate::games::chess::pieces::UncoloredChessPiece::*;
-use crate::games::chess::pieces::{ChessPiece, ColoredChessPiece, UncoloredChessPiece};
+use crate::games::chess::pieces::ChessPieceType::*;
+use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType};
 use crate::games::chess::squares::{ChessSquare, C_FILE_NO, D_FILE_NO, F_FILE_NO, G_FILE_NO};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::chess::ChessColor::*;
@@ -46,7 +46,7 @@ pub enum ChessMoveFlags {
 }
 
 impl ChessMoveFlags {
-    pub fn normal_move(piece: UncoloredChessPiece) -> Self {
+    pub fn normal_move(piece: ChessPieceType) -> Self {
         Self::from_repr(piece as usize).unwrap()
     }
 
@@ -55,18 +55,18 @@ impl ChessMoveFlags {
         self >= PromoKnight
     }
 
-    fn promo_piece(self) -> UncoloredChessPiece {
+    fn promo_piece(self) -> ChessPieceType {
         if self < PromoKnight {
             Empty
         } else {
-            UncoloredChessPiece::from_repr(self as usize - PromoKnight as usize + Knight as usize)
+            ChessPieceType::from_repr(self as usize - PromoKnight as usize + Knight as usize)
                 .unwrap()
         }
     }
 
-    fn piece_type(self) -> UncoloredChessPiece {
+    fn piece_type(self) -> ChessPieceType {
         if self <= NormalKingMove {
-            UncoloredChessPiece::from_repr(self as usize).unwrap()
+            ChessPieceType::from_repr(self as usize).unwrap()
         } else if self >= EnPassant {
             Pawn
         } else {
@@ -112,17 +112,17 @@ impl ChessMove {
         debug_assert!(board.is_occupied(source));
         debug_assert!(board.active_player_bb().is_bit_set_at(source.bb_idx()));
         ChessPiece::new(
-            ColoredChessPiece::new(board.active_player, self.flags().piece_type()),
+            ColoredChessPieceType::new(board.active_player, self.flags().piece_type()),
             source,
         )
     }
 
-    pub fn uncolored_piece(self) -> UncoloredChessPiece {
+    pub fn piece_type(self) -> ChessPieceType {
         self.flags().piece_type()
     }
 
-    pub fn uncolored_piece_on_target(self, board: &Chessboard) -> UncoloredChessPiece {
-        board.uncolored_piece_on(self.dest_square())
+    pub fn piece_type_on_target(self, board: &Chessboard) -> ChessPieceType {
+        board.piece_type_on(self.dest_square())
     }
 
     pub fn is_capture(self, board: &Chessboard) -> bool {
@@ -140,13 +140,13 @@ impl ChessMove {
             .is_bit_set_at(self.dest_square().bb_idx())
     }
 
-    pub fn captured(self, board: &Chessboard) -> UncoloredChessPiece {
+    pub fn captured(self, board: &Chessboard) -> ChessPieceType {
         if self.is_ep() {
             Pawn
         } else if self.is_castle() {
             Empty
         } else {
-            board.uncolored_piece_on(self.dest_square())
+            board.piece_type_on(self.dest_square())
         }
     }
 
@@ -155,11 +155,11 @@ impl ChessMove {
     }
 
     pub fn is_double_pawn_push(self) -> bool {
-        self.uncolored_piece() == Pawn
+        self.piece_type() == Pawn
             && self.dest_square().rank().abs_diff(self.src_square().rank()) == 2
     }
 
-    pub fn promo_piece(self) -> UncoloredChessPiece {
+    pub fn promo_piece(self) -> ChessPieceType {
         self.flags().promo_piece()
     }
 
@@ -257,7 +257,7 @@ impl Move<Chessboard> for ChessMove {
             }
         } else if piece.uncolored() == King {
             let rook_capture = board.colored_piece_on(to).symbol
-                == ColoredChessPiece::new(piece.color().unwrap(), Rook);
+                == ColoredChessPieceType::new(piece.color().unwrap(), Rook);
             if rook_capture || to.file().abs_diff(from.file()) > 1 {
                 let color = if from.rank() == 0 { White } else { Black };
                 if !rook_capture {
@@ -418,7 +418,7 @@ impl Chessboard {
         mov: ChessMove,
         prefetch: F,
     ) -> Option<Self> {
-        let piece = mov.uncolored_piece();
+        let piece = mov.piece_type();
         let mut new_hash = Self::approximate_zobrist_after_move(
             self.hash,
             self.active_player,
@@ -429,7 +429,7 @@ impl Chessboard {
         // this is only an approximation of the new hash, but that is good enough
         prefetch(new_hash ^ PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key);
         prefetch(new_hash);
-        debug_assert_eq!(piece, self.uncolored_piece_on(mov.src_square()));
+        debug_assert_eq!(piece, self.piece_type_on(mov.src_square()));
         let color = self.active_player;
         let other = color.other();
         let from = mov.src_square();
@@ -482,7 +482,7 @@ impl Chessboard {
             let rook_from = self.rook_start_square(color, side);
             let rook_to = ChessSquare::from_rank_file(from.rank(), rook_to_file);
             debug_assert!(
-                self.colored_piece_on(rook_from).symbol == ColoredChessPiece::new(color, Rook)
+                self.colored_piece_on(rook_from).symbol == ColoredChessPieceType::new(color, Rook)
             );
             self.move_piece(rook_from, rook_to, Rook);
             new_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Rook, color, rook_to);
@@ -494,13 +494,13 @@ impl Chessboard {
             let taken_pawn = mov.square_of_pawn_taken_by_ep().unwrap();
             debug_assert_eq!(
                 self.colored_piece_on(taken_pawn).symbol,
-                ColoredChessPiece::new(other, Pawn)
+                ColoredChessPieceType::new(other, Pawn)
             );
             self.remove_piece(taken_pawn, Pawn, other);
             new_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, other, taken_pawn);
             self.ply_100_ctr = 0;
         } else if mov.is_non_ep_capture(&self) {
-            let captured = self.uncolored_piece_on(to);
+            let captured = self.piece_type_on(to);
             debug_assert_eq!(self.colored_piece_on(to).color().unwrap(), other);
             debug_assert_ne!(captured, King);
             self.remove_piece(to, captured, other);
@@ -563,12 +563,12 @@ pub struct MoveParser<'a> {
     start_file: Option<DimT>,
     target_rank: Option<DimT>,
     target_file: Option<DimT>,
-    piece: UncoloredChessPiece,
+    piece: ChessPieceType,
     is_capture: bool,
     is_ep: bool,
     gives_check: bool,
     gives_mate: bool,
-    promotion: UncoloredChessPiece,
+    promotion: ChessPieceType,
 }
 
 impl<'a> MoveParser<'a> {
@@ -708,9 +708,9 @@ impl<'a> MoveParser<'a> {
         match current {
             'a'..='h' | 'A' | 'C' | 'E'..='H' | 'x' | ':' | '×' => (),
             _ => {
-                self.piece = ColoredChessPiece::from_utf8_char(current)
-                    .map(ColoredChessPiece::uncolor)
-                    .or_else(|| UncoloredChessPiece::from_utf8_char(current))
+                self.piece = ColoredChessPieceType::from_utf8_char(current)
+                    .map(ColoredChessPieceType::uncolor)
+                    .or_else(|| ChessPieceType::from_utf8_char(current))
                     .ok_or_else(|| {
                         format!("The move starts with '{current}', which is not a piece or file")
                     })?;
@@ -816,9 +816,9 @@ impl<'a> MoveParser<'a> {
             allow_fail = false;
         }
         let piece = self.current_char().and_then(|c| {
-            ColoredChessPiece::from_utf8_char(c)
-                .map(ColoredChessPiece::uncolor)
-                .or_else(|| UncoloredChessPiece::from_utf8_char(c))
+            ColoredChessPieceType::from_utf8_char(c)
+                .map(ColoredChessPieceType::uncolor)
+                .or_else(|| ChessPieceType::from_utf8_char(c))
         });
         if piece.is_some() {
             self.promotion = piece.unwrap();
@@ -901,7 +901,7 @@ impl<'a> MoveParser<'a> {
         }
 
         let mut moves = board.gen_all_pseudolegal_moves().into_iter().filter(|mov| {
-            mov.uncolored_piece() == self.piece
+            mov.piece_type() == self.piece
                 && mov.dest_square().file() == self.target_file.unwrap()
                 && !self
                     .target_rank
@@ -1002,7 +1002,7 @@ impl<'a> MoveParser<'a> {
 #[cfg(test)]
 mod tests {
     use crate::games::chess::moves::ChessMove;
-    use crate::games::chess::pieces::UncoloredChessPiece::Bishop;
+    use crate::games::chess::pieces::ChessPieceType::Bishop;
     use crate::games::chess::squares::ChessSquare;
     use crate::games::chess::ChessColor::White;
     use crate::games::chess::Chessboard;

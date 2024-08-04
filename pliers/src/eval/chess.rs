@@ -4,7 +4,7 @@ use crate::eval::write_phased_with_width;
 use crate::gd::{Float, Weight};
 use crate::load_data::{Filter, ParseResult};
 use crate::trace::{BasicTrace, SimpleTrace, TraceNFeatures};
-use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
+use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::ChessColor::White;
 use gears::games::chess::{ChessColor, Chessboard};
@@ -42,13 +42,13 @@ const NUM_PSQT_FEATURES: usize = NUM_CHESS_PIECES * NUM_SQUARES;
 /// The start position has a phase value of 24, and a position without any non-pawn, non-king pieces
 /// has a phase value of zero.
 pub fn chess_phase(pos: &Chessboard) -> Float {
-    let phase: usize = UncoloredChessPiece::non_king_pieces()
+    let phase: usize = ChessPieceType::non_king_pieces()
         .map(|piece| pos.piece_bb(piece).num_ones() * CHESS_PHASE_VALUES[piece as usize])
         .sum();
     phase as Float / 24.0
 }
 
-fn to_feature_idx(piece: UncoloredChessPiece, color: ChessColor, square: ChessSquare) -> usize {
+fn to_feature_idx(piece: ChessPieceType, color: ChessColor, square: ChessSquare) -> usize {
     NUM_SQUARES * piece as usize + square.flip_if(color == White).bb_idx()
 }
 
@@ -56,7 +56,7 @@ fn psqt_trace(pos: &Chessboard) -> TraceNFeatures<NUM_PSQT_FEATURES> {
     let mut trace = SimpleTrace::for_features(NUM_PSQT_FEATURES);
     trace.phase = chess_phase(pos);
     for color in ChessColor::iter() {
-        for piece in UncoloredChessPiece::pieces() {
+        for piece in ChessPieceType::pieces() {
             let bb = pos.colored_piece_bb(color, piece);
             for square in bb.ones() {
                 let idx = to_feature_idx(piece, color, square);
@@ -71,7 +71,7 @@ fn write_phased_psqt(
     f: &mut Formatter<'_>,
     weights: &[Weight],
     special: &[bool],
-    piece: Option<UncoloredChessPiece>,
+    piece: Option<ChessPieceType>,
     offset: usize,
 ) -> std::fmt::Result {
     const TAB: &str = "    "; // Use 4 spaces for a tab.
@@ -110,7 +110,7 @@ fn write_psqts(
         f,
         "const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = ["
     )?;
-    for piece in UncoloredChessPiece::pieces() {
+    for piece in ChessPieceType::pieces() {
         write_phased_psqt(
             f,
             weights,

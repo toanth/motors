@@ -10,7 +10,7 @@ use rand::SeedableRng;
 
 use crate::eval::chess::lite::LiTEval;
 use gears::games::chess::moves::ChessMove;
-use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
+use gears::games::chess::pieces::ChessPieceType::Pawn;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
 use gears::games::{n_fold_repetition, BoardHistory, ZobristHash, ZobristHistory};
@@ -79,11 +79,11 @@ struct CaptHist([[[i32; 64]; 6]; 2]);
 impl CaptHist {
     fn update(&mut self, mov: ChessMove, color: ChessColor, bonus: i32) {
         let entry =
-            &mut self[color as usize][mov.uncolored_piece() as usize][mov.dest_square().bb_idx()];
+            &mut self[color as usize][mov.piece_type() as usize][mov.dest_square().bb_idx()];
         update_history_score(entry, bonus);
     }
     fn get(&self, mov: ChessMove, color: ChessColor) -> MoveScore {
-        MoveScore(self[color as usize][mov.uncolored_piece() as usize][mov.dest_square().bb_idx()])
+        MoveScore(self[color as usize][mov.piece_type() as usize][mov.dest_square().bb_idx()])
     }
 }
 
@@ -102,8 +102,8 @@ struct ContHist(Vec<i32>); // Can't store this on the stack because it's too lar
 
 impl ContHist {
     fn idx(mov: ChessMove, prev_move: ChessMove, color: ChessColor) -> usize {
-        (mov.uncolored_piece() as usize + mov.dest_square().bb_idx() * 6)
-            + (prev_move.uncolored_piece() as usize + prev_move.dest_square().bb_idx() * 6) * 64 * 6
+        (mov.piece_type() as usize + mov.dest_square().bb_idx() * 6)
+            + (prev_move.piece_type() as usize + prev_move.dest_square().bb_idx() * 6) * 64 * 6
             + color as usize * 64 * 6 * 64 * 6
     }
     fn update(&mut self, mov: ChessMove, prev_mov: ChessMove, bonus: i32, color: ChessColor) {

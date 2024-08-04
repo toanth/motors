@@ -2,7 +2,7 @@ use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::common::AtaxxPieceType::{Blocked, Empty, Occupied};
 use crate::games::ataxx::AtaxxColor::{Black, White};
 use crate::games::ataxx::{AtaxxBoard, AtaxxColor, AtaxxSquare};
-use crate::games::{AbstractPieceType, ColoredPieceType, Coordinates, DimT, UncoloredPieceType};
+use crate::games::{AbstractPieceType, ColoredPieceType, Coordinates, DimT, PieceType};
 use crate::general::common::Res;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
@@ -73,10 +73,10 @@ impl AbstractPieceType for AtaxxPieceType {
     }
 }
 
-impl UncoloredPieceType<AtaxxColor> for AtaxxPieceType {
+impl PieceType<AtaxxColor> for AtaxxPieceType {
     type Colored = ColoredAtaxxPieceType;
 
-    fn from_uncolored_idx(idx: usize) -> Self {
+    fn from_idx(idx: usize) -> Self {
         Self::iter().nth(idx).unwrap()
     }
 }

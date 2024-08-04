@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use strum::IntoEnumIterator;
 
-use gears::games::chess::pieces::UncoloredChessPiece;
+use gears::games::chess::pieces::ChessPieceType;
 use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::bitboards::RawBitboard;
 use gears::general::board::Board;
@@ -183,7 +183,7 @@ impl Eval<Chessboard> for PistonEval {
         let mut eg = Score(0);
         let mut phase = 0;
         for color in ChessColor::iter() {
-            for piece in UncoloredChessPiece::pieces() {
+            for piece in ChessPieceType::pieces() {
                 let mut bb = pos.colored_piece_bb(color, piece);
                 while bb.has_set_bit() {
                     let idx = bb.pop_lsb();

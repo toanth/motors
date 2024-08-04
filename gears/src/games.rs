@@ -71,19 +71,19 @@ pub trait AbstractPieceType: Eq + Copy + Debug + Default + Display {
     fn to_uncolored_idx(self) -> usize;
 }
 
-pub trait UncoloredPieceType<C: Color>: AbstractPieceType {
+pub trait PieceType<C: Color>: AbstractPieceType {
     type Colored: ColoredPieceType<C>;
 
-    fn from_uncolored_idx(idx: usize) -> Self;
+    fn from_idx(idx: usize) -> Self;
 }
 
 pub trait ColoredPieceType<C: Color>: AbstractPieceType {
-    type Uncolored: UncoloredPieceType<C>;
+    type Uncolored: PieceType<C>;
 
     fn color(self) -> Option<C>;
 
     fn uncolor(self) -> Self::Uncolored {
-        Self::Uncolored::from_uncolored_idx(self.to_uncolored_idx())
+        Self::Uncolored::from_idx(self.to_uncolored_idx())
     }
 
     fn to_colored_idx(self) -> usize;

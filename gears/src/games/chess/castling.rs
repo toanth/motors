@@ -2,8 +2,8 @@ use itertools::Itertools;
 use strum_macros::EnumIter;
 
 use crate::games::chess::castling::CastleRight::*;
-use crate::games::chess::pieces::ColoredChessPiece;
-use crate::games::chess::pieces::UncoloredChessPiece::Rook;
+use crate::games::chess::pieces::ChessPieceType::Rook;
+use crate::games::chess::pieces::ColoredChessPieceType;
 use crate::games::chess::squares::{
     ChessSquare, A_FILE_NO, C_FILE_NO, D_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
 };
@@ -137,7 +137,7 @@ impl CastlingFlags {
                 for file in start..end {
                     if board.is_piece_on(
                         ChessSquare::from_rank_file(rank, file),
-                        ColoredChessPiece::new(color, Rook),
+                        ColoredChessPieceType::new(color, Rook),
                     ) {
                         self.set_castle_right(color, side, file)?;
                         return Ok(());
@@ -154,7 +154,7 @@ impl CastlingFlags {
                     // g file, for example (for chess960, this is ambiguous, but just picking one is fine).
                     if board.is_piece_on(
                         ChessSquare::from_rank_file(rank, H_FILE_NO),
-                        ColoredChessPiece::new(color, Rook),
+                        ColoredChessPieceType::new(color, Rook),
                     ) {
                         self.set_castle_right(color, Kingside, H_FILE_NO)?;
                     } else {

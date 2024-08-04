@@ -168,7 +168,7 @@ pub trait Board:
 
     /// Returns the uncolored piece type at the given coordinates.
     /// Can sometimes be implemented more efficiently than `colored_piece_on`
-    fn uncolored_piece_on(
+    fn piece_type_on(
         &self,
         coords: Self::Coordinates,
     ) -> <<Self::Piece as ColoredPiece<Self::Color>>::ColoredPieceType as ColoredPieceType<

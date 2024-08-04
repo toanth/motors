@@ -94,10 +94,10 @@ impl AbstractPieceType for Symbol {
     }
 }
 
-impl UncoloredPieceType<MnkColor> for Symbol {
+impl PieceType<MnkColor> for Symbol {
     type Colored = Symbol;
 
-    fn from_uncolored_idx(idx: usize) -> Self {
+    fn from_idx(idx: usize) -> Self {
         match idx {
             0 => X,
             1 => O,
@@ -716,7 +716,7 @@ impl MNKBoard {
         }
         let last_move = self.last_move.unwrap();
         let square = last_move.target;
-        let player = self.colored_piece_on(square).uncolored().color();
+        let player = self.colored_piece_on(square).color();
         if player.is_none() {
             return false;
         }

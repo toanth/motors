@@ -1,6 +1,6 @@
 use strum::IntoEnumIterator;
 
-use crate::games::chess::pieces::UncoloredChessPiece;
+use crate::games::chess::pieces::ChessPieceType;
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
 use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard};
@@ -19,7 +19,7 @@ pub struct PrecomputedZobristKeys {
 impl PrecomputedZobristKeys {
     pub fn piece_key(
         &self,
-        piece: UncoloredChessPiece,
+        piece: ChessPieceType,
         color: ChessColor,
         square: ChessSquare,
     ) -> ZobristHash {
@@ -92,7 +92,7 @@ impl Chessboard {
     pub fn compute_zobrist(&self) -> ZobristHash {
         let mut res = ZobristHash(0);
         for color in ChessColor::iter() {
-            for piece in UncoloredChessPiece::pieces() {
+            for piece in ChessPieceType::pieces() {
                 let pieces = self.colored_piece_bb(color, piece);
                 for square in pieces.ones() {
                     res ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, square);
@@ -113,7 +113,7 @@ impl Chessboard {
     pub fn approximate_zobrist_after_move(
         mut old_hash: ZobristHash,
         color: ChessColor,
-        piece: UncoloredChessPiece,
+        piece: ChessPieceType,
         from: ChessSquare,
         to: ChessSquare,
     ) -> ZobristHash {
@@ -129,7 +129,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
-    use crate::games::chess::pieces::UncoloredChessPiece::{Bishop, Knight};
+    use crate::games::chess::pieces::ChessPieceType::{Bishop, Knight};
     use crate::games::chess::squares::{ChessSquare, D_FILE_NO, E_FILE_NO};
     use crate::games::chess::zobrist::{PcgXslRr128_64Oneseq, PRECOMPUTED_ZOBRIST_KEYS};
     use crate::games::chess::ChessColor::*;
@@ -254,7 +254,7 @@ mod tests {
                         Chessboard::approximate_zobrist_after_move(
                             pos.hash,
                             pos.active_player,
-                            m.uncolored_piece(),
+                            m.piece_type(),
                             m.src_square(),
                             m.dest_square()
                         ),

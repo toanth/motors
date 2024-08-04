@@ -90,7 +90,7 @@ mod tests {
     use crate::eval::chess::piston::PistonEval;
     use crate::eval::Eval;
 
-    use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
+    use gears::games::chess::pieces::ChessPieceType::Pawn;
     use gears::games::chess::ChessColor::White;
     use gears::games::chess::{ChessColor, Chessboard};
     use gears::games::DimT;

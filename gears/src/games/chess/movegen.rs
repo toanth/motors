@@ -1,8 +1,8 @@
 use crate::games::chess::castling::CastleRight;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
-use crate::games::chess::pieces::UncoloredChessPiece::*;
-use crate::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};
+use crate::games::chess::pieces::ChessPieceType::*;
+use crate::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
 use crate::games::chess::squares::ChessSquare;
 use crate::games::chess::CastleRight::*;
 use crate::games::chess::ChessColor::*;
@@ -41,7 +41,7 @@ impl Chessboard {
     pub fn attacks_no_castle_or_pawn_push(
         &self,
         square: ChessSquare,
-        piece: UncoloredChessPiece,
+        piece: ChessPieceType,
         color: ChessColor,
     ) -> ChessBitboard {
         let square_bb_if_occupied = square.bb() & self.occupied_bb();
@@ -68,7 +68,7 @@ impl Chessboard {
     }
 
     pub fn is_move_pseudolegal_impl(&self, mov: ChessMove) -> bool {
-        let piece = mov.uncolored_piece();
+        let piece = mov.piece_type();
         let src = mov.src_square();
         let color = self.active_player;
         if !self
@@ -82,13 +82,13 @@ impl Chessboard {
                 && self.is_castling_pseudolegal(Kingside))
                 || (self.rook_start_square(color, Queenside) == mov.dest_square()
                     && self.is_castling_pseudolegal(Queenside))
-        } else if mov.uncolored_piece() == Pawn {
+        } else if mov.piece_type() == Pawn {
             let capturable = self.colored_bb(color.other())
                 | self.ep_square.map(ChessSquare::bb).unwrap_or_default();
             Self::single_pawn_moves(color, src, capturable, self.empty_bb())
                 .is_bit_set_at(mov.dest_square().bb_idx())
         } else {
-            (self.attacks_no_castle_or_pawn_push(src, mov.uncolored_piece(), color)
+            (self.attacks_no_castle_or_pawn_push(src, mov.piece_type(), color)
                 & !self.active_player_bb())
             .is_bit_set_at(mov.dest_square().bb_idx())
         }
@@ -245,7 +245,7 @@ impl Chessboard {
             {
                 debug_assert_eq!(
                     self.colored_piece_on(rook).symbol,
-                    ColoredChessPiece::new(color, Rook)
+                    ColoredChessPieceType::new(color, Rook)
                 );
                 return true;
             }
