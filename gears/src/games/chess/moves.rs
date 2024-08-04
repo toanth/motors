@@ -51,7 +51,6 @@ impl ChessMoveFlags {
     }
 
     fn is_promo(self) -> bool {
-        // TODO: Could also maybe do this on the u16 move directly, by comparing against 1 << (6+6+2)
         self >= PromoKnight
     }
 

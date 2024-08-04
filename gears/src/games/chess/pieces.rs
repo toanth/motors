@@ -159,8 +159,7 @@ impl PieceType<ChessColor> for ChessPieceType {
     type Colored = ColoredChessPieceType;
 
     fn from_idx(idx: usize) -> Self {
-        // TODO: Might be unnecessarily slow? Test using a match instead.
-        Self::iter().nth(idx).unwrap()
+        Self::from_repr(idx).unwrap()
     }
 }
 
