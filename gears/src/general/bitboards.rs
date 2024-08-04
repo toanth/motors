@@ -351,9 +351,10 @@ pub enum RayDirections {
 
 #[must_use]
 pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
-    Copy
+    Debug
+    + Display
+    + Copy
     + Clone
-    + Debug
     + Eq
     + PartialEq
     + Sub<Output = Self>
