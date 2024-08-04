@@ -6,20 +6,6 @@ use std::sync::{Arc, Mutex};
 
 pub mod text_input;
 
-//
-// /// Factory to create the specified Output and (when the `for_gui` method is called) Input.
-// pub trait UIBuilder<B: Board>: OutputBuilder<B> {
-//     /// logically, the following method consumes self, but unfortunately passing `self` would make this trait not object safe
-//     /// as of the current Rust version.
-//     fn for_gui(&mut self, gui: Arc<Mutex<UgiGui<B>>>) -> OutputBox<B>;
-// }
-//
-// impl<B: Board, T: OutputBuilder<B>> UIBuilder<B> for T {
-//     fn for_gui(&mut self, gui: Arc<Mutex<UgiGui<B>>>) -> OutputBox<B> {
-//         todo!()
-//     }
-// }
-
 /// An `Input` tells the [`MatchState`] what to do. It isn't necessarily just a way for a human to enter input,
 /// it can also automatically run games, like a SPRT runner. Since the `Input` is in complete control of the match,
 /// this trait is almost empty

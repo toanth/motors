@@ -27,7 +27,7 @@ pub fn sup_distance<C: RectangularCoordinates>(a: C, b: C) -> usize {
 #[derive(Clone, Copy, Eq, PartialOrd, PartialEq, Debug, Default, Hash)]
 #[must_use]
 pub struct GridCoordinates {
-    pub row: DimT, // TODO: Store only one int
+    pub row: DimT,
     pub column: DimT,
 }
 

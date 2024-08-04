@@ -152,7 +152,6 @@ pub trait RawBitboard:
         self.to_primitive() == Self::Primitive::zero()
     }
 
-    // TODO: BitIter that returns indices of set bits.
     fn has_set_bit(self) -> bool {
         !self.is_zero()
     }

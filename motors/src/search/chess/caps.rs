@@ -1228,7 +1228,6 @@ mod tests {
         let pos = Chessboard::from_name("philidor").unwrap();
         let mut engine = Caps::for_eval::<LiTEval>();
         let res = engine.search_from_pos(pos, SearchLimit::nodes(NodesLimit::new(50_000).unwrap()));
-        // TODO: More aggressive bound once the engine is stronger
         assert!(res.unwrap().score.unwrap().abs() <= Score(200));
     }
 

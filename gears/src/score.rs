@@ -31,7 +31,6 @@ pub type ScoreT = i32;
 /// In some places, it's important to save space by using only the necessary 16 bits for a score.
 pub type CompactScoreT = i16;
 
-// TODO: Turn this into an enum that can also represent a win in n plies (and maybe a draw?)
 #[derive(
     Default,
     Debug,

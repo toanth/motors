@@ -237,7 +237,6 @@ impl BoardToText {
     }
 
     pub fn as_string<B: Board>(&self, m: &dyn GameState<B>) -> String {
-        // TODO: Option to flip the board?
         let mut time_below = String::default();
         let mut time_above = String::default();
         if m.match_status() == Ongoing {

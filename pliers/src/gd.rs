@@ -685,8 +685,8 @@ pub fn compute_scaled_gradient<D: Datapoint, G: LossGradient>(
         let mut grad = Gradient::new(weights.num_weights());
         for data in batch.iter() {
             let wr_prediction = wr_prediction_for_weights(weights, data, eval_scale);
-
-            // TODO: Multiply with `constant_factor` outside the loop?
+            // don't use a separate loop for multiplying with `constant_factor` because the gradient may very well be
+            // larger than the numer of samples, so this would likely be slower
             let scaled_delta = constant_factor
                 * G::sample_gradient(wr_prediction, data.outcome(), data.sampling_weight());
             grad.update(data, scaled_delta);

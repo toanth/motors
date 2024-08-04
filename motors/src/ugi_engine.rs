@@ -1,5 +1,5 @@
 use std::fmt::{Debug, Display, Formatter, Write};
-use std::io::stdin;
+use std::io::{stdin, stdout};
 use std::ops::{Deref, DerefMut};
 use std::str::{FromStr, SplitWhitespace};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -180,10 +180,14 @@ impl<B: Board> UgiOutput<B> {
     }
 
     pub fn write_ugi(&mut self, message: &str) {
+        use std::io::Stdout;
+        use std::io::Write;
         // UGI is always done through stdin and stdout, no matter what the UI is.
         // TODO: Keep stdout mutex? Might make printing slightly faster and prevents everyone else from
         // accessing stdout, which is probably a good thing because it prevents sending invalid UCI commands
         println!("{message}");
+        // Currently, `println` always flushes, but this behaviour should not be relied upon.
+        _ = Stdout::flush(&mut stdout());
         for output in &mut self.additional_outputs {
             output.write_ugi_output(message, None);
         }
@@ -999,9 +1003,9 @@ impl<B: Board> EngineUGI<B> {
         }
     }
 
-    // TODO: Move this function, and others throughout the project,
-    // somewhere else so they don't depend on the type of `Board` to reduce code bloat.
-
+    // This function doesn't depend on the generic parameter, and luckily the rust compiler is smart enough to
+    // polymorphize the monomorphed functions again,i.e. it will only generate this function once. So no need to
+    // manually move it into a context where it doesn't depend on `B`.
     fn handle_log(&mut self, words: &mut SplitWhitespace) -> Res<()> {
         self.output().additional_outputs.retain(|o| !o.is_logger());
         let next = words.clone().next().unwrap_or_default();
