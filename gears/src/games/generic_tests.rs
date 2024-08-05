@@ -36,6 +36,9 @@ impl<B: Board> GenericTests<B> {
         let positions = B::bench_positions();
         for pos in positions {
             assert_eq!(pos, B::from_fen(&pos.as_fen()).unwrap());
+            // FENs might be different after one fen->position->fen roundtrip because the parser can accept more than
+            // what's produced as output, but writing a FEN two times should produce the same result.
+            assert_eq!(pos.as_fen(), B::from_fen(&pos.as_fen()).unwrap().as_fen());
         }
     }
 

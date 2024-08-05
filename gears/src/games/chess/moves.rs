@@ -507,7 +507,9 @@ impl Chessboard {
             self.ply_100_ctr = 0;
         } else if piece == Pawn {
             self.ply_100_ctr = 0;
-            if from.rank().abs_diff(to.rank()) == 2 {
+            let possible_ep_pawns =
+                (to.bb().west() | to.bb().east()) & self.colored_piece_bb(other, Pawn);
+            if from.rank().abs_diff(to.rank()) == 2 && possible_ep_pawns.has_set_bit() {
                 self.ep_square = Some(ChessSquare::from_rank_file(
                     (to.rank() + from.rank()) / 2,
                     to.file(),

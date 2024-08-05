@@ -476,9 +476,16 @@ impl Board for Chessboard {
         if castle_rights.is_empty() {
             castle_rights += "-";
         }
-        let ep_square = self
-            .ep_square
-            .map_or_else(|| "-".to_string(), |sq| sq.to_string());
+        let mut ep_square = "-".to_string();
+        if let Some(square) = self.ep_square() {
+            // Internally, the ep square is set whenever a pseudolegal ep move is possible, but the FEN standard requires
+            // the ep square to be set only iff there is a legal ep move possible. So we check for that when outputting
+            // the FEN (printing the FEN should not be performance critical).
+            if self.legal_moves_slow().iter().any(|m| m.is_ep()) {
+                ep_square = square.to_string();
+            }
+        }
+
         let stm = match self.active_player {
             White => 'w',
             Black => 'b',
@@ -520,7 +527,17 @@ impl Board for Chessboard {
         board.ep_square = if ep_square == "-" {
             None
         } else {
-            Some(ChessSquare::from_str(ep_square)?)
+            let square = ChessSquare::from_str(ep_square)?;
+            let ep_capturing = square.bb().pawn_advance(!color);
+            let ep_capturing = ep_capturing.west() | ep_capturing.east();
+            // The current FEN standard disallows giving an ep square unless a pawn can legally capture.
+            // This library instead uses pseudolegal ep captures, but some existing programs give   fens that contain an
+            // ep square after every double pawn push, so we silently ignore those invalid ep squares.
+            if (board.colored_piece_bb(color, Pawn) & ep_capturing).is_zero() {
+                None
+            } else {
+                Some(square)
+            }
         };
         let halfmove_clock = words.next().unwrap_or("");
         // Some FENs don't contain the halfmove clock and fullmove number, so assume that's the case if parsing
@@ -601,6 +618,18 @@ impl Board for Chessboard {
                 != ColoredChessPieceType::new(inactive_player, Pawn)
             {
                 return Err(format!("FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}"));
+            }
+            let active = self.active_player();
+            // In the current version of the FEN standard, the ep square should only be set if a pawn can capture.
+            // This implementation follows that rule, but many other implementations give the ep square after every double pawn push.
+            // To achieve consistent results, such an incorrect ep square is removed when parsing the FEN; it should
+            // no longer exist at this point.
+            if checks != CheckFen {
+                let possible_ep_pawns =
+                    remove_pawn_square.bb().west() | remove_pawn_square.bb().east();
+                if (possible_ep_pawns & self.colored_piece_bb(active, Pawn)).is_zero() {
+                    return Err(format!("The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square"))   ;
+                }
             }
             hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[ep_square.file() as usize];
         }
