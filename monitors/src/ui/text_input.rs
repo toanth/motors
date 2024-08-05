@@ -8,13 +8,14 @@ use colored::Colorize;
 use itertools::Itertools;
 use rand::thread_rng;
 
-use gears::games::Color::{Black, White};
-use gears::games::{Board, Color, Move};
+use gears::games::Color;
+use gears::general::board::Board;
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
     parse_int_from_str, select_name_static, to_name_and_optional_description, IterIntersperse,
     NamedEntity, Res, StaticallyNamedEntity,
 };
+use gears::general::moves::Move;
 use gears::output::Message::{Info, Warning};
 use gears::search::TimeControl;
 use gears::ugi::{parse_ugi_position, EngineOption};
@@ -248,15 +249,15 @@ impl<B: Board> TextInputThread<B> {
         client: &MutexGuard<Client<B>>,
         words: &mut SplitWhitespace,
         default_player: DefaultPlayer,
-    ) -> Res<Color> {
+    ) -> Res<B::Color> {
         match words
             .next()
             .unwrap_or_default()
             .to_ascii_lowercase()
             .as_str()
         {
-            "white" | "p1" => Ok(White),
-            "black" | "p2" => Ok(Black),
+            "white" | "p1" => Ok(B::Color::first()),
+            "black" | "p2" => Ok(B::Color::second()),
             x => {
                 let player = if x == "current" || x == "active" {
                     Active
@@ -365,11 +366,14 @@ impl<B: Board> TextInputThread<B> {
                     .collect::<String>()
             )
         })?;
-        let (white, black) = (client.state.id(White), client.state.id(Black));
+        let (p1, p2) = (
+            client.state.id(B::Color::first()),
+            client.state.id(B::Color::second()),
+        );
         let mut found = false;
         for (idx, player) in client.state.players.iter().enumerate() {
             if player.get_name().to_lowercase() == name.to_lowercase() {
-                if idx != white && idx != black {
+                if idx != p1 && idx != p2 {
                     // TODO: Remove this restriction, simply build a new one
                     client.set_player(side, idx);
                     client.show();

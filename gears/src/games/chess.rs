@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroUsize;
+use std::ops::Not;
 use std::str::{FromStr, SplitWhitespace};
 
 use colored::Colorize;
@@ -7,27 +8,30 @@ use itertools::Itertools;
 use rand::prelude::IteratorRandom;
 use rand::Rng;
 use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
 use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::castling::{CastleRight, CastlingFlags};
 use crate::games::chess::moves::ChessMove;
-use crate::games::chess::pieces::UncoloredChessPiece::*;
+use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{
-    ChessPiece, ColoredChessPiece, UncoloredChessPiece, NUM_CHESS_PIECES, NUM_COLORS,
+    ChessPiece, ChessPieceType, ColoredChessPieceType, NUM_CHESS_PIECES, NUM_COLORS,
 };
 use crate::games::chess::squares::{ChessSquare, ChessboardSize, NUM_SQUARES};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
-use crate::games::Color::{Black, White};
-use crate::games::SelfChecks::{Assertion, CheckFen};
+use crate::games::chess::ChessColor::{Black, White};
 use crate::games::{
-    board_to_string, file_to_char, n_fold_repetition, position_fen_part, read_position_fen,
-    AbstractPieceType, Board, BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, NameToPos,
-    SelfChecks, Settings, UncoloredPieceType, ZobristHash,
+    file_to_char, n_fold_repetition, AbstractPieceType, Board, BoardHistory, Color, ColoredPiece,
+    ColoredPieceType, DimT, PieceType, Settings, ZobristHash,
 };
 use crate::general::bitboards::chess::{
     ChessBitboard, BLACK_SQUARES, CORNER_SQUARES, WHITE_SQUARES,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
+use crate::general::board::SelfChecks::{Assertion, CheckFen};
+use crate::general::board::{
+    board_to_string, position_fen_part, read_position_fen, NameToPos, SelfChecks,
+};
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
     parse_int_from_str, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
@@ -57,13 +61,47 @@ pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, MAX_CHESS_MOVES_IN_PO
 
 impl Settings for ChessSettings {}
 
+/// White is always the first player, Black is always the second
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Hash, EnumIter, derive_more::Display)]
+pub enum ChessColor {
+    #[default]
+    White = 0,
+    Black = 1,
+}
+
+impl Not for ChessColor {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        self.other()
+    }
+}
+
+impl Color for ChessColor {
+    #[must_use]
+    fn other(self) -> Self {
+        match self {
+            White => Black,
+            Black => White,
+        }
+    }
+
+    fn first() -> Self {
+        White
+    }
+
+    fn second() -> Self {
+        Black
+    }
+}
+
 #[derive(Eq, PartialEq, Debug, Copy, Clone)]
 pub struct Chessboard {
     piece_bbs: [RawStandardBitboard; NUM_CHESS_PIECES],
     color_bbs: [RawStandardBitboard; NUM_COLORS],
-    ply: usize, // TODO: Test if using u32 or even u16 improves nps in perft (also for 50mr counter)
+    ply: usize,
     ply_100_ctr: usize,
-    active_player: Color,
+    active_player: ChessColor,
     castling: CastlingFlags,
     ep_square: Option<ChessSquare>, // eventually, see if using Optional and Noned instead of Option improves nps
     hash: ZobristHash,
@@ -101,10 +139,11 @@ impl StaticallyNamedEntity for Chessboard {
 impl Board for Chessboard {
     type Settings = ChessSettings;
     type Coordinates = ChessSquare;
+    type Color = ChessColor;
     type Piece = ChessPiece;
     type Move = ChessMove;
     type MoveList = ChessMoveList;
-    type LegalMoveList = ChessMoveList; // TODO: Implement staged movegen eventually
+    type LegalMoveList = ChessMoveList;
 
     fn empty_possibly_invalid(_: Self::Settings) -> Self {
         Self {
@@ -156,7 +195,7 @@ impl Board for Chessboard {
             },
             GenericSelect {
                 name: "philidor",
-                val: || Self::from_fen("3K4/r7/7R/2kp4/8/8/8/8 w - - 0 1").unwrap(),
+                val: || Self::from_fen("3k4/R7/7r/2KP4/8/8/8/8 w - - 0 1").unwrap(),
             },
             GenericSelect {
                 name: "mate_in_1",
@@ -258,7 +297,7 @@ impl Board for Chessboard {
         ChessSettings {}
     }
 
-    fn active_player(&self) -> Color {
+    fn active_player(&self) -> ChessColor {
         self.active_player
     }
 
@@ -278,7 +317,7 @@ impl Board for Chessboard {
         self.empty_bb().is_bit_set_at(coords.bb_idx())
     }
 
-    fn is_piece_on(&self, coords: ChessSquare, piece: ColoredChessPiece) -> bool {
+    fn is_piece_on(&self, coords: ChessSquare, piece: ColoredChessPieceType) -> bool {
         if let Some(color) = piece.color() {
             self.colored_piece_bb(color, piece.uncolor())
                 .is_bit_set_at(coords.bb_idx())
@@ -289,22 +328,19 @@ impl Board for Chessboard {
 
     fn colored_piece_on(&self, square: Self::Coordinates) -> Self::Piece {
         let idx = square.bb_idx();
-        let uncolored = self.uncolored_piece_on(square);
+        let uncolored = self.piece_type_on(square);
         let color = if self.colored_bb(Black).is_bit_set_at(idx) {
             Black
         } else {
             White // use white as color for `Empty` because that's what `new` expects
         };
-        let typ = ColoredChessPiece::new(color, uncolored);
-        ChessPiece {
-            symbol: typ,
-            coordinates: square,
-        }
+        let typ = ColoredChessPieceType::new(color, uncolored);
+        ChessPiece::new(typ, square)
     }
 
-    fn uncolored_piece_on(&self, square: ChessSquare) -> UncoloredChessPiece {
+    fn piece_type_on(&self, square: ChessSquare) -> ChessPieceType {
         let idx = square.bb_idx();
-        UncoloredChessPiece::from_uncolored_idx(
+        ChessPieceType::from_idx(
             self.piece_bbs
                 .iter()
                 .position(|bb| bb.is_bit_set_at(idx))
@@ -331,7 +367,7 @@ impl Board for Chessboard {
     }
 
     fn make_move(self, mov: Self::Move) -> Option<Self> {
-        self.make_move_impl(mov)
+        self.make_move_impl(mov, |_hash| ())
     }
 
     fn make_nullmove(mut self) -> Option<Self> {
@@ -343,6 +379,7 @@ impl Board for Chessboard {
                 PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[self.ep_square.unwrap().file() as usize];
             self.ep_square = None;
         }
+        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         self.flip_side_to_move()
     }
 
@@ -385,7 +422,7 @@ impl Board for Chessboard {
 
     /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
     /// return `false` if there is a realistic way to win).
-    fn can_reasonably_win(&self, player: Color) -> bool {
+    fn can_reasonably_win(&self, player: ChessColor) -> bool {
         if self.colored_bb(player).is_single_piece() {
             return false; // we only have our king left
         }
@@ -425,7 +462,7 @@ impl Board for Chessboard {
         let mut castle_rights = String::default();
         // Always output chess960 castling rights. FEN output isn't necessary for UCI
         // and almost all tools support chess960 FEN notation.
-        for color in Color::iter() {
+        for color in ChessColor::iter() {
             for side in CastleRight::iter().rev() {
                 if self.castling.can_castle(color, side) {
                     let mut file = file_to_char(self.castling.rook_start_file(color, side));
@@ -522,7 +559,7 @@ impl Board for Chessboard {
     }
 
     fn verify_position_legal(&self, checks: SelfChecks) -> Res<()> {
-        for color in Color::iter() {
+        for color in ChessColor::iter() {
             if !self.colored_piece_bb(color, King).is_single_piece() {
                 return Err(format!("The {color} player does not have exactly one king"));
             }
@@ -541,7 +578,7 @@ impl Board for Chessboard {
             hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         }
 
-        for color in Color::iter() {
+        for color in ChessColor::iter() {
             for side in CastleRight::iter() {
                 let has_eligible_rook = (self.rook_start_square(color, side).bb()
                     & self.colored_piece_bb(color, Rook))
@@ -561,7 +598,7 @@ impl Board for Chessboard {
             }
             let remove_pawn_square = ep_square.pawn_advance_unchecked(inactive_player);
             if self.colored_piece_on(remove_pawn_square).symbol
-                != ColoredChessPiece::new(inactive_player, Pawn)
+                != ColoredChessPieceType::new(inactive_player, Pawn)
             {
                 return Err(format!("FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}"));
             }
@@ -583,7 +620,7 @@ impl Board for Chessboard {
             return Err(format!("Ridiculously large ply counter: {0}", self.ply));
         }
 
-        for piece in ColoredChessPiece::pieces() {
+        for piece in ColoredChessPieceType::pieces() {
             let color = piece.color().unwrap();
             let bb = self.colored_piece_bb(color, piece.uncolor());
             if bb.num_ones() > 20 {
@@ -596,7 +633,7 @@ impl Board for Chessboard {
                 ));
             }
             if checks != CheckFen {
-                for other_piece in ColoredChessPiece::pieces() {
+                for other_piece in ColoredChessPieceType::pieces() {
                     if other_piece == piece {
                         continue;
                     }
@@ -631,12 +668,12 @@ impl Board for Chessboard {
 }
 
 impl Chessboard {
-    pub fn piece_bb(&self, piece: UncoloredChessPiece) -> ChessBitboard {
+    pub fn piece_bb(&self, piece: ChessPieceType) -> ChessBitboard {
         debug_assert_ne!(piece, Empty);
         ChessBitboard::new(self.piece_bbs[piece.to_uncolored_idx()])
     }
 
-    pub fn colored_bb(&self, color: Color) -> ChessBitboard {
+    pub fn colored_bb(&self, color: ChessColor) -> ChessBitboard {
         ChessBitboard::new(self.color_bbs[color as usize])
     }
 
@@ -657,11 +694,11 @@ impl Chessboard {
         self.occupied_bb().is_bit_set_at(square.bb_idx())
     }
 
-    pub fn colored_piece_bb(&self, color: Color, piece: UncoloredChessPiece) -> ChessBitboard {
+    pub fn colored_piece_bb(&self, color: ChessColor, piece: ChessPieceType) -> ChessBitboard {
         self.colored_bb(color) & self.piece_bb(piece)
     }
 
-    fn try_place_piece(&mut self, square: ChessSquare, piece: ColoredChessPiece) -> Res<()> {
+    fn try_place_piece(&mut self, square: ChessSquare, piece: ColoredChessPieceType) -> Res<()> {
         let idx = square.bb_idx();
         if idx >= NUM_SQUARES {
             return Err(format!("Coordinates {square} are outside the chess board"));
@@ -669,36 +706,33 @@ impl Chessboard {
         if self.is_occupied(square) {
             return Err(format!("Square {square} is occupied"));
         }
-        if piece == ColoredChessPiece::Empty {
+        if piece == ColoredChessPieceType::Empty {
             return Err("Can't place the empty piece".to_string());
         }
         self.place_piece(square, piece);
         Ok(())
     }
 
-    fn place_piece(&mut self, square: ChessSquare, piece: ColoredChessPiece) {
+    fn place_piece(&mut self, square: ChessSquare, piece: ColoredChessPieceType) {
         debug_assert!(self.is_empty(square));
         let bb = square.bb().raw();
         self.piece_bbs[piece.uncolor() as usize] ^= bb;
         self.color_bbs[piece.color().unwrap() as usize] ^= bb;
     }
 
-    fn remove_piece(&mut self, square: ChessSquare, piece: UncoloredChessPiece, color: Color) {
+    fn remove_piece(&mut self, square: ChessSquare, piece: ChessPieceType, color: ChessColor) {
         debug_assert_eq!(
             self.colored_piece_on(square),
-            ChessPiece {
-                symbol: ColoredChessPiece::new(color, piece),
-                coordinates: square
-            }
+            ChessPiece::new(ColoredChessPieceType::new(color, piece), square)
         );
         let bb = square.bb().raw();
         self.piece_bbs[piece as usize] ^= bb;
         self.color_bbs[color as usize] ^= bb;
     }
 
-    fn move_piece(&mut self, from: ChessSquare, to: ChessSquare, piece: UncoloredChessPiece) {
+    fn move_piece(&mut self, from: ChessSquare, to: ChessSquare, piece: ChessPieceType) {
         debug_assert_ne!(piece, Empty);
-        debug_assert_eq!(self.uncolored_piece_on(from), piece);
+        debug_assert_eq!(self.piece_type_on(from), piece);
         debug_assert_eq!(
             self.active_player,
             self.colored_piece_on(from).color().unwrap()
@@ -715,7 +749,6 @@ impl Chessboard {
         let color = self.active_player;
         self.color_bbs[color as usize] ^= bb;
         self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
-        self.update_zobrist_for_move(piece, from, to);
     }
 
     pub fn is_50mr_draw(&self) -> bool {
@@ -760,7 +793,7 @@ impl Chessboard {
         self.ep_square
     }
 
-    pub fn king_square(&self, color: Color) -> ChessSquare {
+    pub fn king_square(&self, color: ChessColor) -> ChessSquare {
         ChessSquare::from_bb_index(self.colored_piece_bb(color, King).trailing_zeros())
     }
 
@@ -772,7 +805,7 @@ impl Chessboard {
         self.make_move(mov).is_some_and(|b| b.is_in_check())
     }
 
-    fn chess960_startpos_white(mut num: usize, color: Color, board: &mut Self) -> Res<()> {
+    fn chess960_startpos_white(mut num: usize, color: ChessColor, board: &mut Self) -> Res<()> {
         if num >= 960 {
             return Err(format!("There are only 960 starting positions in chess960 (0 to 959), so position {num} doesn't exist"));
         }
@@ -795,11 +828,11 @@ impl Chessboard {
             }
             idx - 1
         };
-        let mut place_piece = |i: usize, typ: UncoloredChessPiece| {
+        let mut place_piece = |i: usize, typ: ChessPieceType| {
             let bit = ith_zero(i, board.occupied_bb());
             board.place_piece(
                 ChessSquare::from_bb_index(bit),
-                ColoredChessPiece::new(White, typ),
+                ColoredChessPieceType::new(White, typ),
             );
             bit
         };
@@ -861,6 +894,10 @@ impl Chessboard {
         Ok(res)
     }
 
+    pub fn dfrc_startpos_from_single_num(num: usize) -> Res<Self> {
+        Self::dfrc_startpos(num / 960, num % 960)
+    }
+
     fn parse_numbered_startpos(name: &str) -> Res<Self> {
         for prefix in ["chess960-", "chess", "frc-", "frc"] {
             if let Some(remaining) = name.strip_prefix(prefix) {
@@ -871,7 +908,7 @@ impl Chessboard {
         for prefix in ["dfrc-", "dfrc"] {
             if let Some(remaining) = name.strip_prefix(prefix) {
                 return parse_int_from_str(remaining, "dfrc startpos number")
-                    .and_then(|num: usize| Self::dfrc_startpos(num / 960, num % 960));
+                    .and_then(|num: usize| Self::dfrc_startpos_from_single_num(num));
             }
         }
         Err(format!("(D)FRC positions must be of the format {0} or {1}, with N < 960 and M < 921600, e.g. frc123",
@@ -891,9 +928,10 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
-    use crate::games::{
-        Coordinates, Move, NoHistory, RectangularBoard, RectangularCoordinates, ZobristHistory,
-    };
+    use crate::games::{Coordinates, NoHistory, RectangularCoordinates, ZobristHistory};
+    use crate::general::board::RectangularBoard;
+    use crate::general::board::SelfChecks::Assertion;
+    use crate::general::moves::Move;
     use crate::general::perft::perft;
     use crate::search::Depth;
 
@@ -926,7 +964,7 @@ mod tests {
         assert_eq!(board.ply_100_ctr, 0);
         assert!(board.ep_square.is_none());
         assert_eq!(board.active_player(), White);
-        for color in Color::iter() {
+        for color in ChessColor::iter() {
             for side in CastleRight::iter() {
                 assert!(board.castling.can_castle(color, side));
             }
@@ -950,10 +988,7 @@ mod tests {
         let square = ChessSquare::from_rank_file(4, F_FILE_NO);
         assert_eq!(
             board.colored_piece_on(square),
-            ChessPiece {
-                symbol: ColoredChessPiece::Empty,
-                coordinates: square
-            }
+            ChessPiece::new(ColoredChessPieceType::Empty, square)
         );
         assert_eq!(board.as_fen(), START_FEN);
         let moves = board.pseudolegal_moves();
@@ -1060,7 +1095,7 @@ mod tests {
             if !board.is_pseudolegal_move_legal(mov) {
                 continue;
             }
-            let checkmates = mov.uncolored_piece() == Rook
+            let checkmates = mov.piece_type() == Rook
                 && mov.dest_square() == ChessSquare::from_rank_file(7, G_FILE_NO);
             assert_eq!(board.is_game_won_after_slow(mov), checkmates);
             let new_board = board.make_move(mov).unwrap();

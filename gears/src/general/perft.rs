@@ -1,8 +1,8 @@
+use crate::general::board::Board;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
-use crate::games::{Board, Move};
 use crate::search::{Depth, MAX_DEPTH};
 
 #[derive(Copy, Clone, Debug)]
@@ -94,7 +94,7 @@ pub fn split_perft<T: Board>(depth: Depth, pos: T) -> SplitPerftRes<T> {
         }
     }
     let time = start.elapsed();
-    children.sort_by(|a, b| a.0.to_compact_text().cmp(&b.0.to_compact_text()));
+    children.sort_by(|a, b| a.0.to_string().cmp(&b.0.to_string()));
     let perft_res = PerftRes { time, nodes, depth };
     SplitPerftRes {
         perft_res,

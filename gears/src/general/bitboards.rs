@@ -152,7 +152,6 @@ pub trait RawBitboard:
         self.to_primitive() == Self::Primitive::zero()
     }
 
-    // TODO: BitIter that returns indices of set bits.
     fn has_set_bit(self) -> bool {
         !self.is_zero()
     }
@@ -352,9 +351,10 @@ pub enum RayDirections {
 
 #[must_use]
 pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
-    Copy
+    Debug
+    + Display
+    + Copy
     + Clone
-    + Debug
     + Eq
     + PartialEq
     + Sub<Output = Self>
@@ -836,8 +836,8 @@ where
 /// Treated specially because some operations are much simpler and faster for 8x8 boards.
 pub mod chess {
     use crate::games::chess::squares::NUM_SQUARES;
-    use crate::games::Color;
-    use crate::games::Color::*;
+    use crate::games::chess::ChessColor;
+    use crate::games::chess::ChessColor::*;
     use crate::general::squares::{GridCoordinates, GridSize};
     use derive_more::Display;
 
@@ -897,7 +897,7 @@ pub mod chess {
     }
 
     #[allow(clippy::similar_names)]
-    const fn precompute_single_pawn_capture(color: Color, square_idx: usize) -> u64 {
+    const fn precompute_single_pawn_capture(color: ChessColor, square_idx: usize) -> u64 {
         let pawn = 1 << square_idx;
         let not_a_file = pawn & !A_FILE.raw.0;
         let not_h_file = pawn & !(A_FILE.raw.0 << 7);
@@ -996,14 +996,14 @@ pub mod chess {
             Self::from_u64(0x00ff_0000_0000_ff00)
         }
 
-        pub fn pawn_advance(self, color: Color) -> Self {
+        pub fn pawn_advance(self, color: ChessColor) -> Self {
             match color {
                 White => self.north(),
                 Black => self.south(),
             }
         }
 
-        pub fn pawn_attacks(self, color: Color) -> Self {
+        pub fn pawn_attacks(self, color: ChessColor) -> Self {
             let advanced = self.pawn_advance(color);
             advanced.east() | advanced.west()
         }

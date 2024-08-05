@@ -4,7 +4,8 @@ use std::str::SplitWhitespace;
 use dyn_clone::DynClone;
 use strum_macros::Display;
 
-use crate::games::{Board, OutputList, RectangularBoard};
+use crate::games::OutputList;
+use crate::general::board::{Board, RectangularBoard};
 use crate::general::common::{NamedEntity, Res};
 use crate::general::squares::RectangularCoordinates;
 use crate::output::logger::LoggerBuilder;

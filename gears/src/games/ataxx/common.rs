@@ -1,12 +1,13 @@
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::common::AtaxxPieceType::{Blocked, Empty, Occupied};
-use crate::games::ataxx::{AtaxxBoard, AtaxxSquare};
-use crate::games::Color::{Black, White};
-use crate::games::{
-    AbstractPieceType, Color, ColoredPieceType, Coordinates, DimT, Move, NoMoveFlags,
-    UncoloredPieceType,
-};
+use crate::games::ataxx::AtaxxColor::{Black, White};
+use crate::games::ataxx::{AtaxxBoard, AtaxxColor, AtaxxSquare};
+use crate::games::{AbstractPieceType, ColoredPieceType, Coordinates, DimT, PieceType};
 use crate::general::common::Res;
+use crate::general::moves::Legality::Legal;
+use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
+use colored::Colorize;
+use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
@@ -72,10 +73,10 @@ impl AbstractPieceType for AtaxxPieceType {
     }
 }
 
-impl UncoloredPieceType for AtaxxPieceType {
+impl PieceType<AtaxxColor> for AtaxxPieceType {
     type Colored = ColoredAtaxxPieceType;
 
-    fn from_uncolored_idx(idx: usize) -> Self {
+    fn from_idx(idx: usize) -> Self {
         Self::iter().nth(idx).unwrap()
     }
 }
@@ -124,10 +125,10 @@ impl AbstractPieceType for ColoredAtaxxPieceType {
     }
 }
 
-impl ColoredPieceType for ColoredAtaxxPieceType {
+impl ColoredPieceType<AtaxxColor> for ColoredAtaxxPieceType {
     type Uncolored = AtaxxPieceType;
 
-    fn color(self) -> Option<Color> {
+    fn color(self) -> Option<AtaxxColor> {
         match self {
             WhitePiece => Some(White),
             BlackPiece => Some(Black),
@@ -139,7 +140,7 @@ impl ColoredPieceType for ColoredAtaxxPieceType {
         (self as usize).min(Occupied as usize)
     }
 
-    fn new(color: Color, uncolored: Self::Uncolored) -> Self {
+    fn new(color: AtaxxColor, uncolored: Self::Uncolored) -> Self {
         match uncolored {
             Occupied => match color {
                 White => WhitePiece,
@@ -155,20 +156,25 @@ pub const MAX_ATAXX_MOVES_IN_POS: usize =
     NUM_SQUARES + 2 * ((NUM_ROWS - 2) * (NUM_COLUMNS - 2) * 2 + (NUM_ROWS - 2 + NUM_COLUMNS - 2));
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
+#[repr(C)]
 pub struct AtaxxMove {
     source: AtaxxSquare,
     target: AtaxxSquare,
 }
 
 impl Display for AtaxxMove {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{0}", self.to_compact_text())
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.format_compact(f)
     }
 }
 
 impl Move<AtaxxBoard> for AtaxxMove {
     type Flags = NoMoveFlags;
     type Underlying = u16;
+
+    fn legality() -> Legality {
+        Legal
+    }
 
     fn src_square(self) -> AtaxxSquare {
         self.source
@@ -186,10 +192,10 @@ impl Move<AtaxxBoard> for AtaxxMove {
         false
     }
 
-    fn to_compact_text(self) -> String {
+    fn format_compact(self, f: &mut Formatter<'_>) -> fmt::Result {
         match self.typ() {
-            Leaping => format!("{0}{1}", self.source, self.target),
-            Cloning => format!("{}", self.target),
+            Leaping => write!(f, "{0}{1}", self.source, self.target),
+            Cloning => write!(f, "{}", self.target),
         }
     }
 
@@ -200,6 +206,10 @@ impl Move<AtaxxBoard> for AtaxxMove {
         }
         if s == "0000" {
             return Ok(Self::default());
+        }
+        // Need to check this before creating slices because splitting unicode character panics.
+        if !s.is_ascii() {
+            return Err(format!("Move '{}' contains a non-ASCII character", s.red()));
         }
         if s.len() != 2 && s.len() != 4 {
             return Err(format!(
@@ -223,10 +233,10 @@ impl Move<AtaxxBoard> for AtaxxMove {
         Self::from_compact_text(s, board)
     }
 
-    fn from_usize_unchecked(val: usize) -> Self {
+    fn from_usize_unchecked(val: usize) -> UntrustedMove<AtaxxBoard> {
         let source = AtaxxSquare::from_bb_index((val >> 8) & 0xff);
         let target = AtaxxSquare::from_bb_index(val & 0xff);
-        Self { source, target }
+        UntrustedMove::from_move(Self { source, target })
     }
 
     fn to_underlying(self) -> Self::Underlying {

@@ -2,9 +2,10 @@ use itertools::Itertools;
 use std::fmt::Display;
 use std::time::{Duration, Instant};
 
+use gears::games::BoardHistory;
+use gears::general::board::Board;
 use rand::thread_rng;
 
-use gears::games::{Board, BoardHistory};
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::score::{game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE_WON};
 use gears::search::{Depth, NodesLimit, SearchLimit, SearchResult, TimeControl};
@@ -127,7 +128,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
                 }
                 self.state
                     .excluded_moves
-                    .push(self.state.custom.chosen_move.unwrap());
+                    .push(self.state.custom.chosen_move.unwrap_or_default());
                 self.state.sender.send_search_info(self.search_info());
                 // increases the depth. do this after sending the search info, but before deciding if the depth limit has been exceeded.
             }
@@ -141,8 +142,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
             chosen_move.unwrap_or_else(|| {
                 eprintln!("Warning: Not even a single iteration finished");
                 let mut rng = thread_rng();
-                pos.random_legal_move(&mut rng)
-                    .expect("search() called in a position with no legal moves")
+                pos.random_legal_move(&mut rng).unwrap_or_default()
             }),
             score,
         ))

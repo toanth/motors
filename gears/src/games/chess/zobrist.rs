@@ -1,10 +1,10 @@
 use strum::IntoEnumIterator;
 
-use crate::games::chess::pieces::UncoloredChessPiece;
+use crate::games::chess::pieces::ChessPieceType;
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
-use crate::games::chess::Chessboard;
-use crate::games::Color::*;
-use crate::games::{Color, ZobristHash};
+use crate::games::chess::ChessColor::*;
+use crate::games::chess::{ChessColor, Chessboard};
+use crate::games::ZobristHash;
 
 pub const NUM_PIECE_SQUARE_ENTRIES: usize = 64 * 6;
 pub const NUM_COLORED_PIECE_SQUARE_ENTRIES: usize = NUM_PIECE_SQUARE_ENTRIES * 2;
@@ -19,8 +19,8 @@ pub struct PrecomputedZobristKeys {
 impl PrecomputedZobristKeys {
     pub fn piece_key(
         &self,
-        piece: UncoloredChessPiece,
-        color: Color,
+        piece: ChessPieceType,
+        color: ChessColor,
         square: ChessSquare,
     ) -> ZobristHash {
         self.piece_square_keys[square.bb_idx() * 12 + piece as usize * 2 + color as usize]
@@ -91,8 +91,8 @@ pub const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
 impl Chessboard {
     pub fn compute_zobrist(&self) -> ZobristHash {
         let mut res = ZobristHash(0);
-        for color in Color::iter() {
-            for piece in UncoloredChessPiece::pieces() {
+        for color in ChessColor::iter() {
+            for piece in ChessPieceType::pieces() {
                 let pieces = self.colored_piece_bb(color, piece);
                 for square in pieces.ones() {
                     res ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, square);
@@ -109,25 +109,17 @@ impl Chessboard {
         res
     }
 
-    pub fn update_zobrist_for_move(
-        &mut self,
-        piece: UncoloredChessPiece,
-        from: ChessSquare,
-        to: ChessSquare,
-    ) {
-        self.hash = Self::new_zobrist_after_move(self.hash, self.active_player, piece, from, to);
-    }
-
     #[must_use]
-    pub fn new_zobrist_after_move(
+    pub fn approximate_zobrist_after_move(
         mut old_hash: ZobristHash,
-        color: Color,
-        piece: UncoloredChessPiece,
+        color: ChessColor,
+        piece: ChessPieceType,
         from: ChessSquare,
         to: ChessSquare,
     ) -> ZobristHash {
         old_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, to);
         old_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, from);
+        old_hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         old_hash
     }
 }
@@ -137,12 +129,14 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
-    use crate::games::chess::pieces::UncoloredChessPiece::{Bishop, Knight};
+    use crate::games::chess::pieces::ChessPieceType::{Bishop, Knight};
     use crate::games::chess::squares::{ChessSquare, D_FILE_NO, E_FILE_NO};
     use crate::games::chess::zobrist::{PcgXslRr128_64Oneseq, PRECOMPUTED_ZOBRIST_KEYS};
+    use crate::games::chess::ChessColor::*;
     use crate::games::chess::Chessboard;
     use crate::games::Board;
-    use crate::games::Color::{Black, White};
+    use crate::general::board::SelfChecks::Assertion;
+    use crate::general::moves::Move;
 
     #[test]
     fn pcg_test() {
@@ -231,5 +225,44 @@ mod tests {
         );
         let after_ep = new_pos.make_move(ep_move).unwrap();
         assert_eq!(after_ep.zobrist_hash(), after_ep.compute_zobrist());
+    }
+
+    #[test]
+    fn zobrist_after_move_test() {
+        for pos in Chessboard::bench_positions() {
+            for m in pos.pseudolegal_moves() {
+                if pos.as_fen()
+                    == "r3k2r/2pb1ppp/2pp1q2/p7/1nP1B3/1P2P3/P2N1PPP/R2QK2R w HAha a6 0 14"
+                    && m.to_string() == "d1c2"
+                {
+                    println!("oh no");
+                }
+                let Some(new_pos) = pos.make_move(m) else {
+                    continue;
+                };
+                assert!(
+                    new_pos.verify_position_legal(Assertion).is_ok(),
+                    "{pos} {m}"
+                );
+                if !(m.is_double_pawn_push()
+                    || m.is_capture(&pos)
+                    || m.is_promotion()
+                    || pos.ep_square().is_some()
+                    || pos.castling != new_pos.castling)
+                {
+                    assert_eq!(
+                        Chessboard::approximate_zobrist_after_move(
+                            pos.hash,
+                            pos.active_player,
+                            m.piece_type(),
+                            m.src_square(),
+                            m.dest_square()
+                        ),
+                        new_pos.hash,
+                        "{pos} {m}"
+                    );
+                }
+            }
+        }
     }
 }

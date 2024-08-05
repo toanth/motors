@@ -11,8 +11,9 @@ use std::time::Instant;
 use colored::Colorize;
 use itertools::Itertools;
 
-use gears::games::{Board, Color, Move};
+use gears::general::board::Board;
 use gears::general::common::{parse_duration_ms, parse_int_from_str, Res};
+use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::score::{ScoreT, SCORE_LOST, SCORE_WON};
 use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit};
@@ -105,11 +106,11 @@ pub struct CurrentMatch<B: Board> {
     pub original_limit: SearchLimit,
     // TODO: Maybe only store color as part of ThinkingSince? Ugi doesn't care if the color changes.
     /// On the other hand, there's no real need to support such a use case, and it would add some extra complexity.
-    pub color: Color,
+    pub color: B::Color,
 }
 
 impl<B: Board> CurrentMatch<B> {
-    pub fn new(limit: SearchLimit, color: Color) -> Self {
+    pub fn new(limit: SearchLimit, color: B::Color) -> Self {
         Self {
             search_info: None,
             limit,
@@ -338,7 +339,7 @@ impl<B: Board> InputThread<B> {
         command: &str,
         words: SplitWhitespace,
         client: &mut MutexGuard<Client<B>>,
-        color: Color,
+        color: B::Color,
     ) -> Res<()> {
         match command {
             "info" => Self::handle_info(words, client, client.state.id(color)),
@@ -353,7 +354,7 @@ impl<B: Board> InputThread<B> {
         command: &str,
         words: SplitWhitespace,
         client: &mut MutexGuard<Client<B>>,
-        color: Color,
+        color: B::Color,
     ) -> Res<()> {
         match command {
             "info" => Self::handle_info(words, client, client.state.id(color)),
@@ -367,7 +368,7 @@ impl<B: Board> InputThread<B> {
         command: &str,
         words: SplitWhitespace,
         client: &mut MutexGuard<Client<B>>,
-        color: Color,
+        color: B::Color,
         handle_best_move: HandleBestMove,
     ) -> Res<()> {
         match command {
@@ -466,7 +467,7 @@ impl<B: Board> InputThread<B> {
     fn handle_bestmove(
         mut words: SplitWhitespace,
         client: &mut MutexGuard<Client<B>>,
-        color: Color,
+        color: B::Color,
     ) -> Res<()> {
         // Stop the clock as soon as possible to minimize the affect client overhead has on the engine's time control.
         // If it turns out that the move was actually invalid, the engine lost anyway.

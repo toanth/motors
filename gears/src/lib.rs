@@ -5,8 +5,8 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Instant;
 
-use crate::games::Color::White;
-use crate::games::{Board, Color};
+use crate::games::Color;
+use crate::general::board::Board;
 use crate::general::common::Description::WithDescription;
 use crate::general::common::{select_name_dyn, Res};
 use crate::output::OutputBuilder;
@@ -135,11 +135,11 @@ pub struct MatchResult {
     pub reason: GameOverReason,
 }
 
-pub fn player_res_to_match_res(game_over: GameOver, color: Color) -> MatchResult {
+pub fn player_res_to_match_res<C: Color>(game_over: GameOver, color: C) -> MatchResult {
     let result = match game_over.result {
         PlayerResult::Draw => GameResult::Draw,
         res => {
-            if (color == White) == (res == Win) {
+            if (color == C::first()) == (res == Win) {
                 GameResult::P1Win
             } else {
                 GameResult::P2Win
@@ -191,7 +191,7 @@ pub trait GameState<B: Board> {
         B::game_name()
     }
     fn move_history(&self) -> &[B::Move];
-    fn active_player(&self) -> Color {
+    fn active_player(&self) -> B::Color {
         self.get_board().active_player()
     }
     fn last_move(&self) -> Option<B::Move> {
@@ -207,9 +207,9 @@ pub trait GameState<B: Board> {
     fn event(&self) -> String;
     fn site(&self) -> &str;
     /// The name of the player, if known (i.e. `display_name` for the GUI and None for the other player of an engine)
-    fn player_name(&self, color: Color) -> Option<&str>;
-    fn time(&self, color: Color) -> Option<TimeControl>;
-    fn thinking_since(&self, color: Color) -> Option<Instant>;
+    fn player_name(&self, color: B::Color) -> Option<String>;
+    fn time(&self, color: B::Color) -> Option<TimeControl>;
+    fn thinking_since(&self, color: B::Color) -> Option<Instant>;
 }
 
 pub fn output_builder_from_str<B: Board>(

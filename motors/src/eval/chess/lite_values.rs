@@ -18,10 +18,10 @@
 
 use crate::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use crate::eval::ScoreType;
-use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
+use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
-use gears::games::Color;
-use gears::games::Color::*;
+use gears::games::chess::ChessColor;
+use gears::games::chess::ChessColor::White;
 use gears::score::{p, PhasedScore};
 use std::fmt::Debug;
 
@@ -441,8 +441,8 @@ pub trait LiteValues: Debug + Default + Copy + Clone + Send + 'static {
 
     fn psqt(
         square: ChessSquare,
-        piece: UncoloredChessPiece,
-        color: Color,
+        piece: ChessPieceType,
+        color: ChessColor,
     ) -> <Self::Score as ScoreType>::SingleFeatureScore;
 
     fn passed_pawn(square: ChessSquare) -> <Self::Score as ScoreType>::SingleFeatureScore;
@@ -464,29 +464,27 @@ pub trait LiteValues: Debug + Default + Copy + Clone + Send + 'static {
 
     fn pawn_shield(config: usize) -> <Self::Score as ScoreType>::SingleFeatureScore;
 
-    fn pawn_protection(
-        piece: UncoloredChessPiece,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn pawn_protection(piece: ChessPieceType) -> <Self::Score as ScoreType>::SingleFeatureScore;
 
-    fn pawn_attack(piece: UncoloredChessPiece) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn pawn_attack(piece: ChessPieceType) -> <Self::Score as ScoreType>::SingleFeatureScore;
 
     fn mobility(
-        piece: UncoloredChessPiece,
+        piece: ChessPieceType,
         mobility: usize,
     ) -> <Self::Score as ScoreType>::SingleFeatureScore;
 
     fn threats(
-        attacking: UncoloredChessPiece,
-        targeted: UncoloredChessPiece,
+        attacking: ChessPieceType,
+        targeted: ChessPieceType,
     ) -> <Self::Score as ScoreType>::SingleFeatureScore;
 
     fn defended(
-        protecting: UncoloredChessPiece,
-        target: UncoloredChessPiece,
+        protecting: ChessPieceType,
+        target: ChessPieceType,
     ) -> <Self::Score as ScoreType>::SingleFeatureScore;
 
     fn king_zone_attack(
-        attacking: UncoloredChessPiece,
+        attacking: ChessPieceType,
     ) -> <Self::Score as ScoreType>::SingleFeatureScore;
 }
 
@@ -499,7 +497,7 @@ pub struct Lite {}
 impl LiteValues for Lite {
     type Score = PhasedScore;
 
-    fn psqt(square: ChessSquare, piece: UncoloredChessPiece, color: Color) -> Self::Score {
+    fn psqt(square: ChessSquare, piece: ChessPieceType, color: ChessColor) -> Self::Score {
         PSQTS[piece as usize][square.flip_if(color == White).bb_idx()]
     }
 
@@ -548,27 +546,27 @@ impl LiteValues for Lite {
         PAWN_SHIELDS[config]
     }
 
-    fn pawn_protection(piece: UncoloredChessPiece) -> Self::Score {
+    fn pawn_protection(piece: ChessPieceType) -> Self::Score {
         PAWN_PROTECTION[piece as usize]
     }
 
-    fn pawn_attack(piece: UncoloredChessPiece) -> Self::Score {
+    fn pawn_attack(piece: ChessPieceType) -> Self::Score {
         PAWN_ATTACKS[piece as usize]
     }
 
-    fn mobility(piece: UncoloredChessPiece, mobility: usize) -> Self::Score {
+    fn mobility(piece: ChessPieceType, mobility: usize) -> Self::Score {
         MOBILITY[piece as usize - 1][mobility]
     }
 
-    fn threats(attacking: UncoloredChessPiece, targeted: UncoloredChessPiece) -> Self::Score {
+    fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> Self::Score {
         THREATS[attacking as usize - 1][targeted as usize]
     }
-    fn defended(protecting: UncoloredChessPiece, target: UncoloredChessPiece) -> Self::Score {
+    fn defended(protecting: ChessPieceType, target: ChessPieceType) -> Self::Score {
         DEFENDED[protecting as usize - 1][target as usize]
     }
 
     fn king_zone_attack(
-        attacking: UncoloredChessPiece,
+        attacking: ChessPieceType,
     ) -> <Self::Score as ScoreType>::SingleFeatureScore {
         KING_ZONE_ATTACK[attacking as usize]
     }

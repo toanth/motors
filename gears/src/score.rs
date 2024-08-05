@@ -31,7 +31,6 @@ pub type ScoreT = i32;
 /// In some places, it's important to save space by using only the necessary 16 bits for a score.
 pub type CompactScoreT = i16;
 
-// TODO: Turn this into an enum that can also represent a win in n plies (and maybe a draw?)
 #[derive(
     Default,
     Debug,
@@ -118,7 +117,10 @@ impl Score {
     }
 }
 
-/// `SCORE_WON` and `SCORE_LOST` need to fit into 16 bits for the tapered score to work
+/// `SCORE_WON` and `SCORE_LOST` need to fit into 16 bits for the tapered score to work,
+/// and the open interval `(alpha, beta)` has to be able to contain them.
+pub const MIN_ALPHA: Score = Score(-31_001);
+pub const MAX_BETA: Score = Score(31_001);
 pub const SCORE_LOST: Score = Score(-31_000);
 pub const SCORE_WON: Score = Score(31_000);
 pub const SCORE_TIME_UP: Score = Score(SCORE_WON.0 + 1000);

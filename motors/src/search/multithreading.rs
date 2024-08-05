@@ -5,9 +5,10 @@ use std::thread::spawn;
 
 use crossbeam_channel::unbounded;
 use dyn_clone::clone_box;
+use gears::games::ZobristHistory;
+use gears::general::board::Board;
 
 use crate::eval::Eval;
-use gears::games::{Board, ZobristHistory};
 use gears::general::common::{parse_int_from_str, NamedEntity, Res};
 use gears::output::Message;
 use gears::output::Message::{Debug, Error};

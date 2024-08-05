@@ -2,14 +2,14 @@ use itertools::Itertools;
 use strum_macros::EnumIter;
 
 use crate::games::chess::castling::CastleRight::*;
-use crate::games::chess::pieces::ColoredChessPiece;
-use crate::games::chess::pieces::UncoloredChessPiece::Rook;
+use crate::games::chess::pieces::ChessPieceType::Rook;
+use crate::games::chess::pieces::ColoredChessPieceType;
 use crate::games::chess::squares::{
     ChessSquare, A_FILE_NO, C_FILE_NO, D_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
 };
-use crate::games::chess::Chessboard;
-use crate::games::Color::*;
-use crate::games::{char_to_file, Board, Color, ColoredPieceType, DimT};
+use crate::games::chess::ChessColor::*;
+use crate::games::chess::{ChessColor, Chessboard};
+use crate::games::{char_to_file, Board, ColoredPieceType, DimT};
 use crate::general::common::Res;
 
 #[derive(EnumIter, Copy, Clone, Eq, PartialEq, Debug, derive_more::Display)]
@@ -50,27 +50,27 @@ impl CastlingFlags {
         (self.0 >> 12) as usize
     }
 
-    fn shift(color: Color, castle_right: CastleRight) -> usize {
+    fn shift(color: ChessColor, castle_right: CastleRight) -> usize {
         color as usize * 6 + castle_right as usize * 3
     }
 
     /// This return value of this function can only be used if `can_castle` would return `true`.
     #[must_use]
-    pub fn rook_start_file(self, color: Color, castle_right: CastleRight) -> DimT {
+    pub fn rook_start_file(self, color: ChessColor, castle_right: CastleRight) -> DimT {
         ((self.0 >> Self::shift(color, castle_right)) & 0x7) as DimT
     }
 
     /// Returns true iff castling rights haven't been lost. Note that this doesn't consider the current position,
     /// i.e. checks or pieces blocking the castling move aren't handled here.
     #[must_use]
-    pub fn can_castle(self, color: Color, castle_right: CastleRight) -> bool {
+    pub fn can_castle(self, color: ChessColor, castle_right: CastleRight) -> bool {
         1 == 1
             & (self.allowed_castling_directions() >> (color as usize * 2 + castle_right as usize))
     }
 
     pub(super) fn set_castle_right(
         &mut self,
-        color: Color,
+        color: ChessColor,
         castle_right: CastleRight,
         file: DimT,
     ) -> Res<()> {
@@ -83,12 +83,12 @@ impl CastlingFlags {
         Ok(())
     }
 
-    pub(super) fn unset_castle_right(&mut self, color: Color, castle_right: CastleRight) {
+    pub(super) fn unset_castle_right(&mut self, color: ChessColor, castle_right: CastleRight) {
         self.0 &= !(0x1 << ((color as usize * 2 + castle_right as usize) + 12));
         self.0 &= !(0x7 << Self::shift(color, castle_right));
     }
 
-    pub(super) fn clear_castle_rights(&mut self, color: Color) {
+    pub(super) fn clear_castle_rights(&mut self, color: ChessColor) {
         self.0 &= !(0x3 << (color as usize * 2 + 12));
         self.0 &= !(0x3f << (color as usize * 6));
     }
@@ -137,7 +137,7 @@ impl CastlingFlags {
                 for file in start..end {
                     if board.is_piece_on(
                         ChessSquare::from_rank_file(rank, file),
-                        ColoredChessPiece::new(color, Rook),
+                        ColoredChessPieceType::new(color, Rook),
                     ) {
                         self.set_castle_right(color, side, file)?;
                         return Ok(());
@@ -154,7 +154,7 @@ impl CastlingFlags {
                     // g file, for example (for chess960, this is ambiguous, but just picking one is fine).
                     if board.is_piece_on(
                         ChessSquare::from_rank_file(rank, H_FILE_NO),
-                        ColoredChessPiece::new(color, Rook),
+                        ColoredChessPieceType::new(color, Rook),
                     ) {
                         self.set_castle_right(color, Kingside, H_FILE_NO)?;
                     } else {

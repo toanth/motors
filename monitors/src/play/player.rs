@@ -17,7 +17,7 @@ use lazy_static::lazy_static;
 use whoami::fallible::realname;
 
 use gears::games::chess::Chessboard;
-use gears::games::{Board, Color};
+use gears::general::board::Board;
 use gears::general::common::Res;
 use gears::output::Message::*;
 use gears::search::{Depth, NodesLimit, SearchLimit, TimeControl, MAX_DEPTH};
@@ -497,7 +497,7 @@ impl<B: Board> Player<B> {
         }
     }
 
-    pub fn assign_to_match(&mut self, color: Color) {
+    pub fn assign_to_match(&mut self, color: B::Color) {
         match self {
             Engine(ref mut engine) => {
                 engine.current_match = Some(CurrentMatch::new(engine.default_limit, color));

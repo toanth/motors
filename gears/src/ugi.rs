@@ -1,9 +1,10 @@
+use crate::general::board::Board;
 use colored::Colorize;
 use std::fmt::{Display, Formatter};
 use std::str::{FromStr, SplitWhitespace};
 
-use crate::games::Board;
 use crate::general::common::{NamedEntity, Res};
+use crate::general::moves::Move;
 
 /// Ugi-related helpers that are used by both `motors` and `monitors`.
 
@@ -38,6 +39,17 @@ pub struct UgiString {
     pub default: Option<String>,
 }
 
+impl UgiString {
+    pub fn value(&self) -> String {
+        // The UCI spec demands to send empty strings as '<empty>'
+        if self.val.is_empty() {
+            "<empty>".to_string()
+        } else {
+            self.val.clone()
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 #[must_use]
 pub enum EngineOptionType {
@@ -65,7 +77,7 @@ impl EngineOptionType {
             EngineOptionType::Spin(spin) => spin.val.to_string(),
             EngineOptionType::Combo(combo) => combo.val.to_string(),
             EngineOptionType::Button => "<Button>".to_string(),
-            EngineOptionType::UString(string) => string.val.clone(),
+            EngineOptionType::UString(string) => string.value(),
         }
     }
 }
@@ -117,6 +129,7 @@ pub enum EngineOptionName {
     Ponder,
     MultiPv,
     UciElo,
+    UCIOpponent,
     UCIEngineAbout,
     MoveOverhead,
     Other(String),
@@ -130,6 +143,7 @@ impl EngineOptionName {
             EngineOptionName::Ponder => "Ponder",
             EngineOptionName::MultiPv => "MultiPV",
             EngineOptionName::UciElo => "UCI_Elo",
+            EngineOptionName::UCIOpponent => "UCI_Opponent",
             EngineOptionName::UCIEngineAbout => "UCI_EngineAbout",
             EngineOptionName::MoveOverhead => "MoveOverhead",
             EngineOptionName::Other(x) => x,
@@ -152,6 +166,7 @@ impl FromStr for EngineOptionName {
             "threads" => EngineOptionName::Threads,
             "ponder" => EngineOptionName::Ponder,
             "multipv" => EngineOptionName::MultiPv,
+            "uci_opponent" => EngineOptionName::UCIOpponent,
             "uci_elo" => EngineOptionName::UciElo,
             "move overhead" | "moveoverhead" => EngineOptionName::MoveOverhead,
             _ => EngineOptionName::Other(s.to_string()),
@@ -217,4 +232,23 @@ pub fn parse_ugi_position<B: Board>(words: &mut SplitWhitespace, old_board: &B) 
             )
         })?,
     })
+}
+
+pub fn parse_ugi_position_and_moves<B: Board>(
+    words: &mut SplitWhitespace,
+    old_board: &B,
+) -> Res<B> {
+    let mut board = parse_ugi_position(words, old_board)?;
+    match words.next() {
+        None => return Ok(board),
+        Some("moves") => {}
+        Some(x) => return Err(format!("Expected either nothing or 'moves', got '{x}")),
+    }
+    for mov in words {
+        let mov = B::Move::from_compact_text(mov, &board)?;
+        board = board
+            .make_move(mov)
+            .ok_or_else(|| format!("move '{mov}' is not legal in position '{board}'"))?;
+    }
+    Ok(board)
 }

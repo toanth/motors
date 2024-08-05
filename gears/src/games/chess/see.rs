@@ -1,13 +1,14 @@
 use crate::games::chess::moves::ChessMove;
 use crate::games::chess::moves::ChessMoveFlags::{NormalPawnMove, PromoQueen};
-use crate::games::chess::pieces::UncoloredChessPiece::*;
-use crate::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
+use crate::games::chess::pieces::ChessPieceType::*;
+use crate::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use crate::games::chess::squares::ChessSquare;
-use crate::games::chess::Chessboard;
-use crate::games::{AbstractPieceType, Board, Color, Coordinates, Move};
+use crate::games::chess::{ChessColor, Chessboard};
+use crate::games::{AbstractPieceType, Board, Color, Coordinates};
 use crate::general::bitboards::chess::{ChessBitboard, PAWN_CAPTURES};
 use crate::general::bitboards::RayDirections::Vertical;
 use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::general::moves::Move;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use std::mem::swap;
 
@@ -28,11 +29,11 @@ pub const SEE_SCORES: [SeeScore; NUM_CHESS_PIECES + 1] = [
     SeeScore(0), // also give the empty square a see value to make the implementation simpler
 ];
 
-pub fn piece_see_value(piece: UncoloredChessPiece) -> SeeScore {
+pub fn piece_see_value(piece: ChessPieceType) -> SeeScore {
     SEE_SCORES[piece.to_uncolored_idx()]
 }
 
-pub fn move_see_value(mov: ChessMove, victim: UncoloredChessPiece) -> SeeScore {
+pub fn move_see_value(mov: ChessMove, victim: ChessPieceType) -> SeeScore {
     let mut score = piece_see_value(victim);
     if mov.is_promotion() {
         score += piece_see_value(mov.promo_piece()) - piece_see_value(Pawn);
@@ -45,10 +46,10 @@ pub fn move_see_value(mov: ChessMove, victim: UncoloredChessPiece) -> SeeScore {
 impl Chessboard {
     fn next_see_attacker(
         &self,
-        color: Color,
+        color: ChessColor,
         all_remaining_attackers: ChessBitboard,
-    ) -> (Option<UncoloredChessPiece>, ChessSquare) {
-        for piece in UncoloredChessPiece::pieces() {
+    ) -> (Option<ChessPieceType>, ChessSquare) {
+        for piece in ChessPieceType::pieces() {
             let mut current_attackers =
                 self.colored_piece_bb(color, piece) & all_remaining_attackers;
             if current_attackers.has_set_bit() {
@@ -65,8 +66,8 @@ impl Chessboard {
         debug_assert!(alpha < beta);
         let square = mov.dest_square();
         let mut color = self.active_player;
-        let original_moving_piece = mov.uncolored_piece();
-        let mut our_victim = self.uncolored_piece_on(square);
+        let original_moving_piece = mov.piece_type();
+        let mut our_victim = self.piece_type_on(square);
         // A simple shortcut to avoid doing most of the work of SEE for a large portion of the cases it's called.
         // This needs to handle the case of the opponent recapturing with a pawn promotion.
         if piece_see_value(our_victim) - piece_see_value(original_moving_piece) >= beta
@@ -100,7 +101,7 @@ impl Chessboard {
 
         let mut see_attack = |attacker: ChessSquare,
                               all_remaining_attackers: &mut ChessBitboard,
-                              piece: UncoloredChessPiece| {
+                              piece: ChessPieceType| {
             let idx = attacker.bb_idx();
             // `&= !` instead of `^` because in the case of a regular pawn move, the moving pawn wasn't part of the attacker bb.
             *all_remaining_attackers &= !ChessBitboard::single_piece(idx);

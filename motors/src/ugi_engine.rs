@@ -1,21 +1,23 @@
 use std::fmt::{Debug, Display, Formatter, Write};
-use std::io::stdin;
+use std::io::{stdin, stdout};
 use std::ops::{Deref, DerefMut};
 use std::str::{FromStr, SplitWhitespace};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
+use itertools::Itertools;
 
 use gears::cli::{select_game, Game};
-use gears::games::Color::White;
-use gears::games::{Board, BoardHistory, Color, Move, OutputList, ZobristHistory};
+use gears::games::{BoardHistory, Color, OutputList, ZobristHistory};
+use gears::general::board::Board;
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{
     parse_bool_from_str, parse_duration_ms, parse_int, parse_int_from_str,
     to_name_and_optional_description, NamedEntity,
 };
 use gears::general::common::{IterIntersperse, Res};
+use gears::general::moves::Move;
 use gears::general::perft::{perft, perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
@@ -24,8 +26,7 @@ use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, Ti
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{
-    parse_ugi_position, EngineOption, EngineOptionName, EngineOptionType, UgiCheck, UgiSpin,
-    UgiString,
+    parse_ugi_position, EngineOption, EngineOptionName, UgiCheck, UgiSpin, UgiString,
 };
 use gears::MatchStatus::*;
 use gears::Quitting::{QuitMatch, QuitProgram};
@@ -84,7 +85,7 @@ struct BoardGameState<B: Board> {
     mov_hist: Vec<B::Move>,
     board_hist: ZobristHistory<B>,
     initial_pos: B,
-    last_played_color: Color,
+    last_played_color: B::Color,
     ponder_limit: Option<SearchLimit>,
 }
 
@@ -96,20 +97,17 @@ impl<B: Board> BoardGameState<B> {
         if let Run(Over(result)) = &self.status {
             return Err(format!(
                 "Cannot play move '{mov}' because the game is already over: {0} ({1}). The position is '{2}'",
-                result.result, result.reason, self.board.as_fen()
+                result.result, result.reason, self.board
             ));
         }
         self.board_hist.push(&self.board);
         self.mov_hist.push(mov);
-        self.board = self
-            .board
-            .make_move(mov)
-            .ok_or_else(|| format!("Illegal move {mov} (pseudolegal)"))?;
-        if self.debug_mode {
-            if let Some(res) = self.board.match_result_slow(&self.board_hist) {
-                return Err(format!("The game is over ({0}, reason: {1}) after move {mov}, which results in the following position: {2}", res.result, res.reason, self.board.as_fen()));
-            }
-        }
+        self.board = self.board.make_move(mov).ok_or_else(|| {
+            format!(
+                "Illegal move {mov} (pseudolegal but not legal) in position {}",
+                self.board
+            )
+        })?;
         Ok(())
     }
 
@@ -132,7 +130,7 @@ impl<B: Board> BoardGameState<B> {
         }
         for mov in words {
             let mov = B::Move::from_compact_text(mov, &self.board)
-                .map_err(|err| format!("Couldn't parse move: {err}"))?;
+                .map_err(|err| format!("Couldn't parse move '{}': {err}", mov.red()))?;
             self.make_move(mov)?;
         }
         self.last_played_color = self.board.active_player();
@@ -148,6 +146,7 @@ struct EngineGameState<B: Board> {
     /// the same name play against each other, such as in a SPRT. It should be unique, however
     /// (the `monitors` client ensures that, but another GUI might not).
     display_name: String,
+    opponent_name: Option<String>,
 }
 
 impl<B: Board> Deref for EngineGameState<B> {
@@ -181,10 +180,14 @@ impl<B: Board> UgiOutput<B> {
     }
 
     pub fn write_ugi(&mut self, message: &str) {
+        use std::io::Stdout;
+        use std::io::Write;
         // UGI is always done through stdin and stdout, no matter what the UI is.
         // TODO: Keep stdout mutex? Might make printing slightly faster and prevents everyone else from
         // accessing stdout, which is probably a good thing because it prevents sending invalid UCI commands
         println!("{message}");
+        // Currently, `println` always flushes, but this behaviour should not be relied upon.
+        _ = Stdout::flush(&mut stdout());
         for output in &mut self.additional_outputs {
             output.write_ugi_output(message, None);
         }
@@ -216,9 +219,8 @@ impl<B: Board> UgiOutput<B> {
     }
 
     pub fn show_search_res(&mut self, search_result: &SearchResult<B>) {
-        let best = search_result.chosen_move.to_compact_text();
+        let best = search_result.chosen_move;
         if let Some(ponder) = search_result.ponder_move() {
-            let ponder = ponder.to_compact_text();
             self.write_ugi(&format!("bestmove {best} ponder {ponder}"));
         } else {
             self.write_ugi(&format!("bestmove {best}"));
@@ -284,21 +286,21 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
         "??"
     }
 
-    fn player_name(&self, color: Color) -> Option<&str> {
+    fn player_name(&self, color: B::Color) -> Option<String> {
         if color == self.last_played_color {
-            Some(self.name())
+            Some(self.name().to_string())
         } else {
-            None // TODO: Get the opponent's name from UGI? There's probably a way because that's required for contempt
+            self.opponent_name.clone()
         }
     }
 
-    fn time(&self, _color: Color) -> Option<TimeControl> {
+    fn time(&self, _color: B::Color) -> Option<TimeControl> {
         // Technically, we get the time with 'go', but we can't trust it for the other player,
         // and we don't really need this for ourselves while we're thinking
         None
     }
 
-    fn thinking_since(&self, _color: Color) -> Option<Instant> {
+    fn thinking_since(&self, _color: B::Color) -> Option<Instant> {
         None
     }
 }
@@ -316,6 +318,7 @@ impl<B: Board> EngineUGI<B> {
         let board = B::default();
         let engine =
             create_engine_from_str(&opts.engine, &all_searchers, &all_evals, sender.clone())?;
+        let display_name = engine.engine_info().short_name();
         let board_state = BoardGameState {
             board,
             debug_mode: opts.debug,
@@ -323,13 +326,14 @@ impl<B: Board> EngineUGI<B> {
             mov_hist: vec![],
             board_hist: ZobristHistory::default(),
             initial_pos: B::default(),
-            last_played_color: Color::default(),
+            last_played_color: B::Color::default(),
             ponder_limit: None,
         };
         let state = EngineGameState {
             board_state,
             engine,
-            display_name: opts.engine,
+            display_name,
+            opponent_name: None,
         };
         let err_msg_builder = output_builder_from_str("error", &all_output_builders)?;
         selected_output_builders.push(err_msg_builder);
@@ -602,6 +606,24 @@ impl<B: Board> EngineUGI<B> {
             MultiPv => {
                 self.multi_pv = parse_int_from_str(&value, "multipv")?;
             }
+            UCIOpponent => {
+                let mut words = value.split_whitespace();
+                loop {
+                    match words.next() {
+                        None => {
+                            break;
+                        }
+                        Some(word)
+                            if word.eq_ignore_ascii_case("computer")
+                                || word.eq_ignore_ascii_case("human") =>
+                        {
+                            self.state.opponent_name = Some(words.join(" "));
+                            break;
+                        }
+                        _ => continue,
+                    }
+                }
+            }
             _ => {
                 let value = value.trim().to_string();
                 self.state
@@ -621,7 +643,7 @@ impl<B: Board> EngineUGI<B> {
 
     fn handle_go(&mut self, words: &mut SplitWhitespace) -> Res<()> {
         let mut limit = SearchLimit::infinite();
-        let is_white = self.state.board.active_player() == White;
+        let is_first = self.state.board.active_player().is_first();
         let mut search_type = Normal;
         let mut multi_pv = self.multi_pv;
         let mut search_moves = vec![];
@@ -631,25 +653,25 @@ impl<B: Board> EngineUGI<B> {
                 "wtime" | "p1time" | "wt" | "p1t" => {
                     let time = parse_duration_ms(words, "wtime")?;
                     // always parse the duration, even if it isn't relevant
-                    if is_white {
+                    if is_first {
                         limit.tc.remaining = time;
                     }
                 }
                 "btime" | "p2time" | "bt" | "p2t" => {
                     let time = parse_duration_ms(words, "btime")?;
-                    if !is_white {
+                    if !is_first {
                         limit.tc.remaining = time;
                     }
                 }
                 "winc" | "p1inc" | "wi" => {
                     let increment = parse_duration_ms(words, "winc")?;
-                    if is_white {
+                    if is_first {
                         limit.tc.increment = increment;
                     }
                 }
                 "binc" | "p2inc" | "bi" => {
                     let increment = parse_duration_ms(words, "binc")?;
-                    if !is_white {
+                    if !is_first {
                         limit.tc.increment = increment;
                     }
                 }
@@ -718,6 +740,10 @@ impl<B: Board> EngineUGI<B> {
             Debug,
             &format!("Starting {search_type} search with tc {}", limit.tc),
         );
+        if let Some(res) = pos.match_result_slow(&self.state.board_hist) {
+            self.write_message(Warning, &format!("Starting a {search_type} search in position '{2}', but the game is already over. {0}, reason: {1}.",
+                                                 res.result, res.reason, self.state.board.as_fen().bold()));
+        }
         self.state.status = Run(Ongoing);
         let default_depth = match search_type {
             Perft | SplitPerft => pos.default_perft_depth(),
@@ -759,6 +785,12 @@ impl<B: Board> EngineUGI<B> {
                 self.write_ugi(&msg);
             }
             SplitPerft => {
+                if limit.depth.get() == 0 {
+                    return Err(format!(
+                        "{} requires a depth of at least 1",
+                        "splitperft".bold()
+                    ));
+                }
                 let msg = format!("{0}", split_perft(limit.depth, pos));
                 self.write_ugi(&msg);
             }
@@ -842,7 +874,7 @@ impl<B: Board> EngineUGI<B> {
                 .write_response(&matches!(self.state.status, Run(Ongoing)).to_string()),
             "p1turn" => self
                 .output()
-                .write_response(&(self.state.board.active_player() == White).to_string()),
+                .write_response(&(self.state.board.active_player().is_first()).to_string()),
             "result" => {
                 let response = match &self.state.status {
                     Run(Over(res)) => match res.result {
@@ -871,7 +903,22 @@ impl<B: Board> EngineUGI<B> {
                 // This is definitely not the fastest way to print something, but performance isn't a huge concern here
                 let mut output = output_builder_from_str(name, &self.output_factories)?
                     .for_engine(&self.state)?;
-                output.show(&self.state);
+                match words.next() {
+                    None => {
+                        output.show(&self.state);
+                    }
+                    Some("position") | Some("p") => {
+                        let old_board = self.state.board;
+                        self.state.board = self.load_position_into_copy(words)?;
+                        output.show(&self.state);
+                        self.state.board = old_board;
+                    }
+                    Some(x) => {
+                        return Err(format!(
+                                "Unrecognized input '{x}' after valid print command, should be either nothing or a valid 'position' command"
+                        ))
+                    }
+                }
             }
         }
         Ok(())
@@ -956,9 +1003,9 @@ impl<B: Board> EngineUGI<B> {
         }
     }
 
-    // TODO: Move this function, and others throughout the project,
-    // somewhere else so they don't depend on the type of `Board` to reduce code bloat.
-
+    // This function doesn't depend on the generic parameter, and luckily the rust compiler is smart enough to
+    // polymorphize the monomorphed functions again,i.e. it will only generate this function once. So no need to
+    // manually move it into a context where it doesn't depend on `B`.
     fn handle_log(&mut self, words: &mut SplitWhitespace) -> Res<()> {
         self.output().additional_outputs.retain(|o| !o.is_logger());
         let next = words.clone().next().unwrap_or_default();
@@ -1151,13 +1198,13 @@ impl<B: Board> EngineUGI<B> {
             },
             EngineOption {
                 name: EngineOptionName::Ponder,
-                value: EngineOptionType::Check(UgiCheck {
+                value: Check(UgiCheck {
                     val: self.allow_ponder,
                     default: Some(false),
                 }),
             },
             EngineOption {
-                name: EngineOptionName::MultiPv,
+                name: MultiPv,
                 value: Spin(UgiSpin {
                     val: 1,
                     default: Some(1),
@@ -1166,8 +1213,15 @@ impl<B: Board> EngineUGI<B> {
                 }),
             },
             EngineOption {
-                name: EngineOptionName::UCIEngineAbout,
-                value: EngineOptionType::UString(UgiString {
+                name: UCIOpponent,
+                value: UString(UgiString {
+                    default: None,
+                    val: self.state.opponent_name.clone().unwrap_or_default(),
+                }),
+            },
+            EngineOption {
+                name: UCIEngineAbout,
+                value: UString(UgiString {
                     val: String::new(),
                     default: Some(format!(
                         "Motors by ToTheAnd. Game: {2}. Engine: {0}. Eval: {1}  ",

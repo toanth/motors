@@ -1,6 +1,6 @@
 use crate::play::ugi_client::ClientState;
-use gears::games::Board;
-use gears::games::Color::{Black, White};
+use gears::games::Color;
+use gears::general::board::Board;
 use gears::score::Score;
 use gears::{
     player_res_to_match_res, AdjudicationReason, GameOver, GameOverReason, GameResult, GameState,
@@ -55,7 +55,7 @@ impl Adjudicator {
             });
         }
         let white_score = state
-            .get_engine(White)
+            .get_engine(B::Color::first())
             .current_match
             .as_ref()
             .unwrap()
@@ -63,7 +63,7 @@ impl Adjudicator {
             .as_ref()?
             .score;
         let black_score = state
-            .get_engine(Black)
+            .get_engine(B::Color::second())
             .current_match
             .as_ref()
             .unwrap()
@@ -74,10 +74,10 @@ impl Adjudicator {
         let mut counter = resign.counter;
         if white_score > resign.score_threshold && black_score < -resign.score_threshold {
             counter += 1;
-            player = Some(White);
+            player = Some(B::Color::first());
         } else if white_score < -resign.score_threshold && black_score > resign.score_threshold {
             counter += 1;
-            player = Some(Black);
+            player = Some(B::Color::second());
         } else {
             counter = 0;
         }
@@ -106,7 +106,7 @@ impl Adjudicator {
         }
         let mut counter = draw.counter;
         if state
-            .get_engine(White)
+            .get_engine(B::Color::first())
             .current_match
             .as_ref()
             .unwrap()
@@ -116,7 +116,7 @@ impl Adjudicator {
             .abs()
             < draw.score_threshold
             && state
-                .get_engine(Black)
+                .get_engine(B::Color::second())
                 .current_match
                 .as_ref()
                 .unwrap()

@@ -9,7 +9,8 @@ use gears::games::ataxx::AtaxxBoard;
 use gears::games::chess::Chessboard;
 #[cfg(feature = "mnk")]
 use gears::games::mnk::MNKBoard;
-use gears::games::{Board, OutputList};
+use gears::games::OutputList;
+use gears::general::board::Board;
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{select_name_dyn, Res};
 use gears::general::perft::perft;

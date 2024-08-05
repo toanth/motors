@@ -1,4 +1,4 @@
-use crate::games::Board;
+use crate::general::board::Board;
 use arrayvec::ArrayVec;
 
 /// A list of moves as returned by the board's `pseudolegal_moves`.

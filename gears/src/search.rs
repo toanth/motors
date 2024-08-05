@@ -3,9 +3,9 @@ use std::num::NonZeroU64;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
+use crate::general::board::Board;
 use derive_more::{Add, AddAssign, SubAssign};
 
-use crate::games::{Board, Move};
 use crate::general::common::parse_fp_from_str;
 use crate::score::Score;
 
@@ -43,8 +43,12 @@ impl<B: Board> SearchResult<B> {
     }
 
     pub fn new_from_pv(score: Score, pv: &[B::Move]) -> Self {
-        assert!(!pv.is_empty());
-        Self::new(pv[0], score, pv.get(1).copied())
+        // the pv may be empty if search is called in a position where the game is over
+        Self::new(
+            pv.first().copied().unwrap_or_default(),
+            score,
+            pv.get(1).copied(),
+        )
     }
 
     pub fn ponder_move(&self) -> Option<B::Move> {
@@ -112,15 +116,20 @@ impl<B: Board> Display for SearchInfo<B> {
         };
 
         write!(f,
-               "info depth {depth}{seldepth} multipv {multipv} score {score_str} time {time} nodes {nodes} nps {nps}{hashfull} pv {pv}{string}",
+               "info depth {depth}{seldepth} multipv {multipv} score {score_str} time {time} nodes {nodes} nps {nps}{hashfull} pv",
                depth = self.depth.get(), time = self.time.as_millis(), nodes = self.nodes.get(),
                seldepth = self.seldepth.map(|d| format!(" seldepth {d}")).unwrap_or_default(),
                multipv = self.pv_num + 1,
                nps = self.nps(),
-               pv = self.pv.iter().map(|mv| mv.to_compact_text()).collect::<Vec<_>>().join(" "),
                hashfull = self.hashfull.map(|f| format!(" hashfull {f}")).unwrap_or_default(),
-               string = self.additional.clone().map(|s| format!(" string {s}")).unwrap_or_default()
-        )
+        )?;
+        for mov in &self.pv {
+            write!(f, " {mov}")?;
+        }
+        if let Some(ref additional) = self.additional {
+            write!(f, " string {additional}")?;
+        }
+        Ok(())
     }
 }
 
@@ -162,7 +171,7 @@ impl FromStr for TimeControl {
         if s == "infinite" || s == "∞" {
             return Ok(TimeControl::infinite());
         }
-        // For now, don't support movestogo TODO: Add support eventually
+        // For now, don't support movestogo TODO: Add support
         let mut parts = s.split('+');
         let start_time = parts.next().ok_or_else(|| "Empty TC".to_string())?;
         let start_time = parse_fp_from_str::<f64>(start_time.trim(), "the start time")?.max(0.0);

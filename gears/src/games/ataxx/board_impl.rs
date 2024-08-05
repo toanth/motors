@@ -1,19 +1,21 @@
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::common::{AtaxxMove, ColoredAtaxxPieceType};
-use crate::games::ataxx::{AtaxxBitboard, AtaxxBoard, AtaxxMoveList, AtaxxSettings};
-use crate::games::Color::{Black, White};
-use crate::games::SelfChecks::CheckFen;
-use crate::games::{read_position_fen, Board, Color, Move, ZobristHash};
+use crate::games::ataxx::AtaxxColor::{Black, White};
+use crate::games::ataxx::{AtaxxBitboard, AtaxxBoard, AtaxxColor, AtaxxMoveList, AtaxxSettings};
+use crate::games::{Board, Color, ZobristHash};
 use crate::general::bitboards::ataxx::{INVALID_EDGE_MASK, LEAPING};
 use crate::general::bitboards::chess::KINGS;
 use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::general::board::read_position_fen;
+use crate::general::board::SelfChecks::CheckFen;
 use crate::general::common::Res;
+use crate::general::moves::Move;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::num::NonZeroUsize;
 use std::str::SplitWhitespace;
 
 impl AtaxxBoard {
-    pub fn create(blocked: AtaxxBitboard, white: AtaxxBitboard, black: AtaxxBitboard) -> Res<Self> {
+    pub fn create(blocked: AtaxxBitboard, black: AtaxxBitboard, white: AtaxxBitboard) -> Res<Self> {
         let blocked = blocked | INVALID_EDGE_MASK;
         if (white & black).has_set_bit() {
             return Err(format!(
@@ -29,15 +31,15 @@ impl AtaxxBoard {
         }
         // it's legal for the position to not contain any pieces at all
         Ok(Self {
-            colors: [white.raw(), black.raw()],
+            colors: [black.raw(), white.raw()],
             empty: !(blocked | white | black).raw(),
-            active_player: White,
+            active_player: AtaxxColor::first(),
             ply_100_ctr: 0,
             ply: 0,
         })
     }
 
-    pub fn color_bb(&self, color: Color) -> AtaxxBitboard {
+    pub fn color_bb(&self, color: AtaxxColor) -> AtaxxBitboard {
         AtaxxBitboard::new(self.colors[color as usize])
     }
 

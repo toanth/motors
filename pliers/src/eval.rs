@@ -12,7 +12,7 @@ use crate::gd::{
 use crate::load_data::Filter;
 use crate::trace::TraceTrait;
 use derive_more::Display;
-use gears::games::Board;
+use gears::general::board::Board;
 use std::fmt::Formatter;
 
 pub mod chess;

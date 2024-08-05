@@ -1,10 +1,10 @@
 use std::time::Duration;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use gears::games::chess::ChessColor::White;
 use gears::games::chess::Chessboard;
-use gears::games::Board;
-use gears::games::Color::White;
 use gears::general::bitboards::RawBitboard;
+use gears::general::board::Board;
 use gears::general::perft::perft;
 use gears::search::Depth;
 

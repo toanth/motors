@@ -4,18 +4,21 @@ use strum::IntoEnumIterator;
 use crate::eval::chess::lite_values::*;
 use crate::eval::chess::{pawn_shield_idx, DiagonalOpenness, FileOpenness};
 use gears::games::chess::moves::ChessMove;
-use gears::games::chess::pieces::UncoloredChessPiece::*;
-use gears::games::chess::pieces::{UncoloredChessPiece, NUM_CHESS_PIECES};
+use gears::games::chess::pieces::ChessPieceType::*;
+use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::squares::ChessSquare;
-use gears::games::chess::Chessboard;
-use gears::games::Color::{Black, White};
-use gears::games::{Board, Color, DimT, Move, ZobristHash};
+use gears::games::chess::ChessColor::{Black, White};
+use gears::games::chess::{ChessColor, Chessboard};
+use gears::games::Color;
+use gears::games::{DimT, ZobristHash};
 use gears::general::bitboards::chess::{
     ChessBitboard, A_FILE, CHESS_ANTI_DIAGONALS, CHESS_DIAGONALS,
 };
 use gears::general::bitboards::Bitboard;
 use gears::general::bitboards::RawBitboard;
+use gears::general::board::Board;
 use gears::general::common::StaticallyNamedEntity;
+use gears::general::moves::Move;
 use gears::score::{PhaseType, Score};
 
 use crate::eval::chess::lite::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
@@ -114,8 +117,8 @@ impl<Tuned: LiteValues> StaticallyNamedEntity for GenericLiTEval<Tuned> {
 impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     fn psqt(pos: &Chessboard) -> Tuned::Score {
         let mut res = Tuned::Score::default();
-        for color in Color::iter() {
-            for piece in UncoloredChessPiece::pieces() {
+        for color in ChessColor::iter() {
+            for piece in ChessPieceType::pieces() {
                 for square in pos.colored_piece_bb(color, piece).ones() {
                     res += Tuned::psqt(square, piece, color);
                 }
@@ -127,7 +130,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
     fn bishop_pair(
         pos: &Chessboard,
-        color: Color,
+        color: ChessColor,
     ) -> <Tuned::Score as ScoreType>::SingleFeatureScore {
         if pos.colored_piece_bb(color, Bishop).more_than_one_bit_set() {
             Tuned::bishop_pair()
@@ -138,7 +141,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
     fn pawn_shield(
         pos: &Chessboard,
-        color: Color,
+        color: ChessColor,
     ) -> <Tuned::Score as ScoreType>::SingleFeatureScore {
         let our_pawns = pos.colored_piece_bb(color, Pawn);
         let king_square = pos.king_square(color);
@@ -146,7 +149,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         Tuned::pawn_shield(idx)
     }
 
-    fn pawns(pos: &Chessboard, color: Color) -> Tuned::Score {
+    fn pawns(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let our_pawns = pos.colored_piece_bb(color, Pawn);
         let their_pawns = pos.colored_piece_bb(color.other(), Pawn);
         let mut score = Tuned::Score::default();
@@ -168,7 +171,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         let num_doubled_pawns = (our_pawns & (our_pawns.north())).num_ones();
         score += Tuned::doubled_pawn() * num_doubled_pawns;
-        for piece in UncoloredChessPiece::pieces() {
+        for piece in ChessPieceType::pieces() {
             let bb = pos.colored_piece_bb(color, piece);
             let pawn_attacks = our_pawns.pawn_attacks(color);
             let protected_by_pawns = pawn_attacks & bb;
@@ -180,7 +183,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn open_lines(pos: &Chessboard, color: Color) -> Tuned::Score {
+    fn open_lines(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let our_pawns = pos.colored_piece_bb(color, Pawn);
         let their_pawns = pos.colored_piece_bb(color.other(), Pawn);
@@ -203,7 +206,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn mobility_and_threats(pos: &Chessboard, color: Color) -> Tuned::Score {
+    fn mobility_and_threats(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let attacked_by_pawn = pos
             .colored_piece_bb(color.other(), Pawn)
@@ -212,13 +215,13 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         if (pos.colored_piece_bb(color, Pawn).pawn_attacks(color) & king_zone).has_set_bit() {
             score += Tuned::king_zone_attack(Pawn);
         }
-        for piece in UncoloredChessPiece::non_pawn_pieces() {
+        for piece in ChessPieceType::non_pawn_pieces() {
             for square in pos.colored_piece_bb(color, piece).ones() {
                 let attacks =
                     pos.attacks_no_castle_or_pawn_push(square, piece, color) & !attacked_by_pawn;
                 let mobility = (attacks & !pos.colored_bb(color)).num_ones();
                 score += Tuned::mobility(piece, mobility);
-                for threatened_piece in UncoloredChessPiece::pieces() {
+                for threatened_piece in ChessPieceType::pieces() {
                     let attacked = pos.colored_piece_bb(color.other(), threatened_piece) & attacks;
                     score += Tuned::threats(piece, threatened_piece) * attacked.num_ones();
                     let defended = pos.colored_piece_bb(color, threatened_piece) & attacks;
@@ -234,7 +237,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
     fn recomputed_every_time(pos: &Chessboard) -> Tuned::Score {
         let mut score = Tuned::Score::default();
-        for color in Color::iter() {
+        for color in ChessColor::iter() {
             score += Self::bishop_pair(pos, color);
             score += Self::pawns(pos, color);
             score += Self::pawn_shield(pos, color);
@@ -254,7 +257,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         // the current player has been flipped
         let mut delta = Tuned::Score::default();
         let mut phase_delta = PhaseType::default();
-        let piece = mov.uncolored_piece();
+        let piece = mov.piece_type();
         let captured = mov.captured(old_pos);
         delta -= Tuned::psqt(mov.src_square(), piece, moving_player);
         if mov.is_castle() {
@@ -297,7 +300,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let mut state = EvalState::default();
 
         let mut phase = 0;
-        for piece in UncoloredChessPiece::non_king_pieces() {
+        for piece in ChessPieceType::non_king_pieces() {
             phase += pos.piece_bb(piece).num_ones() as isize * PIECE_PHASE[piece as usize];
         }
         state.phase = phase;

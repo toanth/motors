@@ -2,8 +2,8 @@ use std::fmt::Display;
 use strum::IntoEnumIterator;
 
 use gears::games::mnk::{MNKBoard, MnkBitboard};
-use gears::games::Board;
 use gears::general::bitboards::{Bitboard, RawBitboard, RayDirections};
+use gears::general::board::Board;
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::squares::GridSize;
 use gears::score::{Score, ScoreT};

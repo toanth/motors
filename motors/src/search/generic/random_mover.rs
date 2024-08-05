@@ -1,10 +1,10 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::time::{Duration, Instant};
 
+use gears::general::board::Board;
 use rand::{thread_rng, Rng, RngCore, SeedableRng};
 
 use crate::eval::Eval;
-use gears::games::Board;
 use gears::general::common::{Res, StaticallyNamedEntity};
 use gears::score::Score;
 use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
@@ -120,9 +120,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
                 .nth(self.rng.gen_range(0..len))
                 .unwrap();
         } else {
-            self.chosen_move = pos
-                .random_legal_move(&mut self.rng)
-                .expect("search() called in a position with no legal moves");
+            self.chosen_move = pos.random_legal_move(&mut self.rng).unwrap_or_default();
         }
         Ok(SearchResult::move_only(self.chosen_move))
     }
