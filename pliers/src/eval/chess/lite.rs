@@ -29,6 +29,7 @@ impl LiTETrace {
     const NUM_BISHOP_OPENNESS_FEATURES: usize = 4 * 8;
     const NUM_PASSED_PAWN_FEATURES: usize = NUM_SQUARES;
     const NUM_UNSUPPORTED_PAWN_FEATURES: usize = 1;
+    const NUM_PASSED_PAWNS_OUTSIDE_SQUARE_FEATURES: usize = 1;
     const NUM_DOUBLED_PAWN_FEATURES: usize = 1;
     const NUM_PAWN_PROTECTION_FEATURES: usize = NUM_CHESS_PIECES;
     const NUM_PAWN_ATTACKS_FEATURES: usize = NUM_CHESS_PIECES;
@@ -42,7 +43,10 @@ impl LiTETrace {
         Self::PASSED_PAWN_OFFSET + Self::NUM_PASSED_PAWN_FEATURES;
     const DOUBLED_PAWN_OFFSET: usize =
         Self::UNSUPPORTED_PAWN_OFFSET + Self::NUM_UNSUPPORTED_PAWN_FEATURES;
-    const BISHOP_PAIR_OFFSET: usize = Self::DOUBLED_PAWN_OFFSET + Self::NUM_DOUBLED_PAWN_FEATURES;
+    const PASSED_PAWN_OUTSIDE_SQUARE_OFFSEET: usize =
+        Self::DOUBLED_PAWN_OFFSET + Self::NUM_DOUBLED_PAWN_FEATURES;
+    const BISHOP_PAIR_OFFSET: usize =
+        Self::PASSED_PAWN_OUTSIDE_SQUARE_OFFSEET + Self::NUM_PASSED_PAWNS_OUTSIDE_SQUARE_FEATURES;
     const ROOK_OPENNESS_OFFSET: usize = Self::BISHOP_PAIR_OFFSET + Self::ONE_BISHOP_PAIR_FEATURE;
     const KING_OPENNESS_OFFSET: usize =
         Self::ROOK_OPENNESS_OFFSET + Self::NUM_ROOK_OPENNESS_FEATURES;
@@ -82,6 +86,11 @@ impl LiteValues for LiTETrace {
 
     fn doubled_pawn() -> <Self::Score as ScoreType>::SingleFeatureScore {
         let idx = Self::DOUBLED_PAWN_OFFSET;
+        SingleFeature::new(idx)
+    }
+
+    fn passed_pawn_outside_square_rule() -> <Self::Score as ScoreType>::SingleFeatureScore {
+        let idx = Self::PASSED_PAWN_OUTSIDE_SQUARE_OFFSEET;
         SingleFeature::new(idx)
     }
 
@@ -189,6 +198,13 @@ impl WeightsInterpretation for TuneLiTEval {
             writeln!(
                 f,
                 "const DOUBLED_PAWN: PhasedScore = {};",
+                write_phased(weights, idx, &special)
+            )?;
+            idx += 1;
+
+            writeln!(
+                f,
+                "const PASSED_PAWN_OUTSIDE_SQUARE_RULE: PhasedScore = {};",
                 write_phased(weights, idx, &special)
             )?;
             idx += 1;

@@ -161,6 +161,20 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             let blocking = in_front | in_front.west() | in_front.east();
             if (in_front & our_pawns).is_zero() && (blocking & their_pawns).is_zero() {
                 score += Tuned::passed_pawn(normalized_square);
+                let their_king = pos.king_square(!color).flip_if(color == White);
+                let mut rank = isize::from(normalized_square.rank());
+                // squares are normalized such that a8 is at index 0
+                if normalized_square.rank() == 8 - 2 {
+                    rank -= 1; // account for double pawn pushes
+                }
+                if pos.active_player() == color {
+                    rank -= 1;
+                }
+                if isize::from(their_king.rank()) > rank + 1
+                    || isize::from(normalized_square.file().abs_diff(their_king.file())) > rank + 1
+                {
+                    score += Tuned::passed_pawn_outside_square_rule();
+                }
             }
             let file = ChessBitboard::file_no(square.file());
             let neighbors = file.west() | file.east();
