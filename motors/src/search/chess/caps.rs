@@ -710,14 +710,16 @@ impl Caps {
                 if score >= beta {
                     // For shallow depths, don't bother with doing a verification search to avoid useless re-searches,
                     // unless we'd be storing a mate score -- we really want to avoid storing unproved mates in the TT.
-                    if depth < 8 && !score.is_game_won_score() {
+                    // It's possible to beat beta with a score of getting mated, so use `is_game_over_score`
+                    // instead of `is_game_won_score`
+                    if depth < 8 && !score.is_game_over_score() {
                         return score;
                     }
                     *self.state.custom.nmp_disabled_for(pos.active_player()) = true;
-                    // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so use
-                    // `depth - reduction`.
+                    // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so technically we
+                    // should use `depth - reduction`, but using `depth - 1 - reduction` is less expensive and good enough.
                     let verification_score =
-                        self.negamax(pos, ply, depth - reduction, beta - 1, beta, FailHigh);
+                        self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh);
                     *self.state.custom.nmp_disabled_for(pos.active_player()) = false;
                     // The verification score is more trustworthy than the nmp score.
                     if verification_score >= beta {
