@@ -170,12 +170,15 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 if pos.active_player() == color {
                     rank -= 1;
                 }
-                if isize::from(their_king.rank()) > rank + 1
-                    || isize::from(normalized_square.file().abs_diff(their_king.file())) > rank + 1
-                {
-                    score += Tuned::passed_pawn_outside_square_rule();
-                }
+                let distance = isize::from(normalized_square.file().abs_diff(their_king.file()));
+                let idx = if isize::from(their_king.rank()) > rank + 1 || distance > rank + 1 {
+                    0
+                } else {
+                    distance + 1
+                };
+                score += Tuned::passed_pawns_outside_square_rule(idx as usize);
             }
+
             let file = ChessBitboard::file_no(square.file());
             let neighbors = file.west() | file.east();
             let supporting = neighbors & !blocking;
