@@ -20,8 +20,7 @@ use gears::general::common::{select_name_static, Res, StaticallyNamedEntity};
 use gears::general::moves::Move;
 use gears::output::Message::Debug;
 use gears::score::{
-    game_result_to_score, ScoreT, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA,
-    NO_SCORE_YET, SCORE_TIME_UP,
+    game_result_to_score, ScoreT, MAX_BETA, MAX_SCORE_LOST, MIN_ALPHA, NO_SCORE_YET, SCORE_TIME_UP,
 };
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
@@ -135,6 +134,13 @@ struct Additional {
     capt_hist: CaptHist,
     tt: TT,
     original_board_hist: ZobristHistory<Chessboard>,
+    nmp_disabled: [bool; 2],
+}
+
+impl Additional {
+    fn nmp_disabled_for(&mut self, color: ChessColor) -> &mut bool {
+        &mut self.nmp_disabled[color as usize]
+    }
 }
 
 impl CustomInfo<Chessboard> for Additional {
@@ -673,12 +679,14 @@ impl Caps {
             // To test this hypothesis, do a null move and perform a search with reduced depth; if the result is still
             // above beta, then it's very likely that the score would have been above beta if we had played a move,
             // so simply return the nmp score. This is based on the null move observation (there are very few zugzwang positions).
-            // A more careful implementation would do a verification search to check for zugzwang, and possibly avoid even trying
-            // nmp in a position with no pieces except the king and pawns.
-            // TODO: Verification search.
+            // If we don't have non-pawn, non-king pieces, we're likely to be in zugzwang, so don't even try NMP.
             let has_nonpawns =
                 (pos.active_player_bb() & !pos.piece_bb(Pawn)).more_than_one_bit_set();
-            if depth >= 3 && eval >= beta && has_nonpawns {
+            if depth >= 3
+                && eval >= beta
+                && !*self.state.custom.nmp_disabled_for(pos.active_player())
+                && has_nonpawns
+            {
                 // `make_nullmove` resets the 50mr counter, so we don't consider positions after a nullmove as repetitions,
                 // but we can still get TT cutoffs
                 self.state.board_history.push(&pos);
@@ -699,7 +707,23 @@ impl Caps {
                 self.state.search_stack[ply].tried_moves.pop();
                 self.state.board_history.pop();
                 if score >= beta {
-                    return score.min(MAX_NORMAL_SCORE);
+                    // For shallow depths, don't bother with doing a verification search to avoid useless re-searches,
+                    // unless we'd be storing a mate score -- we really want to avoid storing unproved mates in the TT.
+                    // It's possible to beat beta with a score of getting mated, so use `is_game_over_score`
+                    // instead of `is_game_won_score`
+                    if depth < 8 && !score.is_game_over_score() {
+                        return score;
+                    }
+                    *self.state.custom.nmp_disabled_for(pos.active_player()) = true;
+                    // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so technically we
+                    // should use `depth - reduction`, but using `depth - 1 - reduction` is less expensive and good enough.
+                    let verification_score =
+                        self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh);
+                    *self.state.custom.nmp_disabled_for(pos.active_player()) = false;
+                    // The verification score is more trustworthy than the nmp score.
+                    if verification_score >= beta {
+                        return verification_score;
+                    }
                 }
             }
         }
