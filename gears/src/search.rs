@@ -319,6 +319,10 @@ impl SearchLimit {
         }
     }
 
+    pub fn mate_in_moves(num_moves: usize) -> Self {
+        Self::mate(Depth::new(num_moves * 2))
+    }
+
     pub fn nodes(nodes: NodesLimit) -> Self {
         Self {
             nodes,

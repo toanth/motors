@@ -473,6 +473,10 @@ impl Caps {
                 } else {
                     self.state.score = pv_score;
                 }
+                debug_assert!(
+                    !self.state.score.is_game_over_score()
+                        || self.state.score.plies_until_game_over().unwrap() <= 120
+                );
                 // incomplete iterations and root nodes that failed low don't overwrite the `state.mov()`,
                 // so it should be fine to unconditionally assign here. We use self.state.score instead of pv_score
                 // because the latter would be incorrect for cancelled iterations.
@@ -1278,6 +1282,37 @@ mod tests {
     #[test]
     fn generic_test() {
         generic_engine_test(Caps::for_eval::<LiTEval>());
+    }
+
+    #[test]
+    fn mate_research_test() {
+        let pos = Chessboard::from_fen("k7/3B4/4N3/K7/8/8/8/8 w - - 16 9").unwrap();
+        let mut caps = Caps::for_eval::<LiTEval>();
+        let limit = SearchLimit::mate_in_moves(5);
+        let res = caps.search_from_pos(pos, limit).unwrap();
+        assert!(res.score.unwrap().is_game_won_score());
+        let nodes = caps.search_state().uci_nodes();
+        // Don't clear the internal state
+        let second_search = caps.search_from_pos(pos, limit).unwrap();
+        assert!(second_search.score.unwrap().is_game_won_score());
+        let second_search_nodes = caps.search_state().uci_nodes();
+        assert!(
+            second_search_nodes + second_search_nodes / 2 < nodes,
+            "{second_search_nodes} {nodes}"
+        );
+        let d3 = SearchLimit::depth(Depth::new(3));
+        let d3_search = caps.search_from_pos(pos, d3).unwrap();
+        assert!(
+            d3_search.score.unwrap().is_game_won_score(),
+            "{}",
+            d3_search.score.unwrap().0
+        );
+        let d3_nodes = caps.search_state().uci_nodes();
+        caps.forget();
+        let fresh_d3_search = caps.search_from_pos(pos, d3).unwrap();
+        assert!(!fresh_d3_search.score.unwrap().is_game_over_score());
+        let fresh_d3_nodes = caps.search_state().uci_nodes();
+        assert!(d3_nodes + d3_nodes / 2 < fresh_d3_nodes);
     }
 
     #[test]

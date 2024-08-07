@@ -195,7 +195,7 @@ impl TT {
             entry.score.0.abs() <= SCORE_WON.0,
             "score {}, ply {ply}, won in {won}",
             entry.score.0,
-            won = entry.score.plies_until_game_won().unwrap_or(42),
+            won = entry.score.plies_until_game_won().unwrap_or(-1),
         );
         self.0[idx].store(entry.to_packed(), Relaxed);
     }
