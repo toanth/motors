@@ -630,12 +630,10 @@ impl Caps {
                 best_move = mov;
             }
             // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
-            if
-            /* !tt_entry.score.is_game_over_score()
-            &&*/
-            (bound == Exact
-                || (bound == FailHigh && tt_entry.score >= eval)
-                || (bound == FailLow && tt_entry.score <= eval))
+            if !tt_entry.score.is_game_over_score()
+                && (bound == Exact
+                    || (bound == FailHigh && tt_entry.score >= eval)
+                    || (bound == FailLow && tt_entry.score <= eval))
             {
                 eval = tt_entry.score;
             }
@@ -1055,11 +1053,9 @@ impl Caps {
             }
             // TODO: Why exclude game over scores? Also in negamax
             // exact scores should have already caused a cutoff
-            if
-            /* !tt_entry.score.is_game_over_score()
-            &&*/
-            ((bound == FailHigh && tt_entry.score >= best_score)
-                || (bound == FailLow && tt_entry.score <= best_score))
+            if !tt_entry.score.is_game_over_score()
+                && ((bound == FailHigh && tt_entry.score >= best_score)
+                    || (bound == FailLow && tt_entry.score <= best_score))
             {
                 best_score = tt_entry.score;
             };
