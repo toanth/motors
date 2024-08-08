@@ -675,9 +675,9 @@ pub trait CustomInfo<B: Board>: Default + Clone + Debug {
         None
     }
     fn new_search(&mut self) {
-        self.forget();
+        self.hard_forget();
     }
-    fn forget(&mut self);
+    fn hard_forget(&mut self);
 
     fn best_move(&self) -> Option<B::Move> {
         None
@@ -690,7 +690,7 @@ pub struct BestMoveCustomInfo<B: Board> {
 }
 
 impl<B: Board> CustomInfo<B> for BestMoveCustomInfo<B> {
-    fn forget(&mut self) {
+    fn hard_forget(&mut self) {
         self.chosen_move = None;
     }
     fn best_move(&self) -> Option<B::Move> {
@@ -814,7 +814,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
             e.forget();
         }
         if hard {
-            self.custom.forget();
+            self.custom.hard_forget();
         } else {
             self.custom.new_search();
         }

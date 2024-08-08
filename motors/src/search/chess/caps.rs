@@ -152,7 +152,7 @@ impl CustomInfo<Chessboard> for Additional {
         // don't update history values, malus and gravity already take care of that
     }
 
-    fn forget(&mut self) {
+    fn hard_forget(&mut self) {
         for value in self.history.iter_mut() {
             *value = 0;
         }
@@ -165,6 +165,7 @@ impl CustomInfo<Chessboard> for Additional {
         for value in self.follow_up_move_hist.iter_mut() {
             *value = 0;
         }
+        self.tt.forget();
     }
 }
 
@@ -553,7 +554,7 @@ impl Caps {
             .statistics
             .count_node_started(MainSearch, ply, false);
 
-        let mut tt = self.state.custom.tt.clone();
+        let mut tt = self.state.custom.tt.clone(); // TODO: Don't use an Arc, just a reference.
 
         let root = ply == 0;
         let is_pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
@@ -629,10 +630,12 @@ impl Caps {
                 best_move = mov;
             }
             // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
-            if !tt_entry.score.is_game_over_score()
-                && (bound == Exact
-                    || (bound == FailHigh && tt_entry.score >= eval)
-                    || (bound == FailLow && tt_entry.score <= eval))
+            if
+            /* !tt_entry.score.is_game_over_score()
+            &&*/
+            (bound == Exact
+                || (bound == FailHigh && tt_entry.score >= eval)
+                || (bound == FailLow && tt_entry.score <= eval))
             {
                 eval = tt_entry.score;
             }
@@ -653,7 +656,7 @@ impl Caps {
         // TODO: Currently, this uses the TT score when possible. Think about if there are unintended consequences.
         let they_blundered = ply >= 2 && eval - self.state.search_stack[ply - 2].eval > Score(50);
         let we_blundered = ply >= 2 && eval - self.state.search_stack[ply - 2].eval < Score(-50);
-        debug_assert!(!eval.is_game_over_score());
+        // debug_assert!(!eval.is_game_over_score()); // TODO: Think about what goes wrong for game over scores
         // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
         // because the move ordering won't be great, so don't spend too much time on this node.
         // Instead, search it with reduced depth to fill the TT entry so that we can re-search it faster the next time
@@ -1026,12 +1029,6 @@ impl Caps {
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
         let mut best_score = self.eval(pos, ply);
         let mut bound_so_far = FailLow;
-        if best_score >= beta {
-            return best_score;
-        }
-
-        // TODO: stand pat is SCORE_LOST when in check, generate evasions?
-        alpha = alpha.max(best_score);
 
         // see main search, store an invalid random move in the TT entry if all moves failed low.
         let mut best_move = ChessMove::default();
@@ -1056,11 +1053,31 @@ impl Caps {
                 self.state.statistics.tt_cutoff(Qsearch, bound);
                 return tt_entry.score;
             }
+            // TODO: Why exclude game over scores? Also in negamax
+            // exact scores should have already caused a cutoff
+            if
+            /* !tt_entry.score.is_game_over_score()
+            &&*/
+            ((bound == FailHigh && tt_entry.score >= best_score)
+                || (bound == FailLow && tt_entry.score <= best_score))
+            {
+                best_score = tt_entry.score;
+            };
             if let Some(mov) = tt_entry.mov.check_psuedolegal(&pos) {
                 best_move = mov;
             }
         }
+        // TODO: stand pat is SCORE_LOST when in check, generate evasions?
+        if best_score > alpha {
+            bound_so_far = Exact;
+            alpha = best_score;
+        }
+        alpha = alpha.max(best_score);
         self.record_pos(pos, best_score, ply);
+        // TODO: Save to the TT?!
+        if best_score >= beta {
+            return best_score;
+        }
 
         let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
             MovePicker::new(pos, best_move, true);
@@ -1310,7 +1327,11 @@ mod tests {
         let d3_nodes = caps.search_state().uci_nodes();
         caps.forget();
         let fresh_d3_search = caps.search_from_pos(pos, d3).unwrap();
-        assert!(!fresh_d3_search.score.unwrap().is_game_over_score());
+        assert!(
+            !fresh_d3_search.score.unwrap().is_game_over_score(),
+            "{}",
+            fresh_d3_search.score.unwrap().0
+        );
         let fresh_d3_nodes = caps.search_state().uci_nodes();
         assert!(d3_nodes + d3_nodes / 2 < fresh_d3_nodes);
     }
