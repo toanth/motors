@@ -630,10 +630,11 @@ impl Caps {
                 best_move = mov;
             }
             // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
-            if !tt_entry.score.is_game_over_score()
-                && (bound == Exact
-                    || (bound == FailHigh && tt_entry.score >= eval)
-                    || (bound == FailLow && tt_entry.score <= eval))
+            // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
+            // create any problems, but should be kept in mind.
+            if bound == Exact
+                || (bound == FailHigh && tt_entry.score >= eval)
+                || (bound == FailLow && tt_entry.score <= eval)
             {
                 eval = tt_entry.score;
             }
@@ -654,7 +655,7 @@ impl Caps {
         // TODO: Currently, this uses the TT score when possible. Think about if there are unintended consequences.
         let they_blundered = ply >= 2 && eval - self.state.search_stack[ply - 2].eval > Score(50);
         let we_blundered = ply >= 2 && eval - self.state.search_stack[ply - 2].eval < Score(-50);
-        // debug_assert!(!eval.is_game_over_score()); // TODO: Think about what goes wrong for game over scores
+
         // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
         // because the move ordering won't be great, so don't spend too much time on this node.
         // Instead, search it with reduced depth to fill the TT entry so that we can re-search it faster the next time
@@ -1027,6 +1028,7 @@ impl Caps {
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
         let mut best_score = self.eval(pos, ply);
         let mut bound_so_far = FailLow;
+        let mut entry_depth = 0;
 
         // see main search, store an invalid random move in the TT entry if all moves failed low.
         let mut best_move = ChessMove::default();
@@ -1051,29 +1053,36 @@ impl Caps {
                 self.state.statistics.tt_cutoff(Qsearch, bound);
                 return tt_entry.score;
             }
-            // TODO: Why exclude game over scores? Also in negamax
+            // If the TT score is an upper bound, it can't be worse than the stand pat score unless it's from a regular
+            // search entry, i.e. depth is greater than 0.
+            if bound == FailLow && tt_entry.score < best_score {
+                debug_assert!(tt_entry.depth > 0);
+            }
             // exact scores should have already caused a cutoff
-            if !tt_entry.score.is_game_over_score()
-                && ((bound == FailHigh && tt_entry.score >= best_score)
-                    || (bound == FailLow && tt_entry.score <= best_score))
+            // TODO: Removing the `&& !tt_entry.score.is_game_over_score()` condition here and in `negamax` *failed* a
+            // nonregression SPRT with `[-7, 0]` bounds even though I don't know why, and those conditions make it fail
+            // the re-search test case. So the conditions are still disabled for now,
+            // test reintroducing them at some point in the future after I have TT aging!
+            if (bound == FailHigh && tt_entry.score >= best_score)
+                || (bound == FailLow && tt_entry.score <= best_score)
             {
                 best_score = tt_entry.score;
+                entry_depth = tt_entry.depth as isize;
             };
             if let Some(mov) = tt_entry.mov.check_psuedolegal(&pos) {
                 best_move = mov;
             }
         }
-        // TODO: stand pat is SCORE_LOST when in check, generate evasions?
-        if best_score > alpha {
-            bound_so_far = Exact;
-            alpha = best_score;
-        }
-        alpha = alpha.max(best_score);
-        self.record_pos(pos, best_score, ply);
         // TODO: Save to the TT?!
         if best_score >= beta {
             return best_score;
         }
+        // TODO: Set stand pat to SCORE_LOST when in check, generate evasions?
+        if best_score > alpha {
+            bound_so_far = Exact;
+            alpha = best_score;
+        }
+        self.record_pos(pos, best_score, ply);
 
         let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
             MovePicker::new(pos, best_move, true);
@@ -1099,6 +1108,9 @@ impl Caps {
             bound_so_far = Exact;
             alpha = score;
             best_move = mov;
+            // even if the child score came from a TT with depth > 0, we don't trust this node any more because we haven't
+            // looked at all nodes
+            entry_depth = 0;
             if score >= beta {
                 bound_so_far = FailHigh;
                 break;
@@ -1108,20 +1120,28 @@ impl Caps {
             .statistics
             .count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
 
-        let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
+        debug_assert!(!best_score.is_game_over_score() || entry_depth > 0);
+        let tt_entry: TTEntry<Chessboard> = TTEntry::new(
+            pos.zobrist_hash(),
+            best_score,
+            best_move,
+            entry_depth,
+            bound_so_far,
+        );
         self.state.custom.tt.store(tt_entry, ply);
         best_score
     }
 
     fn eval(&mut self, pos: Chessboard, ply: usize) -> Score {
-        if ply == 0 {
+        let res = if ply == 0 {
             self.eval.eval(&pos)
         } else {
             let old_pos = &self.state.search_stack[ply - 1].pos;
             let mov = &self.state.search_stack[ply - 1].last_tried_move();
             self.eval.eval_incremental(old_pos, *mov, &pos, ply)
-        }
+        };
+        debug_assert!(!res.is_game_over_score());
+        res
     }
 
     fn record_pos(&mut self, pos: Chessboard, eval: Score, ply: usize) {

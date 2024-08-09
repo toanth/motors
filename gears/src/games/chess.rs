@@ -286,6 +286,7 @@ impl Board for Chessboard {
             "2bk2rq/2p1pprp/2p1n3/p2pPQ2/N2P4/4RN1P/PPP2RP1/6K1 w - - 5 24",
             "2r2rk1/1p3pbp/p3ppp1/8/8/1P2N1P1/1PPP2PP/2KR3R w - - 42 42",
             "7r/pBrkqQ1p/3b4/5b2/8/6P1/PP2PP1P/R1BR2K1 w - - 1 17", // mate in 2
+            "k7/3B4/4N3/K7/8/8/8/8 w - - 16 9",                     // KNBvK
         ];
         fens.map(|fen| Self::from_fen(fen).unwrap())
             .iter()
