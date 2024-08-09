@@ -506,7 +506,7 @@ impl Caps {
             let exact = if pv_score > *alpha && pv_score < *beta {
                 self.state.sender.send_search_info(self.search_info()); // do this before incrementing the depth
 
-                // make sure that alpha and beta are at least 2 apart, to recognize PV nodes.
+                // TODO: Probably better to use a larger minimum window radius.
                 *window_radius = Score(1.max(window_radius.0 / 2));
                 self.state.statistics.aw_exact();
                 true
@@ -1028,7 +1028,6 @@ impl Caps {
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
         let mut best_score = self.eval(pos, ply);
         let mut bound_so_far = FailLow;
-        let mut entry_depth = 0;
 
         // see main search, store an invalid random move in the TT entry if all moves failed low.
         let mut best_move = ChessMove::default();
@@ -1067,13 +1066,15 @@ impl Caps {
                 || (bound == FailLow && tt_entry.score <= best_score)
             {
                 best_score = tt_entry.score;
-                entry_depth = tt_entry.depth as isize;
             };
             if let Some(mov) = tt_entry.mov.check_psuedolegal(&pos) {
                 best_move = mov;
             }
         }
-        // TODO: Save to the TT?!
+        // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
+        // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
+        // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
+        // only after aging
         if best_score >= beta {
             return best_score;
         }
@@ -1110,7 +1111,6 @@ impl Caps {
             best_move = mov;
             // even if the child score came from a TT with depth > 0, we don't trust this node any more because we haven't
             // looked at all nodes
-            entry_depth = 0;
             if score >= beta {
                 bound_so_far = FailHigh;
                 break;
@@ -1120,14 +1120,8 @@ impl Caps {
             .statistics
             .count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
 
-        debug_assert!(!best_score.is_game_over_score() || entry_depth > 0);
-        let tt_entry: TTEntry<Chessboard> = TTEntry::new(
-            pos.zobrist_hash(),
-            best_score,
-            best_move,
-            entry_depth,
-            bound_so_far,
-        );
+        let tt_entry: TTEntry<Chessboard> =
+            TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
         self.state.custom.tt.store(tt_entry, ply);
         best_score
     }

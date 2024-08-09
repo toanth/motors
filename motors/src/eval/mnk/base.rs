@@ -10,8 +10,9 @@ use gears::score::{Score, ScoreT};
 
 use crate::eval::Eval;
 
+/// BasE (Basic m,n,k Eval) is a m,n,k specific-eval. Currently very simple.
 #[derive(Debug, Default, Clone)]
-pub struct SimpleMnkEval {}
+pub struct BasicMnkEval {}
 
 fn eval_player(bb: MnkBitboard, size: GridSize) -> ScoreT {
     let blockers = !bb;
@@ -28,19 +29,19 @@ fn eval_player(bb: MnkBitboard, size: GridSize) -> ScoreT {
     res
 }
 
-impl StaticallyNamedEntity for SimpleMnkEval {
+impl StaticallyNamedEntity for BasicMnkEval {
     fn static_short_name() -> impl Display
     where
         Self: Sized,
     {
-        "simple_mnk"
+        "base"
     }
 
     fn static_long_name() -> String
     where
         Self: Sized,
     {
-        "Simple MNK eval".to_string()
+        "Basic m,n,k Eval".to_string()
     }
 
     fn static_description() -> String
@@ -51,7 +52,7 @@ impl StaticallyNamedEntity for SimpleMnkEval {
     }
 }
 
-impl Eval<MNKBoard> for SimpleMnkEval {
+impl Eval<MNKBoard> for BasicMnkEval {
     fn eval(&mut self, pos: &MNKBoard) -> Score {
         Score(
             eval_player(pos.active_player_bb(), pos.size())

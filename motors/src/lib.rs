@@ -26,7 +26,7 @@ use crate::eval::chess::material_only::MaterialOnlyEval;
 #[cfg(feature = "chess")]
 use crate::eval::chess::piston::PistonEval;
 #[cfg(feature = "mnk")]
-use crate::eval::mnk::simple_mnk_eval::SimpleMnkEval;
+use crate::eval::mnk::base::BasicMnkEval;
 use crate::eval::rand_eval::RandEval;
 #[cfg(feature = "caps")]
 use crate::search::chess::caps::Caps;
@@ -233,7 +233,7 @@ pub fn list_ataxx_evals() -> EvalList<AtaxxBoard> {
 #[must_use]
 pub fn list_mnk_evals() -> EvalList<MNKBoard> {
     let mut res = generic_evals::<MNKBoard>();
-    res.push(Box::new(EvalBuilder::<MNKBoard, SimpleMnkEval>::default()));
+    res.push(Box::new(EvalBuilder::<MNKBoard, BasicMnkEval>::default()));
     res
 }
 

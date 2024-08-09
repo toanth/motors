@@ -194,7 +194,7 @@ impl Default for FillSquare {
 
 impl Display for FillSquare {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.target)
+        write!(f, "{}", self.target)
     }
 }
 

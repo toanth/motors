@@ -110,7 +110,7 @@ impl<Tuned: LiteValues> StaticallyNamedEntity for GenericLiTEval<Tuned> {
     where
         Self: Sized,
     {
-        "A classical evaluation for chess, based on piece square tables".to_string()
+        "A classical evaluation for chess, tuned using 'pliers'".to_string()
     }
 }
 

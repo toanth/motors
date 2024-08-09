@@ -1225,11 +1225,8 @@ impl<B: Board> EngineUGI<B> {
                     val: String::new(),
                     default: Some(format!(
                         "Motors by ToTheAnd. Game: {2}. Engine: {0}. Eval: {1}  ",
-                        engine_info.description.unwrap_or(engine_info.long),
-                        eval_info.map_or_else(
-                            || "<none>".to_string(),
-                            |i| i.description.unwrap_or(i.long)
-                        ),
+                        engine_info.long,
+                        eval_info.map_or_else(|| "<none>".to_string(), |i| i.long),
                         B::game_name()
                     )),
                 }),
