@@ -59,6 +59,10 @@ impl AtaxxBoard {
         self.color_bb(self.active_player)
     }
 
+    pub fn inactive_bb(&self) -> AtaxxBitboard {
+        self.color_bb(!self.active_player)
+    }
+
     pub(super) fn legal_moves(&self) -> AtaxxMoveList {
         let mut res = AtaxxMoveList::default();
         let pieces = self.active_bb();

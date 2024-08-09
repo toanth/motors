@@ -21,6 +21,7 @@ use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArg
 
 use crate::cli::Mode::{Bench, Perft};
 use crate::cli::{parse_cli, EngineOpts, Mode};
+use crate::eval::ataxx::bate::Bate;
 use crate::eval::chess::lite::LiTEval;
 use crate::eval::chess::material_only::MaterialOnlyEval;
 #[cfg(feature = "chess")]
@@ -226,7 +227,9 @@ pub fn list_chess_evals() -> EvalList<Chessboard> {
 #[cfg(feature = "ataxx")]
 #[must_use]
 pub fn list_ataxx_evals() -> EvalList<AtaxxBoard> {
-    generic_evals()
+    let mut res = generic_evals();
+    res.push(Box::new(EvalBuilder::<AtaxxBoard, Bate>::default()));
+    res
 }
 
 #[cfg(feature = "mnk")]

@@ -9,6 +9,8 @@ use gears::score::{PhaseType, PhasedScore, Score};
 
 pub mod rand_eval;
 
+#[cfg(feature = "ataxx")]
+pub mod ataxx;
 #[cfg(feature = "chess")]
 pub mod chess;
 #[cfg(feature = "mnk")]
