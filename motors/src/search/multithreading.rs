@@ -72,6 +72,7 @@ impl<B: Board> SearchSender<B> {
         }
     }
 
+    /// Makes all engines stop and spins until the main search thread has finished searching
     pub fn send_stop(&mut self) {
         // Set `infinite` to `false` before stopping the search such that the engine will output a `bestmove`
         // as demanded by the spec, such as when it stops pondering:

@@ -232,9 +232,19 @@ impl TT {
 
 #[cfg(test)]
 mod test {
+    use crate::search::chess::caps::Caps;
+    use crate::search::multithreading::SearchSender;
+    use crate::search::NodeType::Exact;
+    use crate::search::SearchState;
+    use crate::search::{Benchable, Engine};
+    use gears::games::chess::moves::ChessMove;
+    use gears::games::ZobristHistory;
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
+    use gears::search::{Depth, SearchLimit};
     use rand::distributions::Uniform;
     use rand::{thread_rng, Rng, RngCore};
+    use std::thread::{sleep, spawn};
+    use std::time::Duration;
 
     use super::*;
 
@@ -326,5 +336,77 @@ mod test {
                 "{expected} {max} {size} {num_bytes}"
             );
         }
+    }
+
+    #[test]
+    #[cfg(feature = "chess")]
+    fn shared_tt_test() {
+        let mut tt = TT::new_with_bytes(32_000_000);
+        let pos = Chessboard::default();
+        let mut engine = Caps::default();
+        engine.set_tt(tt.clone());
+        let bad_move = ChessMove::from_compact_text("a2a3", &pos).unwrap();
+        let entry: TTEntry<Chessboard> =
+            TTEntry::new(pos.zobrist_hash(), MAX_NORMAL_SCORE, bad_move, 123, Exact);
+        tt.store(entry, 0);
+        let next_pos = pos.make_move(bad_move).unwrap();
+        let next_entry: TTEntry<Chessboard> = TTEntry::new(
+            next_pos.zobrist_hash(),
+            MIN_NORMAL_SCORE,
+            ChessMove::NULL,
+            122,
+            Exact,
+        );
+        tt.store(next_entry, 1);
+        let mov = engine
+            .search_from_pos(pos, SearchLimit::depth(Depth::new(1)))
+            .unwrap()
+            .chosen_move;
+        assert_eq!(mov, bad_move);
+        let limit = SearchLimit::depth(Depth::new(3));
+        let mut engine2 = Caps::default();
+        engine2.search_from_pos(pos, limit).unwrap();
+        let nodes = engine2.search_state().uci_nodes();
+        engine2.forget();
+        engine2.set_tt(tt.clone());
+        let _ = engine
+            .search_from_pos(pos, SearchLimit::depth(Depth::new(5)))
+            .unwrap();
+        let entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0);
+        assert!(entry.is_some());
+        assert_eq!(entry.unwrap().depth, 5);
+        engine2.search_from_pos(pos, limit).unwrap();
+        assert!(engine2.search_state().uci_nodes() <= nodes);
+        let mut sender = SearchSender::no_sender();
+        let sender1 = sender.clone();
+        let handle = spawn(move || {
+            engine.search(
+                pos,
+                SearchLimit::infinite(),
+                ZobristHistory::default(),
+                sender1,
+            )
+        });
+        let pos2 = Chessboard::from_name("kiwipete").unwrap();
+        let sender2 = sender.clone();
+        let handle2 = spawn(move || {
+            engine2.search(
+                pos2,
+                SearchLimit::infinite(),
+                ZobristHistory::default(),
+                sender2,
+            )
+        });
+        sleep(Duration::from_millis(500));
+        sender.send_stop();
+        let res1 = handle.join().unwrap().unwrap();
+        let res2 = handle2.join().unwrap().unwrap();
+        assert_ne!(res1.chosen_move, res2.chosen_move);
+        let entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0).unwrap();
+        let entry2 = tt.load::<Chessboard>(pos2.zobrist_hash(), 0).unwrap();
+        assert_eq!(entry.bound(), Exact);
+        assert_eq!(entry2.bound(), Exact);
+        assert!(pos.is_move_legal(mov));
+        assert!(pos2.is_move_legal(mov));
     }
 }
