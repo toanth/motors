@@ -391,6 +391,11 @@ impl Caps {
     fn prefetch(&self) -> impl Fn(ZobristHash) + '_ {
         |hash| self.state.custom.tt.prefetch(hash)
     }
+
+    fn tt(&self) -> &TT {
+        &self.state.custom.tt
+    }
+
     /// Iterative Deepening (ID): Do a depth 1 search, then a depth 2 search, then a depth 3 search, etc.
     /// This has two advantages: It allows the search to be stopped at any time, and it actually improves strength:
     /// The low-depth searches fill the TT and various heuristics, which improves move ordering and therefore results in
@@ -554,8 +559,6 @@ impl Caps {
             .statistics
             .count_node_started(MainSearch, ply, false);
 
-        let mut tt = self.state.custom.tt.clone(); // TODO: Don't use an Arc, just a reference.
-
         let root = ply == 0;
         let is_pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
         debug_assert!(!root || is_pv_node); // root implies pv node
@@ -594,7 +597,7 @@ impl Caps {
         // store a null move in the TT. This helps IIR.
         let mut best_move = ChessMove::default();
         let mut eval = self.eval(pos, ply);
-        if let Some(tt_entry) = tt.load::<Chessboard>(pos.zobrist_hash(), ply) {
+        if let Some(tt_entry) = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
             let bound = tt_entry.bound();
             debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
 
@@ -930,7 +933,7 @@ impl Caps {
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
         if !(root && self.state.pv_num > 0) {
-            tt.store(tt_entry, ply);
+            self.state.custom.tt.store(tt_entry, ply);
         }
 
         best_score
@@ -1034,12 +1037,7 @@ impl Caps {
 
         // do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation
         // but if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        if let Some(tt_entry) = self
-            .state
-            .custom
-            .tt
-            .load::<Chessboard>(pos.zobrist_hash(), ply)
-        {
+        if let Some(tt_entry) = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
             debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
             let bound = tt_entry.bound();
             // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
