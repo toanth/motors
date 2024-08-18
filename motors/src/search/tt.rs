@@ -404,8 +404,8 @@ mod test {
         assert_ne!(res1.chosen_move, res2.chosen_move);
         let entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0).unwrap();
         let entry2 = tt.load::<Chessboard>(pos2.zobrist_hash(), 0).unwrap();
-        assert_eq!(entry.bound(), Exact);
-        assert_eq!(entry2.bound(), Exact);
+        assert_eq!(entry.hash, pos.zobrist_hash());
+        assert_eq!(entry2.hash, pos2.zobrist_hash());
         assert!(pos.is_move_legal(mov));
         assert!(pos2.is_move_legal(mov));
     }

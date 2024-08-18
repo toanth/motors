@@ -79,7 +79,7 @@ pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Hash +
     fn format_compact(self, f: &mut Formatter<'_>) -> fmt::Result;
 
     /// Parse a compact text representation emitted by `to_compact_text`, such as the one used by UCI
-    /// Needs to ensure that the move is at least pseudolegal.
+    /// Needs to ensure that the move is at least pseudolegal.  
     fn from_compact_text(s: &str, board: &B) -> Res<B::Move>;
 
     /// Returns a longer representation of the move that may require the board, such as long algebraic notation
@@ -126,7 +126,7 @@ pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Hash +
     /// Load the move from its raw underlying integer representation, the inverse of `to_underlying`.
     /// Does not take a `Board` and therefore does not ensure pseudolegality.
     fn from_usize_unchecked(val: usize) -> UntrustedMove<B>;
-        
+
     /// Serialize this move into an internal integer representation.
     /// Typically, this function behaves like a `transmute`, i.e.,
     /// it simply returns the internal representation as an appropriately-sized integer,

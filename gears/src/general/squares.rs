@@ -1,3 +1,4 @@
+use colored::Colorize;
 use std::cmp::max;
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -12,6 +13,12 @@ pub trait RectangularCoordinates: Coordinates {
     fn from_row_column(row: DimT, column: DimT) -> Self;
     fn row(self) -> DimT;
     fn column(self) -> DimT;
+    fn rank(self) -> DimT {
+        self.row()
+    }
+    fn file(self) -> DimT {
+        self.column()
+    }
 }
 
 // Computes the L1 norm of a - b
@@ -100,7 +107,10 @@ impl Display for GridCoordinates {
 impl GridCoordinates {
     pub fn algebraic_coordinate(file: char, rank: usize) -> Res<Self> {
         if !file.is_ascii_alphabetic() {
-            return Err("file (column) must be a valid ascii letter".to_string());
+            return Err(format!(
+                "file (column) '{}' must be a valid ascii letter",
+                file.to_string().red()
+            ));
         }
         let column = char_to_file(file.to_ascii_lowercase());
         let rank = DimT::try_from(rank).map_err(|err| err.to_string())?;
@@ -199,30 +209,35 @@ impl<const H: usize, const W: usize> Display for SmallGridSize<H, W> {
     }
 }
 
-impl<const H: usize, const W: usize> Size<SmallGridSquare<H, W>> for SmallGridSize<H, W> {
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
+    Size<SmallGridSquare<H, W, INTERNAL_WIDTH>> for SmallGridSize<H, W>
+{
     fn num_squares(self) -> usize {
         H * W
     }
 
-    fn to_internal_key(self, coordinates: SmallGridSquare<H, W>) -> usize {
+    fn to_internal_key(self, coordinates: SmallGridSquare<H, W, INTERNAL_WIDTH>) -> usize {
         coordinates.bb_idx()
     }
 
-    fn to_coordinates_unchecked(self, internal_key: usize) -> SmallGridSquare<H, W> {
+    fn to_coordinates_unchecked(
+        self,
+        internal_key: usize,
+    ) -> SmallGridSquare<H, W, INTERNAL_WIDTH> {
         SmallGridSquare::unchecked(internal_key)
     }
 
-    fn valid_coordinates(self) -> impl Iterator<Item = SmallGridSquare<H, W>> {
+    fn valid_coordinates(self) -> impl Iterator<Item = SmallGridSquare<H, W, INTERNAL_WIDTH>> {
         SmallGridSquare::iter()
     }
 
-    fn coordinates_valid(self, coordinates: SmallGridSquare<H, W>) -> bool {
-        (coordinates.idx as usize) < H * 8 && coordinates.file() < W as DimT
+    fn coordinates_valid(self, coordinates: SmallGridSquare<H, W, INTERNAL_WIDTH>) -> bool {
+        (coordinates.idx as usize) < H * INTERNAL_WIDTH && coordinates.file() < W as DimT
     }
 }
 
-impl<const H: usize, const W: usize> RectangularSize<SmallGridSquare<H, W>>
-    for SmallGridSize<H, W>
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
+    RectangularSize<SmallGridSquare<H, W, INTERNAL_WIDTH>> for SmallGridSize<H, W>
 {
     fn height(self) -> Height {
         Height(H as u8)
@@ -233,7 +248,7 @@ impl<const H: usize, const W: usize> RectangularSize<SmallGridSquare<H, W>>
     }
 
     fn internal_width(self) -> usize {
-        8
+        INTERNAL_WIDTH
     }
 }
 
@@ -243,37 +258,51 @@ pub enum SquareColor {
     Black,
 }
 
+// Ideally, there would be an alias setting `INTERNAL_WIDTH` or a default parameter for `INTERNAL_WIDTH` to `max(8, W)`,
+// but both of those things aren't possible in stale Rust.
 #[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Hash)]
 #[must_use]
-pub struct SmallGridSquare<const H: usize, const W: usize> {
+pub struct SmallGridSquare<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> {
     idx: u8,
 }
 
-impl<const H: usize, const W: usize> FromStr for SmallGridSquare<H, W> {
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> FromStr
+    for SmallGridSquare<H, W, INTERNAL_WIDTH>
+{
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         GridCoordinates::from_str(s)
-            .and_then(|c| GridSize::chess().check_coordinates(c))
+            .and_then(|c| GridSize::new(Height::new(H), Width::new(H)).check_coordinates(c))
             .map(Self::from_coordinates)
     }
 }
 
-impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
+    SmallGridSquare<H, W, INTERNAL_WIDTH>
+{
+    // In the future, it might make sense to relax those constraints
+    const MAX_W: usize = 25; // there are 26 letters in the alphabet, so this ensures a simple 1-based textual representation
+    const MAX_H: usize = 35; // the maximum radix for from_char is 36, so this ensures valid heights are between 1 and 36
+
+    const UP_DOWN_MASK: DimT = ((1 << H.ilog2()) - 1) << INTERNAL_WIDTH.ilog2();
+    const LEFT_RIGHT_MASK: DimT = (1 << W.ilog2()) - 1;
+
     pub const fn from_bb_index(idx: usize) -> Self {
-        assert!(W <= 8);
-        assert!(H <= 8);
-        debug_assert!(idx % 8 < W);
-        debug_assert!(idx / 8 < H);
+        assert!(H <= Self::MAX_H);
+        assert!(W <= Self::MAX_W);
+        assert!(H * W <= DimT::MAX as usize); // `<=` because invalid coordinates have to be representable
+        debug_assert!(idx % INTERNAL_WIDTH < W);
+        debug_assert!(idx / INTERNAL_WIDTH < H);
         Self { idx: idx as u8 }
     }
 
-    pub fn unchecked(idx: usize) -> Self {
+    pub const fn unchecked(idx: usize) -> Self {
         Self { idx: idx as u8 }
     }
 
     pub const fn from_coordinates(c: GridCoordinates) -> Self {
-        Self::from_bb_index(c.row as usize * 8 + c.column as usize)
+        Self::from_bb_index(c.row as usize * INTERNAL_WIDTH + c.column as usize)
     }
 
     pub const fn from_rank_file(rank: DimT, file: DimT) -> Self {
@@ -286,9 +315,10 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
     pub fn from_chars(file: char, rank: char) -> Res<Self> {
         GridCoordinates::algebraic_coordinate(
             file,
-            rank.to_digit(10)
-                .ok_or_else(|| format!("the rank is '{rank}', which is not a digit"))?
-                as usize,
+            // + 1 because the rank number uses 1-based indices
+            rank.to_digit(H as u32 + 1).ok_or_else(|| {
+                format!("the rank is '{rank}', which does not represent a number between 1 and {H} (the height)")
+            })? as usize,
         )
         .and_then(|c| GridSize::new(Height(H as DimT), Width(W as DimT)).check_coordinates(c))
         .map(Self::from_coordinates)
@@ -309,17 +339,9 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
         ChessBitboard::single_piece(self.bb_idx())
     }
 
-    /// Note that this isn't necessarily consecutive because the bitboard assumes a 8x8 board for efficiency reasons.
+    /// Note that this isn't necessarily consecutive because the bitboard assumes a width of at least 8 for efficiency reasons.
     pub fn bb_idx(self) -> usize {
         self.idx as usize
-    }
-
-    pub fn rank(self) -> DimT {
-        self.row()
-    }
-
-    pub fn file(self) -> DimT {
-        self.column()
     }
 
     pub fn flip(self) -> Self {
@@ -336,12 +358,12 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
 
     pub fn north_unchecked(self) -> Self {
         debug_assert_ne!(self.rank() as usize, H - 1);
-        Self::unchecked(self.bb_idx() + 8)
+        Self::unchecked(self.bb_idx() + INTERNAL_WIDTH)
     }
 
     pub fn south_unchecked(self) -> Self {
         debug_assert_ne!(self.rank(), 0);
-        Self::unchecked(self.bb_idx() - 8)
+        Self::unchecked(self.bb_idx() - INTERNAL_WIDTH)
     }
 
     pub fn east_unchecked(self) -> Self {
@@ -373,25 +395,33 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W> {
 
     pub fn iter() -> impl Iterator<Item = Self> {
         (0..H)
-            .flat_map(|i| (8 * i)..(8 * i + W))
+            .flat_map(|i| (INTERNAL_WIDTH * i)..(INTERNAL_WIDTH * i + W))
             .map(Self::from_bb_index)
+    }
+
+    pub const fn no_coordinates_const() -> Self {
+        Self::unchecked(H * INTERNAL_WIDTH)
     }
 }
 
-impl<const H: usize, const W: usize> Display for SmallGridSquare<H, W> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Display
+    for SmallGridSquare<H, W, INTERNAL_WIDTH>
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.to_grid_coordinates().fmt(f)
     }
 }
 
-impl<const H: usize, const W: usize> Coordinates for SmallGridSquare<H, W> {
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Coordinates
+    for SmallGridSquare<H, W, INTERNAL_WIDTH>
+{
     type Size = SmallGridSize<H, W>;
 
     fn flip_up_down(self, _: Self::Size) -> Self {
-        // hopefully, this `if` will be evaluated at compile time
-        if H == 8 {
+        // hopefully, this `if` and the constant will be evaluated at compile time
+        if H.is_power_of_two() && INTERNAL_WIDTH.is_power_of_two() {
             Self {
-                idx: self.idx ^ 0b111_000,
+                idx: self.idx ^ Self::UP_DOWN_MASK,
             }
         } else {
             Self::from_rank_file(H as DimT - 1 - self.rank(), self.file())
@@ -399,9 +429,9 @@ impl<const H: usize, const W: usize> Coordinates for SmallGridSquare<H, W> {
     }
 
     fn flip_left_right(self, _: Self::Size) -> Self {
-        if W == 8 {
+        if W.is_power_of_two() {
             Self {
-                idx: self.idx ^ 0b000_111,
+                idx: self.idx ^ Self::LEFT_RIGHT_MASK,
             }
         } else {
             Self::from_rank_file(self.rank(), W as DimT - 1 - self.file())
@@ -409,20 +439,22 @@ impl<const H: usize, const W: usize> Coordinates for SmallGridSquare<H, W> {
     }
 
     fn no_coordinates() -> Self {
-        Self::unchecked(64)
+        Self::unchecked(H * INTERNAL_WIDTH)
     }
 }
 
-impl<const H: usize, const W: usize> RectangularCoordinates for SmallGridSquare<H, W> {
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> RectangularCoordinates
+    for SmallGridSquare<H, W, INTERNAL_WIDTH>
+{
     fn from_row_column(row: DimT, column: DimT) -> Self {
         Self::from_rank_file(row, column)
     }
 
     fn row(self) -> DimT {
-        self.idx / 8 as DimT
+        self.idx / INTERNAL_WIDTH as DimT
     }
 
     fn column(self) -> DimT {
-        self.idx % 8 as DimT
+        self.idx % INTERNAL_WIDTH as DimT
     }
 }

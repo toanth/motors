@@ -37,6 +37,7 @@ use crate::general::common::{
     parse_int_from_str, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
 };
 use crate::general::move_list::EagerNonAllocMoveList;
+use crate::general::squares::RectangularCoordinates;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 
@@ -92,6 +93,13 @@ impl Color for ChessColor {
 
     fn second() -> Self {
         Black
+    }
+
+    fn ascii_color_char(self) -> char {
+        match self {
+            White => 'w',
+            Black => 'b',
+        }
     }
 }
 

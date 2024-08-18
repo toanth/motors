@@ -15,4 +15,4 @@ pub const H_FILE_NO: DimT = 7;
 
 pub type ChessboardSize = SmallGridSize<8, 8>;
 
-pub type ChessSquare = SmallGridSquare<8, 8>;
+pub type ChessSquare = SmallGridSquare<8, 8, 8>;

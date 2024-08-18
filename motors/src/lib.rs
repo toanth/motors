@@ -9,6 +9,7 @@ use gears::games::ataxx::AtaxxBoard;
 use gears::games::chess::Chessboard;
 #[cfg(feature = "mnk")]
 use gears::games::mnk::MNKBoard;
+use gears::games::uttt::UtttBoard;
 use gears::games::OutputList;
 use gears::general::board::Board;
 use gears::general::common::Description::WithDescription;
@@ -31,7 +32,7 @@ use crate::eval::mnk::base::BasicMnkEval;
 use crate::eval::rand_eval::RandEval;
 #[cfg(feature = "caps")]
 use crate::search::chess::caps::Caps;
-#[cfg(feature = "generic_negamax")]
+#[cfg(feature = "gaps")]
 use crate::search::generic::gaps::Gaps;
 #[cfg(feature = "random_mover")]
 use crate::search::generic::random_mover::RandomMover;
@@ -201,6 +202,12 @@ fn list_ataxx_outputs() -> OutputList<AtaxxBoard> {
     normal_outputs::<AtaxxBoard>()
 }
 
+#[cfg(feature = "uttt")]
+#[must_use]
+fn list_uttt_outputs() -> OutputList<UtttBoard> {
+    normal_outputs::<UtttBoard>()
+}
+
 #[cfg(feature = "mnk")]
 #[must_use]
 fn list_mnk_outputs() -> OutputList<MNKBoard> {
@@ -232,6 +239,13 @@ pub fn list_ataxx_evals() -> EvalList<AtaxxBoard> {
     res
 }
 
+#[cfg(feature = "uttt")]
+#[must_use]
+pub fn list_uttt_evals() -> EvalList<UtttBoard> {
+    // TODO: Simple psqt eval
+    generic_evals()
+}
+
 #[cfg(feature = "mnk")]
 #[must_use]
 pub fn list_mnk_evals() -> EvalList<MNKBoard> {
@@ -245,7 +259,7 @@ pub fn generic_searchers<B: Board>() -> SearcherList<B> {
     vec![
         #[cfg(feature = "random_mover")]
         Box::new(SearcherBuilder::<B, RandomMover<B, StdRng>>::default()),
-        #[cfg(feature = "generic_negamax")]
+        #[cfg(feature = "gaps")]
         Box::new(SearcherBuilder::<B, Gaps<B>>::default()),
     ]
 }
@@ -265,6 +279,12 @@ pub fn list_chess_searchers() -> SearcherList<Chessboard> {
 #[cfg(feature = "ataxx")]
 #[must_use]
 pub fn list_ataxx_searchers() -> SearcherList<AtaxxBoard> {
+    generic_searchers()
+}
+
+#[cfg(feature = "uttt")]
+#[must_use]
+pub fn list_uttt_searchers() -> SearcherList<UtttBoard> {
     generic_searchers()
 }
 
@@ -289,6 +309,13 @@ pub fn create_match(args: EngineOpts) -> Res<AnyRunnable> {
             list_ataxx_searchers(),
             list_ataxx_evals(),
             list_ataxx_outputs(),
+        ),
+        #[cfg(feature = "uttt")]
+        Game::Uttt => create_match_for_game(
+            args,
+            list_uttt_searchers(),
+            list_uttt_evals(),
+            list_uttt_outputs(),
         ),
         #[cfg(feature = "mnk")]
         Game::Mnk => create_match_for_game(

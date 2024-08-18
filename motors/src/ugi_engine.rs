@@ -438,17 +438,12 @@ impl<B: Board> EngineUGI<B> {
             "stop" => {
                 self.state.engine.send_stop();
             }
-            "ugi" => {
+            // TODO: Make sure this conforms to the UAI protocol, also make sure `monitors` can handle UAI
+            proto @ ("ugi" | "uci" | "uai") => {
                 let id_msg = self.id();
                 self.write_ugi(id_msg.as_str());
                 self.write_ugi(self.write_ugi_options().as_str());
-                self.write_ugi("ugiok");
-            }
-            "uci" => {
-                let id_msg = self.id();
-                self.write_ugi(id_msg.as_str());
-                self.write_ugi(self.write_ugi_options().as_str());
-                self.write_ugi("uciok");
+                self.write_ugi(&format!("{proto}ok"));
             }
             "ponderhit" => self.start_search(
                 Normal,
@@ -497,7 +492,7 @@ impl<B: Board> EngineUGI<B> {
             "query" => {
                 self.handle_query(words)?;
             }
-            "option" => {
+            "option" | "info" => {
                 self.write_ugi(&self.print_option(words)?);
             }
             "output" | "o" => {
@@ -565,7 +560,8 @@ impl<B: Board> EngineUGI<B> {
     fn id(&self) -> String {
         let info = self.state.engine.engine_info();
         format!(
-            "id name Motors -- Engine {0}\nid author ToTheAnd",
+            "id name Motors -- Game {0} -- Engine {1}\nid author ToTheAnd",
+            B::game_name(),
             info.long_name(),
         )
     }
@@ -657,6 +653,7 @@ impl<B: Board> EngineUGI<B> {
                         limit.tc.remaining = time;
                     }
                 }
+                // TODO: Don't assume that ``btime` refers to the second player, instead add a one-letter description to the color trait
                 "btime" | "p2time" | "bt" | "p2t" => {
                     let time = parse_duration_ms(words, "btime")?;
                     if !is_first {

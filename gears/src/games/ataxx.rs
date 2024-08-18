@@ -4,7 +4,7 @@ mod perft_test;
 
 use crate::games::ataxx::common::ColoredAtaxxPieceType::{BlackPiece, Blocked, Empty, WhitePiece};
 use crate::games::ataxx::common::{AtaxxMove, ColoredAtaxxPieceType, MAX_ATAXX_MOVES_IN_POS};
-use crate::games::ataxx::AtaxxColor::{Black, White};
+use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::{
     Board, BoardHistory, Color, ColoredPiece, Coordinates, GenericPiece, NoHistory, Settings,
@@ -36,13 +36,13 @@ impl Settings for AtaxxSettings {}
 
 pub type AtaxxSize = SmallGridSize<7, 7>;
 
-pub type AtaxxSquare = SmallGridSquare<7, 7>;
+pub type AtaxxSquare = SmallGridSquare<7, 7, 8>;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, derive_more::Display, EnumIter)]
 pub enum AtaxxColor {
     #[default]
-    Black,
-    White,
+    X,
+    O,
 }
 
 impl Not for AtaxxColor {
@@ -56,8 +56,15 @@ impl Not for AtaxxColor {
 impl Color for AtaxxColor {
     fn other(self) -> Self {
         match self {
-            Black => White,
-            White => Black,
+            X => O,
+            O => X,
+        }
+    }
+
+    fn ascii_color_char(self) -> char {
+        match self {
+            X => 'x',
+            O => 'o',
         }
     }
 }
@@ -218,17 +225,17 @@ impl Board for AtaxxBoard {
         match piece {
             Empty => self.empty_bb(),
             Blocked => self.blocked_bb(),
-            WhitePiece => self.color_bb(White),
-            BlackPiece => self.color_bb(Black),
+            WhitePiece => self.color_bb(O),
+            BlackPiece => self.color_bb(X),
         }
         .is_bit_set_at(sq.bb_idx())
     }
 
     fn colored_piece_on(&self, coordinates: Self::Coordinates) -> Self::Piece {
         let idx = coordinates.bb_idx();
-        let typ = if self.colors[White as usize].is_bit_set_at(idx) {
+        let typ = if self.colors[O as usize].is_bit_set_at(idx) {
             WhitePiece
-        } else if self.colors[Black as usize].is_bit_set_at(idx) {
+        } else if self.colors[X as usize].is_bit_set_at(idx) {
             BlackPiece
         } else if self.empty.is_bit_set_at(idx) {
             Empty
@@ -265,6 +272,7 @@ impl Board for AtaxxBoard {
 
     fn make_nullmove(mut self) -> Option<Self> {
         self.active_player = self.active_player.other();
+        // TODO: Increase ply counter?
         Some(self)
     }
 
@@ -315,9 +323,10 @@ impl Board for AtaxxBoard {
 
     fn as_fen(&self) -> String {
         // Outside code (UAI specifically) expects the first player to be black, not white.
+        // TODO: Change this such that this is unnecessary, then use common_fen_part()
         let stm = match self.active_player {
-            White => 'x',
-            Black => 'o',
+            O => 'x',
+            X => 'o',
         };
 
         format!(
@@ -378,8 +387,8 @@ mod tests {
     fn startpos_test() {
         let pos = AtaxxBoard::default();
         assert!(pos.verify_position_legal(Assertion).is_ok());
-        assert_eq!(pos.color_bb(White).num_ones(), 2);
-        assert_eq!(pos.color_bb(Black).num_ones(), 2);
+        assert_eq!(pos.color_bb(O).num_ones(), 2);
+        assert_eq!(pos.color_bb(X).num_ones(), 2);
         assert!((pos.blocked_bb() & !INVALID_EDGE_MASK).is_zero());
         let moves = pos.pseudolegal_moves();
         for mov in pos.pseudolegal_moves() {
@@ -396,8 +405,8 @@ mod tests {
     fn empty_pos_test() {
         let pos = AtaxxBoard::empty_possibly_invalid(AtaxxSettings::default());
         assert!(pos.verify_position_legal(Assertion).is_ok());
-        assert!(pos.color_bb(White).is_zero());
-        assert!(pos.color_bb(Black).is_zero());
+        assert!(pos.color_bb(O).is_zero());
+        assert!(pos.color_bb(X).is_zero());
         assert!(pos.is_game_lost_slow());
         let moves = pos.legal_moves();
         assert!(moves.is_empty());

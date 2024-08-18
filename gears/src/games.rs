@@ -27,6 +27,8 @@ pub mod ataxx;
 pub mod chess;
 #[cfg(test)]
 mod generic_tests;
+#[cfg(feature = "uttt")]
+pub mod uttt;
 
 pub trait Color:
     Debug + Display + Default + Copy + Clone + PartialEq + Eq + Send + Hash + Not + IntoEnumIterator
@@ -41,6 +43,26 @@ pub trait Color:
     }
     fn is_first(self) -> bool {
         self == Self::first()
+    }
+
+    fn ascii_color_char(self) -> char;
+    fn utf8_color_char(self) -> char {
+        return self.ascii_color_char();
+    }
+    // don't accept `'w'` and `'b'` as first and second because many games have black as the first player
+    // ASCII cases are ignored, but unicode in general can be weird as usual, so cases matter
+    fn from_char(color: char) -> Option<Self> {
+        if color.eq_ignore_ascii_case(&Self::first().ascii_color_char())
+            || color == Self::first().utf8_color_char()
+        {
+            Some(Self::first())
+        } else if color.eq_ignore_ascii_case(&Self::second().ascii_color_char())
+            || color == Self::second().utf8_color_char()
+        {
+            Some(Self::second())
+        } else {
+            None
+        }
     }
 }
 
@@ -192,6 +214,9 @@ pub type DimT = u8;
 pub struct Height(pub DimT);
 
 impl Height {
+    pub fn new(val: usize) -> Self {
+        Self(DimT::try_from(val).unwrap())
+    }
     #[must_use]
     pub fn get(self) -> DimT {
         self.0
@@ -207,6 +232,9 @@ impl Height {
 pub struct Width(pub DimT);
 
 impl Width {
+    pub fn new(val: usize) -> Self {
+        Self(DimT::try_from(val).unwrap())
+    }
     #[must_use]
     pub fn get(self) -> DimT {
         self.0
@@ -368,6 +396,7 @@ mod tests {
     use crate::games::chess::Chessboard;
     use crate::games::generic_tests::GenericTests;
     use crate::games::mnk::MNKBoard;
+    use crate::games::uttt::UtttBoard;
 
     #[cfg(feature = "chess")]
     #[test]
@@ -385,5 +414,11 @@ mod tests {
     #[test]
     fn generic_ataxx_test() {
         GenericTests::<AtaxxBoard>::all_tests();
+    }
+
+    #[cfg(feature = "uttt")]
+    #[test]
+    fn generic_uttt_test() {
+        GenericTests::<UtttBoard>::all_tests();
     }
 }

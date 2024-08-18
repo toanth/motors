@@ -19,6 +19,7 @@ use gears::general::bitboards::RawBitboard;
 use gears::general::board::Board;
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::moves::Move;
+use gears::general::squares::RectangularCoordinates;
 use gears::score::{PhaseType, Score};
 
 use crate::eval::chess::lite::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};

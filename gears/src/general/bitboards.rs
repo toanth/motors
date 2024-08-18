@@ -127,6 +127,7 @@ pub trait RawBitboard:
     + ShlAssign<usize>
     + Shr<usize, Output = Self>
     + ShrAssign<usize>
+    + Display
 {
     type Primitive: Unsigned + PrimInt;
 
@@ -248,6 +249,12 @@ impl Debug for RawStandardBitboard {
     }
 }
 
+impl Display for RawStandardBitboard {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:x}", self.0)
+    }
+}
+
 impl RawBitboard for RawStandardBitboard {
     type Primitive = u64;
 
@@ -280,6 +287,7 @@ impl RawBitboard for RawStandardBitboard {
     Eq,
     PartialEq,
     Default,
+    Hash,
     Not,
     BitOr,
     BitOrAssign,
@@ -314,6 +322,12 @@ impl BitAnd<u64> for ExtendedRawBitboard {
 
     fn bitand(self, rhs: u64) -> Self::Output {
         (self.0 as u64).bitand(rhs)
+    }
+}
+
+impl Display for ExtendedRawBitboard {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:x}", self.0)
     }
 }
 
@@ -639,6 +653,7 @@ where
 // Deriving Eq and Partial Eq means that irrelevant bits are also getting compared.
 // This makes comparisons fast but shifts responsibility to the user to properly zero out those,
 // which can be confusing. TODO: Change?
+// TODO: Make `AtaxxBitboard` and `ChessBitboard` be aliases to this type.
 #[derive(Default, Copy, Clone, PartialEq, Eq, Debug)]
 #[must_use]
 pub struct DefaultBitboard<R: RawBitboard, C: RectangularCoordinates> {
@@ -829,6 +844,34 @@ where
 
     fn size(self) -> C::Size {
         self.size
+    }
+}
+
+impl<R: RawBitboard, C: RectangularCoordinates> DefaultBitboard<R, C>
+where
+    C::Size: RectangularSize<C> + Default,
+{
+    pub fn new(bb: R) -> Self {
+        Self {
+            raw: bb,
+            size: C::Size::default(),
+        }
+    }
+
+    pub fn file_no(idx: DimT) -> Self {
+        Self::file(idx, C::Size::default())
+    }
+
+    pub fn rank_no(idx: DimT) -> Self {
+        Self::rank(idx, C::Size::default())
+    }
+
+    pub fn diagonal(square: C) -> Self {
+        Self::diag_for_sq(square, C::Size::default())
+    }
+
+    pub fn anti_diagonal(square: C) -> Self {
+        Self::anti_diag_for_sq(square, C::Size::default())
     }
 }
 

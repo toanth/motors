@@ -54,6 +54,20 @@ impl Color for MnkColor {
             MnkColor::O => MnkColor::X,
         }
     }
+
+    fn ascii_color_char(self) -> char {
+        match self {
+            MnkColor::X => 'x',
+            MnkColor::O => 'o',
+        }
+    }
+
+    fn utf8_color_char(self) -> char {
+        match self {
+            MnkColor::X => UNICODE_X,
+            MnkColor::O => UNICODE_O,
+        }
+    }
 }
 
 const UNICODE_X: char = '⨉'; // '⨉',
@@ -233,6 +247,7 @@ impl Move<MNKBoard> for FillSquare {
     }
 
     fn from_compact_text(s: &str, _: &MNKBoard) -> Res<Self> {
+        // TODO: Check legality?!
         GridCoordinates::from_str(s).map(|target| FillSquare { target })
     }
 
@@ -705,6 +720,7 @@ impl Board for MNKBoard {
                 self.settings.k
             ));
         }
+        // TODO: More checks, such as that the position isn't won in multiple places, maybe special case won positions? (by setting the last move)
         Ok(())
     }
 }

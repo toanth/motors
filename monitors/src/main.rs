@@ -4,6 +4,7 @@ use gears::cli::Game;
 use gears::games::ataxx::AtaxxBoard;
 use gears::games::chess::Chessboard;
 use gears::games::mnk::MNKBoard;
+use gears::games::uttt::UtttBoard;
 use gears::games::OutputList;
 use gears::general::board::{Board, RectangularBoard};
 use gears::general::common::Description::WithDescription;
@@ -61,6 +62,11 @@ fn list_ataxx_uis() -> (OutputList<AtaxxBoard>, InputList<AtaxxBoard>) {
 }
 
 #[must_use]
+fn list_uttt_uis() -> (OutputList<UtttBoard>, InputList<UtttBoard>) {
+    normal_uis::<UtttBoard>()
+}
+
+#[must_use]
 fn list_mnk_uis() -> (OutputList<MNKBoard>, InputList<MNKBoard>) {
     normal_uis::<MNKBoard>()
 }
@@ -97,6 +103,7 @@ pub fn create_match(args: CommandLineArgs) -> Res<AnyRunnable> {
         Game::Chess => create_client_match_for_game(args, list_chess_uis()),
         Game::Mnk => create_client_match_for_game(args, list_mnk_uis()),
         Game::Ataxx => create_client_match_for_game(args, list_ataxx_uis()),
+        Game::Uttt => create_client_match_for_game(args, list_uttt_uis()),
     }
 }
 

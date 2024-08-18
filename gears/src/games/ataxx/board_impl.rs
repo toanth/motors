@@ -1,6 +1,6 @@
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::common::{AtaxxMove, ColoredAtaxxPieceType};
-use crate::games::ataxx::AtaxxColor::{Black, White};
+use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::ataxx::{AtaxxBitboard, AtaxxBoard, AtaxxColor, AtaxxMoveList, AtaxxSettings};
 use crate::games::{Board, Color, ZobristHash};
 use crate::general::bitboards::ataxx::{INVALID_EDGE_MASK, LEAPING};
@@ -164,10 +164,10 @@ impl AtaxxBoard {
                 ColoredAtaxxPieceType::Empty => {}
                 ColoredAtaxxPieceType::Blocked => board.empty |= square.bb().raw(),
                 ColoredAtaxxPieceType::WhitePiece => {
-                    board.colors[White as usize] |= square.bb().raw();
+                    board.colors[O as usize] |= square.bb().raw();
                 }
                 ColoredAtaxxPieceType::BlackPiece => {
-                    board.colors[Black as usize] |= square.bb().raw();
+                    board.colors[X as usize] |= square.bb().raw();
                 }
             }
             Ok(board)
@@ -176,10 +176,11 @@ impl AtaxxBoard {
         let color_word = words.next().ok_or_else(|| {
             "FEN ends after position description, missing color to move".to_string()
         })?;
+        // TODO: Flip this around
         // be a bit lenient with parsing the fen
         let color = match color_word.to_ascii_lowercase().as_str() {
-            "w" | "o" => Black,
-            "b" | "x" => White,
+            "w" | "o" => X,
+            "b" | "x" => O,
             x => Err(format!("Expected color ('x' or 'o') in FEN, found '{x}'"))?,
         };
         if let Some(halfmove_clock) = words.next() {
@@ -190,9 +191,9 @@ impl AtaxxBoard {
             let fullmove_number = fullmove_number
                 .parse::<NonZeroUsize>()
                 .map_err(|err| format!("Couldn't parse fullmove counter: {err}"))?;
-            board.ply = (fullmove_number.get() - 1) * 2 + usize::from(color == Black);
+            board.ply = (fullmove_number.get() - 1) * 2 + usize::from(color == X);
         } else {
-            board.ply = usize::from(color == Black);
+            board.ply = usize::from(color == X);
             board.ply_100_ctr = 0;
         }
         board.active_player = color;

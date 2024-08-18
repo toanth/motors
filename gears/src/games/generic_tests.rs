@@ -89,6 +89,7 @@ impl<B: Board> GenericTests<B> {
             let ply = pos.halfmove_ctr_since_start();
             // use a new hash set per position because bench positions can be only one ply away from each other
             let mut hashes = HashSet::new();
+            let _ = pos.verify_position_legal(Assertion).unwrap();
             assert!(pos.verify_position_legal(Assertion).is_ok());
             assert!(pos.match_result_slow(&NoHistory::default()).is_none());
             assert_eq!(B::from_fen(&pos.as_fen()).unwrap(), pos);

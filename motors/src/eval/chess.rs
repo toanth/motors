@@ -5,6 +5,7 @@ use gears::games::chess::ChessColor;
 use gears::games::chess::ChessColor::Black;
 use gears::general::bitboards::chess::ChessBitboard;
 use gears::general::bitboards::Bitboard;
+use gears::general::squares::RectangularCoordinates;
 use strum_macros::EnumIter;
 
 pub mod lite;

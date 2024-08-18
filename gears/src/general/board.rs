@@ -242,6 +242,8 @@ pub trait Board:
         Self::Move::legality() == Legal || self.make_move(mov).is_some()
     }
 
+    /// Returns the result (win/draw/loss), if any, but doesn't necessarily catch all game-ending conditions.
+    /// That is, this function might return `None` if the game has actually ended,
     fn player_result_no_movegen<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult>;
 
     /// Returns the result (win/draw/loss), if any. Can be potentially slow because it can require movegen.
@@ -304,13 +306,17 @@ pub trait Board:
     fn as_fen(&self) -> String;
 
     /// Reads in a compact textual description of the board, such that `B::from_fen(board.as_fen()) == b` holds.
+    /// Assumes that the entire string represents the FEN, without any trailing tokens.
+    /// Use the lower-level `read_fen_and_advance_input` if this assumption doesn't have to hold.
     fn from_fen(string: &str) -> Res<Self> {
         let mut words = string.split_whitespace();
         let res = Self::read_fen_and_advance_input(&mut words)
             .map_err(|err| format!("Failed to parse FEN {}: {err}", string.bold()))?;
-        if words.next().is_some() {
+        if let Some(next) = words.next() {
             return Err(format!(
-                "Input contained additional characters after FEN: {string}"
+                "Input `{0}' contained additional characters after FEN, starting with '{1}'",
+                string.bold(),
+                next.red()
             ));
         }
         Ok(res)
@@ -390,6 +396,15 @@ where
         }
     }
     res
+}
+
+pub fn common_fen_part<T: RectangularBoard>(pos: &T) -> String
+where
+    T::Coordinates: RectangularCoordinates,
+{
+    let stm = pos.active_player();
+    let halfmove_ctr = pos.halfmove_repetition_clock();
+    format!("{} {stm} {halfmove_ctr}", position_fen_part(pos))
 }
 
 pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
@@ -498,3 +513,30 @@ where
     }
     Ok(board)
 }
+
+// TODO: Redesign `Board` trait by adding an `Unverified<B>` type and having methods like `place_piece` in `Board` that
+// return such an unverified board. Then, get rid of the `place_piece` parameter.
+// pub(crate) fn read_common_fen_part<B: RectangularBoard, F>(
+//     words: &mut SplitWhitespace,
+//     board: B,
+//     place_piece: F,
+// ) -> Result<B, String>
+// where
+//     F: Fn(
+//         B,
+//         B::Coordinates,
+//         <B::Piece as ColoredPiece<B::Color>>::ColoredPieceType,
+//     ) -> Result<B, String>,
+// {
+//     let position_part = words.next()
+//             .ok_or_else(|| format!("Empty {0} FEN", B::game_name()))?;
+//     let mut board = read_position_fen(position_part, board, place_piece)?;
+//
+//     let active = words.next().ok_or_else(|| format!("{0} FEN ends after the position description and doesn't include the active player", B::game_name()))?;
+//     if active.chars().count() != 1 {
+//         return Err(format!("Expected a single char to describe the active player ('{0}' or '{1}'), got '{2}'", B::Color::first().ascii_color_char().to_string().bold(), B::Color::second().ascii_color_char().to_string().bold(), active.red()))
+//     }
+//     if board.active_player()
+//     res.active = UtttColor::from_char(active)
+//     Ok(board)
+// }

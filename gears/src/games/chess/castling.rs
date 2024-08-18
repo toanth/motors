@@ -11,6 +11,7 @@ use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{char_to_file, Board, ColoredPieceType, DimT};
 use crate::general::common::Res;
+use crate::general::squares::RectangularCoordinates;
 
 #[derive(EnumIter, Copy, Clone, Eq, PartialEq, Debug, derive_more::Display)]
 #[must_use]

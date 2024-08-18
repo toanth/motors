@@ -1,6 +1,6 @@
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::common::AtaxxPieceType::{Blocked, Empty, Occupied};
-use crate::games::ataxx::AtaxxColor::{Black, White};
+use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::ataxx::{AtaxxBoard, AtaxxColor, AtaxxSquare};
 use crate::games::{AbstractPieceType, ColoredPieceType, Coordinates, DimT, PieceType};
 use crate::general::common::Res;
@@ -130,8 +130,8 @@ impl ColoredPieceType<AtaxxColor> for ColoredAtaxxPieceType {
 
     fn color(self) -> Option<AtaxxColor> {
         match self {
-            WhitePiece => Some(White),
-            BlackPiece => Some(Black),
+            WhitePiece => Some(O),
+            BlackPiece => Some(X),
             _ => None,
         }
     }
@@ -143,8 +143,8 @@ impl ColoredPieceType<AtaxxColor> for ColoredAtaxxPieceType {
     fn new(color: AtaxxColor, uncolored: Self::Uncolored) -> Self {
         match uncolored {
             Occupied => match color {
-                White => WhitePiece,
-                Black => BlackPiece,
+                O => WhitePiece,
+                X => BlackPiece,
             },
             Empty => Self::Empty,
             Blocked => Self::Blocked,
