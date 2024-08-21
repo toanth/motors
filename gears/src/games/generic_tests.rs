@@ -1,7 +1,7 @@
 //! This module contains generic test functions that are completely independent of the actual game.
 //! Since those generics aren't instantiated here, there are no actual tests here.
-use crate::games::{Color, NoHistory, ZobristHash};
-use crate::general::board::Board;
+use crate::games::{Color, ColoredPiece, Coordinates, NoHistory, Size, ZobristHash};
+use crate::general::board::{Board, UnverifiedBoard};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::Move;
 use itertools::Itertools;
@@ -13,6 +13,41 @@ pub struct GenericTests<B: Board> {
 }
 
 impl<B: Board> GenericTests<B> {
+    pub fn coordinates_test() {
+        let pos = B::default();
+        let size = pos.size();
+        assert_eq!(size.valid_coordinates().count(), size.num_squares());
+        let coords = size.valid_coordinates();
+        let mut found_center = false;
+        let mut p = B::Unverified::new(pos);
+        for coords in coords {
+            assert!(size.coordinates_valid(coords));
+            assert!(size.check_coordinates(coords).is_ok());
+            assert_ne!(coords, B::Coordinates::no_coordinates());
+            assert_eq!(
+                size.to_coordinates_unchecked(size.to_internal_key(coords)),
+                coords
+            );
+            let flipped = coords.flip_up_down(size);
+            assert_eq!(flipped.flip_up_down(size), coords);
+            let flipped = coords.flip_left_right(size);
+            assert_eq!(flipped.flip_left_right(size), coords);
+            if coords == flipped.flip_up_down(size) {
+                assert!(!found_center);
+                found_center = true;
+            }
+            assert_eq!(
+                pos.is_empty(coords),
+                pos.colored_piece_on(coords).color().is_none()
+            );
+            p = p.remove_piece(coords).unwrap();
+        }
+        assert_eq!(p.verify(), B::empty().into().verify());
+        assert!(size
+            .check_coordinates(Coordinates::no_coordinates())
+            .is_err());
+    }
+
     pub fn long_notation_roundtrip_test() {
         let positions = B::name_to_pos_map();
         for pos in positions {
@@ -21,11 +56,6 @@ impl<B: Board> GenericTests<B> {
                 let encoded = mov.to_extended_text(&pos);
                 let decoded = B::Move::from_extended_text(&encoded, &pos);
                 assert!(decoded.is_ok());
-                println!(
-                    "{encoded} | {0} | {1}",
-                    decoded.clone().unwrap(),
-                    pos.as_fen()
-                );
                 assert_eq!(decoded.unwrap(), mov);
             }
         }
@@ -124,6 +154,7 @@ impl<B: Board> GenericTests<B> {
 
     pub fn all_tests() {
         Self::basic_test();
+        Self::coordinates_test();
         Self::long_notation_roundtrip_test();
         Self::fen_roundtrip_test();
         Self::statistical_hash_test(B::default());

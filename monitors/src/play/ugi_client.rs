@@ -521,6 +521,8 @@ impl<B: Board> Client<B> {
     }
 
     // TODO: Not used
+    // correctly using isready is difficult with the current design, so this will have to wait until the refactoring
+    #[allow(unused)]
     fn send_isready(&mut self, color: B::Color) {
         self.send_ugi_message(color, "isready");
         let engine = self.state.get_engine_mut(color);

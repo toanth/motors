@@ -1,6 +1,6 @@
 use crate::games::ataxx::common::AtaxxMove;
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
-use crate::games::ataxx::{AtaxxBitboard, AtaxxBoard, AtaxxColor, AtaxxMoveList, AtaxxSettings};
+use crate::games::ataxx::{AtaxxBitboard, AtaxxBoard, AtaxxColor, AtaxxMoveList};
 use crate::games::{Board, Color, ZobristHash};
 use crate::general::bitboards::ataxx::{INVALID_EDGE_MASK, LEAPING};
 use crate::general::bitboards::chess::KINGS;
@@ -153,7 +153,7 @@ impl AtaxxBoard {
     }
 
     pub fn read_fen_impl(words: &mut SplitWhitespace) -> Res<Self> {
-        let empty = AtaxxBoard::empty(AtaxxSettings::default());
+        let empty = AtaxxBoard::empty();
         let mut board = read_common_fen_part::<AtaxxBoard>(words, empty.into())?;
         let color = board.0.active_player();
         if let Some(halfmove_clock) = words.next() {

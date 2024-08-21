@@ -221,7 +221,7 @@ pub fn parse_ugi_position<B: Board>(words: &mut SplitWhitespace, old_board: &B) 
         .ok_or_else(|| "Missing position after 'position' command".to_string())?;
     Ok(match position_word {
         "fen" | "f" => B::read_fen_and_advance_input(words)?,
-        "startpos" | "s" => B::startpos(old_board.settings()),
+        "startpos" | "s" => B::startpos_for_settings(old_board.settings()),
         "old" | "o" | "previous" | "p" => *old_board,
         name => B::from_name(name).map_err(|err| {
             format!(

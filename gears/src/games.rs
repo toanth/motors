@@ -47,7 +47,7 @@ pub trait Color:
 
     fn ascii_color_char(self) -> char;
     fn utf8_color_char(self) -> char {
-        return self.ascii_color_char();
+        self.ascii_color_char()
     }
     // don't accept `'w'` and `'b'` as first and second because many games have black as the first player
     // ASCII cases are ignored, but unicode in general can be weird as usual, so cases matter

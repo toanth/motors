@@ -1,3 +1,4 @@
+use std::fmt;
 use std::fs::File;
 use std::io::{stderr, stdout, Stderr, Stdout, Write};
 use std::mem::swap;
@@ -7,6 +8,7 @@ use std::str::SplitWhitespace;
 use crate::games::Color;
 use crate::general::board::Board;
 use crate::general::common::{NamedEntity, Res};
+use crate::general::move_list::MoveList;
 use crate::general::moves::Move;
 use crate::output::text_output::DisplayType::*;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
@@ -102,6 +104,7 @@ pub enum DisplayType {
     Ascii,
     Fen,
     Pgn,
+    Moves, // Prints all legal moves
     Uci,
     Ugi, // The same as `UCI`, but with a different name so that the user can write both 'print uci' and 'print ugi'
     MsgOnly, // Doesn't print the state at all, but a text output with that display type would still display messages.
@@ -114,6 +117,7 @@ impl NamedEntity for DisplayType {
             Ascii => "ascii",
             Fen => "fen",
             Pgn => "pgn",
+            Moves => "moves",
             Uci => "uci",
             Ugi => "ugi",
             MsgOnly => "messages",
@@ -127,6 +131,7 @@ impl NamedEntity for DisplayType {
             Ascii => "ASCII Diagram",
             Fen => "Fen",
             Pgn => "PGN",
+            Moves => "Moves",
             Uci => "UCI",
             Ugi => "UGI",
             MsgOnly => "Only Messages",
@@ -140,6 +145,7 @@ impl NamedEntity for DisplayType {
             Ascii => "A textual 2D representation of the position using \"normal\" english characters. E.g. for chess, this represents the white king as 'K' and a black queen as 'q'",
             Fen => "A compact textual representation of the position. For chess, this is the Forsyth–Edwards Notation, and for other games it's a similar notation based on chess FENs",
             Pgn => "A textual representation of the entire match. For chess, this is the Portable Games Notation, and for other games it's a similar notation based on chess PGNs",
+            Moves => "A space-separated list of all legal moves, intended mostly for debugging",
             Uci => "A textual representation of the match using the machine-readable UGI notation that gets used for engine-GUI communication. UCI for chess and the very slightly different UGI protocol for other games",
             Ugi => "Same as 'UCI'",
             MsgOnly => "Doesn't print the match or current position at all, but will display messages"
@@ -222,6 +228,16 @@ impl BoardToText {
         res
     }
 
+    fn list_moves<B: Board>(m: &dyn GameState<B>) -> String {
+        use fmt::Write;
+        let mut res = String::default();
+        let pos = m.get_board();
+        for mov in pos.legal_moves_slow().iter_moves() {
+            write!(&mut res, "{} ", mov.to_extended_text(&pos)).unwrap();
+        }
+        res
+    }
+
     fn match_to_ugi<B: Board>(m: &dyn GameState<B>) -> String {
         use std::fmt::Write;
         let pos = m.initial_pos().as_fen();
@@ -264,6 +280,7 @@ impl BoardToText {
             ),
             Fen => m.get_board().as_fen(),
             Pgn => Self::match_to_pgn(m),
+            Moves => Self::list_moves(m),
             Uci | Ugi => BoardToText::match_to_ugi(m),
             MsgOnly => String::default(),
         }

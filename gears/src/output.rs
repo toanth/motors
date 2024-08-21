@@ -136,6 +136,7 @@ pub fn required_outputs<B: Board>() -> OutputList<B> {
         Box::new(TextOutputBuilder::new(Uci)),
         Box::new(TextOutputBuilder::new(Ugi)),
         Box::new(TextOutputBuilder::new(Pgn)),
+        Box::new(TextOutputBuilder::new(Moves)),
         Box::new(TextOutputBuilder::messages_for(
             vec![Warning, Error],
             "error",

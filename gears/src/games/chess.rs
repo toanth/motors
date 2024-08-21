@@ -118,7 +118,7 @@ pub struct Chessboard {
 
 impl Default for Chessboard {
     fn default() -> Self {
-        Self::startpos(ChessSettings::default())
+        Self::startpos()
     }
 }
 
@@ -146,6 +146,7 @@ impl StaticallyNamedEntity for Chessboard {
 }
 
 impl Board for Chessboard {
+    type EmptyRes = UnverifiedChessboard;
     type Settings = ChessSettings;
     type Coordinates = ChessSquare;
     type Color = ChessColor;
@@ -155,8 +156,7 @@ impl Board for Chessboard {
     type LegalMoveList = ChessMoveList;
     type Unverified = UnverifiedChessboard;
 
-    #[allow(refining_impl_trait)]
-    fn empty(_: Self::Settings) -> UnverifiedChessboard {
+    fn empty_for_settings(_: Self::Settings) -> UnverifiedChessboard {
         UnverifiedChessboard(Self {
             piece_bbs: Default::default(),
             color_bbs: Default::default(),
@@ -169,7 +169,7 @@ impl Board for Chessboard {
         })
     }
 
-    fn startpos(_: Self::Settings) -> Self {
+    fn startpos_for_settings(_: Self::Settings) -> Self {
         Self::from_fen(START_FEN).expect("Internal error: Couldn't parse startpos fen")
     }
 
@@ -510,7 +510,7 @@ impl Board for Chessboard {
     }
 
     fn read_fen_and_advance_input(words: &mut SplitWhitespace) -> Res<Self> {
-        let mut board = Chessboard::empty(ChessSettings::default());
+        let mut board = Chessboard::empty();
         board = read_common_fen_part::<Chessboard>(words, board)?;
         let color = board.0.active_player();
         let castling_word = words
@@ -792,7 +792,7 @@ impl Chessboard {
     }
 
     pub fn dfrc_startpos(white_num: usize, black_num: usize) -> Res<Self> {
-        let mut res = Self::empty(ChessSettings::default());
+        let mut res = Self::empty();
         res = Self::chess960_startpos_white(black_num, Black, res)?;
         for bb in &mut res.0.piece_bbs {
             *bb = ChessBitboard::new(*bb).flip_up_down().raw();
@@ -972,6 +972,10 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         self
     }
 
+    fn piece_on(&self, coords: ChessSquare) -> Res<ChessPiece> {
+        Ok(self.0.colored_piece_on(self.check_coordinates(coords)?))
+    }
+
     fn set_active_player(mut self, player: ChessColor) -> Self {
         self.0.active_player = player;
         self
@@ -1018,7 +1022,7 @@ mod tests {
 
     #[test]
     fn empty_test() {
-        let board = Chessboard::empty(ChessSettings::default());
+        let board = Chessboard::empty();
         assert_eq!(board.0.num_squares(), 64);
         assert_eq!(board.0.size(), ChessboardSize::default());
         assert_eq!(board.0.width(), 8);

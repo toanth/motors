@@ -95,12 +95,16 @@ impl FromStr for GridCoordinates {
 
 impl Display for GridCoordinates {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{0}{1}",
-            file_to_char(self.column),
-            self.row + 1 // output 1-indexed
-        )
+        if *self == Self::no_coordinates() {
+            write!(f, "<invalid>")
+        } else {
+            write!(
+                f,
+                "{0}{1}",
+                file_to_char(self.column),
+                self.row + 1 // output 1-indexed
+            )
+        }
     }
 }
 

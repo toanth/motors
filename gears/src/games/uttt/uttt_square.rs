@@ -80,7 +80,8 @@ pub struct UtttSquare {
 
 impl Display for UtttSquare {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        SmallGridSquare::<9, 9, 9>::from_rank_file(self.rank(), self.file()).fmt(f)
+        // use `unchecked` because this function can be called to print invalid coordinates
+        SmallGridSquare::<9, 9, 9>::unchecked((self.rank() * 9 + self.file()) as usize).fmt(f)
     }
 }
 
@@ -106,8 +107,8 @@ impl Coordinates for UtttSquare {
     fn flip_left_right(self, _size: Self::Size) -> Self {
         let size = SmallGridSize::default();
         Self {
-            sub_board: self.sub_board.flip_up_down(size),
-            sub_square: self.sub_square.flip_up_down(size),
+            sub_board: self.sub_board.flip_left_right(size),
+            sub_square: self.sub_square.flip_left_right(size),
         }
     }
 
@@ -147,7 +148,11 @@ impl UtttSquare {
     }
 
     pub fn bb_idx(self) -> usize {
-        self.sub_square.bb_idx() + self.sub_board.bb_idx() * 9
+        let sub_square = self.sub_square.bb_idx();
+        let sub_board = self.sub_board().bb_idx();
+        debug_assert!(sub_square < 9);
+        debug_assert!(sub_board < 9);
+        sub_board * 9 + sub_square
     }
 
     pub fn to_u8(self) -> u8 {

@@ -29,7 +29,9 @@ use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
-pub struct AtaxxSettings {}
+pub struct AtaxxSettings {
+    pub blocked: AtaxxBitboard,
+}
 
 impl Settings for AtaxxSettings {}
 
@@ -120,6 +122,7 @@ type AtaxxPiece = GenericPiece<AtaxxBoard, ColoredAtaxxPieceType>;
 pub type AtaxxMoveList = EagerNonAllocMoveList<AtaxxBoard, MAX_ATAXX_MOVES_IN_POS>;
 
 impl Board for AtaxxBoard {
+    type EmptyRes = AtaxxBoard;
     type Settings = AtaxxSettings;
     type Coordinates = AtaxxSquare;
     type Color = AtaxxColor;
@@ -131,13 +134,12 @@ impl Board for AtaxxBoard {
 
     type Unverified = UnverifiedAtaxxBoard;
 
-    #[allow(refining_impl_trait)]
-    fn empty(_settings: Self::Settings) -> Self {
+    fn empty_for_settings(_settings: Self::Settings) -> Self {
         let empty = AtaxxBitboard::default();
         Self::create(empty, empty, empty).unwrap()
     }
 
-    fn startpos(_settings: Self::Settings) -> Self {
+    fn startpos_for_settings(_settings: Self::Settings) -> Self {
         Self::default()
     }
 
@@ -200,7 +202,9 @@ impl Board for AtaxxBoard {
     }
 
     fn settings(&self) -> Self::Settings {
-        AtaxxSettings::default()
+        AtaxxSettings {
+            blocked: self.blocked_bb(),
+        }
     }
 
     fn active_player(&self) -> AtaxxColor {
@@ -432,6 +436,10 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
         self
     }
 
+    fn piece_on(&self, coords: AtaxxSquare) -> Res<AtaxxPiece> {
+        Ok(self.0.colored_piece_on(self.check_coordinates(coords)?))
+    }
+
     fn set_active_player(mut self, player: AtaxxColor) -> Self {
         self.0.active_player = player;
         self
@@ -479,7 +487,7 @@ mod tests {
 
     #[test]
     fn empty_pos_test() {
-        let pos = AtaxxBoard::empty(AtaxxSettings::default());
+        let pos = AtaxxBoard::empty();
         assert!(pos.debug_verify_invariants().is_ok());
         assert!(pos.color_bb(O).is_zero());
         assert!(pos.color_bb(X).is_zero());

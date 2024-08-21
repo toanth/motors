@@ -58,7 +58,7 @@ impl NamedEntity for EngineInfo {
         if let Some(eval) = self.eval.clone() {
             format!("{0}. Eval {1}", self.engine.long_name(), eval.long_name())
         } else {
-            format!("{}", self.engine.long_name())
+            self.engine.long_name().to_string()
         }
     }
 

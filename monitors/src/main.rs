@@ -87,7 +87,7 @@ pub fn map_ui_to_input_and_output(ui: &str) -> (&str, &str) {
     match ui {
         "text" => ("text", "unicode"),
         "gui" => todo!(),
-        "sprt" => (todo!(), "none"),
+        // "sprt" => (todo!(), "none"),
         x => (x, x),
     }
 }

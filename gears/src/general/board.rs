@@ -54,9 +54,14 @@ pub trait UnverifiedBoard<B: Board>: Debug + Copy + Clone + From<B> {
         Self::from(board)
     }
 
-    /// Same as `verify_with_level(Verify)
+    /// Same as `verify_with_level(Verify) for release builds
+    /// and `verify_with_level(Assertion) in debug builds
     fn verify(self) -> Res<B> {
-        self.verify_with_level(Verify)
+        if cfg!(debug_assertions) {
+            self.verify_with_level(Assertion)
+        } else {
+            self.verify_with_level(Verify)
+        }
     }
 
     /// Verifies that the position is legal. This function is meant to be used in `assert!`s,
@@ -68,7 +73,13 @@ pub trait UnverifiedBoard<B: Board>: Debug + Copy + Clone + From<B> {
     /// `CheckFen` sometimes needs to do less work than `Verify`.
     fn verify_with_level(self, level: SelfChecks) -> Res<B>;
 
+    /// Returns the size of the board.
     fn size(&self) -> BoardSize<B>;
+
+    /// Checks if the given coordinates are valid.
+    fn check_coordinates(&self, coords: B::Coordinates) -> Res<B::Coordinates> {
+        self.size().check_coordinates(coords)
+    }
 
     /// Place a piece of the given type and color on the given square. Like all functions that return an `UnverifiedBoard`,
     /// this doesn't check that the resulting position is legal.
@@ -77,7 +88,7 @@ pub trait UnverifiedBoard<B: Board>: Debug + Copy + Clone + From<B> {
     /// replacing the piece, returning an `Err`, or silently going into a bad state that will return an `Err` on `verify`.
     ///  Not intended to do any expensive checks.
     fn place_piece(self, piece: B::Piece) -> Res<Self> {
-        let square = self.size().check_coordinates(piece.coordinates())?;
+        let square = self.check_coordinates(piece.coordinates())?;
         // TODO: PieceType should not include the empty square; use a different, generic, struct for that
         Ok(self.place_piece_unchecked(square, piece.colored_piece_type()))
     }
@@ -90,12 +101,21 @@ pub trait UnverifiedBoard<B: Board>: Debug + Copy + Clone + From<B> {
     /// Some `UnverifiedBoard`s can represent multiple pieces at the same coordinates; it is implementation-defined
     /// what this method does in that case.
     fn remove_piece(self, coords: B::Coordinates) -> Res<Self> {
-        let coords = self.size().check_coordinates(coords)?;
-        Ok(self.remove_piece_unchecked(coords))
+        let coords = self.check_coordinates(coords)?;
+        if self.piece_on(coords).unwrap().is_empty() {
+            Ok(self)
+        } else {
+            Ok(self.remove_piece_unchecked(coords))
+        }
     }
 
     /// Like `remove_piece`, but does not check that the coordinates are valid.
     fn remove_piece_unchecked(self, coords: B::Coordinates) -> Self;
+
+    /// Returns the piece on the given coordinates, or `None` if the coordinates aren't valid.
+    /// Some `UnverifiedBoard`s can represent multiple pieces at the same coordinates; it is implementation-defined
+    /// what this method does in that case (but it should never return empty coordinates in that case).
+    fn piece_on(&self, coords: B::Coordinates) -> Res<B::Piece>;
 
     /// Set the active player. Like all of these functions, it does not guarantee or check that the resulting position
     /// is legal. For example, in chess, the side not to move might be in check, so that it would be possible to capture the king.
@@ -138,6 +158,8 @@ pub trait Board:
     + StaticallyNamedEntity
     + 'static
 {
+    /// Should be either `Self::Unverified` or `Self`
+    type EmptyRes: Into<Self::Unverified>;
     type Settings: Settings;
     type Coordinates: Coordinates;
     type Color: Color;
@@ -156,11 +178,26 @@ pub trait Board:
     /// The position returned by this function does not have to be legal, e.g. in chess it would
     /// not include any kings. However, this is still useful to set up the board and is used
     /// in fen parsing, for example.
-    fn empty(_settings: Self::Settings) -> impl Into<Self::Unverified>;
+    fn empty_for_settings(settings: Self::Settings) -> Self::EmptyRes;
+
+    /// Like `empty_for_setting`, but uses a default settings objects.
+    /// Most games have empty setting objects, so explicitly passing in settings is unnecessary.
+    fn empty() -> Self::EmptyRes {
+        Self::empty_for_settings(Self::Settings::default())
+    }
 
     /// The starting position of the game.
-    /// For games with random starting position, this function picks one randomly.
-    fn startpos(settings: Self::Settings) -> Self;
+    /// This always returns the same position, even when there are technically multiple starting positions.
+    /// For example, the `Chessboard` implementation supports (D)FRC, but `startpos()` still only returns
+    /// the standard chess start pos
+    fn startpos_for_settings(settings: Self::Settings) -> Self;
+
+    /// Like `startpos_for_settings()` with default settings.
+    /// Most boards have empty settings, so explicitly passing in settings is unnecessary.
+    /// Usually, `startpos()` returns the same as `default()`, but this isn't enforced.
+    fn startpos() -> Self {
+        Self::startpos_for_settings(Self::Settings::default())
+    }
 
     /// Constructs a specific, well-known position from its name, such as 'kiwipete' in chess.
     /// Not to be confused with `from_fen`, which can load arbitrary positions.
@@ -183,7 +220,7 @@ pub trait Board:
     fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
         vec![NameToPos {
             name: "startpos",
-            val: || Self::startpos(Self::Settings::default()),
+            val: || Self::startpos_for_settings(Self::Settings::default()),
         }]
     }
 
@@ -496,10 +533,11 @@ pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
     flip: bool,
 ) -> String {
     use std::fmt::Write;
-    let mut squares = pos
-        .size()
-        .valid_coordinates()
-        .map(|c| piece_to_char(pos.colored_piece_on(c)))
+    let mut squares = (0..pos.height())
+        .cartesian_product(0..pos.width())
+        .map(|(row, column)| {
+            piece_to_char(pos.colored_piece_on(B::Coordinates::from_row_column(row, column)))
+        })
         .intersperse_(' ')
         .collect_vec();
     squares.push(' ');
