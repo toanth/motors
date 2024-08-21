@@ -9,7 +9,6 @@ use gears::games::OutputList;
 use gears::general::board::{Board, RectangularBoard};
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{select_name_dyn, Res};
-use gears::general::squares::RectangularCoordinates;
 use gears::output::{normal_outputs, required_outputs};
 use gears::{create_selected_output_builders, output_builder_from_str, AnyRunnable};
 
@@ -44,10 +43,7 @@ pub fn required_uis<B: Board>() -> (OutputList<B>, InputList<B>) {
 }
 
 #[must_use]
-pub fn normal_uis<B: RectangularBoard>() -> (OutputList<B>, InputList<B>)
-where
-    <B as Board>::Coordinates: RectangularCoordinates,
-{
+pub fn normal_uis<B: RectangularBoard>() -> (OutputList<B>, InputList<B>) {
     (normal_outputs(), text_based_inputs()) // TODO: Add additional interactive uis, like a GUI
 }
 

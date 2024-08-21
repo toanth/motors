@@ -4,7 +4,7 @@ use std::io::stdout;
 use colored::{Color, Colorize};
 
 use crate::games::{AbstractPieceType, ColoredPiece, ColoredPieceType, Coordinates};
-use crate::general::board::{Board, ColPieceType, RectangularBoard};
+use crate::general::board::{ColPieceType, RectangularBoard};
 use crate::general::common::{IterIntersperse, NamedEntity, Res, StaticallyNamedEntity};
 use crate::general::moves::Move;
 use crate::general::squares::RectangularCoordinates;
@@ -27,14 +27,11 @@ impl Default for PrettyUI {
     }
 }
 
-fn color<B: Board>(
+fn color<B: RectangularBoard>(
     piece: ColPieceType<B>,
     square: B::Coordinates,
     last_move: Option<B::Move>,
-) -> String
-where
-    B::Coordinates: RectangularCoordinates,
-{
+) -> String {
     let p1_bg_col = Color::White;
     let p2_bg_col = Color::Black;
     let p1_piece_col = Color::Green;
@@ -87,10 +84,7 @@ impl AbstractOutput for PrettyUI {
     }
 }
 
-impl<B: RectangularBoard> Output<B> for PrettyUI
-where
-    B::Coordinates: RectangularCoordinates,
-{
+impl<B: RectangularBoard> Output<B> for PrettyUI {
     fn as_string(&self, m: &dyn GameState<B>) -> String {
         let mut res = String::default();
         let pos = m.get_board();
@@ -142,10 +136,7 @@ impl StaticallyNamedEntity for PrettyUIBuilder {
     }
 }
 
-impl<B: RectangularBoard> OutputBuilder<B> for PrettyUIBuilder
-where
-    B::Coordinates: RectangularCoordinates,
-{
+impl<B: RectangularBoard> OutputBuilder<B> for PrettyUIBuilder {
     fn for_engine(&mut self, _state: &dyn GameState<B>) -> Res<OutputBox<B>> {
         Ok(Box::<PrettyUI>::default())
     }

@@ -9,7 +9,7 @@ use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, Size, 
 use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::common::{parse_int, Res};
 
-pub trait RectangularCoordinates: Coordinates {
+pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
     fn from_row_column(row: DimT, column: DimT) -> Self;
     fn row(self) -> DimT;
     fn column(self) -> DimT;
@@ -124,7 +124,6 @@ impl GridCoordinates {
 pub trait RectangularSize<C: RectangularCoordinates>: Size<C> {
     fn height(self) -> Height;
     fn width(self) -> Width;
-    // TODO: Should probably not exist? `SmallGridSize` doesn't have an `InternalWidth` generic argument
     fn internal_width(self) -> usize {
         self.width().val()
     }

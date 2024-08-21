@@ -445,7 +445,6 @@ pub trait RectangularBoard: Board<Coordinates: RectangularCoordinates> {
 impl<B: Board> RectangularBoard for B
 where
     B::Coordinates: RectangularCoordinates,
-    BoardSize<B>: RectangularSize<B::Coordinates>,
 {
     fn height(&self) -> DimT {
         self.size().height().0
@@ -459,15 +458,12 @@ where
     }
 }
 
-pub fn position_fen_part<T: RectangularBoard>(pos: &T) -> String
-where
-    T::Coordinates: RectangularCoordinates,
-{
+pub fn position_fen_part<B: RectangularBoard>(pos: &B) -> String {
     let mut res: String = String::default();
     for y in (0..pos.height()).rev() {
         let mut empty_ctr = 0;
         for x in 0..pos.width() {
-            let piece = pos.colored_piece_on(T::Coordinates::from_row_column(y, x));
+            let piece = pos.colored_piece_on(B::Coordinates::from_row_column(y, x));
             if piece.is_empty() {
                 empty_ctr += 1;
             } else {
@@ -488,10 +484,7 @@ where
     res
 }
 
-pub fn common_fen_part<T: RectangularBoard>(pos: &T) -> String
-where
-    T::Coordinates: RectangularCoordinates,
-{
+pub fn common_fen_part<T: RectangularBoard>(pos: &T) -> String {
     let stm = pos.active_player();
     let halfmove_ctr = pos.halfmove_repetition_clock();
     format!("{} {stm} {halfmove_ctr}", position_fen_part(pos))
@@ -532,12 +525,7 @@ pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
 pub(crate) fn read_position_fen<B: RectangularBoard>(
     position: &str,
     mut board: B::Unverified,
-) -> Result<B::Unverified, String>
-// TODO: Get rid of having to write this
-where
-    B::Coordinates: RectangularCoordinates,
-    BoardSize<B>: RectangularSize<B::Coordinates>,
-{
+) -> Result<B::Unverified, String> {
     let lines = position.split('/');
     debug_assert!(lines.clone().count() > 0);
 
@@ -602,11 +590,7 @@ where
 pub(crate) fn read_common_fen_part<B: RectangularBoard>(
     words: &mut SplitWhitespace,
     board: B::Unverified,
-) -> Result<B::Unverified, String>
-where
-    B::Coordinates: RectangularCoordinates,
-    BoardSize<B>: RectangularSize<B::Coordinates>,
-{
+) -> Result<B::Unverified, String> {
     let position_part = words
         .next()
         .ok_or_else(|| format!("Empty {0} FEN string", B::game_name()))?;

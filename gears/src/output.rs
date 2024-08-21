@@ -7,7 +7,6 @@ use strum_macros::Display;
 use crate::games::OutputList;
 use crate::general::board::{Board, RectangularBoard};
 use crate::general::common::{NamedEntity, Res};
-use crate::general::squares::RectangularCoordinates;
 use crate::output::logger::LoggerBuilder;
 use crate::output::pretty::PrettyUIBuilder;
 use crate::output::text_output::DisplayType::*;
@@ -149,10 +148,7 @@ pub fn required_outputs<B: Board>() -> OutputList<B> {
 }
 
 #[must_use]
-pub fn normal_outputs<B: RectangularBoard>() -> OutputList<B>
-where
-    <B as Board>::Coordinates: RectangularCoordinates,
-{
+pub fn normal_outputs<B: RectangularBoard>() -> OutputList<B> {
     let mut res = required_outputs();
     res.push(Box::<PrettyUIBuilder>::default());
     res

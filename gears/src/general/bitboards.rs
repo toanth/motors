@@ -386,8 +386,6 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     + ShrAssign<usize>
     + Deref<Target = R>
     + DerefMut
-where
-    C::Size: RectangularSize<C>,
 {
     fn from_raw(raw: R, size: C::Size) -> Self;
 
@@ -662,10 +660,7 @@ pub struct DefaultBitboard<R: RawBitboard, C: RectangularCoordinates> {
 }
 
 // TODO: Bitboard overloy for board text output?
-impl<R: RawBitboard, C: RectangularCoordinates> Display for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> Display for DefaultBitboard<R, C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for row in (0..self.size().height().0).rev() {
             for column in 0..self.size().width().0 {
@@ -701,10 +696,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> DerefMut for DefaultBitboard<R, 
 }
 
 /// Necessary for hyperbola quintessence.
-impl<R: RawBitboard, C: RectangularCoordinates> Sub for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> Sub for DefaultBitboard<R, C> {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -713,10 +705,7 @@ where
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> Not for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> Not for DefaultBitboard<R, C> {
     type Output = Self;
 
     fn not(self) -> Self::Output {
@@ -724,10 +713,7 @@ where
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitOr for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> BitOr for DefaultBitboard<R, C> {
     type Output = Self;
 
     fn bitor(self, rhs: Self) -> Self::Output {
@@ -736,20 +722,14 @@ where
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitOrAssign for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> BitOrAssign for DefaultBitboard<R, C> {
     fn bitor_assign(&mut self, rhs: Self) {
         debug_assert_eq!(self.size(), rhs.size());
         self.raw |= rhs.raw;
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitAnd for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> BitAnd for DefaultBitboard<R, C> {
     type Output = Self;
 
     fn bitand(self, rhs: Self) -> Self::Output {
@@ -758,20 +738,14 @@ where
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitAndAssign for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> BitAndAssign for DefaultBitboard<R, C> {
     fn bitand_assign(&mut self, rhs: Self) {
         debug_assert_eq!(self.size(), rhs.size());
         self.raw &= rhs.raw;
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitXor for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> BitXor for DefaultBitboard<R, C> {
     type Output = Self;
 
     fn bitxor(self, rhs: Self) -> Self {
@@ -780,20 +754,14 @@ where
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitXorAssign for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> BitXorAssign for DefaultBitboard<R, C> {
     fn bitxor_assign(&mut self, rhs: Self) {
         debug_assert_eq!(self.size(), rhs.size());
         self.raw ^= rhs.raw;
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> Shl<usize> for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> Shl<usize> for DefaultBitboard<R, C> {
     type Output = Self;
 
     fn shl(self, rhs: usize) -> Self::Output {
@@ -801,19 +769,13 @@ where
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> ShlAssign<usize> for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> ShlAssign<usize> for DefaultBitboard<R, C> {
     fn shl_assign(&mut self, rhs: usize) {
         self.raw <<= rhs;
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> Shr<usize> for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> Shr<usize> for DefaultBitboard<R, C> {
     type Output = Self;
 
     fn shr(self, rhs: usize) -> Self::Output {
@@ -821,19 +783,13 @@ where
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> ShrAssign<usize> for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> ShrAssign<usize> for DefaultBitboard<R, C> {
     fn shr_assign(&mut self, rhs: usize) {
         self.raw >>= rhs;
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> Bitboard<R, C> for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> Bitboard<R, C> for DefaultBitboard<R, C> {
     fn from_raw(raw: R, size: C::Size) -> Self {
         Self { raw, size }
     }
@@ -849,7 +805,7 @@ where
 
 impl<R: RawBitboard, C: RectangularCoordinates> DefaultBitboard<R, C>
 where
-    C::Size: RectangularSize<C> + Default,
+    C::Size: Default,
 {
     pub fn new(bb: R) -> Self {
         Self {
