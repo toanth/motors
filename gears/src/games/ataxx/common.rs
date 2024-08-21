@@ -73,7 +73,7 @@ impl AbstractPieceType for AtaxxPieceType {
     }
 }
 
-impl PieceType<AtaxxColor> for AtaxxPieceType {
+impl PieceType<AtaxxBoard> for AtaxxPieceType {
     type Colored = ColoredAtaxxPieceType;
 
     fn from_idx(idx: usize) -> Self {
@@ -86,8 +86,8 @@ pub enum ColoredAtaxxPieceType {
     #[default]
     Empty,
     Blocked,
-    WhitePiece,
-    BlackPiece,
+    XPiece,
+    OPiece,
 }
 
 impl Display for ColoredAtaxxPieceType {
@@ -105,8 +105,8 @@ impl AbstractPieceType for ColoredAtaxxPieceType {
         match self {
             ColoredAtaxxPieceType::Empty => '.',
             ColoredAtaxxPieceType::Blocked => '-',
-            WhitePiece => 'x',
-            BlackPiece => 'o',
+            XPiece => 'x',
+            OPiece => 'o',
         }
     }
 
@@ -114,8 +114,8 @@ impl AbstractPieceType for ColoredAtaxxPieceType {
         match c {
             '.' => Some(Self::Empty),
             '-' => Some(Self::Blocked),
-            'x' => Some(WhitePiece),
-            'o' => Some(BlackPiece),
+            'x' => Some(XPiece),
+            'o' => Some(OPiece),
             _ => None,
         }
     }
@@ -125,13 +125,13 @@ impl AbstractPieceType for ColoredAtaxxPieceType {
     }
 }
 
-impl ColoredPieceType<AtaxxColor> for ColoredAtaxxPieceType {
+impl ColoredPieceType<AtaxxBoard> for ColoredAtaxxPieceType {
     type Uncolored = AtaxxPieceType;
 
     fn color(self) -> Option<AtaxxColor> {
         match self {
-            WhitePiece => Some(O),
-            BlackPiece => Some(X),
+            OPiece => Some(O),
+            XPiece => Some(X),
             _ => None,
         }
     }
@@ -143,8 +143,8 @@ impl ColoredPieceType<AtaxxColor> for ColoredAtaxxPieceType {
     fn new(color: AtaxxColor, uncolored: Self::Uncolored) -> Self {
         match uncolored {
             Occupied => match color {
-                O => WhitePiece,
-                X => BlackPiece,
+                O => XPiece,
+                X => OPiece,
             },
             Empty => Self::Empty,
             Blocked => Self::Blocked,

@@ -127,17 +127,13 @@ impl Chessboard {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
+    use super::*;
     use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
-    use crate::games::chess::pieces::ChessPieceType::{Bishop, Knight};
-    use crate::games::chess::squares::{ChessSquare, D_FILE_NO, E_FILE_NO};
-    use crate::games::chess::zobrist::{PcgXslRr128_64Oneseq, PRECOMPUTED_ZOBRIST_KEYS};
-    use crate::games::chess::ChessColor::*;
-    use crate::games::chess::Chessboard;
-    use crate::games::Board;
-    use crate::general::board::SelfChecks::Assertion;
+    use crate::games::chess::pieces::ChessPieceType::*;
+    use crate::games::chess::squares::{D_FILE_NO, E_FILE_NO};
+    use crate::general::board::Board;
     use crate::general::moves::Move;
+    use std::collections::HashMap;
 
     #[test]
     fn pcg_test() {
@@ -241,10 +237,7 @@ mod tests {
                 let Some(new_pos) = pos.make_move(m) else {
                     continue;
                 };
-                assert!(
-                    new_pos.verify_position_legal(Assertion).is_ok(),
-                    "{pos} {m}"
-                );
+                assert!(new_pos.debug_verify_invariants().is_ok(), "{pos} {m}");
                 if !(m.is_double_pawn_push()
                     || m.is_capture(&pos)
                     || m.is_promotion()

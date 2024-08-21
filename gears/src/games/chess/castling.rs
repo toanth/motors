@@ -69,7 +69,7 @@ impl CastlingFlags {
             & (self.allowed_castling_directions() >> (color as usize * 2 + castle_right as usize))
     }
 
-    pub(super) fn set_castle_right(
+    pub fn set_castle_right(
         &mut self,
         color: ChessColor,
         castle_right: CastleRight,
@@ -84,17 +84,17 @@ impl CastlingFlags {
         Ok(())
     }
 
-    pub(super) fn unset_castle_right(&mut self, color: ChessColor, castle_right: CastleRight) {
+    pub fn unset_castle_right(&mut self, color: ChessColor, castle_right: CastleRight) {
         self.0 &= !(0x1 << ((color as usize * 2 + castle_right as usize) + 12));
         self.0 &= !(0x7 << Self::shift(color, castle_right));
     }
 
-    pub(super) fn clear_castle_rights(&mut self, color: ChessColor) {
+    pub fn clear_castle_rights(&mut self, color: ChessColor) {
         self.0 &= !(0x3 << (color as usize * 2 + 12));
         self.0 &= !(0x3f << (color as usize * 6));
     }
 
-    pub(super) fn parse_castling_rights(mut self, rights: &str, board: &Chessboard) -> Res<Self> {
+    pub fn parse_castling_rights(mut self, rights: &str, board: &Chessboard) -> Res<Self> {
         self.0 = 0;
         if rights == "-" {
             return Ok(self);

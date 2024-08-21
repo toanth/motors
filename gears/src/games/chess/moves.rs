@@ -496,14 +496,14 @@ impl Chessboard {
                 self.colored_piece_on(taken_pawn).symbol,
                 ColoredChessPieceType::new(other, Pawn)
             );
-            self.remove_piece(taken_pawn, Pawn, other);
+            self.remove_piece_unchecked(taken_pawn, Pawn, other);
             new_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, other, taken_pawn);
             self.ply_100_ctr = 0;
         } else if mov.is_non_ep_capture(&self) {
             let captured = self.piece_type_on(to);
             debug_assert_eq!(self.colored_piece_on(to).color().unwrap(), other);
             debug_assert_ne!(captured, King);
-            self.remove_piece(to, captured, other);
+            self.remove_piece_unchecked(to, captured, other);
             new_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(captured, other, to);
             self.ply_100_ctr = 0;
         } else if piece == Pawn {
@@ -1080,7 +1080,7 @@ mod tests {
     #[test]
     fn castle_test() {
         let mut p = Chessboard::chess_960_startpos(42).unwrap();
-        p.remove_piece(ChessSquare::from_chars('f', '1').unwrap(), Bishop, White);
+        p.remove_piece_unchecked(ChessSquare::from_chars('f', '1').unwrap(), Bishop, White);
         let tests: &[(Chessboard, &[&str])] = &[
             (
                 Chessboard::from_name("kiwipete").unwrap(),

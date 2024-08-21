@@ -6,10 +6,9 @@ use strum_macros::{EnumIter, FromRepr};
 
 use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::ColoredChessPieceType::BlackPawn;
-use crate::games::chess::squares::ChessSquare;
 
-use crate::games::chess::ChessColor;
 use crate::games::chess::ChessColor::*;
+use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{AbstractPieceType, ColoredPieceType, GenericPiece, PieceType};
 
 pub const NUM_CHESS_PIECES: usize = 6;
@@ -155,7 +154,7 @@ impl AbstractPieceType for ChessPieceType {
     }
 }
 
-impl PieceType<ChessColor> for ChessPieceType {
+impl PieceType<Chessboard> for ChessPieceType {
     type Colored = ColoredChessPieceType;
 
     fn from_idx(idx: usize) -> Self {
@@ -302,7 +301,7 @@ impl AbstractPieceType for ColoredChessPieceType {
     }
 }
 
-impl ColoredPieceType<ChessColor> for ColoredChessPieceType {
+impl ColoredPieceType<Chessboard> for ColoredChessPieceType {
     type Uncolored = ChessPieceType;
 
     fn color(self) -> Option<ChessColor> {
@@ -321,4 +320,4 @@ impl ColoredPieceType<ChessColor> for ColoredChessPieceType {
     }
 }
 
-pub type ChessPiece = GenericPiece<ChessSquare, ChessColor, ColoredChessPieceType>;
+pub type ChessPiece = GenericPiece<Chessboard, ColoredChessPieceType>;

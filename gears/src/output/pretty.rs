@@ -4,7 +4,7 @@ use std::io::stdout;
 use colored::{Color, Colorize};
 
 use crate::games::{AbstractPieceType, ColoredPiece, ColoredPieceType, Coordinates};
-use crate::general::board::{Board, RectangularBoard};
+use crate::general::board::{Board, ColPieceType, RectangularBoard};
 use crate::general::common::{IterIntersperse, NamedEntity, Res, StaticallyNamedEntity};
 use crate::general::moves::Move;
 use crate::general::squares::RectangularCoordinates;
@@ -28,7 +28,7 @@ impl Default for PrettyUI {
 }
 
 fn color<B: Board>(
-    piece: <B::Piece as ColoredPiece<B::Color>>::ColoredPieceType,
+    piece: ColPieceType<B>,
     square: B::Coordinates,
     last_move: Option<B::Move>,
 ) -> String
@@ -52,7 +52,7 @@ where
         p1_bg_col
     };
 
-    if piece == <B::Piece as ColoredPiece<B::Color>>::ColoredPieceType::empty() {
+    if piece == ColPieceType::<B>::empty() {
         "  ".to_string().color(Color::Black)
     } else if piece.color().unwrap() == <B::Color as games::Color>::first() {
         (symbol.to_string() + " ").color(p1_piece_col)

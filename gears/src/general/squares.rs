@@ -124,8 +124,13 @@ impl GridCoordinates {
 pub trait RectangularSize<C: RectangularCoordinates>: Size<C> {
     fn height(self) -> Height;
     fn width(self) -> Width;
+    // TODO: Should probably not exist? `SmallGridSize` doesn't have an `InternalWidth` generic argument
     fn internal_width(self) -> usize {
         self.width().val()
+    }
+
+    fn idx_to_coordinates(&self, idx: DimT) -> C {
+        C::from_row_column(idx / self.width().0, idx % self.width().0)
     }
 }
 
@@ -335,6 +340,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
         self.idx
     }
 
+    // TODO: Don't return a ChessBitboard
     pub fn bb(self) -> ChessBitboard {
         ChessBitboard::single_piece(self.bb_idx())
     }

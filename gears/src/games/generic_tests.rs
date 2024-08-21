@@ -2,7 +2,6 @@
 //! Since those generics aren't instantiated here, there are no actual tests here.
 use crate::games::{Color, NoHistory, ZobristHash};
 use crate::general::board::Board;
-use crate::general::board::SelfChecks::Assertion;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::Move;
 use itertools::Itertools;
@@ -89,8 +88,8 @@ impl<B: Board> GenericTests<B> {
             let ply = pos.halfmove_ctr_since_start();
             // use a new hash set per position because bench positions can be only one ply away from each other
             let mut hashes = HashSet::new();
-            let _ = pos.verify_position_legal(Assertion).unwrap();
-            assert!(pos.verify_position_legal(Assertion).is_ok());
+            let _ = pos.debug_verify_invariants().unwrap();
+            assert!(pos.debug_verify_invariants().is_ok());
             assert!(pos.match_result_slow(&NoHistory::default()).is_none());
             assert_eq!(B::from_fen(&pos.as_fen()).unwrap(), pos);
             let hash = pos.zobrist_hash().0;
@@ -110,7 +109,7 @@ impl<B: Board> GenericTests<B> {
                 let new_pos = pos.make_move(mov);
                 assert_eq!(new_pos.is_some(), pos.is_pseudolegal_move_legal(mov));
                 let Some(new_pos) = new_pos else { continue };
-                let legal = new_pos.verify_position_legal(Assertion);
+                let legal = new_pos.debug_verify_invariants();
                 assert!(legal.is_ok());
                 assert_eq!(new_pos.active_player().other(), pos.active_player());
                 assert_ne!(new_pos.as_fen(), pos.as_fen());

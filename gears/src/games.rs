@@ -93,16 +93,16 @@ pub trait AbstractPieceType: Eq + Copy + Debug + Default + Display {
     fn to_uncolored_idx(self) -> usize;
 }
 
-pub trait PieceType<C: Color>: AbstractPieceType {
-    type Colored: ColoredPieceType<C>;
+pub trait PieceType<B: Board>: AbstractPieceType {
+    type Colored: ColoredPieceType<B>;
 
     fn from_idx(idx: usize) -> Self;
 }
 
-pub trait ColoredPieceType<C: Color>: AbstractPieceType {
-    type Uncolored: PieceType<C>;
+pub trait ColoredPieceType<B: Board>: AbstractPieceType {
+    type Uncolored: PieceType<B>;
 
-    fn color(self) -> Option<C>;
+    fn color(self) -> Option<B::Color>;
 
     fn uncolor(self) -> Self::Uncolored {
         Self::Uncolored::from_idx(self.to_uncolored_idx())
@@ -110,15 +110,14 @@ pub trait ColoredPieceType<C: Color>: AbstractPieceType {
 
     fn to_colored_idx(self) -> usize;
 
-    fn new(color: C, uncolored: Self::Uncolored) -> Self;
+    fn new(color: B::Color, uncolored: Self::Uncolored) -> Self;
 }
 
-pub trait ColoredPiece<C: Color>: Eq + Copy + Debug + Default {
-    type ColoredPieceType: ColoredPieceType<C>;
-    type Coordinates: Coordinates;
-    fn coordinates(self) -> Self::Coordinates;
+pub trait ColoredPiece<B: Board>: Eq + Copy + Debug + Default {
+    type ColoredPieceType: ColoredPieceType<B>;
+    fn coordinates(self) -> B::Coordinates;
 
-    fn uncolored(self) -> <Self::ColoredPieceType as ColoredPieceType<C>>::Uncolored {
+    fn uncolored(self) -> <Self::ColoredPieceType as ColoredPieceType<B>>::Uncolored {
         self.colored_piece_type().uncolor()
     }
 
@@ -136,26 +135,22 @@ pub trait ColoredPiece<C: Color>: Eq + Copy + Debug + Default {
 
     fn colored_piece_type(self) -> Self::ColoredPieceType;
 
-    fn color(self) -> Option<C> {
+    fn color(self) -> Option<B::Color> {
         self.colored_piece_type().color()
     }
 }
 
 #[derive(Eq, PartialEq, Default, Debug, Copy, Clone)]
 #[must_use]
-pub struct GenericPiece<C: Coordinates, Col: Color, T: ColoredPieceType<Col>> {
-    symbol: T,
-    coordinates: C,
-    _phantom_data: PhantomData<Col>,
+pub struct GenericPiece<B: Board, ColType: ColoredPieceType<B>> {
+    symbol: ColType,
+    coordinates: B::Coordinates,
 }
 
-impl<C: Coordinates, Col: Color, T: ColoredPieceType<Col>> ColoredPiece<Col>
-    for GenericPiece<C, Col, T>
-{
-    type ColoredPieceType = T;
-    type Coordinates = C;
+impl<B: Board, ColType: ColoredPieceType<B>> ColoredPiece<B> for GenericPiece<B, ColType> {
+    type ColoredPieceType = ColType;
 
-    fn coordinates(self) -> Self::Coordinates {
+    fn coordinates(self) -> B::Coordinates {
         self.coordinates
     }
 
@@ -164,18 +159,17 @@ impl<C: Coordinates, Col: Color, T: ColoredPieceType<Col>> ColoredPiece<Col>
     }
 }
 
-impl<C: Coordinates, Col: Color, T: ColoredPieceType<Col>> Display for GenericPiece<C, Col, T> {
+impl<B: Board, ColType: ColoredPieceType<B>> Display for GenericPiece<B, ColType> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.symbol, f)
     }
 }
 
-impl<C: Coordinates, Col: Color, T: ColoredPieceType<Col>> GenericPiece<C, Col, T> {
-    pub fn new(symbol: T, coordinates: C) -> Self {
+impl<B: Board, ColType: ColoredPieceType<B>> GenericPiece<B, ColType> {
+    pub fn new(symbol: ColType, coordinates: B::Coordinates) -> Self {
         Self {
             symbol,
             coordinates,
-            _phantom_data: PhantomData,
         }
     }
 }

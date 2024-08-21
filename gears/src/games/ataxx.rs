@@ -2,18 +2,17 @@ mod board_impl;
 mod common;
 mod perft_test;
 
-use crate::games::ataxx::common::ColoredAtaxxPieceType::{BlackPiece, Blocked, Empty, WhitePiece};
+use crate::games::ataxx::common::ColoredAtaxxPieceType::{Blocked, Empty, OPiece, XPiece};
 use crate::games::ataxx::common::{AtaxxMove, ColoredAtaxxPieceType, MAX_ATAXX_MOVES_IN_POS};
 use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::{
-    Board, BoardHistory, Color, ColoredPiece, Coordinates, GenericPiece, NoHistory, Settings,
-    ZobristHash,
+    Board, BoardHistory, Color, ColoredPiece, GenericPiece, NoHistory, Settings, ZobristHash,
 };
 use crate::general::bitboards::ataxx::{AtaxxBitboard, INVALID_EDGE_MASK};
-use crate::general::bitboards::{RawBitboard, RawStandardBitboard};
-use crate::general::board::SelfChecks::CheckFen;
-use crate::general::board::{board_to_string, position_fen_part, SelfChecks};
+use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
+use crate::general::board::SelfChecks::{Assertion, CheckFen};
+use crate::general::board::{board_to_string, position_fen_part, SelfChecks, UnverifiedBoard};
 use crate::general::common::{Res, StaticallyNamedEntity};
 use crate::general::move_list::EagerNonAllocMoveList;
 use crate::general::squares::{SmallGridSize, SmallGridSquare};
@@ -80,9 +79,9 @@ pub struct AtaxxBoard {
 
 impl Default for AtaxxBoard {
     fn default() -> Self {
-        let white_bb = AtaxxBitboard::from_u64(0x41);
-        let black_bb = white_bb << ((7 - 2) * 8);
-        Self::create(AtaxxBitboard::default(), white_bb, black_bb).unwrap()
+        let x_bb = AtaxxBitboard::from_u64(0x41);
+        let o_bb = x_bb << ((7 - 2) * 8);
+        Self::create(AtaxxBitboard::default(), x_bb, o_bb).unwrap()
     }
 }
 
@@ -115,7 +114,7 @@ impl StaticallyNamedEntity for AtaxxBoard {
     }
 }
 
-type AtaxxPiece = GenericPiece<AtaxxSquare, AtaxxColor, ColoredAtaxxPieceType>;
+type AtaxxPiece = GenericPiece<AtaxxBoard, ColoredAtaxxPieceType>;
 
 // for some reason, Chessboard::MoveList can be ambiguous? This should fix that
 pub type AtaxxMoveList = EagerNonAllocMoveList<AtaxxBoard, MAX_ATAXX_MOVES_IN_POS>;
@@ -130,7 +129,10 @@ impl Board for AtaxxBoard {
 
     type LegalMoveList = Self::MoveList;
 
-    fn empty_possibly_invalid(_settings: Self::Settings) -> Self {
+    type Unverified = UnverifiedAtaxxBoard;
+
+    #[allow(refining_impl_trait)]
+    fn empty(_settings: Self::Settings) -> Self {
         let empty = AtaxxBitboard::default();
         Self::create(empty, empty, empty).unwrap()
     }
@@ -213,7 +215,7 @@ impl Board for AtaxxBoard {
         self.ply_100_ctr
     }
 
-    fn size(&self) -> <Self::Coordinates as Coordinates>::Size {
+    fn size(&self) -> AtaxxSize {
         AtaxxSize::default()
     }
 
@@ -225,8 +227,8 @@ impl Board for AtaxxBoard {
         match piece {
             Empty => self.empty_bb(),
             Blocked => self.blocked_bb(),
-            WhitePiece => self.color_bb(O),
-            BlackPiece => self.color_bb(X),
+            XPiece => self.color_bb(O),
+            OPiece => self.color_bb(X),
         }
         .is_bit_set_at(sq.bb_idx())
     }
@@ -234,9 +236,9 @@ impl Board for AtaxxBoard {
     fn colored_piece_on(&self, coordinates: Self::Coordinates) -> Self::Piece {
         let idx = coordinates.bb_idx();
         let typ = if self.colors[O as usize].is_bit_set_at(idx) {
-            WhitePiece
+            OPiece
         } else if self.colors[X as usize].is_bit_set_at(idx) {
-            BlackPiece
+            XPiece
         } else if self.empty.is_bit_set_at(idx) {
             Empty
         } else {
@@ -272,7 +274,8 @@ impl Board for AtaxxBoard {
 
     fn make_nullmove(mut self) -> Option<Self> {
         self.active_player = self.active_player.other();
-        // TODO: Increase ply counter?
+        self.ply += 1;
+        self.ply_100_ctr += 1;
         Some(self)
     }
 
@@ -322,11 +325,9 @@ impl Board for AtaxxBoard {
     }
 
     fn as_fen(&self) -> String {
-        // Outside code (UAI specifically) expects the first player to be black, not white.
-        // TODO: Change this such that this is unnecessary, then use common_fen_part()
         let stm = match self.active_player {
-            O => 'x',
-            X => 'o',
+            O => 'o',
+            X => 'x',
         };
 
         format!(
@@ -348,17 +349,45 @@ impl Board for AtaxxBoard {
     fn as_unicode_diagram(&self, flip: bool) -> String {
         board_to_string(self, AtaxxPiece::to_utf8_char, flip)
     }
+}
 
-    fn verify_position_legal(&self, checks: SelfChecks) -> Res<()> {
-        let blocked = self.blocked_bb();
+#[derive(Debug, Copy, Clone)]
+#[must_use]
+pub struct UnverifiedAtaxxBoard(AtaxxBoard);
+
+impl From<AtaxxBoard> for UnverifiedAtaxxBoard {
+    fn from(board: AtaxxBoard) -> Self {
+        Self(board)
+    }
+}
+
+impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
+    fn verify_with_level(self, level: SelfChecks) -> Res<AtaxxBoard> {
+        let this = self.0;
+        let blocked = this.blocked_bb();
         if blocked & INVALID_EDGE_MASK != INVALID_EDGE_MASK {
-            return Err("A squares outside of the board is being used".to_string());
+            return Err(format!(
+                "A squares outside of the board is being used ({})",
+                AtaxxSquare::unchecked((!blocked & INVALID_EDGE_MASK).pop_lsb())
+            ));
         }
-        if checks == CheckFen {
-            return Ok(());
+        if this.ply_100_ctr > 100 {
+            return Err(format!(
+                "The halfmove clock is too large: It must be a number between 0 and 100, not {}",
+                this.ply_100_ctr
+            ));
         }
-        assert_eq!(self.num_squares(), 49);
-        let mut overlap = self.colors[0] & self.colors[1];
+        if this.ply > 10_000 {
+            return Err(format!("Ridiculously large ply number ({})", this.ply));
+        }
+
+        if level == CheckFen {
+            return Ok(this);
+        }
+        if level == Assertion {
+            assert_eq!(this.num_squares(), 49);
+        }
+        let mut overlap = this.colors[0] & this.colors[1];
         if overlap.has_set_bit() {
             return Err(format!(
                 "Both players have a piece on the same square ('{}')",
@@ -366,7 +395,7 @@ impl Board for AtaxxBoard {
             ));
         }
         for color in AtaxxColor::iter() {
-            let mut overlap = self.empty & self.colors[color as usize];
+            let mut overlap = this.empty & this.colors[color as usize];
             if overlap.has_set_bit() {
                 return Err(format!(
                     "The square '{}' is both empty and occupied by a player",
@@ -374,19 +403,66 @@ impl Board for AtaxxBoard {
                 ));
             }
         }
-        Ok(())
+        Ok(this)
+    }
+
+    fn size(&self) -> AtaxxSize {
+        self.0.size()
+    }
+
+    fn place_piece_unchecked(mut self, square: AtaxxSquare, piece: ColoredAtaxxPieceType) -> Self {
+        let bb = RawStandardBitboard::single_piece(square.bb_idx());
+        self.0.colors[0] &= !bb;
+        self.0.colors[1] &= !bb;
+        self.0.empty &= !bb;
+        match piece {
+            Empty => self.0.empty |= bb,
+            Blocked => {}
+            XPiece => self.0.colors[X as usize] |= bb,
+            OPiece => self.0.colors[O as usize] |= bb,
+        }
+        self
+    }
+
+    fn remove_piece_unchecked(mut self, square: AtaxxSquare) -> Self {
+        let bb = RawStandardBitboard::single_piece(square.bb_idx());
+        self.0.colors[0] &= !bb;
+        self.0.colors[1] &= !bb;
+        self.0.empty |= bb;
+        self
+    }
+
+    fn set_active_player(mut self, player: AtaxxColor) -> Self {
+        self.0.active_player = player;
+        self
+    }
+
+    fn set_ply_since_start(mut self, ply: usize) -> Res<Self> {
+        self.0.ply = ply;
+        Ok(self)
+    }
+}
+
+impl UnverifiedAtaxxBoard {
+    pub fn set_halfmove_clock(mut self, halfmove_clock: usize) -> Self {
+        self.0.ply_100_ctr = halfmove_clock;
+        self
+    }
+
+    pub fn set_blockers_bb(mut self, blockers_bb: RawStandardBitboard) -> Self {
+        self.0.empty = self.0.empty ^ self.0.blocked_bb().raw() ^ blockers_bb;
+        self
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::general::board::SelfChecks::Assertion;
 
     #[test]
     fn startpos_test() {
         let pos = AtaxxBoard::default();
-        assert!(pos.verify_position_legal(Assertion).is_ok());
+        assert!(pos.debug_verify_invariants().is_ok());
         assert_eq!(pos.color_bb(O).num_ones(), 2);
         assert_eq!(pos.color_bb(X).num_ones(), 2);
         assert!((pos.blocked_bb() & !INVALID_EDGE_MASK).is_zero());
@@ -403,8 +479,8 @@ mod tests {
 
     #[test]
     fn empty_pos_test() {
-        let pos = AtaxxBoard::empty_possibly_invalid(AtaxxSettings::default());
-        assert!(pos.verify_position_legal(Assertion).is_ok());
+        let pos = AtaxxBoard::empty(AtaxxSettings::default());
+        assert!(pos.debug_verify_invariants().is_ok());
         assert!(pos.color_bb(O).is_zero());
         assert!(pos.color_bb(X).is_zero());
         assert!(pos.is_game_lost_slow());
