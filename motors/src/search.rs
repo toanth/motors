@@ -575,8 +575,8 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
 pub struct MoveScore(pub i32);
 
 impl MoveScore {
-    const MAX: MoveScore = MoveScore(i32::MAX);
-    const MIN: MoveScore = MoveScore(i32::MIN + 1);
+    pub const MAX: MoveScore = MoveScore(i32::MAX);
+    pub const MIN: MoveScore = MoveScore(i32::MIN + 1);
 }
 
 pub trait MoveScorer<B: Board> {

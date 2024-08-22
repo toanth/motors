@@ -43,6 +43,13 @@ const HIST_DIVISOR: i32 = 1024;
 /// The TT move and good captures have a higher score, all other moves have a lower score.
 const KILLER_SCORE: MoveScore = MoveScore(i32::MAX - 100 * HIST_DIVISOR);
 
+/// Good captures use this as the base value, bad captures use -CAPTURE_BASE as base value
+const CAPTURE_BASE: MoveScore = MoveScore(MoveScore::MAX.0 - HIST_DIVISOR * 50);
+
+fn is_not_bad_capture(score: MoveScore) -> bool {
+    score >= MoveScore(-CAPTURE_BASE.0 / 2)
+}
+
 /// Updates the history using the History Gravity technique,
 /// which keeps history scores from growing arbitrarily large and scales the bonus/malus depending on how
 /// "unexpected" they are, i.e. by how much they differ from the current history scores.
@@ -776,10 +783,12 @@ impl Caps {
             }
 
             // See Pruning: At low depths, don't even consider moves that would lose material according to SEE.
+            // We exclude captures here because bad SEE captures are probably more likely to be good than bad SEE quiets
             if can_prune
                 && depth <= 5
                 && move_score < KILLER_SCORE
-                && !pos.see_at_least(mov, SeeScore(-200 * depth as i32))
+                && is_not_bad_capture(move_score)
+                && !pos.see_at_least(mov, SeeScore(-128 * depth as i32))
             {
                 continue;
             }
@@ -1205,9 +1214,9 @@ impl MoveScorer<Chessboard> for CapsMoveScorer {
         } else {
             let captured = mov.captured(&self.board);
             let base_val = if self.board.see_at_least(mov, SeeScore(0)) {
-                MoveScore::MAX - MoveScore(HIST_DIVISOR * 50)
+                CAPTURE_BASE
             } else {
-                MoveScore::MIN + MoveScore(HIST_DIVISOR * 50)
+                -CAPTURE_BASE
             };
             let hist_val = state.custom.capt_hist.get(mov, self.board.active_player());
             base_val + MoveScore(captured as i32 * HIST_DIVISOR * 2) + hist_val
