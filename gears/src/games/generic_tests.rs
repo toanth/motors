@@ -1,7 +1,9 @@
 //! This module contains generic test functions that are completely independent of the actual game.
 //! Since those generics aren't instantiated here, there are no actual tests here.
-use crate::games::SelfChecks::Assertion;
-use crate::games::{Board, Move, NoHistory, ZobristHash};
+use crate::games::{Color, ColoredPiece, Coordinates, Size, ZobristHash};
+use crate::general::board::{Board, UnverifiedBoard};
+use crate::general::moves::Legality::Legal;
+use crate::general::moves::Move;
 use itertools::Itertools;
 use std::collections::{HashSet, VecDeque};
 use std::marker::PhantomData;
@@ -11,19 +13,49 @@ pub struct GenericTests<B: Board> {
 }
 
 impl<B: Board> GenericTests<B> {
+    pub fn coordinates_test() {
+        let pos = B::default();
+        let size = pos.size();
+        assert_eq!(size.valid_coordinates().count(), size.num_squares());
+        let coords = size.valid_coordinates();
+        let mut found_center = false;
+        let mut p = B::Unverified::new(pos);
+        for coords in coords {
+            assert!(size.coordinates_valid(coords));
+            assert!(size.check_coordinates(coords).is_ok());
+            assert_ne!(coords, B::Coordinates::no_coordinates());
+            assert_eq!(
+                size.to_coordinates_unchecked(size.to_internal_key(coords)),
+                coords
+            );
+            let flipped = coords.flip_up_down(size);
+            assert_eq!(flipped.flip_up_down(size), coords);
+            let flipped = coords.flip_left_right(size);
+            assert_eq!(flipped.flip_left_right(size), coords);
+            if coords == flipped.flip_up_down(size) {
+                assert!(!found_center);
+                found_center = true;
+            }
+            assert_eq!(
+                pos.is_empty(coords),
+                pos.colored_piece_on(coords).color().is_none()
+            );
+            p = p.remove_piece(coords).unwrap();
+        }
+        assert_eq!(p.verify(), B::empty().into().verify());
+        assert!(size
+            .check_coordinates(Coordinates::no_coordinates())
+            .is_err());
+    }
+
     pub fn long_notation_roundtrip_test() {
         let positions = B::name_to_pos_map();
-        for pos in positions.into_iter() {
+        for pos in positions {
             let pos = (pos.val)();
             for mov in pos.legal_moves_slow() {
                 let encoded = mov.to_extended_text(&pos);
                 let decoded = B::Move::from_extended_text(&encoded, &pos);
                 assert!(decoded.is_ok());
-                println!(
-                    "{encoded} | {0} | {1}",
-                    decoded.clone().unwrap(),
-                    pos.as_fen()
-                );
                 assert_eq!(decoded.unwrap(), mov);
             }
         }
@@ -31,8 +63,11 @@ impl<B: Board> GenericTests<B> {
 
     pub fn fen_roundtrip_test() {
         let positions = B::bench_positions();
-        for pos in positions.into_iter() {
+        for pos in positions {
             assert_eq!(pos, B::from_fen(&pos.as_fen()).unwrap());
+            // FENs might be different after one fen->position->fen roundtrip because the parser can accept more than
+            // what's produced as output, but writing a FEN two times should produce the same result.
+            assert_eq!(pos.as_fen(), B::from_fen(&pos.as_fen()).unwrap().as_fen());
         }
     }
 
@@ -65,7 +100,7 @@ impl<B: Board> GenericTests<B> {
         for shift in 0..64 - 8 {
             let get_bits = |hash: ZobristHash| (hash.0 >> shift) & 0xff;
             let mut counts = vec![0; 256];
-            for hash in hashes.iter() {
+            for hash in &hashes {
                 counts[get_bits(*hash) as usize] += 1;
             }
             let expected = hashes.len() / 256;
@@ -83,13 +118,13 @@ impl<B: Board> GenericTests<B> {
             let ply = pos.halfmove_ctr_since_start();
             // use a new hash set per position because bench positions can be only one ply away from each other
             let mut hashes = HashSet::new();
-            assert!(pos.verify_position_legal(Assertion).is_ok());
-            assert!(pos.match_result_slow(&NoHistory::default()).is_none());
+            let _ = pos.debug_verify_invariants().unwrap();
+            assert!(pos.debug_verify_invariants().is_ok());
             assert_eq!(B::from_fen(&pos.as_fen()).unwrap(), pos);
             let hash = pos.zobrist_hash().0;
             hashes.insert(hash);
             assert_ne!(hash, 0);
-            if B::are_all_pseudolegal_legal() {
+            if B::Move::legality() == Legal {
                 assert_eq!(
                     pos.legal_moves_slow().into_iter().count(),
                     pos.pseudolegal_moves().into_iter().count()
@@ -103,11 +138,18 @@ impl<B: Board> GenericTests<B> {
                 let new_pos = pos.make_move(mov);
                 assert_eq!(new_pos.is_some(), pos.is_pseudolegal_move_legal(mov));
                 let Some(new_pos) = new_pos else { continue };
-                let legal = new_pos.verify_position_legal(Assertion);
+                let legal = new_pos.debug_verify_invariants();
                 assert!(legal.is_ok());
                 assert_eq!(new_pos.active_player().other(), pos.active_player());
                 assert_ne!(new_pos.as_fen(), pos.as_fen());
-                assert_eq!(B::from_fen(&new_pos.as_fen()).unwrap(), new_pos);
+
+                let roundtrip = B::from_fen(&new_pos.as_fen()).unwrap();
+                assert!(roundtrip.debug_verify_invariants().is_ok());
+                assert_eq!(roundtrip.as_fen(), new_pos.as_fen());
+                assert_eq!(roundtrip.legal_moves_slow(), new_pos.legal_moves_slow());
+                assert_eq!(roundtrip, new_pos);
+                assert_eq!(roundtrip.zobrist_hash(), new_pos.zobrist_hash());
+
                 assert_ne!(new_pos.zobrist_hash().0, hash); // Even for null moves, the side to move has changed
                 assert_eq!(new_pos.halfmove_ctr_since_start() - ply, 1);
                 assert!(!hashes.contains(&new_pos.zobrist_hash().0));
@@ -118,6 +160,7 @@ impl<B: Board> GenericTests<B> {
 
     pub fn all_tests() {
         Self::basic_test();
+        Self::coordinates_test();
         Self::long_notation_roundtrip_test();
         Self::fen_roundtrip_test();
         Self::statistical_hash_test(B::default());

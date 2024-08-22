@@ -90,7 +90,7 @@ pub struct ClientEngineCliArgs {
     /// This name will be displayed in the GUI and be used for logfiles.
     /// If not given, this defaults to the UGI 'id name' or, if this isn't send either, the executable name
     /// If there are two engines with the same display name, one of them gets a number appended to make the names unique,
-    /// e.g. caps_2, etc.
+    /// e.g. `caps_2`, etc.
     pub display_name: Option<String>,
 
     /// The executable to run, e.g. "stockfish"
@@ -367,7 +367,7 @@ pub fn parse_cli() -> Res<CommandLineArgs> {
             "-ui" => parse_ui(&mut args, &mut res)?,
             "-d" | "-debug" => res.debug = true,
             "-additional-output" | "-output" | "-o" => {
-                parse_output(&mut args, &mut res.additional_outputs)?
+                parse_output(&mut args, &mut res.additional_outputs)?;
             }
             "-engine" => res.players.push(Engine(parse_engine(&mut args)?)),
             "-human" => res.players.push(Human(parse_human(&mut args)?)),
@@ -395,7 +395,7 @@ pub fn parse_cli() -> Res<CommandLineArgs> {
             "-srand" => todo!(),
             "-wait" => {
                 res.wait_after_match =
-                    Duration::from_millis(get_next_int::<i64>(&mut args, "wait")?.max(1) as u64)
+                    Duration::from_millis(get_next_int::<i64>(&mut args, "wait")?.max(1) as u64);
             }
             "-resultformat" => todo!(),
             "-startpos" => todo!(), // set one startpos for all matches. Incompatible with sprt.
@@ -407,7 +407,7 @@ pub fn parse_cli() -> Res<CommandLineArgs> {
         }
     }
 
-    for player in res.players.iter_mut() {
+    for player in &mut res.players {
         match player {
             Human(_) => {}
             Engine(args) => combine_engine_args(args, &each, args.add_debug_flag),

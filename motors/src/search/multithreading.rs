@@ -5,9 +5,10 @@ use std::thread::spawn;
 
 use crossbeam_channel::unbounded;
 use dyn_clone::clone_box;
+use gears::games::ZobristHistory;
+use gears::general::board::Board;
 
 use crate::eval::Eval;
-use gears::games::{Board, ZobristHistory};
 use gears::general::common::{parse_int_from_str, NamedEntity, Res};
 use gears::output::Message;
 use gears::output::Message::{Debug, Error};
@@ -50,6 +51,7 @@ struct SearchSenderState {
 /// deals with starting searches and returning the results across threads, and is therefore unnecessary if
 /// the engine is used as a library.
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct SearchSender<B: Board> {
     output: Option<Arc<Mutex<UgiOutput<B>>>>,
     sss: Arc<SearchSenderState>,
@@ -70,6 +72,7 @@ impl<B: Board> SearchSender<B> {
         }
     }
 
+    /// Makes all engines stop and spins until the main search thread has finished searching
     pub fn send_stop(&mut self) {
         // Set `infinite` to `false` before stopping the search such that the engine will output a `bestmove`
         // as demanded by the spec, such as when it stops pondering:
@@ -80,14 +83,13 @@ impl<B: Board> SearchSender<B> {
         self.sss.infinite.store(false, SeqCst);
         self.sss.stop.store(true, SeqCst);
         // wait until the search has finished to prevent race conditions
-        while self.sss.searching.load(SeqCst) != 0 {}
+        while self.sss.searching.load(SeqCst) != 0 {
+            std::hint::spin_loop();
+        }
     }
 
     pub fn set_searching(&mut self, value: bool) {
-        let val = match value {
-            true => 1,
-            false => -1,
-        };
+        let val = if value { 1 } else { -1 };
         self.sss.searching.fetch_add(val, SeqCst);
     }
 
@@ -95,9 +97,13 @@ impl<B: Board> SearchSender<B> {
         // should be unnecessary for correct UCI messages, but best to be certain --
         // this takes care of receiving another `go` while a search is currently running
         if self.sss.searching.load(SeqCst) > 0 {
+            // if another infinite search is running, make sure it doesn't deadlock
+            self.sss.infinite.store(false, SeqCst);
             self.sss.stop.store(true, SeqCst);
             // wait until any previous search has been stopped
-            while self.sss.searching.load(SeqCst) > 0 {}
+            while self.sss.searching.load(SeqCst) > 0 {
+                std::hint::spin_loop();
+            }
         }
         self.sss.infinite.store(infinite, SeqCst);
         if infinite {
@@ -120,7 +126,9 @@ impl<B: Board> SearchSender<B> {
         if self.sss.searching.load(SeqCst) > 0 {
             self.sss.stop.store(true, SeqCst);
             // wait until the search has finished to avoid race conditions
-            while self.sss.searching.load(SeqCst) > 0 {}
+            while self.sss.searching.load(SeqCst) > 0 {
+                std::hint::spin_loop();
+            }
         }
         self.sss.dont_print_result.store(false, SeqCst);
     }
@@ -131,24 +139,26 @@ impl<B: Board> SearchSender<B> {
 
     pub fn send_search_info(&mut self, info: SearchInfo<B>) {
         if let Some(output) = &self.output {
-            output.lock().unwrap().show_search_info(info)
+            output.lock().unwrap().show_search_info(info);
         }
     }
 
     pub fn send_search_res(&mut self, res: SearchResult<B>) {
         if let Some(output) = &self.output {
             // Spin until infinite search has been disabled, either through a `stop` command or through a `ponderhit`
-            while self.sss.infinite.load(SeqCst) {}
+            while self.sss.infinite.load(SeqCst) {
+                std::hint::spin_loop();
+            }
             if self.sss.dont_print_result.load(SeqCst) {
                 return;
             }
-            output.lock().unwrap().show_search_res(res);
+            output.lock().unwrap().show_search_res(&res);
         }
     }
 
     pub fn send_bench_res(&mut self, res: BenchResult) {
         if let Some(output) = &self.output {
-            output.lock().unwrap().show_bench(res)
+            output.lock().unwrap().show_bench(&res);
         }
     }
 
@@ -157,13 +167,13 @@ impl<B: Board> SearchSender<B> {
             output
                 .lock()
                 .unwrap()
-                .write_ugi(&format!("score cp {}", eval.0))
+                .write_ugi(&format!("score cp {}", eval.0));
         }
     }
 
     pub fn send_message(&mut self, typ: Message, text: &str) {
         if let Some(output) = &self.output {
-            output.lock().unwrap().write_message(typ, text)
+            output.lock().unwrap().write_message(typ, text);
         }
     }
 
@@ -226,12 +236,11 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         Ok(())
     }
 
-    fn bench_single_position(&mut self, pos: B, limit: BenchLimit) -> Res<()> {
+    fn bench_single_position(&mut self, pos: B, limit: BenchLimit) {
         // self.engine.stop();
         self.engine.forget();
         let res = self.engine.bench(pos, limit);
         self.search_sender.send_bench_res(res);
-        Ok(())
     }
 
     fn get_static_eval(&mut self, pos: B) {
@@ -260,9 +269,9 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                 _ => self.engine.set_option(name, value)?, // TODO: Update info in UGI client
             },
             Search(pos, limit, history, tt, moves, multi_pv) => {
-                self.start_search(pos, limit, history, tt, moves, multi_pv)?
+                self.start_search(pos, limit, history, tt, moves, multi_pv)?;
             }
-            Bench(pos, limit) => self.bench_single_position(pos, limit)?,
+            Bench(pos, limit) => self.bench_single_position(pos, limit),
             EvalFor(pos) => self.get_static_eval(pos),
             SetEval(eval) => self.engine.set_eval(eval),
         };
@@ -301,6 +310,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
 /// Implementations of this trait live in the UGI thread and deal with forwarding the UGI commands to
 /// all engine threads and coordinating the different engine threads to arrive at only one chosen move.
 #[derive(Debug)]
+#[must_use]
 pub struct EngineWrapper<B: Board> {
     sender: Sender<EngineReceives<B>>,
     engine_info: EngineInfo,
@@ -344,7 +354,6 @@ impl<B: Board> EngineWrapper<B> {
         pos: B,
         limit: SearchLimit,
         history: ZobristHistory<B>,
-        ponder: bool,
         search_moves: Vec<B::Move>,
         multi_pv: usize,
     ) -> Res<()> {
@@ -352,15 +361,8 @@ impl<B: Board> EngineWrapper<B> {
             // reset `stop` first such that a finished ponder command won't print anything
             self.search_sender().new_search(limit.is_infinite());
         }
-        for o in self.secondary.iter_mut() {
-            o.start_search(
-                pos,
-                limit,
-                history.clone(),
-                ponder,
-                search_moves.clone(),
-                multi_pv,
-            )?;
+        for o in &mut self.secondary {
+            o.start_search(pos, limit, history.clone(), search_moves.clone(), multi_pv)?;
         }
         self.sender
             .send(Search(
@@ -388,7 +390,7 @@ impl<B: Board> EngineWrapper<B> {
     }
 
     pub fn set_tt(&mut self, tt: TT) {
-        for wrapper in self.secondary.iter_mut() {
+        for wrapper in &mut self.secondary {
             wrapper.set_tt(tt.clone());
         }
         self.tt = tt;
@@ -413,12 +415,12 @@ impl<B: Board> EngineWrapper<B> {
             let value: usize = parse_int_from_str(&value, "hash size in mb")?;
             let size = value * 1_000_000;
             self.set_tt(TT::new_with_bytes(size));
-            for nested in self.secondary.iter_mut() {
+            for nested in &mut self.secondary {
                 nested.tt = self.tt.clone();
             }
             Ok(())
         } else {
-            for o in self.secondary.iter_mut() {
+            for o in &mut self.secondary {
                 o.set_option(name.clone(), value.clone())?;
             }
             self.sender
@@ -428,7 +430,7 @@ impl<B: Board> EngineWrapper<B> {
     }
 
     pub fn set_eval(&mut self, eval: Box<dyn Eval<B>>) -> Res<()> {
-        for o in self.secondary.iter_mut() {
+        for o in &mut self.secondary {
             o.set_eval(clone_box(eval.as_ref()))?;
         }
         self.engine_info.set_eval(eval.as_ref());
@@ -438,14 +440,14 @@ impl<B: Board> EngineWrapper<B> {
     }
 
     pub fn send_stop(&mut self) {
-        for o in self.secondary.iter_mut() {
+        for o in &mut self.secondary {
             o.send_stop();
         }
         self.search_sender().send_stop();
     }
 
     pub fn send_quit(&mut self) -> Res<()> {
-        for o in self.secondary.iter_mut() {
+        for o in &mut self.secondary {
             o.send_quit()?;
         }
         self.search_sender().send_stop();
@@ -453,8 +455,8 @@ impl<B: Board> EngineWrapper<B> {
     }
 
     pub fn send_forget(&mut self) -> Res<()> {
-        for o in self.secondary.iter_mut() {
-            o.send_forget()?
+        for o in &mut self.secondary {
+            o.send_forget()?;
         }
         if self.is_primary() {
             self.tt.forget();

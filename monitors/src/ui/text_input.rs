@@ -8,16 +8,17 @@ use colored::Colorize;
 use itertools::Itertools;
 use rand::thread_rng;
 
-use gears::games::Color::{Black, White};
-use gears::games::{Board, Color, Move};
+use gears::games::Color;
+use gears::general::board::Board;
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
     parse_int_from_str, select_name_static, to_name_and_optional_description, IterIntersperse,
     NamedEntity, Res, StaticallyNamedEntity,
 };
+use gears::general::moves::Move;
 use gears::output::Message::{Info, Warning};
 use gears::search::TimeControl;
-use gears::ugi::parse_ugi_position;
+use gears::ugi::{parse_ugi_position, EngineOption};
 use gears::MatchStatus::{Ongoing, Over};
 use gears::{output_builder_from_str, GameState};
 
@@ -43,7 +44,7 @@ impl<F> Debug for TextSelection<F> {
 
 impl<F> NamedEntity for TextSelection<F> {
     fn short_name(&self) -> String {
-        self.names.first().unwrap().to_string()
+        (*self.names.first().unwrap()).to_string()
     }
 
     fn long_name(&self) -> String {
@@ -51,7 +52,7 @@ impl<F> NamedEntity for TextSelection<F> {
     }
 
     fn description(&self) -> Option<String> {
-        self.description.map(|s| s.to_string())
+        self.description.map(ToString::to_string)
     }
 
     fn matches(&self, name: &str) -> bool {
@@ -135,7 +136,7 @@ impl<B: Board> TextInputThread<B> {
                     ugi_client
                         .lock()
                         .unwrap()
-                        .show_error(&format!("Couldn't get input: {}", err))
+                        .show_error(&format!("Couldn't get input: {err}"));
                 };
                 break;
             }
@@ -155,7 +156,7 @@ impl<B: Board> TextInputThread<B> {
                         client
                             .lock()
                             .unwrap()
-                            .show_message(Warning, &format!("Ignoring input. {e}"))
+                            .show_message(Warning, &format!("Ignoring input. {e}"));
                     });
                 }
             }
@@ -225,10 +226,10 @@ impl<B: Board> TextInputThread<B> {
             )?
             .description
             .unwrap_or("No description available");
-            println!("{}", desc);
+            println!("{desc}");
         } else {
             println!("Input either a move (most formats based on algebraic notation are recognized) or a command. Valid commands are:");
-            for cmd in commands.iter() {
+            for cmd in commands {
                 println!(
                     "{:25}  {description}",
                     cmd.names
@@ -248,15 +249,15 @@ impl<B: Board> TextInputThread<B> {
         client: &MutexGuard<Client<B>>,
         words: &mut SplitWhitespace,
         default_player: DefaultPlayer,
-    ) -> Res<Color> {
+    ) -> Res<B::Color> {
         match words
             .next()
             .unwrap_or_default()
             .to_ascii_lowercase()
             .as_str()
         {
-            "white" | "p1" => Ok(White),
-            "black" | "p2" => Ok(Black),
+            "white" | "p1" => Ok(B::Color::first()),
+            "black" | "p2" => Ok(B::Color::second()),
             x => {
                 let player = if x == "current" || x == "active" {
                     Active
@@ -360,16 +361,19 @@ impl<B: Board> TextInputThread<B> {
                     .state
                     .players
                     .iter()
-                    .map(|p| p.get_name())
+                    .map(Player::get_name)
                     .intersperse_(", ")
                     .collect::<String>()
             )
         })?;
-        let (white, black) = (client.state.id(White), client.state.id(Black));
+        let (p1, p2) = (
+            client.state.id(B::Color::first()),
+            client.state.id(B::Color::second()),
+        );
         let mut found = false;
         for (idx, player) in client.state.players.iter().enumerate() {
             if player.get_name().to_lowercase() == name.to_lowercase() {
-                if idx != white && idx != black {
+                if idx != p1 && idx != p2 {
                     // TODO: Remove this restriction, simply build a new one
                     client.set_player(side, idx);
                     client.show();
@@ -406,7 +410,7 @@ impl<B: Board> TextInputThread<B> {
         ugi_client: Arc<Mutex<Client<B>>>,
         words: &mut SplitWhitespace,
     ) -> Res<()> {
-        let mut words = words.map(|w| w.to_string()).peekable();
+        let mut words = words.map(ToString::to_string).peekable();
         let args = if words
             .peek()
             .is_some_and(|w| w.eq_ignore_ascii_case("human"))
@@ -491,7 +495,11 @@ impl<B: Board> TextInputThread<B> {
                 );
                 println!(
                     "Options:\n{}",
-                    engine.options.iter().map(|o| o.to_string()).join("\n")
+                    engine
+                        .options
+                        .iter()
+                        .map(EngineOption::to_string)
+                        .join("\n")
                 );
             }
             Player::Human(human) => {
@@ -507,7 +515,7 @@ impl<B: Board> TextInputThread<B> {
                     .get_time()
                     .unwrap()
                     .remaining_to_string(client.state.thinking_since(color))
-            )
+            );
         }
         Ok(())
     }

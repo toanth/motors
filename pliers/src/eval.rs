@@ -12,7 +12,7 @@ use crate::gd::{
 use crate::load_data::Filter;
 use crate::trace::TraceTrait;
 use derive_more::Display;
-use gears::games::Board;
+use gears::general::board::Board;
 use std::fmt::Formatter;
 
 pub mod chess;
@@ -20,12 +20,13 @@ pub mod chess;
 /// Returns a [`Vec`] of [`bool`] where the ith entry is [`true`] iff the absolute difference between `weights[i]` and
 /// `old_weights[i]` is at least `threshold`. If `threshold` is negative, this is instead [`true`] iff the rounded
 /// values differ (i.e. `0.49` and `0.51` would be different, but not `0.51` and `1.23`).
+#[must_use]
 pub fn changed_at_least(threshold: Float, weights: &Weights, old_weights: &[Weight]) -> Vec<bool> {
     let mut res = vec![false; weights.len()];
     if old_weights.len() == weights.len() {
         for i in 0..old_weights.len() {
             if threshold < 0.0 {
-                res[i] = weights[i].rounded() != old_weights[i].rounded()
+                res[i] = weights[i].rounded() != old_weights[i].rounded();
             } else {
                 res[i] = (weights[i].0 - old_weights[i].0).abs() >= threshold;
             }
@@ -35,6 +36,7 @@ pub fn changed_at_least(threshold: Float, weights: &Weights, old_weights: &[Weig
 }
 
 /// Like [`write_phased`], but each entry takes up at least `width` chars
+#[must_use]
 pub fn write_phased_with_width(
     weights: &[Weight],
     feature_idx: usize,
@@ -52,6 +54,7 @@ pub fn write_phased_with_width(
 /// Convert a pair of weights to string, coloring each one red if the corresponding `special` entry is set.
 ///
 /// The two weight indices are `feature_idx * 2` and `feature_idx * 2 + 1`.
+#[must_use]
 pub fn write_phased(weights: &[Weight], feature_idx: usize, special: &[bool]) -> String {
     write_phased_with_width(weights, feature_idx, special, 0)
 }
@@ -59,6 +62,7 @@ pub fn write_phased(weights: &[Weight], feature_idx: usize, special: &[bool]) ->
 /// Returns a vector of [`Float`]s, where each entry counts to how often the corresponding feature appears in the
 /// dataset, weighted by the sampling weight of its datapoint (which should usually be `1.0`).
 /// This can be used to give a very rough idea of the variance of the weight.
+#[must_use]
 pub fn count_occurrences<D: Datapoint>(batch: Batch<D>) -> Vec<Float> {
     let mut res = vec![0.0; batch.num_weights];
     for datapoint in batch.iter() {
@@ -140,7 +144,7 @@ impl EvalScale {
     ) -> ScalingFactor {
         match self {
             Scale(scale) => scale,
-            InitialWeights(weights) => tune_scaling_factor(weights, batch, eval),
+            InitialWeights(weights) => tune_scaling_factor(&weights, batch, eval),
         }
     }
 }
@@ -337,7 +341,7 @@ fn grad_for_eval_scale<D: Datapoint>(
 }
 
 fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
-    weights: Weights,
+    weights: &Weights,
     batch: Batch<D>,
     eval: &E,
 ) -> ScalingFactor {
@@ -361,16 +365,15 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
     );
     println!(
         "Optimizing scaling factor for eval:\n{}",
-        display(eval, &weights, &[])
+        display(eval, weights, &[])
     );
     // First, do exponential search to find an interval in which we know that the optimal value lies.
     loop {
-        if scale >= 1e9 || scale <= 1e-9 {
-            panic!("The eval scale doesn't seem to converge. This may be due to a bugged eval implementation or simply \
+        assert!(!(scale >= 1e9 || scale <= 1e-9),
+            "The eval scale doesn't seem to converge. This may be due to a bugged eval implementation or simply \
             because the eval fails to accurately predict the used datasets. You can always fall back to hand-picking an \
             eval scale in case this doesn't work, or try again with different datasets");
-        }
-        let (dir, _loss) = grad_for_eval_scale(&weights, batch, scale);
+        let (dir, _loss) = grad_for_eval_scale(weights, batch, scale);
         if prev_dir.is_none() {
             prev_dir = Some(dir);
         } else if prev_dir.unwrap() != dir {
@@ -389,7 +392,7 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
     let loss_threshold = 0.01;
     loop {
         scale = (upper_bound + lower_bound) / 2.0;
-        let (dir, loss) = grad_for_eval_scale(&weights, batch, scale);
+        let (dir, loss) = grad_for_eval_scale(weights, batch, scale);
         if loss < loss_threshold || upper_bound - scale <= 0.01 {
             return scale;
         }

@@ -5,8 +5,8 @@ use crate::gd::{Dataset, Float, Outcome};
 use crate::load_data::Perspective::SideToMove;
 use colored::Colorize;
 use derive_more::Display;
-use gears::games::Board;
-use gears::games::Color::Black;
+use gears::games::Color;
+use gears::general::board::Board;
 use gears::general::common::{parse_fp_from_str, Res};
 use rayon::iter::ParallelIterator;
 use rayon::prelude::ParallelBridge;
@@ -94,9 +94,9 @@ pub(super) struct FenReader<B: Board, E: Eval<B>> {
 
 impl<B: Board, E: Eval<B>> FenReader<B, E> {
     fn parse_wdl(input: &mut SplitWhitespace) -> Res<Outcome> {
+        const IGNORED: [char; 10] = ['\"', '\'', '[', ']', '(', ')', '{', '}', ' ', '\t'];
         // This would be a great time to use the `.remainder()` method, but that isn't stable :/
         let wdl = input.next().ok_or_else(|| "Missing wdl".to_string())?;
-        const IGNORED: [char; 10] = ['\"', '\'', '[', ']', '(', ')', '{', '}', ' ', '\t'];
         let wdl = wdl.trim_matches(&IGNORED);
         for (key, value) in WDL_MAP {
             if wdl.starts_with(key) {
@@ -119,7 +119,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         // skip up to one token between the end of the fen and the wdl
         let mut outcome =
             Self::parse_wdl(&mut input).or_else(|err| Self::parse_wdl(&mut input).or(Err(err)))?;
-        if perspective == SideToMove && pos.active_player() == Black {
+        if perspective == SideToMove && pos.active_player() == B::Color::second() {
             outcome.0 = 1.0 - outcome.0;
         }
         Ok(ParseResult {
@@ -148,7 +148,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
                 &datapoint.pos,
                 datapoint.outcome,
                 datapoint.weight,
-            ))
+            ));
         }
         Ok(())
     }

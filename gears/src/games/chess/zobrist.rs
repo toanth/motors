@@ -1,10 +1,11 @@
 use strum::IntoEnumIterator;
 
-use crate::games::chess::pieces::UncoloredChessPiece;
+use crate::games::chess::pieces::ChessPieceType;
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
-use crate::games::chess::Chessboard;
-use crate::games::Color::*;
-use crate::games::{Color, ZobristHash};
+use crate::games::chess::ChessColor::*;
+use crate::games::chess::{ChessColor, Chessboard};
+use crate::games::ZobristHash;
+use crate::general::squares::RectangularCoordinates;
 
 pub const NUM_PIECE_SQUARE_ENTRIES: usize = 64 * 6;
 pub const NUM_COLORED_PIECE_SQUARE_ENTRIES: usize = NUM_PIECE_SQUARE_ENTRIES * 2;
@@ -19,8 +20,8 @@ pub struct PrecomputedZobristKeys {
 impl PrecomputedZobristKeys {
     pub fn piece_key(
         &self,
-        piece: UncoloredChessPiece,
-        color: Color,
+        piece: ChessPieceType,
+        color: ChessColor,
         square: ChessSquare,
     ) -> ZobristHash {
         self.piece_square_keys[square.bb_idx() * 12 + piece as usize * 2 + color as usize]
@@ -28,11 +29,11 @@ impl PrecomputedZobristKeys {
 }
 
 /// A simple `const` random number generator adapted from my C++ algebra implementation,
-/// originally from here: https://www.pcg-random.org/ (I hate that website)
+/// originally from here: <https://www.pcg-random.org/> (I hate that website)
 struct PcgXslRr128_64Oneseq(u128);
 
-const MUTLIPLIER: u128 = (2549297995355413924 << 64) + 4865540595714422341;
-const INCREMENT: u128 = (6364136223846793005 << 64) + 1442695040888963407;
+const MUTLIPLIER: u128 = (2_549_297_995_355_413_924 << 64) + 4_865_540_595_714_422_341;
+const INCREMENT: u128 = (6_364_136_223_846_793_005 << 64) + 1_442_695_040_888_963_407;
 
 // the pcg xsl rr 128 64 oneseq generator, aka pcg64_oneseq (most other pcg generators have additional problems)
 impl PcgXslRr128_64Oneseq {
@@ -91,8 +92,8 @@ pub const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
 impl Chessboard {
     pub fn compute_zobrist(&self) -> ZobristHash {
         let mut res = ZobristHash(0);
-        for color in Color::iter() {
-            for piece in UncoloredChessPiece::pieces() {
+        for color in ChessColor::iter() {
+            for piece in ChessPieceType::pieces() {
                 let pieces = self.colored_piece_bb(color, piece);
                 for square in pieces.ones() {
                     res ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, square);
@@ -109,51 +110,42 @@ impl Chessboard {
         res
     }
 
-    pub fn update_zobrist_for_move(
-        &mut self,
-        piece: UncoloredChessPiece,
-        from: ChessSquare,
-        to: ChessSquare,
-    ) {
-        self.hash = Self::new_zobrist_after_move(self.hash, self.active_player, piece, from, to);
-    }
-
-    pub fn new_zobrist_after_move(
+    #[must_use]
+    pub fn approximate_zobrist_after_move(
         mut old_hash: ZobristHash,
-        color: Color,
-        piece: UncoloredChessPiece,
+        color: ChessColor,
+        piece: ChessPieceType,
         from: ChessSquare,
         to: ChessSquare,
     ) -> ZobristHash {
         old_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, to);
         old_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, from);
+        old_hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         old_hash
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
+    use super::*;
     use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
-    use crate::games::chess::pieces::UncoloredChessPiece::{Bishop, Knight};
-    use crate::games::chess::squares::{ChessSquare, D_FILE_NO, E_FILE_NO};
-    use crate::games::chess::zobrist::{PcgXslRr128_64Oneseq, PRECOMPUTED_ZOBRIST_KEYS};
-    use crate::games::chess::Chessboard;
-    use crate::games::Board;
-    use crate::games::Color::{Black, White};
+    use crate::games::chess::pieces::ChessPieceType::*;
+    use crate::games::chess::squares::{D_FILE_NO, E_FILE_NO};
+    use crate::general::board::Board;
+    use crate::general::moves::Move;
+    use std::collections::HashMap;
 
     #[test]
     fn pcg_test() {
         let gen = PcgXslRr128_64Oneseq::new(42);
-        assert_eq!(gen.0 >> 64, 1610214578838163691);
-        assert_eq!(gen.0 & ((1 << 64) - 1), 13841303961814150380);
+        assert_eq!(gen.0 >> 64, 1_610_214_578_838_163_691);
+        assert_eq!(gen.0 & ((1 << 64) - 1), 13_841_303_961_814_150_380);
         let (gen, rand) = gen.gen();
-        assert_eq!(rand.0, 2915081201720324186);
+        assert_eq!(rand.0, 2_915_081_201_720_324_186);
         let (gen, rand) = gen.gen();
-        assert_eq!(rand.0, 13533757442135995717);
+        assert_eq!(rand.0, 13_533_757_442_135_995_717);
         let (_gen, rand) = gen.gen();
-        assert_eq!(rand.0, 13172715927431628928);
+        assert_eq!(rand.0, 13_172_715_927_431_628_928);
     }
 
     #[test]
@@ -198,7 +190,6 @@ mod tests {
                     }
                 }
                 let different_bits = (new_board.hash.0 ^ hash.0).count_ones();
-                println!("{different_bits}");
                 assert!((12..52).contains(&different_bits));
             }
         }
@@ -230,5 +221,35 @@ mod tests {
         );
         let after_ep = new_pos.make_move(ep_move).unwrap();
         assert_eq!(after_ep.zobrist_hash(), after_ep.compute_zobrist());
+    }
+
+    #[test]
+    fn zobrist_after_move_test() {
+        for pos in Chessboard::bench_positions() {
+            for m in pos.pseudolegal_moves() {
+                let Some(new_pos) = pos.make_move(m) else {
+                    continue;
+                };
+                assert!(new_pos.debug_verify_invariants().is_ok(), "{pos} {m}");
+                if !(m.is_double_pawn_push()
+                    || m.is_capture(&pos)
+                    || m.is_promotion()
+                    || pos.ep_square().is_some()
+                    || pos.castling != new_pos.castling)
+                {
+                    assert_eq!(
+                        Chessboard::approximate_zobrist_after_move(
+                            pos.hash,
+                            pos.active_player,
+                            m.piece_type(),
+                            m.src_square(),
+                            m.dest_square()
+                        ),
+                        new_pos.hash,
+                        "{pos} {m}"
+                    );
+                }
+            }
+        }
     }
 }

@@ -29,14 +29,14 @@ portable-atomic = "1.6.0"
 arrayvec = "0.7.4"
 
 [features]
-default = ["unsafe", "chess", "ataxx", "mnk", "random_mover", "generic_negamax", "caps"]
+default = ["unsafe", "chess", "ataxx", "mnk", "uttt", "random_mover", "gaps", "caps"]
 random_mover = []
-generic_negamax = []
+gaps = []
 caps = ["chess"] # enabling the caps feature also enables the chess feature
 statistics = []
 unsafe = []
 
-generic-engines = ["random_mover", "generic_negamax"]
+generic-engines = ["random_mover", "gaps"]
 chess-engines = ["caps"]
 mnk-engines = [] # does nothing at the moment
 ataxx-engines = [] # does nothing at the moment
@@ -44,6 +44,7 @@ ataxx-engines = [] # does nothing at the moment
 chess = ["gears/chess"]
 ataxx = ["gears/ataxx"]
 mnk = ["gears/mnk"]
+uttt = ["gears/uttt"]
 
 [lib]
 name = "motors"

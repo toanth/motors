@@ -52,7 +52,7 @@ const fn compute_diagonal_bbs() -> [[u128; 128]; MAX_WIDTH] {
         // can't use for loops in const functions
         let mut i: usize = 0;
         while i < 128 {
-            let diag = (i / width) as i32 - (i % width) as i32;
+            let diag = (i / width) as isize - (i % width) as isize;
             if diag > 0 {
                 let diag = diag as usize;
                 res[width][i] = STEPS[width + 1] << (diag * width);
@@ -107,6 +107,7 @@ const ANTI_DIAGONALS: [[u128; 128]; MAX_WIDTH] = compute_anti_diagonal_bbs();
 
 // This seems like a lot of boilerplate code.
 // Maybe there's a better way?
+#[must_use]
 pub trait RawBitboard:
     Copy
     + Clone
@@ -116,7 +117,7 @@ pub trait RawBitboard:
     + Sub<Output = Self>
     + Not<Output = Self>
     + BitAnd<Output = Self>
-    + BitAnd<usize>
+    + BitAnd<u64>
     + BitAndAssign
     + BitOr<Output = Self>
     + BitOrAssign
@@ -126,6 +127,7 @@ pub trait RawBitboard:
     + ShlAssign<usize>
     + Shr<usize, Output = Self>
     + ShrAssign<usize>
+    + Display
 {
     type Primitive: Unsigned + PrimInt;
 
@@ -151,13 +153,13 @@ pub trait RawBitboard:
         self.to_primitive() == Self::Primitive::zero()
     }
 
-    // TODO: BitIter that returns indices of set bits.
     fn has_set_bit(self) -> bool {
         !self.is_zero()
     }
 
     fn pop_lsb(&mut self) -> usize;
 
+    #[must_use]
     fn single_piece(idx: usize) -> Self {
         Self::from_primitive(Self::Primitive::one() << idx)
     }
@@ -186,6 +188,7 @@ pub trait RawBitboard:
     }
 }
 
+#[must_use]
 pub struct BitIterator<B: RawBitboard>(B);
 
 impl<B: RawBitboard> Iterator for BitIterator<B> {
@@ -219,6 +222,7 @@ impl<B: RawBitboard> Iterator for BitIterator<B> {
     Shr,
     ShrAssign,
 )]
+#[must_use]
 pub struct RawStandardBitboard(pub u64);
 
 // TODO: Why are these methods not derived?
@@ -231,17 +235,23 @@ impl Sub for RawStandardBitboard {
     }
 }
 
-impl BitAnd<usize> for RawStandardBitboard {
-    type Output = usize;
+impl BitAnd<u64> for RawStandardBitboard {
+    type Output = u64;
 
-    fn bitand(self, rhs: usize) -> usize {
-        (self.0 as usize).bitand(rhs)
+    fn bitand(self, rhs: u64) -> u64 {
+        (self.0).bitand(rhs)
     }
 }
 
 impl Debug for RawStandardBitboard {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "Chess Bitboard {:#x}", self.0)
+    }
+}
+
+impl Display for RawStandardBitboard {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:x}", self.0)
     }
 }
 
@@ -277,6 +287,7 @@ impl RawBitboard for RawStandardBitboard {
     Eq,
     PartialEq,
     Default,
+    Hash,
     Not,
     BitOr,
     BitOrAssign,
@@ -289,6 +300,7 @@ impl RawBitboard for RawStandardBitboard {
     Shr,
     ShrAssign,
 )]
+#[must_use]
 pub struct ExtendedRawBitboard(pub u128);
 
 impl Debug for ExtendedRawBitboard {
@@ -305,11 +317,17 @@ impl Sub for ExtendedRawBitboard {
     }
 }
 
-impl BitAnd<usize> for ExtendedRawBitboard {
-    type Output = usize;
+impl BitAnd<u64> for ExtendedRawBitboard {
+    type Output = u64;
 
-    fn bitand(self, rhs: usize) -> Self::Output {
-        (self.0 as usize).bitand(rhs)
+    fn bitand(self, rhs: u64) -> Self::Output {
+        (self.0 as u64).bitand(rhs)
+    }
+}
+
+impl Display for ExtendedRawBitboard {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:x}", self.0)
     }
 }
 
@@ -345,10 +363,12 @@ pub enum RayDirections {
     AntiDiagonal,
 }
 
+#[must_use]
 pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
-    Copy
+    Debug
+    + Display
+    + Copy
     + Clone
-    + Debug
     + Eq
     + PartialEq
     + Sub<Output = Self>
@@ -366,8 +386,6 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     + ShrAssign<usize>
     + Deref<Target = R>
     + DerefMut
-where
-    C::Size: RectangularSize<C>,
 {
     fn from_raw(raw: R, size: C::Size) -> Self;
 
@@ -469,9 +487,10 @@ where
     }
 
     fn flip_if(self, flip: bool) -> Self {
-        match flip {
-            true => self.flip_up_down(),
-            false => self,
+        if flip {
+            self.flip_up_down()
+        } else {
+            self
         }
     }
 
@@ -514,7 +533,7 @@ where
         Self::hyperbola_quintessence(
             ray.size().to_internal_key(square),
             blockers,
-            |x| x.flip_up_down(),
+            Self::flip_up_down,
             ray,
         )
     }
@@ -591,7 +610,7 @@ where
         (self & !Self::file(self.size().width().0 - 1, self.size())) << 1
     }
 
-    fn west(self) -> Self {
+        fn west(self) -> Self {
         (self & !Self::file(0, self.size())) >> 1
     }
 
@@ -632,17 +651,16 @@ where
 // Deriving Eq and Partial Eq means that irrelevant bits are also getting compared.
 // This makes comparisons fast but shifts responsibility to the user to properly zero out those,
 // which can be confusing. TODO: Change?
+// TODO: Make `AtaxxBitboard` and `ChessBitboard` be aliases to this type.
 #[derive(Default, Copy, Clone, PartialEq, Eq, Debug)]
+#[must_use]
 pub struct DefaultBitboard<R: RawBitboard, C: RectangularCoordinates> {
     raw: R,
     size: C::Size,
 }
 
 // TODO: Bitboard overloy for board text output?
-impl<R: RawBitboard, C: RectangularCoordinates> Display for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> Display for DefaultBitboard<R, C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for row in (0..self.size().height().0).rev() {
             for column in 0..self.size().width().0 {
@@ -678,10 +696,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> DerefMut for DefaultBitboard<R, 
 }
 
 /// Necessary for hyperbola quintessence.
-impl<R: RawBitboard, C: RectangularCoordinates> Sub for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> Sub for DefaultBitboard<R, C> {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -690,10 +705,7 @@ where
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> Not for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> Not for DefaultBitboard<R, C> {
     type Output = Self;
 
     fn not(self) -> Self::Output {
@@ -701,10 +713,7 @@ where
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitOr for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> BitOr for DefaultBitboard<R, C> {
     type Output = Self;
 
     fn bitor(self, rhs: Self) -> Self::Output {
@@ -713,20 +722,14 @@ where
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitOrAssign for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> BitOrAssign for DefaultBitboard<R, C> {
     fn bitor_assign(&mut self, rhs: Self) {
         debug_assert_eq!(self.size(), rhs.size());
-        self.raw |= rhs.raw
+        self.raw |= rhs.raw;
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitAnd for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> BitAnd for DefaultBitboard<R, C> {
     type Output = Self;
 
     fn bitand(self, rhs: Self) -> Self::Output {
@@ -735,20 +738,14 @@ where
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitAndAssign for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> BitAndAssign for DefaultBitboard<R, C> {
     fn bitand_assign(&mut self, rhs: Self) {
         debug_assert_eq!(self.size(), rhs.size());
-        self.raw &= rhs.raw
+        self.raw &= rhs.raw;
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitXor for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> BitXor for DefaultBitboard<R, C> {
     type Output = Self;
 
     fn bitxor(self, rhs: Self) -> Self {
@@ -757,20 +754,14 @@ where
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> BitXorAssign for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> BitXorAssign for DefaultBitboard<R, C> {
     fn bitxor_assign(&mut self, rhs: Self) {
         debug_assert_eq!(self.size(), rhs.size());
-        self.raw ^= rhs.raw
+        self.raw ^= rhs.raw;
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> Shl<usize> for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> Shl<usize> for DefaultBitboard<R, C> {
     type Output = Self;
 
     fn shl(self, rhs: usize) -> Self::Output {
@@ -778,19 +769,13 @@ where
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> ShlAssign<usize> for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> ShlAssign<usize> for DefaultBitboard<R, C> {
     fn shl_assign(&mut self, rhs: usize) {
-        self.raw <<= rhs
+        self.raw <<= rhs;
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> Shr<usize> for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> Shr<usize> for DefaultBitboard<R, C> {
     type Output = Self;
 
     fn shr(self, rhs: usize) -> Self::Output {
@@ -798,19 +783,13 @@ where
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> ShrAssign<usize> for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> ShrAssign<usize> for DefaultBitboard<R, C> {
     fn shr_assign(&mut self, rhs: usize) {
-        self.raw >>= rhs
+        self.raw >>= rhs;
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> Bitboard<R, C> for DefaultBitboard<R, C>
-where
-    C::Size: RectangularSize<C>,
-{
+impl<R: RawBitboard, C: RectangularCoordinates> Bitboard<R, C> for DefaultBitboard<R, C> {
     fn from_raw(raw: R, size: C::Size) -> Self {
         Self { raw, size }
     }
@@ -824,18 +803,46 @@ where
     }
 }
 
+impl<R: RawBitboard, C: RectangularCoordinates> DefaultBitboard<R, C>
+where
+    C::Size: Default,
+{
+    pub fn new(bb: R) -> Self {
+        Self {
+            raw: bb,
+            size: C::Size::default(),
+        }
+    }
+
+    pub fn file_no(idx: DimT) -> Self {
+        Self::file(idx, C::Size::default())
+    }
+
+    pub fn rank_no(idx: DimT) -> Self {
+        Self::rank(idx, C::Size::default())
+    }
+
+    pub fn diagonal(square: C) -> Self {
+        Self::diag_for_sq(square, C::Size::default())
+    }
+
+    pub fn anti_diagonal(square: C) -> Self {
+        Self::anti_diag_for_sq(square, C::Size::default())
+    }
+}
+
 /// 8x8 bitboards Chessboards. Not necessarily only for chess, e.g. checkers would use the same bitboard.
 /// Treated specially because some operations are much simpler and faster for 8x8 boards.
 pub mod chess {
     use crate::games::chess::squares::NUM_SQUARES;
-    use crate::games::Color;
-    use crate::games::Color::*;
+    use crate::games::chess::ChessColor;
+    use crate::games::chess::ChessColor::*;
     use crate::general::squares::{GridCoordinates, GridSize};
     use derive_more::Display;
 
     use super::*;
 
-    /// Some of the (automatically derived) methods of ChessBitbiard aren't `const`,
+    /// Some of the (automatically derived) methods of `ChessBitboard` aren't `const`,
     /// so use `u64` for all `const fn`s.
     pub const CHESS_DIAGONALS: [ChessBitboard; 64] = {
         let mut res = [ChessBitboard::from_u64(0); 64];
@@ -857,42 +864,45 @@ pub mod chess {
         res
     };
 
+    #[allow(clippy::similar_names)]
     const fn precompute_single_knight_attacks(square_idx: usize) -> u64 {
         let this_knight: u64 = 1 << square_idx;
         let a_file: u64 = A_FILE.raw.0;
-        let knight_not_a_file = this_knight & !a_file;
-        let mut attacks = (knight_not_a_file << 15) | (knight_not_a_file >> 17);
-        let knight_not_h_file = this_knight & !(a_file << 7);
-        attacks |= (knight_not_h_file >> 15) | (knight_not_h_file << 17);
-        let knight_not_ab_file = knight_not_a_file & !(a_file << 1);
-        attacks |= (knight_not_ab_file << 6) | (knight_not_ab_file >> 10);
-        let knight_not_gh_file = knight_not_h_file & !(a_file << 6);
-        attacks |= (knight_not_gh_file >> 6) | (knight_not_gh_file << 10);
+        let not_a_file = this_knight & !a_file;
+        let mut attacks = (not_a_file << 15) | (not_a_file >> 17);
+        let not_h_file = this_knight & !(a_file << 7);
+        attacks |= (not_h_file >> 15) | (not_h_file << 17);
+        let not_ab_file = not_a_file & !(a_file << 1);
+        attacks |= (not_ab_file << 6) | (not_ab_file >> 10);
+        let not_gh_file = not_h_file & !(a_file << 6);
+        attacks |= (not_gh_file >> 6) | (not_gh_file << 10);
         attacks
     }
 
+    #[allow(clippy::similar_names)]
     const fn precompute_single_king_attacks(square_idx: usize) -> u64 {
         let king = 1 << square_idx;
         let a_file = A_FILE.raw.0;
-        let king_not_a_file = king & !a_file;
-        let king_not_h_file = king & !(a_file << 7);
+        let not_a_file = king & !a_file;
+        let not_h_file = king & !(a_file << 7);
         (king << 8)
             | (king >> 8)
-            | (king_not_a_file >> 1)
-            | (king_not_a_file << 7)
-            | (king_not_a_file >> 9)
-            | (king_not_h_file << 1)
-            | (king_not_h_file >> 7)
-            | (king_not_h_file << 9)
+            | (not_a_file >> 1)
+            | (not_a_file << 7)
+            | (not_a_file >> 9)
+            | (not_h_file << 1)
+            | (not_h_file >> 7)
+            | (not_h_file << 9)
     }
 
-    const fn precompute_single_pawn_capture(color: Color, square_idx: usize) -> u64 {
+    #[allow(clippy::similar_names)]
+    const fn precompute_single_pawn_capture(color: ChessColor, square_idx: usize) -> u64 {
         let pawn = 1 << square_idx;
-        let pawn_not_a_file = pawn & !A_FILE.raw.0;
-        let pawn_not_h_file = pawn & !(A_FILE.raw.0 << 7);
+        let not_a_file = pawn & !A_FILE.raw.0;
+        let not_h_file = pawn & !(A_FILE.raw.0 << 7);
         match color {
-            White => (pawn_not_a_file << 7) | (pawn_not_h_file << 9),
-            Black => (pawn_not_a_file >> 9) | (pawn_not_h_file >> 7),
+            White => (not_a_file << 7) | (not_h_file << 9),
+            Black => (not_a_file >> 9) | (not_h_file >> 7),
         }
     }
 
@@ -955,6 +965,7 @@ pub mod chess {
         Shr,
         ShrAssign,
     )]
+    #[must_use]
     pub struct ChessBitboard {
         raw: RawStandardBitboard,
     }
@@ -984,19 +995,20 @@ pub mod chess {
             Self::from_u64(0x00ff_0000_0000_ff00)
         }
 
-        pub fn pawn_advance(self, color: Color) -> Self {
+        pub fn pawn_advance(self, color: ChessColor) -> Self {
             match color {
                 White => self.north(),
                 Black => self.south(),
             }
         }
 
-        pub fn pawn_attacks(self, color: Color) -> Self {
+        pub fn pawn_attacks(self, color: ChessColor) -> Self {
             let advanced = self.pawn_advance(color);
             advanced.east() | advanced.west()
         }
 
         /// not a trait method because it has to be `const`
+        #[must_use]
         pub const fn to_u64(self) -> u64 {
             self.raw.0
         }
@@ -1070,9 +1082,9 @@ pub mod chess {
                 0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe, 0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf,
             ];
             let bb = self.0 >> (8 * rank);
-            Self::from_u64(
-                (LOOKUP[((bb >> 4) & 0xf) as usize] | (LOOKUP[(bb & 0xf) as usize] << 4)) as u64,
-            ) << (8 * rank)
+            Self::from_u64(u64::from(
+                LOOKUP[((bb >> 4) & 0xf) as usize] | (LOOKUP[(bb & 0xf) as usize] << 4),
+            )) << (8 * rank)
         }
 
         fn flip_up_down(self) -> Self {
@@ -1106,6 +1118,7 @@ pub mod ataxx {
 
     pub const INVALID_EDGE_MASK: AtaxxBitboard = AtaxxBitboard::from_u64(0xff80_8080_8080_8080);
 
+    #[allow(clippy::similar_names)]
     const fn precompute_single_leaping_attacks(square_idx: usize) -> u64 {
         let ab_file = A_FILE.to_u64() | (A_FILE.to_u64() << 1);
         let gh_file = ab_file << 6;
@@ -1162,6 +1175,7 @@ pub mod ataxx {
         Shr,
         ShrAssign,
     )]
+    #[must_use]
     pub struct AtaxxBitboard {
         raw: RawStandardBitboard,
     }
@@ -1276,6 +1290,7 @@ pub mod ataxx {
 }
 
 // Ideally, this would be generic over the bitboard type, but then it couldn't be const.
+#[must_use]
 pub const fn remove_ones_above(bb: u128, idx: usize) -> u128 {
     if idx < 128 {
         bb & (u128::MAX >> (127 - idx))
@@ -1284,6 +1299,7 @@ pub const fn remove_ones_above(bb: u128, idx: usize) -> u128 {
     }
 }
 
+#[must_use]
 pub const fn remove_ones_below(bb: u128, idx: usize) -> u128 {
     bb & (u128::MAX << idx)
 }

@@ -39,6 +39,7 @@ impl Display for CpScore {
 
 /// The win rate prediction, based on the [`CpScore`] (between `0` and `1`).
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
+#[must_use]
 pub struct WrScore(pub Float);
 
 /// `WrScore` is used for the converted score returned by the eval, [`Outcome`] for the actual outcome.
@@ -97,7 +98,7 @@ pub fn sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
 /// Unlike the [`cross_entropy_sample_loss`], it is always zero if a prediction perfectly matches the outcome.
 pub fn quadratic_sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
     let delta = wr_prediction.0 - outcome.0;
-    return delta * delta;
+    delta * delta
 }
 
 /// The cross-entropy is a good choice when optimizing anything where the output is a sigmoid, but it has some
@@ -111,7 +112,7 @@ pub fn cross_entropy_sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Fl
     res
 }
 
-/// The loss of an eval score, see [sample_loss].
+/// The loss of an eval score, see [`sample_loss`].
 pub fn sample_loss_for_cp(
     eval: CpScore,
     outcome: Outcome,
@@ -177,6 +178,7 @@ pub struct Weight(pub Float);
 
 impl Weight {
     /// Round this weight to the nearest integer.
+    #[must_use]
     pub fn rounded(self) -> i32 {
         self.0.round() as i32
     }
@@ -199,6 +201,7 @@ impl Weight {
 /// However, const generics are very limited in (stable) Rust, which makes this a pain to implement.
 /// So instead, the size is only known at runtime.
 #[derive(Debug, Default, Clone, Deref, DerefMut)]
+#[must_use]
 pub struct Weights(pub Vec<Weight>);
 
 /// The gradient gives the opposite direction in which weights need to be changed to reduce the loss.
@@ -229,13 +232,13 @@ impl Display for Weights {
 
 impl AddAssign<&Self> for Weights {
     fn add_assign(&mut self, rhs: &Self) {
-        self.iter_mut().zip(rhs.iter()).for_each(|(a, b)| *a += *b)
+        self.iter_mut().zip(rhs.iter()).for_each(|(a, b)| *a += *b);
     }
 }
 
 impl SubAssign<&Self> for Weights {
     fn sub_assign(&mut self, rhs: &Self) {
-        self.iter_mut().zip(rhs.iter()).for_each(|(a, b)| *a -= *b)
+        self.iter_mut().zip(rhs.iter()).for_each(|(a, b)| *a -= *b);
     }
 }
 
@@ -295,6 +298,7 @@ pub(super) type FeatureT = i8;
 /// Users should not generally have to deal with this type directly; building their `[trace]`(TraceTrait) on top of
 /// `[SimpleTrace]` should take care of constructing this struct.
 #[derive(Debug, Default, Copy, Clone, PartialOrd, PartialEq)]
+#[must_use]
 pub struct Feature {
     feature: FeatureT,
     idx: u16,
@@ -437,7 +441,7 @@ impl Datapoint for TaperedDatapoint {
     }
 }
 
-/// Like [TaperedDatapoint], but additionally holds a weight that can be used to signify how important this position is.
+/// Like [`TaperedDatapoint`], but additionally holds a weight that can be used to signify how important this position is.
 #[derive(Debug, Clone)]
 pub struct WeightedDatapoint {
     /// The nested tapered datapoint.
@@ -472,6 +476,7 @@ impl Datapoint for WeightedDatapoint {
 ///
 /// Most code should work with [`Batch`]es instead.
 #[derive(Debug)]
+#[must_use]
 pub struct Dataset<D: Datapoint> {
     datapoints: Vec<D>,
     weights_in_pos: usize,
@@ -531,7 +536,7 @@ impl<D: Datapoint> Dataset<D> {
     /// which makes this an `O(n)` operation, where `n` is the size of the returned batch.
     pub fn batch(&self, start_idx: usize, end_idx: usize) -> Batch<D> {
         let datapoints = &self.datapoints[start_idx..end_idx];
-        let weight_sum = datapoints.iter().map(|d| d.sampling_weight()).sum();
+        let weight_sum = datapoints.iter().map(Datapoint::sampling_weight).sum();
         Batch {
             datapoints,
             num_weights: self.weights_in_pos,
@@ -680,8 +685,8 @@ pub fn compute_scaled_gradient<D: Datapoint, G: LossGradient>(
         let mut grad = Gradient::new(weights.num_weights());
         for data in batch.iter() {
             let wr_prediction = wr_prediction_for_weights(weights, data, eval_scale);
-
-            // TODO: Multiply with `constant_factor` outside the loop?
+            // don't use a separate loop for multiplying with `constant_factor` because the gradient may very well be
+            // larger than the numer of samples, so this would likely be slower
             let scaled_delta = constant_factor
                 * G::sample_gradient(wr_prediction, data.outcome(), data.sampling_weight());
             grad.update(data, scaled_delta);
@@ -738,12 +743,12 @@ pub fn optimize_entire_batch<D: Datapoint>(
                 }
             }
             println!(
-                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), quadratic loss: {qloss}, cross-entropy loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
+                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), quadratic loss: {loss}, cross-entropy loss: {celoss}, loss got smaller by: 1/1_000_000 * {1}, \
                 maximum weight change to 50 epochs ago: {max_diff:.2}",
                 epoch as f32 / elapsed.as_secs_f32(),
                 (prev_loss - loss) * 1_000_000.0,
                 elapsed = elapsed.as_secs(),
-                qloss = loss_for(&weights, batch, eval_scale, quadratic_sample_loss),
+                celoss = loss_for(&weights, batch, eval_scale, cross_entropy_sample_loss),
             );
             if loss <= 0.001 && epoch >= 20 {
                 println!("loss less than epsilon, stopping after {epoch} epochs");
@@ -857,6 +862,8 @@ pub trait Optimizer<D: Datapoint> {
 }
 
 /// Gradient Descent optimizer that simply multiplies the gradient by the current learning rate `alpha`.
+#[derive(Debug)]
+#[must_use]
 pub struct SimpleGDOptimizer {
     /// The learning rate.
     pub alpha: Float,
@@ -897,7 +904,7 @@ impl<D: Datapoint> Optimizer<D> for SimpleGDOptimizer {
 #[derive(Debug, Copy, Clone)]
 pub struct AdamwHyperParams {
     /// Adam Learning rate multiplier, an upper bound on the step size.
-    /// This isn't quite the learning rate for AdamW because it doesn't apply to the weight decay term.
+    /// This isn't quite the learning rate for [`AdamW`] because it doesn't apply to the weight decay term.
     /// Currently, this implementation does not support a separate learning rate.
     pub alpha: Float,
     /// Exponential decay of the moving average of the gradient
@@ -927,6 +934,8 @@ impl AdamwHyperParams {
 
 /// The default tuner, an implementation of the widely used [Adam](https://arxiv.org/abs/1412.6980) optimizer,
 /// which is the same as the [`AdamW`] tuner without weight decay.
+#[derive(Debug)]
+#[must_use]
 pub struct Adam<G: LossGradient>(AdamW<G>);
 
 impl<D: Datapoint, G: LossGradient> Optimizer<D> for Adam<G> {
@@ -952,13 +961,14 @@ impl<D: Datapoint, G: LossGradient> Optimizer<D> for Adam<G> {
         eval_scale: ScalingFactor,
         i: usize,
     ) {
-        self.0.iteration(weights, batch, eval_scale, i)
+        self.0.iteration(weights, batch, eval_scale, i);
     }
 }
 
 /// An implementation of the very widely used [AdamW](https://arxiv.org/abs/1711.05101) optimizer,
 /// which extends the [`Adam`] optimizer with weight decay.
 #[derive(Debug)]
+#[must_use]
 pub struct AdamW<G: LossGradient> {
     /// Hyperparameters. Should be set before starting to optimize.
     pub hyper_params: AdamwHyperParams,
@@ -990,7 +1000,7 @@ impl<D: Datapoint, G: LossGradient> Optimizer<D> for AdamW<G> {
             hyper_params,
             m: Weights::new(batch.num_weights),
             v: Weights::new(batch.num_weights),
-            _phantom: Default::default(),
+            _phantom: PhantomData,
         }
     }
 
@@ -1018,7 +1028,7 @@ impl<D: Datapoint, G: LossGradient> Optimizer<D> for AdamW<G> {
             let w = weights[i];
             weights[i] -= w * self.hyper_params.lambda
                 + unbiased_m * self.hyper_params.alpha
-                    / (unbiased_v.0.sqrt() + self.hyper_params.epsilon)
+                    / (unbiased_v.0.sqrt() + self.hyper_params.epsilon);
         }
     }
 }
@@ -1049,7 +1059,7 @@ mod tests {
                 let loss = loss_for(
                     &weights,
                     batch,
-                    eval_scale as ScalingFactor,
+                    ScalingFactor::from(eval_scale),
                     quadratic_sample_loss,
                 );
                 if outcome == 0.5 {
@@ -1119,7 +1129,7 @@ mod tests {
                         let old_weights = weights.clone();
                         weights -= &(grad.clone() * 0.5);
                         // println!("loss {0}, initial weight {initial_weight}, weights {weights}, gradient {grad}, eval {1}, predicted {2}, outcome {outcome}, feature {feature}, scaling factor {scaling_factor}", loss(&weights, &dataset, scaling_factor), cp_eval_for_weights(&weights, &dataset[0].position), wr_prediction_for_weights(&weights, &dataset[0].position, scaling_factor));
-                        if initial_weight == 0.0 && grad.0[0].0.abs() > 0.0000001 {
+                        if initial_weight == 0.0 && grad.0[0].0.abs() > 0.000_000_1 {
                             assert_eq!(
                                 weights.0[0].0.partial_cmp(&old_weights[0].0),
                                 outcome.partial_cmp(&0.5).map(|x| match feature.cmp(&0) {
@@ -1211,7 +1221,7 @@ mod tests {
             assert!(loss <= 0.01, "{loss}");
             if outcome == 0.5 {
                 assert_eq!(weights[0].0.signum(), weights[1].0.signum());
-                assert!((weights[0].0.abs() - weights[1].0.abs()).abs() <= 0.00000001);
+                assert!((weights[0].0.abs() - weights[1].0.abs()).abs() <= 0.0000_0001);
             } else {
                 assert_eq!(weights[0].0 > weights[1].0, outcome > 0.5);
             }
@@ -1220,6 +1230,7 @@ mod tests {
 
     #[test]
     pub fn two_positions_test() {
+        type AnyOptimizer = Box<dyn Optimizer<NonTaperedDatapoint>>;
         let scale = 1000.0;
         let win = NonTaperedDatapoint {
             features: vec![Feature::new(1, 0), Feature::new(-1, 1)],
@@ -1257,7 +1268,6 @@ mod tests {
             assert!(weights[0].0 >= 100.0);
             assert!(weights[1].0 <= -100.0);
 
-            type AnyOptimizer = Box<dyn Optimizer<NonTaperedDatapoint>>;
             let optimizers: [AnyOptimizer; 5] = [
                 Box::new(SimpleGDOptimizer { alpha: 1.0 }),
                 Box::new(Adam::<QuadraticLoss>::new(batch, scale)),

@@ -1,10 +1,11 @@
 use derive_more::Display;
 use gears::games::chess::pieces::NUM_CHESS_PIECES;
 use gears::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO, NUM_SQUARES};
-use gears::games::Color;
-use gears::games::Color::*;
+use gears::games::chess::ChessColor;
+use gears::games::chess::ChessColor::Black;
 use gears::general::bitboards::chess::ChessBitboard;
 use gears::general::bitboards::Bitboard;
+use gears::general::squares::RectangularCoordinates;
 use strum_macros::EnumIter;
 
 pub mod lite;
@@ -12,9 +13,10 @@ pub mod lite_values;
 pub mod material_only;
 pub mod piston;
 
-/// Has to be in the same order as the FileOpenness in lite.
+/// Has to be in the same order as the `FileOpenness` in `lite`.
 /// `SemiClosed` is last because it doesn't get counted.
 #[derive(Debug, Eq, PartialEq, Copy, Clone, EnumIter, Display)]
+#[must_use]
 pub enum FileOpenness {
     Open,
     Closed,
@@ -48,7 +50,11 @@ pub const PAWN_SHIELD_SHIFT: [usize; NUM_SQUARES] = {
     res
 };
 
-pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: Color) -> usize {
+pub fn pawn_shield_idx(
+    mut pawns: ChessBitboard,
+    mut king: ChessSquare,
+    color: ChessColor,
+) -> usize {
     if color == Black {
         king = king.flip();
         pawns = pawns.flip_up_down();
@@ -85,10 +91,12 @@ mod tests {
     use crate::eval::chess::piston::PistonEval;
     use crate::eval::Eval;
 
-    use gears::games::chess::pieces::UncoloredChessPiece::Pawn;
-    use gears::games::chess::Chessboard;
-    use gears::games::{Board, DimT};
+    use gears::games::chess::pieces::ChessPieceType::Pawn;
+    use gears::games::chess::ChessColor::White;
+    use gears::games::chess::{ChessColor, Chessboard};
+    use gears::games::DimT;
     use gears::general::bitboards::RawBitboard;
+    use gears::general::board::Board;
     use gears::score::Score;
     use strum::IntoEnumIterator;
 
@@ -105,7 +113,7 @@ mod tests {
         let a = pawn_shield_idx(pos.empty_bb(), pos.king_square(White), White);
         let b = pawn_shield_idx(pos.empty_bb(), pos.king_square(Black), Black);
         assert_eq!(a, b);
-        assert_eq!(a, 0b111000);
+        assert_eq!(a, 0b111_000);
         for file in 0..8 {
             let a = pawn_shield_idx(pawns, ChessSquare::from_rank_file(0, file), White);
             let b = pawn_shield_idx(pawns, ChessSquare::from_rank_file(7, file), Black);
@@ -126,13 +134,13 @@ mod tests {
         let white = pawn_shield_idx(pos.piece_bb(Pawn), pos.king_square(White), White);
         let black = pawn_shield_idx(pos.piece_bb(Pawn), pos.king_square(Black), Black);
         assert_eq!(white, 0b100);
-        assert_eq!(black, 0b010101);
+        assert_eq!(black, 0b010_101);
     }
 
     fn expected_pawn_shield_idx(
         mut pawns: ChessBitboard,
         mut king: ChessSquare,
-        color: Color,
+        color: ChessColor,
     ) -> usize {
         if color == Black {
             pawns = pawns.flip_up_down();
@@ -175,7 +183,7 @@ mod tests {
     fn pawn_shield_bench_pos_test() {
         for pos in Chessboard::bench_positions() {
             for square in ChessSquare::iter() {
-                for color in Color::iter() {
+                for color in ChessColor::iter() {
                     let _fen = pos.as_fen();
                     let pawns = pos.colored_piece_bb(color, Pawn);
                     let actual = pawn_shield_idx(pawns, square, color);

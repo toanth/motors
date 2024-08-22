@@ -4,10 +4,11 @@ use gears::cli::Game;
 use gears::games::ataxx::AtaxxBoard;
 use gears::games::chess::Chessboard;
 use gears::games::mnk::MNKBoard;
-use gears::games::{Board, OutputList, RectangularBoard};
+use gears::games::uttt::UtttBoard;
+use gears::games::OutputList;
+use gears::general::board::{Board, RectangularBoard};
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{select_name_dyn, Res};
-use gears::general::squares::RectangularCoordinates;
 use gears::output::{normal_outputs, required_outputs};
 use gears::{create_selected_output_builders, output_builder_from_str, AnyRunnable};
 
@@ -28,6 +29,7 @@ fn main() {
     }
 }
 
+#[must_use]
 pub fn text_based_inputs<B: Board>() -> InputList<B> {
     vec![
         Box::new(TextInputBuilder::default()),
@@ -35,25 +37,32 @@ pub fn text_based_inputs<B: Board>() -> InputList<B> {
     ]
 }
 
+#[must_use]
 pub fn required_uis<B: Board>() -> (OutputList<B>, InputList<B>) {
     (required_outputs(), text_based_inputs())
 }
 
-pub fn normal_uis<B: RectangularBoard>() -> (OutputList<B>, InputList<B>)
-where
-    <B as Board>::Coordinates: RectangularCoordinates,
-{
+#[must_use]
+pub fn normal_uis<B: RectangularBoard>() -> (OutputList<B>, InputList<B>) {
     (normal_outputs(), text_based_inputs()) // TODO: Add additional interactive uis, like a GUI
 }
 
+#[must_use]
 fn list_chess_uis() -> (OutputList<Chessboard>, InputList<Chessboard>) {
     normal_uis::<Chessboard>()
 }
 
+#[must_use]
 fn list_ataxx_uis() -> (OutputList<AtaxxBoard>, InputList<AtaxxBoard>) {
     normal_uis::<AtaxxBoard>()
 }
 
+#[must_use]
+fn list_uttt_uis() -> (OutputList<UtttBoard>, InputList<UtttBoard>) {
+    normal_uis::<UtttBoard>()
+}
+
+#[must_use]
 fn list_mnk_uis() -> (OutputList<MNKBoard>, InputList<MNKBoard>) {
     normal_uis::<MNKBoard>()
 }
@@ -78,7 +87,7 @@ pub fn map_ui_to_input_and_output(ui: &str) -> (&str, &str) {
     match ui {
         "text" => ("text", "unicode"),
         "gui" => todo!(),
-        "sprt" => (todo!(), "none"),
+        // "sprt" => (todo!(), "none"),
         x => (x, x),
     }
 }
@@ -90,6 +99,7 @@ pub fn create_match(args: CommandLineArgs) -> Res<AnyRunnable> {
         Game::Chess => create_client_match_for_game(args, list_chess_uis()),
         Game::Mnk => create_client_match_for_game(args, list_mnk_uis()),
         Game::Ataxx => create_client_match_for_game(args, list_ataxx_uis()),
+        Game::Uttt => create_client_match_for_game(args, list_uttt_uis()),
     }
 }
 
@@ -131,6 +141,6 @@ pub fn run_program() -> Res<()> {
 
     let mut the_match =
         create_match(args).map_err(|err| format!("Couldn't start the client: {err}"))?;
-    the_match.run();
+    _ = the_match.run();
     Ok(())
 }

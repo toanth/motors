@@ -1,16 +1,18 @@
 use crate::games::chess::castling::CastleRight;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
-use crate::games::chess::pieces::UncoloredChessPiece::*;
-use crate::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};
-use crate::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO};
+use crate::games::chess::pieces::ChessPieceType::*;
+use crate::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
+use crate::games::chess::squares::ChessSquare;
 use crate::games::chess::CastleRight::*;
-use crate::games::chess::{ChessMoveList, Chessboard};
-use crate::games::Color::*;
-use crate::games::{Board, Color, ColoredPieceType, Move};
+use crate::games::chess::ChessColor::*;
+use crate::games::chess::{ChessColor, ChessMoveList, Chessboard};
+use crate::games::{Board, Color, ColoredPieceType};
 use crate::general::bitboards::chess::{ChessBitboard, KINGS, KNIGHTS, PAWN_CAPTURES};
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
+use crate::general::moves::Move;
+use crate::general::squares::RectangularCoordinates;
 
 #[derive(Debug, Copy, Clone)]
 enum SliderMove {
@@ -18,12 +20,9 @@ enum SliderMove {
     Rook,
 }
 
-// TODO: Use the north(), west(), etc. methods
-
 impl Chessboard {
     fn single_pawn_moves(
-        &self,
-        color: Color,
+        color: ChessColor,
         square: ChessSquare,
         capture_filter: ChessBitboard,
         push_filter: ChessBitboard,
@@ -43,8 +42,8 @@ impl Chessboard {
     pub fn attacks_no_castle_or_pawn_push(
         &self,
         square: ChessSquare,
-        piece: UncoloredChessPiece,
-        color: Color,
+        piece: ChessPieceType,
+        color: ChessColor,
     ) -> ChessBitboard {
         let square_bb_if_occupied = square.bb() & self.occupied_bb();
         match piece {
@@ -70,7 +69,7 @@ impl Chessboard {
     }
 
     pub fn is_move_pseudolegal_impl(&self, mov: ChessMove) -> bool {
-        let piece = mov.uncolored_piece();
+        let piece = mov.piece_type();
         let src = mov.src_square();
         let color = self.active_player;
         if !self
@@ -84,13 +83,13 @@ impl Chessboard {
                 && self.is_castling_pseudolegal(Kingside))
                 || (self.rook_start_square(color, Queenside) == mov.dest_square()
                     && self.is_castling_pseudolegal(Queenside))
-        } else if mov.uncolored_piece() == Pawn {
-            let capturable =
-                self.colored_bb(color.other()) | self.ep_square.map(|s| s.bb()).unwrap_or_default();
-            self.single_pawn_moves(color, src, capturable, self.empty_bb())
+        } else if mov.piece_type() == Pawn {
+            let capturable = self.colored_bb(color.other())
+                | self.ep_square.map(ChessSquare::bb).unwrap_or_default();
+            Self::single_pawn_moves(color, src, capturable, self.empty_bb())
                 .is_bit_set_at(mov.dest_square().bb_idx())
         } else {
-            (self.attacks_no_castle_or_pawn_push(src, mov.uncolored_piece(), color)
+            (self.attacks_no_castle_or_pawn_push(src, mov.piece_type(), color)
                 & !self.active_player_bb())
             .is_bit_set_at(mov.dest_square().bb_idx())
         }
@@ -98,18 +97,21 @@ impl Chessboard {
 
     /// Used for castling and to implement `is_in_check`:
     /// Pretend there is a king of color `us` at `square` and test if it is in check.
-    pub fn is_in_check_on_square(&self, us: Color, square: ChessSquare) -> bool {
+    pub fn is_in_check_on_square(&self, us: ChessColor, square: ChessSquare) -> bool {
         (self.all_attacking(square) & self.colored_bb(us.other())).has_set_bit()
     }
 
+    #[must_use]
     pub fn gen_all_pseudolegal_moves(&self) -> ChessMoveList {
         self.gen_pseudolegal_moves(!self.colored_bb(self.active_player), false)
     }
 
+    #[must_use]
     pub fn gen_tactical_pseudolegal(&self) -> ChessMoveList {
         self.gen_pseudolegal_moves(self.colored_bb(self.active_player.other()), true)
     }
 
+    #[must_use]
     fn gen_pseudolegal_moves(&self, filter: ChessBitboard, only_tactical: bool) -> ChessMoveList {
         let mut list = ChessMoveList::default();
         self.gen_slider_moves(SliderMove::Bishop, &mut list, filter);
@@ -130,35 +132,23 @@ impl Chessboard {
         let double_pawn_moves;
         let left_pawn_captures;
         let right_pawn_captures;
-        let capturable = opponent | self.ep_square.map(|s| s.bb()).unwrap_or_default();
+        let capturable = opponent | self.ep_square.map(ChessSquare::bb).unwrap_or_default();
         if color == White {
-            regular_pawn_moves = ((pawns << 8) & free, 8);
+            regular_pawn_moves = (pawns.north() & free, 8);
             double_pawn_moves = (
-                ((pawns & ChessBitboard::rank_no(1)) << 16) & (free << 8) & free,
+                ((pawns & ChessBitboard::rank_no(1)) << 16) & free.north() & free,
                 16,
             );
-            right_pawn_captures = (
-                ((pawns & !ChessBitboard::file_no(H_FILE_NO)) << 9) & capturable,
-                9,
-            );
-            left_pawn_captures = (
-                ((pawns & !ChessBitboard::file_no(A_FILE_NO)) << 7) & capturable,
-                7,
-            );
+            right_pawn_captures = (pawns.north_east() & capturable, 9);
+            left_pawn_captures = (pawns.north_west() & capturable, 7);
         } else {
-            regular_pawn_moves = ((pawns >> 8) & free, -8);
+            regular_pawn_moves = (pawns.south() & free, -8);
             double_pawn_moves = (
-                ((pawns & ChessBitboard::rank_no(6)) >> 16) & (free >> 8) & free,
+                ((pawns & ChessBitboard::rank_no(6)) >> 16) & free.south() & free,
                 -16,
             );
-            right_pawn_captures = (
-                ((pawns & !ChessBitboard::file_no(A_FILE_NO)) >> 9) & capturable,
-                -9,
-            );
-            left_pawn_captures = (
-                ((pawns & !ChessBitboard::file_no(H_FILE_NO)) >> 7) & capturable,
-                -7,
-            );
+            right_pawn_captures = (pawns.south_west() & capturable, -9);
+            left_pawn_captures = (pawns.south_east() & capturable, -7);
         }
         for move_type in [
             right_pawn_captures,
@@ -256,7 +246,7 @@ impl Chessboard {
             {
                 debug_assert_eq!(
                     self.colored_piece_on(rook).symbol,
-                    ColoredChessPiece::new(color, Rook)
+                    ColoredChessPieceType::new(color, Rook)
                 );
                 return true;
             }
@@ -283,11 +273,11 @@ impl Chessboard {
         // Castling, handling the general (D)FRC case.
         if self.is_castling_pseudolegal(Queenside) {
             let rook = self.rook_start_square(color, Queenside);
-            list.push(ChessMove::new(king_square, rook, CastleQueenside))
+            list.push(ChessMove::new(king_square, rook, CastleQueenside));
         }
         if self.is_castling_pseudolegal(Kingside) {
             let rook = self.rook_start_square(color, Kingside);
-            list.push(ChessMove::new(king_square, rook, CastleKingside))
+            list.push(ChessMove::new(king_square, rook, CastleKingside));
         }
     }
 
@@ -339,7 +329,7 @@ impl Chessboard {
         KNIGHTS[square.bb_idx()]
     }
 
-    pub fn single_pawn_captures(color: Color, square: ChessSquare) -> ChessBitboard {
+    pub fn single_pawn_captures(color: ChessColor, square: ChessSquare) -> ChessBitboard {
         PAWN_CAPTURES[color as usize][square.bb_idx()]
     }
 
@@ -350,15 +340,14 @@ impl Chessboard {
         square_bb_if_occupied: ChessBitboard,
     ) -> ChessBitboard {
         let blockers = self.occupied_bb();
-        let attacks = match slider_move {
+        match slider_move {
             SliderMove::Bishop => {
                 ChessBitboard::bishop_attacks(square, blockers ^ square_bb_if_occupied)
             }
             SliderMove::Rook => {
                 ChessBitboard::rook_attacks(square, blockers ^ square_bb_if_occupied)
             }
-        };
-        attacks
+        }
     }
 
     pub fn all_attacking(&self, square: ChessSquare) -> ChessBitboard {

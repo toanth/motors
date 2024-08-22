@@ -1,10 +1,10 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::time::{Duration, Instant};
 
+use gears::general::board::Board;
 use rand::{thread_rng, Rng, RngCore, SeedableRng};
 
 use crate::eval::Eval;
-use gears::games::Board;
 use gears::general::common::{Res, StaticallyNamedEntity};
 use gears::score::Score;
 use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
@@ -22,7 +22,7 @@ impl<T> SeedRng for T where T: Rng + SeedableRng {}
 pub struct RandomMover<B: Board, R: SeedRng> {
     pub rng: R,
     chosen_move: B::Move,
-    _state: ABSearchState<B, EmptySearchStackEntry, BestMoveCustomInfo<B>>,
+    state: ABSearchState<B, EmptySearchStackEntry, BestMoveCustomInfo<B>>,
 }
 
 impl<B: Board, R: SeedRng> Debug for RandomMover<B, R> {
@@ -36,7 +36,7 @@ impl<B: Board, R: SeedRng> Default for RandomMover<B, R> {
         Self {
             rng: R::seed_from_u64(thread_rng().next_u64()),
             chosen_move: B::Move::default(),
-            _state: ABSearchState::new(Depth::new(1)),
+            state: ABSearchState::new(Depth::new(1)),
         }
     }
 }
@@ -111,7 +111,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         _multi_pv: usize,
         _: SearchLimit,
     ) -> Res<SearchResult<B>> {
-        self._state.statistics.next_id_iteration();
+        self.state.statistics.next_id_iteration();
         // there's no `is_empty` method
         let len = search_moves.len();
         if len != 0 {
@@ -120,9 +120,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
                 .nth(self.rng.gen_range(0..len))
                 .unwrap();
         } else {
-            self.chosen_move = pos
-                .random_legal_move(&mut self.rng)
-                .expect("search() called in a position with no legal moves");
+            self.chosen_move = pos.random_legal_move(&mut self.rng).unwrap_or_default();
         }
         Ok(SearchResult::move_only(self.chosen_move))
     }
@@ -147,11 +145,11 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
     }
 
     fn search_state(&self) -> &impl SearchState<B> {
-        &self._state
+        &self.state
     }
 
     fn search_state_mut(&mut self) -> &mut impl SearchState<B> {
-        &mut self._state
+        &mut self.state
     }
 
     fn static_eval(&mut self, _pos: B) -> Score {

@@ -64,7 +64,7 @@ impl Mul<usize> for SingleFeature {
 
     fn mul(mut self, rhs: usize) -> Self::Output {
         let rhs: FeatureCount = rhs.try_into().unwrap();
-        self.count = self.count * rhs;
+        self.count *= rhs;
         self
     }
 }
@@ -91,12 +91,9 @@ impl From<SingleFeature> for SparseTrace {
 
 impl SparseTrace {
     fn merge(&mut self, other: SparseTrace, negate_other: bool) {
-        for (key, val) in other.map.iter() {
-            let val = match negate_other {
-                true => -*val,
-                false => *val,
-            };
-            match self.map.entry(*key) {
+        for (key, val) in other.map {
+            let val = if negate_other { -val } else { val };
+            match self.map.entry(key) {
                 Entry::Occupied(o) => {
                     *o.into_mut() += val;
                 }
@@ -111,13 +108,13 @@ impl SparseTrace {
 impl TraceTrait for SparseTrace {
     fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
         let mut res = vec![];
-        for (index, feature) in self.map.iter() {
+        for (index, feature) in &self.map {
             let count: FeatureT = (*feature).try_into().unwrap();
             if count != 0 {
                 res.push(Feature::new(
                     (*feature).try_into().unwrap(),
                     (index + idx_offset).try_into().unwrap(),
-                ))
+                ));
             }
         }
         res.sort_by_key(|f| f.idx());
@@ -233,11 +230,11 @@ impl ScoreType for SparseTrace {
     type Finalized = Self;
     type SingleFeatureScore = SingleFeature;
 
-    fn finalize(
+    fn finalize<C: Color>(
         mut self,
         phase: PhaseType,
         max_phase: PhaseType,
-        _color: Color,
+        _color: C,
         _tempo: Self::Finalized,
     ) -> Self::Finalized {
         self.phase = phase as Float / max_phase as Float;
@@ -318,12 +315,12 @@ pub trait TraceTrait: Debug {
 /// because [`SimpleTrace`] and [`TraceNFeatures`] already do.
 pub trait BasicTrace: TraceTrait {
     /// Increment a given feature by one for the given player.
-    fn increment(&mut self, idx: usize, color: Color) {
+    fn increment<C: Color>(&mut self, idx: usize, color: C) {
         self.increment_by(idx, color, 1);
     }
 
     /// Increment a given feature by a given amount for the given player.
-    fn increment_by(&mut self, idx: usize, color: Color, amount: isize);
+    fn increment_by<C: Color>(&mut self, idx: usize, color: C, amount: isize);
 }
 
 /// The most basic trace, useful by itself or as a building block of custom traces, but [`TraceNFeatures`]
@@ -334,11 +331,12 @@ pub trait BasicTrace: TraceTrait {
 /// which means it is normal for most of the many entries to be zero.
 /// The [`TraceNFeatures]` struct is a thin wrapper around this struct which enforces the number of features matches.
 #[derive(Debug, Default, Clone)]
+#[must_use]
 pub struct SimpleTrace {
     /// How often each feature appears for the white player.
-    pub white: Vec<isize>,
+    pub p1: Vec<isize>,
     /// How often each feature appears for the black player.
-    pub black: Vec<isize>,
+    pub p2: Vec<isize>,
     /// The phase value. Only needed for tapered evaluations.
     pub phase: Float,
 }
@@ -348,8 +346,8 @@ impl SimpleTrace {
     /// Also sets the `phase` to zero.
     pub fn for_features(num_features: usize) -> Self {
         Self {
-            white: vec![0; num_features],
-            black: vec![0; num_features],
+            p1: vec![0; num_features],
+            p2: vec![0; num_features],
             phase: 0.0,
         }
     }
@@ -359,15 +357,15 @@ impl TraceTrait for SimpleTrace {
     /// A [`SimpleTrace`] does not contain any other traces, so this function does the actual work of converting
     /// a trace into a list of features.
     fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
-        assert_eq!(self.white.len(), self.black.len());
+        assert_eq!(self.p1.len(), self.p2.len());
         let mut res = vec![];
-        for i in 0..self.white.len() {
-            let diff = self.white[i] - self.black[i];
+        for i in 0..self.p1.len() {
+            let diff = self.p1[i] - self.p2[i];
             if diff != 0 {
                 let idx = i + idx_offset;
                 assert!(diff >= FeatureT::MIN as isize && diff <= FeatureT::MAX as isize);
                 assert!(res.len() < u16::MAX as usize);
-                assert!(idx <= u16::MAX as usize);
+                assert!(u16::try_from(idx).is_ok());
                 let feature = Feature::new(diff as FeatureT, idx as u16);
                 res.push(feature);
             }
@@ -385,16 +383,17 @@ impl TraceTrait for SimpleTrace {
     }
 
     fn max_num_features(&self) -> usize {
-        assert_eq!(self.black.len(), self.white.len());
-        self.white.len()
+        assert_eq!(self.p2.len(), self.p1.len());
+        self.p1.len()
     }
 }
 
 impl BasicTrace for SimpleTrace {
-    fn increment_by(&mut self, idx: usize, color: Color, amount: isize) {
-        match color {
-            Color::White => self.white[idx] += amount,
-            Color::Black => self.black[idx] += amount,
+    fn increment_by<C: Color>(&mut self, idx: usize, color: C, amount: isize) {
+        if color.is_first() {
+            self.p1[idx] += amount
+        } else {
+            self.p2[idx] += amount
         };
     }
 }
@@ -428,7 +427,7 @@ impl<const N: usize> TraceTrait for TraceNFeatures<N> {
 }
 
 impl<const N: usize> BasicTrace for TraceNFeatures<N> {
-    fn increment_by(&mut self, idx: usize, color: Color, amount: isize) {
+    fn increment_by<C: Color>(&mut self, idx: usize, color: C, amount: isize) {
         self.0.increment_by(idx, color, amount);
     }
 }

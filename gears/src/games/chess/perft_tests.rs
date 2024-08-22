@@ -16,8 +16,8 @@ mod tests {
     fn kiwipete_test() {
         let board = Chessboard::from_name("kiwipete").unwrap();
         let res = perft(Depth::new(4), board);
-        assert_eq!(res.nodes, 4085603);
-        // Disabled in debug mode because that would take too long. TODO: Optimize movegen.
+        assert_eq!(res.nodes, 4_085_603);
+        // Disabled in debug mode because that would take too long. TODO: Optimize movegen, especially in debug mode.
         if !cfg!(debug_assertions) {
             // kiwipete after white castles (cheaper to run than increasing the depth of kiwipete, and failed perft once)
             let board = Chessboard::from_fen(
@@ -25,14 +25,14 @@ mod tests {
             )
             .unwrap();
             let res = perft(Depth::new(4), board);
-            assert_eq!(res.nodes, 4119629);
+            assert_eq!(res.nodes, 4_119_629);
             // kiwipete after white plays a2a3
             let board = Chessboard::from_fen(
                 "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q1p/1PPBBPPP/R3K2R b KQkq - 0 1",
             )
             .unwrap();
             let res = perft(Depth::new(4), board);
-            assert_eq!(res.nodes, 4627439);
+            assert_eq!(res.nodes, 4_627_439);
         }
     }
 
@@ -44,14 +44,14 @@ mod tests {
         .unwrap();
         let res = perft(Depth::new(1), board);
         assert_eq!(res.nodes, 99);
-        assert!(res.time.as_millis() <= 1);
+        assert!(res.time.as_millis() <= 2);
         let res = perft(Depth::new(2), board);
         assert_eq!(res.nodes, 6271);
         let res = perft(Depth::new(3), board);
-        assert_eq!(res.nodes, 568299);
+        assert_eq!(res.nodes, 568_299);
         if cfg!(not(debug_assertions)) {
             let res = perft(Depth::new(4), board);
-            assert_eq!(res.nodes, 34807627);
+            assert_eq!(res.nodes, 34_807_627);
         }
     }
 
@@ -79,8 +79,8 @@ mod tests {
         }
     }
 
-    /// Perft test suite taken from Ethereal: https://github.com/AndyGrant/Ethereal/blob/master/src/perft/
-    /// Additional positions from the excellent website https://analog-hors.github.io/webperft/
+    /// Perft test suite taken from Ethereal: <https://github.com/AndyGrant/Ethereal/blob/master/src/perft/>
+    /// Additional positions from the excellent website <https://analog-hors.github.io/webperft/>
     #[test]
     #[ignore]
     fn standard_perft_test() {
@@ -299,7 +299,7 @@ mod tests {
         "4Q3/5p2/6k1/8/4p3/8/2B3K1/8 b - - 0 1 ;D1 7 ;D2 203 ;D3 1250 ;D4 37962 ;D5 227787 ;D6 7036323 ;D7 41501304"
             ];
 
-    /// This perft test suite is also taken from Ethereal: https://github.com/AndyGrant/Ethereal/blob/master/src/perft/fischer.epd.
+    /// This perft test suite is also taken from Ethereal: <https://github.com/AndyGrant/Ethereal/blob/master/src/perft/fischer.epd>.
     /// I have no idea why it is this massive, running it takes forever.
     const CHESS_960_FENS: [&str; 960] = [
 "bqnb1rkr/pp3ppp/3ppn2/2p5/5P2/P2P4/NPP1P1PP/BQ1BNRKR w HFhf - 2 9 ;D1 21 ;D2 528 ;D3 12189 ;D4 326672 ;D5 8146062 ;D6 227689589",

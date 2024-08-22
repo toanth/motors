@@ -95,7 +95,7 @@ use crate::gd::{
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
 use gears::games::chess::Chessboard;
-use gears::games::Board;
+use gears::general::board::Board;
 use gears::general::common::Res;
 use serde_json::from_reader;
 use std::env::args;
@@ -162,7 +162,7 @@ pub fn load_datasets_from_json(json_file_path: &Path) -> Res<Vec<AnnotatedFenFil
         );
     }
     // Ideally, the `AnnotatedFenFile` would store a `PathBuf`, but that makes serialization more difficult.
-    for file in files.iter_mut() {
+    for file in &mut files {
         file.path = json_file_path
             .parent()
             .unwrap()
@@ -249,10 +249,11 @@ mod tests {
         CrossEntropyLoss, Float, Outcome, QuadraticLoss,
     };
     use crate::load_data::Perspective::SideToMove;
-    use gears::games::chess::pieces::{ColoredChessPiece, UncoloredChessPiece};
+    use gears::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
     use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
-    use gears::games::Color::White;
+    use gears::games::chess::ChessColor::White;
     use gears::games::{AbstractPieceType, ColoredPieceType};
+    use ChessPieceType::*;
 
     #[test]
     pub fn two_chess_positions_test() {
@@ -295,19 +296,18 @@ mod tests {
     #[test]
     pub fn chess_piece_values_test() {
         let piece_val = |piece| match piece {
-            UncoloredChessPiece::Pawn => 1,
-            UncoloredChessPiece::Knight => 3,
-            UncoloredChessPiece::Bishop => 3,
-            UncoloredChessPiece::Rook => 5,
-            UncoloredChessPiece::Queen => 9,
+            Pawn => 1,
+            Knight | Bishop => 3,
+            Rook => 5,
+            Queen => 9,
             _ => panic!("not a non-king piece"),
         };
         let eval_scale = 10.0;
         let mut fens = String::default();
-        for piece in UncoloredChessPiece::non_king_pieces() {
+        for piece in ChessPieceType::non_king_pieces() {
             let str = format!(
                 "8/7{0}/8/8/8/k7/8/K7 w - - 0 1 | {1}\n",
-                ColoredChessPiece::new(White, piece).to_ascii_char(),
+                ColoredChessPieceType::new(White, piece).to_ascii_char(),
                 cp_to_wr(CpScore(piece_val(piece) as Float), eval_scale),
             );
             fens += &str;
@@ -319,7 +319,7 @@ mod tests {
             .optimize_simple(batch, eval_scale, 2000);
         assert_eq!(weights.len(), 5);
         let weight = weights[0];
-        for piece in UncoloredChessPiece::non_king_pieces() {
+        for piece in ChessPieceType::non_king_pieces() {
             let ratio = weights[piece as usize].0 / weight.0;
             assert!((ratio - piece_val(piece) as Float).abs() <= 0.1);
         }

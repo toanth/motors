@@ -24,11 +24,13 @@ pub fn pop_lsb128(x: &mut u128) -> u32 {
     shift
 }
 
+#[must_use]
 pub fn ith_one_u64(idx: usize, val: u64) -> usize {
     debug_assert!(idx < val.count_ones() as usize);
     (1 << idx).pdep(val).trailing_zeros() as usize
 }
 
+#[must_use]
 pub fn ith_one_u128(idx: usize, val: u128) -> usize {
     let lower_bits = (val & u64::MAX as u128) as u64;
     let num_lower_ones = lower_bits.count_ones() as usize;
@@ -137,6 +139,7 @@ impl<T: StaticallyNamedEntity> NamedEntity for T {
 }
 
 #[derive(Debug, Clone, Default)]
+#[must_use]
 pub struct Name {
     pub short: String,
     pub long: String,
@@ -337,9 +340,9 @@ mod tests {
         x = 3;
         assert_eq!(pop_lsb64(&mut x), 0);
         assert_eq!(x, 2);
-        x = 0b110001;
+        x = 0b110_001;
         assert_eq!(pop_lsb64(&mut x), 0);
-        assert_eq!(x, 0b110000);
+        assert_eq!(x, 0b110_000);
         x = 0b1100_1011_0011_1001_0000_0000_0000_0000_0000;
         assert_eq!(pop_lsb64(&mut x), 20);
         assert_eq!(x, 0b1100_1011_0011_1000_0000_0000_0000_0000_0000);
@@ -357,11 +360,11 @@ mod tests {
         let mut val = u64::MAX as u128 + 1;
         assert_eq!(pop_lsb128(&mut val), 64);
         assert_eq!(val, 0);
-        val = (0b10001010110100101011010 << 64) + 0b10010100011;
+        val = (0b100_0101_0110_1001_0101_1010 << 64) + 0b100_1010_0011;
         let copy = val;
         assert_eq!(pop_lsb128(&mut val), 0);
         assert_eq!(val, copy - 1);
-        val = 0b10001010110100101011010 << 64;
+        val = 0b100_0101_0110_1001_0101_1010 << 64;
         let copy = val;
         assert_eq!(pop_lsb128(&mut val), 65);
         assert_eq!(val, copy - (1 << 65));
@@ -376,7 +379,7 @@ mod tests {
         assert_eq!(ith_one_u64(0, 2), 1);
         assert_eq!(ith_one_u64(0, 3), 0);
         assert_eq!(ith_one_u64(1, 3), 1);
-        assert_eq!(ith_one_u64(5, 0b1010101101), 9);
+        assert_eq!(ith_one_u64(5, 0b10_1010_1101), 9);
         assert_eq!(ith_one_u64(63, u64::MAX), 63);
     }
 
@@ -392,7 +395,7 @@ mod tests {
         for i in 0..128 {
             assert_eq!(ith_one_u128(i, u128::MAX), i);
         }
-        let val = (0b10010110110101010 << 80) + 0b11101;
+        let val = (0b1_0010_1101_1010_1010 << 80) + 0b1_1101;
         assert_eq!(ith_one_u128(3, val), 4);
         assert_eq!(ith_one_u128(4, val), 81);
     }

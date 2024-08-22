@@ -22,9 +22,12 @@ pub enum Game {
     /// Normal Chess, Chess960 or Double Fisher Random Chess.
     #[cfg(feature = "chess")]
     Chess,
+    /// See <https://en.wikipedia.org/wiki/Ataxx> and <https://github.com/EngineProgramming/engine-list?tab=readme-ov-file#ataxx-engines>
     #[cfg(feature = "ataxx")]
-    /// See https://en.wikipedia.org/wiki/Ataxx and https://github.com/EngineProgramming/engine-list?tab=readme-ov-file#ataxx-engines
     Ataxx,
+    /// Ultimate Tic-Tac-Toe, see <https://en.wikipedia.org/wiki/Ultimate_tic-tac-toe>.
+    #[cfg(feature = "uttt")]
+    Uttt,
     /// m,n,k games are a generalization of Tic-Tac-Toe or Gomoku. Currently, this implementation only supports boards
     /// up to 128 squares.
     #[cfg(feature = "mnk")]

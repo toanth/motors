@@ -1,43 +1,44 @@
+use crate::games::ataxx::common::AtaxxMove;
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
-use crate::games::ataxx::common::{AtaxxMove, ColoredAtaxxPieceType};
-use crate::games::ataxx::{AtaxxBitboard, AtaxxBoard, AtaxxMoveList, AtaxxSettings};
-use crate::games::Color::{Black, White};
-use crate::games::SelfChecks::CheckFen;
-use crate::games::{read_position_fen, Board, Color, Move, ZobristHash};
+use crate::games::ataxx::{AtaxxBitboard, AtaxxBoard, AtaxxColor, AtaxxMoveList};
+use crate::games::{Board, Color, ZobristHash};
 use crate::general::bitboards::ataxx::{INVALID_EDGE_MASK, LEAPING};
 use crate::general::bitboards::chess::KINGS;
 use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::general::board::SelfChecks::CheckFen;
+use crate::general::board::{read_common_fen_part, UnverifiedBoard};
 use crate::general::common::Res;
+use crate::general::moves::Move;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::num::NonZeroUsize;
 use std::str::SplitWhitespace;
 
 impl AtaxxBoard {
-    pub fn create(blocked: AtaxxBitboard, white: AtaxxBitboard, black: AtaxxBitboard) -> Res<Self> {
+    pub fn create(blocked: AtaxxBitboard, x_bb: AtaxxBitboard, o_bb: AtaxxBitboard) -> Res<Self> {
         let blocked = blocked | INVALID_EDGE_MASK;
-        if (white & black).has_set_bit() {
+        if (o_bb & x_bb).has_set_bit() {
             return Err(format!(
-                "Overlapping white and black pieces (bitboard: {})",
-                white & black
+                "Overlapping x and o pieces (bitboard: {})",
+                o_bb & x_bb
             ));
         }
-        if (blocked & (white | black)).has_set_bit() {
+        if (blocked & (o_bb | x_bb)).has_set_bit() {
             return Err(format!(
                 "Pieces on blocked squares (bitboard: {}",
-                blocked & (white | black)
+                blocked & (o_bb | x_bb)
             ));
         }
         // it's legal for the position to not contain any pieces at all
         Ok(Self {
-            colors: [white.raw(), black.raw()],
-            empty: !(blocked | white | black).raw(),
-            active_player: White,
+            colors: [x_bb.raw(), o_bb.raw()],
+            empty: !(blocked | o_bb | x_bb).raw(),
+            active_player: AtaxxColor::first(),
             ply_100_ctr: 0,
             ply: 0,
         })
     }
 
-    pub fn color_bb(&self, color: Color) -> AtaxxBitboard {
+    pub fn color_bb(&self, color: AtaxxColor) -> AtaxxBitboard {
         AtaxxBitboard::new(self.colors[color as usize])
     }
 
@@ -55,6 +56,10 @@ impl AtaxxBoard {
 
     pub fn active_bb(&self) -> AtaxxBitboard {
         self.color_bb(self.active_player)
+    }
+
+    pub fn inactive_bb(&self) -> AtaxxBitboard {
+        self.color_bb(!self.active_player)
     }
 
     pub(super) fn legal_moves(&self) -> AtaxxMoveList {
@@ -148,49 +153,23 @@ impl AtaxxBoard {
     }
 
     pub fn read_fen_impl(words: &mut SplitWhitespace) -> Res<Self> {
-        let pos_word = words
-            .next()
-            .ok_or_else(|| "Empty ataxx FEN string".to_string())?;
-        let mut board = AtaxxBoard::empty_possibly_invalid(AtaxxSettings::default());
-        board.empty = !board.empty; // use `empty` to keep track of blocked squares while building the board
-        board = read_position_fen(pos_word, board, |mut board, square, typ| {
-            match typ {
-                ColoredAtaxxPieceType::Empty => {}
-                ColoredAtaxxPieceType::Blocked => board.empty |= square.bb().raw(),
-                ColoredAtaxxPieceType::WhitePiece => {
-                    board.colors[White as usize] |= square.bb().raw()
-                }
-                ColoredAtaxxPieceType::BlackPiece => {
-                    board.colors[Black as usize] |= square.bb().raw()
-                }
-            }
-            Ok(board)
-        })?;
-        board.empty = !(board.empty | board.occupied_non_blocked_bb().raw());
-        let color_word = words.next().ok_or_else(|| {
-            "FEN ends after position description, missing color to move".to_string()
-        })?;
-        // be a bit lenient with parsing the fen
-        let color = match color_word.to_ascii_lowercase().as_str() {
-            "w" | "o" => Black,
-            "b" | "x" => White,
-            x => Err(format!("Expected color ('x' or 'o') in FEN, found '{x}'"))?,
-        };
+        let empty = AtaxxBoard::empty();
+        let mut board = read_common_fen_part::<AtaxxBoard>(words, empty.into())?;
+        let color = board.0.active_player();
         if let Some(halfmove_clock) = words.next() {
-            board.ply_100_ctr = halfmove_clock
+            board.0.ply_100_ctr = halfmove_clock
                 .parse::<usize>()
                 .map_err(|err| format!("Couldn't parse halfmove clock: {err}"))?;
             let fullmove_number = words.next().unwrap_or("1");
             let fullmove_number = fullmove_number
                 .parse::<NonZeroUsize>()
                 .map_err(|err| format!("Couldn't parse fullmove counter: {err}"))?;
-            board.ply = (fullmove_number.get() - 1) * 2 + (color == Black) as usize;
+            board.0.ply =
+                (fullmove_number.get() - 1) * 2 + usize::from(color == AtaxxColor::second());
         } else {
-            board.ply = (color == Black) as usize;
-            board.ply_100_ctr = 0;
+            board.0.ply = usize::from(color == AtaxxColor::second());
+            board.0.ply_100_ctr = 0;
         }
-        board.active_player = color;
-        board.verify_position_legal(CheckFen)?;
-        Ok(board)
+        board.verify_with_level(CheckFen)
     }
 }

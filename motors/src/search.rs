@@ -1,20 +1,20 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::marker::PhantomData;
-use std::ops::Deref;
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
 use derive_more::{Add, Neg, Sub};
 use dyn_clone::{clone_box, DynClone};
+use gears::games::ZobristHistory;
+use gears::general::board::Board;
 use itertools::Itertools;
 use strum_macros::FromRepr;
 
 use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
-use gears::games::{Board, ZobristHistory};
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
-use gears::score::{Score, ScoreT, SCORE_LOST, SCORE_WON};
+use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, SCORE_WON};
 use gears::search::{
     Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl, MAX_DEPTH,
 };
@@ -35,6 +35,7 @@ pub mod statistics;
 mod tt;
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct EngineInfo {
     engine: Name,
     eval: Option<Name>,
@@ -55,14 +56,9 @@ impl NamedEntity for EngineInfo {
 
     fn long_name(&self) -> String {
         if let Some(eval) = self.eval.clone() {
-            format!(
-                "{0} -- Version {1}. Eval {2}",
-                self.engine.long_name(),
-                self.version,
-                eval.long_name()
-            )
+            format!("{0}. Eval {1}", self.engine.long_name(), eval.long_name())
         } else {
-            format!("{} -- Version {1}", self.engine.long_name(), self.version)
+            self.engine.long_name().to_string()
         }
     }
 
@@ -144,7 +140,7 @@ impl EngineInfo {
     }
 
     fn set_eval<B: Board>(&mut self, eval: &dyn Eval<B>) {
-        self.eval = Some(Name::new(eval))
+        self.eval = Some(Name::new(eval));
     }
 }
 
@@ -287,8 +283,8 @@ pub struct EngineBuilder<B: Board> {
 impl<B: Board> Clone for EngineBuilder<B> {
     fn clone(&self) -> Self {
         Self {
-            search_builder: clone_box(self.search_builder.deref()),
-            eval_builder: clone_box(self.eval_builder.deref()),
+            search_builder: clone_box(&*self.search_builder),
+            eval_builder: clone_box(&*self.eval_builder),
             sender: self.sender.clone(),
         }
     }
@@ -324,8 +320,8 @@ pub struct SearcherBuilder<B: Board, E: Engine<B>> {
 impl<B: Board, E: Engine<B>> Default for SearcherBuilder<B, E> {
     fn default() -> Self {
         Self {
-            _phantom_b: Default::default(),
-            _phantom_e: Default::default(),
+            _phantom_b: PhantomData,
+            _phantom_e: PhantomData,
         }
     }
 }
@@ -333,8 +329,8 @@ impl<B: Board, E: Engine<B>> Default for SearcherBuilder<B, E> {
 impl<B: Board, E: Engine<B>> Clone for SearcherBuilder<B, E> {
     fn clone(&self) -> Self {
         Self {
-            _phantom_b: PhantomData::default(),
-            _phantom_e: PhantomData::default(),
+            _phantom_b: PhantomData,
+            _phantom_e: PhantomData,
         }
     }
 }
@@ -377,6 +373,8 @@ impl<B: Board, E: Engine<B>> StaticallyNamedEntity for SearcherBuilder<B, E> {
     }
 }
 
+#[derive(Debug)]
+#[must_use]
 pub enum BenchLimit {
     Depth(Depth),
     Nodes(NodesLimit),
@@ -389,7 +387,7 @@ impl BenchLimit {
             BenchLimit::Depth(depth) => res.depth = depth.min(depth_limit),
             BenchLimit::Nodes(nodes) => res.nodes = nodes,
         }
-        return res;
+        res
     }
 }
 
@@ -492,7 +490,7 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
     }
 
     /// The important function.
-    /// Should not be called directly (TODO: Rename to search_impl)
+    /// Should not be called directly (TODO: Rename to `search_impl`)
     fn do_search(
         &mut self,
         pos: B,
@@ -547,7 +545,7 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
 
     fn search_state_mut(&mut self) -> &mut impl SearchState<B>;
 
-    /// Returns a SearchInfo object with information about the search so far.
+    /// Returns a [`SearchInfo`] object with information about the search so far.
     /// Can be called during search, only returns the information regarding the current thread.
     fn search_info(&self) -> SearchInfo<B> {
         self.search_state().to_search_info()
@@ -672,11 +670,9 @@ pub trait CustomInfo<B: Board>: Default + Clone + Debug {
         None
     }
     fn new_search(&mut self) {
-        self.forget()
+        self.hard_forget();
     }
-    fn forget(&mut self) {
-        // do nothing
-    }
+    fn hard_forget(&mut self);
 
     fn best_move(&self) -> Option<B::Move> {
         None
@@ -689,6 +685,9 @@ pub struct BestMoveCustomInfo<B: Board> {
 }
 
 impl<B: Board> CustomInfo<B> for BestMoveCustomInfo<B> {
+    fn hard_forget(&mut self) {
+        self.chosen_move = None;
+    }
     fn best_move(&self) -> Option<B::Move> {
         self.chosen_move
     }
@@ -705,8 +704,8 @@ struct PVData<B: Board> {
 impl<B: Board> Default for PVData<B> {
     fn default() -> Self {
         Self {
-            alpha: SCORE_LOST,
-            beta: SCORE_WON,
+            alpha: MIN_ALPHA,
+            beta: MAX_BETA,
             radius: Score(20),
             best_move: B::Move::default(),
         }
@@ -724,6 +723,7 @@ pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     searching: Searching,
     should_stop: bool,
     start_time: Instant,
+    limit: SearchLimit,
     score: Score,
     statistics: Statistics,
     aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
@@ -741,12 +741,13 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> ABSearchState<B, E, C> 
             search_stack,
             board_history: ZobristHistory::default(),
             start_time,
+            limit: SearchLimit::infinite(),
             score: Score(0),
             searching: Stop,
             should_stop: false,
             custom,
             statistics: Statistics::default(),
-            aggregated_statistics: Default::default(),
+            aggregated_statistics: Statistics::default(),
             sender: SearchSender::no_sender(),
             excluded_moves: vec![],
             pv_num: 0,
@@ -756,16 +757,16 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> ABSearchState<B, E, C> 
 
     fn pv(&self) -> Vec<B::Move> {
         if let Some(pv) = self.search_stack[0].pv() {
-            assert!(!pv.is_empty());
-            assert_eq!(pv[0], self.mov());
-            Vec::from(pv)
-        } else {
-            vec![self.mov()]
+            if !pv.is_empty() {
+                assert_eq!(pv[0], self.mov());
+                return Vec::from(pv);
+            }
         }
+        vec![self.mov()]
     }
 
     fn hashfull(&self) -> Option<usize> {
-        self.custom.tt().map(|tt| tt.estimate_hashfull::<B>())
+        self.custom.tt().map(TT::estimate_hashfull::<B>)
     }
 
     fn seldepth(&self) -> Option<usize> {
@@ -777,7 +778,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> ABSearchState<B, E, C> 
         }
     }
 
-    fn additional(&self) -> Option<String> {
+    fn additional() -> Option<String> {
         None
     }
 }
@@ -804,11 +805,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
     }
 
     fn forget(&mut self, hard: bool) {
-        for e in self.search_stack.iter_mut() {
+        for e in &mut self.search_stack {
             e.forget();
         }
         if hard {
-            self.custom.forget();
+            self.custom.hard_forget();
         } else {
             self.custom.new_search();
         }
@@ -819,7 +820,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
         self.searching = Stop;
         self.should_stop = false;
         self.statistics = Statistics::default();
-        for pv in self.multi_pvs.iter_mut() {
+        for pv in &mut self.multi_pvs {
             *pv = PVData::default();
         }
     }
@@ -846,7 +847,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
             pv: self.pv(),
             score: self.score(),
             hashfull: self.hashfull(),
-            additional: self.additional(),
+            additional: Self::additional(),
         }
     }
 
@@ -862,7 +863,6 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
         &mut self.statistics
     }
 
-    #[inline(always)]
     fn aggregate_match_statistics(&mut self) {
         self.aggregated_statistics
             .aggregate_searches(&self.statistics);
@@ -897,6 +897,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, FromRepr)]
 #[repr(u8)]
+#[must_use]
 pub enum NodeType {
     /// Don't use 0 because that's used to represent the empty node type for the internal TT representation
     /// score is a lower bound >= beta, cut-node (the most common node type)
@@ -930,7 +931,7 @@ pub fn run_bench_with<B: Board>(
     mut nodes: NodesLimit,
 ) -> BenchResult {
     if depth.get() == 0 || depth == MAX_DEPTH {
-        depth = engine.default_bench_depth()
+        depth = engine.default_bench_depth();
     }
     if nodes == NodesLimit::MAX {
         nodes = engine.default_bench_nodes();
@@ -938,7 +939,7 @@ pub fn run_bench_with<B: Board>(
     }
     let mut hasher = DefaultHasher::new();
     let mut sum = BenchResult::default();
-    for position in B::bench_positions().into_iter() {
+    for position in B::bench_positions() {
         // engine.forget();
         let res = engine.bench(position, BenchLimit::Depth(depth));
         sum.nodes = NodesLimit::new(sum.nodes.get() + res.nodes.get()).unwrap();

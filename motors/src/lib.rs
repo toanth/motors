@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::marker::PhantomData;
 
 use dyn_clone::clone_box;
 use rand::rngs::StdRng;
@@ -9,26 +9,31 @@ use gears::games::ataxx::AtaxxBoard;
 use gears::games::chess::Chessboard;
 #[cfg(feature = "mnk")]
 use gears::games::mnk::MNKBoard;
-use gears::games::{Board, OutputList};
+use gears::games::uttt::UtttBoard;
+use gears::games::OutputList;
+use gears::general::board::Board;
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{select_name_dyn, Res};
+use gears::general::perft::perft;
 use gears::output::normal_outputs;
 use gears::search::Depth;
-use gears::Quitting::QuitMatch;
+use gears::Quitting::*;
 use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs, Quitting};
 
-use crate::cli::Mode::Bench;
+use crate::cli::Mode::{Bench, Perft};
 use crate::cli::{parse_cli, EngineOpts, Mode};
+use crate::eval::ataxx::bate::Bate;
 use crate::eval::chess::lite::LiTEval;
 use crate::eval::chess::material_only::MaterialOnlyEval;
 #[cfg(feature = "chess")]
 use crate::eval::chess::piston::PistonEval;
 #[cfg(feature = "mnk")]
-use crate::eval::mnk::simple_mnk_eval::SimpleMnkEval;
+use crate::eval::mnk::base::BasicMnkEval;
 use crate::eval::rand_eval::RandEval;
+use crate::eval::uttt::lute::Lute;
 #[cfg(feature = "caps")]
 use crate::search::chess::caps::Caps;
-#[cfg(feature = "generic_negamax")]
+#[cfg(feature = "gaps")]
 use crate::search::generic::gaps::Gaps;
 #[cfg(feature = "random_mover")]
 use crate::search::generic::random_mover::RandomMover;
@@ -52,12 +57,14 @@ struct BenchRun<B: Board> {
 
 impl<B: Board> BenchRun<B> {
     pub fn create(
-        options: EngineOpts,
-        all_searchers: SearcherList<B>,
-        all_evals: EvalList<B>,
+        options: &EngineOpts,
+        all_searchers: &SearcherList<B>,
+        all_evals: &EvalList<B>,
     ) -> Res<Self> {
-        let Bench(depth) = options.mode else { panic!() };
-        let engine = create_engine_bench_from_str(&options.engine, &all_searchers, &all_evals)?;
+        let Bench(depth) = options.mode else {
+            unreachable!()
+        };
+        let engine = create_engine_bench_from_str(&options.engine, all_searchers, all_evals)?;
         Ok(Self { engine, depth })
     }
 }
@@ -71,7 +78,32 @@ impl<B: Board> AbstractRun for BenchRun<B> {
             Some(depth) => run_bench_with(engine, depth, nodes),
         };
         println!("{res}");
-        QuitMatch
+        QuitProgram
+    }
+}
+
+#[derive(Debug, Default)]
+struct PerftRun<B: Board> {
+    depth: Option<Depth>,
+    phantom_data: PhantomData<B>,
+}
+
+impl<B: Board> PerftRun<B> {
+    pub fn create(depth: Option<Depth>) -> Self {
+        Self {
+            depth,
+            ..Self::default()
+        }
+    }
+}
+
+impl<B: Board> AbstractRun for PerftRun<B> {
+    fn run(&mut self) -> Quitting {
+        let pos = B::default();
+        let depth = self.depth.unwrap_or(pos.default_perft_depth());
+        let res = perft(depth, pos);
+        println!("{res}");
+        QuitProgram
     }
 }
 
@@ -82,7 +114,7 @@ pub fn create_searcher_from_str<B: Board>(
     searchers: &SearcherList<B>,
 ) -> Res<Box<dyn AbstractSearcherBuilder<B>>> {
     if name == "default" {
-        return Ok(clone_box(searchers.last().unwrap().deref()));
+        return Ok(clone_box(&**searchers.last().unwrap()));
     }
     Ok(clone_box(select_name_dyn(
         name,
@@ -98,7 +130,7 @@ pub fn create_eval_from_str<B: Board>(
     evals: &EvalList<B>,
 ) -> Res<Box<dyn AbstractEvalBuilder<B>>> {
     if name == "default" {
-        return Ok(clone_box(evals.last().unwrap().deref()));
+        return Ok(clone_box(&**evals.last().unwrap()));
     }
     Ok(clone_box(select_name_dyn(
         name,
@@ -142,7 +174,7 @@ pub fn create_match_for_game<B: Board>(
     outputs: OutputList<B>,
 ) -> Res<AnyRunnable> {
     match args.mode {
-        Bench(_) => Ok(Box::new(BenchRun::create(args, searchers, evals)?)),
+        Bench(_) => Ok(Box::new(BenchRun::create(&args, &searchers, &evals)?)),
         Mode::Engine => {
             if args.debug {
                 args.outputs.push(OutputArgs::new("logger".to_string()));
@@ -155,29 +187,41 @@ pub fn create_match_for_game<B: Board>(
                 evals,
             )?))
         }
+        Perft(depth) => Ok(Box::new(PerftRun::<B>::create(depth))),
     }
 }
 
 #[cfg(feature = "chess")]
+#[must_use]
 fn list_chess_outputs() -> OutputList<Chessboard> {
     normal_outputs::<Chessboard>()
 }
 
 #[cfg(feature = "ataxx")]
+#[must_use]
 fn list_ataxx_outputs() -> OutputList<AtaxxBoard> {
     normal_outputs::<AtaxxBoard>()
 }
 
+#[cfg(feature = "uttt")]
+#[must_use]
+fn list_uttt_outputs() -> OutputList<UtttBoard> {
+    normal_outputs::<UtttBoard>()
+}
+
 #[cfg(feature = "mnk")]
+#[must_use]
 fn list_mnk_outputs() -> OutputList<MNKBoard> {
     normal_outputs::<MNKBoard>()
 }
 
+#[must_use]
 pub fn generic_evals<B: Board>() -> EvalList<B> {
     vec![Box::new(EvalBuilder::<B, RandEval>::default())]
 }
 
 #[cfg(feature = "chess")]
+#[must_use]
 pub fn list_chess_evals() -> EvalList<Chessboard> {
     let mut res = generic_evals::<Chessboard>();
     res.push(Box::new(
@@ -189,22 +233,35 @@ pub fn list_chess_evals() -> EvalList<Chessboard> {
 }
 
 #[cfg(feature = "ataxx")]
+#[must_use]
 pub fn list_ataxx_evals() -> EvalList<AtaxxBoard> {
-    generic_evals()
-}
-
-#[cfg(feature = "mnk")]
-pub fn list_mnk_evals() -> EvalList<MNKBoard> {
-    let mut res = generic_evals::<MNKBoard>();
-    res.push(Box::new(EvalBuilder::<MNKBoard, SimpleMnkEval>::default()));
+    let mut res = generic_evals();
+    res.push(Box::new(EvalBuilder::<AtaxxBoard, Bate>::default()));
     res
 }
 
+#[cfg(feature = "uttt")]
+#[must_use]
+pub fn list_uttt_evals() -> EvalList<UtttBoard> {
+    let mut res = generic_evals();
+    res.push(Box::new(EvalBuilder::<UtttBoard, Lute>::default()));
+    res
+}
+
+#[cfg(feature = "mnk")]
+#[must_use]
+pub fn list_mnk_evals() -> EvalList<MNKBoard> {
+    let mut res = generic_evals::<MNKBoard>();
+    res.push(Box::new(EvalBuilder::<MNKBoard, BasicMnkEval>::default()));
+    res
+}
+
+#[must_use]
 pub fn generic_searchers<B: Board>() -> SearcherList<B> {
     vec![
         #[cfg(feature = "random_mover")]
         Box::new(SearcherBuilder::<B, RandomMover<B, StdRng>>::default()),
-        #[cfg(feature = "generic_negamax")]
+        #[cfg(feature = "gaps")]
         Box::new(SearcherBuilder::<B, Gaps<B>>::default()),
     ]
 }
@@ -212,6 +269,7 @@ pub fn generic_searchers<B: Board>() -> SearcherList<B> {
 /// Lists all user-selectable searchers that can play chess.
 /// An engine is the combination of a searcher and an eval.
 #[cfg(feature = "chess")]
+#[must_use]
 pub fn list_chess_searchers() -> SearcherList<Chessboard> {
     let mut res = generic_searchers();
     // The last engine in this list is the default engine
@@ -221,11 +279,19 @@ pub fn list_chess_searchers() -> SearcherList<Chessboard> {
 }
 
 #[cfg(feature = "ataxx")]
+#[must_use]
 pub fn list_ataxx_searchers() -> SearcherList<AtaxxBoard> {
     generic_searchers()
 }
 
+#[cfg(feature = "uttt")]
+#[must_use]
+pub fn list_uttt_searchers() -> SearcherList<UtttBoard> {
+    generic_searchers()
+}
+
 #[cfg(feature = "mnk")]
+#[must_use]
 pub fn list_mnk_searchers() -> SearcherList<MNKBoard> {
     generic_searchers()
 }
@@ -246,6 +312,13 @@ pub fn create_match(args: EngineOpts) -> Res<AnyRunnable> {
             list_ataxx_evals(),
             list_ataxx_outputs(),
         ),
+        #[cfg(feature = "uttt")]
+        Game::Uttt => create_match_for_game(
+            args,
+            list_uttt_searchers(),
+            list_uttt_evals(),
+            list_uttt_outputs(),
+        ),
         #[cfg(feature = "mnk")]
         Game::Mnk => create_match_for_game(
             args,
@@ -262,7 +335,7 @@ pub fn run_program_with_args(args: ArgIter) -> Res<()> {
     let mode = args.mode;
     let mut the_match =
         create_match(args).map_err(|err| format!("Couldn't start the {mode}: {err}"))?;
-    the_match.run();
+    _ = the_match.run();
     Ok(())
 }
 
