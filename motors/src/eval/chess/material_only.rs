@@ -24,7 +24,7 @@ impl StaticallyNamedEntity for MaterialOnlyEval {
     where
         Self: Sized,
     {
-        "Material Only Chess Eval".to_string()
+        "MateOnCE: Material Only Chess Eval".to_string()
     }
 
     fn static_description() -> String

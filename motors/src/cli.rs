@@ -119,7 +119,7 @@ fn print_help() {
     `bench` is also useful to get a \"hash\" of the search tree explored by the engine.\
     Typing '{6}' while the program is running will also show help messages",
     "game".bold(),
-    "eval".bold(),
+    "engine".bold(),
     "debug".bold(),
     "additional-outputs".bold(),
     "bench".bold(),

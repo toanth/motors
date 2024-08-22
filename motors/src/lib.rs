@@ -30,6 +30,7 @@ use crate::eval::chess::piston::PistonEval;
 #[cfg(feature = "mnk")]
 use crate::eval::mnk::base::BasicMnkEval;
 use crate::eval::rand_eval::RandEval;
+use crate::eval::uttt::lute::Lute;
 #[cfg(feature = "caps")]
 use crate::search::chess::caps::Caps;
 #[cfg(feature = "gaps")]
@@ -242,8 +243,9 @@ pub fn list_ataxx_evals() -> EvalList<AtaxxBoard> {
 #[cfg(feature = "uttt")]
 #[must_use]
 pub fn list_uttt_evals() -> EvalList<UtttBoard> {
-    // TODO: Simple psqt eval
-    generic_evals()
+    let mut res = generic_evals();
+    res.push(Box::new(EvalBuilder::<UtttBoard, Lute>::default()));
+    res
 }
 
 #[cfg(feature = "mnk")]

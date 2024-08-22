@@ -27,6 +27,7 @@ use crate::search::Depth;
 fn perft_tests() {
     for (fen, perft_res) in UtttBoard::perft_test_positions() {
         let pos = UtttBoard::from_alternative_fen(*fen).unwrap();
+        println!("{pos}");
         let n = if cfg!(debug_assertions) { 7 } else { 100 };
         for (depth, nodes) in perft_res.iter().enumerate().take(n) {
             let res = perft(Depth::new(depth), pos);

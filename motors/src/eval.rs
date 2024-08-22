@@ -15,6 +15,8 @@ pub mod ataxx;
 pub mod chess;
 #[cfg(feature = "mnk")]
 pub mod mnk;
+#[cfg(feature = "uttt")]
+pub mod uttt;
 
 pub trait Eval<B: Board>: Debug + Send + StaticallyNamedEntity + DynClone + 'static {
     fn eval(&mut self, pos: &B) -> Score;

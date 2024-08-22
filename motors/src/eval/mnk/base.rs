@@ -41,7 +41,7 @@ impl StaticallyNamedEntity for BasicMnkEval {
     where
         Self: Sized,
     {
-        "Basic m,n,k Eval".to_string()
+        "BasE: Basic m,n,k Eval".to_string()
     }
 
     fn static_description() -> String

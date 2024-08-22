@@ -35,7 +35,7 @@ Current features:
 - Futility Pruning
 - Late Move Pruning
 - SEE pruning in quiescent search
-- Adjust pruning and reduction margins based on eval difference to last move
+- Adjusts pruning and reduction margins based on eval difference to previous move
 - Time Management with a soft and hard bound, as well as support for fixed time, depth, nodes, mate and `infinite`, or any combination of
   these
     - Almost full UCI compliance, including `searchmoves`, `ponder`, `multipv`, etc. Notable missing features are endgame tablebases and a
@@ -67,26 +67,39 @@ similar to the well-known PeSTO engine.
 ### LiTE
 
 **Li**near **T**uned **Eval**, a chess eval using a linear combination of weights which have
-been tuned using the *pliers* tuner.
+been tuned using the `pliers` tuner.
 It can be interpreted as a single layers perceptron, a neural net consisting of a single neuron.
+Such an eval functions is also often called a Hand-Crafted Eval function (HCE).
+The default eval for chess.
+
+### BAtE
+
+**B**asic **At**axx **E**val, a very simple material counting eval for Ataxx.
 
 ### BasE
 
 **Bas**ic m,n,k **E**val, a simple hand-crafted eval for m,n,k games.
 
+### LUTE
+
+**L**inear **U**ltimate **T**ic-tac-toe **E**val, a simple hand-crafted eval for UTTT.
+
 ### random
 
 Returns random values. Still stronger than the *random* engine when used as eval function
-for an actual engine like *caps* or *gaps*.
+for an actual engine like `caps` or `gaps`.
 
 ## Games
 
-Currently, there are 3 games implemented:
+Currently, 4 games are implemented:
 
 - **Chess**, including Chess960 (a.k.a. Fischer Random Chess) and Double Fischer Random Chess (DFRC)
-- **Ataxx**, a challenging board game where the goal is to convert your opponent's pieces
-- **m, n, k** games, a generalization of Tic-Tac-Toe that can actually be difficult. The current implementation is somwewhat limit and does
+- [**Ataxx**](https://en.wikipedia.org/wiki/Ataxx), a challenging board game where the goal is to convert your opponent's pieces
+- [**m, n, k**](https://en.wikipedia.org/wiki/M,n,k-game) games, a generalization of Tic-Tac-Toe that can actually be difficult. The current
+  implementation is somewhat limited and does
   not support boards larger than 128 squares, nor does it (yet) support rules specific to variants such as Connect 4 or Gomoku.
+- [**Ultimate Tic-Tac-Toe**](https://en.wikipedia.org/wiki/Ultimate_tic-tac-toe), a much more challenging version of Tic-Tac-Toe where every
+  square is itself a Tic-Tac-Toe board.
 
 ## Usage
 
@@ -95,9 +108,14 @@ Currently, there are 3 games implemented:
 To build the engines, it is enough to type `make` or use `cargo`.
 `cargo` can also be used to build other parts, such as the match manager `monitors` or the tuner `pliers`.
 Individual games and engines can be included or excluded from the build through cargo features, but the default is to build everything.
-Alternatively, I'm planning to do a github release soon, which will contain at least the engines binary.
+Alternatively, I'm planning to do a GitHub release soon, which will contain at least the engines binary.
 
 ### Running
+
+Starting the `motors` executable without any command line options will start the default game, `chess`, with `CAPS`, the default engine for
+chess,
+and `LiTE`, the default eval for chess. Coincidentally, this is also the strongest and most developed engine and eval.
+This engine can be used out of the box with any UCI chess GUI.
 
 #### Manual User Input
 
@@ -125,8 +143,10 @@ There are many more options, this document is too short to list them all in deta
 ### Command line flags
 
 Command line flags function similarly to user input at runtime, but are a bit more restrictive in some cases.
+For example, to play `Ataxx` with `GAPS` and the `BAtE` eval, pass the following command-line flags: `--game ataxx --engine gaps-bate`.
+`bate` is already the default eval for `Ataxx`, and `GAPS` is the default engine for `Ataxx`, so this is equivalent to just `--game ataxx`.
 
-### Thanks
+## Thanks
 
 Huge thanks to everyone who helped me learn more about engine programming! 
 
