@@ -73,6 +73,9 @@ pub trait UnverifiedBoard<B: Board>: Debug + Copy + Clone + From<B> {
     /// `CheckFen` sometimes needs to do less work than `Verify`.
     fn verify_with_level(self, level: SelfChecks) -> Res<B>;
 
+    // TODO: Refactor such that debug_verify_invariants actually checks invariants that should not be broken in a Board
+    // but are getting corrected in the verify method of an UnverifiedBoard
+
     /// Returns the size of the board.
     fn size(&self) -> BoardSize<B>;
 

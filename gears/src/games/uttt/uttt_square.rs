@@ -149,7 +149,7 @@ impl UtttSquare {
 
     pub fn bb_idx(self) -> usize {
         let sub_square = self.sub_square.bb_idx();
-        let sub_board = self.sub_board().bb_idx();
+        let sub_board = self.sub_board.bb_idx();
         debug_assert!(sub_square < 9);
         debug_assert!(sub_board < 9);
         sub_board * 9 + sub_square

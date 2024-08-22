@@ -190,7 +190,6 @@ mod tests {
                     }
                 }
                 let different_bits = (new_board.hash.0 ^ hash.0).count_ones();
-                println!("{different_bits}");
                 assert!((12..52).contains(&different_bits));
             }
         }
@@ -228,12 +227,6 @@ mod tests {
     fn zobrist_after_move_test() {
         for pos in Chessboard::bench_positions() {
             for m in pos.pseudolegal_moves() {
-                if pos.as_fen()
-                    == "r3k2r/2pb1ppp/2pp1q2/p7/1nP1B3/1P2P3/P2N1PPP/R2QK2R w HAha a6 0 14"
-                    && m.to_string() == "d1c2"
-                {
-                    println!("oh no");
-                }
                 let Some(new_pos) = pos.make_move(m) else {
                     continue;
                 };

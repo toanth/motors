@@ -510,7 +510,7 @@ impl<B: Board> EngineUGI<B> {
             "set-eval" => {
                 self.handle_set_eval(words)?;
             }
-            "play" => {
+            "play" | "game" => {
                 self.handle_play(words)?;
             }
             "perft" => {
@@ -1067,7 +1067,7 @@ impl<B: Board> EngineUGI<B> {
             eval = "eval | e".bold(),
             set_eval = "set-eval".bold(),
             option = "option".bold(),
-            play = "play".bold(),
+            play = "play | game".bold(),
             quit_match = "quit_match".bold(),
             help = "help".bold(),
             monitors = "monitors".italic(),

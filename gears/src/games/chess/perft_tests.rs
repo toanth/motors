@@ -17,7 +17,7 @@ mod tests {
         let board = Chessboard::from_name("kiwipete").unwrap();
         let res = perft(Depth::new(4), board);
         assert_eq!(res.nodes, 4_085_603);
-        // Disabled in debug mode because that would take too long. TODO: Optimize movegen.
+        // Disabled in debug mode because that would take too long. TODO: Optimize movegen, especially in debug mode.
         if !cfg!(debug_assertions) {
             // kiwipete after white castles (cheaper to run than increasing the depth of kiwipete, and failed perft once)
             let board = Chessboard::from_fen(

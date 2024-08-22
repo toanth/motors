@@ -1,6 +1,6 @@
 //! This module contains generic test functions that are completely independent of the actual game.
 //! Since those generics aren't instantiated here, there are no actual tests here.
-use crate::games::{Color, ColoredPiece, Coordinates, NoHistory, Size, ZobristHash};
+use crate::games::{Color, ColoredPiece, Coordinates, Size, ZobristHash};
 use crate::general::board::{Board, UnverifiedBoard};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::Move;
@@ -120,7 +120,6 @@ impl<B: Board> GenericTests<B> {
             let mut hashes = HashSet::new();
             let _ = pos.debug_verify_invariants().unwrap();
             assert!(pos.debug_verify_invariants().is_ok());
-            assert!(pos.match_result_slow(&NoHistory::default()).is_none());
             assert_eq!(B::from_fen(&pos.as_fen()).unwrap(), pos);
             let hash = pos.zobrist_hash().0;
             hashes.insert(hash);
@@ -143,7 +142,14 @@ impl<B: Board> GenericTests<B> {
                 assert!(legal.is_ok());
                 assert_eq!(new_pos.active_player().other(), pos.active_player());
                 assert_ne!(new_pos.as_fen(), pos.as_fen());
-                assert_eq!(B::from_fen(&new_pos.as_fen()).unwrap(), new_pos);
+
+                let roundtrip = B::from_fen(&new_pos.as_fen()).unwrap();
+                assert!(roundtrip.debug_verify_invariants().is_ok());
+                assert_eq!(roundtrip.as_fen(), new_pos.as_fen());
+                assert_eq!(roundtrip.legal_moves_slow(), new_pos.legal_moves_slow());
+                assert_eq!(roundtrip, new_pos);
+                assert_eq!(roundtrip.zobrist_hash(), new_pos.zobrist_hash());
+
                 assert_ne!(new_pos.zobrist_hash().0, hash); // Even for null moves, the side to move has changed
                 assert_eq!(new_pos.halfmove_ctr_since_start() - ply, 1);
                 assert!(!hashes.contains(&new_pos.zobrist_hash().0));

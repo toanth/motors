@@ -1,9 +1,10 @@
 use crate::general::board::Board;
 use arrayvec::ArrayVec;
+use std::fmt::Debug;
 
 /// A list of moves as returned by the board's `pseudolegal_moves`.
 /// Moves may or may not be ordered and may or may not be computed lazily.
-pub trait MoveList<B: Board>: IntoIterator<Item = B::Move> {
+pub trait MoveList<B: Board>: IntoIterator<Item = B::Move> + Eq + PartialEq + Debug {
     fn add_move(&mut self, mov: B::Move);
 
     /// Moves the last currently considered move to the `idx`th element and returns that.
