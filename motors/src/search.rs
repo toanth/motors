@@ -6,13 +6,14 @@ use std::time::{Duration, Instant};
 use colored::Colorize;
 use derive_more::{Add, Neg, Sub};
 use dyn_clone::{clone_box, DynClone};
-use gears::games::ZobristHistory;
+use gears::games::{ZobristHash, ZobristHistory};
 use gears::general::board::Board;
 use itertools::Itertools;
 use strum_macros::FromRepr;
 
 use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
+use crate::search::ForgetOpts::{Hard, SoftDifferentPos, SoftSamePos};
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
 use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, SCORE_WON};
 use gears::search::{
@@ -432,7 +433,7 @@ impl<B: Board, E: Engine<B>> Benchable<B> for E {
     }
 
     fn forget(&mut self) {
-        self.search_state_mut().forget(true);
+        self.search_state_mut().forget(Hard);
     }
 }
 
@@ -461,7 +462,7 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
         history: ZobristHistory<B>,
         sender: SearchSender<B>,
     ) -> Res<SearchResult<B>> {
-        self.search_state_mut().new_search(history, sender);
+        self.search_state_mut().new_search(history, sender, &pos);
         // `search_moves` with only invalid moves behaves as if no 'moves' were specified, i.e. it searches all moves.
         // although this is rather expensive in general, the normal case (e.g. `go` without `searchmoves`) is that
         // `moves` is empty, which makes this fast.
@@ -612,8 +613,8 @@ pub trait SearchState<B: Board>: Debug + Clone {
     }
     fn start_time(&self) -> Instant;
     fn score(&self) -> Score;
-    fn forget(&mut self, hard: bool);
-    fn new_search(&mut self, history: ZobristHistory<B>, sender: SearchSender<B>);
+    fn forget(&mut self, forget: ForgetOpts);
+    fn new_search(&mut self, history: ZobristHistory<B>, sender: SearchSender<B>, pos: &B);
     fn end_search(&mut self) {
         self.mark_search_should_end();
         self.statistics_mut().end_search();
@@ -669,10 +670,7 @@ pub trait CustomInfo<B: Board>: Default + Clone + Debug {
     fn tt(&self) -> Option<&TT> {
         None
     }
-    fn new_search(&mut self) {
-        self.hard_forget();
-    }
-    fn hard_forget(&mut self);
+    fn forget(&mut self, forget: ForgetOpts);
 
     fn best_move(&self) -> Option<B::Move> {
         None
@@ -685,7 +683,7 @@ pub struct BestMoveCustomInfo<B: Board> {
 }
 
 impl<B: Board> CustomInfo<B> for BestMoveCustomInfo<B> {
-    fn hard_forget(&mut self) {
+    fn forget(&mut self, _forget: ForgetOpts) {
         self.chosen_move = None;
     }
     fn best_move(&self) -> Option<B::Move> {
@@ -712,6 +710,13 @@ impl<B: Board> Default for PVData<B> {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum ForgetOpts {
+    SoftSamePos,
+    SoftDifferentPos,
+    Hard,
+}
+
 #[derive(Debug, Clone)]
 pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     search_stack: Vec<E>,
@@ -728,6 +733,7 @@ pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     statistics: Statistics,
     aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
     sender: SearchSender<B>,
+    root_hash: ZobristHash,
 }
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> ABSearchState<B, E, C> {
@@ -752,6 +758,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> ABSearchState<B, E, C> 
             excluded_moves: vec![],
             pv_num: 0,
             multi_pvs: vec![],
+            root_hash: ZobristHash::default(),
         }
     }
 
@@ -804,15 +811,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
         self.score
     }
 
-    fn forget(&mut self, hard: bool) {
+    fn forget(&mut self, forget: ForgetOpts) {
         for e in &mut self.search_stack {
             e.forget();
         }
-        if hard {
-            self.custom.hard_forget();
-        } else {
-            self.custom.new_search();
-        }
+        self.custom.forget(forget);
         self.sender = SearchSender::no_sender();
         self.start_time = Instant::now();
         self.board_history = ZobristHistory::default(); // will get overwritten later
@@ -820,16 +823,23 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
         self.searching = Stop;
         self.should_stop = false;
         self.statistics = Statistics::default();
+        self.root_hash = ZobristHash::default();
         for pv in &mut self.multi_pvs {
             *pv = PVData::default();
         }
     }
 
-    fn new_search(&mut self, history: ZobristHistory<B>, sender: SearchSender<B>) {
-        self.forget(false);
+    fn new_search(&mut self, history: ZobristHistory<B>, sender: SearchSender<B>, pos: &B) {
+        let forget = if pos.zobrist_hash() == self.root_hash {
+            SoftSamePos
+        } else {
+            SoftDifferentPos
+        };
+        self.forget(forget);
         self.board_history = history;
         self.sender = sender;
         self.searching = Ongoing;
+        self.root_hash = pos.zobrist_hash();
     }
 
     fn mark_search_should_end(&mut self) {

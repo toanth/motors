@@ -83,6 +83,15 @@ impl Div<ScoreT> for Score {
 }
 
 impl Score {
+    pub fn from_compact(score: CompactScoreT) -> Self {
+        Self(score as ScoreT)
+    }
+
+    pub fn compact(self) -> CompactScoreT {
+        debug_assert_eq!((self.0 as CompactScoreT) as ScoreT, self.0);
+        self.0 as CompactScoreT
+    }
+
     pub fn is_game_won_score(self) -> bool {
         self >= MIN_SCORE_WON
     }

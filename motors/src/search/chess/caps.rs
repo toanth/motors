@@ -31,7 +31,8 @@ use crate::eval::Eval;
 use crate::search::move_picker::MovePicker;
 use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
-use crate::search::tt::{TTEntry, TT};
+use crate::search::tt::{Age, AgeT, TTEntry, TT};
+use crate::search::ForgetOpts::{Hard, SoftDifferentPos};
 use crate::search::*;
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
@@ -120,6 +121,17 @@ impl Default for ContHist {
     }
 }
 
+// TODO: If the hash matches, overwrite depending on depth alone (maybe add pv node / exact score conditition in the future),
+// otherwise use age. Requires having an untrusted TT entry instead of None.
+fn should_replace(new_entry: TTEntry<Chessboard>, old_entry: Option<TTEntry<Chessboard>>) -> bool {
+    assert_eq!(AgeT::BITS, i16::BITS);
+    let Some(old_entry) = old_entry else {
+        return true;
+    };
+    // let age_diff = new_entry.age.0.wrapping_sub(old_entry.age.0) as i16 as isize;
+    return /*age_diff * 2 +*/ (new_entry.depth as isize - old_entry.depth as isize) >= 0;
+}
+
 #[derive(Debug, Clone, Default)]
 struct Additional {
     history: HistoryHeuristic,
@@ -135,6 +147,7 @@ struct Additional {
     tt: TT,
     original_board_hist: ZobristHistory<Chessboard>,
     nmp_disabled: [bool; 2],
+    age: Age,
 }
 
 impl Additional {
@@ -148,11 +161,14 @@ impl CustomInfo<Chessboard> for Additional {
         Some(&self.tt)
     }
 
-    fn new_search(&mut self) {
+    fn forget(&mut self, forget: ForgetOpts) {
+        if forget == SoftDifferentPos {
+            self.age.increment();
+        }
         // don't update history values, malus and gravity already take care of that
-    }
-
-    fn hard_forget(&mut self) {
+        if forget != Hard {
+            return;
+        }
         for value in self.history.iter_mut() {
             *value = 0;
         }
@@ -166,6 +182,7 @@ impl CustomInfo<Chessboard> for Additional {
             *value = 0;
         }
         self.tt.forget();
+        self.age = Age(0);
     }
 }
 
@@ -597,7 +614,8 @@ impl Caps {
         // store a null move in the TT. This helps IIR.
         let mut best_move = ChessMove::default();
         let mut eval = self.eval(pos, ply);
-        if let Some(tt_entry) = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
+        let old_tt_entry = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply);
+        if let Some(tt_entry) = old_tt_entry {
             let bound = tt_entry.bound();
             debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
 
@@ -606,18 +624,18 @@ impl Caps {
             // simply return it.
             if !is_pv_node
                 && tt_entry.depth as isize >= depth
-                && ((tt_entry.score >= beta && bound == FailHigh)
-                    || (tt_entry.score <= alpha && bound == FailLow)
+                && ((tt_entry.score() >= beta && bound == FailHigh)
+                    || (tt_entry.score() <= alpha && bound == FailLow)
                     || bound == Exact)
             {
                 self.state.statistics.tt_cutoff(MainSearch, bound);
-                return tt_entry.score;
+                return tt_entry.score();
             }
             // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
             // at what the type of this node is going to be.
             if !is_pv_node {
                 if bound == Exact {
-                    expected_node_type = if tt_entry.score <= alpha {
+                    expected_node_type = if tt_entry.score() <= alpha {
                         FailLow
                     } else {
                         FailHigh
@@ -636,10 +654,10 @@ impl Caps {
             // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
             // create any problems, but should be kept in mind.
             if bound == Exact
-                || (bound == FailHigh && tt_entry.score >= eval)
-                || (bound == FailLow && tt_entry.score <= eval)
+                || (bound == FailHigh && tt_entry.score() >= eval)
+                || (bound == FailLow && tt_entry.score() <= eval)
             {
-                eval = tt_entry.score;
+                eval = tt_entry.score();
             }
         } else {
             self.state.statistics.tt_miss(MainSearch);
@@ -922,18 +940,19 @@ impl Caps {
             return game_result_to_score(pos.no_moves_result(), ply);
         }
 
-        let tt_entry: TTEntry<Chessboard> = TTEntry::new(
+        let new_tt_entry: TTEntry<Chessboard> = TTEntry::new(
             pos.zobrist_hash(),
             best_score,
             best_move,
             depth,
             bound_so_far,
+            self.state.custom.age,
         );
         // TODO: eventually test that not overwriting PV nodes unless the depth is quite a bit greater gains
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
-        if !(root && self.state.pv_num > 0) {
-            self.state.custom.tt.store(tt_entry, ply);
+        if !(root && self.state.pv_num > 0) && should_replace(new_tt_entry, old_tt_entry) {
+            self.state.custom.tt.store(new_tt_entry, ply);
         }
 
         best_score
@@ -1037,33 +1056,34 @@ impl Caps {
 
         // do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation
         // but if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        if let Some(tt_entry) = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
+        let old_tt_entry = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply);
+        if let Some(tt_entry) = old_tt_entry {
             debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
             let bound = tt_entry.bound();
             // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
             // However, if we've already done qsearch on this position, we can just re-use the result,
             // so there is no point in checking the depth at all
-            if (bound == FailHigh && tt_entry.score >= beta)
-                || (bound == FailLow && tt_entry.score <= alpha)
+            if (bound == FailHigh && tt_entry.score() >= beta)
+                || (bound == FailLow && tt_entry.score() <= alpha)
                 || bound == Exact
             {
                 self.state.statistics.tt_cutoff(Qsearch, bound);
-                return tt_entry.score;
+                return tt_entry.score();
             }
             // If the TT score is an upper bound, it can't be worse than the stand pat score unless it's from a regular
             // search entry, i.e. depth is greater than 0.
-            if bound == FailLow && tt_entry.score < best_score {
+            if bound == FailLow && tt_entry.score() < best_score {
                 debug_assert!(tt_entry.depth > 0);
             }
             // exact scores should have already caused a cutoff
-            // TODO: Removing the `&& !tt_entry.score.is_game_over_score()` condition here and in `negamax` *failed* a
+            // TODO: Removing the `&& !tt_entry.score().is_game_over_score()` condition here and in `negamax` *failed* a
             // nonregression SPRT with `[-7, 0]` bounds even though I don't know why, and those conditions make it fail
             // the re-search test case. So the conditions are still disabled for now,
             // test reintroducing them at some point in the future after I have TT aging!
-            if (bound == FailHigh && tt_entry.score >= best_score)
-                || (bound == FailLow && tt_entry.score <= best_score)
+            if (bound == FailHigh && tt_entry.score() >= best_score)
+                || (bound == FailLow && tt_entry.score() <= best_score)
             {
-                best_score = tt_entry.score;
+                best_score = tt_entry.score();
             };
             if let Some(mov) = tt_entry.mov.check_psuedolegal(&pos) {
                 best_move = mov;
@@ -1118,9 +1138,17 @@ impl Caps {
             .statistics
             .count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
 
-        let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
-        self.state.custom.tt.store(tt_entry, ply);
+        let new_tt_entry: TTEntry<Chessboard> = TTEntry::new(
+            pos.zobrist_hash(),
+            best_score,
+            best_move,
+            0,
+            bound_so_far,
+            self.state.custom.age,
+        );
+        if should_replace(new_tt_entry, old_tt_entry) {
+            self.state.custom.tt.store(new_tt_entry, ply);
+        }
         best_score
     }
 

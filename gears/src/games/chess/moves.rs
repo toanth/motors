@@ -377,8 +377,8 @@ impl Move<Chessboard> for ChessMove {
         Ok(res.0)
     }
 
-    fn from_usize_unchecked(val: usize) -> UntrustedMove<Chessboard> {
-        UntrustedMove::from_move(Self(val as u16))
+    fn untrusted_from_repr(val: usize) -> UntrustedMove<Chessboard> {
+        UntrustedMove::new(Self(val as u16))
     }
 
     fn to_underlying(self) -> Self::Underlying {

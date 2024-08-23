@@ -125,7 +125,7 @@ pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Hash +
 
     /// Load the move from its raw underlying integer representation, the inverse of `to_underlying`.
     /// Does not take a `Board` and therefore does not ensure pseudolegality.
-    fn from_usize_unchecked(val: usize) -> UntrustedMove<B>;
+    fn untrusted_from_repr(val: usize) -> UntrustedMove<B>;
 
     /// Serialize this move into an internal integer representation.
     /// Typically, this function behaves like a `transmute`, i.e.,
@@ -162,7 +162,7 @@ impl<B: Board> Display for UntrustedMove<B> {
 }
 
 impl<B: Board> UntrustedMove<B> {
-    pub fn from_move(mov: B::Move) -> Self {
+    pub fn new(mov: B::Move) -> Self {
         Self(mov)
     }
 

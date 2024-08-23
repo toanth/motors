@@ -299,8 +299,8 @@ impl Move<UtttBoard> for UtttMove {
         Self::from_compact_text(s, board)
     }
 
-    fn from_usize_unchecked(val: usize) -> UntrustedMove<UtttBoard> {
-        UntrustedMove::from_move(Self(UtttSquare::from_bb_idx(val)))
+    fn untrusted_from_repr(val: usize) -> UntrustedMove<UtttBoard> {
+        UntrustedMove::new(Self(UtttSquare::from_bb_idx(val)))
     }
 
     fn to_underlying(self) -> Self::Underlying {

@@ -14,10 +14,21 @@ use gears::games::chess::Chessboard;
 use gears::games::ZobristHash;
 use gears::general::board::Board;
 use gears::general::moves::{Move, UntrustedMove};
-use gears::score::{Score, ScoreT, SCORE_WON};
+use gears::score::{CompactScoreT, Score, ScoreT, SCORE_WON};
 use OptionalNodeType::*;
 
 type AtomicTTEntry = AtomicU128;
+
+pub type AgeT = u16;
+
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub struct Age(pub AgeT);
+
+impl Age {
+    pub fn increment(&mut self) {
+        self.0 = self.0.wrapping_add(1);
+    }
+}
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, FromRepr)]
 #[repr(u8)]
@@ -33,10 +44,11 @@ enum OptionalNodeType {
 #[repr(C)]
 pub(super) struct TTEntry<B: Board> {
     pub hash: ZobristHash,     // 8 bytes
-    pub score: Score,          // 4 bytes
+    pub score: CompactScoreT,  // 2 bytes
     pub mov: UntrustedMove<B>, // depends, 2 bytes for chess (atm never more)
-    pub depth: u8,             // 1 byte
-    bound: OptionalNodeType,   // 1 byte
+    pub age: Age, // 2 bytes, should eventually use only 1 byte and decrease TTEntry size
+    pub depth: u8, // 1 byte
+    bound: OptionalNodeType, // 1 byte
 }
 
 impl<B: Board> TTEntry<B> {
@@ -46,20 +58,27 @@ impl<B: Board> TTEntry<B> {
         mov: B::Move,
         depth: isize,
         bound: NodeType,
+        age: Age,
     ) -> TTEntry<B> {
+        let score = CompactScoreT::try_from(score.0).unwrap();
         let depth = depth.clamp(0, u8::MAX as isize) as u8;
         Self {
+            hash,
             score,
-            mov: UntrustedMove::from_move(mov),
+            mov: UntrustedMove::new(mov),
+            age,
             depth,
             bound: OptionalNodeType::from_repr(bound as u8).unwrap(),
-            hash,
         }
     }
 
     pub fn bound(&self) -> NodeType {
         debug_assert!(self.bound != Empty);
         NodeType::from_repr(self.bound as u8).unwrap()
+    }
+
+    pub fn score(&self) -> Score {
+        Score::from_compact(self.score)
     }
 
     #[cfg(feature = "unsafe")]
@@ -73,10 +92,17 @@ impl<B: Board> TTEntry<B> {
     }
 
     fn to_packed_fallback(self) -> u128 {
-        let score = self.score.0 as u32; // don't sign extend negative scores
+        debug_assert_eq!(size_of_val(&self.bound), 1);
+        debug_assert_eq!(size_of_val(&self.depth), 1);
+        debug_assert_eq!(size_of_val(&self.age), 2); // TODO: Update eventually
+        debug_assert_eq!(size_of_val(&self.score), 2);
+        debug_assert_eq!(size_of_val(&self.hash), 8);
+
+        let score = self.score as u16; // don't sign extend negative scores
         ((self.hash.0 as u128) << 64)
-            | ((score as u128) << (64 - 32))
-            | ((self.mov.to_underlying().into() as u128) << 16)
+            | ((score as u128) << (64 - 8 * size_of::<CompactScoreT>()))
+            | ((self.mov.to_underlying().into() as u128) << 32)
+            | ((self.age.0 as u128) << 16)
             | ((self.depth as u128) << 8)
             | self.bound as u128
     }
@@ -102,14 +128,17 @@ impl<B: Board> TTEntry<B> {
 
     fn from_packed_fallback(val: u128) -> Self {
         let hash = ZobristHash((val >> 64) as u64);
-        let score = Score(((val >> (64 - 32)) & 0xffff_ffff) as ScoreT);
-        let mov = B::Move::from_usize_unchecked(((val >> 16) & 0xffff) as usize);
+        let score_size = 8 * size_of::<CompactScoreT>();
+        let score = ((val >> (64 - score_size)) & 0xffff_ffff) as CompactScoreT;
+        let mov = B::Move::untrusted_from_repr(((val >> 32) & 0xffff_ffff) as usize);
+        let age = Age(((val >> 16) & 0xffff) as AgeT);
         let depth = ((val >> 8) & 0xff) as u8;
         let bound = OptionalNodeType::from_repr((val & 0xff) as u8).unwrap();
         Self {
             hash,
             score,
             mov,
+            age,
             depth,
             bound,
         }
@@ -175,27 +204,27 @@ impl TT {
 
     pub(super) fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {
         debug_assert!(
-            entry.score.0.abs() + ply as ScoreT <= SCORE_WON.0,
+            entry.score().0.abs() + ply as ScoreT <= SCORE_WON.0,
             "score {score} ply {ply}",
-            score = entry.score.0
+            score = entry.score().0
         );
         let idx = self.index_of(entry.hash);
         // Mate score adjustments: For the current search, we want to penalize later mates to prefer earlier ones,
         // where "later" means being found at greater depth (usually called the `ply` parameter in the search function).
         // But since the TT persists across searches and can also reach the same position at different plies though transpositions,
         // we undo that when storing mate scores, and reapply the penalty for the *current* ply when loading mate scores.
-        if let Some(plies) = entry.score.plies_until_game_won() {
+        if let Some(plies) = entry.score().plies_until_game_won() {
             if plies < 0 {
-                entry.score.0 -= ply as ScoreT;
+                entry.score -= ply as CompactScoreT;
             } else {
-                entry.score.0 += ply as ScoreT;
+                entry.score += ply as CompactScoreT;
             }
         }
         debug_assert!(
-            entry.score.0.abs() <= SCORE_WON.0,
+            entry.score().0.abs() <= SCORE_WON.0,
             "score {}, ply {ply}, won in {won}",
-            entry.score.0,
-            won = entry.score.plies_until_game_won().unwrap_or(-1),
+            entry.score().0,
+            won = entry.score().plies_until_game_won().unwrap_or(-1),
         );
         self.0[idx].store(entry.to_packed(), Relaxed);
     }
@@ -204,14 +233,14 @@ impl TT {
         let idx = self.index_of(hash);
         let mut entry = TTEntry::from_packed(self.0[idx].load(Relaxed));
         // Mate score adjustments, see `store`
-        if let Some(plies) = entry.score.plies_until_game_won() {
+        if let Some(plies) = entry.score().plies_until_game_won() {
             if plies < 0 {
-                entry.score.0 += ply as ScoreT;
+                entry.score += ply as CompactScoreT;
             } else {
-                entry.score.0 -= ply as ScoreT;
+                entry.score -= ply as CompactScoreT;
             }
         }
-        debug_assert!(entry.score.0.abs() <= SCORE_WON.0);
+        debug_assert!(entry.score().0.abs() <= SCORE_WON.0);
         if entry.bound == Empty || entry.hash != hash {
             None
         } else {
@@ -260,6 +289,7 @@ mod test {
                 mov,
                 i as isize,
                 NodeType::from_repr(i as u8 % 3 + 1).unwrap(),
+                Age(42),
             );
             let converted = entry.to_packed();
             assert_eq!(TTEntry::from_packed(converted), entry);
@@ -270,7 +300,9 @@ mod test {
     #[test]
     #[cfg(feature = "chess")]
     fn test_load_store() {
+        let mut age = Age(0);
         for pos in Chessboard::bench_positions() {
+            age.increment();
             let num_bytes_in_size = thread_rng().sample(Uniform::new(4, 25));
             let size_in_bytes = (1 << num_bytes_in_size)
                 + thread_rng().sample(Uniform::new(0, 1 << num_bytes_in_size));
@@ -278,7 +310,8 @@ mod test {
             for mov in pos.pseudolegal_moves() {
                 let score = Score(
                     thread_rng().sample(Uniform::new(MIN_NORMAL_SCORE.0, MAX_NORMAL_SCORE.0)),
-                );
+                )
+                .compact();
                 let depth = thread_rng().sample(Uniform::new(1, 100));
                 let bound =
                     OptionalNodeType::from_repr(thread_rng().sample(Uniform::new(0, 3)) + 1)
@@ -286,7 +319,8 @@ mod test {
                 let entry: TTEntry<Chessboard> = TTEntry {
                     hash: pos.zobrist_hash(),
                     score,
-                    mov: UntrustedMove::from_move(mov),
+                    mov: UntrustedMove::new(mov),
+                    age,
                     depth,
                     bound,
                 };
@@ -346,8 +380,14 @@ mod test {
         let mut engine = Caps::default();
         engine.set_tt(tt.clone());
         let bad_move = ChessMove::from_compact_text("a2a3", &pos).unwrap();
-        let entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.zobrist_hash(), MAX_NORMAL_SCORE, bad_move, 123, Exact);
+        let mut entry: TTEntry<Chessboard> = TTEntry::new(
+            pos.zobrist_hash(),
+            MAX_NORMAL_SCORE,
+            bad_move,
+            123,
+            Exact,
+            Age(1),
+        );
         tt.store(entry, 0);
         let next_pos = pos.make_move(bad_move).unwrap();
         let next_entry: TTEntry<Chessboard> = TTEntry::new(
@@ -356,6 +396,7 @@ mod test {
             ChessMove::NULL,
             122,
             Exact,
+            Age(42),
         );
         tt.store(next_entry, 1);
         let mov = engine
@@ -363,20 +404,43 @@ mod test {
             .unwrap()
             .chosen_move;
         assert_eq!(mov, bad_move);
-        let limit = SearchLimit::depth(Depth::new(3));
+        assert_eq!(
+            tt.load::<Chessboard>(pos.zobrist_hash(), 0).unwrap().depth,
+            123
+        );
+        let limit = SearchLimit::depth(Depth::new(4));
         let mut engine2 = Caps::default();
-        engine2.search_from_pos(pos, limit).unwrap();
-        let nodes = engine2.search_state().uci_nodes();
-        engine2.forget();
-        engine2.set_tt(tt.clone());
+        engine2.set_tt(TT::new_with_bytes(32_000_000));
+        engine2.search_from_pos(pos, limit).unwrap(); // search with a default TT
+        let old_nodes = engine2.search_state().uci_nodes();
+        assert_eq!(
+            tt.load::<Chessboard>(pos.zobrist_hash(), 0).unwrap().depth,
+            123
+        );
         let _ = engine
             .search_from_pos(pos, SearchLimit::depth(Depth::new(5)))
             .unwrap();
-        let entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0);
-        assert!(entry.is_some());
-        assert_eq!(entry.unwrap().depth, 5);
+        let loaded = tt.load::<Chessboard>(pos.zobrist_hash(), 0);
+        assert!(loaded.is_some());
+        assert_eq!(loaded.unwrap().depth, 123);
+        entry.depth = 1;
+        tt.store(entry, 0);
+        let _ = engine
+            .search_from_pos(pos, SearchLimit::depth(Depth::new(5)))
+            .unwrap();
+        let loaded = tt.load::<Chessboard>(pos.zobrist_hash(), 0);
+        assert!(loaded.is_some());
+        assert_eq!(loaded.unwrap().depth, 5);
+        assert_ne!(
+            loaded.unwrap().mov.to_underlying(),
+            bad_move.to_underlying()
+        );
+        engine2.forget();
+        engine2.set_tt(tt.clone());
         engine2.search_from_pos(pos, limit).unwrap();
-        assert!(engine2.search_state().uci_nodes() <= nodes);
+        engine2.search_from_pos(pos, limit).unwrap(); // search again with a prefilled TT
+        let new_nodes = engine2.search_state().uci_nodes();
+        assert!(new_nodes <= old_nodes);
         let mut sender = SearchSender::no_sender();
         let sender1 = sender.clone();
         let handle = spawn(move || {

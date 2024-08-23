@@ -233,10 +233,10 @@ impl Move<AtaxxBoard> for AtaxxMove {
         Self::from_compact_text(s, board)
     }
 
-    fn from_usize_unchecked(val: usize) -> UntrustedMove<AtaxxBoard> {
+    fn untrusted_from_repr(val: usize) -> UntrustedMove<AtaxxBoard> {
         let source = AtaxxSquare::from_bb_index((val >> 8) & 0xff);
         let target = AtaxxSquare::from_bb_index(val & 0xff);
-        UntrustedMove::from_move(Self { source, target })
+        UntrustedMove::new(Self { source, target })
     }
 
     fn to_underlying(self) -> Self::Underlying {

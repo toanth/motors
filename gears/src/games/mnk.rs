@@ -266,8 +266,8 @@ impl Move<MNKBoard> for FillSquare {
         Self::from_compact_text(s, board)
     }
 
-    fn from_usize_unchecked(val: usize) -> UntrustedMove<MNKBoard> {
-        UntrustedMove::from_move(Self {
+    fn untrusted_from_repr(val: usize) -> UntrustedMove<MNKBoard> {
+        UntrustedMove::new(Self {
             target: GridCoordinates::from_row_column(
                 ((val >> 8) & 0xff) as DimT,
                 (val & 0xff) as DimT,
