@@ -129,7 +129,7 @@ fn should_replace(new_entry: TTEntry<Chessboard>, old_entry: Option<TTEntry<Ches
         return true;
     };
     // let age_diff = new_entry.age.0.wrapping_sub(old_entry.age.0) as i16 as isize;
-    return /*age_diff * 2 +*/ (new_entry.depth as isize - old_entry.depth as isize) >= 0;
+    return /*age_diff * 2 +*/ (new_entry.depth as isize - old_entry.depth as isize) >= -5;
 }
 
 #[derive(Debug, Clone, Default)]
