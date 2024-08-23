@@ -121,15 +121,15 @@ impl Default for ContHist {
     }
 }
 
-// TODO: If the hash matches, overwrite depending on depth alone (maybe add pv node / exact score conditition in the future),
-// otherwise use age. Requires having an untrusted TT entry instead of None.
+// TODO: Overwrite according to a different strategy depedning on if the hash matches. Requires having an untrusted TT entry instead of None.
 fn should_replace(new_entry: TTEntry<Chessboard>, old_entry: Option<TTEntry<Chessboard>>) -> bool {
     assert_eq!(AgeT::BITS, i16::BITS);
     let Some(old_entry) = old_entry else {
         return true;
     };
+    let worse_quality = old_entry.bound() == Exact && new_entry.bound() != Exact;
     // let age_diff = new_entry.age.0.wrapping_sub(old_entry.age.0) as i16 as isize;
-    return /*age_diff * 2 +*/ (new_entry.depth as isize - old_entry.depth as isize) >= -5;
+    return !worse_quality || (new_entry.depth as isize - old_entry.depth as isize) >= 3;
 }
 
 #[derive(Debug, Clone, Default)]
