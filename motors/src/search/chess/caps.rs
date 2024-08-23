@@ -121,15 +121,16 @@ impl Default for ContHist {
     }
 }
 
-// TODO: Overwrite according to a different strategy depedning on if the hash matches. Requires having an untrusted TT entry instead of None.
+// TODO: Overwrite according to a different strategy depending on if the hash matches. Requires having an untrusted TT entry instead of None.
 fn should_replace(new_entry: TTEntry<Chessboard>, old_entry: Option<TTEntry<Chessboard>>) -> bool {
+    // return true;
     assert_eq!(AgeT::BITS, i16::BITS);
-    let Some(old_entry) = old_entry else {
+    let Some(ref old_entry) = old_entry else {
         return true;
     };
     let worse_quality = old_entry.bound() == Exact && new_entry.bound() != Exact;
     // let age_diff = new_entry.age.0.wrapping_sub(old_entry.age.0) as i16 as isize;
-    return !worse_quality || (new_entry.depth as isize - old_entry.depth as isize) >= 3;
+    return !worse_quality || new_entry.depth    >= old_entry.depth;
 }
 
 #[derive(Debug, Clone, Default)]
