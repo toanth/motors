@@ -128,9 +128,11 @@ fn should_replace(new_entry: TTEntry<Chessboard>, old_entry: Option<TTEntry<Ches
     let Some(ref old_entry) = old_entry else {
         return true;
     };
-    let worse_quality = old_entry.bound() == Exact && new_entry.bound() != Exact;
+    let bonus = |bound: NodeType| u8::from(bound == Exact) * 4;
+    // If depth is less than old depth and we're not a PV node (implies bound != Exact),
+    // we would have gotten a TT cutoff if our (alpha, beta) bounds were covered by the old score and bound.
+    new_entry.depth + bonus(new_entry.bound()) + 2 >= old_entry.depth + bonus(old_entry.bound())
     // let age_diff = new_entry.age.0.wrapping_sub(old_entry.age.0) as i16 as isize;
-    return !worse_quality || new_entry.depth    >= old_entry.depth;
 }
 
 #[derive(Debug, Clone, Default)]
