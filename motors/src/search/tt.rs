@@ -1,4 +1,5 @@
 use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T1};
+use std::cmp::Ordering;
 use std::mem::{size_of, transmute_copy};
 use std::ptr::addr_of;
 use std::sync::atomic::Ordering::Relaxed;
@@ -8,6 +9,7 @@ use portable_atomic::AtomicU128;
 use static_assertions::const_assert_eq;
 use strum_macros::FromRepr;
 
+use crate::search::tt::TTEntryLookup::{Found, OtherPos};
 use crate::search::NodeType;
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
@@ -21,12 +23,31 @@ type AtomicTTEntry = AtomicU128;
 
 pub type AgeT = u16;
 
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
 pub struct Age(pub AgeT);
 
 impl Age {
     pub fn increment(&mut self) {
         self.0 = self.0.wrapping_add(1);
+    }
+
+    pub fn age_diff(self, other: Age) -> isize {
+        assert_eq!(size_of::<AgeT>(), 2);
+        (self.0.wrapping_sub(other.0) as i16) as isize
+    }
+}
+
+impl PartialOrd for Age {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Age {
+    fn cmp(&self, other: &Self) -> Ordering {
+        assert_eq!(size_of::<AgeT>(), 2);
+        let diff = self.0.wrapping_sub(other.0) as i16;
+        diff.cmp(&0)
     }
 }
 
@@ -42,13 +63,13 @@ enum OptionalNodeType {
 
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 #[repr(C)]
-pub(super) struct TTEntry<B: Board> {
+pub struct TTEntry<B: Board> {
     pub hash: ZobristHash,     // 8 bytes
     pub score: CompactScoreT,  // 2 bytes
     pub mov: UntrustedMove<B>, // depends, 2 bytes for chess (atm never more)
     pub age: Age, // 2 bytes, should eventually use only 1 byte and decrease TTEntry size
     pub depth: u8, // 1 byte
-    bound: OptionalNodeType, // 1 byte
+    bound: OptionalNodeType, // 1 byte, private because it should only be accessed through the `bound()` method
 }
 
 impl<B: Board> TTEntry<B> {
@@ -149,6 +170,34 @@ const_assert_eq!(size_of::<TTEntry<Chessboard>>(), 16);
 #[cfg(feature = "chess")]
 const_assert_eq!(size_of::<TTEntry<Chessboard>>(), size_of::<AtomicTTEntry>());
 
+#[derive(Debug, Copy, Clone)]
+pub enum TTEntryLookup<B: Board> {
+    Found(TTEntry<B>),
+    OtherPos(TTEntry<B>),
+    Empty,
+}
+
+impl<B: Board> TTEntryLookup<B> {
+    pub fn found(self) -> bool {
+        matches!(self, Found(_))
+    }
+
+    pub fn unwrap_found(self) -> TTEntry<B> {
+        if let Found(entry) = self {
+            entry
+        } else {
+            panic!(
+                "Expected a TT entry with  matching hash, but got {}",
+                if let TTEntryLookup::Empty = self {
+                    "an empty TT entry"
+                } else {
+                    "a different TT entry"
+                }
+            )
+        }
+    }
+}
+
 pub(super) const DEFAULT_HASH_SIZE_MB: usize = 4;
 
 /// Note that resizing the TT during search will wait until the search is finished
@@ -202,7 +251,7 @@ impl TT {
         ((hash.0 as u128 * self.size() as u128) >> usize::BITS as usize) as usize
     }
 
-    pub(super) fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {
+    pub fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {
         debug_assert!(
             entry.score().0.abs() + ply as ScoreT <= SCORE_WON.0,
             "score {score} ply {ply}",
@@ -229,7 +278,7 @@ impl TT {
         self.0[idx].store(entry.to_packed(), Relaxed);
     }
 
-    pub(super) fn load<B: Board>(&self, hash: ZobristHash, ply: usize) -> Option<TTEntry<B>> {
+    pub fn load<B: Board>(&self, hash: ZobristHash, ply: usize) -> TTEntryLookup<B> {
         let idx = self.index_of(hash);
         let mut entry = TTEntry::from_packed(self.0[idx].load(Relaxed));
         // Mate score adjustments, see `store`
@@ -241,10 +290,12 @@ impl TT {
             }
         }
         debug_assert!(entry.score().0.abs() <= SCORE_WON.0);
-        if entry.bound == Empty || entry.hash != hash {
-            None
+        if entry.bound == Empty {
+            TTEntryLookup::Empty
+        } else if entry.hash != hash {
+            OtherPos(entry)
         } else {
-            Some(entry)
+            Found(entry)
         }
     }
 
@@ -329,7 +380,9 @@ mod test {
                 assert_eq!(val, entry);
                 let ply = thread_rng().sample(Uniform::new(0, 100));
                 tt.store(entry, ply);
-                let loaded = tt.load(entry.hash, ply).unwrap();
+                let Found(loaded) = tt.load(entry.hash, ply) else {
+                    panic!()
+                };
                 assert_eq!(entry, loaded);
             }
         }
@@ -404,35 +457,37 @@ mod test {
             .unwrap()
             .chosen_move;
         assert_eq!(mov, bad_move);
-        assert_eq!(
-            tt.load::<Chessboard>(pos.zobrist_hash(), 0).unwrap().depth,
-            123
-        );
+        let loaded = tt.load::<Chessboard>(pos.zobrist_hash(), 0).unwrap_found();
+        assert_eq!(loaded.hash, pos.zobrist_hash());
+        // assert_eq!(loaded.age.0, 42);
+        // assert_eq!(loaded.depth, 123);
         let limit = SearchLimit::depth(Depth::new(4));
         let mut engine2 = Caps::default();
         engine2.set_tt(TT::new_with_bytes(32_000_000));
         engine2.search_from_pos(pos, limit).unwrap(); // search with a default TT
         let old_nodes = engine2.search_state().uci_nodes();
-        assert_eq!(
-            tt.load::<Chessboard>(pos.zobrist_hash(), 0).unwrap().depth,
-            123
-        );
+        // assert_eq!(
+        //     tt.load::<Chessboard>(pos.zobrist_hash(), 0)
+        //         .unwrap_found()
+        //         .depth,
+        //     123
+        // );
         let _ = engine
             .search_from_pos(pos, SearchLimit::depth(Depth::new(5)))
             .unwrap();
         let loaded = tt.load::<Chessboard>(pos.zobrist_hash(), 0);
-        assert!(loaded.is_some());
-        assert_eq!(loaded.unwrap().depth, 123);
+        assert!(loaded.found());
+        // assert_eq!(loaded.unwrap_found().depth, 123);
         entry.depth = 1;
         tt.store(entry, 0);
         let _ = engine
             .search_from_pos(pos, SearchLimit::depth(Depth::new(5)))
             .unwrap();
         let loaded = tt.load::<Chessboard>(pos.zobrist_hash(), 0);
-        assert!(loaded.is_some());
-        assert_eq!(loaded.unwrap().depth, 5);
+        assert!(loaded.found());
+        assert_eq!(loaded.unwrap_found().depth, 5);
         assert_ne!(
-            loaded.unwrap().mov.to_underlying(),
+            loaded.unwrap_found().mov.to_underlying(),
             bad_move.to_underlying()
         );
         engine2.forget();
@@ -443,9 +498,11 @@ mod test {
         assert!(new_nodes <= old_nodes);
         let mut sender = SearchSender::no_sender();
         let sender1 = sender.clone();
+        engine.forget();
+        engine2.forget();
         let handle = spawn(move || {
             engine.search(
-                pos,
+                pos,    
                 SearchLimit::infinite(),
                 ZobristHistory::default(),
                 sender1,
@@ -466,8 +523,8 @@ mod test {
         let res1 = handle.join().unwrap().unwrap();
         let res2 = handle2.join().unwrap().unwrap();
         assert_ne!(res1.chosen_move, res2.chosen_move);
-        let entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0).unwrap();
-        let entry2 = tt.load::<Chessboard>(pos2.zobrist_hash(), 0).unwrap();
+        let entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0).unwrap_found();
+        let entry2 = tt.load::<Chessboard>(pos2.zobrist_hash(), 0).unwrap_found();
         assert_eq!(entry.hash, pos.zobrist_hash());
         assert_eq!(entry2.hash, pos2.zobrist_hash());
         assert!(pos.is_move_legal(mov));

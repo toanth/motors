@@ -31,7 +31,8 @@ use crate::eval::Eval;
 use crate::search::move_picker::MovePicker;
 use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
-use crate::search::tt::{Age, AgeT, TTEntry, TT};
+use crate::search::tt::TTEntryLookup::Found;
+use crate::search::tt::{Age, AgeT, TTEntry, TTEntryLookup, TT};
 use crate::search::ForgetOpts::{Hard, SoftDifferentPos};
 use crate::search::*;
 
@@ -121,18 +122,18 @@ impl Default for ContHist {
     }
 }
 
-// TODO: Overwrite according to a different strategy depending on if the hash matches. Requires having an untrusted TT entry instead of None.
-fn should_replace(new_entry: TTEntry<Chessboard>, old_entry: Option<TTEntry<Chessboard>>) -> bool {
-    // return true;
+// TODO: Also take exact scores, pv nodes, and qsearch entries into account
+fn should_replace(new_entry: TTEntry<Chessboard>, old: TTEntryLookup<Chessboard>) -> bool {
     assert_eq!(AgeT::BITS, i16::BITS);
-    let Some(ref old_entry) = old_entry else {
-        return true;
-    };
-    let bonus = |bound: NodeType| u8::from(bound == Exact) * 2;
-    // If depth is less than old depth and we're not a PV node (implies bound != Exact),
-    // we would have gotten a TT cutoff if our (alpha, beta) bounds were covered by the old score and bound.
-    new_entry.depth + bonus(new_entry.bound()) + 10 >= old_entry.depth + bonus(old_entry.bound())
-    // let age_diff = new_entry.age.0.wrapping_sub(old_entry.age.0) as i16 as isize;
+    match old {
+        Found(_) => true, // TODO: Maybe try again later to not overwrite higher quality entries
+        TTEntryLookup::OtherPos(old_entry) => {
+            debug_assert!(new_entry.age >= old_entry.age);
+            let age_diff = new_entry.age.age_diff(old_entry.age) as u8;
+            new_entry.depth + 5 + age_diff > old_entry.depth
+        }
+        TTEntryLookup::Empty => true,
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -618,7 +619,7 @@ impl Caps {
         let mut best_move = ChessMove::default();
         let mut eval = self.eval(pos, ply);
         let old_tt_entry = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply);
-        if let Some(tt_entry) = old_tt_entry {
+        if let Found(tt_entry) = old_tt_entry {
             let bound = tt_entry.bound();
             debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
 
@@ -1060,7 +1061,7 @@ impl Caps {
         // do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation
         // but if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
         let old_tt_entry = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply);
-        if let Some(tt_entry) = old_tt_entry {
+        if let Found(tt_entry) = old_tt_entry {
             debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
             let bound = tt_entry.bound();
             // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
