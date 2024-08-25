@@ -130,7 +130,7 @@ fn should_replace(new_entry: TTEntry<Chessboard>, old: TTEntryLookup<Chessboard>
         TTEntryLookup::OtherPos(old_entry) => {
             debug_assert!(new_entry.age >= old_entry.age);
             let age_diff = new_entry.age.age_diff(old_entry.age) as u8;
-            new_entry.depth + 5 + age_diff > old_entry.depth
+            new_entry.depth + age_diff >= old_entry.depth + u8::from(old_entry.bound() == Exact)
         }
         TTEntryLookup::Empty => true,
     }

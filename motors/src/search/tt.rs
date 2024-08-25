@@ -502,7 +502,7 @@ mod test {
         engine2.forget();
         let handle = spawn(move || {
             engine.search(
-                pos,    
+                pos,
                 SearchLimit::infinite(),
                 ZobristHistory::default(),
                 sender1,
