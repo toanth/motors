@@ -126,13 +126,13 @@ impl Default for ContHist {
 fn should_replace(new_entry: TTEntry<Chessboard>, old: TTEntryLookup<Chessboard>) -> bool {
     assert_eq!(AgeT::BITS, i16::BITS);
     match old {
-        Found(_) => true, // TODO: Maybe try again later to not overwrite higher quality entries
-        TTEntryLookup::OtherPos(old_entry) => {
+        Found(old_entry) => {
             debug_assert!(new_entry.age >= old_entry.age);
-            let age_diff = new_entry.age.age_diff(old_entry.age) as u8;
-            age_diff + new_entry.depth + u8::from(old_entry.bound() == Exact) * 4
-                >= old_entry.depth + u8::from(old_entry.bound() == Exact) * 4           
+            let age_diff = new_entry.age.age_diff(old_entry.age);
+            age_diff + new_entry.depth as isize + isize::from(old_entry.bound() == Exact) * 16      
+                >= old_entry.depth as isize + isize::from(old_entry.bound() == Exact) * 16
         }
+        TTEntryLookup::OtherPos(_) => true,
         TTEntryLookup::Empty => true,
     }
 }
