@@ -46,7 +46,10 @@ impl MoveFlags for NoMoveFlags {}
 /// information to reconstruct the move without the position.
 /// All `Move` functions that take a `Board` parameter assume that the move is pseudolegal for the given board
 /// unless otherwise noted. [`UntrustedMove`] should be used when it's not clear that a move is pseudolegal.
-pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Hash + Send {
+pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Hash + Send
+where
+    B: Board<Move = Self>,
+{
     type Flags: MoveFlags;
 
     type Underlying: PrimInt + Into<usize>;
@@ -90,7 +93,7 @@ pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Hash +
 
     /// Returns a formatter object that implements `Display` such that it prints the result of `to_extended_text`.
     /// Like [`self.format_extended`], an implementation *may* choose to not require pseudolegality.
-    fn extended_formatter(self, pos: B) -> ExtendedFormatter<B, Self> {
+    fn extended_formatter(self, pos: B) -> ExtendedFormatter<B> {
         ExtendedFormatter { pos, mov: self }
     }
 
@@ -139,12 +142,12 @@ pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Hash +
 /// pseudolegal for the given position, but a move loaded from the TT may not be pseudolegal, which is why it's wrapped
 /// in this struct.
 #[derive(Debug, Copy, Clone)]
-pub struct ExtendedFormatter<B: Board, M: Move<B>> {
+pub struct ExtendedFormatter<B: Board> {
     pos: B,
-    mov: M,
+    mov: B::Move,
 }
 
-impl<B: Board, M: Move<B>> Display for ExtendedFormatter<B, M> {
+impl<B: Board> Display for ExtendedFormatter<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.mov.format_extended(f, &self.pos)
     }

@@ -40,7 +40,6 @@ use std::str::SplitWhitespace;
 
 pub(crate) type NameToPos<B> = GenericSelect<fn() -> B>;
 
-// TODO: Make sure correct level is used
 // Enum variants are listed in order; later checks include earlier checks.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum SelfChecks {
@@ -49,7 +48,10 @@ pub enum SelfChecks {
     Assertion,
 }
 
-pub trait UnverifiedBoard<B: Board>: Debug + Copy + Clone + From<B> {
+pub trait UnverifiedBoard<B: Board>: Debug + Copy + Clone + From<B>
+where
+    B: Board<Unverified = Self>,
+{
     fn new(board: B) -> Self {
         Self::from(board)
     }

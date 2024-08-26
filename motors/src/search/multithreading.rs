@@ -1,4 +1,4 @@
-use std::sync::atomic::Ordering::SeqCst;
+use std::sync::atomic::Ordering::{Relaxed, SeqCst};
 use std::sync::atomic::{AtomicBool, AtomicI32};
 use std::sync::{Arc, Mutex};
 use std::thread::spawn;
@@ -38,6 +38,10 @@ pub enum EngineReceives<B: Board> {
     SetEval(Box<dyn Eval<B>>),
 }
 
+// TODO: Every thread should have a separate copy of this struct such that reads of `stop` from multiple threads don't
+// all access the same memory (writes still access all threads' memory, but they're very rare).
+// This struct should also store information like node count, and be reachable from the main search thread such that
+// it's possible to calculate nodes of all threads.
 #[derive(Debug, Default)]
 struct SearchSenderState {
     searching: AtomicI32,
@@ -76,7 +80,7 @@ impl<B: Board> SearchSender<B> {
     pub fn send_stop(&mut self) {
         // Set `infinite` to `false` before stopping the search such that the engine will output a `bestmove`
         // as demanded by the spec, such as when it stops pondering:
-        // It doesn't matter if the engine threads reads `infinite` before it is updated,
+        // It doesn't matter if the engine threads read  `infinite` before it is updated,
         // it will print the result in both cases.
         // This function is only called when receiving a UCI "stop" command, so it's not performance critical
         self.sss.dont_print_result.store(false, SeqCst);
@@ -134,7 +138,8 @@ impl<B: Board> SearchSender<B> {
     }
 
     pub fn should_stop(&self) -> bool {
-        self.sss.stop.load(SeqCst)
+        // self.sss.stop.load(Relaxed)
+        self.sss.stop.load(SeqCst) // TODO: Use Relaxed
     }
 
     pub fn send_search_info(&mut self, info: SearchInfo<B>) {

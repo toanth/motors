@@ -113,7 +113,10 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType {
     fn new(color: B::Color, uncolored: Self::Uncolored) -> Self;
 }
 
-pub trait ColoredPiece<B: Board>: Eq + Copy + Debug + Default {
+pub trait ColoredPiece<B: Board>: Eq + Copy + Debug + Default
+where
+    B: Board<Piece = Self>,
+{
     type ColoredPieceType: ColoredPieceType<B>;
     fn coordinates(self) -> B::Coordinates;
 
@@ -147,7 +150,9 @@ pub struct GenericPiece<B: Board, ColType: ColoredPieceType<B>> {
     coordinates: B::Coordinates,
 }
 
-impl<B: Board, ColType: ColoredPieceType<B>> ColoredPiece<B> for GenericPiece<B, ColType> {
+impl<B: Board<Piece = Self>, ColType: ColoredPieceType<B>> ColoredPiece<B>
+    for GenericPiece<B, ColType>
+{
     type ColoredPieceType = ColType;
 
     fn coordinates(self) -> B::Coordinates {
