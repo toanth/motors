@@ -376,7 +376,9 @@ impl BenchLimit {
 }
 
 pub trait Benchable<B: Board>: Debug {
-    fn bench(&mut self, pos: B, limit: BenchLimit) -> BenchResult;
+    fn clean_bench(&mut self, pos: B, limit: BenchLimit) -> BenchResult;
+
+    fn bench(&mut self, pos: B, limit: BenchLimit, tt: TT) -> BenchResult;
 
     fn default_bench_nodes(&self) -> NodesLimit;
     fn default_bench_depth(&self) -> Depth;
@@ -401,9 +403,16 @@ pub trait AbstractEngine<B: Board>: StaticallyNamedEntity + Benchable<B> {
 }
 
 impl<B: Board, E: Engine<B>> Benchable<B> for E {
-    fn bench(&mut self, pos: B, limit: BenchLimit) -> BenchResult {
+    fn clean_bench(&mut self, pos: B, limit: BenchLimit) -> BenchResult {
+        self.forget();
         let limit = limit.to_search_limit(self.max_bench_depth());
         let _ = self.search_with_new_tt(pos, limit);
+        self.search_state().to_bench_res()
+    }
+
+    fn bench(&mut self, pos: B, limit: BenchLimit, tt: TT) -> BenchResult {
+        let limit = limit.to_search_limit(self.max_bench_depth());
+        let _ = self.search_with_tt(pos, limit, tt);
         self.search_state().to_bench_res()
     }
 
@@ -1052,36 +1061,45 @@ impl NodeType {
     }
 }
 
-pub fn run_bench<B: Board>(engine: &mut dyn Benchable<B>) -> BenchResult {
+pub fn run_bench<B: Board>(engine: &mut dyn Benchable<B>, with_nodes: bool) -> BenchResult {
     let depth = engine.default_bench_depth();
-    let nodes = engine.default_bench_nodes();
+    let nodes = if with_nodes {
+        Some(engine.default_bench_nodes())
+    } else {
+        None
+    };
     run_bench_with(engine, depth, nodes)
 }
 
 pub fn run_bench_with<B: Board>(
     engine: &mut dyn Benchable<B>,
     mut depth: Depth,
-    mut nodes: NodesLimit,
+    mut nodes: Option<NodesLimit>,
 ) -> BenchResult {
     if depth.get() == 0 || depth == MAX_DEPTH {
         depth = engine.default_bench_depth();
     }
-    if nodes == NodesLimit::MAX {
-        nodes = engine.default_bench_nodes();
-        assert!(nodes <= NodesLimit::new(10_000_000).unwrap());
+    if let Some(nodes) = &mut nodes {
+        if *nodes == NodesLimit::MAX {
+            *nodes = engine.default_bench_nodes();
+            assert!(*nodes <= NodesLimit::new(10_000_000).unwrap());
+        }
     }
     let mut hasher = DefaultHasher::new();
     let mut sum = BenchResult::default();
+    let tt = TT::default();
     for position in B::bench_positions() {
         // engine.forget();
-        let res = engine.bench(position, BenchLimit::Depth(depth));
+        let res = engine.bench(position, BenchLimit::Depth(depth), tt.clone());
         sum.nodes = NodesLimit::new(sum.nodes.get() + res.nodes.get()).unwrap();
         sum.time += res.time;
         res.moves_hash.hash(&mut hasher);
-        let res = engine.bench(position, BenchLimit::Nodes(nodes));
-        sum.nodes = NodesLimit::new(sum.nodes.get() + res.nodes.get()).unwrap();
-        sum.time += res.time;
-        res.moves_hash.hash(&mut hasher);
+        if let Some(nodes) = nodes {
+            let res = engine.bench(position, BenchLimit::Nodes(nodes), tt.clone());
+            sum.nodes = NodesLimit::new(sum.nodes.get() + res.nodes.get()).unwrap();
+            sum.time += res.time;
+            res.moves_hash.hash(&mut hasher);
+        }
     }
     sum.depth = depth;
     sum.moves_hash = hasher.finish();
@@ -1095,14 +1113,19 @@ mod tests {
 
     // A testcase that any engine should pass
     pub fn generic_engine_test<B: Board, E: Engine<B>>(mut engine: E) {
+        let tt = TT::default();
         for p in B::bench_positions() {
-            let res = engine.bench(p, BenchLimit::Nodes(NodesLimit::new(1).unwrap()));
+            let res = engine.bench(
+                p,
+                BenchLimit::Nodes(NodesLimit::new(1).unwrap()),
+                tt.clone(),
+            );
             assert!(res.depth.get() <= 1);
             assert!(res.nodes.get() <= 100); // TODO: Assert exactly 1
             let res = engine.search_with_new_tt(p, SearchLimit::depth_(1));
             assert!(p.legal_moves_slow().into_iter().contains(&res.chosen_move));
             // empty search moves, which is something the engine should handle
-            let res = engine
+            let res = engine        
                 .search(SearchParams::for_pos(p, SearchLimit::depth_(2)).restrict_moves(vec![]));
             assert!(res.chosen_move.is_null());
             let mut search_moves = p.pseudolegal_moves().into_iter().collect_vec();

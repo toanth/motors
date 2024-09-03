@@ -220,8 +220,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
 
     fn bench_single_position(&mut self, pos: B, limit: BenchLimit) {
         // self.engine.stop();
-        self.engine.forget();
-        let res = self.engine.bench(pos, limit);
+        let res = self.engine.clean_bench(pos, limit);
         self.engine.search_state_mut().send_ugi(&res.to_string());
     }
 

@@ -841,7 +841,7 @@ impl<B: Board> EngineUGI<B> {
                         &self.searcher_factories,
                         &self.eval_factories,
                     )?;
-                    run_bench_with(engine.as_mut(), limit.depth, limit.nodes).to_string()
+                    run_bench_with(engine.as_mut(), limit.depth, Some(limit.nodes)).to_string()
                 },
                 _ => return Err(format!("Can only use the '{}' option with bench or perft, not splitperft or normal runs", "complete".bold()))
             };

@@ -14,7 +14,7 @@ use crate::cli::Mode::{Bench, Engine, Perft};
 pub enum Mode {
     #[default]
     Engine,
-    Bench(Option<Depth>),
+    Bench(Option<Depth>, bool),
     Perft(Option<Depth>),
 }
 
@@ -22,8 +22,8 @@ impl Display for Mode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Engine => write!(f, "engine"),
-            Mode::Bench(_) => write!(f, "bench"),
-            Mode::Perft(_) => write!(f, "perft"),
+            Bench(_, _) => write!(f, "bench"),
+            Perft(_) => write!(f, "perft"),
         }
     }
 }
@@ -85,14 +85,15 @@ fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts) -> Res<()> {
         key.remove(0);
     }
     match key.as_str() {
-        "bench" | "-bench" | "-b" => opts.mode = Bench(parse_bench(args)?),
+        "bench" | "-bench" | "-b" => opts.mode = Bench(parse_bench(args)?, true),
+        "bench-simple" | "-bench-simple" | "-bs" => opts.mode = Bench(parse_bench(args)?, false),
         "perft" | "-perft" | "-p" => opts.mode = Perft(parse_perft(args)?),
         "-engine" | "-e" => opts.engine = get_next_arg(args, "engine")?,
         "-game" | "-g" => opts.game = Game::from_str(&get_next_arg(args, "engine")?.to_lowercase()).map_err(|err| err.to_string())?,
         "-debug" | "-d" => opts.debug = true,
         "-additional-output" | "-output" | "-o" => parse_output(args, &mut opts.outputs)?,
         "-help" => { print_help(); exit(0); },
-        x => return Err(format!("Unrecognized option '{x}'. Only 'bench', 'perft', '--engine', '--game', '--debug' and '--outputs' are valid."))
+        x => return Err(format!("Unrecognized option '{x}'. Only 'bench', 'bench-simple', 'perft', '--engine', '--game', '--debug' and '--outputs' are valid."))
     }
     Ok(())
 }

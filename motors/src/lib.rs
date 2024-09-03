@@ -55,6 +55,7 @@ mod ugi_engine;
 struct BenchRun<B: Board> {
     engine: Box<dyn Benchable<B>>,
     depth: Option<Depth>,
+    with_nodes: bool,
 }
 
 impl<B: Board> BenchRun<B> {
@@ -63,11 +64,15 @@ impl<B: Board> BenchRun<B> {
         all_searchers: &SearcherList<B>,
         all_evals: &EvalList<B>,
     ) -> Res<Self> {
-        let Bench(depth) = options.mode else {
+        let Bench(depth, with_nodes) = options.mode else {
             unreachable!()
         };
         let engine = create_engine_bench_from_str(&options.engine, all_searchers, all_evals)?;
-        Ok(Self { engine, depth })
+        Ok(Self {
+            engine,
+            depth,
+            with_nodes,
+        })
     }
 }
 
@@ -76,8 +81,8 @@ impl<B: Board> AbstractRun for BenchRun<B> {
         let engine = self.engine.as_mut();
         let nodes = engine.default_bench_nodes();
         let res = match self.depth {
-            None => run_bench(engine),
-            Some(depth) => run_bench_with(engine, depth, nodes),
+            None => run_bench(engine, self.with_nodes),
+            Some(depth) => run_bench_with(engine, depth, Some(nodes)),
         };
         println!("{res}");
         QuitProgram
@@ -181,7 +186,7 @@ pub fn create_match_for_game<B: Board>(
     outputs: OutputList<B>,
 ) -> Res<AnyRunnable> {
     match args.mode {
-        Bench(_) => Ok(Box::new(BenchRun::create(&args, &searchers, &evals)?)),
+        Bench(_, _) => Ok(Box::new(BenchRun::create(&args, &searchers, &evals)?)),
         Mode::Engine => {
             if args.debug {
                 args.outputs.push(OutputArgs::new("logger".to_string()));
