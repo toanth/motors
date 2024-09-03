@@ -115,6 +115,17 @@ impl Score {
     pub fn abs(self) -> Self {
         Self(self.0.abs())
     }
+
+    pub fn verify_valid(self) -> Option<Self> {
+        if (self <= SCORE_WON && self >= SCORE_LOST)
+            || self == SCORE_TIME_UP
+            || self == NO_SCORE_YET
+        {
+            Some(self)
+        } else {
+            None
+        }
+    }
 }
 
 /// `SCORE_WON` and `SCORE_LOST` need to fit into 16 bits for the tapered score to work,

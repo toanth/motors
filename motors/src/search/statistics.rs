@@ -79,8 +79,6 @@ pub struct IDStatistics {
     lmr_first_retry: u64,
     lmr_second_retry: u64,
     in_check: u64,
-    #[allow(dead_code)]
-    seldepth: usize,
     aw: NodeTypeCtr,
 }
 
@@ -121,13 +119,7 @@ pub struct Statistics {
 
 #[cfg(not(feature = "statistics"))]
 #[derive(Debug, Default, Clone)]
-pub struct Statistics {
-    depth: usize,
-    seldepth: usize,
-    legal_make_move_calls_main_search: u64,
-    legal_make_move_calls_qsearch: u64,
-    soft_limit_stop: u64,
-}
+pub struct Statistics {}
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum SearchType {
@@ -135,15 +127,7 @@ pub enum SearchType {
     Qsearch,
 }
 
-/// Functions that exist even if there are no statistics being collected,
-/// either because they're cheap or because they're necessary
-impl Statistics {
-    #[inline(always)]
-    pub fn end_search(&mut self) {
-        // saturating because it's possible to abort te search before even starting depth 1
-        self.depth = self.depth.saturating_sub(1);
-    }
-}
+impl Statistics {}
 
 #[cfg(feature = "statistics")]
 impl Statistics {
@@ -196,18 +180,12 @@ impl Statistics {
     }
 
     #[inline(always)]
-    pub fn aw_fail_high(&mut self) {
-        self.cur_mut().aw.fail_highs += 1;
-    }
-
-    #[inline(always)]
-    pub fn aw_fail_low(&mut self) {
-        self.cur_mut().aw.fail_lows += 1;
-    }
-
-    #[inline(always)]
-    pub fn aw_exact(&mut self) {
-        self.cur_mut().aw.exact += 1;
+    pub fn aw_node_type(&mut self, node_type: NodeType) {
+        match node_type {
+            NodeType::FailHigh => self.cur_mut().aw.fail_highs += 1,
+            NodeType::Exact => self.cur_mut().aw.exact += 1,
+            NodeType::FailLow => self.cur_mut().aw.fail_lows += 1,
+        }
     }
 
     pub fn next_id_iteration(&mut self) {
@@ -238,17 +216,8 @@ impl Statistics {
 
     /// This counts all nodes (except the root node), unlike `count_complete_node`,
     /// which only counts nodes where the moves loop has completed, so it doesn't count TT cutoffs.
-    pub fn count_node_started(
-        &mut self,
-        search_type: SearchType,
-        ply: usize,
-        update_seldepth: bool,
-    ) {
+    pub fn count_node_started(&mut self, search_type: SearchType) {
         self.search_mut(search_type).counters[NodesStarted as usize] += 1;
-        let cur = self.cur_mut();
-        if update_seldepth {
-            cur.seldepth = cur.seldepth.max(ply);
-        }
     }
 
     pub fn in_check(&mut self) {
@@ -269,6 +238,11 @@ impl Statistics {
 
     pub fn lmr_second_retry(&mut self) {
         self.cur_mut().lmr_second_retry += 1;
+    }
+
+    pub fn end_search(&mut self) {
+        // saturating because it's possible to abort te search before even starting depth 1
+        self.depth = self.depth.saturating_sub(1);
     }
 
     pub fn aggregate_iterations(&self) -> IDStatistics {
@@ -296,9 +270,7 @@ impl Statistics {
 #[cfg(not(feature = "statistics"))]
 impl Statistics {
     #[inline(always)]
-    pub fn next_id_iteration(&mut self) {
-        self.depth += 1;
-    }
+    pub fn next_id_iteration(&mut self) {}
 
     #[inline(always)]
     pub fn count_complete_node(
@@ -312,17 +284,7 @@ impl Statistics {
     }
 
     #[inline(always)]
-    pub fn count_node_started(
-        &mut self,
-        _search_type: SearchType,
-        ply: usize,
-        update_seldepth: bool,
-    ) {
-        // not updating seldepth in all nodes meaningfully increases performance and is even measurable in a [0, 10] SPRT.
-        if update_seldepth {
-            self.seldepth = self.seldepth.max(ply);
-        }
-    }
+    pub fn count_node_started(&mut self, _search_type: SearchType) {}
 
     #[inline(always)]
     pub fn in_check(&mut self) {}
@@ -349,56 +311,38 @@ impl Statistics {
 
     #[inline(always)]
     pub fn depth(&self) -> usize {
-        self.depth
+        0
     }
 
     #[inline(always)]
     pub fn sel_depth(&self) -> usize {
-        self.seldepth
+        0
     }
 
     #[inline(always)]
     pub fn nodes_started(&self, _search_type: SearchType) -> u64 {
         0
     }
+    #[inline(always)]
+    pub fn aw_node_type(&mut self, _node_type: NodeType) {}
 
     #[inline(always)]
-    pub fn aw_fail_high(&mut self) {}
+    pub fn soft_limit_stop(&mut self) {}
 
     #[inline(always)]
-    pub fn aw_fail_low(&mut self) {}
-
-    #[inline(always)]
-    pub fn aw_exact(&mut self) {}
-
-    #[inline(always)]
-    pub fn soft_limit_stop(&mut self) {
-        self.soft_limit_stop = 1;
-    }
-
-    #[inline(always)]
-    pub fn count_legal_make_move(&mut self, search_type: SearchType) {
-        match search_type {
-            MainSearch => self.legal_make_move_calls_main_search += 1,
-            Qsearch => self.legal_make_move_calls_qsearch += 1,
-        }
-    }
+    pub fn count_legal_make_move(&mut self, _search_type: SearchType) {}
 
     #[inline(always)]
     pub fn main_search_nodes(&self) -> u64 {
-        self.cur().legal_make_move_calls_main_search
+        0
     }
 
     #[inline(always)]
     pub fn uci_nodes(&self) -> u64 {
-        // + 1 because the root node also counts
-        self.legal_make_move_calls_main_search + self.legal_make_move_calls_qsearch + 1
+        1
     }
 
-    #[inline(always)]
-    fn cur(&self) -> &Self {
-        self
-    }
+    pub fn end_search(&mut self) {}
 }
 
 #[derive(Copy, Clone)]
@@ -490,7 +434,7 @@ impl Display for IDSummary {
             Self::format_ctr(Percentage, qsearch_nodes[1], qsearch_nodes[0], None),
         )?;
         for i in 0..NumCounters as usize {
-            let ctr = SearchCounter::iter().get(i).unwrap();
+            let ctr = SearchCounter::iter().nth(i).unwrap();
             let (mode, typ) = match ctr {
                 DepthAvg | PlyAvg => (Average, Completed),
                 _ => (Percentage, Begun),

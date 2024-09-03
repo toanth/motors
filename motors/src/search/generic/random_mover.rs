@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::{Duration, Instant};
 
@@ -5,13 +6,12 @@ use gears::general::board::Board;
 use rand::{thread_rng, Rng, RngCore, SeedableRng};
 
 use crate::eval::Eval;
-use gears::general::common::{Res, StaticallyNamedEntity};
+use gears::general::common::StaticallyNamedEntity;
 use gears::score::Score;
-use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
+use gears::search::{Depth, NodesLimit, SearchInfo, SearchResult, TimeControl};
 
-use crate::search::tt::TT;
 use crate::search::{
-    ABSearchState, AbstractEngine, BestMoveCustomInfo, EmptySearchStackEntry, Engine, EngineInfo,
+    ABSearchState, AbstractEngine, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
     SearchState,
 };
 
@@ -21,8 +21,7 @@ impl<T> SeedRng for T where T: Rng + SeedableRng {}
 
 pub struct RandomMover<B: Board, R: SeedRng> {
     pub rng: R,
-    chosen_move: B::Move,
-    state: ABSearchState<B, EmptySearchStackEntry, BestMoveCustomInfo<B>>,
+    state: ABSearchState<B, EmptySearchStackEntry, NoCustomInfo>,
 }
 
 impl<B: Board, R: SeedRng> Debug for RandomMover<B, R> {
@@ -35,7 +34,6 @@ impl<B: Board, R: SeedRng> Default for RandomMover<B, R> {
     fn default() -> Self {
         Self {
             rng: R::seed_from_u64(thread_rng().next_u64()),
-            chosen_move: B::Move::default(),
             state: ABSearchState::new(Depth::new(1)),
         }
     }
@@ -74,8 +72,6 @@ impl<B: Board, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R>
     }
 }
 
-// impl<B: Board, R: SeedRng + Clone + Send + 'static> EngineBase for RandomMover<B, R> {}
-
 impl<B: Board, R: SeedRng + Clone + Send + 'static> AbstractEngine<B> for RandomMover<B, R> {
     fn max_bench_depth(&self) -> Depth {
         Depth::new(1)
@@ -104,44 +100,37 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         false
     }
 
-    fn do_search(
-        &mut self,
-        pos: B,
-        search_moves: Vec<B::Move>,
-        _multi_pv: usize,
-        _: SearchLimit,
-    ) -> Res<SearchResult<B>> {
+    fn do_search(&mut self) -> SearchResult<B> {
         self.state.statistics.next_id_iteration();
-        // there's no `is_empty` method
-        let len = search_moves.len();
-        if len != 0 {
-            self.chosen_move = search_moves
-                .into_iter()
-                .nth(self.rng.gen_range(0..len))
-                .unwrap();
+        let pos = self.state.params.pos;
+
+        let moves = pos
+            .legal_moves_slow()
+            .into_iter()
+            .filter(|m| self.state.excluded_moves.contains(m))
+            .collect_vec();
+        let best_move = if moves.is_empty() {
+            pos.random_legal_move(&mut self.rng).unwrap_or_default()
         } else {
-            self.chosen_move = pos.random_legal_move(&mut self.rng).unwrap_or_default();
-        }
-        Ok(SearchResult::move_only(self.chosen_move))
+            moves[self.rng.gen_range(0..moves.len())]
+        };
+        self.state.shared().set_best_move(best_move);
+        SearchResult::move_only(best_move)
     }
 
     fn search_info(&self) -> SearchInfo<B> {
         SearchInfo {
-            best_move: self.chosen_move,
+            best_move: self.state.best_move(),
             depth: Depth::new(0),
-            seldepth: None,
+            seldepth: Depth::new(0),
             time: Duration::default(),
             nodes: NodesLimit::new(1).unwrap(),
             pv_num: 1,
-            pv: vec![self.chosen_move],
+            pv: vec![self.state.best_move()],
             score: Score(0),
-            hashfull: None,
+            hashfull: 0,
             additional: None,
         }
-    }
-
-    fn set_tt(&mut self, _tt: TT) {
-        // do nothing
     }
 
     fn search_state(&self) -> &impl SearchState<B> {

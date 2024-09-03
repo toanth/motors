@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::sync::{Arc, Mutex};
 
 use dyn_clone::clone_box;
 use rand::rngs::StdRng;
@@ -37,12 +38,13 @@ use crate::search::chess::caps::Caps;
 use crate::search::generic::gaps::Gaps;
 #[cfg(feature = "random_mover")]
 use crate::search::generic::random_mover::RandomMover;
-use crate::search::multithreading::{EngineWrapper, SearchSender};
+use crate::search::multithreading::EngineWrapper;
+use crate::search::tt::TT;
 use crate::search::{
     run_bench, run_bench_with, AbstractEvalBuilder, AbstractSearcherBuilder, Benchable,
-    EngineBuilder, EvalBuilder, EvalList, SearcherBuilder, SearcherList,
+    EvalBuilder, EvalList, SearcherBuilder, SearcherList,
 };
-use crate::ugi_engine::EngineUGI;
+use crate::ugi_engine::{EngineUGI, UgiOutput};
 
 pub mod cli;
 pub mod eval;
@@ -145,14 +147,19 @@ pub fn create_engine_from_str<B: Board>(
     name: &str,
     searchers: &SearcherList<B>,
     evals: &EvalList<B>,
-    search_sender: SearchSender<B>,
+    output: Arc<Mutex<UgiOutput<B>>>,
+    tt: TT,
 ) -> Res<EngineWrapper<B>> {
     let (searcher, eval) = name.split_once('-').unwrap_or((name, "default"));
 
     let searcher_builder = create_searcher_from_str(searcher, searchers)?;
     let eval_builder = create_eval_from_str(eval, evals)?;
-    let builder = EngineBuilder::new(searcher_builder, eval_builder, search_sender);
-    Ok(builder.build_wrapper())
+    Ok(EngineWrapper::new(
+        tt,
+        output,
+        searcher_builder,
+        eval_builder,
+    ))
 }
 
 pub fn create_engine_bench_from_str<B: Board>(

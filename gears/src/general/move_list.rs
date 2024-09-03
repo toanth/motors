@@ -7,6 +7,8 @@ use std::fmt::Debug;
 pub trait MoveList<B: Board>: IntoIterator<Item = B::Move> + Eq + PartialEq + Debug {
     fn add_move(&mut self, mov: B::Move);
 
+    fn num_moves(&self) -> usize;
+
     /// Moves the last currently considered move to the `idx`th element and returns that.
     fn swap_remove_move(&mut self, idx: usize) -> B::Move;
 
@@ -22,6 +24,10 @@ pub type EagerNonAllocMoveList<B: Board, const N: usize> = ArrayVec<B::Move, N>;
 impl<B: Board, const N: usize> MoveList<B> for EagerNonAllocMoveList<B, N> {
     fn add_move(&mut self, mov: B::Move) {
         self.push(mov);
+    }
+
+    fn num_moves(&self) -> usize {
+        self.len()
     }
 
     fn swap_remove_move(&mut self, idx: usize) -> B::Move {

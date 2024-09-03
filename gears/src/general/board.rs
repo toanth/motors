@@ -160,6 +160,7 @@ pub trait Board:
     + Copy
     + Clone
     + Send
+    + Sync
     + StaticallyNamedEntity
     + 'static
 {
@@ -171,7 +172,7 @@ pub trait Board:
     type Piece: ColoredPiece<Self>;
     type Move: Move<Self>;
     type MoveList: MoveList<Self>;
-    type LegalMoveList: MoveList<Self> + FromIterator<Self::Move>;
+    type LegalMoveList: MoveList<Self> + FromIterator<Self::Move>; // TODO: Remove use MoveList
     type Unverified: UnverifiedBoard<Self>;
 
     /// Returns the name of the game, such as 'chess'.

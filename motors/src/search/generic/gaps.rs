@@ -1,23 +1,20 @@
-use itertools::Itertools;
 use std::fmt::Display;
 use std::time::{Duration, Instant};
 
 use gears::games::BoardHistory;
 use gears::general::board::Board;
-use rand::thread_rng;
 
 use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use gears::score::{game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE_WON};
-use gears::search::{Depth, NodesLimit, SearchLimit, SearchResult, TimeControl};
+use gears::search::{Depth, NodesLimit, SearchResult, TimeControl};
 use gears::ugi::EngineOptionName;
 
 use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
 use crate::search::statistics::SearchType::MainSearch;
-use crate::search::tt::TT;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use crate::search::{
-    ABSearchState, AbstractEngine, BestMoveCustomInfo, EmptySearchStackEntry, Engine, EngineInfo,
+    ABSearchState, AbstractEngine, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
     SearchState,
 };
 
@@ -27,9 +24,8 @@ type DefaultEval = RandEval;
 
 #[derive(Debug)]
 pub struct Gaps<B: Board> {
-    state: ABSearchState<B, EmptySearchStackEntry, BestMoveCustomInfo<B>>,
+    state: ABSearchState<B, EmptySearchStackEntry, NoCustomInfo>,
     eval: Box<dyn Eval<B>>,
-    tt: TT,
 }
 
 impl<B: Board> Default for Gaps<B> {
@@ -70,6 +66,7 @@ impl<B: Board> AbstractEngine<B> for Gaps<B> {
             "0.0.1",
             Depth::new(4),
             NodesLimit::new(50_000).unwrap(),
+            true,
             vec![],
         )
     }
@@ -80,81 +77,53 @@ impl<B: Board> AbstractEngine<B> for Gaps<B> {
 }
 
 impl<B: Board> Engine<B> for Gaps<B> {
-    fn can_use_multiple_threads() -> bool
-    where
-        Self: Sized,
-    {
-        true
+    fn set_eval(&mut self, eval: Box<dyn Eval<B>>) {
+        self.eval = eval;
     }
 
-    fn do_search(
-        &mut self,
-        pos: B,
-        search_moves: Vec<B::Move>,
-        multi_pv: usize,
-        mut limit: SearchLimit,
-    ) -> Res<SearchResult<B>> {
-        let mut chosen_move = self.state.custom.chosen_move;
-        let mut score = Score::default();
+    fn do_search(&mut self) -> SearchResult<B> {
+        let mut limit = self.state.params.limit;
         let max_depth = MAX_DEPTH.min(limit.depth).isize();
+        let pos = self.state.params.pos;
         limit.fixed_time = limit.fixed_time.min(limit.tc.remaining);
-        if search_moves.is_empty() {
-            self.state.excluded_moves = vec![];
-        } else {
-            self.state.excluded_moves = pos
-                .pseudolegal_moves()
-                .into_iter()
-                .filter(|m| !search_moves.contains(m))
-                .collect_vec();
-        }
 
         self.state.statistics.next_id_iteration();
-        self.state.limit = limit;
+        self.state.search_params_mut().limit = limit;
 
         'id: for depth in 1..=max_depth {
-            for pv_num in 0..multi_pv {
+            for pv_num in 0..self.state.multi_pv() {
                 if self.should_not_start_iteration(limit.fixed_time, max_depth, limit.mate) {
                     break 'id;
                 }
-                self.state.pv_num = pv_num;
+
+                self.state.current_pv_num = pv_num;
                 let iteration_score = self.negamax(pos, 0, depth, SCORE_LOST, SCORE_WON);
-                if self.state.search_cancelled() {
+                self.state.current_pv_data().score = iteration_score;
+                if self.state.stop_command_received() {
                     break 'id;
                 }
-                self.state.score = iteration_score;
+
+                let best_mpv_move = self.state.current_pv_data().best_move;
                 if pv_num == 0 {
-                    chosen_move = self.state.custom.chosen_move; // only set now so that incomplete iterations are discarded
-                    score = self.state.score;
+                    // only set now so that incomplete iterations are discarded
+                    self.state.shared().set_score(iteration_score);
+                    self.state.shared().set_best_move(best_mpv_move);
                 }
-                self.state
-                    .excluded_moves
-                    .push(self.state.custom.chosen_move.unwrap_or_default());
-                self.state.sender.send_search_info(self.search_info());
-                // increases the depth. do this after sending the search info, but before deciding if the depth limit has been exceeded.
+                self.state.excluded_moves.push(best_mpv_move);
+                self.send_search_info();
             }
             self.state
                 .excluded_moves
-                .truncate(self.state.excluded_moves.len() - multi_pv);
+                .truncate(self.state.excluded_moves.len() - self.state.multi_pv());
             self.state.statistics.next_id_iteration();
         }
 
-        Ok(SearchResult::move_and_score(
-            chosen_move.unwrap_or_else(|| {
-                eprintln!("Warning: Not even a single iteration finished");
-                let mut rng = thread_rng();
-                pos.random_legal_move(&mut rng).unwrap_or_default()
-            }),
-            score,
-        ))
+        SearchResult::move_and_score(self.state.shared().best_move(), self.state.shared().score())
     }
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
         let elapsed = start_time.elapsed();
         elapsed >= hard_limit.min(tc.remaining / 32 + tc.increment / 2)
-    }
-
-    fn set_tt(&mut self, tt: TT) {
-        self.tt = tt;
     }
 
     fn search_state(&self) -> &impl SearchState<B> {
@@ -165,20 +134,22 @@ impl<B: Board> Engine<B> for Gaps<B> {
         &mut self.state
     }
 
+    fn can_use_multiple_threads() -> bool
+    where
+        Self: Sized,
+    {
+        true
+    }
+
     fn with_eval(eval: Box<dyn Eval<B>>) -> Self {
         Self {
             state: ABSearchState::new(MAX_DEPTH),
             eval,
-            tt: TT::default(),
         }
     }
 
     fn static_eval(&mut self, pos: B) -> Score {
         self.eval.eval(&pos)
-    }
-
-    fn set_eval(&mut self, eval: Box<dyn Eval<B>>) {
-        self.eval = eval;
     }
 }
 
@@ -195,11 +166,9 @@ impl<B: Board> Gaps<B> {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= MAX_DEPTH.get() * 2);
         debug_assert!(depth <= MAX_DEPTH.isize());
-        self.state
-            .statistics
-            .count_node_started(MainSearch, ply, true);
+        self.state.statistics.count_node_started(MainSearch);
 
-        if let Some(res) = pos.player_result_no_movegen(&self.state.board_history) {
+        if let Some(res) = pos.player_result_no_movegen(&self.state.params.history) {
             return game_result_to_score(res, ply);
         }
         if depth <= 0 {
@@ -210,23 +179,25 @@ impl<B: Board> Gaps<B> {
         let mut num_children = 0;
 
         for mov in pos.pseudolegal_moves() {
-            if ply == 0 && self.state.excluded_moves.contains(&mov) {
-                continue;
-            }
             let new_pos = pos.make_move(mov);
             if new_pos.is_none() {
                 continue; // illegal pseudolegal move
             }
             num_children += 1;
+            // increment `num_children` even if the child is excluded
+            if ply == 0 && self.state.excluded_moves.contains(&mov) {
+                continue;
+            }
             self.state.statistics.count_legal_make_move(MainSearch);
+            self.state.count_node();
 
-            self.state.board_history.push(&pos);
+            self.state.params.history.push(&pos);
 
             let score = -self.negamax(new_pos.unwrap(), ply + 1, depth - 1, -beta, -alpha);
 
-            self.state.board_history.pop();
+            self.state.params.history.pop();
 
-            if self.should_stop(self.state.limit) {
+            if self.should_stop() {
                 return SCORE_TIME_UP;
             }
 
@@ -236,7 +207,9 @@ impl<B: Board> Gaps<B> {
             alpha = alpha.max(score);
             best_score = score;
             if ply == 0 {
-                self.state.custom.chosen_move = Some(mov);
+                // don't set score here because it's set in `do_search`, which handles situations like the position
+                // being checkmate
+                self.state.current_pv_data().best_move = mov;
             }
             if score < beta {
                 continue;

@@ -22,7 +22,7 @@ use gears::general::perft::{perft, perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
-use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
+use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{
@@ -33,7 +33,8 @@ use gears::Quitting::{QuitMatch, QuitProgram};
 use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchStatus, Quitting};
 
 use crate::cli::EngineOpts;
-use crate::search::multithreading::{EngineWrapper, SearchSender};
+use crate::search::multithreading::EngineWrapper;
+use crate::search::tt::TT;
 use crate::search::{run_bench_with, BenchLimit, BenchResult, EvalList, SearcherList};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
@@ -218,15 +219,6 @@ impl<B: Board> UgiOutput<B> {
         self.write_ugi(&bench_result.to_string());
     }
 
-    pub fn show_search_res(&mut self, search_result: &SearchResult<B>) {
-        let best = search_result.chosen_move;
-        if let Some(ponder) = search_result.ponder_move() {
-            self.write_ugi(&format!("bestmove {best} ponder {ponder}"));
-        } else {
-            self.write_ugi(&format!("bestmove {best}"));
-        }
-    }
-
     pub fn show_search_info(&mut self, info: SearchInfo<B>) {
         self.write_ugi(&info.to_string());
     }
@@ -240,7 +232,6 @@ pub struct EngineUGI<B: Board> {
     output_factories: OutputList<B>,
     searcher_factories: SearcherList<B>,
     eval_factories: EvalList<B>,
-    search_sender: SearchSender<B>,
     move_overhead: Duration,
     multi_pv: usize,
     allow_ponder: bool,
@@ -314,10 +305,14 @@ impl<B: Board> EngineUGI<B> {
         all_evals: EvalList<B>,
     ) -> Res<Self> {
         let output = Arc::new(Mutex::new(UgiOutput::default()));
-        let sender = SearchSender::new(output.clone());
         let board = B::default();
-        let engine =
-            create_engine_from_str(&opts.engine, &all_searchers, &all_evals, sender.clone())?;
+        let engine = create_engine_from_str(
+            &opts.engine,
+            &all_searchers,
+            &all_evals,
+            output.clone(),
+            TT::default(),
+        )?;
         let display_name = engine.engine_info().short_name();
         let board_state = BoardGameState {
             board,
@@ -350,7 +345,6 @@ impl<B: Board> EngineUGI<B> {
             output_factories: all_output_builders,
             searcher_factories: all_searchers,
             eval_factories: all_evals,
-            search_sender: sender,
             move_overhead: Duration::from_millis(DEFAULT_MOVE_OVERHEAD_MS),
             multi_pv: 1,
             allow_ponder: false,
@@ -454,7 +448,7 @@ impl<B: Board> EngineUGI<B> {
                     )
                 })?,
                 self.state.board,
-                vec![],
+                None,
                 self.multi_pv,
             )?,
             "isready" => {
@@ -642,7 +636,7 @@ impl<B: Board> EngineUGI<B> {
         let is_first = self.state.board.active_player().is_first();
         let mut search_type = Normal;
         let mut multi_pv = self.multi_pv;
-        let mut search_moves = vec![];
+        let mut search_moves = None;
         let mut reading_moves = false;
         while let Some(next_word) = words.next() {
             match next_word {
@@ -694,6 +688,7 @@ impl<B: Board> EngineUGI<B> {
                 "infinite" | "inf" => (), // "infinite" is the identity element of the bounded semilattice of `go` options
                 "searchmoves" | "sm" => {
                     reading_moves = true;
+                    search_moves = Some(vec![]);
                     continue;
                 }
                 "multipv" | "mpv" => {
@@ -709,7 +704,7 @@ impl<B: Board> EngineUGI<B> {
                             .map_err(|err| {
                                 format!("{err}. '{}' is not a valid 'go' option.", next_word.bold())
                             })?;
-                        search_moves.push(mov);
+                        search_moves.as_mut().unwrap().push(mov);
                         continue;
                     }
                     return Err(format!("Unrecognized 'go' option: '{next_word}'"));
@@ -730,7 +725,7 @@ impl<B: Board> EngineUGI<B> {
         search_type: SearchType,
         mut limit: SearchLimit,
         pos: B,
-        moves: Vec<B::Move>,
+        moves: Option<Vec<B::Move>>,
         multi_pv: usize,
     ) -> Res<()> {
         self.write_message(
@@ -757,7 +752,8 @@ impl<B: Board> EngineUGI<B> {
                 // It doesn't matter if we got a ponderhit or a miss, we simply abort the ponder search and start a new search.
                 if self.state.ponder_limit.is_some() {
                     self.state.ponder_limit = None;
-                    self.search_sender.abort_pondering();
+                    // TODO: Maybe do this all the time to make sure two `go` commands after another work -- write testcase for that
+                    self.state.engine.send_stop(); // aborts the pondering without printing a search result
                 }
                 self.state.engine.start_search(
                     pos,
@@ -765,6 +761,7 @@ impl<B: Board> EngineUGI<B> {
                     self.state.board_hist.clone(),
                     moves,
                     multi_pv,
+                    false,
                 )?;
             }
             SearchType::Ponder => {
@@ -775,6 +772,7 @@ impl<B: Board> EngineUGI<B> {
                     self.state.board_hist.clone(),
                     moves,
                     multi_pv, // don't ignore multi_pv in pondering mode
+                    true,
                 )?;
             }
             Perft => {
@@ -850,7 +848,7 @@ impl<B: Board> EngineUGI<B> {
             self.write_ugi(&res);
             Ok(())
         } else {
-            self.start_search(typ, limit, board, vec![], 1)
+            self.start_search(typ, limit, board, None, 1)
         }
     }
 
@@ -1078,14 +1076,15 @@ impl<B: Board> EngineUGI<B> {
     fn handle_engine(&mut self, words: &mut SplitWhitespace) -> Res<()> {
         let Some(name) = words.next() else {
             let info = self.state.engine.engine_info();
+            let short = info.short_name();
+            let long = info.long_name();
+            let description = info.description().unwrap_or_default();
+            drop(info);
             self.write_ugi(&format!(
-                "\n{alias}: {0}\n{engine}: {1}\n{description}: {2}",
-                info.short_name(),
-                info.long_name(),
-                info.description().unwrap_or_default(),
+                "\n{alias}: {short}\n{engine}: {long}\n{descr}: {description}",
                 alias = "Alias".bold(),
                 engine = "Engine".bold(),
-                description = "Description".bold(),
+                descr = "Description".bold(),
             ));
             return Ok(());
         };
@@ -1094,7 +1093,8 @@ impl<B: Board> EngineUGI<B> {
             name,
             &self.searcher_factories,
             &self.eval_factories,
-            self.search_sender.clone(),
+            self.output.clone(),
+            TT::new_with_bytes(self.state.engine.next_tt().size_in_bytes()),
         )?;
         self.state.engine.send_quit()?;
         self.state.engine = engine;

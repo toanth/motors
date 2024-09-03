@@ -11,10 +11,11 @@ use crate::score::Score;
 
 pub const MAX_DEPTH: Depth = Depth(10_000);
 
-#[derive(Eq, PartialEq, Debug, Default)]
+#[derive(Eq, PartialEq, Debug, Default, Copy, Clone)]
 pub struct SearchResult<B: Board> {
     pub chosen_move: B::Move,
     pub score: Option<Score>,
+    // TODO: NodeType to represent UCI upper bound and lower bound scores
     pub ponder_move: Option<B::Move>,
 }
 
@@ -27,14 +28,11 @@ impl<B: Board> SearchResult<B> {
     }
 
     pub fn move_and_score(chosen_move: B::Move, score: Score) -> Self {
-        Self {
-            chosen_move,
-            score: Some(score),
-            ponder_move: None,
-        }
+        Self::new(chosen_move, score, None)
     }
 
     pub fn new(chosen_move: B::Move, score: Score, ponder_move: Option<B::Move>) -> Self {
+        debug_assert!(score.verify_valid().is_some());
         Self {
             chosen_move,
             score: Some(score),
@@ -43,6 +41,7 @@ impl<B: Board> SearchResult<B> {
     }
 
     pub fn new_from_pv(score: Score, pv: &[B::Move]) -> Self {
+        debug_assert!(score.verify_valid().is_some());
         // the pv may be empty if search is called in a position where the game is over
         Self::new(
             pv.first().copied().unwrap_or_default(),
@@ -56,17 +55,27 @@ impl<B: Board> SearchResult<B> {
     }
 }
 
+impl<B: Board> Display for SearchResult<B> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if let Some(ponder) = self.ponder_move() {
+            write!(f, "bestmove {} ponder {ponder}", self.chosen_move)
+        } else {
+            write!(f, "bestmove {}", self.chosen_move)
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct SearchInfo<B: Board> {
     pub best_move: B::Move,
     pub depth: Depth,
-    pub seldepth: Option<usize>,
+    pub seldepth: Depth,
     pub time: Duration,
     pub nodes: NodesLimit,
     pub pv_num: usize,
     pub pv: Vec<B::Move>,
     pub score: Score,
-    pub hashfull: Option<usize>,
+    pub hashfull: usize,
     pub additional: Option<String>,
 }
 
@@ -75,13 +84,13 @@ impl<B: Board> Default for SearchInfo<B> {
         Self {
             best_move: B::Move::default(),
             depth: Depth::default(),
-            seldepth: None,
+            seldepth: Depth::default(),
             time: Duration::default(),
             nodes: NodesLimit::MAX,
             pv_num: 1,
             pv: vec![],
             score: Score::default(),
-            hashfull: None,
+            hashfull: 0,
             additional: None,
         }
     }
@@ -118,10 +127,10 @@ impl<B: Board> Display for SearchInfo<B> {
         write!(f,
                "info depth {depth}{seldepth} multipv {multipv} score {score_str} time {time} nodes {nodes} nps {nps}{hashfull} pv",
                depth = self.depth.get(), time = self.time.as_millis(), nodes = self.nodes.get(),
-               seldepth = self.seldepth.map(|d| format!(" seldepth {d}")).unwrap_or_default(),
+               seldepth = format!(" seldepth {}", self.seldepth.0),
                multipv = self.pv_num + 1,
                nps = self.nps(),
-               hashfull = self.hashfull.map(|f| format!(" hashfull {f}")).unwrap_or_default(),
+               hashfull = format!(" hashfull {}", self.hashfull),
         )?;
         for mov in &self.pv {
             write!(f, " {mov}")?;
@@ -264,6 +273,7 @@ pub type NodesLimit = NonZeroU64;
 
 // Don't derive Eq because that allows code like `limit == SearchLimit::infinite()`, which is bad because the remaining
 // time of `limit` might be slightly less while still being considered infinite.
+// Note that nodes are counted per thread, and a node limit limits all threads to the set amount of nodes // TODO: Change?
 #[derive(Copy, Clone, Debug)]
 #[must_use]
 pub struct SearchLimit {
@@ -310,6 +320,10 @@ impl SearchLimit {
             depth,
             ..Self::infinite()
         }
+    }
+
+    pub fn depth_(depth: usize) -> Self {
+        Self::depth(Depth::new(depth))
     }
 
     pub fn mate(depth: Depth) -> Self {

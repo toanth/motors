@@ -234,8 +234,8 @@ impl Move<AtaxxBoard> for AtaxxMove {
     }
 
     fn from_usize_unchecked(val: usize) -> UntrustedMove<AtaxxBoard> {
-        let source = AtaxxSquare::from_bb_index((val >> 8) & 0xff);
-        let target = AtaxxSquare::from_bb_index(val & 0xff);
+        let source = AtaxxSquare::unchecked((val >> 8) & 0xff);
+        let target = AtaxxSquare::unchecked(val & 0xff);
         UntrustedMove::from_move(Self { source, target })
     }
 

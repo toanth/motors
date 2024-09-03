@@ -525,7 +525,7 @@ impl<B: Board> InputThread<B> {
                 .ok_or_else(|| format!("info line ends after '{key}', expected a value"))?;
             match key {
                 "depth" => res.depth = Depth::new(parse_int_from_str(value, "depth")?),
-                "seldepth" => res.seldepth = Some(parse_int_from_str(value, "seldepth")?),
+                "seldepth" => res.seldepth = Depth::new(parse_int_from_str(value, "seldepth")?),
                 "time" => res.time = parse_duration_ms(&mut value.split_whitespace(), "time")?,
                 "nodes" => {
                     res.nodes = NodesLimit::new(parse_int_from_str(value, "nodes")?).unwrap();

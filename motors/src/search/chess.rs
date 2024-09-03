@@ -24,8 +24,8 @@ mod tests {
     use crate::search::chess::caps::Caps;
     use crate::search::generic::gaps::Gaps;
     use crate::search::generic::random_mover::RandomMover;
-    use crate::search::multithreading::SearchSender;
-    use crate::search::Engine;
+    use crate::search::tt::TT;
+    use crate::search::{Engine, SearchParams};
 
     #[test]
     fn generic_negamax_test() {
@@ -51,14 +51,10 @@ mod tests {
         println!("{game_over_pos}");
         assert!(game_over_pos.is_game_lost_slow());
         for i in 1..123 {
-            let res = engine.search_from_pos(game_over_pos, SearchLimit::depth(Depth::new(i)));
-            assert!(res.is_ok());
-            let res = res.unwrap();
+            let res = engine.search_with_new_tt(game_over_pos, SearchLimit::depth(Depth::new(i)));
             assert!(res.ponder_move.is_none());
             assert_eq!(res.chosen_move, ChessMove::default());
-            let res = engine
-                .search_from_pos(game_over_pos, SearchLimit::nodes_(i as u64))
-                .unwrap();
+            let res = engine.search_with_new_tt(game_over_pos, SearchLimit::nodes_(i as u64));
             assert!(res.ponder_move.is_none());
             assert_eq!(res.chosen_move, ChessMove::default());
         }
@@ -67,9 +63,7 @@ mod tests {
     fn generic_search_test<E: Engine<Chessboard>>(mut engine: E) {
         let fen = "7r/pBrkqQ1p/3b4/5b2/8/6P1/PP2PP1P/R1BR2K1 w - - 1 17";
         let board = Chessboard::from_fen(fen).unwrap();
-        let res = engine
-            .search_from_pos(board, SearchLimit::mate(Depth::new(5)))
-            .unwrap();
+        let res = engine.search_with_new_tt(board, SearchLimit::mate(Depth::new(5)));
         assert_eq!(
             res.chosen_move,
             ChessMove::new(
@@ -90,10 +84,9 @@ mod tests {
         let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
         let board = Chessboard::from_fen(fen).unwrap();
         let mut engine = Caps::for_eval::<LiTEval>();
-        let res = engine
-            .search_from_pos(board, SearchLimit::nodes_(5_000))
-            .unwrap();
-        assert!(res.score.unwrap() >= Score(1400));
+        let res = engine.search_with_new_tt(board, SearchLimit::nodes_(5_000));
+        let score = res.score.unwrap();
+        assert!(res.score.unwrap() >= Score(1400), "{score}");
         // not a legal chess position, but search with random eval should handle this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
         let board = Chessboard::from_fen(fen).unwrap();
@@ -101,9 +94,7 @@ mod tests {
         for i in (2..55).step_by(3) {
             // do this several times to get different random numbers
             let mut engine = Caps::for_eval::<RandEval>();
-            let res = engine
-                .search_from_pos(board, SearchLimit::depth(Depth::new(i)))
-                .unwrap();
+            let res = engine.search_with_new_tt(board, SearchLimit::depth(Depth::new(i)));
             assert_eq!(res.score.unwrap(), SCORE_LOST + 2);
             assert_eq!(res.chosen_move.to_string(), "h1g1");
         }
@@ -139,14 +130,12 @@ mod tests {
         hist.pop();
         let mut engine = Caps::for_eval::<MaterialOnlyEval>();
         for depth in 1..10 {
-            let res = engine
-                .search(
-                    board,
-                    SearchLimit::depth(Depth::new(depth)),
-                    hist.clone(),
-                    SearchSender::no_sender(),
-                )
-                .unwrap();
+            let res = engine.search(SearchParams::new(
+                board,
+                SearchLimit::depth(Depth::new(depth)),
+                hist.clone(),
+                TT::default(),
+            ));
             assert_eq!(res.chosen_move, mov);
             assert_eq!(res.score.unwrap(), Score(0));
         }

@@ -54,6 +54,10 @@ where
 
     type Underlying: PrimInt + Into<usize>;
 
+    fn is_null(self) -> bool {
+        self == Self::default()
+    }
+
     /// For games with legal movegen, this should return `Legal`, for games with pseudo-legal movegen this should return
     /// `PseudoLegal`. Note that legality depends on the move and the position, which means the result of this function
     /// is not a statically guaranteed property and instead a promise that depends on correct usage.
@@ -183,6 +187,10 @@ impl<B: Board> UntrustedMove<B> {
         } else {
             None
         }
+    }
+
+    pub fn trust_unchecked(self) -> B::Move {
+        self.0
     }
 
     pub fn to_underlying(self) -> <B::Move as Move<B>>::Underlying {
