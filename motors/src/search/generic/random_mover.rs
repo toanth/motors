@@ -114,7 +114,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         } else {
             moves[self.rng.gen_range(0..moves.len())]
         };
-        self.state.shared().set_best_move(best_move);
+        self.state.atomic().set_best_move(best_move);
         SearchResult::move_only(best_move)
     }
 

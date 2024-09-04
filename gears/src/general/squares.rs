@@ -84,7 +84,7 @@ impl FromStr for GridCoordinates {
         let mut s = s.trim().chars();
 
         let file = s.next().ok_or("Empty input")?;
-        let mut words = s.as_str().split_whitespace();
+        let mut words = s.as_str().split_whitespace().peekable();
         let rank: usize = parse_int(&mut words, "rank (row)")?;
         if words.count() > 0 {
             return Err("too many words".to_string());

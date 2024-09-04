@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::io::{stdin, stdout};
+use std::iter::Peekable;
 use std::ops::{Deref, DerefMut};
 use std::str::{FromStr, SplitWhitespace};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -35,7 +36,7 @@ use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchSt
 use crate::cli::EngineOpts;
 use crate::search::multithreading::EngineWrapper;
 use crate::search::tt::TT;
-use crate::search::{run_bench_with, BenchLimit, BenchResult, EvalList, SearcherList};
+use crate::search::{run_bench_with, BenchResult, EvalList, SearcherList};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
 use crate::{
@@ -46,14 +47,14 @@ const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
 
 // TODO: Ensure this conforms to <https://expositor.dev/uci/doc/uci-draft-1.pdf>
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 #[must_use]
 enum SearchType {
     Normal,
     Ponder,
+    Bench,
     Perft,
     SplitPerft,
-    Bench,
 }
 
 impl Display for SearchType {
@@ -71,6 +72,7 @@ impl Display for SearchType {
         )
     }
 }
+
 
 #[derive(Debug, Clone)]
 enum ProgramStatus {
@@ -119,7 +121,7 @@ impl<B: Board> BoardGameState<B> {
         self.status = Run(NotStarted);
     }
 
-    fn handle_position(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_position(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         self.initial_pos = parse_ugi_position(words, &self.board)?;
         self.clear_state();
 
@@ -194,7 +196,7 @@ impl<B: Board> UgiOutput<B> {
         }
     }
 
-    fn write_ugi_input(&mut self, msg: SplitWhitespace) {
+    fn write_ugi_input(&mut self, msg: Peekable<SplitWhitespace>) {
         for output in &mut self.additional_outputs {
             output.write_ugi_input(msg.clone(), None);
         }
@@ -377,7 +379,7 @@ impl<B: Board> EngineUGI<B> {
                 }
             }
 
-            let res = self.parse_input(input.split_whitespace());
+            let res = self.parse_input(input.split_whitespace().peekable());
             match res {
                 Err(err) => {
                     self.write_message(Error, err.as_str());
@@ -417,20 +419,22 @@ impl<B: Board> EngineUGI<B> {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn parse_input(&mut self, mut words: SplitWhitespace) -> Res<ProgramStatus> {
+    fn parse_input(&mut self, mut words: Peekable<SplitWhitespace>) -> Res<ProgramStatus> {
         self.output().write_ugi_input(words.clone());
         let words = &mut words;
-        let first_word = words.next().unwrap_or("<empty input>");
+        let Some(first_word) = words.next() else {
+            return Ok(self.state.status.clone()) // ignore empty input
+        };
         match first_word {
             // put time-critical commands at the top
-            "go" | "g" => {
-                self.handle_go(words)?;
-            }
-            "position" | "pos" | "p" => {
-                self.state.handle_position(words)?;
+            "go" | "g" | "search" => {
+                self.handle_go(Normal, words)?;
             }
             "stop" => {
                 self.state.engine.send_stop();
+            }
+            "position" | "pos" | "p" => {
+                self.state.handle_position(words)?;
             }
             // TODO: Make sure this conforms to the UAI protocol, also make sure `monitors` can handle UAI
             proto @ ("ugi" | "uci" | "uai") => {
@@ -440,8 +444,7 @@ impl<B: Board> EngineUGI<B> {
                 self.write_ugi(&format!("{proto}ok"));
             }
             "ponderhit" => self.start_search(
-                Normal,
-                self.state.ponder_limit.ok_or_else(|| {
+                Normal, self.state.ponder_limit.ok_or_else(|| {
                     format!(
                         "The engine received a '{}' command but wasn't pondering",
                         first_word.bold()
@@ -508,17 +511,16 @@ impl<B: Board> EngineUGI<B> {
                 self.handle_play(words)?;
             }
             "perft" => {
-                self.handle_perft_or_bench(Perft, words)?;
+                self.handle_go(Perft, words)?;
             }
             "splitperft" | "sp" => {
-                self.handle_perft_or_bench(SplitPerft, words)?;
+                self.handle_go(SplitPerft, words)?;
             }
             "bench" => {
-                self.handle_perft_or_bench(Bench, words)?;
+                self.handle_go(Bench, words)?;
             }
             "eval" | "e" => self.handle_eval(words)?,
             "help" => self.print_help(),
-            "<empty input>" => {} // do nothing
             x => {
                 // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
                 // expositor UCI spec demands that an invalid token should cause the entire message to be ignored.
@@ -560,7 +562,7 @@ impl<B: Board> EngineUGI<B> {
         )
     }
 
-    fn handle_setoption(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_setoption(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         let mut name = words.next().unwrap_or_default().to_ascii_lowercase();
         if name != "name" {
             return Err(format!(
@@ -591,7 +593,7 @@ impl<B: Board> EngineUGI<B> {
             }
             MoveOverhead => {
                 self.move_overhead =
-                    parse_duration_ms(&mut value.split_whitespace(), "move overhead")?;
+                    parse_duration_ms(&mut value.split_whitespace().peekable(), "move overhead")?;
             }
             MultiPv => {
                 self.multi_pv = parse_int_from_str(&value, "multipv")?;
@@ -631,13 +633,28 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_go(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+    fn accept_depth(limit: &mut SearchLimit, words: &mut Peekable<SplitWhitespace>) {
+        if let Some(word) = words.peek() {
+            if let Ok(number) = parse_int_from_str(word, "depth") {
+                limit.depth = Depth::new(number);
+                _ = words.next();
+            }
+        }
+    }
+
+    fn handle_go(&mut self, mut search_type: SearchType, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+        // "infinite" is the identity element of the bounded semilattice of `go` options
         let mut limit = SearchLimit::infinite();
         let is_first = self.state.board.active_player().is_first();
-        let mut search_type = Normal;
         let mut multi_pv = self.multi_pv;
         let mut search_moves = None;
         let mut reading_moves = false;
+        let mut complete = false;
+        let mut board = self.state.board;
+
+        if matches!(search_type, Perft | SplitPerft | Bench) {
+            Self::accept_depth(&mut limit, words);
+        }
         while let Some(next_word) = words.next() {
             match next_word {
                 "wtime" | "p1time" | "wt" | "p1t" => {
@@ -647,7 +664,7 @@ impl<B: Board> EngineUGI<B> {
                         limit.tc.remaining = time;
                     }
                 }
-                // TODO: Don't assume that ``btime` refers to the second player, instead add a one-letter description to the color trait
+                // TODO: Don't assume that `btime` refers to the second player, instead add a one-letter description to the color trait
                 "btime" | "p2time" | "bt" | "p2t" => {
                     let time = parse_duration_ms(words, "btime")?;
                     if !is_first {
@@ -685,7 +702,7 @@ impl<B: Board> EngineUGI<B> {
                         .saturating_sub(self.move_overhead)
                         .max(Duration::from_millis(1));
                 }
-                "infinite" | "inf" => (), // "infinite" is the identity element of the bounded semilattice of `go` options
+                "infinite" | "inf" => limit = SearchLimit::infinite(), // overwrite previous restrictions
                 "searchmoves" | "sm" => {
                     reading_moves = true;
                     search_moves = Some(vec![]);
@@ -695,9 +712,11 @@ impl<B: Board> EngineUGI<B> {
                     multi_pv = parse_int(words, "multipv")?;
                 }
                 "ponder" => search_type = SearchType::Ponder, // setting different search types uses the last one specified
-                "perft" | "p" => search_type = Perft,
-                "splitperft" | "sp" => search_type = SplitPerft,
-                "bench" => search_type = Bench,
+                "perft" | "pt" => { search_type = Perft; Self::accept_depth(&mut limit, words) }
+                "splitperft" | "sp" => { search_type = SplitPerft; Self::accept_depth(&mut limit, words); }
+                "bench" => { search_type = Bench; Self::accept_depth(&mut limit, words); }
+                "complete" => complete = true,
+                "position" | "pos" | "p" => board = self.load_position_into_copy(words)?,
                 _ => {
                     if reading_moves {
                         let mov = B::Move::from_compact_text(next_word, &self.state.board)
@@ -717,34 +736,42 @@ impl<B: Board> EngineUGI<B> {
             .remaining
             .saturating_sub(self.move_overhead)
             .max(Duration::from_millis(1));
-        self.start_search(search_type, limit, self.state.board, search_moves, multi_pv)
+
+        if complete {
+            match search_type {
+                Bench => {
+                    let mut engine = create_engine_bench_from_str(
+                        &self.state.engine.engine_info().short_name(),
+                        &self.searcher_factories,
+                        &self.eval_factories,
+                    )?;
+                    let res = run_bench_with(engine.as_mut(), limit, Some(SearchLimit::nodes(self.state.engine.engine_info().default_bench_nodes())));
+                    self.output().write_ugi(&res.to_string())
+                }
+                Perft => self.output().write_ugi(&perft_for(limit.depth, B::bench_positions()).to_string()),
+                 _ => return Err(format!("Can only use the '{}' option with 'bench' or 'perft'", "complete".bold())),
+            }
+        }
+        self.start_search(search_type, limit, board, search_moves, multi_pv)
     }
 
     fn start_search(
         &mut self,
         search_type: SearchType,
-        mut limit: SearchLimit,
+        limit: SearchLimit,
         pos: B,
         moves: Option<Vec<B::Move>>,
         multi_pv: usize,
     ) -> Res<()> {
         self.write_message(
             Debug,
-            &format!("Starting {search_type} search with tc {}", limit.tc),
+            &format!("Starting {search_type} search with limit {limit}")
         );
         if let Some(res) = pos.match_result_slow(&self.state.board_hist) {
             self.write_message(Warning, &format!("Starting a {search_type} search in position '{2}', but the game is already over. {0}, reason: {1}.",
                                                  res.result, res.reason, self.state.board.as_fen().bold()));
         }
         self.state.status = Run(Ongoing);
-        let default_depth = match search_type {
-            Perft | SplitPerft => pos.default_perft_depth(),
-            Bench => self.state.engine.engine_info().default_bench_depth(),
-            _ => limit.depth,
-        };
-        if limit.depth == Depth::MAX {
-            limit.depth = default_depth;
-        }
         match search_type {
             // this keeps the current history even if we're searching a different position, but that's probably not a problem
             // and doing a normal search from a custom position isn't even implemented at the moment -- TODO: implement?
@@ -790,69 +817,22 @@ impl<B: Board> EngineUGI<B> {
                 self.write_ugi(&msg);
             }
             Bench => {
-                self.state
+                    self.state
                     .engine
-                    .start_bench(pos, BenchLimit::Depth(limit.depth))
+                    .start_bench(pos, limit)
                     .expect("bench panic");
             }
         };
         Ok(())
     }
 
-    fn load_position_into_copy(&self, words: &mut SplitWhitespace) -> Res<B> {
+    fn load_position_into_copy(&self, words: &mut Peekable<SplitWhitespace>) -> Res<B> {
         let mut board_state_clone = self.state.board_state.clone();
         board_state_clone.handle_position(words)?;
         Ok(board_state_clone.board)
     }
 
-    fn handle_perft_or_bench(&mut self, typ: SearchType, words: &mut SplitWhitespace) -> Res<()> {
-        let mut board = self.state.board;
-        let mut limit = SearchLimit::infinite();
-        let mut complete = false;
-        while let Some(word) = words.next() {
-            match word {
-                "position" | "pos" | "p" => board = self.load_position_into_copy(words)?,
-                "depth" | "d" => {
-                    limit.depth = Depth::new(parse_int(words, "depth number")?);
-                }
-                "nodes" | "n" => {
-                    limit.nodes =
-                        NodesLimit::new(parse_int(words, "node count")?).unwrap_or(NodesLimit::MAX);
-                }
-                "complete" => complete = true,
-                x => {
-                    if let Ok(depth) = parse_int_from_str(x, "depth") {
-                        limit.depth = Depth::new(depth);
-                    } else {
-                        return Err(format!(
-                            "unrecognized bench/perft argument '{}', expected 'position', 'complete', 'nodes', 'depth' or the depth value",
-                            x.red()
-                        ));
-                    }
-                }
-            }
-        }
-        if complete {
-            let res = match typ {
-                Perft => perft_for(limit.depth, B::bench_positions()).to_string(),
-                Bench => {
-                    let mut engine = create_engine_bench_from_str(
-                        &self.state.engine.engine_info().short_name(),
-                        &self.searcher_factories,
-                        &self.eval_factories,
-                    )?;
-                    run_bench_with(engine.as_mut(), limit.depth, Some(limit.nodes)).to_string()
-                },
-                _ => return Err(format!("Can only use the '{}' option with bench or perft, not splitperft or normal runs", "complete".bold()))
-            };
-            self.write_ugi(&res);
-            Ok(())
-        } else {
-            self.start_search(typ, limit, board, None, 1)
-        }
-    }
-
-    fn handle_eval(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_eval(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         if words.clone().next().is_some() {
             let mut board_state_clone = self.state.board_state.clone();
             board_state_clone.handle_position(words)?;
@@ -862,7 +842,7 @@ impl<B: Board> EngineUGI<B> {
         }
     }
 
-    fn handle_query(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_query(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         match words.next().ok_or("Missing argument to 'query'")? {
             "gameover" => self
                 .output()
@@ -887,11 +867,11 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_print(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_print(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         match words.next() {
             None => {
                 if !self.output().show(&self.state) {
-                    return self.handle_print(&mut "unicode".split_whitespace());
+                    return self.handle_print(&mut "unicode".split_whitespace().peekable());
                 }
             }
             Some(name) => {
@@ -919,7 +899,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_output(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_output(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         let next = words.next().unwrap_or_default();
         let output_ptr = self.output.clone();
         let mut output = output_ptr.lock().unwrap();
@@ -962,14 +942,14 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_debug(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_debug(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         match words.next().unwrap_or("on") {
             "on" => {
                 self.state.debug_mode = true;
                 // make sure to print all the messages that can be sent (adding an existing output is a no-op)
-                self.handle_output(&mut "error".split_whitespace())?;
-                self.handle_output(&mut "debug".split_whitespace())?;
-                self.handle_output(&mut "info".split_whitespace())?;
+                self.handle_output(&mut "error".split_whitespace().peekable())?;
+                self.handle_output(&mut "debug".split_whitespace().peekable())?;
+                self.handle_output(&mut "info".split_whitespace().peekable())?;
                 self.write_message(Debug, "Debug mode enabled");
                 // don't change the log stream if it's already set
                 if self
@@ -981,18 +961,18 @@ impl<B: Board> EngineUGI<B> {
                     Ok(())
                 } else {
                     // In case of an error here, still keep the debug mode set.
-                    self.handle_log(&mut "".split_whitespace())
+                    self.handle_log(&mut "".split_whitespace().peekable())
                         .map_err(|err| format!("Couldn't set the debug log file: '{err}'"))?;
                     Ok(())
                 }
             }
             "off" => {
                 self.state.debug_mode = false;
-                _ = self.handle_output(&mut "remove debug".split_whitespace());
-                _ = self.handle_output(&mut "remove info".split_whitespace());
+                _ = self.handle_output(&mut "remove debug".split_whitespace().peekable());
+                _ = self.handle_output(&mut "remove info".split_whitespace().peekable());
                 self.write_message(Debug, "Debug mode disabled");
                 // don't remove the error output, as there is basically no reason to do so
-                self.handle_log(&mut "none".split_whitespace())
+                self.handle_log(&mut "none".split_whitespace().peekable())
             }
             x => Err(format!("Invalid debug option '{x}'")),
         }
@@ -1001,7 +981,7 @@ impl<B: Board> EngineUGI<B> {
     // This function doesn't depend on the generic parameter, and luckily the rust compiler is smart enough to
     // polymorphize the monomorphed functions again,i.e. it will only generate this function once. So no need to
     // manually move it into a context where it doesn't depend on `B`.
-    fn handle_log(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_log(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         self.output().additional_outputs.retain(|o| !o.is_logger());
         let next = words.clone().next().unwrap_or_default();
         if next != "off" && next != "none" {
@@ -1073,7 +1053,7 @@ impl<B: Board> EngineUGI<B> {
         println!("{str}");
     }
 
-    fn handle_engine(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_engine(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         let Some(name) = words.next() else {
             let info = self.state.engine.engine_info();
             let short = info.short_name();
@@ -1101,7 +1081,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_set_eval(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_set_eval(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         let Some(name) = words.next() else {
             let name = self
                 .state
@@ -1117,7 +1097,7 @@ impl<B: Board> EngineUGI<B> {
         self.state.engine.set_eval(eval)
     }
 
-    fn handle_play(&mut self, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_play(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         let default = Game::default().to_string();
         let game_name = words.next().unwrap_or(&default);
         let game = select_game(game_name)?;
@@ -1129,7 +1109,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn print_option(&self, words: &mut SplitWhitespace) -> Res<String> {
+    fn print_option(&self, words: &mut Peekable<SplitWhitespace>) -> Res<String> {
         let options = self.get_options();
         Ok(
             match words

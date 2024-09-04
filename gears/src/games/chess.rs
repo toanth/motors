@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use std::iter::Peekable;
 use std::num::NonZeroUsize;
 use std::ops::Not;
 use std::str::{FromStr, SplitWhitespace};
@@ -509,7 +510,7 @@ impl Board for Chessboard {
         )
     }
 
-    fn read_fen_and_advance_input(words: &mut SplitWhitespace) -> Res<Self> {
+    fn read_fen_and_advance_input(words: &mut Peekable<SplitWhitespace>) -> Res<Self> {
         let mut board = Chessboard::empty();
         board = read_common_fen_part::<Chessboard>(words, board)?;
         let color = board.0.active_player();

@@ -10,6 +10,7 @@ use crate::general::board::{read_common_fen_part, UnverifiedBoard};
 use crate::general::common::Res;
 use crate::general::moves::Move;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::iter::Peekable;
 use std::num::NonZeroUsize;
 use std::str::SplitWhitespace;
 
@@ -152,7 +153,7 @@ impl AtaxxBoard {
         ZobristHash(hasher.finish())
     }
 
-    pub fn read_fen_impl(words: &mut SplitWhitespace) -> Res<Self> {
+    pub fn read_fen_impl(words: &mut Peekable<SplitWhitespace>) -> Res<Self> {
         let empty = AtaxxBoard::empty();
         let mut board = read_common_fen_part::<AtaxxBoard>(words, empty.into())?;
         let color = board.0.active_player();

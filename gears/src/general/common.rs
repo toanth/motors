@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display};
 use std::io::stdin;
+use std::iter::Peekable;
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::str::{FromStr, SplitWhitespace};
 use std::time::Duration;
@@ -59,7 +60,7 @@ pub fn parse_int_from_str<T: PrimInt + FromStr>(as_str: &str, name: &str) -> Res
 }
 
 pub fn parse_int<T: PrimInt + FromStr + Display>(
-    words: &mut SplitWhitespace,
+    words: &mut Peekable<SplitWhitespace>,
     name: &str,
 ) -> Res<T> {
     parse_int_from_str(words.next().ok_or_else(|| format!("Missing {name}"))?, name)
@@ -87,7 +88,7 @@ pub fn parse_bool_from_str(input: &str, name: &str) -> Res<bool> {
     }
 }
 
-pub fn parse_duration_ms(words: &mut SplitWhitespace, name: &str) -> Res<Duration> {
+pub fn parse_duration_ms(words: &mut Peekable<SplitWhitespace>, name: &str) -> Res<Duration> {
     let num_ms: i64 = parse_int(words, name)?;
     // The UGI client can send negative remaining time.
     Ok(Duration::from_millis(num_ms.max(0) as u64))

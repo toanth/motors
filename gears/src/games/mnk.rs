@@ -1,6 +1,7 @@
 use std::cmp::min;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::iter::Peekable;
 use std::mem::size_of;
 use std::str::SplitWhitespace;
 
@@ -648,7 +649,7 @@ impl Board for MNKBoard {
         )
     }
 
-    fn read_fen_and_advance_input(words: &mut SplitWhitespace) -> Res<Self> {
+    fn read_fen_and_advance_input(words: &mut Peekable<SplitWhitespace>) -> Res<Self> {
         if words.clone().next().is_none() {
             return Err("Empty mnk fen".to_string());
         }

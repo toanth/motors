@@ -85,8 +85,8 @@ fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts) -> Res<()> {
         key.remove(0);
     }
     match key.as_str() {
-        "bench" | "-bench" | "-b" => opts.mode = Bench(parse_bench(args)?, true),
-        "bench-simple" | "-bench-simple" | "-bs" => opts.mode = Bench(parse_bench(args)?, false),
+        "bench" | "-bench" | "-b" | "b" => opts.mode = Bench(parse_bench(args)?, true),
+        "bench-simple" | "-bench-simple" | "-bs" | "bs" => opts.mode = Bench(parse_bench(args)?, false),
         "perft" | "-perft" | "-p" => opts.mode = Perft(parse_perft(args)?),
         "-engine" | "-e" => opts.engine = get_next_arg(args, "engine")?,
         "-game" | "-g" => opts.game = Game::from_str(&get_next_arg(args, "engine")?.to_lowercase()).map_err(|err| err.to_string())?,

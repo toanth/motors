@@ -93,7 +93,7 @@ pub(super) struct FenReader<B: Board, E: Eval<B>> {
 }
 
 impl<B: Board, E: Eval<B>> FenReader<B, E> {
-    fn parse_wdl(input: &mut SplitWhitespace) -> Res<Outcome> {
+    fn parse_wdl(input: &mut Peekable<SplitWhitespace>) -> Res<Outcome> {
         const IGNORED: [char; 10] = ['\"', '\'', '[', ']', '(', ')', '{', '}', ' ', '\t'];
         // This would be a great time to use the `.remainder()` method, but that isn't stable :/
         let wdl = input.next().ok_or_else(|| "Missing wdl".to_string())?;

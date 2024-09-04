@@ -23,6 +23,7 @@ use rand::prelude::SliceRandom;
 use rand::Rng;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
+use std::iter::Peekable;
 use std::ops::Not;
 use std::str::SplitWhitespace;
 use strum::IntoEnumIterator;
@@ -342,7 +343,7 @@ impl Board for AtaxxBoard {
         )
     }
 
-    fn read_fen_and_advance_input(string: &mut SplitWhitespace) -> Res<Self> {
+    fn read_fen_and_advance_input(string: &mut Peekable<SplitWhitespace>) -> Res<Self> {
         Self::read_fen_impl(string)
     }
 

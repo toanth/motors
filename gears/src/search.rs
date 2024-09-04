@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use crate::general::board::Board;
 use derive_more::{Add, AddAssign, SubAssign};
+use itertools::Itertools;
 
 use crate::general::common::parse_fp_from_str;
 use crate::score::Score;
@@ -158,7 +159,7 @@ impl Default for TimeControl {
 
 impl Display for TimeControl {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if self.remaining >= Duration::MAX / 2 {
+        if self.is_infinite() {
             write!(f, "infinite")
         } else {
             write!(
@@ -209,7 +210,7 @@ impl TimeControl {
     }
 
     pub fn is_infinite(&self) -> bool {
-        self.remaining >= Duration::MAX - Duration::from_secs(1000)
+        self.remaining >= Duration::MAX  / 2
     }
 
     pub fn update(&mut self, elapsed: Duration) {
@@ -246,7 +247,7 @@ impl TimeControl {
 }
 
 #[derive(
-    Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Add, AddAssign, SubAssign,
+    Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Add, AddAssign, SubAssign, derive_more::Display,
 )]
 #[must_use]
 pub struct Depth(usize);
@@ -292,6 +293,35 @@ impl Default for SearchLimit {
             depth: MAX_DEPTH,
             nodes: NodesLimit::new(u64::MAX).unwrap(),
             mate: Depth(0),
+        }
+    }
+}
+
+impl Display for SearchLimit {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.is_infinite() {
+            return write!(f, "infinite");
+        }
+        let mut limits = vec![];
+        if !self.tc.is_infinite() {
+            limits.push(format!("{}", self.tc));
+        }
+        if !self.is_infinite_fixed_time() {
+            limits.push(format!("{} ms fixed", self.fixed_time.as_millis()));
+        }
+        if self.depth != MAX_DEPTH {
+            limits.push(format!("{} depth", self.depth.get()));
+        }
+        if self.nodes.get() != u64::MAX {
+            limits.push(format!("{} nodes", self.nodes.get()));
+        }
+        if self.mate != Depth(0) {
+            limits.push(format!("mate in {} plies", self.mate.get()));
+        }
+        if limits.len() == 1 {
+            return write!(f, "{}", limits[0]);
+        } else {
+            write!(f, "[{}]", limits.iter().format(","))
         }
     }
 }
@@ -352,12 +382,17 @@ impl SearchLimit {
         self.fixed_time.min(self.tc.remaining)
     }
 
+    pub fn is_infinite_fixed_time(&self) -> bool {
+        self.fixed_time >= Duration::MAX / 2
+    }
+
+
     pub fn is_infinite(&self) -> bool {
         let inf = Self::infinite();
         self.tc.is_infinite()
+            && self.is_infinite_fixed_time()
             && self.mate == inf.mate
             && self.depth == inf.depth
             && self.nodes == inf.nodes
-            && self.fixed_time >= inf.fixed_time - Duration::from_secs(1000)
     }
 }

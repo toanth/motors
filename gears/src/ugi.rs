@@ -1,6 +1,7 @@
 use crate::general::board::Board;
 use colored::Colorize;
 use std::fmt::{Display, Formatter};
+use std::iter::Peekable;
 use std::str::{FromStr, SplitWhitespace};
 
 use crate::general::common::{NamedEntity, Res};
@@ -214,7 +215,7 @@ impl NamedEntity for EngineOption {
     }
 }
 
-pub fn parse_ugi_position<B: Board>(words: &mut SplitWhitespace, old_board: &B) -> Res<B> {
+pub fn parse_ugi_position<B: Board>(words: &mut Peekable<SplitWhitespace>, old_board: &B) -> Res<B> {
     // let input = words.remainder().unwrap_or_default().trim();
     let position_word = words
         .next()
@@ -235,7 +236,7 @@ pub fn parse_ugi_position<B: Board>(words: &mut SplitWhitespace, old_board: &B) 
 }
 
 pub fn parse_ugi_position_and_moves<B: Board>(
-    words: &mut SplitWhitespace,
+    words: &mut Peekable<SplitWhitespace>,
     old_board: &B,
 ) -> Res<B> {
     let mut board = parse_ugi_position(words, old_board)?;

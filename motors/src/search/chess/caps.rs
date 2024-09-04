@@ -383,7 +383,7 @@ impl Caps {
 
         for depth in 1..=max_depth {
             self.state.statistics.next_id_iteration();
-            self.state.shared().set_depth(depth);
+            self.state.atomic().set_depth(depth);
             for pv_num in 0..multi_pv {
                 self.state.current_pv_num = pv_num;
                 let mut pv_data = self.state.multi_pvs[pv_num];
@@ -395,8 +395,11 @@ impl Caps {
                     &mut pv_data.radius,
                     max_depth,
                 );
-                let mov = self.state.best_move();
-                self.state.excluded_moves.push(mov);
+                let chosen_move = self.state.multi_pvs[pv_num].best_move;
+                self.state.multi_pvs[pv_num].alpha = pv_data.alpha;
+                self.state.multi_pvs[pv_num].beta = pv_data.beta;
+                self.state.multi_pvs[pv_num].radius = pv_data.radius;
+                self.state.excluded_moves.push(chosen_move);
                 if !keep_searching {
                     return self.state.search_result();
                 }
@@ -451,11 +454,12 @@ impl Caps {
             self.state.send_non_ugi(
                 Debug,
                 &format!(
-                    "depth {depth}, score {0}, radius {1}, interval ({2}, {3})",
+                    "depth {depth}, score {0}, radius {1}, interval ({2}, {3}) nodes {4}",
                     pv_score.0,
                     window_radius.0,
                     alpha.0,
                     beta.0,
+                    self.state.uci_nodes(),
                     depth = self.state.depth().get()
                 ),
             );
@@ -472,11 +476,12 @@ impl Caps {
             // and risk playing a move we might have just found a refutation to)
             // Set this before returning if the search has been aborted
             if node_type != FailLow && self.state.current_pv_num == 0 {
-                let chosen_move = self.state.pv().unwrap()[0];
                 if pv_score != NO_SCORE_YET {
                     self.state.search_params().atomic.set_score(pv_score);
                 }
                 self.state.search_params().atomic.set_best_move(chosen_move);
+                let ponder_move = self.state.pv().and_then(|pv| pv.get(1).copied());
+                self.state.search_params().atomic.set_ponder_move(ponder_move);
             }
 
             if !self.state.currently_searching() {
@@ -528,7 +533,7 @@ impl Caps {
         self.state.statistics.count_node_started(MainSearch);
 
         let root = ply == 0;
-        let is_pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
+            let is_pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
         debug_assert!(!root || is_pv_node); // root implies pv node
         debug_assert!(alpha + 1 == beta || is_pv_node); // alpha + 1 < beta implies Exact node
 
@@ -759,7 +764,7 @@ impl Caps {
 
             let debug_history_len = self.state.params.history.len();
 
-            self.record_move(mov, pos, ply, MainSearch);
+                self.record_move(mov, pos, ply, MainSearch);
             // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove
             // that the other moves are worse, which we can do with a zero window search. Should this assumption fail,
             // re-search with a full window.
@@ -1000,7 +1005,7 @@ impl Caps {
     fn qsearch(&mut self, pos: Chessboard, mut alpha: Score, beta: Score, ply: usize) -> Score {
         self.state.statistics.count_node_started(Qsearch);
         // updating seldepth only in qsearch meaningfully increased performance and was even measurable in a [0, 10] SPRT.
-        self.state.shared().update_seldepth(ply);
+        self.state.atomic().update_seldepth(ply);
         // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
         let mut best_score = self.eval(pos, ply);
@@ -1070,7 +1075,7 @@ impl Caps {
             let Some(new_pos) = pos.make_move(mov) else {
                 continue;
             };
-            self.record_move(mov, pos, ply, Qsearch);
+                self.record_move(mov, pos, ply, Qsearch);
             children_visited += 1;
             let score = -self.qsearch(new_pos, -beta, -alpha, ply + 1);
             self.undo_move();

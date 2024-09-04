@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::iter::Peekable;
 use std::str::SplitWhitespace;
 
 use itertools::Itertools;
@@ -70,7 +71,7 @@ impl AbstractOutput for Logger {
         }
     }
 
-    fn write_ugi_input(&mut self, mut message: SplitWhitespace, player: Option<&str>) {
+    fn write_ugi_input(&mut self, mut message: Peekable<SplitWhitespace>, player: Option<&str>) {
         match player {
             None => self.stream.write(">", &message.join(" ")),
             Some(name) => self.stream.write(&format!("({name})>"), &message.join(" ")),
@@ -116,7 +117,7 @@ impl LoggerBuilder {
         }
     }
 
-    pub fn from_words(words: &mut SplitWhitespace) -> Self {
+    pub fn from_words(words: &mut Peekable<SplitWhitespace>) -> Self {
         Self::new(&words.join(" "))
     }
 

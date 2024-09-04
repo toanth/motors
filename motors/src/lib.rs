@@ -17,7 +17,7 @@ use gears::general::common::Description::WithDescription;
 use gears::general::common::{select_name_dyn, Res};
 use gears::general::perft::perft;
 use gears::output::normal_outputs;
-use gears::search::Depth;
+use gears::search::{Depth, SearchLimit};
 use gears::Quitting::*;
 use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs, Quitting};
 
@@ -41,7 +41,7 @@ use crate::search::generic::random_mover::RandomMover;
 use crate::search::multithreading::EngineWrapper;
 use crate::search::tt::TT;
 use crate::search::{
-    run_bench, run_bench_with, AbstractEvalBuilder, AbstractSearcherBuilder, Benchable,
+    run_bench_with, AbstractEvalBuilder, AbstractSearcherBuilder, Benchable,
     EvalBuilder, EvalList, SearcherBuilder, SearcherList,
 };
 use crate::ugi_engine::{EngineUGI, UgiOutput};
@@ -79,11 +79,11 @@ impl<B: Board> BenchRun<B> {
 impl<B: Board> AbstractRun for BenchRun<B> {
     fn run(&mut self) -> Quitting {
         let engine = self.engine.as_mut();
-        let nodes = engine.default_bench_nodes();
-        let res = match self.depth {
-            None => run_bench(engine, self.with_nodes),
-            Some(depth) => run_bench_with(engine, depth, Some(nodes)),
-        };
+        let nodes = if self.with_nodes {
+            Some(SearchLimit::nodes(engine.default_bench_nodes()))
+        } else { None };
+        let depth = self.depth.unwrap_or(engine.default_bench_depth());
+        let res = run_bench_with(engine, SearchLimit::depth(depth), nodes);
         println!("{res}");
         QuitProgram
     }

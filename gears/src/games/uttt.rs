@@ -48,6 +48,7 @@ use rand::Rng;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::iter::Peekable;
 use std::ops::Not;
 use std::str::{FromStr, SplitWhitespace};
 use strum::IntoEnumIterator;
@@ -806,7 +807,7 @@ impl Board for UtttBoard {
     // TODO: Don't use a separate open bitboard, just set both players' bitboards to one for squares that are no longer
     // reachable because the sub board has been won, and update the piece_on function
 
-    fn read_fen_and_advance_input(input: &mut SplitWhitespace) -> Res<Self> {
+    fn read_fen_and_advance_input(input: &mut Peekable<SplitWhitespace>) -> Res<Self> {
         let pos = Self::default();
         let mut pos = read_common_fen_part::<UtttBoard>(input, pos.into())?;
 

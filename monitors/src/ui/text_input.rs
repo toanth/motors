@@ -215,7 +215,7 @@ impl<B: Board> TextInputThread<B> {
         Ok(true)
     }
 
-    fn print_help(commands: &[Command<B>], words: &mut SplitWhitespace) -> Res<()> {
+    fn print_help(commands: &[Command<B>], words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         if let Some(name) = words.next() {
             let desc = select_name_static(
                 name,
@@ -247,7 +247,7 @@ impl<B: Board> TextInputThread<B> {
 
     fn get_side(
         client: &MutexGuard<Client<B>>,
-        words: &mut SplitWhitespace,
+        words: &mut Peekable<SplitWhitespace>,
         default_player: DefaultPlayer,
     ) -> Res<B::Color> {
         match words
@@ -307,7 +307,7 @@ impl<B: Board> TextInputThread<B> {
         client.play_move(mov)
     }
 
-    fn handle_stop(mut client: MutexGuard<Client<B>>, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_stop(mut client: MutexGuard<Client<B>>, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         let side = Self::get_side(&client, words, Active)?;
         if !client.state.get_player(side).is_engine() {
             return Err(format!(
@@ -327,7 +327,7 @@ impl<B: Board> TextInputThread<B> {
         }
     }
 
-    fn handle_position(mut client: MutexGuard<Client<B>>, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_position(mut client: MutexGuard<Client<B>>, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         let old_board = *client.board();
         client.reset_to_new_start_position(parse_ugi_position(words, &old_board)?);
         let Some(word) = words.next() else {
@@ -344,14 +344,14 @@ impl<B: Board> TextInputThread<B> {
         Ok(())
     }
 
-    fn handle_undo(mut client: MutexGuard<Client<B>>, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_undo(mut client: MutexGuard<Client<B>>, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         let num = parse_int_from_str(words.next().unwrap_or("1"), "num moves")?;
         client.undo_halfmoves(num)
     }
 
     fn handle_set_player(
         mut client: MutexGuard<Client<B>>,
-        words: &mut SplitWhitespace,
+        words: &mut Peekable<SplitWhitespace>,
     ) -> Res<()> {
         let side = Self::get_side(&client, words, NoPlayer)?;
         let name = words.next().ok_or_else(|| {
@@ -398,7 +398,7 @@ impl<B: Board> TextInputThread<B> {
         }
     }
 
-    fn handle_tc(mut client: MutexGuard<Client<B>>, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_tc(mut client: MutexGuard<Client<B>>, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         let color = Self::get_side(&client, words, Active)?;
         let tc = TimeControl::from_str(words.next().unwrap_or_default())?;
         client.state.get_player_mut(color).set_time(tc)?;
@@ -408,7 +408,7 @@ impl<B: Board> TextInputThread<B> {
 
     fn handle_load_player(
         ugi_client: Arc<Mutex<Client<B>>>,
-        words: &mut SplitWhitespace,
+        words: &mut Peekable<SplitWhitespace>,
     ) -> Res<()> {
         let mut words = words.map(ToString::to_string).peekable();
         let args = if words
@@ -425,7 +425,7 @@ impl<B: Board> TextInputThread<B> {
         Ok(())
     }
 
-    fn handle_ui(mut client: MutexGuard<Client<B>>, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_ui(mut client: MutexGuard<Client<B>>, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         match words.next() {
             None => {
                 let infos = client
@@ -471,7 +471,7 @@ impl<B: Board> TextInputThread<B> {
         Ok(())
     }
 
-    fn handle_print(mut client: MutexGuard<Client<B>>, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_print(mut client: MutexGuard<Client<B>>, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         match words.next().unwrap_or_default() {
             "" => client.show(),
             x => {
@@ -483,7 +483,7 @@ impl<B: Board> TextInputThread<B> {
         Ok(())
     }
 
-    fn handle_info(mut client: MutexGuard<Client<B>>, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_info(mut client: MutexGuard<Client<B>>, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         let color = Self::get_side(&client, words, Active)?;
         match client.state.get_player_mut(color) {
             Player::Engine(engine) => {
@@ -520,7 +520,7 @@ impl<B: Board> TextInputThread<B> {
         Ok(())
     }
 
-    fn handle_send_ugi(mut client: MutexGuard<Client<B>>, words: &mut SplitWhitespace) -> Res<()> {
+    fn handle_send_ugi(mut client: MutexGuard<Client<B>>, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         let player = Self::get_side(&client, words, Active)?;
         if !client.state.get_player_mut(player).is_engine() {
             return Err(format!(

@@ -25,7 +25,7 @@ use gears::output::Message;
 use gears::output::Message::Warning;
 use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON};
 use gears::search::{
-    Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl, MAX_DEPTH,
+    Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl,
 };
 use gears::ugi::{EngineOption, EngineOptionName};
 
@@ -357,28 +357,11 @@ impl<B: Board, E: Engine<B>> StaticallyNamedEntity for SearcherBuilder<B, E> {
     }
 }
 
-#[derive(Debug)]
-#[must_use]
-pub enum BenchLimit {
-    Depth(Depth),
-    Nodes(NodesLimit),
-}
-
-impl BenchLimit {
-    pub fn to_search_limit(self, depth_limit: Depth) -> SearchLimit {
-        let mut res = SearchLimit::infinite();
-        match self {
-            BenchLimit::Depth(depth) => res.depth = depth.min(depth_limit),
-            BenchLimit::Nodes(nodes) => res.nodes = nodes,
-        }
-        res
-    }
-}
 
 pub trait Benchable<B: Board>: Debug {
-    fn clean_bench(&mut self, pos: B, limit: BenchLimit) -> BenchResult;
+    fn clean_bench(&mut self, pos: B, limit: SearchLimit) -> BenchResult;
 
-    fn bench(&mut self, pos: B, limit: BenchLimit, tt: TT) -> BenchResult;
+    fn bench(&mut self, pos: B, limit: SearchLimit, tt: TT) -> BenchResult;
 
     fn default_bench_nodes(&self) -> NodesLimit;
     fn default_bench_depth(&self) -> Depth;
@@ -403,15 +386,13 @@ pub trait AbstractEngine<B: Board>: StaticallyNamedEntity + Benchable<B> {
 }
 
 impl<B: Board, E: Engine<B>> Benchable<B> for E {
-    fn clean_bench(&mut self, pos: B, limit: BenchLimit) -> BenchResult {
+    fn clean_bench(&mut self, pos: B, limit: SearchLimit) -> BenchResult {
         self.forget();
-        let limit = limit.to_search_limit(self.max_bench_depth());
         let _ = self.search_with_new_tt(pos, limit);
         self.search_state().to_bench_res()
     }
 
-    fn bench(&mut self, pos: B, limit: BenchLimit, tt: TT) -> BenchResult {
-        let limit = limit.to_search_limit(self.max_bench_depth());
+    fn bench(&mut self, pos: B, limit: SearchLimit, tt: TT) -> BenchResult {
         let _ = self.search_with_tt(pos, limit, tt);
         self.search_state().to_bench_res()
     }
@@ -440,7 +421,7 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
     }
 
     fn search_with_tt(&mut self, pos: B, limit: SearchLimit, tt: TT) -> SearchResult<B> {
-        self.search(SearchParams::with_tt(pos, limit, tt))
+        self.search(SearchParams::new_simple(pos, limit, tt))
     }
 
     /// Start a new search and return the best move and score.
@@ -452,7 +433,8 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
         search_state.end_search();
         search_state.send_statistics();
         search_state.aggregate_match_statistics();
-        // might block, see method
+        // might block, see method. Do this as the last step so that we're not using compute after sending
+        // the search result.
         self.search_state_mut().send_search_res(res);
         res
     }
@@ -520,7 +502,7 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
     }
 
     fn is_currently_searching(&self) -> bool {
-        !self.search_state().stop_command_received()
+        self.search_state().currently_searching()
     }
 
     fn can_use_multiple_threads() -> bool;
@@ -567,27 +549,18 @@ pub struct SearchParams<B: Board> {
 }
 
 impl<B: Board> SearchParams<B> {
-    pub fn for_pos(pos: B, limit: SearchLimit) -> Self {
-        Self::with_tt(pos, limit, TT::default())
-    }
 
-    pub fn with_tt(pos: B, limit: SearchLimit, tt: TT) -> Self {
-        Self::new(pos, limit, ZobristHistory::default(), tt)
+    pub fn new_simple(pos: B, limit: SearchLimit, tt: TT) -> Self {
+        Self::with_atomic_state(pos, limit, tt, Arc::new(AtomicSearchState::default()))
     }
 
     pub fn with_atomic_state(
         pos: B,
         limit: SearchLimit,
-        shared: Arc<AtomicSearchState<B>>,
+        tt: TT,
+        atomic: Arc<AtomicSearchState<B>>,
     ) -> Self {
-        let mut res = Self::new(pos, limit, ZobristHistory::default(), TT::minimal());
-        res.atomic = shared;
-        res
-    }
-
-    pub fn new(pos: B, limit: SearchLimit, history: ZobristHistory<B>, tt: TT) -> Self {
-        // Auxiliary is the default because it doesn't deal with multithreading, like sending data over a sender
-        Self::create(pos, limit, history, tt, None, 0, Auxiliary)
+        Self::create(pos, limit, ZobristHistory::default(), tt, None, 0, atomic, Auxiliary)
     }
 
     pub fn create(
@@ -597,12 +570,13 @@ impl<B: Board> SearchParams<B> {
         tt: TT,
         restrict_moves: Option<Vec<B::Move>>,
         additional_pvs: usize,
+        atomic: Arc<AtomicSearchState<B>>,
         thread_type: SearchThreadType<B>,
     ) -> Self {
         Self {
             pos,
             limit,
-            atomic: Arc::new(AtomicSearchState::default()),
+            atomic,
             history,
             tt,
             thread_type,
@@ -713,6 +687,10 @@ pub trait SearchState<B: Board>: Debug {
 
     fn multi_pv(&self) -> usize {
         self.search_params().num_multi_pv
+    }
+
+    fn is_main(&self) -> bool {
+        matches!(self.search_params().thread_type, Main(_))
     }
 
     fn send_ugi(&mut self, ugi_str: &str) {
@@ -887,10 +865,9 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> ABSearchState<B, E, C> 
             statistics: Statistics::default(),
             aggregated_statistics: Statistics::default(),
             multi_pvs: vec![],
-            params: SearchParams::new(
+            params: SearchParams::new_simple(
                 B::default(),
                 SearchLimit::infinite(),
-                ZobristHistory::default(),
                 TT::minimal(),
             ),
             excluded_moves: vec![],
@@ -915,7 +892,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> ABSearchState<B, E, C> 
     }
 
     /// Each thread has its own copy, but the main thread can access the copies of the auxiliary threads
-    fn shared(&self) -> &AtomicSearchState<B> {
+    fn atomic(&self) -> &AtomicSearchState<B> {
         &self.params.atomic
     }
 
@@ -978,6 +955,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
         // it's possible that there are no legal moves to search; such as when the game is over or if restrict_moves
         // contains only invalid moves. Search must be able to deal with this
         debug_assert!(self.excluded_moves.len() + parameters.num_multi_pv <= num_moves);
+        parameters.atomic.set_stop(false);
         parameters.atomic.set_searching(true);
         self.params = parameters;
     }
@@ -1025,16 +1003,6 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
     fn pv(&self) -> Option<&[B::Move]> {
         self.search_stack.first().and_then(|e| e.pv())
     }
-
-    // fn best_move(&self) -> B::Move {
-    //     self.search_stack
-    //         .first()
-    //         .and_then(|e| e.pv())
-    //         .and_then(|pv| pv.first())
-    //         .copied()
-    //         .or_else(|| self.custom.best_move())
-    //         .unwrap_or_default()
-    // }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, FromRepr)]
@@ -1062,48 +1030,40 @@ impl NodeType {
 }
 
 pub fn run_bench<B: Board>(engine: &mut dyn Benchable<B>, with_nodes: bool) -> BenchResult {
-    let depth = engine.default_bench_depth();
     let nodes = if with_nodes {
-        Some(engine.default_bench_nodes())
+        Some(SearchLimit::nodes(engine.default_bench_nodes()))
     } else {
         None
     };
+    let depth = SearchLimit::depth(engine.default_bench_depth());
     run_bench_with(engine, depth, nodes)
 }
 
 pub fn run_bench_with<B: Board>(
     engine: &mut dyn Benchable<B>,
-    mut depth: Depth,
-    mut nodes: Option<NodesLimit>,
+    limit: SearchLimit,
+    second_limit: Option<SearchLimit>,
 ) -> BenchResult {
-    if depth.get() == 0 || depth == MAX_DEPTH {
-        depth = engine.default_bench_depth();
-    }
-    if let Some(nodes) = &mut nodes {
-        if *nodes == NodesLimit::MAX {
-            *nodes = engine.default_bench_nodes();
-            assert!(*nodes <= NodesLimit::new(10_000_000).unwrap());
-        }
-    }
     let mut hasher = DefaultHasher::new();
     let mut sum = BenchResult::default();
     let tt = TT::default();
     for position in B::bench_positions() {
         // engine.forget();
-        let res = engine.bench(position, BenchLimit::Depth(depth), tt.clone());
-        sum.nodes = NodesLimit::new(sum.nodes.get() + res.nodes.get()).unwrap();
-        sum.time += res.time;
-        res.moves_hash.hash(&mut hasher);
-        if let Some(nodes) = nodes {
-            let res = engine.bench(position, BenchLimit::Nodes(nodes), tt.clone());
-            sum.nodes = NodesLimit::new(sum.nodes.get() + res.nodes.get()).unwrap();
-            sum.time += res.time;
-            res.moves_hash.hash(&mut hasher);
+        single_bench(position, engine, limit, tt.clone(), &mut sum, &mut hasher);
+        if let Some(limit) = second_limit {
+            single_bench(position, engine, limit, tt.clone(), &mut sum, &mut hasher);
         }
     }
-    sum.depth = depth;
     sum.moves_hash = hasher.finish();
     sum
+}
+
+fn single_bench<B: Board>(pos: B, engine: &mut dyn Benchable<B>, limit: SearchLimit, tt: TT, sum: &mut BenchResult, hasher: &mut DefaultHasher) {
+    let res = engine.bench(pos, limit, tt);
+    sum.nodes = NodesLimit::new(sum.nodes.get() + res.nodes.get()).unwrap();
+    sum.time += res.time;
+    res.moves_hash.hash(hasher);
+    sum.depth = sum.depth.max(sum.depth);
 }
 
 #[cfg(test)]
@@ -1117,7 +1077,7 @@ mod tests {
         for p in B::bench_positions() {
             let res = engine.bench(
                 p,
-                BenchLimit::Nodes(NodesLimit::new(1).unwrap()),
+                SearchLimit::nodes_(1),
                 tt.clone(),
             );
             assert!(res.depth.get() <= 1);

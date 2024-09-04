@@ -152,10 +152,6 @@ impl Statistics {
         search.counters[NodesStarted as usize]
     }
 
-    pub fn sel_depth(&self) -> usize {
-        self.cur().seldepth
-    }
-
     /// Returns the number of *completed* iterations of ID, so one less than the current depth if search is ongoing.
     pub fn depth(&self) -> usize {
         self.depth
