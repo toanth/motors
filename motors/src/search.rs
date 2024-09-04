@@ -24,9 +24,7 @@ use gears::general::move_list::MoveList;
 use gears::output::Message;
 use gears::output::Message::Warning;
 use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON};
-use gears::search::{
-    Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl,
-};
+use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::{EngineOption, EngineOptionName};
 
 use crate::search::multithreading::SearchThreadType::*;
@@ -357,7 +355,6 @@ impl<B: Board, E: Engine<B>> StaticallyNamedEntity for SearcherBuilder<B, E> {
     }
 }
 
-
 pub trait Benchable<B: Board>: Debug {
     fn clean_bench(&mut self, pos: B, limit: SearchLimit) -> BenchResult;
 
@@ -549,7 +546,6 @@ pub struct SearchParams<B: Board> {
 }
 
 impl<B: Board> SearchParams<B> {
-
     pub fn new_simple(pos: B, limit: SearchLimit, tt: TT) -> Self {
         Self::with_atomic_state(pos, limit, tt, Arc::new(AtomicSearchState::default()))
     }
@@ -560,7 +556,16 @@ impl<B: Board> SearchParams<B> {
         tt: TT,
         atomic: Arc<AtomicSearchState<B>>,
     ) -> Self {
-        Self::create(pos, limit, ZobristHistory::default(), tt, None, 0, atomic, Auxiliary)
+        Self::create(
+            pos,
+            limit,
+            ZobristHistory::default(),
+            tt,
+            None,
+            0,
+            atomic,
+            Auxiliary,
+        )
     }
 
     pub fn create(
@@ -729,7 +734,7 @@ pub trait SearchState<B: Board>: Debug {
             let mut rng = StdRng::seed_from_u64(42); // keep everything deterministic
             let chosen_move = pos.random_legal_move(&mut rng).unwrap_or_default();
             if chosen_move != B::Move::default() {
-                debug_assert!(pos.is_move_legal(res.chosen_move));
+                debug_assert!(pos.is_move_legal(chosen_move));
                 output.write_message(Warning, "Not even a single iteration finished");
                 output.write_ugi(&SearchResult::<B>::move_only(chosen_move).to_string());
                 return;
@@ -865,11 +870,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> ABSearchState<B, E, C> 
             statistics: Statistics::default(),
             aggregated_statistics: Statistics::default(),
             multi_pvs: vec![],
-            params: SearchParams::new_simple(
-                B::default(),
-                SearchLimit::infinite(),
-                TT::minimal(),
-            ),
+            params: SearchParams::new_simple(B::default(), SearchLimit::infinite(), TT::minimal()),
             excluded_moves: vec![],
             current_pv_num: 0,
         }
@@ -955,9 +956,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
         // it's possible that there are no legal moves to search; such as when the game is over or if restrict_moves
         // contains only invalid moves. Search must be able to deal with this
         debug_assert!(self.excluded_moves.len() + parameters.num_multi_pv <= num_moves);
-        parameters.atomic.set_stop(false);
-        parameters.atomic.set_searching(true);
         self.params = parameters;
+        debug_assert!(self.currently_searching() && !self.stop_command_received());
     }
 
     fn to_search_info(&self) -> SearchInfo<B> {
@@ -1058,7 +1058,14 @@ pub fn run_bench_with<B: Board>(
     sum
 }
 
-fn single_bench<B: Board>(pos: B, engine: &mut dyn Benchable<B>, limit: SearchLimit, tt: TT, sum: &mut BenchResult, hasher: &mut DefaultHasher) {
+fn single_bench<B: Board>(
+    pos: B,
+    engine: &mut dyn Benchable<B>,
+    limit: SearchLimit,
+    tt: TT,
+    sum: &mut BenchResult,
+    hasher: &mut DefaultHasher,
+) {
     let res = engine.bench(pos, limit, tt);
     sum.nodes = NodesLimit::new(sum.nodes.get() + res.nodes.get()).unwrap();
     sum.time += res.time;
@@ -1075,17 +1082,13 @@ mod tests {
     pub fn generic_engine_test<B: Board, E: Engine<B>>(mut engine: E) {
         let tt = TT::default();
         for p in B::bench_positions() {
-            let res = engine.bench(
-                p,
-                SearchLimit::nodes_(1),
-                tt.clone(),
-            );
+            let res = engine.bench(p, SearchLimit::nodes_(1), tt.clone());
             assert!(res.depth.get() <= 1);
             assert!(res.nodes.get() <= 100); // TODO: Assert exactly 1
             let res = engine.search_with_new_tt(p, SearchLimit::depth_(1));
             assert!(p.legal_moves_slow().into_iter().contains(&res.chosen_move));
             // empty search moves, which is something the engine should handle
-            let res = engine        
+            let res = engine
                 .search(SearchParams::for_pos(p, SearchLimit::depth_(2)).restrict_moves(vec![]));
             assert!(res.chosen_move.is_null());
             let mut search_moves = p.pseudolegal_moves().into_iter().collect_vec();

@@ -22,8 +22,7 @@ use crate::search::multithreading::SearchThreadType::{Auxiliary, Main};
 use crate::search::multithreading::SearchType::{Infinite, Normal, Ponder};
 use crate::search::tt::TT;
 use crate::search::{
-    AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EngineInfo, SearchParams,
-    SearchState,
+    AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EngineInfo, SearchParams, SearchState,
 };
 use crate::ugi_engine::UgiOutput;
 
@@ -70,6 +69,15 @@ pub struct MainThreadData<B: Board> {
     // Not atomic because it doesn't need to be shared across threads: The main search thread sets it at the start
     // and checks if it is set when the search is finished
     pub search_type: SearchType,
+}
+
+impl<B: Board> MainThreadData<B> {
+    pub fn new_search(&mut self, ponder: bool, limit: &SearchLimit) {
+        self.search_type = SearchType::new(ponder, limit);
+        for data in &mut self.atomic_search_data {
+            data.reset();
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -129,6 +137,18 @@ impl<B: Board> Default for AtomicSearchState<B> {
 }
 
 impl<B: Board> AtomicSearchState<B> {
+    pub fn reset(&self) {
+        // all stores can be Relaxed because we're overwriting all members
+        self.set_score(NO_SCORE_YET);
+        self.set_ponder_move(None);
+        self.set_best_move(B::Move::default());
+        self.update_seldepth(0);
+        self.set_depth(0);
+        self.edges.store(0, Relaxed);
+        self.set_searching(true);
+        self.stop.store(false, Relaxed);
+    }
+
     pub fn stop_flag(&self) -> bool {
         self.stop.load(Acquire)
     }
@@ -199,7 +219,10 @@ impl<B: Board> AtomicSearchState<B> {
     }
 
     pub fn set_ponder_move(&self, ponder_move: Option<B::Move>) {
-        self.ponder_move.store(ponder_move.unwrap_or_default().to_underlying().into(), Relaxed);
+        self.ponder_move.store(
+            ponder_move.unwrap_or_default().to_underlying().into(),
+            Relaxed,
+        );
     }
 }
 
@@ -216,15 +239,15 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
     }
 
     fn start_search(&mut self, params: SearchParams<B>) {
-        debug_assert!(
-            !self.engine.is_currently_searching(),
-            "Engine {} received a go command while still searching",
-            self.engine.long_name()
-        );
         let _ = self.engine.search(params); // the engine takes care of sending the search result
     }
 
-    fn bench_single_position(&mut self, pos: B, limit: SearchLimit, output: Arc<Mutex<UgiOutput<B>>>) {
+    fn bench_single_position(
+        &mut self,
+        pos: B,
+        limit: SearchLimit,
+        output: Arc<Mutex<UgiOutput<B>>>,
+    ) {
         // self.engine.stop();
         let res = self.engine.clean_bench(pos, limit);
         output.lock().unwrap().write_ugi(&res.to_string());
@@ -232,7 +255,10 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
 
     fn get_static_eval(&mut self, pos: B, output: Arc<Mutex<UgiOutput<B>>>) {
         let eval = self.engine.static_eval(pos);
-        output.lock().unwrap().write_ugi(&format!("score cp {eval}"));
+        output
+            .lock()
+            .unwrap()
+            .write_ugi(&format!("score cp {eval}"));
     }
 
     fn write_error(&mut self, msg: &str) {
@@ -341,7 +367,7 @@ impl<B: Board> EngineWrapper<B> {
         multi_pv: usize,
         ponder: bool,
     ) -> Res<()> {
-        self.main_thread_data.search_type = SearchType::new(ponder, &limit);
+        self.main_thread_data.new_search(ponder, &limit); // resets the atomic search state
         let thread_data = self.main_thread_data.clone();
         let params = SearchParams::create(
             pos,
@@ -400,7 +426,9 @@ impl<B: Board> EngineWrapper<B> {
                 ));
             }
             if count == 0 || count > 1 << 20 {
-                return Err(format!("Trying to set the number of threads to {count}, which is not a valid value."))
+                return Err(format!(
+                    "Trying to set the number of threads to {count}, which is not a valid value."
+                ));
             }
             self.auxiliary.clear();
             self.auxiliary.resize_with(count - 1, || {
@@ -438,7 +466,9 @@ impl<B: Board> EngineWrapper<B> {
     }
 
     pub fn static_eval(&mut self, pos: B) -> Res<()> {
-        self.main.send(EvalFor(pos, self.main_thread_data.output.clone())).map_err(|err| err.to_string())
+        self.main
+            .send(EvalFor(pos, self.main_thread_data.output.clone()))
+            .map_err(|err| err.to_string())
     }
 
     pub fn set_eval(&mut self, eval: Box<dyn Eval<B>>) -> Res<()> {
