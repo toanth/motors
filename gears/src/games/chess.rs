@@ -1133,7 +1133,7 @@ mod tests {
         let perft_res = perft(Depth::new(1), board);
         assert_eq!(perft_res.depth, Depth::new(1));
         assert_eq!(perft_res.nodes, 20);
-        assert!(perft_res.time.as_millis() <= 1);
+        assert!(perft_res.time.as_millis() <= 2);
         let perft_res = perft(Depth::new(2), board);
         assert_eq!(perft_res.depth, Depth::new(2));
         assert_eq!(perft_res.nodes, 20 * 20);

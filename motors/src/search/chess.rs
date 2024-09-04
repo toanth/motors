@@ -5,8 +5,12 @@ pub mod caps;
 mod tests {
     use rand::rngs::StdRng;
     use std::str::FromStr;
+    use std::sync::Arc;
+    use std::thread::{sleep, spawn};
+    use std::time::Duration;
 
     use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
+    use gears::games::chess::pieces::ChessPieceType::Bishop;
     use gears::games::chess::squares::ChessSquare;
     use gears::games::chess::Chessboard;
     use gears::games::{n_fold_repetition, BoardHistory, ZobristHistory};
@@ -24,20 +28,24 @@ mod tests {
     use crate::search::chess::caps::Caps;
     use crate::search::generic::gaps::Gaps;
     use crate::search::generic::random_mover::RandomMover;
+    use crate::search::multithreading::AtomicSearchState;
     use crate::search::tt::TT;
     use crate::search::{Engine, SearchParams};
 
     #[test]
+    #[cfg(feature = "gaps")]
     fn generic_negamax_test() {
         generic_search_test(Gaps::<Chessboard>::default());
     }
 
     #[test]
+    #[cfg(feature = "caps")]
     fn caps_search_test() {
         generic_search_test(Caps::for_eval::<PistonEval>());
     }
 
     #[test]
+    #[cfg(feature = "random_mover")]
     fn random_mover_test() {
         mated_test(RandomMover::<Chessboard, StdRng>::default());
     }
@@ -76,6 +84,49 @@ mod tests {
         assert_eq!(res.score.unwrap(), SCORE_WON - 3);
 
         mated_test(engine);
+        two_threads_test::<E>();
+    }
+
+    fn two_threads_test<E: Engine<Chessboard>>() {
+        let fen = "2kr3r/2pb1p2/p2b1p2/1p4pp/B2R4/2P1P2P/PP2KPP1/R1B5 w - - 0 16";
+        let board = Chessboard::from_fen(fen).unwrap();
+        let mut engine = E::for_eval::<LiTEval>();
+        let mut engine2 = E::for_eval::<LiTEval>();
+        let tt = TT::default();
+        let atomic = Arc::new(AtomicSearchState::default());
+        let atomic2 = Arc::new(AtomicSearchState::default());
+        let params = SearchParams::with_atomic_state(
+            board,
+            SearchLimit::infinite(),
+            ZobristHistory::default(),
+            tt.clone(),
+            atomic.clone(),
+        );
+        let params2 = SearchParams::with_atomic_state(
+            board,
+            SearchLimit::infinite(),
+            ZobristHistory::default(),
+            tt.clone(),
+            atomic2.clone(),
+        );
+        let handle = spawn(move || engine.search(params));
+        let handle2 = spawn(move || engine2.search(params2));
+        sleep(Duration::from_millis(500));
+        atomic.set_stop(true);
+        assert!(atomic.stop_flag());
+        assert!(!atomic2.stop_flag());
+        sleep(Duration::from_millis(5));
+        assert!(!atomic.currently_searching());
+        assert!(atomic2.currently_searching());
+        let res = handle.join().unwrap();
+        atomic2.set_stop(true);
+        let res2 = handle2.join().unwrap();
+        assert!(res.score.unwrap().0.abs_diff(res2.score.unwrap().0) <= 50);
+        assert_eq!(res.chosen_move.piece_type(), Bishop);
+        assert_eq!(
+            res2.chosen_move.src_square(),
+            ChessSquare::from_str("a4").unwrap()
+        );
     }
 
     #[test]
@@ -130,7 +181,7 @@ mod tests {
         hist.pop();
         let mut engine = Caps::for_eval::<MaterialOnlyEval>();
         for depth in 1..10 {
-            let res = engine.search(SearchParams::new_simple(
+            let res = engine.search(SearchParams::new_unshared(
                 board,
                 SearchLimit::depth(Depth::new(depth)),
                 hist.clone(),

@@ -418,7 +418,7 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
     }
 
     fn search_with_tt(&mut self, pos: B, limit: SearchLimit, tt: TT) -> SearchResult<B> {
-        self.search(SearchParams::new_simple(
+        self.search(SearchParams::new_unshared(
             pos,
             limit,
             ZobristHistory::default(),
@@ -552,10 +552,10 @@ pub struct SearchParams<B: Board> {
 
 impl<B: Board> SearchParams<B> {
     pub fn for_pos(pos: B, limit: SearchLimit) -> Self {
-        Self::new_simple(pos, limit, ZobristHistory::default(), TT::default())
+        Self::new_unshared(pos, limit, ZobristHistory::default(), TT::default())
     }
 
-    pub fn new_simple(pos: B, limit: SearchLimit, history: ZobristHistory<B>, tt: TT) -> Self {
+    pub fn new_unshared(pos: B, limit: SearchLimit, history: ZobristHistory<B>, tt: TT) -> Self {
         Self::with_atomic_state(
             pos,
             limit,
@@ -870,7 +870,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> ABSearchState<B, E, C> 
 
     fn new_with(search_stack: Vec<E>, custom: C) -> Self {
         let start_time = Instant::now();
-        let params = SearchParams::new_simple(
+        let params = SearchParams::new_unshared(
             B::default(),
             SearchLimit::infinite(),
             ZobristHistory::default(),
@@ -1058,17 +1058,17 @@ pub fn run_bench_with<B: Board>(
     second_limit: Option<SearchLimit>,
 ) -> BenchResult {
     let mut hasher = DefaultHasher::new();
-    let mut sum = BenchResult::default();
+    let mut total = BenchResult::default();
     let tt = TT::default();
     for position in B::bench_positions() {
         // engine.forget();
-        single_bench(position, engine, limit, tt.clone(), &mut sum, &mut hasher);
+        single_bench(position, engine, limit, tt.clone(), &mut total, &mut hasher);
         if let Some(limit) = second_limit {
-            single_bench(position, engine, limit, tt.clone(), &mut sum, &mut hasher);
+            single_bench(position, engine, limit, tt.clone(), &mut total, &mut hasher);
         }
     }
-    sum.moves_hash = hasher.finish();
-    sum
+    total.moves_hash = hasher.finish();
+    total
 }
 
 fn single_bench<B: Board>(
@@ -1076,14 +1076,14 @@ fn single_bench<B: Board>(
     engine: &mut dyn Benchable<B>,
     limit: SearchLimit,
     tt: TT,
-    sum: &mut BenchResult,
+    total: &mut BenchResult,
     hasher: &mut DefaultHasher,
 ) {
     let res = engine.bench(pos, limit, tt);
-    sum.nodes = NodesLimit::new(sum.nodes.get() + res.nodes.get()).unwrap();
-    sum.time += res.time;
+    total.nodes = NodesLimit::new(total.nodes.get() + res.nodes.get()).unwrap();
+    total.time += res.time;
+    total.depth = total.depth.max(res.depth);
     res.moves_hash.hash(hasher);
-    sum.depth = sum.depth.max(sum.depth);
 }
 
 #[cfg(test)]
