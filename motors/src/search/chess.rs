@@ -44,7 +44,7 @@ mod tests {
 
     fn mated_test<E: Engine<Chessboard>>(mut engine: E) {
         let game_over_pos = parse_ugi_position_and_moves(
-            &mut "mate_in_1 moves h7a7".split_whitespace(),
+            &mut "mate_in_1 moves h7a7".split_whitespace().peekable(),
             &Chessboard::default(),
         )
         .unwrap();
@@ -130,7 +130,7 @@ mod tests {
         hist.pop();
         let mut engine = Caps::for_eval::<MaterialOnlyEval>();
         for depth in 1..10 {
-            let res = engine.search(SearchParams::new(
+            let res = engine.search(SearchParams::new_simple(
                 board,
                 SearchLimit::depth(Depth::new(depth)),
                 hist.clone(),

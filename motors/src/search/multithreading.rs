@@ -124,7 +124,7 @@ impl<B: Board> Default for AtomicSearchState<B> {
     fn default() -> Self {
         Self {
             stop: AtomicBool::new(false),
-            currently_searching: AtomicBool::new(false),
+            currently_searching: AtomicBool::new(true),
             edges: AtomicU64::new(0),
             depth: AtomicIsize::new(0),
             seldepth: AtomicUsize::new(0),

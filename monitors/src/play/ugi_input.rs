@@ -2,6 +2,7 @@
 
 use std::fmt::{Display, Formatter};
 use std::io::{BufRead, BufReader};
+use std::iter::Peekable;
 use std::ops::Add;
 use std::process::ChildStdout;
 use std::str::{FromStr, SplitWhitespace};
@@ -236,7 +237,7 @@ impl<B: Board> InputThread<B> {
     }
 
     fn handle_ugi(&mut self, ugi_str: &str) -> Res<MatchStatus> {
-        let mut words = ugi_str.split_whitespace();
+        let mut words = ugi_str.split_whitespace().peekable();
         // If the client doesn't exist anymore, this thread will join without printing an error message
         // But still return a useful error message to be on the safe side.
         let client = self
@@ -288,7 +289,7 @@ impl<B: Board> InputThread<B> {
 
     fn handle_ugi_initial_state(
         command: &str,
-        words: SplitWhitespace,
+        words: Peekable<SplitWhitespace>,
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
     ) -> Res<()> {
@@ -312,7 +313,7 @@ impl<B: Board> InputThread<B> {
 
     fn handle_ugi_idle_state(
         command: &str,
-        words: SplitWhitespace,
+        words: Peekable<SplitWhitespace>,
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
     ) -> Res<()> {
@@ -324,7 +325,7 @@ impl<B: Board> InputThread<B> {
 
     fn handle_ugi_sync_state(
         command: &str,
-        words: SplitWhitespace,
+        words: Peekable<SplitWhitespace>,
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
     ) -> Res<()> {
@@ -337,7 +338,7 @@ impl<B: Board> InputThread<B> {
 
     fn handle_ugi_active_state(
         command: &str,
-        words: SplitWhitespace,
+        words: Peekable<SplitWhitespace>,
         client: &mut MutexGuard<Client<B>>,
         color: B::Color,
     ) -> Res<()> {
@@ -352,7 +353,7 @@ impl<B: Board> InputThread<B> {
 
     fn handle_ugi_ping_state(
         command: &str,
-        words: SplitWhitespace,
+        words: Peekable<SplitWhitespace>,
         client: &mut MutexGuard<Client<B>>,
         color: B::Color,
     ) -> Res<()> {
@@ -366,7 +367,7 @@ impl<B: Board> InputThread<B> {
 
     fn handle_ugi_halt_state(
         command: &str,
-        words: SplitWhitespace,
+        words: Peekable<SplitWhitespace>,
         client: &mut MutexGuard<Client<B>>,
         color: B::Color,
         handle_best_move: HandleBestMove,
@@ -390,7 +391,7 @@ impl<B: Board> InputThread<B> {
     }
 
     fn handle_protocol(
-        mut words: SplitWhitespace,
+        mut words: Peekable<SplitWhitespace>,
         client: &mut MutexGuard<Client<B>>,
         name: &str,
     ) -> Res<()> {
@@ -411,7 +412,7 @@ impl<B: Board> InputThread<B> {
     }
 
     fn handle_id(
-        mut id: SplitWhitespace,
+        mut id: Peekable<SplitWhitespace>,
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
     ) -> Res<()> {
@@ -430,7 +431,7 @@ impl<B: Board> InputThread<B> {
     }
 
     fn handle_ugiok(
-        mut words: SplitWhitespace,
+        mut words: Peekable<SplitWhitespace>,
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
         proto: Protocol,
@@ -447,7 +448,7 @@ impl<B: Board> InputThread<B> {
     }
 
     fn handle_readyok(
-        mut words: SplitWhitespace,
+        mut words: Peekable<SplitWhitespace>,
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
     ) -> Res<()> {
@@ -465,7 +466,7 @@ impl<B: Board> InputThread<B> {
     }
 
     fn handle_bestmove(
-        mut words: SplitWhitespace,
+        mut words: Peekable<SplitWhitespace>,
         client: &mut MutexGuard<Client<B>>,
         color: B::Color,
     ) -> Res<()> {
@@ -500,7 +501,7 @@ impl<B: Board> InputThread<B> {
     }
 
     fn handle_info(
-        words: SplitWhitespace,
+        words: Peekable<SplitWhitespace>,
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
     ) -> Res<()> {
@@ -526,7 +527,9 @@ impl<B: Board> InputThread<B> {
             match key {
                 "depth" => res.depth = Depth::new(parse_int_from_str(value, "depth")?),
                 "seldepth" => res.seldepth = Depth::new(parse_int_from_str(value, "seldepth")?),
-                "time" => res.time = parse_duration_ms(&mut value.split_whitespace(), "time")?,
+                "time" => {
+                    res.time = parse_duration_ms(&mut value.split_whitespace().peekable(), "time")?
+                }
                 "nodes" => {
                     res.nodes = NodesLimit::new(parse_int_from_str(value, "nodes")?).unwrap();
                 }
@@ -597,7 +600,7 @@ impl<B: Board> InputThread<B> {
     }
 
     fn handle_option(
-        mut option: SplitWhitespace,
+        mut option: Peekable<SplitWhitespace>,
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
     ) -> Res<()> {

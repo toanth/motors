@@ -13,6 +13,7 @@ use rayon::prelude::ParallelBridge;
 use serde::Deserialize;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::iter::Peekable;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::str::SplitWhitespace;
@@ -114,7 +115,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         perspective: Perspective,
         weight: Float,
     ) -> Res<ParseResult<B>> {
-        let mut input = input.split_whitespace();
+        let mut input = input.split_whitespace().peekable();
         let pos = B::read_fen_and_advance_input(&mut input)?;
         // skip up to one token between the end of the fen and the wdl
         let mut outcome =

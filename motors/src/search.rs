@@ -418,7 +418,12 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
     }
 
     fn search_with_tt(&mut self, pos: B, limit: SearchLimit, tt: TT) -> SearchResult<B> {
-        self.search(SearchParams::new_simple(pos, limit, tt))
+        self.search(SearchParams::new_simple(
+            pos,
+            limit,
+            ZobristHistory::default(),
+            tt,
+        ))
     }
 
     /// Start a new search and return the best move and score.
@@ -546,26 +551,28 @@ pub struct SearchParams<B: Board> {
 }
 
 impl<B: Board> SearchParams<B> {
-    pub fn new_simple(pos: B, limit: SearchLimit, tt: TT) -> Self {
-        Self::with_atomic_state(pos, limit, tt, Arc::new(AtomicSearchState::default()))
+    pub fn for_pos(pos: B, limit: SearchLimit) -> Self {
+        Self::new_simple(pos, limit, ZobristHistory::default(), TT::default())
+    }
+
+    pub fn new_simple(pos: B, limit: SearchLimit, history: ZobristHistory<B>, tt: TT) -> Self {
+        Self::with_atomic_state(
+            pos,
+            limit,
+            history,
+            tt,
+            Arc::new(AtomicSearchState::default()),
+        )
     }
 
     pub fn with_atomic_state(
         pos: B,
         limit: SearchLimit,
+        history: ZobristHistory<B>,
         tt: TT,
         atomic: Arc<AtomicSearchState<B>>,
     ) -> Self {
-        Self::create(
-            pos,
-            limit,
-            ZobristHistory::default(),
-            tt,
-            None,
-            0,
-            atomic,
-            Auxiliary,
-        )
+        Self::create(pos, limit, history, tt, None, 0, atomic, Auxiliary)
     }
 
     pub fn create(
@@ -863,6 +870,12 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> ABSearchState<B, E, C> 
 
     fn new_with(search_stack: Vec<E>, custom: C) -> Self {
         let start_time = Instant::now();
+        let params = SearchParams::new_simple(
+            B::default(),
+            SearchLimit::infinite(),
+            ZobristHistory::default(),
+            TT::minimal(),
+        );
         Self {
             search_stack,
             start_time,
@@ -870,7 +883,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> ABSearchState<B, E, C> 
             statistics: Statistics::default(),
             aggregated_statistics: Statistics::default(),
             multi_pvs: vec![],
-            params: SearchParams::new_simple(B::default(), SearchLimit::infinite(), TT::minimal()),
+            params,
             excluded_moves: vec![],
             current_pv_num: 0,
         }

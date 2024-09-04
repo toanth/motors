@@ -249,6 +249,7 @@ mod test {
     use crate::search::{Benchable, Engine};
     use crate::search::{SearchParams, SearchState};
     use gears::games::chess::moves::ChessMove;
+    use gears::games::ZobristHistory;
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
     use gears::search::{Depth, SearchLimit};
     use rand::distributions::Uniform;
@@ -384,8 +385,14 @@ mod test {
         assert!(engine2.search_state().uci_nodes() <= nodes);
         tt.forget();
         let atomic = Arc::new(AtomicSearchState::default());
-        let params = SearchParams::with_atomic_state(pos, SearchLimit::infinite(), atomic.clone())
-            .set_tt(tt.clone());
+        let params = SearchParams::with_atomic_state(
+            pos,
+            SearchLimit::infinite(),
+            ZobristHistory::default(),
+            tt.clone(),
+            atomic.clone(),
+        )
+        .set_tt(tt.clone());
         assert_eq!(params.tt.0.as_ptr(), tt.0.as_ptr());
         let atomic2 = Arc::new(AtomicSearchState::default());
         let mut params2 = params.auxiliary(atomic2.clone());
