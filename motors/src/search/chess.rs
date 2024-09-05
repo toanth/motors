@@ -139,14 +139,20 @@ mod tests {
         let score = res.score.unwrap();
         assert!(res.score.unwrap() >= Score(1400), "{score}");
         // not a legal chess position, but search with random eval should handle this
-        let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
+        let fen =
+            "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1     ";
         let board = Chessboard::from_fen(fen).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 3);
         for i in (2..55).step_by(3) {
             // do this several times to get different random numbers
             let mut engine = Caps::for_eval::<RandEval>();
             let res = engine.search_with_new_tt(board, SearchLimit::depth(Depth::new(i)));
-            assert_eq!(res.score.unwrap(), SCORE_LOST + 2);
+            assert_eq!(
+                res.score.unwrap(),
+                SCORE_LOST + 2,
+                "{i} {}",
+                res.chosen_move
+            );
             assert_eq!(res.chosen_move.to_string(), "h1g1");
         }
     }

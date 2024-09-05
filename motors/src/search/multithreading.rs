@@ -1,12 +1,11 @@
 use std::marker::PhantomData;
 use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU64, AtomicUsize};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use dyn_clone::clone_box;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
-use portable_atomic::AtomicUsize;
 
 use crate::eval::Eval;
 use gears::general::common::{parse_int_from_str, NamedEntity, Res};

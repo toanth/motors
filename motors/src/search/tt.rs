@@ -17,6 +17,7 @@ use gears::general::moves::{Move, UntrustedMove};
 use gears::score::{Score, ScoreT, SCORE_WON};
 use OptionalNodeType::*;
 
+// Using a struct consisting of two atomic u64 did not result in a bench speedup
 type AtomicTTEntry = AtomicU128;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, FromRepr)]
