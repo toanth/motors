@@ -18,7 +18,7 @@ use gears::general::common::{select_name_static, Res, StaticallyNamedEntity};
 use gears::general::moves::Move;
 use gears::output::Message::Debug;
 use gears::score::{
-    game_result_to_score, ScoreT, MAX_BETA, MAX_SCORE_LOST, MIN_ALPHA, NO_SCORE_YET,
+    game_result_to_score, ScoreT, MAX_BETA, MAX_SCORE_LOST, MIN_ALPHA, NO_SCORE_YET, SCORE_TIME_UP,
 };
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
@@ -326,7 +326,7 @@ impl Engine<Chessboard> for Caps {
     }
 
     fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
-        debug_assert!(self.state.internal_node_count() % DEFAULT_CHECK_TIME_INTERVAL == 0);
+        debug_assert!(self.state.internal_edge_count() % DEFAULT_CHECK_TIME_INTERVAL == 0);
         let elapsed = start_time.elapsed();
         // divide by 4 unless moves to go is very small, but don't divide by 1 (or zero) to avoid timeouts
         let divisor = tc.moves_to_go.unwrap_or(usize::MAX).clamp(2, 4) as u32;
@@ -481,7 +481,10 @@ impl Caps {
                 }
                 self.state.search_params().atomic.set_best_move(chosen_move);
                 let ponder_move = self.state.pv().and_then(|pv| pv.get(1).copied());
-                self.state.search_params().atomic.set_ponder_move(ponder_move);
+                self.state
+                    .search_params()
+                    .atomic
+                    .set_ponder_move(ponder_move);
             }
 
             if !self.state.currently_searching() {
@@ -533,7 +536,7 @@ impl Caps {
         self.state.statistics.count_node_started(MainSearch);
 
         let root = ply == 0;
-            let is_pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
+        let is_pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
         debug_assert!(!root || is_pv_node); // root implies pv node
         debug_assert!(alpha + 1 == beta || is_pv_node); // alpha + 1 < beta implies Exact node
 
@@ -764,7 +767,7 @@ impl Caps {
 
             let debug_history_len = self.state.params.history.len();
 
-                self.record_move(mov, pos, ply, MainSearch);
+            self.record_move(mov, pos, ply, MainSearch);
             // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove
             // that the other moves are worse, which we can do with a zero window search. Should this assumption fail,
             // re-search with a full window.
@@ -849,7 +852,8 @@ impl Caps {
                 // This only matters for the root; all other nodes get their return value ignored.
                 // If the root returned NO_SCORE_YET, we ignore it in `aspiration()`, otherwise we can use that
                 // as a lower bound for the score, and the score belonging to the chosen move.
-                return best_score;
+                return SCORE_TIME_UP;
+                // return best_score;
             }
             debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);
 
@@ -1075,7 +1079,7 @@ impl Caps {
             let Some(new_pos) = pos.make_move(mov) else {
                 continue;
             };
-                self.record_move(mov, pos, ply, Qsearch);
+            self.record_move(mov, pos, ply, Qsearch);
             children_visited += 1;
             let score = -self.qsearch(new_pos, -beta, -alpha, ply + 1);
             self.undo_move();

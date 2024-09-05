@@ -363,6 +363,8 @@ pub trait Benchable<B: Board>: Debug {
     fn default_bench_nodes(&self) -> NodesLimit;
     fn default_bench_depth(&self) -> Depth;
 
+    fn aggregated_statistics(&self) -> &Statistics;
+
     /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
     fn forget(&mut self);
 }
@@ -400,6 +402,10 @@ impl<B: Board, E: Engine<B>> Benchable<B> for E {
 
     fn default_bench_depth(&self) -> Depth {
         self.engine_info().default_bench_depth
+    }
+
+    fn aggregated_statistics(&self) -> &Statistics {
+        self.search_state().aggregated_statistics()
     }
 
     fn forget(&mut self) {
@@ -458,7 +464,7 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
         // Do the less expensive checks first to avoid querying the time in each node
         // TODO: Call `search.stopped()` below, not every node? It's an Acquire load, so potentially expensive
         // loads an atomic, so calling this function twice probably won't be optimized
-        let nodes = state.internal_node_count();
+        let nodes = state.uci_nodes();
         if nodes >= limit.nodes.get()
             || !state.currently_searching()
             || state.stop_command_received()
@@ -665,7 +671,7 @@ pub trait SearchState<B: Board>: Debug {
         SearchResult::new(self.best_move(), self.best_score(), self.ponder_move())
     }
 
-    fn internal_node_count(&self) -> u64 {
+    fn internal_edge_count(&self) -> u64 {
         self.search_params().atomic.edges()
     }
 
@@ -771,6 +777,8 @@ pub trait SearchState<B: Board>: Debug {
     fn statistics_mut(&mut self) -> &mut Statistics;
 
     fn aggregate_match_statistics(&mut self);
+
+    fn aggregated_statistics(&self) -> &Statistics;
 
     fn output_mut(&mut self) -> Option<MutexGuard<UgiOutput<B>>> {
         self.search_params().thread_type.output()
@@ -1005,6 +1013,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
             .aggregate_searches(&self.statistics);
     }
 
+    fn aggregated_statistics(&self) -> &Statistics {
+        &self.aggregated_statistics
+    }
+
     fn send_statistics(&mut self) {
         // don't pay the performance penalty of aggregating statistics unless they are shown,
         // especially since the "statistics" feature is likely turned off
@@ -1068,6 +1080,9 @@ pub fn run_bench_with<B: Board>(
         }
     }
     total.moves_hash = hasher.finish();
+    if cfg!(feature = "statistics") {
+        eprintln!("{}", Summary::new(engine.aggregated_statistics()));
+    }
     total
 }
 
