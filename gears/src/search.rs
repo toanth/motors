@@ -13,6 +13,7 @@ use crate::score::Score;
 pub const MAX_DEPTH: Depth = Depth(10_000);
 
 #[derive(Eq, PartialEq, Debug, Default, Copy, Clone)]
+#[must_use]
 pub struct SearchResult<B: Board> {
     pub chosen_move: B::Move,
     pub score: Option<Score>,
@@ -67,6 +68,7 @@ impl<B: Board> Display for SearchResult<B> {
 }
 
 #[derive(Debug)]
+#[must_use]
 pub struct SearchInfo<B: Board> {
     pub best_move: B::Move,
     pub depth: Depth,
@@ -126,12 +128,14 @@ impl<B: Board> Display for SearchInfo<B> {
         };
 
         write!(f,
-               "info depth {depth}{seldepth} multipv {multipv} score {score_str} time {time} nodes {nodes} nps {nps}{hashfull} pv",
-               depth = self.depth.get(), time = self.time.as_millis(), nodes = self.nodes.get(),
-               seldepth = format!(" seldepth {}", self.seldepth.0),
+               "info depth {depth} seldepth {seldepth} multipv {multipv} score {score_str} time {time} nodes {nodes} nps {nps} hashfull {hashfull} pv",
+               depth = self.depth.get(),
+               time = self.time.as_millis(),
+               nodes = self.nodes.get(),
+               seldepth = self.seldepth.0,
                multipv = self.pv_num + 1,
                nps = self.nps(),
-               hashfull = format!(" hashfull {}", self.hashfull),
+               hashfull = self.hashfull,
         )?;
         for mov in &self.pv {
             write!(f, " {mov}")?;
@@ -210,7 +214,7 @@ impl TimeControl {
     }
 
     pub fn is_infinite(&self) -> bool {
-        self.remaining >= Duration::MAX  / 2
+        self.remaining >= Duration::MAX / 2
     }
 
     pub fn update(&mut self, elapsed: Duration) {
@@ -247,7 +251,18 @@ impl TimeControl {
 }
 
 #[derive(
-    Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Add, AddAssign, SubAssign, derive_more::Display,
+    Debug,
+    Default,
+    Copy,
+    Clone,
+    Ord,
+    PartialOrd,
+    Eq,
+    PartialEq,
+    Add,
+    AddAssign,
+    SubAssign,
+    derive_more::Display,
 )]
 #[must_use]
 pub struct Depth(usize);
@@ -319,7 +334,7 @@ impl Display for SearchLimit {
             limits.push(format!("mate in {} plies", self.mate.get()));
         }
         if limits.len() == 1 {
-            return write!(f, "{}", limits[0]);
+            write!(f, "{}", limits[0])
         } else {
             write!(f, "[{}]", limits.iter().format(","))
         }
@@ -385,7 +400,6 @@ impl SearchLimit {
     pub fn is_infinite_fixed_time(&self) -> bool {
         self.fixed_time >= Duration::MAX / 2
     }
-
 
     pub fn is_infinite(&self) -> bool {
         let inf = Self::infinite();

@@ -528,7 +528,7 @@ impl<B: Board> InputThread<B> {
                 "depth" => res.depth = Depth::new(parse_int_from_str(value, "depth")?),
                 "seldepth" => res.seldepth = Depth::new(parse_int_from_str(value, "seldepth")?),
                 "time" => {
-                    res.time = parse_duration_ms(&mut value.split_whitespace().peekable(), "time")?
+                    res.time = parse_duration_ms(&mut value.split_whitespace().peekable(), "time")?;
                 }
                 "nodes" => {
                     res.nodes = NodesLimit::new(parse_int_from_str(value, "nodes")?).unwrap();

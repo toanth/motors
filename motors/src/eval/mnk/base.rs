@@ -10,7 +10,7 @@ use gears::score::{Score, ScoreT};
 
 use crate::eval::Eval;
 
-/// BasE (Basic m,n,k Eval) is a m,n,k specific-eval. Currently very simple.
+/// `BasE` (Basic m,n,k Eval) is a m,n,k specific-eval. Currently very simple.
 #[derive(Debug, Default, Clone)]
 pub struct BasicMnkEval {}
 

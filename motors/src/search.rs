@@ -581,6 +581,7 @@ impl<B: Board> SearchParams<B> {
         Self::create(pos, limit, history, tt, None, 0, atomic, Auxiliary)
     }
 
+    #[expect(clippy::too_many_arguments)]
     pub fn create(
         pos: B,
         limit: SearchLimit,
@@ -680,7 +681,7 @@ pub trait SearchState<B: Board>: Debug {
     }
 
     fn stop_search(&self) {
-        self.search_params().atomic.set_searching(false)
+        self.search_params().atomic.set_searching(false);
     }
 
     /// Returns the number of nodes looked at so far, including normal search and quiescent search.

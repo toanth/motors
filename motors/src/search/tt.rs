@@ -374,14 +374,14 @@ mod test {
         assert_eq!(mov, bad_move);
         let limit = SearchLimit::depth(Depth::new(3));
         let mut engine2 = Caps::default();
-        engine2.search_with_new_tt(pos, limit);
+        _ = engine2.search_with_new_tt(pos, limit);
         let nodes = engine2.search_state().uci_nodes();
         engine2.forget();
         let _ = engine.search_with_tt(pos, SearchLimit::depth(Depth::new(5)), tt.clone());
         let entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0);
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().depth, 5);
-        engine2.search_with_tt(pos, limit, tt.clone());
+        _ = engine2.search_with_tt(pos, limit, tt.clone());
         assert!(engine2.search_state().uci_nodes() <= nodes);
         tt.forget();
         let atomic = Arc::new(AtomicSearchState::default());

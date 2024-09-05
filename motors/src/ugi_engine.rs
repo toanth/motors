@@ -23,7 +23,7 @@ use gears::general::perft::{perft, perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
-use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, TimeControl};
+use gears::search::{Depth, NodesLimit, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{
@@ -36,7 +36,7 @@ use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchSt
 use crate::cli::EngineOpts;
 use crate::search::multithreading::EngineWrapper;
 use crate::search::tt::TT;
-use crate::search::{run_bench_with, BenchResult, EvalList, SearcherList};
+use crate::search::{run_bench_with, EvalList, SearcherList};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
 use crate::{
@@ -47,7 +47,7 @@ const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
 
 // TODO: Ensure this conforms to <https://expositor.dev/uci/doc/uci-draft-1.pdf>
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[must_use]
 enum SearchType {
     Normal,
@@ -72,7 +72,6 @@ impl Display for SearchType {
         )
     }
 }
-
 
 #[derive(Debug, Clone)]
 enum ProgramStatus {
@@ -215,14 +214,6 @@ impl<B: Board> UgiOutput<B> {
         self.additional_outputs
             .iter()
             .any(|o| !o.is_logger() && o.prints_board())
-    }
-
-    pub fn show_bench(&mut self, bench_result: &BenchResult) {
-        self.write_ugi(&bench_result.to_string());
-    }
-
-    pub fn show_search_info(&mut self, info: SearchInfo<B>) {
-        self.write_ugi(&info.to_string());
     }
 }
 
@@ -418,12 +409,12 @@ impl<B: Board> EngineUGI<B> {
         self.state.debug_mode
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     fn parse_input(&mut self, mut words: Peekable<SplitWhitespace>) -> Res<ProgramStatus> {
         self.output().write_ugi_input(words.clone());
         let words = &mut words;
         let Some(first_word) = words.next() else {
-            return Ok(self.state.status.clone()) // ignore empty input
+            return Ok(self.state.status.clone()); // ignore empty input
         };
         match first_word {
             // put time-critical commands at the top
@@ -444,7 +435,8 @@ impl<B: Board> EngineUGI<B> {
                 self.write_ugi(&format!("{proto}ok"));
             }
             "ponderhit" => self.start_search(
-                Normal, self.state.ponder_limit.ok_or_else(|| {
+                Normal,
+                self.state.ponder_limit.ok_or_else(|| {
                     format!(
                         "The engine received a '{}' command but wasn't pondering",
                         first_word.bold()
@@ -642,7 +634,11 @@ impl<B: Board> EngineUGI<B> {
         }
     }
 
-    fn handle_go(&mut self, mut search_type: SearchType, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+    fn handle_go(
+        &mut self,
+        mut search_type: SearchType,
+        words: &mut Peekable<SplitWhitespace>,
+    ) -> Res<()> {
         // "infinite" is the identity element of the bounded semilattice of `go` options
         let mut limit = SearchLimit::infinite();
         let is_first = self.state.board.active_player().is_first();
@@ -712,9 +708,18 @@ impl<B: Board> EngineUGI<B> {
                     multi_pv = parse_int(words, "multipv")?;
                 }
                 "ponder" => search_type = SearchType::Ponder, // setting different search types uses the last one specified
-                "perft" | "pt" => { search_type = Perft; Self::accept_depth(&mut limit, words) }
-                "splitperft" | "sp" => { search_type = SplitPerft; Self::accept_depth(&mut limit, words); }
-                "bench" => { search_type = Bench; Self::accept_depth(&mut limit, words); }
+                "perft" | "pt" => {
+                    search_type = Perft;
+                    Self::accept_depth(&mut limit, words)
+                }
+                "splitperft" | "sp" => {
+                    search_type = SplitPerft;
+                    Self::accept_depth(&mut limit, words);
+                }
+                "bench" => {
+                    search_type = Bench;
+                    Self::accept_depth(&mut limit, words);
+                }
                 "complete" => complete = true,
                 "position" | "pos" | "p" => board = self.load_position_into_copy(words)?,
                 _ => {
@@ -745,11 +750,24 @@ impl<B: Board> EngineUGI<B> {
                         &self.searcher_factories,
                         &self.eval_factories,
                     )?;
-                    let res = run_bench_with(engine.as_mut(), limit, Some(SearchLimit::nodes(self.state.engine.engine_info().default_bench_nodes())));
+                    let res = run_bench_with(
+                        engine.as_mut(),
+                        limit,
+                        Some(SearchLimit::nodes(
+                            self.state.engine.engine_info().default_bench_nodes(),
+                        )),
+                    );
                     self.output().write_ugi(&res.to_string())
                 }
-                Perft => self.output().write_ugi(&perft_for(limit.depth, B::bench_positions()).to_string()),
-                 _ => return Err(format!("Can only use the '{}' option with 'bench' or 'perft'", "complete".bold())),
+                Perft => self
+                    .output()
+                    .write_ugi(&perft_for(limit.depth, B::bench_positions()).to_string()),
+                _ => {
+                    return Err(format!(
+                        "Can only use the '{}' option with 'bench' or 'perft'",
+                        "complete".bold()
+                    ))
+                }
             }
         }
         self.start_search(search_type, limit, board, search_moves, multi_pv)
@@ -765,7 +783,7 @@ impl<B: Board> EngineUGI<B> {
     ) -> Res<()> {
         self.write_message(
             Debug,
-            &format!("Starting {search_type} search with limit {limit}")
+            &format!("Starting {search_type} search with limit {limit}"),
         );
         if let Some(res) = pos.match_result_slow(&self.state.board_hist) {
             self.write_message(Warning, &format!("Starting a {search_type} search in position '{2}', but the game is already over. {0}, reason: {1}.",
@@ -817,7 +835,7 @@ impl<B: Board> EngineUGI<B> {
                 self.write_ugi(&msg);
             }
             Bench => {
-                    self.state
+                self.state
                     .engine
                     .start_bench(pos, limit)
                     .expect("bench panic");
@@ -882,7 +900,7 @@ impl<B: Board> EngineUGI<B> {
                     None => {
                         output.show(&self.state);
                     }
-                    Some("position") | Some("p") => {
+                    Some("position" | "p") => {
                         let old_board = self.state.board;
                         self.state.board = self.load_position_into_copy(words)?;
                         output.show(&self.state);

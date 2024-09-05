@@ -279,6 +279,7 @@ pub type OutputList<B> = EntityList<Box<dyn OutputBuilder<B>>>;
 #[derive(
     Copy, Clone, Eq, PartialEq, Default, Debug, derive_more::Display, BitXor, BitXorAssign,
 )]
+#[must_use]
 pub struct ZobristHash(pub u64);
 
 pub trait Settings: Eq + Copy + Debug + Default {}
@@ -314,6 +315,7 @@ impl<B: Board> BoardHistory<B> for NoHistory {
 }
 
 #[derive(Clone, Eq, PartialEq, Default, Debug)]
+#[must_use]
 pub struct ZobristHistory<B: Board>(pub Vec<ZobristHash>, PhantomData<B>);
 
 impl<B: Board> BoardHistory<B> for ZobristHistory<B> {
@@ -330,7 +332,8 @@ impl<B: Board> BoardHistory<B> for ZobristHistory<B> {
     }
 
     fn pop(&mut self) {
-        self.0
+        _ = self
+            .0
             .pop()
             .expect("ZobristHistory::pop() called on empty history");
     }
@@ -343,6 +346,7 @@ impl<B: Board> BoardHistory<B> for ZobristHistory<B> {
 /// For example, the FIDE rule state that the set of legal moves must be identical, which is not the case
 /// if the ep square is set but the pawn is pinned and can't actually take.
 #[derive(Debug, Default, Clone)]
+#[must_use]
 pub struct BoardCopyHistory<B: Board>(Vec<B>);
 
 impl<B: Board> BoardHistory<B> for BoardCopyHistory<B> {

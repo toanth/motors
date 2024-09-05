@@ -55,7 +55,8 @@ impl NamedEntity for Game {
             Game::Ataxx => "Ataxx is a simple but challenging game played on a 7x7 grid where your goal is to convert your opponent's pieces",
             Game::Mnk => "m,n,k games are a generalization of Tic-Tac-Toe or Gomoku. Currently, this implementation \
                 only supports boards up to 128 squares.",
-            #[allow(unreachable_patterns)]
+            Game::Uttt => "Ultimate Tic-Tac-Toe is a challenging version of Tic-Tac-Toe where every square is itself a Tic-Tac-Toe board.",
+            #[expect(unreachable_patterns)]
             _ => return None,
         }.to_string())
     }

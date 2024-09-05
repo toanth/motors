@@ -4,7 +4,7 @@ use crate::search::statistics::SearchCounter::*;
 use crate::search::statistics::SearchType::*;
 use crate::search::NodeType;
 use derive_more::Display;
-#[allow(unused_imports)]
+#[expect(unused_imports)]
 use itertools::Itertools;
 use std::fmt::Formatter;
 use strum::IntoEnumIterator;
@@ -27,9 +27,12 @@ impl NodeTypeCtr {
         };
         *ctr += 1;
     }
+
+    #[must_use]
     pub fn sum(&self) -> u64 {
         self.exact + self.fail_lows + self.fail_highs
     }
+
     fn aggregate(&mut self, other: NodeTypeCtr) {
         self.fail_lows += other.fail_lows;
         self.fail_highs += other.fail_highs;
@@ -241,6 +244,7 @@ impl Statistics {
         self.depth = self.depth.saturating_sub(1);
     }
 
+    #[must_use]
     pub fn aggregate_iterations(&self) -> IDStatistics {
         let mut res = IDStatistics::default();
         for s in self.iterations.iter() {
@@ -297,6 +301,7 @@ impl Statistics {
     #[inline(always)]
     pub fn lmr_second_retry(&mut self) {}
 
+    #[must_use]
     pub fn aggregate_iterations(&self) -> IDStatistics {
         IDStatistics::default()
     }

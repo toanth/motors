@@ -321,12 +321,11 @@ impl Engine<Chessboard> for Caps {
         self.state.custom.original_board_hist = take(&mut self.state.search_params_mut().history);
         self.state.custom.original_board_hist.push(&pos);
 
-        let result = self.iterative_deepening(pos, soft_limit);
-        result
+        self.iterative_deepening(pos, soft_limit)
     }
 
     fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
-        debug_assert!(self.state.internal_edge_count() % DEFAULT_CHECK_TIME_INTERVAL == 0);
+        debug_assert!(self.state.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0);
         let elapsed = start_time.elapsed();
         // divide by 4 unless moves to go is very small, but don't divide by 1 (or zero) to avoid timeouts
         let divisor = tc.moves_to_go.unwrap_or(usize::MAX).clamp(2, 4) as u32;
@@ -436,18 +435,16 @@ impl Caps {
             let chosen_move = self
                 .state
                 .pv()
-                .and_then(|pv| pv.get(0).copied())
+                .and_then(|pv| pv.first().copied())
                 .unwrap_or_default();
             self.state.current_pv_data().best_move = chosen_move;
             self.state.current_pv_data().score = pv_score;
 
-            if self.state.current_pv_num == 0 {
-                if !self.state.currently_searching() {
-                    // send one final search info
-                    if self.state.best_move() != ChessMove::default() {
-                        // don't send empty / invalid PVs
-                        self.send_search_info(); // depth hasn't been incremented
-                    }
+            if self.state.current_pv_num == 0 && !self.state.currently_searching() {
+                // send one final search info
+                if self.state.best_move() != ChessMove::default() {
+                    // don't send empty / invalid PVs
+                    self.send_search_info(); // depth hasn't been incremented
                 }
             }
 

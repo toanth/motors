@@ -21,7 +21,7 @@ pub mod piston_eval;
 pub struct SkipChecks {}
 
 impl Filter<Chessboard> for SkipChecks {
-    #[allow(refining_impl_trait)]
+    #[expect(refining_impl_trait)]
     fn filter(pos: ParseResult<Chessboard>) -> Option<ParseResult<Chessboard>> {
         if pos.pos.is_in_check() {
             None

@@ -413,11 +413,11 @@ impl UtttBoard {
     }
 
     pub fn is_sub_board_won_at(sub_board: UtttSubBitboard, square: UtttSubSquare) -> bool {
-        let bb = sub_board.raw();
         const ROW_BB: RawStandardBitboard = RawStandardBitboard(0b111);
         const COLUMN_BB: RawStandardBitboard = RawStandardBitboard(0b001_001_001);
         const DIAG_BB: RawStandardBitboard = RawStandardBitboard(0b100_010_001);
         const ANTI_DIAG_BB: RawStandardBitboard = RawStandardBitboard(0b001_010_100);
+        let bb = sub_board.raw();
         let row_bb = ROW_BB << (3 * square.row());
         let column_bb = COLUMN_BB << square.column();
         if bb & row_bb == row_bb || bb & column_bb == column_bb {
@@ -551,6 +551,7 @@ impl UtttBoard {
         res
     }
 
+    #[must_use]
     pub fn yet_another_fen_format(&self) -> String {
         let mut res = String::new();
         res.push(self.active.ascii_color_char().to_ascii_uppercase());
@@ -586,6 +587,7 @@ impl UtttBoard {
         res
     }
 
+    #[expect(clippy::unreadable_literal)]
     fn perft_test_positions() -> &'static [(&'static str, &'static [u64])] {
         // FENs from Serdra, perft numbers slightly modified to not count moves when the game is over
         #[rustfmt::skip]

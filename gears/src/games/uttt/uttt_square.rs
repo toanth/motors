@@ -147,6 +147,7 @@ impl UtttSquare {
         }
     }
 
+    #[must_use]
     pub fn bb_idx(self) -> usize {
         let sub_square = self.sub_square.bb_idx();
         let sub_board = self.sub_board.bb_idx();

@@ -773,8 +773,7 @@ pub fn optimize_entire_batch<D: Datapoint>(
 }
 
 /// Convenience function for optimizing with the [`AdamW`] optimizer.
-#[allow(unused)]
-fn adamw_optimize<D: Datapoint, G: LossGradient>(
+pub fn adamw_optimize<D: Datapoint, G: LossGradient>(
     batch: Batch<D>,
     eval_scale: ScalingFactor,
     num_epochs: usize,

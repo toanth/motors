@@ -137,13 +137,13 @@ where
 }
 
 // Rustc warns that the `Board` bounds are not enforced but removing them makes the program fail to compile
-#[allow(type_alias_bounds)]
+#[expect(type_alias_bounds)]
 pub type ColPieceType<B: Board> = <B::Piece as ColoredPiece<B>>::ColoredPieceType;
 
-#[allow(type_alias_bounds)]
+#[expect(type_alias_bounds)]
 pub type PieceType<B: Board> = <ColPieceType<B> as ColoredPieceType<B>>::Uncolored;
 
-#[allow(type_alias_bounds)]
+#[expect(type_alias_bounds)]
 pub type BoardSize<B: Board> = <B::Coordinates as Coordinates>::Size;
 
 /// Currently, a game is completely determined by the `Board` type:

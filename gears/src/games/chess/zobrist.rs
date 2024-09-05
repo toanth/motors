@@ -110,7 +110,6 @@ impl Chessboard {
         res
     }
 
-    #[must_use]
     pub fn approximate_zobrist_after_move(
         mut old_hash: ZobristHash,
         color: ChessColor,
