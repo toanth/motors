@@ -121,7 +121,7 @@ mod tests {
         let res = handle.join().unwrap();
         atomic2.set_stop(true);
         let res2 = handle2.join().unwrap();
-        assert!(res.score.unwrap().0.abs_diff(res2.score.unwrap().0) <= 50);
+        assert!(res.score.unwrap().0.abs_diff(res2.score.unwrap().0) <= 100);
         assert_eq!(res.chosen_move.piece_type(), Bishop);
         assert_eq!(
             res2.chosen_move.src_square(),

@@ -40,6 +40,7 @@ pub type CompactScoreT = i16;
     PartialOrd,
     Copy,
     Clone,
+    Hash,
     Add,
     Sub,
     Neg,

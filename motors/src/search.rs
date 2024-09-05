@@ -160,7 +160,7 @@ pub struct BenchResult {
     pub nodes: NodesLimit,
     pub time: Duration,
     pub depth: Depth,
-    pub moves_hash: u64,
+    pub pv_score_hash: u64,
 }
 
 impl Default for BenchResult {
@@ -169,7 +169,7 @@ impl Default for BenchResult {
             nodes: NodesLimit::MIN,
             time: Duration::default(),
             depth: Depth::MIN,
-            moves_hash: 0,
+            pv_score_hash: 0,
         }
     }
 }
@@ -186,7 +186,7 @@ impl Display for BenchResult {
                 .round()
                 .to_string()
                 .red(),
-            self.moves_hash,
+            self.pv_score_hash,
         )
     }
 }
@@ -797,12 +797,14 @@ pub trait SearchState<B: Board>: Debug {
         } else {
             self.best_move().hash(&mut hasher);
         }
+        // the score can differ even if the pv is the same, so make sure to include that in the hash
+        self.best_score().hash(&mut hasher);
         let hash = hasher.finish();
         BenchResult {
             nodes: NodesLimit::new(self.uci_nodes()).unwrap(),
             time: self.start_time().elapsed(),
             depth: self.depth(),
-            moves_hash: hash,
+            pv_score_hash: hash,
         }
     }
 }
@@ -1079,7 +1081,7 @@ pub fn run_bench_with<B: Board>(
             single_bench(position, engine, limit, tt.clone(), &mut total, &mut hasher);
         }
     }
-    total.moves_hash = hasher.finish();
+    total.pv_score_hash = hasher.finish();
     if cfg!(feature = "statistics") {
         eprintln!("{}", Summary::new(engine.aggregated_statistics()));
     }
@@ -1098,7 +1100,7 @@ fn single_bench<B: Board>(
     total.nodes = NodesLimit::new(total.nodes.get() + res.nodes.get()).unwrap();
     total.time += res.time;
     total.depth = total.depth.max(res.depth);
-    res.moves_hash.hash(hasher);
+    res.pv_score_hash.hash(hasher);
 }
 
 #[cfg(test)]

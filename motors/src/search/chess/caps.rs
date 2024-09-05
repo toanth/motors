@@ -862,10 +862,11 @@ impl Caps {
             // Update the PV. We only need to do this for PV nodes (we could even only do this for non-fail highs,
             // if we didn't have to worry about aw fail high).
             if is_pv_node {
-                let split = self.state.search_stack.split_at_mut(ply + 1);
-                let pv = &mut split.0.last_mut().unwrap().pv;
-                let child_pv = &split.1[0].pv;
-                pv.extend(ply, best_move, child_pv, best_score);
+                let ([.., current], [child, ..]) = self.state.search_stack.split_at_mut(ply + 1)
+                else {
+                    unreachable!()
+                };
+                current.pv.extend(ply, best_move, &child.pv, best_score);
             }
 
             if score < beta {
@@ -942,8 +943,9 @@ impl Caps {
         ply: usize,
         color: ChessColor,
     ) {
-        let (before, now) = self.state.search_stack.split_at_mut(ply);
-        let entry = &mut now[0];
+        let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else {
+            unreachable!()
+        };
         let bonus = (depth * depth) as i32;
         if mov.is_tactical(pos) {
             for disappointing in entry
