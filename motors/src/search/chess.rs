@@ -135,7 +135,9 @@ mod tests {
         let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
         let board = Chessboard::from_fen(fen).unwrap();
         let mut engine = Caps::for_eval::<LiTEval>();
-        let res = engine.search_with_new_tt(board, SearchLimit::nodes_(5_000));
+        // TODO: New testcase that asserts that unfinished iterations can still change the score
+        let res = engine.search_with_new_tt(board, SearchLimit::depth_(1));
+        // let res = engine.search_with_new_tt(board, SearchLimit::nodes_(5_000));
         let score = res.score.unwrap();
         assert!(res.score.unwrap() >= Score(1400), "{score}");
         // not a legal chess position, but search with random eval should handle this

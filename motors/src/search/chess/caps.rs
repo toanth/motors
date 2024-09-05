@@ -473,7 +473,7 @@ impl Caps {
             // and risk playing a move we might have just found a refutation to)
             // Set this before returning if the search has been aborted
             if node_type != FailLow && self.state.current_pv_num == 0 {
-                if pv_score != NO_SCORE_YET {
+                if pv_score != SCORE_TIME_UP {
                     self.state.search_params().atomic.set_score(pv_score);
                 }
                 self.state.search_params().atomic.set_best_move(chosen_move);
@@ -1263,8 +1263,8 @@ mod tests {
         let mut engine = Caps::for_eval::<LiTEval>();
         let res =
             engine.search_with_new_tt(pos, SearchLimit::nodes(NodesLimit::new(12_345).unwrap()));
-
-        assert!(res.score.unwrap().abs() <= Score(64));
+        let score = res.score.unwrap();
+        assert!(score.abs() <= Score(64), "{score}");
         assert!(
             [
                 ChessMove::from_compact_text("e2a6", &pos).unwrap(),
