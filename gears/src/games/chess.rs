@@ -1307,6 +1307,22 @@ mod tests {
     }
 
     #[test]
+    fn castling_attack_test() {
+        let fen = "8/8/8/8/8/8/3k4/RK6 b A - 0 1";
+        let pos = Chessboard::from_fen(fen).unwrap();
+        let moves = pos.legal_moves_slow();
+        // check that castling moves don't count as attacking squares
+        assert!(pos.castling.can_castle(White, Queenside));
+        assert_eq!(moves.len(), 6);
+        let attacking = pos.all_attacking(ChessSquare::from_str("d1").unwrap());
+        assert_eq!(attacking.num_ones(), 1);
+        let fen = "8/8/8/3k4/8/8/8/1KRn4 w C - 0 1";
+        let pos = Chessboard::from_fen(fen).unwrap();
+        assert!(pos.castling.can_castle(White, Kingside));
+        assert!(ChessMove::from_extended_text("0-0", &pos).is_err());
+    }
+
+    #[test]
     fn insufficient_material_test() {
         let insufficient = [
             "8/4k3/8/8/8/8/8/2K5 w - - 0 1",
