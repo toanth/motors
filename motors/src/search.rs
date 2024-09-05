@@ -196,7 +196,6 @@ impl Display for BenchResult {
 pub struct Pv<B: Board, const LIMIT: usize> {
     list: [B::Move; LIMIT],
     length: usize,
-    score: Score,
 }
 
 impl<B: Board, const LIMIT: usize> Default for Pv<B, LIMIT> {
@@ -204,19 +203,17 @@ impl<B: Board, const LIMIT: usize> Default for Pv<B, LIMIT> {
         Self {
             list: [B::Move::default(); LIMIT],
             length: 0,
-            score: NO_SCORE_YET,
         }
     }
 }
 
 impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
-    pub fn extend(&mut self, ply: usize, mov: B::Move, child_pv: &Pv<B, LIMIT>, score: Score) {
+    pub fn extend(&mut self, ply: usize, mov: B::Move, child_pv: &Pv<B, LIMIT>) {
         self.list[ply] = mov;
         for i in ply + 1..child_pv.length {
             self.list[i] = child_pv.list[i];
         }
         self.length = (ply + 1).max(child_pv.length);
-        self.score = score;
     }
 
     pub fn clear(&mut self) {
@@ -468,7 +465,10 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
         // TODO: Call `search.stopped()` below, not every node? It's an Acquire load, so potentially expensive
         // loads an atomic, so calling this function twice probably won't be optimized
         let nodes = state.uci_nodes();
-        if nodes >= limit.nodes.get() || state.stop_command_received() {
+        if nodes >= limit.nodes.get()
+            || !state.currently_searching()
+            || state.stop_command_received()
+        {
             self.search_state().stop_search();
             return true;
         }
