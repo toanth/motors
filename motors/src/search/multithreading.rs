@@ -269,11 +269,9 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
     fn handle_input(&mut self, received: EngineReceives<B>) -> Res<bool> {
         match received {
             Quit => {
-                assert!(!self.engine.is_currently_searching());
                 return Ok(true);
             }
             Forget => {
-                assert!(!self.engine.is_currently_searching());
                 self.engine.forget();
             }
             SetOption(name, value) => match name {
