@@ -36,7 +36,7 @@ use crate::general::board::{
     board_to_string, common_fen_part, read_common_fen_part, Board, SelfChecks, UnverifiedBoard,
 };
 use crate::general::common::{ith_one_u128, parse_int, Res, StaticallyNamedEntity};
-use crate::general::move_list::EagerNonAllocMoveList;
+use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
 use crate::general::squares::{RectangularCoordinates, SmallGridSize, SmallGridSquare};
@@ -636,7 +636,6 @@ impl Board for UtttBoard {
     type Piece = UtttPiece;
     type Move = UtttMove;
     type MoveList = UtttMoveList;
-    type LegalMoveList = Self::MoveList;
     type Unverified = UnverifiedUtttBoard;
 
     fn empty_for_settings(_settings: UtttSettings) -> Self {
@@ -690,11 +689,10 @@ impl Board for UtttBoard {
         }
     }
 
-    fn pseudolegal_moves(&self) -> Self::MoveList {
+    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
         // don't assume that the board is empty in startpos to support different starting positions
-        let mut res = UtttMoveList::default();
         if self.player_result_no_movegen(&NoHistory::default()) == Some(Lose) {
-            return res;
+            return;
         }
         if self.last_move != UtttMove::NULL {
             let sub_board = self.last_move.dest_square().sub_square();
@@ -705,21 +703,20 @@ impl Board for UtttBoard {
                 let sub_bitboard = self.open_sub_board(sub_board);
                 for idx in sub_bitboard.one_indices() {
                     let square = UtttSquare::new(sub_board, UtttSubSquare::from_bb_index(idx));
-                    res.push(UtttMove::new(square));
+                    moves.add_move(UtttMove::new(square));
                 }
-                return res;
+                return;
             }
         }
 
         for sq in self.open_bb().one_indices() {
-            res.push(UtttMove::new(UtttSquare::from_bb_idx(sq)));
+            moves.add_move(UtttMove::new(UtttSquare::from_bb_idx(sq)));
         }
-        res
     }
 
-    fn tactical_pseudolegal(&self) -> Self::MoveList {
+    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, _moves: &mut T) {
         // TODO: Test considering moves that win a sub-board as tactical
-        UtttMoveList::default()
+        // currently, no moves are considered tactical
     }
 
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {

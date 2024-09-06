@@ -1148,6 +1148,7 @@ impl Caps {
     }
 }
 
+#[derive(Debug)]
 struct CapsMoveScorer {
     board: Chessboard,
     ply: usize,

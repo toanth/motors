@@ -26,7 +26,7 @@ use crate::general::common::{
     select_name_static, EntityList, GenericSelect, IterIntersperse, Res, StaticallyNamedEntity,
 };
 use crate::general::move_list::MoveList;
-use crate::general::moves::Legality::Legal;
+use crate::general::moves::Legality::{Legal, PseudoLegal};
 use crate::general::moves::Move;
 use crate::general::squares::{RectangularCoordinates, RectangularSize};
 use crate::search::Depth;
@@ -172,8 +172,7 @@ pub trait Board:
     type Color: Color;
     type Piece: ColoredPiece<Self>;
     type Move: Move<Self>;
-    type MoveList: MoveList<Self>;
-    type LegalMoveList: MoveList<Self> + FromIterator<Self::Move>; // TODO: Remove use MoveList
+    type MoveList: MoveList<Self> + Default;
     type Unverified: UnverifiedBoard<Self>;
 
     /// Returns the name of the game, such as 'chess'.
@@ -299,22 +298,37 @@ pub trait Board:
 
     /// Returns a list of pseudo legal moves, that is, moves which can either be played using
     /// `make_move` or which will cause `make_move` to return `None`.
-    fn pseudolegal_moves(&self) -> Self::MoveList;
+    fn pseudolegal_moves(&self) -> Self::MoveList {
+        let mut moves = Self::MoveList::default();
+        self.gen_pseudolegal(&mut moves);
+        moves
+    }
+
+    /// Generate pseudolegal moves into the supplied move list. Can be more efficient than `pseudolegal_moves`
+    /// because it avoids moving around large move lists, and is generic over the move list to allow arbitrary code
+    /// upon adding moves, such as scoring or filtering the new move.
+    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T);
+
+    /// Generate moves that are considered "tactical" into the supplied move list.
+    /// Can be more efficient than `tactical_pseudolegal` and is generic over the move list.
+    /// Note that some games don't consider any moves tactical, so this function may have no effect.
+    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T);
 
     /// Returns a list of pseudo legal moves that are considered "tactical", such as captures and promotions in chess.
-    fn tactical_pseudolegal(&self) -> Self::MoveList;
+    fn tactical_pseudolegal(&self) -> Self::MoveList {
+        let mut moves = Self::MoveList::default();
+        self.gen_tactical_pseudolegal(&mut moves);
+        moves
+    }
 
     /// Returns a list of legal moves, that is, moves that can be played using `make_move`
     /// and will not return `None`.
-    fn legal_moves_slow(&self) -> Self::LegalMoveList {
-        let pseudo_legal = self.pseudolegal_moves();
-        if Self::Move::legality() == Legal {
-            return pseudo_legal.into_iter().collect();
+    fn legal_moves_slow(&self) -> Self::MoveList {
+        let mut pseudo_legal = self.pseudolegal_moves();
+        if Self::Move::legality() == PseudoLegal {
+            pseudo_legal.filter_moves(|m| self.is_pseudolegal_move_legal(*m));
         }
         pseudo_legal
-            .into_iter()
-            .filter(|mov| self.is_pseudolegal_move_legal(*mov))
-            .collect()
     }
 
     /// Returns a random legal move, that is, chooses a pseudorandom move from the set of legal moves.

@@ -14,7 +14,7 @@ use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::{board_to_string, position_fen_part, SelfChecks, UnverifiedBoard};
 use crate::general::common::{Res, StaticallyNamedEntity};
-use crate::general::move_list::EagerNonAllocMoveList;
+use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{SmallGridSize, SmallGridSquare};
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose, Win};
@@ -130,8 +130,6 @@ impl Board for AtaxxBoard {
     type Piece = AtaxxPiece;
     type Move = AtaxxMove;
     type MoveList = AtaxxMoveList;
-
-    type LegalMoveList = Self::MoveList;
 
     type Unverified = UnverifiedAtaxxBoard;
 
@@ -252,12 +250,12 @@ impl Board for AtaxxBoard {
         Self::Piece::new(typ, coordinates)
     }
 
-    fn pseudolegal_moves(&self) -> Self::MoveList {
-        self.legal_moves()
+    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
+        self.gen_legal(moves)
     }
 
-    fn tactical_pseudolegal(&self) -> Self::MoveList {
-        AtaxxMoveList::default()
+    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, _moves: &mut T) {
+        // currently, no moves are considered tactical
     }
 
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {

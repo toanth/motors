@@ -38,7 +38,7 @@ use crate::general::common::Description::NoDescription;
 use crate::general::common::{
     parse_int_from_str, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
 };
-use crate::general::move_list::EagerNonAllocMoveList;
+use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::RectangularCoordinates;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
@@ -154,7 +154,6 @@ impl Board for Chessboard {
     type Piece = ChessPiece;
     type Move = ChessMove;
     type MoveList = ChessMoveList;
-    type LegalMoveList = ChessMoveList;
     type Unverified = UnverifiedChessboard;
 
     fn empty_for_settings(_: Self::Settings) -> UnverifiedChessboard {
@@ -361,12 +360,12 @@ impl Board for Chessboard {
         )
     }
 
-    fn pseudolegal_moves(&self) -> Self::MoveList {
-        self.gen_all_pseudolegal_moves()
+    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
+        self.gen_pseudolegal_moves(moves, !self.colored_bb(self.active_player), false)
     }
 
-    fn tactical_pseudolegal(&self) -> Self::MoveList {
-        self.gen_tactical_pseudolegal()
+    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
+        self.gen_pseudolegal_moves(moves, self.colored_bb(self.active_player.other()), true)
     }
 
     fn random_legal_move<T: Rng>(&self, rng: &mut T) -> Option<Self::Move> {

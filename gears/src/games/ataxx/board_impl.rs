@@ -8,6 +8,7 @@ use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::{read_common_fen_part, UnverifiedBoard};
 use crate::general::common::Res;
+use crate::general::move_list::MoveList;
 use crate::general::moves::Move;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::iter::Peekable;
@@ -63,29 +64,31 @@ impl AtaxxBoard {
         self.color_bb(!self.active_player)
     }
 
-    pub(super) fn legal_moves(&self) -> AtaxxMoveList {
-        let mut res = AtaxxMoveList::default();
+    pub(super) fn gen_legal<T: MoveList<Self>>(&self, moves: &mut T) {
         let pieces = self.active_bb();
         let empty = self.empty_bb();
         let neighbors = pieces.moore_neighbors() & empty;
         for sq in neighbors.ones() {
-            res.push(AtaxxMove::cloning(sq));
+            moves.add_move(AtaxxMove::cloning(sq));
         }
         for source in pieces.ones() {
             let leaps = LEAPING[source.bb_idx()] & empty;
             for target in leaps.ones() {
-                res.push(AtaxxMove::leaping(source, target));
+                moves.add_move(AtaxxMove::leaping(source, target));
             }
         }
-        if res.is_empty() && pieces.has_set_bit() {
+        if moves.num_moves() == 0 && pieces.has_set_bit() {
             let other_bb = self.color_bb(self.active_player.other());
             // if the other player doesn't have any legal moves, the game is over.
             // return an empty move list in that case so that the user can pick up on this
             if (other_bb.extended_moore_neighbors(2) & empty).has_set_bit() {
-                res.push(AtaxxMove::default());
+                moves.add_move(AtaxxMove::default());
             }
         }
-        res
+    }
+
+    pub fn legal_moves(&self) -> AtaxxMoveList {
+        self.pseudolegal_moves()
     }
 
     pub(super) fn make_move_impl(mut self, mov: AtaxxMove) -> Self {

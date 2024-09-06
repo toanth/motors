@@ -537,7 +537,7 @@ impl MoveScore {
     const MIN: MoveScore = MoveScore(i32::MIN + 1);
 }
 
-pub trait MoveScorer<B: Board> {
+pub trait MoveScorer<B: Board>: Debug {
     type State: SearchState<B>;
     fn score_move(&self, mov: B::Move, state: &Self::State) -> MoveScore;
 }

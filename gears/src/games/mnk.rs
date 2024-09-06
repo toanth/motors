@@ -471,7 +471,6 @@ impl Board for MNKBoard {
     type Move = FillSquare;
 
     type MoveList = EagerNonAllocMoveList<Self, 128>;
-    type LegalMoveList = Self::MoveList;
 
     type Unverified = UnverifiedMnkBoard;
 
@@ -541,9 +540,8 @@ impl Board for MNKBoard {
         Square::new(symbol, coordinates)
     }
 
-    fn pseudolegal_moves(&self) -> EagerNonAllocMoveList<Self, 128> {
+    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
         let mut empty = self.empty_bb();
-        let mut moves = EagerNonAllocMoveList::<Self, 128>::default();
         while empty.has_set_bit() {
             let idx = empty.pop_lsb();
             if idx >= self.num_squares() {
@@ -552,13 +550,12 @@ impl Board for MNKBoard {
             let next_move = FillSquare {
                 target: self.idx_to_coordinates(idx as DimT),
             };
-            MoveList::<MNKBoard>::add_move(&mut moves, next_move);
+            moves.add_move(next_move);
         }
-        moves
     }
 
-    fn tactical_pseudolegal(&self) -> Self::MoveList {
-        Self::MoveList::default()
+    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, _moves: &mut T) {
+        // currently, no moves are considered tactical
     }
 
     fn random_legal_move<T: Rng>(&self, rng: &mut T) -> Option<Self::Move> {

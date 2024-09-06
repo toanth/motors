@@ -902,7 +902,7 @@ impl<'a> MoveParser<'a> {
             ));
         }
 
-        let mut moves = board.gen_all_pseudolegal_moves().into_iter().filter(|mov| {
+        let mut moves = board.pseudolegal_moves().into_iter().filter(|mov| {
             mov.piece_type() == self.piece
                 && mov.dest_square().file() == self.target_file.unwrap()
                 && !self

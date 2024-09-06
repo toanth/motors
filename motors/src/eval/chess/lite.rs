@@ -212,7 +212,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let attacked_by_pawn = pos
             .colored_piece_bb(color.other(), Pawn)
             .pawn_attacks(color.other());
-        let king_zone = Chessboard::normal_king_moves_from_square(pos.king_square(color.other()));
+        let king_zone = Chessboard::normal_king_attacks_from(pos.king_square(color.other()));
         if (pos.colored_piece_bb(color, Pawn).pawn_attacks(color) & king_zone).has_set_bit() {
             score += Tuned::king_zone_attack(Pawn);
         }

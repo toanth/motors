@@ -4,7 +4,7 @@ use std::fmt::Debug;
 
 /// A list of moves as returned by the board's `pseudolegal_moves`.
 /// Moves may or may not be ordered and may or may not be computed lazily.
-pub trait MoveList<B: Board>: IntoIterator<Item = B::Move> + Eq + PartialEq + Debug {
+pub trait MoveList<B: Board>: IntoIterator<Item = B::Move> + Debug {
     fn add_move(&mut self, mov: B::Move);
 
     fn num_moves(&self) -> usize;
@@ -12,9 +12,12 @@ pub trait MoveList<B: Board>: IntoIterator<Item = B::Move> + Eq + PartialEq + De
     /// Moves the last currently considered move to the `idx`th element and returns that.
     fn swap_remove_move(&mut self, idx: usize) -> B::Move;
 
+    /// Doesn't guarantee any particular iteration order
     fn iter_moves(&self) -> impl Iterator<Item = &B::Move>;
 
     fn remove(&mut self, to_remove: B::Move);
+
+    fn filter_moves<F: Fn(&mut B::Move) -> bool>(&mut self, predicate: F);
 }
 
 /// A list of moves that is computed all at once and stored in-place.
@@ -42,5 +45,9 @@ impl<B: Board, const N: usize> MoveList<B> for EagerNonAllocMoveList<B, N> {
         if let Some(idx) = self.iter().position(|m| *m == to_remove) {
             self.swap_remove(idx);
         }
+    }
+
+    fn filter_moves<F: Fn(&mut B::Move) -> bool>(&mut self, predicate: F) {
+        self.retain(predicate)
     }
 }

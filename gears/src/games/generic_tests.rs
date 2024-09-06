@@ -146,7 +146,10 @@ impl<B: Board> GenericTests<B> {
                 let roundtrip = B::from_fen(&new_pos.as_fen()).unwrap();
                 assert!(roundtrip.debug_verify_invariants().is_ok());
                 assert_eq!(roundtrip.as_fen(), new_pos.as_fen());
-                assert_eq!(roundtrip.legal_moves_slow(), new_pos.legal_moves_slow());
+                assert_eq!(
+                    roundtrip.legal_moves_slow().into_iter().collect_vec(),
+                    new_pos.legal_moves_slow().into_iter().collect_vec()
+                );
                 assert_eq!(roundtrip, new_pos);
                 assert_eq!(roundtrip.zobrist_hash(), new_pos.zobrist_hash());
 
