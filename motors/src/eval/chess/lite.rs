@@ -366,10 +366,12 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 impl Eval<Chessboard> for LiTEval {
     fn eval(&mut self, pos: &Chessboard) -> Score {
         self.stack.clear();
-        let (state, score) = Self::eval_from_scratch(pos);
+        let (state, eval) = Self::eval_from_scratch(pos);
         self.stack.push(state);
-        let score = score.finalize(state.phase, 24, pos.active_player(), TEMPO);
-        score   * (100 - pos.halfmove_repetition_clock() as ScoreT) / 100
+        dampen(
+            eval.finalize(state.phase, 24, pos.active_player(), TEMPO),
+            pos,
+        )
     }
 
     // Zobrist hash collisions should be rare enough not to matter, and even when they occur,
@@ -384,8 +386,15 @@ impl Eval<Chessboard> for LiTEval {
         debug_assert!(self.stack.len() >= ply);
         debug_assert!(ply > 0);
         let entry = self.stack[ply - 1];
-        let (entry, score) = Self::incremental(entry, old_pos, mov, new_pos);
+        let (entry, eval) = Self::incremental(entry, old_pos, mov, new_pos);
         self.stack.resize(ply + 1, entry);
-        score.finalize(entry.phase, 24, new_pos.active_player(), TEMPO)
+        dampen(
+            eval.finalize(entry.phase, 24, new_pos.active_player(), TEMPO),
+            new_pos,
+        )
     }
+}
+
+fn dampen(eval: Score, pos: &Chessboard) -> Score {
+    eval * (100 - 36    .max(pos.halfmove_repetition_clock() as ScoreT)) / 64
 }
