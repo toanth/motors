@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
+use std::ops::Sub;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
@@ -70,7 +71,7 @@ impl<B: Board> Display for SearchResult<B> {
 #[derive(Debug)]
 #[must_use]
 pub struct SearchInfo<B: Board> {
-    pub best_move: B::Move,
+    pub best_move_of_all_pvs: B::Move,
     pub depth: Depth,
     pub seldepth: Depth,
     pub time: Duration,
@@ -85,7 +86,7 @@ pub struct SearchInfo<B: Board> {
 impl<B: Board> Default for SearchInfo<B> {
     fn default() -> Self {
         Self {
-            best_move: B::Move::default(),
+            best_move_of_all_pvs: B::Move::default(),
             depth: Depth::default(),
             seldepth: Depth::default(),
             time: Duration::default(),
@@ -115,7 +116,7 @@ impl<B: Board> SearchInfo<B> {
     }
 
     pub fn to_search_result(&self) -> SearchResult<B> {
-        SearchResult::move_and_score(self.best_move, self.score)
+        SearchResult::move_and_score(self.pv[0], self.score)
     }
 }
 
@@ -285,6 +286,36 @@ impl Depth {
     }
 }
 
+impl AddAssign<usize> for Depth {
+    fn add_assign(&mut self, rhs: usize) {
+        self.0 += rhs;
+    }
+}
+
+impl Add<usize> for Depth {
+    type Output = Self;
+
+    fn add(mut self, rhs: usize) -> Self::Output {
+        self += rhs;
+        self
+    }
+}
+
+impl SubAssign<usize> for Depth {
+    fn sub_assign(&mut self, rhs: usize) {
+        self.0 -= rhs;
+    }
+}
+
+impl Sub<usize> for Depth {
+    type Output = Self;
+
+    fn sub(mut self, rhs: usize) -> Self::Output {
+        self -= rhs;
+        self
+    }
+}
+
 pub type NodesLimit = NonZeroU64;
 
 // Don't derive Eq because that allows code like `limit == SearchLimit::infinite()`, which is bad because the remaining
@@ -307,7 +338,7 @@ impl Default for SearchLimit {
             fixed_time: Duration::MAX,
             depth: MAX_DEPTH,
             nodes: NodesLimit::new(u64::MAX).unwrap(),
-            mate: Depth(0),
+            mate: Depth::new(0), // only finding a mate in 0 would stop the search
         }
     }
 }
@@ -330,7 +361,7 @@ impl Display for SearchLimit {
         if self.nodes.get() != u64::MAX {
             limits.push(format!("{} nodes", self.nodes.get()));
         }
-        if self.mate != Depth(0) {
+        if self.mate != Depth::new(0) {
             limits.push(format!("mate in {} plies", self.mate.get()));
         }
         if limits.len() == 1 {

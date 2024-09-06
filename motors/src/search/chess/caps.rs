@@ -18,7 +18,8 @@ use gears::general::common::{select_name_static, Res, StaticallyNamedEntity};
 use gears::general::moves::Move;
 use gears::output::Message::Debug;
 use gears::score::{
-    game_result_to_score, ScoreT, MAX_BETA, MAX_SCORE_LOST, MIN_ALPHA, NO_SCORE_YET, SCORE_TIME_UP,
+    game_result_to_score, ScoreT, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA,
+    NO_SCORE_YET, SCORE_TIME_UP,
 };
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
@@ -33,9 +34,9 @@ use crate::search::tt::TTEntry;
 use crate::search::*;
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
-const DEPTH_SOFT_LIMIT: Depth = Depth::new(100);
+const DEPTH_SOFT_LIMIT: Depth = Depth::new(225);
 /// The maximum value of the `ply` parameter, i.e. the maximum depth (in plies) before qsearch is reached
-const DEPTH_HARD_LIMIT: Depth = Depth::new(128);
+const DEPTH_HARD_LIMIT: Depth = Depth::new(255);
 
 const HIST_DIVISOR: i32 = 1024;
 /// The TT move and good captures have a higher score, all other moves have a lower score.
@@ -132,6 +133,7 @@ struct Additional {
     capt_hist: CaptHist,
     original_board_hist: ZobristHistory<Chessboard>,
     nmp_disabled: [bool; 2],
+    depth_hard_limit: usize,
 }
 
 impl Additional {
@@ -298,10 +300,16 @@ impl Engine<Chessboard> for Caps {
         let mut limit = self.state.params.limit;
         let pos = self.state.params.pos;
         limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
+        self.state.custom.depth_hard_limit = if limit.mate.get() == 0 {
+            DEPTH_HARD_LIMIT.get()
+        } else {
+            limit.mate.get()
+        };
         let soft_limit = limit
             .fixed_time
             .min((limit.tc.remaining.saturating_sub(limit.tc.increment)) / 32 + limit.tc.increment)
             .min(limit.tc.remaining / 4);
+        self.state.params.limit = limit;
 
         // Ideally, this would only evaluate the String argument if debug is on, but that's annoying to implement
         // and would still require synchronization because debug mode might be turned on while the engine is searching
@@ -348,6 +356,7 @@ impl Engine<Chessboard> for Caps {
     {
         true
     }
+
     fn with_eval(eval: Box<dyn Eval<Chessboard>>) -> Self {
         Self {
             state: ABSearchState::new(DEPTH_HARD_LIMIT),
@@ -425,28 +434,23 @@ impl Caps {
         window_radius: &mut Score,
         max_depth: isize,
     ) -> bool {
+        let mut first_iteration = true;
         loop {
             if self.should_not_start_iteration(soft_limit, max_depth, self.limit().mate) {
                 self.state.statistics.soft_limit_stop();
+                if !first_iteration {
+                    self.send_search_info();
+                }
                 return false;
             }
+            first_iteration = false;
             let pv_score = self.negamax(pos, 0, self.state.depth().isize(), *alpha, *beta, Exact);
 
-            let chosen_move = self
-                .state
-                .pv()
-                .and_then(|pv| pv.first().copied())
-                .unwrap_or_default();
+            let pv = self.state.pv().unwrap();
+            let chosen_move = pv.first().copied().unwrap_or_default();
+            let ponder_move = pv.get(1).copied();
             self.state.current_pv_data().best_move = chosen_move;
             self.state.current_pv_data().score = pv_score;
-
-            if self.state.current_pv_num == 0 && !self.state.currently_searching() {
-                // send one final search info
-                if self.state.best_move() != ChessMove::default() {
-                    // don't send empty / invalid PVs
-                    self.send_search_info(); // depth hasn't been incremented
-                }
-            }
 
             self.state.send_non_ugi(
                 Debug,
@@ -472,19 +476,25 @@ impl Caps {
             // TODO: Increase soft limit for an aw fail low? (Because we don't have a lot of information in that case,
             // and risk playing a move we might have just found a refutation to)
             // Set this before returning if the search has been aborted
+            let atomic = &self.state.search_params().atomic;
             if node_type != FailLow && self.state.current_pv_num == 0 {
-                if pv_score != SCORE_TIME_UP {
-                    self.state.search_params().atomic.set_score(pv_score);
+                // We can't really trust FailHigh scores. Even though we should still prefer a fail high move, we don't
+                // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
+                if node_type == Exact {
+                    atomic.set_score(pv_score); // can't be SCORE_TIME_UP or similar because that wouldn't be exact
+                } else if self.state.currently_searching() {
+                    atomic.set_score(pv_score.min(MAX_NORMAL_SCORE));
                 }
-                self.state.search_params().atomic.set_best_move(chosen_move);
-                let ponder_move = self.state.pv().and_then(|pv| pv.get(1).copied());
-                self.state
-                    .search_params()
-                    .atomic
-                    .set_ponder_move(ponder_move);
+                atomic.set_best_move(chosen_move);
+                atomic.set_ponder_move(ponder_move);
             }
 
             if !self.state.currently_searching() {
+                // send one final search info, but don't send empty / invalid PVs
+                if chosen_move != ChessMove::default() {
+                    self.send_search_info();
+                }
+
                 return false;
             }
             // assert this now because this doesn't hold for incomplete iterations
@@ -558,7 +568,8 @@ impl Caps {
             self.state.statistics.in_check();
             depth += 1;
         }
-        if depth <= 0 || ply >= DEPTH_HARD_LIMIT.get() {
+        // limit.mate() is the min of the original limit.mate and DEPTH_HARD_LIMIT
+        if depth <= 0 || ply >= self.state.custom.depth_hard_limit {
             return self.qsearch(pos, alpha, beta, ply);
         }
         let can_prune = !is_pv_node && !in_check;
@@ -701,6 +712,7 @@ impl Caps {
                     // should use `depth - reduction`, but using `depth - 1 - reduction` is less expensive and good enough.
                     let verification_score =
                         self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh);
+                    self.state.search_stack[ply].tried_moves.clear();
                     *self.state.custom.nmp_disabled_for(pos.active_player()) = false;
                     // The verification score is more trustworthy than the nmp score.
                     if verification_score >= beta {
@@ -1323,45 +1335,60 @@ mod tests {
 
     #[test]
     #[cfg(not(debug_assertions))]
-    /// puzzles that are reasonably challenging for most humans, but shouldn't be difficult for the engine
+    /// puzzles that are reasonably challenging for most humans, but shouldn't be too   difficult for the engine
     fn mate_test() {
         let fens = [
-            ("8/5K2/4N2k/2B5/5pP1/1np2n2/1p6/r2R4 w - - 0 1", "d1d5"),
-            ("5rk1/r5p1/2b2p2/3q1N2/6Q1/3B2P1/5P2/6KR w - - 0 1", "f5h6"),
+            ("8/5K2/4N2k/2B5/5pP1/1np2n2/1p6/r2R4 w - - 0 1", "d1d5", 5),
+            (
+                "5rk1/r5p1/2b2p2/3q1N2/6Q1/3B2P1/5P2/6KR w - - 0 1",
+                "f5h6",
+                5,
+            ),
             (
                 "2rk2nr/R1pnp3/5b2/5P2/BpPN1Q2/pPq5/P7/1K4R1 w - - 0 1",
                 "f4c7",
+                6,
             ),
-            ("k2r3r/PR6/1K6/3R4/8/5np1/B6p/8 w - - 0 1", "d5d8"),
-            ("3n3R/8/3p1pp1/r2bk3/8/4NPP1/p3P1KP/1r1R4 w - - 0 1", "h8e8"),
-            ("7K/k7/p1R5/4N1q1/8/6rb/5r2/1R6 w - - 0 1", "c6c7"),
+            ("k2r3r/PR6/1K6/3R4/8/5np1/B6p/8 w - - 0 1", "d5d8", 6),
+            (
+                "3n3R/8/3p1pp1/r2bk3/8/4NPP1/p3P1KP/1r1R4 w - - 0 1",
+                "h8e8",
+                6,
+            ),
+            ("7K/k7/p1R5/4N1q1/8/6rb/5r2/1R6 w - - 0 1", "c6c7", 4),
             (
                 "rkr5/3n1p2/1pp1b3/NP4p1/3PPn1p/QN1B1Pq1/2P5/R6K w - - 0 1",
                 "a5c6",
+                7,
             ),
-            ("1kr5/4R3/pP6/1n2N3/3p4/2p5/1r6/4K2R w K - 0 1", "h1h8"),
-            ("1k6/1bpQN3/1p6/p7/6p1/2NP1nP1/5PK1/4q3 w - - 0 1", "d7d8"),
+            ("1kr5/4R3/pP6/1n2N3/3p4/2p5/1r6/4K2R w K - 0 1", "h1h8", 7),
+            (
+                "1k6/1bpQN3/1p6/p7/6p1/2NP1nP1/5PK1/4q3 w - - 0 1",
+                "d7d8",
+                8,
+            ),
             (
                 "1k4r1/pb1p4/1p1P4/1P3r1p/1N2Q3/6Pq/4BP1P/4R1K1 w - - 0 1",
                 "b4a6",
+                10,
             ),
+            ("rk6/p1r3p1/P3B1Kp/1p2B3/8/8/8/8 w - - 0 1", "e6d7", 5),
         ];
-        for (fen, mov) in fens {
+        for (fen, best_move, num_moves) in fens {
             let pos = Chessboard::from_fen(fen).unwrap();
             let mut engine = Caps::for_eval::<LiTEval>();
-            let mut limit = SearchLimit::depth(Depth::new(18));
-            limit.mate = Depth::new(10);
-            limit.fixed_time = Duration::from_secs(2);
-            let res = engine
-                .search_with_new_tt(pos, SearchLimit::depth(Depth::new(15)))
-                .unwrap();
+            let limit = SearchLimit::mate_in_moves(num_moves);
+            let res = engine.search_with_new_tt(pos, limit);
+            let score = res.score.unwrap();
             println!(
-                "chosen move {0}, fen {1}",
+                "chosen move {0}, fen {1}, depth {2}, time {3}ms",
                 res.chosen_move.extended_formatter(pos),
-                pos.as_fen()
+                pos.as_fen(),
+                engine.state.depth(),
+                engine.state.start_time.elapsed().as_millis()
             );
-            assert!(res.score.unwrap().is_game_won_score());
-            assert_eq!(res.chosen_move.to_string(), mov);
+            assert!(score.is_game_won_score());
+            assert_eq!(res.chosen_move.to_string(), best_move);
         }
     }
 }

@@ -485,12 +485,12 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
     fn should_not_start_iteration(
         &self,
         soft_limit: Duration,
-        max_depth: isize,
+        max_soft_depth: isize,
         mate_depth: Depth,
     ) -> bool {
         let state = self.search_state();
         state.start_time().elapsed() >= soft_limit
-            || state.depth().get() as isize > max_depth
+            || state.depth().get() as isize > max_soft_depth
             || state.best_score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT)
     }
 
@@ -986,7 +986,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
 
     fn to_search_info(&self) -> SearchInfo<B> {
         SearchInfo {
-            best_move: self.best_move(),
+            best_move_of_all_pvs: self.best_move(),
             depth: self.depth(),
             seldepth: self.seldepth(),
             time: self.start_time().elapsed(),

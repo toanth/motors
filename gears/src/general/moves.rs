@@ -153,7 +153,11 @@ pub struct ExtendedFormatter<B: Board> {
 
 impl<B: Board> Display for ExtendedFormatter<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.mov.format_extended(f, &self.pos)
+        if self.mov == B::Move::default() {
+            write!(f, "0000")
+        } else {
+            self.mov.format_extended(f, &self.pos)
+        }
     }
 }
 

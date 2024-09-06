@@ -120,7 +120,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
 
     fn search_info(&self) -> SearchInfo<B> {
         SearchInfo {
-            best_move: self.state.best_move(),
+            best_move_of_all_pvs: self.state.best_move(),
             depth: Depth::new(0),
             seldepth: Depth::new(0),
             time: Duration::default(),
