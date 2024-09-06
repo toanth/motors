@@ -1207,6 +1207,7 @@ mod tests {
     use gears::search::NodesLimit;
 
     use crate::eval::chess::lite::LiTEval;
+    use crate::eval::chess::material_only::MaterialOnlyEval;
     use crate::eval::chess::piston::PistonEval;
     use crate::eval::rand_eval::RandEval;
     use crate::search::tests::generic_engine_test;
@@ -1292,6 +1293,33 @@ mod tests {
     fn generic_test() {
         generic_engine_test(Caps::for_eval::<LiTEval>());
         generic_engine_test(Caps::for_eval::<RandEval>());
+        let tt = TT::default();
+        depth_1_nodes_test(Caps::for_eval::<RandEval>(), tt.clone());
+        depth_1_nodes_test(Caps::for_eval::<MaterialOnlyEval>(), tt.clone());
+        depth_1_nodes_test(Caps::for_eval::<PistonEval>(), tt.clone());
+        depth_1_nodes_test(Caps::for_eval::<LiTEval>(), tt.clone());
+    }
+
+    // TODO: Eventually, make sure that GAPS also passed this
+    fn depth_1_nodes_test(mut engine: Caps, tt: TT) {
+        for pos in Chessboard::bench_positions() {
+            _ = engine.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
+            let root_entry = tt.load(pos.zobrist_hash(), 0).unwrap();
+            assert!(root_entry.depth <= 2); // possible extensions
+            assert_eq!(root_entry.bound(), Exact);
+            assert!(root_entry.mov.check_legal(&pos).is_some());
+            let moves = pos.legal_moves_slow();
+            assert!(engine.state.uci_nodes() as usize >= moves.len()); // >= because of extensions
+            for m in moves {
+                let new_pos = pos.make_move(m).unwrap();
+                let entry = tt.load::<Chessboard>(new_pos.zobrist_hash(), 0);
+                let Some(entry) = entry else {
+                    continue; // it's possible that a position is not in the TT because qsearch didn't save it
+                };
+                assert!(entry.depth <= 1);
+                assert!(-entry.score <= root_entry.score);
+            }
+        }
     }
 
     #[test]

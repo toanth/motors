@@ -37,6 +37,7 @@ pub enum EngineReceives<B: Board> {
     SetOption(EngineOptionName, String),
     Search(SearchParams<B>),
     Bench(B, SearchLimit, Arc<Mutex<UgiOutput<B>>>),
+    TTEntry(B, Arc<Mutex<UgiOutput<B>>>),
     EvalFor(B, Arc<Mutex<UgiOutput<B>>>),
     SetEval(Box<dyn Eval<B>>),
 }
@@ -253,6 +254,26 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         output.lock().unwrap().write_ugi(&res.to_string());
     }
 
+    fn get_tt_entry(&mut self, pos: B, output: Arc<Mutex<UgiOutput<B>>>) {
+        if let Some(entry) = self
+            .engine
+            .search_state()
+            .tt()
+            .load::<B>(pos.zobrist_hash(), 0)
+        {
+            let msg = format!(
+                "move {0} score {1} bound {2} depth {3}",
+                entry.mov,
+                entry.score,
+                entry.bound(),
+                entry.depth
+            );
+            output.lock().unwrap().write_ugi(&msg);
+        } else {
+            output.lock().unwrap().write_ugi("<none>");
+        };
+    }
+
     fn get_static_eval(&mut self, pos: B, output: Arc<Mutex<UgiOutput<B>>>) {
         let eval = self.engine.static_eval(pos);
         output
@@ -282,6 +303,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                 self.start_search(params);
             }
             Bench(pos, limit, output) => self.bench_single_position(pos, limit, output),
+            TTEntry(pos, output) => self.get_tt_entry(pos, output),
             EvalFor(pos, output) => self.get_static_eval(pos, output),
             SetEval(eval) => self.engine.set_eval(eval),
         };
@@ -466,6 +488,12 @@ impl<B: Board> EngineWrapper<B> {
     pub fn static_eval(&mut self, pos: B) -> Res<()> {
         self.main
             .send(EvalFor(pos, self.main_thread_data.output.clone()))
+            .map_err(|err| err.to_string())
+    }
+
+    pub fn tt_entry(&mut self, pos: B) -> Res<()> {
+        self.main
+            .send(TTEntry(pos, self.main_thread_data.output.clone()))
             .map_err(|err| err.to_string())
     }
 

@@ -46,10 +46,19 @@ pub type CompactScoreT = i16;
     Neg,
     AddAssign,
     SubAssign,
-    derive_more::Display,
 )]
 #[must_use]
 pub struct Score(pub ScoreT);
+
+impl Display for Score {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if let Some(moves_until_over) = self.moves_until_game_won() {
+            write!(f, "mate {moves_until_over}")
+        } else {
+            write!(f, "cp {0}", self.0) // TODO: WDL normalization
+        }
+    }
+}
 
 impl Add<ScoreT> for Score {
     type Output = Score;

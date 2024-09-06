@@ -1033,7 +1033,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, FromRepr)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, derive_more::Display, FromRepr)]
 #[repr(u8)]
 #[must_use]
 pub enum NodeType {

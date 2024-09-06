@@ -511,7 +511,8 @@ impl<B: Board> EngineUGI<B> {
             "bench" => {
                 self.handle_go(Bench, words)?;
             }
-            "eval" | "e" => self.handle_eval(words)?,
+            "eval" | "e" => self.handle_eval_or_tt(true, words)?,
+            "tt" | "tt-entry" => self.handle_eval_or_tt(false, words)?,
             "help" => self.print_help(),
             x => {
                 // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
@@ -850,13 +851,21 @@ impl<B: Board> EngineUGI<B> {
         Ok(board_state_clone.board)
     }
 
-    fn handle_eval(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
-        if words.clone().next().is_some() {
+    fn handle_eval_or_tt(&mut self, eval: bool, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+        let board = if words.peek().copied().is_some() {
+            if matches!(*words.peek().unwrap(), "position" | "pos" | "p") {
+                words.next();
+            }
             let mut board_state_clone = self.state.board_state.clone();
             board_state_clone.handle_position(words)?;
-            self.state.engine.static_eval(board_state_clone.board)
+            board_state_clone.board
         } else {
-            self.state.engine.static_eval(self.state.board)
+            self.state.board
+        };
+        if eval {
+            self.state.engine.static_eval(board)
+        } else {
+            self.state.engine.tt_entry(board)
         }
     }
 
@@ -896,22 +905,23 @@ impl<B: Board> EngineUGI<B> {
                 // This is definitely not the fastest way to print something, but performance isn't a huge concern here
                 let mut output = output_builder_from_str(name, &self.output_factories)?
                     .for_engine(&self.state)?;
+                let old_board = self.state.board;
                 match words.next() {
-                    None => {
-                        output.show(&self.state);
-                    }
-                    Some("position" | "p") => {
-                        let old_board = self.state.board;
+                    None => {}
+                    Some("position" | "pos" | "p") => {
                         self.state.board = self.load_position_into_copy(words)?;
-                        output.show(&self.state);
-                        self.state.board = old_board;
                     }
                     Some(x) => {
-                        return Err(format!(
+                        let Ok(new_board) = self.load_position_into_copy(words) else {
+                            return Err(format!(
                                 "Unrecognized input '{x}' after valid print command, should be either nothing or a valid 'position' command"
-                        ))
+                            ));
+                        };
+                        self.state.board = new_board;
                     }
                 }
+                output.show(&self.state);
+                self.state.board = old_board;
             }
         }
         Ok(())
@@ -1001,7 +1011,7 @@ impl<B: Board> EngineUGI<B> {
     // manually move it into a context where it doesn't depend on `B`.
     fn handle_log(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         self.output().additional_outputs.retain(|o| !o.is_logger());
-        let next = words.clone().next().unwrap_or_default();
+        let next = words.peek().copied().unwrap_or_default();
         if next != "off" && next != "none" {
             let logger = LoggerBuilder::from_words(words).for_engine(&self.state)?;
             self.output().additional_outputs.push(logger);
@@ -1043,6 +1053,7 @@ impl<B: Board> EngineUGI<B> {
         \n {perft}: Equivalent to `go perft`, but allows setting the position as last argument, e.g. `perft depth 3 position startpos` \
         or simply `perft` to use the current position and game-specific default depth.\
         \n {bench}: See `perft`, but replace 'perft' with 'bench'. The default depth is engine-specific.\
+        \n {tt}: Like `{eval}', but prints the TT entry, if any. Can take an optional position, like 'eval'.\
         \n {eval}: Prints the static eval of the current position, without doing any actual searching.\
         \n {set_eval}: Loads another evaluation function for the same engine.\
         \n {option}: Prints the current value of the specified UGI option, or of all UGI options if no name is specified.\
@@ -1060,6 +1071,7 @@ impl<B: Board> EngineUGI<B> {
             engine = "engine".bold(),
             perft = "perft".bold(),
             bench = "bench".bold(),
+            tt = "tt".bold(),
             eval = "eval | e".bold(),
             set_eval = "set-eval".bold(),
             option = "option".bold(),

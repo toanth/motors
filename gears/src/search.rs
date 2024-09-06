@@ -122,15 +122,10 @@ impl<B: Board> SearchInfo<B> {
 
 impl<B: Board> Display for SearchInfo<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let score_str = if let Some(moves_until_over) = self.score.moves_until_game_won() {
-            format!("mate {moves_until_over}")
-        } else {
-            format!("cp {0}", self.score.0) // TODO: WDL normalization
-        };
-
         write!(f,
-               "info depth {depth} seldepth {seldepth} multipv {multipv} score {score_str} time {time} nodes {nodes} nps {nps} hashfull {hashfull} pv",
+               "info depth {depth} seldepth {seldepth} multipv {multipv} score {score} time {time} nodes {nodes} nps {nps} hashfull {hashfull} pv",
                depth = self.depth.get(),
+               score = self.score,
                time = self.time.as_millis(),
                nodes = self.nodes.get(),
                seldepth = self.seldepth.0,
