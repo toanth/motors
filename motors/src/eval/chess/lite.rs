@@ -20,7 +20,7 @@ use gears::general::board::Board;
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::moves::Move;
 use gears::general::squares::RectangularCoordinates;
-use gears::score::{PhaseType, Score};
+use gears::score::{PhaseType, Score, ScoreT};
 
 use crate::eval::chess::lite::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
 use crate::eval::{Eval, ScoreType};
@@ -368,7 +368,8 @@ impl Eval<Chessboard> for LiTEval {
         self.stack.clear();
         let (state, score) = Self::eval_from_scratch(pos);
         self.stack.push(state);
-        score.finalize(state.phase, 24, pos.active_player(), TEMPO)
+        let score = score.finalize(state.phase, 24, pos.active_player(), TEMPO);
+        score   * (100 - pos.halfmove_repetition_clock() as ScoreT) / 100
     }
 
     // Zobrist hash collisions should be rare enough not to matter, and even when they occur,
