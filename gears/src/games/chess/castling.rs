@@ -1,8 +1,9 @@
+use arbitrary::Arbitrary;
 use itertools::Itertools;
 use strum_macros::EnumIter;
 
 use crate::games::chess::castling::CastleRight::*;
-use crate::games::chess::pieces::ChessPieceType::Rook;
+use crate::games::chess::pieces::ChessPieceType::{King, Rook};
 use crate::games::chess::pieces::ColoredChessPieceType;
 use crate::games::chess::squares::{
     ChessSquare, A_FILE_NO, C_FILE_NO, D_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
@@ -10,6 +11,7 @@ use crate::games::chess::squares::{
 use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{char_to_file, Board, ColoredPieceType, DimT};
+use crate::general::bitboards::RawBitboard;
 use crate::general::common::Res;
 use crate::general::squares::RectangularCoordinates;
 
@@ -38,7 +40,7 @@ impl CastleRight {
     }
 }
 
-#[derive(Eq, PartialEq, Default, Debug, Ord, PartialOrd, Copy, Clone)]
+#[derive(Eq, PartialEq, Default, Debug, Ord, PartialOrd, Copy, Clone, Arbitrary)]
 #[must_use]
 /// Stores the queen/kingside castling files for white/black in 3 bits each and uses the upper 4 bits to store
 /// if castling is legal. More compact representations are possible because e.e. queenside castling to the h file
@@ -116,11 +118,19 @@ impl CastlingFlags {
                 White => 0,
                 Black => 7,
             };
-            let king_file = board.king_square(color).file();
-            debug_assert_eq!(
-                board.king_square(color),
-                ChessSquare::from_rank_file(rank, king_file)
-            );
+            // This is a precondition to calling `king_square` below
+            let num_kings = board.colored_piece_bb(color, King).num_ones();
+            if num_kings != 1 {
+                return Err(format!(
+                    "FEN must contain exactly one {color} king, but contains {num_kings} instead"
+                ));
+            }
+            let king_square = board.king_square(color);
+            let king_file = king_square.file();
+            if king_square != ChessSquare::from_rank_file(rank, king_file) {
+                return Err(format!("Incorrect starting position for king, must be on the back   rank, not on square {king_square}"));
+            }
+
             let side = |file: DimT| {
                 if file < king_file {
                     Queenside

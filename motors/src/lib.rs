@@ -41,15 +41,15 @@ use crate::search::generic::random_mover::RandomMover;
 use crate::search::multithreading::EngineWrapper;
 use crate::search::tt::TT;
 use crate::search::{
-    run_bench_with, AbstractEvalBuilder, AbstractSearcherBuilder, Benchable,
-    EvalBuilder, EvalList, SearcherBuilder, SearcherList,
+    run_bench_with, AbstractEvalBuilder, AbstractSearcherBuilder, Benchable, EvalBuilder, EvalList,
+    SearcherBuilder, SearcherList,
 };
 use crate::ugi_engine::{EngineUGI, UgiOutput};
 
 pub mod cli;
 pub mod eval;
 pub mod search;
-mod ugi_engine;
+pub mod ugi_engine;
 
 #[derive(Debug)]
 struct BenchRun<B: Board> {
@@ -81,7 +81,9 @@ impl<B: Board> AbstractRun for BenchRun<B> {
         let engine = self.engine.as_mut();
         let nodes = if self.with_nodes {
             Some(SearchLimit::nodes(engine.default_bench_nodes()))
-        } else { None };
+        } else {
+            None
+        };
         let depth = self.depth.unwrap_or(engine.default_bench_depth());
         let res = run_bench_with(engine, SearchLimit::depth(depth), nodes);
         println!("{res}");
@@ -205,25 +207,25 @@ pub fn create_match_for_game<B: Board>(
 
 #[cfg(feature = "chess")]
 #[must_use]
-fn list_chess_outputs() -> OutputList<Chessboard> {
+pub fn list_chess_outputs() -> OutputList<Chessboard> {
     normal_outputs::<Chessboard>()
 }
 
 #[cfg(feature = "ataxx")]
 #[must_use]
-fn list_ataxx_outputs() -> OutputList<AtaxxBoard> {
+pub fn list_ataxx_outputs() -> OutputList<AtaxxBoard> {
     normal_outputs::<AtaxxBoard>()
 }
 
 #[cfg(feature = "uttt")]
 #[must_use]
-fn list_uttt_outputs() -> OutputList<UtttBoard> {
+pub fn list_uttt_outputs() -> OutputList<UtttBoard> {
     normal_outputs::<UtttBoard>()
 }
 
 #[cfg(feature = "mnk")]
 #[must_use]
-fn list_mnk_outputs() -> OutputList<MNKBoard> {
+pub fn list_mnk_outputs() -> OutputList<MNKBoard> {
     normal_outputs::<MNKBoard>()
 }
 

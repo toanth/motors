@@ -54,6 +54,7 @@ impl<B: Board> GenericTests<B> {
             let pos = (pos.val)();
             for mov in pos.legal_moves_slow() {
                 let encoded = mov.to_extended_text(&pos);
+                println!("{pos} -- {encoded}");
                 let decoded = B::Move::from_extended_text(&encoded, &pos);
                 assert!(decoded.is_ok());
                 assert_eq!(decoded.unwrap(), mov);

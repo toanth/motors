@@ -1,0 +1,36 @@
+[package]
+name = "gears-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.gears]
+path = ".."
+
+[[bin]]
+name = "chess_moves"
+path = "fuzz_targets/chess_moves.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "chess_fen"
+path = "fuzz_targets/chess_fen.rs"
+test = false
+doc = false
+bench = false
+        
+
+[[bin]]
+name = "chess_parse_move"
+path = "fuzz_targets/chess_parse_move.rs"
+test = false
+doc = false
+bench = false

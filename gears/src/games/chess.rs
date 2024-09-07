@@ -1,3 +1,4 @@
+use arbitrary::Arbitrary;
 use std::fmt::{Display, Formatter};
 use std::iter::Peekable;
 use std::num::NonZeroUsize;
@@ -65,7 +66,9 @@ pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, MAX_CHESS_MOVES_IN_PO
 impl Settings for ChessSettings {}
 
 /// White is always the first player, Black is always the second
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Hash, EnumIter, derive_more::Display)]
+#[derive(
+    Copy, Clone, Eq, PartialEq, Debug, Default, Hash, EnumIter, derive_more::Display, Arbitrary,
+)]
 pub enum ChessColor {
     #[default]
     White = 0,
@@ -105,7 +108,7 @@ impl Color for ChessColor {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Copy, Clone)]
+#[derive(Eq, PartialEq, Debug, Copy, Clone, Arbitrary)]
 pub struct Chessboard {
     piece_bbs: [RawStandardBitboard; NUM_CHESS_PIECES],
     color_bbs: [RawStandardBitboard; NUM_COLORS],
@@ -1080,6 +1083,24 @@ mod tests {
             .into_iter()
             .sorted()
             .eq(moves.into_iter().sorted()));
+    }
+
+    #[test]
+    fn invalid_fen_test() {
+        // some of these FENs have been found through cargo fuzz
+        let fens = &[
+            "",
+            "3Ss9999999999999999999999999999999",
+            "½",
+            "QQQQQQQQw`",
+            "q0018446744073709551615",
+            "QQQQKQQQ\nwV0 \n",
+            "kQQQQQDDw-W0w",
+        ];
+        for fen in fens {
+            let pos = Chessboard::from_fen(fen);
+            assert!(pos.is_err());
+        }
     }
 
     #[test]

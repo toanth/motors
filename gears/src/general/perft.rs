@@ -26,9 +26,9 @@ impl Display for PerftRes {
 }
 
 #[derive(Debug)]
-pub struct SplitPerftRes<T: Board> {
+pub struct SplitPerftRes<B: Board> {
     pub perft_res: PerftRes,
-    pub children: Vec<(T::Move, u64)>,
+    pub children: Vec<(B::Move, u64)>,
 }
 
 impl<B: Board> Display for SplitPerftRes<B> {
@@ -48,7 +48,7 @@ impl<B: Board> Display for SplitPerftRes<B> {
     }
 }
 
-fn do_perft<T: Board>(depth: usize, pos: T) -> u64 {
+fn do_perft<B: Board>(depth: usize, pos: B) -> u64 {
     let mut nodes = 0;
     if depth == 1 {
         return pos.legal_moves_slow().into_iter().count() as u64;
@@ -65,7 +65,8 @@ fn do_perft<T: Board>(depth: usize, pos: T) -> u64 {
     nodes
 }
 
-pub fn perft<T: Board>(depth: Depth, pos: T) -> PerftRes {
+pub fn perft<B: Board>(depth: Depth, pos: B) -> PerftRes {
+    let depth = depth.min(B::max_perft_depth());
     let start = Instant::now();
     let nodes = if depth.get() == 0 {
         1
@@ -77,8 +78,9 @@ pub fn perft<T: Board>(depth: Depth, pos: T) -> PerftRes {
     PerftRes { time, nodes, depth }
 }
 
-pub fn split_perft<T: Board>(depth: Depth, pos: T) -> SplitPerftRes<T> {
+pub fn split_perft<B: Board>(depth: Depth, pos: B) -> SplitPerftRes<B> {
     assert!(depth.get() > 0);
+    let depth = depth.min(B::max_perft_depth());
     let mut nodes = 0;
     let start = Instant::now();
     let mut children = vec![];

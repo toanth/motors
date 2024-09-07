@@ -5,3 +5,7 @@ caps
 *.pgn
 callgrind.out.*
 datasets/
+fuzz/artifacts/
+fuzz/corpus/
+coverage/
+

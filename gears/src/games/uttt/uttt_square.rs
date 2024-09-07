@@ -21,13 +21,14 @@ use crate::games::{Coordinates, DimT, Height, Size, Width};
 use crate::general::squares::{
     RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare,
 };
+use arbitrary::Arbitrary;
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 /// The board isn't represented as a 9x9 grid but instead as a 3x3 grid of 3x3 grids, so we can't use
 /// the more generic `SmallGridSize` type.
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
 pub struct UtttSize {}
 
@@ -71,7 +72,7 @@ impl RectangularSize<UtttSquare> for UtttSize {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
 pub struct UtttSquare {
     sub_board: UtttSubSquare,

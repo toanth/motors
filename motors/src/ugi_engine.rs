@@ -47,7 +47,7 @@ const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
 
 // TODO: Ensure this conforms to <https://expositor.dev/uci/doc/uci-draft-1.pdf>
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 enum SearchType {
     Normal,
@@ -74,7 +74,7 @@ impl Display for SearchType {
 }
 
 #[derive(Debug, Clone)]
-enum ProgramStatus {
+pub enum ProgramStatus {
     Run(MatchStatus),
     Quit(Quitting),
 }
@@ -410,7 +410,7 @@ impl<B: Board> EngineUGI<B> {
     }
 
     #[expect(clippy::too_many_lines)]
-    fn parse_input(&mut self, mut words: Peekable<SplitWhitespace>) -> Res<ProgramStatus> {
+    pub fn parse_input(&mut self, mut words: Peekable<SplitWhitespace>) -> Res<ProgramStatus> {
         self.output().write_ugi_input(words.clone());
         let words = &mut words;
         let Some(first_word) = words.next() else {
@@ -743,6 +743,10 @@ impl<B: Board> EngineUGI<B> {
             .saturating_sub(self.move_overhead)
             .max(Duration::from_millis(1));
 
+        if (search_type == Perft || search_type == SplitPerft) && limit.depth == Depth::MAX {
+            limit.depth = board.default_perft_depth();
+        }
+
         if complete {
             match search_type {
                 Bench => {
@@ -777,7 +781,7 @@ impl<B: Board> EngineUGI<B> {
     fn start_search(
         &mut self,
         search_type: SearchType,
-        limit: SearchLimit,
+        mut limit: SearchLimit,
         pos: B,
         moves: Option<Vec<B::Move>>,
         multi_pv: usize,
@@ -789,6 +793,12 @@ impl<B: Board> EngineUGI<B> {
         if let Some(res) = pos.match_result_slow(&self.state.board_hist) {
             self.write_message(Warning, &format!("Starting a {search_type} search in position '{2}', but the game is already over. {0}, reason: {1}.",
                                                  res.result, res.reason, self.state.board.as_fen().bold()));
+        }
+        if cfg!(feature = "fuzzing") {
+            limit.fixed_time = limit.fixed_time.max(Duration::from_secs(2));
+            if matches!(search_type, Perft | SplitPerft) {
+                limit.depth = limit.depth.min(Depth::new(3));
+            }
         }
         self.state.status = Run(Ongoing);
         match search_type {
@@ -1133,6 +1143,9 @@ impl<B: Board> EngineUGI<B> {
         let game = select_game(game_name)?;
         let opts = EngineOpts::for_game(game, self.state.debug_mode);
         let mut nested_match = create_match(opts)?;
+        if cfg!(feature = "fuzzing") {
+            return Ok(()); // TODO: Allow fuzzing this as well
+        }
         if nested_match.run() == QuitProgram {
             self.quit(QuitProgram)?;
         }

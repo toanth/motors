@@ -1,3 +1,5 @@
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2", feature = "unsafe"))]
+use std::arch::x86_64::{_pdep_u64, _pext_u64};
 use std::fmt::{Debug, Display};
 use std::io::stdin;
 use std::iter::Peekable;
@@ -5,7 +7,6 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use std::str::{FromStr, SplitWhitespace};
 use std::time::Duration;
 
-use bitintr::Pdep;
 use colored::Colorize;
 use edit_distance::edit_distance;
 use itertools::{Intersperse, Itertools};
@@ -25,10 +26,72 @@ pub fn pop_lsb128(x: &mut u128) -> u32 {
     shift
 }
 
+// The `bitintr` crate provides similar features, but unfortunately it is bugged and unmaintained.
+
+#[allow(unused)]
+fn pdep64_fallback(val: u64, mut mask: u64) -> u64 {
+    let mut res = 0;
+    let mut bb = 1;
+    while mask != 0 {
+        if (val & bb) != 0 {
+            res |= mask & mask.wrapping_neg();
+        }
+        mask &= mask - 1;
+        bb = bb.wrapping_add(bb);
+    }
+    res
+}
+
+#[allow(unused)]
+fn pext64_fallback(val: u64, mut mask: u64) -> u64 {
+    let mut res = 0;
+    let mut bb: u64 = 1;
+    while mask != 0 {
+        if val & mask & (mask.wrapping_neg()) != 0 {
+            res |= bb;
+        }
+        mask &= mask - 1;
+        bb = bb.wrapping_add(bb);
+    }
+    res
+}
+
+#[inline]
+#[cfg(all(target_feature = "bmi2", target_arch = "x86_64", feature = "unsafe"))]
+fn pdep64(val: u64, mask: u64) -> u64 {
+    // SAFETY: This is always safe, due to the `target_feature` check above.
+    // No combination of arguments to pdep produce UB
+    unsafe { _pdep_u64(val, mask) }
+}
+
+#[inline]
+#[allow(unused)]
+#[cfg(not(all(target_feature = "bmi2", feature = "unsafe")))]
+fn pdep64(val: u64, mask: u64) -> u64 {
+    pdep64_fallback(val, mask)
+}
+
+#[inline]
+#[allow(unused)]
+#[cfg(all(target_feature = "bmi2", target_arch = "x86_64", feature = "unsafe"))]
+fn pext64(val: u64, mask: u64) -> u64 {
+    // SAFETY: This is always safe, due to the `target_feature` check above.
+    // No combination of arguments to pext produce UB
+    unsafe { _pext_u64(val, mask) }
+}
+
+#[inline]
+#[allow(unused)]
+#[cfg(not(all(target_feature = "bmi2", target_arch = "x86_64", feature = "unsafe")))]
+fn pext64(val: u64, mask: u64) -> u64 {
+    pext64_fallback(val, mask)
+}
+
 #[must_use]
+#[inline]
 pub fn ith_one_u64(idx: usize, val: u64) -> usize {
     debug_assert!(idx < val.count_ones() as usize);
-    (1 << idx).pdep(val).trailing_zeros() as usize
+    pdep64(1 << idx, val).trailing_zeros() as usize
 }
 
 #[must_use]

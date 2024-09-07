@@ -18,6 +18,7 @@ use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{SmallGridSize, SmallGridSquare};
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose, Win};
+use arbitrary::Arbitrary;
 use itertools::Itertools;
 use rand::prelude::SliceRandom;
 use rand::Rng;
@@ -40,7 +41,9 @@ pub type AtaxxSize = SmallGridSize<7, 7>;
 
 pub type AtaxxSquare = SmallGridSquare<7, 7, 8>;
 
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, derive_more::Display, EnumIter)]
+#[derive(
+    Debug, Default, Copy, Clone, Eq, PartialEq, Hash, derive_more::Display, EnumIter, Arbitrary,
+)]
 pub enum AtaxxColor {
     #[default]
     X,
@@ -71,7 +74,7 @@ impl Color for AtaxxColor {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Arbitrary)]
 pub struct AtaxxBoard {
     colors: [RawStandardBitboard; NUM_COLORS],
     empty: RawStandardBitboard,

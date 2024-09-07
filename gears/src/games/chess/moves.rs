@@ -3,6 +3,8 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+use arbitrary::Arbitrary;
+
 use itertools::Itertools;
 use num::iter;
 use strum::IntoEnumIterator;
@@ -64,7 +66,7 @@ impl ChessMoveFlags {
         }
     }
 
-    fn piece_type(self) -> ChessPieceType {
+    pub fn piece_type(self) -> ChessPieceType {
         if self <= NormalKingMove {
             ChessPieceType::from_repr(self as usize).unwrap()
         } else if self >= EnPassant {
@@ -81,7 +83,7 @@ impl MoveFlags for ChessMoveFlags {}
 /// Bits 0-5: from square
 /// Bits 6 - 11: To square
 /// Bits 12-15: Move type
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Ord, PartialOrd, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Ord, PartialOrd, Hash, Arbitrary)]
 #[must_use]
 #[repr(C)]
 pub struct ChessMove(u16);
@@ -115,6 +117,18 @@ impl ChessMove {
             ColoredChessPieceType::new(board.active_player, self.flags().piece_type()),
             source,
         )
+    }
+
+    pub fn untrusted_flags(self) -> Res<ChessMoveFlags> {
+        let flags = self.0 >> 12;
+        if flags <= 12 {
+            Ok(self.flags())
+        } else {
+            Err(format!(
+                "Invalid flags {flags}, which means this move is never valid \
+            and most likely the result of interpreting corrupt data as a chess move"
+            ))
+        }
     }
 
     pub fn piece_type(self) -> ChessPieceType {
@@ -203,7 +217,7 @@ impl Move<Chessboard> for ChessMove {
         ChessSquare::from_bb_index(((self.0 >> 6) & 0x3f) as usize)
     }
 
-    fn flags(self) -> Self::Flags {
+    fn flags(self) -> ChessMoveFlags {
         ChessMoveFlags::iter().nth((self.0 >> 12) as usize).unwrap()
     }
 
@@ -1017,10 +1031,10 @@ mod tests {
     #[test]
     fn valid_algebraic_notation_test() {
         let transformations = [
-            // ("Na1", "Na1"),
-            // ("nxA7 mate", "Nxa7#"),
-            // ("RC1:", "Rxc1"),
-            // ("e2e4", "e4"), // TODO: Uncomment
+            ("Na1", "Na1"),
+            ("nxA7 mate", "Nxa7#"),
+            ("RC1:", "Rxc1"),
+            ("e2e4", "e4"),
             ("e8D", "e8=Q"),
             ("e5f6:e.p.", "exf6"),
             ("ef:e.p.", "exf6"),
@@ -1049,6 +1063,13 @@ mod tests {
     }
 
     #[test]
+    fn failed_test() {
+        let pos = Chessboard::from_fen("8/7r/8/K1k5/8/8/4p3/8 b - - 10 11").unwrap();
+        let mov = ChessMove::from_extended_text("e1=Q+", &pos).unwrap();
+        assert!(pos.is_move_legal(mov));
+    }
+
+    #[test]
     fn invalid_algebraic_notation_test() {
         let inputs = [
             "resign",
@@ -1069,6 +1090,27 @@ mod tests {
         let pos = Chessboard::from_name("unusual").unwrap();
         for input in inputs {
             assert!(ChessMove::from_extended_text(input, &pos).is_err());
+        }
+    }
+
+    #[test]
+    fn invalid_moves_test() {
+        // moves (except for 0) have been found through cargo fuzz
+        let moves = [0, 60449, 38481, 28220];
+        for mov in moves {
+            let mov = ChessMove::from_usize_unchecked(mov);
+            for pos in Chessboard::bench_positions() {
+                if let Some(mov) = mov.check_psuedolegal(&pos) {
+                    println!("{pos} -- {mov} {}", mov.flags() as usize);
+                    pos.make_move(mov);
+                    // check that the move representation is unique
+                    assert!(
+                        pos.pseudolegal_moves().contains(&mov),
+                        "{pos} -- {mov} {}",
+                        mov.flags() as usize
+                    );
+                }
+            }
         }
     }
 

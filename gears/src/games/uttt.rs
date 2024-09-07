@@ -42,6 +42,7 @@ use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
 use crate::general::squares::{RectangularCoordinates, SmallGridSize, SmallGridSquare};
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
+use arbitrary::Arbitrary;
 use colored::Colorize;
 use itertools::Itertools;
 use rand::Rng;
@@ -70,7 +71,9 @@ pub struct UtttSettings {}
 
 impl Settings for UtttSettings {}
 
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, derive_more::Display, EnumIter)]
+#[derive(
+    Debug, Default, Copy, Clone, Eq, PartialEq, Hash, derive_more::Display, EnumIter, Arbitrary,
+)]
 pub enum UtttColor {
     #[default]
     X = 0,
@@ -228,7 +231,7 @@ impl ColoredPieceType<UtttBoard> for ColoredUtttPieceType {
 
 pub type UtttPiece = GenericPiece<UtttBoard, ColoredUtttPieceType>;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 pub struct UtttMove(UtttSquare);
 
 impl Default for UtttMove {
@@ -311,7 +314,7 @@ impl Move<UtttBoard> for UtttMove {
 
 pub type UtttMoveList = EagerNonAllocMoveList<UtttBoard, 81>;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 pub struct UtttBoard {
     // contains not just the occupancy, but also won sub-boards in the higher bits.
     colors_internal: [RawUtttBitboard; 2],

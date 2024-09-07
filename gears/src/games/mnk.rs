@@ -44,7 +44,9 @@ impl From<MnkColor> for Symbol {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Default, Hash, derive_more::Display, EnumIter)]
+#[derive(
+    Debug, Copy, Clone, Eq, PartialEq, Default, Hash, derive_more::Display, EnumIter, Arbitrary,
+)]
 pub enum MnkColor {
     #[default]
     X,
@@ -200,7 +202,7 @@ type Square = GenericPiece<MNKBoard, Symbol>;
 //     }
 // }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
 #[repr(C)]
 pub struct FillSquare {
@@ -281,7 +283,7 @@ impl Move<MNKBoard> for FillSquare {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Arbitrary)]
 #[must_use]
 pub struct MnkSettings {
     height: DimT,
@@ -358,7 +360,7 @@ impl Settings for MnkSettings {}
 
 pub type MnkBitboard = DefaultBitboard<ExtendedRawBitboard, GridCoordinates>;
 
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Copy, Clone, Default, Debug, Arbitrary)]
 pub struct MNKBoard {
     x_bb: ExtendedRawBitboard,
     o_bb: ExtendedRawBitboard,

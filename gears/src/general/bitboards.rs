@@ -1,5 +1,6 @@
 extern crate num;
 
+use arbitrary::{Arbitrary, Unstructured};
 use std::fmt::{Debug, Display, Formatter};
 use std::num::Wrapping;
 use std::ops::{Deref, DerefMut};
@@ -109,7 +110,8 @@ const ANTI_DIAGONALS: [[u128; 128]; MAX_WIDTH] = compute_anti_diagonal_bbs();
 // Maybe there's a better way?
 #[must_use]
 pub trait RawBitboard:
-    Copy
+    for<'a> Arbitrary<'a>
+    + Copy
     + Clone
     + Debug
     + Eq
@@ -221,6 +223,7 @@ impl<B: RawBitboard> Iterator for BitIterator<B> {
     ShlAssign,
     Shr,
     ShrAssign,
+    Arbitrary,
 )]
 #[must_use]
 pub struct RawStandardBitboard(pub u64);
@@ -299,6 +302,7 @@ impl RawBitboard for RawStandardBitboard {
     ShlAssign,
     Shr,
     ShrAssign,
+    Arbitrary,
 )]
 #[must_use]
 pub struct ExtendedRawBitboard(pub u128);
@@ -659,6 +663,14 @@ pub struct DefaultBitboard<R: RawBitboard, C: RectangularCoordinates> {
     size: C::Size,
 }
 
+// for some reason, automatically deriving `Arbitrary` doesn't work here
+impl<'a, R: RawBitboard, C: RectangularCoordinates> Arbitrary<'a> for DefaultBitboard<R, C> {
+    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
+        let (raw, size) = u.arbitrary::<(R, C::Size)>()?;
+        Ok(Self { raw, size })
+    }
+}
+
 // TODO: Bitboard overloy for board text output?
 impl<R: RawBitboard, C: RectangularCoordinates> Display for DefaultBitboard<R, C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -964,6 +976,7 @@ pub mod chess {
         ShlAssign,
         Shr,
         ShrAssign,
+        Arbitrary,
     )]
     #[must_use]
     pub struct ChessBitboard {
@@ -1174,6 +1187,7 @@ pub mod ataxx {
         ShlAssign,
         Shr,
         ShrAssign,
+        Arbitrary,
     )]
     #[must_use]
     pub struct AtaxxBitboard {

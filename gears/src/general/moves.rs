@@ -18,6 +18,7 @@
 
 use crate::general::board::Board;
 use crate::general::common::Res;
+use arbitrary::Arbitrary;
 use num::PrimInt;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -46,7 +47,8 @@ impl MoveFlags for NoMoveFlags {}
 /// information to reconstruct the move without the position.
 /// All `Move` functions that take a `Board` parameter assume that the move is pseudolegal for the given board
 /// unless otherwise noted. [`UntrustedMove`] should be used when it's not clear that a move is pseudolegal.
-pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Display + Hash + Send
+pub trait Move<B: Board>:
+    Eq + Copy + Clone + Debug + Default + Display + Hash + Send + for<'a> Arbitrary<'a>
 where
     B: Board<Move = Self>,
 {
@@ -141,10 +143,6 @@ where
     fn to_underlying(self) -> Self::Underlying;
 }
 
-/// A wrapper type that statically denotes that the wrapped move is not trusted to be (pseudo)legal in the context
-/// where it is expected to be used. For example, moves generated through normal movegen functions should always be at least
-/// pseudolegal for the given position, but a move loaded from the TT may not be pseudolegal, which is why it's wrapped
-/// in this struct.
 #[derive(Debug, Copy, Clone)]
 pub struct ExtendedFormatter<B: Board> {
     pos: B,
@@ -161,6 +159,10 @@ impl<B: Board> Display for ExtendedFormatter<B> {
     }
 }
 
+/// A wrapper type that statically denotes that the wrapped move is not trusted to be (pseudo)legal in the context
+/// where it is expected to be used. For example, moves generated through normal movegen functions should always be at least
+/// pseudolegal for the given position, but a move loaded from the TT may not be pseudolegal, which is why it's wrapped
+/// in this struct.
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
 #[must_use]
 #[repr(transparent)]

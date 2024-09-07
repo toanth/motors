@@ -1,3 +1,4 @@
+use arbitrary::Arbitrary;
 use std::cmp::min;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -194,7 +195,9 @@ pub fn char_to_file(file: char) -> DimT {
 
 // Assume 2D grid for now.
 #[must_use]
-pub trait Coordinates: Eq + Copy + Debug + Default + FromStr<Err = String> + Display {
+pub trait Coordinates:
+    Eq + Copy + Debug + Default + FromStr<Err = String> + Display + for<'a> Arbitrary<'a>
+{
     type Size: Size<Self>;
 
     /// mirrors the coordinates vertically
@@ -208,7 +211,7 @@ pub trait Coordinates: Eq + Copy + Debug + Default + FromStr<Err = String> + Dis
 
 pub type DimT = u8;
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Default)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Default, Arbitrary)]
 #[must_use]
 pub struct Height(pub DimT);
 
@@ -226,7 +229,7 @@ impl Height {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Default)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Default, Arbitrary)]
 #[must_use]
 pub struct Width(pub DimT);
 
@@ -245,7 +248,9 @@ impl Width {
 }
 
 #[must_use]
-pub trait Size<C: Coordinates>: Eq + PartialEq + Copy + Clone + Display + Debug {
+pub trait Size<C: Coordinates>:
+    Eq + PartialEq + Copy + Clone + Display + Debug + for<'a> Arbitrary<'a>
+{
     fn num_squares(self) -> usize;
 
     /// Converts coordinates into an internal key. This function is injective, but **no further guarantees** are
@@ -277,7 +282,16 @@ pub trait Size<C: Coordinates>: Eq + PartialEq + Copy + Clone + Display + Debug 
 pub type OutputList<B> = EntityList<Box<dyn OutputBuilder<B>>>;
 
 #[derive(
-    Copy, Clone, Eq, PartialEq, Default, Debug, derive_more::Display, BitXor, BitXorAssign,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Default,
+    Debug,
+    derive_more::Display,
+    BitXor,
+    BitXorAssign,
+    Arbitrary,
 )]
 #[must_use]
 pub struct ZobristHash(pub u64);

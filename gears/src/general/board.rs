@@ -32,6 +32,7 @@ use crate::general::squares::{RectangularCoordinates, RectangularSize};
 use crate::search::Depth;
 use crate::PlayerResult::Lose;
 use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
+use arbitrary::Arbitrary;
 use colored::Colorize;
 use itertools::Itertools;
 use rand::Rng;
@@ -163,6 +164,7 @@ pub trait Board:
     + Send
     + Sync
     + StaticallyNamedEntity
+    + for<'a> Arbitrary<'a>
     + 'static
 {
     /// Should be either `Self::Unverified` or `Self`
@@ -294,6 +296,11 @@ pub trait Board:
     /// and the default perft depth can change depending on that (or even depending on the current position)
     fn default_perft_depth(&self) -> Depth {
         Depth::new(5)
+    }
+
+    /// Returns the maximum perft depth possible, i.e., perft depth will be clamped to this value.
+    fn max_perft_depth() -> Depth {
+        Depth::new(50)
     }
 
     /// Returns a list of pseudo legal moves, that is, moves which can either be played using
@@ -598,17 +605,17 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
             if skipped_digits > 0 {
                 let num_skipped = line[digit_in_line - skipped_digits..digit_in_line]
                     .parse::<usize>()
-                    .unwrap();
+                    .map_err(|err| err.to_string())?;
                 if num_skipped == 0 {
                     return Err("FEN position can't contain the number 0".to_string());
                 }
-                *idx += num_skipped;
+                *idx = idx.saturating_add(num_skipped);
             }
             Ok(())
         };
 
         for (i, c) in line.char_indices() {
-            if c.is_numeric() {
+            if c.is_ascii_digit() {
                 skipped_digits += 1;
                 continue;
             }

@@ -1,3 +1,4 @@
+use arbitrary::Arbitrary;
 use colored::Colorize;
 use std::cmp::max;
 use std::fmt;
@@ -31,7 +32,7 @@ pub fn sup_distance<C: RectangularCoordinates>(a: C, b: C) -> usize {
     max(a.row().abs_diff(b.row()), a.column().abs_diff(b.column())) as usize
 }
 
-#[derive(Clone, Copy, Eq, PartialOrd, PartialEq, Debug, Default, Hash)]
+#[derive(Clone, Copy, Eq, PartialOrd, PartialEq, Debug, Default, Hash, Arbitrary)]
 #[must_use]
 pub struct GridCoordinates {
     pub row: DimT,
@@ -98,11 +99,17 @@ impl Display for GridCoordinates {
         if *self == Self::no_coordinates() {
             write!(f, "<invalid>")
         } else {
+            let file = if self.column < 26 {
+                file_to_char(self.column)
+            } else {
+                '?'
+            };
             write!(
                 f,
                 "{0}{1}",
-                file_to_char(self.column),
-                self.row + 1 // output 1-indexed
+                file,
+                // output 1-indexed, convert to usize to prevent overflow (this function can be called on invalid coordinates)
+                self.row as usize + 1
             )
         }
     }
@@ -137,7 +144,7 @@ pub trait RectangularSize<C: RectangularCoordinates>: Size<C> {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Arbitrary)]
 #[must_use]
 pub struct GridSize {
     pub height: Height,
@@ -207,7 +214,7 @@ impl RectangularSize<GridCoordinates> for GridSize {
     }
 }
 
-#[derive(Debug, Default, Eq, PartialEq, Copy, Clone)]
+#[derive(Debug, Default, Eq, PartialEq, Copy, Clone, Arbitrary)]
 #[must_use]
 pub struct SmallGridSize<const H: usize, const W: usize> {}
 
@@ -268,7 +275,7 @@ pub enum SquareColor {
 
 // Ideally, there would be an alias setting `INTERNAL_WIDTH` or a default parameter for `INTERNAL_WIDTH` to `max(8, W)`,
 // but both of those things aren't possible in stale Rust.
-#[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Hash)]
+#[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Hash, Arbitrary)]
 #[must_use]
 pub struct SmallGridSquare<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> {
     idx: u8,

@@ -6,6 +6,7 @@ use crate::games::{AbstractPieceType, ColoredPieceType, Coordinates, DimT, Piece
 use crate::general::common::Res;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
+use arbitrary::Arbitrary;
 use colored::Colorize;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -155,7 +156,7 @@ impl ColoredPieceType<AtaxxBoard> for ColoredAtaxxPieceType {
 pub const MAX_ATAXX_MOVES_IN_POS: usize =
     NUM_SQUARES + 2 * ((NUM_ROWS - 2) * (NUM_COLUMNS - 2) * 2 + (NUM_ROWS - 2 + NUM_COLUMNS - 2));
 
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 #[repr(C)]
 pub struct AtaxxMove {
     source: AtaxxSquare,

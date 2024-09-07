@@ -62,7 +62,10 @@ impl Chessboard {
     }
 
     pub fn is_move_pseudolegal_impl(&self, mov: ChessMove) -> bool {
-        let piece = mov.piece_type();
+        let Ok(flags) = mov.untrusted_flags() else {
+            return false;
+        };
+        let piece = flags.piece_type();
         let src = mov.src_square();
         let color = self.active_player;
         if !self
@@ -73,14 +76,20 @@ impl Chessboard {
         }
         if mov.is_castle() {
             (self.rook_start_square(color, Kingside) == mov.dest_square()
+                && mov.castle_side() == Kingside
                 && self.is_castling_pseudolegal(Kingside))
                 || (self.rook_start_square(color, Queenside) == mov.dest_square()
+                    && mov.castle_side() == Queenside
                     && self.is_castling_pseudolegal(Queenside))
         } else if mov.piece_type() == Pawn {
+            let mut incorrect = false;
+            incorrect |= mov.is_ep() && self.ep_square() != Some(mov.dest_square());
+            incorrect |= mov.is_promotion() && !mov.dest_square().is_backrank();
             let capturable = self.colored_bb(color.other())
                 | self.ep_square.map(ChessSquare::bb).unwrap_or_default();
-            Self::single_pawn_moves(color, src, capturable, self.empty_bb())
-                .is_bit_set_at(mov.dest_square().bb_idx())
+            !incorrect
+                && Self::single_pawn_moves(color, src, capturable, self.empty_bb())
+                    .is_bit_set_at(mov.dest_square().bb_idx())
         } else {
             (self.attacks_no_castle_or_pawn_push(src, mov.piece_type(), color)
                 & !self.active_player_bb())
