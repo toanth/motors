@@ -676,7 +676,7 @@ impl Caps {
             let has_nonpawns =
                 (pos.active_player_bb() & !pos.piece_bb(Pawn)).more_than_one_bit_set();
             if depth >= 3
-                && eval >= beta
+                && eval >= beta + 20
                 && !*self.state.custom.nmp_disabled_for(pos.active_player())
                 && has_nonpawns
             {
