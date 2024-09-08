@@ -675,8 +675,9 @@ impl Caps {
             // If we don't have non-pawn, non-king pieces, we're likely to be in zugzwang, so don't even try NMP.
             let has_nonpawns =
                 (pos.active_player_bb() & !pos.piece_bb(Pawn)).more_than_one_bit_set();
+            let nmp_threshold = beta + ScoreT::from(we_blundered) * 20;
             if depth >= 3
-                && eval >= beta + 20
+                && eval >= nmp_threshold
                 && !*self.state.custom.nmp_disabled_for(pos.active_player())
                 && has_nonpawns
             {
