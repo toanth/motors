@@ -933,13 +933,12 @@ impl Caps {
     fn update_continuation_hist(
         mov: ChessMove,
         prev_move: ChessMove,
-        depth: isize,
+        bonus: i32,
         color: ChessColor,
         pos: &Chessboard,
         hist: &mut ContHist,
         failed: &[ChessMove],
     ) {
-        let bonus = (depth * depth) as i32;
         if prev_move == ChessMove::default() {
             return; // Ignore NMP null moves
         }
@@ -964,7 +963,7 @@ impl Caps {
         let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else {
             unreachable!()
         };
-        let bonus = (depth * depth) as i32;
+        let bonus = (depth * 16) as i32;
         if mov.is_tactical(pos) {
             for disappointing in entry
                 .tried_moves
@@ -995,7 +994,7 @@ impl Caps {
             Self::update_continuation_hist(
                 mov,
                 parent.last_tried_move(),
-                depth,
+                bonus,
                 color,
                 pos,
                 &mut self.state.custom.countermove_hist,
@@ -1006,7 +1005,7 @@ impl Caps {
                 Self::update_continuation_hist(
                     mov,
                     grandparent.last_tried_move(),
-                    depth,
+                    bonus,
                     color,
                     pos,
                     &mut self.state.custom.follow_up_move_hist,
