@@ -340,6 +340,9 @@ pub fn create_match(args: EngineOpts) -> Res<AnyRunnable> {
             list_mnk_evals(),
             list_mnk_outputs(),
         ),
+        _ => {
+            unreachable!("Implement")
+        }
     }
 }
 

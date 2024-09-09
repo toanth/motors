@@ -1,0 +1,20 @@
+[package]
+name = "rulers"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+gears = { path = "../gears" }
+motors = { path = "../motors" }
+mio = "1.0.2"
+tokio = { version = "1", features = ["default", "macros", "rt-multi-thread", "process", "io-util", "time"] }
+anyhow = "1.0.87"
+thiserror = "1.0.63"
+derive_more = "1.0.0"
+colored = "2.1.0"
+
+
+
+[features]
+default = []
+derive = []

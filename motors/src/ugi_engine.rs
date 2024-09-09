@@ -1047,9 +1047,12 @@ impl<B: Board> EngineUGI<B> {
             self.state.display_name.bold(),
             self.state.engine.engine_info().long_name().bold()
         );
+        // TODO: Start in human-friendly mode until receiving a ugi command.
         let str = format!("{motors}: A work-in-progress collection of engines for various games, \
         currently playing {game_name}, using the engine {engine_name}.\
-        \nThe behavior of normal UCI / UGI commands can be found here: https://backscattering.de/chess/uci/ \
+        \nThe behavior of normal UCI / UGI commands can be found here: https://backscattering.de/chess/uci/, but this program \
+        supports many additional shortcuts (e.g. 'p' or 'pos' instead of 'position') and many additional options (e.g. \
+        giving a position for many commands, which will apply them on that position without changing the current position).\
         \nSeveral additional commands are supported:\
         \n {debug}: Turns debug logging on or off. `debug <logfile>` sets logging as if by calling `log <logfile>`, \
         enables additional debug output, and also enables error recovery mode: \
@@ -1060,15 +1063,17 @@ impl<B: Board> EngineUGI<B> {
         or `unicode` if no outputs are being used.\
         \n {log}: `log <logfile> starts logging to <logfile>; use `none` or `off` to turn off logging and `stdout` or `stderr` to print to those streams.\
         \n {engine}: Loads another engine for the same game. Use 'play' to change the game.\
-        \n {perft}: Equivalent to `go perft`, but allows setting the position as last argument, e.g. `perft depth 3 position startpos` \
-        or simply `perft` to use the current position and game-specific default depth.\
-        \n {bench}: See `perft`, but replace 'perft' with 'bench'. The default depth is engine-specific.\
+        \n {perft}: Equivalent to `go perft`. Like that command, it allows setting the position as last argument, e.g. \
+        `perft depth 3 position startpos` or simply `perft` to use the current position and game-specific default depth.\
+        \n {splitperft} Like 'perft', but does a splitperft, i.e. it prints the number of nodes after each move.\
+        \n {bench}: Equivalent to 'go bench'. The default depth is engine-specific. Works just like a normal search, but prints a short developer-oriented \
+        search stats summary, mostly useful to see if a change affected search.\
         \n {tt}: Like `{eval}', but prints the TT entry, if any. Can take an optional position, like 'eval'.\
-        \n {eval}: Prints the static eval of the current position, without doing any actual searching.\
+        \n {eval}: Prints the static eval of the current or given position, without doing any actual searching.\
         \n {set_eval}: Loads another evaluation function for the same engine.\
         \n {option}: Prints the current value of the specified UGI option, or of all UGI options if no name is specified.\
         \n {play}: Pause the current match and start a new match of the given game, e.g. 'play chess'. Once that receives \
-        '{quit_match}', exit the match and resume the current match.\
+        '{quit_match}', exit the match and resume the current match. 'quit' still exits the entire program.\
         \n {help}: Prints this help message. \
         \nThis command line interface is mainly intended for internal use, if you want to play against this engine or use it for analysis,\
         you should probably use a GUI, such as the WIP {monitors} project.",
@@ -1080,6 +1085,7 @@ impl<B: Board> EngineUGI<B> {
             log = "log".bold(),
             engine = "engine".bold(),
             perft = "perft".bold(),
+            splitperft ="splitperft".bold(),
             bench = "bench".bold(),
             tt = "tt".bold(),
             eval = "eval | e".bold(),

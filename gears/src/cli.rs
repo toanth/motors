@@ -15,9 +15,11 @@ use std::str::FromStr;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
+// TODO: Doesn't belong in this file, maybe not even in this crate?
 #[derive(
     Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Display, derive_more::FromStr, EnumIter,
 )]
+#[non_exhaustive]
 pub enum Game {
     /// Normal Chess, Chess960 or Double Fisher Random Chess.
     #[cfg(feature = "chess")]

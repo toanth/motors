@@ -1,0 +1,12 @@
+[package]
+name = "rulers_derive"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+rulers = { path = ".." }
+syn = "2.0.77"
+quote = "1.0.37"

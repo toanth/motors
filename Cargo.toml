@@ -1,7 +1,7 @@
 [workspace]
 # Otherwise, cargo complains that the crates use an edition that implies resolver="2", but this still defaults to resolver="1"
 resolver = "2"
-members = ["motors", "gears", "monitors", "pliers", "gears/fuzz", "motors/fuzz"] # TODO: Also fuzz the other crates
+members = ["motors", "gears", "monitors", "pliers", "rulers", "rulers/rulers_derive", "gears/fuzz", "motors/fuzz"] # TODO: Also fuzz the other crates
 
 [profile.release]
 lto = true

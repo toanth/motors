@@ -106,6 +106,7 @@ pub fn ith_one_u128(idx: usize, val: u128) -> usize {
     }
 }
 
+// TODO: Use anyhow, cuts down on boilerplate code
 pub type Res<T> = Result<T, String>;
 
 pub fn parse_fp_from_str<T: Float + FromStr>(as_str: &str, name: &str) -> Res<T> {
