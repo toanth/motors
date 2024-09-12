@@ -329,7 +329,7 @@ impl Engine<Chessboard> for Caps {
         self.state.custom.original_board_hist = take(&mut self.state.search_params_mut().history);
         self.state.custom.original_board_hist.push(&pos);
 
-        self.iterative_deepening(pos,   soft_limit)
+        self.iterative_deepening(pos, soft_limit)
     }
 
     fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
@@ -426,7 +426,9 @@ impl Caps {
                     .dropping(depth as usize / 2)
                     .all(|m| *m == chosen)
             {
-                soft_limit_scale = 0.5;
+                soft_limit_scale = 0.7;
+            } else {
+                soft_limit_scale = 1.0;
             }
         }
 
