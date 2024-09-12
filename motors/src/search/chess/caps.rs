@@ -329,7 +329,7 @@ impl Engine<Chessboard> for Caps {
         self.state.custom.original_board_hist = take(&mut self.state.search_params_mut().history);
         self.state.custom.original_board_hist.push(&pos);
 
-        self.iterative_deepening(pos, soft_limit)
+        self.iterative_deepening(pos,   soft_limit)
     }
 
     fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
@@ -386,8 +386,10 @@ impl Caps {
     ) -> SearchResult<Chessboard> {
         let max_depth = DEPTH_SOFT_LIMIT.min(self.limit().depth).isize();
         let multi_pv = self.state.multi_pv();
+        let mut soft_limit_scale = 1.0;
 
         self.state.multi_pvs.resize(multi_pv, PVData::default());
+        let mut chosen_at_depth = vec![];
 
         for depth in 1..=max_depth {
             self.state.statistics.next_id_iteration();
@@ -397,7 +399,7 @@ impl Caps {
                 let mut pv_data = self.state.multi_pvs[pv_num];
                 let keep_searching = self.aspiration(
                     pos,
-                    soft_limit,
+                    soft_limit.mul_f64(soft_limit_scale),
                     &mut pv_data.alpha,
                     &mut pv_data.beta,
                     &mut pv_data.radius,
@@ -415,7 +417,19 @@ impl Caps {
             self.state
                 .excluded_moves
                 .truncate(self.state.excluded_moves.len() - multi_pv);
+            let chosen = self.state.best_move();
+            chosen_at_depth.push(chosen);
+            if depth > 10
+                && !is_duration_infinite(soft_limit)
+                && chosen_at_depth
+                    .iter()
+                    .dropping(depth as usize / 2)
+                    .all(|m| *m == chosen)
+            {
+                soft_limit_scale = 0.5;
+            }
         }
+
         self.state.search_result()
     }
 

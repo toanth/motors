@@ -424,7 +424,7 @@ impl SearchLimit {
     }
 
     pub fn is_infinite_fixed_time(&self) -> bool {
-        self.fixed_time >= Duration::MAX / 2
+        is_duration_infinite(self.fixed_time)
     }
 
     pub fn is_infinite(&self) -> bool {
@@ -435,4 +435,8 @@ impl SearchLimit {
             && self.depth == inf.depth
             && self.nodes == inf.nodes
     }
+}
+
+pub fn is_duration_infinite(duration: Duration) -> bool {
+    duration >= Duration::MAX / 2
 }
