@@ -15,6 +15,7 @@ use gears::games::{n_fold_repetition, BoardHistory, ZobristHash, ZobristHistory}
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::Description::NoDescription;
 use gears::general::common::{select_name_static, Res, StaticallyNamedEntity};
+use gears::general::move_list::EagerNonAllocMoveList;
 use gears::general::moves::Move;
 use gears::output::Message::Debug;
 use gears::score::{
@@ -389,7 +390,8 @@ impl Caps {
         let mut soft_limit_scale = 1.0;
 
         self.state.multi_pvs.resize(multi_pv, PVData::default());
-        let mut chosen_at_depth = vec![];
+        let mut chosen_at_depth =
+            EagerNonAllocMoveList::<Chessboard, { DEPTH_SOFT_LIMIT.get() }>::default();
 
         for depth in 1..=max_depth {
             self.state.statistics.next_id_iteration();
@@ -419,14 +421,14 @@ impl Caps {
                 .truncate(self.state.excluded_moves.len() - multi_pv);
             let chosen = self.state.best_move();
             chosen_at_depth.push(chosen);
-            if depth > 10
+            if depth > 15
                 && !is_duration_infinite(soft_limit)
                 && chosen_at_depth
                     .iter()
-                    .dropping(depth as usize / 2)
+                    .dropping(depth as usize / 4)
                     .all(|m| *m == chosen)
             {
-                soft_limit_scale = 0.7;
+                soft_limit_scale = 0.75;
             } else {
                 soft_limit_scale = 1.0;
             }
