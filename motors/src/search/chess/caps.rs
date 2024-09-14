@@ -1130,6 +1130,11 @@ impl Caps {
             .statistics
             .count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
 
+        if bound_so_far == Exact {
+            // Since we didn't try all moves, our score is only a lower bound.
+            // Technically upper bounds aren't true upper bounds either, but that's still the best match.
+            bound_so_far = NodeType::lower_bound();
+        }
         let tt_entry: TTEntry<Chessboard> =
             TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
         self.state.tt_mut().store(tt_entry, ply);
