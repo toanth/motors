@@ -446,14 +446,17 @@ impl Caps {
     fn aspiration(
         &mut self,
         pos: Chessboard,
-        soft_limit: Duration,
+        unscaled_soft_limit: Duration,
         alpha: &mut Score,
         beta: &mut Score,
         window_radius: &mut Score,
         max_depth: isize,
     ) -> bool {
         let mut first_iteration = true;
+        let mut soft_limit_scale = 1.0;
         loop {
+            let soft_limit = unscaled_soft_limit.mul_f64(soft_limit_scale);
+            soft_limit_scale = 1.0;
             if self.should_not_start_iteration(soft_limit, max_depth, self.limit().mate) {
                 self.state.statistics.soft_limit_stop();
                 if !first_iteration {
@@ -495,16 +498,22 @@ impl Caps {
             // and risk playing a move we might have just found a refutation to)
             // Set this before returning if the search has been aborted
             let atomic = &self.state.search_params().atomic;
-            if node_type != FailLow && self.state.current_pv_num == 0 {
-                // We can't really trust FailHigh scores. Even though we should still prefer a fail high move, we don't
-                // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
-                if node_type == Exact {
-                    atomic.set_score(pv_score); // can't be SCORE_TIME_UP or similar because that wouldn't be exact
-                } else if self.state.currently_searching() {
-                    atomic.set_score(pv_score.min(MAX_NORMAL_SCORE));
+            if self.state.current_pv_num == 0 {
+                if node_type == FailLow {
+                    // In a fail low node, we didn't get any new information, and it's possible that we just discovered
+                    // a problem with our chosen move. So increase the soft limit such that we can gather more information.
+                    soft_limit_scale = 1.25;
+                } else {
+                    // We can't really trust FailHigh scores. Even though we should still prefer a fail high move, we don't
+                    // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
+                    if node_type == Exact {
+                        atomic.set_score(pv_score); // can't be SCORE_TIME_UP or similar because that wouldn't be exact
+                    } else if self.state.currently_searching() {
+                        atomic.set_score(pv_score.min(MAX_NORMAL_SCORE));
+                    }
+                    atomic.set_best_move(chosen_move);
+                    atomic.set_ponder_move(ponder_move);
                 }
-                atomic.set_best_move(chosen_move);
-                atomic.set_ponder_move(ponder_move);
             }
 
             if !self.state.currently_searching() {
