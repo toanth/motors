@@ -1055,6 +1055,14 @@ impl NodeType {
             FailLow => FailHigh,
         }
     }
+
+    pub fn lower_bound() -> Self {
+        FailHigh
+    }
+
+    pub fn upper_bound() -> Self {
+        FailLow
+    }
 }
 
 pub fn run_bench<B: Board>(engine: &mut dyn Benchable<B>, with_nodes: bool) -> BenchResult {

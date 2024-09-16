@@ -179,7 +179,7 @@ impl<B: Board> UntrustedMove<B> {
         Self(mov)
     }
 
-    pub fn check_psuedolegal(self, pos: &B) -> Option<B::Move> {
+    pub fn check_pseudolegal(self, pos: &B) -> Option<B::Move> {
         if pos.is_move_pseudolegal(self.0) {
             Some(self.0)
         } else {

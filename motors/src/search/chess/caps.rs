@@ -494,9 +494,6 @@ impl Caps {
                 Exact
             };
 
-            // TODO: Increase soft limit for an aw fail low? (Because we don't have a lot of information in that case,
-            // and risk playing a move we might have just found a refutation to)
-            // Set this before returning if the search has been aborted
             let atomic = &self.state.search_params().atomic;
             if self.state.current_pv_num == 0 {
                 if node_type == FailLow {
@@ -617,8 +614,8 @@ impl Caps {
             // simply return it.
             if !is_pv_node
                 && tt_entry.depth as isize >= depth
-                && ((tt_entry.score >= beta && bound == FailHigh)
-                    || (tt_entry.score <= alpha && bound == FailLow)
+                && ((tt_entry.score >= beta && bound == NodeType::lower_bound())
+                    || (tt_entry.score <= alpha && bound == NodeType::upper_bound())
                     || bound == Exact)
             {
                 self.state.statistics.tt_cutoff(MainSearch, bound);
@@ -640,15 +637,15 @@ impl Caps {
                 }
             }
 
-            if let Some(mov) = tt_entry.mov.check_psuedolegal(&pos) {
+            if let Some(mov) = tt_entry.mov.check_pseudolegal(&pos) {
                 best_move = mov;
             }
             // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
             // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
             // create any problems, but should be kept in mind.
             if bound == Exact
-                || (bound == FailHigh && tt_entry.score >= eval)
-                || (bound == FailLow && tt_entry.score <= eval)
+                || (bound == NodeType::lower_bound() && tt_entry.score >= eval)
+                || (bound == NodeType::upper_bound() && tt_entry.score <= eval)
             {
                 eval = tt_entry.score;
             }
@@ -1056,16 +1053,16 @@ impl Caps {
         // see main search, store an invalid random move in the TT entry if all moves failed low.
         let mut best_move = ChessMove::default();
 
-        // do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation
-        // but if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
+        // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
+        // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
         if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
             debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
             let bound = tt_entry.bound();
             // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
             // However, if we've already done qsearch on this position, we can just re-use the result,
             // so there is no point in checking the depth at all
-            if (bound == FailHigh && tt_entry.score >= beta)
-                || (bound == FailLow && tt_entry.score <= alpha)
+            if (bound == NodeType::lower_bound() && tt_entry.score >= beta)
+                || (bound == NodeType::upper_bound() && tt_entry.score <= alpha)
                 || bound == Exact
             {
                 self.state.statistics.tt_cutoff(Qsearch, bound);
@@ -1076,17 +1073,19 @@ impl Caps {
             if bound == FailLow && tt_entry.score < best_score {
                 debug_assert!(tt_entry.depth > 0);
             }
+            // game over scores can't come from qsearch
+            debug_assert!(!tt_entry.score.is_game_over_score() || tt_entry.depth > 0);
             // exact scores should have already caused a cutoff
             // TODO: Removing the `&& !tt_entry.score.is_game_over_score()` condition here and in `negamax` *failed* a
             // nonregression SPRT with `[-7, 0]` bounds even though I don't know why, and those conditions make it fail
             // the re-search test case. So the conditions are still disabled for now,
             // test reintroducing them at some point in the future after I have TT aging!
-            if (bound == FailHigh && tt_entry.score >= best_score)
-                || (bound == FailLow && tt_entry.score <= best_score)
+            if (bound == NodeType::lower_bound() && tt_entry.score >= best_score)
+                || (bound == NodeType::upper_bound() && tt_entry.score <= best_score)
             {
                 best_score = tt_entry.score;
             };
-            if let Some(mov) = tt_entry.mov.check_psuedolegal(&pos) {
+            if let Some(mov) = tt_entry.mov.check_pseudolegal(&pos) {
                 best_move = mov;
             }
         }
@@ -1128,8 +1127,8 @@ impl Caps {
             bound_so_far = Exact;
             alpha = score;
             best_move = mov;
-            // even if the child score came from a TT with depth > 0, we don't trust this node any more because we haven't
-            // looked at all nodes
+            // even if the child score came from a TT entry with depth > 0, we don't trust this node any more than now
+            // because we haven't looked at all nodes
             if score >= beta {
                 bound_so_far = FailHigh;
                 break;
