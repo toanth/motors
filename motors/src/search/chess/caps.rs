@@ -534,7 +534,7 @@ impl Caps {
                 let delta = pv_score.0.abs_diff(alpha.0);
                 let delta = delta.min(pv_score.0.abs_diff(beta.0));
                 let delta = delta.min(10) as i32;
-                window_radius.0 = SCORE_WON.0.min(window_radius.0 * 2 + delta);     
+                window_radius.0 = SCORE_WON.0.min(window_radius.0 * 2 + delta);
             }
             *alpha = (pv_score - *window_radius).max(MIN_ALPHA);
             *beta = (pv_score + *window_radius).min(MAX_BETA);
@@ -1071,11 +1071,6 @@ impl Caps {
                 self.state.statistics.tt_cutoff(Qsearch, bound);
                 return tt_entry.score;
             }
-            // If the TT score is an upper bound, it can't be worse than the stand pat score unless it's from a regular
-            // search entry, i.e. depth is greater than 0.
-            if bound == FailLow && tt_entry.score < best_score {
-                debug_assert!(tt_entry.depth > 0);
-            }
             // game over scores can't come from qsearch
             debug_assert!(!tt_entry.score.is_game_over_score() || tt_entry.depth > 0);
             // exact scores should have already caused a cutoff
@@ -1087,6 +1082,8 @@ impl Caps {
                 || (bound == NodeType::upper_bound() && tt_entry.score <= best_score)
             {
                 best_score = tt_entry.score;
+            } else if !tt_entry.score.is_game_over_score() {
+                best_score = (tt_entry.score + best_score) / 2;
             };
             if let Some(mov) = tt_entry.mov.check_pseudolegal(&pos) {
                 best_move = mov;
