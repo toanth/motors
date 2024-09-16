@@ -1057,37 +1057,17 @@ impl Caps {
         // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
         if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
             debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
-            let bound = tt_entry.bound();
-            // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
-            // However, if we've already done qsearch on this position, we can just re-use the result,
-            // so there is no point in checking the depth at all
-            if (bound == NodeType::lower_bound() && tt_entry.score >= beta)
-                || (bound == NodeType::upper_bound() && tt_entry.score <= alpha)
-                || bound == Exact
-            {
-                self.state.statistics.tt_cutoff(Qsearch, bound);
-                return tt_entry.score;
-            }
             // If the TT score is an upper bound, it can't be worse than the stand pat score unless it's from a regular
             // search entry, i.e. depth is greater than 0.
-            if bound == FailLow && tt_entry.score < best_score {
+            if tt_entry.bound() == FailLow && tt_entry.score < best_score {
                 debug_assert!(tt_entry.depth > 0);
             }
             // game over scores can't come from qsearch
             debug_assert!(!tt_entry.score.is_game_over_score() || tt_entry.depth > 0);
-            // exact scores should have already caused a cutoff
-            // TODO: Removing the `&& !tt_entry.score.is_game_over_score()` condition here and in `negamax` *failed* a
-            // nonregression SPRT with `[-7, 0]` bounds even though I don't know why, and those conditions make it fail
-            // the re-search test case. So the conditions are still disabled for now,
-            // test reintroducing them at some point in the future after I have TT aging!
-            if (bound == NodeType::lower_bound() && tt_entry.score >= best_score)
-                || (bound == NodeType::upper_bound() && tt_entry.score <= best_score)
-            {
-                best_score = tt_entry.score;
-            };
-            if let Some(mov) = tt_entry.mov.check_pseudolegal(&pos) {
-                best_move = mov;
-            }
+            // If the score is from another Qsearch, there's no point in redoing the work.
+            // If it's from the main search, it's probably more trustworthy than any score we could come up with
+            // in qsearch, so return immediately.
+            return tt_entry.score;
         }
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
@@ -1320,11 +1300,10 @@ mod tests {
     fn generic_test() {
         generic_engine_test(Caps::for_eval::<LiTEval>());
         generic_engine_test(Caps::for_eval::<RandEval>());
-        let tt = TT::default();
-        depth_1_nodes_test(Caps::for_eval::<RandEval>(), tt.clone());
-        depth_1_nodes_test(Caps::for_eval::<MaterialOnlyEval>(), tt.clone());
-        depth_1_nodes_test(Caps::for_eval::<PistonEval>(), tt.clone());
-        depth_1_nodes_test(Caps::for_eval::<LiTEval>(), tt.clone());
+        depth_1_nodes_test(Caps::for_eval::<RandEval>(), TT::default());
+        depth_1_nodes_test(Caps::for_eval::<MaterialOnlyEval>(), TT::default());
+        depth_1_nodes_test(Caps::for_eval::<PistonEval>(), TT::default());
+        depth_1_nodes_test(Caps::for_eval::<LiTEval>(), TT::default());
     }
 
     // TODO: Eventually, make sure that GAPS also passed this
