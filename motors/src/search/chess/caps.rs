@@ -529,9 +529,12 @@ impl Caps {
 
             self.state.statistics.aw_node_type(node_type);
             if node_type == Exact {
-                *window_radius = Score(1.max(window_radius.0 / 2));
+                *window_radius = Score((window_radius.0 + 4) / 2);
             } else {
-                window_radius.0 = SCORE_WON.0.min(window_radius.0 * 3);
+                let delta = pv_score.0.abs_diff(alpha.0);
+                let delta = delta.min(pv_score.0.abs_diff(beta.0));
+                let delta = delta.min(10) as i32;
+                window_radius.0 = SCORE_WON.0.min(window_radius.0 * 2 + delta);     
             }
             *alpha = (pv_score - *window_radius).max(MIN_ALPHA);
             *beta = (pv_score + *window_radius).min(MAX_BETA);
