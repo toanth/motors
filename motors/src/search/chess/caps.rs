@@ -1082,7 +1082,7 @@ impl Caps {
                 || (bound == NodeType::upper_bound() && tt_entry.score <= best_score)
             {
                 best_score = tt_entry.score;
-            } else if !tt_entry.score.is_game_over_score() {
+            } else if !tt_entry.score.is_game_over_score() && tt_entry.depth > 4 {
                 best_score = (tt_entry.score + best_score) / 2;
             };
             if let Some(mov) = tt_entry.mov.check_pseudolegal(&pos) {
