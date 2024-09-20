@@ -31,7 +31,7 @@ spsa_params! [
     aw_delta_max: u32 = 10; 0..=40; step=2;
     aw_widening_factor: ScoreT = 2; 1..=10; step=1;
     they_blundered_threshold: ScoreT = 50; 0..=200; step=5;
-    we_blundered_threshold: ScoreT = -50; 0..=200; step=5;
+    we_blundered_threshold: ScoreT = -50; -200..=0; step=5;
     iir_min_depth: isize = 5; 1..=15; step=1;
     rfp_base: ScoreT = 150; 0..=900; step=15;
     rfp_blunder: ScoreT = 64; 0..=512; step=8;
