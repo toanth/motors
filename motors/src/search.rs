@@ -42,6 +42,7 @@ pub mod chess;
 pub mod generic;
 mod move_picker;
 pub mod multithreading;
+pub(crate) mod spsa_param;
 pub mod statistics;
 pub(super) mod tt;
 
@@ -381,6 +382,10 @@ pub trait AbstractEngine<B: Board>: StaticallyNamedEntity + Benchable<B> {
             "The engine '{name}' doesn't support setting custom options, including setting '{option}' to '{value}' (Note: 'Hash' and 'Threads' may still be supported)",
             name = self.long_name()
         ))
+    }
+
+    fn print_spsa_params(&self) {
+        /*do nothing*/
     }
 }
 

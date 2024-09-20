@@ -14,7 +14,7 @@ use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
 use gears::games::{n_fold_repetition, BoardHistory, ZobristHash, ZobristHistory};
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::Description::NoDescription;
-use gears::general::common::{select_name_static, Res, StaticallyNamedEntity};
+use gears::general::common::{parse_int_from_str, select_name_static, Res, StaticallyNamedEntity};
 use gears::general::move_list::EagerNonAllocMoveList;
 use gears::general::moves::Move;
 use gears::output::Message::Debug;
@@ -28,6 +28,7 @@ use gears::ugi::EngineOptionType::Spin;
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck, UgiSpin};
 
 use crate::eval::Eval;
+use crate::search::chess::caps_values::cc;
 use crate::search::move_picker::MovePicker;
 use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
@@ -235,8 +236,14 @@ impl AbstractEngine<Chessboard> for Caps {
         DEPTH_SOFT_LIMIT
     }
 
+    fn print_spsa_params(&self) {
+        for line in cc::ob_param_string() {
+            println!("{line}");
+        }
+    }
+
     fn engine_info(&self) -> EngineInfo {
-        let options = vec![
+        let mut options = vec![
             EngineOption {
                 name: Hash,
                 value: Spin(UgiSpin {
@@ -263,6 +270,7 @@ impl AbstractEngine<Chessboard> for Caps {
                 }),
             },
         ];
+        options.append(&mut cc::ugi_options());
         EngineInfo::new(
             self,
             self.eval.as_ref(),
@@ -274,11 +282,16 @@ impl AbstractEngine<Chessboard> for Caps {
         )
     }
 
-    fn set_option(&mut self, option: EngineOptionName, _value: String) -> Res<()> {
+    fn set_option(&mut self, option: EngineOptionName, value: String) -> Res<()> {
         let name = option.name().to_string();
         if let Other(name) = option {
             if name == "UCI_Chess960" {
                 return Ok(());
+            }
+            if let Ok(val) = parse_int_from_str(&value, "spsa option value") {
+                if let Ok(()) = cc::set_value(&name, val) {
+                    return Ok(());
+                }
             }
         }
         select_name_static(
@@ -308,8 +321,11 @@ impl Engine<Chessboard> for Caps {
         };
         let soft_limit = limit
             .fixed_time
-            .min((limit.tc.remaining.saturating_sub(limit.tc.increment)) / 32 + limit.tc.increment)
-            .min(limit.tc.remaining / 4);
+            .min(
+                (limit.tc.remaining.saturating_sub(limit.tc.increment)) / cc::soft_limit_divisor()
+                    + limit.tc.increment,
+            )
+            .min(limit.tc.remaining / cc::soft_limit_divisor_clamp());
         self.state.params.limit = limit;
 
         // Ideally, this would only evaluate the String argument if debug is on, but that's annoying to implement
@@ -337,7 +353,12 @@ impl Engine<Chessboard> for Caps {
         debug_assert!(self.state.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0);
         let elapsed = start_time.elapsed();
         // divide by 4 unless moves to go is very small, but don't divide by 1 (or zero) to avoid timeouts
-        let divisor = tc.moves_to_go.unwrap_or(usize::MAX).clamp(2, 4) as u32;
+        // TODO: Compute at the start of the search instead of every time:
+        // Instead of storing a SearchLimit, store a different struct that contains soft and hard bounds
+        let divisor = tc
+            .moves_to_go
+            .unwrap_or(usize::MAX)
+            .clamp(2, cc::hard_limit_divisor()) as u32;
         // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
         // (assuming the move overhead is set correctly)
         elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment)
@@ -421,14 +442,14 @@ impl Caps {
                 .truncate(self.state.excluded_moves.len() - multi_pv);
             let chosen = self.state.best_move();
             chosen_at_depth.push(chosen);
-            if depth > 15
+            if depth >= cc::move_stability_min_depth()
                 && !is_duration_infinite(soft_limit)
                 && chosen_at_depth
                     .iter()
-                    .dropping(depth as usize / 4)
+                    .dropping(depth as usize / cc::move_stability_start_divisor())
                     .all(|m| *m == chosen)
             {
-                soft_limit_scale = 0.75;
+                soft_limit_scale = cc::move_stability_factor() as f64 / 1000.0;
             } else {
                 soft_limit_scale = 1.0;
             }
@@ -499,7 +520,7 @@ impl Caps {
                 if node_type == FailLow {
                     // In a fail low node, we didn't get any new information, and it's possible that we just discovered
                     // a problem with our chosen move. So increase the soft limit such that we can gather more information.
-                    soft_limit_scale = 1.25;
+                    soft_limit_scale = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
                 } else {
                     // We can't really trust FailHigh scores. Even though we should still prefer a fail high move, we don't
                     // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
@@ -529,12 +550,15 @@ impl Caps {
 
             self.state.statistics.aw_node_type(node_type);
             if node_type == Exact {
-                *window_radius = Score((window_radius.0 + 4) / 2);
+                *window_radius =
+                    Score((window_radius.0 + cc::aw_exact_add()) / cc::aw_exact_divisor());
             } else {
                 let delta = pv_score.0.abs_diff(alpha.0);
                 let delta = delta.min(pv_score.0.abs_diff(beta.0));
-                let delta = delta.min(10) as i32;
-                window_radius.0 = SCORE_WON.0.min(window_radius.0 * 2 + delta);     
+                let delta = delta.min(cc::aw_delta_max()) as i32;
+                window_radius.0 = SCORE_WON
+                    .0
+                    .min(window_radius.0 * cc::aw_widening_factor() + delta);
             }
             *alpha = (pv_score - *window_radius).max(MIN_ALPHA);
             *beta = (pv_score + *window_radius).min(MAX_BETA);
@@ -667,15 +691,17 @@ impl Caps {
         // the static eval 2 plies ago to recognize blunders. Conceptually, `improving` and `regressing` can be seen as
         // a prediction for how the eval is going to evolve, while these variables are more about cutting early after bad moves.
         // TODO: Currently, this uses the TT score when possible. Think about if there are unintended consequences.
-        let they_blundered = ply >= 2 && eval - self.state.search_stack[ply - 2].eval > Score(50);
-        let we_blundered = ply >= 2 && eval - self.state.search_stack[ply - 2].eval < Score(-50);
+        let they_blundered = ply >= 2
+            && eval - self.state.search_stack[ply - 2].eval > Score(cc::they_blundered_threshold());
+        let we_blundered = ply >= 2
+            && eval - self.state.search_stack[ply - 2].eval < Score(cc::we_blundered_threshold());
 
         // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
         // because the move ordering won't be great, so don't spend too much time on this node.
         // Instead, search it with reduced depth to fill the TT entry so that we can re-search it faster the next time
         // we see this node. If there was no TT entry because the node failed low, this node probably isn't that interesting,
         // so reducing the depth also makes sense in this case.
-        if depth > 4 && best_move == ChessMove::default() {
+        if depth >= cc::iir_min_depth() && best_move == ChessMove::default() {
             depth -= 1;
         }
 
@@ -687,11 +713,12 @@ impl Caps {
             // (like imminent threats) so don't prune too aggressively if our opponent hasn't blundered.
             // Be more careful about pruning too aggressively if the node is expected to fail low -- we should not rfp
             // a true fail low node, but our expectation may also be wrong.
-            let mut margin = (150 - (ScoreT::from(they_blundered) * 64)) * depth as ScoreT;
+            let mut margin = (cc::rfp_base() - (ScoreT::from(they_blundered) * cc::rfp_blunder()))
+                * depth as ScoreT;
             if expected_node_type == FailHigh {
-                margin /= 2;
+                margin /= cc::rfp_fail_high_divisor();
             }
-            if depth < 4 && eval >= beta + Score(margin) {
+            if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
                 return eval;
             }
 
@@ -702,8 +729,9 @@ impl Caps {
             // If we don't have non-pawn, non-king pieces, we're likely to be in zugzwang, so don't even try NMP.
             let has_nonpawns =
                 (pos.active_player_bb() & !pos.piece_bb(Pawn)).more_than_one_bit_set();
-            let nmp_threshold = beta + ScoreT::from(expected_node_type == FailLow) * 64;
-            if depth >= 3
+            let nmp_threshold =
+                beta + ScoreT::from(expected_node_type == FailLow) * cc::nmp_fail_low();
+            if depth >= cc::nmp_min_depth()
                 && eval >= nmp_threshold
                 && !*self.state.custom.nmp_disabled_for(pos.active_player())
                 && has_nonpawns
@@ -716,7 +744,8 @@ impl Caps {
                 self.state.search_stack[ply]
                     .tried_moves
                     .push(ChessMove::default());
-                let reduction = 3 + depth / 4 + isize::from(they_blundered);
+                let reduction =
+                    cc::nmp_base() + depth / cc::nmp_depth_div() + isize::from(they_blundered);
                 let score = -self.negamax(
                     new_pos,
                     ply + 1,
@@ -732,7 +761,7 @@ impl Caps {
                     // unless we'd be storing a mate score -- we really want to avoid storing unproved mates in the TT.
                     // It's possible to beat beta with a score of getting mated, so use `is_game_over_score`
                     // instead of `is_game_won_score`
-                    if depth < 8 && !score.is_game_over_score() {
+                    if depth < cc::nmp_verif_depth() && !score.is_game_over_score() {
                         return score;
                     }
                     *self.state.custom.nmp_disabled_for(pos.active_player()) = true;
@@ -766,22 +795,22 @@ impl Caps {
             // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
             // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
             let fp_margin = if we_blundered {
-                200 + 32 * depth
+                cc::fp_blunder_base() + cc::fp_blunder_scale() * depth
             } else {
-                300 + 64 * depth
+                cc::fp_base() + cc::fp_scale() * depth
             };
             let mut lmp_threshold = if we_blundered {
-                6 + 4 * depth
+                cc::lmp_blunder_base() + cc::lmp_blunder_scale() * depth
             } else {
-                8 + 8 * depth
+                cc::lmp_base() + cc::lmp_scale() * depth
             };
             // LMP faster if we expect to fail low anyway
             if expected_node_type == FailLow {
-                lmp_threshold -= lmp_threshold / 4;
+                lmp_threshold -= lmp_threshold / cc::lmp_fail_low_div();
             }
             if can_prune
                 && best_score > MAX_SCORE_LOST
-                && depth <= 3
+                && depth <= cc::max_move_loop_pruning_depth()
                 && (num_uninteresting_visited >= lmp_threshold
                     || (eval + Score(fp_margin as ScoreT) < alpha && move_score < KILLER_SCORE))
             {
@@ -824,13 +853,14 @@ impl Caps {
                 // to verify our belief.
                 // I think it's common to have a minimum depth for doing LMR, but not having that gained elo.
                 let mut reduction = 0;
-                if !in_check && num_uninteresting_visited > 2 {
-                    reduction =
-                        1 + depth / 8 + (num_uninteresting_visited + 1).ilog2() as isize - 2;
+                if !in_check && num_uninteresting_visited >= cc::lmr_min_uninteresting() {
+                    reduction = depth / cc::lmr_depth_div()
+                        + (num_uninteresting_visited + 1).ilog2() as isize
+                        + cc::lmr_const();
                     // Reduce bad captures and quiet moves with bad combined history scores more.
-                    if move_score < -MoveScore(HIST_DIVISOR / 4) {
+                    if move_score < MoveScore(cc::lmr_bad_hist()) {
                         reduction += 1;
-                    } else if move_score > MoveScore(HIST_DIVISOR / 2) {
+                    } else if move_score > MoveScore(cc::lmr_good_hist()) {
                         // Since the TT and killer move and good captures are not lmr'ed,
                         // this only applies to quiet moves with a good combined history score.
                         reduction -= 1;
@@ -890,7 +920,6 @@ impl Caps {
                 // If the root returned NO_SCORE_YET, we ignore it in `aspiration()`, otherwise we can use that
                 // as a lower bound for the score, and the score belonging to the chosen move.
                 return SCORE_TIME_UP;
-                // return best_score;
             }
             debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);
 
@@ -991,7 +1020,7 @@ impl Caps {
         let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else {
             unreachable!()
         };
-        let bonus = (depth * 16) as i32;
+        let bonus = (depth * cc::hist_depth_bonus()) as i32;
         if mov.is_tactical(pos) {
             for disappointing in entry
                 .tried_moves

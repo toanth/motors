@@ -18,6 +18,7 @@
 
 //! Anything related to search that is also used by `monitors`, and therefore doesn't belong in `motors`.
 
+use crate::general::common::Res;
 use crate::PlayerResult;
 use derive_more::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use num::ToPrimitive;
@@ -89,6 +90,17 @@ impl Div<ScoreT> for Score {
 
     fn div(self, rhs: ScoreT) -> Self::Output {
         Score(self.0 / rhs)
+    }
+}
+
+impl TryFrom<isize> for Score {
+    type Error = String;
+
+    fn try_from(value: isize) -> Res<Self> {
+        let score = ScoreT::try_from(value).map_err(|err| err.to_string())?;
+        Score(score)
+            .verify_valid()
+            .ok_or_else(|| format!("{score} is outside of the valid values for a Score"))
     }
 }
 

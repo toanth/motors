@@ -100,7 +100,7 @@ impl<B: Board> SearchThreadType<B> {
 }
 
 #[derive(Debug)]
-#[repr(align(64))] // Try to prevent false sharing (TODO: Test)
+#[repr(align(64))] // Prevent false sharing
 pub struct AtomicSearchState<B: Board> {
     // All combinations of stop and currently_searching are (briefly) possible.
     // The default is both being false, when `stop` gets set the engine begins to stop, when it has actually stopped
@@ -318,6 +318,8 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
     }
 
     pub fn main_loop(&mut self) {
+        // do this here so that it's run in the (main) search thread, which means we don't run into multithreading problems
+        self.engine.print_spsa_params();
         loop {
             match self.try_handle_input() {
                 Err(msg) => {
