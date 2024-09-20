@@ -40,6 +40,9 @@ const DEPTH_SOFT_LIMIT: Depth = Depth::new(225);
 /// The maximum value of the `ply` parameter, i.e. the maximum depth (in plies) before qsearch is reached
 const DEPTH_HARD_LIMIT: Depth = Depth::new(255);
 
+/// Qsearch can't go more than 30 plies deep, so this prevents out of bounds accesses
+const SEARCH_STACK_LEN: usize = DEPTH_HARD_LIMIT.get() + 30;
+
 const HIST_DIVISOR: i32 = 1024;
 /// The TT move and good captures have a higher score, all other moves have a lower score.
 const KILLER_SCORE: MoveScore = MoveScore(i32::MAX - 100 * HIST_DIVISOR);
@@ -168,7 +171,7 @@ impl CustomInfo<Chessboard> for Additional {
 #[derive(Debug, Default, Clone)]
 struct CapsSearchStackEntry {
     killer: ChessMove,
-    pv: Pv<Chessboard, { DEPTH_HARD_LIMIT.get() }>,
+    pv: Pv<Chessboard, SEARCH_STACK_LEN>,
     tried_moves: ArrayVec<ChessMove, MAX_CHESS_MOVES_IN_POS>,
     pos: Chessboard,
     eval: Score,
@@ -322,10 +325,10 @@ impl Engine<Chessboard> for Caps {
         let soft_limit = limit
             .fixed_time
             .min(
-                (limit.tc.remaining.saturating_sub(limit.tc.increment)) / cc::soft_limit_divisor()
+                (limit.tc.remaining.saturating_sub(limit.tc.increment)) / cc::soft_limit_div()
                     + limit.tc.increment,
             )
-            .min(limit.tc.remaining / cc::soft_limit_divisor_clamp());
+            .min(limit.tc.remaining / cc::soft_limit_div_clamp());
         self.state.params.limit = limit;
 
         // Ideally, this would only evaluate the String argument if debug is on, but that's annoying to implement
@@ -358,7 +361,7 @@ impl Engine<Chessboard> for Caps {
         let divisor = tc
             .moves_to_go
             .unwrap_or(usize::MAX)
-            .clamp(2, cc::hard_limit_divisor()) as u32;
+            .clamp(2, cc::hard_limit_div()) as u32;
         // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
         // (assuming the move overhead is set correctly)
         elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment)
@@ -381,7 +384,7 @@ impl Engine<Chessboard> for Caps {
 
     fn with_eval(eval: Box<dyn Eval<Chessboard>>) -> Self {
         Self {
-            state: ABSearchState::new(DEPTH_HARD_LIMIT),
+            state: ABSearchState::new(Depth::new(SEARCH_STACK_LEN)),
             eval,
         }
     }
@@ -446,7 +449,7 @@ impl Caps {
                 && !is_duration_infinite(soft_limit)
                 && chosen_at_depth
                     .iter()
-                    .dropping(depth as usize / cc::move_stability_start_divisor())
+                    .dropping(depth as usize / cc::move_stability_start_div())
                     .all(|m| *m == chosen)
             {
                 soft_limit_scale = cc::move_stability_factor() as f64 / 1000.0;
@@ -550,8 +553,7 @@ impl Caps {
 
             self.state.statistics.aw_node_type(node_type);
             if node_type == Exact {
-                *window_radius =
-                    Score((window_radius.0 + cc::aw_exact_add()) / cc::aw_exact_divisor());
+                *window_radius = Score((window_radius.0 + cc::aw_exact_add()) / cc::aw_exact_div());
             } else {
                 let delta = pv_score.0.abs_diff(alpha.0);
                 let delta = delta.min(pv_score.0.abs_diff(beta.0));
@@ -716,7 +718,7 @@ impl Caps {
             let mut margin = (cc::rfp_base() - (ScoreT::from(they_blundered) * cc::rfp_blunder()))
                 * depth as ScoreT;
             if expected_node_type == FailHigh {
-                margin /= cc::rfp_fail_high_divisor();
+                margin /= cc::rfp_fail_high_div();
             }
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
                 return eval;
@@ -829,7 +831,10 @@ impl Caps {
 
             // O(1). Resets the child's pv length so that it's not the maximum length it used to be.
             // TODO: Do this in `record_move`?
-            self.state.search_stack[ply + 1].pv.clear();
+            self.state
+                .search_stack
+                .get_mut(ply + 1)
+                .map(|s| s.pv.clear());
 
             let debug_history_len = self.state.params.history.len();
 
