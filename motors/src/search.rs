@@ -881,7 +881,7 @@ pub struct ABSearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> ABSearchState<B, E, C> {
     fn new(max_depth: Depth) -> Self {
-        Self::new_with(vec![E::default(); max_depth.get()], C::default())
+        Self::new_with(vec![E::default(); max_depth.get() + 1], C::default())
     }
 
     fn new_with(search_stack: Vec<E>, custom: C) -> Self {

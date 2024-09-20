@@ -455,7 +455,7 @@ impl<B: Board> EngineUGI<B> {
             "setoption" => {
                 self.handle_setoption(words)?;
             }
-            "uci        newgame" | "uginewgame" | "clear" => {
+            "ucinewgame" | "uginewgame" | "uainewgame" | "clear" => {
                 self.state.engine.send_forget()?;
                 self.state.status = Run(NotStarted);
             }

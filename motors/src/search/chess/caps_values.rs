@@ -19,23 +19,23 @@
 use crate::spsa_params;
 
 spsa_params! [
-    soft_limit_divisor: u32 = 32; 5..=60; step=1;
-    soft_limit_divisor_clamp: u32 = 4; 2..=10; step=1;
-    hard_limit_divisor: usize = 4; 1..=10; step=1;
+    soft_limit_div: u32 = 32; 5..=60; step=1;
+    soft_limit_div_clamp: u32 = 4; 2..=10; step=1;
+    hard_limit_div: usize = 4; 1..=10; step=1;
     move_stability_min_depth: isize=16; 1..=25; step=2;
-    move_stability_start_divisor: usize = 4; 1..=10; step=1;
+    move_stability_start_div: usize = 4; 1..=10; step=1;
     move_stability_factor: usize = 750; 250..=1000; step=50;
     soft_limit_fail_low_factor: usize = 1250; 1000..=3000; step=50;
     aw_exact_add: ScoreT = 4; 0..=42; step=2;
-    aw_exact_divisor: ScoreT = 2; 0..=10; step=1;
+    aw_exact_div: ScoreT = 2; 1..=10; step=1;
     aw_delta_max: u32 = 10; 0..=40; step=2;
     aw_widening_factor: ScoreT = 2; 1..=10; step=1;
     they_blundered_threshold: ScoreT = 50; 0..=200; step=5;
-    we_blundered_threshold: ScoreT = -50; 0..=200; step=5;
+    we_blundered_threshold: ScoreT = -50; -200..=0; step=5;
     iir_min_depth: isize = 5; 1..=15; step=1;
     rfp_base: ScoreT = 150; 0..=900; step=15;
     rfp_blunder: ScoreT = 64; 0..=512; step=8;
-    rfp_fail_high_divisor: ScoreT = 2; 1..=10; step=1;
+    rfp_fail_high_div: ScoreT = 2; 1..=10; step=1;
     rfp_max_depth: isize = 3; 1..=10; step=1;
     nmp_fail_low: ScoreT = 64; 0..=256; step=4;
     nmp_min_depth: isize = 3; 1..=10; step=1;
