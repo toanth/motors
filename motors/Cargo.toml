@@ -40,7 +40,7 @@ caps = ["chess"] # enabling the caps feature also enables the chess feature
 statistics = []
 unsafe = []
 fuzzing = []
-spsa = []
+spsa = ["unsafe"] # the implementation uses "unsafe"
 
 generic-engines = ["random_mover", "gaps"]
 chess-engines = ["caps"]
