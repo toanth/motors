@@ -912,6 +912,8 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 "Player {inactive_player} is in check, but it's not their turn to move"
             ));
         }
+        // we allow loading FENs where more than one piece gives check to the king in a way that could not have been reached
+        // from startpos, e.g. "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1"
         if this.ply_100_ctr >= 100 {
             return Err(format!(
                 "The 50 move rule has been exceeded (there have already been {0} plies played)",
@@ -1096,8 +1098,6 @@ mod tests {
             "q0018446744073709551615",
             "QQQQKQQQ\nwV0 \n",
             "kQQQQQDDw-W0w",
-            // impossible double check
-            // "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1", // TODO: Enable this testcase
         ];
         for fen in fens {
             let pos = Chessboard::from_fen(fen);
@@ -1301,6 +1301,10 @@ mod tests {
         let mov = board.random_legal_move(&mut rng).unwrap();
         let board = board.make_move(mov).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 2);
+        let fen = "B4Q1b/8/8/8/2K3P1/5k2/8/b4RNB b - - 0 1"; // far too many checks, but we still accept it
+        let board = Chessboard::from_fen(fen).unwrap();
+        assert_eq!(board.pseudolegal_moves().len(), 8 + 2 * 6);
+        assert_eq!(board.legal_moves_slow().len(), 3);
     }
 
     #[test]
