@@ -471,7 +471,8 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
         self.search_state_mut().new_search(search_params);
         let res = self.do_search();
         let search_state = self.search_state_mut();
-        search_state.end_search();
+        search_state.statistics_mut().end_search();
+        search_state.search_params_mut().atomic.set_searching(false);
         search_state.send_statistics();
         search_state.aggregate_match_statistics();
         // might block, see method. Do this as the last step so that we're not using compute after sending
@@ -495,13 +496,9 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
         let state = self.search_state();
         let limit = self.limit();
         // Do the less expensive checks first to avoid querying the time in each node
-        // TODO: Call `search.stopped()` below, not every node? It's an Acquire load, so potentially expensive
         // loads an atomic, so calling this function twice probably won't be optimized
         let nodes = state.uci_nodes();
-        if nodes >= limit.nodes.get()
-            || !state.currently_searching()
-            || state.stop_command_received()
-        {
+        if nodes >= limit.nodes.get() || state.stop_flag() {
             self.search_state().stop_search();
             return true;
         }
@@ -540,10 +537,6 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
     fn send_search_info(&mut self) {
         let msg = self.search_info().to_string();
         self.search_state_mut().send_ugi(&msg)
-    }
-
-    fn is_currently_searching(&self) -> bool {
-        self.search_state().currently_searching()
     }
 
     fn can_use_multiple_threads() -> bool;
@@ -673,7 +666,8 @@ pub trait SearchState<B: Board>: Debug {
 
     fn search_params_mut(&mut self) -> &mut SearchParams<B>;
 
-    fn stop_command_received(&self) -> bool {
+    /// True if the engine has received a 'stop' command or if a search limit has been reached.
+    fn stop_flag(&self) -> bool {
         self.search_params().atomic.stop_flag()
     }
 
@@ -714,7 +708,7 @@ pub trait SearchState<B: Board>: Debug {
     }
 
     fn stop_search(&self) {
-        self.search_params().atomic.set_searching(false);
+        self.search_params().atomic.set_stop(true);
     }
 
     /// Returns the number of nodes looked at so far, including normal search and quiescent search.
@@ -798,11 +792,6 @@ pub trait SearchState<B: Board>: Debug {
     fn forget(&mut self, hard: bool);
 
     fn new_search(&mut self, opts: SearchParams<B>);
-
-    fn end_search(&mut self) {
-        self.statistics_mut().end_search();
-        self.search_params_mut().atomic.set_searching(false);
-    }
 
     fn to_search_info(&self) -> SearchInfo<B>;
 
@@ -974,6 +963,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
     }
 
     fn new_search(&mut self, mut parameters: SearchParams<B>) {
+        parameters.atomic.set_searching(true);
         self.forget(false);
         let moves = parameters.pos.legal_moves_slow();
         let num_moves = moves.num_moves();
@@ -998,7 +988,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
         // contains only invalid moves. Search must be able to deal with this
         debug_assert!(self.excluded_moves.len() + parameters.num_multi_pv <= num_moves);
         self.params = parameters;
-        debug_assert!(self.currently_searching() && !self.stop_command_received());
+        debug_assert!(self.currently_searching() && !self.stop_flag());
     }
 
     fn to_search_info(&self) -> SearchInfo<B> {

@@ -1096,6 +1096,8 @@ mod tests {
             "q0018446744073709551615",
             "QQQQKQQQ\nwV0 \n",
             "kQQQQQDDw-W0w",
+            // impossible double check
+            // "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1", // TODO: Enable this testcase
         ];
         for fen in fens {
             let pos = Chessboard::from_fen(fen);

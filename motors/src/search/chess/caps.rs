@@ -529,7 +529,7 @@ impl Caps {
                     // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
                     if node_type == Exact {
                         atomic.set_score(pv_score); // can't be SCORE_TIME_UP or similar because that wouldn't be exact
-                    } else if self.state.currently_searching() {
+                    } else if !self.state.stop_flag() {
                         atomic.set_score(pv_score.min(MAX_NORMAL_SCORE));
                     }
                     let pv = &self.state.search_stack[0].pv;
@@ -546,7 +546,7 @@ impl Caps {
                 }
             }
 
-            if !self.state.currently_searching() {
+            if self.state.stop_flag() {
                 return false;
             }
             // assert this now because this doesn't hold for incomplete iterations

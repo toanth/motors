@@ -100,7 +100,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
                 self.state.atomic().set_depth(depth);
                 let iteration_score = self.negamax(pos, 0, depth, SCORE_LOST, SCORE_WON);
                 self.state.current_pv_data().score = iteration_score;
-                if self.state.stop_command_received() {
+                if self.state.stop_flag() {
                     break 'id;
                 }
                 // only set now so that incomplete iterations are discarded

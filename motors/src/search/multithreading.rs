@@ -1,3 +1,4 @@
+use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU64};
@@ -102,15 +103,20 @@ impl<B: Board> SearchThreadType<B> {
 #[derive(Debug)]
 #[repr(align(64))] // Prevent false sharing
 pub struct AtomicSearchState<B: Board> {
-    // All combinations of stop and currently_searching are (briefly) possible.
-    // The default is both being false, when `stop` gets set the engine begins to stop, when it has actually stopped
-    // it sets `stop` and `currently_searching` to false. If it has stopped without receiving a `stop` or reaching a limit
-    // (i.e. infinite search has exceeded max depth), stop is false and searching it true.
-    stop: AtomicBool,
-    // True if the engine is currently searching. Written and loaded with Relaxed ordering, so this should be treated
-    // as a slight approximation, it's possible for this value to be slightly out of date. Note that if an infinite search
-    // reaches its internal end condition but hasn't yet been stopped, this is still set to false; the thread may still
-    // spin until it receives a stop.
+    // All combinations of should_stop and currently_searching are (briefly) possible.
+    // The default is both being false.
+    // When it starts searching `searching` gets set to true.
+    // When `stop` gets set the engine begins to stop.
+    // When it has actually stopped it sets `currently_searching` to false.
+    // If it has stopped without receiving a `stop` or reaching a limit
+    // (i.e. infinite search has exceeded max depth), both are false.
+
+    // This flag indicates that the engine should stop searching. It can be set by the UGI thread upon receiving a "stop"
+    // command, or it can be set by the engine when a limiting stop condition is reached. It is not set upon exceeding the
+    // max depth of an infinite search.
+    should_stop: AtomicBool,
+    // True if the engine is currently searching. Note that if an infinite search reaches its internal end condition but
+    // hasn't yet been stopped, this is set to false; the thread may still spin until it receives a stop.
     currently_searching: AtomicBool,
     edges: AtomicU64,
     depth: AtomicIsize,
@@ -124,8 +130,8 @@ pub struct AtomicSearchState<B: Board> {
 impl<B: Board> Default for AtomicSearchState<B> {
     fn default() -> Self {
         Self {
-            stop: AtomicBool::new(false),
-            currently_searching: AtomicBool::new(true),
+            should_stop: AtomicBool::new(false),
+            currently_searching: AtomicBool::new(false),
             edges: AtomicU64::new(0),
             depth: AtomicIsize::new(0),
             seldepth: AtomicUsize::new(0),
@@ -146,19 +152,21 @@ impl<B: Board> AtomicSearchState<B> {
         self.update_seldepth(0);
         self.set_depth(0);
         self.edges.store(0, Relaxed);
-        self.set_searching(true);
-        self.stop.store(false, Relaxed);
+        self.set_searching(false);
+        self.should_stop.store(false, Relaxed);
     }
 
     pub fn stop_flag(&self) -> bool {
-        self.stop.load(Acquire)
+        self.should_stop.load(Acquire)
     }
 
-    pub fn currently_searching(&self) -> bool {
-        // Relaxed is fine because this is only ever written by the search thread itself
+    /// Intended to be used by the search thread, uses Relaxed ordering.
+    /// Note that any other thread might want to load with Acquire semantic.
+    pub(super) fn currently_searching(&self) -> bool {
         self.currently_searching.load(Relaxed)
     }
 
+    /// Should only be used by the search thread, uses Relaxed ordering. Any other thread should never set this value.
     pub(super) fn set_searching(&self, val: bool) {
         self.currently_searching.store(val, Relaxed);
     }
@@ -193,7 +201,7 @@ impl<B: Board> AtomicSearchState<B> {
     }
 
     pub fn set_stop(&self, val: bool) {
-        self.stop.store(val, Release)
+        self.should_stop.store(val, Release)
     }
 
     pub fn count_node(&self) {
@@ -508,8 +516,13 @@ impl<B: Board> EngineWrapper<B> {
     }
 
     pub fn send_stop(&mut self) {
-        for aux in &self.main_thread_data.atomic_search_data {
-            aux.set_stop(true);
+        for atomic in &self.main_thread_data.atomic_search_data {
+            atomic.set_stop(true);
+        }
+        for atomic in &self.main_thread_data.atomic_search_data {
+            while atomic.currently_searching.load(Acquire) {
+                spin_loop(); // this should only take a short while
+            }
         }
     }
 
