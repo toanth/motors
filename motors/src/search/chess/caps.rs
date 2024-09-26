@@ -419,24 +419,33 @@ impl Caps {
 
         for depth in 1..=max_depth {
             self.state.statistics.next_id_iteration();
-            self.state.atomic().set_depth(depth);
             for pv_num in 0..multi_pv {
                 self.state.current_pv_num = pv_num;
                 let mut pv_data = self.state.multi_pvs[pv_num];
                 let keep_searching = self.aspiration(
                     pos,
                     soft_limit.mul_f64(soft_limit_scale),
+                    depth,
                     &mut pv_data.alpha,
                     &mut pv_data.beta,
                     &mut pv_data.radius,
                     max_depth,
                 );
-                let chosen_move = self.state.multi_pvs[pv_num].best_move;
+                let chosen_move = self.state.search_stack[0].pv[0];
                 self.state.multi_pvs[pv_num].alpha = pv_data.alpha;
                 self.state.multi_pvs[pv_num].beta = pv_data.beta;
                 self.state.multi_pvs[pv_num].radius = pv_data.radius;
                 self.state.excluded_moves.push(chosen_move);
-                if !keep_searching {
+                if keep_searching {
+                    self.send_search_info();
+                } else {
+                    // send one final search info, but don't send empty PVs or PVs from a fail high
+                    // that would consist of only one move, and don't send a PV if it's
+                    let pv = self.state.current_mpv_pv();
+                    let immediately_aborted = self.state.depth().get() < depth as usize;
+                    if !pv.is_empty() && (depth == 1 || pv.len() > 1) && !immediately_aborted {
+                        self.send_search_info();
+                    }
                     return self.state.search_result();
                 }
             }
@@ -471,31 +480,22 @@ impl Caps {
         &mut self,
         pos: Chessboard,
         unscaled_soft_limit: Duration,
+        depth: isize,
         alpha: &mut Score,
         beta: &mut Score,
         window_radius: &mut Score,
         max_depth: isize,
     ) -> bool {
-        let mut first_iteration = true;
         let mut soft_limit_scale = 1.0;
         loop {
             let soft_limit = unscaled_soft_limit.mul_f64(soft_limit_scale);
             soft_limit_scale = 1.0;
             if self.should_not_start_iteration(soft_limit, max_depth, self.limit().mate) {
                 self.state.statistics.soft_limit_stop();
-                if !first_iteration {
-                    self.send_search_info();
-                }
                 return false;
             }
-            first_iteration = false;
+            self.state.atomic().set_depth(depth); // set depth now so that an immediate stop doesn't increment the depth
             let pv_score = self.negamax(pos, 0, self.state.depth().isize(), *alpha, *beta, Exact);
-
-            let pv = self.state.pv().unwrap();
-            let chosen_move = pv.first().copied().unwrap_or_default();
-            let ponder_move = pv.get(1).copied();
-            self.state.current_pv_data().best_move = chosen_move;
-            self.state.current_pv_data().score = pv_score;
 
             self.state.send_non_ugi(
                 Debug,
@@ -518,7 +518,7 @@ impl Caps {
                 Exact
             };
 
-            let atomic = &self.state.search_params().atomic;
+            let atomic = &self.state.params.atomic;
             if self.state.current_pv_num == 0 {
                 if node_type == FailLow {
                     // In a fail low node, we didn't get any new information, and it's possible that we just discovered
@@ -532,17 +532,21 @@ impl Caps {
                     } else if self.state.currently_searching() {
                         atomic.set_score(pv_score.min(MAX_NORMAL_SCORE));
                     }
-                    atomic.set_best_move(chosen_move);
-                    atomic.set_ponder_move(ponder_move);
+                    let pv = &self.state.search_stack[0].pv;
+                    self.state.multi_pvs[self.state.current_pv_num]
+                        .pv
+                        .assign_from(pv);
+                    let pv = self.state.current_mpv_pv();
+                    if !pv.is_empty() {
+                        let chosen_move = pv[0];
+                        let ponder_move = pv.get(1).copied();
+                        atomic.set_best_move(chosen_move);
+                        atomic.set_ponder_move(ponder_move);
+                    }
                 }
             }
 
             if !self.state.currently_searching() {
-                // send one final search info, but don't send empty / invalid PVs
-                if chosen_move != ChessMove::default() {
-                    self.send_search_info();
-                }
-
                 return false;
             }
             // assert this now because this doesn't hold for incomplete iterations
@@ -566,7 +570,6 @@ impl Caps {
             *beta = (pv_score + *window_radius).min(MAX_BETA);
 
             if node_type == Exact {
-                self.send_search_info(); // do this before incrementing the depth
                 return true;
             }
         }
@@ -634,58 +637,56 @@ impl Caps {
         // store a null move in the TT. This helps IIR.
         let mut best_move = ChessMove::default();
         let mut eval = self.eval(pos, ply);
+        // the TT entry at the root is useless when doing an actual multipv search
+        let ignore_tt_entry = root && self.state.multi_pvs.len() > 1;
         if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
-            let bound = tt_entry.bound();
-            debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
+            if !ignore_tt_entry {
+                let tt_bound = tt_entry.bound();
+                debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
 
-            // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
-            // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
-            // simply return it.
-            if !is_pv_node
-                && tt_entry.depth as isize >= depth
-                && ((tt_entry.score >= beta && bound == NodeType::lower_bound())
-                    || (tt_entry.score <= alpha && bound == NodeType::upper_bound())
-                    || bound == Exact)
-            {
-                self.state.statistics.tt_cutoff(MainSearch, bound);
-                return tt_entry.score;
-            }
-            // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
-            // at what the type of this node is going to be.
-            if !is_pv_node {
-                if bound == Exact {
-                    expected_node_type = if tt_entry.score <= alpha {
+                // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
+                // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
+                // simply return it.
+                if !is_pv_node
+                    && tt_entry.depth as isize >= depth
+                    && ((tt_entry.score >= beta && tt_bound == NodeType::lower_bound())
+                        || (tt_entry.score <= alpha && tt_bound == NodeType::upper_bound())
+                        || tt_bound == Exact)
+                {
+                    self.state.statistics.tt_cutoff(MainSearch, tt_bound);
+                    return tt_entry.score;
+                }
+                // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
+                // at what the type of this node is going to be.
+                if !is_pv_node {
+                    expected_node_type = if tt_bound != Exact {
+                        // TODO: Base instead on relation between tt score and window?
+                        // Or only update if the difference between tt score and the window is large?
+                        tt_bound
+                    } else if tt_entry.score <= alpha {
                         FailLow
                     } else {
+                        debug_assert!(tt_entry.score >= beta); // we're using a null window
                         FailHigh
                     }
-                } else {
-                    // TODO: Base instead on relation between tt score and window?
-                    // Or only update if the difference between tt score and the window is large?
-                    expected_node_type = bound;
                 }
-            }
 
-            if let Some(mov) = tt_entry.mov.check_pseudolegal(&pos) {
-                best_move = mov;
-            }
-            // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
-            // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
-            // create any problems, but should be kept in mind.
-            if bound == Exact
-                || (bound == NodeType::lower_bound() && tt_entry.score >= eval)
-                || (bound == NodeType::upper_bound() && tt_entry.score <= eval)
-            {
-                eval = tt_entry.score;
+                if let Some(mov) = tt_entry.mov.check_pseudolegal(&pos) {
+                    best_move = mov;
+                }
+                // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
+                // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
+                // create any problems, but should be kept in mind.
+                if tt_bound == Exact
+                    || (tt_bound == NodeType::lower_bound() && tt_entry.score >= eval)
+                    || (tt_bound == NodeType::upper_bound() && tt_entry.score <= eval)
+                {
+                    eval = tt_entry.score;
+                }
             }
         } else {
             self.state.statistics.tt_miss(MainSearch);
         };
-        // the TT entry at the root is useless when doing multipv, but don't do this for a single pv search
-        // throws away the TT entry from previous searches at the root
-        if root && self.state.multi_pvs.len() > 1 {
-            best_move = self.state.multi_pvs[self.state.current_pv_num].best_move;
-        }
 
         self.record_pos(pos, eval, ply);
 

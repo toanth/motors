@@ -2,6 +2,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::spin_loop;
 use std::marker::PhantomData;
+use std::ops::{Index, IndexMut};
 use std::sync::{Arc, MutexGuard};
 use std::thread::spawn;
 use std::time::{Duration, Instant};
@@ -208,6 +209,22 @@ impl<B: Board, const LIMIT: usize> Default for Pv<B, LIMIT> {
     }
 }
 
+impl<B: Board, const LIMIT: usize> Index<usize> for Pv<B, LIMIT> {
+    type Output = B::Move;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        // assert!(index < self.length);
+        &self.list[index]
+    }
+}
+
+impl<B: Board, const LIMIT: usize> IndexMut<usize> for Pv<B, LIMIT> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        // assert!(index < self.length);
+        &mut self.list[index]
+    }
+}
+
 impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
     pub fn extend(&mut self, ply: usize, mov: B::Move, child_pv: &Pv<B, LIMIT>) {
         self.list[ply] = mov;
@@ -224,6 +241,17 @@ impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
     pub fn reset_to_move(&mut self, mov: B::Move) {
         self.list[0] = mov;
         self.length = 1;
+    }
+
+    fn as_slice(&self) -> &[B::Move] {
+        &self.list[..self.length]
+    }
+
+    fn assign_from<const OTHER_LIMIT: usize>(&mut self, other: &Pv<B, OTHER_LIMIT>) {
+        self.length = LIMIT.min(other.length);
+        for i in 0..self.length {
+            self.list[i] = other.list[i];
+        }
     }
 }
 
@@ -792,16 +820,12 @@ pub trait SearchState<B: Board>: Debug {
 
     fn send_statistics(&mut self);
 
-    fn pv(&self) -> Option<&[B::Move]>;
+    fn current_mpv_pv(&self) -> &[B::Move];
 
     fn to_bench_res(&self) -> BenchResult {
         let mut hasher = DefaultHasher::new();
-        if let Some(pv) = self.pv() {
-            for mov in pv {
-                mov.hash(&mut hasher);
-            }
-        } else {
-            self.best_move().hash(&mut hasher);
+        for mov in self.current_mpv_pv() {
+            mov.hash(&mut hasher);
         }
         // the score can differ even if the pv is the same, so make sure to include that in the hash
         self.best_score().hash(&mut hasher);
@@ -850,7 +874,7 @@ struct PVData<B: Board> {
     alpha: Score,
     beta: Score,
     radius: Score,
-    best_move: B::Move,
+    pv: Pv<B, 200>, // A PV of 200 plies should be more than enough for anybody (tm)
     score: Score,
 }
 
@@ -860,7 +884,7 @@ impl<B: Board> Default for PVData<B> {
             alpha: MIN_ALPHA,
             beta: MAX_BETA,
             radius: Score(20),
-            best_move: B::Move::default(),
+            pv: Pv::default(),
             score: NO_SCORE_YET,
         }
     }
@@ -907,18 +931,6 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> ABSearchState<B, E, C> 
 
     fn current_pv_data(&mut self) -> &mut PVData<B> {
         &mut self.multi_pvs[self.current_pv_num]
-    }
-
-    fn current_mpv_pv(&self) -> Vec<B::Move> {
-        if let Some(pv) = self.search_stack[0].pv() {
-            if !pv.is_empty() {
-                // note that pv[0] doesn't have to be the same as self.best_move(), because the current pv may be an
-                // additional multi pv
-                assert_eq!(pv[0], self.multi_pvs[self.current_pv_num].best_move);
-                return Vec::from(pv);
-            }
-        }
-        vec![self.multi_pvs[self.current_pv_num].best_move]
     }
 
     /// Each thread has its own copy, but the main thread can access the copies of the auxiliary threads
@@ -997,7 +1009,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
             time: self.start_time().elapsed(),
             nodes: NodesLimit::new(self.uci_nodes()).unwrap(),
             pv_num: self.current_pv_num,
-            pv: self.current_mpv_pv(),
+            pv: self.current_mpv_pv().into(),
             score: self.best_score(),
             hashfull: self.estimate_hashfull(),
             additional: Self::additional(),
@@ -1033,8 +1045,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
         }
     }
 
-    fn pv(&self) -> Option<&[B::Move]> {
-        self.search_stack.first().and_then(|e| e.pv())
+    fn current_mpv_pv(&self) -> &[B::Move] {
+        // note that self.search_stack[0].pv doesn't have to be the same, because it gets cleared when visiting the root,
+        // and if the root never updates its PV (because it fails low or because the search is stopped), it will remain
+        // empty. On the other hand, it can get updated during search; this only updates after each aw.
+        self.multi_pvs[self.current_pv_num].pv.as_slice()
     }
 }
 
