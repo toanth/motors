@@ -35,7 +35,7 @@ use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchSt
 
 use crate::cli::EngineOpts;
 use crate::search::multithreading::EngineWrapper;
-use crate::search::tt::TT;
+use crate::search::tt::{DEFAULT_HASH_SIZE_MB, TT};
 use crate::search::{run_bench_with, EvalList, SearcherList};
 use crate::ugi_engine::ProgramStatus::{Quit, Run};
 use crate::ugi_engine::SearchType::*;
@@ -482,7 +482,7 @@ impl<B: Board> EngineUGI<B> {
                 self.handle_query(words)?;
             }
             "option" | "info" => {
-                self.write_ugi(&self.print_option(words)?);
+                self.write_ugi(&self.write_option(words)?);
             }
             "output" | "o" => {
                 self.handle_output(words)?;
@@ -1152,7 +1152,17 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn print_option(&self, words: &mut Peekable<SplitWhitespace>) -> Res<String> {
+    fn write_single_option(option: &EngineOption, res: &mut String) {
+        writeln!(
+            res,
+            "{name}: {value}",
+            name = option.name.to_string().bold(),
+            value = option.value.value_to_str().bold()
+        )
+        .unwrap();
+    }
+
+    fn write_option(&self, words: &mut Peekable<SplitWhitespace>) -> Res<String> {
         let options = self.get_options();
         Ok(
             match words
@@ -1164,13 +1174,7 @@ impl<B: Board> EngineUGI<B> {
                 "" => {
                     let mut res = String::default();
                     for o in options {
-                        writeln!(
-                            res,
-                            "{name}: {value}",
-                            name = o.name,
-                            value = o.value.value_to_str()
-                        )
-                        .unwrap();
+                        Self::write_single_option(&o, &mut res);
                     }
                     res
                 }
@@ -1180,7 +1184,9 @@ impl<B: Board> EngineUGI<B> {
                         .find(|o| o.name.to_string().eq_ignore_ascii_case(x))
                     {
                         Some(opt) => {
-                            format!("{0}: {1}", opt.name, opt.value.value_to_str())
+                            let mut res = String::new();
+                            Self::write_single_option(&opt, &mut res);
+                            res
                         }
                         None => {
                             return Err(format!(
@@ -1204,8 +1210,11 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn get_options(&self) -> Vec<EngineOption> {
-        let engine_info = self.state.engine.engine_info().engine().clone();
-        let eval_info = self.state.engine.engine_info().eval().clone();
+        let engine_info = self.state.engine.engine_info();
+        let engine = engine_info.engine().clone();
+        let eval_info = engine_info.eval().clone();
+        let max_threads = engine_info.max_threads();
+        drop(engine_info);
         let mut res = vec![
             EngineOption {
                 name: MoveOverhead,
@@ -1245,14 +1254,32 @@ impl<B: Board> EngineUGI<B> {
                     val: String::new(),
                     default: Some(format!(
                         "Motors by ToTheAnd. Game: {2}. Engine: {0}. Eval: {1}  ",
-                        engine_info.long,
+                        engine.long,
                         eval_info.map_or_else(|| "<none>".to_string(), |i| i.long),
                         B::game_name()
                     )),
                 }),
             },
+            EngineOption {
+                name: Threads,
+                value: Spin(UgiSpin {
+                    val: self.state.engine.num_threads() as i64,
+                    default: Some(1),
+                    min: Some(1),
+                    max: Some(max_threads as i64),
+                }),
+            },
+            EngineOption {
+                name: Hash,
+                value: Spin(UgiSpin {
+                    val: self.state.engine.next_tt().size_in_mb() as i64,
+                    default: Some(DEFAULT_HASH_SIZE_MB as i64),
+                    min: Some(0),
+                    max: Some(10_000_000), // use at most 10 terabytes (should be enough for anybody™)
+                }),
+            },
         ];
-        res.extend(self.state.engine.get_options().iter().cloned());
+        res.extend(self.state.engine.engine_info().additional_options());
         res
     }
 }

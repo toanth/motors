@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::spin_loop;
@@ -18,7 +19,6 @@ use rand::prelude::StdRng;
 use rand::SeedableRng;
 use strum_macros::FromRepr;
 
-use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
 use gears::general::move_list::MoveList;
@@ -26,7 +26,7 @@ use gears::output::Message;
 use gears::output::Message::Warning;
 use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON};
 use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
-use gears::ugi::{EngineOption, EngineOptionName};
+use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType};
 
 use crate::search::multithreading::SearchThreadType::*;
 use crate::search::multithreading::SearchType::*;
@@ -55,8 +55,8 @@ pub struct EngineInfo {
     version: String,
     default_bench_depth: Depth,
     default_bench_nodes: NodesLimit,
-    options: Vec<EngineOption>,
-    can_use_multiple_threads: bool,
+    options: HashMap<EngineOptionName, EngineOptionType>,
+    max_threads: usize,
 }
 
 impl NamedEntity for EngineInfo {
@@ -96,43 +96,25 @@ impl NamedEntity for EngineInfo {
 }
 
 impl EngineInfo {
-    pub fn new_without_eval<B: Board, E: Engine<B>>(
-        engine: &E,
-        version: &str,
-        default_bench_depth: Depth,
-        default_bench_nodes: NodesLimit,
-        options: Vec<EngineOption>,
-    ) -> Self {
-        let mut res = Self::new(
-            engine,
-            &RandEval::default(),
-            version,
-            default_bench_depth,
-            default_bench_nodes,
-            false,
-            options,
-        );
-        res.eval = None;
-        res
-    }
-
     pub fn new<B: Board, E: Engine<B>>(
         engine: &E,
         eval: &dyn Eval<B>,
         version: &str,
         default_bench_depth: Depth,
         default_bench_nodes: NodesLimit,
-        can_use_multiple_threads: bool,
+        max_threads: Option<usize>,
         options: Vec<EngineOption>,
     ) -> Self {
+        let max_threads = max_threads.unwrap_or(usize::MAX).min(1 << 20);
+        let options = HashMap::from_iter(options.into_iter().map(|o| (o.name, o.value)));
         Self {
             engine: Name::new(engine),
             eval: Some(Name::new(eval)),
             version: version.to_string(),
             default_bench_depth,
             default_bench_nodes,
+            max_threads,
             options,
-            can_use_multiple_threads,
         }
     }
 
@@ -152,8 +134,22 @@ impl EngineInfo {
         self.default_bench_nodes
     }
 
+    pub fn max_threads(&self) -> usize {
+        self.max_threads
+    }
+
     pub fn version(&self) -> &str {
         &self.version
+    }
+
+    pub fn additional_options(&self) -> Vec<EngineOption> {
+        self.options
+            .iter()
+            .map(|(k, v)| EngineOption {
+                name: k.clone(),
+                value: v.clone(),
+            })
+            .collect()
     }
 }
 
@@ -312,8 +308,6 @@ pub trait AbstractSearcherBuilder<B: Board>: NamedEntity + DynClone {
     ) -> (Sender<EngineReceives<B>>, EngineInfo);
 
     fn build_for_bench(&self, eval_builder: &dyn AbstractEvalBuilder<B>) -> Box<dyn Benchable<B>>;
-
-    fn can_use_multiple_threads(&self) -> bool;
 }
 
 pub type SearcherList<B> = EntityList<Box<dyn AbstractSearcherBuilder<B>>>;
@@ -364,10 +358,6 @@ impl<B: Board, E: Engine<B>> AbstractSearcherBuilder<B> for SearcherBuilder<B, E
     fn build_for_bench(&self, eval_builder: &dyn AbstractEvalBuilder<B>) -> Box<dyn Benchable<B>> {
         Box::new(E::with_eval(eval_builder.build()))
     }
-
-    fn can_use_multiple_threads(&self) -> bool {
-        E::can_use_multiple_threads()
-    }
 }
 
 impl<B: Board, E: Engine<B>> StaticallyNamedEntity for SearcherBuilder<B, E> {
@@ -405,9 +395,16 @@ pub trait AbstractEngine<B: Board>: StaticallyNamedEntity + Benchable<B> {
     fn engine_info(&self) -> EngineInfo;
 
     /// Sets an option with the name 'option' to the value 'value'.
-    fn set_option(&mut self, option: EngineOptionName, value: String) -> Res<()> {
+    fn set_option(
+        &mut self,
+        option: EngineOptionName,
+        old_value: &mut EngineOptionType,
+        value: String,
+    ) -> Res<()> {
         Err(format!(
-            "The engine '{name}' doesn't support setting custom options, including setting '{option}' to '{value}' (Note: 'Hash' and 'Threads' may still be supported)",
+            "The searcher '{name}' doesn't support setting custom options, including setting '{option}' to '{value}' \
+            (Note: Some options, like 'Hash' and 'Threads', may still be supported but aren't handled by the searcher). \
+            The current value of this option is '{old_value}.",
             name = self.long_name()
         ))
     }
@@ -538,8 +535,6 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
         let msg = self.search_info().to_string();
         self.search_state_mut().send_ugi(&msg)
     }
-
-    fn can_use_multiple_threads() -> bool;
 
     fn with_eval(eval: Box<dyn Eval<B>>) -> Self;
 

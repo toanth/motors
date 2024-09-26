@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use gears::general::board::Board;
 use rand::{thread_rng, Rng, RngCore, SeedableRng};
 
+use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::Score;
@@ -78,26 +79,23 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> AbstractEngine<B> for Random
     }
 
     fn engine_info(&self) -> EngineInfo {
-        EngineInfo::new_without_eval(
+        let mut res = EngineInfo::new(
             self,
+            &RandEval::default(),
             "0.1.0",
             Depth::new(1),
             NodesLimit::new(1).unwrap(),
+            Some(1),
             vec![],
-        )
+        );
+        res.eval = None;
+        res
     }
 }
 
 impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B, R> {
-    fn time_up(&self, _: TimeControl, _: Duration, _: Instant) -> bool {
-        false
-    }
-
-    fn can_use_multiple_threads() -> bool
-    where
-        Self: Sized,
-    {
-        false
+    fn set_eval(&mut self, _eval: Box<dyn Eval<B>>) {
+        // do nothing
     }
 
     fn do_search(&mut self) -> SearchResult<B> {
@@ -118,6 +116,18 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         SearchResult::move_only(best_move)
     }
 
+    fn time_up(&self, _: TimeControl, _: Duration, _: Instant) -> bool {
+        false
+    }
+
+    fn search_state(&self) -> &impl SearchState<B> {
+        &self.state
+    }
+
+    fn search_state_mut(&mut self) -> &mut impl SearchState<B> {
+        &mut self.state
+    }
+
     fn search_info(&self) -> SearchInfo<B> {
         SearchInfo {
             best_move_of_all_pvs: self.state.best_move(),
@@ -133,23 +143,11 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         }
     }
 
-    fn search_state(&self) -> &impl SearchState<B> {
-        &self.state
-    }
-
-    fn search_state_mut(&mut self) -> &mut impl SearchState<B> {
-        &mut self.state
-    }
-
-    fn static_eval(&mut self, _pos: B) -> Score {
-        Score(0)
-    }
-
     fn with_eval(_eval: Box<dyn Eval<B>>) -> Self {
         Self::default()
     }
 
-    fn set_eval(&mut self, _eval: Box<dyn Eval<B>>) {
-        // do nothing
+    fn static_eval(&mut self, _pos: B) -> Score {
+        Score(0)
     }
 }

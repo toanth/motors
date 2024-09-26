@@ -14,7 +14,9 @@ use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
 use gears::games::{n_fold_repetition, BoardHistory, ZobristHash, ZobristHistory};
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::Description::NoDescription;
-use gears::general::common::{parse_int_from_str, select_name_static, Res, StaticallyNamedEntity};
+use gears::general::common::{
+    parse_bool_from_str, parse_int_from_str, select_name_static, Res, StaticallyNamedEntity,
+};
 use gears::general::move_list::EagerNonAllocMoveList;
 use gears::general::moves::Move;
 use gears::output::Message::Debug;
@@ -24,8 +26,8 @@ use gears::score::{
 };
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
-use gears::ugi::EngineOptionType::Spin;
-use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck, UgiSpin};
+use gears::ugi::EngineOptionType::Check;
+use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
 
 use crate::eval::Eval;
 use crate::search::chess::caps_values::cc;
@@ -246,33 +248,13 @@ impl AbstractEngine<Chessboard> for Caps {
     }
 
     fn engine_info(&self) -> EngineInfo {
-        let mut options = vec![
-            EngineOption {
-                name: Hash,
-                value: Spin(UgiSpin {
-                    val: 64,
-                    default: Some(64),
-                    min: Some(0),
-                    max: Some(10_000_000), // use at most 10 terabytes (should be enough for anybody™)
-                }),
-            },
-            EngineOption {
-                name: Threads,
-                value: Spin(UgiSpin {
-                    val: 1,
-                    default: Some(1),
-                    min: Some(1),
-                    max: Some(1000),
-                }),
-            },
-            EngineOption {
-                name: Other("UCI_Chess960".to_string()),
-                value: EngineOptionType::Check(UgiCheck {
-                    val: true,
-                    default: Some(true),
-                }),
-            },
-        ];
+        let mut options = vec![EngineOption {
+            name: Other("UCI_Chess960".to_string()),
+            value: Check(UgiCheck {
+                val: true,
+                default: Some(true),
+            }),
+        }];
         options.append(&mut cc::ugi_options());
         EngineInfo::new(
             self,
@@ -280,15 +262,25 @@ impl AbstractEngine<Chessboard> for Caps {
             "0.1.0",
             Depth::new(12),
             NodesLimit::new(30_000).unwrap(),
-            true,
+            None,
             options,
         )
     }
 
-    fn set_option(&mut self, option: EngineOptionName, value: String) -> Res<()> {
+    fn set_option(
+        &mut self,
+        option: EngineOptionName,
+        old_value: &mut EngineOptionType,
+        value: String,
+    ) -> Res<()> {
         let name = option.name().to_string();
-        if let Other(name) = option {
-            if name == "UCI_Chess960" {
+        if let Other(name) = &option {
+            if name.eq_ignore_ascii_case("uci_chess960") {
+                let Check(check) = old_value else {
+                    unreachable!()
+                };
+                let value = parse_bool_from_str(&value, "UCI_Chess960")?;
+                check.val = value;
                 return Ok(());
             }
             if let Ok(val) = parse_int_from_str(&value, "spsa option value") {
@@ -299,7 +291,7 @@ impl AbstractEngine<Chessboard> for Caps {
         }
         select_name_static(
             &name,
-            self.engine_info().options.iter(),
+            self.engine_info().additional_options().iter(),
             "uci option",
             "chess",
             NoDescription,
@@ -373,13 +365,6 @@ impl Engine<Chessboard> for Caps {
 
     fn search_state_mut(&mut self) -> &mut impl SearchState<Chessboard> {
         &mut self.state
-    }
-
-    fn can_use_multiple_threads() -> bool
-    where
-        Self: Sized,
-    {
-        true
     }
 
     fn with_eval(eval: Box<dyn Eval<Chessboard>>) -> Self {

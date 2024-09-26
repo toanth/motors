@@ -122,7 +122,7 @@ impl Display for EngineOptionType {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Hash)]
 #[must_use]
 pub enum EngineOptionName {
     Hash,
@@ -215,7 +215,10 @@ impl NamedEntity for EngineOption {
     }
 }
 
-pub fn parse_ugi_position<B: Board>(words: &mut Peekable<SplitWhitespace>, old_board: &B) -> Res<B> {
+pub fn parse_ugi_position<B: Board>(
+    words: &mut Peekable<SplitWhitespace>,
+    old_board: &B,
+) -> Res<B> {
     // let input = words.remainder().unwrap_or_default().trim();
     let position_word = words
         .next()

@@ -4,10 +4,9 @@ use std::time::{Duration, Instant};
 use gears::games::BoardHistory;
 use gears::general::board::Board;
 
-use gears::general::common::{NamedEntity, Res, StaticallyNamedEntity};
+use gears::general::common::StaticallyNamedEntity;
 use gears::score::{game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE_WON};
 use gears::search::{Depth, NodesLimit, SearchResult, TimeControl};
-use gears::ugi::EngineOptionName;
 
 use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
@@ -66,13 +65,9 @@ impl<B: Board> AbstractEngine<B> for Gaps<B> {
             "0.0.1",
             Depth::new(4),
             NodesLimit::new(50_000).unwrap(),
-            true,
+            None,
             vec![],
         )
-    }
-
-    fn set_option(&mut self, option: EngineOptionName, value: String) -> Res<()> {
-        Err(format!("Searcher {0} doesn't implement any options, so can't set option '{option}' to '{value}'", self.long_name()))
     }
 }
 
@@ -132,13 +127,6 @@ impl<B: Board> Engine<B> for Gaps<B> {
 
     fn search_state_mut(&mut self) -> &mut impl SearchState<B> {
         &mut self.state
-    }
-
-    fn can_use_multiple_threads() -> bool
-    where
-        Self: Sized,
-    {
-        true
     }
 
     fn with_eval(eval: Box<dyn Eval<B>>) -> Self {

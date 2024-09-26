@@ -1,3 +1,4 @@
+use colored::Colorize;
 use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
@@ -10,13 +11,13 @@ use gears::general::board::Board;
 use portable_atomic::AtomicUsize;
 
 use crate::eval::Eval;
-use gears::general::common::{parse_int_from_str, NamedEntity, Res};
+use gears::general::common::{parse_int_from_str, Res};
 use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::score::{Score, NO_SCORE_YET};
 use gears::search::{Depth, SearchLimit};
+use gears::ugi::EngineOptionName;
 use gears::ugi::EngineOptionName::{Hash, Threads};
-use gears::ugi::{EngineOption, EngineOptionName};
 
 use crate::search::multithreading::EngineReceives::*;
 use crate::search::multithreading::SearchThreadType::{Auxiliary, Main};
@@ -35,7 +36,7 @@ pub enum EngineReceives<B: Board> {
     // joins the thread
     Quit,
     Forget,
-    SetOption(EngineOptionName, String),
+    SetOption(EngineOptionName, String, Arc<Mutex<EngineInfo>>),
     Search(SearchParams<B>),
     Bench(B, SearchLimit, Arc<Mutex<UgiOutput<B>>>),
     TTEntry(B, Arc<Mutex<UgiOutput<B>>>),
@@ -303,9 +304,15 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
             Forget => {
                 self.engine.forget();
             }
-            SetOption(name, value) => match name {
+            SetOption(name, value, info) => match name {
                 Threads => panic!("This should have already been handled by the engine owner"),
-                _ => self.engine.set_option(name, value)?, // TODO: Update info in UGI client
+                _ => {
+                    let mut guard = info.lock().unwrap();
+                    let Some(val) = guard.options.get_mut(&name) else {
+                        return Err(format!("The engine '{0}' doesn't provide the option '{1}', so it can't be set to value '{2}'", guard.engine.short.bold(), name.to_string().red(), value.bold()));
+                    };
+                    self.engine.set_option(name, val, value)?
+                }
             },
             Search(params) => {
                 self.start_search(params);
@@ -442,22 +449,17 @@ impl<B: Board> EngineWrapper<B> {
         self.tt_for_next_search = tt;
     }
 
-    pub fn next_tt(&mut self) -> TT {
+    pub fn next_tt(&self) -> TT {
         self.tt_for_next_search.clone()
     }
 
     pub fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()> {
         if name == Threads {
             let count: usize = parse_int_from_str(&value, "num threads")?;
-            if !self.engine_info().can_use_multiple_threads && count != 1 {
+            let max = self.engine_info().max_threads;
+            if count == 0 || count > max {
                 return Err(format!(
-                    "The engine {} only supports 1 thread",
-                    self.engine_info().long_name()
-                ));
-            }
-            if count == 0 || count > 1 << 20 {
-                return Err(format!(
-                    "Trying to set the number of threads to {count}, which is not a valid value."
+                    "Trying to set the number of threads to {count}. The maximum number of threads for this engine is {max}."
                 ));
             }
             self.auxiliary.clear();
@@ -480,11 +482,19 @@ impl<B: Board> EngineWrapper<B> {
             Ok(())
         } else {
             for aux in &mut self.auxiliary {
-                aux.send(SetOption(name.clone(), value.clone()))
-                    .map_err(|err| err.to_string())?;
+                aux.send(SetOption(
+                    name.clone(),
+                    value.clone(),
+                    self.main_thread_data.engine_info.clone(),
+                ))
+                .map_err(|err| err.to_string())?;
             }
             self.main
-                .send(SetOption(name, value))
+                .send(SetOption(
+                    name,
+                    value,
+                    self.main_thread_data.engine_info.clone(),
+                ))
                 .map_err(|err| err.to_string())
         }
     }
@@ -547,7 +557,7 @@ impl<B: Board> EngineWrapper<B> {
         self.main_thread_data.engine_info.lock().unwrap()
     }
 
-    pub fn get_options(&self) -> Vec<EngineOption> {
-        self.engine_info().options.clone()
+    pub fn num_threads(&self) -> usize {
+        self.auxiliary.len() + 1
     }
 }

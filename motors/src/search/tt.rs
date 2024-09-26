@@ -120,7 +120,7 @@ const_assert_eq!(size_of::<TTEntry<Chessboard>>(), 16);
 #[cfg(feature = "chess")]
 const_assert_eq!(size_of::<TTEntry<Chessboard>>(), size_of::<AtomicTTEntry>());
 
-pub(super) const DEFAULT_HASH_SIZE_MB: usize = 4;
+pub const DEFAULT_HASH_SIZE_MB: usize = 4;
 
 /// Note that resizing the TT during search will wait until the search is finished
 /// (all threads will receive a new arc)
@@ -153,6 +153,10 @@ impl TT {
 
     pub fn size_in_bytes(&self) -> usize {
         self.size_in_entries() * size_of::<AtomicTTEntry>()
+    }
+
+    pub fn size_in_mb(&self) -> usize {
+        (self.size_in_bytes() + 500_000) / 1_000_000
     }
 
     pub fn forget(&mut self) {
