@@ -822,7 +822,7 @@ impl Caps {
                 .get_mut(ply + 1)
                 .map(|s| s.pv.clear());
 
-            let debug_history_len = self.state.params.history.len();
+            let debug_history_len = self.state.params.history.len(); // TODO: Remove
 
             self.record_move(mov, pos, ply, MainSearch);
             // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove

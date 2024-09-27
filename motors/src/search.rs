@@ -4,6 +4,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
+use std::sync::atomic::Ordering::Acquire;
 use std::sync::{Arc, MutexGuard};
 use std::thread::spawn;
 use std::time::{Duration, Instant};
@@ -469,12 +470,12 @@ pub trait Engine<B: Board>: AbstractEngine<B> + Send + 'static {
         let res = self.do_search();
         let search_state = self.search_state_mut();
         search_state.statistics_mut().end_search();
-        search_state.search_params_mut().atomic.set_searching(false);
         search_state.send_statistics();
         search_state.aggregate_match_statistics();
         // might block, see method. Do this as the last step so that we're not using compute after sending
         // the search result.
-        self.search_state_mut().send_search_res(res);
+        search_state.send_search_res(res);
+        search_state.search_params_mut().atomic.set_searching(false);
         res
     }
 
@@ -753,10 +754,11 @@ pub trait SearchState<B: Board>: Debug {
     /// Auxiliary threads and ponder searches both return instantly from this function, without printing anything.
     /// If the search result has chosen a null move, this instead outputs a warning and a random legal move.
     fn send_search_res(&mut self, res: SearchResult<B>) {
-        let Main(data) = &self.search_params().thread_type else {
+        let search_params = self.search_params();
+        let Main(data) = &search_params.thread_type else {
             return;
         };
-        if data.search_type == Ponder {
+        if search_params.atomic.suppress_best_move.load(Acquire) {
             return;
         }
         if data.search_type == Infinite {

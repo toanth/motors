@@ -119,6 +119,7 @@ pub struct AtomicSearchState<B: Board> {
     // True if the engine is currently searching. Note that if an infinite search reaches its internal end condition but
     // hasn't yet been stopped, this is set to false; the thread may still spin until it receives a stop.
     currently_searching: AtomicBool,
+    pub suppress_best_move: AtomicBool,
     edges: AtomicU64,
     depth: AtomicIsize,
     seldepth: AtomicUsize,
@@ -133,6 +134,7 @@ impl<B: Board> Default for AtomicSearchState<B> {
         Self {
             should_stop: AtomicBool::new(false),
             currently_searching: AtomicBool::new(false),
+            suppress_best_move: AtomicBool::new(false),
             edges: AtomicU64::new(0),
             depth: AtomicIsize::new(0),
             seldepth: AtomicUsize::new(0),
@@ -154,6 +156,7 @@ impl<B: Board> AtomicSearchState<B> {
         self.set_depth(0);
         self.edges.store(0, Relaxed);
         self.set_searching(false);
+        self.suppress_best_move.store(false, Relaxed);
         self.should_stop.store(false, Relaxed);
     }
 
@@ -525,7 +528,12 @@ impl<B: Board> EngineWrapper<B> {
         self.main.send(SetEval(eval)).map_err(|err| err.to_string())
     }
 
-    pub fn send_stop(&mut self) {
+    pub fn send_stop(&mut self, suppress_best_move: bool) {
+        if suppress_best_move {
+            self.main_thread_data.atomic_search_data[0]
+                .suppress_best_move
+                .store(true, Release);
+        }
         for atomic in &self.main_thread_data.atomic_search_data {
             atomic.set_stop(true);
         }
@@ -534,10 +542,15 @@ impl<B: Board> EngineWrapper<B> {
                 spin_loop(); // this should only take a short while
             }
         }
+        if suppress_best_move {
+            self.main_thread_data.atomic_search_data[0]
+                .suppress_best_move
+                .store(false, Release);
+        }
     }
 
     pub fn send_quit(&mut self) -> Res<()> {
-        self.send_stop();
+        self.send_stop(false);
         for o in &mut self.auxiliary {
             o.send(Quit).map_err(|err| err.to_string())?;
         }

@@ -422,7 +422,7 @@ impl<B: Board> EngineUGI<B> {
                 self.handle_go(Normal, words)?;
             }
             "stop" => {
-                self.state.engine.send_stop();
+                self.state.engine.send_stop(false);
             }
             "position" | "pos" | "p" => {
                 self.state.handle_position(words)?;
@@ -809,7 +809,7 @@ impl<B: Board> EngineUGI<B> {
                 if self.state.ponder_limit.is_some() {
                     self.state.ponder_limit = None;
                     // TODO: Maybe do this all the time to make sure two `go` commands after another work -- write testcase for that
-                    self.state.engine.send_stop(); // aborts the pondering without printing a search result
+                    self.state.engine.send_stop(true); // aborts the pondering without printing a search result
                 }
                 self.state.engine.start_search(
                     pos,
