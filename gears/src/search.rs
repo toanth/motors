@@ -435,6 +435,14 @@ impl SearchLimit {
             && self.depth == inf.depth
             && self.nodes == inf.nodes
     }
+
+    pub fn is_only_time_based(&self) -> bool {
+        let inf = Self::infinite();
+        self.mate == inf.mate
+            && self.depth == inf.depth
+            && self.nodes == inf.nodes
+            && (!self.tc.is_infinite() || !self.is_infinite_fixed_time())
+    }
 }
 
 pub fn is_duration_infinite(duration: Duration) -> bool {

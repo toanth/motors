@@ -1371,6 +1371,19 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn only_one_move_test() {
+        let pos = Chessboard::from_fen("B4QRb/8/8/8/2K3P1/5k2/8/b3RRNB b - - 0 1").unwrap();
+        let mut caps = Caps::for_eval::<PistonEval>();
+        let limit = SearchLimit::per_move(Duration::from_millis(999_999_999));
+        let res = caps.search_with_new_tt(pos, limit);
+        assert_eq!(
+            res.chosen_move,
+            ChessMove::from_compact_text("f3g3", &pos).unwrap()
+        );
+        assert_eq!(caps.state.depth().get(), 1);
+        assert!(caps.state.uci_nodes() <= 1000); // might be a bit more than 1 because of check extensions
+    }
 
     #[test]
     fn mate_research_test() {

@@ -975,15 +975,19 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
         } else {
             self.excluded_moves = vec![];
         }
+        let num_moves = num_moves - self.excluded_moves.len();
         // this can set num_multi_pv to 0
-        parameters.num_multi_pv = parameters
-            .num_multi_pv
-            .min(num_moves - self.excluded_moves.len());
-        self.multi_pvs
-            .resize_with(parameters.num_multi_pv, PVData::default);
+        parameters.num_multi_pv = parameters.num_multi_pv.min(num_moves);
         // it's possible that there are no legal moves to search; such as when the game is over or if restrict_moves
         // contains only invalid moves. Search must be able to deal with this
-        debug_assert!(self.excluded_moves.len() + parameters.num_multi_pv <= num_moves);
+        self.multi_pvs
+            .resize_with(parameters.num_multi_pv, PVData::default);
+        // If only one move can be played, immediately return it without doing a real search to make the engine appear
+        // smarter, and perform better on lichess when it's up against an opponent with pondering enabled.
+        // However, don't do this if the engine is used for analysis.
+        if num_moves == 1 && parameters.limit.is_only_time_based() {
+            parameters.limit.depth = Depth::new(1);
+        }
         self.params = parameters;
         debug_assert!(self.currently_searching() && !self.stop_flag());
     }
