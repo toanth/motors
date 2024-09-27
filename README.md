@@ -1,3 +1,5 @@
+![image](/MotorsEngineChess.png)
+
 # Motors
 
 This repository contains 4 crates related to board games:
