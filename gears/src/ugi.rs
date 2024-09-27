@@ -1,4 +1,5 @@
 use crate::general::board::Board;
+use anyhow::{anyhow, bail};
 use colored::Colorize;
 use std::fmt::{Display, Formatter};
 use std::iter::Peekable;
@@ -159,7 +160,7 @@ impl Display for EngineOptionName {
 }
 
 impl FromStr for EngineOptionName {
-    type Err = String;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s.to_ascii_lowercase().as_str() {
@@ -220,15 +221,15 @@ pub fn parse_ugi_position<B: Board>(
     old_board: &B,
 ) -> Res<B> {
     // let input = words.remainder().unwrap_or_default().trim();
-    let position_word = words
-        .next()
-        .ok_or_else(|| "Missing position after 'position' command".to_string())?;
+    let Some(position_word) = words.next() else {
+        bail!("Missing position after 'position' command")
+    };
     Ok(match position_word {
         "fen" | "f" => B::read_fen_and_advance_input(words)?,
         "startpos" | "s" => B::startpos_for_settings(old_board.settings()),
         "old" | "o" | "previous" | "p" => *old_board,
         name => B::from_name(name).map_err(|err| {
-            format!(
+            anyhow!(
                 "{err} Additionally, '{0}', '{1}' and '{2}' are also always recognized.",
                 "startpos".bold(),
                 "fen <fen>".bold(),
@@ -246,13 +247,13 @@ pub fn parse_ugi_position_and_moves<B: Board>(
     match words.next() {
         None => return Ok(board),
         Some("moves") => {}
-        Some(x) => return Err(format!("Expected either nothing or 'moves', got '{x}")),
+        Some(x) => bail!("Expected either nothing or 'moves', got '{x}"),
     }
     for mov in words {
         let mov = B::Move::from_compact_text(mov, &board)?;
         board = board
             .make_move(mov)
-            .ok_or_else(|| format!("move '{mov}' is not legal in position '{board}'"))?;
+            .ok_or_else(|| anyhow!("move '{mov}' is not legal in position '{board}'"))?;
     }
     Ok(board)
 }

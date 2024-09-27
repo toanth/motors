@@ -1,3 +1,4 @@
+use anyhow::{anyhow, bail};
 use std::cmp::min;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -650,7 +651,7 @@ impl Board for MNKBoard {
 
     fn read_fen_and_advance_input(words: &mut Peekable<SplitWhitespace>) -> Res<Self> {
         if words.clone().next().is_none() {
-            return Err("Empty mnk fen".to_string());
+            bail!("Empty mnk fen".to_string());
         }
         let mut settings = MnkSettings::default();
         for i in 0..3 {
@@ -663,16 +664,13 @@ impl Board for MNKBoard {
             };
         }
         if !settings.check_invariants() {
-            return Err(
-                "mnk invariants violated (at least one value is too large or too small)"
-                    .to_string(),
-            );
+            bail!("mnk invariants violated (at least one value is too large or too small)");
         }
         let x_str = X.to_ascii_char().to_ascii_lowercase().to_string();
         let o_str = O.to_ascii_char().to_ascii_lowercase().to_string();
         let active_player = words
             .next()
-            .ok_or_else(|| "No active player in mnk fen".to_string())?;
+            .ok_or_else(|| anyhow!("No active player in mnk fen"))?;
 
         // Can't use a match expression here, apparently
         let active_player = if active_player == x_str {
@@ -680,14 +678,12 @@ impl Board for MNKBoard {
         } else if active_player == o_str {
             O
         } else {
-            return Err(format!(
-                "Invalid active player in mnk fen: '{active_player}'"
-            ));
+            bail!("Invalid active player in mnk fen: '{active_player}'");
         };
 
         let position = words
             .next()
-            .ok_or_else(|| "Empty position in mnk fen".to_string())?;
+            .ok_or_else(|| anyhow!("Empty position in mnk fen"))?;
 
         let board = MNKBoard::empty_for_settings(settings);
 
@@ -758,25 +754,25 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
         let non_empty = this.occupied_bb().0.count_ones();
         // support custom starting positions where pieces have already been placed
         if this.ply > non_empty {
-            return Err(format!(
+            bail!(
                 "Ply is {0}, but {non_empty} moves have been played",
                 this.ply
-            ));
+            );
         }
         if level != CheckFen && (this.o_bb & this.x_bb).has_set_bit() {
-            return Err(format!(
+            bail!(
                 "At least one square has two pieces on it (square {})",
                 this.size()
                     .to_coordinates_unchecked((this.o_bb & this.x_bb).pop_lsb())
-            ));
+            );
         }
         if !this.settings.check_invariants() {
-            return Err(format!(
+            bail!(
                 "Invariants of settings are violated: m={0}, n={1}, k={2}",
                 this.height(),
                 this.width(),
                 this.settings.k
-            ));
+            );
         }
         // FENs don't include the last move, and if the board has been modified, talking about the last move doesn't make
         // too much sense, either. Also, the last move is only used to detect if the game is over, but that's already handled
@@ -829,7 +825,7 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
     }
 
     fn set_ply_since_start(mut self, ply: usize) -> Res<Self> {
-        let ply = u32::try_from(ply).map_err(|err| format!("Invalid ply number: {err}"))?;
+        let ply = u32::try_from(ply).map_err(|err| anyhow!("Invalid ply number: {err}"))?;
         self.0.ply = ply;
         Ok(self)
     }
@@ -1134,13 +1130,13 @@ mod test {
 
     #[test]
     fn from_invalid_fen_test() {
-        assert!(MNKBoard::from_fen("4 3 2 3/3/3/3").is_err_and(|e| e.contains("")));
-        assert!(MNKBoard::from_fen("4 3 2 w 3/3/3/3").is_err_and(|e| e.contains("")));
-        assert!(MNKBoard::from_fen("4 3 2 wx 3/3/3/3").is_err_and(|e| e.contains("")));
+        assert!(MNKBoard::from_fen("4 3 2 3/3/3/3").is_err());
+        assert!(MNKBoard::from_fen("4 3 2 w 3/3/3/3").is_err());
+        assert!(MNKBoard::from_fen("4 3 2 wx 3/3/3/3").is_err());
         assert!(MNKBoard::from_fen("4 3 2 o 3/4/3/3")
-            .is_err_and(|e| e.contains("Line '4' has incorrect width")));
+            .is_err_and(|e| e.to_string().contains("Line '4' has incorrect width")));
         MNKBoard::from_fen("4 3 2 o 3//3/3").expect_err("Empty position in mnk fen");
-        assert!(MNKBoard::from_fen("4 3 2 x").is_err_and(|e| e.contains("")));
+        assert!(MNKBoard::from_fen("4 3 2 x").is_err());
         assert!(MNKBoard::from_fen("4 0 2 x ///").is_err());
         MNKBoard::from_fen("0 3 2 x")
             .expect_err("mnk invariants violated (at least one value is too large or too small)");

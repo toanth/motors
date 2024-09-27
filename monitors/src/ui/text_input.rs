@@ -11,6 +11,7 @@ use rand::thread_rng;
 
 use gears::games::Color;
 use gears::general::board::Board;
+use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
     parse_int_from_str, select_name_static, to_name_and_optional_description, IterIntersperse,
@@ -182,12 +183,12 @@ impl<B: Board> TextInputThread<B> {
             let mut client = ugi_client.lock().unwrap();
             match B::Move::from_text(input, client.board()) {
                 Ok(mov) => {
-                    let active_player = client
-                        .active_player()
-                        .ok_or_else(|| "Ignoring move because the game is over".to_string())?;
+                    let Some(active_player) = client.active_player() else {
+                        bail!("Ignoring move because the game is over".to_string())
+                    };
                     client
                         .play_move(mov)
-                        .map_err(|err| format!("Ignoring input: {err}"))?;
+                        .map_err(|err| anyhow!("Ignoring input: {err}"))?;
                     // `play_move` will have stopped the clock by now.
                     assert!(client
                         .state
@@ -197,7 +198,7 @@ impl<B: Board> TextInputThread<B> {
                     return Ok(true);
                 }
                 Err(err) => {
-                    let func = select_name_static(command, self.commands.iter(), "command", &B::game_name(), NoDescription).map_err(|msg| format!("'{command}' is not a pseudolegal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?.func;
+                    let func = select_name_static(command, self.commands.iter(), "command", &B::game_name(), NoDescription).map_err(|msg| anyhow!("'{command}' is not a pseudolegal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?.func;
                     func(client, &mut words)?;
                 }
             }
@@ -268,14 +269,12 @@ impl<B: Board> TextInputThread<B> {
                     default_player
                 };
                 if player == Active {
-                    Ok(client.active_player().ok_or_else(|| {
-                        "No color given and there is no active player (the match isn't running)"
-                            .to_string()
-                    })?)
+                    Ok(client.active_player().ok_or_else(||
+                        anyhow!("No color given and there is no active player (the match isn't running)"))?)
                 } else if player == Inactive {
-                    Ok(client.active_player().ok_or_else(|| "No color given and there is no inactive player (the match isn't running)".to_string())?.other())
+                    Ok(client.active_player().ok_or_else(|| anyhow!("No color given and there is no inactive player (the match isn't running)"))?.other())
                 } else {
-                    Err("Missing the side. Valid values are 'white', 'p1', 'black', 'p2', 'active' and 'inactive'".to_string())
+                    bail!("Missing the side. Valid values are 'white', 'p1', 'black', 'p2', 'active' and 'inactive'")
                 }
             }
         }
@@ -299,7 +298,7 @@ impl<B: Board> TextInputThread<B> {
         let mut rng = thread_rng();
         let over = matches!(client.match_state().status, Over(_));
         let mov = board.random_legal_move(&mut rng).ok_or_else(|| {
-            format!(
+            anyhow!(
                 "There are no legal moves in the current position ({}){reason}",
                 board.as_fen(),
                 reason = if over { ". The game is over" } else { "" }
@@ -314,18 +313,16 @@ impl<B: Board> TextInputThread<B> {
     ) -> Res<()> {
         let side = Self::get_side(&client, words, Active)?;
         if !client.state.get_player(side).is_engine() {
-            return Err(format!(
-                "The {side} player is a human and not an engine, so they can't be stopped"
-            ));
+            bail!("The {side} player is a human and not an engine, so they can't be stopped")
         }
         match client.active_player() {
-            None => Err("The match isn't running".to_string()),
+            None => bail!("The match isn't running"),
             Some(p) => {
                 if p == side {
                     client.stop_thinking(side, Play);
                     Ok(())
                 } else {
-                    Err(format!("The {p} player is not currently thinking"))
+                    bail!("The {p} player is not currently thinking")
                 }
             }
         }
@@ -341,11 +338,11 @@ impl<B: Board> TextInputThread<B> {
             return Ok(());
         };
         if word != "moves" {
-            return Err(format!("Unrecognized word '{word}' after position command, expected either 'moves' or nothing"));
+            bail!("Unrecognized word '{word}' after position command, expected either 'moves' or nothing")
         }
         for mov in words {
             let mov = B::Move::from_compact_text(mov, client.board())
-                .map_err(|err| format!("Couldn't parse move: {err}"))?;
+                .map_err(|err| anyhow!("Couldn't parse move: {err}"))?;
             client.play_move_internal(mov)?;
         }
         Ok(())
@@ -364,8 +361,8 @@ impl<B: Board> TextInputThread<B> {
         words: &mut Peekable<SplitWhitespace>,
     ) -> Res<()> {
         let side = Self::get_side(&client, words, NoPlayer)?;
-        let name = words.next().ok_or_else(|| {
-            format!(
+        let Some(name) = words.next() else {
+            bail!(
                 "Missing the name of the new player (e.g. 'human'). Loaded players are {}",
                 client
                     .state
@@ -375,7 +372,7 @@ impl<B: Board> TextInputThread<B> {
                     .intersperse_(", ")
                     .collect::<String>()
             )
-        })?;
+        };
         let (p1, p2) = (
             client.state.id(B::Color::first()),
             client.state.id(B::Color::second()),
@@ -400,11 +397,9 @@ impl<B: Board> TextInputThread<B> {
             return Ok(());
         }
         if found {
-            Err(format!(
-                "The player '{name}' is already playing in this match"
-            ))
+            bail!("The player '{name}' is already playing in this match")
         } else {
-            Err(format!("No player with the given name '{name}' found. Maybe you need to load this player first (type 'load_player <options>')"))
+            bail!("No player with the given name '{name}' found. Maybe you need to load this player first (type 'load_player <options>')")
         }
     }
 
@@ -456,17 +451,15 @@ impl<B: Board> TextInputThread<B> {
                 if name == "add" {
                     name = words
                         .next()
-                        .ok_or_else(|| "Expected an output name after 'add'".to_string())?;
+                        .ok_or_else(|| anyhow!("Expected an output name after 'add'"))?;
                     replace = false;
                 } else if name == "remove" {
                     name = words
                         .next()
-                        .ok_or_else(|| "Expected an output name after 'remove'".to_string())?;
+                        .ok_or_else(|| anyhow!("Expected an output name after 'remove'"))?;
                     match client.outputs.iter().position(|o| o.matches(name)) {
                         None => {
-                            return Err(format!(
-                                "There is no output with name '{name}' currently in use"
-                            ))
+                            bail!("There is no output with name '{name}' currently in use")
                         }
                         Some(idx) => {
                             client.outputs.remove(idx);
@@ -548,9 +541,7 @@ impl<B: Board> TextInputThread<B> {
     ) -> Res<()> {
         let player = Self::get_side(&client, words, Active)?;
         if !client.state.get_player_mut(player).is_engine() {
-            return Err(format!(
-                "The {player} player is not an engine and can't receive UGI commands"
-            ));
+            bail!("The {player} player is not an engine and can't receive UGI commands")
         }
         client.send_ugi_message(player, words.join(" ").as_str().trim());
         Ok(())

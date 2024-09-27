@@ -13,6 +13,7 @@ use colored::Colorize;
 use itertools::Itertools;
 
 use gears::general::board::Board;
+use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{parse_duration_ms, parse_int_from_str, Res};
 use gears::general::moves::Move;
 use gears::output::Message::*;
@@ -124,7 +125,7 @@ impl<B: Board> CurrentMatch<B> {
 pub fn access_client<B: Board>(client: Weak<Mutex<Client<B>>>) -> Res<Arc<Mutex<Client<B>>>> {
     client
         .upgrade()
-        .ok_or_else(|| "The player tried to access a match which was already cancelled".to_string())
+        .ok_or_else(|| anyhow!("The player tried to access a match which was already cancelled"))
 }
 
 pub struct InputThread<B: Board> {
@@ -147,7 +148,7 @@ impl<B: Board> InputThread<B> {
 
         loop {
             if let Err(e) = engine_input_data.main_loop() {
-                let keep_running = engine_input_data.deal_with_error(&e);
+                let keep_running = engine_input_data.deal_with_error(&e.to_string());
                 if !keep_running {
                     return;
                 }
@@ -197,7 +198,7 @@ impl<B: Board> InputThread<B> {
         if self
             .child_stdout
             .read_line(&mut str)
-            .map_err(|err| format!("Couldn't read input: {err}"))?
+            .map_err(|err| anyhow!("Couldn't read input: {err}"))?
             == 0
         {
             let name = self
@@ -211,7 +212,8 @@ impl<B: Board> InputThread<B> {
                         .clone()
                 })
                 .unwrap_or_default();
-            return Err(format!("The connection was closed. This probably means that the engine process crashed. Check the engine logs for details ('{name}_stderr.log' and possibly 'debug_output_engine_{name}.log')."));
+            bail!("The connection was closed. This probably means that the engine process crashed. Check the engine \
+            logs for details ('{name}_stderr.log' and possibly 'debug_output_engine_{name}.log').")
         }
         Ok(str)
     }
@@ -240,9 +242,9 @@ impl<B: Board> InputThread<B> {
         let mut words = ugi_str.split_whitespace().peekable();
         // If the client doesn't exist anymore, this thread will join without printing an error message
         // But still return a useful error message to be on the safe side.
-        let client = self
-            .upgrade_client()
-            .ok_or_else(|| "Client no longer exists".to_string())?;
+        let Some(client) = self.upgrade_client() else {
+            bail!("Client no longer exists")
+        };
         let mut client = client.lock().unwrap();
         let player = self.get_engine(&client);
         let engine_name = player.display_name.clone();
@@ -256,7 +258,7 @@ impl<B: Board> InputThread<B> {
             .as_ref()
             .map(|c| c.color)
             .ok_or_else(|| {
-                format!("The engine '{engine_name}' is not currently playing in a match")
+                anyhow!("The engine '{engine_name}' is not currently playing in a match")
             });
         if let Some(command) = words.next() {
             if let Err(err) = match status {
@@ -279,8 +281,8 @@ impl<B: Board> InputThread<B> {
                     handle_bestmove,
                 ),
             } {
-                return Err(format!("Invalid UGI message ('{ugi_str}') from engine '{engine_name}' while in state {status}: {err}",
-                                   ugi_str = command.to_string().add(" ").add(&words.join(" ")).red()));
+                bail!("Invalid UGI message ('{ugi_str}') from engine '{engine_name}' while in state {status}: {err}",
+                                   ugi_str = command.to_string().add(" ").add(&words.join(" ")).red())
             }
         }
         // Empty uci commands should be ignored, according to the spec
@@ -319,7 +321,7 @@ impl<B: Board> InputThread<B> {
     ) -> Res<()> {
         match command {
             "info" => Self::handle_info(words, client, engine),
-            _ => Err("Only 'info' is a valid engine message while in idle state".to_string()),
+            _ => bail!("Only 'info' is a valid engine message while in idle state"),
         }
     }
 
@@ -332,7 +334,7 @@ impl<B: Board> InputThread<B> {
         match command {
             "info" => Self::handle_info(words, client, engine),
             "readyok" => Self::handle_readyok(words, client, engine),
-            _ => Err("Only 'info' or 'readyok' are valid responses after sending 'isready' in idle state".to_string())
+            _ => bail!("Only 'info' or 'readyok' are valid responses after sending 'isready' in idle state")
         }
     }
 
@@ -346,7 +348,7 @@ impl<B: Board> InputThread<B> {
             "info" => Self::handle_info(words, client, client.state.id(color)),
             "bestmove" => Self::handle_bestmove(words, client, color),
             _ => {
-                Err("Only 'info' or 'bestmove' are valid engine messages while running".to_string())
+                bail!("Only 'info' or 'bestmove' are valid engine messages while running")
             }
         }
     }
@@ -361,7 +363,7 @@ impl<B: Board> InputThread<B> {
             "info" => Self::handle_info(words, client, client.state.id(color)),
             "readyok" => Self::handle_readyok(words, client, client.state.id(color)),
             "bestmove" => Self::handle_bestmove(words, client, color),
-            _ => Err("Only 'info', 'readyok' or 'bestmove' are valid engine responses after sending 'isready' while running".to_string())
+            _ => bail!("Only 'info', 'readyok' or 'bestmove' are valid engine responses after sending 'isready' while running")
         }
     }
 
@@ -381,9 +383,8 @@ impl<B: Board> InputThread<B> {
                 client.state.get_engine_mut(color).status = Idle;
             }
             _ => {
-                return Err(
+                bail!(
                     "Only 'info' or 'bestmove' are valid engine messages while in the 'halt' state"
-                        .to_string(),
                 )
             }
         }
@@ -396,13 +397,10 @@ impl<B: Board> InputThread<B> {
         name: &str,
     ) -> Res<()> {
         let Some(version) = words.next() else {
-            return Err(
-                "Expected a single word after 'protocol', but the engine message just ends there"
-                    .to_string(),
-            );
+            bail!("Expected a single word after 'protocol', but the engine message just ends there")
         };
         if let Some(next) = words.next() {
-            return Err(format!("Expected a single word after 'protocol' (which would have been '{version}'), but it's followed by '{next}'"));
+            bail!("Expected a single word after 'protocol' (which would have been '{version}'), but it's followed by '{next}'")
         }
         client.show_message(
             Debug,
@@ -418,7 +416,7 @@ impl<B: Board> InputThread<B> {
     ) -> Res<()> {
         let first = id
             .next()
-            .ok_or_else(|| "Line ends after 'id'".to_string())?
+            .ok_or_else(|| anyhow!("Line ends after 'id'"))?
             .trim();
         let rest = id.join(" ").trim().to_string();
         let engine = client.state.get_engine_from_id_mut(engine);
@@ -439,7 +437,7 @@ impl<B: Board> InputThread<B> {
         if let Some(next) = words.next() {
             // The spec demands that the message must be ignored in such a case, but showing an error (while continuing to interact)
             // seems like a more prudent course of action (from the engine's point of view, the client ignores the message)
-            return Err(format!("Additional word {next} after ugiok or uciok"));
+            bail!("Additional word {next} after ugiok or uciok")
         }
         let engine = client.state.get_engine_from_id_mut(engine);
         engine.status = Idle;
@@ -455,9 +453,7 @@ impl<B: Board> InputThread<B> {
         let engine = client.state.get_engine_from_id_mut(engine);
         assert_eq!(engine.status, Sync); // Otherwise, this function wouldn't get called
         if let Some(next) = words.next() {
-            return Err(format!(
-                "Engine message doesn't end after 'readyok', the next word is {next}"
-            ));
+            bail!("Engine message doesn't end after 'readyok', the next word is {next}")
         }
         if engine.status == Sync {
             engine.status = Idle;
@@ -476,8 +472,10 @@ impl<B: Board> InputThread<B> {
         let engine = client.state.get_engine_mut(color);
         engine.status = Idle;
 
-        let mov = words.next().ok_or("missing move after 'bestmove'")?;
-        match B::Move::from_text(mov, client.board()) {
+        let Some(move_text) = words.next() else {
+            bail!("missing move after 'bestmove'")
+        };
+        match B::Move::from_text(move_text, client.board()) {
             Err(err) => {
                 let game_over = GameOver {
                     result: PlayerResult::Lose,
@@ -486,8 +484,8 @@ impl<B: Board> InputThread<B> {
                 client.game_over(player_res_to_match_res(game_over, color));
                 return Err(err);
             }
-            Ok(mov) => {
-                if let Err(err) = client.play_move(mov) {
+            Ok(chosen_mov) => {
+                if let Err(err) = client.play_move(chosen_mov) {
                     let game_over = GameOver {
                         result: PlayerResult::Lose,
                         reason: GameOverReason::Adjudication(AdjudicationReason::InvalidMove),
@@ -521,9 +519,9 @@ impl<B: Board> InputThread<B> {
                 break;
             }
             let key = key.unwrap();
-            let value = words
-                .next()
-                .ok_or_else(|| format!("info line ends after '{key}', expected a value"))?;
+            let Some(value) = words.next() else {
+                bail!("info line ends after '{key}', expected a value")
+            };
             match key {
                 "depth" => res.depth = Depth::new(parse_int_from_str(value, "depth")?),
                 "seldepth" => res.seldepth = Depth::new(parse_int_from_str(value, "seldepth")?),
@@ -537,9 +535,7 @@ impl<B: Board> InputThread<B> {
                     match B::Move::from_compact_text(value, &board) {
                         Ok(mov) => pv_moves.push(mov),
                         Err(err) => {
-                            return Err(format!(
-                            "'pv' needs to be followed by a valid move, but '{value}' isn't: {err}"
-                        ))
+                            bail!("'pv' needs to be followed by a valid move, but '{value}' isn't: {err}")
                         }
                     }
                     loop {
@@ -559,13 +555,17 @@ impl<B: Board> InputThread<B> {
                 "score" => match value {
                     "cp" | "lowerbound" | "upperbound" => {
                         res.score.0 = parse_int_from_str(
-                            words.next().ok_or("missing score value after 'score cp'")?,
+                            words
+                                .next()
+                                .ok_or_else(|| anyhow!("missing score value after 'score cp'"))?,
                             "cp",
                         )?;
                     }
                     "mate" => {
                         let value: ScoreT = parse_int_from_str(
-                            words.next().ok_or("missing ply value after 'score mate'")?,
+                            words
+                                .next()
+                                .ok_or_else(|| anyhow!("missing ply value after 'score mate'"))?,
                             "mate",
                         )?;
                         res.score = if value >= 0 {
@@ -574,7 +574,7 @@ impl<B: Board> InputThread<B> {
                             SCORE_LOST + value
                         }
                     }
-                    _ => return Err("Unrecognized `score` type".to_string()),
+                    _ => bail!("Unrecognized `score` type"),
                 },
                 "nps" => _ = parse_int_from_str::<usize>(value, "nps")?,
                 "string" => {
@@ -583,7 +583,7 @@ impl<B: Board> InputThread<B> {
                 }
                 "error" => {
                     let message = value.to_string().add(" ").add(&words.join(" "));
-                    return Err(format!("The engine sent a UGI error: '{message}'"));
+                    bail!("The engine sent a UGI error: '{message}'")
                 }
                 // TODO: Handle multipv and some other info
                 "refutation" | "currline" | "multipv" => { /*completely ignored*/ }
@@ -604,34 +604,34 @@ impl<B: Board> InputThread<B> {
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
     ) -> Res<()> {
-        let word = option
-            .next()
-            .ok_or_else(|| "Line ended after 'option'".to_string())?;
+        let Some(word) = option.next() else {
+            bail!("Line ended after 'option'")
+        };
         if word != "name" {
-            return Err("expected 'name' after 'option', got '{word}'".to_string());
+            bail!("expected 'name' after 'option', got '{word}'")
         }
         let mut res = EngineOption::default();
         // TODO: Technically, the spec demands to accept multi-token names
-        let name = option
-            .next()
-            .ok_or_else(|| "Line ended after 'name', missing the option name".to_string())?;
+        let Some(name) = option.next() else {
+            bail!("Line ended after 'name', missing the option name")
+        };
         res.name = EngineOptionName::from_str(name)?;
-        let typ = option
-            .next()
-            .ok_or_else(|| "Line ended after option name, missing 'type'".to_string())?;
+        let Some(typ) = option.next() else {
+            bail!("Line ended after option name, missing 'type'")
+        };
         if typ != "type" {
-            return Err("Expected 'type' after option name, got {typ}".to_string());
+            bail!("Expected 'type' after option name, got {typ}")
         }
-        let typ = option
-            .next()
-            .ok_or_else(|| "Line ended after 'type', missing the option type".to_string())?;
+        let Some(typ) = option.next() else {
+            bail!("Line ended after 'type', missing the option type")
+        };
         match typ {
             "check" => res.value = Check(UgiCheck::default()),
             "spin" => res.value = Spin(UgiSpin::default()),
             "combo" => res.value = Combo(UgiCombo::default()),
             "button" => res.value = Button,
             "string" => res.value = UString(UgiString::default()),
-            x => return Err(format!("Unrecognized option type {x}")),
+            x => bail!("Unrecognized option type {x}"),
         }
         loop {
             let next = option.next();
@@ -641,17 +641,17 @@ impl<B: Board> InputThread<B> {
             let setting = next.unwrap();
             let mut value = option
                 .next()
-                .ok_or("Missing value after option {setting}")?;
+                .ok_or_else(|| anyhow!("Missing value after option {setting}"))?;
             match setting.to_lowercase().as_str() {
                 "default" => match &mut res.value {
                     Check(c) => match value.to_lowercase().as_str() {
                         "true" | "on" => c.default = Some(true),
                         "false" | "off" => c.default = Some(false),
-                        _ => return Err(format!("Unrecognized check value '{value}', should be 'true' or 'false'")),
+                        _ => bail!("Unrecognized check value '{value}', should be 'true' or 'false'"),
                     }
                     Spin(s) => s.default = Some(parse_int_from_str(value, &format!("{} default value", res.name))?),
                     Combo(c) => c.default = Some(value.to_string()),
-                    Button => return Err(format!("option {} has type 'Button' and can't have a default value", res.name)),
+                    Button => bail!("option {} has type 'Button' and can't have a default value", res.name),
                     UString(s) => {
                         if value == "<empty>" {
                             value = "";
@@ -661,17 +661,17 @@ impl<B: Board> InputThread<B> {
                 },
                 "min" => match &mut res.value {
                     Spin(s) => s.min = Some(parse_int_from_str(value, &format!("{} min value", res.name))?),
-                    _ => return Err(format!("option {} has type '{}' and can't have a min value", res.name, res.value.type_to_str()))
+                    _ => bail!("option {} has type '{}' and can't have a min value", res.name, res.value.type_to_str())
                 },
                 "max" => match &mut res.value {
                     Spin(s) => s.max = Some(parse_int_from_str(value, &format!("{} max value", res.name))?),
-                    _ => return Err(format!("option {} has type '{}' and can't have a max value", res.name, res.value.type_to_str()))
+                    _ => bail!("option {} has type '{}' and can't have a max value", res.name, res.value.type_to_str())
                 },
                 "var" => match &mut res.value {
                     Combo(c) => c.options.push(value.to_string()),
-                    _ => return Err(format!("option {} has type '{}' and can't have a 'var' value (only 'combo' can have that)", res.name, res.value.type_to_str()))
+                    _ => bail!("option {} has type '{}' and can't have a 'var' value (only 'combo' can have that)", res.name, res.value.type_to_str())
                 },
-                _ => return Err(format!("Unrecognized parameter '{setting}' for option '{}'", res.name)),
+                _ => bail!("Unrecognized parameter '{setting}' for option '{}'", res.name),
             }
         }
         client

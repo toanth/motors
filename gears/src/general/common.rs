@@ -1,3 +1,4 @@
+pub use anyhow;
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2", feature = "unsafe"))]
 use std::arch::x86_64::{_pdep_u64, _pext_u64};
 use std::fmt::{Debug, Display};
@@ -106,12 +107,12 @@ pub fn ith_one_u128(idx: usize, val: u128) -> usize {
     }
 }
 
-pub type Res<T> = Result<T, String>;
+pub type Res<T> = anyhow::Result<T>;
 
 pub fn parse_fp_from_str<T: Float + FromStr>(as_str: &str, name: &str) -> Res<T> {
     as_str
         .parse::<T>()
-        .map_err(|_err| format!("Couldn't parse {name} ('{as_str}')"))
+        .map_err(|_err| anyhow::anyhow!("Couldn't parse {name} ('{as_str}')"))
 }
 
 pub fn parse_int_from_str<T: PrimInt + FromStr>(as_str: &str, name: &str) -> Res<T> {
@@ -119,19 +120,24 @@ pub fn parse_int_from_str<T: PrimInt + FromStr>(as_str: &str, name: &str) -> Res
     // so we just write the error message ourselves
     as_str
         .parse::<T>()
-        .map_err(|_err| format!("Couldn't parse {name} ('{as_str}')"))
+        .map_err(|_err| anyhow::anyhow!("Couldn't parse {name} ('{as_str}')"))
 }
 
 pub fn parse_int<T: PrimInt + FromStr + Display>(
     words: &mut Peekable<SplitWhitespace>,
     name: &str,
 ) -> Res<T> {
-    parse_int_from_str(words.next().ok_or_else(|| format!("Missing {name}"))?, name)
+    parse_int_from_str(
+        words
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Missing {name}"))?,
+        name,
+    )
 }
 
 pub fn parse_int_from_stdin<T: PrimInt + FromStr>() -> Res<T> {
     let mut s = String::default();
-    stdin().read_line(&mut s).map_err(|e| e.to_string())?;
+    stdin().read_line(&mut s)?;
     parse_int_from_str(s.trim(), "integer")
 }
 
@@ -141,7 +147,7 @@ pub fn parse_bool_from_str(input: &str, name: &str) -> Res<bool> {
     } else if input.eq_ignore_ascii_case("false") {
         Ok(false)
     } else {
-        Err(format!(
+        Err(anyhow::anyhow!(
             "Incorrect value for '{0}': Expected either '{1}' or '{2}', not '{3}'",
             name.bold(),
             "true".bold(),
@@ -316,10 +322,10 @@ fn select_name_impl<
             let game_name = game_name.bold();
             if let Some(name) = name {
                 let name = name.red();
-                Err(format!(
+                Err(anyhow::anyhow!(
                     "Couldn't find {typ} '{name}' for the current game ({game_name}). {list_as_string}."))
             } else {
-                Err(list_as_string)
+                Err(anyhow::anyhow!(list_as_string))
             }
         }
         Some(res) => Ok(res),
@@ -383,11 +389,11 @@ pub fn select_name_static<'a, T: NamedEntity, I: ExactSizeIterator<Item = &'a T>
 }
 
 pub fn nonzero_usize(val: usize, name: &str) -> Res<NonZeroUsize> {
-    NonZeroUsize::new(val).ok_or_else(|| format!("{name} can't be zero"))
+    NonZeroUsize::new(val).ok_or_else(|| anyhow::anyhow!("{name} can't be zero"))
 }
 
 pub fn nonzero_u64(val: u64, name: &str) -> Res<NonZeroU64> {
-    NonZeroU64::new(val).ok_or_else(|| format!("{name} can't be zero"))
+    NonZeroU64::new(val).ok_or_else(|| anyhow::anyhow!("{name} can't be zero"))
 }
 
 /// Avoid the warning about [`Itertools::intersperse`] conflicting with a future [`Iter::intersperse`]

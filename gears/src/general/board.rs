@@ -32,6 +32,7 @@ use crate::general::squares::{RectangularCoordinates, RectangularSize};
 use crate::search::Depth;
 use crate::PlayerResult::Lose;
 use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
+use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use itertools::Itertools;
@@ -445,9 +446,9 @@ pub trait Board:
     fn from_fen(string: &str) -> Res<Self> {
         let mut words = string.split_whitespace().peekable();
         let res = Self::read_fen_and_advance_input(&mut words)
-            .map_err(|err| format!("Failed to parse FEN {}: {err}", string.bold()))?;
+            .map_err(|err| anyhow!("Failed to parse FEN {}: {err}", string.bold()))?;
         if let Some(next) = words.next() {
-            return Err(format!(
+            return Err(anyhow!(
                 "Input `{0}' contained additional characters after FEN, starting with '{1}'",
                 string.bold(),
                 next.red()
@@ -591,7 +592,7 @@ pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
 pub(crate) fn read_position_fen<B: RectangularBoard>(
     position: &str,
     mut board: B::Unverified,
-) -> Result<B::Unverified, String> {
+) -> Res<B::Unverified> {
     let lines = position.split('/');
     debug_assert!(lines.clone().count() > 0);
 
@@ -603,11 +604,10 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
 
         let handle_skipped = |digit_in_line, skipped_digits, idx: &mut usize| {
             if skipped_digits > 0 {
-                let num_skipped = line[digit_in_line - skipped_digits..digit_in_line]
-                    .parse::<usize>()
-                    .map_err(|err| err.to_string())?;
+                let num_skipped =
+                    line[digit_in_line - skipped_digits..digit_in_line].parse::<usize>()?;
                 if num_skipped == 0 {
-                    return Err("FEN position can't contain the number 0".to_string());
+                    bail!("FEN position can't contain the number 0".to_string())
                 }
                 *idx = idx.saturating_add(num_skipped);
             }
@@ -619,17 +619,17 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
                 skipped_digits += 1;
                 continue;
             }
-            let symbol = ColPieceType::<B>::from_ascii_char(c).ok_or_else(|| {
-                format!(
+            let Some(symbol) = ColPieceType::<B>::from_ascii_char(c) else {
+                bail!(
                     "Invalid character in {0} FEN position description (not a piece): {1}",
                     B::game_name(),
                     c.to_string().red()
                 )
-            })?;
+            };
             handle_skipped(i, skipped_digits, &mut square)?;
             skipped_digits = 0;
             if square >= board.size().num_squares() {
-                return Err(format!("FEN position contains at least {square} squares, but the board only has {0} squares", board.size().num_squares()));
+                bail!("FEN position contains at least {square} squares, but the board only has {0} squares", board.size().num_squares());
             }
 
             board = board.place_piece_unchecked(
@@ -644,10 +644,10 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
         handle_skipped(line.len(), skipped_digits, &mut square)?;
         let line_len = square - square_before_line;
         if line_len != board.size().width().val() {
-            return Err(format!(
+            bail!(
                 "Line '{line}' has incorrect width: {line_len}, should be {0}",
                 board.size().width().val()
-            ));
+            );
         }
     }
     Ok(board)
@@ -656,38 +656,38 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
 pub(crate) fn read_common_fen_part<B: RectangularBoard>(
     words: &mut Peekable<SplitWhitespace>,
     board: B::Unverified,
-) -> Result<B::Unverified, String> {
-    let position_part = words
-        .next()
-        .ok_or_else(|| format!("Empty {0} FEN string", B::game_name()))?;
+) -> Res<B::Unverified> {
+    let Some(position_part) = words.next() else {
+        bail!("Empty {0} FEN string", B::game_name())
+    };
     let mut board = read_position_fen::<B>(position_part, board)?;
 
-    let active = words.next().ok_or_else(|| {
-        format!(
+    let Some(active) = words.next() else {
+        bail!(
             "{0} FEN ends after the position description and doesn't include the active player",
             B::game_name()
         )
-    })?;
+    };
     let correct_chars = [
         B::Color::first().ascii_color_char(),
         B::Color::second().ascii_color_char(),
     ];
     if active.chars().count() != 1 {
-        return Err(format!(
+        bail!(
             "Expected a single char to describe the active player ('{0}' or '{1}'), got '{2}'",
             correct_chars[0].to_string().bold(),
             correct_chars[1].to_string().bold(),
             active.red()
-        ));
+        );
     }
-    let active = B::Color::from_char(active.chars().next().unwrap()).ok_or_else(|| {
-        format!(
+    let Some(active) = B::Color::from_char(active.chars().next().unwrap()) else {
+        bail!(
             "Expected '{0}' or '{1}' for the color, not '{2}'",
             correct_chars[0].to_string().bold(),
             correct_chars[1].to_string().bold(),
             active.red()
         )
-    })?;
+    };
     board = board.set_active_player(active);
     Ok(board)
 }

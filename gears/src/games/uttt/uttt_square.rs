@@ -87,7 +87,7 @@ impl Display for UtttSquare {
 }
 
 impl FromStr for UtttSquare {
-    type Err = String;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         SmallGridSquare::<9, 9, 9>::from_str(s).map(|c| Self::from_row_column(c.row(), c.column()))

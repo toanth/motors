@@ -20,6 +20,7 @@
 
 use crate::general::common::Res;
 use crate::PlayerResult;
+use anyhow::anyhow;
 use derive_more::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use num::ToPrimitive;
 use std::fmt::{Display, Formatter};
@@ -94,13 +95,13 @@ impl Div<ScoreT> for Score {
 }
 
 impl TryFrom<isize> for Score {
-    type Error = String;
+    type Error = anyhow::Error;
 
     fn try_from(value: isize) -> Res<Self> {
-        let score = ScoreT::try_from(value).map_err(|err| err.to_string())?;
+        let score = ScoreT::try_from(value)?;
         Score(score)
             .verify_valid()
-            .ok_or_else(|| format!("{score} is outside of the valid values for a Score"))
+            .ok_or_else(|| anyhow!("{score} is outside of the valid values for a Score"))
     }
 }
 

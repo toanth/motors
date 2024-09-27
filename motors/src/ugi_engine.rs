@@ -12,6 +12,7 @@ use itertools::Itertools;
 use gears::cli::{select_game, Game};
 use gears::games::{BoardHistory, Color, OutputList, ZobristHistory};
 use gears::general::board::Board;
+use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{
     parse_bool_from_str, parse_duration_ms, parse_int, parse_int_from_str,
@@ -94,18 +95,18 @@ struct BoardGameState<B: Board> {
 impl<B: Board> BoardGameState<B> {
     fn make_move(&mut self, mov: B::Move) -> Res<()> {
         if !self.board.is_move_pseudolegal(mov) {
-            return Err(format!("Illegal move {mov} (not pseudolegal)"));
+            bail!("Illegal move {mov} (not pseudolegal)")
         }
         if let Run(Over(result)) = &self.status {
-            return Err(format!(
+            bail!(
                 "Cannot play move '{mov}' because the game is already over: {0} ({1}). The position is '{2}'",
                 result.result, result.reason, self.board
-            ));
+            )
         }
         self.board_hist.push(&self.board);
         self.mov_hist.push(mov);
         self.board = self.board.make_move(mov).ok_or_else(|| {
-            format!(
+            anyhow!(
                 "Illegal move {mov} (pseudolegal but not legal) in position {}",
                 self.board
             )
@@ -128,11 +129,11 @@ impl<B: Board> BoardGameState<B> {
             return Ok(());
         };
         if word != "moves" && word != "m" {
-            return Err(format!("Unrecognized word '{word}' after position command, expected either 'moves', 'm', or nothing"));
+            bail!("Unrecognized word '{word}' after position command, expected either 'moves', 'm', or nothing")
         }
         for mov in words {
             let mov = B::Move::from_compact_text(mov, &self.board)
-                .map_err(|err| format!("Couldn't parse move '{}': {err}", mov.red()))?;
+                .map_err(|err| anyhow!("Couldn't parse move '{}': {err}", mov.red()))?;
             self.make_move(mov)?;
         }
         self.last_played_color = self.board.active_player();
@@ -373,7 +374,7 @@ impl<B: Board> EngineUGI<B> {
             let res = self.parse_input(input.split_whitespace().peekable());
             match res {
                 Err(err) => {
-                    self.write_message(Error, err.as_str());
+                    self.write_message(Error, &err.to_string());
                     if !self.continue_on_error() {
                         self.write_ugi(&format!("info error {err}"));
                     }
@@ -437,7 +438,7 @@ impl<B: Board> EngineUGI<B> {
             "ponderhit" => self.start_search(
                 Normal,
                 self.state.ponder_limit.ok_or_else(|| {
-                    format!(
+                    anyhow!(
                         "The engine received a '{}' command but wasn't pondering",
                         first_word.bold()
                     )
@@ -467,7 +468,7 @@ impl<B: Board> EngineUGI<B> {
                 return Ok(self.state.status.clone());
             }
             "flip" => {
-                self.state.board = self.state.board.make_nullmove().ok_or(format!(
+                self.state.board = self.state.board.make_nullmove().ok_or(anyhow!(
                     "Could not flip the side to move (board: '{}'",
                     self.state.board.as_fen().bold()
                 ))?;
@@ -518,10 +519,10 @@ impl<B: Board> EngineUGI<B> {
                 // actually returning an error. Detect invalid commands after 'list'.
                 // long term, create a `Command` struct and replace the match with a select_name call?
                 let Some(next) = words.next() else {
-                    return Err(format!("Expected a word after '{}'", "list".bold()));
+                    bail!("Expected a word after '{}'", "list".bold())
                 };
                 if next.eq_ignore_ascii_case("list") {
-                    return Err(format!("'{}' is not a valid command; write something other than 'list' after 'list'", "list list".red()));
+                    bail!("'{}' is not a valid command; write something other than 'list' after 'list'", "list list".red())
                 }
                 let mut rearranged = next.to_string() + " list ";
                 rearranged += &words.intersperse_(" ").collect::<String>();
@@ -572,10 +573,10 @@ impl<B: Board> EngineUGI<B> {
     fn handle_setoption(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         let mut name = words.next().unwrap_or_default().to_ascii_lowercase();
         if name != "name" {
-            return Err(format!(
+            bail!(
                 "Invalid 'setoption' command: Expected 'name', got '{};",
                 name.red()
-            ));
+            )
         }
         name = String::default();
         loop {
@@ -700,7 +701,7 @@ impl<B: Board> EngineUGI<B> {
                 "depth" | "d" => limit.depth = Depth::new(parse_int(words, "depth number")?),
                 "nodes" | "n" => {
                     limit.nodes = NodesLimit::new(parse_int(words, "node count")?)
-                        .ok_or_else(|| "node count can't be zero".to_string())?;
+                        .ok_or_else(|| anyhow!("node count can't be zero"))?;
                 }
                 "mate" | "m" => {
                     let depth: usize = parse_int(words, "mate move count")?;
@@ -741,12 +742,12 @@ impl<B: Board> EngineUGI<B> {
                     if reading_moves {
                         let mov = B::Move::from_compact_text(next_word, &self.state.board)
                             .map_err(|err| {
-                                format!("{err}. '{}' is not a valid 'go' option.", next_word.bold())
+                                anyhow!("{err}. '{}' is not a valid 'go' option.", next_word.bold())
                             })?;
                         search_moves.as_mut().unwrap().push(mov);
                         continue;
                     }
-                    return Err(format!("Unrecognized 'go' option: '{next_word}'"));
+                    bail!("Unrecognized 'go' option: '{next_word}'")
                 }
             }
             reading_moves = false;
@@ -782,10 +783,10 @@ impl<B: Board> EngineUGI<B> {
                     .output()
                     .write_ugi(&perft_for(limit.depth, B::bench_positions()).to_string()),
                 _ => {
-                    return Err(format!(
+                    bail!(
                         "Can only use the '{}' option with 'bench' or 'perft'",
                         "complete".bold()
-                    ))
+                    )
                 }
             }
         }
@@ -851,10 +852,7 @@ impl<B: Board> EngineUGI<B> {
             }
             SplitPerft => {
                 if limit.depth.get() == 0 {
-                    return Err(format!(
-                        "{} requires a depth of at least 1",
-                        "splitperft".bold()
-                    ));
+                    bail!("{} requires a depth of at least 1", "splitperft".bold())
                 }
                 let msg = format!("{0}", split_perft(limit.depth, pos));
                 self.write_ugi(&msg);
@@ -894,7 +892,10 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_query(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
-        match words.next().ok_or("Missing argument to 'query'")? {
+        match words
+            .next()
+            .ok_or(anyhow!("Missing argument to '{}'", "query".bold()))?
+        {
             "gameover" => self
                 .output()
                 .write_response(&matches!(self.state.status, Run(Ongoing)).to_string()),
@@ -913,7 +914,7 @@ impl<B: Board> EngineUGI<B> {
                 };
                 self.output().write_response(response);
             }
-            s => return Err(format!("unrecognized option {s}")),
+            s => bail!("unrecognized option {s}"),
         }
         Ok(())
     }
@@ -937,9 +938,9 @@ impl<B: Board> EngineUGI<B> {
                     }
                     Some(x) => {
                         let Ok(new_board) = self.load_position_into_copy(words) else {
-                            return Err(format!(
+                            bail!(
                                 "Unrecognized input '{x}' after valid print command, should be either nothing or a valid 'position' command"
-                            ));
+                            )
                         };
                         self.state.board = new_board;
                     }
@@ -956,9 +957,9 @@ impl<B: Board> EngineUGI<B> {
         let output_ptr = self.output.clone();
         let mut output = output_ptr.lock().unwrap();
         if next.eq_ignore_ascii_case("remove") {
-            let next = words.next().ok_or(
-                "No output to remove specified. Use 'all' to remove all outputs".to_string(),
-            )?;
+            let Some(next) = words.next() else {
+                bail!("No output to remove specified. Use 'all' to remove all outputs")
+            };
             if next.eq_ignore_ascii_case("all") {
                 output.additional_outputs.clear();
             } else {
@@ -982,7 +983,7 @@ impl<B: Board> EngineUGI<B> {
             output.additional_outputs.push(
                 output_builder_from_str(next, &self.output_factories)
                     .map_err(|err| {
-                        format!(
+                        anyhow!(
                             "{err}\nSpecial commands are '{0}' and '{1}'.",
                             "remove".bold(),
                             "list".bold()
@@ -1014,7 +1015,7 @@ impl<B: Board> EngineUGI<B> {
                 } else {
                     // In case of an error here, still keep the debug mode set.
                     self.handle_log(&mut "".split_whitespace().peekable())
-                        .map_err(|err| format!("Couldn't set the debug log file: '{err}'"))?;
+                        .map_err(|err| anyhow!("Couldn't set the debug log file: '{err}'"))?;
                     Ok(())
                 }
             }
@@ -1026,7 +1027,7 @@ impl<B: Board> EngineUGI<B> {
                 // don't remove the error output, as there is basically no reason to do so
                 self.handle_log(&mut "none".split_whitespace().peekable())
             }
-            x => Err(format!("Invalid debug option '{x}'")),
+            x => bail!("Invalid debug option '{x}'"),
         }
     }
 
@@ -1203,11 +1204,11 @@ impl<B: Board> EngineUGI<B> {
                             res
                         }
                         None => {
-                            return Err(format!(
+                            bail!(
                                 "No option named '{0}' exists. Type '{1}' for a list of options.",
                                 x.red(),
                                 "ugi".bold()
-                            ))
+                            )
                         }
                     }
                 }

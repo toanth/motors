@@ -18,6 +18,7 @@ use whoami::fallible::realname;
 
 use gears::games::chess::Chessboard;
 use gears::general::board::Board;
+use gears::general::common::anyhow::bail;
 use gears::general::common::Res;
 use gears::output::Message::*;
 use gears::search::{Depth, NodesLimit, SearchLimit, TimeControl, MAX_DEPTH};
@@ -159,7 +160,8 @@ impl<B: Board> EnginePlayer<B> {
     /// Outside code should use the `send_ugi_message\[_to\]` method of client because those also log communication
     pub fn write_ugi_impl(&mut self, msg: &str) -> Res<()> {
         use std::io::Write;
-        writeln!(self.child_stdin, "{msg}").map_err(|err| err.to_string())
+        writeln!(self.child_stdin, "{msg}")?;
+        Ok(())
     }
 
     pub fn halt(&mut self, bestmove_action: BestMoveAction) {
@@ -210,7 +212,7 @@ fn send_initial_ugi_impl<B: Board>(
                 .display_name
                 .clone();
             client.lock().unwrap().quit_program();
-            return Err(format!("Couldn't initialize engine '{name}'. Didn't receive 'ugiok' or 'uciok' after the timeout was reached."));
+            bail!("Couldn't initialize engine '{name}'. Didn't receive 'ugiok' or 'uciok' after the timeout was reached.")
         }
     }
     Ok(())
@@ -354,7 +356,7 @@ impl PlayerBuilder {
                 // the 'motors-' prefix is used to denote an engine that's build in into monitors;
                 // so this becomes 'monitors engine default'
                 if let Some(name) = &args.display_name {
-                    return Err(format!("The engine name is set ('{name}') but the command isn't. Please specify a command (use 'motors-<name>' to use the built-in engine <name>)"));
+                    bail!("The engine name is set ('{name}') but the command isn't. Please specify a command (use 'motors-<name>' to use the built-in engine <name>)")
                 }
                 args.cmd = "motors-default".to_string();
             }
@@ -385,15 +387,14 @@ impl PlayerBuilder {
         let copy = self;
         let path = Self::get_engine_path_and_set_args(&mut args, &B::game_name())?;
         if !path.is_file() {
-            return Err(format!(
+            bail!(
                 "The specified engine path '{}' does not point to a file (make sure the path and command are set correctly)",
                 path.as_os_str().to_str().unwrap_or("<invalid>")
-            ));
+            )
         }
         let display_name = NameSet::make_name_unique(args.display_name.unwrap_or(args.cmd));
         let stderr_output = match args.stderr {
-            None => PathBuf::from_str(&format!("{display_name}_stderr.log"))
-                .map_err(|err| err.to_string())?,
+            None => PathBuf::from_str(&format!("{display_name}_stderr.log"))?,
             Some(path) => path,
         };
 
@@ -409,9 +410,8 @@ impl PlayerBuilder {
             .args(args.engine_args.clone())
             .stdout(Stdio::piped())
             .stdin(Stdio::piped())
-            .stderr(File::create(stderr_output).map_err(|err| err.to_string())?)
-            .spawn()
-            .map_err(|err| err.to_string())?;
+            .stderr(File::create(stderr_output)?)
+            .spawn()?;
         let stdout = child.stdout.take().unwrap();
         let tc = args.tc.unwrap_or_else(|| TimeControl {
             remaining: Duration::from_millis(2000),
@@ -516,12 +516,12 @@ impl<B: Board> Player<B> {
     pub fn set_time(&mut self, new_tc: TimeControl) -> Res<()> {
         match self {
             Engine(engine) => {
-                let m = engine.current_match.as_mut().ok_or_else(|| {
-                    format!(
+                let Some(m) = engine.current_match.as_mut() else {
+                    bail!(
                         "Engine {} isn't currently playing a match",
                         engine.display_name
                     )
-                })?;
+                };
                 m.limit.tc = new_tc;
             }
             Human(human) => human.tc = new_tc,

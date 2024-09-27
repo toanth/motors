@@ -1,3 +1,4 @@
+use anyhow::bail;
 use std::fmt::{Display, Write};
 use std::io::stdout;
 
@@ -142,9 +143,6 @@ impl<B: RectangularBoard> OutputBuilder<B> for PrettyUIBuilder {
     }
 
     fn add_option(&mut self, _option: String) -> Res<()> {
-        Err(format!(
-            "The {} output doesn't accept any options",
-            self.long_name()
-        ))
+        bail!("The {} output doesn't accept any options", self.long_name())
     }
 }

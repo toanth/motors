@@ -18,9 +18,10 @@ use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{SmallGridSize, SmallGridSquare};
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose, Win};
+use anyhow::bail;
 use arbitrary::Arbitrary;
 use itertools::Itertools;
-use rand::prelude::SliceRandom;
+use rand::prelude::IndexedRandom;
 use rand::Rng;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
@@ -372,19 +373,19 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
         let this = self.0;
         let blocked = this.blocked_bb();
         if blocked & INVALID_EDGE_MASK != INVALID_EDGE_MASK {
-            return Err(format!(
+            bail!(
                 "A squares outside of the board is being used ({})",
                 AtaxxSquare::unchecked((!blocked & INVALID_EDGE_MASK).pop_lsb())
-            ));
+            );
         }
         if this.ply_100_ctr > 100 {
-            return Err(format!(
+            bail!(
                 "The halfmove clock is too large: It must be a number between 0 and 100, not {}",
                 this.ply_100_ctr
-            ));
+            );
         }
         if this.ply > 10_000 {
-            return Err(format!("Ridiculously large ply number ({})", this.ply));
+            bail!("Ridiculously large ply number ({})", this.ply);
         }
 
         if level == CheckFen {
@@ -395,18 +396,18 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
         }
         let mut overlap = this.colors[0] & this.colors[1];
         if overlap.has_set_bit() {
-            return Err(format!(
+            bail!(
                 "Both players have a piece on the same square ('{}')",
                 AtaxxSquare::from_bb_index(overlap.pop_lsb())
-            ));
+            );
         }
         for color in AtaxxColor::iter() {
             let mut overlap = this.empty & this.colors[color as usize];
             if overlap.has_set_bit() {
-                return Err(format!(
+                bail!(
                     "The square '{}' is both empty and occupied by a player",
                     AtaxxSquare::from_bb_index(overlap.pop_lsb())
-                ));
+                );
             }
         }
         Ok(this)

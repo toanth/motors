@@ -1,3 +1,4 @@
+use anyhow::bail;
 use arbitrary::Arbitrary;
 use std::cmp::min;
 use std::fmt;
@@ -196,7 +197,7 @@ pub fn char_to_file(file: char) -> DimT {
 // Assume 2D grid for now.
 #[must_use]
 pub trait Coordinates:
-    Eq + Copy + Debug + Default + FromStr<Err = String> + Display + for<'a> Arbitrary<'a>
+    Eq + Copy + Debug + Default + FromStr<Err = anyhow::Error> + Display + for<'a> Arbitrary<'a>
 {
     type Size: Size<Self>;
 
@@ -272,9 +273,7 @@ pub trait Size<C: Coordinates>:
         if self.coordinates_valid(coordinates) {
             Ok(coordinates)
         } else {
-            Err(format!(
-                "Coordinates {coordinates} lie outside of the board (size {self})"
-            ))
+            bail!("Coordinates {coordinates} lie outside of the board (size {self})")
         }
     }
 }

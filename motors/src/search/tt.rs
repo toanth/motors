@@ -256,7 +256,7 @@ mod test {
     use gears::games::ZobristHistory;
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
     use gears::search::{Depth, SearchLimit};
-    use rand::distributions::Uniform;
+    use rand::distr::Uniform;
     use rand::{thread_rng, Rng, RngCore};
     use std::thread::{sleep, spawn};
     use std::time::Duration;
@@ -286,18 +286,20 @@ mod test {
     #[cfg(feature = "chess")]
     fn test_load_store() {
         for pos in Chessboard::bench_positions() {
-            let num_bytes_in_size = thread_rng().sample(Uniform::new(4, 25));
+            let num_bytes_in_size = thread_rng().sample(Uniform::new(4, 25).unwrap());
             let size_in_bytes = (1 << num_bytes_in_size)
-                + thread_rng().sample(Uniform::new(0, 1 << num_bytes_in_size));
+                + thread_rng().sample(Uniform::new(0, 1 << num_bytes_in_size).unwrap());
             let mut tt = TT::new_with_bytes(size_in_bytes);
             for mov in pos.pseudolegal_moves() {
                 let score = Score(
-                    thread_rng().sample(Uniform::new(MIN_NORMAL_SCORE.0, MAX_NORMAL_SCORE.0)),
+                    thread_rng()
+                        .sample(Uniform::new(MIN_NORMAL_SCORE.0, MAX_NORMAL_SCORE.0).unwrap()),
                 );
-                let depth = thread_rng().sample(Uniform::new(1, 100));
-                let bound =
-                    OptionalNodeType::from_repr(thread_rng().sample(Uniform::new(0, 3)) + 1)
-                        .unwrap();
+                let depth = thread_rng().sample(Uniform::new(1, 100).unwrap());
+                let bound = OptionalNodeType::from_repr(
+                    thread_rng().sample(Uniform::new(0, 3).unwrap()) + 1,
+                )
+                .unwrap();
                 let entry: TTEntry<Chessboard> = TTEntry {
                     hash: pos.zobrist_hash(),
                     score,
@@ -308,7 +310,7 @@ mod test {
                 let packed = entry.to_packed();
                 let val = TTEntry::from_packed(packed);
                 assert_eq!(val, entry);
-                let ply = thread_rng().sample(Uniform::new(0, 100));
+                let ply = thread_rng().sample(Uniform::new(0, 100).unwrap());
                 tt.store(entry, ply);
                 let loaded = tt.load(entry.hash, ply).unwrap();
                 assert_eq!(entry, loaded);

@@ -34,7 +34,7 @@ macro_rules! spsa_params {
             )*
 
             pub fn set_value(_: &str, _: isize) -> Res<()> {
-                Err(format!("The SPSA feature isn't enabled, so it's not possible to set an SPSA value"))
+                gears::general::common::anyhow::bail!("The SPSA feature isn't enabled, so it's not possible to set an SPSA value")
             }
 
             #[allow(unused)]
@@ -86,7 +86,7 @@ macro_rules! spsa_params {
                         $(
                             stringify!($name) => vals::$name = <$typ>::try_from(value).unwrap(),
                         )*
-                        _ => { return Err(format!("'{name}' is not a valid SPSA parameter name")); }
+                        _ => { gears::general::common::anyhow::bail!("'{name}' is not a valid SPSA parameter name") }
                     }
                     Ok(())
                 }

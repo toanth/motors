@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
 use std::ops::Sub;
@@ -173,7 +174,7 @@ impl Display for TimeControl {
 }
 
 impl FromStr for TimeControl {
-    type Err = String;
+    type Err = anyhow::Error;
 
     // assume that the start time and increment strings don't contain a `+`
 
@@ -183,7 +184,7 @@ impl FromStr for TimeControl {
         }
         // For now, don't support movestogo TODO: Add support
         let mut parts = s.split('+');
-        let start_time = parts.next().ok_or_else(|| "Empty TC".to_string())?;
+        let start_time = parts.next().ok_or_else(|| anyhow!("Empty TC"))?;
         let start_time = parse_fp_from_str::<f64>(start_time.trim(), "the start time")?.max(0.0);
         let start_time = Duration::from_secs_f64(start_time);
         let mut increment = Duration::default();

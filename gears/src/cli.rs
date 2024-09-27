@@ -8,6 +8,7 @@ use crate::general::common::{
     nonzero_usize, parse_int_from_str, select_name_static, NamedEntity, Res,
 };
 use crate::OutputArgs;
+use anyhow::anyhow;
 use derive_more::Display;
 use itertools::Itertools;
 use num::PrimInt;
@@ -77,10 +78,10 @@ pub type ArgIter = Peekable<Args>;
 
 pub fn get_next_arg(args: &mut ArgIter, name: &str) -> Res<String> {
     match args.next() {
-        None => Err(format!("Missing value for {name} (args ended)")),
+        None => Err(anyhow!("Missing value for {name} (args ended)")),
         Some(arg) => {
             if arg.starts_with('-') {
-                Err(format!("Missing value for {name} (next arg was '{arg}'"))
+                Err(anyhow!("Missing value for {name} (next arg was '{arg}'"))
             } else {
                 Ok(arg)
             }

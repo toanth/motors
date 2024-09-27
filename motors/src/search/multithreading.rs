@@ -11,6 +11,7 @@ use gears::general::board::Board;
 use portable_atomic::AtomicUsize;
 
 use crate::eval::Eval;
+use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{parse_int_from_str, Res};
 use gears::general::moves::Move;
 use gears::output::Message::*;
@@ -77,9 +78,7 @@ pub struct MainThreadData<B: Board> {
 impl<B: Board> MainThreadData<B> {
     pub fn new_search(&mut self, ponder: bool, limit: &SearchLimit) -> Res<()> {
         if self.atomic_search_data[0].currently_searching() {
-            return Err(
-                format!("Cannot start a new search with limit '{limit}' because the engine is already searching"),
-            );
+            bail!("Cannot start a new search with limit '{limit}' because the engine is already searching");
         }
         self.search_type = SearchType::new(ponder, limit);
         for data in &mut self.atomic_search_data {
@@ -318,7 +317,8 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                 _ => {
                     let mut guard = info.lock().unwrap();
                     let Some(val) = guard.options.get_mut(&name) else {
-                        return Err(format!("The engine '{0}' doesn't provide the option '{1}', so it can't be set to value '{2}'", guard.engine.short.bold(), name.to_string().red(), value.bold()));
+                        bail!("The engine '{0}' doesn't provide the option '{1}', so it can't be set to value '{2}'",
+                            guard.engine.short.bold(), name.to_string().red(), value.bold());
                     };
                     self.engine.set_option(name, val, value)?
                 }
@@ -347,7 +347,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         loop {
             match self.try_handle_input() {
                 Err(msg) => {
-                    self.write_error(&msg);
+                    self.write_error(&msg.to_string());
                     break;
                 }
                 Ok(should_quit) => {
@@ -449,7 +449,9 @@ impl<B: Board> EngineWrapper<B> {
         params: SearchParams<B>,
     ) -> Res<()> {
         debug_assert!(Arc::strong_count(&params.atomic) >= 2);
-        sender.send(Search(params)).map_err(|err| err.to_string())
+        sender
+            .send(Search(params))
+            .map_err(|err| anyhow!(err.to_string()))
     }
 
     pub fn set_tt(&mut self, tt: TT) {
@@ -467,9 +469,9 @@ impl<B: Board> EngineWrapper<B> {
             let count: usize = parse_int_from_str(&value, "num threads")?;
             let max = self.engine_info().max_threads;
             if count == 0 || count > max {
-                return Err(format!(
+                bail!(
                     "Trying to set the number of threads to {count}. The maximum number of threads for this engine is {max}."
-                ));
+                );
             }
             self.auxiliary.clear();
             self.auxiliary.resize_with(count - 1, || {
@@ -496,7 +498,7 @@ impl<B: Board> EngineWrapper<B> {
                     value.clone(),
                     self.main_thread_data.engine_info.clone(),
                 ))
-                .map_err(|err| err.to_string())?;
+                .map_err(|err| anyhow!(err.to_string()))?;
             }
             self.main
                 .send(SetOption(
@@ -504,34 +506,36 @@ impl<B: Board> EngineWrapper<B> {
                     value,
                     self.main_thread_data.engine_info.clone(),
                 ))
-                .map_err(|err| err.to_string())
+                .map_err(|err| anyhow!(err.to_string()))
         }
     }
 
     pub fn start_bench(&mut self, pos: B, limit: SearchLimit) -> Res<()> {
         self.main
             .send(Bench(pos, limit, self.main_thread_data.output.clone()))
-            .map_err(|err| err.to_string())
+            .map_err(|err| anyhow!(err.to_string()))
     }
 
     pub fn static_eval(&mut self, pos: B) -> Res<()> {
         self.main
             .send(EvalFor(pos, self.main_thread_data.output.clone()))
-            .map_err(|err| err.to_string())
+            .map_err(|err| anyhow!(err.to_string()))
     }
 
     pub fn tt_entry(&mut self, pos: B) -> Res<()> {
         self.main
             .send(TTEntry(pos, self.main_thread_data.output.clone()))
-            .map_err(|err| err.to_string())
+            .map_err(|err| anyhow!(err.to_string()))
     }
 
     pub fn set_eval(&mut self, eval: Box<dyn Eval<B>>) -> Res<()> {
         for aux in &self.auxiliary {
             aux.send(SetEval(clone_box(eval.as_ref())))
-                .map_err(|err| err.to_string())?;
+                .map_err(|err| anyhow!(err.to_string()))?;
         }
-        self.main.send(SetEval(eval)).map_err(|err| err.to_string())
+        self.main
+            .send(SetEval(eval))
+            .map_err(|err| anyhow!(err.to_string()))
     }
 
     pub fn send_stop(&mut self, suppress_best_move: bool) {
@@ -558,18 +562,20 @@ impl<B: Board> EngineWrapper<B> {
     pub fn send_quit(&mut self) -> Res<()> {
         self.send_stop(false);
         for o in &mut self.auxiliary {
-            o.send(Quit).map_err(|err| err.to_string())?;
+            o.send(Quit).map_err(|err| anyhow!(err.to_string()))?;
         }
-        self.main.send(Quit).map_err(|err| err.to_string())
+        self.main.send(Quit).map_err(|err| anyhow!(err.to_string()))
     }
 
     pub fn send_forget(&mut self) -> Res<()> {
         for o in &mut self.auxiliary {
-            o.send(Forget).map_err(|err| err.to_string())?;
+            o.send(Forget).map_err(|err| anyhow!(err.to_string()))?;
         }
         // tt_for_next_search references the same TT as the TT used during search unless it has been changed with `setoption`
         self.tt_for_next_search.forget();
-        self.main.send(Forget).map_err(|err| err.to_string())
+        self.main
+            .send(Forget)
+            .map_err(|err| anyhow!(err.to_string()))
     }
 
     pub fn engine_info(&self) -> MutexGuard<EngineInfo> {

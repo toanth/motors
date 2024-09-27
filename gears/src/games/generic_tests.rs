@@ -42,7 +42,10 @@ impl<B: Board> GenericTests<B> {
             );
             p = p.remove_piece(coords).unwrap();
         }
-        assert_eq!(p.verify(), B::empty().into().verify());
+        assert_eq!(
+            p.verify().map_err(|_| ()),
+            B::empty().into().verify().map_err(|_| ())
+        );
         assert!(size
             .check_coordinates(Coordinates::no_coordinates())
             .is_err());

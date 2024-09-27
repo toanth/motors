@@ -10,6 +10,7 @@ use crate::general::board::{read_common_fen_part, UnverifiedBoard};
 use crate::general::common::Res;
 use crate::general::move_list::MoveList;
 use crate::general::moves::Move;
+use anyhow::anyhow;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::iter::Peekable;
 use std::num::NonZeroUsize;
@@ -19,13 +20,13 @@ impl AtaxxBoard {
     pub fn create(blocked: AtaxxBitboard, x_bb: AtaxxBitboard, o_bb: AtaxxBitboard) -> Res<Self> {
         let blocked = blocked | INVALID_EDGE_MASK;
         if (o_bb & x_bb).has_set_bit() {
-            return Err(format!(
+            return Err(anyhow!(
                 "Overlapping x and o pieces (bitboard: {})",
                 o_bb & x_bb
             ));
         }
         if (blocked & (o_bb | x_bb)).has_set_bit() {
-            return Err(format!(
+            return Err(anyhow!(
                 "Pieces on blocked squares (bitboard: {}",
                 blocked & (o_bb | x_bb)
             ));
@@ -163,11 +164,11 @@ impl AtaxxBoard {
         if let Some(halfmove_clock) = words.next() {
             board.0.ply_100_ctr = halfmove_clock
                 .parse::<usize>()
-                .map_err(|err| format!("Couldn't parse halfmove clock: {err}"))?;
+                .map_err(|err| anyhow!("Couldn't parse halfmove clock: {err}"))?;
             let fullmove_number = words.next().unwrap_or("1");
             let fullmove_number = fullmove_number
                 .parse::<NonZeroUsize>()
-                .map_err(|err| format!("Couldn't parse fullmove counter: {err}"))?;
+                .map_err(|err| anyhow!("Couldn't parse fullmove counter: {err}"))?;
             board.0.ply =
                 (fullmove_number.get() - 1) * 2 + usize::from(color == AtaxxColor::second());
         } else {

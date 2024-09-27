@@ -4,6 +4,7 @@ use std::process::exit;
 use std::str::FromStr;
 
 use gears::cli::{get_next_arg, get_next_int, parse_output, ArgIter, Game};
+use gears::general::common::anyhow::bail;
 use gears::general::common::{parse_int_from_str, Res};
 use gears::search::Depth;
 use gears::OutputArgs;
@@ -89,11 +90,11 @@ fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts) -> Res<()> {
         "bench-simple" | "-bench-simple" | "-bs" | "bs" => opts.mode = Bench(parse_bench(args)?, false),
         "perft" | "-perft" | "-p" => opts.mode = Perft(parse_perft(args)?),
         "-engine" | "-e" => opts.engine = get_next_arg(args, "engine")?,
-        "-game" | "-g" => opts.game = Game::from_str(&get_next_arg(args, "engine")?.to_lowercase()).map_err(|err| err.to_string())?,
+        "-game" | "-g" => opts.game = Game::from_str(&get_next_arg(args, "engine")?.to_lowercase())?,
         "-debug" | "-d" => opts.debug = true,
         "-additional-output" | "-output" | "-o" => parse_output(args, &mut opts.outputs)?,
         "-help" => { print_help(); exit(0); },
-        x => return Err(format!("Unrecognized option '{x}'. Only 'bench', 'bench-simple', 'perft', '--engine', '--game', '--debug' and '--outputs' are valid."))
+        x => bail!("Unrecognized option '{x}'. Only 'bench', 'bench-simple', 'perft', '--engine', '--game', '--debug' and '--outputs' are valid.")
     }
     Ok(())
 }

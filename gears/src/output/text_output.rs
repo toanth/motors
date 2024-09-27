@@ -1,3 +1,4 @@
+use anyhow::{anyhow, bail};
 use std::fmt;
 use std::fs::File;
 use std::io::{stderr, stdout, Stderr, Stdout, Write};
@@ -49,13 +50,13 @@ impl TextStream {
         if !name.contains('.') {
             // Although files of course don't have to contain a '.', requiring that feels like a good way to
             // catch errors like typos where the user didn't mean to specify a file name.
-            return Err(format!(
+            bail!(
                 "'{name}' does not appear to be a valid log filename (it does not contain a '.'). \
                 Expected either a filename, 'stdout', 'stderr', or 'none'."
-            ));
+            );
         }
         let path = Path::new(name);
-        let file = File::create(path).map_err(|err| format!("Couldn't create log file: {err}"))?;
+        let file = File::create(path).map_err(|err| anyhow!("Couldn't create log file: {err}"))?;
         Ok(TextStream::File(
             file,
             path.canonicalize()
@@ -419,6 +420,6 @@ impl<B: Board> OutputBuilder<B> for TextOutputBuilder {
     }
 
     fn add_option(&mut self, _option: String) -> Res<()> {
-        Err("TextOutputBuilder doesn't support any additional options".to_string())
+        bail!("TextOutputBuilder doesn't support any additional options")
     }
 }

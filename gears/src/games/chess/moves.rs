@@ -1,3 +1,4 @@
+use anyhow::{anyhow, bail};
 use colored::Colorize;
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -124,10 +125,10 @@ impl ChessMove {
         if flags <= 12 {
             Ok(self.flags())
         } else {
-            Err(format!(
+            bail!(
                 "Invalid flags {flags}, which means this move is never valid \
             and most likely the result of interpreting corrupt data as a chess move"
-            ))
+            )
         }
     }
 
@@ -247,14 +248,14 @@ impl Move<Chessboard> for ChessMove {
     fn from_compact_text(s: &str, board: &Chessboard) -> Res<Self> {
         let s = s.trim();
         if s.is_empty() {
-            return Err("Empty input".to_string());
+            bail!("Empty input");
         }
         // Need to check this before creating slices because splitting unicode character panics.
         if !s.is_ascii() {
-            return Err(format!("Move '{}' contains a non-ASCII character", s.red()));
+            bail!("Move '{}' contains a non-ASCII character", s.red());
         }
         if s.len() < 4 {
-            return Err(format!("Move too short: '{s}'. Must be <from square><to square>, e.g. e2e4, and possibly a promotion piece."));
+            bail!("Move too short: '{s}'. Must be <from square><to square>, e.g. e2e4, and possibly a promotion piece.");
         }
         let from = ChessSquare::from_str(&s[..2])?;
         let mut to = ChessSquare::from_str(&s[2..4])?;
@@ -267,7 +268,7 @@ impl Move<Chessboard> for ChessMove {
                 'b' => flags = PromoBishop,
                 'r' => flags = PromoRook,
                 'q' => flags = PromoQueen,
-                _ => return Err(format!("Invalid character after to square: '{promo}'")),
+                _ => bail!("Invalid character after to square: '{promo}'"),
             }
         } else if piece.uncolored() == King {
             let rook_capture = board.colored_piece_on(to).symbol
@@ -279,7 +280,7 @@ impl Move<Chessboard> for ChessMove {
                     let to_file = match to.file() {
                         C_FILE_NO => board.castling.rook_start_file(color, Queenside),
                         G_FILE_NO => board.castling.rook_start_file(color, Kingside),
-                        _ => return Err(format!("Invalid king move to square {to}, which is neither a normal king move nor a castling move"))
+                        _ => bail!("Invalid king move to square {to}, which is neither a normal king move nor a castling move")
                     };
                     to = ChessSquare::from_rank_file(to.rank(), to_file);
                 }
@@ -383,10 +384,7 @@ impl Move<Chessboard> for ChessMove {
     fn from_extended_text(s: &str, board: &Chessboard) -> Res<Self> {
         let res = MoveParser::parse(s, board)?;
         if !res.1.is_empty() {
-            return Err(format!(
-                "Additional input after move {0}: '{1}'",
-                res.0, res.1
-            ));
+            bail!("Additional input after move {0}: '{1}'", res.0, res.1);
         }
         Ok(res.0)
     }
@@ -613,10 +611,10 @@ impl<'a> MoveParser<'a> {
             parser.check_check_checkmate_captures_and_ep(mov, board)?;
             if !board.is_move_pseudolegal(mov) {
                 // can't use `to_extended_text` because that requires pseudolegal moves.
-                return Err(format!(
+                bail!(
                     "Castling move '{}' is not pseudolegal in the current position",
                     mov.to_string().red()
-                ));
+                );
             }
             return Ok((mov, parser.remaining()));
         }
@@ -718,9 +716,9 @@ impl<'a> MoveParser<'a> {
         // to a bishop on the 4th rank capturing on e5 while there's another bishop on the same file but different rank that could also capture on e5.
         // To handle this, 'b' is assumed to never refer to a bishop (but `B`, '🨃', '♗' and '♝' always refer to bishops).
         // The same is true for 'D' in German notation.
-        let current = self
-            .current_char()
-            .ok_or_else(|| "Empty move".to_string())?;
+        let Some(current) = self.current_char() else {
+            bail!("Empty move");
+        };
         match current {
             'a'..='h' | 'A' | 'C' | 'E'..='H' | 'x' | ':' | '×' => (),
             _ => {
@@ -728,7 +726,7 @@ impl<'a> MoveParser<'a> {
                     .map(ColoredChessPieceType::uncolor)
                     .or_else(|| ChessPieceType::from_utf8_char(current))
                     .ok_or_else(|| {
-                        format!("The move starts with '{current}', which is not a piece or file")
+                        anyhow!("The move starts with '{current}', which is not a piece or file")
                     })?;
                 self.advance_char();
             }
@@ -742,7 +740,7 @@ impl<'a> MoveParser<'a> {
             Some(c) => {
                 if matches!(c, 'x' | ':' | '×') {
                     if self.is_capture {
-                        return Err("Multiple capture symbols".to_string());
+                        bail!("Multiple capture symbols");
                     }
                     self.is_capture = true;
                     self.advance_char();
@@ -753,13 +751,13 @@ impl<'a> MoveParser<'a> {
     }
 
     fn parse_square_rank_or_file(&mut self) -> Res<()> {
-        let file = self
-            .current_char()
-            .ok_or_else(|| format!("Move '{}' is too short", self.consumed().red()))?;
+        let Some(file) = self.current_char() else {
+            bail!("Move '{}' is too short", self.consumed().red())
+        };
         self.advance_char();
-        let rank = self
-            .current_char()
-            .ok_or_else(|| format!("Move '{}' is too short", self.consumed().red()))?;
+        let Some(rank) = self.current_char() else {
+            bail!("Move '{}' is too short", self.consumed().red())
+        };
         match ChessSquare::from_chars(file, rank) {
             Ok(sq) => {
                 self.advance_char();
@@ -771,11 +769,11 @@ impl<'a> MoveParser<'a> {
                 '1'..='8' => self.start_rank = Some(file as DimT - b'1'),
                 x => {
                     // doesn't reset the current char, but that's fine because we're aborting anyway
-                    return Err(if self.piece == Empty && !self.is_capture {
-                        format!("A move must start with a valid file, rank or piece, but '{}' is neither", x.to_string().red())
+                    if self.piece == Empty && !self.is_capture {
+                        bail!("A move must start with a valid file, rank or piece, but '{}' is neither", x.to_string().red())
                     } else {
-                        format!("'{}' is not a valid file or rank", x.to_string().red())
-                    });
+                        bail!("'{}' is not a valid file or rank", x.to_string().red())
+                    }
                 }
             },
         }
@@ -840,7 +838,7 @@ impl<'a> MoveParser<'a> {
             self.promotion = piece.unwrap();
             self.advance_char();
         } else if !allow_fail {
-            return Err("Missing promotion piece after '='".to_string());
+            bail!("Missing promotion piece after '='");
         }
         Ok(())
     }
@@ -904,16 +902,16 @@ impl<'a> MoveParser<'a> {
         }
 
         if self.target_file.is_none() {
-            return Err(format!(
+            bail!(
                 "Missing the file of the target square in move '{}'",
                 self.consumed()
-            ));
+            );
         }
         if self.piece != Pawn && self.target_rank.is_none() {
-            return Err(format!(
+            bail!(
                 "Missing the rank of the target square in move '{}'",
                 self.consumed()
-            ));
+            );
         }
 
         let mut moves = board.pseudolegal_moves().into_iter().filter(|mov| {
@@ -956,7 +954,7 @@ impl<'a> MoveParser<'a> {
                 } else if board.is_in_check() {
                     additional = format!(" ({} is in check)", board.active_player);
                 }
-                return Err(format!(
+                bail!(
                     "There is no legal {0} {1} move from {2} to {3}, so the move '{4}' is invalid{5}",
                     board.active_player,
                     self.piece.name(),
@@ -964,16 +962,16 @@ impl<'a> MoveParser<'a> {
                     f(self.target_file, self.target_rank),
                     self.consumed(),
                     additional
-                ));
+                );
             }
             Some(mov) => {
                 if let Some(other) = moves.next() {
-                    return Err(format!(
+                    bail!(
                         "Move '{0}' is ambiguous, because it could refer to {1} or {2}",
                         self.consumed(),
                         mov.to_extended_text(board),
                         other.to_extended_text(board)
-                    ));
+                    );
                 }
                 mov
             }
@@ -1005,11 +1003,11 @@ impl<'a> MoveParser<'a> {
             } else {
                 "captures en passant"
             };
-            return Err(format!(
+            bail!(
                 "The move notation '{0}' claims that it {typ}, but the move {1} actually doesn't",
                 self.consumed(),
                 mov.to_extended_text(board)
-            ));
+            );
         }
         Ok(())
     }

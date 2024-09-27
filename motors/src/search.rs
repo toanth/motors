@@ -21,6 +21,7 @@ use rand::SeedableRng;
 use strum_macros::FromRepr;
 
 use crate::eval::Eval;
+use gears::general::common::anyhow::bail;
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
 use gears::general::move_list::MoveList;
 use gears::output::Message;
@@ -402,12 +403,12 @@ pub trait AbstractEngine<B: Board>: StaticallyNamedEntity + Benchable<B> {
         old_value: &mut EngineOptionType,
         value: String,
     ) -> Res<()> {
-        Err(format!(
+        bail!(
             "The searcher '{name}' doesn't support setting custom options, including setting '{option}' to '{value}' \
             (Note: Some options, like 'Hash' and 'Threads', may still be supported but aren't handled by the searcher). \
             The current value of this option is '{old_value}.",
             name = self.long_name()
-        ))
+        )
     }
 
     fn print_spsa_params(&self) {

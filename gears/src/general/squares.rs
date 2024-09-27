@@ -1,3 +1,4 @@
+use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use std::cmp::max;
@@ -79,16 +80,18 @@ impl RectangularCoordinates for GridCoordinates {
 }
 
 impl FromStr for GridCoordinates {
-    type Err = String;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut s = s.trim().chars();
 
-        let file = s.next().ok_or("Empty input")?;
+        let Some(file) = s.next() else {
+            bail!("Empty input")
+        };
         let mut words = s.as_str().split_whitespace().peekable();
         let rank: usize = parse_int(&mut words, "rank (row)")?;
         if words.count() > 0 {
-            return Err("too many words".to_string());
+            bail!("too many words".to_string());
         }
         Self::algebraic_coordinate(file, rank)
     }
@@ -118,13 +121,13 @@ impl Display for GridCoordinates {
 impl GridCoordinates {
     pub fn algebraic_coordinate(file: char, rank: usize) -> Res<Self> {
         if !file.is_ascii_alphabetic() {
-            return Err(format!(
+            bail!(
                 "file (column) '{}' must be a valid ascii letter",
                 file.to_string().red()
-            ));
+            );
         }
         let column = char_to_file(file.to_ascii_lowercase());
-        let rank = DimT::try_from(rank).map_err(|err| err.to_string())?;
+        let rank = DimT::try_from(rank)?;
         Ok(GridCoordinates {
             column,
             row: rank.wrapping_sub(1),
@@ -284,7 +287,7 @@ pub struct SmallGridSquare<const H: usize, const W: usize, const INTERNAL_WIDTH:
 impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> FromStr
     for SmallGridSquare<H, W, INTERNAL_WIDTH>
 {
-    type Err = String;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         GridCoordinates::from_str(s)
@@ -332,7 +335,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
             file,
             // + 1 because the rank number uses 1-based indices
             rank.to_digit(H as u32 + 1).ok_or_else(|| {
-                format!("the rank is '{rank}', which does not represent a number between 1 and {H} (the height)")
+                anyhow!("the rank is '{rank}', which does not represent a number between 1 and {H} (the height)")
             })? as usize,
         )
         .and_then(|c| GridSize::new(Height(H as DimT), Width(W as DimT)).check_coordinates(c))

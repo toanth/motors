@@ -1,3 +1,4 @@
+use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
 use std::fmt::{Display, Formatter};
 use std::iter::Peekable;
@@ -188,7 +189,7 @@ impl Board for Chessboard {
         .map(|f| (f.val)())
         .or_else(|err| {
             Self::parse_numbered_startpos(name)
-                .map_err(|err2| format!("{err} It's also not a (D)FRC startpos [{err2}]."))
+                .map_err(|err2| anyhow!("{err} It's also not a (D)FRC startpos [{err2}]."))
         })
     }
 
@@ -516,15 +517,15 @@ impl Board for Chessboard {
         let mut board = Chessboard::empty();
         board = read_common_fen_part::<Chessboard>(words, board)?;
         let color = board.0.active_player();
-        let castling_word = words
-            .next()
-            .ok_or_else(|| "FEN ends after color to move, missing castling rights".to_string())?;
+        let Some(castling_word) = words.next() else {
+            bail!("FEN ends after color to move, missing castling rights")
+        };
         let castling_rights =
             CastlingFlags::default().parse_castling_rights(castling_word, &board.0)?;
 
-        let ep_square = words.next().ok_or_else(|| {
-            "FEN ends after castling rights, missing en passant square".to_string()
-        })?;
+        let Some(ep_square) = words.next() else {
+            bail!("FEN ends after castling rights, missing en passant square")
+        };
         let ep_square = if ep_square == "-" {
             None
         } else {
@@ -546,13 +547,13 @@ impl Board for Chessboard {
         // the halfmove clock fails -- but don't do this for the fullmove number.
         if let Ok(halfmove_clock) = halfmove_clock.parse::<usize>() {
             board = board.set_halfmove_repetition_clock(halfmove_clock);
-            let fullmove_number = words.next().ok_or_else(|| {
-                format!(
+            let Some(fullmove_number) = words.next() else {
+                bail!(
                     "The FEN contains a valid halfmove clock ('{halfmove_clock}') but no fullmove counter",
                 )
-            })?;
+            };
             let fullmove_number = fullmove_number.parse::<NonZeroUsize>().map_err(|err| {
-                format!(
+                anyhow!(
                     "Couldn't parse fullmove counter '{}': {err}",
                     fullmove_number.red()
                 )
@@ -607,21 +608,6 @@ impl Chessboard {
     pub fn colored_piece_bb(&self, color: ChessColor, piece: ChessPieceType) -> ChessBitboard {
         self.colored_bb(color) & self.piece_bb(piece)
     }
-
-    // fn try_place_piece(&mut self, square: ChessSquare, piece: ColoredChessPieceType) -> Res<()> {
-    //     let idx = square.bb_idx();
-    //     if idx >= NUM_SQUARES {
-    //         return Err(format!("Coordinates {square} are outside the chess board"));
-    //     }
-    //     if self.is_occupied(square) {
-    //         return Err(format!("Square {square} is occupied"));
-    //     }
-    //     if piece == ColoredChessPieceType::Empty {
-    //         return Err("Can't place the empty piece".to_string());
-    //     }
-    //     self.place_piece(square, piece);
-    //     Ok(())
-    // }
 
     fn remove_piece_unchecked(
         &mut self,
@@ -719,7 +705,7 @@ impl Chessboard {
         mut board: UnverifiedChessboard,
     ) -> Res<UnverifiedChessboard> {
         if num >= 960 {
-            return Err(format!("There are only 960 starting positions in chess960 (0 to 959), so position {num} doesn't exist"));
+            bail!("There are only 960 starting positions in chess960 (0 to 959), so position {num} doesn't exist");
         }
         assert!(board.0.colored_bb(color).is_zero());
         assert_eq!((board.0.occupied_bb().raw() & 0xffff), 0);
@@ -824,8 +810,8 @@ impl Chessboard {
                     .and_then(|num: usize| Self::dfrc_startpos_from_single_num(num));
             }
         }
-        Err(format!("(D)FRC positions must be of the format {0} or {1}, with N < 960 and M < 921600, e.g. frc123",
-            "frc<N>".bold(), "dfrc<M>".bold()))
+        bail!("(D)FRC positions must be of the format {0} or {1}, with N < 960 and M < 921600, e.g. frc123",
+            "frc<N>".bold(), "dfrc<M>".bold())
     }
 }
 
@@ -850,15 +836,13 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         let mut this = self.0;
         for color in ChessColor::iter() {
             if !this.colored_piece_bb(color, King).is_single_piece() {
-                return Err(format!("The {color} player does not have exactly one king"));
+                bail!("The {color} player does not have exactly one king")
             }
             if (this.colored_piece_bb(color, Pawn)
                 & (ChessBitboard::rank_no(0) | ChessBitboard::rank_no(7)))
             .has_set_bit()
             {
-                return Err(format!(
-                    "The {color} player has a pawn on the first or eight rank"
-                ));
+                bail!("The {color} player has a pawn on the first or eight rank");
             }
         }
 
@@ -868,14 +852,14 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                     & this.colored_piece_bb(color, Rook))
                 .has_set_bit();
                 if this.castling.can_castle(color, side) && !has_eligible_rook {
-                    return Err(format!(
+                    bail!(
                         "Color {color} can castle {side}, but there is no rook to castle{}",
                         if checks == CheckFen {
                             " (invalid castling flag in FEN?)"
                         } else {
                             ""
                         }
-                    ));
+                    );
                 }
             }
         }
@@ -883,15 +867,15 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
 
         if let Some(ep_square) = this.ep_square {
             if ![2, 5].contains(&ep_square.rank()) {
-                return Err(format!(
+                bail!(
                     "FEN specifies invalid ep square (not on the third or sixth rank): '{ep_square}'"
-                ));
+                );
             }
             let remove_pawn_square = ep_square.pawn_advance_unchecked(inactive_player);
             if this.colored_piece_on(remove_pawn_square).symbol
                 != ColoredChessPieceType::new(inactive_player, Pawn)
             {
-                return Err(format!("FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}"));
+                bail!("FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}");
             }
             let active = this.active_player();
             // In the current version of the FEN standard, the ep square should only be set if a pawn can capture.
@@ -902,26 +886,24 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 let possible_ep_pawns =
                     remove_pawn_square.bb().west() | remove_pawn_square.bb().east();
                 if (possible_ep_pawns & this.colored_piece_bb(active, Pawn)).is_zero() {
-                    return Err(format!("The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square"))   ;
+                    bail!("The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square");
                 }
             }
         }
 
         if this.is_in_check_on_square(inactive_player, this.king_square(inactive_player)) {
-            return Err(format!(
-                "Player {inactive_player} is in check, but it's not their turn to move"
-            ));
+            bail!("Player {inactive_player} is in check, but it's not their turn to move");
         }
         // we allow loading FENs where more than one piece gives check to the king in a way that could not have been reached
         // from startpos, e.g. "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1"
         if this.ply_100_ctr >= 100 {
-            return Err(format!(
+            bail!(
                 "The 50 move rule has been exceeded (there have already been {0} plies played)",
                 this.ply_100_ctr
-            ));
+            );
         }
         if this.ply >= 100_000 {
-            return Err(format!("Ridiculously large ply counter: {0}", this.ply));
+            bail!("Ridiculously large ply counter: {0}", this.ply);
         }
 
         for piece in ColoredChessPieceType::pieces() {
@@ -930,11 +912,11 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             if bb.num_ones() > 20 {
                 // Catch this now to prevent crashes down the line because the move list is too small for made-up invalid positions.
                 // (This is lax enough to allow many invalid positions that likely won't lead to a crash)
-                return Err(format!(
+                bail!(
                     "There are {0} {color} {piece}s in this position. There can never be more than 10 pieces \
                     of the same type in a legal chess position (but this implementation accepts up to 20)",
                     bb.num_ones()
-                ));
+                );
             }
             if checks != CheckFen {
                 for other_piece in ColoredChessPieceType::pieces() {
@@ -946,9 +928,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                             .colored_piece_bb(other_piece.color().unwrap(), other_piece.uncolor()))
                     .has_set_bit()
                     {
-                        return Err(format!(
-                            "There are two pieces on the same square: {piece} and {other_piece}"
-                        ));
+                        bail!("There are two pieces on the same square: {piece} and {other_piece}");
                     }
                 }
             }

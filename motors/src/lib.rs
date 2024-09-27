@@ -13,6 +13,7 @@ use gears::games::mnk::MNKBoard;
 use gears::games::uttt::UtttBoard;
 use gears::games::OutputList;
 use gears::general::board::Board;
+use gears::general::common::anyhow::anyhow;
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{select_name_dyn, Res};
 use gears::general::perft::perft;
@@ -345,10 +346,10 @@ pub fn create_match(args: EngineOpts) -> Res<AnyRunnable> {
 
 pub fn run_program_with_args(args: ArgIter) -> Res<()> {
     let args =
-        parse_cli(args).map_err(|err| format!("Failed to parse command line arguments: {err}"))?;
+        parse_cli(args).map_err(|err| anyhow!("Failed to parse command line arguments: {err}"))?;
     let mode = args.mode;
     let mut the_match =
-        create_match(args).map_err(|err| format!("Couldn't start the {mode}: {err}"))?;
+        create_match(args).map_err(|err| anyhow!("Couldn't start the {mode}: {err}"))?;
     _ = the_match.run();
     Ok(())
 }

@@ -7,6 +7,7 @@ use colored::Colorize;
 use derive_more::Display;
 use gears::games::Color;
 use gears::general::board::Board;
+use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{parse_fp_from_str, Res};
 use rayon::iter::ParallelIterator;
 use rayon::prelude::ParallelBridge;
@@ -97,7 +98,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
     fn parse_wdl(input: &mut Peekable<SplitWhitespace>) -> Res<Outcome> {
         const IGNORED: [char; 10] = ['\"', '\'', '[', ']', '(', ')', '{', '}', ' ', '\t'];
         // This would be a great time to use the `.remainder()` method, but that isn't stable :/
-        let wdl = input.next().ok_or_else(|| "Missing wdl".to_string())?;
+        let wdl = input.next().ok_or_else(|| anyhow!("Missing wdl"))?;
         let wdl = wdl.trim_matches(&IGNORED);
         for (key, value) in WDL_MAP {
             if wdl.starts_with(key) {
@@ -107,7 +108,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         if let Ok(parsed) = parse_fp_from_str(wdl, "wdl") {
             return Ok(Outcome::new(parsed));
         }
-        Err(format!("'{}' is not a valid wdl", wdl.red()))
+        bail!("'{}' is not a valid wdl", wdl.red())
     }
 
     fn read_annotated_fen(
@@ -138,7 +139,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         dataset: &mut Dataset<E::D>,
     ) -> Res<()> {
         let parse_res = Self::read_annotated_fen(input, perspective, weight).map_err(|err| {
-            format!(
+            anyhow!(
                 "Error in line {0}: Couldn't parse FEN '{1}': {err}",
                 line_num + 1,
                 input.bold()
@@ -171,7 +172,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
     /// Fails if there is any invalid FEN in the dataset.
     pub fn load_from_file(input_file: &AnnotatedFenFile) -> Res<Dataset<E::D>> {
         let file = File::open(Path::new(&input_file.path))
-            .map_err(|err| format!("Could not open file '{}': {err}", input_file.path))?;
+            .map_err(|err| anyhow!("Could not open file '{}': {err}", input_file.path))?;
         let file = BufReader::new(file);
         let perspective = input_file.perspective;
         let weight = input_file.weight.unwrap_or(1.0);
@@ -186,7 +187,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
             .enumerate()
             .par_bridge()
             .try_fold(id, |(mut dataset, num_lines_so_far), (line_num, line)| {
-                let line = line.map_err(|err| format!("Failed to read line {line_num}: {err}"))?;
+                let line = line.map_err(|err| anyhow!("Failed to read line {line_num}: {err}"))?;
                 Self::load_datapoint_from_annotated_fen(
                     &line,
                     line_num,

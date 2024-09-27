@@ -6,6 +6,7 @@ use crate::games::{AbstractPieceType, ColoredPieceType, Coordinates, DimT, Piece
 use crate::general::common::Res;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
+use anyhow::bail;
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use std::fmt;
@@ -203,19 +204,17 @@ impl Move<AtaxxBoard> for AtaxxMove {
     fn from_compact_text(s: &str, _board: &AtaxxBoard) -> Res<AtaxxMove> {
         let s = s.trim();
         if s.is_empty() {
-            return Err("Empty input".to_string());
+            bail!("Empty input");
         }
         if s == "0000" {
             return Ok(Self::default());
         }
         // Need to check this before creating slices because splitting unicode character panics.
         if !s.is_ascii() {
-            return Err(format!("Move '{}' contains a non-ASCII character", s.red()));
+            bail!("Move '{}' contains a non-ASCII character", s.red());
         }
         if s.len() != 2 && s.len() != 4 {
-            return Err(format!(
-                "Incorrect move length: '{s}'. Must contain exactly one or two squares"
-            ));
+            bail!("Incorrect move length: '{s}'. Must contain exactly one or two squares");
         }
         let mut from_square = AtaxxSquare::no_coordinates();
         let mut to_square = AtaxxSquare::from_str(&s[0..2])?;

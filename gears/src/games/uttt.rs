@@ -42,6 +42,7 @@ use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
 use crate::general::squares::{RectangularCoordinates, SmallGridSize, SmallGridSquare};
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
+use anyhow::bail;
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use itertools::Itertools;
@@ -292,9 +293,7 @@ impl Move<UtttBoard> for UtttMove {
         }
         let square = UtttSquare::from_str(s)?;
         if !board.is_open(square) {
-            return Err(format!(
-                "Square {square} is not empty, so this move is invalid"
-            ));
+            bail!("Square {square} is not empty, so this move is invalid");
         }
         Ok(Self(square))
     }
@@ -513,9 +512,9 @@ impl UtttBoard {
         if fen.len() != Self::NUM_SQUARES
             || fen.contains(|c: char| ![' ', 'x', 'o', 'X', 'O'].contains(&c))
         {
-            return Err(format!(
+            bail!(
                 "Incorrect alternative UTTT FEN '{}', must consist of exactly 81 chars, all of which must be ' ', 'x', 'o', 'X', or 'O'",fen.red()
-            ));
+            );
         }
         let mut board = UnverifiedUtttBoard::new(Self::empty());
         for (idx, c) in fen.chars().enumerate() {
@@ -530,7 +529,7 @@ impl UtttBoard {
                 board.0.active = UtttColor::from_char(c).unwrap().other();
                 let mov = board.last_move_mut();
                 if *mov != UtttMove::NULL {
-                    return Err(format!("Upper case pieces are used for the last move, but there is more than one upper case letter in '{}'", fen.red()));
+                    bail!("Upper case pieces are used for the last move, but there is more than one upper case letter in '{}'", fen.red());
                 }
                 *mov = UtttMove::new(square);
             }
@@ -814,9 +813,9 @@ impl Board for UtttBoard {
         let mut pos = read_common_fen_part::<UtttBoard>(input, pos.into())?;
 
         pos.0.ply_since_start = parse_int(input, "ply number")?;
-        let last_move = input.next().ok_or_else(|| {
-            "Ultimate Tic-Tac-Toe FEN ends after ply counter, missing the last move".to_string()
-        })?;
+        let Some(last_move) = input.next() else {
+            bail!("Ultimate Tic-Tac-Toe FEN ends after ply counter, missing the last move")
+        };
         // Use an empty board for parsing the last move instead of the current board because that would complain about the last
         // move being invalid because the square is already occupied.
         let last_move = UtttMove::from_compact_text(last_move, &Self::default())?;
@@ -851,25 +850,23 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
             for color in UtttColor::iter() {
                 let bb = this.colors_internal[color as usize];
                 if (bb >> (81 + 9)).has_set_bit() {
-                    return Err(format!("The {color} bitboard contains a set bit above the range of used bits, the bitboard is {bb}"));
+                    bail!("The {color} bitboard contains a set bit above the range of used bits, the bitboard is {bb}");
                 }
             }
             if (this.colors_internal[0] & this.colors_internal[1]).has_set_bit() {
-                return Err(format!("At least one square is occupied by both players, the bitboards are {0} and {1}", this.colors_internal[0], this.colors_internal[1]));
+                bail!("At least one square is occupied by both players, the bitboards are {0} and {1}", this.colors_internal[0], this.colors_internal[1]);
             }
         }
         if this.last_move != UtttMove::NULL {
             let sq = this.last_move.dest_square();
             match this.colored_piece_on(sq).color() {
                 None => {
-                    return Err(format!(
-                        "The square '{sq}', on which the last move has been played, is empty"
-                    ))
+                    bail!("The square '{sq}', on which the last move has been played, is empty")
                 }
                 Some(col) => {
                     if col == this.active {
-                        return Err(format!("The square '{sq}', on which the last move has been played, is occupied by the {} player, \
-                        which is not the player active in the previous ply", this.active));
+                        bail!("The square '{sq}', on which the last move has been played, is occupied by the {} player, \
+                        which is not the player active in the previous ply", this.active);
                     }
                 }
             }
@@ -877,11 +874,11 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
         // Allow starting positions with squares already filled out, so the ply and the number of nonempty squares don't have to match.
         // But the ply number still has to be at most the number of nonempty squares
         if this.ply_since_start > this.occupied_bb().num_ones() {
-            return Err(format!(
+            bail!(
                 "The ply number is '{0}', but only {1} pieces have been placed so far",
                 this.ply_since_start,
                 this.occupied_bb().num_ones()
-            ));
+            );
         }
         this.open = UtttBoard::board_bb(!this.occupied_bb());
         for color in UtttColor::iter() {
@@ -897,10 +894,10 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
         }
         let mut won_by_both = this.won_sub_boards(O) & this.won_sub_boards(X);
         if won_by_both.has_set_bit() {
-            return Err(format!(
+            bail!(
                 "Sub board {0} has been won by both players",
                 UtttSubSquare::from_bb_index(won_by_both.pop_lsb())
-            ));
+            );
         }
         for color in UtttColor::iter() {
             let won_sub_boards = this.won_sub_boards(color);
@@ -912,7 +909,7 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
                         sq.sub_square(),
                     )
                 {
-                    return Err(format!("The game is won for player {color}, but their last move (at {sq}) didn't win the game"));
+                    bail!("The game is won for player {color}, but their last move (at {sq}) didn't win the game");
                 }
             }
         }
