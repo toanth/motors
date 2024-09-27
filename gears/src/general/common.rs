@@ -278,34 +278,49 @@ fn select_name_impl<
     F: Fn(&I::Item) -> String,
     G: Fn(&I::Item, &str) -> bool,
 >(
-    name: &str,
+    mut name: Option<&str>,
     mut list: I,
     typ: &str,
     game_name: &str,
     to_name: F,
     compare: G,
 ) -> Res<I::Item> {
-    let idx = list.clone().find(|entity| compare(entity, name));
+    if let Some("list") = name {
+        name = None;
+    }
+    let idx = match name {
+        None => None,
+        Some(name) => list.clone().find(|entity| compare(entity, name)),
+    };
     match idx {
         None => {
             let list_as_string = match list.len() {
                 0 => format!("There are no valid {typ} names (presumably your program version was built with those features disabled)"),
                 1 => format!("The only valid {typ} for this version of the program is {}", to_name(&list.next().unwrap())),
                 _ => {
-                    let near_matches = list.clone().filter(|x|
-                        edit_distance(&to_name(x).to_ascii_lowercase(), &format!("'{}'", name.to_ascii_lowercase().bold())) <= 3
-                    ).collect_vec();
-                    if near_matches.is_empty() {
-                        format!("Valid {typ} names are {}", list_to_string(list, to_name))
-                    } else {
-                        format!("Perhaps you meant: {}", list_to_string(near_matches.iter(), |x| to_name(x)))
+                    match name {
+                        None => { format!("Valid {typ} names are {}", list_to_string(list, to_name)) }
+                        Some(name) => {
+                            let near_matches = list.clone().filter(|x|
+                                edit_distance(&to_name(x).to_ascii_lowercase(), &format!("'{}'", name.to_ascii_lowercase().bold())) <= 3
+                            ).collect_vec();
+                            if near_matches.is_empty() {
+                                format!("Valid {typ} names are {}", list_to_string(list, to_name))
+                            } else {
+                                format!("Perhaps you meant: {}", list_to_string(near_matches.iter(), |x| to_name(x)))
+                            }
+                        }
                     }
                 }
             };
             let game_name = game_name.bold();
-            let name = name.red();
-            Err(format!(
-                "Couldn't find {typ} '{name}' for the current game ({game_name}). {list_as_string}."))
+            if let Some(name) = name {
+                let name = name.red();
+                Err(format!(
+                    "Couldn't find {typ} '{name}' for the current game ({game_name}). {list_as_string}."))
+            } else {
+                Err(list_as_string)
+            }
         }
         Some(res) => Ok(res),
     }
@@ -336,7 +351,7 @@ pub fn select_name_dyn<'a, T: NamedEntity + ?Sized>(
     descr: Description,
 ) -> Res<&'a T> {
     select_name_impl(
-        name,
+        Some(name),
         list.iter(),
         typ,
         game_name,
@@ -346,9 +361,10 @@ pub fn select_name_dyn<'a, T: NamedEntity + ?Sized>(
     .map(|val| &**val)
 }
 
-/// There's probably a way to avoid having the exact same 1 line implementation for `select_name_static` and `select_name_dyn`
-/// (the only difference is that `select_name_dyn` uses `Box<dyn T>` instead of `T` for the element type,
-/// and `Box<dyn T>` doesn't satisfy `NamedEntity`, even though it's possible to call all the trait methods on it.)
+// There's probably a way to avoid having the exact same 1 line implementation for `select_name_static` and `select_name_dyn`
+// (the only difference is that `select_name_dyn` uses `Box<dyn T>` instead of `T` for the element type,
+// and `Box<dyn T>` doesn't satisfy `NamedEntity`, even though it's possible to call all the trait methods on it.)
+/// Selects a NamedEntity based on its name from a supplied list and prints a helpful error message if the name doesn't exist.
 pub fn select_name_static<'a, T: NamedEntity, I: ExactSizeIterator<Item = &'a T> + Clone>(
     name: &str,
     list: I,
@@ -357,7 +373,7 @@ pub fn select_name_static<'a, T: NamedEntity, I: ExactSizeIterator<Item = &'a T>
     descr: Description,
 ) -> Res<&'a T> {
     select_name_impl(
-        name,
+        Some(name),
         list,
         typ,
         game_name,

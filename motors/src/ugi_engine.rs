@@ -513,6 +513,20 @@ impl<B: Board> EngineUGI<B> {
             }
             "eval" | "e" => self.handle_eval_or_tt(true, words)?,
             "tt" | "tt-entry" => self.handle_eval_or_tt(false, words)?,
+            "list" => {
+                // TODO: Use thiserror and anyhow, detect errors from non-matching name and print them directly instead of
+                // actually returning an error. Detect invalid commands after 'list'.
+                // long term, create a `Command` struct and replace the match with a select_name call?
+                let Some(next) = words.next() else {
+                    return Err(format!("Expected a word after '{}'", "list".bold()));
+                };
+                if next.eq_ignore_ascii_case("list") {
+                    return Err(format!("'{}' is not a valid command; write something other than 'list' after 'list'", "list list".red()));
+                }
+                let mut rearranged = next.to_string() + " list ";
+                rearranged += &words.intersperse_(" ").collect::<String>();
+                self.parse_input(rearranged.split_whitespace().peekable())?;
+            }
             "help" => self.print_help(),
             x => {
                 // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
