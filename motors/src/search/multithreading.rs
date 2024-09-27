@@ -75,11 +75,17 @@ pub struct MainThreadData<B: Board> {
 }
 
 impl<B: Board> MainThreadData<B> {
-    pub fn new_search(&mut self, ponder: bool, limit: &SearchLimit) {
+    pub fn new_search(&mut self, ponder: bool, limit: &SearchLimit) -> Res<()> {
+        if self.atomic_search_data[0].currently_searching() {
+            return Err(
+                format!("Cannot start a new search with limit '{limit}' because the engine is already searching"),
+            );
+        }
         self.search_type = SearchType::new(ponder, limit);
         for data in &mut self.atomic_search_data {
             data.reset();
         }
+        Ok(())
     }
 }
 
@@ -407,7 +413,7 @@ impl<B: Board> EngineWrapper<B> {
         multi_pv: usize,
         ponder: bool,
     ) -> Res<()> {
-        self.main_thread_data.new_search(ponder, &limit); // resets the atomic search state
+        self.main_thread_data.new_search(ponder, &limit)?; // resets the atomic search state
         let thread_data = self.main_thread_data.clone();
         let params = SearchParams::create(
             pos,
