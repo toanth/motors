@@ -21,9 +21,8 @@ use gears::output::normal_outputs;
 use gears::search::{Depth, SearchLimit};
 use gears::Quitting::*;
 use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs, Quitting};
+use std::fmt::{Display, Formatter};
 
-use crate::cli::Mode::{Bench, Perft};
-use crate::cli::{parse_cli, EngineOpts, Mode};
 use crate::eval::ataxx::bate::Bate;
 use crate::eval::chess::lite::LiTEval;
 use crate::eval::chess::material_only::MaterialOnlyEval;
@@ -33,6 +32,9 @@ use crate::eval::chess::piston::PistonEval;
 use crate::eval::mnk::base::BasicMnkEval;
 use crate::eval::rand_eval::RandEval;
 use crate::eval::uttt::lute::Lute;
+use crate::io::cli::{parse_cli, EngineOpts};
+use crate::io::ugi_engine::EngineUGI;
+use crate::io::ugi_output::UgiOutput;
 #[cfg(feature = "caps")]
 use crate::search::chess::caps::Caps;
 #[cfg(feature = "gaps")]
@@ -45,12 +47,29 @@ use crate::search::{
     run_bench_with, AbstractEvalBuilder, AbstractSearcherBuilder, Benchable, EvalBuilder, EvalList,
     SearcherBuilder, SearcherList,
 };
-use crate::ugi_engine::{EngineUGI, UgiOutput};
+use crate::Mode::*;
 
-pub mod cli;
 pub mod eval;
+pub mod io;
 pub mod search;
-pub mod ugi_engine;
+
+#[derive(Debug, Default, Copy, Clone)]
+pub enum Mode {
+    #[default]
+    Engine,
+    Bench(Option<Depth>, bool),
+    Perft(Option<Depth>),
+}
+
+impl Display for Mode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Engine => write!(f, "engine"),
+            Bench(_, _) => write!(f, "bench"),
+            Perft(_) => write!(f, "perft"),
+        }
+    }
+}
 
 #[derive(Debug)]
 struct BenchRun<B: Board> {

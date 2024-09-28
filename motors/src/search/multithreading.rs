@@ -11,6 +11,7 @@ use gears::general::board::Board;
 use portable_atomic::AtomicUsize;
 
 use crate::eval::Eval;
+use crate::io::ugi_output::UgiOutput;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{parse_int_from_str, Res};
 use gears::general::moves::Move;
@@ -27,7 +28,6 @@ use crate::search::tt::TT;
 use crate::search::{
     AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EngineInfo, SearchParams, SearchState,
 };
-use crate::ugi_engine::UgiOutput;
 
 pub type Sender<T> = crossbeam_channel::Sender<T>;
 pub type Receiver<T> = crossbeam_channel::Receiver<T>;

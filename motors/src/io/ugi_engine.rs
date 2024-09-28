@@ -1,5 +1,23 @@
+/*
+ *  Motors, a collection of board game engines.
+ *  Copyright (C) 2024 ToTheAnd
+ *
+ *  Motors is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  Motors is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 use std::fmt::{Debug, Display, Formatter, Write};
-use std::io::{stdin, stdout};
+use std::io::stdin;
 use std::iter::Peekable;
 use std::ops::{Deref, DerefMut};
 use std::str::{FromStr, SplitWhitespace};
@@ -23,7 +41,7 @@ use gears::general::moves::Move;
 use gears::general::perft::{perft, perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
-use gears::output::{Message, OutputBox, OutputBuilder};
+use gears::output::{Message, OutputBuilder};
 use gears::search::{Depth, NodesLimit, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
@@ -34,12 +52,14 @@ use gears::MatchStatus::*;
 use gears::Quitting::{QuitMatch, QuitProgram};
 use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchStatus, Quitting};
 
-use crate::cli::EngineOpts;
+use crate::io::cli::EngineOpts;
+use crate::io::ugi_engine::ProgramStatus::{Quit, Run};
+use crate::io::ugi_engine::Protocol::Interactive;
+use crate::io::ugi_engine::SearchType::*;
+use crate::io::ugi_output::UgiOutput;
 use crate::search::multithreading::EngineWrapper;
 use crate::search::tt::{DEFAULT_HASH_SIZE_MB, TT};
 use crate::search::{run_bench_with, EvalList, SearcherList};
-use crate::ugi_engine::ProgramStatus::{Quit, Run};
-use crate::ugi_engine::SearchType::*;
 use crate::{
     create_engine_bench_from_str, create_engine_from_str, create_eval_from_str, create_match,
 };
@@ -78,6 +98,17 @@ impl Display for SearchType {
 pub enum ProgramStatus {
     Run(MatchStatus),
     Quit(Quitting),
+}
+
+#[derive(
+    Debug, Default, Copy, Clone, Eq, PartialEq, derive_more::Display, derive_more::FromStr,
+)]
+pub enum Protocol {
+    #[default]
+    Interactive,
+    UGI,
+    UCI,
+    UAI,
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +175,7 @@ impl<B: Board> BoardGameState<B> {
 #[derive(Debug)]
 struct EngineGameState<B: Board> {
     board_state: BoardGameState<B>,
+    protocol: Protocol,
     engine: EngineWrapper<B>,
     /// This doesn't have to be the UGI engine name. It often isn't, especially when two engines with
     /// the same name play against each other, such as in a SPRT. It should be unique, however
@@ -163,58 +195,6 @@ impl<B: Board> Deref for EngineGameState<B> {
 impl<B: Board> DerefMut for EngineGameState<B> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.board_state
-    }
-}
-
-// TODO: Keep this is a global object instead? Would make it easier to print warnings from anywhere, simplify search sender design
-
-#[derive(Debug, Default)]
-/// All UGI communication is done through stdout, but there can be additional outputs,
-/// such as a logger, or human-readable printing to stderr
-pub struct UgiOutput<B: Board> {
-    additional_outputs: Vec<OutputBox<B>>,
-}
-
-impl<B: Board> UgiOutput<B> {
-    /// Part of the UGI specification, but not the UCI specification
-
-    fn write_response(&mut self, response: &str) {
-        self.write_ugi(&format!("response {response}"));
-    }
-
-    pub fn write_ugi(&mut self, message: &str) {
-        use std::io::Stdout;
-        use std::io::Write;
-        // UGI is always done through stdin and stdout, no matter what the UI is.
-        // TODO: Keep stdout mutex? Might make printing slightly faster and prevents everyone else from
-        // accessing stdout, which is probably a good thing because it prevents sending invalid UCI commands
-        println!("{message}");
-        // Currently, `println` always flushes, but this behaviour should not be relied upon.
-        _ = Stdout::flush(&mut stdout());
-        for output in &mut self.additional_outputs {
-            output.write_ugi_output(message, None);
-        }
-    }
-
-    fn write_ugi_input(&mut self, msg: Peekable<SplitWhitespace>) {
-        for output in &mut self.additional_outputs {
-            output.write_ugi_input(msg.clone(), None);
-        }
-    }
-
-    pub fn write_message(&mut self, typ: Message, msg: &str) {
-        for output in &mut self.additional_outputs {
-            output.display_message(typ, msg);
-        }
-    }
-
-    pub fn show(&mut self, m: &dyn GameState<B>) -> bool {
-        for output in &mut self.additional_outputs {
-            output.show(m);
-        }
-        self.additional_outputs
-            .iter()
-            .any(|o| !o.is_logger() && o.prints_board())
     }
 }
 
@@ -320,6 +300,7 @@ impl<B: Board> EngineUGI<B> {
         };
         let state = EngineGameState {
             board_state,
+            protocol: Protocol::default(),
             engine,
             display_name,
             opponent_name: None,
@@ -343,6 +324,10 @@ impl<B: Board> EngineUGI<B> {
             multi_pv: 1,
             allow_ponder: false,
         })
+    }
+
+    fn is_interactive(&self) -> bool {
+        self.state.protocol == Interactive
     }
 
     fn output(&self) -> MutexGuard<UgiOutput<B>> {
@@ -383,7 +368,11 @@ impl<B: Board> EngineUGI<B> {
                         return quitting;
                     }
                     if self.continue_on_error() {
-                        self.write_message(Debug, "Continuing... ('debug' is 'on')");
+                        let interactive = if self.is_interactive() { "on" } else { "off" };
+                        self.write_message(
+                            Debug,
+                            &format!("Continuing... (interactive mode is {interactive})"),
+                        );
                         continue;
                     }
                     return QuitProgram;
@@ -407,7 +396,7 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn continue_on_error(&self) -> bool {
-        self.state.debug_mode
+        self.state.debug_mode || self.state.protocol == Interactive
     }
 
     #[expect(clippy::too_many_lines)]
@@ -434,6 +423,10 @@ impl<B: Board> EngineUGI<B> {
                 self.write_ugi(id_msg.as_str());
                 self.write_ugi(self.write_ugi_options().as_str());
                 self.write_ugi(&format!("{proto}ok"));
+                self.state.protocol = Protocol::from_str(proto).unwrap();
+            }
+            "interactive" | "i" | "human" => {
+                self.state.protocol = Interactive;
             }
             "ponderhit" => self.start_search(
                 Normal,
@@ -1069,6 +1062,8 @@ impl<B: Board> EngineUGI<B> {
         \n {debug}: Turns debug logging on or off. `debug <logfile>` sets logging as if by calling `log <logfile>`, \
         enables additional debug output, and also enables error recovery mode: \
         For incorrect input, the program will now print an error message and continue instead of terminating.\
+        \n {interactive}: Turns on interactive mode. This is the default mode but gets turned off upon receiving 'ugi', 'uci' or 'uai'.\
+        \n {list}: Lists available options, e.g. `list game` lists all games, `list engine` lists all engines for the current game, etc. \
         \n {output}: Adds additional outputs. An 'output' prints information about the current state of the game and can handle messages.\
         Type `output` to see a list of outputs and a short explanation of what they do.\
         \n {print}: `print <output>` prints the game using the specified output, or all of the current outputs if none is given, \
@@ -1090,7 +1085,9 @@ impl<B: Board> EngineUGI<B> {
             game_name = B::game_name().bold(),
             motors = "motors".bold(),
             debug = "debug | d".bold(),
+            interactive = "interactive | i | human".bold(),
             output = "output | o".bold(),
+            list = "list".bold(),
             print = "print | show | s | display".bold(),
             log = "log".bold(),
             engine = "engine".bold(),

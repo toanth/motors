@@ -681,9 +681,9 @@ impl Board for MNKBoard {
             bail!("Invalid active player in mnk fen: '{active_player}'");
         };
 
-        let position = words
-            .next()
-            .ok_or_else(|| anyhow!("Empty position in mnk fen"))?;
+        let Some(position) = words.next() else {
+            bail!("Empty position in mnk fen")
+        };
 
         let board = MNKBoard::empty_for_settings(settings);
 

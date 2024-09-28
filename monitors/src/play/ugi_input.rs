@@ -639,9 +639,9 @@ impl<B: Board> InputThread<B> {
                 break;
             }
             let setting = next.unwrap();
-            let mut value = option
-                .next()
-                .ok_or_else(|| anyhow!("Missing value after option {setting}"))?;
+            let Some(mut value) = option.next() else {
+                bail!("Missing value after option {setting}")
+            };
             match setting.to_lowercase().as_str() {
                 "default" => match &mut res.value {
                     Check(c) => match value.to_lowercase().as_str() {

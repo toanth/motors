@@ -21,6 +21,7 @@ use rand::SeedableRng;
 use strum_macros::FromRepr;
 
 use crate::eval::Eval;
+use crate::io::ugi_output::UgiOutput;
 use gears::general::common::anyhow::bail;
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
 use gears::general::move_list::MoveList;
@@ -38,7 +39,6 @@ use crate::search::multithreading::{
 use crate::search::statistics::{Statistics, Summary};
 use crate::search::tt::TT;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
-use crate::ugi_engine::UgiOutput;
 
 #[cfg(feature = "chess")]
 pub mod chess;

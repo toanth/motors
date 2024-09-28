@@ -297,13 +297,13 @@ impl<B: Board> TextInputThread<B> {
         let board = client.state.the_match.board;
         let mut rng = thread_rng();
         let over = matches!(client.match_state().status, Over(_));
-        let mov = board.random_legal_move(&mut rng).ok_or_else(|| {
-            anyhow!(
+        let Some(mov) = board.random_legal_move(&mut rng) else {
+            bail!(
                 "There are no legal moves in the current position ({}){reason}",
                 board.as_fen(),
                 reason = if over { ". The game is over" } else { "" }
             )
-        })?;
+        };
         client.play_move(mov)
     }
 

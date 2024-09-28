@@ -1,33 +1,33 @@
+/*
+ *  Motors, a collection of board game engines.
+ *  Copyright (C) 2024 ToTheAnd
+ *
+ *  Motors is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  Motors is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 use colored::Colorize;
-use std::fmt::{Display, Formatter};
 use std::process::exit;
 use std::str::FromStr;
 
+use crate::Mode;
 use gears::cli::{get_next_arg, get_next_int, parse_output, ArgIter, Game};
 use gears::general::common::anyhow::bail;
 use gears::general::common::{parse_int_from_str, Res};
 use gears::search::Depth;
 use gears::OutputArgs;
 
-use crate::cli::Mode::{Bench, Engine, Perft};
-
-#[derive(Debug, Default, Copy, Clone)]
-pub enum Mode {
-    #[default]
-    Engine,
-    Bench(Option<Depth>, bool),
-    Perft(Option<Depth>),
-}
-
-impl Display for Mode {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Engine => write!(f, "engine"),
-            Bench(_, _) => write!(f, "bench"),
-            Perft(_) => write!(f, "perft"),
-        }
-    }
-}
+use crate::Mode::{Bench, Engine, Perft};
 
 #[derive(Debug, Clone)]
 #[must_use]
