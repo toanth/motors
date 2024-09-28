@@ -32,6 +32,7 @@ use crate::play::ugi_input::BestMoveAction::Play;
 use crate::ui::text_input::DefaultPlayer::{Active, Inactive, NoPlayer};
 use crate::ui::{Input, InputBuilder};
 
+// TODO: Unify with motors `Command`, probably move to gears
 struct TextSelection<F> {
     names: Vec<&'static str>,
     func: F,

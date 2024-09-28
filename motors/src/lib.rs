@@ -33,8 +33,8 @@ use crate::eval::mnk::base::BasicMnkEval;
 use crate::eval::rand_eval::RandEval;
 use crate::eval::uttt::lute::Lute;
 use crate::io::cli::{parse_cli, EngineOpts};
-use crate::io::ugi_engine::EngineUGI;
 use crate::io::ugi_output::UgiOutput;
+use crate::io::EngineUGI;
 #[cfg(feature = "caps")]
 use crate::search::chess::caps::Caps;
 #[cfg(feature = "gaps")]
