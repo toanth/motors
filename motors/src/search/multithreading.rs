@@ -271,7 +271,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         output.lock().unwrap().write_ugi(&res.to_string());
     }
 
-    fn get_tt_entry(&mut self, pos: B, output: Arc<Mutex<UgiOutput<B>>>) {
+    fn write_tt_entry(&mut self, pos: B, output: Arc<Mutex<UgiOutput<B>>>) {
         if let Some(entry) = self
             .engine
             .search_state()
@@ -291,12 +291,9 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         };
     }
 
-    fn get_static_eval(&mut self, pos: B, output: Arc<Mutex<UgiOutput<B>>>) {
+    fn write_static_eval(&mut self, pos: B, output: Arc<Mutex<UgiOutput<B>>>) {
         let eval = self.engine.static_eval(pos);
-        output
-            .lock()
-            .unwrap()
-            .write_ugi(&format!("score cp {eval}"));
+        output.lock().unwrap().write_ugi(&format!("score {eval}"));
     }
 
     fn write_error(&mut self, msg: &str) {
@@ -327,8 +324,8 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                 self.start_search(params);
             }
             Bench(pos, limit, output) => self.bench_single_position(pos, limit, output),
-            TTEntry(pos, output) => self.get_tt_entry(pos, output),
-            EvalFor(pos, output) => self.get_static_eval(pos, output),
+            TTEntry(pos, output) => self.write_tt_entry(pos, output),
+            EvalFor(pos, output) => self.write_static_eval(pos, output),
             SetEval(eval) => self.engine.set_eval(eval),
         };
         Ok(false)

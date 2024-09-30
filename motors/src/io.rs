@@ -745,9 +745,7 @@ impl<B: Board> EngineUGI<B> {
             if matches!(*words.peek().unwrap(), "position" | "pos" | "p") {
                 words.next();
             }
-            let mut board_state_clone = self.state.board_state.clone();
-            board_state_clone.handle_position(words)?;
-            board_state_clone.board
+            load_ugi_position(words, &self.state.board)?
         } else {
             self.state.board
         };
