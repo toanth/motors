@@ -36,7 +36,7 @@ use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
-    parse_bool_from_str, parse_duration_ms, parse_int, parse_int_from_str, select_name_static,
+    parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_dyn,
     to_name_and_optional_description, NamedEntity,
 };
 use gears::general::common::{IterIntersperse, Res};
@@ -45,11 +45,12 @@ use gears::general::perft::{perft, perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBuilder};
-use gears::search::{Depth, NodesLimit, SearchLimit, TimeControl};
+use gears::search::{Depth, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{
-    parse_ugi_position, EngineOption, EngineOptionName, UgiCheck, UgiSpin, UgiString,
+    load_ugi_position, parse_ugi_position_part, EngineOption, EngineOptionName, UgiCheck, UgiSpin,
+    UgiString,
 };
 use gears::MatchStatus::*;
 use gears::Quitting::QuitProgram;
@@ -57,7 +58,7 @@ use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchSt
 
 use crate::io::cli::EngineOpts;
 use crate::io::command::Standard::Custom;
-use crate::io::command::{ugi_commands, Command};
+use crate::io::command::{go_commands, ugi_commands, CommandTrait, GoState};
 use crate::io::ugi_output::UgiOutput;
 use crate::io::ProgramStatus::{Quit, Run};
 use crate::io::Protocol::Interactive;
@@ -158,7 +159,7 @@ impl<B: Board> BoardGameState<B> {
     }
 
     fn handle_position(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
-        self.initial_pos = parse_ugi_position(words, &self.board)?;
+        self.initial_pos = parse_ugi_position_part(words, &self.board)?;
         self.clear_state();
 
         let Some(word) = words.next() else {
@@ -181,6 +182,7 @@ impl<B: Board> BoardGameState<B> {
 #[derive(Debug)]
 struct EngineGameState<B: Board> {
     board_state: BoardGameState<B>,
+    game_name: String,
     protocol: Protocol,
     engine: EngineWrapper<B>,
     /// This doesn't have to be the UGI engine name. It often isn't, especially when two engines with
@@ -208,7 +210,7 @@ impl<B: Board> DerefMut for EngineGameState<B> {
 #[derive(Debug)]
 pub struct EngineUGI<B: Board> {
     state: EngineGameState<B>,
-    commands: Vec<Command<B>>,
+    commands: Vec<Box<dyn CommandTrait<Self>>>,
     output: Arc<Mutex<UgiOutput<B>>>,
     output_factories: OutputList<B>,
     searcher_factories: SearcherList<B>,
@@ -231,6 +233,10 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
 
     fn get_board(&self) -> B {
         self.board
+    }
+
+    fn game_name(&self) -> &str {
+        &self.game_name
     }
 
     fn move_history(&self) -> &[B::Move] {
@@ -307,6 +313,7 @@ impl<B: Board> EngineUGI<B> {
         };
         let state = EngineGameState {
             board_state,
+            game_name: B::game_name(),
             protocol: Protocol::default(),
             engine,
             display_name,
@@ -413,9 +420,9 @@ impl<B: Board> EngineUGI<B> {
         let Some(first_word) = words.next() else {
             return Ok(()); // ignore empty input
         };
-        let Ok(cmd) = select_name_static(
+        let Ok(cmd) = select_name_dyn(
             first_word,
-            self.commands.iter(),
+            &self.commands,
             "command",
             &self.state.game_name(),
             NoDescription,
@@ -436,7 +443,7 @@ impl<B: Board> EngineUGI<B> {
             );
             return Ok(());
         };
-        () = (cmd.func)(self, words, first_word)?;
+        () = cmd.func()(self, words, first_word)?;
         if let Some(remaining) = words.next() {
             self.write_message(
                 Warning,
@@ -576,117 +583,65 @@ impl<B: Board> EngineUGI<B> {
 
     fn handle_go(
         &mut self,
-        mut search_type: SearchType,
+        search_type: SearchType,
         words: &mut Peekable<SplitWhitespace>,
     ) -> Res<()> {
         // "infinite" is the identity element of the bounded semilattice of `go` options
-        let mut limit = SearchLimit::infinite();
-        let is_first = self.state.board.active_player().is_first();
-        let mut multi_pv = self.multi_pv;
-        let mut search_moves = None;
-        let mut reading_moves = false;
-        let mut complete = false;
-        let mut board = self.state.board;
+        // let mut limit = SearchLimit::infinite();
+        // let is_first = self.state.board.active_player().is_first();
+        // let mut multi_pv = self.multi_pv;
+        // let mut search_moves = None;
+        // let mut reading_moves = false;
+        // let mut complete = false;
+        // let mut board = self.state.board;
+
+        let mut state = GoState::new(self, search_type, self.move_overhead);
 
         if matches!(search_type, Perft | SplitPerft | Bench) {
-            Self::accept_depth(&mut limit, words);
+            Self::accept_depth(&mut state.limit, words);
         }
-        while let Some(next_word) = words.next() {
-            match next_word {
-                "wtime" | "p1time" | "wt" | "p1t" => {
-                    let time = parse_duration_ms(words, "wtime")?;
-                    // always parse the duration, even if it isn't relevant
-                    if is_first {
-                        limit.tc.remaining = time;
-                    }
-                }
-                // TODO: Don't assume that `btime` refers to the second player, instead add a one-letter description to the color trait
-                "btime" | "p2time" | "bt" | "p2t" => {
-                    let time = parse_duration_ms(words, "btime")?;
-                    if !is_first {
-                        limit.tc.remaining = time;
-                    }
-                }
-                "winc" | "p1inc" | "wi" => {
-                    let increment = parse_duration_ms(words, "winc")?;
-                    if is_first {
-                        limit.tc.increment = increment;
-                    }
-                }
-                "binc" | "p2inc" | "bi" => {
-                    let increment = parse_duration_ms(words, "binc")?;
-                    if !is_first {
-                        limit.tc.increment = increment;
-                    }
-                }
-                "movestogo" | "mtg" => {
-                    limit.tc.moves_to_go = Some(parse_int(words, "'movestogo' number")?);
-                }
-                "depth" | "d" => limit.depth = Depth::new(parse_int(words, "depth number")?),
-                "nodes" | "n" => {
-                    limit.nodes = NodesLimit::new(parse_int(words, "node count")?)
-                        .ok_or_else(|| anyhow!("node count can't be zero"))?;
-                }
-                "mate" | "m" => {
-                    let depth: usize = parse_int(words, "mate move count")?;
-                    limit.mate = Depth::new(depth * 2); // 'mate' is given in moves instead of plies
-                }
-                "movetime" | "mt" => {
-                    limit.fixed_time = parse_duration_ms(words, "time per move in milliseconds")?;
-                    limit.fixed_time = limit
-                        .fixed_time
-                        .saturating_sub(self.move_overhead)
-                        .max(Duration::from_millis(1));
-                }
-                "infinite" | "inf" => limit = SearchLimit::infinite(), // overwrite previous restrictions
-                "searchmoves" | "sm" => {
-                    reading_moves = true;
-                    search_moves = Some(vec![]);
-                    continue;
-                }
-                "multipv" | "mpv" => {
-                    multi_pv = parse_int(words, "multipv")?;
-                }
-                "ponder" => search_type = SearchType::Ponder, // setting different search types uses the last one specified
-                "perft" | "pt" => {
-                    search_type = Perft;
-                    Self::accept_depth(&mut limit, words)
-                }
-                "splitperft" | "sp" => {
-                    search_type = SplitPerft;
-                    Self::accept_depth(&mut limit, words);
-                }
-                "bench" => {
-                    search_type = Bench;
-                    Self::accept_depth(&mut limit, words);
-                }
-                "complete" => complete = true,
-                "position" | "pos" | "p" => board = self.load_position_into_copy(words)?,
-                _ => {
-                    if reading_moves {
-                        let mov = B::Move::from_compact_text(next_word, &self.state.board)
-                            .map_err(|err| {
-                                anyhow!("{err}. '{}' is not a valid 'go' option.", next_word.bold())
-                            })?;
-                        search_moves.as_mut().unwrap().push(mov);
+        // TODO: Don't recreate each time
+
+        let cmds = go_commands::<B>();
+        while let Some(option) = words.next() {
+            state.cont = false;
+            let cmd = select_name_dyn(
+                option,
+                &cmds,
+                "go option",
+                &self.state.game_name,
+                WithDescription,
+            );
+            match cmd {
+                Ok(cmd) => cmd.func()(&mut state, words, option)?,
+                Err(err) => {
+                    if state.reading_moves {
+                        let mov =
+                            B::Move::from_compact_text(option, &state.board).map_err(|err| {
+                                anyhow!("{err}. '{}' is not a valid 'go' option.", option.bold())
+                            })?;    
+                        state.search_moves.as_mut().unwrap().push(mov);
                         continue;
                     }
-                    bail!("Unrecognized 'go' option: '{next_word}'")
+                    bail!(err)
                 }
             }
-            reading_moves = false;
+            if !state.cont {
+                state.reading_moves = false;
+            }
         }
-        limit.tc.remaining = limit
+        state.limit.tc.remaining = state
+            .limit
             .tc
             .remaining
             .saturating_sub(self.move_overhead)
             .max(Duration::from_millis(1));
 
-        if (search_type == Perft || search_type == SplitPerft) && limit.depth == Depth::MAX {
-            limit.depth = board.default_perft_depth();
+        if (search_type == Perft || search_type == SplitPerft) && state.limit.depth == Depth::MAX {
+            state.limit.depth = state.board.default_perft_depth();
         }
 
-        if complete {
+        if state.complete {
             match search_type {
                 Bench => {
                     let mut engine = create_engine_bench_from_str(
@@ -696,7 +651,7 @@ impl<B: Board> EngineUGI<B> {
                     )?;
                     let res = run_bench_with(
                         engine.as_mut(),
-                        limit,
+                        state.limit,
                         Some(SearchLimit::nodes(
                             self.state.engine.engine_info().default_bench_nodes(),
                         )),
@@ -705,7 +660,7 @@ impl<B: Board> EngineUGI<B> {
                 }
                 Perft => self
                     .output()
-                    .write_ugi(&perft_for(limit.depth, B::bench_positions()).to_string()),
+                    .write_ugi(&perft_for(state.limit.depth, B::bench_positions()).to_string()),
                 _ => {
                     bail!(
                         "Can only use the '{}' option with 'bench' or 'perft'",
@@ -714,7 +669,13 @@ impl<B: Board> EngineUGI<B> {
                 }
             }
         }
-        self.start_search(search_type, limit, board, search_moves, multi_pv)
+        self.start_search(
+            search_type,
+            state.limit,
+            state.board,
+            state.search_moves,
+            state.multi_pv,
+        )
     }
 
     fn start_search(
@@ -791,12 +752,6 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn load_position_into_copy(&self, words: &mut Peekable<SplitWhitespace>) -> Res<B> {
-        let mut board_state_clone = self.state.board_state.clone();
-        board_state_clone.handle_position(words)?;
-        Ok(board_state_clone.board)
-    }
-
     fn handle_eval_or_tt(&mut self, eval: bool, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         let board = if words.peek().copied().is_some() {
             if matches!(*words.peek().unwrap(), "position" | "pos" | "p") {
@@ -816,8 +771,8 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_query(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
-        match words
-            .next()
+        match *words
+            .peek()
             .ok_or(anyhow!("Missing argument to '{}'", "query".bold()))?
         {
             "gameover" => self
@@ -826,6 +781,9 @@ impl<B: Board> EngineUGI<B> {
             "p1turn" => self
                 .output()
                 .write_response(&(self.state.board.active_player().is_first()).to_string()),
+            "p2turn" => self
+                .output()
+                .write_response(&(!self.state.board.active_player().is_first()).to_string()),
             "result" => {
                 let response = match &self.state.status {
                     Run(Over(res)) => match res.result {
@@ -838,7 +796,12 @@ impl<B: Board> EngineUGI<B> {
                 };
                 self.output().write_response(response);
             }
-            s => bail!("unrecognized option {s}"),
+            s => {
+                let Ok(opt) = self.write_option(words) else {
+                    bail!("unrecognized query option {s}")
+                };
+                self.write_ugi(&opt);
+            }
         }
         Ok(())
     }
@@ -852,16 +815,17 @@ impl<B: Board> EngineUGI<B> {
             }
             Some(name) => {
                 // This is definitely not the fastest way to print something, but performance isn't a huge concern here
+                // TODO: Allow `print (pos) kiwipete` without specifying the output
                 let mut output = output_builder_from_str(name, &self.output_factories)?
                     .for_engine(&self.state)?;
                 let old_board = self.state.board;
                 match words.next() {
                     None => {}
                     Some("position" | "pos" | "p") => {
-                        self.state.board = self.load_position_into_copy(words)?;
+                        self.state.board = load_ugi_position(words, &self.state.board)?;
                     }
                     Some(x) => {
-                        let Ok(new_board) = self.load_position_into_copy(words) else {
+                        let Ok(new_board) = load_ugi_position(words, &self.state.board) else {
                             bail!(
                                 "Unrecognized input '{x}' after valid print command, should be either nothing or a valid 'position' command"
                             )
@@ -993,12 +957,12 @@ impl<B: Board> EngineUGI<B> {
             currently playing {game_name}, using the engine {engine_name}.\
             \nSeveral commands are supported (see https://backscattering.de/chess/uci/ for a description of the UCI interface):\n\
             \n{}:\n", "UGI Commands".bold());
-        for cmd in self.commands.iter().filter(|c| c.standard != Custom) {
-            writeln!(&mut text, " {cmd}").unwrap();
+        for cmd in self.commands.iter().filter(|c| c.standard() != Custom) {
+            writeln!(&mut text, " {}", *cmd).unwrap();
         }
         write!(&mut text, "\n{}:\n", "Custom Commands".bold()).unwrap();
-        for cmd in self.commands.iter().filter(|c| c.standard == Custom) {
-            writeln!(&mut text, " {cmd}").unwrap();
+        for cmd in self.commands.iter().filter(|c| c.standard() == Custom) {
+            writeln!(&mut text, " {}", *cmd).unwrap();
         }
         println!("{text}");
     }

@@ -20,7 +20,7 @@ use gears::general::common::{
 use gears::general::moves::Move;
 use gears::output::Message::{Info, Warning};
 use gears::search::TimeControl;
-use gears::ugi::{parse_ugi_position, EngineOption};
+use gears::ugi::{parse_ugi_position_part, EngineOption};
 use gears::MatchStatus::{Ongoing, Over};
 use gears::{output_builder_from_str, GameState};
 
@@ -334,7 +334,7 @@ impl<B: Board> TextInputThread<B> {
         words: &mut Peekable<SplitWhitespace>,
     ) -> Res<()> {
         let old_board = *client.board();
-        client.reset_to_new_start_position(parse_ugi_position(words, &old_board)?);
+        client.reset_to_new_start_position(parse_ugi_position_part(words, &old_board)?);
         let Some(word) = words.next() else {
             return Ok(());
         };

@@ -19,7 +19,7 @@ mod tests {
     use gears::general::moves::Move;
     use gears::score::{Score, SCORE_LOST, SCORE_WON};
     use gears::search::{Depth, SearchLimit};
-    use gears::ugi::parse_ugi_position_and_moves;
+    use gears::ugi::load_ugi_position;
     use gears::PlayerResult::Draw;
 
     use crate::eval::chess::lite::LiTEval;
@@ -52,7 +52,7 @@ mod tests {
     }
 
     fn mated_test<E: Engine<Chessboard>>(mut engine: E) {
-        let game_over_pos = parse_ugi_position_and_moves(
+        let game_over_pos = load_ugi_position(
             &mut "mate_in_1 moves h7a7".split_whitespace().peekable(),
             &Chessboard::default(),
         )

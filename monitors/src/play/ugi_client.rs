@@ -97,6 +97,7 @@ impl<B: Board> UgiMatchState<B> {
 #[derive(Debug)]
 pub struct ClientState<B: Board> {
     pub the_match: UgiMatchState<B>,
+    game_name: String,
     pub players: Vec<Player<B>>,
     /// The ith entry is the builder used to construct the ith player.
     pub player_builders: Vec<PlayerBuilder>,
@@ -180,6 +181,10 @@ impl<B: Board> GameState<B> for ClientState<B> {
         self.the_match.board
     }
 
+    fn game_name(&self) -> &str {
+        &self.game_name
+    }
+
     fn move_history(&self) -> &[B::Move] {
         self.the_match.move_history.as_slice()
     }
@@ -259,6 +264,7 @@ impl<B: Board> Client<B> {
         let match_state = UgiMatchState::new(initial_pos, event, site);
         let state = ClientState {
             the_match: match_state,
+            game_name: B::game_name(),
             players: vec![],
             player_builders: vec![],
             wait_after_match: args.wait_after_match,
