@@ -239,10 +239,17 @@ pub fn parse_ugi_position_part<B: Board>(
     })
 }
 
-pub fn parse_ugi_position_and_moves<B: Board, F: Fn(&B, B::Move) -> Res<B>>(
+pub fn parse_ugi_position_and_moves<
+    B: Board,
+    S,
+    F: Fn(&mut S, B::Move) -> Res<B>,
+    G: Fn(&mut S, &B),
+>(
     words: &mut Peekable<SplitWhitespace>,
     old_board: &B,
+    state: &mut S,
     make_move: F,
+    start_moves: G,
 ) -> Res<B> {
     let mut board = parse_ugi_position_part(words, old_board)?;
     match words.next() {
@@ -251,20 +258,31 @@ pub fn parse_ugi_position_and_moves<B: Board, F: Fn(&B, B::Move) -> Res<B>>(
         Some("m") => {}
         Some(x) => bail!("Expected either nothing or 'moves', got '{x}"),
     }
+    start_moves(state, &board);
     // TODO: Allow parsing other commands after a 'position' subcommand by returning a special error type
     // on an invalid "move"
+    // TODO: Handle flip / nullmove?
     for mov in words {
         let mov = B::Move::from_compact_text(mov, &board)?;
-        board = make_move(&board, mov)
+        board = make_move(state, mov)
             .map_err(|err| anyhow!("move '{mov}' is not legal in position '{board}': {err}"))?;
     }
     Ok(board)
 }
 
 pub fn load_ugi_position<B: Board>(words: &mut Peekable<SplitWhitespace>, old_board: &B) -> Res<B> {
-    parse_ugi_position_and_moves(words, old_board, |pos, next_move| {
-        pos.make_move(next_move).ok_or_else(|| {
-            anyhow!("Move '{next_move}' is not legal in position '{pos}' (but it is pseudolegal)")
-        })
-    })
+    let mut pos = *old_board;
+    parse_ugi_position_and_moves(
+        words,
+        old_board,
+        &mut pos,
+        |pos, next_move| {
+            pos.make_move(next_move).ok_or_else(|| {
+                anyhow!(
+                    "Move '{next_move}' is not legal in position '{pos}' (but it is pseudolegal)"
+                )
+            })
+        },
+        |_, _| (),
+    )
 }

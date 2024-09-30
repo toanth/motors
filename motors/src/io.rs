@@ -31,7 +31,7 @@ use colored::Colorize;
 use itertools::Itertools;
 
 use gears::cli::{select_game, Game};
-use gears::games::{BoardHistory, Color, OutputList, ZobristHistory};
+use gears::games::{BoardHistory, OutputList, ZobristHistory};
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
@@ -49,16 +49,18 @@ use gears::search::{Depth, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{
-    load_ugi_position, parse_ugi_position_part, EngineOption, EngineOptionName, UgiCheck, UgiSpin,
-    UgiString,
+    load_ugi_position, parse_ugi_position_and_moves, EngineOption, EngineOptionName, UgiCheck,
+    UgiSpin, UgiString,
 };
 use gears::MatchStatus::*;
 use gears::Quitting::QuitProgram;
-use gears::{output_builder_from_str, AbstractRun, GameResult, GameState, MatchStatus, Quitting};
+use gears::{output_builder_from_str, AbstractRun, GameState, MatchStatus, Quitting};
 
 use crate::io::cli::EngineOpts;
 use crate::io::command::Standard::Custom;
-use crate::io::command::{go_commands, ugi_commands, CommandTrait, GoState};
+use crate::io::command::{
+    accept_depth, go_commands, query_commands, ugi_commands, CommandList, GoState,
+};
 use crate::io::ugi_output::UgiOutput;
 use crate::io::ProgramStatus::{Quit, Run};
 use crate::io::Protocol::Interactive;
@@ -130,7 +132,7 @@ struct BoardGameState<B: Board> {
 }
 
 impl<B: Board> BoardGameState<B> {
-    fn make_move(&mut self, mov: B::Move) -> Res<()> {
+    fn make_move(&mut self, mov: B::Move) -> Res<B> {
         if !self.board.is_move_pseudolegal(mov) {
             bail!("Illegal move {mov} (not pseudolegal)")
         }
@@ -148,7 +150,7 @@ impl<B: Board> BoardGameState<B> {
                 self.board
             )
         })?;
-        Ok(())
+        Ok(self.board)
     }
 
     fn clear_state(&mut self) {
@@ -159,21 +161,17 @@ impl<B: Board> BoardGameState<B> {
     }
 
     fn handle_position(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
-        self.initial_pos = parse_ugi_position_part(words, &self.board)?;
-        self.clear_state();
-
-        let Some(word) = words.next() else {
-            return Ok(());
-        };
-        if word != "moves" && word != "m" {
-            bail!("Unrecognized word '{word}' after position command, expected either 'moves', 'm', or nothing")
-        }
-        for mov in words {
-            let mov = B::Move::from_compact_text(mov, &self.board)
-                .map_err(|err| anyhow!("Couldn't parse move '{}': {err}", mov.red()))?;
-            self.make_move(mov)?;
-        }
-        // TODO: Handle flip / nullmove?
+        let pos = self.board;
+        _ = parse_ugi_position_and_moves(
+            words,
+            &pos,
+            self,
+            |this, mov| this.make_move(mov),
+            |this, pos| {
+                this.initial_pos = *pos;
+                this.clear_state()
+            },
+        )?;
         self.last_played_color = self.board.active_player();
         Ok(())
     }
@@ -206,11 +204,18 @@ impl<B: Board> DerefMut for EngineGameState<B> {
     }
 }
 
+#[derive(Debug)]
+struct AllCommands<B: Board> {
+    ugi: CommandList<EngineUGI<B>>,
+    go: CommandList<GoState<B>>,
+    query: CommandList<EngineUGI<B>>,
+}
+
 /// Implements both UGI and UCI.
 #[derive(Debug)]
 pub struct EngineUGI<B: Board> {
     state: EngineGameState<B>,
-    commands: Vec<Box<dyn CommandTrait<Self>>>,
+    commands: AllCommands<B>,
     output: Arc<Mutex<UgiOutput<B>>>,
     output_factories: OutputList<B>,
     searcher_factories: SearcherList<B>,
@@ -330,7 +335,11 @@ impl<B: Board> EngineUGI<B> {
         }
         Ok(Self {
             state,
-            commands: ugi_commands(),
+            commands: AllCommands {
+                ugi: ugi_commands(),
+                go: go_commands(),
+                query: query_commands(),
+            },
             output,
             output_factories: all_output_builders,
             searcher_factories: all_searchers,
@@ -422,7 +431,7 @@ impl<B: Board> EngineUGI<B> {
         };
         let Ok(cmd) = select_name_dyn(
             first_word,
-            &self.commands,
+            &self.commands.ugi,
             "command",
             &self.state.game_name(),
             NoDescription,
@@ -572,42 +581,21 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn accept_depth(limit: &mut SearchLimit, words: &mut Peekable<SplitWhitespace>) {
-        if let Some(word) = words.peek() {
-            if let Ok(number) = parse_int_from_str(word, "depth") {
-                limit.depth = Depth::new(number);
-                _ = words.next();
-            }
-        }
-    }
-
     fn handle_go(
         &mut self,
         search_type: SearchType,
         words: &mut Peekable<SplitWhitespace>,
     ) -> Res<()> {
-        // "infinite" is the identity element of the bounded semilattice of `go` options
-        // let mut limit = SearchLimit::infinite();
-        // let is_first = self.state.board.active_player().is_first();
-        // let mut multi_pv = self.multi_pv;
-        // let mut search_moves = None;
-        // let mut reading_moves = false;
-        // let mut complete = false;
-        // let mut board = self.state.board;
-
         let mut state = GoState::new(self, search_type, self.move_overhead);
 
         if matches!(search_type, Perft | SplitPerft | Bench) {
-            Self::accept_depth(&mut state.limit, words);
+            accept_depth(&mut state.limit, words);
         }
-        // TODO: Don't recreate each time
-
-        let cmds = go_commands::<B>();
         while let Some(option) = words.next() {
             state.cont = false;
             let cmd = select_name_dyn(
                 option,
-                &cmds,
+                &self.commands.go,
                 "go option",
                 &self.state.game_name,
                 WithDescription,
@@ -619,7 +607,7 @@ impl<B: Board> EngineUGI<B> {
                         let mov =
                             B::Move::from_compact_text(option, &state.board).map_err(|err| {
                                 anyhow!("{err}. '{}' is not a valid 'go' option.", option.bold())
-                            })?;    
+                            })?;
                         state.search_moves.as_mut().unwrap().push(mov);
                         continue;
                     }
@@ -771,39 +759,29 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_query(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
-        match *words
+        let query = *words
             .peek()
-            .ok_or(anyhow!("Missing argument to '{}'", "query".bold()))?
-        {
-            "gameover" => self
-                .output()
-                .write_response(&matches!(self.state.status, Run(Ongoing)).to_string()),
-            "p1turn" => self
-                .output()
-                .write_response(&(self.state.board.active_player().is_first()).to_string()),
-            "p2turn" => self
-                .output()
-                .write_response(&(!self.state.board.active_player().is_first()).to_string()),
-            "result" => {
-                let response = match &self.state.status {
-                    Run(Over(res)) => match res.result {
-                        GameResult::P1Win => "p1win",
-                        GameResult::P2Win => "p2win",
-                        GameResult::Draw => "draw",
-                        GameResult::Aborted => "aborted",
-                    },
-                    _ => "none",
-                };
-                self.output().write_response(response);
+            .ok_or(anyhow!("Missing argument to '{}'", "query".bold()))?;
+        match select_name_dyn(
+            query,
+            &self.commands.query,
+            "query option",
+            self.state.game_name(),
+            WithDescription,
+        ) {
+            Ok(cmd) => {
+                _ = words.next();
+                cmd.func()(self, words, query)
             }
-            s => {
-                let Ok(opt) = self.write_option(words) else {
-                    bail!("unrecognized query option {s}")
-                };
-                self.write_ugi(&opt);
+            Err(err) => {
+                if let Ok(opt) = self.write_option(words) {
+                    self.write_ugi(&opt);
+                    return Ok(());
+                } else {
+                    bail!("{err}\nOr the name of an option.")
+                }
             }
         }
-        Ok(())
     }
 
     fn handle_print(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
@@ -957,11 +935,11 @@ impl<B: Board> EngineUGI<B> {
             currently playing {game_name}, using the engine {engine_name}.\
             \nSeveral commands are supported (see https://backscattering.de/chess/uci/ for a description of the UCI interface):\n\
             \n{}:\n", "UGI Commands".bold());
-        for cmd in self.commands.iter().filter(|c| c.standard() != Custom) {
+        for cmd in self.commands.ugi.iter().filter(|c| c.standard() != Custom) {
             writeln!(&mut text, " {}", *cmd).unwrap();
         }
         write!(&mut text, "\n{}:\n", "Custom Commands".bold()).unwrap();
-        for cmd in self.commands.iter().filter(|c| c.standard() == Custom) {
+        for cmd in self.commands.ugi.iter().filter(|c| c.standard() == Custom) {
             writeln!(&mut text, " {}", *cmd).unwrap();
         }
         println!("{text}");

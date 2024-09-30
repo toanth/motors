@@ -30,7 +30,8 @@ use gears::general::common::{parse_duration_ms, parse_int, parse_int_from_str, N
 use gears::output::Message::Warning;
 use gears::search::{Depth, NodesLimit, SearchLimit};
 use gears::ugi::load_ugi_position;
-use gears::MatchStatus::NotStarted;
+use gears::GameResult;
+use gears::MatchStatus::{NotStarted, Ongoing, Over};
 use gears::Quitting::{QuitMatch, QuitProgram};
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::Peekable;
@@ -173,6 +174,8 @@ impl<State: Debug> CommandTrait<State> for GenericCommand<State> {
     }
 }
 
+pub type CommandList<State> = Vec<Box<dyn CommandTrait<State>>>;
+
 macro_rules! command {
     ($state:ty, $primary:ident, [$($other:ident),*], $std:expr, $help:expr, $fun:expr) => {
         {
@@ -195,7 +198,7 @@ macro_rules! ugi_command {
 }
 
 #[expect(clippy::too_many_lines)]
-pub fn ugi_commands<B: Board>() -> Vec<Box<dyn CommandTrait<EngineUGI<B>>>> {
+pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
     vec![
         // put time-critical commands at the top
         ugi_command!(
@@ -317,7 +320,7 @@ pub fn ugi_commands<B: Board>() -> Vec<Box<dyn CommandTrait<EngineUGI<B>>>> {
         ),
         ugi_command!(
             query,
-            [],
+            [q],
             UgiNotUci,
             "Answer a query about the current match state",
             |ugi, words, _| ugi.handle_query(words)
@@ -472,7 +475,7 @@ impl<B: Board> GoState<B> {
     }
 }
 
-fn accept_depth(limit: &mut SearchLimit, words: &mut Peekable<SplitWhitespace>) {
+pub fn accept_depth(limit: &mut SearchLimit, words: &mut Peekable<SplitWhitespace>) {
     if let Some(word) = words.peek() {
         if let Ok(number) = parse_int_from_str(word, "depth") {
             limit.depth = Depth::new(number);
@@ -488,7 +491,7 @@ macro_rules! go_command {
 }
 
 #[expect(clippy::too_many_lines)]
-pub fn go_commands<B: Board>() -> Vec<Box<dyn CommandTrait<GoState<B>>>> {
+pub fn go_commands<B: Board>() -> CommandList<GoState<B>> {
     vec![
         Box::new(GenericCommand::<GoState<B>> {
             primary_name: Box::new(|_| format!("{}time", B::Color::first().ascii_color_char())),
@@ -574,7 +577,7 @@ pub fn go_commands<B: Board>() -> Vec<Box<dyn CommandTrait<GoState<B>>>> {
         }),
         go_command!(
             movestogo,
-            [mgt],
+            [mtg],
             All,
             "Moves until the time control is reset",
             |opts, words, _| {
@@ -744,5 +747,89 @@ pub fn go_commands<B: Board>() -> Vec<Box<dyn CommandTrait<GoState<B>>>> {
         //     }),
         //     matches: None, /*Some(Box::new(|_, go, _word| go.reading_moves))*/
         // }),
+    ]
+}
+
+pub fn query_commands<B: Board>() -> CommandList<EngineUGI<B>> {
+    vec![
+        ugi_command!(gameover, [], UgiNotUci, "Is the game over?", |ugi, _, _| {
+            ugi.output()
+                .write_response(&matches!(ugi.state.status, Run(Ongoing)).to_string());
+            Ok(())
+        }),
+        Box::new(GenericCommand::<EngineUGI<B>> {
+            primary_name: Box::new(|_| "p1turn".to_string()),
+            other_names: vec![Box::new(|_| {
+                format!("{}turn", B::Color::first().ascii_color_char())
+            })],
+            help_text: Box::new(|_| "Is it the first player's turn?".to_string()),
+            standard: Box::new(|_| UgiNotUci),
+            func: Box::new(|_| {
+                |ugi, _, _| {
+                    ugi.output()
+                        .write_response(&(ugi.state.board.active_player().is_first()).to_string());
+                    Ok(())
+                }
+            }),
+            matches: None,
+        }),
+        Box::new(GenericCommand::<EngineUGI<B>> {
+            primary_name: Box::new(|_| "p2turn".to_string()),
+            other_names: vec![Box::new(|_| {
+                format!("{}turn", B::Color::second().ascii_color_char())
+            })],
+            help_text: Box::new(|_| "Is it the second player's turn?".to_string()),
+            standard: Box::new(|_| UgiNotUci),
+            func: Box::new(|_| {
+                |ugi, _, _| {
+                    ugi.output()
+                        .write_response(&(!ugi.state.board.active_player().is_first()).to_string());
+                    Ok(())
+                }
+            }),
+            matches: None,
+        }),
+        ugi_command!(
+            result,
+            [res],
+            UgiNotUci,
+            "The result of the current match",
+            |ugi, _, _| {
+                let response = match &ugi.state.status {
+                    Run(Over(res)) => match res.result {
+                        GameResult::P1Win => "p1win",
+                        GameResult::P2Win => "p2win",
+                        GameResult::Draw => "draw",
+                        GameResult::Aborted => "aborted",
+                    },
+                    _ => "none",
+                };
+                ugi.output().write_response(response);
+                Ok(())
+            }
+        ),
+        ugi_command!(game, [g], Custom, "The current game", |ugi, _, _| {
+            let board = ugi.state.board;
+            ugi.write_ugi(&format!(
+                "{0}\n{1}",
+                &board.long_name(),
+                board.description().unwrap_or_default()
+            ));
+            Ok(())
+        }),
+        ugi_command!(
+            engine,
+            [e, name],
+            Custom,
+            "The name of the engine",
+            |ugi, _, _| {
+                let info = ugi.state.engine.engine_info();
+                let name = info.long_name();
+                let description = info.description().unwrap_or_default();
+                drop(info);
+                ugi.write_ugi(&format!("{name}\n{description}",));
+                Ok(())
+            }
+        ),
     ]
 }

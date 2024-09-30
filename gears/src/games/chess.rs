@@ -139,14 +139,14 @@ impl StaticallyNamedEntity for Chessboard {
     where
         Self: Sized,
     {
-        "Chess game".to_string()
+        "Chess".to_string()
     }
 
     fn static_description() -> String
     where
         Self: Sized,
     {
-        "Chess or Chess960 game".to_string()
+        "A Chess, Chess960 (a.k.a FRC) or DFRC game".to_string()
     }
 }
 
@@ -178,7 +178,7 @@ impl Board for Chessboard {
     }
 
     fn from_name(name: &str) -> Res<Self> {
-        // this is the default implementation in the parent trait
+        // this is the trait's default implementation...
         select_name_static(
             name,
             Self::name_to_pos_map().iter(),
@@ -187,6 +187,7 @@ impl Board for Chessboard {
             NoDescription,
         )
         .map(|f| (f.val)())
+        // ... this isn't
         .or_else(|err| {
             Self::parse_numbered_startpos(name)
                 .map_err(|err2| anyhow!("{err} It's also not a (D)FRC startpos [{err2}]."))
