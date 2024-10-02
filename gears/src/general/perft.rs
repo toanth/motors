@@ -104,10 +104,7 @@ pub fn split_perft<B: Board>(depth: Depth, pos: B) -> SplitPerftRes<B> {
     }
 }
 
-pub fn perft_for<B: Board, Iter: IntoIterator<Item = B>>(
-    mut depth: Depth,
-    positions: Iter,
-) -> PerftRes {
+pub fn perft_for<B: Board>(mut depth: Depth, positions: &[B]) -> PerftRes {
     let mut res = PerftRes {
         time: Duration::default(),
         nodes: 0,
@@ -117,7 +114,7 @@ pub fn perft_for<B: Board, Iter: IntoIterator<Item = B>>(
         if depth.get() == 0 || depth == MAX_DEPTH {
             depth = pos.default_perft_depth();
         }
-        let this_res = perft(depth, pos);
+        let this_res = perft(depth, *pos);
         res.time += this_res.time;
         res.nodes += this_res.nodes;
         res.depth = res.depth.max(this_res.depth);

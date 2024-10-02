@@ -79,8 +79,6 @@ pub trait AbstractOutput: NamedEntity + Debug + Send + 'static {
 }
 
 /// An Output prints the board and shows messages.
-/// There is no trait for Input because it's literally just something that contains a `Weak<Mutex<UgiGui>>`,
-/// and not needed at all for `motors` (only for `monitors`).
 pub trait Output<B: Board>: AbstractOutput {
     fn show(&mut self, m: &dyn GameState<B>) {
         println!("{}", self.as_string(m));

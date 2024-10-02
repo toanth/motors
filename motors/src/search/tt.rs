@@ -1,4 +1,5 @@
 use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T1};
+use std::fmt::{Display, Formatter};
 use std::mem::{size_of, transmute_copy};
 use std::ptr::addr_of;
 use std::sync::atomic::Ordering::Relaxed;
@@ -31,12 +32,25 @@ enum OptionalNodeType {
 
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 #[repr(C)]
-pub(super) struct TTEntry<B: Board> {
+pub struct TTEntry<B: Board> {
     pub hash: ZobristHash,     // 8 bytes
     pub score: Score,          // 4 bytes
     pub mov: UntrustedMove<B>, // depends, 2 bytes for chess (atm never more)
     pub depth: u8,             // 1 byte
     bound: OptionalNodeType,   // 1 byte
+}
+
+impl<B: Board> Display for TTEntry<B> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "move {0} score {1} bound {2} depth {3}",
+            self.mov,
+            self.score,
+            self.bound(),
+            self.depth
+        )
+    }
 }
 
 impl<B: Board> TTEntry<B> {

@@ -105,7 +105,12 @@ impl<B: Board> AbstractRun for BenchRun<B> {
             None
         };
         let depth = self.depth.unwrap_or(engine.default_bench_depth());
-        let res = run_bench_with(engine, SearchLimit::depth(depth), nodes);
+        let res = run_bench_with(
+            engine,
+            SearchLimit::depth(depth),
+            nodes,
+            &B::bench_positions(),
+        );
         println!("{res}");
         QuitProgram
     }

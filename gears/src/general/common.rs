@@ -175,8 +175,27 @@ pub trait NamedEntity: Debug {
     /// The optional description.
     fn description(&self) -> Option<String>;
 
+    /// Does an input match the name?
+    /// This can be overwritten in an implementation to consider additional names
     fn matches(&self, name: &str) -> bool {
         self.short_name().eq_ignore_ascii_case(name)
+    }
+
+    /// Is `name` (close to) a prefix of this entity's name, as determined by `matcher`?
+    /// This can be overwritten in an implementation to consider additional names.
+    /// 0 means an exact match, higher values are worse matches
+    fn autocomplete_badness(&self, input: &str, matcher: fn(&str, &str) -> usize) -> usize {
+        matcher(input, &self.short_name())
+    }
+
+    /// Some named entities, mostly commands, have subcommands
+    fn sub_entities_completion(&self) -> &[Box<dyn NamedEntity>] {
+        &[]
+    }
+
+    /// Other short names for this entity
+    fn secondary_names(&self) -> Vec<String> {
+        vec![]
     }
 }
 

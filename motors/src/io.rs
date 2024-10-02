@@ -15,12 +15,13 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
+mod ascii_art;
 pub mod cli;
 mod command;
+mod input;
 pub mod ugi_output;
 
 use std::fmt::{Debug, Display, Formatter, Write};
-use std::io::stdin;
 use std::iter::Peekable;
 use std::ops::{Deref, DerefMut};
 use std::str::{FromStr, SplitWhitespace};
@@ -41,7 +42,7 @@ use gears::general::common::{
 };
 use gears::general::common::{IterIntersperse, Res};
 use gears::general::moves::Move;
-use gears::general::perft::{perft, perft_for, split_perft};
+use gears::general::perft::{perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBuilder};
@@ -56,11 +57,13 @@ use gears::MatchStatus::*;
 use gears::Quitting::QuitProgram;
 use gears::{output_builder_from_str, AbstractRun, GameState, MatchStatus, Quitting};
 
+use crate::io::ascii_art::print_as_ascii_art;
 use crate::io::cli::EngineOpts;
 use crate::io::command::Standard::Custom;
 use crate::io::command::{
-    accept_depth, go_commands, query_commands, ugi_commands, CommandList, GoState,
+    accept_depth, go_options, query_commands, ugi_commands, CommandList, GoState,
 };
+use crate::io::input::Input;
 use crate::io::ugi_output::UgiOutput;
 use crate::io::ProgramStatus::{Quit, Run};
 use crate::io::Protocol::Interactive;
@@ -162,13 +165,14 @@ impl<B: Board> BoardGameState<B> {
 
     fn handle_position(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         let pos = self.board;
-        _ = parse_ugi_position_and_moves(
+        self.board = parse_ugi_position_and_moves(
             words,
             &pos,
             self,
             |this, mov| this.make_move(mov),
             |this, pos| {
                 this.initial_pos = *pos;
+                this.board = *pos;
                 this.clear_state()
             },
         )?;
@@ -316,10 +320,15 @@ impl<B: Board> EngineUGI<B> {
             last_played_color: B::Color::default(),
             ponder_limit: None,
         };
+        let protocol = if opts.interactive {
+            Interactive
+        } else {
+            Protocol::UGI
+        };
         let state = EngineGameState {
             board_state,
             game_name: B::game_name(),
-            protocol: Protocol::default(),
+            protocol,
             engine,
             display_name,
             opponent_name: None,
@@ -337,7 +346,7 @@ impl<B: Board> EngineUGI<B> {
             state,
             commands: AllCommands {
                 ugi: ugi_commands(),
-                go: go_commands(),
+                go: go_options(),
                 query: query_commands(),
             },
             output,
@@ -363,22 +372,33 @@ impl<B: Board> EngineUGI<B> {
             Debug,
             &format!("Starting UGI loop (playing {})", B::game_name()),
         );
+        let text = format!("Motors: {}", self.state.game_name());
+        let text = print_as_ascii_art(&text, 2);
+        self.write_ugi(&text);
+        self.write_engine_ascii_art();
+
+        let mut input = Input::new(self.state.protocol == Interactive, self);
         loop {
-            let mut input = String::default();
-            // If reading the input failed, always terminate. This probably means that the pipe is broken or similar,
-            // so there's no point in continuing.
-            match stdin().read_line(&mut input) {
-                Ok(count) => {
-                    if count == 0 {
-                        self.write_message(Debug, "Read 0 bytes. Terminating the program.");
-                        break;
-                    }
-                }
-                Err(e) => {
-                    self.write_message(Error, &format!("Failed to read input: {e}"));
+            input.set_interactive(self.state.protocol == Interactive, self);
+            let input = match input.get_line(self) {
+                Ok(input) => input,
+                Err(err) => {
+                    self.write_message(Error, &err.to_string());
                     break;
                 }
-            }
+            };
+            // match stdin().read_line(&mut input) {
+            //     Ok(count) => {
+            //         if count == 0 {
+            //             self.write_message(Debug, "Read 0 bytes. Terminating the program.");
+            //             break;
+            //         }
+            //     }
+            //     Err(e) => {
+            //         self.write_message(Error, &format!("Failed to read input: {e}"));
+            //         break;
+            //     }
+            // }
 
             let res = self.handle_input(input.split_whitespace().peekable());
             match res {
@@ -581,6 +601,19 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
+    fn print_board(&mut self) {
+        // TODO: Rework the output system
+        _ = self.handle_print(&mut "".split_whitespace().peekable());
+    }
+
+    fn handle_position(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+        self.state.handle_position(words)?;
+        if self.is_interactive() {
+            self.print_board();
+        }
+        Ok(())
+    }
+
     fn handle_go(
         &mut self,
         search_type: SearchType,
@@ -625,45 +658,41 @@ impl<B: Board> EngineUGI<B> {
             .saturating_sub(self.move_overhead)
             .max(Duration::from_millis(1));
 
-        if (search_type == Perft || search_type == SplitPerft) && state.limit.depth == Depth::MAX {
-            state.limit.depth = state.board.default_perft_depth();
-        }
-
-        if state.complete {
-            match search_type {
-                Bench => {
-                    let mut engine = create_engine_bench_from_str(
-                        &self.state.engine.engine_info().short_name(),
-                        &self.searcher_factories,
-                        &self.eval_factories,
-                    )?;
-                    let res = run_bench_with(
-                        engine.as_mut(),
-                        state.limit,
-                        Some(SearchLimit::nodes(
-                            self.state.engine.engine_info().default_bench_nodes(),
-                        )),
-                    );
-                    self.output().write_ugi(&res.to_string())
+        match search_type {
+            Bench => {
+                let bench_positions = if state.complete {
+                    B::bench_positions()
+                } else {
+                    vec![self.state.board]
+                };
+                return self.bench(state.limit, &bench_positions);
+            }
+            Perft => {
+                let positions = if state.complete {
+                    B::bench_positions()
+                } else {
+                    vec![self.state.board]
+                };
+                self.output()
+                    .write_ugi(&perft_for(state.limit.depth, &positions).to_string())
+            }
+            SplitPerft => {
+                if state.limit.depth.get() == 0 {
+                    bail!("{} requires a depth of at least 1", "splitperft".bold())
                 }
-                Perft => self
-                    .output()
-                    .write_ugi(&perft_for(state.limit.depth, B::bench_positions()).to_string()),
-                _ => {
-                    bail!(
-                        "Can only use the '{}' option with 'bench' or 'perft'",
-                        "complete".bold()
-                    )
-                }
+                self.write_ugi(&split_perft(state.limit.depth, self.state.board).to_string());
+            }
+            _ => {
+                return self.start_search(
+                    search_type,
+                    state.limit,
+                    state.board,
+                    state.search_moves,
+                    state.multi_pv,
+                )
             }
         }
-        self.start_search(
-            search_type,
-            state.limit,
-            state.board,
-            state.search_moves,
-            state.multi_pv,
-        )
+        Ok(())
     }
 
     fn start_search(
@@ -680,7 +709,7 @@ impl<B: Board> EngineUGI<B> {
         );
         if let Some(res) = pos.match_result_slow(&self.state.board_hist) {
             self.write_message(Warning, &format!("Starting a {search_type} search in position '{2}', but the game is already over. {0}, reason: {1}.",
-                                                 res.result, res.reason, self.state.board.as_fen().bold()));
+                                        res.result, res.reason, self.state.board.as_fen().bold()));
         }
         if cfg!(feature = "fuzzing") {
             limit.fixed_time = limit.fixed_time.max(Duration::from_secs(2));
@@ -719,24 +748,26 @@ impl<B: Board> EngineUGI<B> {
                     true,
                 )?;
             }
-            Perft => {
-                let msg = format!("{0}", perft(limit.depth, pos));
-                self.write_ugi(&msg);
-            }
-            SplitPerft => {
-                if limit.depth.get() == 0 {
-                    bail!("{} requires a depth of at least 1", "splitperft".bold())
-                }
-                let msg = format!("{0}", split_perft(limit.depth, pos));
-                self.write_ugi(&msg);
-            }
-            Bench => {
-                self.state
-                    .engine
-                    .start_bench(pos, limit)
-                    .expect("bench panic");
-            }
+            _ => unreachable!("Bench and (Split)Perft should have already been handled"),
         };
+        Ok(())
+    }
+
+    fn bench(&mut self, limit: SearchLimit, positions: &[B]) -> Res<()> {
+        let mut engine = create_engine_bench_from_str(
+            &self.state.engine.engine_info().short_name(),
+            &self.searcher_factories,
+            &self.eval_factories,
+        )?;
+        let second_limit = if positions.len() == 1 {
+            None
+        } else {
+            Some(SearchLimit::nodes(
+                self.state.engine.engine_info().default_bench_nodes(),
+            ))
+        };
+        let res = run_bench_with(engine.as_mut(), limit, second_limit, positions);
+        self.output().write_ugi(&res.to_string());
         Ok(())
     }
 
@@ -749,11 +780,25 @@ impl<B: Board> EngineUGI<B> {
         } else {
             self.state.board
         };
-        if eval {
-            self.state.engine.static_eval(board)
+        let text = if eval {
+            let info = self.state.engine.engine_info();
+            if let Some(eval_name) = info.eval() {
+                let mut eval =
+                    create_eval_from_str(&eval_name.short_name(), &self.eval_factories)?.build();
+                let eval = eval.eval(&board);
+                format!("score {eval}\n")
+            } else {
+                "<none>".to_string()
+            }
         } else {
-            self.state.engine.tt_entry(board)
-        }
+            if let Some(entry) = self.state.engine.tt_entry(&board) {
+                format!("{entry}")
+            } else {
+                "<none>".to_string()
+            }
+        };
+        self.write_ugi(&text);
+        Ok(())
     }
 
     fn handle_query(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
@@ -820,7 +865,7 @@ impl<B: Board> EngineUGI<B> {
         let next = words.next().unwrap_or_default();
         let output_ptr = self.output.clone();
         let mut output = output_ptr.lock().unwrap();
-        if next.eq_ignore_ascii_case("remove") {
+        if next.eq_ignore_ascii_case("remove") || next.eq_ignore_ascii_case("clear") {
             let Some(next) = words.next() else {
                 bail!("No output to remove specified. Use 'all' to remove all outputs")
             };
@@ -971,6 +1016,7 @@ impl<B: Board> EngineUGI<B> {
         )?;
         self.state.engine.send_quit()?;
         self.state.engine = engine;
+        self.write_engine_ascii_art();
         Ok(())
     }
 
@@ -983,11 +1029,13 @@ impl<B: Board> EngineUGI<B> {
                 .eval()
                 .clone()
                 .map_or_else(|| "<eval unused>".to_string(), |e| e.short_name());
-            self.write_ugi(&format!("Current eval: {name}"));
+            self.write_ugi(&format!("Current eval: {name}   "));
             return Ok(());
         };
         let eval = create_eval_from_str(name, &self.eval_factories)?.build();
-        self.state.engine.set_eval(eval)
+        self.state.engine.set_eval(eval)?;
+        self.write_engine_ascii_art();
+        Ok(())
     }
 
     fn handle_play(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
@@ -1020,41 +1068,38 @@ impl<B: Board> EngineUGI<B> {
 
     fn write_option(&self, words: &mut Peekable<SplitWhitespace>) -> Res<String> {
         let options = self.get_options();
-        Ok(
-            match words
-                .intersperse_(" ")
-                .collect::<String>()
-                .to_ascii_lowercase()
-                .as_str()
-            {
-                "" => {
-                    let mut res = String::default();
-                    for o in options {
-                        Self::write_single_option(&o, &mut res);
-                    }
-                    res
+        Ok(match words.join(" ").to_ascii_lowercase().as_str() {
+            "" => {
+                let mut res = format!(
+                    "{0} playing {1}\n",
+                    self.state.engine.engine_info().short_name(),
+                    self.state.game_name()
+                );
+                for o in options {
+                    Self::write_single_option(&o, &mut res);
                 }
-                x => {
-                    match options
-                        .iter()
-                        .find(|o| o.name.to_string().eq_ignore_ascii_case(x))
-                    {
-                        Some(opt) => {
-                            let mut res = String::new();
-                            Self::write_single_option(&opt, &mut res);
-                            res
-                        }
-                        None => {
-                            bail!(
-                                "No option named '{0}' exists. Type '{1}' for a list of options.",
-                                x.red(),
-                                "ugi".bold()
-                            )
-                        }
+                res
+            }
+            x => {
+                match options
+                    .iter()
+                    .find(|o| o.name.to_string().eq_ignore_ascii_case(x))
+                {
+                    Some(opt) => {
+                        let mut res = String::new();
+                        Self::write_single_option(&opt, &mut res);
+                        res
+                    }
+                    None => {
+                        bail!(
+                            "No option named '{0}' exists. Type '{1}' for a list of options.",
+                            x.red(),
+                            "ugi".bold()
+                        )
                     }
                 }
-            },
-        )
+            }
+        })
     }
 
     fn write_ugi_options(&self) -> String {
@@ -1137,5 +1182,11 @@ impl<B: Board> EngineUGI<B> {
         ];
         res.extend(self.state.engine.engine_info().additional_options());
         res
+    }
+
+    fn write_engine_ascii_art(&mut self) {
+        let text = self.state.engine.engine_info().short_name();
+        let text = print_as_ascii_art(&text, 2);
+        self.write_ugi(&text);
     }
 }

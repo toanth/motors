@@ -73,4 +73,13 @@ impl<B: Board> UgiOutput<B> {
             .iter()
             .any(|o| !o.is_logger() && o.prints_board())
     }
+
+    pub fn format(&mut self, m: &dyn GameState<B>) -> String {
+        use std::fmt::Write;
+        let mut res = String::new();
+        for output in &mut self.additional_outputs {
+            write!(&mut res, "{}", output.as_string(m)).unwrap();
+        }
+        res
+    }
 }

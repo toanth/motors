@@ -1077,25 +1077,31 @@ impl NodeType {
     }
 }
 
-pub fn run_bench<B: Board>(engine: &mut dyn Benchable<B>, with_nodes: bool) -> BenchResult {
+// TODO: Necessary?
+pub fn run_bench<B: Board>(
+    engine: &mut dyn Benchable<B>,
+    with_nodes: bool,
+    positions: &[B],
+) -> BenchResult {
     let nodes = if with_nodes {
         Some(SearchLimit::nodes(engine.default_bench_nodes()))
     } else {
         None
     };
     let depth = SearchLimit::depth(engine.default_bench_depth());
-    run_bench_with(engine, depth, nodes)
+    run_bench_with(engine, depth, nodes, positions)
 }
 
 pub fn run_bench_with<B: Board>(
     engine: &mut dyn Benchable<B>,
     limit: SearchLimit,
     second_limit: Option<SearchLimit>,
+    bench_positions: &[B],
 ) -> BenchResult {
     let mut hasher = DefaultHasher::new();
     let mut total = BenchResult::default();
     let tt = TT::default();
-    for position in B::bench_positions() {
+    for position in bench_positions {
         // engine.forget();
         single_bench(position, engine, limit, tt.clone(), &mut total, &mut hasher);
         if let Some(limit) = second_limit {
@@ -1110,14 +1116,14 @@ pub fn run_bench_with<B: Board>(
 }
 
 fn single_bench<B: Board>(
-    pos: B,
+    pos: &B,
     engine: &mut dyn Benchable<B>,
     limit: SearchLimit,
     tt: TT,
     total: &mut BenchResult,
     hasher: &mut DefaultHasher,
 ) {
-    let res = engine.bench(pos, limit, tt);
+    let res = engine.bench(*pos, limit, tt);
     total.nodes = NodesLimit::new(total.nodes.get() + res.nodes.get()).unwrap();
     total.time += res.time;
     total.depth = total.depth.max(res.depth);
