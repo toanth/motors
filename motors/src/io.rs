@@ -45,7 +45,7 @@ use gears::general::moves::Move;
 use gears::general::perft::{perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
 use gears::output::Message::*;
-use gears::output::{Message, OutputBuilder};
+use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
@@ -61,7 +61,7 @@ use crate::io::ascii_art::print_as_ascii_art;
 use crate::io::cli::EngineOpts;
 use crate::io::command::Standard::Custom;
 use crate::io::command::{
-    accept_depth, go_options, query_commands, ugi_commands, CommandList, GoState,
+    accept_depth, go_options, query_options, ugi_commands, CommandList, GoState,
 };
 use crate::io::input::Input;
 use crate::io::ugi_output::UgiOutput;
@@ -163,18 +163,27 @@ impl<B: Board> BoardGameState<B> {
         self.status = Run(NotStarted);
     }
 
-    fn handle_position(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+    fn handle_position(
+        &mut self,
+        words: &mut Peekable<SplitWhitespace>,
+        allow_pos_word: bool,
+    ) -> Res<()> {
         let pos = self.board;
-        self.board = parse_ugi_position_and_moves(
+        let Some(next_word) = words.next() else {
+            bail!("Missing position after '{}' command", "position".bold())
+        };
+        parse_ugi_position_and_moves(
+            next_word,
             words,
+            allow_pos_word,
             &pos,
             self,
-            |this, mov| this.make_move(mov),
-            |this, pos| {
-                this.initial_pos = *pos;
-                this.board = *pos;
+            |this, mov| this.make_move(mov).map(|_| ()),
+            |this| {
+                this.initial_pos = this.board;
                 this.clear_state()
             },
+            |state| &mut state.board,
         )?;
         self.last_played_color = self.board.active_player();
         Ok(())
@@ -347,7 +356,7 @@ impl<B: Board> EngineUGI<B> {
             commands: AllCommands {
                 ugi: ugi_commands(),
                 go: go_options(),
-                query: query_commands(),
+                query: query_options(),
             },
             output,
             output_factories: all_output_builders,
@@ -461,13 +470,17 @@ impl<B: Board> EngineUGI<B> {
             }
             // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
             // expositor UCI spec demands that an invalid token should cause the entire message to be ignored.
+            let suggest_help = if self.is_interactive() {
+                format!("Type '{}' for a list of recognized commands", "help".bold())
+            } else {
+                format!("If you are a human, consider typing '{}' to see a list of recognized commands.",
+                    "help".bold())
+            };
             self.write_message(
                 Warning,
                 &format!(
-                    "Invalid token at start of UCI command '{0}', ignoring the entire command. \
-                    If you are a human, consider typing {1} to see a list of recognized commands.",
-                    first_word.red(),
-                    "help".bold()
+                    "Invalid token at start of UCI command '{0}', ignoring the entire command.\n{suggest_help}",
+                    first_word.red()
                 ),
             );
             return Ok(());
@@ -607,7 +620,7 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_position(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
-        self.state.handle_position(words)?;
+        self.state.handle_position(words, false)?;
         if self.is_interactive() {
             self.print_board();
         }
@@ -619,13 +632,13 @@ impl<B: Board> EngineUGI<B> {
         search_type: SearchType,
         words: &mut Peekable<SplitWhitespace>,
     ) -> Res<()> {
-        let mut state = GoState::new(self, search_type, self.move_overhead);
+        let mut opts = GoState::new(self, search_type, self.move_overhead);
 
         if matches!(search_type, Perft | SplitPerft | Bench) {
-            accept_depth(&mut state.limit, words);
+            accept_depth(&mut opts.limit, words);
         }
         while let Some(option) = words.next() {
-            state.cont = false;
+            opts.cont = false;
             let cmd = select_name_dyn(
                 option,
                 &self.commands.go,
@@ -634,91 +647,79 @@ impl<B: Board> EngineUGI<B> {
                 WithDescription,
             );
             match cmd {
-                Ok(cmd) => cmd.func()(&mut state, words, option)?,
+                Ok(cmd) => cmd.func()(&mut opts, words, option)?,
                 Err(err) => {
-                    if state.reading_moves {
+                    if opts.reading_moves {
                         let mov =
-                            B::Move::from_compact_text(option, &state.board).map_err(|err| {
+                            B::Move::from_compact_text(option, &opts.board).map_err(|err| {
                                 anyhow!("{err}. '{}' is not a valid 'go' option.", option.bold())
                             })?;
-                        state.search_moves.as_mut().unwrap().push(mov);
+                        opts.search_moves.as_mut().unwrap().push(mov);
                         continue;
                     }
                     bail!(err)
                 }
             }
-            if !state.cont {
-                state.reading_moves = false;
+            if !opts.cont {
+                opts.reading_moves = false;
             }
         }
-        state.limit.tc.remaining = state
+        opts.limit.tc.remaining = opts
             .limit
             .tc
             .remaining
-            .saturating_sub(self.move_overhead)
+            .saturating_sub(opts.move_overhead)
             .max(Duration::from_millis(1));
 
+        if cfg!(feature = "fuzzing") {
+            opts.limit.fixed_time = opts.limit.fixed_time.max(Duration::from_secs(2));
+            if matches!(opts.search_type, Perft | SplitPerft) {
+                opts.limit.depth = opts.limit.depth.min(Depth::new(3));
+            }
+        }
         match search_type {
             Bench => {
-                let bench_positions = if state.complete {
+                let bench_positions = if opts.complete {
                     B::bench_positions()
                 } else {
                     vec![self.state.board]
                 };
-                return self.bench(state.limit, &bench_positions);
+                return self.bench(opts.limit, &bench_positions);
             }
             Perft => {
-                let positions = if state.complete {
+                let positions = if opts.complete {
                     B::bench_positions()
                 } else {
                     vec![self.state.board]
                 };
                 self.output()
-                    .write_ugi(&perft_for(state.limit.depth, &positions).to_string())
+                    .write_ugi(&perft_for(opts.limit.depth, &positions).to_string())
             }
             SplitPerft => {
-                if state.limit.depth.get() == 0 {
+                if opts.limit.depth.get() == 0 {
                     bail!("{} requires a depth of at least 1", "splitperft".bold())
                 }
-                self.write_ugi(&split_perft(state.limit.depth, self.state.board).to_string());
+                self.write_ugi(&split_perft(opts.limit.depth, self.state.board).to_string());
             }
-            _ => {
-                return self.start_search(
-                    search_type,
-                    state.limit,
-                    state.board,
-                    state.search_moves,
-                    state.multi_pv,
-                )
-            }
+            _ => return self.start_search(opts),
         }
         Ok(())
     }
 
-    fn start_search(
-        &mut self,
-        search_type: SearchType,
-        mut limit: SearchLimit,
-        pos: B,
-        moves: Option<Vec<B::Move>>,
-        multi_pv: usize,
-    ) -> Res<()> {
+    fn start_search(&mut self, opts: GoState<B>) -> Res<()> {
         self.write_message(
             Debug,
-            &format!("Starting {search_type} search with limit {limit}"),
+            &format!(
+                "Starting {0} search with limit {1}",
+                opts.search_type, opts.limit
+            ),
         );
-        if let Some(res) = pos.match_result_slow(&self.state.board_hist) {
-            self.write_message(Warning, &format!("Starting a {search_type} search in position '{2}', but the game is already over. {0}, reason: {1}.",
-                                        res.result, res.reason, self.state.board.as_fen().bold()));
-        }
-        if cfg!(feature = "fuzzing") {
-            limit.fixed_time = limit.fixed_time.max(Duration::from_secs(2));
-            if matches!(search_type, Perft | SplitPerft) {
-                limit.depth = limit.depth.min(Depth::new(3));
-            }
+        if let Some(res) = opts.board.match_result_slow(&self.state.board_hist) {
+            self.write_message(Warning, &format!("Starting a {3} search in position '{2}', but the game is already over. {0}, reason: {1}.",
+                                        res.result, res.reason, self.state.board.as_fen().bold(), opts.search_type));
         }
         self.state.status = Run(Ongoing);
-        match search_type {
+        match opts.search_type {
             // this keeps the current history even if we're searching a different position, but that's probably not a problem
             // and doing a normal search from a custom position isn't even implemented at the moment -- TODO: implement?
             Normal => {
@@ -729,22 +730,22 @@ impl<B: Board> EngineUGI<B> {
                     self.state.engine.send_stop(true); // aborts the pondering without printing a search result
                 }
                 self.state.engine.start_search(
-                    pos,
-                    limit,
-                    self.state.board_hist.clone(),
-                    moves,
-                    multi_pv,
+                    opts.board,
+                    opts.limit,
+                    opts.board_hist,
+                    opts.search_moves,
+                    opts.multi_pv,
                     false,
                 )?;
             }
             SearchType::Ponder => {
-                self.state.ponder_limit = Some(limit);
+                self.state.ponder_limit = Some(opts.limit);
                 self.state.engine.start_search(
-                    pos,
+                    opts.board,
                     SearchLimit::infinite(), //always allocate infinite time for pondering
-                    self.state.board_hist.clone(),
-                    moves,
-                    multi_pv, // don't ignore multi_pv in pondering mode
+                    opts.board_hist,
+                    opts.search_moves,
+                    opts.multi_pv, // don't ignore multi_pv in pondering mode
                     true,
                 )?;
             }
@@ -772,11 +773,9 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_eval_or_tt(&mut self, eval: bool, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
-        let board = if words.peek().copied().is_some() {
-            if matches!(*words.peek().unwrap(), "position" | "pos" | "p") {
-                words.next();
-            }
-            load_ugi_position(words, &self.state.board)?
+        let board = if let Some(next_word) = words.peek().copied() {
+            _ = words.next();
+            load_ugi_position(next_word, words, true, &self.state.board)?
         } else {
             self.state.board
         };
@@ -827,36 +826,49 @@ impl<B: Board> EngineUGI<B> {
         }
     }
 
+    fn select_output(&self, words: &mut Peekable<SplitWhitespace>) -> Res<Option<OutputBox<B>>> {
+        let name = words.peek().copied().unwrap_or_default();
+        let output = output_builder_from_str(name, &self.output_factories);
+        match output {
+            Ok(mut output) => {
+                _ = words.next();
+                Ok(Some(output.for_engine(&self.state)?))
+            }
+            Err(_) => {
+                if self
+                    .output()
+                    .additional_outputs
+                    .iter()
+                    .any(|o| o.prints_board() && !o.is_logger())
+                {
+                    Ok(None)
+                } else {
+                    self.select_output(&mut "unicode".split_whitespace().peekable())
+                }
+            }
+        }
+    }
+
     fn handle_print(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
-        match words.next() {
+        let output = self.select_output(words)?;
+        let print = |this: &Self, output: Option<OutputBox<B>>, state| match output {
             None => {
-                if !self.output().show(&self.state) {
-                    return self.handle_print(&mut "unicode".split_whitespace().peekable());
-                }
+                this.output().show(state);
             }
-            Some(name) => {
-                // This is definitely not the fastest way to print something, but performance isn't a huge concern here
-                // TODO: Allow `print (pos) kiwipete` without specifying the output
-                let mut output = output_builder_from_str(name, &self.output_factories)?
-                    .for_engine(&self.state)?;
-                let old_board = self.state.board;
-                match words.next() {
-                    None => {}
-                    Some("position" | "pos" | "p") => {
-                        self.state.board = load_ugi_position(words, &self.state.board)?;
-                    }
-                    Some(x) => {
-                        let Ok(new_board) = load_ugi_position(words, &self.state.board) else {
-                            bail!(
-                                "Unrecognized input '{x}' after valid print command, should be either nothing or a valid 'position' command"
-                            )
-                        };
-                        self.state.board = new_board;
-                    }
-                }
-                output.show(&self.state);
-                self.state.board = old_board;
+            Some(mut output) => {
+                output.show(state);
             }
+        };
+        if words.peek().is_some() {
+            let old_state = self.state.board_state.clone();
+            if let Err(err) = self.state.handle_position(words, true) {
+                self.state.board_state = old_state;
+                return Err(err);
+            }
+            print(self, output, &self.state);
+            self.state.board_state = old_state;
+        } else {
+            print(self, output, &self.state);
         }
         Ok(())
     }

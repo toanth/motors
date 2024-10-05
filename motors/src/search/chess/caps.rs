@@ -656,8 +656,8 @@ impl Caps {
                     }
                 }
 
-                if let Some(mov) = tt_entry.mov.check_pseudolegal(&pos) {
-                    best_move = mov;
+                if let Some(tt_move) = tt_entry.mov.check_pseudolegal(&pos) {
+                    best_move = tt_move;
                 }
                 // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
                 // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently

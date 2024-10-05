@@ -295,7 +295,14 @@ impl Move<Chessboard> for ChessMove {
             flags = EnPassant;
         }
         let res = from.bb_idx() + (to.bb_idx() << 6) + ((flags as usize) << 12);
-        Ok(ChessMove(res as u16))
+        let res = ChessMove(res as u16);
+        if !board.is_move_pseudolegal(res) {
+            bail!(
+                "The move '{0}' is not (pseudo)legal in position '{board}'",
+                s.red()
+            )
+        }
+        Ok(res)
     }
 
     fn format_extended(self, f: &mut Formatter<'_>, board: &Chessboard) -> fmt::Result {

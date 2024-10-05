@@ -217,17 +217,25 @@ impl NamedEntity for EngineOption {
 }
 
 pub fn parse_ugi_position_part<B: Board>(
-    words: &mut Peekable<SplitWhitespace>,
+    first_word: &str,
+    rest: &mut Peekable<SplitWhitespace>,
+    allow_position_part: bool,
     old_board: &B,
 ) -> Res<B> {
-    // let input = words.remainder().unwrap_or_default().trim();
-    let Some(position_word) = words.next() else {
-        bail!("Missing position after 'position' command")
-    };
-    Ok(match position_word {
-        "fen" | "f" => B::read_fen_and_advance_input(words)?,
+    if allow_position_part
+        && (first_word.eq_ignore_ascii_case("position")
+            || first_word.eq_ignore_ascii_case("pos")
+            || first_word.eq_ignore_ascii_case("p"))
+    {
+        let Some(pos_word) = rest.next() else {
+            bail!("Missing position after '{}' option", "position".bold())
+        };
+        return parse_ugi_position_part(pos_word, rest, false, old_board);
+    }
+    Ok(match first_word.to_ascii_lowercase().as_str() {
+        "fen" | "f" => B::read_fen_and_advance_input(rest)?,
         "startpos" | "s" => B::startpos_for_settings(old_board.settings()),
-        "old" | "o" | "previous" | "p" => *old_board,
+        "current" | "c" => *old_board,
         name => B::from_name(name).map_err(|err| {
             anyhow!(
                 "{err} Additionally, '{0}', '{1}' and '{2}' are also always recognized.",
@@ -242,47 +250,68 @@ pub fn parse_ugi_position_part<B: Board>(
 pub fn parse_ugi_position_and_moves<
     B: Board,
     S,
-    F: Fn(&mut S, B::Move) -> Res<B>,
-    G: Fn(&mut S, &B),
+    F: Fn(&mut S, B::Move) -> Res<()>,
+    G: Fn(&mut S),
+    H: Fn(&mut S) -> &mut B,
 >(
-    words: &mut Peekable<SplitWhitespace>,
+    first_word: &str,
+    rest: &mut Peekable<SplitWhitespace>,
+    accept_pos_word: bool,
     old_board: &B,
     state: &mut S,
     make_move: F,
     start_moves: G,
-) -> Res<B> {
-    let mut board = parse_ugi_position_part(words, old_board)?;
-    match words.next() {
-        None => return Ok(board),
-        Some("moves") => {}
-        Some("m") => {}
-        Some(x) => bail!("Expected either nothing or 'moves', got '{x}"),
+    board: H,
+) -> Res<()> {
+    *(board(state)) = parse_ugi_position_part(first_word, rest, accept_pos_word, old_board)?;
+    let Some(next_word) = rest.peek().copied() else {
+        return Ok(());
+    };
+    if !(next_word.eq_ignore_ascii_case("moves") || next_word.eq_ignore_ascii_case("m")) {
+        return Ok(()); // don't error to allow other options following a position command
     }
-    start_moves(state, &board);
+    rest.next();
+    start_moves(state);
     // TODO: Allow parsing other commands after a 'position' subcommand by returning a special error type
     // on an invalid "move"
     // TODO: Handle flip / nullmove?
-    for mov in words {
-        let mov = B::Move::from_compact_text(mov, &board)?;
-        board = make_move(state, mov)
-            .map_err(|err| anyhow!("move '{mov}' is not legal in position '{board}': {err}"))?;
+    for mov in rest {
+        // TODO: Don't give an error to allow other options following a position command with moves
+        let mov = B::Move::from_text(mov, board(state))?;
+        make_move(state, mov).map_err(|err| {
+            anyhow!(
+                "move '{mov}' is not legal in position '{}': {err}",
+                *board(state)
+            )
+        })?;
     }
-    Ok(board)
+    Ok(())
 }
 
-pub fn load_ugi_position<B: Board>(words: &mut Peekable<SplitWhitespace>, old_board: &B) -> Res<B> {
-    let mut pos = *old_board;
+pub fn load_ugi_position<B: Board>(
+    first_word: &str,
+    rest: &mut Peekable<SplitWhitespace>,
+    accept_pos_word: bool,
+    old_board: &B,
+) -> Res<B> {
+    let mut board = *old_board;
     parse_ugi_position_and_moves(
-        words,
+        first_word,
+        rest,
+        accept_pos_word,
         old_board,
-        &mut pos,
+        &mut board,
         |pos, next_move| {
-            pos.make_move(next_move).ok_or_else(|| {
+            debug_assert!(pos.is_move_legal(next_move));
+            *pos = pos.make_move(next_move).ok_or_else(|| {
                 anyhow!(
                     "Move '{next_move}' is not legal in position '{pos}' (but it is pseudolegal)"
                 )
-            })
+            })?;
+            Ok(())
         },
-        |_, _| (),
-    )
+        |_| (),
+        |board| board,
+    )?;
+    Ok(board)
 }

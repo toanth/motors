@@ -24,7 +24,7 @@ use crate::io::{EngineUGI, SearchType};
 use arrayvec::ArrayVec;
 use colored::Colorize;
 use edit_distance::edit_distance;
-use gears::games::Color;
+use gears::games::{Color, ZobristHistory};
 use gears::general::board::Board;
 use gears::general::common::anyhow::anyhow;
 use gears::general::common::{parse_duration_ms, parse_int, parse_int_from_str, NamedEntity, Res};
@@ -72,9 +72,9 @@ fn display_cmd<S: Debug>(f: &mut Formatter<'_>, cmd: &dyn CommandTrait<S>) -> st
 
 #[derive(Debug)]
 pub struct SimpleCommand<State: Debug> {
-    pub primary_name: &'static str,
-    pub other_names: ArrayVec<&'static str, 4>,
-    pub help_text: &'static str,
+    pub primary_name: String,
+    pub other_names: ArrayVec<String, 4>,
+    pub help_text: String,
     pub standard: Standard,
     pub func:
         fn(&mut State, remaining_input: &mut Peekable<SplitWhitespace>, _cmd: &str) -> Res<()>,
@@ -83,7 +83,7 @@ pub struct SimpleCommand<State: Debug> {
 
 impl<State: Debug> NamedEntity for SimpleCommand<State> {
     fn short_name(&self) -> String {
-        self.primary_name.to_string()
+        self.primary_name.clone()
     }
 
     fn long_name(&self) -> String {
@@ -91,11 +91,11 @@ impl<State: Debug> NamedEntity for SimpleCommand<State> {
     }
 
     fn description(&self) -> Option<String> {
-        Some(self.help_text.to_string())
+        Some(self.help_text.clone())
     }
 
     fn matches(&self, name: &str) -> bool {
-        name.eq_ignore_ascii_case(self.primary_name)
+        name.eq_ignore_ascii_case(&self.primary_name)
             || self
                 .other_names
                 .iter()
@@ -103,11 +103,11 @@ impl<State: Debug> NamedEntity for SimpleCommand<State> {
     }
 
     fn autocomplete_badness(&self, input: &str, matcher: fn(&str, &str) -> usize) -> usize {
-        matcher(input, self.primary_name).min(
+        matcher(input, &self.primary_name).min(
             self.other_names
                 .iter()
                 // prefer primary matches
-                .map(|name| 1 + matcher(input, *name))
+                .map(|name| 1 + matcher(input, &name))
                 .min()
                 .unwrap_or(usize::MAX),
         )
@@ -118,7 +118,7 @@ impl<State: Debug> NamedEntity for SimpleCommand<State> {
     }
 
     fn secondary_names(&self) -> Vec<String> {
-        self.other_names.iter().map(|s| s.to_string()).collect_vec()
+        self.other_names.iter().map(|s| s.clone()).collect_vec()
     }
 }
 
@@ -246,11 +246,11 @@ macro_rules! command {
             let mut sub_commands = vec![];
             $(sub_commands = ($subcmd).into_iter().map(|x| x.upcast_box()).collect();)?
             let cmd = SimpleCommand::<$state> {
-                primary_name: stringify!($primary),
-                other_names: ArrayVec::from_iter([$(stringify!($other),)*]),
+                primary_name: stringify!($primary).to_string(),
+                other_names: ArrayVec::from_iter([$(stringify!($other).to_string(),)*]),
                 standard: $std,
                 func: $fun,
-                help_text: $help,
+                help_text: $help.to_string(),
                 sub_commands,
             };
             Box::new(cmd)
@@ -288,7 +288,8 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             position | pos | p,
             All,
             "Set the current position",
-            |ugi, words, _| ugi.handle_position(words) // TODO: position command
+            |ugi, words, _| ugi.handle_position(words),
+            -> position_options::<B>(false)
         ),
         ugi_command!(
             ugi | uci | uai,
@@ -300,18 +301,16 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             ponderhit,
             All,
             "Stop pondering and start a normal search",
-            |ugi, _, cmd| ugi.start_search(
-                Normal,
-                ugi.state.ponder_limit.ok_or_else(|| {
+            |ugi, _, cmd| {
+                let mut go_state = GoState::new(ugi, Normal, ugi.move_overhead);
+                go_state.limit = ugi.state.ponder_limit.ok_or_else(|| {
                     anyhow!(
                         "The engine received a '{}' command but wasn't pondering",
                         cmd.bold()
                     )
-                })?,
-                ugi.state.board,
-                None,
-                ugi.multi_pv,
-            )
+                })?;
+                ugi.start_search(go_state)
+            }
         ),
         ugi_command!(
             isready,
@@ -371,7 +370,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             UgiNotUci,
             "Answer a query about the current match state",
             |ugi, words, _| ugi.handle_query(words),
-            -> query_commands::<B>()
+            -> query_options::<B>()
         ),
         ugi_command!(
             option | info,
@@ -392,7 +391,8 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             print | show | s | display,
             Custom,
             "Display the specified / current position with specified / enabled outputs",
-            |ugi, words, _| ugi.handle_print(words)
+            |ugi, words, _| ugi.handle_print(words),
+            -> position_options::<B>(true) // TODO: Also autocomplete outputs
         ),
         ugi_command!(
             log,
@@ -437,7 +437,8 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             perft,
             Custom,
             "Internal movegen test on current / bench positions",
-            |ugi, words, _| ugi.handle_go(Perft, words)
+            |ugi, words, _| ugi.handle_go(Perft, words),
+            -> position_options::<B>(true)
         ),
         ugi_command!(
             splitperft | sp,
@@ -449,19 +450,22 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             bench,
             Custom,
             "Internal search test on current / bench positions. Same arguments as `go`",
-            |ugi, words, _| ugi.handle_go(Bench, words)
+            |ugi, words, _| ugi.handle_go(Bench, words),
+            -> go_options::<B>()
         ),
         ugi_command!(
             eval | e | static_eval,
             Custom,
             "Print the static eval (i.e., no search) of a position",
-            |ugi, words, _| ugi.handle_eval_or_tt(true, words)
+            |ugi, words, _| ugi.handle_eval_or_tt(true, words),
+            -> position_options::<B>(true)
         ),
         ugi_command!(
             tt | tt_entry,
             Custom,
             "Print the TT entry for a position",
-            |ugi, words, _| ugi.handle_eval_or_tt(false, words)
+            |ugi, words, _| ugi.handle_eval_or_tt(false, words),
+            -> position_options::<B>(true)
         ),
         ugi_command!(
             list,
@@ -487,6 +491,7 @@ pub struct GoState<B: Board> {
     pub search_type: SearchType,
     pub complete: bool,
     pub board: B,
+    pub board_hist: ZobristHistory<B>,
     pub move_overhead: Duration,
 }
 
@@ -508,6 +513,7 @@ impl<B: Board> GoState<B> {
             search_type,
             complete: false,
             board: ugi.state.board,
+            board_hist: ugi.state.board_hist.clone(),
             move_overhead,
         }
     }
@@ -524,13 +530,13 @@ pub fn accept_depth(limit: &mut SearchLimit, words: &mut Peekable<SplitWhitespac
 
 macro_rules! go_command {
     ($primary:ident $( | $other:ident)*, $std:expr, $help:expr, $fun:expr $(, ->$subcmd:expr)?) => {
-        command!(GoState<B>, $primary $(| $other)*, $std, $help, $fun $(, $subcmd)?)
+        command!(GoState<B>, $primary $(| $other)*, $std, $help, $fun $(, ->$subcmd)?)
     }
 }
 
 #[expect(clippy::too_many_lines)]
 pub fn go_options<B: Board>() -> CommandList<GoState<B>> {
-    vec![
+    let mut res: CommandList<GoState<B>> = vec![
         Box::new(GenericCommand::<GoState<B>> {
             primary_name: Box::new(|_| format!("{}time", B::Color::first().ascii_color_char())),
             other_names: vec![
@@ -742,16 +748,6 @@ pub fn go_options<B: Board>() -> CommandList<GoState<B>> {
                 Ok(())
             }
         ),
-        // TODO: Maybe there's a way to reuse commands?
-        go_command!(
-            position | pos | p,
-            Custom,
-            "Search from a custom position",
-            |opts, words, _| {
-                opts.board = load_ugi_position(words, &opts.board)?;
-                Ok(())
-            }
-        ),
         // TODO: Handle moves for searchmoves. Maybe not as command
         // Box::new(GenericCommand::<GoState<B>> {
         //     primary_name: Box::new(|_| "move".to_string()),
@@ -771,10 +767,25 @@ pub fn go_options<B: Board>() -> CommandList<GoState<B>> {
         //     }),
         //     matches: None, /*Some(Box::new(|_, go, _word| go.reading_moves))*/
         // }),
-    ]
+    ];
+    for cmd in position_options::<B>(true) {
+        let cmd = SimpleCommand::<GoState<B>> {
+            primary_name: cmd.short_name(),
+            other_names: cmd.secondary_names().into_iter().collect(),
+            help_text: cmd.description().unwrap(),
+            standard: Custom,
+            func: |opts, words, first_word| {
+                opts.board = load_ugi_position(first_word, words, true, &opts.board)?;
+                Ok(())
+            },
+            sub_commands: vec![],
+        };
+        res.push(Box::new(cmd));
+    }
+    res
 }
 
-pub fn query_commands<B: Board>() -> CommandList<EngineUGI<B>> {
+pub fn query_options<B: Board>() -> CommandList<EngineUGI<B>> {
     vec![
         ugi_command!(gameover, UgiNotUci, "Is the game over?", |ugi, _, _| {
             ugi.output()
@@ -854,6 +865,46 @@ pub fn query_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             }
         ),
     ]
+}
+
+macro_rules! pos_command {
+    ($primary:ident $( | $other:ident)*, $std:expr, $help:expr $(, ->$subcmd:expr)?) => {
+        command!((), $primary $(| $other)*, $std, $help, |_, _, _| Ok(()) $(, $subcmd)?)
+    }
+}
+
+pub fn position_options<B: Board>(accept_pos_word: bool) -> CommandList<()> {
+    let mut res: CommandList<()> = vec![
+        pos_command!(fen | f, All, "Load a positions from a FEN"),
+        pos_command!(startpos | s, All, "Load the starting position"),
+        pos_command!(
+            current | c,
+            Custom,
+            "Current position, useful in combination with 'moves'"
+        ),
+    ];
+    if accept_pos_word {
+        res.push(pos_command!(
+            position | pos | p,
+            Custom,
+            "Followed by `fen <fen>` or a position name"
+        ))
+    }
+    for p in B::name_to_pos_map() {
+        let c = Box::new(SimpleCommand {
+            primary_name: p.short_name(),
+            other_names: Default::default(),
+            help_text: p.description().unwrap_or(format!(
+                "Load a custom position called '{}'",
+                p.short_name()
+            )),
+            standard: Custom,
+            func: |_, _, _| Ok(()),
+            sub_commands: vec![],
+        });
+        res.push(c);
+    }
+    res
 }
 
 #[derive(Debug, Clone)]

@@ -227,10 +227,7 @@ pub trait Board:
     /// "startpos" is handled automatically in `from_name` but can be overwritten here.
     #[must_use]
     fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
-        vec![NameToPos {
-            name: "startpos",
-            val: || Self::startpos_for_settings(Self::Settings::default()),
-        }]
+        vec![]
     }
 
     #[must_use]
