@@ -21,16 +21,25 @@ use crate::io::ProgramStatus::Run;
 use crate::io::Protocol::Interactive;
 use crate::io::SearchType::{Bench, Normal, Perft, Ponder, SplitPerft};
 use crate::io::{EngineUGI, SearchType};
+use crate::search::{
+    AbstractEvalBuilder, AbstractSearcherBuilder, EngineInfo, EvalList, SearcherList,
+};
 use arrayvec::ArrayVec;
 use colored::Colorize;
 use edit_distance::edit_distance;
-use gears::games::{Color, ZobristHistory};
+use gears::cli::Game;
+use gears::games::{Color, OutputList, ZobristHistory};
 use gears::general::board::Board;
 use gears::general::common::anyhow::anyhow;
-use gears::general::common::{parse_duration_ms, parse_int, parse_int_from_str, NamedEntity, Res};
+use gears::general::common::{
+    parse_duration_ms, parse_int, parse_int_from_str, Name, NamedEntity, Res,
+};
+use gears::general::move_list::MoveList;
+use gears::general::moves::Move;
 use gears::output::Message::Warning;
+use gears::output::OutputBuilder;
 use gears::search::{Depth, NodesLimit, SearchLimit};
-use gears::ugi::load_ugi_position;
+use gears::ugi::{load_ugi_position, parse_ugi_position_part, EngineOptionName};
 use gears::GameResult;
 use gears::MatchStatus::{NotStarted, Ongoing, Over};
 use gears::Quitting::{QuitMatch, QuitProgram};
@@ -41,7 +50,14 @@ use std::fmt::{Debug, Display, Formatter};
 use std::iter::{once, Peekable};
 use std::rc::Rc;
 use std::str::{from_utf8, SplitWhitespace};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use strum::IntoEnumIterator;
+
+fn add<T>(mut a: Vec<T>, mut b: Vec<T>) -> Vec<T> {
+    a.append(&mut b);
+    a
+}
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum Standard {
@@ -50,19 +66,53 @@ pub enum Standard {
     Custom,
 }
 
-pub trait CommandTrait<State: Debug>: NamedEntity + Display {
+pub trait CommandState: Debug {
+    type B: Board;
+}
+
+impl<B: Board> CommandState for EngineUGI<B> {
+    type B = B;
+}
+
+impl<B: Board> CommandState for B {
+    type B = B;
+}
+
+#[allow(type_alias_bounds)]
+pub type SubCommandList<B: Board> = Vec<Box<dyn AbstractCommand<B>>>;
+
+/// This is used for command autocompletion, where there is no need to actually execute the command.
+/// This means that the State doesn't need to be known.
+pub trait AbstractCommand<B: Board>: NamedEntity + Display {
+    fn standard(&self) -> Standard;
+
+    fn sub_commands(&self, state: ACState<B>) -> SubCommandList<B>;
+
+    fn change_autocomplete_state(&self, state: ACState<B>) -> ACState<B>;
+
+    fn autocomplete_recurse(&self) -> bool;
+
+    fn set_autocompletions(&mut self, func: SubCommandsFn<B>);
+
+    fn secondary_names(&self) -> Vec<String>;
+}
+
+pub trait CommandTrait<State: CommandState>: AbstractCommand<State::B> {
     fn func(
         &self,
     ) -> fn(&mut State, remaining_input: &mut Peekable<SplitWhitespace>, _cmd: &str) -> Res<()>;
 
-    fn standard(&self) -> Standard;
+    // TODO: The upcast methods should be unnecessary now
+    fn upcast_box(self: Box<Self>) -> Box<dyn AbstractCommand<State::B>>;
 
-    fn upcast_box(self: Box<Self>) -> Box<dyn NamedEntity>;
-
-    fn upcast_ref(&self) -> &dyn NamedEntity;
+    fn upcast_ref(&self) -> &dyn AbstractCommand<State::B>;
 }
 
-fn display_cmd<S: Debug>(f: &mut Formatter<'_>, cmd: &dyn CommandTrait<S>) -> std::fmt::Result {
+// TODO: Needed?
+fn display_cmd<S: CommandState>(
+    f: &mut Formatter<'_>,
+    cmd: &dyn CommandTrait<S>,
+) -> std::fmt::Result {
     if let Some(desc) = cmd.description() {
         write!(f, "{}: {desc}.", cmd.short_name().bold())
     } else {
@@ -70,18 +120,65 @@ fn display_cmd<S: Debug>(f: &mut Formatter<'_>, cmd: &dyn CommandTrait<S>) -> st
     }
 }
 
+struct AutoCompleteFunc<B: Board>(pub Box<dyn Fn(ACState<B>) -> ACState<B>>);
+
+impl<B: Board> Debug for AutoCompleteFunc<B> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<autocomplete>")
+    }
+}
+
+impl<B: Board> Default for AutoCompleteFunc<B> {
+    fn default() -> Self {
+        Self(Box::new(|x| x))
+    }
+}
+
+pub struct SubCommandsFn<B: Board>(Box<dyn Fn(ACState<B>) -> SubCommandList<B>>);
+
+impl<B: Board> Debug for SubCommandsFn<B> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<subcommands>")
+    }
+}
+
+impl<B: Board> Default for SubCommandsFn<B> {
+    fn default() -> Self {
+        Self(Box::new(|_state| vec![]))
+    }
+}
+
+impl<B: Board> SubCommandsFn<B> {
+    pub fn new<
+        S: CommandState<B = B>,
+        C: CommandTrait<S> + ?Sized,
+        F: Fn(ACState<B>) -> Vec<Box<C>> + 'static,
+    >(
+        cmd: F,
+    ) -> Self {
+        Self(Box::new(move |state: ACState<B>| {
+            cmd(state)
+                .into_iter()
+                .map(|state| state.upcast_box())
+                .collect_vec()
+        }))
+    }
+}
+
 #[derive(Debug)]
-pub struct SimpleCommand<State: Debug> {
+pub struct SimpleCommand<State: CommandState> {
     pub primary_name: String,
     pub other_names: ArrayVec<String, 4>,
     pub help_text: String,
     pub standard: Standard,
+    pub autocomplete_recurse: bool,
     pub func:
         fn(&mut State, remaining_input: &mut Peekable<SplitWhitespace>, _cmd: &str) -> Res<()>,
-    pub sub_commands: Vec<Box<dyn NamedEntity>>,
+    change_ac_state: AutoCompleteFunc<State::B>,
+    sub_commands: SubCommandsFn<State::B>,
 }
 
-impl<State: Debug> NamedEntity for SimpleCommand<State> {
+impl<State: CommandState> NamedEntity for SimpleCommand<State> {
     fn short_name(&self) -> String {
         self.primary_name.clone()
     }
@@ -112,9 +209,33 @@ impl<State: Debug> NamedEntity for SimpleCommand<State> {
                 .unwrap_or(usize::MAX),
         )
     }
+}
 
-    fn sub_entities_completion(&self) -> &[Box<dyn NamedEntity>] {
-        self.sub_commands.as_slice()
+impl<State: CommandState + 'static> Display for SimpleCommand<State> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        display_cmd(f, self)
+    }
+}
+
+impl<State: CommandState + 'static> AbstractCommand<State::B> for SimpleCommand<State> {
+    fn standard(&self) -> Standard {
+        self.standard
+    }
+
+    fn sub_commands(&self, state: ACState<State::B>) -> SubCommandList<State::B> {
+        self.sub_commands.0(state)
+    }
+
+    fn change_autocomplete_state(&self, state: ACState<State::B>) -> ACState<State::B> {
+        self.change_ac_state.0(state)
+    }
+
+    fn autocomplete_recurse(&self) -> bool {
+        self.autocomplete_recurse
+    }
+
+    fn set_autocompletions(&mut self, func: SubCommandsFn<State::B>) {
+        self.sub_commands = func;
     }
 
     fn secondary_names(&self) -> Vec<String> {
@@ -122,31 +243,22 @@ impl<State: Debug> NamedEntity for SimpleCommand<State> {
     }
 }
 
-impl<State: Debug + 'static> Display for SimpleCommand<State> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        display_cmd(f, self)
-    }
-}
-
-impl<State: Debug + 'static> CommandTrait<State> for SimpleCommand<State> {
+impl<State: CommandState + 'static> CommandTrait<State> for SimpleCommand<State> {
     fn func(&self) -> fn(&mut State, &mut Peekable<SplitWhitespace>, &str) -> Res<()> {
         self.func
     }
 
-    fn standard(&self) -> Standard {
-        self.standard
-    }
-
-    fn upcast_box(self: Box<Self>) -> Box<dyn NamedEntity> {
+    fn upcast_box(self: Box<Self>) -> Box<dyn AbstractCommand<State::B>> {
         self
     }
 
-    fn upcast_ref(&self) -> &dyn NamedEntity {
+    fn upcast_ref(&self) -> &dyn AbstractCommand<State::B> {
         self
     }
 }
 
-pub struct GenericCommand<State: Debug> {
+// TODO: Remove
+pub struct GenericCommand<State: CommandState> {
     primary_name: Box<dyn Fn(&Self) -> String>,
     other_names: Vec<Box<dyn Fn(&Self) -> String>>,
     help_text: Box<dyn Fn(&Self) -> String>,
@@ -163,13 +275,13 @@ pub struct GenericCommand<State: Debug> {
     matches: Option<Box<dyn Fn(&Self, &str) -> bool>>,
 }
 
-impl<State: Debug> Debug for GenericCommand<State> {
+impl<State: CommandState> Debug for GenericCommand<State> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "Command for '{}'", (self.primary_name)(self))
     }
 }
 
-impl<State: Debug> NamedEntity for GenericCommand<State> {
+impl<State: CommandState> NamedEntity for GenericCommand<State> {
     fn short_name(&self) -> String {
         (self.primary_name)(self)
     }
@@ -204,6 +316,34 @@ impl<State: Debug> NamedEntity for GenericCommand<State> {
                 .unwrap_or(usize::MAX),
         )
     }
+}
+
+impl<State: CommandState + 'static> Display for GenericCommand<State> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        display_cmd(f, self)
+    }
+}
+
+impl<State: CommandState + 'static> AbstractCommand<State::B> for GenericCommand<State> {
+    fn standard(&self) -> Standard {
+        (self.standard)(self)
+    }
+
+    fn sub_commands(&self, _state: ACState<State::B>) -> SubCommandList<State::B> {
+        vec![] // TODO, if necessary
+    }
+
+    fn change_autocomplete_state(&self, state: ACState<State::B>) -> ACState<State::B> {
+        state // TODO: Implement, if necessary
+    }
+
+    fn autocomplete_recurse(&self) -> bool {
+        false
+    }
+
+    fn set_autocompletions(&mut self, _func: SubCommandsFn<State::B>) {
+        unreachable!()
+    }
 
     fn secondary_names(&self) -> Vec<String> {
         self.other_names
@@ -213,26 +353,16 @@ impl<State: Debug> NamedEntity for GenericCommand<State> {
     }
 }
 
-impl<State: Debug + 'static> Display for GenericCommand<State> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        display_cmd(f, self)
-    }
-}
-
-impl<State: Debug + 'static> CommandTrait<State> for GenericCommand<State> {
+impl<State: CommandState + 'static> CommandTrait<State> for GenericCommand<State> {
     fn func(&self) -> fn(&mut State, &mut Peekable<SplitWhitespace>, &str) -> Res<()> {
         (self.func)(self)
     }
 
-    fn standard(&self) -> Standard {
-        (self.standard)(self)
-    }
-
-    fn upcast_box(self: Box<Self>) -> Box<dyn NamedEntity> {
+    fn upcast_box(self: Box<Self>) -> Box<dyn AbstractCommand<State::B>> {
         self
     }
 
-    fn upcast_ref(&self) -> &dyn NamedEntity {
+    fn upcast_ref(&self) -> &dyn AbstractCommand<State::B> {
         self
     }
 }
@@ -240,18 +370,38 @@ impl<State: Debug + 'static> CommandTrait<State> for GenericCommand<State> {
 pub type CommandList<State> = Vec<Box<dyn CommandTrait<State>>>;
 
 macro_rules! command {
-    ($state:ty, $primary:ident $(| $other:ident)*, $std:expr, $help:expr, $fun:expr $(, ->$subcmd:expr)?) => {
+    ($State:ty, $primary:ident $(| $other:ident)*, $std:expr, $help:expr , $fun:expr $(, ->$subcmd:expr)? $(, [] $autocomplete_fn:expr)? $(, recurse=$recurse:expr)?) => {
         {
             #[allow(unused_mut, unused_assignments)]
-            let mut sub_commands = vec![];
-            $(sub_commands = ($subcmd).into_iter().map(|x| x.upcast_box()).collect();)?
-            let cmd = SimpleCommand::<$state> {
+            let mut sub_commands = SubCommandsFn::default();
+            $(
+                sub_commands.0 = Box::new(|this| ($subcmd)(this)
+                    .into_iter()
+                    .map(|x| x.upcast_box())
+                    .collect());
+            )?
+
+            #[allow(unused_mut, unused_assignments)]
+            let mut autocomplete_func = AutoCompleteFunc::default();
+            $(
+                autocomplete_func.0 = Box::new($autocomplete_fn);
+            )?
+
+            #[allow(unused_mut, unused_assignments)]
+            let mut autocomplete_recurse = false;
+            $(
+                autocomplete_recurse = $recurse;
+            )?
+
+            let cmd = SimpleCommand::<$State> {
                 primary_name: stringify!($primary).to_string(),
                 other_names: ArrayVec::from_iter([$(stringify!($other).to_string(),)*]),
                 standard: $std,
                 func: $fun,
                 help_text: $help.to_string(),
                 sub_commands,
+                change_ac_state:autocomplete_func,
+                autocomplete_recurse,
             };
             Box::new(cmd)
         }
@@ -259,8 +409,8 @@ macro_rules! command {
 }
 
 macro_rules! ugi_command {
-    ($primary:ident $(| $other:ident)*, $std:expr, $help:expr, $fun:expr $(, -> $subcmd:expr)?) => {
-        command!(EngineUGI<B>, $primary $(| $other)*, $std, $help, $fun $(, ->$subcmd)?)
+    ($primary:ident $(| $other:ident)*, $std:expr, $help:expr, $fun:expr $(, -> $subcmd:expr)? $(, [] $autocomplete_fn:expr)? $(, recurse=$recurse:expr)?) => {
+        command!(EngineUGI<B>, $primary $(| $other)*, $std, $help, $fun $(, ->$subcmd)? $(, [] $autocomplete_fn)? $(, recurse=$recurse)?)
     }
 }
 
@@ -273,7 +423,8 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             All,
             "Start the search. Optionally takes a position and a mode such as `perft`",
             |ugi, words, _| { ugi.handle_go(Normal, words) },
-            -> go_options::<B>()
+            -> |_| go_options::<B>(),
+            recurse = true
         ),
         ugi_command!(
             stop,
@@ -289,7 +440,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             All,
             "Set the current position",
             |ugi, words, _| ugi.handle_position(words),
-            -> position_options::<B>(false)
+            -> |_| position_options::<B>(false)
         ),
         ugi_command!(
             ugi | uci | uai,
@@ -321,8 +472,13 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
                 Ok(())
             }
         ),
-        ugi_command!(setoption, All, "Sets an engine option", |ugi, words, _| ugi
-            .handle_setoption(words)),
+        ugi_command!(
+            setoption | so,
+            All,
+            "Sets an engine option",
+            |ugi, words, _| ugi.handle_setoption(words),
+            -> |state: ACState<B>| options_options::<B, true>(state.info.clone(), true)
+        ),
         ugi_command!(
             uginewgame | ucinewgame | uainewgame | clear,
             All,
@@ -370,7 +526,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             UgiNotUci,
             "Answer a query about the current match state",
             |ugi, words, _| ugi.handle_query(words),
-            -> query_options::<B>()
+            -> |_| query_options::<B>()
         ),
         ugi_command!(
             option | info,
@@ -379,20 +535,23 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             |ugi, words, _| {
                 ugi.write_ugi(&ugi.write_option(words)?);
                 Ok(())
-            }
+            },
+            -> |state: ACState<B>| options_options::<B, false>(state.info.clone(), true)
         ),
         ugi_command!(
             output | o,
             Custom,
             "Adds outputs. Use `remove (all)` to remove specified outputs",
-            |ugi, words, _| ugi.handle_output(words)
+            |ugi, words, _| ugi.handle_output(words),
+            -> |state: ACState<B>| select_command::<B, dyn OutputBuilder<B>>(state.outputs.as_slice())
         ),
         ugi_command!(
             print | show | s | display,
             Custom,
             "Display the specified / current position with specified / enabled outputs",
             |ugi, words, _| ugi.handle_print(words),
-            -> position_options::<B>(true) // TODO: Also autocomplete outputs
+            -> |state: ACState<B>| add(position_options::<B>(true), select_command::<B, dyn OutputBuilder<B>>(state.outputs.as_slice())),
+            recurse=true
         ),
         ugi_command!(
             log,
@@ -419,59 +578,62 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             engine,
             Custom,
             "Sets the current engine, e.g. `caps-piston`, `gaps`, and optionally the game",
-            |ugi, words, _| ugi.handle_engine(words)
+            |ugi, words, _| ugi.handle_engine(words),
+            -> |state: ACState<B>| select_command::<B, dyn AbstractSearcherBuilder<B>>(state.searchers.as_slice())
         ),
         ugi_command!(
             set_eval,
             Custom,
             "Sets the eval for the current engine. Doesn't reset the internal engine state",
-            |ugi, words, _| ugi.handle_set_eval(words)
+            |ugi, words, _| ugi.handle_set_eval(words),
+            -> |state: ACState<B>| select_command::<B, dyn AbstractEvalBuilder<B>>(state.evals.as_slice())
         ),
         ugi_command!(
             play | game,
             Custom,
             "Starts a new match, possibly of a new game, optionally setting a new engine",
-            |ugi, words, _| ugi.handle_play(words)
+            |ugi, words, _| ugi.handle_play(words),
+            -> |_| select_command::<B, Game>(&Game::iter().map(|g| Box::new(g)).collect_vec())
         ),
         ugi_command!(
             perft,
             Custom,
             "Internal movegen test on current / bench positions",
             |ugi, words, _| ugi.handle_go(Perft, words),
-            -> position_options::<B>(true)
+            -> |_state: ACState<B>| position_options::<B>(true),
+            recurse=true
         ),
         ugi_command!(
             splitperft | sp,
             Custom,
             "Internal movegen test on current / bench positions",
-            |ugi, words, _| ugi.handle_go(SplitPerft, words)
+            |ugi, words, _| ugi.handle_go(SplitPerft, words),
+            -> |_| position_options::<B>(true),
+            recurse=true
         ),
         ugi_command!(
             bench,
             Custom,
             "Internal search test on current / bench positions. Same arguments as `go`",
             |ugi, words, _| ugi.handle_go(Bench, words),
-            -> go_options::<B>()
+            -> |_| go_options::<B>(),
+            recurse=true
         ),
         ugi_command!(
             eval | e | static_eval,
             Custom,
             "Print the static eval (i.e., no search) of a position",
             |ugi, words, _| ugi.handle_eval_or_tt(true, words),
-            -> position_options::<B>(true)
+            -> |_| position_options::<B>(true),
+            recurse=true
         ),
         ugi_command!(
             tt | tt_entry,
             Custom,
             "Print the TT entry for a position",
             |ugi, words, _| ugi.handle_eval_or_tt(false, words),
-            -> position_options::<B>(true)
-        ),
-        ugi_command!(
-            list,
-            Custom,
-            "Lists available options for a command",
-            |ugi, words, _| ugi.handle_list(words)
+            -> |_| position_options::<B>(true),
+            recurse=true
         ),
         ugi_command!(help | h, Custom, "Prints a help message", |ugi, _, _| {
             ugi.print_help(); // TODO: allow help <command> to print a help message for a command
@@ -493,6 +655,10 @@ pub struct GoState<B: Board> {
     pub board: B,
     pub board_hist: ZobristHistory<B>,
     pub move_overhead: Duration,
+}
+
+impl<B: Board> CommandState for GoState<B> {
+    type B = B;
 }
 
 impl<B: Board> GoState<B> {
@@ -768,17 +934,26 @@ pub fn go_options<B: Board>() -> CommandList<GoState<B>> {
         //     matches: None, /*Some(Box::new(|_, go, _word| go.reading_moves))*/
         // }),
     ];
-    for cmd in position_options::<B>(true) {
+    for (cmd, cmd_cpy) in position_options::<B>(true)
+        .into_iter()
+        .zip(position_options::<B>(true))
+    {
         let cmd = SimpleCommand::<GoState<B>> {
             primary_name: cmd.short_name(),
             other_names: cmd.secondary_names().into_iter().collect(),
             help_text: cmd.description().unwrap(),
             standard: Custom,
+            autocomplete_recurse: false,
             func: |opts, words, first_word| {
                 opts.board = load_ugi_position(first_word, words, true, &opts.board)?;
                 Ok(())
             },
-            sub_commands: vec![],
+            change_ac_state: AutoCompleteFunc(Box::new(move |state: ACState<B>| {
+                cmd.change_autocomplete_state(state)
+            })),
+            sub_commands: SubCommandsFn(Box::new(move |state: ACState<B>| {
+                cmd_cpy.sub_commands(state)
+            })),
         };
         res.push(Box::new(cmd));
     }
@@ -867,30 +1042,63 @@ pub fn query_options<B: Board>() -> CommandList<EngineUGI<B>> {
     ]
 }
 
-macro_rules! pos_command {
-    ($primary:ident $( | $other:ident)*, $std:expr, $help:expr $(, ->$subcmd:expr)?) => {
-        command!((), $primary $(| $other)*, $std, $help, |_, _, _| Ok(()) $(, $subcmd)?)
+macro_rules! misc_command {
+    ($primary:ident $( | $other:ident)*, $std:expr, $help:expr $(, = $pos:expr)?, $func:expr $(, ->$subcmd:expr)? $(, [] $autocomplete_fn:expr)?) => {
+        command!(B, $primary $(| $other)*, $std, $help $(, = $pos)?, $func $(, ->$subcmd)? $(, [] $autocomplete_fn)?)
     }
 }
 
-pub fn position_options<B: Board>(accept_pos_word: bool) -> CommandList<()> {
-    let mut res: CommandList<()> = vec![
-        pos_command!(fen | f, All, "Load a positions from a FEN"),
-        pos_command!(startpos | s, All, "Load the starting position"),
+macro_rules! pos_command {
+    ($primary:ident $( | $other:ident)*, $std:expr, $help:expr $(, = $pos:expr)?, $func:expr $(, ->$subcmd:expr)? $(, [] $autocomplete_fn:expr)?) => {
+        command!(B, $primary $(| $other)*, $std, $help $(, = $pos)?, $func $(, ->$subcmd)? $(, [] $autocomplete_fn)?)
+    }
+}
+
+pub fn position_options<B: Board>(accept_pos_word: bool) -> CommandList<B> {
+    let mut res: CommandList<B> = vec![
+        pos_command!(
+            fen | f,
+            All,
+            "Load a positions from a FEN",
+            |pos, words, _| {
+                *pos = parse_ugi_position_part("fen", words, false, pos)?;
+                Ok(())
+            },
+            -> |state: ACState<B>| moves_options(state.pos, true)
+        ),
+        pos_command!(
+            startpos | s,
+            All,
+            "Load the starting position",
+            |pos, _, _| {
+                *pos = B::startpos();
+                Ok(())
+            },
+            -> |state: ACState<B>| moves_options(state.pos, true),
+            [] |mut state: ACState<B>| {
+                state.pos = B::default();
+                state
+            }
+        ),
         pos_command!(
             current | c,
             Custom,
-            "Current position, useful in combination with 'moves'"
+            "Current position, useful in combination with 'moves'",
+            |_, _, _| Ok(()),
+            -> |state: ACState<B>| moves_options(state.pos, true)
         ),
     ];
     if accept_pos_word {
         res.push(pos_command!(
             position | pos | p,
             Custom,
-            "Followed by `fen <fen>` or a position name"
+            "Followed by `fen <fen>` or a position name",
+            |_, _, _| Ok(()),
+            -> |_| position_options::<B>(false)
         ))
     }
     for p in B::name_to_pos_map() {
+        let func = p.val;
         let c = Box::new(SimpleCommand {
             primary_name: p.short_name(),
             other_names: Default::default(),
@@ -899,24 +1107,161 @@ pub fn position_options<B: Board>(accept_pos_word: bool) -> CommandList<()> {
                 p.short_name()
             )),
             standard: Custom,
-            func: |_, _, _| Ok(()),
-            sub_commands: vec![],
+            autocomplete_recurse: false,
+            func: |pos, _, name| {
+                *pos = B::from_name(name)?;
+                Ok(())
+            },
+            change_ac_state: AutoCompleteFunc(Box::new(move |mut state| {
+                state.pos = func();
+                state
+            })),
+            sub_commands: SubCommandsFn::new(|state: ACState<B>| moves_options(state.pos, true)),
         });
         res.push(c);
     }
     res
 }
 
+pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool) -> CommandList<B> {
+    let mut res: CommandList<B> = vec![];
+    if allow_moves_word {
+        res.push(pos_command!(
+            moves | m,
+            All,
+            "Apply moves to the specified position",
+            |_, _, _| Ok(()),
+            -> |state: ACState<B>| moves_options(state.pos, false)
+        ));
+    }
+    for mov in pos.legal_moves_slow().iter_moves() {
+        let primary_name = mov.to_string();
+        let mut other_names = ArrayVec::default();
+        let extended = mov.to_extended_text(&pos);
+        if extended != primary_name {
+            other_names.push(extended);
+        }
+        let the_move = *mov;
+        let cmd = SimpleCommand {
+            primary_name,
+            other_names,
+            help_text: format!("Play move '{}'", mov.to_string().bold()),
+            standard: All,
+            autocomplete_recurse: false,
+            func: |_, _, _| Ok(()),
+            change_ac_state: AutoCompleteFunc(Box::new(move |mut state: ACState<B>| {
+                state.pos = state.pos.make_move(the_move).unwrap_or(state.pos);
+                state
+            })),
+            sub_commands: SubCommandsFn::new(move |state: ACState<B>| {
+                // let pos = state.pos.make_move(the_move).unwrap_or(state.pos);
+                moves_options(state.pos, false)
+            }),
+        };
+        res.push(Box::new(cmd));
+    }
+    res
+}
+
+pub fn named_entity_to_command<B: Board, T: NamedEntity + ?Sized>(
+    entity: &T,
+) -> Box<dyn CommandTrait<B>> {
+    let primary_name = entity.short_name();
+    let mut other_names = ArrayVec::default();
+    if !entity.long_name().eq_ignore_ascii_case(&primary_name) {
+        other_names.push(entity.long_name());
+    }
+    let cmd = SimpleCommand {
+        primary_name,
+        other_names,
+        help_text: entity
+            .description()
+            .unwrap_or_else(|| "<No Description>".to_string()),
+        standard: Custom,
+        autocomplete_recurse: false,
+        func: |_, _, _| Ok(()),
+        change_ac_state: AutoCompleteFunc::default(),
+        sub_commands: SubCommandsFn::default(),
+    };
+    Box::new(cmd)
+}
+
+pub fn select_command<B: Board, T: NamedEntity + ?Sized>(list: &[Box<T>]) -> CommandList<B> {
+    let mut res: CommandList<B> = vec![];
+    for entity in list {
+        res.push(named_entity_to_command(entity.as_ref()));
+    }
+    res
+}
+
+pub fn options_options<B: Board, const VALUE: bool>(
+    info: Arc<Mutex<EngineInfo>>,
+    accept_name_word: bool,
+) -> CommandList<B> {
+    let mut res: CommandList<B> = select_command(
+        EngineOptionName::iter()
+            .dropping_back(1)
+            .map(|x| Box::new(x))
+            .collect_vec()
+            .as_slice(),
+    );
+    for info in info.lock().unwrap().additional_options() {
+        res.push(named_entity_to_command(&info.name));
+    }
+    if VALUE {
+        for opt in &mut res {
+            let completion = SubCommandsFn(Box::new(|_| {
+                let name = Name {
+                    short: "value".to_string(),
+                    long: "value".to_string(),
+                    description: Some("Set the value".to_string()),
+                };
+                vec![named_entity_to_command::<B, Name>(&name).upcast_box()]
+            }));
+            opt.set_autocompletions(completion);
+        }
+    }
+    if accept_name_word {
+        // insert now so that the autocompletion won't be changed
+        let cmd = misc_command!(
+            name | n,
+            All,
+            "Select an option name",
+            |_, _, _| Ok(()),
+            -> |state: ACState<B>| options_options::<B, VALUE>(state.info.clone(), false)
+        );
+        res.insert(0, cmd);
+    }
+    res
+}
+
+#[derive(Debug, Clone)]
+pub struct ACState<B: Board> {
+    pub pos: B,
+    outputs: Rc<OutputList<B>>,
+    searchers: Rc<SearcherList<B>>,
+    evals: Rc<EvalList<B>>,
+    info: Arc<Mutex<EngineInfo>>,
+}
+
 #[derive(Debug, Clone)]
 pub struct CommandAutocomplete<B: Board> {
     // Rc because the Autocomplete trait requires DynClone and invokes `clone` on every prompt call
     pub list: Rc<CommandList<EngineUGI<B>>>,
+    pub state: ACState<B>,
 }
 
 impl<B: Board> CommandAutocomplete<B> {
-    pub fn new(list: CommandList<EngineUGI<B>>) -> Self {
+    pub fn new(list: CommandList<EngineUGI<B>>, ugi: &EngineUGI<B>) -> Self {
         Self {
             list: Rc::new(list),
+            state: ACState {
+                pos: ugi.state.board,
+                outputs: ugi.output_factories.clone(),
+                searchers: ugi.searcher_factories.clone(),
+                evals: ugi.eval_factories.clone(),
+                info: ugi.state.engine.get_engine_info_arc(),
+            },
         }
     }
 }
@@ -931,25 +1276,35 @@ fn distance(input: &str, name: &str) -> usize {
     }
 }
 
-fn completions(
-    node: &dyn NamedEntity,
-    current: &str,
+fn completions<B: Board>(
+    node: &dyn AbstractCommand<B>,
+    state: ACState<B>,
     mut rest: Peekable<SplitWhitespace>,
     to_complete: &str,
 ) -> Vec<(usize, Completion)> {
     let mut res = vec![];
-    for child in node.sub_entities_completion() {
-        res.push((
-            child.autocomplete_badness(to_complete, distance),
-            Completion {
-                name: child.short_name(),
-                text: completion_text(&**child, to_complete),
-            },
-        ));
-        if child.matches(current) {
-            if let Some(next) = rest.next() {
-                res.append(&mut completions(&**child, next, rest.clone(), to_complete));
-            }
+    let next = rest.peek().copied();
+    for child in node.sub_commands(state.clone()) {
+        // TODO: Use is_none_or in Rust 1.82
+        if next.is_none() || next.is_some_and(|n| n == to_complete) || node.autocomplete_recurse() {
+            res.push((
+                child.autocomplete_badness(to_complete, distance),
+                Completion {
+                    name: child.short_name(),
+                    text: completion_text(child.as_ref(), to_complete),
+                },
+            ));
+        }
+        if next.is_some_and(|name| child.matches(name)) {
+            let mut rest = rest.clone();
+            _ = rest.next();
+            let new_state = child.change_autocomplete_state(state.clone());
+            res.append(&mut completions(
+                child.as_ref(),
+                new_state,
+                rest,
+                to_complete,
+            ));
         }
     }
     res
@@ -963,7 +1318,7 @@ fn underline_match(name: &str, word: &str) -> String {
     }
 }
 
-fn completion_text(n: &dyn NamedEntity, word: &str) -> String {
+fn completion_text<B: Board>(n: &dyn AbstractCommand<B>, word: &str) -> String {
     use std::fmt::Write;
     let name = n.short_name();
     let mut res = format!("{}", underline_match(&name, word).bold());
@@ -996,11 +1351,11 @@ fn suggestions<B: Board>(
     } else {
         input.split_whitespace().last().unwrap()
     };
-    let complete_command = words.peek().is_none() && to_complete != "";
+    let should_complete_this = words.peek().is_none() && to_complete != "";
 
     let mut res = vec![];
     for cmd in autocomplete.list.iter() {
-        if complete_command {
+        if should_complete_this {
             res.push((
                 cmd.autocomplete_badness(to_complete, distance),
                 Completion {
@@ -1009,7 +1364,12 @@ fn suggestions<B: Board>(
                 },
             ))
         } else if cmd.matches(cmd_name) {
-            let mut new = completions(cmd.upcast_ref(), cmd_name, words.clone(), to_complete);
+            let mut new = completions(
+                cmd.upcast_ref(),
+                autocomplete.state.clone(),
+                words.clone(),
+                to_complete,
+            );
             res.append(&mut new);
         }
     }

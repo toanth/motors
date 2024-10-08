@@ -187,16 +187,6 @@ pub trait NamedEntity: Debug {
     fn autocomplete_badness(&self, input: &str, matcher: fn(&str, &str) -> usize) -> usize {
         matcher(input, &self.short_name())
     }
-
-    /// Some named entities, mostly commands, have subcommands
-    fn sub_entities_completion(&self) -> &[Box<dyn NamedEntity>] {
-        &[]
-    }
-
-    /// Other short names for this entity
-    fn secondary_names(&self) -> Vec<String> {
-        vec![]
-    }
 }
 
 pub trait StaticallyNamedEntity: NamedEntity {
@@ -303,16 +293,13 @@ fn select_name_impl<
     F: Fn(&I::Item) -> String,
     G: Fn(&I::Item, &str) -> bool,
 >(
-    mut name: Option<&str>,
+    name: Option<&str>,
     mut list: I,
     typ: &str,
     game_name: &str,
     to_name: F,
     compare: G,
 ) -> Res<I::Item> {
-    if let Some("list") = name {
-        name = None;
-    }
     let idx = match name {
         None => None,
         Some(name) => list.clone().find(|entity| compare(entity, name)),

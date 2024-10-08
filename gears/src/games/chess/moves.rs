@@ -24,6 +24,7 @@ use crate::games::{
     char_to_file, file_to_char, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType,
     DimT, ZobristHash,
 };
+use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::common::Res;
 use crate::general::moves::Legality::PseudoLegal;
@@ -904,6 +905,7 @@ impl<'a> MoveParser<'a> {
         }
 
         // assert_ne!(self.piece, Pawn); // Pawns aren't written as `p` in SAN, but the parser still accepts this.
+        let original_piece = self.piece;
         if self.piece == Empty {
             self.piece = Pawn;
         }
@@ -940,36 +942,66 @@ impl<'a> MoveParser<'a> {
             None => {
                 // invalid move, try to print a helpful error message
                 let f = |file: Option<DimT>, rank: Option<DimT>| {
-                    if file.is_some() {
+                    if let Some(file) = file {
                         match rank {
                             Some(rank) => {
-                                ChessSquare::from_rank_file(rank, file.unwrap()).to_string()
+                                let square = ChessSquare::from_rank_file(rank, file);
+                                (square.to_string(), square.bb())
                             }
-                            None => {
-                                format!("the {} file", file_to_char(file.unwrap()))
-                            }
+                            None => (
+                                format!("the {} file", file_to_char(file)),
+                                ChessBitboard::file_no(file),
+                            ),
                         }
-                    } else if rank.is_some() {
-                        format!("rank {}", rank.unwrap())
+                    } else if let Some(rank) = rank {
+                        (format!("rank {}", rank), ChessBitboard::rank_no(rank))
                     } else {
-                        "any square".to_string()
+                        ("any square".to_string(), !ChessBitboard::default())
                     }
                 };
+                let (from, from_bb) = f(self.start_file, self.start_rank);
+                let to = f(self.target_file, self.target_rank).0;
+                let (from, to) = (from.bold(), to.bold());
                 let mut additional = String::new();
                 if board.is_game_lost_slow() {
                     additional = format!(" ({} has been checkmated)", board.active_player);
                 } else if board.is_in_check() {
                     additional = format!(" ({} is in check)", board.active_player);
                 }
-                bail!(
-                    "There is no legal {0} {1} move from {2} to {3}, so the move '{4}' is invalid{5}",
-                    board.active_player,
-                    self.piece.name(),
-                    f(self.start_file, self.start_rank),
-                    f(self.target_file, self.target_rank),
-                    self.consumed(),
-                    additional
-                );
+                // moves without a piece but source and dest square have probably been meant as UCI moves, and not as pawn moves
+                if original_piece == Empty && from_bb.is_single_piece() {
+                    let piece = board.colored_piece_on(from_bb.to_square().unwrap());
+                    if piece.is_empty() {
+                        bail!(
+                            "The square {from} is empty, so the move '{}' is invalid{1}",
+                            self.consumed().bold(),
+                            additional
+                        )
+                    } else if piece.color().unwrap() != board.active_player {
+                        bail!("There is a {0} on {from}, but it's {1}'s turn to move, so the move '{2}' is invalid{3}",
+                            piece.symbol.name(), board.active_player, self.consumed().bold(), additional)
+                    } else {
+                        bail!("There is a {0} on {from}, but it can't move to {to}, so the move '{1}' is invalid{2}",
+                            piece.symbol.name(), self.consumed().bold(), additional)
+                    }
+                }
+                if (board.colored_piece_bb(board.active_player, self.piece) & from_bb).is_zero() {
+                    bail!(
+                        "There is no {0} {1} on {from}, so the move '{2}' is invalid{3}",
+                        board.active_player,
+                        self.piece.name(),
+                        self.consumed().bold(),
+                        additional
+                    )
+                } else {
+                    bail!(
+                        "There is no legal {0} {1} move from {from} to {to}, so the move '{2}' is invalid{3}",
+                        board.active_player,
+                        self.piece.name(),
+                        self.consumed().bold(),
+                        additional
+                    );
+                }
             }
             Some(mov) => {
                 if let Some(other) = moves.next() {

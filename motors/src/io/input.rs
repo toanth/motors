@@ -43,6 +43,7 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
         // Since Inquire doesn't seem to have an option to do anything about this (like re-drawing the prompt after each line of output),
         // maybe just disable it while a `go` command is running?
 
+        self.autocompletion.state.pos = ugi.state.board;
         if ugi
             .state
             .engine
@@ -70,7 +71,7 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
 impl<B: Board> InteractiveInput<B> {
     fn new(ugi: &mut EngineUGI<B>) -> Self {
         let res = Self {
-            autocompletion: CommandAutocomplete::new(ugi_commands()),
+            autocompletion: CommandAutocomplete::new(ugi_commands(), ugi),
         };
         // technically, we could also use an inquire formatter, but that doesn't seem to handle multi-line messages well
         ugi.print_board();

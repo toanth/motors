@@ -53,7 +53,9 @@ mod tests {
 
     fn mated_test<E: Engine<Chessboard>>(mut engine: E) {
         let game_over_pos = load_ugi_position(
+            "position",
             &mut "mate_in_1 moves h7a7".split_whitespace().peekable(),
+            true,
             &Chessboard::default(),
         )
         .unwrap();
@@ -122,6 +124,7 @@ mod tests {
         let res = handle.join().unwrap();
         atomic2.set_stop(true);
         let res2 = handle2.join().unwrap();
+        // TODO: Sometimes fails?
         assert!(res.score.unwrap().0.abs_diff(res2.score.unwrap().0) <= 100);
         assert_eq!(res.chosen_move.piece_type(), Bishop);
         assert_eq!(

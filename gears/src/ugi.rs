@@ -1,12 +1,12 @@
 use crate::general::board::Board;
+use crate::general::common::{NamedEntity, Res};
+use crate::general::moves::Move;
 use anyhow::{anyhow, bail};
 use colored::Colorize;
 use std::fmt::{Display, Formatter};
 use std::iter::Peekable;
 use std::str::{FromStr, SplitWhitespace};
-
-use crate::general::common::{NamedEntity, Res};
-use crate::general::moves::Move;
+use strum_macros::EnumIter;
 
 /// Ugi-related helpers that are used by both `motors` and `monitors`.
 
@@ -123,7 +123,7 @@ impl Display for EngineOptionType {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Hash)]
+#[derive(Debug, Eq, PartialEq, Clone, Hash, EnumIter)]
 #[must_use]
 pub enum EngineOptionName {
     Hash,
@@ -135,6 +135,31 @@ pub enum EngineOptionName {
     UCIEngineAbout,
     MoveOverhead,
     Other(String),
+}
+
+impl NamedEntity for EngineOptionName {
+    fn short_name(&self) -> String {
+        self.name().to_string()
+    }
+
+    fn long_name(&self) -> String {
+        self.short_name()
+    }
+
+    fn description(&self) -> Option<String> {
+        let res = match self {
+            EngineOptionName::Hash => "Size of the Transposition Table in MB",
+            EngineOptionName::Threads => "Number of search threads",
+            EngineOptionName::Ponder => "Pondering mode. Currently, pondering is supported even without this option, so it has no effect",
+            EngineOptionName::MultiPv => "The number of Principal Variation (PV) lines to output",
+            EngineOptionName::UciElo => "Limit strength to this elo. Currently not supported",
+            EngineOptionName::UCIOpponent => "The opponent. Currently only used to output the name in PGNs",
+            EngineOptionName::UCIEngineAbout => "Information about the engine. Can't be changed, only queried",
+            EngineOptionName::MoveOverhead => "Subtract this from the remaining time each move to account for overhead of sending the move",
+            EngineOptionName::Other(name) => { return Some(format!("Custom option named '{name}'")) }
+        };
+        Some(res.to_string())
+    }
 }
 
 impl EngineOptionName {
@@ -270,20 +295,33 @@ pub fn parse_ugi_position_and_moves<
     if !(next_word.eq_ignore_ascii_case("moves") || next_word.eq_ignore_ascii_case("m")) {
         return Ok(()); // don't error to allow other options following a position command
     }
+    let mut parsed_move = false;
     rest.next();
     start_moves(state);
-    // TODO: Allow parsing other commands after a 'position' subcommand by returning a special error type
-    // on an invalid "move"
     // TODO: Handle flip / nullmove?
-    for mov in rest {
-        // TODO: Don't give an error to allow other options following a position command with moves
-        let mov = B::Move::from_text(mov, board(state))?;
+    while let Some(next_word) = rest.peek().copied() {
+        let mov = match B::Move::from_text(next_word, board(state)) {
+            Ok(mov) => mov,
+            Err(err) => {
+                if !parsed_move {
+                    bail!(
+                        "'{0}' must be followed by a move, but '{1}' is not a pseudolegal {2} move: {err}",
+                        "moves".bold(),
+                        next_word.red(),
+                        B::game_name()
+                    )
+                }
+                return Ok(()); // allow parsing other commands after a position subcommand
+            }
+        };
+        _ = rest.next();
         make_move(state, mov).map_err(|err| {
             anyhow!(
                 "move '{mov}' is not legal in position '{}': {err}",
                 *board(state)
             )
         })?;
+        parsed_move = true;
     }
     Ok(())
 }

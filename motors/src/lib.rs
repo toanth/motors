@@ -5,11 +5,13 @@ use dyn_clone::clone_box;
 use rand::rngs::StdRng;
 
 use gears::cli::{ArgIter, Game};
+#[cfg(feature = "ataxx")]
 use gears::games::ataxx::AtaxxBoard;
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
 #[cfg(feature = "mnk")]
 use gears::games::mnk::MNKBoard;
+#[cfg(feature = "uttt")]
 use gears::games::uttt::UtttBoard;
 use gears::games::OutputList;
 use gears::general::board::Board;
@@ -23,14 +25,18 @@ use gears::Quitting::*;
 use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs, Quitting};
 use std::fmt::{Display, Formatter};
 
+#[cfg(feature = "ataxx")]
 use crate::eval::ataxx::bate::Bate;
+#[cfg(feature = "chess")]
 use crate::eval::chess::lite::LiTEval;
+#[cfg(feature = "chess")]
 use crate::eval::chess::material_only::MaterialOnlyEval;
 #[cfg(feature = "chess")]
 use crate::eval::chess::piston::PistonEval;
 #[cfg(feature = "mnk")]
 use crate::eval::mnk::base::BasicMnkEval;
 use crate::eval::rand_eval::RandEval;
+#[cfg(feature = "uttt")]
 use crate::eval::uttt::lute::Lute;
 use crate::io::cli::{parse_cli, EngineOpts};
 use crate::io::ugi_output::UgiOutput;
@@ -214,7 +220,7 @@ pub fn create_match_for_game<B: Board>(
 ) -> Res<AnyRunnable> {
     match args.mode {
         Bench(_, _) => Ok(Box::new(BenchRun::create(&args, &searchers, &evals)?)),
-        Mode::Engine => {
+        Engine => {
             if args.debug {
                 args.outputs.push(OutputArgs::new("logger".to_string()));
             }

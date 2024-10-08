@@ -334,7 +334,10 @@ impl<B: Board> TextInputThread<B> {
         words: &mut Peekable<SplitWhitespace>,
     ) -> Res<()> {
         let old_board = *client.board();
-        client.reset_to_new_start_position(parse_ugi_position_part(words, &old_board)?);
+        // TODO: Use parse_ugi_position
+        client.reset_to_new_start_position(parse_ugi_position_part(
+            "position", words, false, &old_board,
+        )?);
         let Some(word) = words.next() else {
             return Ok(());
         };

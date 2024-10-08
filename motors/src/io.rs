@@ -24,6 +24,7 @@ pub mod ugi_output;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::iter::Peekable;
 use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
 use std::str::{FromStr, SplitWhitespace};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -36,11 +37,11 @@ use gears::games::{BoardHistory, OutputList, ZobristHistory};
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
+use gears::general::common::Res;
 use gears::general::common::{
     parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_dyn,
     to_name_and_optional_description, NamedEntity,
 };
-use gears::general::common::{IterIntersperse, Res};
 use gears::general::moves::Move;
 use gears::general::perft::{perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
@@ -230,9 +231,9 @@ pub struct EngineUGI<B: Board> {
     state: EngineGameState<B>,
     commands: AllCommands<B>,
     output: Arc<Mutex<UgiOutput<B>>>,
-    output_factories: OutputList<B>,
-    searcher_factories: SearcherList<B>,
-    eval_factories: EvalList<B>,
+    output_factories: Rc<OutputList<B>>,
+    searcher_factories: Rc<SearcherList<B>>,
+    eval_factories: Rc<EvalList<B>>,
     move_overhead: Duration,
     multi_pv: usize,
     allow_ponder: bool,
@@ -359,9 +360,9 @@ impl<B: Board> EngineUGI<B> {
                 query: query_options(),
             },
             output,
-            output_factories: all_output_builders,
-            searcher_factories: all_searchers,
-            eval_factories: all_evals,
+            output_factories: Rc::new(all_output_builders),
+            searcher_factories: Rc::new(all_searchers),
+            eval_factories: Rc::new(all_evals),
             move_overhead: Duration::from_millis(DEFAULT_MOVE_OVERHEAD_MS),
             multi_pv: 1,
             allow_ponder: false,
@@ -485,13 +486,25 @@ impl<B: Board> EngineUGI<B> {
             );
             return Ok(());
         };
+
+        // this does all the actual work of executing the command
         () = cmd.func()(self, words, first_word)?;
+
         if let Some(remaining) = words.next() {
+            // can't reuse cmd because the borrow checker complains
+            let cmd = select_name_dyn(
+                first_word,
+                &self.commands.ugi,
+                "command",
+                &self.state.game_name(),
+                NoDescription,
+            )?;
             self.write_message(
                 Warning,
                 &format!(
-                    "Ignoring trailing input starting with '{}'",
-                    remaining.bold()
+                    "Ignoring trailing input starting with '{0}' after a valid '{1}' command",
+                    remaining.bold(),
+                    cmd.short_name().bold()
                 ),
             );
         }
@@ -524,37 +537,14 @@ impl<B: Board> EngineUGI<B> {
         )
     }
 
-    fn handle_list(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
-        // TODO: Use thiserror and anyhow, detect errors from non-matching name and print them directly instead of
-        // actually returning an error. Detect invalid commands after 'list'.
-        // long term, create a `Command` struct and replace the match with a select_name call?
-        let Some(next) = words.next() else {
-            bail!("Expected a word after '{}'", "list".bold())
-        };
-        if next.eq_ignore_ascii_case("list") {
-            bail!(
-                "'{}' is not a valid command; write something other than 'list' after 'list'",
-                "list list".red()
-            )
-        }
-        let mut rearranged = next.to_string() + " list ";
-        rearranged += &words.intersperse_(" ").collect::<String>();
-        _ = self.handle_input(rearranged.split_whitespace().peekable());
-        Ok(())
-    }
-
     fn handle_setoption(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
-        let mut name = words.next().unwrap_or_default().to_ascii_lowercase();
-        if name != "name" {
-            bail!(
-                "Invalid 'setoption' command: Expected 'name', got '{};",
-                name.red()
-            )
+        if words.peek().is_some_and(|w| w.eq_ignore_ascii_case("name")) {
+            _ = words.next();
         }
-        name = String::default();
+        let mut name = String::default();
         loop {
             let next_word = words.next().unwrap_or_default();
-            if next_word.to_ascii_lowercase() == "value" || next_word.is_empty() {
+            if next_word.eq_ignore_ascii_case("value") || next_word.is_empty() {
                 break;
             }
             name = name + " " + next_word;
@@ -648,6 +638,7 @@ impl<B: Board> EngineUGI<B> {
             );
             match cmd {
                 Ok(cmd) => cmd.func()(&mut opts, words, option)?,
+                // TODO: Handle as command, no need for reading_moves
                 Err(err) => {
                     if opts.reading_moves {
                         let mov =
@@ -677,6 +668,16 @@ impl<B: Board> EngineUGI<B> {
                 opts.limit.depth = opts.limit.depth.min(Depth::new(3));
             }
         }
+
+        if opts.complete && !matches!(search_type, Bench | Perft) {
+            bail!(
+                "The '{0}' options can only be used for '{1}' and '{2}' searches",
+                "complete".bold(),
+                "bench".bold(),
+                "perft".bold()
+            )
+        }
+
         match search_type {
             Bench => {
                 let bench_positions = if opts.complete {
@@ -1080,6 +1081,12 @@ impl<B: Board> EngineUGI<B> {
 
     fn write_option(&self, words: &mut Peekable<SplitWhitespace>) -> Res<String> {
         let options = self.get_options();
+        if words
+            .peek()
+            .is_some_and(|next| next.eq_ignore_ascii_case("name"))
+        {
+            _ = words.next();
+        }
         Ok(match words.join(" ").to_ascii_lowercase().as_str() {
             "" => {
                 let mut res = format!(

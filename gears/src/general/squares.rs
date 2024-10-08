@@ -6,8 +6,10 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+#[cfg(feature = "chess")]
 use crate::games::chess::ChessColor;
 use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, Size, Width};
+#[cfg(feature = "chess")]
 use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::common::{parse_int, Res};
 
@@ -278,6 +280,7 @@ pub enum SquareColor {
 
 // Ideally, there would be an alias setting `INTERNAL_WIDTH` or a default parameter for `INTERNAL_WIDTH` to `max(8, W)`,
 // but both of those things aren't possible in stale Rust.
+/// A square of a board with at most 255 squares, and some reasonable restrictions on side length (e.g. not 255x1)  .
 #[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Hash, Arbitrary)]
 #[must_use]
 pub struct SmallGridSquare<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> {
@@ -395,6 +398,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
         Self::unchecked(self.bb_idx() - 1)
     }
 
+    #[cfg(feature = "chess")]
     pub fn pawn_advance_unchecked(self, color: ChessColor) -> Self {
         match color {
             ChessColor::White => self.north_unchecked(),

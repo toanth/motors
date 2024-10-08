@@ -259,7 +259,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
 
     fn write_error(&mut self, msg: &str) {
         self.engine.search_state_mut().send_non_ugi(Error, msg);
-        eprintln!("Engine thread encountered a fatal error: '{msg}'");
+        eprintln!("Engine thread encountered an error: '{msg}'");
     }
 
     fn handle_input(&mut self, received: EngineReceives<B>) -> Res<bool> {
@@ -303,7 +303,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
             match self.try_handle_input() {
                 Err(msg) => {
                     self.write_error(&msg.to_string());
-                    break;
+                    // continue as normal
                 }
                 Ok(should_quit) => {
                     if should_quit {
@@ -521,6 +521,10 @@ impl<B: Board> EngineWrapper<B> {
 
     pub fn engine_info(&self) -> MutexGuard<EngineInfo> {
         self.main_thread_data.engine_info.lock().unwrap()
+    }
+
+    pub fn get_engine_info_arc(&self) -> Arc<Mutex<EngineInfo>> {
+        self.main_thread_data.engine_info.clone()
     }
 
     pub fn num_threads(&self) -> usize {

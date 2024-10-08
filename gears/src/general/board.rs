@@ -38,7 +38,7 @@ use colored::Colorize;
 use itertools::Itertools;
 use rand::Rng;
 use std::fmt::{Debug, Display};
-use std::iter::Peekable;
+use std::iter::{once, Peekable};
 use std::str::SplitWhitespace;
 
 pub(crate) type NameToPos<B> = GenericSelect<fn() -> B>;
@@ -196,10 +196,17 @@ pub trait Board:
     }
 
     /// The starting position of the game.
+    ///
+    /// The settings are used e.g. to set the m, n and k parameters of the mnk board.
     /// This always returns the same position, even when there are technically multiple starting positions.
     /// For example, the `Chessboard` implementation supports (D)FRC, but `startpos()` still only returns
     /// the standard chess start pos
     fn startpos_for_settings(settings: Self::Settings) -> Self;
+
+    /// The starting position for the current board's settings.
+    fn startpos_with_current_settings(self) -> Self {
+        Self::startpos_for_settings(self.settings())
+    }
 
     /// Like `startpos_for_settings()` with default settings.
     /// Most boards have empty settings, so explicitly passing in settings is unnecessary.
@@ -235,6 +242,7 @@ pub trait Board:
         Self::name_to_pos_map()
             .iter()
             .map(|f| (f.val)())
+            .chain(once(Self::default()))
             .collect_vec()
     }
 
@@ -243,6 +251,7 @@ pub trait Board:
     /// The player who can now move.
     fn active_player(&self) -> Self::Color;
 
+    /// The player that cannot currently move.
     fn inactive_player(&self) -> Self::Color {
         self.active_player().other()
     }
