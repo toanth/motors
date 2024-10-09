@@ -25,7 +25,7 @@ macro_rules! spsa_params {
         pub mod cc {
             use gears::ugi::{EngineOption, UgiSpin};
             use gears::score::ScoreT;
-            use crate::Res;
+            use $crate::Res;
 
             $(
                 pub const fn $name() -> $typ {
@@ -56,7 +56,7 @@ macro_rules! spsa_params {
             use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType};
             use gears::score::ScoreT;
             use gears::ugi::UgiSpin;
-            use crate::Res;
+            use $crate::Res;
 
             mod vals {
                 use super::*;

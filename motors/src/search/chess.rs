@@ -62,7 +62,8 @@ mod tests {
         println!("{game_over_pos}");
         assert!(game_over_pos.is_game_lost_slow());
         for i in 1..123 {
-            let res = engine.search_with_new_tt(game_over_pos, SearchLimit::depth(Depth::new(i)));
+            let res = engine
+                .search_with_new_tt(game_over_pos, SearchLimit::depth(Depth::new_unchecked(i)));
             assert!(res.ponder_move.is_none());
             assert_eq!(res.chosen_move, ChessMove::default());
             let res = engine.search_with_new_tt(game_over_pos, SearchLimit::nodes_(i as u64));
@@ -74,7 +75,7 @@ mod tests {
     fn generic_search_test<E: Engine<Chessboard>>(mut engine: E) {
         let fen = "7r/pBrkqQ1p/3b4/5b2/8/6P1/PP2PP1P/R1BR2K1 w - - 1 17";
         let board = Chessboard::from_fen(fen).unwrap();
-        let res = engine.search_with_new_tt(board, SearchLimit::mate(Depth::new(5)));
+        let res = engine.search_with_new_tt(board, SearchLimit::mate(Depth::new_unchecked(5)));
         assert_eq!(
             res.chosen_move,
             ChessMove::new(
@@ -151,7 +152,7 @@ mod tests {
         for i in (2..55).step_by(3) {
             // do this several times to get different random numbers
             let mut engine = Caps::for_eval::<RandEval>();
-            let res = engine.search_with_new_tt(board, SearchLimit::depth(Depth::new(i)));
+            let res = engine.search_with_new_tt(board, SearchLimit::depth(Depth::new_unchecked(i)));
             assert_eq!(res.score.unwrap(), SCORE_LOST + 2);
             assert_eq!(res.chosen_move.to_string(), "h1g1");
         }
@@ -189,7 +190,7 @@ mod tests {
         for depth in 1..10 {
             let res = engine.search(SearchParams::new_unshared(
                 board,
-                SearchLimit::depth(Depth::new(depth)),
+                SearchLimit::depth(Depth::new_unchecked(depth)),
                 hist.clone(),
                 TT::default(),
             ));

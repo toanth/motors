@@ -14,7 +14,7 @@ use crate::search::TimeControl;
 use crate::AdjudicationReason::*;
 use crate::GameResult::Aborted;
 use crate::MatchStatus::Over;
-use crate::PlayerResult::Win;
+use crate::PlayerResult::{Draw, Lose, Win};
 
 /// A few helpers for interacting with the command line.
 pub mod cli;
@@ -41,6 +41,24 @@ pub enum PlayerResult {
     Win,
     Lose,
     Draw,
+}
+
+impl PlayerResult {
+    pub fn flip(self) -> Self {
+        match self {
+            Win => Lose,
+            Lose => Win,
+            Draw => Draw,
+        }
+    }
+
+    pub fn flip_if(self, condition: bool) -> Self {
+        if condition {
+            self.flip()
+        } else {
+            self
+        }
+    }
 }
 
 /// Result of a match from a player's perspective, together with the reason for this outcome

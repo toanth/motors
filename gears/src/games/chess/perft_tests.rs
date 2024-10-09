@@ -15,7 +15,7 @@ mod tests {
     #[test]
     fn kiwipete_test() {
         let board = Chessboard::from_name("kiwipete").unwrap();
-        let res = perft(Depth::new(4), board);
+        let res = perft(Depth::new_unchecked(4), board);
         assert_eq!(res.nodes, 4_085_603);
         // Disabled in debug mode because that would take too long. TODO: Optimize movegen, especially in debug mode.
         if !cfg!(debug_assertions) {
@@ -24,14 +24,14 @@ mod tests {
                 "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R4RK1 b kq - 1 1",
             )
             .unwrap();
-            let res = perft(Depth::new(4), board);
+            let res = perft(Depth::new_unchecked(4), board);
             assert_eq!(res.nodes, 4_119_629);
             // kiwipete after white plays a2a3
             let board = Chessboard::from_fen(
                 "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q1p/1PPBBPPP/R3K2R b KQkq - 0 1",
             )
             .unwrap();
-            let res = perft(Depth::new(4), board);
+            let res = perft(Depth::new_unchecked(4), board);
             assert_eq!(res.nodes, 4_627_439);
         }
     }
@@ -42,16 +42,38 @@ mod tests {
             "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1",
         )
         .unwrap();
-        let res = perft(Depth::new(1), board);
+        let res = perft(Depth::new_unchecked(1), board);
         assert_eq!(res.nodes, 99);
         assert!(res.time.as_millis() <= 2);
-        let res = perft(Depth::new(2), board);
+        let res = perft(Depth::new_unchecked(2), board);
         assert_eq!(res.nodes, 6271);
-        let res = perft(Depth::new(3), board);
+        let res = perft(Depth::new_unchecked(3), board);
         assert_eq!(res.nodes, 568_299);
         if cfg!(not(debug_assertions)) {
-            let res = perft(Depth::new(4), board);
+            let res = perft(Depth::new_unchecked(4), board);
             assert_eq!(res.nodes, 34_807_627);
+        }
+    }
+
+    #[test]
+    fn castling_perft_test() {
+        // this is not actually a reachable position, but we accept it, so we should handle it
+        let pos =
+            Chessboard::from_fen("r3k2r/ppp1pp1p/2nqb1Nn/3p4/4P3/2PP4/1PPPNBPP/2NRQK1R w KQkq -")
+                .unwrap();
+        let expected: &[u64] = &[
+            33,
+            1328,
+            42079,
+            1700714,
+            #[cfg(not(debug_assertions))]
+            53117779,
+        ];
+        for (depth, perft_num) in expected.iter().enumerate() {
+            assert_eq!(
+                perft(Depth::new_unchecked(depth + 1), pos).nodes,
+                *perft_num
+            );
         }
     }
 
@@ -138,7 +160,7 @@ mod tests {
                             .enumerate()
                             .filter(|(_depth, x)| **x != INVALID)
                         {
-                            let res = perft(Depth::new(depth), board);
+                            let res = perft(Depth::new_unchecked(depth), board);
                             assert_eq!(res.depth.get(), depth);
                             assert_eq!(res.nodes, *expected_count);
                             println!(

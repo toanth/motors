@@ -627,7 +627,13 @@ impl Chessboard {
 
     fn move_piece(&mut self, from: ChessSquare, to: ChessSquare, piece: ChessPieceType) {
         debug_assert_ne!(piece, Empty);
-        debug_assert_eq!(self.piece_type_on(from), piece);
+        // for a castling move, the rook has already been moved to the square still occupied by the king
+        debug_assert!(
+            self.piece_type_on(from) == piece
+                || (piece == King && self.piece_type_on(from) == Rook),
+            "{}",
+            self.piece_type_on(from)
+        );
         debug_assert_eq!(
             self.active_player,
             self.colored_piece_on(from).color().unwrap()
@@ -877,6 +883,11 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 != ColoredChessPieceType::new(inactive_player, Pawn)
             {
                 bail!("FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}");
+            } else if !this.is_empty(ep_square) {
+                bail!(
+                    "The en passant square ({ep_square}) must be empty, but it's occupied by a {}",
+                    this.piece_type_on(ep_square).name()
+                )
             }
             let active = this.active_player();
             // In the current version of the FEN standard, the ep square should only be set if a pawn can capture.
@@ -1079,6 +1090,9 @@ mod tests {
             "q0018446744073709551615",
             "QQQQKQQQ\nwV0 \n",
             "kQQQQQDDw-W0w",
+            "2rr2k1/1p4bp/p1q1pqp1/4Pp1n/2PB4/1PN3P1/P3Q2P/2Rr2K1 w - f6 0 20",
+            // TODO: Allow this? Requires larger move list?
+            "QQQQQQBk/Q6B/Q6Q/Q6Q/Q6Q/Q6Q/Q6Q/KQQQQQQQ w - - 0 1",
         ];
         for fen in fens {
             let pos = Chessboard::from_fen(fen);
@@ -1125,35 +1139,49 @@ mod tests {
     }
 
     #[test]
+    fn failed_fuzz_test() {
+        let pos = Chessboard::from_fen(
+            "r2k3r/ppp1pp1p/2nqb1Nn/3P4/4P3/2PP4/PR1NBPPP/R2NKRQ1 w KQkq - 1 5",
+        )
+        .unwrap();
+        pos.debug_verify_invariants().unwrap();
+        for mov in pos.legal_moves_slow() {
+            let new_pos = pos.make_move(mov).unwrap_or(pos);
+            new_pos.debug_verify_invariants().unwrap();
+        }
+        let mov = ChessMove::from_text("sB3x", &pos);
+    }
+
+    #[test]
     fn simple_perft_test() {
         let endgame_fen = "6k1/8/6K1/8/3B1N2/8/8/7R w - - 0 1";
         let board = Chessboard::from_fen(endgame_fen).unwrap();
-        let perft_res = perft(Depth::new(1), board);
-        assert_eq!(perft_res.depth, Depth::new(1));
+        let perft_res = perft(Depth::new_unchecked(1), board);
+        assert_eq!(perft_res.depth, Depth::new_unchecked(1));
         assert_eq!(perft_res.nodes, 5 + 7 + 13 + 14);
         assert!(perft_res.time.as_millis() <= 1);
         let board = Chessboard::default();
-        let perft_res = perft(Depth::new(1), board);
-        assert_eq!(perft_res.depth, Depth::new(1));
+        let perft_res = perft(Depth::new_unchecked(1), board);
+        assert_eq!(perft_res.depth, Depth::new_unchecked(1));
         assert_eq!(perft_res.nodes, 20);
         assert!(perft_res.time.as_millis() <= 2);
-        let perft_res = perft(Depth::new(2), board);
-        assert_eq!(perft_res.depth, Depth::new(2));
+        let perft_res = perft(Depth::new_unchecked(2), board);
+        assert_eq!(perft_res.depth, Depth::new_unchecked(2));
         assert_eq!(perft_res.nodes, 20 * 20);
         assert!(perft_res.time.as_millis() <= 20);
 
         let board =
             Chessboard::from_fen("r1bqkbnr/1pppNppp/p1n5/8/8/8/PPPPPPPP/R1BQKBNR b KQkq - 0 3")
                 .unwrap();
-        let perft_res = perft(Depth::new(1), board);
+        let perft_res = perft(Depth::new_unchecked(1), board);
         assert_eq!(perft_res.nodes, 26);
-        assert_eq!(perft(Depth::new(3), board).nodes, 16790);
+        assert_eq!(perft(Depth::new_unchecked(3), board).nodes, 16790);
 
         let board = Chessboard::from_fen(
             "rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9",
         )
         .unwrap();
-        let perft_res = perft(Depth::new(4), board);
+        let perft_res = perft(Depth::new_unchecked(4), board);
         assert_eq!(perft_res.nodes, 890_435);
 
         // DFRC
@@ -1161,7 +1189,7 @@ mod tests {
             "r1q1k1rn/1p1ppp1p/1npb2b1/p1N3p1/8/1BP4P/PP1PPPP1/1RQ1KRBN w BFag - 0 9",
         )
         .unwrap();
-        assert_eq!(perft(Depth::new(4), board).nodes, 1_187_103);
+        assert_eq!(perft(Depth::new_unchecked(4), board).nodes, 1_187_103);
     }
 
     #[test]
@@ -1264,6 +1292,27 @@ mod tests {
         assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
         assert!(!pos.is_stalemate_slow());
         assert!(pos.make_nullmove().is_none());
+        // this position can be claimed as a draw according to FIDE rules but it's also a mate in 1
+        let pos = Chessboard::from_fen("k7/p1P5/1PK5/8/8/8/8/8 w - - 99 1").unwrap();
+        assert!(pos.match_result_slow(&NoHistory::default()).is_none());
+        let mut draws = 0;
+        let mut wins = 0;
+        for mov in pos.legal_moves_slow() {
+            let new_pos = pos.make_move(mov).unwrap();
+            if let Some(res) = new_pos.player_result_slow(&NoHistory::default()) {
+                match res {
+                    PlayerResult::Win => {
+                        unreachable!("The other player can't win through one of our moves")
+                    }
+                    Lose => {
+                        wins += 1;
+                    }
+                    Draw => draws += 1,
+                }
+            }
+        }
+        assert_eq!(draws, 5);
+        assert_eq!(wins, 3);
     }
 
     #[test]
@@ -1273,7 +1322,7 @@ mod tests {
         let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
         let board = Chessboard::from_fen(fen).unwrap();
         assert_eq!(board.active_player, White);
-        assert_eq!(perft(Depth::new(3), board).nodes, 568_299);
+        assert_eq!(perft(Depth::new_unchecked(3), board).nodes, 568_299);
         // not a legal chess position, but the board should support this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
         let board = Chessboard::from_fen(fen).unwrap();

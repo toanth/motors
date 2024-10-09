@@ -20,14 +20,18 @@
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::Chessboard;
 use gears::general::board::Board;
+use gears::general::moves::Move;
 use libfuzzer_sys::fuzz_target;
 
-fuzz_target!(|data: ChessMove| {
-    for pos in Chessboard::bench_positions() {
-        let pl = pos.is_move_pseudolegal(data);
-        if pl {
-            let _ = pos.make_move(data);
-            assert!(pos.pseudolegal_moves().contains(&data));
+fuzz_target!(|data: &str| {
+    let mut lines = data.lines();
+    let Ok(mut pos) = Chessboard::from_fen(lines.next().unwrap_or_default()) else {
+        return;
+    };
+    for line in lines {
+        if let Ok(mov) = ChessMove::from_text(line, &pos) {
+            pos = pos.make_move(mov).unwrap_or(pos);
         }
     }
+    pos.debug_verify_invariants().unwrap();
 });

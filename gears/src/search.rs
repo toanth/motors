@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
 use std::ops::Sub;
@@ -9,7 +9,7 @@ use crate::general::board::Board;
 use derive_more::{Add, AddAssign, SubAssign};
 use itertools::Itertools;
 
-use crate::general::common::parse_fp_from_str;
+use crate::general::common::{parse_fp_from_str, Res};
 use crate::score::Score;
 
 pub const MAX_DEPTH: Depth = Depth(10_000);
@@ -276,9 +276,19 @@ impl Depth {
         self.0 as isize
     }
 
-    pub const fn new(val: usize) -> Self {
+    pub const fn new_unchecked(val: usize) -> Self {
         debug_assert!(val <= Self::MAX.get());
         Self(val)
+    }
+
+    pub fn try_new(val: isize) -> Res<Self> {
+        if val < 0 {
+            bail!("Depth must not be negative, but it is {val}")
+        } else if val > Self::MAX.get() as isize {
+            bail!("Depth must be at most {}, not {val}", Self::MAX.get())
+        } else {
+            Ok(Self(val as usize))
+        }
     }
 }
 
@@ -334,7 +344,7 @@ impl Default for SearchLimit {
             fixed_time: Duration::MAX,
             depth: MAX_DEPTH,
             nodes: NodesLimit::new(u64::MAX).unwrap(),
-            mate: Depth::new(0), // only finding a mate in 0 would stop the search
+            mate: Depth::new_unchecked(0), // only finding a mate in 0 would stop the search
         }
     }
 }
@@ -357,7 +367,7 @@ impl Display for SearchLimit {
         if self.nodes.get() != u64::MAX {
             limits.push(format!("{} nodes", self.nodes.get()));
         }
-        if self.mate != Depth::new(0) {
+        if self.mate != Depth::new_unchecked(0) {
             limits.push(format!("mate in {} plies", self.mate.get()));
         }
         if limits.len() == 1 {
@@ -395,7 +405,7 @@ impl SearchLimit {
     }
 
     pub fn depth_(depth: usize) -> Self {
-        Self::depth(Depth::new(depth))
+        Self::depth(Depth::new_unchecked(depth))
     }
 
     pub fn mate(depth: Depth) -> Self {
@@ -406,7 +416,7 @@ impl SearchLimit {
     }
 
     pub fn mate_in_moves(num_moves: usize) -> Self {
-        Self::mate(Depth::new(num_moves * 2))
+        Self::mate(Depth::new_unchecked(num_moves * 2))
     }
 
     pub fn nodes(nodes: NodesLimit) -> Self {

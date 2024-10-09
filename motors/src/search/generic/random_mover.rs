@@ -12,8 +12,8 @@ use gears::score::Score;
 use gears::search::{Depth, NodesLimit, SearchInfo, SearchResult, TimeControl};
 
 use crate::search::{
-    ABSearchState, AbstractEngine, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
-    SearchState,
+    AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchState,
+    SearchStateFor,
 };
 
 pub trait SeedRng: Rng + SeedableRng {}
@@ -22,7 +22,7 @@ impl<T> SeedRng for T where T: Rng + SeedableRng {}
 
 pub struct RandomMover<B: Board, R: SeedRng> {
     pub rng: R,
-    state: ABSearchState<B, EmptySearchStackEntry, NoCustomInfo>,
+    state: SearchState<B, EmptySearchStackEntry, NoCustomInfo>,
 }
 
 impl<B: Board, R: SeedRng> Debug for RandomMover<B, R> {
@@ -35,7 +35,7 @@ impl<B: Board, R: SeedRng> Default for RandomMover<B, R> {
     fn default() -> Self {
         Self {
             rng: R::seed_from_u64(thread_rng().next_u64()),
-            state: ABSearchState::new(Depth::new(1)),
+            state: SearchState::new(Depth::new_unchecked(1)),
         }
     }
 }
@@ -73,9 +73,12 @@ impl<B: Board, R: SeedRng + 'static> StaticallyNamedEntity for RandomMover<B, R>
     }
 }
 
-impl<B: Board, R: SeedRng + Clone + Send + 'static> AbstractEngine<B> for RandomMover<B, R> {
+impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B, R> {
+    type SearchStackEntry = EmptySearchStackEntry;
+    type CustomInfo = NoCustomInfo;
+
     fn max_bench_depth(&self) -> Depth {
-        Depth::new(1)
+        Depth::new_unchecked(1)
     }
 
     fn engine_info(&self) -> EngineInfo {
@@ -83,7 +86,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> AbstractEngine<B> for Random
             self,
             &RandEval::default(),
             "0.1.0",
-            Depth::new(1),
+            Depth::new_unchecked(1),
             NodesLimit::new(1).unwrap(),
             Some(1),
             vec![],
@@ -91,9 +94,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> AbstractEngine<B> for Random
         res.eval = None;
         res
     }
-}
 
-impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B, R> {
     fn set_eval(&mut self, _eval: Box<dyn Eval<B>>) {
         // do nothing
     }
@@ -116,23 +117,27 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         SearchResult::move_only(best_move)
     }
 
-    fn time_up(&self, _: TimeControl, _: Duration, _: Instant) -> bool {
-        false
-    }
-
-    fn search_state(&self) -> &impl SearchState<B> {
+    fn search_state(&self) -> &SearchStateFor<B, Self> {
         &self.state
     }
 
-    fn search_state_mut(&mut self) -> &mut impl SearchState<B> {
+    fn search_state_mut(&mut self) -> &mut SearchStateFor<B, Self> {
         &mut self.state
+    }
+
+    fn static_eval(&mut self, _pos: B) -> Score {
+        Score(0)
+    }
+
+    fn time_up(&self, _: TimeControl, _: Duration, _: Instant) -> bool {
+        false
     }
 
     fn search_info(&self) -> SearchInfo<B> {
         SearchInfo {
             best_move_of_all_pvs: self.state.best_move(),
-            depth: Depth::new(0),
-            seldepth: Depth::new(0),
+            depth: Depth::new_unchecked(0),
+            seldepth: Depth::new_unchecked(0),
             time: Duration::default(),
             nodes: NodesLimit::new(1).unwrap(),
             pv_num: 1,
@@ -147,7 +152,11 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         Self::default()
     }
 
-    fn static_eval(&mut self, _pos: B) -> Score {
-        Score(0)
+    fn search_state_dyn(&self) -> &dyn AbstractSearchState<B> {
+        &self.state
+    }
+
+    fn search_state_mut_dyn(&mut self) -> &mut dyn AbstractSearchState<B> {
+        &mut self.state
     }
 }

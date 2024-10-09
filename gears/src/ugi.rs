@@ -272,6 +272,7 @@ pub fn parse_ugi_position_part<B: Board>(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn parse_ugi_position_and_moves<
     B: Board,
     S,
@@ -286,9 +287,9 @@ pub fn parse_ugi_position_and_moves<
     state: &mut S,
     make_move: F,
     start_moves: G,
-    board: H,
+    get_board: H,
 ) -> Res<()> {
-    *(board(state)) = parse_ugi_position_part(first_word, rest, accept_pos_word, old_board)?;
+    *(get_board(state)) = parse_ugi_position_part(first_word, rest, accept_pos_word, old_board)?;
     let Some(next_word) = rest.peek().copied() else {
         return Ok(());
     };
@@ -300,7 +301,7 @@ pub fn parse_ugi_position_and_moves<
     start_moves(state);
     // TODO: Handle flip / nullmove?
     while let Some(next_word) = rest.peek().copied() {
-        let mov = match B::Move::from_text(next_word, board(state)) {
+        let mov = match B::Move::from_text(next_word, get_board(state)) {
             Ok(mov) => mov,
             Err(err) => {
                 if !parsed_move {
@@ -318,7 +319,7 @@ pub fn parse_ugi_position_and_moves<
         make_move(state, mov).map_err(|err| {
             anyhow!(
                 "move '{mov}' is not legal in position '{}': {err}",
-                *board(state)
+                *get_board(state)
             )
         })?;
         parsed_move = true;

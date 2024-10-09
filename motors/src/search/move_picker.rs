@@ -1,5 +1,5 @@
 use crate::search::move_picker::MovePickerState::*;
-use crate::search::{MoveScore, MoveScorer};
+use crate::search::{Engine, MoveScore, MoveScorer, SearchStateFor};
 use arrayvec::{ArrayVec, IntoIter};
 use gears::general::board::Board;
 use gears::general::move_list::MoveList;
@@ -23,15 +23,15 @@ impl<B: Board, const MAX_LEN: usize> Iterator for UnscoredMoveIter<B, MAX_LEN> {
 }
 
 #[derive(Debug)]
-struct MoveListScorer<'a, B: Board, const MAX_LEN: usize, Scorer: MoveScorer<B>> {
+struct MoveListScorer<'a, B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> {
     list: &'a mut ScoredMoveList<B, MAX_LEN>,
     scorer: &'a Scorer,
-    state: &'a Scorer::State,
+    state: &'a SearchStateFor<B, E>,
     excluded: B::Move,
 }
 
-impl<'a, B: Board, const MAX_LEN: usize, Scorer: MoveScorer<B>> IntoIterator
-    for MoveListScorer<'a, B, MAX_LEN, Scorer>
+impl<'a, B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> IntoIterator
+    for MoveListScorer<'a, B, E, MAX_LEN, Scorer>
 {
     type Item = B::Move;
     type IntoIter = UnscoredMoveIter<B, MAX_LEN>;
@@ -41,8 +41,8 @@ impl<'a, B: Board, const MAX_LEN: usize, Scorer: MoveScorer<B>> IntoIterator
     }
 }
 
-impl<'a, B: Board, const MAX_LEN: usize, Scorer: MoveScorer<B>> MoveList<B>
-    for MoveListScorer<'a, B, MAX_LEN, Scorer>
+impl<'a, B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> MoveList<B>
+    for MoveListScorer<'a, B, E, MAX_LEN, Scorer>
 {
     fn add_move(&mut self, mov: B::Move) {
         if self.excluded != mov {
@@ -104,10 +104,10 @@ impl<B: Board, const MAX_LEN: usize> MovePicker<B, MAX_LEN> {
         }
     }
 
-    pub fn next<Scorer: MoveScorer<B>>(
+    pub fn next<E: Engine<B>, Scorer: MoveScorer<B, E>>(
         &mut self,
         scorer: &Scorer,
-        state: &Scorer::State,
+        state: &SearchStateFor<B, E>,
     ) -> Option<ScoredMove<B>> {
         match &mut self.state {
             TTMove => {

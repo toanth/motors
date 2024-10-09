@@ -616,7 +616,6 @@ impl<'a> MoveParser<'a> {
         if let Some(mov) = parser.parse_castling(board) {
             parser.parse_check_mate();
             parser.parse_annotation();
-            parser.check_check_checkmate_captures_and_ep(mov, board)?;
             if !board.is_move_pseudolegal(mov) {
                 // can't use `to_extended_text` because that requires pseudolegal moves.
                 bail!(
@@ -624,6 +623,7 @@ impl<'a> MoveParser<'a> {
                     mov.to_string().red()
                 );
             }
+            parser.check_check_checkmate_captures_and_ep(mov, board)?; // check this once the move is known to be pseudolegal
             return Ok((mov, parser.remaining()));
         }
         parser.parse_piece()?;
@@ -1016,13 +1016,14 @@ impl<'a> MoveParser<'a> {
             }
         };
 
-        assert!(board.is_move_legal(res));
-
         self.check_check_checkmate_captures_and_ep(res, board)?;
+
+        debug_assert!(board.is_move_legal(res));
         Ok(res)
     }
 
     // I love this name
+    // assumes that the move has already been verified to be pseudolegal. TODO: Encode in type system
     fn check_check_checkmate_captures_and_ep(&self, mov: ChessMove, board: &Chessboard) -> Res<()> {
         let incorrect_mate = self.gives_mate && !board.is_game_won_after_slow(mov);
         let incorrect_check = self.gives_check && !board.gives_check(mov);
@@ -1044,8 +1045,8 @@ impl<'a> MoveParser<'a> {
             };
             bail!(
                 "The move notation '{0}' claims that it {typ}, but the move {1} actually doesn't",
-                self.consumed(),
-                mov.to_extended_text(board)
+                self.consumed().red(),
+                mov.to_string().bold() // can't use to_extended_text() here, as that requires pseudolegal moves
             );
         }
         Ok(())

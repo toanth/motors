@@ -50,10 +50,10 @@ use crate::search::generic::random_mover::RandomMover;
 use crate::search::multithreading::EngineWrapper;
 use crate::search::tt::TT;
 use crate::search::{
-    run_bench_with, AbstractEvalBuilder, AbstractSearcherBuilder, Benchable, EvalBuilder, EvalList,
+    run_bench_with, AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EvalBuilder, EvalList,
     SearcherBuilder, SearcherList,
 };
-use crate::Mode::*;
+use crate::Mode::{Bench, Perft};
 
 pub mod eval;
 pub mod io;
@@ -70,7 +70,7 @@ pub enum Mode {
 impl Display for Mode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Engine => write!(f, "engine"),
+            Mode::Engine => write!(f, "engine"),
             Bench(_, _) => write!(f, "bench"),
             Perft(_) => write!(f, "perft"),
         }
@@ -79,7 +79,7 @@ impl Display for Mode {
 
 #[derive(Debug)]
 struct BenchRun<B: Board> {
-    engine: Box<dyn Benchable<B>>,
+    engine: Box<dyn Engine<B>>,
     depth: Option<Depth>,
     with_nodes: bool,
 }
@@ -93,7 +93,7 @@ impl<B: Board> BenchRun<B> {
         let Bench(depth, with_nodes) = options.mode else {
             unreachable!()
         };
-        let engine = create_engine_bench_from_str(&options.engine, all_searchers, all_evals)?;
+        let engine = create_engine_box_from_str(&options.engine, all_searchers, all_evals)?;
         Ok(Self {
             engine,
             depth,
@@ -200,16 +200,16 @@ pub fn create_engine_from_str<B: Board>(
     ))
 }
 
-pub fn create_engine_bench_from_str<B: Board>(
+pub fn create_engine_box_from_str<B: Board>(
     name: &str,
     searchers: &SearcherList<B>,
     evals: &EvalList<B>,
-) -> Res<Box<dyn Benchable<B>>> {
+) -> Res<Box<dyn Engine<B>>> {
     let (searcher, eval) = name.split_once('-').unwrap_or((name, "default"));
 
     let searcher_builder = create_searcher_from_str(searcher, searchers)?;
     let eval_builder = create_eval_from_str(eval, evals)?;
-    Ok(searcher_builder.build_for_bench(eval_builder.as_ref()))
+    Ok(searcher_builder.build(eval_builder.as_ref()))
 }
 
 pub fn create_match_for_game<B: Board>(
@@ -220,7 +220,7 @@ pub fn create_match_for_game<B: Board>(
 ) -> Res<AnyRunnable> {
     match args.mode {
         Bench(_, _) => Ok(Box::new(BenchRun::create(&args, &searchers, &evals)?)),
-        Engine => {
+        Mode::Engine => {
             if args.debug {
                 args.outputs.push(OutputArgs::new("logger".to_string()));
             }

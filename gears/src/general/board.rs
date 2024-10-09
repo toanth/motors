@@ -302,12 +302,12 @@ pub trait Board:
     /// Takes in a reference to self because some boards have a size determined at runtime,
     /// and the default perft depth can change depending on that (or even depending on the current position)
     fn default_perft_depth(&self) -> Depth {
-        Depth::new(5)
+        Depth::new_unchecked(4)
     }
 
     /// Returns the maximum perft depth possible, i.e., perft depth will be clamped to this value.
     fn max_perft_depth() -> Depth {
-        Depth::new(50)
+        Depth::new_unchecked(50)
     }
 
     /// Returns a list of pseudo legal moves, that is, moves which can either be played using
@@ -601,6 +601,15 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
 ) -> Res<B::Unverified> {
     let lines = position.split('/');
     debug_assert!(lines.clone().count() > 0);
+    let num_lines = lines.clone().count();
+    if num_lines != board.size().height().val() {
+        bail!(
+            "The {0} board has a height of {1}, but the FEN contains {2} rows",
+            B::game_name(),
+            board.size().height().val().to_string().bold(),
+            num_lines.to_string().bold()
+        )
+    }
 
     let mut square = 0;
     for (line, line_num) in lines.zip(0_usize..) {

@@ -30,7 +30,7 @@ fn perft_tests() {
         println!("{pos}");
         let n = if cfg!(debug_assertions) { 7 } else { 100 };
         for (depth, nodes) in perft_res.iter().enumerate().take(n) {
-            let res = perft(Depth::new(depth), pos);
+            let res = perft(Depth::new_unchecked(depth), pos);
             assert_eq!(
                 res.nodes, *nodes,
                 "{fen}, depth {depth}: {0} should be {1}",

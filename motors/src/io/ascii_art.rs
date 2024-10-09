@@ -43,7 +43,7 @@ impl Letter {
     }
 }
 
-fn letters() -> [Letter; 29] {
+fn letters() -> [Letter; 31] {
     [
         Letter::new(" █████╗ \n██╔══██╗\n███████║\n██╔══██║\n██║  ██║\n╚═╝  ╚═╝\n"), // A
         Letter::new("██████╗ \n██╔══██╗\n██████╔╝\n██╔══██╗\n██████╔╝\n╚═════╝ \n"), // B
@@ -76,6 +76,8 @@ fn letters() -> [Letter; 29] {
         Letter::new("      \n      \n█████╗\n╚════╝\n      \n      \n"),             // -
         Letter::new("        \n        \n        \n        \n        \n        \n"), // space
         Letter::new("       \n    ██╗\n    ╚═╝\n    ██╗\n    ╚═╝\n       \n"),       // :
+        Letter::new("██╗\n██║\n██║\n╚═╝\n██╗\n╚═╝\n"),                               // !
+        Letter::new("   \n   \n   \n   \n██╗\n╚═╝\n"),                               // ,
     ]
 }
 
@@ -89,6 +91,10 @@ pub fn try_print_as_ascii_art(text: &str, indent: usize) -> Option<String> {
             Some(27)
         } else if c == ':' {
             Some(28)
+        } else if c == '!' {
+            Some(29)
+        } else if c == '.' {
+            Some(30)
         } else {
             None
         }

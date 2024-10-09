@@ -1,14 +1,14 @@
 use colored::Colorize;
+use dyn_clone::clone_box;
+use gears::games::ZobristHistory;
+use gears::general::board::Board;
+use portable_atomic::AtomicUsize;
 use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU64};
 use std::sync::{Arc, Mutex, MutexGuard};
-
-use dyn_clone::clone_box;
-use gears::games::ZobristHistory;
-use gears::general::board::Board;
-use portable_atomic::AtomicUsize;
+use std::time::{Duration, Instant};
 
 use crate::eval::Eval;
 use crate::io::ugi_output::UgiOutput;
@@ -26,7 +26,7 @@ use crate::search::multithreading::SearchThreadType::{Auxiliary, Main};
 use crate::search::multithreading::SearchType::{Infinite, Normal, Ponder};
 use crate::search::tt::{TTEntry, TT};
 use crate::search::{
-    AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EngineInfo, SearchParams, SearchState,
+    AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EngineInfo, SearchParams,
 };
 
 pub type Sender<T> = crossbeam_channel::Sender<T>;
@@ -182,11 +182,11 @@ impl<B: Board> AtomicSearchState<B> {
     }
 
     pub fn depth(&self) -> Depth {
-        Depth::new(self.depth.load(Relaxed) as usize)
+        Depth::new_unchecked(self.depth.load(Relaxed) as usize)
     }
 
     pub fn seldepth(&self) -> Depth {
-        Depth::new(self.seldepth.load(Relaxed))
+        Depth::new_unchecked(self.seldepth.load(Relaxed))
     }
 
     pub fn score(&self) -> Score {
@@ -330,7 +330,16 @@ pub struct EngineWrapper<B: Board> {
 
 impl<B: Board> Drop for EngineWrapper<B> {
     fn drop(&mut self) {
+        self.main_atomic_search_data().set_stop(true);
         _ = self.main.send(Quit);
+        let start_time = Instant::now();
+        while self.main_atomic_search_data().currently_searching() {
+            spin_loop();
+            if start_time.elapsed() > Duration::from_millis(500) {
+                eprintln!("Warning: Engine hasn't stopped 500ms after being told to quit");
+                break;
+            }
+        }
     }
 }
 

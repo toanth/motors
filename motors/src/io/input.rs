@@ -15,7 +15,6 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-
 use crate::io::command::{ugi_commands, CommandAutocomplete};
 use crate::io::input::InputEnum::{Interactive, NonInteractive};
 use crate::io::EngineUGI;
@@ -58,7 +57,7 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
             ));
             NonInteractiveInput::default().get_line(ugi)
         } else {
-            let string = Text::new("Input a command:")
+            let string = Text::new(&"Input a command or move:".bold().to_string())
                 .with_help_message("Type 'help' for a list of commands")
                 .with_autocomplete(self.autocompletion.clone())
                 .prompt()

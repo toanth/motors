@@ -523,8 +523,10 @@ impl<B: Board> InputThread<B> {
                 bail!("info line ends after '{key}', expected a value")
             };
             match key {
-                "depth" => res.depth = Depth::new(parse_int_from_str(value, "depth")?),
-                "seldepth" => res.seldepth = Depth::new(parse_int_from_str(value, "seldepth")?),
+                "depth" => res.depth = Depth::try_new(parse_int_from_str(value, "depth")?)?,
+                "seldepth" => {
+                    res.seldepth = Depth::try_new(parse_int_from_str(value, "seldepth")?)?
+                }
                 "time" => {
                     res.time = parse_duration_ms(&mut value.split_whitespace().peekable(), "time")?;
                 }

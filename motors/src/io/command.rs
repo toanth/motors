@@ -46,6 +46,8 @@ use gears::Quitting::{QuitMatch, QuitProgram};
 use inquire::autocompletion::Replacement;
 use inquire::{Autocomplete, CustomUserError};
 use itertools::Itertools;
+use rand::prelude::IndexedRandom;
+use rand::{thread_rng, Rng};
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::{once, Peekable};
 use std::rc::Rc;
@@ -166,7 +168,7 @@ impl<B: Board> SubCommandsFn<B> {
 }
 
 #[derive(Debug)]
-pub struct SimpleCommand<State: CommandState> {
+pub struct Command<State: CommandState> {
     pub primary_name: String,
     pub other_names: ArrayVec<String, 4>,
     pub help_text: String,
@@ -178,7 +180,7 @@ pub struct SimpleCommand<State: CommandState> {
     sub_commands: SubCommandsFn<State::B>,
 }
 
-impl<State: CommandState> NamedEntity for SimpleCommand<State> {
+impl<State: CommandState> NamedEntity for Command<State> {
     fn short_name(&self) -> String {
         self.primary_name.clone()
     }
@@ -204,20 +206,20 @@ impl<State: CommandState> NamedEntity for SimpleCommand<State> {
             self.other_names
                 .iter()
                 // prefer primary matches
-                .map(|name| 1 + matcher(input, &name))
+                .map(|name| 1 + matcher(input, name))
                 .min()
                 .unwrap_or(usize::MAX),
         )
     }
 }
 
-impl<State: CommandState + 'static> Display for SimpleCommand<State> {
+impl<State: CommandState + 'static> Display for Command<State> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         display_cmd(f, self)
     }
 }
 
-impl<State: CommandState + 'static> AbstractCommand<State::B> for SimpleCommand<State> {
+impl<State: CommandState + 'static> AbstractCommand<State::B> for Command<State> {
     fn standard(&self) -> Standard {
         self.standard
     }
@@ -239,123 +241,13 @@ impl<State: CommandState + 'static> AbstractCommand<State::B> for SimpleCommand<
     }
 
     fn secondary_names(&self) -> Vec<String> {
-        self.other_names.iter().map(|s| s.clone()).collect_vec()
+        self.other_names.iter().cloned().collect_vec()
     }
 }
 
-impl<State: CommandState + 'static> CommandTrait<State> for SimpleCommand<State> {
+impl<State: CommandState + 'static> CommandTrait<State> for Command<State> {
     fn func(&self) -> fn(&mut State, &mut Peekable<SplitWhitespace>, &str) -> Res<()> {
         self.func
-    }
-
-    fn upcast_box(self: Box<Self>) -> Box<dyn AbstractCommand<State::B>> {
-        self
-    }
-
-    fn upcast_ref(&self) -> &dyn AbstractCommand<State::B> {
-        self
-    }
-}
-
-// TODO: Remove
-pub struct GenericCommand<State: CommandState> {
-    primary_name: Box<dyn Fn(&Self) -> String>,
-    other_names: Vec<Box<dyn Fn(&Self) -> String>>,
-    help_text: Box<dyn Fn(&Self) -> String>,
-    standard: Box<dyn Fn(&Self) -> Standard>,
-    func: Box<
-        dyn Fn(
-            &Self,
-        ) -> fn(
-            &mut State,
-            remaining_input: &mut Peekable<SplitWhitespace>,
-            _cmd: &str,
-        ) -> Res<()>,
-    >,
-    matches: Option<Box<dyn Fn(&Self, &str) -> bool>>,
-}
-
-impl<State: CommandState> Debug for GenericCommand<State> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Command for '{}'", (self.primary_name)(self))
-    }
-}
-
-impl<State: CommandState> NamedEntity for GenericCommand<State> {
-    fn short_name(&self) -> String {
-        (self.primary_name)(self)
-    }
-
-    fn long_name(&self) -> String {
-        self.short_name()
-    }
-
-    fn description(&self) -> Option<String> {
-        Some((self.help_text)(self))
-    }
-
-    fn matches(&self, name: &str) -> bool {
-        if let Some(func) = &self.matches {
-            func(self, name)
-        } else {
-            name.eq_ignore_ascii_case(&self.short_name())
-                || self
-                    .other_names
-                    .iter()
-                    .any(|n| n(self).eq_ignore_ascii_case(name))
-        }
-    }
-
-    fn autocomplete_badness(&self, input: &str, matcher: fn(&str, &str) -> usize) -> usize {
-        matcher(input, &self.short_name()).min(
-            self.other_names
-                .iter()
-                // prefer primary matches
-                .map(|name| 1 + matcher(input, &name(self)))
-                .min()
-                .unwrap_or(usize::MAX),
-        )
-    }
-}
-
-impl<State: CommandState + 'static> Display for GenericCommand<State> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        display_cmd(f, self)
-    }
-}
-
-impl<State: CommandState + 'static> AbstractCommand<State::B> for GenericCommand<State> {
-    fn standard(&self) -> Standard {
-        (self.standard)(self)
-    }
-
-    fn sub_commands(&self, _state: ACState<State::B>) -> SubCommandList<State::B> {
-        vec![] // TODO, if necessary
-    }
-
-    fn change_autocomplete_state(&self, state: ACState<State::B>) -> ACState<State::B> {
-        state // TODO: Implement, if necessary
-    }
-
-    fn autocomplete_recurse(&self) -> bool {
-        false
-    }
-
-    fn set_autocompletions(&mut self, _func: SubCommandsFn<State::B>) {
-        unreachable!()
-    }
-
-    fn secondary_names(&self) -> Vec<String> {
-        self.other_names
-            .iter()
-            .map(|s| s(self).to_string())
-            .collect_vec()
-    }
-}
-
-impl<State: CommandState + 'static> CommandTrait<State> for GenericCommand<State> {
-    fn func(&self) -> fn(&mut State, &mut Peekable<SplitWhitespace>, &str) -> Res<()> {
-        (self.func)(self)
     }
 
     fn upcast_box(self: Box<Self>) -> Box<dyn AbstractCommand<State::B>> {
@@ -393,7 +285,7 @@ macro_rules! command {
                 autocomplete_recurse = $recurse;
             )?
 
-            let cmd = SimpleCommand::<$State> {
+            let cmd = Command::<$State> {
                 primary_name: stringify!($primary).to_string(),
                 other_names: ArrayVec::from_iter([$(stringify!($other).to_string(),)*]),
                 standard: $std,
@@ -498,7 +390,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
                     Warning,
                     &format!("{} isn't supported and will be ignored", "register".red()),
                 );
-                return Ok(());
+                Ok(())
             }
         ),
         ugi_command!(
@@ -593,7 +485,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             Custom,
             "Starts a new match, possibly of a new game, optionally setting a new engine",
             |ugi, words, _| ugi.handle_play(words),
-            -> |_| select_command::<B, Game>(&Game::iter().map(|g| Box::new(g)).collect_vec())
+            -> |_| select_command::<B, Game>(&Game::iter().map(Box::new).collect_vec())
         ),
         ugi_command!(
             perft,
@@ -685,13 +577,14 @@ impl<B: Board> GoState<B> {
     }
 }
 
-pub fn accept_depth(limit: &mut SearchLimit, words: &mut Peekable<SplitWhitespace>) {
+pub fn accept_depth(limit: &mut SearchLimit, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
     if let Some(word) = words.peek() {
         if let Ok(number) = parse_int_from_str(word, "depth") {
-            limit.depth = Depth::new(number);
+            limit.depth = Depth::try_new(number)?;
             _ = words.next();
         }
     }
+    Ok(())
 }
 
 macro_rules! go_command {
@@ -703,87 +596,89 @@ macro_rules! go_command {
 #[expect(clippy::too_many_lines)]
 pub fn go_options<B: Board>() -> CommandList<GoState<B>> {
     let mut res: CommandList<GoState<B>> = vec![
-        Box::new(GenericCommand::<GoState<B>> {
-            primary_name: Box::new(|_| format!("{}time", B::Color::first().ascii_color_char())),
-            other_names: vec![
-                Box::new(|_| format!("{}t", B::Color::first().ascii_color_char())),
-                Box::new(|_| "p1time".to_string()),
-                Box::new(|_| "p1t".to_string()),
-            ],
-            help_text: Box::new(|_| format!("Remaining time in ms for {}", B::Color::first())),
-            standard: Box::new(|_| All),
-            func: Box::new(|_| {
-                |go, words, _| {
-                    let time = parse_duration_ms(words, "p1time")?;
-                    // always parse the duration, even if it isn't relevant
-                    if go.is_first {
-                        go.limit.tc.remaining = time;
-                    }
-                    Ok(())
+        Box::new(Command::<GoState<B>> {
+            primary_name: format!("{}time", B::Color::first().ascii_color_char()),
+            other_names: ArrayVec::from_iter([
+                format!("{}t", B::Color::first().ascii_color_char()),
+                "p1time".to_string(),
+                "p1t".to_string(),
+            ]),
+            help_text: format!("Remaining time in ms for {}", B::Color::first()),
+            standard: All,
+            autocomplete_recurse: false,
+            func: |go, words, _| {
+                let time = parse_duration_ms(words, "p1time")?;
+                // always parse the duration, even if it isn't relevant
+                if go.is_first {
+                    go.limit.tc.remaining = time;
                 }
-            }),
-            matches: None,
+                Ok(())
+            },
+            change_ac_state: AutoCompleteFunc::default(),
+            sub_commands: SubCommandsFn::default(),
         }),
-        Box::new(GenericCommand::<GoState<B>> {
-            primary_name: Box::new(|_| format!("{}time", B::Color::second().ascii_color_char())),
-            other_names: vec![
-                Box::new(|_| format!("{}t", B::Color::second().ascii_color_char())),
-                Box::new(|_| "p2time".to_string()),
-                Box::new(|_| "p2t".to_string()),
-            ],
-            help_text: Box::new(|_| format!("Remaining time in ms for {}", B::Color::second())),
-            standard: Box::new(|_| All),
-            func: Box::new(|_| {
-                |go, words, _| {
-                    let time = parse_duration_ms(words, "p2time")?;
-                    // always parse the duration, even if it isn't relevant
-                    if !go.is_first {
-                        go.limit.tc.remaining = time;
-                    }
-                    Ok(())
+        Box::new(Command::<GoState<B>> {
+            primary_name: format!("{}time", B::Color::second().ascii_color_char()),
+            other_names: ArrayVec::from_iter([
+                format!("{}t", B::Color::second().ascii_color_char()),
+                "p2time".to_string(),
+                "p2t".to_string(),
+            ]),
+            help_text: format!("Remaining time in ms for {}", B::Color::second()),
+            standard: All,
+            autocomplete_recurse: false,
+            func: |go, words, _| {
+                let time = parse_duration_ms(words, "p2time")?;
+                // always parse the duration, even if it isn't relevant
+                if !go.is_first {
+                    go.limit.tc.remaining = time;
                 }
-            }),
-            matches: None,
+                Ok(())
+            },
+
+            change_ac_state: AutoCompleteFunc::default(),
+            sub_commands: SubCommandsFn::default(),
         }),
-        Box::new(GenericCommand::<GoState<B>> {
-            primary_name: Box::new(|_| format!("{}inc", B::Color::first().ascii_color_char())),
-            other_names: vec![
-                Box::new(|_| format!("{}i", B::Color::first().ascii_color_char())),
-                Box::new(|_| "p1inc".to_string()),
-            ],
-            help_text: Box::new(|_| format!("Increment in ms for {}", B::Color::first())),
-            standard: Box::new(|_| All),
-            func: Box::new(|_| {
-                |go, words, _| {
-                    let increment = parse_duration_ms(words, "p1inc")?;
-                    // always parse the duration, even if it isn't relevant
-                    if go.is_first {
-                        go.limit.tc.increment = increment;
-                    }
-                    Ok(())
+        Box::new(Command::<GoState<B>> {
+            primary_name: format!("{}inc", B::Color::first().ascii_color_char()),
+            other_names: ArrayVec::from_iter([
+                format!("{}i", B::Color::first().ascii_color_char()),
+                "p1inc".to_string(),
+            ]),
+            help_text: format!("Increment in ms for {}", B::Color::first()),
+            standard: All,
+            autocomplete_recurse: false,
+            func: |go, words, _| {
+                let increment = parse_duration_ms(words, "p1inc")?;
+                // always parse the duration, even if it isn't relevant
+                if go.is_first {
+                    go.limit.tc.increment = increment;
                 }
-            }),
-            matches: None,
+                Ok(())
+            },
+
+            change_ac_state: AutoCompleteFunc::default(),
+            sub_commands: SubCommandsFn::default(),
         }),
-        Box::new(GenericCommand::<GoState<B>> {
-            primary_name: Box::new(|_| format!("{}inc", B::Color::second().ascii_color_char())),
-            other_names: vec![
-                Box::new(|_| format!("{}i", B::Color::second().ascii_color_char())),
-                Box::new(|_| "p2inc".to_string()),
-            ],
-            help_text: Box::new(|_| format!("Increment in ms for {}", B::Color::second())),
-            standard: Box::new(|_| All),
-            func: Box::new(|_| {
-                |go, words, _| {
-                    let increment = parse_duration_ms(words, "p2inc")?;
-                    // always parse the duration, even if it isn't relevant
-                    if !go.is_first {
-                        go.limit.tc.increment = increment;
-                    }
-                    Ok(())
+        Box::new(Command::<GoState<B>> {
+            primary_name: format!("{}inc", B::Color::second().ascii_color_char()),
+            other_names: ArrayVec::from_iter([
+                format!("{}i", B::Color::second().ascii_color_char()),
+                "p2inc".to_string(),
+            ]),
+            help_text: format!("Increment in ms for {}", B::Color::second()),
+            standard: All,
+            autocomplete_recurse: false,
+            func: |go, words, _| {
+                let increment = parse_duration_ms(words, "p2inc")?;
+                // always parse the duration, even if it isn't relevant
+                if !go.is_first {
+                    go.limit.tc.increment = increment;
                 }
-            }),
-            matches: None,
+                Ok(())
+            },
+            change_ac_state: AutoCompleteFunc::default(),
+            sub_commands: SubCommandsFn::default(),
         }),
         go_command!(
             movestogo | mtg,
@@ -799,7 +694,7 @@ pub fn go_options<B: Board>() -> CommandList<GoState<B>> {
             All,
             "Maximum search depth in plies (a.k.a. half-moves)",
             |opts, words, _| {
-                opts.limit.depth = Depth::new(parse_int(words, "depth number")?);
+                opts.limit.depth = Depth::try_new(parse_int(words, "depth number")?)?;
                 Ok(())
             }
         ),
@@ -818,13 +713,13 @@ pub fn go_options<B: Board>() -> CommandList<GoState<B>> {
             All,
             "Maximum depth in moves until a mate has to be found",
             |opts, words, _| {
-                let depth: usize = parse_int(words, "mate move count")?;
-                opts.limit.mate = Depth::new(depth * 2); // 'mate' is given in moves instead of plies
+                let depth: isize = parse_int(words, "mate move count")?;
+                opts.limit.mate = Depth::try_new(depth * 2)?; // 'mate' is given in moves instead of plies
                 Ok(())
             }
         ),
         go_command!(
-            movetime | mt,
+            movetime | mt | time,
             All,
             "Maximum time in ms",
             |opts, words, _| {
@@ -881,7 +776,7 @@ pub fn go_options<B: Board>() -> CommandList<GoState<B>> {
             "Movegen test: Make all legal moves up to a depth",
             |opts, words, _| {
                 opts.search_type = Perft;
-                accept_depth(&mut opts.limit, words);
+                accept_depth(&mut opts.limit, words)?;
                 Ok(())
             }
         ),
@@ -891,7 +786,7 @@ pub fn go_options<B: Board>() -> CommandList<GoState<B>> {
             "Movegen test: Print perft number for each legal move",
             |opts, words, _| {
                 opts.search_type = SplitPerft;
-                accept_depth(&mut opts.limit, words);
+                accept_depth(&mut opts.limit, words)?;
                 Ok(())
             }
         ),
@@ -901,7 +796,7 @@ pub fn go_options<B: Board>() -> CommandList<GoState<B>> {
             "Search test: Print info about nodes, nps, and hash of search",
             |opts, words, _| {
                 opts.search_type = Bench;
-                accept_depth(&mut opts.limit, words);
+                accept_depth(&mut opts.limit, words)?;
                 Ok(())
             }
         ),
@@ -938,7 +833,7 @@ pub fn go_options<B: Board>() -> CommandList<GoState<B>> {
         .into_iter()
         .zip(position_options::<B>(true))
     {
-        let cmd = SimpleCommand::<GoState<B>> {
+        let cmd = Command::<GoState<B>> {
             primary_name: cmd.short_name(),
             other_names: cmd.secondary_names().into_iter().collect(),
             help_text: cmd.description().unwrap(),
@@ -967,37 +862,41 @@ pub fn query_options<B: Board>() -> CommandList<EngineUGI<B>> {
                 .write_response(&matches!(ugi.state.status, Run(Ongoing)).to_string());
             Ok(())
         }),
-        Box::new(GenericCommand::<EngineUGI<B>> {
-            primary_name: Box::new(|_| "p1turn".to_string()),
-            other_names: vec![Box::new(|_| {
-                format!("{}turn", B::Color::first().ascii_color_char())
-            })],
-            help_text: Box::new(|_| "Is it the first player's turn?".to_string()),
-            standard: Box::new(|_| UgiNotUci),
-            func: Box::new(|_| {
-                |ugi, _, _| {
-                    ugi.output()
-                        .write_response(&(ugi.state.board.active_player().is_first()).to_string());
-                    Ok(())
-                }
-            }),
-            matches: None,
+        Box::new(Command::<EngineUGI<B>> {
+            primary_name: "p1turn".to_string(),
+            other_names: ArrayVec::from_iter([format!(
+                "{}turn",
+                B::Color::first().ascii_color_char()
+            )]),
+            help_text: "Is it the first player's turn?".to_string(),
+            standard: UgiNotUci,
+            autocomplete_recurse: false,
+            func: |ugi, _, _| {
+                ugi.output()
+                    .write_response(&(ugi.state.board.active_player().is_first()).to_string());
+                Ok(())
+            },
+
+            change_ac_state: AutoCompleteFunc::default(),
+            sub_commands: SubCommandsFn::default(),
         }),
-        Box::new(GenericCommand::<EngineUGI<B>> {
-            primary_name: Box::new(|_| "p2turn".to_string()),
-            other_names: vec![Box::new(|_| {
-                format!("{}turn", B::Color::second().ascii_color_char())
-            })],
-            help_text: Box::new(|_| "Is it the second player's turn?".to_string()),
-            standard: Box::new(|_| UgiNotUci),
-            func: Box::new(|_| {
-                |ugi, _, _| {
-                    ugi.output()
-                        .write_response(&(!ugi.state.board.active_player().is_first()).to_string());
-                    Ok(())
-                }
-            }),
-            matches: None,
+        Box::new(Command::<EngineUGI<B>> {
+            primary_name: "p2turn".to_string(),
+            other_names: ArrayVec::from_iter([format!(
+                "{}turn",
+                B::Color::second().ascii_color_char()
+            )]),
+            help_text: "Is it the second player's turn?".to_string(),
+            standard: UgiNotUci,
+            autocomplete_recurse: false,
+            func: |ugi, _, _| {
+                ugi.output()
+                    .write_response(&(!ugi.state.board.active_player().is_first()).to_string());
+                Ok(())
+            },
+
+            change_ac_state: AutoCompleteFunc::default(),
+            sub_commands: SubCommandsFn::default(),
         }),
         ugi_command!(
             result | res,
@@ -1099,7 +998,7 @@ pub fn position_options<B: Board>(accept_pos_word: bool) -> CommandList<B> {
     }
     for p in B::name_to_pos_map() {
         let func = p.val;
-        let c = Box::new(SimpleCommand {
+        let c = Box::new(Command {
             primary_name: p.short_name(),
             other_names: Default::default(),
             help_text: p.description().unwrap_or(format!(
@@ -1142,7 +1041,7 @@ pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool) -> CommandList<B>
             other_names.push(extended);
         }
         let the_move = *mov;
-        let cmd = SimpleCommand {
+        let cmd = Command {
             primary_name,
             other_names,
             help_text: format!("Play move '{}'", mov.to_string().bold()),
@@ -1171,7 +1070,7 @@ pub fn named_entity_to_command<B: Board, T: NamedEntity + ?Sized>(
     if !entity.long_name().eq_ignore_ascii_case(&primary_name) {
         other_names.push(entity.long_name());
     }
-    let cmd = SimpleCommand {
+    let cmd = Command {
         primary_name,
         other_names,
         help_text: entity
@@ -1201,7 +1100,7 @@ pub fn options_options<B: Board, const VALUE: bool>(
     let mut res: CommandList<B> = select_command(
         EngineOptionName::iter()
             .dropping_back(1)
-            .map(|x| Box::new(x))
+            .map(Box::new)
             .collect_vec()
             .as_slice(),
     );
@@ -1271,9 +1170,24 @@ fn distance(input: &str, name: &str) -> usize {
         0
     } else {
         let lowercase_name = name.to_lowercase();
+        let input = input.to_lowercase();
         let prefix = &lowercase_name.as_bytes()[..input.len().min(lowercase_name.len())];
-        2 + edit_distance(input, from_utf8(&prefix).unwrap_or(name))
+        2 + edit_distance(&input, from_utf8(prefix).unwrap_or(name))
     }
+}
+
+fn push<B: Board, T: AbstractCommand<B> + ?Sized>(
+    completions: &mut Vec<(usize, Completion)>,
+    word: &str,
+    node: &T,
+) {
+    completions.push((
+        node.autocomplete_badness(word, distance),
+        Completion {
+            name: node.short_name(),
+            text: completion_text(node, word),
+        },
+    ));
 }
 
 fn completions<B: Board>(
@@ -1287,13 +1201,7 @@ fn completions<B: Board>(
     for child in node.sub_commands(state.clone()) {
         // TODO: Use is_none_or in Rust 1.82
         if next.is_none() || next.is_some_and(|n| n == to_complete) || node.autocomplete_recurse() {
-            res.push((
-                child.autocomplete_badness(to_complete, distance),
-                Completion {
-                    name: child.short_name(),
-                    text: completion_text(child.as_ref(), to_complete),
-                },
-            ));
+            push(&mut res, to_complete, child.as_ref());
         }
         if next.is_some_and(|name| child.matches(name)) {
             let mut rest = rest.clone();
@@ -1318,7 +1226,7 @@ fn underline_match(name: &str, word: &str) -> String {
     }
 }
 
-fn completion_text<B: Board>(n: &dyn AbstractCommand<B>, word: &str) -> String {
+fn completion_text<B: Board, T: AbstractCommand<B> + ?Sized>(n: &T, word: &str) -> String {
     use std::fmt::Write;
     let name = n.short_name();
     let mut res = format!("{}", underline_match(&name, word).bold());
@@ -1351,18 +1259,12 @@ fn suggestions<B: Board>(
     } else {
         input.split_whitespace().last().unwrap()
     };
-    let should_complete_this = words.peek().is_none() && to_complete != "";
+    let should_complete_this = words.peek().is_none() && !to_complete.is_empty();
 
     let mut res = vec![];
     for cmd in autocomplete.list.iter() {
         if should_complete_this {
-            res.push((
-                cmd.autocomplete_badness(to_complete, distance),
-                Completion {
-                    name: cmd.short_name(),
-                    text: completion_text(cmd.upcast_ref(), cmd_name),
-                },
-            ))
+            push(&mut res, to_complete, cmd.as_ref());
         } else if cmd.matches(cmd_name) {
             let mut new = completions(
                 cmd.upcast_ref(),
@@ -1371,6 +1273,12 @@ fn suggestions<B: Board>(
                 to_complete,
             );
             res.append(&mut new);
+        }
+    }
+    if should_complete_this {
+        let moves = moves_options(autocomplete.state.pos, false);
+        for mov in moves {
+            push(&mut res, to_complete, mov.upcast_box().as_ref());
         }
     }
     res.sort_by_key(|(val, _name)| *val);
@@ -1422,4 +1330,27 @@ impl<B: Board> Autocomplete for CommandAutocomplete<B> {
             Ok(None)
         }
     }
+}
+
+// Useful for generating a fuzz testing corpus
+#[allow(unused)]
+pub fn random_command<B: Board>(
+    initial: String,
+    ac: &mut CommandAutocomplete<B>,
+    depth: usize,
+) -> String {
+    let mut res = initial;
+    for i in 0..depth {
+        res.push(' ');
+        let s = suggestions(ac, &res);
+        let s = s.choose(&mut thread_rng());
+        if thread_rng().gen_range(0..7) == 0 {
+            res += &thread_rng().gen_range(-42..10_000).to_string();
+        } else if depth <= 0 || s.is_none() {
+            return res;
+        } else {
+            res += &s.unwrap().name;
+        }
+    }
+    res
 }
