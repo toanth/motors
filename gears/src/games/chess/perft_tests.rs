@@ -9,6 +9,7 @@ mod tests {
 
     use crate::games::chess::Chessboard;
     use crate::games::Board;
+    use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::perft::perft;
     use crate::search::Depth;
 
@@ -22,6 +23,7 @@ mod tests {
             // kiwipete after white castles (cheaper to run than increasing the depth of kiwipete, and failed perft once)
             let board = Chessboard::from_fen(
                 "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R4RK1 b kq - 1 1",
+                Strict,
             )
             .unwrap();
             let res = perft(Depth::new_unchecked(4), board);
@@ -29,6 +31,7 @@ mod tests {
             // kiwipete after white plays a2a3
             let board = Chessboard::from_fen(
                 "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q1p/1PPBBPPP/R3K2R b KQkq - 0 1",
+                Strict,
             )
             .unwrap();
             let res = perft(Depth::new_unchecked(4), board);
@@ -40,6 +43,7 @@ mod tests {
     fn leonids_position_test() {
         let board = Chessboard::from_fen(
             "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1",
+            Strict,
         )
         .unwrap();
         let res = perft(Depth::new_unchecked(1), board);
@@ -58,9 +62,9 @@ mod tests {
     #[test]
     fn castling_perft_test() {
         // this is not actually a reachable position, but we accept it, so we should handle it
-        let pos =
-            Chessboard::from_fen("r3k2r/ppp1pp1p/2nqb1Nn/3p4/4P3/2PP4/1PPPNBPP/2NRQK1R w KQkq -")
-                .unwrap();
+        let fen = "r3k2r/ppp1pp1p/2nqb1Nn/3p4/4P3/2PP4/1PPPNBPP/2NRQK1R w KQkq -";
+        assert!(Chessboard::from_fen(fen, Strict).is_err());
+        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
         let expected: &[u64] = &[
             33,
             1328,
@@ -152,7 +156,7 @@ mod tests {
                 .spawn(move || {
                     for testcase in chunk {
                         let expected = ExpectedPerftRes::new(testcase);
-                        let board = Chessboard::from_fen(expected.fen).unwrap();
+                        let board = Chessboard::from_fen(expected.fen, Strict).unwrap();
                         println!("Running test on fen {0}, board\n{board}", expected.fen);
                         for (depth, expected_count) in expected
                             .res

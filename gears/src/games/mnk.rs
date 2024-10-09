@@ -18,9 +18,10 @@ use crate::general::bitboards::{
     MAX_WIDTH,
 };
 use crate::general::board::SelfChecks::CheckFen;
+use crate::general::board::Strictness::Strict;
 use crate::general::board::{
     board_to_string, position_fen_part, read_position_fen, RectangularBoard, SelfChecks,
-    UnverifiedBoard,
+    Strictness, UnverifiedBoard,
 };
 use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
@@ -649,7 +650,10 @@ impl Board for MNKBoard {
         )
     }
 
-    fn read_fen_and_advance_input(words: &mut Peekable<SplitWhitespace>) -> Res<Self> {
+    fn read_fen_and_advance_input(
+        words: &mut Peekable<SplitWhitespace>,
+        strictness: Strictness,
+    ) -> Res<Self> {
         if words.clone().next().is_none() {
             bail!("Empty mnk fen".to_string());
         }
@@ -660,7 +664,7 @@ impl Board for MNKBoard {
                 0 => settings.height = val,
                 1 => settings.width = val,
                 2 => settings.k = val,
-                _ => panic!("logic error"),
+                _ => unreachable!("logic error"),
             };
         }
         if !settings.check_invariants() {
@@ -689,10 +693,19 @@ impl Board for MNKBoard {
 
         let mut board = read_position_fen::<MNKBoard>(position, UnverifiedMnkBoard::new(board))?;
 
+        let mut ply = board.0.occupied_bb().num_ones();
+        if let Some(word) = words.peek() {
+            if let Ok(ply_num) = parse_int_from_str(*word, "ply") {
+                _ = words.next();
+                ply = ply_num;
+            }
+        }
+        board.0.ply = ply as u32;
+
         board.0.last_move = None;
         board.0.active_player = active_player.color().unwrap();
 
-        board.verify_with_level(CheckFen)
+        board.verify_with_level(CheckFen, strictness)
     }
 
     fn as_ascii_diagram(&self, flip: bool) -> String {
@@ -749,7 +762,7 @@ impl From<MNKBoard> for UnverifiedMnkBoard {
 pub struct UnverifiedMnkBoard(MNKBoard);
 
 impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
-    fn verify_with_level(self, level: SelfChecks) -> Res<MNKBoard> {
+    fn verify_with_level(self, level: SelfChecks, strictness: Strictness) -> Res<MNKBoard> {
         let mut this = self.0;
         let non_empty = this.occupied_bb().0.count_ones();
         // support custom starting positions where pieces have already been placed
@@ -758,6 +771,15 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
                 "Ply is {0}, but {non_empty} moves have been played",
                 this.ply
             );
+        } else if strictness == Strict {
+            let diff = this.x_bb().num_ones() as isize - this.o_bb.num_ones() as isize;
+            if this.ply != non_empty {
+                bail!("In strict mode, the number of plies ({0}) has to be the number of placed pieces ({non_empty})",
+                this.ply)
+            } else if diff != isize::from(this.active_player == MnkColor::O) {
+                bail!("In strict mode, the number of {X} and {O} must match, unless it's {O}'s turn, \
+                    in which case there must be one more {X}. However that difference is {diff}")
+            }
         }
         if level != CheckFen && (this.o_bb & this.x_bb).has_set_bit() {
             bail!(
@@ -834,6 +856,7 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
 /// lots of tests, which should probably go to their own file?
 #[cfg(test)]
 mod test {
+    use crate::general::board::Strictness::Relaxed;
     use crate::general::perft::{perft, split_perft};
     use crate::search::Depth;
 
@@ -1065,7 +1088,7 @@ mod test {
 
     #[test]
     fn from_fen_test() {
-        let board = MNKBoard::from_fen("4 3 2 x 3/3/3/3").unwrap();
+        let board = MNKBoard::from_fen("4 3 2 x 3/3/3/3", Strict).unwrap();
         assert_eq!(board.occupied_bb().raw(), ExtendedRawBitboard(0));
         assert_eq!(board.size(), GridSize::new(Height(4), Width(3)));
         assert_eq!(board.k(), 2);
@@ -1074,7 +1097,7 @@ mod test {
             MNKBoard::empty_for_settings(MnkSettings::new(Height(4), Width(3), 2))
         );
 
-        let board = MNKBoard::from_fen("3 4 3 o 3X/4/2O1").unwrap();
+        let board = MNKBoard::from_fen("3 4 3 x 3X/4/2O1", Strict).unwrap();
         assert_eq!(
             board.occupied_bb().raw(),
             ExtendedRawBitboard(0b1000_0000_0100)
@@ -1086,15 +1109,15 @@ mod test {
                 o_bb: ExtendedRawBitboard(0b0000_0000_0100),
                 ply: 2,
                 settings: MnkSettings::new(Height(3), Width(4), 3),
-                active_player: MnkColor::second(),
+                active_player: MnkColor::first(),
                 last_move: None
             }
         );
 
-        let copy = MNKBoard::from_fen(&board.as_fen()).unwrap();
+        let copy = MNKBoard::from_fen(&board.as_fen(), Relaxed).unwrap();
         assert_eq!(board, copy);
 
-        let board = MNKBoard::from_fen("7 3 2 o X1O/3/OXO/1X1/XO1/XXX/1OO").unwrap();
+        let board = MNKBoard::from_fen("7 3 2 o X1O/3/OXO/1X1/XO1/XXX/1OO", Relaxed).unwrap();
         let white_bb = ExtendedRawBitboard(0b001_000_010_010_001_111_000);
         let black_bb = ExtendedRawBitboard(0b100_000_101_000_010_000_110);
         assert_eq!(
@@ -1108,9 +1131,9 @@ mod test {
                 last_move: None
             }
         );
-        assert_eq!(board, MNKBoard::from_fen(&board.as_fen()).unwrap());
+        assert_eq!(board, MNKBoard::from_fen(&board.as_fen(), Relaxed).unwrap());
 
-        let board = MNKBoard::from_fen("4 12 3 x 12/11X/1X10/2X1X3XXX1").unwrap();
+        let board = MNKBoard::from_fen("4 12 3 x 12/11X/1X10/2X1X3XXX1", Relaxed).unwrap();
         let white_bb =
             ExtendedRawBitboard(0b0000_0000_0000_1000_0000_0000_0000_0000_0010_0111_0001_0100);
         let black_bb = ExtendedRawBitboard(0);
@@ -1125,36 +1148,40 @@ mod test {
                 last_move: None,
             }
         );
-        assert_eq!(board, MNKBoard::from_fen(&board.as_fen()).unwrap());
+        assert_eq!(board, MNKBoard::from_fen(&board.as_fen(), Relaxed).unwrap());
     }
 
     #[test]
     fn from_invalid_fen_test() {
-        assert!(MNKBoard::from_fen("4 3 2 3/3/3/3").is_err());
-        assert!(MNKBoard::from_fen("4 3 2 w 3/3/3/3").is_err());
-        assert!(MNKBoard::from_fen("4 3 2 wx 3/3/3/3").is_err());
-        assert!(MNKBoard::from_fen("4 3 2 o 3/4/3/3")
+        assert!(MNKBoard::from_fen("4 3 2 x 3/3/3/3 1", Strict).is_err());
+        assert!(MNKBoard::from_fen("4 3 2 x 3/3/3/3 abc", Relaxed).is_err());
+        assert!(MNKBoard::from_fen("4 3 2 3/3/3/3", Relaxed).is_err());
+        assert!(MNKBoard::from_fen("4 3 2 w 3/3/3/3", Relaxed).is_err());
+        assert!(MNKBoard::from_fen("4 3 2 wx 3/3/3/3", Relaxed).is_err());
+        assert!(MNKBoard::from_fen("4 3 2 o 3/4/3/3", Relaxed)
             .is_err_and(|e| e.to_string().contains("Line '4' has incorrect width")));
-        MNKBoard::from_fen("4 3 2 o 3//3/3").expect_err("Empty position in mnk fen");
-        assert!(MNKBoard::from_fen("4 3 2 x").is_err());
-        assert!(MNKBoard::from_fen("4 0 2 x ///").is_err());
-        MNKBoard::from_fen("0 3 2 x")
+        MNKBoard::from_fen("4 3 2 o 3//3/3", Relaxed).expect_err("Empty position in mnk fen");
+        assert!(MNKBoard::from_fen("4 3 2 x", Relaxed).is_err());
+        assert!(MNKBoard::from_fen("4 0 2 x ///", Relaxed).is_err());
+        MNKBoard::from_fen("0 3 2 x", Relaxed)
             .expect_err("mnk invariants violated (at least one value is too large or too small)");
-        assert!(MNKBoard::from_fen("4 3 2 o 4/4/4").is_err());
-        assert!(MNKBoard::from_fen("4 3 x 3/3/3/3").is_err());
-        assert!(MNKBoard::from_fen("3 13 2 x 13/12X/13/O12").is_err());
-        assert!(MNKBoard::from_fen("12 12 o 2 12/12/12/12/12/12/12/12/12/12/12/12").is_err());
-        assert!(MNKBoard::from_fen("3 3 3 o 3/X1O/11X").is_err());
-        assert!(MNKBoard::from_fen("3 3 3 o 3/X1O/F1X").is_err());
-        assert!(MNKBoard::from_fen("3 10 3 x 10/10/0XA").is_err());
-        assert!(MNKBoard::from_fen("3 3 3 o 3/3/0X2").is_err());
-        assert!(MNKBoard::from_fen("3 3 3 x 3/-1X3/X2").is_err());
+        assert!(MNKBoard::from_fen("4 3 2 o 4/4/4", Relaxed).is_err());
+        assert!(MNKBoard::from_fen("4 3 x 3/3/3/3", Relaxed).is_err());
+        assert!(MNKBoard::from_fen("3 13 2 x 13/12X/13/O12", Relaxed).is_err());
+        assert!(
+            MNKBoard::from_fen("12 12 o 2 12/12/12/12/12/12/12/12/12/12/12/12", Relaxed).is_err()
+        );
+        assert!(MNKBoard::from_fen("3 3 3 o 3/X1O/11X", Relaxed).is_err());
+        assert!(MNKBoard::from_fen("3 3 3 o 3/X1O/F1X", Relaxed).is_err());
+        assert!(MNKBoard::from_fen("3 10 3 x 10/10/0XA", Relaxed).is_err());
+        assert!(MNKBoard::from_fen("3 3 3 o 3/3/0X2", Relaxed).is_err());
+        assert!(MNKBoard::from_fen("3 3 3 x 3/-1X3/X2", Relaxed).is_err());
     }
 
     // perft and bench catch subtler problems, so only test fairly simple cases here
     #[test]
     fn test_winning() {
-        let board = MNKBoard::from_fen("3 3 3 x XX1/3/3").unwrap();
+        let board = MNKBoard::from_fen("3 3 3 x XX1/3/3", Relaxed).unwrap();
         assert_eq!(board.active_player(), MnkColor::first());
 
         assert!(board.is_game_won_after_slow(FillSquare {
@@ -1164,15 +1191,15 @@ mod test {
             target: board.idx_to_coordinates(5)
         }));
 
-        let board = MNKBoard::from_fen("4 3 3 o XOX/O1O/XOO/1OX").unwrap();
+        let board = MNKBoard::from_fen("4 3 3 o XOX/O1O/XOO/1OX", Relaxed).unwrap();
         assert!(board.is_game_won_after_slow(FillSquare {
             target: board.idx_to_coordinates(0)
         }));
-        let board = MNKBoard::from_fen("3 3 3 x XOX/O1O/XOO").unwrap();
+        let board = MNKBoard::from_fen("3 3 3 x XOX/O1O/XOO", Relaxed).unwrap();
         assert!(board.is_game_won_after_slow(FillSquare {
             target: board.idx_to_coordinates(4)
         }));
-        let board = MNKBoard::from_fen("4 3 3 x XOX/OXO/XOO/1OX").unwrap();
+        let board = MNKBoard::from_fen("4 3 3 x XOX/OXO/XOO/1OX", Relaxed).unwrap();
         assert!(!board.is_game_won_after_slow(FillSquare {
             target: board.idx_to_coordinates(0)
         }));
@@ -1180,7 +1207,7 @@ mod test {
 
     #[test]
     fn game_over_test() {
-        let pos = MNKBoard::from_fen("3 3 3 x XX1/3/3").unwrap();
+        let pos = MNKBoard::from_fen("3 3 3 x XX1/3/3", Relaxed).unwrap();
         let mov = FillSquare::new(GridCoordinates::from_row_column(2, 2));
         assert!(pos.is_game_won_after_slow(mov));
         let new_pos = pos.make_move(mov).unwrap();

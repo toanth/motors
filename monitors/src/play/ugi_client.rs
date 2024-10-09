@@ -7,8 +7,19 @@ use std::time::{Duration, Instant};
 use crossbeam_utils::sync::{Parker, Unparker};
 use strum::IntoEnumIterator;
 
+use crate::cli::CommandLineArgs;
+use crate::play::adjudication::{Adjudication, Adjudicator};
+use crate::play::player::Player::{Engine, Human};
+use crate::play::player::{
+    limit_to_ugi, EnginePlayer, HumanPlayerStatus, Player, PlayerBuilder, Protocol,
+};
+use crate::play::ugi_input::BestMoveAction;
+use crate::play::ugi_input::BestMoveAction::Ignore;
+use crate::play::ugi_input::EngineStatus::*;
+use crate::ui::Input;
 use gears::games::{BoardHistory, Color, ZobristHistory};
 use gears::general::board::Board;
+use gears::general::board::Strictness::Relaxed;
 use gears::general::common::anyhow::bail;
 use gears::general::common::Res;
 use gears::general::moves::Move;
@@ -21,17 +32,6 @@ use gears::{
     output_builder_from_str, player_res_to_match_res, AbstractRun, AdjudicationReason, GameOver,
     GameOverReason, GameResult, GameState, MatchResult, MatchStatus, PlayerResult, Quitting,
 };
-
-use crate::cli::CommandLineArgs;
-use crate::play::adjudication::{Adjudication, Adjudicator};
-use crate::play::player::Player::{Engine, Human};
-use crate::play::player::{
-    limit_to_ugi, EnginePlayer, HumanPlayerStatus, Player, PlayerBuilder, Protocol,
-};
-use crate::play::ugi_input::BestMoveAction;
-use crate::play::ugi_input::BestMoveAction::Ignore;
-use crate::play::ugi_input::EngineStatus::*;
-use crate::ui::Input;
 
 // TODO: Use tokio? Probably more efficient and it has non-blocking reads.
 
@@ -244,7 +244,7 @@ impl<B: Board> Client<B> {
     ) -> Res<Arc<Mutex<Self>>> {
         let initial_pos = match &args.start_pos {
             None => B::default(),
-            Some(fen) => B::from_fen(fen)?,
+            Some(fen) => B::from_fen(fen, Relaxed)?,
         };
         let event = args
             .event

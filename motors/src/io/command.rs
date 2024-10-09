@@ -29,7 +29,8 @@ use colored::Colorize;
 use edit_distance::edit_distance;
 use gears::cli::Game;
 use gears::games::{Color, OutputList, ZobristHistory};
-use gears::general::board::Board;
+use gears::general::board::Strictness::Relaxed;
+use gears::general::board::{Board, Strictness};
 use gears::general::common::anyhow::anyhow;
 use gears::general::common::{
     parse_duration_ms, parse_int, parse_int_from_str, Name, NamedEntity, Res,
@@ -544,6 +545,7 @@ pub struct GoState<B: Board> {
     pub reading_moves: bool,
     pub search_type: SearchType,
     pub complete: bool,
+    pub strictness: Strictness,
     pub board: B,
     pub board_hist: ZobristHistory<B>,
     pub move_overhead: Duration,
@@ -570,6 +572,7 @@ impl<B: Board> GoState<B> {
             reading_moves: false,
             search_type,
             complete: false,
+            strictness: ugi.strictness,
             board: ugi.state.board,
             board_hist: ugi.state.board_hist.clone(),
             move_overhead,
@@ -840,7 +843,8 @@ pub fn go_options<B: Board>() -> CommandList<GoState<B>> {
             standard: Custom,
             autocomplete_recurse: false,
             func: |opts, words, first_word| {
-                opts.board = load_ugi_position(first_word, words, true, &opts.board)?;
+                opts.board =
+                    load_ugi_position(first_word, words, true, opts.strictness, &opts.board)?;
                 Ok(())
             },
             change_ac_state: AutoCompleteFunc(Box::new(move |state: ACState<B>| {
@@ -960,7 +964,7 @@ pub fn position_options<B: Board>(accept_pos_word: bool) -> CommandList<B> {
             All,
             "Load a positions from a FEN",
             |pos, words, _| {
-                *pos = parse_ugi_position_part("fen", words, false, pos)?;
+                *pos = parse_ugi_position_part("fen", words, false, pos, Relaxed)?;
                 Ok(())
             },
             -> |state: ACState<B>| moves_options(state.pos, true)

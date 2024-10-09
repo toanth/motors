@@ -9,8 +9,16 @@ use colored::Colorize;
 use itertools::Itertools;
 use rand::thread_rng;
 
+use crate::cli::PlayerArgs::{Engine, Human};
+use crate::cli::{parse_engine, parse_human, HumanArgs, PlayerArgs};
+use crate::play::player::{Player, PlayerBuilder};
+use crate::play::ugi_client::Client;
+use crate::play::ugi_input::BestMoveAction::Play;
+use crate::ui::text_input::DefaultPlayer::{Active, Inactive, NoPlayer};
+use crate::ui::{Input, InputBuilder};
 use gears::games::Color;
 use gears::general::board::Board;
+use gears::general::board::Strictness::Relaxed;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
@@ -23,14 +31,6 @@ use gears::search::TimeControl;
 use gears::ugi::{parse_ugi_position_part, EngineOption};
 use gears::MatchStatus::{Ongoing, Over};
 use gears::{output_builder_from_str, GameState};
-
-use crate::cli::PlayerArgs::{Engine, Human};
-use crate::cli::{parse_engine, parse_human, HumanArgs, PlayerArgs};
-use crate::play::player::{Player, PlayerBuilder};
-use crate::play::ugi_client::Client;
-use crate::play::ugi_input::BestMoveAction::Play;
-use crate::ui::text_input::DefaultPlayer::{Active, Inactive, NoPlayer};
-use crate::ui::{Input, InputBuilder};
 
 // TODO: Unify with motors `Command`, probably move to gears
 struct TextSelection<F> {
@@ -336,7 +336,7 @@ impl<B: Board> TextInputThread<B> {
         let old_board = *client.board();
         // TODO: Use parse_ugi_position
         client.reset_to_new_start_position(parse_ugi_position_part(
-            "position", words, false, &old_board,
+            "position", words, false, &old_board, Relaxed,
         )?);
         let Some(word) = words.next() else {
             return Ok(());

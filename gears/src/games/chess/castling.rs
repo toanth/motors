@@ -13,6 +13,8 @@ use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{char_to_file, Board, ColoredPieceType, DimT};
 use crate::general::bitboards::RawBitboard;
+use crate::general::board::Strictness;
+use crate::general::board::Strictness::Strict;
 use crate::general::common::Res;
 use crate::general::squares::RectangularCoordinates;
 
@@ -97,7 +99,12 @@ impl CastlingFlags {
         self.0 &= !(0x3f << (color as usize * 6));
     }
 
-    pub fn parse_castling_rights(mut self, rights: &str, board: &Chessboard) -> Res<Self> {
+    pub fn parse_castling_rights(
+        mut self,
+        rights: &str,
+        board: &Chessboard,
+        strictness: Strictness,
+    ) -> Res<Self> {
         self.0 = 0;
         if rights == "-" {
             return Ok(self);
@@ -127,7 +134,7 @@ impl CastlingFlags {
             let king_square = board.king_square(color);
             let king_file = king_square.file();
             if king_square != ChessSquare::from_rank_file(rank, king_file) {
-                bail!("Incorrect starting position for king, must be on the back   rank, not on square {king_square}");
+                bail!("Incorrect starting position for king, must be on the back rank, not on square {king_square}");
             }
 
             let side = |file: DimT| {
@@ -137,13 +144,21 @@ impl CastlingFlags {
                     Kingside
                 }
             };
-            // support normal chess style castling fens for chess960 and hope it's unambiguous
+            // Unless in strict mode, support normal chess style castling fens for chess960 and hope it's unambiguous
             // (`verify_position_legal` will return an error if there is no such rook).
             let mut find_rook = |side: CastleRight| {
-                let (start, end) = match side {
-                    Queenside => (A_FILE_NO, king_file),
-                    Kingside => (king_file, H_FILE_NO),
+                let (start, end, strict_file) = match side {
+                    Queenside => (A_FILE_NO, king_file, A_FILE_NO),
+                    Kingside => (king_file, H_FILE_NO, H_FILE_NO),
                 };
+                if strictness == Strict
+                    && !board.is_piece_on(
+                        ChessSquare::from_rank_file(rank, strict_file),
+                        ColoredChessPieceType::new(color, Rook),
+                    )
+                {
+                    bail!("In strict mode, normal chess ('q' and 'k') castle rights can only be used for rooks on the a and h file")
+                }
                 for file in start..end {
                     if board.is_piece_on(
                         ChessSquare::from_rank_file(rank, file),

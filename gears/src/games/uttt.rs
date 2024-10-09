@@ -32,8 +32,10 @@ use crate::general::bitboards::{
     Bitboard, DefaultBitboard, ExtendedRawBitboard, RawBitboard, RawStandardBitboard,
 };
 use crate::general::board::SelfChecks::*;
+use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    board_to_string, common_fen_part, read_common_fen_part, Board, SelfChecks, UnverifiedBoard,
+    board_to_string, common_fen_part, read_common_fen_part, Board, SelfChecks, Strictness,
+    UnverifiedBoard,
 };
 use crate::general::common::{ith_one_u128, parse_int, Res, StaticallyNamedEntity};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
@@ -508,7 +510,7 @@ impl UtttBoard {
         self.open.is_bit_set_at(square.bb_idx())
     }
 
-    pub fn from_alternative_fen(fen: &str) -> Res<Self> {
+    pub fn from_alternative_fen(fen: &str, strictness: Strictness) -> Res<Self> {
         if fen.len() != Self::NUM_SQUARES
             || fen.contains(|c: char| ![' ', 'x', 'o', 'X', 'O'].contains(&c))
         {
@@ -534,7 +536,7 @@ impl UtttBoard {
                 *mov = UtttMove::new(square);
             }
         }
-        board.verify_with_level(CheckFen)
+        board.verify_with_level(CheckFen, strictness)
     }
 
     pub fn to_alternative_fen(&self) -> String {
@@ -651,7 +653,7 @@ impl Board for UtttBoard {
     fn bench_positions() -> Vec<Self> {
         Self::perft_test_positions()
             .iter()
-            .map(|(fen, _res)| Self::from_alternative_fen(fen).unwrap())
+            .map(|(fen, _res)| Self::from_alternative_fen(fen, Strict).unwrap())
             .collect_vec()
     }
 
@@ -808,7 +810,10 @@ impl Board for UtttBoard {
     // TODO: Don't use a separate open bitboard, just set both players' bitboards to one for squares that are no longer
     // reachable because the sub board has been won, and update the piece_on function
 
-    fn read_fen_and_advance_input(input: &mut Peekable<SplitWhitespace>) -> Res<Self> {
+    fn read_fen_and_advance_input(
+        input: &mut Peekable<SplitWhitespace>,
+        strictness: Strictness,
+    ) -> Res<Self> {
         let pos = Self::default();
         let mut pos = read_common_fen_part::<UtttBoard>(input, pos.into())?;
 
@@ -821,7 +826,7 @@ impl Board for UtttBoard {
         let last_move = UtttMove::from_compact_text(last_move, &Self::default())?;
         pos.0.last_move = last_move;
         // The won sub boards bitboard is set in the verify method
-        pos.verify_with_level(CheckFen)
+        pos.verify_with_level(CheckFen, strictness)
     }
 
     fn as_ascii_diagram(&self, flip: bool) -> String {
@@ -844,7 +849,7 @@ impl From<UtttBoard> for UnverifiedUtttBoard {
 }
 
 impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
-    fn verify_with_level(self, checks: SelfChecks) -> Res<UtttBoard> {
+    fn verify_with_level(self, checks: SelfChecks, _strictness: Strictness) -> Res<UtttBoard> {
         let mut this = self.0;
         if checks != CheckFen {
             for color in UtttColor::iter() {

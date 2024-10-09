@@ -1062,6 +1062,7 @@ mod tests {
     use crate::games::chess::Chessboard;
     use crate::games::generic_tests;
     use crate::games::Board;
+    use crate::general::board::Strictness::Strict;
     use crate::general::moves::Move;
 
     type GenericTests = generic_tests::GenericTests<Chessboard>;
@@ -1102,7 +1103,7 @@ mod tests {
 
     #[test]
     fn failed_test() {
-        let pos = Chessboard::from_fen("8/7r/8/K1k5/8/8/4p3/8 b - - 10 11").unwrap();
+        let pos = Chessboard::from_fen("8/7r/8/K1k5/8/8/4p3/8 b - - 10 11", Strict).unwrap();
         let mov = ChessMove::from_extended_text("e1=Q+", &pos).unwrap();
         assert!(pos.is_move_legal(mov));
     }

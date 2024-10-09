@@ -43,12 +43,21 @@ use std::str::SplitWhitespace;
 
 pub(crate) type NameToPos<B> = GenericSelect<fn() -> B>;
 
-// Enum variants are listed in order; later checks include earlier checks.
+/// How many checks to execute.
+/// Enum variants are listed in order; later checks include earlier checks.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum SelfChecks {
     CheckFen,
     Verify,
     Assertion,
+}
+
+/// How strict are the game rules interpreted.
+/// For example, [`Relaxed`] doesn't care about reachability from startpos.
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+pub enum Strictness {
+    Relaxed,
+    Strict,
 }
 
 pub trait UnverifiedBoard<B: Board>: Debug + Copy + Clone + From<B>
@@ -61,11 +70,11 @@ where
 
     /// Same as `verify_with_level(Verify) for release builds
     /// and `verify_with_level(Assertion) in debug builds
-    fn verify(self) -> Res<B> {
+    fn verify(self, strictness: Strictness) -> Res<B> {
         if cfg!(debug_assertions) {
-            self.verify_with_level(Assertion)
+            self.verify_with_level(Assertion, strictness)
         } else {
-            self.verify_with_level(Verify)
+            self.verify_with_level(Verify, strictness)
         }
     }
 
@@ -75,8 +84,10 @@ where
     /// (it should already be ensured through other means that the move results in a legal position or `None`).
     /// If `checks` is `Assertion`, this performs internal validity checks, which is useful for asserting that there are no
     /// bugs in the implementation, but unnecessary if this function is only called to check the validity of a FEN.
-    /// `CheckFen` sometimes needs to do less work than `Verify`.
-    fn verify_with_level(self, level: SelfChecks) -> Res<B>;
+    /// `CheckFen` sometimes needs to do less work than `Verify` because the FEN format makes it impossible to express some
+    /// invalid board states, such as two pieces being on the same square.
+    /// Strictness refers to which positions are considered legal.
+    fn verify_with_level(self, level: SelfChecks, strictness: Strictness) -> Res<B>;
 
     // TODO: Refactor such that debug_verify_invariants actually checks invariants that should not be broken in a Board
     // but are getting corrected in the verify method of an UnverifiedBoard
@@ -449,10 +460,10 @@ pub trait Board:
     /// Reads in a compact textual description of the board, such that `B::from_fen(board.as_fen()) == b` holds.
     /// Assumes that the entire string represents the FEN, without any trailing tokens.
     /// Use the lower-level `read_fen_and_advance_input` if this assumption doesn't have to hold.
-    fn from_fen(string: &str) -> Res<Self> {
+    fn from_fen(string: &str, strictness: Strictness) -> Res<Self> {
         let mut words = string.split_whitespace().peekable();
-        let res = Self::read_fen_and_advance_input(&mut words)
-            .map_err(|err| anyhow!("Failed to parse FEN {}: {err}", string.bold()))?;
+        let res = Self::read_fen_and_advance_input(&mut words, strictness)
+            .map_err(|err| anyhow!("Failed to parse FEN '{}': {err}", string.bold()))?;
         if let Some(next) = words.next() {
             return Err(anyhow!(
                 "Input `{0}' contained additional characters after FEN, starting with '{1}'",
@@ -465,7 +476,10 @@ pub trait Board:
 
     /// Like `from_fen`, but changes the `input` argument to contain the reining input instead of panicking when there's
     /// any remaining input after reading the fen.
-    fn read_fen_and_advance_input(input: &mut Peekable<SplitWhitespace>) -> Res<Self>;
+    fn read_fen_and_advance_input(
+        input: &mut Peekable<SplitWhitespace>,
+        strictness: Strictness,
+    ) -> Res<Self>;
 
     /// Returns an ASCII art representation of the board.
     /// This is not meant to return a FEN, but instead a diagram where the pieces
@@ -479,8 +493,8 @@ pub trait Board:
 
     /// Verifies that all invariants of this board are satisfied. It should never be possible for this function to
     /// fail for a bug-free program; failure most likely means the `Board` implementation is bugged.
-    fn debug_verify_invariants(self) -> Res<Self> {
-        Self::Unverified::new(self).verify_with_level(Assertion)
+    fn debug_verify_invariants(self, strictness: Strictness) -> Res<Self> {
+        Self::Unverified::new(self).verify_with_level(Assertion, strictness)
     }
 
     /// Place a piece of the given type and color on the given square. Doesn't check that the resulting position is

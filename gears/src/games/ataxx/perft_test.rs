@@ -5,6 +5,7 @@
 mod tests {
     use crate::games::ataxx::AtaxxBoard;
     use crate::games::Board;
+    use crate::general::board::Strictness::Strict;
     use crate::general::perft::perft;
     use crate::search::Depth;
 
@@ -72,7 +73,7 @@ mod tests {
 
     fn test_perft(positions: &[(&str, &[u64])]) {
         for (fen, counts) in positions {
-            let pos = AtaxxBoard::from_fen(fen).unwrap();
+            let pos = AtaxxBoard::from_fen(fen, Strict).unwrap();
             for (depth, &count) in counts.iter().enumerate() {
                 let res = perft(Depth::new_unchecked(depth), pos);
                 assert_eq!(res.nodes, count);

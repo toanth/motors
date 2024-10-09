@@ -1261,6 +1261,7 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
 #[cfg(test)]
 mod tests {
     use gears::games::chess::Chessboard;
+    use gears::general::board::Strictness::{Relaxed, Strict};
     use gears::search::NodesLimit;
 
     use crate::eval::chess::lite::LiTEval;
@@ -1273,7 +1274,7 @@ mod tests {
 
     #[test]
     fn mate_in_one_test() {
-        let board = Chessboard::from_fen("4k3/8/4K3/8/8/8/8/6R1 w - - 0 1").unwrap();
+        let board = Chessboard::from_fen("4k3/8/4K3/8/8/8/8/6R1 w - - 0 1", Strict).unwrap();
         // run multiple times to get different random numbers from the eval function
         for depth in 1..=3 {
             for _ in 0..42 {
@@ -1301,7 +1302,7 @@ mod tests {
             ),
         ];
         for (fen, min, max) in list {
-            let pos = Chessboard::from_fen(fen).unwrap();
+            let pos = Chessboard::from_fen(fen, Strict).unwrap();
             let mut engine = Caps::for_eval::<PistonEval>();
             let res = engine
                 .search_with_new_tt(pos, SearchLimit::nodes(NodesLimit::new(30_000).unwrap()));
@@ -1381,7 +1382,9 @@ mod tests {
     }
     #[test]
     fn only_one_move_test() {
-        let pos = Chessboard::from_fen("B4QRb/8/8/8/2K3P1/5k2/8/b3RRNB b - - 0 1").unwrap();
+        let fen = "B4QRb/8/8/8/2K3P1/5k2/8/b3RRNB b - - 0 1";
+        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        assert!(pos.debug_verify_invariants(Strict).is_err());
         let mut caps = Caps::for_eval::<PistonEval>();
         let limit = SearchLimit::per_move(Duration::from_millis(999_999_999));
         let res = caps.search_with_new_tt(pos, limit);
@@ -1395,7 +1398,7 @@ mod tests {
 
     #[test]
     fn mate_research_test() {
-        let pos = Chessboard::from_fen("k7/3B4/4N3/K7/8/8/8/8 w - - 16 9").unwrap();
+        let pos = Chessboard::from_fen("k7/3B4/4N3/K7/8/8/8/8 w - - 16 9", Strict).unwrap();
         let mut caps = Caps::for_eval::<LiTEval>();
         let limit = SearchLimit::mate_in_moves(5);
         let res = caps.search_with_new_tt(pos, limit);

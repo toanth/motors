@@ -6,11 +6,12 @@ use crate::general::bitboards::ataxx::{INVALID_EDGE_MASK, LEAPING};
 use crate::general::bitboards::chess::KINGS;
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
-use crate::general::board::{read_common_fen_part, UnverifiedBoard};
+use crate::general::board::Strictness::Strict;
+use crate::general::board::{read_common_fen_part, Strictness, UnverifiedBoard};
 use crate::general::common::Res;
 use crate::general::move_list::MoveList;
 use crate::general::moves::Move;
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::iter::Peekable;
 use std::num::NonZeroUsize;
@@ -157,7 +158,10 @@ impl AtaxxBoard {
         ZobristHash(hasher.finish())
     }
 
-    pub fn read_fen_impl(words: &mut Peekable<SplitWhitespace>) -> Res<Self> {
+    pub fn read_fen_impl(
+        words: &mut Peekable<SplitWhitespace>,
+        strictness: Strictness,
+    ) -> Res<Self> {
         let empty = AtaxxBoard::empty();
         let mut board = read_common_fen_part::<AtaxxBoard>(words, empty.into())?;
         let color = board.0.active_player();
@@ -171,10 +175,12 @@ impl AtaxxBoard {
                 .map_err(|err| anyhow!("Couldn't parse fullmove counter: {err}"))?;
             board.0.ply =
                 (fullmove_number.get() - 1) * 2 + usize::from(color == AtaxxColor::second());
+        } else if strictness == Strict {
+            bail!("In strict mode, FENs must contain a move counter and halfmove clock")
         } else {
             board.0.ply = usize::from(color == AtaxxColor::second());
             board.0.ply_100_ctr = 0;
         }
-        board.verify_with_level(CheckFen)
+        board.verify_with_level(CheckFen, strictness)
     }
 }

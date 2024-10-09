@@ -7,6 +7,7 @@ use colored::Colorize;
 use derive_more::Display;
 use gears::games::Color;
 use gears::general::board::Board;
+use gears::general::board::Strictness::Relaxed;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{parse_fp_from_str, Res};
 use rayon::iter::ParallelIterator;
@@ -117,7 +118,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         weight: Float,
     ) -> Res<ParseResult<B>> {
         let mut input = input.split_whitespace().peekable();
-        let pos = B::read_fen_and_advance_input(&mut input)?;
+        let pos = B::read_fen_and_advance_input(&mut input, Relaxed)?;
         // skip up to one token between the end of the fen and the wdl
         let mut outcome =
             Self::parse_wdl(&mut input).or_else(|err| Self::parse_wdl(&mut input).or(Err(err)))?;

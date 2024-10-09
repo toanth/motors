@@ -32,9 +32,27 @@ use std::time::{Duration, Instant};
 use colored::Colorize;
 use itertools::Itertools;
 
+use crate::io::ascii_art::print_as_ascii_art;
+use crate::io::cli::EngineOpts;
+use crate::io::command::Standard::Custom;
+use crate::io::command::{
+    accept_depth, go_options, query_options, ugi_commands, CommandList, GoState,
+};
+use crate::io::input::Input;
+use crate::io::ugi_output::UgiOutput;
+use crate::io::ProgramStatus::{Quit, Run};
+use crate::io::Protocol::Interactive;
+use crate::io::SearchType::*;
+use crate::search::multithreading::EngineWrapper;
+use crate::search::tt::{DEFAULT_HASH_SIZE_MB, TT};
+use crate::search::{run_bench_with, EvalList, SearchParams, SearcherList};
+use crate::{
+    create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match,
+};
 use gears::cli::{select_game, Game};
 use gears::games::{BoardHistory, OutputList, ZobristHistory};
-use gears::general::board::Board;
+use gears::general::board::Strictness::{Relaxed, Strict};
+use gears::general::board::{Board, Strictness};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::Res;
@@ -57,24 +75,6 @@ use gears::ugi::{
 use gears::MatchStatus::*;
 use gears::Quitting::QuitProgram;
 use gears::{output_builder_from_str, AbstractRun, GameState, MatchStatus, PlayerResult, Quitting};
-
-use crate::io::ascii_art::print_as_ascii_art;
-use crate::io::cli::EngineOpts;
-use crate::io::command::Standard::Custom;
-use crate::io::command::{
-    accept_depth, go_options, query_options, ugi_commands, CommandList, GoState,
-};
-use crate::io::input::Input;
-use crate::io::ugi_output::UgiOutput;
-use crate::io::ProgramStatus::{Quit, Run};
-use crate::io::Protocol::Interactive;
-use crate::io::SearchType::*;
-use crate::search::multithreading::EngineWrapper;
-use crate::search::tt::{DEFAULT_HASH_SIZE_MB, TT};
-use crate::search::{run_bench_with, EvalList, SearchParams, SearcherList};
-use crate::{
-    create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match,
-};
 
 const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
 
@@ -166,6 +166,7 @@ impl<B: Board> BoardGameState<B> {
         &mut self,
         words: &mut Peekable<SplitWhitespace>,
         allow_pos_word: bool,
+        strictness: Strictness,
     ) -> Res<()> {
         let pos = self.board;
         let Some(next_word) = words.next() else {
@@ -175,6 +176,7 @@ impl<B: Board> BoardGameState<B> {
             next_word,
             words,
             allow_pos_word,
+            strictness,
             &pos,
             self,
             |this, mov| this.make_move(mov).map(|_| ()),
@@ -233,6 +235,7 @@ pub struct EngineUGI<B: Board> {
     searcher_factories: Rc<SearcherList<B>>,
     eval_factories: Rc<EvalList<B>>,
     move_overhead: Duration,
+    strictness: Strictness,
     multi_pv: usize,
     allow_ponder: bool,
 }
@@ -362,6 +365,7 @@ impl<B: Board> EngineUGI<B> {
             searcher_factories: Rc::new(all_searchers),
             eval_factories: Rc::new(all_evals),
             move_overhead: Duration::from_millis(DEFAULT_MOVE_OVERHEAD_MS),
+            strictness: Relaxed,
             multi_pv: 1,
             allow_ponder: false,
         })
@@ -644,6 +648,13 @@ impl<B: Board> EngineUGI<B> {
                     }
                 }
             }
+            Strictness => {
+                self.strictness = if parse_bool_from_str(&value, "strictness")? {
+                    Strict
+                } else {
+                    Relaxed
+                };
+            }
             _ => {
                 let value = value.trim().to_string();
                 self.state
@@ -667,7 +678,7 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_position(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
-        self.state.handle_position(words, false)?;
+        self.state.handle_position(words, false, self.strictness)?;
         if self.is_interactive() {
             self.print_board();
         }
@@ -838,7 +849,7 @@ impl<B: Board> EngineUGI<B> {
     fn handle_eval_or_tt(&mut self, eval: bool, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
         let board = if let Some(next_word) = words.peek().copied() {
             _ = words.next();
-            load_ugi_position(next_word, words, true, &self.state.board)?
+            load_ugi_position(next_word, words, true, self.strictness, &self.state.board)?
         } else {
             self.state.board
         };
@@ -922,7 +933,7 @@ impl<B: Board> EngineUGI<B> {
         };
         if words.peek().is_some() {
             let old_state = self.state.board_state.clone();
-            if let Err(err) = self.state.handle_position(words, true) {
+            if let Err(err) = self.state.handle_position(words, true, self.strictness) {
                 self.state.board_state = old_state;
                 return Err(err);
             }
@@ -1256,6 +1267,13 @@ impl<B: Board> EngineUGI<B> {
                     default: Some(DEFAULT_HASH_SIZE_MB as i64),
                     min: Some(0),
                     max: Some(10_000_000), // use at most 10 terabytes (should be enough for anybody™)
+                }),
+            },
+            EngineOption {
+                name: Strictness,
+                value: Check(UgiCheck {
+                    val: self.strictness == Strict,
+                    default: Some(false),
                 }),
             },
         ];

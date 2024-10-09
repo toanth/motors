@@ -1,4 +1,4 @@
-use crate::general::board::Board;
+use crate::general::board::{Board, Strictness};
 use crate::general::common::{NamedEntity, Res};
 use crate::general::moves::Move;
 use anyhow::{anyhow, bail};
@@ -134,6 +134,7 @@ pub enum EngineOptionName {
     UCIOpponent,
     UCIEngineAbout,
     MoveOverhead,
+    Strictness,
     Other(String),
 }
 
@@ -156,6 +157,7 @@ impl NamedEntity for EngineOptionName {
             EngineOptionName::UCIOpponent => "The opponent. Currently only used to output the name in PGNs",
             EngineOptionName::UCIEngineAbout => "Information about the engine. Can't be changed, only queried",
             EngineOptionName::MoveOverhead => "Subtract this from the remaining time each move to account for overhead of sending the move",
+            EngineOptionName::Strictness => "Be more restrictive about the positions to accept. By default, many non-standard positions are accepted",
             EngineOptionName::Other(name) => { return Some(format!("Custom option named '{name}'")) }
         };
         Some(res.to_string())
@@ -173,6 +175,7 @@ impl EngineOptionName {
             EngineOptionName::UCIOpponent => "UCI_Opponent",
             EngineOptionName::UCIEngineAbout => "UCI_EngineAbout",
             EngineOptionName::MoveOverhead => "MoveOverhead",
+            EngineOptionName::Strictness => "Strict",
             EngineOptionName::Other(x) => x,
         }
     }
@@ -196,6 +199,7 @@ impl FromStr for EngineOptionName {
             "uci_opponent" => EngineOptionName::UCIOpponent,
             "uci_elo" => EngineOptionName::UciElo,
             "move overhead" | "moveoverhead" => EngineOptionName::MoveOverhead,
+            "strict" => EngineOptionName::Strictness,
             _ => EngineOptionName::Other(s.to_string()),
         })
     }
@@ -246,6 +250,7 @@ pub fn parse_ugi_position_part<B: Board>(
     rest: &mut Peekable<SplitWhitespace>,
     allow_position_part: bool,
     old_board: &B,
+    strictness: Strictness,
 ) -> Res<B> {
     if allow_position_part
         && (first_word.eq_ignore_ascii_case("position")
@@ -255,10 +260,10 @@ pub fn parse_ugi_position_part<B: Board>(
         let Some(pos_word) = rest.next() else {
             bail!("Missing position after '{}' option", "position".bold())
         };
-        return parse_ugi_position_part(pos_word, rest, false, old_board);
+        return parse_ugi_position_part(pos_word, rest, false, old_board, strictness);
     }
     Ok(match first_word.to_ascii_lowercase().as_str() {
-        "fen" | "f" => B::read_fen_and_advance_input(rest)?,
+        "fen" | "f" => B::read_fen_and_advance_input(rest, strictness)?,
         "startpos" | "s" => B::startpos_for_settings(old_board.settings()),
         "current" | "c" => *old_board,
         name => B::from_name(name).map_err(|err| {
@@ -283,13 +288,15 @@ pub fn parse_ugi_position_and_moves<
     first_word: &str,
     rest: &mut Peekable<SplitWhitespace>,
     accept_pos_word: bool,
+    strictness: Strictness,
     old_board: &B,
     state: &mut S,
     make_move: F,
     start_moves: G,
     get_board: H,
 ) -> Res<()> {
-    *(get_board(state)) = parse_ugi_position_part(first_word, rest, accept_pos_word, old_board)?;
+    *(get_board(state)) =
+        parse_ugi_position_part(first_word, rest, accept_pos_word, old_board, strictness)?;
     let Some(next_word) = rest.peek().copied() else {
         return Ok(());
     };
@@ -331,6 +338,7 @@ pub fn load_ugi_position<B: Board>(
     first_word: &str,
     rest: &mut Peekable<SplitWhitespace>,
     accept_pos_word: bool,
+    strictness: Strictness,
     old_board: &B,
 ) -> Res<B> {
     let mut board = *old_board;
@@ -338,6 +346,7 @@ pub fn load_ugi_position<B: Board>(
         first_word,
         rest,
         accept_pos_word,
+        strictness,
         old_board,
         &mut board,
         |pos, next_move| {

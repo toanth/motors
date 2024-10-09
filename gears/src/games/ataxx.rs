@@ -12,7 +12,10 @@ use crate::games::{
 use crate::general::bitboards::ataxx::{AtaxxBitboard, INVALID_EDGE_MASK};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
-use crate::general::board::{board_to_string, position_fen_part, SelfChecks, UnverifiedBoard};
+use crate::general::board::Strictness::Strict;
+use crate::general::board::{
+    board_to_string, position_fen_part, SelfChecks, Strictness, UnverifiedBoard,
+};
 use crate::general::common::{Res, StaticallyNamedEntity};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{SmallGridSize, SmallGridSquare};
@@ -200,7 +203,7 @@ impl Board for AtaxxBoard {
             "x6/7/4x2/3x3/7/7/o5x o 2 2",
         ];
         fens.iter()
-            .map(|fen| Self::from_fen(fen).unwrap())
+            .map(|fen| Self::from_fen(fen, Strict).unwrap())
             .collect_vec()
     }
 
@@ -345,8 +348,11 @@ impl Board for AtaxxBoard {
         )
     }
 
-    fn read_fen_and_advance_input(string: &mut Peekable<SplitWhitespace>) -> Res<Self> {
-        Self::read_fen_impl(string)
+    fn read_fen_and_advance_input(
+        string: &mut Peekable<SplitWhitespace>,
+        strictness: Strictness,
+    ) -> Res<Self> {
+        Self::read_fen_impl(string, strictness)
     }
 
     fn as_ascii_diagram(&self, flip: bool) -> String {
@@ -369,7 +375,7 @@ impl From<AtaxxBoard> for UnverifiedAtaxxBoard {
 }
 
 impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
-    fn verify_with_level(self, level: SelfChecks) -> Res<AtaxxBoard> {
+    fn verify_with_level(self, level: SelfChecks, _strictness: Strictness) -> Res<AtaxxBoard> {
         let this = self.0;
         let blocked = this.blocked_bb();
         if blocked & INVALID_EDGE_MASK != INVALID_EDGE_MASK {
@@ -473,7 +479,7 @@ mod tests {
     #[test]
     fn startpos_test() {
         let pos = AtaxxBoard::default();
-        assert!(pos.debug_verify_invariants().is_ok());
+        assert!(pos.debug_verify_invariants(Strict).is_ok());
         assert_eq!(pos.color_bb(O).num_ones(), 2);
         assert_eq!(pos.color_bb(X).num_ones(), 2);
         assert!((pos.blocked_bb() & !INVALID_EDGE_MASK).is_zero());
@@ -491,7 +497,7 @@ mod tests {
     #[test]
     fn empty_pos_test() {
         let pos = AtaxxBoard::empty();
-        assert!(pos.debug_verify_invariants().is_ok());
+        assert!(pos.debug_verify_invariants(Strict).is_ok());
         assert!(pos.color_bb(O).is_zero());
         assert!(pos.color_bb(X).is_zero());
         assert!(pos.is_game_lost_slow());
@@ -502,10 +508,10 @@ mod tests {
     #[test]
     fn simple_test() {
         let fen = "7/7/7/o6/ooooooo/1oooooo/xxxxxxx x 1 2";
-        let pos = AtaxxBoard::from_fen(fen).unwrap();
+        let pos = AtaxxBoard::from_fen(fen, Strict).unwrap();
         let moves = pos.legal_moves();
         assert_eq!(moves.len(), 2);
-        let pos = AtaxxBoard::from_fen("7/7/7/o6/ooooooo/ooooooo/xxxxxxx x 1 2").unwrap();
+        let pos = AtaxxBoard::from_fen("7/7/7/o6/ooooooo/ooooooo/xxxxxxx x 1 2", Strict).unwrap();
         let moves = pos.legal_moves();
         assert_eq!(moves.len(), 1);
     }
