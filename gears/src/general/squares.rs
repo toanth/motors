@@ -12,6 +12,7 @@ use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, Size, 
 #[cfg(feature = "chess")]
 use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::common::{parse_int, Res};
+use crate::general::squares::SquareColor::{Black, White};
 
 pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
     fn from_row_column(row: DimT, column: DimT) -> Self;
@@ -22,6 +23,13 @@ pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
     }
     fn file(self) -> DimT {
         self.column()
+    }
+    fn square_color(self) -> SquareColor {
+        if (self.row() as usize + self.column() as usize) % 2 == 0 {
+            Black
+        } else {
+            White
+        }
     }
 }
 
@@ -272,7 +280,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SquareColor {
     White,
     Black,

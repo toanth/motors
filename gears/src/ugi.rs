@@ -192,7 +192,7 @@ impl FromStr for EngineOptionName {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s.to_ascii_lowercase().as_str() {
-            "hash" => EngineOptionName::Hash,
+            "hash" | "tt" => EngineOptionName::Hash,
             "threads" => EngineOptionName::Threads,
             "ponder" => EngineOptionName::Ponder,
             "multipv" => EngineOptionName::MultiPv,
@@ -292,20 +292,21 @@ pub fn parse_ugi_position_and_moves<
     old_board: &B,
     state: &mut S,
     make_move: F,
-    start_moves: G,
+    finish_pos: G,
     get_board: H,
 ) -> Res<()> {
     *(get_board(state)) =
         parse_ugi_position_part(first_word, rest, accept_pos_word, old_board, strictness)?;
+    finish_pos(state);
     let Some(next_word) = rest.peek().copied() else {
         return Ok(());
     };
-    if !(next_word.eq_ignore_ascii_case("moves") || next_word.eq_ignore_ascii_case("m")) {
+    if next_word.eq_ignore_ascii_case("moves") || next_word.eq_ignore_ascii_case("m") {
+        _ = rest.next();
+    } else if B::Move::from_text(next_word, get_board(state)).is_err() {
         return Ok(()); // don't error to allow other options following a position command
     }
     let mut parsed_move = false;
-    rest.next();
-    start_moves(state);
     // TODO: Handle flip / nullmove?
     while let Some(next_word) = rest.peek().copied() {
         let mov = match B::Move::from_text(next_word, get_board(state)) {

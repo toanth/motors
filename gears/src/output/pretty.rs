@@ -16,11 +16,11 @@ use crate::{games, GameState};
 
 // TODO: Should be a BoardToString variant
 #[derive(Debug)]
-pub(super) struct PrettyUI {
+pub(super) struct ChessOutput {
     writer: TextWriter,
 }
 
-impl Default for PrettyUI {
+impl Default for ChessOutput {
     fn default() -> Self {
         Self {
             writer: TextWriter::new_for(TextStream::Stdout(stdout()), vec![Info]),
@@ -61,21 +61,21 @@ fn color<B: RectangularBoard>(
     .to_string()
 }
 
-impl NamedEntity for PrettyUI {
+impl NamedEntity for ChessOutput {
     fn short_name(&self) -> String {
-        PrettyUIBuilder::static_short_name().to_string()
+        ChessOutputBuilder::static_short_name().to_string()
     }
 
     fn long_name(&self) -> String {
-        PrettyUIBuilder::static_long_name().to_string()
+        ChessOutputBuilder::static_long_name().to_string()
     }
 
     fn description(&self) -> Option<String> {
-        Some(PrettyUIBuilder::static_description())
+        Some(ChessOutputBuilder::static_description())
     }
 }
 
-impl AbstractOutput for PrettyUI {
+impl AbstractOutput for ChessOutput {
     fn output_name(&self) -> String {
         self.writer.stream.name()
     }
@@ -85,7 +85,7 @@ impl AbstractOutput for PrettyUI {
     }
 }
 
-impl<B: RectangularBoard> Output<B> for PrettyUI {
+impl<B: RectangularBoard> Output<B> for ChessOutput {
     fn as_string(&self, m: &dyn GameState<B>) -> String {
         let mut res = String::default();
         let pos = m.get_board();
@@ -121,25 +121,25 @@ impl<B: RectangularBoard> Output<B> for PrettyUI {
 }
 
 #[derive(Default, Copy, Clone, Debug)]
-pub struct PrettyUIBuilder {}
+pub struct ChessOutputBuilder {}
 
-impl StaticallyNamedEntity for PrettyUIBuilder {
+impl StaticallyNamedEntity for ChessOutputBuilder {
     fn static_short_name() -> impl Display {
-        "pretty"
+        "chess"
     }
 
     fn static_long_name() -> String {
-        "Pretty Text-based UI".to_string()
+        "Chessboard Text-based Output".to_string()
     }
 
     fn static_description() -> String {
-        "A text-based UI for rectangular boards, using unicode characters for pieces and different (background) colors".to_string()
+        "A text-based output for rectangular boards, using unicode characters for pieces and different (background) colors as in a chessboard".to_string()
     }
 }
 
-impl<B: RectangularBoard> OutputBuilder<B> for PrettyUIBuilder {
+impl<B: RectangularBoard> OutputBuilder<B> for ChessOutputBuilder {
     fn for_engine(&mut self, _state: &dyn GameState<B>) -> Res<OutputBox<B>> {
-        Ok(Box::<PrettyUI>::default())
+        Ok(Box::<ChessOutput>::default())
     }
 
     fn add_option(&mut self, _option: String) -> Res<()> {

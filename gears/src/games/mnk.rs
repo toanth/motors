@@ -20,14 +20,14 @@ use crate::general::bitboards::{
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    board_to_string, position_fen_part, read_position_fen, RectangularBoard, SelfChecks,
-    Strictness, UnverifiedBoard,
+    position_fen_part, read_position_fen, RectangularBoard, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
 use crate::general::squares::{GridCoordinates, GridSize};
+use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub enum Symbol {
@@ -714,6 +714,10 @@ impl Board for MNKBoard {
 
     fn as_unicode_diagram(&self, flip: bool) -> String {
         board_to_string(self, Square::to_utf8_char, flip)
+    }
+
+    fn display_pretty(&self, fmt: &mut dyn BoardFormatter<Self>) -> String {
+        display_board_pretty(self, fmt)
     }
 }
 

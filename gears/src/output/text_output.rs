@@ -1,20 +1,23 @@
+use crate::games::{Color, ColoredPiece, DimT};
+use crate::general::board::{Board, RectangularBoard};
+use crate::general::common::{IterIntersperse, NamedEntity, Res};
+use crate::general::move_list::MoveList;
+use crate::general::moves::Move;
+use crate::general::squares::RectangularCoordinates;
+use crate::output::text_output::DisplayType::*;
+use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
+use crate::MatchStatus::*;
+use crate::{AdjudicationReason, GameOverReason, GameResult, GameState};
 use anyhow::{anyhow, bail};
+use colored::{Colorize, CustomColor};
+use itertools::Itertools;
 use std::fmt;
 use std::fs::File;
 use std::io::{stderr, stdout, Stderr, Stdout, Write};
 use std::mem::swap;
 use std::path::Path;
 use std::str::SplitWhitespace;
-
-use crate::games::Color;
-use crate::general::board::Board;
-use crate::general::common::{NamedEntity, Res};
-use crate::general::move_list::MoveList;
-use crate::general::moves::Move;
-use crate::output::text_output::DisplayType::*;
-use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
-use crate::MatchStatus::Ongoing;
-use crate::{AdjudicationReason, GameOverReason, GameResult, GameState, MatchStatus};
+use strum_macros::EnumIter;
 
 #[derive(Debug)]
 pub enum TextStream {
@@ -96,11 +99,10 @@ impl TextWriter {
     }
 }
 
-// TODO: Option to flip the board so that it's viewed from the perspective of the current player
-
-#[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq, EnumIter)]
 pub enum DisplayType {
     #[default]
+    Pretty,
     Unicode,
     Ascii,
     Fen,
@@ -114,6 +116,7 @@ pub enum DisplayType {
 impl NamedEntity for DisplayType {
     fn short_name(&self) -> String {
         match self {
+            Pretty => "pretty",
             Unicode => "unicode",
             Ascii => "ascii",
             Fen => "fen",
@@ -128,6 +131,7 @@ impl NamedEntity for DisplayType {
 
     fn long_name(&self) -> String {
         match self {
+            Pretty => "Pretty Text Diagram",
             Unicode => "Unicode Diagram",
             Ascii => "ASCII Diagram",
             Fen => "Fen",
@@ -142,6 +146,7 @@ impl NamedEntity for DisplayType {
 
     fn description(&self) -> Option<String> {
         Some(match self {
+            Pretty => "A textual 2D representation of the position that's meant to look pretty. ",
             Unicode => "A textual 2D representation of the position using unicode characters. For many games, this is the same as the ASCII representation, but e.g. for chess it uses chess symbols like '♔'",
             Ascii => "A textual 2D representation of the position using \"normal\" english characters. E.g. for chess, this represents the white king as 'K' and a black queen as 'q'",
             Fen => "A compact textual representation of the position. For chess, this is the Forsyth–Edwards Notation, and for other games it's a similar notation based on chess FENs",
@@ -149,7 +154,7 @@ impl NamedEntity for DisplayType {
             Moves => "A space-separated list of all legal moves, intended mostly for debugging",
             Uci => "A textual representation of the match using the machine-readable UGI notation that gets used for engine-GUI communication. UCI for chess and the very slightly different UGI protocol for other games",
             Ugi => "Same as 'UCI'",
-            MsgOnly => "Doesn't print the match or current position at all, but will display messages"
+            MsgOnly => "Doesn't print the match or current position at all, but will display messages",
         }.to_string())
     }
 }
@@ -163,7 +168,7 @@ pub struct BoardToText {
 impl BoardToText {
     fn match_to_pgn<B: Board>(m: &dyn GameState<B>) -> String {
         let result = match m.match_status() {
-            MatchStatus::Over(r) => match r.result {
+            Over(r) => match r.result {
                 GameResult::P1Win => "1-0",
                 GameResult::P2Win => "0-1",
                 GameResult::Draw => "1/2-1/2",
@@ -173,9 +178,9 @@ impl BoardToText {
         };
         let status = m.match_status();
         let termination = match &status {
-            MatchStatus::NotStarted => "not started",
-            MatchStatus::Ongoing => "unterminated",
-            MatchStatus::Over(ref res) => match res.reason {
+            NotStarted => "not started",
+            Ongoing => "unterminated",
+            Over(ref res) => match res.reason {
                 GameOverReason::Normal => "normal",
                 GameOverReason::Adjudication(ref reason) => match reason {
                     AdjudicationReason::TimeUp => "time forfeit",
@@ -221,7 +226,7 @@ impl BoardToText {
             }
             board = board.make_move(*mov).unwrap();
         }
-        if let MatchStatus::Over(x) = m.match_status() {
+        if let Over(x) = m.match_status() {
             if !matches!(x.result, GameResult::Aborted) {
                 res += &(" ".to_string() + result);
             }
@@ -271,6 +276,18 @@ impl BoardToText {
             swap(&mut time_below, &mut time_above);
         }
         match self.typ {
+            Pretty => {
+                let formatter = DefaultBoardFormatter {
+                    pos: m.get_board(),
+                    last_move: m.last_move(),
+                    flip: flipped,
+                };
+                let mut formatter = m.get_board().modify_pretty_formatter(Box::new(formatter));
+                format!(
+                    "{time_above}{}{time_below}",
+                    m.get_board().display_pretty(formatter.as_mut())
+                )
+            }
             Ascii => format!(
                 "{time_above}{}{time_below}",
                 m.get_board().as_ascii_diagram(flipped)
@@ -421,5 +438,177 @@ impl<B: Board> OutputBuilder<B> for TextOutputBuilder {
 
     fn add_option(&mut self, _option: String) -> Res<()> {
         bail!("TextOutputBuilder doesn't support any additional options")
+    }
+}
+
+pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
+    pos: &B,
+    piece_to_char: F,
+    flip: bool,
+) -> String {
+    use std::fmt::Write;
+    let mut squares = (0..pos.height())
+        .cartesian_product(0..pos.width())
+        .map(|(row, column)| {
+            piece_to_char(pos.colored_piece_on(B::Coordinates::from_row_column(row, column)))
+        })
+        .intersperse_(' ')
+        .collect_vec();
+    squares.push(' ');
+    let mut rows = squares
+        .chunks(pos.width() as usize * 2)
+        .zip((1..).map(|x| x.to_string()))
+        .map(|(row, nr)| format!("{} {nr}\n", row.iter().collect::<String>()))
+        .collect_vec();
+    if !flip {
+        rows.reverse();
+    }
+    rows.push(
+        ('A'..)
+            .take(pos.width() as usize)
+            .fold(String::default(), |mut s, c| -> String {
+                write!(s, "{c} ").unwrap();
+                s
+            }),
+    );
+    rows.iter().flat_map(|x| x.chars()).collect::<String>() + "\n"
+}
+
+fn with_color(text: &str, color: Option<CustomColor>) -> String {
+    if let Some(color) = color {
+        text.custom_color(color).bold().to_string()
+    } else {
+        text.to_string()
+    }
+}
+
+// most of this function deals with coloring the frame of a square
+pub fn display_board_pretty<B: RectangularBoard>(
+    pos: &B,
+    fmt: &mut dyn BoardFormatter<B>,
+) -> String {
+    use fmt::Write;
+    let mut colors = vec![vec![None; pos.get_width() + 1]; pos.get_height() + 1];
+    for y in 0..pos.get_height() {
+        for x in 0..pos.get_width() {
+            let square = B::Coordinates::from_row_column(y as u8, x as u8);
+            colors[y][x] = fmt.frame_color(square);
+        }
+    }
+    let write_vertical_bar = |y: usize| -> String {
+        let mut res = "  ".to_string();
+        for x in 0..pos.get_width() {
+            let mut col = colors[y][x];
+            if col.is_none() && y > 0 {
+                col = colors[y - 1][x]
+            }
+            let mut plus_color = col;
+            if plus_color.is_none() && x > 0 {
+                plus_color = colors[y][x - 1];
+                if plus_color.is_none() && y > 0 {
+                    plus_color = colors[y - 1][x - 1];
+                }
+            }
+            let plus = with_color("+", plus_color);
+            let bar = with_color("---", col);
+            write!(&mut res, "{plus}{bar}").unwrap();
+        }
+        let mut plus_color = colors[y][pos.get_width() - 1];
+        if plus_color.is_none() && y > 0 {
+            plus_color = colors[y - 1][pos.get_width() - 1];
+        }
+        let plus = with_color("+", plus_color);
+        write!(&mut res, "{plus}").unwrap();
+        res
+    };
+    let mut res: Vec<String> = vec![];
+    for y in 0..pos.get_height() {
+        res.push(write_vertical_bar(y));
+        let mut line = "  ".to_string();
+        for x in 0..pos.get_width() {
+            let mut col = colors[y][x];
+            if col.is_none() && x > 0 {
+                col = colors[y][x - 1];
+            }
+            line += &with_color("|", col);
+            line += &fmt.display_piece(B::Coordinates::from_row_column(y as DimT, x as DimT), 3);
+        }
+        line += &with_color("|", colors[y][pos.get_width() - 1]);
+        write!(&mut line, " {}", (y + 1).to_string()).unwrap();
+        res.push(line);
+    }
+    res.push(write_vertical_bar(pos.get_height()));
+    if !fmt.flip_board() {
+        res.reverse();
+    }
+    let mut line = "  ".to_string();
+    for x in 0..pos.get_width() {
+        write!(&mut line, " {:^3}", ('A'..).nth(x).unwrap().to_string()).unwrap();
+    }
+    res.push(line);
+    res.join("\n") + "\n"
+}
+
+pub trait BoardFormatter<B: Board> {
+    fn display_piece(&mut self, coords: B::Coordinates, width: usize) -> String;
+
+    fn frame_color(&mut self, coords: B::Coordinates) -> Option<colored::CustomColor>;
+
+    fn flip_board(&mut self) -> bool;
+}
+
+pub struct DefaultBoardFormatter<B: Board> {
+    pub pos: B,
+    pub last_move: Option<B::Move>,
+    pub flip: bool,
+}
+
+impl<B: Board> BoardFormatter<B> for DefaultBoardFormatter<B> {
+    fn display_piece(&mut self, coords: B::Coordinates, width: usize) -> String {
+        let piece = self.pos.colored_piece_on(coords);
+        let c = format!("{0:^1$}", piece.to_utf8_char(), width);
+
+        let Some(color) = piece.color() else { return c };
+        if color.is_first() {
+            c.magenta().to_string()
+        } else {
+            c.blue().to_string()
+        }
+    }
+
+    fn frame_color(&mut self, coords: B::Coordinates) -> Option<CustomColor> {
+        if self
+            .last_move
+            .is_some_and(|m| m.src_square() == coords || m.dest_square() == coords)
+        {
+            Some(CustomColor::new(128, 64, 16))
+        } else {
+            None
+        }
+    }
+
+    fn flip_board(&mut self) -> bool {
+        self.flip
+    }
+}
+
+pub struct AdaptFormatter<B: Board> {
+    pub underlying: Box<dyn BoardFormatter<B>>,
+    pub color_frame: Box<dyn Fn(B::Coordinates) -> Option<CustomColor>>,
+    pub display_piece: Box<dyn Fn(B::Coordinates, usize) -> Option<String>>,
+}
+
+impl<B: Board> BoardFormatter<B> for AdaptFormatter<B> {
+    fn display_piece(&mut self, square: B::Coordinates, width: usize) -> String {
+        (self.display_piece)(square, width)
+            .unwrap_or_else(|| self.underlying.display_piece(square, width))
+    }
+
+    fn frame_color(&mut self, coords: B::Coordinates) -> Option<CustomColor> {
+        (self.color_frame)(coords).or_else(|| self.underlying.frame_color(coords))
+    }
+
+    fn flip_board(&mut self) -> bool {
+        self.underlying.flip_board()
     }
 }

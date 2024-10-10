@@ -33,21 +33,36 @@ use std::io::stdout;
 use std::iter::Peekable;
 use std::str::SplitWhitespace;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 /// All UGI communication is done through stdout, but there can be additional outputs,
 /// such as a logger, or human-readable printing to stderr
 pub struct UgiOutput<B: Board> {
     pub(super) additional_outputs: Vec<OutputBox<B>>,
     pub(super) pretty: bool,
     previous_info: Option<SearchInfo<B>>,
+    gradient: LinearGradient,
+}
+
+impl<B: Board> Default for UgiOutput<B> {
+    fn default() -> Self {
+        Self {
+            additional_outputs: vec![],
+            pretty: false,
+            previous_info: None,
+            gradient: colorgrad::GradientBuilder::new()
+                .html_colors(&["red", "gold", "green"])
+                .domain(&[0.0, 1.0])
+                .build::<LinearGradient>()
+                .unwrap(),
+        }
+    }
 }
 
 impl<B: Board> UgiOutput<B> {
     pub fn new(pretty: bool) -> Self {
         Self {
-            additional_outputs: vec![],
             pretty,
-            previous_info: None,
+            ..Default::default()
         }
     }
 }
@@ -82,15 +97,28 @@ impl<B: Board> UgiOutput<B> {
             self.previous_info = None;
         }
         let text = if self.pretty {
-            let score = pretty_score(info.score, self.previous_info.as_ref().map(|i| i.score));
+            let score = pretty_score(
+                info.score,
+                self.previous_info.as_ref().map(|i| i.score),
+                &self.gradient,
+            );
+
             let mut time = info.time.as_secs_f64();
             let nodes = info.nodes.get() as f64 / 1_000_000.0;
             let nps = nodes / time;
+            let [nps_r, nps_g, nps_b, _] = self.gradient.at(nps as f32 / 3.0).to_rgba8();
+            let nps_color = CustomColor::new(nps_r, nps_g, nps_b);
+            let nps = format!("{nps:5.2}").custom_color(nps_color);
+            let time_badness = 1.0 - (time + 1.0).log2() / 10.0;
+            let [t_r, t_g, t_b, _] = self.gradient.at(time_badness as f32).to_rgba8();
             let mut in_seconds = true;
             if time >= 1000.0 {
                 time /= 60.0;
                 in_seconds = false;
             }
+            let time = format!("{time:5.1}").custom_color(CustomColor::new(t_r, t_g, t_b));
+            let nodes = format!("{nodes:6.1}").bold();
+
             let pv = pretty_pv(
                 &info.pv,
                 info.pos,
@@ -103,10 +131,18 @@ impl<B: Board> UgiOutput<B> {
             };
             let iter = info.depth.to_string().bold();
             let seldepth = info.seldepth;
-            let tt = info.hashfull as f64 / 10.0;
+
+            let [tt_r, tt_g, tt_b, _] = self
+                .gradient
+                .at(0.75 - info.hashfull as f32 / 2000.0)
+                .to_rgba8();
+            let tt = format!("{:5.1}", info.hashfull as f64 / 10.0)
+                .to_string()
+                .custom_color(CustomColor::new(tt_r, tt_g, tt_b))
+                .dimmed();
             self.previous_info = Some(info);
             format!(
-                "  {iter:3} {seldepth:3} {multipv} {score}  {time:5.1}{s}  {nodes:6.1}{M}  {nps:5.2}{nps_string}  {tt:5.1}{p}  {pv}",
+                "  {iter:3} {seldepth:3} {multipv} {score}  {time}{s}  {nodes}{M}  {nps}{nps_string}  {tt}{p}  {pv}",
                 nps_string = "M Nodes/s".dimmed(),
                 s = if in_seconds {"s"} else {"m"}.dimmed(),
                 M = "M".dimmed(),
@@ -149,16 +185,11 @@ impl<B: Board> UgiOutput<B> {
     }
 }
 
-fn pretty_score(score: Score, previous: Option<Score>) -> String {
+fn pretty_score(score: Score, previous: Option<Score>, gradient: &LinearGradient) -> String {
     let mut res = format!("{:5} {cp}", score.0, cp = "cp".dimmed());
     if let Some(mate) = score.moves_until_game_won() {
         res = format!("    {:>4}", format!("#{mate}"))
-    }
-    let gradient = colorgrad::GradientBuilder::new()
-        .html_colors(&["red", "gold", "green"])
-        .domain(&[0.0, 1.0])
-        .build::<LinearGradient>()
-        .unwrap();
+    };
     let sigmoid_score = sigmoid(score, 100.0) as f32;
     let color = gradient.at(sigmoid_score);
     let [r, g, b, _] = color.to_rgba8();
@@ -194,7 +225,7 @@ fn pretty_score(score: Score, previous: Option<Score>) -> String {
 
 fn pretty_pv<B: Board>(pv: &[B::Move], mut pos: B, previous: Option<&[B::Move]>) -> String {
     use fmt::Write;
-    let mut same = true;
+    let mut same_so_far = true;
     let mut pv = pv.iter();
     let first = pv.next().copied().unwrap_or_default();
     if !pos.is_move_legal(first) {
@@ -211,7 +242,7 @@ fn pretty_pv<B: Board>(pv: &[B::Move], mut pos: B, previous: Option<&[B::Move]>)
         .is_some_and(|m| *m != first)
     {
         res = format!("{0}{move_nr}{1}", "!".bold(), res.underline());
-        same = false;
+        same_so_far = false;
     } else {
         res = format!(" {move_nr}{res}");
     }
@@ -221,15 +252,15 @@ fn pretty_pv<B: Board>(pv: &[B::Move], mut pos: B, previous: Option<&[B::Move]>)
             return format!("{res} [Invalid PV move '{}'", mov.to_string().red());
         }
         let mut new_move = mov.to_extended_text(&pos);
-        if previous
+        let previous = previous
             .and_then(|p| p.get(idx + 1))
-            .is_some_and(|m| *m != *mov)
-        {
-            new_move = new_move.underline().to_string();
-            if same {
-                new_move = new_move.bold().to_string();
-            }
-            same = false;
+            .copied()
+            .unwrap_or_default();
+        if previous == *mov {
+            new_move = new_move.dimmed().to_string();
+        } else if same_so_far {
+            new_move = new_move.bold().to_string();
+            same_so_far = false;
         }
         if pos.active_player().is_first() {
             let move_nr = format!(" {}.", pos.fullmove_ctr() + 1);

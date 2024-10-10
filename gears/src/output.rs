@@ -3,15 +3,17 @@ use std::iter::Peekable;
 use std::str::SplitWhitespace;
 
 use dyn_clone::DynClone;
+use itertools::Itertools;
+use strum::IntoEnumIterator;
 use strum_macros::Display;
 
 use crate::games::OutputList;
 use crate::general::board::{Board, RectangularBoard};
 use crate::general::common::{NamedEntity, Res};
 use crate::output::logger::LoggerBuilder;
-use crate::output::pretty::PrettyUIBuilder;
+use crate::output::pretty::ChessOutputBuilder;
 use crate::output::text_output::DisplayType::*;
-use crate::output::text_output::TextOutputBuilder;
+use crate::output::text_output::{DisplayType, TextOutputBuilder};
 use crate::output::Message::*;
 use crate::search::SearchInfo;
 use crate::{GameOverReason, GameState, MatchResult, MatchStatus};
@@ -128,28 +130,32 @@ pub type OutputBox<B> = Box<dyn Output<B>>;
 
 #[must_use]
 pub fn required_outputs<B: Board>() -> OutputList<B> {
-    vec![
-        Box::new(TextOutputBuilder::new(Ascii)),
-        Box::new(TextOutputBuilder::new(Unicode)),
-        Box::new(TextOutputBuilder::new(Fen)),
-        Box::new(TextOutputBuilder::new(Uci)),
-        Box::new(TextOutputBuilder::new(Ugi)),
-        Box::new(TextOutputBuilder::new(Pgn)),
-        Box::new(TextOutputBuilder::new(Moves)),
-        Box::new(TextOutputBuilder::messages_for(
-            vec![Warning, Error],
-            "error",
-        )),
-        Box::new(TextOutputBuilder::messages_for(vec![Debug], "debug")),
-        Box::new(TextOutputBuilder::messages_for(vec![Info], "info")),
-        #[allow(clippy::box_default)]
-        Box::new(LoggerBuilder::default()),
-    ]
+    let mut res: OutputList<B> = vec![];
+    for display_type in DisplayType::iter().dropping_back(1).dropping(1) {
+        res.push(Box::new(TextOutputBuilder::new(display_type)));
+    }
+    res.push(Box::new(TextOutputBuilder::messages_for(
+        vec![Warning, Error],
+        "error",
+    )));
+    res.push(Box::new(TextOutputBuilder::messages_for(
+        vec![Debug],
+        "debug",
+    )));
+    res.push(Box::new(TextOutputBuilder::messages_for(
+        vec![Info],
+        "info",
+    )));
+    #[allow(clippy::box_default)]
+    res.push(Box::new(LoggerBuilder::default()));
+    // the last entry is the default
+    res.push(Box::new(TextOutputBuilder::new(Pretty)));
+    res
 }
 
 #[must_use]
 pub fn normal_outputs<B: RectangularBoard>() -> OutputList<B> {
-    let mut res = required_outputs();
-    res.push(Box::<PrettyUIBuilder>::default());
+    let mut res: OutputList<B> = vec![Box::<ChessOutputBuilder>::default()];
+    res.append(&mut required_outputs());
     res
 }

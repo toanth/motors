@@ -34,14 +34,14 @@ use crate::general::bitboards::{
 use crate::general::board::SelfChecks::*;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    board_to_string, common_fen_part, read_common_fen_part, Board, SelfChecks, Strictness,
-    UnverifiedBoard,
+    common_fen_part, read_common_fen_part, Board, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{ith_one_u128, parse_int, Res, StaticallyNamedEntity};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
 use crate::general::squares::{RectangularCoordinates, SmallGridSize, SmallGridSquare};
+use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter};
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 use anyhow::bail;
@@ -835,6 +835,10 @@ impl Board for UtttBoard {
 
     fn as_unicode_diagram(&self, flip: bool) -> String {
         board_to_string(self, UtttPiece::to_utf8_char, flip)
+    }
+
+    fn display_pretty(&self, display_coordinates: &mut dyn BoardFormatter<Self>) -> String {
+        display_board_pretty(self, display_coordinates)
     }
 }
 

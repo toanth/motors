@@ -13,12 +13,11 @@ use crate::general::bitboards::ataxx::{AtaxxBitboard, INVALID_EDGE_MASK};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
-use crate::general::board::{
-    board_to_string, position_fen_part, SelfChecks, Strictness, UnverifiedBoard,
-};
+use crate::general::board::{position_fen_part, SelfChecks, Strictness, UnverifiedBoard};
 use crate::general::common::{Res, StaticallyNamedEntity};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{SmallGridSize, SmallGridSquare};
+use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter};
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose, Win};
 use anyhow::bail;
@@ -361,6 +360,10 @@ impl Board for AtaxxBoard {
 
     fn as_unicode_diagram(&self, flip: bool) -> String {
         board_to_string(self, AtaxxPiece::to_utf8_char, flip)
+    }
+
+    fn display_pretty(&self, fmt: &mut dyn BoardFormatter<Self>) -> String {
+        display_board_pretty(self, fmt)
     }
 }
 

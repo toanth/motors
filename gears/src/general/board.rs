@@ -15,7 +15,6 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-
 use crate::games::{
     AbstractPieceType, BoardHistory, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT,
     NoHistory, Settings, Size, ZobristHash,
@@ -23,12 +22,13 @@ use crate::games::{
 use crate::general::board::SelfChecks::{Assertion, Verify};
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    select_name_static, EntityList, GenericSelect, IterIntersperse, Res, StaticallyNamedEntity,
+    select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
 };
 use crate::general::move_list::MoveList;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
 use crate::general::moves::Move;
 use crate::general::squares::{RectangularCoordinates, RectangularSize};
+use crate::output::text_output::BoardFormatter;
 use crate::search::Depth;
 use crate::PlayerResult::Lose;
 use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
@@ -484,12 +484,29 @@ pub trait Board:
     /// Returns an ASCII art representation of the board.
     /// This is not meant to return a FEN, but instead a diagram where the pieces
     /// are identified by their letters in algebraic notation.
+    /// Rectangular boards can implement this with the `[board_to_string]` function
     fn as_ascii_diagram(&self, flip: bool) -> String;
 
     /// Returns a UTF-8 representation of the board.
     /// This is not meant to return a FEN, but instead a diagram where the pieces
     /// are identified by their unicode symbols.
+    /// Rectangular boards can implement this with the `[board_to_string]` function
     fn as_unicode_diagram(&self, flip: bool) -> String;
+
+    /// Returns a text-based representation of the board that's intended to look pretty.
+    /// This can be implemented by calling `as_ascii_diagram` or `as_unicode_diagram`, but the intention
+    /// is for the output to contain more information, like using colors to show the last move.
+    /// Rectangular boards can implement this with the `[display_board_pretty]` function
+    fn display_pretty(&self, display_coordinates: &mut dyn BoardFormatter<Self>) -> String;
+
+    /// Allows boards to customize how they want to be formatted.
+    /// For example, the [`Chessboard`] can give the king square a red frame if the king is in check.
+    fn modify_pretty_formatter(
+        &self,
+        formatter: Box<dyn BoardFormatter<Self>>,
+    ) -> Box<dyn BoardFormatter<Self>> {
+        formatter
+    }
 
     /// Verifies that all invariants of this board are satisfied. It should never be possible for this function to
     /// fail for a bug-free program; failure most likely means the `Board` implementation is bugged.
@@ -524,6 +541,14 @@ pub trait RectangularBoard: Board<Coordinates: RectangularCoordinates> {
     fn height(&self) -> DimT;
 
     fn width(&self) -> DimT;
+
+    fn get_width(&self) -> usize {
+        self.width() as usize
+    }
+
+    fn get_height(&self) -> usize {
+        self.height() as usize
+    }
 
     fn idx_to_coordinates(&self, idx: DimT) -> Self::Coordinates;
 }
@@ -574,39 +599,6 @@ pub fn common_fen_part<T: RectangularBoard>(pos: &T) -> String {
     let stm = pos.active_player();
     let halfmove_ctr = pos.halfmove_repetition_clock();
     format!("{} {stm} {halfmove_ctr}", position_fen_part(pos))
-}
-
-pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
-    pos: &B,
-    piece_to_char: F,
-    flip: bool,
-) -> String {
-    use std::fmt::Write;
-    let mut squares = (0..pos.height())
-        .cartesian_product(0..pos.width())
-        .map(|(row, column)| {
-            piece_to_char(pos.colored_piece_on(B::Coordinates::from_row_column(row, column)))
-        })
-        .intersperse_(' ')
-        .collect_vec();
-    squares.push(' ');
-    let mut rows = squares
-        .chunks(pos.width() as usize * 2)
-        .zip((1..).map(|x| x.to_string()))
-        .map(|(row, nr)| format!("{} {nr}\n", row.iter().collect::<String>()))
-        .collect_vec();
-    if !flip {
-        rows.reverse();
-    }
-    rows.push(
-        ('A'..)
-            .take(pos.width() as usize)
-            .fold(String::default(), |mut s, c| -> String {
-                write!(s, "{c} ").unwrap();
-                s
-            }),
-    );
-    rows.iter().flat_map(|x| x.chars()).collect::<String>() + "\n"
 }
 
 pub(crate) fn read_position_fen<B: RectangularBoard>(

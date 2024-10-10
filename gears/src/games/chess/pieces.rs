@@ -15,7 +15,8 @@ pub const NUM_CHESS_PIECES: usize = 6;
 pub const NUM_COLORS: usize = 2;
 pub const BLACK_OFFSET: usize = 8;
 
-// These symbols were introduced in unicode 12 and aren't widely supported yet
+// These symbols were introduced in Unicode 12 and aren't widely supported yet
+// They also don't look that great, so while we accept them, we don't emit them
 pub const UNICODE_NEUTRAL_PAWN: char = '🨅';
 pub const UNICODE_NEUTRAL_KNIGHT: char = '🨄';
 pub const UNICODE_NEUTRAL_BISHOP: char = '🨃';
@@ -31,6 +32,7 @@ pub const UNICODE_WHITE_ROOK: char = '♖';
 pub const UNICODE_WHITE_QUEEN: char = '♕';
 pub const UNICODE_WHITE_KING: char = '♔';
 
+// The black pieces are a lot easier to look at, so they're used for the uncolored versions
 pub const UNICODE_BLACK_PAWN: char = '\u{265F}'; // the '♟︎' character seems to give RustRover trouble
 pub const UNICODE_BLACK_KNIGHT: char = '♞';
 pub const UNICODE_BLACK_BISHOP: char = '♝';
@@ -101,14 +103,15 @@ impl AbstractPieceType for ChessPieceType {
     }
 
     fn to_utf8_char(self) -> char {
+        // The black pieces are the prettiest and the easiest to recognize
         match self {
             Empty => '.',
-            Pawn => UNICODE_NEUTRAL_PAWN,
-            Knight => UNICODE_NEUTRAL_KNIGHT,
-            Bishop => UNICODE_NEUTRAL_BISHOP,
-            Rook => UNICODE_NEUTRAL_ROOK,
-            Queen => UNICODE_NEUTRAL_QUEEN,
-            King => UNICODE_NEUTRAL_KING,
+            Pawn => UNICODE_BLACK_PAWN,
+            Knight => UNICODE_BLACK_KNIGHT,
+            Bishop => UNICODE_BLACK_BISHOP,
+            Rook => UNICODE_BLACK_ROOK,
+            Queen => UNICODE_BLACK_QUEEN,
+            King => UNICODE_BLACK_KING,
         }
     }
 
@@ -132,19 +135,14 @@ impl AbstractPieceType for ChessPieceType {
     fn from_utf8_char(c: char) -> Option<Self> {
         match c {
             ' ' => Some(Empty),
-            UNICODE_NEUTRAL_PAWN => Some(Pawn),
-            UNICODE_NEUTRAL_KNIGHT => Some(Knight),
-            UNICODE_NEUTRAL_BISHOP => Some(Bishop),
-            UNICODE_NEUTRAL_ROOK => Some(Rook),
-            UNICODE_NEUTRAL_QUEEN => Some(Queen),
-            UNICODE_NEUTRAL_KING => Some(King),
             // it's normal to use white symbols as colorless symbols, so also support that
-            UNICODE_WHITE_PAWN => Some(Pawn),
-            UNICODE_WHITE_KNIGHT => Some(Knight),
-            UNICODE_WHITE_BISHOP => Some(Bishop),
-            UNICODE_WHITE_ROOK => Some(Rook),
-            UNICODE_WHITE_QUEEN => Some(Queen),
-            UNICODE_WHITE_KING => Some(King),
+            // And since we output the black pieces, we should definitely parse them, too
+            UNICODE_NEUTRAL_PAWN | UNICODE_WHITE_PAWN | UNICODE_BLACK_PAWN => Some(Pawn),
+            UNICODE_NEUTRAL_KNIGHT | UNICODE_WHITE_KNIGHT | UNICODE_BLACK_KNIGHT => Some(Knight),
+            UNICODE_NEUTRAL_BISHOP | UNICODE_WHITE_BISHOP | UNICODE_BLACK_BISHOP => Some(Bishop),
+            UNICODE_NEUTRAL_ROOK | UNICODE_WHITE_ROOK | UNICODE_BLACK_ROOK => Some(Rook),
+            UNICODE_NEUTRAL_QUEEN | UNICODE_WHITE_QUEEN | UNICODE_BLACK_QUEEN => Some(Queen),
+            UNICODE_NEUTRAL_KING | UNICODE_WHITE_KING | UNICODE_BLACK_KING => Some(King),
             _ => Self::from_ascii_char(c),
         }
     }

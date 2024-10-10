@@ -6,7 +6,7 @@ use std::num::NonZeroUsize;
 use std::ops::Not;
 use std::str::{FromStr, SplitWhitespace};
 
-use colored::Colorize;
+use colored::{Colorize, CustomColor};
 use itertools::Itertools;
 use rand::prelude::IteratorRandom;
 use rand::Rng;
@@ -34,15 +34,17 @@ use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    board_to_string, position_fen_part, read_common_fen_part, NameToPos, SelfChecks, Strictness,
-    UnverifiedBoard,
+    position_fen_part, read_common_fen_part, NameToPos, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
     parse_int_from_str, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
 };
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
-use crate::general::squares::RectangularCoordinates;
+use crate::general::squares::{RectangularCoordinates, SquareColor};
+use crate::output::text_output::{
+    board_to_string, display_board_pretty, AdaptFormatter, BoardFormatter,
+};
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 
@@ -590,6 +592,47 @@ impl Board for Chessboard {
 
     fn as_unicode_diagram(&self, flip: bool) -> String {
         board_to_string(self, ChessPiece::to_utf8_char, flip)
+    }
+
+    fn display_pretty(&self, display_coordinates: &mut dyn BoardFormatter<Self>) -> String {
+        display_board_pretty(self, display_coordinates)
+    }
+
+    fn modify_pretty_formatter(
+        &self,
+        formatter: Box<dyn BoardFormatter<Self>>,
+    ) -> Box<dyn BoardFormatter<Self>> {
+        let pos = *self;
+        let king_square = self.king_square(self.active_player);
+        let color_frame = Box::new(move |square| {
+            if pos.is_in_check() && square == king_square {
+                Some(CustomColor::new(255, 16, 16))
+            } else {
+                None
+            }
+        });
+        Box::new(AdaptFormatter {
+            underlying: formatter,
+            color_frame,
+            display_piece: Box::new(move |square, width| {
+                let piece = pos.colored_piece_on(square);
+                if piece.is_empty() {
+                    let s = if square.square_color() == SquareColor::White {
+                        " ".repeat(width)
+                    } else {
+                        format!("{0:^1$}", "*".dimmed(), width)
+                    };
+                    Some(s)
+                } else {
+                    let s = format!("{0:^1$}", piece.uncolored().to_utf8_char(), width);
+                    Some(if piece.color().unwrap().is_first() {
+                        s.blue().to_string()
+                    } else {
+                        s.magenta().to_string()
+                    })
+                }
+            }),
+        })
     }
 }
 

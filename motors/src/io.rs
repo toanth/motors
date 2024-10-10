@@ -390,7 +390,7 @@ impl<B: Board> EngineUGI<B> {
         );
         let text = format!("Motors: {}", self.state.game_name());
         let text = print_as_ascii_art(&text, 2);
-        self.write_ugi(&text);
+        self.write_ugi(&text.dimmed().to_string());
         self.write_engine_ascii_art();
 
         let mut input = Input::new(self.state.protocol == Interactive, self);
@@ -564,7 +564,6 @@ impl<B: Board> EngineUGI<B> {
         let res = engine.search(params);
         self.write_ugi(&res.chosen_move.to_extended_text(&self.state.board));
         self.state.make_move(res.chosen_move)?;
-        self.print_board();
         _ = self.print_game_over(false);
         Ok(true)
     }
@@ -916,7 +915,7 @@ impl<B: Board> EngineUGI<B> {
                 {
                     Ok(None)
                 } else {
-                    self.select_output(&mut "unicode".split_whitespace().peekable())
+                    self.select_output(&mut "pretty".split_whitespace().peekable())
                 }
             }
         }
@@ -986,6 +985,10 @@ impl<B: Board> EngineUGI<B> {
                     })?
                     .for_engine(&self.state)?,
             );
+            if self.is_interactive() {
+                drop(output);
+                self.print_board();
+            }
         }
         Ok(())
     }
@@ -1284,7 +1287,7 @@ impl<B: Board> EngineUGI<B> {
 
     fn write_engine_ascii_art(&mut self) {
         let text = self.state.engine.engine_info().short_name();
-        let text = print_as_ascii_art(&text, 2);
+        let text = print_as_ascii_art(&text, 2).cyan().to_string();
         self.write_ugi(&text);
     }
 }
