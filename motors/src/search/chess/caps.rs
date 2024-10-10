@@ -260,8 +260,8 @@ impl AbstractEngine<Chessboard> for Caps {
             self,
             self.eval.as_ref(),
             "0.1.0",
-            Depth::new(12),
-            NodesLimit::new(30_000).unwrap(),
+            Depth::new(15),
+            NodesLimit::new(20_000).unwrap(),
             None,
             options,
         )
