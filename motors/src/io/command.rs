@@ -1267,17 +1267,19 @@ fn suggestions<B: Board>(
     let should_complete_this = words.peek().is_none() && !to_complete.is_empty();
 
     let mut res = vec![];
-    for cmd in autocomplete.list.iter() {
-        if should_complete_this {
-            push(&mut res, to_complete, cmd.as_ref());
-        } else if cmd.matches(cmd_name) {
-            let mut new = completions(
-                cmd.upcast_ref(),
-                autocomplete.state.clone(),
-                words.clone(),
-                to_complete,
-            );
-            res.append(&mut new);
+    if !(should_complete_this && to_complete == "?") {
+        for cmd in autocomplete.list.iter() {
+            if should_complete_this {
+                push(&mut res, to_complete, cmd.as_ref());
+            } else if cmd.matches(cmd_name) {
+                let mut new = completions(
+                    cmd.upcast_ref(),
+                    autocomplete.state.clone(),
+                    words.clone(),
+                    to_complete,
+                );
+                res.append(&mut new);
+            }
         }
     }
     if should_complete_this {
