@@ -144,6 +144,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
             pv: vec![self.state.best_move()],
             score: Score(0),
             hashfull: 0,
+            pos: self.search_state().params.pos,
             additional: None,
         }
     }

@@ -464,6 +464,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             "Starts interactive mode, undoes `ugi`. In this mode, errors aren't fatal",
             |ugi, _, _| {
                 ugi.state.protocol = Interactive;
+                ugi.output().pretty = true;
                 Ok(())
             }
         ),

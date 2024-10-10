@@ -107,7 +107,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
                     self.state.atomic().set_best_move(best_mpv_move);
                 }
                 self.state.excluded_moves.push(best_mpv_move);
-                self.send_search_info();
+                self.search_state().send_search_info();
             }
             self.state
                 .excluded_moves

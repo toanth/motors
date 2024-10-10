@@ -14,6 +14,7 @@ use itertools::{Intersperse, Itertools};
 use num::{Float, PrimInt};
 
 use crate::general::common::Description::WithDescription;
+use crate::score::Score;
 
 pub fn pop_lsb64(x: &mut u64) -> u32 {
     let shift = x.trailing_zeros();
@@ -108,6 +109,11 @@ pub fn ith_one_u128(idx: usize, val: u128) -> usize {
 }
 
 pub type Res<T> = anyhow::Result<T>;
+
+pub fn sigmoid(score: Score, scale: f64) -> f64 {
+    let x = f64::from(score.0);
+    1.0 / (1.0 + (-x / scale).exp())
+}
 
 pub fn parse_fp_from_str<T: Float + FromStr>(as_str: &str, name: &str) -> Res<T> {
     as_str

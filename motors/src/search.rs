@@ -495,11 +495,6 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
         self.search_state_dyn().to_search_info()
     }
 
-    fn send_search_info(&mut self) {
-        let msg = self.search_info().to_string();
-        self.search_state_mut_dyn().send_ugi(&msg)
-    }
-
     /// Sets an option with the name 'option' to the value 'value'.
     fn set_option(
         &mut self,
@@ -726,7 +721,7 @@ pub trait AbstractSearchState<B: Board> {
     fn to_bench_res(&self) -> BenchResult;
     fn to_search_info(&self) -> SearchInfo<B>;
     fn aggregated_statistics(&self) -> &Statistics;
-    fn send_ugi(&mut self, ugi_str: &str);
+    fn send_search_info(&self);
 }
 
 #[derive(Debug)]
@@ -837,6 +832,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
             pv: self.current_mpv_pv().into(),
             score: self.best_score(),
             hashfull: self.estimate_hashfull(),
+            pos: self.params.pos,
             additional: Self::additional(),
         }
     }
@@ -845,9 +841,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
         &self.aggregated_statistics
     }
 
-    fn send_ugi(&mut self, ugi_str: &str) {
+    fn send_search_info(&self) {
         if let Some(mut output) = self.search_params().thread_type.output() {
-            output.write_ugi(ugi_str);
+            let info = self.to_search_info();
+            output.write_search_info(info);
         }
     }
 }

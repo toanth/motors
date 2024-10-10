@@ -81,6 +81,7 @@ pub struct SearchInfo<B: Board> {
     pub pv: Vec<B::Move>,
     pub score: Score,
     pub hashfull: usize,
+    pub pos: B,
     pub additional: Option<String>,
 }
 
@@ -96,6 +97,7 @@ impl<B: Board> Default for SearchInfo<B> {
             pv: vec![],
             score: Score::default(),
             hashfull: 0,
+            pos: B::default(),
             additional: None,
         }
     }

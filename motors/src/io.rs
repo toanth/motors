@@ -311,7 +311,7 @@ impl<B: Board> EngineUGI<B> {
         all_searchers: SearcherList<B>,
         all_evals: EvalList<B>,
     ) -> Res<Self> {
-        let output = Arc::new(Mutex::new(UgiOutput::default()));
+        let output = Arc::new(Mutex::new(UgiOutput::new(opts.interactive)));
         let board = B::default();
         let engine = create_engine_from_str(
             &opts.engine,
@@ -586,6 +586,7 @@ impl<B: Board> EngineUGI<B> {
         self.write_ugi(self.write_ugi_options().as_str());
         self.write_ugi(&format!("{proto}ok"));
         self.state.protocol = Protocol::from_str(proto).unwrap();
+        self.output().pretty = self.state.protocol == Interactive;
         Ok(())
     }
 

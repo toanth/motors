@@ -431,14 +431,14 @@ impl Caps {
                 self.state.multi_pvs[pv_num].radius = pv_data.radius;
                 self.state.excluded_moves.push(chosen_move);
                 if keep_searching {
-                    self.send_search_info();
+                    self.search_state().send_search_info();
                 } else {
                     // send one final search info, but don't send empty PVs or PVs from a fail high
                     // that would consist of only one move, and don't send a PV if it's
                     let pv = self.state.current_mpv_pv();
                     let immediately_aborted = self.state.depth().get() < depth as usize;
                     if !pv.is_empty() && (depth == 1 || pv.len() > 1) && !immediately_aborted {
-                        self.send_search_info();
+                        self.search_state().send_search_info();
                     }
                     return self.state.search_result();
                 }
@@ -1105,8 +1105,9 @@ impl Caps {
             if bound == FailLow && tt_entry.score < best_score {
                 debug_assert!(tt_entry.depth > 0);
             }
-            // game over scores can't come from qsearch
-            debug_assert!(!tt_entry.score.is_game_over_score() || tt_entry.depth > 0);
+            // even though qsearch never checks for game over conditions, it's still possible for it to load a checkmate score
+            // and propagate that up to a qsearch parent node, where it gets saved with a depth of 0, so game over scores
+            // with a depth of 0 in the TT are possible
             // exact scores should have already caused a cutoff
             // TODO: Removing the `&& !tt_entry.score.is_game_over_score()` condition here and in `negamax` *failed* a
             // nonregression SPRT with `[-7, 0]` bounds even though I don't know why, and those conditions make it fail
@@ -1437,7 +1438,7 @@ mod tests {
 
     #[test]
     #[cfg(not(debug_assertions))]
-    /// puzzles that are reasonably challenging for most humans, but shouldn't be too   difficult for the engine
+    /// puzzles that are reasonably challenging for most humans, but shouldn't be too difficult for the engine
     fn mate_test() {
         let fens = [
             ("8/5K2/4N2k/2B5/5pP1/1np2n2/1p6/r2R4 w - - 0 1", "d1d5", 5),
@@ -1477,7 +1478,7 @@ mod tests {
             ("rk6/p1r3p1/P3B1Kp/1p2B3/8/8/8/8 w - - 0 1", "e6d7", 5),
         ];
         for (fen, best_move, num_moves) in fens {
-            let pos = Chessboard::from_fen(fen).unwrap();
+            let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
             let mut engine = Caps::for_eval::<LiTEval>();
             let limit = SearchLimit::mate_in_moves(num_moves);
             let res = engine.search_with_new_tt(pos, limit);

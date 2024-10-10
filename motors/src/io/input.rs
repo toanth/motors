@@ -55,6 +55,11 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
                 "Searching...".bold(),
                 "stop".bold()
             ));
+            ugi.write_ugi(
+                &"\nIter/Seldepth     Score      Time    Nodes     NPS              TT     PV"
+                    .bold()
+                    .to_string(),
+            );
             NonInteractiveInput::default().get_line(ugi)
         } else {
             let string = Text::new(&"Input a command or move:".bold().to_string())
