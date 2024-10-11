@@ -2,6 +2,7 @@ use crate::games::{Color, ColoredPiece, DimT};
 use crate::general::board::{Board, RectangularBoard};
 use crate::general::common::{IterIntersperse, NamedEntity, Res};
 use crate::general::move_list::MoveList;
+use crate::general::moves::ExtendedFormat::{Alternative, Standard};
 use crate::general::moves::Move;
 use crate::general::squares::RectangularCoordinates;
 use crate::output::text_output::DisplayType::*;
@@ -218,7 +219,7 @@ impl BoardToText {
         );
         let mut board = m.initial_pos();
         for (ply, mov) in m.move_history().iter().enumerate() {
-            let mov_str = mov.extended_formatter(board);
+            let mov_str = mov.extended_formatter(board, Standard);
             if ply % 2 == 0 {
                 res += &format!("\n{}. {mov_str}", ply / 2 + 1);
             } else {
@@ -239,7 +240,7 @@ impl BoardToText {
         let mut res = String::default();
         let pos = m.get_board();
         for mov in pos.legal_moves_slow().iter_moves() {
-            write!(&mut res, "{} ", mov.to_extended_text(&pos)).unwrap();
+            write!(&mut res, "{} ", mov.to_extended_text(&pos, Alternative)).unwrap();
         }
         res
     }

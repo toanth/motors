@@ -250,6 +250,12 @@ impl Board for Chessboard {
                 name: "zugzwang",
                 val: || Self::from_fen("6Q1/8/8/7k/8/8/3p1pp1/3Kbrrb w - - 26 14", Strict).unwrap(),
             },
+            GenericSelect {
+                name: "puzzle",
+                val: || {
+                    Self::from_fen("rk6/p1r3p1/P3B1Kp/1p2B3/8/8/8/8 w - - 0 1", Strict).unwrap()
+                },
+            },
         ]
     }
 

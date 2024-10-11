@@ -56,7 +56,7 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
                 "stop".bold()
             ));
             ugi.write_ugi(
-                &"\nIter/Seldepth     Score      Time    Nodes     NPS              TT     PV"
+                &"\nIter Seldepth   Score      Time    Nodes    NPS      TT   PV"
                     .bold()
                     .to_string(),
             );

@@ -27,8 +27,9 @@ use crate::games::{
 use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::common::Res;
+use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::PseudoLegal;
-use crate::general::moves::{Legality, Move, MoveFlags, UntrustedMove};
+use crate::general::moves::{ExtendedFormat, Legality, Move, MoveFlags, UntrustedMove};
 use crate::general::squares::RectangularCoordinates;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default, Debug, EnumIter, FromRepr)]
@@ -306,7 +307,12 @@ impl Move<Chessboard> for ChessMove {
         Ok(res)
     }
 
-    fn format_extended(self, f: &mut Formatter<'_>, board: &Chessboard) -> fmt::Result {
+    fn format_extended(
+        self,
+        f: &mut Formatter<'_>,
+        board: &Chessboard,
+        format: ExtendedFormat,
+    ) -> fmt::Result {
         if self.is_castle() {
             return match self.castle_side() {
                 Queenside => write!(f, "O-O-O"),
@@ -316,7 +322,13 @@ impl Move<Chessboard> for ChessMove {
         let piece = self.piece(board);
         let mut res = match piece.uncolored() {
             Pawn => String::default(),
-            piece => piece.to_ascii_char().to_string(),
+            uncolored => {
+                if format == Standard {
+                    uncolored.to_ascii_char().to_string()
+                } else {
+                    piece.to_utf8_char().to_string()
+                }
+            }
         };
         let mut from_str = if piece.uncolored() == Pawn && self.is_capture(board) {
             self.src_square()
@@ -1008,8 +1020,8 @@ impl<'a> MoveParser<'a> {
                     bail!(
                         "Move '{0}' is ambiguous, because it could refer to {1} or {2}",
                         self.consumed(),
-                        mov.to_extended_text(board),
-                        other.to_extended_text(board)
+                        mov.to_extended_text(board, Standard),
+                        other.to_extended_text(board, Standard)
                     );
                 }
                 mov

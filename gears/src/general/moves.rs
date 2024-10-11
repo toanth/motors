@@ -36,6 +36,12 @@ pub enum Legality {
     Legal,
 }
 
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+pub enum ExtendedFormat {
+    Standard,
+    Alternative,
+}
+
 pub trait MoveFlags: Eq + Copy + Debug + Default {}
 
 #[derive(Eq, PartialEq, Debug, Copy, Clone, Default)]
@@ -93,19 +99,28 @@ where
 
     /// Returns a longer representation of the move that may require the board, such as long algebraic notation
     /// Implementations of this trait *may* choose to ignore the board and to not require pseudolegality.
-    fn format_extended(self, f: &mut Formatter<'_>, _board: &B) -> fmt::Result {
+    fn format_extended(
+        self,
+        f: &mut Formatter<'_>,
+        _board: &B,
+        _format: ExtendedFormat,
+    ) -> fmt::Result {
         self.format_compact(f)
     }
 
     /// Returns a formatter object that implements `Display` such that it prints the result of `to_extended_text`.
     /// Like [`self.format_extended`], an implementation *may* choose to not require pseudolegality.
-    fn extended_formatter(self, pos: B) -> ExtendedFormatter<B> {
-        ExtendedFormatter { pos, mov: self }
+    fn extended_formatter(self, pos: B, format: ExtendedFormat) -> ExtendedFormatter<B> {
+        ExtendedFormatter {
+            pos,
+            mov: self,
+            format,
+        }
     }
 
     /// A convenience method based on `format_extended` that returns a `String`.
-    fn to_extended_text(self, board: &B) -> String {
-        self.extended_formatter(*board).to_string()
+    fn to_extended_text(self, board: &B, format: ExtendedFormat) -> String {
+        self.extended_formatter(*board, format).to_string()
     }
 
     /// Parse a longer text representation emitted by `format_extended`, such as long algebraic notation.
@@ -147,6 +162,7 @@ where
 pub struct ExtendedFormatter<B: Board> {
     pos: B,
     mov: B::Move,
+    format: ExtendedFormat,
 }
 
 impl<B: Board> Display for ExtendedFormatter<B> {
@@ -154,7 +170,7 @@ impl<B: Board> Display for ExtendedFormatter<B> {
         if self.mov == B::Move::default() {
             write!(f, "0000")
         } else {
-            self.mov.format_extended(f, &self.pos)
+            self.mov.format_extended(f, &self.pos, self.format)
         }
     }
 }

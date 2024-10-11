@@ -36,7 +36,7 @@ use gears::general::common::{
     parse_duration_ms, parse_int, parse_int_from_str, Name, NamedEntity, Res,
 };
 use gears::general::move_list::MoveList;
-use gears::general::moves::Move;
+use gears::general::moves::{ExtendedFormat, Move};
 use gears::output::Message::Warning;
 use gears::output::OutputBuilder;
 use gears::search::{Depth, NodesLimit, SearchLimit};
@@ -1041,7 +1041,7 @@ pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool) -> CommandList<B>
     for mov in pos.legal_moves_slow().iter_moves() {
         let primary_name = mov.to_string();
         let mut other_names = ArrayVec::default();
-        let extended = mov.to_extended_text(&pos);
+        let extended = mov.to_extended_text(&pos, ExtendedFormat::Standard);
         if extended != primary_name {
             other_names.push(extended);
         }

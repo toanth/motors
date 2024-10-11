@@ -103,10 +103,11 @@ impl AbstractPieceType for ChessPieceType {
     }
 
     fn to_utf8_char(self) -> char {
-        // The black pieces are the prettiest and the easiest to recognize
+        // The black pieces are often the prettiest and the easiest to recognize, though this depends very much on the font
         match self {
             Empty => '.',
-            Pawn => UNICODE_BLACK_PAWN,
+            // Some fonts have problems with the black pawn for some reason, so use the white version to circumvent that
+            Pawn => UNICODE_WHITE_PAWN,
             Knight => UNICODE_BLACK_KNIGHT,
             Bishop => UNICODE_BLACK_BISHOP,
             Rook => UNICODE_BLACK_ROOK,

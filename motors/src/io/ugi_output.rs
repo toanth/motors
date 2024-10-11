@@ -23,6 +23,7 @@ use colorgrad::{Gradient, LinearGradient};
 use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::common::sigmoid;
+use gears::general::moves::ExtendedFormat::Alternative;
 use gears::general::moves::Move;
 use gears::output::{Message, OutputBox};
 use gears::score::Score;
@@ -51,6 +52,7 @@ impl<B: Board> Default for UgiOutput<B> {
             previous_info: None,
             gradient: colorgrad::GradientBuilder::new()
                 .html_colors(&["red", "gold", "green"])
+                // .html_colors(&["red", "white", "green"]) // looks too much like the flag of italy
                 .domain(&[0.0, 1.0])
                 .build::<LinearGradient>()
                 .unwrap(),
@@ -106,7 +108,8 @@ impl<B: Board> UgiOutput<B> {
             let mut time = info.time.as_secs_f64();
             let nodes = info.nodes.get() as f64 / 1_000_000.0;
             let nps = nodes / time;
-            let [nps_r, nps_g, nps_b, _] = self.gradient.at(nps as f32 / 3.0).to_rgba8();
+            let nps_color = self.gradient.at(nps as f32 / 3.0);
+            let [nps_r, nps_g, nps_b, _] = nps_color.to_rgba8();
             let nps_color = CustomColor::new(nps_r, nps_g, nps_b);
             let nps = format!("{nps:5.2}").custom_color(nps_color);
             let time_badness = 1.0 - (time + 1.0).log2() / 10.0;
@@ -142,8 +145,7 @@ impl<B: Board> UgiOutput<B> {
                 .dimmed();
             self.previous_info = Some(info);
             format!(
-                "  {iter:3} {seldepth:3} {multipv} {score}  {time}{s}  {nodes}{M}  {nps}{nps_string}  {tt}{p}  {pv}",
-                nps_string = "M Nodes/s".dimmed(),
+                " {iter:>3} {seldepth:>3} {multipv} {score}  {time}{s}  {nodes}{M}  {nps}  {tt}{p}  {pv}",
                 s = if in_seconds {"s"} else {"m"}.dimmed(),
                 M = "M".dimmed(),
                 p = "%".dimmed(),
@@ -186,16 +188,19 @@ impl<B: Board> UgiOutput<B> {
 }
 
 fn pretty_score(score: Score, previous: Option<Score>, gradient: &LinearGradient) -> String {
-    let mut res = format!("{:5} {cp}", score.0, cp = "cp".dimmed());
+    use fmt::Write;
+    let mut res = format!("{:>5}", score.0);
     if let Some(mate) = score.moves_until_game_won() {
-        res = format!("    {:>4}", format!("#{mate}"))
+        res = format!("   {:>4}", format!("#{mate}"))
     };
     let sigmoid_score = sigmoid(score, 100.0) as f32;
     let color = gradient.at(sigmoid_score);
     let [r, g, b, _] = color.to_rgba8();
-    let mut res = res.custom_color(CustomColor::new(r, g, b));
+    let mut res = res.custom_color(CustomColor::new(r, g, b)).to_string();
     if score.is_game_over_score() {
-        res = res.bold();
+        res = res.bold().to_string();
+    } else {
+        write!(&mut res, "{}", "cp".dimmed()).unwrap();
     }
     if let Some(previous) = previous {
         // sigmoid - sigmoid instead of sigmoid(diff) to weight changes close to 0 stronger
@@ -204,15 +209,15 @@ fn pretty_score(score: Score, previous: Option<Score>, gradient: &LinearGradient
         let [r, g, b, _] = color.to_rgba8();
         let diff = score - previous;
         let c = if diff >= Score(10) {
-            '🠝'
+            '🡩'
         } else if diff <= Score(-10) {
-            '🠟'
+            '🡫'
         } else if diff > Score(0) {
-            '↗'
+            '🡭'
         } else if diff < Score(0) {
-            '↘'
+            '🡮'
         } else {
-            ' '
+            '🡪'
         };
         format!(
             "{res} {}",
@@ -226,34 +231,15 @@ fn pretty_score(score: Score, previous: Option<Score>, gradient: &LinearGradient
 fn pretty_pv<B: Board>(pv: &[B::Move], mut pos: B, previous: Option<&[B::Move]>) -> String {
     use fmt::Write;
     let mut same_so_far = true;
-    let mut pv = pv.iter();
-    let first = pv.next().copied().unwrap_or_default();
-    if !pos.is_move_legal(first) {
-        return format!("[Invalid first PV move '{}']", first.to_string().red());
-    }
-    let mut move_nr = format!("{}.", pos.fullmove_ctr() + 1);
-    if !pos.active_player().is_first() {
-        write!(&mut move_nr, " ... ").unwrap();
-    }
-    move_nr = move_nr.dimmed().to_string();
-    let mut res = first.to_extended_text(&pos).bold().to_string();
-    if previous
-        .and_then(|p| p.first())
-        .is_some_and(|m| *m != first)
-    {
-        res = format!("{0}{move_nr}{1}", "!".bold(), res.underline());
-        same_so_far = false;
-    } else {
-        res = format!(" {move_nr}{res}");
-    }
-    pos = pos.make_move(first).unwrap();
+    let mut res = String::new();
+    let pv = pv.iter();
     for (idx, mov) in pv.enumerate() {
         if !pos.is_move_legal(*mov) {
             return format!("{res} [Invalid PV move '{}'", mov.to_string().red());
         }
-        let mut new_move = mov.to_extended_text(&pos);
+        let mut new_move = mov.to_extended_text(&pos, Alternative);
         let previous = previous
-            .and_then(|p| p.get(idx + 1))
+            .and_then(|p| p.get(idx))
             .copied()
             .unwrap_or_default();
         if previous == *mov {
@@ -264,6 +250,9 @@ fn pretty_pv<B: Board>(pv: &[B::Move], mut pos: B, previous: Option<&[B::Move]>)
         }
         if pos.active_player().is_first() {
             let move_nr = format!(" {}.", pos.fullmove_ctr() + 1);
+            write!(&mut res, "{}", move_nr.dimmed()).unwrap();
+        } else if idx == 0 {
+            let move_nr = format!(" {}. ...", pos.fullmove_ctr() + 1);
             write!(&mut res, "{}", move_nr.dimmed()).unwrap();
         } else {
             res.push(' ');

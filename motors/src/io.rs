@@ -60,6 +60,7 @@ use gears::general::common::{
     parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_dyn,
     to_name_and_optional_description, NamedEntity,
 };
+use gears::general::moves::ExtendedFormat::Alternative;
 use gears::general::moves::Move;
 use gears::general::perft::{perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
@@ -562,7 +563,10 @@ impl<B: Board> EngineUGI<B> {
             TT::default(),
         );
         let res = engine.search(params);
-        self.write_ugi(&res.chosen_move.to_extended_text(&self.state.board));
+        self.write_ugi(
+            &res.chosen_move
+                .to_extended_text(&self.state.board, Alternative),
+        );
         self.state.make_move(res.chosen_move)?;
         _ = self.print_game_over(false);
         Ok(true)
