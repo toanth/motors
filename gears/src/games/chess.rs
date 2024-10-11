@@ -592,6 +592,10 @@ impl Board for Chessboard {
         board.verify_with_level(CheckFen, strictness)
     }
 
+    fn should_flip_visually() -> bool {
+        true
+    }
+
     fn as_ascii_diagram(&self, flip: bool) -> String {
         board_to_string(self, ChessPiece::to_ascii_char, flip)
     }

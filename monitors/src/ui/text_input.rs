@@ -25,6 +25,7 @@ use gears::general::common::{
     parse_int_from_str, select_name_static, to_name_and_optional_description, IterIntersperse,
     NamedEntity, Res, StaticallyNamedEntity,
 };
+use gears::general::moves::ExtendedFormat::Alternative;
 use gears::general::moves::Move;
 use gears::output::Message::{Info, Warning};
 use gears::search::TimeControl;
@@ -288,7 +289,7 @@ impl<B: Board> TextInputThread<B> {
             board
                 .legal_moves_slow()
                 .into_iter()
-                .map(|m| m.to_extended_text(&board))
+                .map(|m| m.to_extended_text(&board, Alternative))
                 .intersperse_(", ".to_string())
                 .collect::<String>()
         );

@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use crate::eval::Eval;
 use crate::io::ugi_output::UgiOutput;
 use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{parse_int_from_str, Res};
+use gears::general::common::{parse_int_from_str, Name, Res};
 use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::score::{Score, NO_SCORE_YET};
@@ -483,6 +483,7 @@ impl<B: Board> EngineWrapper<B> {
             aux.send(SetEval(clone_box(eval.as_ref())))
                 .map_err(|err| anyhow!(err.to_string()))?;
         }
+        self.engine_info().eval = Some(Name::new(eval.as_ref()));
         self.main
             .send(SetEval(eval))
             .map_err(|err| anyhow!(err.to_string()))

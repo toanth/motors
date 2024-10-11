@@ -22,7 +22,6 @@ use gears::general::board::Board;
 use gears::general::board::Strictness::Relaxed;
 use gears::general::common::anyhow::bail;
 use gears::general::common::Res;
-use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{SearchInfo, TimeControl};
@@ -430,10 +429,8 @@ impl<B: Board> Client<B> {
     /// and does not transfer control to the other player.
     pub fn play_move_internal(&mut self, mov: B::Move) -> Res<()> {
         if !self.board().is_move_pseudolegal(mov) {
-            bail!(
-                "The move '{}' is not pseudolegal in the current position",
-                mov.extended_formatter(*self.board())
-            )
+            // can't use to_extended_text because that assumes pseudolegality internally
+            bail!("The move '{mov}' is not pseudolegal in the current position",)
         }
         let Some(board) = self.board().make_move(mov) else {
             let player_res = GameOver {

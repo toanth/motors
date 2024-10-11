@@ -481,6 +481,10 @@ pub trait Board:
         strictness: Strictness,
     ) -> Res<Self>;
 
+    /// Returns true iff the board should be flipped when viewed from the second player's perspective.
+    /// For example, this is the case for chess, but not for Ultimate Tic-Tac-Toe.
+    fn should_flip_visually() -> bool;
+
     /// Returns an ASCII art representation of the board.
     /// This is not meant to return a FEN, but instead a diagram where the pieces
     /// are identified by their letters in algebraic notation.

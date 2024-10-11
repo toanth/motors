@@ -3,6 +3,7 @@
 use crate::games::{Color, ColoredPiece, Coordinates, Size, ZobristHash};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{Board, UnverifiedBoard};
+use crate::general::moves::ExtendedFormat::{Alternative, Standard};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::Move;
 use itertools::Itertools;
@@ -57,11 +58,12 @@ impl<B: Board> GenericTests<B> {
         for pos in positions {
             let pos = (pos.val)();
             for mov in pos.legal_moves_slow() {
-                let encoded = mov.to_extended_text(&pos);
-                println!("{pos} -- {encoded}");
-                let decoded = B::Move::from_extended_text(&encoded, &pos);
-                assert!(decoded.is_ok());
-                assert_eq!(decoded.unwrap(), mov);
+                for format in [Standard, Alternative] {
+                    let encoded = mov.to_extended_text(&pos, format);
+                    let decoded = B::Move::from_extended_text(&encoded, &pos);
+                    assert!(decoded.is_ok());
+                    assert_eq!(decoded.unwrap(), mov);
+                }
             }
         }
     }

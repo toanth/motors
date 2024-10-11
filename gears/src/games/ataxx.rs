@@ -89,7 +89,7 @@ pub struct AtaxxBoard {
 impl Default for AtaxxBoard {
     fn default() -> Self {
         let x_bb = AtaxxBitboard::from_u64(0x41);
-        let o_bb = x_bb << ((7 - 2) * 8);
+        let o_bb = x_bb << ((7 - 1) * 8);
         Self::create(AtaxxBitboard::default(), x_bb, o_bb).unwrap()
     }
 }
@@ -352,6 +352,10 @@ impl Board for AtaxxBoard {
         strictness: Strictness,
     ) -> Res<Self> {
         Self::read_fen_impl(string, strictness)
+    }
+
+    fn should_flip_visually() -> bool {
+        true
     }
 
     fn as_ascii_diagram(&self, flip: bool) -> String {

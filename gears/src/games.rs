@@ -295,7 +295,11 @@ pub type OutputList<B> = EntityList<Box<dyn OutputBuilder<B>>>;
 #[must_use]
 pub struct ZobristHash(pub u64);
 
-pub trait Settings: Eq + Copy + Debug + Default {}
+pub trait Settings: Eq + Copy + Debug + Default {
+    fn text(&self) -> Option<String> {
+        None
+    }
+}
 
 pub trait BoardHistory<B: Board>: Default + Debug + Clone + 'static {
     fn len(&self) -> usize;

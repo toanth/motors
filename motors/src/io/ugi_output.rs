@@ -19,11 +19,11 @@
 // TODO: Keep this is a global object instead? Would make it easier to print warnings from anywhere, simplify search sender design
 
 use colored::{Colorize, CustomColor};
-use colorgrad::{Gradient, LinearGradient};
+use colorgrad::{BasisGradient, Gradient, LinearGradient};
 use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::common::sigmoid;
-use gears::general::moves::ExtendedFormat::Alternative;
+use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::Move;
 use gears::output::{Message, OutputBox};
 use gears::score::Score;
@@ -42,6 +42,7 @@ pub struct UgiOutput<B: Board> {
     pub(super) pretty: bool,
     previous_info: Option<SearchInfo<B>>,
     gradient: LinearGradient,
+    alt_grad: BasisGradient,
 }
 
 impl<B: Board> Default for UgiOutput<B> {
@@ -52,9 +53,14 @@ impl<B: Board> Default for UgiOutput<B> {
             previous_info: None,
             gradient: colorgrad::GradientBuilder::new()
                 .html_colors(&["red", "gold", "green"])
-                // .html_colors(&["red", "white", "green"]) // looks too much like the flag of italy
                 .domain(&[0.0, 1.0])
                 .build::<LinearGradient>()
+                .unwrap(),
+            alt_grad: colorgrad::GradientBuilder::new()
+                .html_colors(&["orange", "gold", "seagreen"])
+                // .html_colors(&["red", "white", "green"]) // looks too much like the flag of italy
+                .domain(&[0.0, 1.0])
+                .build::<BasisGradient>()
                 .unwrap(),
         }
     }
@@ -108,12 +114,12 @@ impl<B: Board> UgiOutput<B> {
             let mut time = info.time.as_secs_f64();
             let nodes = info.nodes.get() as f64 / 1_000_000.0;
             let nps = nodes / time;
-            let nps_color = self.gradient.at(nps as f32 / 3.0);
+            let nps_color = self.alt_grad.at(nps as f32 / 3.0);
             let [nps_r, nps_g, nps_b, _] = nps_color.to_rgba8();
             let nps_color = CustomColor::new(nps_r, nps_g, nps_b);
             let nps = format!("{nps:5.2}").custom_color(nps_color);
             let time_badness = 1.0 - (time + 1.0).log2() / 10.0;
-            let [t_r, t_g, t_b, _] = self.gradient.at(time_badness as f32).to_rgba8();
+            let [t_r, t_g, t_b, _] = self.alt_grad.at(time_badness as f32).to_rgba8();
             let mut in_seconds = true;
             if time >= 1000.0 {
                 time /= 60.0;
@@ -136,7 +142,7 @@ impl<B: Board> UgiOutput<B> {
             let seldepth = info.seldepth;
 
             let [tt_r, tt_g, tt_b, _] = self
-                .gradient
+                .alt_grad
                 .at(0.75 - info.hashfull as f32 / 2000.0)
                 .to_rgba8();
             let tt = format!("{:5.1}", info.hashfull as f64 / 10.0)
@@ -237,7 +243,9 @@ fn pretty_pv<B: Board>(pv: &[B::Move], mut pos: B, previous: Option<&[B::Move]>)
         if !pos.is_move_legal(*mov) {
             return format!("{res} [Invalid PV move '{}'", mov.to_string().red());
         }
-        let mut new_move = mov.to_extended_text(&pos, Alternative);
+        // 'Alternative' would be cooler, but unfortunately most fonts struggle with unicode chess pieces,
+        // especially in combination with bold / dimmed etc
+        let mut new_move = mov.to_extended_text(&pos, Standard);
         let previous = previous
             .and_then(|p| p.get(idx))
             .copied()

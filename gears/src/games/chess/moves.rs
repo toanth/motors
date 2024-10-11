@@ -390,7 +390,11 @@ impl Move<Chessboard> for ChessMove {
         res += &self.dest_square().to_string();
         if self.is_promotion() {
             res.push('=');
-            res.push(self.flags().promo_piece().to_ascii_char());
+            if format == Standard {
+                res.push(self.flags().promo_piece().to_ascii_char());
+            } else {
+                res.push(self.flags().promo_piece().to_utf8_char());
+            }
         }
         let board = board.make_move(self).unwrap();
         if board.is_game_lost_slow() {
@@ -1075,6 +1079,7 @@ mod tests {
     use crate::games::generic_tests;
     use crate::games::Board;
     use crate::general::board::Strictness::Strict;
+    use crate::general::moves::ExtendedFormat::{Alternative, Standard};
     use crate::general::moves::Move;
 
     type GenericTests = generic_tests::GenericTests<Chessboard>;
@@ -1109,7 +1114,12 @@ mod tests {
         let pos = Chessboard::from_name("unusual").unwrap();
         for (input, output) in transformations {
             let mov = ChessMove::from_extended_text(input, &pos).unwrap();
-            assert_eq!(mov.to_extended_text(&pos), output);
+            assert_eq!(mov.to_extended_text(&pos, Standard), output);
+            assert_eq!(
+                ChessMove::from_extended_text(&mov.to_extended_text(&pos, Alternative), &pos)
+                    .unwrap(),
+                mov
+            );
         }
     }
 

@@ -1,12 +1,13 @@
 use anyhow::{anyhow, bail};
+use colored::Colorize;
+use regex::Regex;
+use static_assertions::const_assert_eq;
 use std::cmp::min;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::iter::Peekable;
 use std::mem::size_of;
 use std::str::SplitWhitespace;
-
-use static_assertions::const_assert_eq;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
@@ -18,10 +19,12 @@ use crate::general::bitboards::{
     MAX_WIDTH,
 };
 use crate::general::board::SelfChecks::CheckFen;
-use crate::general::board::Strictness::Strict;
+use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    position_fen_part, read_position_fen, RectangularBoard, SelfChecks, Strictness, UnverifiedBoard,
+    position_fen_part, read_position_fen, NameToPos, RectangularBoard, SelfChecks, Strictness,
+    UnverifiedBoard,
 };
+use crate::general::common::Description::NoDescription;
 use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
 use crate::general::moves::Legality::Legal;
@@ -165,44 +168,6 @@ impl Display for Symbol {
 }
 
 type Square = GenericPiece<MNKBoard, Symbol>;
-//
-// #[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
-// pub struct Square {
-//     coordinates: GridCoordinates,
-//     symbol: Symbol,
-// }
-//
-// impl Display for Square {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-//         std::fmt::Display::fmt(&self.symbol, f)
-//     }
-// }
-//
-// impl ColoredPiece for Square {
-//     type Coordinates = GridCoordinates;
-//     type ColoredPieceType = Symbol;
-//     type UncoloredPieceType = Symbol;
-//
-//     fn coordinates(self) -> GridCoordinates {
-//         self.coordinates
-//     }
-//
-//     fn uncolored_piece_type(self) -> Symbol {
-//         self.symbol
-//     }
-//
-//     fn to_utf8_char(self) -> char {
-//         self.symbol.to_utf8_char()
-//     }
-//
-//     fn to_ascii_char(self) -> char {
-//         self.symbol.to_ascii_char()
-//     }
-//
-//     fn colored_piece_type(self) -> Self::ColoredPieceType {
-//         self.symbol
-//     }
-// }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
@@ -262,9 +227,12 @@ impl Move<MNKBoard> for FillSquare {
         write!(f, "{}", self.target)
     }
 
-    fn from_compact_text(s: &str, _: &MNKBoard) -> Res<Self> {
-        // TODO: Check legality?!
-        GridCoordinates::from_str(s).map(|target| FillSquare { target })
+    fn from_compact_text(s: &str, pos: &MNKBoard) -> Res<Self> {
+        let c = GridCoordinates::from_str(s)?;
+        if !pos.is_empty(c) {
+            bail!("The square {c} is already occupied, can only place on an empty square")
+        }
+        Ok(FillSquare { target: c })
     }
 
     fn from_extended_text(s: &str, board: &MNKBoard) -> Res<Self> {
@@ -358,7 +326,11 @@ impl Default for MnkSettings {
     }
 }
 
-impl Settings for MnkSettings {}
+impl Settings for MnkSettings {
+    fn text(&self) -> Option<String> {
+        Some(format!("k: {}", self.k))
+    }
+}
 
 pub type MnkBitboard = DefaultBitboard<ExtendedRawBitboard, GridCoordinates>;
 
@@ -495,6 +467,52 @@ impl Board for MNKBoard {
             settings,
             active_player: MnkColor::first(),
             last_move: None,
+        }
+    }
+
+    fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
+        vec![
+            GenericSelect {
+                name: "large",
+                val: || {
+                    Self::from_fen("11 11 4 x 11/11/11/11/11/11/11/11/11/11/11", Relaxed).unwrap()
+                },
+            },
+            GenericSelect {
+                name: "tictactoe",
+                val: || Self::default(),
+            },
+        ]
+    }
+
+    fn from_name(name: &str) -> Res<Self> {
+        let map = Self::name_to_pos_map();
+        let entry = select_name_static(
+            name,
+            map.iter(),
+            "position",
+            &Self::game_name(),
+            NoDescription,
+        );
+        if let Ok(entry) = entry {
+            return Ok((entry.val)());
+        }
+        let pattern = Regex::new(r"([0-9]+),([0-9]+),([0-9]+)").unwrap();
+        if let Some(captures) = pattern.captures(name) {
+            let mut settings = MnkSettings::default();
+            settings.height = parse_int_from_str(&captures[1], "m")?;
+            settings.width = parse_int_from_str(&captures[2], "n")?;
+            settings.k = parse_int_from_str(&captures[3], "k")?;
+            if !settings.check_invariants() {
+                bail!("Invalid m,n,k values (at least one value is too large or too small)");
+            }
+            Ok(Self::empty_for_settings(settings))
+        } else {
+            bail!(
+                "{0} It's also not an m,n,k list, which must have the format '{1}', e.g. '3,3,3'.",
+                entry.err().unwrap(),
+                "<m>,<n>,<k>".bold()
+            )
         }
     }
 
@@ -706,6 +724,10 @@ impl Board for MNKBoard {
         board.0.active_player = active_player.color().unwrap();
 
         board.verify_with_level(CheckFen, strictness)
+    }
+
+    fn should_flip_visually() -> bool {
+        false
     }
 
     fn as_ascii_diagram(&self, flip: bool) -> String {

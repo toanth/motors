@@ -267,9 +267,7 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
     fn match_status(&self) -> MatchStatus {
         match self.status.clone() {
             Run(status) => status,
-            Quit(_) => {
-                panic!("It shouldn't be possible to call match_status when quitting the engine.")
-            }
+            Quit(_) => MatchStatus::aborted(),
         }
     }
 
@@ -1144,6 +1142,9 @@ impl<B: Board> EngineUGI<B> {
         }
         if nested_match.run() == QuitProgram {
             self.quit(QuitProgram)?;
+        } else {
+            // print the current board again, now that the match is over
+            self.print_board();
         }
         Ok(())
     }

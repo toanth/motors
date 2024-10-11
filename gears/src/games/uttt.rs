@@ -201,7 +201,10 @@ impl AbstractPieceType for ColoredUtttPieceType {
     }
 
     fn to_uncolored_idx(self) -> usize {
-        self.uncolor().to_uncolored_idx()
+        match self {
+            ColoredUtttPieceType::Empty => 0,
+            _ => 1,
+        }
     }
 }
 
@@ -827,6 +830,10 @@ impl Board for UtttBoard {
         pos.0.last_move = last_move;
         // The won sub boards bitboard is set in the verify method
         pos.verify_with_level(CheckFen, strictness)
+    }
+
+    fn should_flip_visually() -> bool {
+        false
     }
 
     fn as_ascii_diagram(&self, flip: bool) -> String {

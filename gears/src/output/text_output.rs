@@ -1,6 +1,6 @@
-use crate::games::{Color, ColoredPiece, DimT};
+use crate::games::{Color, ColoredPiece, DimT, Settings};
 use crate::general::board::{Board, RectangularBoard};
-use crate::general::common::{IterIntersperse, NamedEntity, Res};
+use crate::general::common::{NamedEntity, Res};
 use crate::general::move_list::MoveList;
 use crate::general::moves::ExtendedFormat::{Alternative, Standard};
 use crate::general::moves::Move;
@@ -11,7 +11,6 @@ use crate::MatchStatus::*;
 use crate::{AdjudicationReason, GameOverReason, GameResult, GameState};
 use anyhow::{anyhow, bail};
 use colored::{Colorize, CustomColor};
-use itertools::Itertools;
 use std::fmt;
 use std::fs::File;
 use std::io::{stderr, stdout, Stderr, Stdout, Write};
@@ -448,31 +447,25 @@ pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
     flip: bool,
 ) -> String {
     use std::fmt::Write;
-    let mut squares = (0..pos.height())
-        .cartesian_product(0..pos.width())
-        .map(|(row, column)| {
-            piece_to_char(pos.colored_piece_on(B::Coordinates::from_row_column(row, column)))
-        })
-        .intersperse_(' ')
-        .collect_vec();
-    squares.push(' ');
-    let mut rows = squares
-        .chunks(pos.width() as usize * 2)
-        .zip((1..).map(|x| x.to_string()))
-        .map(|(row, nr)| format!("{} {nr}\n", row.iter().collect::<String>()))
-        .collect_vec();
-    if !flip {
-        rows.reverse();
+    let flip = flip && B::should_flip_visually();
+    let mut res = pos.settings().text().map(|t| t + "\n").unwrap_or_default();
+    for y in 0..pos.height() {
+        let yc = if flip { y } else { pos.height() - 1 - y };
+        write!(&mut res, "{:>2} ", yc + 1).unwrap();
+        for x in 0..pos.width() {
+            let xc = if flip { pos.width() - 1 - x } else { x };
+            let c = piece_to_char(pos.colored_piece_on(B::Coordinates::from_row_column(yc, xc)));
+            write!(&mut res, " {c}").unwrap();
+        }
+        res += "\n";
     }
-    rows.push(
-        ('A'..)
-            .take(pos.width() as usize)
-            .fold(String::default(), |mut s, c| -> String {
-                write!(s, "{c} ").unwrap();
-                s
-            }),
-    );
-    rows.iter().flat_map(|x| x.chars()).collect::<String>() + "\n"
+    res += "   ";
+    for x in 0..pos.get_width() {
+        let xc = if flip { pos.get_width() - 1 - x } else { x };
+        write!(&mut res, " {}", ('A'..).nth(xc).unwrap()).unwrap();
+    }
+    res += "\n";
+    res
 }
 
 fn with_color(text: &str, color: Option<CustomColor>) -> String {
@@ -489,15 +482,20 @@ pub fn display_board_pretty<B: RectangularBoard>(
     fmt: &mut dyn BoardFormatter<B>,
 ) -> String {
     use fmt::Write;
+    let flip = fmt.flip_board() && B::should_flip_visually();
     let mut colors = vec![vec![None; pos.get_width() + 1]; pos.get_height() + 1];
     for y in 0..pos.get_height() {
         for x in 0..pos.get_width() {
             let square = B::Coordinates::from_row_column(y as u8, x as u8);
-            colors[y][x] = fmt.frame_color(square);
+            if flip {
+                colors[y][pos.get_width() - 1 - x] = fmt.frame_color(square);
+            } else {
+                colors[y][x] = fmt.frame_color(square);
+            }
         }
     }
     let write_vertical_bar = |y: usize| -> String {
-        let mut res = "  ".to_string();
+        let mut res = "    ".to_string();
         for x in 0..pos.get_width() {
             let mut col = colors[y][x];
             if col.is_none() && y > 0 {
@@ -525,28 +523,32 @@ pub fn display_board_pretty<B: RectangularBoard>(
     let mut res: Vec<String> = vec![];
     for y in 0..pos.get_height() {
         res.push(write_vertical_bar(y));
-        let mut line = "  ".to_string();
+        let mut line = format!(" {:>2} ", (y + 1).to_string());
         for x in 0..pos.get_width() {
             let mut col = colors[y][x];
             if col.is_none() && x > 0 {
                 col = colors[y][x - 1];
             }
             line += &with_color("|", col);
-            line += &fmt.display_piece(B::Coordinates::from_row_column(y as DimT, x as DimT), 3);
+            let xc = if flip { pos.get_width() - 1 - x } else { x };
+            line += &fmt.display_piece(B::Coordinates::from_row_column(y as DimT, xc as DimT), 3);
         }
         line += &with_color("|", colors[y][pos.get_width() - 1]);
-        write!(&mut line, " {}", (y + 1).to_string()).unwrap();
         res.push(line);
     }
     res.push(write_vertical_bar(pos.get_height()));
-    if !fmt.flip_board() {
+    if !flip {
         res.reverse();
     }
-    let mut line = "  ".to_string();
+    let mut line = "    ".to_string();
     for x in 0..pos.get_width() {
-        write!(&mut line, " {:^3}", ('A'..).nth(x).unwrap().to_string()).unwrap();
+        let xc = if flip { pos.get_width() - 1 - x } else { x };
+        write!(&mut line, " {:^3}", ('A'..).nth(xc).unwrap().to_string()).unwrap();
     }
     res.push(line);
+    if let Some(text) = pos.settings().text() {
+        res.insert(0, text);
+    }
     res.join("\n") + "\n"
 }
 
