@@ -5,9 +5,7 @@ use static_assertions::const_assert_eq;
 use std::cmp::min;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::iter::Peekable;
 use std::mem::size_of;
-use std::str::SplitWhitespace;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
@@ -668,10 +666,7 @@ impl Board for MNKBoard {
         )
     }
 
-    fn read_fen_and_advance_input(
-        words: &mut Peekable<SplitWhitespace>,
-        strictness: Strictness,
-    ) -> Res<Self> {
+    fn read_fen_and_advance_input(words: &mut Tokens, strictness: Strictness) -> Res<Self> {
         if words.clone().next().is_none() {
             bail!("Empty mnk fen".to_string());
         }
@@ -943,7 +938,8 @@ mod test {
         let moves = board.pseudolegal_moves();
         assert_eq!(moves.len(), 20);
         assert_eq!(
-            MNKBoard::empty_for_settings(MnkSettings::new(Height(10), Width(9), 7))
+            MNKBoard::from_name("10,9,7")
+                .unwrap()
                 .pseudolegal_moves()
                 .len(),
             90

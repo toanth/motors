@@ -12,7 +12,7 @@ use itertools::Itertools;
 use gears::cli::{get_next_arg, get_next_int, get_next_nonzero_usize, parse_output, ArgIter, Game};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
-    nonzero_u64, parse_duration_ms, parse_fp_from_str, parse_int_from_str, Res,
+    nonzero_u64, parse_duration_ms, parse_fp_from_str, parse_int_from_str, tokens, Res,
 };
 use gears::score::Score;
 use gears::search::{Depth, TimeControl};
@@ -236,7 +236,7 @@ pub fn parse_engine<Iter: Iterator<Item = String>>(
             },
             "tc" => res.tc = Some(TimeControl::from_str(value?)?),
             "st" => res.move_time = Some(Duration::from_secs_f64(parse_fp_from_str(value?, "st (move time)")?)),
-            "timemargin" => res.time_margin = Some(TimeMargin(parse_duration_ms(&mut value?.split_whitespace().peekable(), "timemargin")?)),
+            "timemargin" => res.time_margin = Some(TimeMargin(parse_duration_ms(&mut tokens(value?), "timemargin")?)),
             "book" => todo!(),
             "bookdepth" => todo!(),
             "whitepov" => res.white_pov = true,

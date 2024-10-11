@@ -33,7 +33,7 @@ use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, Strictness};
 use gears::general::common::anyhow::anyhow;
 use gears::general::common::{
-    parse_duration_ms, parse_int, parse_int_from_str, Name, NamedEntity, Res,
+    parse_duration_ms, parse_int, parse_int_from_str, tokens, Name, NamedEntity, Res, Tokens,
 };
 use gears::general::move_list::MoveList;
 use gears::general::moves::{ExtendedFormat, Move};
@@ -50,9 +50,9 @@ use itertools::Itertools;
 use rand::prelude::IndexedRandom;
 use rand::{thread_rng, Rng};
 use std::fmt::{Debug, Display, Formatter};
-use std::iter::{once, Peekable};
+use std::iter::once;
 use std::rc::Rc;
-use std::str::{from_utf8, SplitWhitespace};
+use std::str::from_utf8;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use strum::IntoEnumIterator;
@@ -101,9 +101,7 @@ pub trait AbstractCommand<B: Board>: NamedEntity + Display {
 }
 
 pub trait CommandTrait<State: CommandState>: AbstractCommand<State::B> {
-    fn func(
-        &self,
-    ) -> fn(&mut State, remaining_input: &mut Peekable<SplitWhitespace>, _cmd: &str) -> Res<()>;
+    fn func(&self) -> fn(&mut State, remaining_input: &mut Tokens, _cmd: &str) -> Res<()>;
 
     // TODO: The upcast methods should be unnecessary now
     fn upcast_box(self: Box<Self>) -> Box<dyn AbstractCommand<State::B>>;
@@ -175,8 +173,7 @@ pub struct Command<State: CommandState> {
     pub help_text: String,
     pub standard: Standard,
     pub autocomplete_recurse: bool,
-    pub func:
-        fn(&mut State, remaining_input: &mut Peekable<SplitWhitespace>, _cmd: &str) -> Res<()>,
+    pub func: fn(&mut State, remaining_input: &mut Tokens, _cmd: &str) -> Res<()>,
     change_ac_state: AutoCompleteFunc<State::B>,
     sub_commands: SubCommandsFn<State::B>,
 }
@@ -247,7 +244,7 @@ impl<State: CommandState + 'static> AbstractCommand<State::B> for Command<State>
 }
 
 impl<State: CommandState + 'static> CommandTrait<State> for Command<State> {
-    fn func(&self) -> fn(&mut State, &mut Peekable<SplitWhitespace>, &str) -> Res<()> {
+    fn func(&self) -> fn(&mut State, &mut Tokens, &str) -> Res<()> {
         self.func
     }
 
@@ -406,8 +403,12 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
                 Ok(())
             }
         ),
-        ugi_command!(quit, All, "Exits the program immediately", |ugi, _, _| ugi
-            .quit(QuitProgram)),
+        ugi_command!(quit, All, "Exits the program immediately", |ugi, _, _| {
+            if cfg!(feature = "fuzzing") {
+                return Ok(());
+            }
+            ugi.quit(QuitProgram)
+        }),
         ugi_command!(
             quit_match | end_game | qm,
             Custom,
@@ -581,7 +582,7 @@ impl<B: Board> GoState<B> {
     }
 }
 
-pub fn accept_depth(limit: &mut SearchLimit, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+pub fn accept_depth(limit: &mut SearchLimit, words: &mut Tokens) -> Res<()> {
     if let Some(word) = words.peek() {
         if let Ok(number) = parse_int_from_str(word, "depth") {
             limit.depth = Depth::try_new(number)?;
@@ -1198,7 +1199,7 @@ fn push<B: Board, T: AbstractCommand<B> + ?Sized>(
 fn completions<B: Board>(
     node: &dyn AbstractCommand<B>,
     state: ACState<B>,
-    mut rest: Peekable<SplitWhitespace>,
+    mut rest: Tokens,
     to_complete: &str,
 ) -> Vec<(usize, Completion)> {
     let mut res = vec![];
@@ -1255,7 +1256,7 @@ fn suggestions<B: Board>(
     autocomplete: &mut CommandAutocomplete<B>,
     input: &str,
 ) -> Vec<Completion> {
-    let mut words = input.split_whitespace().peekable();
+    let mut words = tokens(input);
     let Some(cmd_name) = words.next() else {
         return vec![];
     };

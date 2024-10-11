@@ -8,14 +8,12 @@ use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{read_common_fen_part, Strictness, UnverifiedBoard};
-use crate::general::common::Res;
+use crate::general::common::{Res, Tokens};
 use crate::general::move_list::MoveList;
 use crate::general::moves::Move;
 use anyhow::{anyhow, bail};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::iter::Peekable;
 use std::num::NonZeroUsize;
-use std::str::SplitWhitespace;
 
 impl AtaxxBoard {
     pub fn create(blocked: AtaxxBitboard, x_bb: AtaxxBitboard, o_bb: AtaxxBitboard) -> Res<Self> {
@@ -158,10 +156,7 @@ impl AtaxxBoard {
         ZobristHash(hasher.finish())
     }
 
-    pub fn read_fen_impl(
-        words: &mut Peekable<SplitWhitespace>,
-        strictness: Strictness,
-    ) -> Res<Self> {
+    pub fn read_fen_impl(words: &mut Tokens, strictness: Strictness) -> Res<Self> {
         let empty = AtaxxBoard::empty();
         let mut board = read_common_fen_part::<AtaxxBoard>(words, empty.into())?;
         let color = board.0.active_player();

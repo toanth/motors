@@ -22,7 +22,7 @@ use colored::{Colorize, CustomColor};
 use colorgrad::{BasisGradient, Gradient, LinearGradient};
 use gears::games::Color;
 use gears::general::board::Board;
-use gears::general::common::sigmoid;
+use gears::general::common::{sigmoid, Tokens};
 use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::Move;
 use gears::output::{Message, OutputBox};
@@ -31,8 +31,6 @@ use gears::search::SearchInfo;
 use gears::GameState;
 use std::fmt;
 use std::io::stdout;
-use std::iter::Peekable;
-use std::str::SplitWhitespace;
 
 #[derive(Debug)]
 /// All UGI communication is done through stdout, but there can be additional outputs,
@@ -162,7 +160,7 @@ impl<B: Board> UgiOutput<B> {
         self.write_ugi(&text);
     }
 
-    pub(super) fn write_ugi_input(&mut self, msg: Peekable<SplitWhitespace>) {
+    pub(super) fn write_ugi_input(&mut self, msg: Tokens) {
         for output in &mut self.additional_outputs {
             output.write_ugi_input(msg.clone(), None);
         }

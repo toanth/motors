@@ -17,6 +17,7 @@ mod tests {
     use gears::games::{n_fold_repetition, BoardHistory, ZobristHistory};
     use gears::general::board::Board;
     use gears::general::board::Strictness::{Relaxed, Strict};
+    use gears::general::common::tokens;
     use gears::general::moves::Move;
     use gears::score::{Score, SCORE_LOST, SCORE_WON};
     use gears::search::{Depth, SearchLimit};
@@ -55,7 +56,7 @@ mod tests {
     fn mated_test<E: Engine<Chessboard>>(mut engine: E) {
         let game_over_pos = load_ugi_position(
             "position",
-            &mut "mate_in_1 moves h7a7".split_whitespace().peekable(),
+            &mut tokens("mate_in_1 moves h7a7"),
             true,
             Strict,
             &Chessboard::default(),

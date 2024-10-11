@@ -9,16 +9,14 @@ use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::board::Strictness::Relaxed;
 use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{parse_fp_from_str, Res};
+use gears::general::common::{parse_fp_from_str, tokens, Res, Tokens};
 use rayon::iter::ParallelIterator;
 use rayon::prelude::ParallelBridge;
 use serde::Deserialize;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::iter::Peekable;
 use std::marker::PhantomData;
 use std::path::Path;
-use std::str::SplitWhitespace;
 
 const WDL_MAP: [(&str, Float); 4] = [
     ("0-1", 0.0),
@@ -96,7 +94,7 @@ pub(super) struct FenReader<B: Board, E: Eval<B>> {
 }
 
 impl<B: Board, E: Eval<B>> FenReader<B, E> {
-    fn parse_wdl(input: &mut Peekable<SplitWhitespace>) -> Res<Outcome> {
+    fn parse_wdl(input: &mut Tokens) -> Res<Outcome> {
         const IGNORED: [char; 10] = ['\"', '\'', '[', ']', '(', ')', '{', '}', ' ', '\t'];
         // This would be a great time to use the `.remainder()` method, but that isn't stable :/
         let wdl = input.next().ok_or_else(|| anyhow!("Missing wdl"))?;
@@ -117,7 +115,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         perspective: Perspective,
         weight: Float,
     ) -> Res<ParseResult<B>> {
-        let mut input = input.split_whitespace().peekable();
+        let mut input = tokens(input);
         let pos = B::read_fen_and_advance_input(&mut input, Relaxed)?;
         // skip up to one token between the end of the fen and the wdl
         let mut outcome =

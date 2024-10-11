@@ -11,7 +11,7 @@ use crate::games::chess::ChessColor;
 use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, Size, Width};
 #[cfg(feature = "chess")]
 use crate::general::bitboards::chess::ChessBitboard;
-use crate::general::common::{parse_int, Res};
+use crate::general::common::{parse_int, tokens, Res};
 use crate::general::squares::SquareColor::{Black, White};
 
 pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
@@ -98,7 +98,7 @@ impl FromStr for GridCoordinates {
         let Some(file) = s.next() else {
             bail!("Empty input")
         };
-        let mut words = s.as_str().split_whitespace().peekable();
+        let mut words = tokens(s.as_str());
         let rank: usize = parse_int(&mut words, "rank (row)")?;
         if words.count() > 0 {
             bail!("too many words".to_string());

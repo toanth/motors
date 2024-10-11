@@ -1,10 +1,9 @@
 use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
 use std::fmt::{Display, Formatter};
-use std::iter::Peekable;
 use std::num::NonZeroUsize;
 use std::ops::Not;
-use std::str::{FromStr, SplitWhitespace};
+use std::str::FromStr;
 
 use colored::{Colorize, CustomColor};
 use itertools::Itertools;
@@ -39,6 +38,7 @@ use crate::general::board::{
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
     parse_int_from_str, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
+    Tokens,
 };
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
@@ -528,10 +528,7 @@ impl Board for Chessboard {
         )
     }
 
-    fn read_fen_and_advance_input(
-        words: &mut Peekable<SplitWhitespace>,
-        strictness: Strictness,
-    ) -> Res<Self> {
+    fn read_fen_and_advance_input(words: &mut Tokens, strictness: Strictness) -> Res<Self> {
         let mut board = Chessboard::empty();
         board = read_common_fen_part::<Chessboard>(words, board)?;
         let color = board.0.active_player();

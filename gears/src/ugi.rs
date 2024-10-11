@@ -1,11 +1,10 @@
 use crate::general::board::{Board, Strictness};
-use crate::general::common::{NamedEntity, Res};
+use crate::general::common::{NamedEntity, Res, Tokens};
 use crate::general::moves::Move;
 use anyhow::{anyhow, bail};
 use colored::Colorize;
 use std::fmt::{Display, Formatter};
-use std::iter::Peekable;
-use std::str::{FromStr, SplitWhitespace};
+use std::str::FromStr;
 use strum_macros::EnumIter;
 
 /// Ugi-related helpers that are used by both `motors` and `monitors`.
@@ -247,7 +246,7 @@ impl NamedEntity for EngineOption {
 
 pub fn parse_ugi_position_part<B: Board>(
     first_word: &str,
-    rest: &mut Peekable<SplitWhitespace>,
+    rest: &mut Tokens,
     allow_position_part: bool,
     old_board: &B,
     strictness: Strictness,
@@ -286,7 +285,7 @@ pub fn parse_ugi_position_and_moves<
     H: Fn(&mut S) -> &mut B,
 >(
     first_word: &str,
-    rest: &mut Peekable<SplitWhitespace>,
+    rest: &mut Tokens,
     accept_pos_word: bool,
     strictness: Strictness,
     old_board: &B,
@@ -337,7 +336,7 @@ pub fn parse_ugi_position_and_moves<
 
 pub fn load_ugi_position<B: Board>(
     first_word: &str,
-    rest: &mut Peekable<SplitWhitespace>,
+    rest: &mut Tokens,
     accept_pos_word: bool,
     strictness: Strictness,
     old_board: &B,

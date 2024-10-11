@@ -22,10 +22,9 @@ mod input;
 pub mod ugi_output;
 
 use std::fmt::{Debug, Display, Formatter, Write};
-use std::iter::Peekable;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
-use std::str::{FromStr, SplitWhitespace};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -55,11 +54,11 @@ use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, Strictness};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
-use gears::general::common::Res;
 use gears::general::common::{
     parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_dyn,
-    to_name_and_optional_description, NamedEntity,
+    to_name_and_optional_description, tokens, NamedEntity,
 };
+use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::Alternative;
 use gears::general::moves::Move;
 use gears::general::perft::{perft_for, split_perft};
@@ -165,7 +164,7 @@ impl<B: Board> BoardGameState<B> {
 
     fn handle_position(
         &mut self,
-        words: &mut Peekable<SplitWhitespace>,
+        words: &mut Tokens,
         allow_pos_word: bool,
         strictness: Strictness,
     ) -> Res<()> {
@@ -403,7 +402,7 @@ impl<B: Board> EngineUGI<B> {
                 }
             };
 
-            let res = self.handle_input(input.split_whitespace().peekable());
+            let res = self.handle_input(tokens(&input));
             match res {
                 Err(err) => {
                     self.write_message(Error, &err.to_string());
@@ -446,7 +445,7 @@ impl<B: Board> EngineUGI<B> {
         self.state.debug_mode || self.state.protocol == Interactive
     }
 
-    pub fn handle_input(&mut self, mut words: Peekable<SplitWhitespace>) -> Res<()> {
+    pub fn handle_input(&mut self, mut words: Tokens) -> Res<()> {
         self.output().write_ugi_input(words.clone());
         if self.fuzzing_mode() {
             self.output()
@@ -531,11 +530,7 @@ impl<B: Board> EngineUGI<B> {
         true
     }
 
-    fn handle_move_input(
-        &mut self,
-        first_word: &str,
-        rest: &mut Peekable<SplitWhitespace>,
-    ) -> Res<bool> {
+    fn handle_move_input(&mut self, first_word: &str, rest: &mut Tokens) -> Res<bool> {
         let Ok(mov) = B::Move::from_text(first_word, &self.state.board) else {
             return Ok(false);
         };
@@ -570,10 +565,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(true)
     }
 
-    fn quit(&mut self, typ: Quitting) -> Res<()> {
-        if cfg!(feature = "fuzzing") {
-            return Ok(());
-        }
+    pub fn quit(&mut self, typ: Quitting) -> Res<()> {
         // Do this before sending `quit`: If that fails, we can still recognize that we wanted to quit,
         // so that continuing on errors won't prevent us from quitting the program.
         self.state.status = Quit(typ);
@@ -600,7 +592,7 @@ impl<B: Board> EngineUGI<B> {
         )
     }
 
-    fn handle_setoption(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+    fn handle_setoption(&mut self, words: &mut Tokens) -> Res<()> {
         if words.peek().is_some_and(|w| w.eq_ignore_ascii_case("name")) {
             _ = words.next();
         }
@@ -626,8 +618,7 @@ impl<B: Board> EngineUGI<B> {
                 self.allow_ponder = parse_bool_from_str(&value, "ponder")?;
             }
             MoveOverhead => {
-                self.move_overhead =
-                    parse_duration_ms(&mut value.split_whitespace().peekable(), "move overhead")?;
+                self.move_overhead = parse_duration_ms(&mut tokens(&value), "move overhead")?;
             }
             MultiPv => {
                 self.multi_pv = parse_int_from_str(&value, "multipv")?;
@@ -676,10 +667,10 @@ impl<B: Board> EngineUGI<B> {
 
     fn print_board(&mut self) {
         // TODO: Rework the output system
-        _ = self.handle_print(&mut "".split_whitespace().peekable());
+        _ = self.handle_print(&mut tokens(""));
     }
 
-    fn handle_position(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+    fn handle_position(&mut self, words: &mut Tokens) -> Res<()> {
         self.state.handle_position(words, false, self.strictness)?;
         if self.is_interactive() {
             self.print_board();
@@ -687,11 +678,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_go(
-        &mut self,
-        initial_search_type: SearchType,
-        words: &mut Peekable<SplitWhitespace>,
-    ) -> Res<()> {
+    fn handle_go(&mut self, initial_search_type: SearchType, words: &mut Tokens) -> Res<()> {
         let mut opts = GoState::new(self, initial_search_type, self.move_overhead);
 
         if matches!(initial_search_type, Perft | SplitPerft | Bench) {
@@ -848,7 +835,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_eval_or_tt(&mut self, eval: bool, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+    fn handle_eval_or_tt(&mut self, eval: bool, words: &mut Tokens) -> Res<()> {
         let board = if let Some(next_word) = words.peek().copied() {
             _ = words.next();
             load_ugi_position(next_word, words, true, self.strictness, &self.state.board)?
@@ -874,7 +861,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_query(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+    fn handle_query(&mut self, words: &mut Tokens) -> Res<()> {
         let query = *words
             .peek()
             .ok_or(anyhow!("Missing argument to '{}'", "query".bold()))?;
@@ -900,7 +887,7 @@ impl<B: Board> EngineUGI<B> {
         }
     }
 
-    fn select_output(&self, words: &mut Peekable<SplitWhitespace>) -> Res<Option<OutputBox<B>>> {
+    fn select_output(&self, words: &mut Tokens) -> Res<Option<OutputBox<B>>> {
         let name = words.peek().copied().unwrap_or_default();
         let output = output_builder_from_str(name, &self.output_factories);
         match output {
@@ -917,13 +904,13 @@ impl<B: Board> EngineUGI<B> {
                 {
                     Ok(None)
                 } else {
-                    self.select_output(&mut "pretty".split_whitespace().peekable())
+                    self.select_output(&mut tokens("pretty"))
                 }
             }
         }
     }
 
-    fn handle_print(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+    fn handle_print(&mut self, words: &mut Tokens) -> Res<()> {
         let output = self.select_output(words)?;
         let print = |this: &Self, output: Option<OutputBox<B>>, state| match output {
             None => {
@@ -947,7 +934,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_output(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+    fn handle_output(&mut self, words: &mut Tokens) -> Res<()> {
         let next = words.next().unwrap_or_default();
         let output_ptr = self.output.clone();
         let mut output = output_ptr.lock().unwrap();
@@ -995,14 +982,14 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_debug(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+    fn handle_debug(&mut self, words: &mut Tokens) -> Res<()> {
         match words.next().unwrap_or("on") {
             "on" => {
                 self.state.debug_mode = true;
                 // make sure to print all the messages that can be sent (adding an existing output is a no-op)
-                self.handle_output(&mut "error".split_whitespace().peekable())?;
-                self.handle_output(&mut "debug".split_whitespace().peekable())?;
-                self.handle_output(&mut "info".split_whitespace().peekable())?;
+                self.handle_output(&mut tokens("error"))?;
+                self.handle_output(&mut tokens("debug"))?;
+                self.handle_output(&mut tokens("info"))?;
                 self.write_message(Debug, "Debug mode enabled");
                 // don't change the log stream if it's already set
                 if self
@@ -1014,18 +1001,18 @@ impl<B: Board> EngineUGI<B> {
                     Ok(())
                 } else {
                     // In case of an error here, still keep the debug mode set.
-                    self.handle_log(&mut "".split_whitespace().peekable())
+                    self.handle_log(&mut tokens(""))
                         .map_err(|err| anyhow!("Couldn't set the debug log file: '{err}'"))?;
                     Ok(())
                 }
             }
             "off" => {
                 self.state.debug_mode = false;
-                _ = self.handle_output(&mut "remove debug".split_whitespace().peekable());
-                _ = self.handle_output(&mut "remove info".split_whitespace().peekable());
+                _ = self.handle_output(&mut tokens("remove debug"));
+                _ = self.handle_output(&mut tokens("remove info"));
                 self.write_message(Debug, "Debug mode disabled");
                 // don't remove the error output, as there is basically no reason to do so
-                self.handle_log(&mut "none".split_whitespace().peekable())
+                self.handle_log(&mut tokens("none"))
             }
             x => bail!("Invalid debug option '{x}'"),
         }
@@ -1034,7 +1021,7 @@ impl<B: Board> EngineUGI<B> {
     // This function doesn't depend on the generic parameter, and luckily the rust compiler is smart enough to
     // polymorphize the monomorphed functions again,i.e. it will only generate this function once. So no need to
     // manually move it into a context where it doesn't depend on `B`.
-    fn handle_log(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+    fn handle_log(&mut self, words: &mut Tokens) -> Res<()> {
         self.output().additional_outputs.retain(|o| !o.is_logger());
         let next = words.peek().copied().unwrap_or_default();
         if next != "off" && next != "none" {
@@ -1078,7 +1065,7 @@ impl<B: Board> EngineUGI<B> {
         println!("{text}");
     }
 
-    fn handle_engine(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+    fn handle_engine(&mut self, words: &mut Tokens) -> Res<()> {
         let Some(engine) = words.next() else {
             let info = self.state.engine.engine_info();
             let short = info.short_name();
@@ -1094,7 +1081,7 @@ impl<B: Board> EngineUGI<B> {
             return Ok(());
         };
         if let Some(game) = words.next() {
-            return self.handle_play(&mut format!("{game} {engine}").split_whitespace().peekable());
+            return self.handle_play(&mut tokens(&format!("{game} {engine}")));
         }
         // catch invalid names before committing to shutting down the current engine
         let engine = create_engine_from_str(
@@ -1110,7 +1097,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_set_eval(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+    fn handle_set_eval(&mut self, words: &mut Tokens) -> Res<()> {
         let Some(name) = words.next() else {
             let name = self
                 .state
@@ -1128,7 +1115,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_play(&mut self, words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+    fn handle_play(&mut self, words: &mut Tokens) -> Res<()> {
         let default = Game::default().to_string();
         let game_name = words.next().unwrap_or(&default);
         let game = select_game(game_name)?;
@@ -1159,7 +1146,7 @@ impl<B: Board> EngineUGI<B> {
         .unwrap();
     }
 
-    fn write_option(&self, words: &mut Peekable<SplitWhitespace>) -> Res<String> {
+    fn write_option(&self, words: &mut Tokens) -> Res<String> {
         let options = self.get_options();
         if words
             .peek()

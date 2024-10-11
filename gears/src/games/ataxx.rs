@@ -14,7 +14,7 @@ use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{position_fen_part, SelfChecks, Strictness, UnverifiedBoard};
-use crate::general::common::{Res, StaticallyNamedEntity};
+use crate::general::common::{Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{SmallGridSize, SmallGridSquare};
 use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter};
@@ -27,9 +27,7 @@ use rand::prelude::IndexedRandom;
 use rand::Rng;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
-use std::iter::Peekable;
 use std::ops::Not;
-use std::str::SplitWhitespace;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
@@ -347,10 +345,7 @@ impl Board for AtaxxBoard {
         )
     }
 
-    fn read_fen_and_advance_input(
-        string: &mut Peekable<SplitWhitespace>,
-        strictness: Strictness,
-    ) -> Res<Self> {
+    fn read_fen_and_advance_input(string: &mut Tokens, strictness: Strictness) -> Res<Self> {
         Self::read_fen_impl(string, strictness)
     }
 

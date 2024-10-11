@@ -2,10 +2,9 @@
 
 use std::fmt::{Display, Formatter};
 use std::io::{BufRead, BufReader};
-use std::iter::Peekable;
 use std::ops::Add;
 use std::process::ChildStdout;
-use std::str::{FromStr, SplitWhitespace};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Instant;
 
@@ -14,7 +13,7 @@ use itertools::Itertools;
 
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{parse_duration_ms, parse_int_from_str, Res};
+use gears::general::common::{parse_duration_ms, parse_int_from_str, tokens, Res, Tokens};
 use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::score::{ScoreT, SCORE_LOST, SCORE_WON};
@@ -239,7 +238,7 @@ impl<B: Board> InputThread<B> {
     }
 
     fn handle_ugi(&mut self, ugi_str: &str) -> Res<MatchStatus> {
-        let mut words = ugi_str.split_whitespace().peekable();
+        let mut words = tokens(ugi_str);
         // If the client doesn't exist anymore, this thread will join without printing an error message
         // But still return a useful error message to be on the safe side.
         let Some(client) = self.upgrade_client() else {
@@ -291,7 +290,7 @@ impl<B: Board> InputThread<B> {
 
     fn handle_ugi_initial_state(
         command: &str,
-        words: Peekable<SplitWhitespace>,
+        words: Tokens,
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
     ) -> Res<()> {
@@ -315,7 +314,7 @@ impl<B: Board> InputThread<B> {
 
     fn handle_ugi_idle_state(
         command: &str,
-        words: Peekable<SplitWhitespace>,
+        words: Tokens,
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
     ) -> Res<()> {
@@ -327,7 +326,7 @@ impl<B: Board> InputThread<B> {
 
     fn handle_ugi_sync_state(
         command: &str,
-        words: Peekable<SplitWhitespace>,
+        words: Tokens,
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
     ) -> Res<()> {
@@ -340,7 +339,7 @@ impl<B: Board> InputThread<B> {
 
     fn handle_ugi_active_state(
         command: &str,
-        words: Peekable<SplitWhitespace>,
+        words: Tokens,
         client: &mut MutexGuard<Client<B>>,
         color: B::Color,
     ) -> Res<()> {
@@ -355,7 +354,7 @@ impl<B: Board> InputThread<B> {
 
     fn handle_ugi_ping_state(
         command: &str,
-        words: Peekable<SplitWhitespace>,
+        words: Tokens,
         client: &mut MutexGuard<Client<B>>,
         color: B::Color,
     ) -> Res<()> {
@@ -369,7 +368,7 @@ impl<B: Board> InputThread<B> {
 
     fn handle_ugi_halt_state(
         command: &str,
-        words: Peekable<SplitWhitespace>,
+        words: Tokens,
         client: &mut MutexGuard<Client<B>>,
         color: B::Color,
         handle_best_move: HandleBestMove,
@@ -392,7 +391,7 @@ impl<B: Board> InputThread<B> {
     }
 
     fn handle_protocol(
-        mut words: Peekable<SplitWhitespace>,
+        mut words: Tokens,
         client: &mut MutexGuard<Client<B>>,
         name: &str,
     ) -> Res<()> {
@@ -409,11 +408,7 @@ impl<B: Board> InputThread<B> {
         Ok(())
     }
 
-    fn handle_id(
-        mut id: Peekable<SplitWhitespace>,
-        client: &mut MutexGuard<Client<B>>,
-        engine: PlayerId,
-    ) -> Res<()> {
+    fn handle_id(mut id: Tokens, client: &mut MutexGuard<Client<B>>, engine: PlayerId) -> Res<()> {
         let first = id
             .next()
             .ok_or_else(|| anyhow!("Line ends after 'id'"))?
@@ -429,7 +424,7 @@ impl<B: Board> InputThread<B> {
     }
 
     fn handle_ugiok(
-        mut words: Peekable<SplitWhitespace>,
+        mut words: Tokens,
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
         proto: Protocol,
@@ -446,7 +441,7 @@ impl<B: Board> InputThread<B> {
     }
 
     fn handle_readyok(
-        mut words: Peekable<SplitWhitespace>,
+        mut words: Tokens,
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
     ) -> Res<()> {
@@ -462,7 +457,7 @@ impl<B: Board> InputThread<B> {
     }
 
     fn handle_bestmove(
-        mut words: Peekable<SplitWhitespace>,
+        mut words: Tokens,
         client: &mut MutexGuard<Client<B>>,
         color: B::Color,
     ) -> Res<()> {
@@ -498,11 +493,7 @@ impl<B: Board> InputThread<B> {
         Ok(())
     }
 
-    fn handle_info(
-        words: Peekable<SplitWhitespace>,
-        client: &mut MutexGuard<Client<B>>,
-        engine: PlayerId,
-    ) -> Res<()> {
+    fn handle_info(words: Tokens, client: &mut MutexGuard<Client<B>>, engine: PlayerId) -> Res<()> {
         let mut res = SearchInfo::default();
         let mut pv_moves = vec![];
         let board = *client.board();
@@ -528,7 +519,7 @@ impl<B: Board> InputThread<B> {
                     res.seldepth = Depth::try_new(parse_int_from_str(value, "seldepth")?)?
                 }
                 "time" => {
-                    res.time = parse_duration_ms(&mut value.split_whitespace().peekable(), "time")?;
+                    res.time = parse_duration_ms(&mut tokens(value), "time")?;
                 }
                 "nodes" => {
                     res.nodes = NodesLimit::new(parse_int_from_str(value, "nodes")?).unwrap();
@@ -602,7 +593,7 @@ impl<B: Board> InputThread<B> {
     }
 
     fn handle_option(
-        mut option: Peekable<SplitWhitespace>,
+        mut option: Tokens,
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
     ) -> Res<()> {

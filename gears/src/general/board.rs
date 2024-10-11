@@ -22,7 +22,7 @@ use crate::games::{
 use crate::general::board::SelfChecks::{Assertion, Verify};
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
+    select_name_static, tokens, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
 };
 use crate::general::move_list::MoveList;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
@@ -38,8 +38,7 @@ use colored::Colorize;
 use itertools::Itertools;
 use rand::Rng;
 use std::fmt::{Debug, Display};
-use std::iter::{once, Peekable};
-use std::str::SplitWhitespace;
+use std::iter::once;
 
 pub(crate) type NameToPos<B> = GenericSelect<fn() -> B>;
 
@@ -461,7 +460,7 @@ pub trait Board:
     /// Assumes that the entire string represents the FEN, without any trailing tokens.
     /// Use the lower-level `read_fen_and_advance_input` if this assumption doesn't have to hold.
     fn from_fen(string: &str, strictness: Strictness) -> Res<Self> {
-        let mut words = string.split_whitespace().peekable();
+        let mut words = tokens(string);
         let res = Self::read_fen_and_advance_input(&mut words, strictness)
             .map_err(|err| anyhow!("Failed to parse FEN '{}': {err}", string.bold()))?;
         if let Some(next) = words.next() {
@@ -476,10 +475,7 @@ pub trait Board:
 
     /// Like `from_fen`, but changes the `input` argument to contain the reining input instead of panicking when there's
     /// any remaining input after reading the fen.
-    fn read_fen_and_advance_input(
-        input: &mut Peekable<SplitWhitespace>,
-        strictness: Strictness,
-    ) -> Res<Self>;
+    fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self>;
 
     /// Returns true iff the board should be flipped when viewed from the second player's perspective.
     /// For example, this is the case for chess, but not for Ultimate Tic-Tac-Toe.
@@ -679,7 +675,7 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
 }
 
 pub(crate) fn read_common_fen_part<B: RectangularBoard>(
-    words: &mut Peekable<SplitWhitespace>,
+    words: &mut Tokens,
     board: B::Unverified,
 ) -> Res<B::Unverified> {
     let Some(position_part) = words.next() else {

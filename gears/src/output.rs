@@ -1,6 +1,4 @@
 use std::fmt::Debug;
-use std::iter::Peekable;
-use std::str::SplitWhitespace;
 
 use dyn_clone::DynClone;
 use itertools::Itertools;
@@ -9,7 +7,7 @@ use strum_macros::Display;
 
 use crate::games::OutputList;
 use crate::general::board::{Board, RectangularBoard};
-use crate::general::common::{NamedEntity, Res};
+use crate::general::common::{NamedEntity, Res, Tokens};
 use crate::output::logger::LoggerBuilder;
 use crate::output::pretty::ChessOutputBuilder;
 use crate::output::text_output::DisplayType::*;
@@ -73,7 +71,7 @@ pub trait AbstractOutput: NamedEntity + Debug + Send + 'static {
         // do nothing (most UIs don't log all UGI commands)
     }
 
-    fn write_ugi_input(&mut self, _message: Peekable<SplitWhitespace>, _player: Option<&str>) {
+    fn write_ugi_input(&mut self, _message: Tokens, _player: Option<&str>) {
         // do nothing (most UIs don't log all UGI commands)
     }
 

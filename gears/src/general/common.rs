@@ -108,6 +108,12 @@ pub fn ith_one_u128(idx: usize, val: u128) -> usize {
     }
 }
 
+pub type Tokens<'a> = Peekable<SplitWhitespace<'a>>;
+
+pub fn tokens(input: &str) -> Tokens {
+    input.split_whitespace().peekable()
+}
+
 pub type Res<T> = anyhow::Result<T>;
 
 pub fn sigmoid(score: Score, scale: f64) -> f64 {
@@ -129,10 +135,7 @@ pub fn parse_int_from_str<T: PrimInt + FromStr>(as_str: &str, name: &str) -> Res
         .map_err(|_err| anyhow::anyhow!("Couldn't parse {name} ('{as_str}')"))
 }
 
-pub fn parse_int<T: PrimInt + FromStr + Display>(
-    words: &mut Peekable<SplitWhitespace>,
-    name: &str,
-) -> Res<T> {
+pub fn parse_int<T: PrimInt + FromStr + Display>(words: &mut Tokens, name: &str) -> Res<T> {
     parse_int_from_str(
         words
             .next()
@@ -163,7 +166,7 @@ pub fn parse_bool_from_str(input: &str, name: &str) -> Res<bool> {
     }
 }
 
-pub fn parse_duration_ms(words: &mut Peekable<SplitWhitespace>, name: &str) -> Res<Duration> {
+pub fn parse_duration_ms(words: &mut Tokens, name: &str) -> Res<Duration> {
     let num_ms: i64 = parse_int(words, name)?;
     // The UGI client can send negative remaining time.
     Ok(Duration::from_millis(num_ms.max(0) as u64))
