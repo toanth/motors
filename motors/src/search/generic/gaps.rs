@@ -115,7 +115,11 @@ impl<B: Board> Engine<B> for Gaps<B> {
             self.state.statistics.next_id_iteration();
         }
 
-        SearchResult::move_and_score(self.state.atomic().best_move(), self.state.atomic().score())
+        SearchResult::move_and_score(
+            self.state.atomic().best_move(),
+            self.state.atomic().score(),
+            pos,
+        )
     }
 
     fn search_state(&self) -> &SearchStateFor<B, Self> {

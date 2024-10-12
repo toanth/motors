@@ -55,7 +55,7 @@ impl NamedEntity for Game {
             #[cfg(feature = "chess")]
             Game::Chess => "Normal Chess, Chess960 or Double Fisher Random Chess.",
             #[cfg(feature = "ataxx")]
-            Game::Ataxx => "Ataxx is a simple but challenging game played on a 7x7 grid where your goal is to convert your opponent's pieces",
+            Game::Ataxx => "Ataxx is a simple but challenging game played on a 7x7 grid where your goal is to convert your opponent's pieces.",
             #[cfg(feature = "mnk")]
             Game::Mnk => "m,n,k games are a generalization of Tic-Tac-Toe or Gomoku. Currently, this implementation \
                 only supports boards up to 128 squares.",

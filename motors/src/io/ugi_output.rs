@@ -28,7 +28,7 @@ use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::Move;
 use gears::output::{Message, OutputBox};
 use gears::score::Score;
-use gears::search::SearchInfo;
+use gears::search::{SearchInfo, SearchResult};
 use gears::GameState;
 use std::fmt;
 use std::io::stdout;
@@ -92,6 +92,31 @@ impl<B: Board> UgiOutput<B> {
         _ = Stdout::flush(&mut stdout());
         for output in &mut self.additional_outputs {
             output.write_ugi_output(message, None);
+        }
+    }
+
+    pub fn write_search_res(&mut self, res: SearchResult<B>) {
+        if self.pretty {
+            let mut move_text = res.chosen_move.to_extended_text(&res.pos, Standard).bold();
+            if let Some(score) = res.score {
+                move_text = move_text.with(color_for_score(score, &self.gradient));
+            }
+            let mut msg = format!("Chosen move: {move_text}",);
+            if let Some(ponder) = res.ponder_move() {
+                let new_pos = res
+                    .pos
+                    .make_move(res.chosen_move)
+                    .expect("Search returned illegal move");
+                msg += &format!(
+                    " (expected response: {})",
+                    ponder.to_extended_text(&new_pos, Standard).to_string()
+                )
+                .dim()
+                .to_string();
+            }
+            self.write_ugi(&msg)
+        } else {
+            self.write_ugi(&res.to_string());
         }
     }
 
@@ -192,16 +217,20 @@ impl<B: Board> UgiOutput<B> {
     }
 }
 
+fn color_for_score(score: Score, gradient: &LinearGradient) -> gears::crossterm::style::Color {
+    let sigmoid_score = sigmoid(score, 100.0) as f32;
+    let color = gradient.at(sigmoid_score);
+    let [r, g, b, _] = color.to_rgba8();
+    Rgb { r, g, b }
+}
+
 fn pretty_score(score: Score, previous: Option<Score>, gradient: &LinearGradient) -> String {
     use fmt::Write;
     let mut res = format!("{:>5}", score.0);
     if let Some(mate) = score.moves_until_game_won() {
         res = format!("   {:>4}", format!("#{mate}"))
     };
-    let sigmoid_score = sigmoid(score, 100.0) as f32;
-    let color = gradient.at(sigmoid_score);
-    let [r, g, b, _] = color.to_rgba8();
-    let mut res = res.with(Rgb { r, g, b }).to_string();
+    let mut res = res.with(color_for_score(score, gradient)).to_string();
     if score.is_game_over_score() {
         res = res.bold().to_string();
     } else {
@@ -209,7 +238,8 @@ fn pretty_score(score: Score, previous: Option<Score>, gradient: &LinearGradient
     }
     if let Some(previous) = previous {
         // sigmoid - sigmoid instead of sigmoid(diff) to weight changes close to 0 stronger
-        let x = (0.5 + 5.0 * (sigmoid_score - sigmoid(previous, 100.0) as f32)).clamp(0.0, 1.0);
+        let x = (0.5 + 5.0 * (sigmoid(score, 100.0) as f32 - sigmoid(previous, 100.0) as f32))
+            .clamp(0.0, 1.0);
         let color = gradient.at(x);
         let [r, g, b, _] = color.to_rgba8();
         let diff = score - previous;

@@ -21,36 +21,40 @@ pub struct SearchResult<B: Board> {
     pub score: Option<Score>,
     // TODO: NodeType to represent UCI upper bound and lower bound scores
     pub ponder_move: Option<B::Move>,
+    pub pos: B,
 }
 
 impl<B: Board> SearchResult<B> {
-    pub fn move_only(chosen_move: B::Move) -> Self {
+    pub fn move_only(chosen_move: B::Move, pos: B) -> Self {
         Self {
             chosen_move,
+            pos,
             ..Default::default()
         }
     }
 
-    pub fn move_and_score(chosen_move: B::Move, score: Score) -> Self {
-        Self::new(chosen_move, score, None)
+    pub fn move_and_score(chosen_move: B::Move, score: Score, pos: B) -> Self {
+        Self::new(chosen_move, score, None, pos)
     }
 
-    pub fn new(chosen_move: B::Move, score: Score, ponder_move: Option<B::Move>) -> Self {
+    pub fn new(chosen_move: B::Move, score: Score, ponder_move: Option<B::Move>, pos: B) -> Self {
         debug_assert!(score.verify_valid().is_some());
         Self {
             chosen_move,
             score: Some(score),
             ponder_move,
+            pos,
         }
     }
 
-    pub fn new_from_pv(score: Score, pv: &[B::Move]) -> Self {
+    pub fn new_from_pv(score: Score, pos: B, pv: &[B::Move]) -> Self {
         debug_assert!(score.verify_valid().is_some());
         // the pv may be empty if search is called in a position where the game is over
         Self::new(
             pv.first().copied().unwrap_or_default(),
             score,
             pv.get(1).copied(),
+            pos,
         )
     }
 
@@ -119,7 +123,7 @@ impl<B: Board> SearchInfo<B> {
     }
 
     pub fn to_search_result(&self) -> SearchResult<B> {
-        SearchResult::move_and_score(self.pv[0], self.score)
+        SearchResult::move_and_score(self.pv[0], self.score, self.pos)
     }
 }
 

@@ -1279,7 +1279,7 @@ impl<B: Board> EngineUGI<B> {
 
     fn write_engine_ascii_art(&mut self) {
         let text = self.state.engine.engine_info().short_name();
-        let text = print_as_ascii_art(&text, 2).cyan().to_string();
+        let text = print_as_ascii_art(&text, 2).dark_cyan().to_string();
         self.write_ugi(&text);
     }
 }

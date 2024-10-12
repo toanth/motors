@@ -528,20 +528,13 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
             tt,
         ))
     }
+
     /// Start a new search and return the best move and score.
     /// 'parameters' contains information like the board history and allows the search to output intermediary results.
     fn search(&mut self, search_params: SearchParams<B>) -> SearchResult<B> {
         self.search_state_mut_dyn().new_search(search_params);
         let res = self.do_search();
-        let search_state = self.search_state_mut_dyn();
-        // search_state.statistics_mut().end_search();
-        // search_state.send_statistics();
-        // search_state.aggregate_match_statistics();
-        // // might block, see method. Do this as the last step so that we're not using compute after sending
-        // // the search result.
-        // search_state.send_search_res(res);
-        // search_state.search_params_mut().atomic.set_searching(false);
-        search_state.end_search(res);
+        self.search_state_mut_dyn().end_search(res);
         res
     }
 
@@ -879,7 +872,12 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     }
 
     fn search_result(&self) -> SearchResult<B> {
-        SearchResult::new(self.best_move(), self.best_score(), self.ponder_move())
+        SearchResult::new(
+            self.best_move(),
+            self.best_score(),
+            self.ponder_move(),
+            self.params.pos,
+        )
     }
 
     fn stop_search(&self) {
@@ -938,14 +936,14 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             if chosen_move != B::Move::default() {
                 debug_assert!(pos.is_move_legal(chosen_move));
                 output.write_message(Warning, "Not even a single iteration finished");
-                output.write_ugi(&SearchResult::<B>::move_only(chosen_move).to_string());
+                output.write_search_res(SearchResult::<B>::move_only(chosen_move, pos));
                 return;
             }
             output.write_message(Warning, "search() called in a position with no legal moves");
         }
         debug_assert!(pos.is_move_legal(res.chosen_move) || res.chosen_move == B::Move::default());
 
-        output.write_ugi(&res.to_string());
+        output.write_search_res(res);
     }
 
     fn new(max_depth: Depth) -> Self {
