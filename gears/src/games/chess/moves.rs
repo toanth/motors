@@ -1,11 +1,10 @@
 use anyhow::{anyhow, bail};
-use colored::Colorize;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use arbitrary::Arbitrary;
-
+use crossterm::style::Stylize;
 use itertools::Itertools;
 use num::iter;
 use strum::IntoEnumIterator;

@@ -1,4 +1,8 @@
 pub use anyhow;
+use crossterm::style::Stylize;
+use edit_distance::edit_distance;
+use itertools::{Intersperse, Itertools};
+use num::{Float, PrimInt};
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2", feature = "unsafe"))]
 use std::arch::x86_64::{_pdep_u64, _pext_u64};
 use std::fmt::{Debug, Display};
@@ -7,11 +11,6 @@ use std::iter::Peekable;
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::str::{FromStr, SplitWhitespace};
 use std::time::Duration;
-
-use colored::Colorize;
-use edit_distance::edit_distance;
-use itertools::{Intersperse, Itertools};
-use num::{Float, PrimInt};
 
 use crate::general::common::Description::WithDescription;
 use crate::score::Score;

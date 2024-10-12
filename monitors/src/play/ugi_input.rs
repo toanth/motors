@@ -8,9 +8,14 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Instant;
 
-use colored::Colorize;
 use itertools::Itertools;
 
+use crate::play::player::Protocol::{Uci, Ugi};
+use crate::play::player::{EnginePlayer, Protocol};
+use crate::play::ugi_client::{Client, PlayerId};
+use crate::play::ugi_input::EngineStatus::*;
+use crate::play::ugi_input::HandleBestMove::{Ignore, Play};
+use gears::crossterm::style::Stylize;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{parse_duration_ms, parse_int_from_str, tokens, Res, Tokens};
@@ -25,12 +30,6 @@ use gears::{
     player_res_to_match_res, AdjudicationReason, GameOver, GameOverReason, MatchStatus,
     PlayerResult,
 };
-
-use crate::play::player::Protocol::{Uci, Ugi};
-use crate::play::player::{EnginePlayer, Protocol};
-use crate::play::ugi_client::{Client, PlayerId};
-use crate::play::ugi_input::EngineStatus::*;
-use crate::play::ugi_input::HandleBestMove::{Ignore, Play};
 
 // TODO: Does not currently handle engines that simply don't terminate the search (unless the user inputs 'stop')
 // (not receiving ugiok/uiok is handled, as is losing on time with a bestmove response,

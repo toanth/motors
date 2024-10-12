@@ -10,18 +10,13 @@ use std::sync::Arc;
 use std::thread::spawn;
 use std::time::{Duration, Instant};
 
-use colored::Colorize;
+use crate::eval::Eval;
 use crossbeam_channel::unbounded;
 use derive_more::{Add, Neg, Sub};
 use dyn_clone::DynClone;
+use gears::crossterm::style::Stylize;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
-use itertools::Itertools;
-use rand::prelude::StdRng;
-use rand::SeedableRng;
-use strum_macros::FromRepr;
-
-use crate::eval::Eval;
 use gears::general::common::anyhow::bail;
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
 use gears::general::move_list::MoveList;
@@ -30,6 +25,10 @@ use gears::output::Message::Warning;
 use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON};
 use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType};
+use itertools::Itertools;
+use rand::prelude::StdRng;
+use rand::SeedableRng;
+use strum_macros::FromRepr;
 
 use crate::search::multithreading::SearchThreadType::*;
 use crate::search::multithreading::SearchType::*;

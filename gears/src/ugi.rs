@@ -2,7 +2,7 @@ use crate::general::board::{Board, Strictness};
 use crate::general::common::{NamedEntity, Res, Tokens};
 use crate::general::moves::Move;
 use anyhow::{anyhow, bail};
-use colored::Colorize;
+use crossterm::style::Stylize;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use strum_macros::EnumIter;

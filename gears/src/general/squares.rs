@@ -1,11 +1,3 @@
-use anyhow::{anyhow, bail};
-use arbitrary::Arbitrary;
-use colored::Colorize;
-use std::cmp::max;
-use std::fmt;
-use std::fmt::{Display, Formatter};
-use std::str::FromStr;
-
 #[cfg(feature = "chess")]
 use crate::games::chess::ChessColor;
 use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, Size, Width};
@@ -13,6 +5,13 @@ use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, Size, 
 use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::common::{parse_int, tokens, Res};
 use crate::general::squares::SquareColor::{Black, White};
+use anyhow::{anyhow, bail};
+use arbitrary::Arbitrary;
+use crossterm::style::Stylize;
+use std::cmp::max;
+use std::fmt;
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
 
 pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
     fn from_row_column(row: DimT, column: DimT) -> Self;

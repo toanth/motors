@@ -1,7 +1,17 @@
-use colored::Colorize;
+use crate::eval::Eval;
+use crate::io::ugi_output::UgiOutput;
 use dyn_clone::clone_box;
+use gears::crossterm::style::Stylize;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
+use gears::general::common::anyhow::{anyhow, bail};
+use gears::general::common::{parse_int_from_str, Name, NamedEntity, Res};
+use gears::general::moves::Move;
+use gears::output::Message::*;
+use gears::score::{Score, NO_SCORE_YET};
+use gears::search::{Depth, SearchLimit};
+use gears::ugi::EngineOptionName;
+use gears::ugi::EngineOptionName::{Hash, Threads};
 use portable_atomic::AtomicUsize;
 use std::hint::spin_loop;
 use std::marker::PhantomData;
@@ -9,17 +19,6 @@ use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU64};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
-
-use crate::eval::Eval;
-use crate::io::ugi_output::UgiOutput;
-use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{parse_int_from_str, Name, Res};
-use gears::general::moves::Move;
-use gears::output::Message::*;
-use gears::score::{Score, NO_SCORE_YET};
-use gears::search::{Depth, SearchLimit};
-use gears::ugi::EngineOptionName;
-use gears::ugi::EngineOptionName::{Hash, Threads};
 
 use crate::search::multithreading::EngineReceives::*;
 use crate::search::multithreading::SearchThreadType::{Auxiliary, Main};
@@ -276,7 +275,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                     let mut guard = info.lock().unwrap();
                     let Some(val) = guard.options.get_mut(&name) else {
                         bail!("The engine '{0}' doesn't provide the option '{1}', so it can't be set to value '{2}'",
-                            guard.engine.short.bold(), name.to_string().red(), value.bold());
+                            guard.engine.short_name().bold(), name.to_string().red(), value.bold());
                     };
                     self.engine.set_option(name, val, value)?
                 }

@@ -24,10 +24,10 @@ use crate::io::{EngineUGI, SearchType};
 use crate::search::{
     AbstractEvalBuilder, AbstractSearcherBuilder, EngineInfo, EvalList, SearcherList,
 };
-use arrayvec::ArrayVec;
-use colored::Colorize;
 use edit_distance::edit_distance;
+use gears::arrayvec::ArrayVec;
 use gears::cli::Game;
+use gears::crossterm::style::Stylize;
 use gears::games::{Color, OutputList, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, Strictness};
@@ -1226,7 +1226,7 @@ fn completions<B: Board>(
 
 fn underline_match(name: &str, word: &str) -> String {
     if name == word {
-        format!("{}", name.underline())
+        format!("{}", name.underlined())
     } else {
         name.to_string()
     }

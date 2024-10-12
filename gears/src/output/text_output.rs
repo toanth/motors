@@ -10,7 +10,8 @@ use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
 use crate::MatchStatus::*;
 use crate::{AdjudicationReason, GameOverReason, GameResult, GameState};
 use anyhow::{anyhow, bail};
-use colored::{Colorize, CustomColor};
+use crossterm::style;
+use crossterm::style::Stylize;
 use std::fmt;
 use std::fs::File;
 use std::io::{stderr, stdout, Stderr, Stdout, Write};
@@ -277,12 +278,7 @@ impl BoardToText {
         }
         match self.typ {
             Pretty => {
-                let formatter = DefaultBoardFormatter {
-                    pos: m.get_board(),
-                    last_move: m.last_move(),
-                    flip: flipped,
-                };
-                let mut formatter = m.get_board().modify_pretty_formatter(Box::new(formatter));
+                let mut formatter = m.get_board().pretty_formatter(m.last_move(), flipped);
                 format!(
                     "{time_above}{}{time_below}",
                     m.get_board().display_pretty(formatter.as_mut())
@@ -448,7 +444,7 @@ pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
 ) -> String {
     use std::fmt::Write;
     let flip = flip && B::should_flip_visually();
-    let mut res = pos.settings().text().map(|t| t + "\n").unwrap_or_default();
+    let mut res = pos.settings().text().map(|t| t).unwrap_or_default();
     for y in 0..pos.height() {
         let yc = if flip { y } else { pos.height() - 1 - y };
         write!(&mut res, "{:>2} ", yc + 1).unwrap();
@@ -468,11 +464,21 @@ pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
     res
 }
 
-fn with_color(text: &str, color: Option<CustomColor>) -> String {
+pub fn p1_color() -> style::Color {
+    style::Color::DarkBlue
+}
+
+pub fn p2_color() -> style::Color {
+    style::Color::DarkMagenta
+}
+
+fn with_color(text: &str, color: Option<style::Color>, highlight: bool) -> String {
     if let Some(color) = color {
-        text.custom_color(color).bold().to_string()
+        text.with(color).bold().to_string()
+    } else if highlight {
+        text.dark_cyan().bold().to_string()
     } else {
-        text.to_string()
+        text.dim().to_string()
     }
 }
 
@@ -494,7 +500,7 @@ pub fn display_board_pretty<B: RectangularBoard>(
             }
         }
     }
-    let write_vertical_bar = |y: usize| -> String {
+    let write_vertical_bar = |y: usize, bold: bool| -> String {
         let mut res = "    ".to_string();
         for x in 0..pos.get_width() {
             let mut col = colors[y][x];
@@ -508,35 +514,53 @@ pub fn display_board_pretty<B: RectangularBoard>(
                     plus_color = colors[y - 1][x - 1];
                 }
             }
-            let plus = with_color("+", plus_color);
-            let bar = with_color("---", col);
+            let plus = with_color(
+                "+",
+                plus_color,
+                bold || x % fmt.horizontal_spacer_interval() == 0,
+            );
+            let bar = with_color("---", col, bold);
             write!(&mut res, "{plus}{bar}").unwrap();
         }
         let mut plus_color = colors[y][pos.get_width() - 1];
         if plus_color.is_none() && y > 0 {
             plus_color = colors[y - 1][pos.get_width() - 1];
         }
-        let plus = with_color("+", plus_color);
+        let plus = with_color(
+            "+",
+            plus_color,
+            pos.get_width() % fmt.horizontal_spacer_interval() == 0,
+        );
         write!(&mut res, "{plus}").unwrap();
         res
     };
     let mut res: Vec<String> = vec![];
     for y in 0..pos.get_height() {
-        res.push(write_vertical_bar(y));
+        res.push(write_vertical_bar(
+            y,
+            y % fmt.vertical_spacer_interval() == 0,
+        ));
         let mut line = format!(" {:>2} ", (y + 1).to_string());
         for x in 0..pos.get_width() {
             let mut col = colors[y][x];
             if col.is_none() && x > 0 {
                 col = colors[y][x - 1];
             }
-            line += &with_color("|", col);
+            line += &with_color("|", col, x % fmt.horizontal_spacer_interval() == 0);
             let xc = if flip { pos.get_width() - 1 - x } else { x };
             line += &fmt.display_piece(B::Coordinates::from_row_column(y as DimT, xc as DimT), 3);
         }
-        line += &with_color("|", colors[y][pos.get_width() - 1]);
+        line += &with_color(
+            "|",
+            colors[y][pos.get_width() - 1],
+            pos.get_width() % fmt.horizontal_spacer_interval() == 0,
+        );
         res.push(line);
     }
-    res.push(write_vertical_bar(pos.get_height()));
+    res.push(write_vertical_bar(
+        pos.get_height(),
+        pos.get_height() % fmt.vertical_spacer_interval() == 0,
+    ));
     if !flip {
         res.reverse();
     }
@@ -553,65 +577,107 @@ pub fn display_board_pretty<B: RectangularBoard>(
 }
 
 pub trait BoardFormatter<B: Board> {
-    fn display_piece(&mut self, coords: B::Coordinates, width: usize) -> String;
+    fn display_piece(&self, coords: B::Coordinates, width: usize) -> String;
 
-    fn frame_color(&mut self, coords: B::Coordinates) -> Option<colored::CustomColor>;
+    fn frame_color(&self, coords: B::Coordinates) -> Option<style::Color>;
 
-    fn flip_board(&mut self) -> bool;
+    fn flip_board(&self) -> bool;
+
+    fn horizontal_spacer_interval(&self) -> usize;
+
+    fn vertical_spacer_interval(&self) -> usize;
 }
 
-pub struct DefaultBoardFormatter<B: Board> {
+pub struct DefaultBoardFormatter<B: RectangularBoard> {
     pub pos: B,
     pub last_move: Option<B::Move>,
     pub flip: bool,
+    pub vertical_spacer_interval: usize,
+    pub horizontal_spacer_interval: usize,
 }
 
-impl<B: Board> BoardFormatter<B> for DefaultBoardFormatter<B> {
-    fn display_piece(&mut self, coords: B::Coordinates, width: usize) -> String {
+impl<B: RectangularBoard> DefaultBoardFormatter<B> {
+    pub fn new(pos: B, last_move: Option<B::Move>, flip: bool) -> Self {
+        Self {
+            pos,
+            last_move,
+            flip,
+            vertical_spacer_interval: pos.get_height(),
+            horizontal_spacer_interval: pos.get_width(),
+        }
+    }
+}
+
+impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
+    fn display_piece(&self, coords: B::Coordinates, width: usize) -> String {
         let piece = self.pos.colored_piece_on(coords);
         let c = format!("{0:^1$}", piece.to_utf8_char(), width);
 
         let Some(color) = piece.color() else { return c };
         if color.is_first() {
-            c.magenta().to_string()
+            c.with(p1_color()).bold().to_string()
         } else {
-            c.blue().to_string()
+            c.with(p2_color()).bold().to_string()
         }
     }
 
-    fn frame_color(&mut self, coords: B::Coordinates) -> Option<CustomColor> {
+    fn frame_color(&self, coords: B::Coordinates) -> Option<style::Color> {
         if self
             .last_move
             .is_some_and(|m| m.src_square() == coords || m.dest_square() == coords)
         {
-            Some(CustomColor::new(128, 64, 16))
+            Some(style::Color::Rgb {
+                r: 128,
+                g: 64,
+                b: 16,
+            })
         } else {
             None
         }
     }
 
-    fn flip_board(&mut self) -> bool {
+    fn flip_board(&self) -> bool {
         self.flip
+    }
+
+    fn horizontal_spacer_interval(&self) -> usize {
+        self.horizontal_spacer_interval
+    }
+
+    fn vertical_spacer_interval(&self) -> usize {
+        self.vertical_spacer_interval
     }
 }
 
 pub struct AdaptFormatter<B: Board> {
     pub underlying: Box<dyn BoardFormatter<B>>,
-    pub color_frame: Box<dyn Fn(B::Coordinates) -> Option<CustomColor>>,
+    pub color_frame: Box<dyn Fn(B::Coordinates) -> Option<style::Color>>,
     pub display_piece: Box<dyn Fn(B::Coordinates, usize) -> Option<String>>,
+    pub horizontal_spacer_interval: Option<usize>,
+    pub vertical_spacer_interval: Option<usize>,
 }
 
 impl<B: Board> BoardFormatter<B> for AdaptFormatter<B> {
-    fn display_piece(&mut self, square: B::Coordinates, width: usize) -> String {
+    fn display_piece(&self, square: B::Coordinates, width: usize) -> String {
         (self.display_piece)(square, width)
             .unwrap_or_else(|| self.underlying.display_piece(square, width))
     }
 
-    fn frame_color(&mut self, coords: B::Coordinates) -> Option<CustomColor> {
+    fn frame_color(&self, coords: B::Coordinates) -> Option<style::Color> {
         (self.color_frame)(coords).or_else(|| self.underlying.frame_color(coords))
     }
 
-    fn flip_board(&mut self) -> bool {
+    fn flip_board(&self) -> bool {
         self.underlying.flip_board()
+    }
+
+    fn horizontal_spacer_interval(&self) -> usize {
+        self.horizontal_spacer_interval
+            .unwrap_or_else(|| self.underlying.horizontal_spacer_interval())
+    }
+
+    fn vertical_spacer_interval(&self) -> usize {
+        self.vertical_spacer_interval
+            .unwrap_or_else(|| self.underlying.vertical_spacer_interval())
     }
 }

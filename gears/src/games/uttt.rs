@@ -41,12 +41,15 @@ use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
 use crate::general::squares::{RectangularCoordinates, SmallGridSize, SmallGridSquare};
-use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter};
+use crate::output::text_output::{
+    board_to_string, display_board_pretty, p1_color, p2_color, AdaptFormatter, BoardFormatter,
+    DefaultBoardFormatter,
+};
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 use anyhow::bail;
 use arbitrary::Arbitrary;
-use colored::Colorize;
+use crossterm::style::Stylize;
 use itertools::Itertools;
 use rand::Rng;
 use std::fmt;
@@ -292,12 +295,15 @@ impl Move<UtttBoard> for UtttMove {
     }
 
     fn from_compact_text(s: &str, board: &UtttBoard) -> Res<Self> {
+        // TODO: This is not pseudolegal, so allowing it seems dangerous
         if s == "0000" {
             return Ok(Self::NULL);
         }
         let square = UtttSquare::from_str(s)?;
         if !board.is_open(square) {
             bail!("Square {square} is not empty, so this move is invalid");
+        } else if !board.is_move_pseudolegal(Self(square)) {
+            bail!("Incorrect sub-board. The previous move determines the sub-board for this move")
         }
         Ok(Self(square))
     }
@@ -760,6 +766,12 @@ impl Board for UtttBoard {
     }
 
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {
+        if !self.last_move.is_null() {
+            let sub_board = self.last_move.dest_square().sub_square();
+            if self.is_sub_board_open(sub_board) && mov.dest_square().sub_board() != sub_board {
+                return false;
+            }
+        }
         self.is_open(mov.dest_square())
     }
 
@@ -840,8 +852,32 @@ impl Board for UtttBoard {
         board_to_string(self, UtttPiece::to_utf8_char, flip)
     }
 
-    fn display_pretty(&self, display_coordinates: &mut dyn BoardFormatter<Self>) -> String {
-        display_board_pretty(self, display_coordinates)
+    fn display_pretty(&self, fmt: &mut dyn BoardFormatter<Self>) -> String {
+        display_board_pretty(self, fmt)
+    }
+
+    fn pretty_formatter(
+        &self,
+        last_move: Option<UtttMove>,
+        flip: bool,
+    ) -> Box<dyn BoardFormatter<Self>> {
+        let pos = *self;
+        let formatter = AdaptFormatter {
+            underlying: Box::new(DefaultBoardFormatter::new(*self, last_move, flip)),
+            color_frame: Box::new(move |c| {
+                if pos.is_sub_board_won(UtttColor::first(), c.sub_board()) {
+                    Some(p1_color().into())
+                } else if pos.is_sub_board_won(UtttColor::second(), c.sub_board()) {
+                    Some(p2_color().into())
+                } else {
+                    None
+                }
+            }),
+            display_piece: Box::new(|_, _| None),
+            horizontal_spacer_interval: Some(3),
+            vertical_spacer_interval: Some(3),
+        };
+        Box::new(formatter)
     }
 }
 

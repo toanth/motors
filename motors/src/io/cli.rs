@@ -16,12 +16,12 @@
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use colored::Colorize;
 use std::process::exit;
 use std::str::FromStr;
 
 use crate::Mode;
 use gears::cli::{get_next_arg, get_next_int, parse_output, ArgIter, Game};
+use gears::crossterm::style::Stylize;
 use gears::general::common::anyhow::bail;
 use gears::general::common::{parse_int_from_str, Res};
 use gears::search::Depth;

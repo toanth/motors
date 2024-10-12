@@ -28,7 +28,6 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use colored::Colorize;
 use itertools::Itertools;
 
 use crate::io::ascii_art::print_as_ascii_art;
@@ -49,6 +48,7 @@ use crate::{
     create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match,
 };
 use gears::cli::{select_game, Game};
+use gears::crossterm::style::Stylize;
 use gears::games::{BoardHistory, OutputList, ZobristHistory};
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, Strictness};
@@ -388,7 +388,7 @@ impl<B: Board> EngineUGI<B> {
         );
         let text = format!("Motors: {}", self.state.game_name());
         let text = print_as_ascii_art(&text, 2);
-        self.write_ugi(&text.dimmed().to_string());
+        self.write_ugi(&text.dim().to_string());
         self.write_engine_ascii_art();
 
         let mut input = Input::new(self.state.protocol == Interactive, self);
@@ -524,7 +524,7 @@ impl<B: Board> EngineUGI<B> {
         let text = match res {
             PlayerResult::Win => text.green(),
             PlayerResult::Lose => text.red(),
-            PlayerResult::Draw => text.into(),
+            PlayerResult::Draw => text.stylize(),
         };
         self.write_ugi(&text.to_string());
         true
@@ -1046,7 +1046,7 @@ impl<B: Board> EngineUGI<B> {
     fn print_help(&self) {
         let engine_name = format!(
             "{0} ({1})",
-            self.state.display_name.bold(),
+            self.state.display_name.clone().bold(),
             self.state.engine.engine_info().long_name().bold()
         );
         let motors = "motors".bold();

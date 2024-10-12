@@ -15,6 +15,8 @@ use crate::AdjudicationReason::*;
 use crate::GameResult::Aborted;
 use crate::MatchStatus::Over;
 use crate::PlayerResult::{Draw, Lose, Win};
+pub use arrayvec;
+pub use crossterm;
 
 /// A few helpers for interacting with the command line.
 pub mod cli;

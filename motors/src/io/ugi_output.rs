@@ -18,8 +18,9 @@
 
 // TODO: Keep this is a global object instead? Would make it easier to print warnings from anywhere, simplify search sender design
 
-use colored::{Colorize, CustomColor};
 use colorgrad::{BasisGradient, Gradient, LinearGradient};
+use gears::crossterm::style::Color::Rgb;
+use gears::crossterm::style::Stylize;
 use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::common::{sigmoid, Tokens};
@@ -113,17 +114,16 @@ impl<B: Board> UgiOutput<B> {
             let nodes = info.nodes.get() as f64 / 1_000_000.0;
             let nps = nodes / time;
             let nps_color = self.alt_grad.at(nps as f32 / 3.0);
-            let [nps_r, nps_g, nps_b, _] = nps_color.to_rgba8();
-            let nps_color = CustomColor::new(nps_r, nps_g, nps_b);
-            let nps = format!("{nps:5.2}").custom_color(nps_color);
+            let [r, g, b, _] = nps_color.to_rgba8();
+            let nps = format!("{nps:5.2}").with(Rgb { r, g, b });
             let time_badness = 1.0 - (time + 1.0).log2() / 10.0;
-            let [t_r, t_g, t_b, _] = self.alt_grad.at(time_badness as f32).to_rgba8();
+            let [r, g, b, _] = self.alt_grad.at(time_badness as f32).to_rgba8();
             let mut in_seconds = true;
             if time >= 1000.0 {
                 time /= 60.0;
                 in_seconds = false;
             }
-            let time = format!("{time:5.1}").custom_color(CustomColor::new(t_r, t_g, t_b));
+            let time = format!("{time:5.1}").with(Rgb { r, g, b });
             let nodes = format!("{nodes:6.1}").bold();
 
             let pv = pretty_pv(
@@ -136,23 +136,24 @@ impl<B: Board> UgiOutput<B> {
             } else {
                 format!("{:>4}", format!("({})", info.pv_num + 1))
             };
-            let iter = info.depth.to_string().bold();
+            // bold after formatting because crossterms seems to count the control characters towards the format width
+            let iter = format!("{:>3}", info.depth).bold();
             let seldepth = info.seldepth;
 
-            let [tt_r, tt_g, tt_b, _] = self
+            let [r, g, b, _] = self
                 .alt_grad
                 .at(0.75 - info.hashfull as f32 / 2000.0)
                 .to_rgba8();
             let tt = format!("{:5.1}", info.hashfull as f64 / 10.0)
                 .to_string()
-                .custom_color(CustomColor::new(tt_r, tt_g, tt_b))
-                .dimmed();
+                .with(Rgb { r, g, b })
+                .dim();
             self.previous_info = Some(info);
             format!(
-                " {iter:>3} {seldepth:>3} {multipv} {score}  {time}{s}  {nodes}{M}  {nps}  {tt}{p}  {pv}",
-                s = if in_seconds {"s"} else {"m"}.dimmed(),
-                M = "M".dimmed(),
-                p = "%".dimmed(),
+                " {iter} {seldepth:>3} {multipv} {score}  {time}{s}  {nodes}{M}  {nps}  {tt}{p}  {pv}",
+                s = if in_seconds {"s"} else {"m"}.dim(),
+                M = "M".dim(),
+                p = "%".dim(),
             )
         } else {
             info.to_string()
@@ -200,11 +201,11 @@ fn pretty_score(score: Score, previous: Option<Score>, gradient: &LinearGradient
     let sigmoid_score = sigmoid(score, 100.0) as f32;
     let color = gradient.at(sigmoid_score);
     let [r, g, b, _] = color.to_rgba8();
-    let mut res = res.custom_color(CustomColor::new(r, g, b)).to_string();
+    let mut res = res.with(Rgb { r, g, b }).to_string();
     if score.is_game_over_score() {
         res = res.bold().to_string();
     } else {
-        write!(&mut res, "{}", "cp".dimmed()).unwrap();
+        write!(&mut res, "{}", "cp".dim()).unwrap();
     }
     if let Some(previous) = previous {
         // sigmoid - sigmoid instead of sigmoid(diff) to weight changes close to 0 stronger
@@ -223,10 +224,7 @@ fn pretty_score(score: Score, previous: Option<Score>, gradient: &LinearGradient
         } else {
             '🡪'
         };
-        format!(
-            "{res} {}",
-            c.to_string().bold().custom_color(CustomColor::new(r, g, b))
-        )
+        format!("{res} {}", c.to_string().bold().with(Rgb { r, g, b }))
     } else {
         res.to_string() + "  "
     }
@@ -242,24 +240,24 @@ fn pretty_pv<B: Board>(pv: &[B::Move], mut pos: B, previous: Option<&[B::Move]>)
             return format!("{res} [Invalid PV move '{}'", mov.to_string().red());
         }
         // 'Alternative' would be cooler, but unfortunately most fonts struggle with unicode chess pieces,
-        // especially in combination with bold / dimmed etc
+        // especially in combination with bold / dim etc
         let mut new_move = mov.to_extended_text(&pos, Standard);
         let previous = previous
             .and_then(|p| p.get(idx))
             .copied()
             .unwrap_or_default();
         if previous == *mov {
-            new_move = new_move.dimmed().to_string();
+            new_move = new_move.dim().to_string();
         } else if same_so_far {
             new_move = new_move.bold().to_string();
             same_so_far = false;
         }
         if pos.active_player().is_first() {
             let move_nr = format!(" {}.", pos.fullmove_ctr() + 1);
-            write!(&mut res, "{}", move_nr.dimmed()).unwrap();
+            write!(&mut res, "{}", move_nr.dim()).unwrap();
         } else if idx == 0 {
             let move_nr = format!(" {}. ...", pos.fullmove_ctr() + 1);
-            write!(&mut res, "{}", move_nr.dimmed()).unwrap();
+            write!(&mut res, "{}", move_nr.dim()).unwrap();
         } else {
             res.push(' ');
         }

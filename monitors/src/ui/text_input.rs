@@ -4,7 +4,6 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::thread::{Builder, JoinHandle};
 
-use colored::Colorize;
 use itertools::Itertools;
 use rand::thread_rng;
 
@@ -15,6 +14,7 @@ use crate::play::ugi_client::Client;
 use crate::play::ugi_input::BestMoveAction::Play;
 use crate::ui::text_input::DefaultPlayer::{Active, Inactive, NoPlayer};
 use crate::ui::{Input, InputBuilder};
+use gears::crossterm::style::Stylize;
 use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::board::Strictness::Relaxed;

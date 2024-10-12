@@ -1,6 +1,6 @@
 use crate::search::move_picker::MovePickerState::*;
 use crate::search::{Engine, MoveScore, MoveScorer, SearchStateFor};
-use arrayvec::{ArrayVec, IntoIter};
+use gears::arrayvec::{ArrayVec, IntoIter};
 use gears::general::board::Board;
 use gears::general::move_list::MoveList;
 use gears::general::moves::Move;

@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail};
-use colored::Colorize;
+use crossterm::style::Stylize;
 use regex::Regex;
 use static_assertions::const_assert_eq;
 use std::cmp::min;
@@ -28,7 +28,9 @@ use crate::general::move_list::EagerNonAllocMoveList;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
 use crate::general::squares::{GridCoordinates, GridSize};
-use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter};
+use crate::output::text_output::{
+    board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter,
+};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub enum Symbol {
@@ -735,6 +737,14 @@ impl Board for MNKBoard {
 
     fn display_pretty(&self, fmt: &mut dyn BoardFormatter<Self>) -> String {
         display_board_pretty(self, fmt)
+    }
+
+    fn pretty_formatter(
+        &self,
+        last_move: Option<Self::Move>,
+        flip: bool,
+    ) -> Box<dyn BoardFormatter<Self>> {
+        Box::new(DefaultBoardFormatter::new(*self, last_move, flip))
     }
 }
 

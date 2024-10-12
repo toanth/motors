@@ -1,14 +1,14 @@
 use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
+use crossterm::style;
+use crossterm::style::Stylize;
+use itertools::Itertools;
+use rand::prelude::IteratorRandom;
+use rand::Rng;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroUsize;
 use std::ops::Not;
 use std::str::FromStr;
-
-use colored::{Colorize, CustomColor};
-use itertools::Itertools;
-use rand::prelude::IteratorRandom;
-use rand::Rng;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
@@ -43,7 +43,8 @@ use crate::general::common::{
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::text_output::{
-    board_to_string, display_board_pretty, AdaptFormatter, BoardFormatter,
+    board_to_string, display_board_pretty, p1_color, p2_color, AdaptFormatter, BoardFormatter,
+    DefaultBoardFormatter,
 };
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
@@ -605,21 +606,26 @@ impl Board for Chessboard {
         display_board_pretty(self, display_coordinates)
     }
 
-    fn modify_pretty_formatter(
+    fn pretty_formatter(
         &self,
-        formatter: Box<dyn BoardFormatter<Self>>,
+        last_move: Option<ChessMove>,
+        flip: bool,
     ) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;
         let king_square = self.king_square(self.active_player);
         let color_frame = Box::new(move |square| {
             if pos.is_in_check() && square == king_square {
-                Some(CustomColor::new(255, 16, 16))
+                Some(style::Color::Rgb {
+                    r: 255,
+                    g: 16,
+                    b: 16,
+                })
             } else {
                 None
             }
         });
         Box::new(AdaptFormatter {
-            underlying: formatter,
+            underlying: Box::new(DefaultBoardFormatter::new(*self, last_move, flip)),
             color_frame,
             display_piece: Box::new(move |square, width| {
                 let piece = pos.colored_piece_on(square);
@@ -627,18 +633,21 @@ impl Board for Chessboard {
                     let s = if square.square_color() == SquareColor::White {
                         " ".repeat(width)
                     } else {
-                        format!("{0:^1$}", "*".dimmed(), width)
+                        // call .dim() after formatting the width because crossterm seems to count the dimming escape sequences
+                        format!("{:^1$}", "*", width).dim().to_string()
                     };
                     Some(s)
                 } else {
                     let s = format!("{0:^1$}", piece.uncolored().to_utf8_char(), width);
                     Some(if piece.color().unwrap().is_first() {
-                        s.blue().to_string()
+                        s.with(p1_color()).to_string()
                     } else {
-                        s.magenta().to_string()
+                        s.with(p2_color()).to_string()
                     })
                 }
             }),
+            horizontal_spacer_interval: None,
+            vertical_spacer_interval: None,
         })
     }
 }

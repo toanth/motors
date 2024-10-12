@@ -8,7 +8,7 @@ use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
 use anyhow::bail;
 use arbitrary::Arbitrary;
-use colored::Colorize;
+use crossterm::style::Stylize;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;

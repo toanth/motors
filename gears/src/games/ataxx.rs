@@ -17,7 +17,9 @@ use crate::general::board::{position_fen_part, SelfChecks, Strictness, Unverifie
 use crate::general::common::{Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{SmallGridSize, SmallGridSquare};
-use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter};
+use crate::output::text_output::{
+    board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter,
+};
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose, Win};
 use anyhow::bail;
@@ -363,6 +365,14 @@ impl Board for AtaxxBoard {
 
     fn display_pretty(&self, fmt: &mut dyn BoardFormatter<Self>) -> String {
         display_board_pretty(self, fmt)
+    }
+
+    fn pretty_formatter(
+        &self,
+        last_move: Option<Self::Move>,
+        flip: bool,
+    ) -> Box<dyn BoardFormatter<Self>> {
+        Box::new(DefaultBoardFormatter::new(*self, last_move, flip))
     }
 }
 

@@ -1,9 +1,3 @@
-use anyhow::bail;
-use std::fmt::{Display, Write};
-use std::io::stdout;
-
-use colored::{Color, Colorize};
-
 use crate::games::{AbstractPieceType, ColoredPiece, ColoredPieceType, Coordinates};
 use crate::general::board::{ColPieceType, RectangularBoard};
 use crate::general::common::{IterIntersperse, NamedEntity, Res, StaticallyNamedEntity};
@@ -13,6 +7,10 @@ use crate::output::text_output::{TextStream, TextWriter};
 use crate::output::Message::Info;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
 use crate::{games, GameState};
+use anyhow::bail;
+use crossterm::style::{Color, Stylize};
+use std::fmt::{Display, Write};
+use std::io::stdout;
 
 // TODO: Should be a BoardToString variant
 #[derive(Debug)]
@@ -51,13 +49,13 @@ fn color<B: RectangularBoard>(
     };
 
     if piece == ColPieceType::<B>::empty() {
-        "  ".to_string().color(Color::Black)
+        "  ".to_string().with(Color::Black)
     } else if piece.color().unwrap() == <B::Color as games::Color>::first() {
-        (symbol.to_string() + " ").color(p1_piece_col)
+        (symbol.to_string() + " ").with(p1_piece_col)
     } else {
-        (symbol.to_string() + " ").color(p2_piece_col)
+        (symbol.to_string() + " ").with(p2_piece_col)
     }
-    .on_color(bg_color)
+    .on(bg_color)
     .to_string()
 }
 

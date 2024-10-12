@@ -34,7 +34,7 @@ use crate::PlayerResult::Lose;
 use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
 use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
-use colored::Colorize;
+use crossterm::style::Stylize;
 use itertools::Itertools;
 use rand::Rng;
 use std::fmt::{Debug, Display};
@@ -501,12 +501,11 @@ pub trait Board:
 
     /// Allows boards to customize how they want to be formatted.
     /// For example, the [`Chessboard`] can give the king square a red frame if the king is in check.
-    fn modify_pretty_formatter(
+    fn pretty_formatter(
         &self,
-        formatter: Box<dyn BoardFormatter<Self>>,
-    ) -> Box<dyn BoardFormatter<Self>> {
-        formatter
-    }
+        last_move: Option<Self::Move>,
+        flip: bool,
+    ) -> Box<dyn BoardFormatter<Self>>;
 
     /// Verifies that all invariants of this board are satisfied. It should never be possible for this function to
     /// fail for a bug-free program; failure most likely means the `Board` implementation is bugged.
