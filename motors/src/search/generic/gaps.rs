@@ -106,8 +106,8 @@ impl<B: Board> Engine<B> for Gaps<B> {
                     self.state.atomic().set_score(iteration_score);
                     self.state.atomic().set_best_move(best_mpv_move);
                 }
-                self.state.excluded_moves.push(best_mpv_move);
                 self.search_state().send_search_info();
+                self.state.excluded_moves.push(best_mpv_move);
             }
             self.state
                 .excluded_moves
@@ -211,7 +211,7 @@ impl<B: Board> Gaps<B> {
             if ply == 0 {
                 // don't set score here because it's set in `do_search`, which handles situations like the position
                 // being checkmate
-                self.state.current_pv_data().pv[0] = mov;
+                self.state.current_pv_data().pv.reset_to_move(mov);
             }
             if score < beta {
                 continue;

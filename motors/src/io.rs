@@ -467,21 +467,7 @@ impl<B: Board> EngineUGI<B> {
             } else if first_word.eq_ignore_ascii_case("barbecue") {
                 self.write_message(Error, "lol");
             }
-            // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
-            // expositor UCI spec demands that an invalid token should cause the entire message to be ignored.
-            let suggest_help = if self.is_interactive() {
-                format!("Type '{}' for a list of recognized commands", "help".bold())
-            } else {
-                format!("If you are a human, consider typing '{}' to see a list of recognized commands.",
-                    "help".bold())
-            };
-            self.write_message(
-                Warning,
-                &format!(
-                    "Invalid token at start of UCI command '{0}', ignoring the entire command.\n{suggest_help}",
-                    first_word.red()
-                ),
-            );
+            self.invalid_command(first_word, words);
             return Ok(());
         };
 
@@ -507,6 +493,45 @@ impl<B: Board> EngineUGI<B> {
             );
         }
         Ok(())
+    }
+
+    fn invalid_command(&mut self, first_word: &str, rest: &mut Tokens) {
+        // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
+        // expositor UCI spec demands that an invalid token should cause the entire message to be ignored.
+        let suggest_help = if self.is_interactive() {
+            format!("Type '{}' for a list of recognized commands", "help".bold())
+        } else {
+            format!(
+                "If you are a human, consider typing '{}' to see a list of recognized commands.",
+                "help".bold()
+            )
+        };
+        let input = format!("{first_word} {}", rest.clone().join(" "));
+        let first_len = first_word.chars().count();
+        let error_msg = if input.len() > 200 || first_len > 25 {
+            let first_word = if first_len > 50 {
+                format!(
+                    "{0}{1}",
+                    first_word.chars().take(50).collect::<String>().red(),
+                    "...(rest omitted for brevity)".dim()
+                )
+            } else {
+                first_word.red().to_string()
+            };
+            format!("Invalid first word '{first_word}' of a long UGI command")
+        } else if rest.peek().is_none() {
+            format!("Invalid single-word UGI command '{}'", first_word.red())
+        } else {
+            format!(
+                "Invalid first word '{0}' of UGI command '{1}'",
+                first_word.red(),
+                input.trim().bold()
+            )
+        };
+        self.write_message(
+            Warning,
+            &format!("{error_msg}, ignoring the entire command.\n{suggest_help}"),
+        );
     }
 
     fn print_game_over(&mut self, flip: bool) -> bool {
