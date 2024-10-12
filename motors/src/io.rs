@@ -318,7 +318,7 @@ impl<B: Board> EngineUGI<B> {
             output.clone(),
             TT::default(),
         )?;
-        let display_name = engine.engine_info().short_name();
+        let display_name = engine.get_engine_info().short_name();
         let board_state = BoardGameState {
             board,
             debug_mode: opts.debug,
@@ -570,7 +570,7 @@ impl<B: Board> EngineUGI<B> {
             return Ok(true);
         }
         self.write_ugi("Searching...");
-        let engine = self.state.engine.engine_info().short_name();
+        let engine = self.state.engine.get_engine_info().short_name();
         let mut engine =
             create_engine_box_from_str(&engine, &self.searcher_factories, &self.eval_factories)?;
         let limit = SearchLimit::per_move(Duration::from_millis(1_000));
@@ -609,7 +609,7 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn id(&self) -> String {
-        let info = self.state.engine.engine_info();
+        let info = self.state.engine.get_engine_info();
         format!(
             "id name Motors -- Game {0} -- Engine {1}\nid author ToTheAnd",
             B::game_name(),
@@ -823,6 +823,7 @@ impl<B: Board> EngineUGI<B> {
                     opts.search_moves,
                     opts.multi_pv,
                     false,
+                    opts.threads,
                 )?;
             }
             SearchType::Ponder => {
@@ -834,6 +835,7 @@ impl<B: Board> EngineUGI<B> {
                     opts.search_moves,
                     opts.multi_pv, // don't ignore multi_pv in pondering mode
                     true,
+                    opts.threads,
                 )?;
             }
             _ => unreachable!("Bench and (Split)Perft should have already been handled"),
@@ -843,7 +845,7 @@ impl<B: Board> EngineUGI<B> {
 
     fn bench(&mut self, limit: SearchLimit, positions: &[B]) -> Res<()> {
         let mut engine = create_engine_box_from_str(
-            &self.state.engine.engine_info().short_name(),
+            &self.state.engine.get_engine_info().short_name(),
             &self.searcher_factories,
             &self.eval_factories,
         )?;
@@ -852,7 +854,7 @@ impl<B: Board> EngineUGI<B> {
         } else {
             let mut limit = limit.clone();
             limit.depth = Depth::MAX;
-            limit.nodes = self.state.engine.engine_info().default_bench_nodes();
+            limit.nodes = self.state.engine.get_engine_info().default_bench_nodes();
             Some(limit)
         };
         let res = run_bench_with(engine.as_mut(), limit, second_limit, positions);
@@ -868,7 +870,7 @@ impl<B: Board> EngineUGI<B> {
             self.state.board
         };
         let text = if eval {
-            let info = self.state.engine.engine_info();
+            let info = self.state.engine.get_engine_info();
             if let Some(eval_name) = info.eval() {
                 let mut eval =
                     create_eval_from_str(&eval_name.short_name(), &self.eval_factories)?.build();
@@ -1072,7 +1074,7 @@ impl<B: Board> EngineUGI<B> {
         let engine_name = format!(
             "{0} ({1})",
             self.state.display_name.clone().bold(),
-            self.state.engine.engine_info().long_name().bold()
+            self.state.engine.get_engine_info().long_name().bold()
         );
         let motors = "motors".bold();
         let game_name = B::game_name().bold();
@@ -1092,7 +1094,7 @@ impl<B: Board> EngineUGI<B> {
 
     fn handle_engine(&mut self, words: &mut Tokens) -> Res<()> {
         let Some(engine) = words.next() else {
-            let info = self.state.engine.engine_info();
+            let info = self.state.engine.get_engine_info();
             let short = info.short_name();
             let long = info.long_name();
             let description = info.description().unwrap_or_default();
@@ -1116,8 +1118,15 @@ impl<B: Board> EngineUGI<B> {
             self.output.clone(),
             TT::new_with_bytes(self.state.engine.next_tt().size_in_bytes()),
         )?;
+        let hash = self.state.engine.next_tt().size_in_mb();
+        let threads = self.state.engine.num_threads();
         self.state.engine.send_quit()?;
+        // This resets some engine options, but that's probably for the better since the new engine might not support those.
+        // However, we make an exception for threads and hash
         self.state.engine = engine;
+        // We set those options after changing the engine, so if we get an error this doesn't prevent us from using the new engine.
+        self.state.engine.set_option(Hash, hash.to_string())?;
+        self.state.engine.set_option(Threads, threads.to_string())?;
         self.write_engine_ascii_art();
         Ok(())
     }
@@ -1127,7 +1136,7 @@ impl<B: Board> EngineUGI<B> {
             let name = self
                 .state
                 .engine
-                .engine_info()
+                .get_engine_info()
                 .eval()
                 .clone()
                 .map_or_else(|| "<eval unused>".to_string(), |e| e.short_name());
@@ -1183,7 +1192,7 @@ impl<B: Board> EngineUGI<B> {
             "" => {
                 let mut res = format!(
                     "{0} playing {1}\n",
-                    self.state.engine.engine_info().short_name(),
+                    self.state.engine.get_engine_info().short_name(),
                     self.state.game_name()
                 );
                 for o in options {
@@ -1222,7 +1231,7 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn get_options(&self) -> Vec<EngineOption> {
-        let engine_info = self.state.engine.engine_info();
+        let engine_info = self.state.engine.get_engine_info();
         let engine = engine_info.engine().clone();
         let eval_info = engine_info.eval().clone();
         let max_threads = engine_info.max_threads();
@@ -1298,12 +1307,12 @@ impl<B: Board> EngineUGI<B> {
                 }),
             },
         ];
-        res.extend(self.state.engine.engine_info().additional_options());
+        res.extend(self.state.engine.get_engine_info().additional_options());
         res
     }
 
     fn write_engine_ascii_art(&mut self) {
-        let text = self.state.engine.engine_info().short_name();
+        let text = self.state.engine.get_engine_info().short_name();
         let text = print_as_ascii_art(&text, 2).dark_cyan().to_string();
         self.write_ugi(&text);
     }

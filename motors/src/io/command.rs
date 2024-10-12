@@ -542,6 +542,7 @@ pub struct GoState<B: Board> {
     pub limit: SearchLimit,
     pub is_first: bool,
     pub multi_pv: usize,
+    pub threads: Option<usize>,
     pub search_moves: Option<Vec<B::Move>>,
     pub cont: bool,
     pub reading_moves: bool,
@@ -560,7 +561,7 @@ impl<B: Board> CommandState for GoState<B> {
 impl<B: Board> GoState<B> {
     pub fn new(ugi: &EngineUGI<B>, search_type: SearchType, move_overhead: Duration) -> Self {
         let limit = match search_type {
-            Bench => SearchLimit::depth(ugi.state.engine.engine_info().default_bench_depth()),
+            Bench => SearchLimit::depth(ugi.state.engine.get_engine_info().default_bench_depth()),
             Perft | SplitPerft => SearchLimit::depth(ugi.state.board.default_perft_depth()),
             _ => SearchLimit::infinite(),
         };
@@ -569,6 +570,7 @@ impl<B: Board> GoState<B> {
             limit,
             is_first: ugi.state.board.active_player().is_first(),
             multi_pv: ugi.multi_pv,
+            threads: None,
             search_moves: None,
             cont: false,
             reading_moves: false,
@@ -759,10 +761,19 @@ pub fn go_options<B: Board>() -> CommandList<GoState<B>> {
         ),
         go_command!(
             multipv | mpv,
-            All,
-            "Find the k best moves",
+            Custom,
+            "Find the n best moves, temporarily overwriting the 'multipv' engine option",
             |opts, words, _| {
                 opts.multi_pv = parse_int(words, "multipv")?;
+                Ok(())
+            }
+        ),
+        go_command!(
+            threads | t,
+            Custom,
+            "Search with n threads in parallel, temporarily overwriting the 'threads' engine option",
+            |opts, words, _| {
+                opts.threads = Some(parse_int(words, "threads")?);
                 Ok(())
             }
         ),
@@ -936,7 +947,7 @@ pub fn query_options<B: Board>() -> CommandList<EngineUGI<B>> {
             Custom,
             "The name of the engine",
             |ugi, _, _| {
-                let info = ugi.state.engine.engine_info();
+                let info = ugi.state.engine.get_engine_info();
                 let name = info.long_name();
                 let description = info.description().unwrap_or_default();
                 drop(info);

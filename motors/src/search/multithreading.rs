@@ -325,6 +325,8 @@ pub struct EngineWrapper<B: Board> {
     main_thread_data: MainThreadData<B>,
     // If we receive a `setoption name Hash` while searching, we only apply that to the next search
     tt_for_next_search: TT,
+    // It's possible to temporarily add or remove threads
+    overwrite_num_threads: Option<usize>,
 }
 
 impl<B: Board> Drop for EngineWrapper<B> {
@@ -364,6 +366,7 @@ impl<B: Board> EngineWrapper<B> {
             eval_builder,
             main_thread_data,
             tt_for_next_search: tt,
+            overwrite_num_threads: None,
         }
     }
 
@@ -375,7 +378,27 @@ impl<B: Board> EngineWrapper<B> {
         search_moves: Option<Vec<B::Move>>,
         multi_pv: usize,
         ponder: bool,
+        threads: Option<usize>,
     ) -> Res<()> {
+        self.resize_threads(self.num_threads());
+        self.overwrite_num_threads = None;
+        let threads = match threads {
+            None => self.num_threads(),
+            Some(t) => {
+                if t == 0 || t > self.get_engine_info().max_threads() {
+                    bail!(
+                        "Invalid number of threads ({t}), must be at least 1 and at most {}",
+                        self.get_engine_info().max_threads
+                    )
+                }
+                let current = self.num_threads();
+                self.overwrite_num_threads = Some(current);
+                if t > current {
+                    self.resize_threads(t);
+                }
+                t
+            }
+        };
         self.main_thread_data.new_search(ponder, &limit)?; // resets the atomic search state
         let thread_data = self.main_thread_data.clone();
         let params = SearchParams::create(
@@ -390,15 +413,15 @@ impl<B: Board> EngineWrapper<B> {
         );
         // reset `stop` first such that a finished ponder command won't print anything
         // self.search_sender().new_search(params.limit.is_infinite());
-        self.start_search_with(params)
+        self.start_search_with(params, threads)
     }
 
-    fn start_search_with(&mut self, params: SearchParams<B>) -> Res<()> {
+    fn start_search_with(&mut self, params: SearchParams<B>, threads: usize) -> Res<()> {
         assert_eq!(
             self.main_thread_data.atomic_search_data.len(),
             self.auxiliary.len() + 1
         );
-        for (i, o) in &mut self.auxiliary.iter_mut().enumerate() {
+        for (i, o) in &mut self.auxiliary.iter_mut().enumerate().take(threads - 1) {
             Self::send_start_search(
                 o,
                 params.auxiliary(self.main_thread_data.atomic_search_data[i + 1].clone()),
@@ -427,25 +450,28 @@ impl<B: Board> EngineWrapper<B> {
         self.tt_for_next_search.clone()
     }
 
+    pub fn resize_threads(&mut self, count: usize) {
+        self.auxiliary.resize_with(count - 1, || {
+            self.searcher_builder
+                .build_in_new_thread(self.eval_builder.build())
+                .0
+        });
+        self.main_thread_data
+            .atomic_search_data
+            .resize_with(count, || Arc::new(AtomicSearchState::default()));
+    }
+
     pub fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()> {
         if name == Threads {
             let count: usize = parse_int_from_str(&value, "num threads")?;
-            let max = self.engine_info().max_threads;
+            let max = self.get_engine_info().max_threads;
             if count == 0 || count > max {
                 bail!(
                     "Trying to set the number of threads to {count}. The maximum number of threads for this engine is {max}."
                 );
             }
-            self.auxiliary.clear();
-            self.auxiliary.resize_with(count - 1, || {
-                self.searcher_builder
-                    .build_in_new_thread(self.eval_builder.build())
-                    .0
-            });
-            self.main_thread_data.atomic_search_data.truncate(1);
-            self.main_thread_data
-                .atomic_search_data
-                .resize_with(count, || Arc::new(AtomicSearchState::default()));
+            self.overwrite_num_threads = None;
+            self.resize_threads(count);
             Ok(())
         } else if name == Hash {
             let value: usize = parse_int_from_str(&value, "hash size in mb")?;
@@ -482,7 +508,7 @@ impl<B: Board> EngineWrapper<B> {
             aux.send(SetEval(clone_box(eval.as_ref())))
                 .map_err(|err| anyhow!(err.to_string()))?;
         }
-        self.engine_info().eval = Some(Name::new(eval.as_ref()));
+        self.get_engine_info().eval = Some(Name::new(eval.as_ref()));
         self.main
             .send(SetEval(eval))
             .map_err(|err| anyhow!(err.to_string()))
@@ -507,6 +533,9 @@ impl<B: Board> EngineWrapper<B> {
                 .suppress_best_move
                 .store(false, Release);
         }
+        // it's possible that the current search had been done with a different number of threads, so remove superfluous entries
+        self.resize_threads(self.num_threads());
+        self.overwrite_num_threads = None;
     }
 
     pub fn send_quit(&mut self) -> Res<()> {
@@ -528,7 +557,7 @@ impl<B: Board> EngineWrapper<B> {
             .map_err(|err| anyhow!(err.to_string()))
     }
 
-    pub fn engine_info(&self) -> MutexGuard<EngineInfo> {
+    pub fn get_engine_info(&self) -> MutexGuard<EngineInfo> {
         self.main_thread_data.engine_info.lock().unwrap()
     }
 
@@ -537,7 +566,11 @@ impl<B: Board> EngineWrapper<B> {
     }
 
     pub fn num_threads(&self) -> usize {
-        self.auxiliary.len() + 1
+        if let Some(num) = self.overwrite_num_threads {
+            num
+        } else {
+            self.auxiliary.len() + 1
+        }
     }
 
     pub fn main_atomic_search_data(&self) -> Arc<AtomicSearchState<B>> {
