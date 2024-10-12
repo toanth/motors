@@ -477,7 +477,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             -> |state: ACState<B>| select_command::<B, dyn AbstractSearcherBuilder<B>>(state.searchers.as_slice())
         ),
         ugi_command!(
-            set_eval,
+            set_eval | se,
             Custom,
             "Sets the eval for the current engine. Doesn't reset the internal engine state",
             |ugi, words, _| ugi.handle_set_eval(words),

@@ -821,8 +821,9 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
             time: self.start_time().elapsed(),
             nodes: NodesLimit::new(self.uci_nodes()).unwrap(),
             pv_num: self.current_pv_num,
+            max_num_pvs: self.params.num_multi_pv,
             pv: self.current_mpv_pv().into(),
-            score: self.best_score(),
+            score: self.current_pv_data().score,
             hashfull: self.estimate_hashfull(),
             pos: self.params.pos,
             additional: Self::additional(),
@@ -971,7 +972,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         }
     }
 
-    fn current_pv_data(&mut self) -> &mut PVData<B> {
+    fn current_pv_data(&self) -> &PVData<B> {
+        &self.multi_pvs[self.current_pv_num]
+    }
+
+    fn current_pv_data_mut(&mut self) -> &mut PVData<B> {
         &mut self.multi_pvs[self.current_pv_num]
     }
 

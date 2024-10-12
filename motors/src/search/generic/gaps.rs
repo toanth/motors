@@ -94,9 +94,10 @@ impl<B: Board> Engine<B> for Gaps<B> {
 
                 self.state.current_pv_num = pv_num;
                 self.state.atomic().set_depth(depth);
+                self.state.atomic().update_seldepth(depth as usize);
                 self.state.atomic().count_node();
                 let iteration_score = self.negamax(pos, 0, depth, SCORE_LOST, SCORE_WON);
-                self.state.current_pv_data().score = iteration_score;
+                self.state.current_pv_data_mut().score = iteration_score;
                 if self.state.stop_flag() {
                     break 'id;
                 }
@@ -211,7 +212,7 @@ impl<B: Board> Gaps<B> {
             if ply == 0 {
                 // don't set score here because it's set in `do_search`, which handles situations like the position
                 // being checkmate
-                self.state.current_pv_data().pv.reset_to_move(mov);
+                self.state.current_pv_data_mut().pv.reset_to_move(mov);
             }
             if score < beta {
                 continue;

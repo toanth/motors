@@ -28,7 +28,8 @@ use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::Move;
 use gears::output::{Message, OutputBox};
 use gears::score::Score;
-use gears::search::{SearchInfo, SearchResult};
+use gears::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
+use gears::search::{MpvType, SearchInfo, SearchResult};
 use gears::GameState;
 use std::fmt;
 use std::io::stdout;
@@ -121,10 +122,11 @@ impl<B: Board> UgiOutput<B> {
     }
 
     pub fn write_search_info(&mut self, info: SearchInfo<B>) {
-        if self
-            .previous_info
-            .as_ref()
-            .is_some_and(|i| i.depth != info.depth - 1)
+        if info.mpv_type() != SecondaryLine
+            && self
+                .previous_info
+                .as_ref()
+                .is_some_and(|i| i.depth != info.depth - 1)
         {
             self.previous_info = None;
         }
@@ -133,12 +135,13 @@ impl<B: Board> UgiOutput<B> {
                 info.score,
                 self.previous_info.as_ref().map(|i| i.score),
                 &self.gradient,
+                info.pv_num == 0,
             );
 
             let mut time = info.time.as_secs_f64();
             let nodes = info.nodes.get() as f64 / 1_000_000.0;
             let nps = nodes / time;
-            let nps_color = self.alt_grad.at(nps as f32 / 3.0);
+            let nps_color = self.alt_grad.at(nps as f32 / 4.0);
             let [r, g, b, _] = nps_color.to_rgba8();
             let nps = format!("{nps:5.2}").with(Rgb { r, g, b });
             let time_badness = 1.0 - (time + 1.0).log2() / 10.0;
@@ -149,18 +152,22 @@ impl<B: Board> UgiOutput<B> {
                 in_seconds = false;
             }
             let time = format!("{time:5.1}").with(Rgb { r, g, b });
-            let nodes = format!("{nodes:6.1}").bold();
+            let nodes = format!("{nodes:6.1}");
 
             let pv = pretty_pv(
                 &info.pv,
                 info.pos,
                 self.previous_info.as_ref().map(|i| i.pv.as_ref()),
+                info.mpv_type(),
             );
-            let multipv = if info.pv_num == 0 {
+            let mut multipv = if info.mpv_type() == OnlyLine {
                 "    ".to_string()
             } else {
                 format!("{:>4}", format!("({})", info.pv_num + 1))
             };
+            if info.mpv_type() == SecondaryLine {
+                multipv = multipv.dim().to_string();
+            }
             // bold after formatting because crossterms seems to count the control characters towards the format width
             let iter = format!("{:>3}", info.depth).bold();
             let seldepth = info.seldepth;
@@ -173,7 +180,9 @@ impl<B: Board> UgiOutput<B> {
                 .to_string()
                 .with(Rgb { r, g, b })
                 .dim();
-            self.previous_info = Some(info);
+            if info.mpv_type() != SecondaryLine {
+                self.previous_info = Some(info);
+            }
             format!(
                 " {iter} {seldepth:>3} {multipv} {score}  {time}{s}  {nodes}{M}  {nps}  {tt}{p}  {pv}",
                 s = if in_seconds {"s"} else {"m"}.dim(),
@@ -224,22 +233,32 @@ fn color_for_score(score: Score, gradient: &LinearGradient) -> gears::crossterm:
     Rgb { r, g, b }
 }
 
-fn pretty_score(score: Score, previous: Option<Score>, gradient: &LinearGradient) -> String {
+fn pretty_score(
+    score: Score,
+    previous: Option<Score>,
+    gradient: &LinearGradient,
+    main_line: bool,
+) -> String {
     use fmt::Write;
     let mut res = format!("{:>5}", score.0);
     if let Some(mate) = score.moves_until_game_won() {
         res = format!("   {:>4}", format!("#{mate}"))
     };
     let mut res = res.with(color_for_score(score, gradient)).to_string();
+    if !main_line {
+        res = res.dim().to_string();
+    }
     if score.is_game_over_score() {
         res = res.bold().to_string();
     } else {
         write!(&mut res, "{}", "cp".dim()).unwrap();
     }
     if let Some(previous) = previous {
+        if !main_line {
+            return res.to_string() + "  ";
+        }
         // sigmoid - sigmoid instead of sigmoid(diff) to weight changes close to 0 stronger
-        let x = (0.5 + 5.0 * (sigmoid(score, 100.0) as f32 - sigmoid(previous, 100.0) as f32))
-            .clamp(0.0, 1.0);
+        let x = 0.5 + 2.0 * (sigmoid(score, 100.0) as f32 - sigmoid(previous, 100.0) as f32);
         let color = gradient.at(x);
         let [r, g, b, _] = color.to_rgba8();
         let diff = score - previous;
@@ -260,7 +279,36 @@ fn pretty_score(score: Score, previous: Option<Score>, gradient: &LinearGradient
     }
 }
 
-fn pretty_pv<B: Board>(pv: &[B::Move], mut pos: B, previous: Option<&[B::Move]>) -> String {
+fn write_move_nr(
+    res: &mut String,
+    move_nr: usize,
+    first_move: bool,
+    first_player: bool,
+    mpv_type: MpvType,
+) {
+    use fmt::Write;
+    let mut write = |move_nr: String| {
+        if mpv_type == MainOfMultiple {
+            write!(res, "{}", move_nr.bold()).unwrap();
+        } else {
+            write!(res, "{}", move_nr.dim()).unwrap();
+        }
+    };
+    if first_player {
+        write(format!(" {}.", move_nr));
+    } else if first_move {
+        write(format!(" {}. ...", move_nr));
+    } else {
+        res.push(' ');
+    }
+}
+
+fn pretty_pv<B: Board>(
+    pv: &[B::Move],
+    mut pos: B,
+    previous: Option<&[B::Move]>,
+    mpv_type: MpvType,
+) -> String {
     use fmt::Write;
     let mut same_so_far = true;
     let mut res = String::new();
@@ -276,21 +324,19 @@ fn pretty_pv<B: Board>(pv: &[B::Move], mut pos: B, previous: Option<&[B::Move]>)
             .and_then(|p| p.get(idx))
             .copied()
             .unwrap_or_default();
-        if previous == *mov {
+        if previous == *mov || mpv_type == SecondaryLine {
             new_move = new_move.dim().to_string();
-        } else if same_so_far {
+        } else if same_so_far && mpv_type != SecondaryLine {
             new_move = new_move.bold().to_string();
             same_so_far = false;
         }
-        if pos.active_player().is_first() {
-            let move_nr = format!(" {}.", pos.fullmove_ctr() + 1);
-            write!(&mut res, "{}", move_nr.dim()).unwrap();
-        } else if idx == 0 {
-            let move_nr = format!(" {}. ...", pos.fullmove_ctr() + 1);
-            write!(&mut res, "{}", move_nr.dim()).unwrap();
-        } else {
-            res.push(' ');
-        }
+        write_move_nr(
+            &mut res,
+            pos.fullmove_ctr() + 1,
+            idx == 0,
+            pos.active_player().is_first(),
+            mpv_type,
+        );
         write!(&mut res, "{new_move}").unwrap();
         pos = pos.make_move(*mov).unwrap();
     }

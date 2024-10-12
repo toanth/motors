@@ -513,29 +513,29 @@ impl Caps {
             };
 
             let atomic = &self.state.params.atomic;
-            if self.state.current_pv_num == 0 {
-                if node_type == FailLow {
-                    // In a fail low node, we didn't get any new information, and it's possible that we just discovered
-                    // a problem with our chosen move. So increase the soft limit such that we can gather more information.
-                    soft_limit_scale = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
-                } else {
+            if node_type == FailLow {
+                // In a fail low node, we didn't get any new information, and it's possible that we just discovered
+                // a problem with our chosen move. So increase the soft limit such that we can gather more information.
+                soft_limit_scale = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
+            } else {
+                self.state.multi_pvs[self.state.current_pv_num].score = pv_score;
+                let pv = &self.state.search_stack[0].pv;
+                self.state.multi_pvs[self.state.current_pv_num]
+                    .pv
+                    .assign_from(pv);
+                if self.state.current_pv_num == 0 {
+                    if pv.length > 0 {
+                        let chosen_move = pv[0];
+                        let ponder_move = pv.list.get(1).copied();
+                        atomic.set_best_move(chosen_move);
+                        atomic.set_ponder_move(ponder_move);
+                    }
                     // We can't really trust FailHigh scores. Even though we should still prefer a fail high move, we don't
                     // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
                     if node_type == Exact {
                         atomic.set_score(pv_score); // can't be SCORE_TIME_UP or similar because that wouldn't be exact
                     } else if !self.state.stop_flag() {
                         atomic.set_score(pv_score.min(MAX_NORMAL_SCORE));
-                    }
-                    let pv = &self.state.search_stack[0].pv;
-                    self.state.multi_pvs[self.state.current_pv_num]
-                        .pv
-                        .assign_from(pv);
-                    let pv = self.state.current_mpv_pv();
-                    if !pv.is_empty() {
-                        let chosen_move = pv[0];
-                        let ponder_move = pv.get(1).copied();
-                        atomic.set_best_move(chosen_move);
-                        atomic.set_ponder_move(ponder_move);
                     }
                 }
             }

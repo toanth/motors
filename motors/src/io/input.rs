@@ -19,6 +19,7 @@ use crate::io::command::{ugi_commands, CommandAutocomplete};
 use crate::io::input::InputEnum::{Interactive, NonInteractive};
 use crate::io::EngineUGI;
 use gears::crossterm::style::Stylize;
+use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Res;
@@ -55,10 +56,17 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
                 "Searching...".bold(),
                 "stop".bold()
             ));
+            let pv_spacer = if ugi.state.board.active_player().is_first() {
+                ""
+            } else {
+                "    "
+            };
             ugi.write_ugi(
-                &"\nIter Seldepth   Score      Time    Nodes    NPS      TT   PV"
-                    .bold()
-                    .to_string(),
+                &format!(
+                    "\nIter Seldepth   Score      Time    Nodes    NPS      TT     {pv_spacer}PV"
+                )
+                .bold()
+                .to_string(),
             );
             NonInteractiveInput::default().get_line(ugi)
         } else {

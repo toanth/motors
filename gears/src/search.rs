@@ -11,6 +11,7 @@ use itertools::Itertools;
 
 use crate::general::common::{parse_fp_from_str, Res};
 use crate::score::Score;
+use crate::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
 
 pub const MAX_DEPTH: Depth = Depth(10_000);
 
@@ -73,6 +74,13 @@ impl<B: Board> Display for SearchResult<B> {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum MpvType {
+    OnlyLine,
+    MainOfMultiple,
+    SecondaryLine,
+}
+
 #[derive(Debug)]
 #[must_use]
 pub struct SearchInfo<B: Board> {
@@ -82,6 +90,7 @@ pub struct SearchInfo<B: Board> {
     pub time: Duration,
     pub nodes: NodesLimit,
     pub pv_num: usize,
+    pub max_num_pvs: usize,
     pub pv: Vec<B::Move>,
     pub score: Score,
     pub hashfull: usize,
@@ -98,6 +107,7 @@ impl<B: Board> Default for SearchInfo<B> {
             time: Duration::default(),
             nodes: NodesLimit::MAX,
             pv_num: 1,
+            max_num_pvs: 1,
             pv: vec![],
             score: Score::default(),
             hashfull: 0,
@@ -117,13 +127,14 @@ impl<B: Board> SearchInfo<B> {
         }
     }
 
-    /// This function is the default for the info callback function.
-    pub fn ignore(self) {
-        // do nothing.
-    }
-
-    pub fn to_search_result(&self) -> SearchResult<B> {
-        SearchResult::move_and_score(self.pv[0], self.score, self.pos)
+    pub fn mpv_type(&self) -> MpvType {
+        if self.max_num_pvs == 1 {
+            OnlyLine
+        } else if self.pv_num == 0 {
+            MainOfMultiple
+        } else {
+            SecondaryLine
+        }
     }
 }
 
