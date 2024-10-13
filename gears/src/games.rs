@@ -16,7 +16,7 @@ use crate::games::PlayerResult::Lose;
 use crate::general::board::Board;
 use crate::general::common::{parse_int, EntityList, Res, StaticallyNamedEntity};
 use crate::general::move_list::MoveList;
-use crate::general::squares::{RectangularCoordinates, RectangularSize};
+use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
 use crate::output::OutputBuilder;
 use crate::PlayerResult;
 

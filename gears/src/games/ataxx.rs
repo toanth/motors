@@ -14,11 +14,12 @@ use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    board_from_name, position_fen_part, SelfChecks, Strictness, UnverifiedBoard,
+    board_from_name, common_fen_part, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
-use crate::general::squares::{SmallGridSize, SmallGridSquare};
+use crate::general::squares::SquareColor::White;
+use crate::general::squares::{SmallGridSize, SmallGridSquare, SquareColor};
 use crate::output::text_output::{
     board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter,
 };
@@ -340,17 +341,7 @@ impl Board for AtaxxBoard {
     }
 
     fn as_fen(&self) -> String {
-        let stm = match self.active_player {
-            O => 'o',
-            X => 'x',
-        };
-
-        format!(
-            "{} {stm} {halfmove_clock} {fullmove_ctr}",
-            position_fen_part(self),
-            halfmove_clock = self.halfmove_repetition_clock(),
-            fullmove_ctr = self.fullmove_ctr() + 1,
-        )
+        common_fen_part(self, true, true)
     }
 
     fn read_fen_and_advance_input(string: &mut Tokens, strictness: Strictness) -> Res<Self> {
@@ -375,6 +366,11 @@ impl Board for AtaxxBoard {
 
     fn pretty_formatter(&self, last_move: Option<Self::Move>) -> Box<dyn BoardFormatter<Self>> {
         Box::new(DefaultBoardFormatter::new(*self, last_move))
+    }
+
+    fn background_color(&self, _coords: Self::Coordinates) -> SquareColor {
+        // Don't pay a checkerboard pattern, just make everything white
+        White
     }
 }
 

@@ -5,6 +5,7 @@ use crate::general::move_list::MoveList;
 use crate::general::moves::ExtendedFormat::{Alternative, Standard};
 use crate::general::moves::Move;
 use crate::general::squares::RectangularCoordinates;
+use crate::general::squares::SquareColor::Black;
 use crate::output::text_output::DisplayType::*;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
 use crate::MatchStatus::*;
@@ -482,12 +483,90 @@ fn with_color(text: &str, color: Option<style::Color>, highlight: bool) -> Strin
     }
 }
 
+const VERTICAL_BAR: &'static str = "│";
+const HORIZONTAL_BAR: &'static str = "─";
+const CROSS: &'static str = "┼";
+
+const HEAVY_VERTICAL_BAR: &'static str = "┃";
+const HEAVY_HORIZONTAL_BAR: &'static str = "━";
+#[allow(unused)]
+const HEAVY_CROSS: &'static str = "╋";
+
+const LIGHT_UPPER_LEFT_CORNER: &'static str = "┌";
+const LIGHT_UPPER_RIGHT_CORNER: &'static str = "┐";
+const LIGHT_LOWER_LEFT_CORNER: &'static str = "└";
+const LIGHT_LOWER_RIGHT_CORNER: &'static str = "┘";
+
+const HEAVY_UPPER_LEFT_CORNER: &'static str = "┏";
+const HEAVY_UPPER_RIGHT_CORNER: &'static str = "┓";
+const HEAVY_LOWER_LEFT_CORNER: &'static str = "┗";
+const HEAVY_LOWER_RIGHT_CORNER: &'static str = "┛";
+
+const LEFT_BORDER: &'static str = "┠";
+const RIGHT_BORDER: &'static str = "┨";
+const LOWER_BORDER: &'static str = "┷";
+const UPPER_BORDER: &'static str = "┯";
+
+fn flip_if(flip: bool, c: &'static str) -> &'static str {
+    if !flip {
+        return c;
+    }
+    match c {
+        LIGHT_UPPER_LEFT_CORNER => LIGHT_LOWER_LEFT_CORNER,
+        LIGHT_UPPER_RIGHT_CORNER => LIGHT_LOWER_RIGHT_CORNER,
+        LIGHT_LOWER_LEFT_CORNER => LIGHT_UPPER_LEFT_CORNER,
+        LIGHT_LOWER_RIGHT_CORNER => LIGHT_UPPER_RIGHT_CORNER,
+        HEAVY_UPPER_LEFT_CORNER => HEAVY_LOWER_LEFT_CORNER,
+        HEAVY_UPPER_RIGHT_CORNER => HEAVY_LOWER_RIGHT_CORNER,
+        HEAVY_LOWER_LEFT_CORNER => HEAVY_UPPER_LEFT_CORNER,
+        HEAVY_LOWER_RIGHT_CORNER => HEAVY_UPPER_RIGHT_CORNER,
+        LOWER_BORDER => UPPER_BORDER,
+        UPPER_BORDER => LOWER_BORDER,
+        c => c,
+    }
+}
+
+fn border_cross<B: RectangularBoard>(
+    pos: &B,
+    y: usize,
+    x: usize,
+    cross: &'static str,
+) -> &'static str {
+    if cross != CROSS {
+        return cross;
+    }
+    if x == 0 {
+        if y == 0 {
+            HEAVY_UPPER_LEFT_CORNER
+        } else if y == pos.get_height() {
+            HEAVY_LOWER_LEFT_CORNER
+        } else {
+            LEFT_BORDER
+        }
+    } else if x == pos.get_width() {
+        if y == 0 {
+            HEAVY_UPPER_RIGHT_CORNER
+        } else if y == pos.get_height() {
+            HEAVY_LOWER_RIGHT_CORNER
+        } else {
+            RIGHT_BORDER
+        }
+    } else if y == 0 {
+        UPPER_BORDER
+    } else if y == pos.get_width() {
+        LOWER_BORDER
+    } else {
+        CROSS
+    }
+}
+
 // most of this function deals with coloring the frame of a square
 pub fn display_board_pretty<B: RectangularBoard>(
     pos: &B,
     fmt: &mut dyn BoardFormatter<B>,
 ) -> String {
     use fmt::Write;
+    let sq_width = 3; // TODO: Allow changing
     let flip = fmt.flip_board() && B::should_flip_visually();
     let mut colors = vec![vec![None; pos.get_width() + 1]; pos.get_height() + 1];
     for y in 0..pos.get_height() {
@@ -500,67 +579,87 @@ pub fn display_board_pretty<B: RectangularBoard>(
             }
         }
     }
-    let write_vertical_bar = |y: usize, bold: bool| -> String {
+    let write_horizontal_bar = |y: usize| -> String {
+        let y_spacer = y % fmt.vertical_spacer_interval() == 0;
         let mut res = "    ".to_string();
-        for x in 0..pos.get_width() {
+        let bar = if y == 0 || y == pos.get_height() {
+            HEAVY_HORIZONTAL_BAR
+        } else {
+            HORIZONTAL_BAR
+        };
+        for x in 0..=pos.get_width() {
+            let x_spacer = x % fmt.horizontal_spacer_interval() == 0;
             let mut col = colors[y][x];
-            if col.is_none() && y > 0 {
-                col = colors[y - 1][x]
+            let mut cross = CROSS;
+            if col.is_some() {
+                cross = LIGHT_UPPER_LEFT_CORNER;
             }
-            let mut plus_color = col;
-            if plus_color.is_none() && x > 0 {
-                plus_color = colors[y][x - 1];
-                if plus_color.is_none() && y > 0 {
-                    plus_color = colors[y - 1][x - 1];
+            if col.is_none() && y > 0 {
+                col = colors[y - 1][x];
+                if col.is_some() {
+                    cross = LIGHT_LOWER_LEFT_CORNER;
+                }
+            }
+            let mut cross_color = col;
+            if cross_color.is_none() && x > 0 {
+                cross_color = colors[y][x - 1];
+                if cross_color.is_some() {
+                    cross = LIGHT_UPPER_RIGHT_CORNER;
+                }
+                if cross_color.is_none() && y > 0 {
+                    cross_color = colors[y - 1][x - 1];
+                    if cross_color.is_some() {
+                        cross = LIGHT_LOWER_RIGHT_CORNER
+                    }
+                }
+            }
+            if cross_color.is_none() && ![0, pos.get_width()].contains(&x) {
+                if y_spacer && !x_spacer {
+                    cross = HORIZONTAL_BAR;
+                } else if !y_spacer && x_spacer {
+                    cross = VERTICAL_BAR;
                 }
             }
             let plus = with_color(
-                "+",
-                plus_color,
-                bold || x % fmt.horizontal_spacer_interval() == 0,
+                flip_if(!flip, border_cross(pos, y, x, cross)),
+                cross_color,
+                y_spacer || x_spacer,
             );
-            let bar = with_color("---", col, bold);
-            write!(&mut res, "{plus}{bar}").unwrap();
+            if x == pos.get_width() {
+                res += &plus;
+            } else {
+                let bar = with_color(&bar.repeat(sq_width), col, y_spacer);
+                write!(&mut res, "{plus}{bar}").unwrap();
+            }
         }
-        let mut plus_color = colors[y][pos.get_width() - 1];
-        if plus_color.is_none() && y > 0 {
-            plus_color = colors[y - 1][pos.get_width() - 1];
-        }
-        let plus = with_color(
-            "+",
-            plus_color,
-            pos.get_width() % fmt.horizontal_spacer_interval() == 0,
-        );
-        write!(&mut res, "{plus}").unwrap();
         res
     };
     let mut res: Vec<String> = vec![];
     for y in 0..pos.get_height() {
-        res.push(write_vertical_bar(
-            y,
-            y % fmt.vertical_spacer_interval() == 0,
-        ));
+        res.push(write_horizontal_bar(y));
         let mut line = format!(" {:>2} ", (y + 1).to_string());
         for x in 0..pos.get_width() {
             let mut col = colors[y][x];
             if col.is_none() && x > 0 {
                 col = colors[y][x - 1];
             }
-            line += &with_color("|", col, x % fmt.horizontal_spacer_interval() == 0);
+            let bar = if x == 0 {
+                HEAVY_VERTICAL_BAR
+            } else {
+                VERTICAL_BAR
+            };
+            line += &with_color(bar, col, x % fmt.horizontal_spacer_interval() == 0);
             let xc = if flip { pos.get_width() - 1 - x } else { x };
             line += &fmt.display_piece(B::Coordinates::from_row_column(y as DimT, xc as DimT), 3);
         }
         line += &with_color(
-            "|",
+            HEAVY_VERTICAL_BAR,
             colors[y][pos.get_width() - 1],
             pos.get_width() % fmt.horizontal_spacer_interval() == 0,
         );
         res.push(line);
     }
-    res.push(write_vertical_bar(
-        pos.get_height(),
-        pos.get_height() % fmt.vertical_spacer_interval() == 0,
-    ));
+    res.push(write_horizontal_bar(pos.get_height()));
     if !flip {
         res.reverse();
     }
@@ -611,11 +710,22 @@ impl<B: RectangularBoard> DefaultBoardFormatter<B> {
 }
 
 impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
-    fn display_piece(&self, coords: B::Coordinates, width: usize) -> String {
-        let piece = self.pos.colored_piece_on(coords);
-        let c = format!("{0:^1$}", piece.to_utf8_char(), width);
+    fn display_piece(&self, square: B::Coordinates, width: usize) -> String {
+        let piece = self.pos.colored_piece_on(square);
+        let c = if piece.is_empty() {
+            if self.pos.background_color(square) == Black {
+                '*'
+            } else {
+                ' '
+            }
+        } else {
+            piece.to_utf8_char()
+        };
+        let c = format!("{c:^0$}", width);
 
-        let Some(color) = piece.color() else { return c };
+        let Some(color) = piece.color() else {
+            return c.dim().to_string();
+        };
         if color.is_first() {
             c.with(p1_color()).bold().to_string()
         } else {
@@ -623,10 +733,10 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
         }
     }
 
-    fn frame_color(&self, coords: B::Coordinates) -> Option<style::Color> {
+    fn frame_color(&self, square: B::Coordinates) -> Option<style::Color> {
         if self
             .last_move
-            .is_some_and(|m| m.src_square() == coords || m.dest_square() == coords)
+            .is_some_and(|m| m.src_square() == square || m.dest_square() == square)
         {
             Some(style::Color::Rgb {
                 r: 128,
@@ -654,15 +764,15 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
 pub struct AdaptFormatter<B: Board> {
     pub underlying: Box<dyn BoardFormatter<B>>,
     pub color_frame: Box<dyn Fn(B::Coordinates) -> Option<style::Color>>,
-    pub display_piece: Box<dyn Fn(B::Coordinates, usize) -> Option<String>>,
+    pub display_piece: Box<dyn Fn(B::Coordinates, usize, String) -> String>,
     pub horizontal_spacer_interval: Option<usize>,
     pub vertical_spacer_interval: Option<usize>,
 }
 
 impl<B: Board> BoardFormatter<B> for AdaptFormatter<B> {
     fn display_piece(&self, square: B::Coordinates, width: usize) -> String {
-        (self.display_piece)(square, width)
-            .unwrap_or_else(|| self.underlying.display_piece(square, width))
+        let underlying_res = self.underlying.display_piece(square, width);
+        (self.display_piece)(square, width, underlying_res)
     }
 
     fn frame_color(&self, coords: B::Coordinates) -> Option<style::Color> {

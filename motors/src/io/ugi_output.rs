@@ -345,7 +345,7 @@ fn pretty_pv<B: Board>(
         }
         write_move_nr(
             &mut res,
-            pos.fullmove_ctr() + 1,
+            pos.fullmove_ctr_1_based(),
             idx == 0,
             pos.active_player().is_first(),
             mpv_type,

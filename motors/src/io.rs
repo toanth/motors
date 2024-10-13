@@ -1370,22 +1370,32 @@ impl<B: Board> EngineUGI<B> {
 fn format_tt_entry<B: Board>(state: BoardGameState<B>, entry: TTEntry<B>) -> String {
     let pos = state.board;
     let formatter = pos.pretty_formatter(state.last_move());
+    let mov = entry.mov.check_legal(&pos);
     let mut formatter = AdaptFormatter {
         underlying: formatter,
         color_frame: Box::new(move |coords| {
-            if let Some(mov) = entry.mov.check_legal(&pos) {
+            if let Some(mov) = mov {
                 if coords == mov.src_square() || coords == mov.dest_square() {
                     return Some(style::Color::DarkRed);
                 }
             };
             None
         }),
-        display_piece: Box::new(|_, _| None),
+        display_piece: Box::new(move |coords, _, default| {
+            if let Some(mov) = mov {
+                if mov.src_square() == coords {
+                    return default.dim().to_string();
+                } else if mov.dest_square() == coords {
+                    return default.bold().to_string();
+                }
+            }
+            default
+        }),
         horizontal_spacer_interval: None,
         vertical_spacer_interval: None,
     };
     let mut res = pos.display_pretty(&mut formatter);
-    let move_string = if let Some(mov) = entry.mov.check_legal(&pos) {
+    let move_string = if let Some(mov) = mov {
         mov.to_extended_text(&pos, Standard).bold().to_string()
     } else {
         "<none>".to_string()

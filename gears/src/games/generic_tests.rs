@@ -130,7 +130,13 @@ impl<B: Board> GenericTests<B> {
             let mut hashes = HashSet::new();
             let _ = pos.debug_verify_invariants(Strict).unwrap();
             assert!(pos.debug_verify_invariants(Strict).is_ok());
-            assert_eq!(B::from_fen(&pos.as_fen(), Strict).unwrap(), pos);
+            assert_eq!(
+                B::from_fen(&pos.as_fen(), Strict).unwrap(),
+                pos,
+                "{:?}\n{}",
+                pos,
+                pos.as_fen()
+            );
             let hash = pos.zobrist_hash().0;
             hashes.insert(hash);
             assert_ne!(hash, 0);

@@ -1,14 +1,16 @@
 use crate::games::{AbstractPieceType, ColoredPiece, ColoredPieceType, Coordinates};
 use crate::general::board::{ColPieceType, RectangularBoard};
-use crate::general::common::{IterIntersperse, NamedEntity, Res, StaticallyNamedEntity};
+use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use crate::general::moves::Move;
 use crate::general::squares::RectangularCoordinates;
-use crate::output::text_output::{TextStream, TextWriter};
+use crate::general::squares::SquareColor::White;
+use crate::output::text_output::{p1_color, p2_color, TextStream, TextWriter};
 use crate::output::Message::Info;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
 use crate::{games, GameState};
 use anyhow::bail;
 use crossterm::style::{Color, Stylize};
+use itertools::Itertools;
 use std::fmt::{Display, Write};
 use std::io::stdout;
 
@@ -33,27 +35,26 @@ fn color<B: RectangularBoard>(
 ) -> String {
     let p1_bg_col = Color::White;
     let p2_bg_col = Color::Black;
-    let p1_piece_col = Color::Green;
-    let p2_piece_col = Color::Cyan;
-    let move_bg_color = Color::Red;
-    let symbol = piece.uncolor().to_utf8_char();
-    let no_coordinates = B::Coordinates::no_coordinates();
-    let bg_color = if square == last_move.map_or(no_coordinates, B::Move::src_square)
-        || square == last_move.map_or(no_coordinates, B::Move::dest_square)
-    {
-        move_bg_color
-    } else if (square.row() + square.column()) % 2 == 0 {
-        p2_bg_col
-    } else {
-        p1_bg_col
-    };
+    let p1_piece_col = p1_color();
+    let p2_piece_col = p2_color();
+    let move_bg_color = Color::DarkCyan;
+    let symbol = piece.to_ascii_char();
+    // let symbol = piece.uncolor().to_utf8_char();
+    let bg_color =
+        if last_move.is_some_and(|m| m.dest_square() == square || m.src_square() == square) {
+            move_bg_color
+        } else if square.square_color() == White {
+            p1_bg_col
+        } else {
+            p2_bg_col
+        };
 
     if piece == ColPieceType::<B>::empty() {
-        "  ".to_string().with(Color::Black)
+        "   ".to_string().with(Color::Black).to_string()
     } else if piece.color().unwrap() == <B::Color as games::Color>::first() {
-        (symbol.to_string() + " ").with(p1_piece_col)
+        format!(" {} ", symbol.to_string().with(p1_piece_col))
     } else {
-        (symbol.to_string() + " ").with(p2_piece_col)
+        format!(" {} ", symbol.to_string().with(p2_piece_col))
     }
     .on(bg_color)
     .to_string()
@@ -106,18 +107,13 @@ impl<B: RectangularBoard> Output<B> for ChessOutput {
             writeln!(line, " {0}", pos.height() - y).unwrap();
             write!(res, "{line}").unwrap();
         }
-        _ = writeln!(
-            res,
-            " {0}",
-            ('A'..)
-                .take(pos.width() as usize)
-                .intersperse_(' ')
-                .collect::<String>()
-        );
+        _ = writeln!(res, "  {  }", ('A'..).take(pos.width() as usize).join("  "));
         res
     }
 }
 
+// TODO: Use the pretty_formatter framework for this:
+// Just write another implementation of `format_pretty`, without overwriting `pretty_formatter`.
 #[derive(Default, Copy, Clone, Debug)]
 pub struct ChessOutputBuilder {}
 

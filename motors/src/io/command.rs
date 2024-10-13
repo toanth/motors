@@ -396,10 +396,12 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             Custom,
             "Flips the side to move, unless this results in an illegal position",
             |ugi, _, _| {
+                // TODO: Update move history by calling a proper method of ugi
                 ugi.state.board = ugi.state.board.make_nullmove().ok_or(anyhow!(
                     "Could not flip the side to move (board: '{}'",
                     ugi.state.board.as_fen().bold()
                 ))?;
+                ugi.print_board();
                 Ok(())
             }
         ),

@@ -34,14 +34,16 @@ use crate::general::bitboards::{
 use crate::general::board::SelfChecks::*;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    board_from_name, common_fen_part, read_common_fen_part, Board, SelfChecks, Strictness,
-    UnverifiedBoard,
+    board_from_name, common_fen_part, ply_counter_from_fullmove_nr, read_common_fen_part, Board,
+    SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{ith_one_u128, parse_int, Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
-use crate::general::squares::{RectangularCoordinates, SmallGridSize, SmallGridSquare};
+use crate::general::squares::{
+    RectangularCoordinates, SmallGridSize, SmallGridSquare, SquareColor,
+};
 use crate::output::text_output::{
     board_to_string, display_board_pretty, p1_color, p2_color, AdaptFormatter, BoardFormatter,
     DefaultBoardFormatter,
@@ -56,6 +58,7 @@ use rand::Rng;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::num::NonZeroUsize;
 use std::ops::Not;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
@@ -683,7 +686,7 @@ impl Board for UtttBoard {
     }
 
     fn halfmove_repetition_clock(&self) -> usize {
-        self.halfmove_ctr_since_start()
+        0
     }
 
     fn size(&self) -> UtttSize {
@@ -821,7 +824,7 @@ impl Board for UtttBoard {
 
     fn as_fen(&self) -> String {
         use fmt::Write;
-        let mut res = common_fen_part(self);
+        let mut res = common_fen_part(self, false, true);
         write!(&mut res, " {}", self.last_move).unwrap();
         res
     }
@@ -833,7 +836,17 @@ impl Board for UtttBoard {
         let pos = Self::default();
         let mut pos = read_common_fen_part::<UtttBoard>(input, pos.into())?;
 
-        pos.0.ply_since_start = parse_int(input, "ply number")?;
+        let mut fullmove_counter = parse_int(input, "fullmove counter")?;
+        if fullmove_counter == 0 {
+            if strictness == Strict {
+                bail!("The fullmove counter is one-based and can't be zero")
+            } else {
+                fullmove_counter = 1;
+            }
+        }
+        let fullmoves = NonZeroUsize::new(fullmove_counter).unwrap();
+        pos.0.ply_since_start =
+            ply_counter_from_fullmove_nr::<UtttBoard>(fullmoves, pos.0.active_player());
         let Some(last_move) = input.next() else {
             bail!("Ultimate Tic-Tac-Toe FEN ends after ply counter, missing the last move")
         };
@@ -874,11 +887,15 @@ impl Board for UtttBoard {
                     None
                 }
             }),
-            display_piece: Box::new(|_, _| None),
+            display_piece: Box::new(|_, _, default| default),
             horizontal_spacer_interval: Some(3),
             vertical_spacer_interval: Some(3),
         };
         Box::new(formatter)
+    }
+
+    fn background_color(&self, square: UtttSquare) -> SquareColor {
+        square.sub_square().square_color()
     }
 }
 
@@ -928,6 +945,8 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
                 this.ply_since_start,
                 this.occupied_bb().num_ones()
             );
+        } else if this.ply_since_start == 0 && !this.active_player().is_first() {
+            this.ply_since_start = 1; // just quietly fix this, even in strict mode.
         }
         this.open = UtttBoard::board_bb(!this.occupied_bb());
         for color in UtttColor::iter() {

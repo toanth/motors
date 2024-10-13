@@ -514,10 +514,6 @@ impl Board for MNKBoard {
         self.active_player
     }
 
-    fn fullmove_ctr(&self) -> usize {
-        self.ply as usize / 2
-    }
-
     fn halfmove_ctr_since_start(&self) -> usize {
         self.ply as usize
     }
@@ -731,6 +727,10 @@ impl Board for MNKBoard {
 
     fn pretty_formatter(&self, last_move: Option<Self::Move>) -> Box<dyn BoardFormatter<Self>> {
         Box::new(DefaultBoardFormatter::new(*self, last_move))
+    }
+
+    fn background_color(&self, square: GridCoordinates) -> SquareColor {
+        square.square_color()
     }
 }
 

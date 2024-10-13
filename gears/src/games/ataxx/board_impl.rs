@@ -7,7 +7,9 @@ use crate::general::bitboards::chess::KINGS;
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::Strict;
-use crate::general::board::{read_common_fen_part, Strictness, UnverifiedBoard};
+use crate::general::board::{
+    ply_counter_from_fullmove_nr, read_common_fen_part, Strictness, UnverifiedBoard,
+};
 use crate::general::common::{Res, Tokens};
 use crate::general::move_list::MoveList;
 use crate::general::moves::Move;
@@ -168,8 +170,10 @@ impl AtaxxBoard {
             let fullmove_number = fullmove_number
                 .parse::<NonZeroUsize>()
                 .map_err(|err| anyhow!("Couldn't parse fullmove counter: {err}"))?;
-            board.0.ply =
-                (fullmove_number.get() - 1) * 2 + usize::from(color == AtaxxColor::second());
+            board.0.ply = ply_counter_from_fullmove_nr::<AtaxxBoard>(
+                fullmove_number,
+                board.0.active_player(),
+            );
         } else if strictness == Strict {
             bail!("In strict mode, FENs must contain a move counter and halfmove clock")
         } else {

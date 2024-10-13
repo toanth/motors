@@ -28,7 +28,7 @@ use crate::general::common::{
 use crate::general::move_list::MoveList;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
 use crate::general::moves::Move;
-use crate::general::squares::{RectangularCoordinates, RectangularSize};
+use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
 use crate::output::text_output::BoardFormatter;
 use crate::search::Depth;
 use crate::PlayerResult::Lose;
@@ -38,8 +38,10 @@ use arbitrary::Arbitrary;
 use crossterm::style::Stylize;
 use itertools::Itertools;
 use rand::Rng;
+use std::fmt;
 use std::fmt::{Debug, Display};
 use std::iter::once;
+use std::num::NonZeroUsize;
 
 pub(crate) type NameToPos<B> = GenericSelect<fn() -> B>;
 
@@ -259,9 +261,18 @@ pub trait Board:
         self.active_player().other()
     }
 
-    /// The number of moves (turns) since the start of the game.
-    fn fullmove_ctr(&self) -> usize {
-        self.halfmove_ctr_since_start() / 2
+    /// The 0-based number of moves (turns) since the start of the game.
+    fn fullmove_ctr_0_based(&self) -> usize {
+        (self
+            .halfmove_ctr_since_start()
+            .saturating_sub(usize::from(!self.active_player().is_first())))
+            / 2
+    }
+
+    /// The 1-based number of moves(turns) since the start of the game.
+    /// This format is used in FENs.
+    fn fullmove_ctr_1_based(&self) -> usize {
+        1 + self.fullmove_ctr_0_based()
     }
 
     /// The number of half moves (plies) since the start of the game.
@@ -496,6 +507,12 @@ pub trait Board:
     /// For example, the [`Chessboard`] can give the king square a red frame if the king is in check.
     fn pretty_formatter(&self, last_move: Option<Self::Move>) -> Box<dyn BoardFormatter<Self>>;
 
+    /// The background color of the given coordinates, e.g. the color of the square of a chessboard.
+    /// For rectangular boards, this can often be implemented with `coords.square_color()`,
+    /// but it's also valid to always return `White`.
+    // TODO: Maybe each board should be able to define its own square color enum?
+    fn background_color(&self, coords: Self::Coordinates) -> SquareColor;
+
     /// Verifies that all invariants of this board are satisfied. It should never be possible for this function to
     /// fail for a bug-free program; failure most likely means the `Board` implementation is bugged.
     fn debug_verify_invariants(self, strictness: Strictness) -> Res<Self> {
@@ -557,6 +574,13 @@ where
     }
 }
 
+pub fn ply_counter_from_fullmove_nr<B: Board>(
+    fullmove_nr: NonZeroUsize,
+    active: B::Color,
+) -> usize {
+    (fullmove_nr.get() - 1) * 2 + usize::from(!active.is_first())
+}
+
 /// Constructs a specific, well-known position from its name, such as 'kiwipete' in chess.
 /// Not to be confused with `from_fen`, which can load arbitrary positions.
 /// However, `"fen <x>"` forwards to [`B::from_fen`]
@@ -605,10 +629,17 @@ pub fn position_fen_part<B: RectangularBoard>(pos: &B) -> String {
     res
 }
 
-pub fn common_fen_part<T: RectangularBoard>(pos: &T) -> String {
+pub fn common_fen_part<T: RectangularBoard>(pos: &T, halfmove: bool, fullmove: bool) -> String {
+    use fmt::Write;
     let stm = pos.active_player();
-    let halfmove_ctr = pos.halfmove_repetition_clock();
-    format!("{} {stm} {halfmove_ctr}", position_fen_part(pos))
+    let mut res = format!("{} {stm}", position_fen_part(pos));
+    if halfmove {
+        write!(&mut res, " {}", pos.halfmove_repetition_clock()).unwrap();
+    }
+    if fullmove {
+        write!(&mut res, " {}", pos.fullmove_ctr_1_based()).unwrap()
+    }
+    res
 }
 
 pub(crate) fn read_position_fen<B: RectangularBoard>(

@@ -33,8 +33,8 @@ use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    board_from_name, position_fen_part, read_common_fen_part, NameToPos, SelfChecks, Strictness,
-    UnverifiedBoard,
+    board_from_name, ply_counter_from_fullmove_nr, position_fen_part, read_common_fen_part,
+    NameToPos, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{
     parse_int_from_str, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
@@ -514,7 +514,7 @@ impl Board for Chessboard {
         res + &format!(
             " {stm} {castle_rights} {ep_square} {halfmove_clock} {move_number}",
             halfmove_clock = self.ply_100_ctr,
-            move_number = self.fullmove_ctr() + 1
+            move_number = self.fullmove_ctr_1_based()
         )
     }
 
@@ -566,7 +566,7 @@ impl Board for Chessboard {
                     fullmove_number.red()
                 )
             })?;
-            board.0.ply = (fullmove_number.get() - 1) * 2 + usize::from(color == Black);
+            board.0.ply = ply_counter_from_fullmove_nr::<Chessboard>(fullmove_number, color);
         } else if strictness == Strict {
             bail!("FEN doesn't contain a halfmove clock and fullmove counter, but they are required in strict mode")
         } else {
@@ -612,28 +612,32 @@ impl Board for Chessboard {
         Box::new(AdaptFormatter {
             underlying: Box::new(DefaultBoardFormatter::new(*self, last_move)),
             color_frame,
-            display_piece: Box::new(move |square, width| {
+            display_piece: Box::new(move |square, width, _default| {
                 let piece = pos.colored_piece_on(square);
                 if piece.is_empty() {
-                    let s = if square.square_color() == SquareColor::White {
+                    if square.square_color() == SquareColor::White {
                         " ".repeat(width)
                     } else {
                         // call .dim() after formatting the width because crossterm seems to count the dimming escape sequences
                         format!("{:^1$}", "*", width).dim().to_string()
-                    };
-                    Some(s)
+                    }
                 } else {
+                    // uncolored because some fonts have trouble with black pawns, and some make white pieces hard to see
                     let s = format!("{0:^1$}", piece.uncolored().to_utf8_char(), width);
-                    Some(if piece.color().unwrap().is_first() {
+                    if piece.color().unwrap().is_first() {
                         s.with(p1_color()).to_string()
                     } else {
                         s.with(p2_color()).to_string()
-                    })
+                    }
                 }
             }),
             horizontal_spacer_interval: None,
             vertical_spacer_interval: None,
         })
+    }
+
+    fn background_color(&self, square: ChessSquare) -> SquareColor {
+        square.square_color()
     }
 }
 
@@ -1114,7 +1118,7 @@ mod tests {
         assert_eq!(board.0.width(), 8);
         assert_eq!(board.0.height(), 8);
         assert_eq!(board.0.halfmove_ctr_since_start(), 0);
-        assert_eq!(board.0.fullmove_ctr(), 0);
+        assert_eq!(board.0.fullmove_ctr_0_based(), 0);
         assert!(board.verify(Relaxed).is_err());
     }
 
@@ -1126,7 +1130,7 @@ mod tests {
         assert_eq!(board.width(), 8);
         assert_eq!(board.height(), 8);
         assert_eq!(board.halfmove_ctr_since_start(), 0);
-        assert_eq!(board.fullmove_ctr(), 0);
+        assert_eq!(board.fullmove_ctr_1_based(), 1);
         assert_eq!(board.ply, 0);
         assert_eq!(board.ply_100_ctr, 0);
         assert!(board.ep_square.is_none());
@@ -1211,11 +1215,11 @@ mod tests {
             .unwrap()
             .as_fen(),
             "rnbqkbnr/1ppppppp/p7/8/8/8/PPPPPPP1/RNBQKBN1 w Ah - 0 1",
-            "rnbqkbnr/1ppppppp/p7/8/3pP3/8/PPPP1PP1/RNBQKBN1 b Ah e3 0 1",
+            "rnbqkbnr/1ppppppp/p7/8/3pP3/8/PPPP1PP1/RNBQKBN1 b Ah e3 3 1",
             // chess960 fens (from webperft):
             "1rqbkrbn/1ppppp1p/1n6/p1N3p1/8/2P4P/PP1PPPP1/1RQBKRBN w FBfb - 0 9",
-            "rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9",
-            "rqbbknr1/1ppp2pp/p5n1/4pp2/P7/1PP5/1Q1PPPPP/R1BBKNRN w GAga - 0 9",
+            "rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 1 42",
+            "rqbbknr1/1ppp2pp/p5n1/4pp2/P7/1PP5/1Q1PPPPP/R1BBKNRN w GAga - 42 9",
         ];
         for fen in fens {
             let board = Chessboard::from_fen(fen, Relaxed).unwrap();

@@ -8,16 +8,16 @@ use strum_macros::Display;
 use crate::games::OutputList;
 use crate::general::board::{Board, RectangularBoard};
 use crate::general::common::{NamedEntity, Res, Tokens};
+use crate::output::chess::ChessOutputBuilder;
 use crate::output::logger::LoggerBuilder;
-use crate::output::pretty::ChessOutputBuilder;
 use crate::output::text_output::DisplayType::*;
 use crate::output::text_output::{DisplayType, TextOutputBuilder};
 use crate::output::Message::*;
 use crate::search::SearchInfo;
 use crate::{GameOverReason, GameState, MatchResult, MatchStatus};
 
+pub mod chess;
 pub mod logger;
-pub mod pretty;
 pub mod text_output;
 
 #[derive(Debug, Display, Eq, PartialEq, Copy, Clone)]
