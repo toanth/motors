@@ -861,14 +861,10 @@ impl Board for UtttBoard {
         display_board_pretty(self, fmt)
     }
 
-    fn pretty_formatter(
-        &self,
-        last_move: Option<UtttMove>,
-        flip: bool,
-    ) -> Box<dyn BoardFormatter<Self>> {
+    fn pretty_formatter(&self, last_move: Option<UtttMove>) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;
         let formatter = AdaptFormatter {
-            underlying: Box::new(DefaultBoardFormatter::new(*self, last_move, flip)),
+            underlying: Box::new(DefaultBoardFormatter::new(*self, last_move)),
             color_frame: Box::new(move |c| {
                 if pos.is_sub_board_won(UtttColor::first(), c.sub_board()) {
                     Some(p1_color().into())

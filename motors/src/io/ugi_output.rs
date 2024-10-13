@@ -51,11 +51,7 @@ impl<B: Board> Default for UgiOutput<B> {
             additional_outputs: vec![],
             pretty: false,
             previous_info: None,
-            gradient: colorgrad::GradientBuilder::new()
-                .html_colors(&["red", "gold", "green"])
-                .domain(&[0.0, 1.0])
-                .build::<LinearGradient>()
-                .unwrap(),
+            gradient: score_gradient(),
             alt_grad: colorgrad::GradientBuilder::new()
                 .html_colors(&["orange", "gold", "seagreen"])
                 // .html_colors(&["red", "white", "green"]) // looks too much like the flag of italy
@@ -136,6 +132,7 @@ impl<B: Board> UgiOutput<B> {
                 self.previous_info.as_ref().map(|i| i.score),
                 &self.gradient,
                 info.pv_num == 0,
+                true,
             );
 
             let mut time = info.time.as_secs_f64();
@@ -226,24 +223,38 @@ impl<B: Board> UgiOutput<B> {
     }
 }
 
-fn color_for_score(score: Score, gradient: &LinearGradient) -> gears::crossterm::style::Color {
+pub fn score_gradient() -> LinearGradient {
+    colorgrad::GradientBuilder::new()
+        .html_colors(&["red", "gold", "green"])
+        .domain(&[0.0, 1.0])
+        .build::<LinearGradient>()
+        .unwrap()
+}
+
+pub fn color_for_score(score: Score, gradient: &LinearGradient) -> gears::crossterm::style::Color {
     let sigmoid_score = sigmoid(score, 100.0) as f32;
     let color = gradient.at(sigmoid_score);
     let [r, g, b, _] = color.to_rgba8();
     Rgb { r, g, b }
 }
 
-fn pretty_score(
+pub fn pretty_score(
     score: Score,
     previous: Option<Score>,
     gradient: &LinearGradient,
     main_line: bool,
+    min_width: bool,
 ) -> String {
     use fmt::Write;
     let mut res = format!("{:>5}", score.0);
     if let Some(mate) = score.moves_until_game_won() {
-        res = format!("   {:>4}", format!("#{mate}"))
-    };
+        res = format!("#{mate}");
+        if min_width {
+            res = format!("   {:>4}", format!("#{mate}"))
+        }
+    } else if !min_width {
+        res = score.0.to_string();
+    }
     let mut res = res.with(color_for_score(score, gradient)).to_string();
     if !main_line {
         res = res.dim().to_string();
@@ -274,8 +285,10 @@ fn pretty_score(
             '🡪'
         };
         format!("{res} {}", c.to_string().bold().with(Rgb { r, g, b }))
-    } else {
+    } else if min_width {
         res.to_string() + "  "
+    } else {
+        res.to_string()
     }
 }
 

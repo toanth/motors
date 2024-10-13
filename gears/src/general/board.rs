@@ -490,15 +490,11 @@ pub trait Board:
     /// This can be implemented by calling `as_ascii_diagram` or `as_unicode_diagram`, but the intention
     /// is for the output to contain more information, like using colors to show the last move.
     /// Rectangular boards can implement this with the `[display_board_pretty]` function
-    fn display_pretty(&self, display_coordinates: &mut dyn BoardFormatter<Self>) -> String;
+    fn display_pretty(&self, formatter: &mut dyn BoardFormatter<Self>) -> String;
 
     /// Allows boards to customize how they want to be formatted.
     /// For example, the [`Chessboard`] can give the king square a red frame if the king is in check.
-    fn pretty_formatter(
-        &self,
-        last_move: Option<Self::Move>,
-        flip: bool,
-    ) -> Box<dyn BoardFormatter<Self>>;
+    fn pretty_formatter(&self, last_move: Option<Self::Move>) -> Box<dyn BoardFormatter<Self>>;
 
     /// Verifies that all invariants of this board are satisfied. It should never be possible for this function to
     /// fail for a bug-free program; failure most likely means the `Board` implementation is bugged.

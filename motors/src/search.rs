@@ -14,7 +14,7 @@ use crate::eval::Eval;
 use crossbeam_channel::unbounded;
 use derive_more::{Add, Neg, Sub};
 use dyn_clone::DynClone;
-use gears::crossterm::style::Stylize;
+use gears::crossterm::style::{StyledContent, Stylize};
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::bail;
@@ -1034,7 +1034,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, derive_more::Display, FromRepr)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, FromRepr)]
 #[repr(u8)]
 #[must_use]
 pub enum NodeType {
@@ -1045,6 +1045,16 @@ pub enum NodeType {
     Exact = 2,
     /// score between alpha and beta, PV node (important node!)
     FailLow = 3, // score is an upper bound <= alpha, all-node (relatively rare, but makes parent a cut-node)
+}
+
+impl Display for NodeType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FailHigh => write!(f, "Lower Bound"),
+            Exact => write!(f, "Exact"),
+            FailLow => write!(f, "Upper Bound"),
+        }
+    }
 }
 
 impl NodeType {
@@ -1063,6 +1073,14 @@ impl NodeType {
 
     pub fn upper_bound() -> Self {
         FailLow
+    }
+
+    pub fn comparison_str(&self) -> StyledContent<&str> {
+        match self {
+            FailHigh => ">=".dark_green(),
+            Exact => "".stylize(),
+            FailLow => "<=".dark_red(),
+        }
     }
 }
 

@@ -37,17 +37,18 @@ use crate::io::command::{
     accept_depth, go_options, query_options, ugi_commands, CommandList, GoState,
 };
 use crate::io::input::Input;
-use crate::io::ugi_output::UgiOutput;
+use crate::io::ugi_output::{pretty_score, score_gradient, UgiOutput};
 use crate::io::ProgramStatus::{Quit, Run};
 use crate::io::Protocol::Interactive;
 use crate::io::SearchType::*;
 use crate::search::multithreading::EngineWrapper;
-use crate::search::tt::{DEFAULT_HASH_SIZE_MB, TT};
+use crate::search::tt::{TTEntry, DEFAULT_HASH_SIZE_MB, TT};
 use crate::search::{run_bench_with, EvalList, SearchParams, SearcherList};
 use crate::{
     create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match,
 };
 use gears::cli::select_game;
+use gears::crossterm::style;
 use gears::crossterm::style::Stylize;
 use gears::games::{BoardHistory, OutputList, ZobristHistory};
 use gears::general::board::Strictness::{Relaxed, Strict};
@@ -59,18 +60,19 @@ use gears::general::common::{
     to_name_and_optional_description, tokens, NamedEntity,
 };
 use gears::general::common::{Res, Tokens};
-use gears::general::moves::ExtendedFormat::Alternative;
+use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
 use gears::general::perft::{perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
+use gears::output::text_output::AdaptFormatter;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{
-    load_ugi_position, parse_ugi_position_and_moves, EngineOption, EngineOptionName, UgiCheck,
-    UgiCombo, UgiSpin, UgiString,
+    parse_ugi_position_and_moves, EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin,
+    UgiString,
 };
 use gears::MatchStatus::*;
 use gears::Quitting::QuitProgram;
@@ -136,6 +138,10 @@ struct BoardGameState<B: Board> {
 }
 
 impl<B: Board> BoardGameState<B> {
+    fn last_move(&self) -> Option<B::Move> {
+        self.mov_hist.last().copied()
+    }
+
     fn make_move(&mut self, mov: B::Move) -> Res<B> {
         debug_assert!(self.board.is_move_pseudolegal(mov));
         if let Run(Over(result)) = &self.status {
@@ -490,9 +496,10 @@ impl<B: Board> EngineUGI<B> {
                 Warning,
                 &format!(
                     "Ignoring trailing input starting with '{0}' after a valid '{1}' command",
-                    remaining.bold(),
+                    remaining.bold().red(),
                     cmd.short_name().bold()
-                ),
+                )
+                .to_string(),
             );
         }
         Ok(())
@@ -872,26 +879,30 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_eval_or_tt(&mut self, eval: bool, words: &mut Tokens) -> Res<()> {
-        let board = if let Some(next_word) = words.peek().copied() {
-            _ = words.next();
-            load_ugi_position(next_word, words, true, self.strictness, &self.state.board)?
-        } else {
-            self.state.board
-        };
+        let mut state = self.state.clone();
+        if words.peek().is_some() {
+            state.handle_position(words, true, Relaxed)?;
+        }
         let text = if eval {
             let info = self.state.engine.get_engine_info();
             if let Some(eval_name) = info.eval() {
                 let mut eval =
                     create_eval_from_str(&eval_name.short_name(), &self.eval_factories)?.build();
-                let eval = eval.eval(&board);
-                format!("score {eval}\n")
+                let eval = eval.eval(&state.board);
+                format!(
+                    "Eval Score: {}\n",
+                    pretty_score(eval, None, &score_gradient(), true, false)
+                )
             } else {
-                "<none>".to_string()
+                format!(
+                    "The engine '{}' doesn't have an eval function",
+                    info.short_name().bold()
+                )
             }
-        } else if let Some(entry) = self.state.engine.tt_entry(&board) {
-            format!("{entry}")
+        } else if let Some(entry) = self.state.engine.tt_entry(&state.board) {
+            format_tt_entry(state, entry)
         } else {
-            "<none>".to_string()
+            "There is no TT entry for this position".bold().to_string()
         };
         self.write_ugi(&text);
         Ok(())
@@ -1353,4 +1364,41 @@ impl<B: Board> EngineUGI<B> {
         let text = print_as_ascii_art(&text, 2).dark_cyan().to_string();
         self.write_ugi(&text);
     }
+}
+
+// take a BoardGameState instead of a board to correctly handle displaying the last move
+fn format_tt_entry<B: Board>(state: BoardGameState<B>, entry: TTEntry<B>) -> String {
+    let pos = state.board;
+    let formatter = pos.pretty_formatter(state.last_move());
+    let mut formatter = AdaptFormatter {
+        underlying: formatter,
+        color_frame: Box::new(move |coords| {
+            if let Some(mov) = entry.mov.check_legal(&pos) {
+                if coords == mov.src_square() || coords == mov.dest_square() {
+                    return Some(style::Color::DarkRed);
+                }
+            };
+            None
+        }),
+        display_piece: Box::new(|_, _| None),
+        horizontal_spacer_interval: None,
+        vertical_spacer_interval: None,
+    };
+    let mut res = pos.display_pretty(&mut formatter);
+    let move_string = if let Some(mov) = entry.mov.check_legal(&pos) {
+        mov.to_extended_text(&pos, Standard).bold().to_string()
+    } else {
+        "<none>".to_string()
+    };
+    let bound_str = entry.bound().comparison_str().bold().to_string();
+    write!(
+        &mut res,
+        "\nScore: {bound_str}{0} ({1}), Depth: {2}, Best Move: {3}",
+        pretty_score(entry.score, None, &score_gradient(), true, false),
+        entry.bound(),
+        entry.depth.to_string().bold(),
+        move_string,
+    )
+    .unwrap();
+    res
 }

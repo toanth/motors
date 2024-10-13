@@ -278,7 +278,7 @@ impl BoardToText {
         }
         match self.typ {
             Pretty => {
-                let mut formatter = m.get_board().pretty_formatter(m.last_move(), flipped);
+                let mut formatter = m.get_board().pretty_formatter(m.last_move());
                 format!(
                     "{time_above}{}{time_below}",
                     m.get_board().display_pretty(formatter.as_mut())
@@ -598,7 +598,8 @@ pub struct DefaultBoardFormatter<B: RectangularBoard> {
 }
 
 impl<B: RectangularBoard> DefaultBoardFormatter<B> {
-    pub fn new(pos: B, last_move: Option<B::Move>, flip: bool) -> Self {
+    pub fn new(pos: B, last_move: Option<B::Move>) -> Self {
+        let flip = pos.active_player() == B::Color::second();
         Self {
             pos,
             last_move,

@@ -595,11 +595,7 @@ impl Board for Chessboard {
         display_board_pretty(self, display_coordinates)
     }
 
-    fn pretty_formatter(
-        &self,
-        last_move: Option<ChessMove>,
-        flip: bool,
-    ) -> Box<dyn BoardFormatter<Self>> {
+    fn pretty_formatter(&self, last_move: Option<ChessMove>) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;
         let king_square = self.king_square(self.active_player);
         let color_frame = Box::new(move |square| {
@@ -614,7 +610,7 @@ impl Board for Chessboard {
             }
         });
         Box::new(AdaptFormatter {
-            underlying: Box::new(DefaultBoardFormatter::new(*self, last_move, flip)),
+            underlying: Box::new(DefaultBoardFormatter::new(*self, last_move)),
             color_frame,
             display_piece: Box::new(move |square, width| {
                 let piece = pos.colored_piece_on(square);

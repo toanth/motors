@@ -373,12 +373,8 @@ impl Board for AtaxxBoard {
         display_board_pretty(self, fmt)
     }
 
-    fn pretty_formatter(
-        &self,
-        last_move: Option<Self::Move>,
-        flip: bool,
-    ) -> Box<dyn BoardFormatter<Self>> {
-        Box::new(DefaultBoardFormatter::new(*self, last_move, flip))
+    fn pretty_formatter(&self, last_move: Option<Self::Move>) -> Box<dyn BoardFormatter<Self>> {
+        Box::new(DefaultBoardFormatter::new(*self, last_move))
     }
 }
 
