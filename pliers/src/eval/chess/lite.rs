@@ -247,26 +247,20 @@ impl WeightsInterpretation for TuneLiTEval {
             writeln!(f, "];")?;
             writeln!(
                 f,
-                " const PAWN_PROTECTION: [PhasedScore; NUM_CHESS_PIECES] = ["
+                "const PAWN_PROTECTION: [PhasedScore; NUM_CHESS_PIECES] = ["
             )?;
             for _feature in 0..LiTETrace::NUM_PAWN_PROTECTION_FEATURES {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
                 idx += 1;
             }
             writeln!(f, "\n];")?;
-            writeln!(
-                f,
-                " const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = ["
-            )?;
+            writeln!(f, "const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = [")?;
             for _feature in 0..LiTETrace::NUM_PAWN_ATTACKS_FEATURES {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
                 idx += 1;
             }
             writeln!(f, "\n];")?;
-            writeln!(
-                f,
-                "\npub const OUTPOSTS: [PhasedScore; NUM_CHESS_PIECES] = ["
-            )?;
+            writeln!(f, "\nconst OUTPOSTS: [PhasedScore; NUM_CHESS_PIECES] = [")?;
             for _piece in 0..LiTETrace::NUM_OUTPOST_FEATURES {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
                 idx += 1;

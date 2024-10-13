@@ -209,12 +209,16 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
     fn outposts(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
+        let our_pawns = pos.colored_piece_bb(color, Pawn);
+        let pawn_protection = our_pawns.pawn_attacks(color);
         for piece in ChessPieceType::pieces() {
             for square in pos.colored_piece_bb(color, piece).ones() {
                 let in_front = ((A_FILE << (square.flip_if(color == Black).bb_idx())) << 8)
                     .flip_if(color == Black);
                 let potential_attackers = in_front | in_front.west() | in_front.east();
-                if (potential_attackers & pos.colored_piece_bb(!color, Pawn)).is_zero() {
+                if pawn_protection.is_bit_set_at(square.bb_idx())
+                    && (potential_attackers & pos.colored_piece_bb(!color, Pawn)).is_zero()
+                {
                     score += Tuned::outpost(piece);
                 }
             }
