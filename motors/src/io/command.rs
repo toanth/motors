@@ -486,7 +486,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
         ugi_command!(
             play | game,
             Custom,
-            "Starts a new match, possibly of a new game, optionally setting a new engine",
+            "Starts a new match, possibly of a new game, optionally setting a new engine and position",
             |ugi, words, _| ugi.handle_play(words),
             -> |_| select_command::<B, Game>(&Game::iter().map(Box::new).collect_vec())
         ),

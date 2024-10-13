@@ -33,12 +33,11 @@ use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    position_fen_part, read_common_fen_part, NameToPos, SelfChecks, Strictness, UnverifiedBoard,
+    board_from_name, position_fen_part, read_common_fen_part, NameToPos, SelfChecks, Strictness,
+    UnverifiedBoard,
 };
-use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    parse_int_from_str, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
-    Tokens,
+    parse_int_from_str, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
 };
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
@@ -182,17 +181,7 @@ impl Board for Chessboard {
     }
 
     fn from_name(name: &str) -> Res<Self> {
-        // this is the trait's default implementation...
-        select_name_static(
-            name,
-            Self::name_to_pos_map().iter(),
-            "position",
-            &Self::game_name(),
-            NoDescription,
-        )
-        .map(|f| (f.val)())
-        // ... this isn't
-        .or_else(|err| {
+        board_from_name(name).or_else(|err| {
             Self::parse_numbered_startpos(name)
                 .map_err(|err2| anyhow!("{err} It's also not a (D)FRC startpos [{err2}]."))
         })

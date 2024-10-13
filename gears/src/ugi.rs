@@ -109,7 +109,7 @@ impl Display for EngineOptionType {
                 for o in &c.options {
                     write!(f, " var {o}")?;
                 }
-                write!(f, " default {default}")?;
+                write!(f, "{default}")?;
             }
             EngineOptionType::Button => { /*nothing to do*/ }
             EngineOptionType::UString(s) => {
@@ -134,6 +134,8 @@ pub enum EngineOptionName {
     UCIEngineAbout,
     MoveOverhead,
     Strictness,
+    SetEngine,
+    SetEval,
     Other(String),
 }
 
@@ -157,6 +159,8 @@ impl NamedEntity for EngineOptionName {
             EngineOptionName::UCIEngineAbout => "Information about the engine. Can't be changed, only queried",
             EngineOptionName::MoveOverhead => "Subtract this from the remaining time each move to account for overhead of sending the move",
             EngineOptionName::Strictness => "Be more restrictive about the positions to accept. By default, many non-standard positions are accepted",
+            EngineOptionName::SetEngine => "Change the current searcher, and optionally the eval. Similar effect to `uginewgame`",
+            EngineOptionName::SetEval => "Change the current evaluation function without resetting the engine state, such as clearing the TT",
             EngineOptionName::Other(name) => { return Some(format!("Custom option named '{name}'")) }
         };
         Some(res.to_string())
@@ -175,6 +179,8 @@ impl EngineOptionName {
             EngineOptionName::UCIEngineAbout => "UCI_EngineAbout",
             EngineOptionName::MoveOverhead => "MoveOverhead",
             EngineOptionName::Strictness => "Strict",
+            EngineOptionName::SetEngine => "Engine",
+            EngineOptionName::SetEval => "SetEval",
             EngineOptionName::Other(x) => x,
         }
     }
@@ -199,6 +205,8 @@ impl FromStr for EngineOptionName {
             "uci_elo" => EngineOptionName::UciElo,
             "move overhead" | "moveoverhead" => EngineOptionName::MoveOverhead,
             "strict" => EngineOptionName::Strictness,
+            "engine" => EngineOptionName::SetEngine,
+            "seteval" => EngineOptionName::SetEval,
             _ => EngineOptionName::Other(s.to_string()),
         })
     }

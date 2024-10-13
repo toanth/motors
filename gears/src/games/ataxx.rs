@@ -13,7 +13,9 @@ use crate::general::bitboards::ataxx::{AtaxxBitboard, INVALID_EDGE_MASK};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
-use crate::general::board::{position_fen_part, SelfChecks, Strictness, UnverifiedBoard};
+use crate::general::board::{
+    board_from_name, position_fen_part, SelfChecks, Strictness, UnverifiedBoard,
+};
 use crate::general::common::{Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{SmallGridSize, SmallGridSquare};
@@ -146,6 +148,10 @@ impl Board for AtaxxBoard {
 
     fn startpos_for_settings(_settings: Self::Settings) -> Self {
         Self::default()
+    }
+
+    fn from_name(name: &str) -> Res<Self> {
+        board_from_name(name)
     }
 
     fn bench_positions() -> Vec<Self> {

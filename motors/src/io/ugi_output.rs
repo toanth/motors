@@ -143,7 +143,7 @@ impl<B: Board> UgiOutput<B> {
             let nps = nodes / time;
             let nps_color = self.alt_grad.at(nps as f32 / 4.0);
             let [r, g, b, _] = nps_color.to_rgba8();
-            let nps = format!("{nps:5.2}").with(Rgb { r, g, b });
+            let nps = format!("{nps:5.2}").with(Rgb { r, g, b }).dim();
             let time_badness = 1.0 - (time + 1.0).log2() / 10.0;
             let [r, g, b, _] = self.alt_grad.at(time_badness as f32).to_rgba8();
             let mut in_seconds = true;

@@ -444,7 +444,7 @@ pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
 ) -> String {
     use std::fmt::Write;
     let flip = flip && B::should_flip_visually();
-    let mut res = pos.settings().text().map(|t| t).unwrap_or_default();
+    let mut res = pos.settings().text().unwrap_or_default();
     for y in 0..pos.height() {
         let yc = if flip { y } else { pos.height() - 1 - y };
         write!(&mut res, "{:>2} ", yc + 1).unwrap();
@@ -564,15 +564,16 @@ pub fn display_board_pretty<B: RectangularBoard>(
     if !flip {
         res.reverse();
     }
+    if let Some(text) = pos.settings().text() {
+        res.insert(0, text);
+    }
+    res.insert(0, format!("Fen: '{}'", pos.as_fen()));
     let mut line = "    ".to_string();
     for x in 0..pos.get_width() {
         let xc = if flip { pos.get_width() - 1 - x } else { x };
         write!(&mut line, " {:^3}", ('A'..).nth(xc).unwrap().to_string()).unwrap();
     }
     res.push(line);
-    if let Some(text) = pos.settings().text() {
-        res.insert(0, text);
-    }
     res.join("\n") + "\n"
 }
 

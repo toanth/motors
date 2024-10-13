@@ -20,6 +20,7 @@ use crate::games::{
     NoHistory, Settings, Size, ZobristHash,
 };
 use crate::general::board::SelfChecks::{Assertion, Verify};
+use crate::general::board::Strictness::Relaxed;
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
     select_name_static, tokens, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
@@ -227,16 +228,8 @@ pub trait Board:
 
     /// Constructs a specific, well-known position from its name, such as 'kiwipete' in chess.
     /// Not to be confused with `from_fen`, which can load arbitrary positions.
-    fn from_name(name: &str) -> Res<Self> {
-        select_name_static(
-            name,
-            Self::name_to_pos_map().iter(),
-            "position",
-            &Self::game_name(),
-            NoDescription,
-        )
-        .map(|f| (f.val)())
-    }
+    /// Can be implemented by calling [`board_from_name`].
+    fn from_name(name: &str) -> Res<Self>;
 
     /// Returns a Vec mapping well-known position names to their FEN, for example for kiwipete in chess.
     /// Can be implemented by a concrete `Board`, which will make `from_name` recognize the name and lets the
@@ -566,6 +559,28 @@ where
     fn idx_to_coordinates(&self, idx: DimT) -> Self::Coordinates {
         self.size().idx_to_coordinates(idx)
     }
+}
+
+/// Constructs a specific, well-known position from its name, such as 'kiwipete' in chess.
+/// Not to be confused with `from_fen`, which can load arbitrary positions.
+/// However, `"fen <x>"` forwards to [`B::from_fen`]
+pub fn board_from_name<B: Board>(name: &str) -> Res<B> {
+    let mut tokens = tokens(name);
+    if tokens
+        .next()
+        .unwrap_or_default()
+        .eq_ignore_ascii_case("fen")
+    {
+        return B::from_fen(&tokens.join(" "), Relaxed);
+    }
+    select_name_static(
+        name,
+        B::name_to_pos_map().iter(),
+        "position",
+        &B::game_name(),
+        NoDescription,
+    )
+    .map(|f| (f.val)())
 }
 
 pub fn position_fen_part<B: RectangularBoard>(pos: &B) -> String {

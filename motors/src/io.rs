@@ -47,7 +47,7 @@ use crate::search::{run_bench_with, EvalList, SearchParams, SearcherList};
 use crate::{
     create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match,
 };
-use gears::cli::{select_game, Game};
+use gears::cli::select_game;
 use gears::crossterm::style::Stylize;
 use gears::games::{BoardHistory, OutputList, ZobristHistory};
 use gears::general::board::Strictness::{Relaxed, Strict};
@@ -70,7 +70,7 @@ use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{
     load_ugi_position, parse_ugi_position_and_moves, EngineOption, EngineOptionName, UgiCheck,
-    UgiSpin, UgiString,
+    UgiCombo, UgiSpin, UgiString,
 };
 use gears::MatchStatus::*;
 use gears::Quitting::QuitProgram;
@@ -310,7 +310,10 @@ impl<B: Board> EngineUGI<B> {
         all_evals: EvalList<B>,
     ) -> Res<Self> {
         let output = Arc::new(Mutex::new(UgiOutput::new(opts.interactive)));
-        let board = B::default();
+        let board = match opts.pos_name {
+            None => B::default(),
+            Some(name) => B::from_name(&name)?,
+        };
         let engine = create_engine_from_str(
             &opts.engine,
             &all_searchers,
@@ -547,8 +550,8 @@ impl<B: Board> EngineUGI<B> {
         };
         let text = print_as_ascii_art(text, 10);
         let text = match res {
-            PlayerResult::Win => text.green(),
-            PlayerResult::Lose => text.red(),
+            PlayerResult::Win => text.dark_green(),
+            PlayerResult::Lose => text.dark_red(),
             PlayerResult::Draw => text.stylize(),
         };
         self.write_ugi(&text.to_string());
@@ -672,6 +675,12 @@ impl<B: Board> EngineUGI<B> {
                 } else {
                     Relaxed
                 };
+            }
+            SetEngine => {
+                self.handle_engine(&mut tokens(&value))?;
+            }
+            SetEval => {
+                self.handle_set_eval(&mut tokens(&value))?;
             }
             _ => {
                 let value = value.trim().to_string();
@@ -1150,17 +1159,17 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_play(&mut self, words: &mut Tokens) -> Res<()> {
-        let default = Game::default().to_string();
+        let default = self.state.game_name();
         let game_name = words.next().unwrap_or(&default);
         let game = select_game(game_name)?;
         let mut opts = EngineOpts::for_game(game, self.state.debug_mode);
         if let Some(word) = words.next() {
             opts.engine = word.to_string();
         }
-        let mut nested_match = create_match(opts)?;
-        if cfg!(feature = "fuzzing") {
-            return Ok(()); // TODO: Allow fuzzing this as well
+        if words.peek().is_some() {
+            opts.pos_name = Some(words.join(" "));
         }
+        let mut nested_match = create_match(opts)?;
         if nested_match.run() == QuitProgram {
             self.quit(QuitProgram)?;
         } else {
@@ -1233,7 +1242,11 @@ impl<B: Board> EngineUGI<B> {
     fn get_options(&self) -> Vec<EngineOption> {
         let engine_info = self.state.engine.get_engine_info();
         let engine = engine_info.engine().clone();
-        let eval_info = engine_info.eval().clone();
+        let eval_name = engine_info
+            .eval()
+            .as_ref()
+            .map(|i| i.long_name())
+            .unwrap_or("<none>".to_string());
         let max_threads = engine_info.max_threads();
         drop(engine_info);
         let mut res = vec![
@@ -1276,7 +1289,7 @@ impl<B: Board> EngineUGI<B> {
                     default: Some(format!(
                         "Motors by ToTheAnd. Game: {2}. Engine: {0}. Eval: {1}  ",
                         engine.long,
-                        eval_info.map_or_else(|| "<none>".to_string(), |i| i.long),
+                        eval_name.clone(),
                         B::game_name()
                     )),
                 }),
@@ -1304,6 +1317,30 @@ impl<B: Board> EngineUGI<B> {
                 value: Check(UgiCheck {
                     val: self.strictness == Strict,
                     default: Some(false),
+                }),
+            },
+            EngineOption {
+                name: SetEngine,
+                value: Combo(UgiCombo {
+                    val: engine.short_name(),
+                    default: Some(engine.short_name()),
+                    options: self
+                        .searcher_factories
+                        .iter()
+                        .map(|s| s.long_name())
+                        .collect_vec(),
+                }),
+            },
+            EngineOption {
+                name: SetEval,
+                value: Combo(UgiCombo {
+                    val: eval_name.clone(),
+                    default: Some(eval_name),
+                    options: self
+                        .eval_factories
+                        .iter()
+                        .map(|e| e.long_name())
+                        .collect_vec(),
                 }),
             },
         ];

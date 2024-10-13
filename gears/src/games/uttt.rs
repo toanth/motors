@@ -34,7 +34,8 @@ use crate::general::bitboards::{
 use crate::general::board::SelfChecks::*;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    common_fen_part, read_common_fen_part, Board, SelfChecks, Strictness, UnverifiedBoard,
+    board_from_name, common_fen_part, read_common_fen_part, Board, SelfChecks, Strictness,
+    UnverifiedBoard,
 };
 use crate::general::common::{ith_one_u128, parse_int, Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
@@ -656,6 +657,10 @@ impl Board for UtttBoard {
 
     fn startpos_for_settings(_settings: UtttSettings) -> Self {
         Self::default()
+    }
+
+    fn from_name(name: &str) -> Res<Self> {
+        board_from_name(name)
     }
 
     fn bench_positions() -> Vec<Self> {

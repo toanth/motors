@@ -19,10 +19,9 @@ use crate::general::bitboards::{
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    position_fen_part, read_position_fen, NameToPos, RectangularBoard, SelfChecks, Strictness,
-    UnverifiedBoard,
+    board_from_name, position_fen_part, read_position_fen, NameToPos, RectangularBoard, SelfChecks,
+    Strictness, UnverifiedBoard,
 };
-use crate::general::common::Description::NoDescription;
 use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
 use crate::general::moves::Legality::Legal;
@@ -328,7 +327,7 @@ impl Default for MnkSettings {
 
 impl Settings for MnkSettings {
     fn text(&self) -> Option<String> {
-        Some(format!("k: {}", self.k))
+        Some(format!("[{} in a row to win]", self.k))
     }
 }
 
@@ -486,34 +485,25 @@ impl Board for MNKBoard {
     }
 
     fn from_name(name: &str) -> Res<Self> {
-        let map = Self::name_to_pos_map();
-        let entry = select_name_static(
-            name,
-            map.iter(),
-            "position",
-            &Self::game_name(),
-            NoDescription,
-        );
-        if let Ok(entry) = entry {
-            return Ok((entry.val)());
-        }
-        let pattern = Regex::new(r"([0-9]+),([0-9]+),([0-9]+)").unwrap();
-        if let Some(captures) = pattern.captures(name) {
-            let mut settings = MnkSettings::default();
-            settings.height = parse_int_from_str(&captures[1], "m")?;
-            settings.width = parse_int_from_str(&captures[2], "n")?;
-            settings.k = parse_int_from_str(&captures[3], "k")?;
-            if !settings.check_invariants() {
-                bail!("Invalid m,n,k values (at least one value is too large or too small)");
+        board_from_name(name).or_else(|err| {
+            let pattern = Regex::new(r"([0-9]+),([0-9]+),([0-9]+)").unwrap();
+            if let Some(captures) = pattern.captures(name) {
+                let mut settings = MnkSettings::default();
+                settings.height = parse_int_from_str(&captures[1], "m")?;
+                settings.width = parse_int_from_str(&captures[2], "n")?;
+                settings.k = parse_int_from_str(&captures[3], "k")?;
+                if !settings.check_invariants() {
+                    bail!("Invalid m,n,k values (at least one value is too large or too small)");
+                }
+                Ok(Self::empty_for_settings(settings))
+            } else {
+                bail!(
+                    "{0} It's also not an m,n,k list, which must have the format '{1}', e.g. '3,3,3'.",
+                    err,
+                    "<m>,<n>,<k>".bold()
+                )
             }
-            Ok(Self::empty_for_settings(settings))
-        } else {
-            bail!(
-                "{0} It's also not an m,n,k list, which must have the format '{1}', e.g. '3,3,3'.",
-                entry.err().unwrap(),
-                "<m>,<n>,<k>".bold()
-            )
-        }
+        })
     }
 
     fn settings(&self) -> Self::Settings {

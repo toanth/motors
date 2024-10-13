@@ -43,6 +43,8 @@ pub struct EngineOpts {
     /// the engine switches to non-interactive mode.
     pub interactive: bool,
 
+    pub pos_name: Option<String>,
+
     pub mode: Mode,
 }
 
@@ -54,6 +56,7 @@ impl EngineOpts {
             outputs: vec![],
             debug,
             interactive: true,
+            pos_name: None,
             mode: Engine,
         }
     }
