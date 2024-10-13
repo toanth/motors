@@ -12,7 +12,7 @@ use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::ChessColor::White;
 use gears::games::chess::{ChessColor, Chessboard};
 use motors::eval::chess::lite::GenericLiTEval;
-use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
+use motors::eval::chess::lite_values::{LiteValues, SingleFeatureScore, MAX_MOBILITY};
 use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
 use motors::eval::ScoreType;
@@ -32,6 +32,7 @@ impl LiTETrace {
     const NUM_DOUBLED_PAWN_FEATURES: usize = 1;
     const NUM_PAWN_PROTECTION_FEATURES: usize = NUM_CHESS_PIECES;
     const NUM_PAWN_ATTACKS_FEATURES: usize = NUM_CHESS_PIECES;
+    const NUM_OUTPOST_FEATURES: usize = NUM_CHESS_PIECES;
     const NUM_MOBILITY_FEATURES: usize = (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1);
     const NUM_THREAT_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
     const NUM_DEFENSE_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
@@ -53,7 +54,8 @@ impl LiTETrace {
     const PAWN_PROTECTION_OFFSET: usize = Self::PAWN_SHIELD_OFFSET + NUM_PAWN_SHIELD_CONFIGURATIONS;
     const PAWN_ATTACKS_OFFSET: usize =
         Self::PAWN_PROTECTION_OFFSET + Self::NUM_PAWN_PROTECTION_FEATURES;
-    const MOBILITY_OFFSET: usize = Self::PAWN_ATTACKS_OFFSET + Self::NUM_PAWN_ATTACKS_FEATURES;
+    const OUTPOST_OFFSET: usize = Self::PAWN_ATTACKS_OFFSET + Self::NUM_PAWN_ATTACKS_FEATURES;
+    const MOBILITY_OFFSET: usize = Self::OUTPOST_OFFSET + Self::NUM_OUTPOST_FEATURES;
     const THREAT_OFFSET: usize = Self::MOBILITY_OFFSET + Self::NUM_MOBILITY_FEATURES;
     const DEFENSE_OFFSET: usize = Self::THREAT_OFFSET + Self::NUM_THREAT_FEATURES;
     const KING_ZONE_ATTACK_OFFSET: usize = Self::DEFENSE_OFFSET + Self::NUM_DEFENSE_FEATURES;
@@ -112,6 +114,11 @@ impl LiteValues for LiTETrace {
     ) -> <Self::Score as ScoreType>::SingleFeatureScore {
         debug_assert!(len <= 8);
         let idx = Self::BISHOP_OPENNESS_OFFSET + openness as usize * 8 + len - 1;
+        SingleFeature::new(idx)
+    }
+
+    fn outpost(piece: ChessPieceType) -> SingleFeatureScore<Self> {
+        let idx = Self::OUTPOST_OFFSET + piece as usize;
         SingleFeature::new(idx)
     }
 
@@ -252,6 +259,15 @@ impl WeightsInterpretation for TuneLiTEval {
                 " const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = ["
             )?;
             for _feature in 0..LiTETrace::NUM_PAWN_ATTACKS_FEATURES {
+                write!(f, "{}, ", write_phased(weights, idx, &special))?;
+                idx += 1;
+            }
+            writeln!(f, "\n];")?;
+            writeln!(
+                f,
+                "\npub const OUTPOSTS: [PhasedScore; NUM_CHESS_PIECES] = ["
+            )?;
+            for _piece in 0..LiTETrace::NUM_OUTPOST_FEATURES {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
                 idx += 1;
             }

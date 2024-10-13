@@ -696,7 +696,7 @@ pub trait SearchState<B: Board>: Debug {
     }
 
     fn internal_edge_count(&self) -> u64 {
-        self.search_params().atomic.edges()
+        self.search_params().atomic.nodes()
     }
 
     fn currently_searching(&self) -> bool {
@@ -711,8 +711,7 @@ pub trait SearchState<B: Board>: Debug {
     /// Can be called during search.
     /// For smp, this only returns the number of nodes looked at in the current thread.
     fn uci_nodes(&self) -> u64 {
-        // + 1 because we only count make_move calls, which ignores the root
-        self.search_params().atomic.edges() + 1
+        self.search_params().atomic.nodes()
     }
 
     fn count_node(&self) {
@@ -949,6 +948,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B> for ABSe
         }
         if hard {
             self.custom.hard_forget_except_tt();
+            self.params.atomic.reset();
         } else {
             self.custom.new_search();
         }
