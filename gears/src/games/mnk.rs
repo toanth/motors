@@ -479,7 +479,7 @@ impl Board for MNKBoard {
             },
             GenericSelect {
                 name: "tictactoe",
-                val: || Self::default(),
+                val: Self::default,
             },
         ]
     }
@@ -488,10 +488,14 @@ impl Board for MNKBoard {
         board_from_name(name).or_else(|err| {
             let pattern = Regex::new(r"([0-9]+),([0-9]+),([0-9]+)").unwrap();
             if let Some(captures) = pattern.captures(name) {
-                let mut settings = MnkSettings::default();
-                settings.height = parse_int_from_str(&captures[1], "m")?;
-                settings.width = parse_int_from_str(&captures[2], "n")?;
-                settings.k = parse_int_from_str(&captures[3], "k")?;
+                let height = parse_int_from_str(&captures[1], "m")?;
+                let width = parse_int_from_str(&captures[2], "n")?;
+                let k = parse_int_from_str(&captures[3], "k")?;
+                let settings = MnkSettings {
+                    height,
+                    width,
+                    k,
+                };
                 if !settings.check_invariants() {
                     bail!("Invalid m,n,k values (at least one value is too large or too small)");
                 }
@@ -696,7 +700,7 @@ impl Board for MNKBoard {
 
         let mut ply = board.0.occupied_bb().num_ones();
         if let Some(word) = words.peek() {
-            if let Ok(ply_num) = parse_int_from_str(*word, "ply") {
+            if let Ok(ply_num) = parse_int_from_str(word, "ply") {
                 _ = words.next();
                 ply = ply_num;
             }

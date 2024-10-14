@@ -170,6 +170,15 @@ impl UtttSquare {
         }
     }
 
+    pub fn unchecked(idx: usize) -> Self {
+        let sub_board_idx = idx / 9;
+        let sub_square_idx = idx % 9;
+        Self {
+            sub_board: SmallGridSquare::unchecked(sub_board_idx),
+            sub_square: SmallGridSquare::unchecked(sub_square_idx),
+        }
+    }
+
     pub fn iter() -> impl Iterator<Item = Self> {
         (0..9).cartesian_product(0..9).map(|(a, b)| Self {
             sub_board: SmallGridSquare::from_bb_index(a),

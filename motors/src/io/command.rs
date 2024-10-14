@@ -109,6 +109,12 @@ pub trait CommandTrait<State: CommandState>: AbstractCommand<State::B> {
     fn upcast_ref(&self) -> &dyn AbstractCommand<State::B>;
 }
 
+fn upcast_vec<S: CommandState>(
+    vec: Vec<Box<dyn CommandTrait<S>>>,
+) -> Vec<Box<dyn AbstractCommand<S::B>>> {
+    vec.into_iter().map(|cmd| cmd.upcast_box()).collect_vec()
+}
+
 // TODO: Needed?
 fn display_cmd<S: CommandState>(
     f: &mut Formatter<'_>,
@@ -260,7 +266,8 @@ impl<State: CommandState + 'static> CommandTrait<State> for Command<State> {
 pub type CommandList<State> = Vec<Box<dyn CommandTrait<State>>>;
 
 macro_rules! command {
-    ($State:ty, $primary:ident $(| $other:ident)*, $std:expr, $help:expr , $fun:expr $(, ->$subcmd:expr)? $(, [] $autocomplete_fn:expr)? $(, recurse=$recurse:expr)?) => {
+    ($State:ty, $primary:ident $(| $other:ident)*, $std:expr, $help:expr , $fun:expr
+    $(, ->$subcmd:expr)? $(, -->$abstract_subcmd:expr)? $(, [] $autocomplete_fn:expr)? $(, recurse=$recurse:expr)?) => {
         {
             #[allow(unused_mut, unused_assignments)]
             let mut sub_commands = SubCommandsFn::default();
@@ -269,6 +276,9 @@ macro_rules! command {
                     .into_iter()
                     .map(|x| x.upcast_box())
                     .collect());
+            )?
+            $(
+                sub_commands.0 = Box::new(|this| ($abstract_subcmd)(this));
             )?
 
             #[allow(unused_mut, unused_assignments)]
@@ -299,8 +309,9 @@ macro_rules! command {
 }
 
 macro_rules! ugi_command {
-    ($primary:ident $(| $other:ident)*, $std:expr, $help:expr, $fun:expr $(, -> $subcmd:expr)? $(, [] $autocomplete_fn:expr)? $(, recurse=$recurse:expr)?) => {
-        command!(EngineUGI<B>, $primary $(| $other)*, $std, $help, $fun $(, ->$subcmd)? $(, [] $autocomplete_fn)? $(, recurse=$recurse)?)
+    ($primary:ident $(| $other:ident)*, $std:expr, $help:expr, $fun:expr $(, -> $subcmd:expr)? $(, -->$abstract_subcmd:expr)?
+    $(, [] $autocomplete_fn:expr)? $(, recurse=$recurse:expr)?) => {
+        command!(EngineUGI<B>, $primary $(| $other)*, $std, $help, $fun $(, ->$subcmd)? $(, -->$abstract_subcmd)? $(, [] $autocomplete_fn)? $(, recurse=$recurse)?)
     }
 }
 
@@ -313,7 +324,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             All,
             "Start the search. Optionally takes a position and a mode such as `perft`",
             |ugi, words, _| { ugi.handle_go(Normal, words) },
-            -> |_| go_options::<B>(),
+            -> |_| go_options::<B>(Some(Normal)),
             recurse = true
         ),
         ugi_command!(
@@ -330,7 +341,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             All,
             "Set the current position",
             |ugi, words, _| ugi.handle_position(words),
-            -> |_| position_options::<B>(false)
+            -> |state: ACState<B>| position_options::<B>(false, Some(state.pos))
         ),
         ugi_command!(
             ugi | uci | uai,
@@ -410,13 +421,19 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
                 eprintln!("Fuzzing is enabled, ignoring 'quit' command");
                 return Ok(());
             }
-            ugi.quit(QuitProgram)
+            ugi.handle_quit(QuitProgram)
         }),
         ugi_command!(
             quit_match | end_game | qm,
             Custom,
             "Quits the current match and, if `play` has been used, returns to the previous match",
-            |ugi, _, _| ugi.quit(QuitMatch)
+            |ugi, _, _| {
+                if cfg!(feature = "fuzzing") {
+                    eprintln!("Fuzzing is enabled, ignoring 'quitmatch' command");
+                    return Ok(());
+                }
+                ugi.handle_quit(QuitMatch)
+            }
         ),
         ugi_command!(
             query | q,
@@ -438,16 +455,32 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
         ugi_command!(
             output | o,
             Custom,
-            "Sets outputs. Use `remove (all)` to remove specified outputs, 'add' to use multiple",
+            "Sets outputs, which are used to print the game state. Permanent version of 'show'",
             |ugi, words, _| ugi.handle_output(words),
-            -> |state: ACState<B>| select_command::<B, dyn OutputBuilder<B>>(state.outputs.as_slice())
+            --> |state: ACState<B>| add(
+                upcast_vec(select_command::<B, dyn OutputBuilder<B>>(state.outputs.as_slice())),
+                vec![named_entity_to_command::<B, Name>(
+                    &Name {
+                        short: "remove".to_string(),
+                        long: "remove".to_string(),
+                        description: Some("Remove the specified output, or all if not given".to_string()),
+                    }
+                ).upcast_box(),
+                named_entity_to_command::<B, Name>(&Name {
+                        short: "add".to_string(),
+                        long: "add".to_string(),
+                        description: Some("Add an output without changing existing outputs".to_string()),
+                    }
+                    ).upcast_box()]),
+            recurse=true
         ),
         ugi_command!(
             print | show | s | display,
             Custom,
-            "Display the specified / current position with specified / enabled outputs",
+            "Display the specified / current position with specified / enabled outputs or 'prettyascii' if no output is set",
             |ugi, words, _| ugi.handle_print(words),
-            -> |state: ACState<B>| add(position_options::<B>(true), select_command::<B, dyn OutputBuilder<B>>(state.outputs.as_slice())),
+            -> |state: ACState<B>| add(position_options::<B>(true, Some(state.pos)),
+                select_command::<B, dyn OutputBuilder<B>>(state.outputs.as_slice())),
             recurse=true
         ),
         ugi_command!(
@@ -490,7 +523,13 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             play | game,
             Custom,
             "Starts a new match, possibly of a new game, optionally setting a new engine and position",
-            |ugi, words, _| ugi.handle_play(words),
+            |ugi, words, _| {
+                if cfg!(feature = "fuzzing") {
+                    eprintln!("Fuzzing is enabled, ignoring 'play'");
+                    return Ok(())
+                }
+                ugi.handle_play(words)
+            },
             -> |_| select_command::<B, Game>(&Game::iter().map(Box::new).collect_vec())
         ),
         ugi_command!(
@@ -498,7 +537,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             Custom,
             "Internal movegen test on current / bench positions",
             |ugi, words, _| ugi.handle_go(Perft, words),
-            -> |_state: ACState<B>| position_options::<B>(true),
+            -> |_state: ACState<B>| go_options(Some(Perft)),
             recurse=true
         ),
         ugi_command!(
@@ -506,7 +545,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             Custom,
             "Internal movegen test on current / bench positions",
             |ugi, words, _| ugi.handle_go(SplitPerft, words),
-            -> |_| position_options::<B>(true),
+            -> |_| go_options(Some(SplitPerft)),
             recurse=true
         ),
         ugi_command!(
@@ -514,7 +553,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             Custom,
             "Internal search test on current / bench positions. Same arguments as `go`",
             |ugi, words, _| ugi.handle_go(Bench, words),
-            -> |_| go_options::<B>(),
+            -> |_| go_options::<B>(Some(Bench)),
             recurse=true
         ),
         ugi_command!(
@@ -522,7 +561,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             Custom,
             "Print the static eval (i.e., no search) of a position",
             |ugi, words, _| ugi.handle_eval_or_tt(true, words),
-            -> |_| position_options::<B>(true),
+            -> |state: ACState<B>| position_options::<B>(true, Some(state.pos)),
             recurse=true
         ),
         ugi_command!(
@@ -530,7 +569,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             Custom,
             "Print the TT entry for a position",
             |ugi, words, _| ugi.handle_eval_or_tt(false, words),
-            -> |_| position_options::<B>(true),
+            -> |state: ACState<B>| position_options::<B>(true, Some(state.pos)),
             recurse=true
         ),
         ugi_command!(help | h, Custom, "Prints a help message", |ugi, _, _| {
@@ -598,259 +637,286 @@ pub fn accept_depth(limit: &mut SearchLimit, words: &mut Tokens) -> Res<()> {
 }
 
 macro_rules! go_command {
-    ($primary:ident $( | $other:ident)*, $std:expr, $help:expr, $fun:expr $(, ->$subcmd:expr)?) => {
-        command!(GoState<B>, $primary $(| $other)*, $std, $help, $fun $(, ->$subcmd)?)
+    ($primary:ident $( | $other:ident)*, $std:expr, $help:expr, $fun:expr $(, ->$subcmd:expr)? $(, -->$abstract_subcmd:expr)? $(, [] $autocomplete_fn:expr)?) => {
+        command!(GoState<B>, $primary $(| $other)*, $std, $help, $fun $(, ->$subcmd)? $(, -->$abstract_subcmd)? $(, []$autocomplete_fn)?)
     }
 }
 
+pub fn depth_cmd<B: Board>() -> Box<dyn CommandTrait<GoState<B>>> {
+    go_command!(
+        depth | d,
+        All,
+        "Maximum search depth in plies (a.k.a. half-moves)",
+        |opts, words, _| {
+            opts.limit.depth = Depth::try_new(parse_int(words, "depth number")?)?;
+            Ok(())
+        }
+    )
+}
+
+fn complete_option<B: Board>() -> Box<dyn CommandTrait<GoState<B>>> {
+    go_command!(
+        complete | all,
+        Custom,
+        "Run bench / perft on all bench positions",
+        |opts, _, _| {
+            opts.complete = true;
+            Ok(())
+        }
+    )
+}
+
 #[expect(clippy::too_many_lines)]
-pub fn go_options<B: Board>() -> CommandList<GoState<B>> {
-    let mut res: CommandList<GoState<B>> = vec![
-        Box::new(Command::<GoState<B>> {
-            primary_name: format!("{}time", B::Color::first().ascii_color_char()),
-            other_names: ArrayVec::from_iter([
-                format!("{}t", B::Color::first().ascii_color_char()),
-                "p1time".to_string(),
-                "p1t".to_string(),
-            ]),
-            help_text: format!("Remaining time in ms for {}", B::Color::first()),
-            standard: All,
-            autocomplete_recurse: false,
-            func: |go, words, _| {
-                let time = parse_duration_ms(words, "p1time")?;
-                // always parse the duration, even if it isn't relevant
-                if go.is_first {
-                    go.limit.tc.remaining = time;
-                }
-                Ok(())
-            },
-            change_ac_state: AutoCompleteFunc::default(),
-            sub_commands: SubCommandsFn::default(),
-        }),
-        Box::new(Command::<GoState<B>> {
-            primary_name: format!("{}time", B::Color::second().ascii_color_char()),
-            other_names: ArrayVec::from_iter([
-                format!("{}t", B::Color::second().ascii_color_char()),
-                "p2time".to_string(),
-                "p2t".to_string(),
-            ]),
-            help_text: format!("Remaining time in ms for {}", B::Color::second()),
-            standard: All,
-            autocomplete_recurse: false,
-            func: |go, words, _| {
-                let time = parse_duration_ms(words, "p2time")?;
-                // always parse the duration, even if it isn't relevant
-                if !go.is_first {
-                    go.limit.tc.remaining = time;
-                }
-                Ok(())
-            },
+pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>> {
+    let mut res = vec![depth_cmd()];
+    if !matches!(mode.unwrap_or(Perft), Perft | SplitPerft) {
+        let mut additional: CommandList<GoState<B>> = vec![
+            Box::new(Command::<GoState<B>> {
+                primary_name: format!("{}time", B::Color::first().ascii_color_char()),
+                other_names: ArrayVec::from_iter([
+                    format!("{}t", B::Color::first().ascii_color_char()),
+                    "p1time".to_string(),
+                    "p1t".to_string(),
+                ]),
+                help_text: format!("Remaining time in ms for {}", B::Color::first()),
+                standard: All,
+                autocomplete_recurse: false,
+                func: |go, words, _| {
+                    let time = parse_duration_ms(words, "p1time")?;
+                    // always parse the duration, even if it isn't relevant
+                    if go.is_first {
+                        go.limit.tc.remaining = time;
+                    }
+                    Ok(())
+                },
+                change_ac_state: AutoCompleteFunc::default(),
+                sub_commands: SubCommandsFn::default(),
+            }),
+            Box::new(Command::<GoState<B>> {
+                primary_name: format!("{}time", B::Color::second().ascii_color_char()),
+                other_names: ArrayVec::from_iter([
+                    format!("{}t", B::Color::second().ascii_color_char()),
+                    "p2time".to_string(),
+                    "p2t".to_string(),
+                ]),
+                help_text: format!("Remaining time in ms for {}", B::Color::second()),
+                standard: All,
+                autocomplete_recurse: false,
+                func: |go, words, _| {
+                    let time = parse_duration_ms(words, "p2time")?;
+                    // always parse the duration, even if it isn't relevant
+                    if !go.is_first {
+                        go.limit.tc.remaining = time;
+                    }
+                    Ok(())
+                },
 
-            change_ac_state: AutoCompleteFunc::default(),
-            sub_commands: SubCommandsFn::default(),
-        }),
-        Box::new(Command::<GoState<B>> {
-            primary_name: format!("{}inc", B::Color::first().ascii_color_char()),
-            other_names: ArrayVec::from_iter([
-                format!("{}i", B::Color::first().ascii_color_char()),
-                "p1inc".to_string(),
-            ]),
-            help_text: format!("Increment in ms for {}", B::Color::first()),
-            standard: All,
-            autocomplete_recurse: false,
-            func: |go, words, _| {
-                let increment = parse_duration_ms(words, "p1inc")?;
-                // always parse the duration, even if it isn't relevant
-                if go.is_first {
-                    go.limit.tc.increment = increment;
-                }
-                Ok(())
-            },
+                change_ac_state: AutoCompleteFunc::default(),
+                sub_commands: SubCommandsFn::default(),
+            }),
+            Box::new(Command::<GoState<B>> {
+                primary_name: format!("{}inc", B::Color::first().ascii_color_char()),
+                other_names: ArrayVec::from_iter([
+                    format!("{}i", B::Color::first().ascii_color_char()),
+                    "p1inc".to_string(),
+                ]),
+                help_text: format!("Increment in ms for {}", B::Color::first()),
+                standard: All,
+                autocomplete_recurse: false,
+                func: |go, words, _| {
+                    let increment = parse_duration_ms(words, "p1inc")?;
+                    // always parse the duration, even if it isn't relevant
+                    if go.is_first {
+                        go.limit.tc.increment = increment;
+                    }
+                    Ok(())
+                },
 
-            change_ac_state: AutoCompleteFunc::default(),
-            sub_commands: SubCommandsFn::default(),
-        }),
-        Box::new(Command::<GoState<B>> {
-            primary_name: format!("{}inc", B::Color::second().ascii_color_char()),
-            other_names: ArrayVec::from_iter([
-                format!("{}i", B::Color::second().ascii_color_char()),
-                "p2inc".to_string(),
-            ]),
-            help_text: format!("Increment in ms for {}", B::Color::second()),
-            standard: All,
-            autocomplete_recurse: false,
-            func: |go, words, _| {
-                let increment = parse_duration_ms(words, "p2inc")?;
-                // always parse the duration, even if it isn't relevant
-                if !go.is_first {
-                    go.limit.tc.increment = increment;
+                change_ac_state: AutoCompleteFunc::default(),
+                sub_commands: SubCommandsFn::default(),
+            }),
+            Box::new(Command::<GoState<B>> {
+                primary_name: format!("{}inc", B::Color::second().ascii_color_char()),
+                other_names: ArrayVec::from_iter([
+                    format!("{}i", B::Color::second().ascii_color_char()),
+                    "p2inc".to_string(),
+                ]),
+                help_text: format!("Increment in ms for {}", B::Color::second()),
+                standard: All,
+                autocomplete_recurse: false,
+                func: |go, words, _| {
+                    let increment = parse_duration_ms(words, "p2inc")?;
+                    // always parse the duration, even if it isn't relevant
+                    if !go.is_first {
+                        go.limit.tc.increment = increment;
+                    }
+                    Ok(())
+                },
+                change_ac_state: AutoCompleteFunc::default(),
+                sub_commands: SubCommandsFn::default(),
+            }),
+            go_command!(
+                movestogo | mtg,
+                All,
+                "Moves until the time control is reset",
+                |opts, words, _| {
+                    opts.limit.tc.moves_to_go = Some(parse_int(words, "'movestogo' number")?);
+                    Ok(())
                 }
-                Ok(())
-            },
-            change_ac_state: AutoCompleteFunc::default(),
-            sub_commands: SubCommandsFn::default(),
-        }),
-        go_command!(
-            movestogo | mtg,
-            All,
-            "Moves until the time control is reset",
-            |opts, words, _| {
-                opts.limit.tc.moves_to_go = Some(parse_int(words, "'movestogo' number")?);
-                Ok(())
-            }
-        ),
-        go_command!(
-            depth | d,
-            All,
-            "Maximum search depth in plies (a.k.a. half-moves)",
-            |opts, words, _| {
-                opts.limit.depth = Depth::try_new(parse_int(words, "depth number")?)?;
-                Ok(())
-            }
-        ),
-        go_command!(
-            nodes | n,
-            All,
-            "Maximum number of nodes to search",
-            |opts, words, _| {
-                opts.limit.nodes = NodesLimit::new(parse_int(words, "node count")?)
-                    .ok_or_else(|| anyhow!("node count can't be zero"))?;
-                Ok(())
-            }
-        ),
-        go_command!(
-            mate | m,
-            All,
-            "Maximum depth in moves until a mate has to be found",
-            |opts, words, _| {
-                let depth: isize = parse_int(words, "mate move count")?;
-                opts.limit.mate = Depth::try_new(depth * 2)?; // 'mate' is given in moves instead of plies
-                Ok(())
-            }
-        ),
-        go_command!(
-            movetime | mt | time,
-            All,
-            "Maximum time in ms",
-            |opts, words, _| {
-                opts.limit.fixed_time = parse_duration_ms(words, "time per move in milliseconds")?;
-                opts.limit.fixed_time = opts
-                    .limit
-                    .fixed_time
-                    .saturating_sub(opts.move_overhead)
-                    .max(Duration::from_millis(1));
-                Ok(())
-            }
-        ),
-        go_command!(
-            infinite | inf,
-            All,
-            "Search until receiving `stop`, the default mode",
-            |opts, _, _| {
-                opts.limit = SearchLimit::infinite();
-                Ok(())
-            }
-        ),
-        go_command!(
-            searchmoves | sm,
-            All,
-            "Only consider the specified moves",
-            |opts, _, _| {
-                opts.reading_moves = true;
-                opts.search_moves = Some(vec![]);
-                opts.cont = true;
-                Ok(())
-            }
-        ),
-        go_command!(
-            multipv | mpv,
-            Custom,
-            "Find the n best moves, temporarily overwriting the 'multipv' engine option",
-            |opts, words, _| {
-                opts.multi_pv = parse_int(words, "multipv")?;
-                Ok(())
-            }
-        ),
-        go_command!(
-            threads | t,
-            Custom,
-            "Search with n threads in parallel, temporarily overwriting the 'threads' engine option",
-            |opts, words, _| {
-                opts.threads = Some(parse_int(words, "threads")?);
-                Ok(())
-            }
-        ),
-        go_command!(
-            ponder,
-            All,
-            "Search on the opponent's time",
-            |opts, _, _| {
-                opts.search_type = Ponder;
-                Ok(())
-            }
-        ),
-        go_command!(
-            perft | pt,
-            Custom,
-            "Movegen test: Make all legal moves up to a depth",
-            |opts, words, _| {
-                opts.search_type = Perft;
-                accept_depth(&mut opts.limit, words)?;
-                Ok(())
-            }
-        ),
-        go_command!(
-            splitperft | sp,
-            Custom,
-            "Movegen test: Print perft number for each legal move",
-            |opts, words, _| {
-                opts.search_type = SplitPerft;
-                accept_depth(&mut opts.limit, words)?;
-                Ok(())
-            }
-        ),
-        go_command!(
-            bench | b,
-            Custom,
-            "Search test: Print info about nodes, nps, and hash of search",
-            |opts, words, _| {
-                opts.search_type = Bench;
-                accept_depth(&mut opts.limit, words)?;
-                Ok(())
-            }
-        ),
-        go_command!(
-            complete | all,
-            Custom,
-            "Run bench / perft on all bench positions",
-            |opts, _, _| {
-                opts.complete = true;
-                Ok(())
-            }
-        ),
-        // TODO: Handle moves for searchmoves. Maybe not as command
-        // Box::new(GenericCommand::<GoState<B>> {
-        //     primary_name: Box::new(|_| "move".to_string()),
-        //     other_names: vec![],
-        //     help_text: Box::new(|_| "Input a whitespace-separated list of moves".to_string()),
-        //     standard: Box::new(|_| Custom),
-        //     func: Box::new(|_| {
-        //         |go, _, word| {
-        //             debug_assert!(go.reading_moves);
-        //             let mov = B::Move::from_compact_text(word, &go.board).map_err(|err| {
-        //                 anyhow!("{err}. '{}' is not a valid 'go' option.", word.bold())
-        //             })?;
-        //             go.search_moves.as_mut().unwrap().push(mov);
-        //             go.cont = true;
-        //             Ok(())
-        //         }
-        //     }),
-        //     matches: None, /*Some(Box::new(|_, go, _word| go.reading_moves))*/
-        // }),
-    ];
-    for (cmd, cmd_cpy) in position_options::<B>(true)
+            ),
+            go_command!(
+                nodes | n,
+                All,
+                "Maximum number of nodes to search",
+                |opts, words, _| {
+                    opts.limit.nodes = NodesLimit::new(parse_int(words, "node count")?)
+                        .ok_or_else(|| anyhow!("node count can't be zero"))?;
+                    Ok(())
+                }
+            ),
+            go_command!(
+                mate | m,
+                All,
+                "Maximum depth in moves until a mate has to be found",
+                |opts, words, _| {
+                    let depth: isize = parse_int(words, "mate move count")?;
+                    opts.limit.mate = Depth::try_new(depth * 2)?; // 'mate' is given in moves instead of plies
+                    Ok(())
+                }
+            ),
+            go_command!(
+                movetime | mt | time,
+                All,
+                "Maximum time in ms",
+                |opts, words, _| {
+                    opts.limit.fixed_time = parse_duration_ms(words, "time per move in milliseconds")?;
+                    opts.limit.fixed_time = opts
+                        .limit
+                        .fixed_time
+                        .saturating_sub(opts.move_overhead)
+                        .max(Duration::from_millis(1));
+                    Ok(())
+                }
+            ),
+            go_command!(
+                infinite | inf,
+                All,
+                "Search until receiving `stop`, the default mode",
+                |opts, _, _| {
+                    opts.limit = SearchLimit::infinite();
+                    Ok(())
+                }
+            ),
+            go_command!(
+                searchmoves | sm,
+                All,
+                "Only consider the specified moves",
+                |opts, _, _| {
+                    opts.reading_moves = true;
+                    opts.search_moves = Some(vec![]);
+                    opts.cont = true;
+                    Ok(())
+                }
+            ),
+            go_command!(
+                multipv | mpv,
+                Custom,
+                "Find the n best moves, temporarily overwriting the 'multipv' engine option",
+                |opts, words, _| {
+                    opts.multi_pv = parse_int(words, "multipv")?;
+                    Ok(())
+                }
+            ),
+            go_command!(
+                threads | t,
+                Custom,
+                "Search with n threads in parallel, temporarily overwriting the 'threads' engine option",
+                |opts, words, _| {
+                    opts.threads = Some(parse_int(words, "threads")?);
+                    Ok(())
+                }
+            ),
+            go_command!(
+                ponder,
+                All,
+                "Search on the opponent's time",
+                |opts, _, _| {
+                    opts.search_type = Ponder;
+                    Ok(())
+                }
+            ),
+            go_command!(
+                perft | pt,
+                Custom,
+                "Movegen test: Make all legal moves up to a depth",
+                |opts, words, _| {
+                    opts.search_type = Perft;
+                    accept_depth(&mut opts.limit, words)?;
+                    Ok(())
+                },
+                [] |mut state: ACState<B>| {
+                    state.search_type = Perft;
+                    state
+                }
+            ),
+            go_command!(
+                splitperft | sp,
+                Custom,
+                "Movegen test: Print perft number for each legal move",
+                |opts, words, _| {
+                    opts.search_type = SplitPerft;
+                    accept_depth(&mut opts.limit, words)?;
+                    Ok(())
+                },
+                [] |mut state: ACState<B>| {
+                    state.search_type = SplitPerft;
+                    state
+                }
+            ),
+            go_command!(
+                bench | b,
+                Custom,
+                "Search test: Print info about nodes, nps, and hash of search",
+                |opts, words, _| {
+                    opts.search_type = Bench;
+                    accept_depth(&mut opts.limit, words)?;
+                    Ok(())
+                },
+                [] |mut state: ACState<B>| {
+                    state.search_type = Bench;
+                    state
+                }
+            ),
+            // TODO: Handle moves for searchmoves. Maybe not as command
+            // Box::new(GenericCommand::<GoState<B>> {
+            //     primary_name: Box::new(|_| "move".to_string()),
+            //     other_names: vec![],
+            //     help_text: Box::new(|_| "Input a whitespace-separated list of moves".to_string()),
+            //     standard: Box::new(|_| Custom),
+            //     func: Box::new(|_| {
+            //         |go, _, word| {
+            //             debug_assert!(go.reading_moves);
+            //             let mov = B::Move::from_compact_text(word, &go.board).map_err(|err| {
+            //                 anyhow!("{err}. '{}' is not a valid 'go' option.", word.bold())
+            //             })?;
+            //             go.search_moves.as_mut().unwrap().push(mov);
+            //             go.cont = true;
+            //             Ok(())
+            //         }
+            //     }),
+            //     matches: None, /*Some(Box::new(|_, go, _word| go.reading_moves))*/
+            // }),
+        ];
+        res.append(&mut additional);
+    }
+    if matches!(mode.unwrap_or(Bench), Bench | Perft) {
+        res.push(complete_option());
+    }
+    // We don't want to allow `go e4` or `go moves e4` because that's a bit confusing, instead it needs to be spelled as
+    // `g c e4`, `go position current moves e4`, etc
+    for (cmd, cmd_cpy) in position_options::<B>(true, None)
         .into_iter()
-        .zip(position_options::<B>(true))
+        .zip(position_options::<B>(true, None))
     {
         let cmd = Command::<GoState<B>> {
             primary_name: cmd.short_name(),
@@ -973,7 +1039,7 @@ macro_rules! pos_command {
     }
 }
 
-pub fn position_options<B: Board>(accept_pos_word: bool) -> CommandList<B> {
+pub fn position_options<B: Board>(accept_pos_word: bool, pos: Option<B>) -> CommandList<B> {
     let mut res: CommandList<B> = vec![
         pos_command!(
             fen | f,
@@ -1011,9 +1077,9 @@ pub fn position_options<B: Board>(accept_pos_word: bool) -> CommandList<B> {
         res.push(pos_command!(
             position | pos | p,
             Custom,
-            "Followed by `fen <fen>` or a position name",
+            "Followed by `fen <fen>`, a position name or a move",
             |_, _, _| Ok(()),
-            -> |_| position_options::<B>(false)
+            -> |_| position_options::<B>(false, None)
         ))
     }
     for p in B::name_to_pos_map() {
@@ -1038,6 +1104,9 @@ pub fn position_options<B: Board>(accept_pos_word: bool) -> CommandList<B> {
             sub_commands: SubCommandsFn::new(|state: ACState<B>| moves_options(state.pos, true)),
         });
         res.push(c);
+    }
+    if let Some(pos) = pos {
+        res.append(&mut moves_options(pos, true))
     }
     res
 }
@@ -1161,6 +1230,7 @@ pub struct ACState<B: Board> {
     searchers: Rc<SearcherList<B>>,
     evals: Rc<EvalList<B>>,
     info: Arc<Mutex<EngineInfo>>,
+    pub search_type: SearchType,
 }
 
 #[derive(Debug, Clone)]
@@ -1180,6 +1250,7 @@ impl<B: Board> CommandAutocomplete<B> {
                 searchers: ugi.searcher_factories.clone(),
                 evals: ugi.eval_factories.clone(),
                 info: ugi.state.engine.get_engine_info_arc(),
+                search_type: Normal,
             },
         }
     }
@@ -1368,7 +1439,7 @@ pub fn random_command<B: Board>(
         let s = s.choose(&mut thread_rng());
         if thread_rng().gen_range(0..7) == 0 {
             res += &thread_rng().gen_range(-42..10_000).to_string();
-        } else if depth <= 0 || s.is_none() {
+        } else if depth == 0 || s.is_none() {
             return res;
         } else {
             res += &s.unwrap().name;

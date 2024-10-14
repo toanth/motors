@@ -20,11 +20,12 @@
 
 use gears::games::chess::Chessboard;
 use gears::general::board::Board;
+use gears::general::board::Strictness::Relaxed;
 use libfuzzer_sys::fuzz_target;
 use std::str::from_utf8;
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(str) = from_utf8(data) {
-        let _ = Chessboard::from_fen(str);
+        let _ = Chessboard::from_fen(str, Relaxed);
     }
 });

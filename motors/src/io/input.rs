@@ -72,7 +72,7 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
         } else {
             let help = "Type 'help' for a list of commands, '?' for a list of moves";
             let string = Text::new(&"Enter a command or move:".bold().to_string())
-                .with_help_message(&help)
+                .with_help_message(help)
                 .with_autocomplete(self.autocompletion.clone())
                 .prompt()
                 .map_err(|err| anyhow!(err));

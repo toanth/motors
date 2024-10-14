@@ -5,6 +5,7 @@ use gears::games::chess::ChessColor::White;
 use gears::games::chess::Chessboard;
 use gears::general::bitboards::RawBitboard;
 use gears::general::board::Board;
+use gears::general::board::Strictness::Relaxed;
 use gears::general::perft::perft;
 use gears::search::Depth;
 
@@ -30,14 +31,14 @@ pub fn perft_kiwipete_bench(c: &mut Criterion) {
 
 fn gen_moves(c: &mut Criterion, name: &str, fen: &str) {
     c.bench_function(name, |b| {
-        let pos = Chessboard::from_fen(fen).unwrap();
+        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
         b.iter(|| black_box(pos).pseudolegal_moves());
     });
 }
 
 fn play_moves(c: &mut Criterion, name: &str, fen: &str) {
     c.bench_function(name, |b| {
-        let pos = Chessboard::from_fen(fen).unwrap();
+        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
         let moves = pos.pseudolegal_moves();
         b.iter(|| {
             for m in &moves {

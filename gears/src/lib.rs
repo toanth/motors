@@ -18,6 +18,9 @@ use crate::PlayerResult::{Draw, Lose, Win};
 pub use arrayvec;
 pub use colorgrad;
 pub use crossterm;
+pub use rand;
+pub use strum;
+pub use strum_macros;
 
 /// A few helpers for interacting with the command line.
 pub mod cli;
@@ -195,9 +198,16 @@ pub enum Quitting {
 }
 
 /// Base trait for the different modes in which the user can run the program.
-/// It only contains one method: [`run`].
+/// It contains one important method: [`run`].
+/// The [`handle_input`] and [`quit`] method are really just hacks to support fuzzing.
 pub trait AbstractRun: Debug {
     fn run(&mut self) -> Quitting;
+    fn handle_input(&mut self, _input: &str) -> Res<()> {
+        Ok(())
+    }
+    fn quit(&mut self) -> Res<()> {
+        Ok(())
+    }
 }
 
 /// `AnyRunnable` is a type-erased [`AbstractRun`], and almost the only thing that isn't generic over the Game.

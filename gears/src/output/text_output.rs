@@ -514,29 +514,29 @@ fn with_color(text: &str, color: Option<style::Color>, highlight: bool) -> Strin
     }
 }
 
-const VERTICAL_BAR: &'static str = "│";
-const HORIZONTAL_BAR: &'static str = "─";
-const CROSS: &'static str = "┼";
+const VERTICAL_BAR: &str = "│";
+const HORIZONTAL_BAR: &str = "─";
+const CROSS: &str = "┼";
 
-const HEAVY_VERTICAL_BAR: &'static str = "┃";
-const HEAVY_HORIZONTAL_BAR: &'static str = "━";
+const HEAVY_VERTICAL_BAR: &str = "┃";
+const HEAVY_HORIZONTAL_BAR: &str = "━";
 #[allow(unused)]
-const HEAVY_CROSS: &'static str = "╋";
+const HEAVY_CROSS: &str = "╋";
 
-const LIGHT_UPPER_LEFT_CORNER: &'static str = "┌";
-const LIGHT_UPPER_RIGHT_CORNER: &'static str = "┐";
-const LIGHT_LOWER_LEFT_CORNER: &'static str = "└";
-const LIGHT_LOWER_RIGHT_CORNER: &'static str = "┘";
+const LIGHT_UPPER_LEFT_CORNER: &str = "┌";
+const LIGHT_UPPER_RIGHT_CORNER: &str = "┐";
+const LIGHT_LOWER_LEFT_CORNER: &str = "└";
+const LIGHT_LOWER_RIGHT_CORNER: &str = "┘";
 
-const HEAVY_UPPER_LEFT_CORNER: &'static str = "┏";
-const HEAVY_UPPER_RIGHT_CORNER: &'static str = "┓";
-const HEAVY_LOWER_LEFT_CORNER: &'static str = "┗";
-const HEAVY_LOWER_RIGHT_CORNER: &'static str = "┛";
+const HEAVY_UPPER_LEFT_CORNER: &str = "┏";
+const HEAVY_UPPER_RIGHT_CORNER: &str = "┓";
+const HEAVY_LOWER_LEFT_CORNER: &str = "┗";
+const HEAVY_LOWER_RIGHT_CORNER: &str = "┛";
 
-const LEFT_BORDER: &'static str = "┠";
-const RIGHT_BORDER: &'static str = "┨";
-const LOWER_BORDER: &'static str = "┷";
-const UPPER_BORDER: &'static str = "┯";
+const LEFT_BORDER: &str = "┠";
+const RIGHT_BORDER: &str = "┨";
+const LOWER_BORDER: &str = "┷";
+const UPPER_BORDER: &str = "┯";
 
 const GOLD: style::Color = style::Color::Rgb {
     r: 255,
@@ -671,6 +671,7 @@ pub fn display_board_pretty<B: RectangularBoard>(
 ) -> String {
     let flip = fmt.flip_board() && B::should_flip_visually();
     let mut colors = vec![vec![None; pos.get_width() + 1]; pos.get_height() + 1];
+    #[allow(clippy::needless_range_loop)]
     for y in 0..pos.get_height() {
         for x in 0..pos.get_width() {
             let square = B::Coordinates::from_row_column(y as u8, x as u8);
@@ -807,9 +808,13 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
     }
 }
 
+#[allow(type_alias_bounds)]
+pub type AdaptPieceDisplay<B: Board> =
+    dyn Fn(B::Coordinates, Option<style::Color>) -> Option<style::Color>;
+
 pub struct AdaptFormatter<B: Board> {
     pub underlying: Box<dyn BoardFormatter<B>>,
-    pub color_frame: Box<dyn Fn(B::Coordinates, Option<style::Color>) -> Option<style::Color>>,
+    pub color_frame: Box<AdaptPieceDisplay<B>>,
     pub display_piece: Box<dyn Fn(B::Coordinates, usize, String) -> String>,
     pub horizontal_spacer_interval: Option<usize>,
     pub vertical_spacer_interval: Option<usize>,

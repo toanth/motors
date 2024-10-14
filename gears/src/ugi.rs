@@ -302,18 +302,45 @@ pub fn parse_ugi_position_and_moves<
     finish_pos: G,
     get_board: H,
 ) -> Res<()> {
-    *(get_board(state)) =
-        parse_ugi_position_part(first_word, rest, accept_pos_word, old_board, strictness)?;
-    finish_pos(state);
-    let Some(next_word) = rest.peek().copied() else {
-        return Ok(());
-    };
-    if next_word.eq_ignore_ascii_case("moves") || next_word.eq_ignore_ascii_case("m") {
-        _ = rest.next();
-    } else if B::Move::from_text(next_word, get_board(state)).is_err() {
-        return Ok(()); // don't error to allow other options following a position command
+    let mut parsed_position = false;
+    let pos = parse_ugi_position_part(first_word, rest, accept_pos_word, old_board, strictness);
+    if let Ok(pos) = pos {
+        *(get_board(state)) = pos;
+        // don't reset the position if all we get was moves
+        finish_pos(state);
+        parsed_position = true;
+    }
+    let mut first_move_word = first_word;
+    if parsed_position {
+        match rest.peek() {
+            None => return Ok(()),
+            Some(word) => first_move_word = *word,
+        }
     }
     let mut parsed_move = false;
+    if first_move_word.eq_ignore_ascii_case("moves") || first_move_word.eq_ignore_ascii_case("m") {
+        if parsed_position {
+            _ = rest.next();
+        }
+    } else {
+        let Ok(first_move) = B::Move::from_text(first_move_word, get_board(state)) else {
+            if parsed_position {
+                return Ok(()); // don't error to allow other options following a position command
+            } else {
+                bail!("'{}' is not a valid position or move", first_word.red())
+            }
+        };
+        parsed_move = true;
+        if parsed_position {
+            _ = rest.next();
+        }
+        make_move(state, first_move).map_err(|err| {
+            anyhow!(
+                "move '{first_move}' is pseudolegal but not legal in position '{}': {err}",
+                *get_board(state)
+            )
+        })?;
+    }
     // TODO: Handle flip / nullmove?
     while let Some(next_word) = rest.peek().copied() {
         let mov = match B::Move::from_text(next_word, get_board(state)) {
@@ -338,6 +365,9 @@ pub fn parse_ugi_position_and_moves<
             )
         })?;
         parsed_move = true;
+    }
+    if !parsed_move {
+        bail!("Missing move after '{}'", "moves".bold())
     }
     Ok(())
 }

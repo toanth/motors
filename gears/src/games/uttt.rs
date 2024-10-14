@@ -317,7 +317,7 @@ impl Move<UtttBoard> for UtttMove {
     }
 
     fn from_usize_unchecked(val: usize) -> UntrustedMove<UtttBoard> {
-        UntrustedMove::from_move(Self(UtttSquare::from_bb_idx(val)))
+        UntrustedMove::from_move(Self(UtttSquare::unchecked(val)))
     }
 
     fn to_underlying(self) -> Self::Underlying {
@@ -887,9 +887,9 @@ impl Board for UtttBoard {
                     return col;
                 }
                 if pos.is_sub_board_won(UtttColor::first(), sq.sub_board()) {
-                    Some(p1_color().into())
+                    Some(p1_color())
                 } else if pos.is_sub_board_won(UtttColor::second(), sq.sub_board()) {
-                    Some(p2_color().into())
+                    Some(p2_color())
                 } else {
                     None
                 }

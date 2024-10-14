@@ -11,6 +11,14 @@ use std::thread::spawn;
 use std::time::{Duration, Instant};
 
 use crate::eval::Eval;
+use crate::search::multithreading::SearchThreadType::*;
+use crate::search::multithreading::SearchType::*;
+use crate::search::multithreading::{
+    AtomicSearchState, EngineReceives, EngineThread, SearchThreadType, Sender,
+};
+use crate::search::statistics::{Statistics, Summary};
+use crate::search::tt::TT;
+use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use crossbeam_channel::unbounded;
 use derive_more::{Add, Neg, Sub};
 use dyn_clone::DynClone;
@@ -20,6 +28,7 @@ use gears::general::board::Board;
 use gears::general::common::anyhow::bail;
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
 use gears::general::move_list::MoveList;
+use gears::general::moves::Move;
 use gears::output::Message;
 use gears::output::Message::Warning;
 use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON};
@@ -29,15 +38,6 @@ use itertools::Itertools;
 use rand::prelude::StdRng;
 use rand::SeedableRng;
 use strum_macros::FromRepr;
-
-use crate::search::multithreading::SearchThreadType::*;
-use crate::search::multithreading::SearchType::*;
-use crate::search::multithreading::{
-    AtomicSearchState, EngineReceives, EngineThread, SearchThreadType, Sender,
-};
-use crate::search::statistics::{Statistics, Summary};
-use crate::search::tt::TT;
-use crate::search::NodeType::{Exact, FailHigh, FailLow};
 
 #[cfg(feature = "chess")]
 pub mod chess;
@@ -942,7 +942,22 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             }
             output.write_message(Warning, "search() called in a position with no legal moves");
         }
-        debug_assert!(pos.is_move_legal(res.chosen_move) || res.chosen_move == B::Move::default());
+        eprintln!(
+            "{} [{:?}]",
+            res.chosen_move.to_underlying().into(),
+            res.chosen_move
+        );
+        eprintln!(
+            "{} [{:?}]",
+            B::Move::default().to_underlying().into(),
+            B::Move::default()
+        );
+        eprintln!(
+            "{0}, {1}",
+            res.chosen_move == B::Move::default(),
+            res.chosen_move.is_null()
+        );
+        debug_assert!(res.chosen_move == B::Move::default() || pos.is_move_legal(res.chosen_move));
 
         output.write_search_res(res);
     }
@@ -1140,7 +1155,7 @@ fn single_bench<B: Board>(
         limit
     };
     let res = engine.bench(*pos, limit, tt);
-    total.nodes = total.nodes + res.nodes;
+    total.nodes += res.nodes;
     total.time += res.time;
     total.depth = total.depth.max(res.depth);
     res.pv_score_hash.hash(hasher);

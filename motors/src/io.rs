@@ -250,6 +250,13 @@ impl<B: Board> AbstractRun for EngineUGI<B> {
     fn run(&mut self) -> Quitting {
         self.ugi_loop()
     }
+
+    fn handle_input(&mut self, input: &str) -> Res<()> {
+        self.handle_ugi_input(tokens(input))
+    }
+    fn quit(&mut self) -> Res<()> {
+        self.handle_quit(QuitProgram)
+    }
 }
 
 impl<B: Board> GameState<B> for EngineGameState<B> {
@@ -364,7 +371,7 @@ impl<B: Board> EngineUGI<B> {
             state,
             commands: AllCommands {
                 ugi: ugi_commands(),
-                go: go_options(),
+                go: go_options(None),
                 query: query_options(),
             },
             output,
@@ -419,7 +426,7 @@ impl<B: Board> EngineUGI<B> {
                 }
             };
 
-            let res = self.handle_input(tokens(&input));
+            let res = self.handle_ugi_input(tokens(&input));
             match res {
                 Err(err) => {
                     self.write_message(Error, &err.to_string());
@@ -462,11 +469,11 @@ impl<B: Board> EngineUGI<B> {
         self.state.debug_mode || self.state.protocol == Interactive
     }
 
-    pub fn handle_input(&mut self, mut words: Tokens) -> Res<()> {
+    pub fn handle_ugi_input(&mut self, mut words: Tokens) -> Res<()> {
         self.output().write_ugi_input(words.clone());
         if self.fuzzing_mode() {
             self.output()
-                .write_ugi(&format!("> [{}]", words.clone().join(" ")));
+                .write_ugi(&format!("Fuzzing input: [{}]", words.clone().join(" ")));
         }
         let words = &mut words;
         let Some(first_word) = words.next() else {
@@ -608,7 +615,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(true)
     }
 
-    pub fn quit(&mut self, typ: Quitting) -> Res<()> {
+    pub fn handle_quit(&mut self, typ: Quitting) -> Res<()> {
         // Do this before sending `quit`: If that fails, we can still recognize that we wanted to quit,
         // so that continuing on errors won't prevent us from quitting the program.
         self.state.status = Quit(typ);
@@ -876,7 +883,7 @@ impl<B: Board> EngineUGI<B> {
         let second_limit = if positions.len() == 1 {
             None
         } else {
-            let mut limit = limit.clone();
+            let mut limit = limit;
             limit.depth = Depth::MAX;
             limit.nodes = self.state.engine.get_engine_info().default_bench_nodes();
             Some(limit)
@@ -996,11 +1003,9 @@ impl<B: Board> EngineUGI<B> {
         let output_ptr = self.output.clone();
         let mut output = output_ptr.lock().unwrap();
         if next.eq_ignore_ascii_case("remove") || next.eq_ignore_ascii_case("clear") {
-            let Some(next) = words.next() else {
-                bail!("No output to remove specified. Use 'all' to remove all outputs")
-            };
+            let next = words.next().unwrap_or("all");
             if next.eq_ignore_ascii_case("all") {
-                output.additional_outputs.clear();
+                output.additional_outputs.retain(|o| !o.prints_board());
             } else {
                 output
                     .additional_outputs
@@ -1024,7 +1029,7 @@ impl<B: Board> EngineUGI<B> {
                         anyhow!(
                             "{err}\nSpecial commands are '{0}' and '{1}'.",
                             "remove".bold(),
-                            "list".bold()
+                            "add".bold()
                         )
                     })?
                     .for_engine(&self.state)?,
@@ -1179,7 +1184,7 @@ impl<B: Board> EngineUGI<B> {
 
     fn handle_play(&mut self, words: &mut Tokens) -> Res<()> {
         let default = self.state.game_name();
-        let game_name = words.next().unwrap_or(&default);
+        let game_name = words.next().unwrap_or(default);
         let game = select_game(game_name)?;
         let mut opts = EngineOpts::for_game(game, self.state.debug_mode);
         if let Some(word) = words.next() {
@@ -1190,7 +1195,7 @@ impl<B: Board> EngineUGI<B> {
         }
         let mut nested_match = create_match(opts)?;
         if nested_match.run() == QuitProgram {
-            self.quit(QuitProgram)?;
+            self.handle_quit(QuitProgram)?;
         } else {
             // print the current board again, now that the match is over
             self.print_board();

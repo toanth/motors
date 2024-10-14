@@ -106,7 +106,7 @@ impl<B: Board> UgiOutput<B> {
                     .expect("Search returned illegal move");
                 msg += &format!(
                     " (expected response: {})",
-                    ponder.to_extended_text(&new_pos, Standard).to_string()
+                    ponder.to_extended_text(&new_pos, Standard)
                 )
                 .dim()
                 .to_string();

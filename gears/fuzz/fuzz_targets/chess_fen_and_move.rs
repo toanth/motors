@@ -20,12 +20,13 @@
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::Chessboard;
 use gears::general::board::Board;
+use gears::general::board::Strictness::Relaxed;
 use gears::general::moves::Move;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &str| {
     let mut lines = data.lines();
-    let Ok(mut pos) = Chessboard::from_fen(lines.next().unwrap_or_default()) else {
+    let Ok(mut pos) = Chessboard::from_fen(lines.next().unwrap_or_default(), Relaxed) else {
         return;
     };
     for line in lines {
@@ -33,5 +34,5 @@ fuzz_target!(|data: &str| {
             pos = pos.make_move(mov).unwrap_or(pos);
         }
     }
-    pos.debug_verify_invariants().unwrap();
+    pos.debug_verify_invariants(Relaxed).unwrap();
 });

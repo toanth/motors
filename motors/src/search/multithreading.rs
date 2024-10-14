@@ -370,6 +370,7 @@ impl<B: Board> EngineWrapper<B> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn start_search(
         &mut self,
         pos: B,
