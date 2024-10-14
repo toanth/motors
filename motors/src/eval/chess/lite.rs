@@ -211,7 +211,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let mut score = Tuned::Score::default();
         let our_pawns = pos.colored_piece_bb(color, Pawn);
         let pawn_protection = our_pawns.pawn_attacks(color);
-        for piece in ChessPieceType::pieces() {
+        for piece in [Knight, Bishop] {
             for square in pos.colored_piece_bb(color, piece).ones() {
                 let in_front = ((A_FILE << (square.flip_if(color == Black).bb_idx())) << 8)
                     .flip_if(color == Black);

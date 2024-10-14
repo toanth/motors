@@ -32,7 +32,7 @@ impl LiTETrace {
     const NUM_DOUBLED_PAWN_FEATURES: usize = 1;
     const NUM_PAWN_PROTECTION_FEATURES: usize = NUM_CHESS_PIECES;
     const NUM_PAWN_ATTACKS_FEATURES: usize = NUM_CHESS_PIECES;
-    const NUM_OUTPOST_FEATURES: usize = NUM_CHESS_PIECES;
+    const NUM_OUTPOST_FEATURES: usize = 2;
     const NUM_MOBILITY_FEATURES: usize = (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1);
     const NUM_THREAT_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
     const NUM_DEFENSE_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
@@ -118,7 +118,7 @@ impl LiteValues for LiTETrace {
     }
 
     fn outpost(piece: ChessPieceType) -> SingleFeatureScore<Self> {
-        let idx = Self::OUTPOST_OFFSET + piece as usize;
+        let idx = Self::OUTPOST_OFFSET + piece as usize - Knight as usize;
         SingleFeature::new(idx)
     }
 
@@ -260,7 +260,7 @@ impl WeightsInterpretation for TuneLiTEval {
                 idx += 1;
             }
             writeln!(f, "\n];")?;
-            writeln!(f, "\nconst OUTPOSTS: [PhasedScore; NUM_CHESS_PIECES] = [")?;
+            writeln!(f, "\nconst OUTPOSTS: [PhasedScore; 2] = [")?;
             for _piece in 0..LiTETrace::NUM_OUTPOST_FEATURES {
                 write!(f, "{}, ", write_phased(weights, idx, &special))?;
                 idx += 1;
