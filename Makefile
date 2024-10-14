@@ -12,21 +12,24 @@ export CC
 #the first target is the default target and only builds `motors`, because that's all that is necessary for openbench
 default: motors
 
-all: motors monitors
+all: motors monitors pliers
 
 monitors:
-	cargo build --release --bin monitors
+	cargo build --release --package monitors
+
+pliers:
+	cargo build --release --package pliers
 
 motors: release
 
 bench: release
-	./motors bench
+	./caps bench
 
 release:
-	cd motors && make release
+	cargo rustc --release --package motors --bin motors -- --emit link=${EXE}
 
 debug:
-	cd motors && make debug
+	cargo rustc --package motors --bin motors -- --emit link=${EXE}
 
 clean:
 	rm -rf target/

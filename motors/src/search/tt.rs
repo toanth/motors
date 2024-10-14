@@ -1,6 +1,8 @@
 use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T1};
 use std::fmt::{Display, Formatter};
-use std::mem::{size_of, transmute_copy};
+use std::mem::size_of;
+#[cfg(feature = "unsafe")]
+use std::mem::transmute_copy;
 use std::ptr::addr_of;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;

@@ -48,6 +48,7 @@ generic-engines = ["random_mover", "gaps"]
 chess-engines = ["caps"]
 mnk-engines = [] # does nothing at the moment
 ataxx-engines = [] # does nothing at the moment
+uttt-engines = [] # does nothing at the moment
 
 chess = ["gears/chess"]
 ataxx = ["gears/ataxx"]
