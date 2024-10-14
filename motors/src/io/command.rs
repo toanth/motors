@@ -437,7 +437,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
         ugi_command!(
             output | o,
             Custom,
-            "Adds outputs. Use `remove (all)` to remove specified outputs",
+            "Sets outputs. Use `remove (all)` to remove specified outputs, 'add' to use multiple",
             |ugi, words, _| ugi.handle_output(words),
             -> |state: ACState<B>| select_command::<B, dyn OutputBuilder<B>>(state.outputs.as_slice())
         ),

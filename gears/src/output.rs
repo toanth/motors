@@ -10,7 +10,6 @@ use crate::general::board::{Board, RectangularBoard};
 use crate::general::common::{NamedEntity, Res, Tokens};
 use crate::output::chess::ChessOutputBuilder;
 use crate::output::logger::LoggerBuilder;
-use crate::output::text_output::DisplayType::*;
 use crate::output::text_output::{DisplayType, TextOutputBuilder};
 use crate::output::Message::*;
 use crate::search::SearchInfo;
@@ -129,7 +128,7 @@ pub type OutputBox<B> = Box<dyn Output<B>>;
 #[must_use]
 pub fn required_outputs<B: Board>() -> OutputList<B> {
     let mut res: OutputList<B> = vec![];
-    for display_type in DisplayType::iter().dropping_back(1).dropping(1) {
+    for display_type in DisplayType::iter().dropping_back(1) {
         res.push(Box::new(TextOutputBuilder::new(display_type)));
     }
     res.push(Box::new(TextOutputBuilder::messages_for(
@@ -146,8 +145,6 @@ pub fn required_outputs<B: Board>() -> OutputList<B> {
     )));
     #[allow(clippy::box_default)]
     res.push(Box::new(LoggerBuilder::default()));
-    // the last entry is the default
-    res.push(Box::new(TextOutputBuilder::new(Pretty)));
     res
 }
 

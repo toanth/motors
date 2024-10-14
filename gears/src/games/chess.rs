@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
-use crossterm::style;
+use crossterm::style::Color::Red;
 use crossterm::style::Stylize;
 use itertools::Itertools;
 use rand::prelude::IteratorRandom;
@@ -42,8 +42,8 @@ use crate::general::common::{
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::text_output::{
-    board_to_string, display_board_pretty, p1_color, p2_color, AdaptFormatter, BoardFormatter,
-    DefaultBoardFormatter,
+    board_to_string, display_board_pretty, display_color, AdaptFormatter, BoardFormatter,
+    DefaultBoardFormatter, PieceToChar,
 };
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
@@ -595,22 +595,22 @@ impl Board for Chessboard {
         display_board_pretty(self, display_coordinates)
     }
 
-    fn pretty_formatter(&self, last_move: Option<ChessMove>) -> Box<dyn BoardFormatter<Self>> {
+    fn pretty_formatter(
+        &self,
+        piece_to_char: PieceToChar,
+        last_move: Option<ChessMove>,
+    ) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;
         let king_square = self.king_square(self.active_player);
-        let color_frame = Box::new(move |square| {
+        let color_frame = Box::new(move |square, col| {
             if pos.is_in_check() && square == king_square {
-                Some(style::Color::Rgb {
-                    r: 255,
-                    g: 16,
-                    b: 16,
-                })
+                Some(Red)
             } else {
-                None
+                col
             }
         });
         Box::new(AdaptFormatter {
-            underlying: Box::new(DefaultBoardFormatter::new(*self, last_move)),
+            underlying: Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move)),
             color_frame,
             display_piece: Box::new(move |square, width, _default| {
                 let piece = pos.colored_piece_on(square);
@@ -622,13 +622,14 @@ impl Board for Chessboard {
                         format!("{:^1$}", "*", width).dim().to_string()
                     }
                 } else {
-                    // uncolored because some fonts have trouble with black pawns, and some make white pieces hard to see
-                    let s = format!("{0:^1$}", piece.uncolored().to_utf8_char(), width);
-                    if piece.color().unwrap().is_first() {
-                        s.with(p1_color()).to_string()
+                    let c = if piece_to_char == PieceToChar::Acii {
+                        piece.to_ascii_char()
                     } else {
-                        s.with(p2_color()).to_string()
-                    }
+                        // uncolored because some fonts have trouble with black pawns, and some make white pieces hard to see
+                        piece.uncolored().to_utf8_char()
+                    };
+                    let s = format!("{c:^0$}", width);
+                    s.with(display_color(piece.color().unwrap())).to_string()
                 }
             }),
             horizontal_spacer_interval: None,

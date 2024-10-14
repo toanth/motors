@@ -424,6 +424,7 @@ dependencies = [
  "arbitrary",
  "arrayvec",
  "chrono",
+ "colorgrad",
  "criterion",
  "crossterm 0.28.1",
  "derive_more",
@@ -671,7 +672,6 @@ name = "motors"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "colorgrad",
  "criterion",
  "crossbeam-channel",
  "crossbeam-utils",

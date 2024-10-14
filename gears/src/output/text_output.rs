@@ -21,6 +21,12 @@ use std::path::Path;
 use std::str::SplitWhitespace;
 use strum_macros::EnumIter;
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum PieceToChar {
+    Acii,
+    Unicode,
+}
+
 #[derive(Debug)]
 pub enum TextStream {
     File(File, String), // Don't use a BufWriter to ensure the log is always up-to-date.
@@ -105,6 +111,7 @@ impl TextWriter {
 pub enum DisplayType {
     #[default]
     Pretty,
+    PrettyAscii,
     Unicode,
     Ascii,
     Fen,
@@ -119,6 +126,7 @@ impl NamedEntity for DisplayType {
     fn short_name(&self) -> String {
         match self {
             Pretty => "pretty",
+            PrettyAscii => "prettyascii",
             Unicode => "unicode",
             Ascii => "ascii",
             Fen => "fen",
@@ -133,7 +141,8 @@ impl NamedEntity for DisplayType {
 
     fn long_name(&self) -> String {
         match self {
-            Pretty => "Pretty Text Diagram",
+            Pretty => "Pretty Unicode Text Diagram",
+            PrettyAscii => "Pretty Ascii Text Diagram",
             Unicode => "Unicode Diagram",
             Ascii => "ASCII Diagram",
             Fen => "Fen",
@@ -149,6 +158,7 @@ impl NamedEntity for DisplayType {
     fn description(&self) -> Option<String> {
         Some(match self {
             Pretty => "A textual 2D representation of the position that's meant to look pretty. ",
+            PrettyAscii => "A textual 2D representation of the position that's meant to look pretty, using ASCII characters for pieces. ",
             Unicode => "A textual 2D representation of the position using unicode characters. For many games, this is the same as the ASCII representation, but e.g. for chess it uses chess symbols like '♔'",
             Ascii => "A textual 2D representation of the position using \"normal\" english characters. E.g. for chess, this represents the white king as 'K' and a black queen as 'q'",
             Fen => "A compact textual representation of the position. For chess, this is the Forsyth–Edwards Notation, and for other games it's a similar notation based on chess FENs",
@@ -279,7 +289,18 @@ impl BoardToText {
         }
         match self.typ {
             Pretty => {
-                let mut formatter = m.get_board().pretty_formatter(m.last_move());
+                let mut formatter = m
+                    .get_board()
+                    .pretty_formatter(PieceToChar::Unicode, m.last_move());
+                format!(
+                    "{time_above}{}{time_below}",
+                    m.get_board().display_pretty(formatter.as_mut())
+                )
+            }
+            PrettyAscii => {
+                let mut formatter = m
+                    .get_board()
+                    .pretty_formatter(PieceToChar::Acii, m.last_move());
                 format!(
                     "{time_above}{}{time_below}",
                     m.get_board().display_pretty(formatter.as_mut())
@@ -467,10 +488,20 @@ pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
 
 pub fn p1_color() -> style::Color {
     style::Color::DarkBlue
+    // #258ad1
 }
 
 pub fn p2_color() -> style::Color {
     style::Color::DarkMagenta
+    // #d23681
+}
+
+pub fn display_color<C: Color>(color: C) -> style::Color {
+    if color.is_first() {
+        p1_color()
+    } else {
+        p2_color()
+    }
 }
 
 fn with_color(text: &str, color: Option<style::Color>, highlight: bool) -> String {
@@ -506,6 +537,12 @@ const LEFT_BORDER: &'static str = "┠";
 const RIGHT_BORDER: &'static str = "┨";
 const LOWER_BORDER: &'static str = "┷";
 const UPPER_BORDER: &'static str = "┯";
+
+const GOLD: style::Color = style::Color::Rgb {
+    r: 255,
+    g: 215,
+    b: 0,
+};
 
 fn flip_if(flip: bool, c: &'static str) -> &'static str {
     if !flip {
@@ -560,13 +597,78 @@ fn border_cross<B: RectangularBoard>(
     }
 }
 
+fn write_horizontal_bar<B: RectangularBoard>(
+    y: usize,
+    pos: &B,
+    colors: &[Vec<Option<style::Color>>],
+    fmt: &dyn BoardFormatter<B>,
+) -> String {
+    use fmt::Write;
+    let sq_width = 3; // TODO: Allow changing
+    let flip = fmt.flip_board() && B::should_flip_visually();
+    let y_spacer = y % fmt.vertical_spacer_interval() == 0;
+    let mut res = "    ".to_string();
+    let bar = if y == 0 || y == pos.get_height() {
+        HEAVY_HORIZONTAL_BAR
+    } else {
+        HORIZONTAL_BAR
+    };
+    for x in 0..=pos.get_width() {
+        let x_spacer = x % fmt.horizontal_spacer_interval() == 0;
+        let mut col = colors[y][x];
+        let mut cross = CROSS;
+        if col.is_some() {
+            cross = LIGHT_UPPER_LEFT_CORNER;
+        }
+        if col.is_none() && y > 0 {
+            col = colors[y - 1][x];
+            if col.is_some() {
+                cross = LIGHT_LOWER_LEFT_CORNER;
+            }
+        }
+        let mut cross_color = col;
+        if cross_color.is_none() && x > 0 {
+            cross_color = colors[y][x - 1];
+            if cross_color.is_some() {
+                cross = LIGHT_UPPER_RIGHT_CORNER;
+            }
+            if cross_color.is_none() && y > 0 {
+                cross_color = colors[y - 1][x - 1];
+                if cross_color.is_some() {
+                    cross = LIGHT_LOWER_RIGHT_CORNER
+                }
+            }
+        }
+        if cross_color.is_none()
+            && ![0, pos.get_width()].contains(&x)
+            && ![0, pos.get_height()].contains(&y)
+        {
+            if y_spacer && !x_spacer {
+                cross = HORIZONTAL_BAR;
+            } else if !y_spacer && x_spacer {
+                cross = VERTICAL_BAR;
+            }
+        }
+        let plus = with_color(
+            flip_if(!flip, border_cross(pos, y, x, cross)),
+            cross_color,
+            y_spacer || x_spacer,
+        );
+        if x == pos.get_width() {
+            res += &plus;
+        } else {
+            let bar = with_color(&bar.repeat(sq_width), col, y_spacer);
+            write!(&mut res, "{plus}{bar}").unwrap();
+        }
+    }
+    res
+}
+
 // most of this function deals with coloring the frame of a square
 pub fn display_board_pretty<B: RectangularBoard>(
     pos: &B,
     fmt: &mut dyn BoardFormatter<B>,
 ) -> String {
-    use fmt::Write;
-    let sq_width = 3; // TODO: Allow changing
     let flip = fmt.flip_board() && B::should_flip_visually();
     let mut colors = vec![vec![None; pos.get_width() + 1]; pos.get_height() + 1];
     for y in 0..pos.get_height() {
@@ -579,65 +681,10 @@ pub fn display_board_pretty<B: RectangularBoard>(
             }
         }
     }
-    let write_horizontal_bar = |y: usize| -> String {
-        let y_spacer = y % fmt.vertical_spacer_interval() == 0;
-        let mut res = "    ".to_string();
-        let bar = if y == 0 || y == pos.get_height() {
-            HEAVY_HORIZONTAL_BAR
-        } else {
-            HORIZONTAL_BAR
-        };
-        for x in 0..=pos.get_width() {
-            let x_spacer = x % fmt.horizontal_spacer_interval() == 0;
-            let mut col = colors[y][x];
-            let mut cross = CROSS;
-            if col.is_some() {
-                cross = LIGHT_UPPER_LEFT_CORNER;
-            }
-            if col.is_none() && y > 0 {
-                col = colors[y - 1][x];
-                if col.is_some() {
-                    cross = LIGHT_LOWER_LEFT_CORNER;
-                }
-            }
-            let mut cross_color = col;
-            if cross_color.is_none() && x > 0 {
-                cross_color = colors[y][x - 1];
-                if cross_color.is_some() {
-                    cross = LIGHT_UPPER_RIGHT_CORNER;
-                }
-                if cross_color.is_none() && y > 0 {
-                    cross_color = colors[y - 1][x - 1];
-                    if cross_color.is_some() {
-                        cross = LIGHT_LOWER_RIGHT_CORNER
-                    }
-                }
-            }
-            if cross_color.is_none() && ![0, pos.get_width()].contains(&x) {
-                if y_spacer && !x_spacer {
-                    cross = HORIZONTAL_BAR;
-                } else if !y_spacer && x_spacer {
-                    cross = VERTICAL_BAR;
-                }
-            }
-            let plus = with_color(
-                flip_if(!flip, border_cross(pos, y, x, cross)),
-                cross_color,
-                y_spacer || x_spacer,
-            );
-            if x == pos.get_width() {
-                res += &plus;
-            } else {
-                let bar = with_color(&bar.repeat(sq_width), col, y_spacer);
-                write!(&mut res, "{plus}{bar}").unwrap();
-            }
-        }
-        res
-    };
     let mut res: Vec<String> = vec![];
     for y in 0..pos.get_height() {
-        res.push(write_horizontal_bar(y));
-        let mut line = format!(" {:>2} ", (y + 1).to_string());
+        res.push(write_horizontal_bar(y, pos, &colors, fmt));
+        let mut line = format!(" {:>2} ", (y + 1)).dim().to_string();
         for x in 0..pos.get_width() {
             let mut col = colors[y][x];
             if col.is_none() && x > 0 {
@@ -659,18 +706,20 @@ pub fn display_board_pretty<B: RectangularBoard>(
         );
         res.push(line);
     }
-    res.push(write_horizontal_bar(pos.get_height()));
+    res.push(write_horizontal_bar(pos.get_height(), pos, &colors, fmt));
     if !flip {
         res.reverse();
     }
     if let Some(text) = pos.settings().text() {
         res.insert(0, text);
     }
-    res.insert(0, format!("Fen: '{}'", pos.as_fen()));
+    res.insert(0, format!("{0} '{1}'", "Fen:".dim(), pos.as_fen()));
     let mut line = "    ".to_string();
     for x in 0..pos.get_width() {
         let xc = if flip { pos.get_width() - 1 - x } else { x };
-        write!(&mut line, " {:^3}", ('A'..).nth(xc).unwrap().to_string()).unwrap();
+        line += &format!(" {:^3}", ('A'..).nth(xc).unwrap())
+            .dim()
+            .to_string();
     }
     res.push(line);
     res.join("\n") + "\n"
@@ -689,6 +738,7 @@ pub trait BoardFormatter<B: Board> {
 }
 
 pub struct DefaultBoardFormatter<B: RectangularBoard> {
+    pub piece_to_char: PieceToChar,
     pub pos: B,
     pub last_move: Option<B::Move>,
     pub flip: bool,
@@ -697,9 +747,10 @@ pub struct DefaultBoardFormatter<B: RectangularBoard> {
 }
 
 impl<B: RectangularBoard> DefaultBoardFormatter<B> {
-    pub fn new(pos: B, last_move: Option<B::Move>) -> Self {
+    pub fn new(pos: B, piece_to_char: PieceToChar, last_move: Option<B::Move>) -> Self {
         let flip = pos.active_player() == B::Color::second();
         Self {
+            piece_to_char,
             pos,
             last_move,
             flip,
@@ -718,6 +769,9 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
             } else {
                 ' '
             }
+        } else if self.piece_to_char == PieceToChar::Acii {
+            // for most games, it makes sense to always upper case letters. Chess overwrites this behavior
+            piece.to_ascii_char().to_ascii_uppercase()
         } else {
             piece.to_utf8_char()
         };
@@ -726,11 +780,7 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
         let Some(color) = piece.color() else {
             return c.dim().to_string();
         };
-        if color.is_first() {
-            c.with(p1_color()).bold().to_string()
-        } else {
-            c.with(p2_color()).bold().to_string()
-        }
+        c.with(display_color(color)).bold().to_string()
     }
 
     fn frame_color(&self, square: B::Coordinates) -> Option<style::Color> {
@@ -738,11 +788,7 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
             .last_move
             .is_some_and(|m| m.src_square() == square || m.dest_square() == square)
         {
-            Some(style::Color::Rgb {
-                r: 128,
-                g: 64,
-                b: 16,
-            })
+            Some(GOLD)
         } else {
             None
         }
@@ -763,7 +809,7 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
 
 pub struct AdaptFormatter<B: Board> {
     pub underlying: Box<dyn BoardFormatter<B>>,
-    pub color_frame: Box<dyn Fn(B::Coordinates) -> Option<style::Color>>,
+    pub color_frame: Box<dyn Fn(B::Coordinates, Option<style::Color>) -> Option<style::Color>>,
     pub display_piece: Box<dyn Fn(B::Coordinates, usize, String) -> String>,
     pub horizontal_spacer_interval: Option<usize>,
     pub vertical_spacer_interval: Option<usize>,
@@ -776,7 +822,8 @@ impl<B: Board> BoardFormatter<B> for AdaptFormatter<B> {
     }
 
     fn frame_color(&self, coords: B::Coordinates) -> Option<style::Color> {
-        (self.color_frame)(coords).or_else(|| self.underlying.frame_color(coords))
+        let color = self.underlying.frame_color(coords);
+        (self.color_frame)(coords, color)
     }
 
     fn flip_board(&self) -> bool {

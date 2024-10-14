@@ -21,7 +21,7 @@ use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::SquareColor::White;
 use crate::general::squares::{SmallGridSize, SmallGridSquare, SquareColor};
 use crate::output::text_output::{
-    board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter,
+    board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter, PieceToChar,
 };
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose, Win};
@@ -364,8 +364,12 @@ impl Board for AtaxxBoard {
         display_board_pretty(self, fmt)
     }
 
-    fn pretty_formatter(&self, last_move: Option<Self::Move>) -> Box<dyn BoardFormatter<Self>> {
-        Box::new(DefaultBoardFormatter::new(*self, last_move))
+    fn pretty_formatter(
+        &self,
+        piece_to_char: PieceToChar,
+        last_move: Option<Self::Move>,
+    ) -> Box<dyn BoardFormatter<Self>> {
+        Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move))
     }
 
     fn background_color(&self, _coords: Self::Coordinates) -> SquareColor {

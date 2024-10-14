@@ -30,6 +30,7 @@ thiserror = "1.0.64"
 anyhow = "1.0.89"
 regex = "1.11.0"
 crossterm = "0.28.1"
+colorgrad = "0.7.0"
 
 [features]
 default = ["chess", "mnk", "ataxx", "uttt", "unsafe"]

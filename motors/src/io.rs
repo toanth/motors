@@ -56,15 +56,15 @@ use gears::general::board::{Board, Strictness};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
-    parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_dyn,
-    to_name_and_optional_description, tokens, NamedEntity,
+    parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_dyn, tokens,
+    NamedEntity,
 };
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
 use gears::general::perft::{perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
-use gears::output::text_output::AdaptFormatter;
+use gears::output::text_output::{AdaptFormatter, PieceToChar};
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, SearchLimit, TimeControl};
@@ -399,6 +399,11 @@ impl<B: Board> EngineUGI<B> {
         let text = print_as_ascii_art(&text, 2);
         self.write_ugi(&text.dim().to_string());
         self.write_engine_ascii_art();
+        self.write_ugi(&format!(
+            "[Type '{}' to change how the game state is displayed{}]",
+            "output".bold(),
+            ", e.g., 'output pretty' or 'output chess'".dim()
+        ));
 
         let mut input = Input::new(self.state.protocol == Interactive, self);
         loop {
@@ -951,7 +956,9 @@ impl<B: Board> EngineUGI<B> {
                 {
                     Ok(None)
                 } else {
-                    self.select_output(&mut tokens("pretty"))
+                    // Even though "pretty" can look better than "prettyascii", it's also significantly more risky
+                    // because how it looks very much depends on the terminal.
+                    self.select_output(&mut tokens("prettyascii"))
                 }
             }
         }
@@ -982,7 +989,7 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_output(&mut self, words: &mut Tokens) -> Res<()> {
-        let next = words.next().unwrap_or_default();
+        let mut next = words.next().unwrap_or_default();
         let output_ptr = self.output.clone();
         let mut output = output_ptr.lock().unwrap();
         if next.eq_ignore_ascii_case("remove") || next.eq_ignore_ascii_case("clear") {
@@ -996,20 +1003,18 @@ impl<B: Board> EngineUGI<B> {
                     .additional_outputs
                     .retain(|o| !o.short_name().eq_ignore_ascii_case(next));
             }
-        } else if next.eq_ignore_ascii_case("list") {
-            // TODO: Remove, use the general list command
-            for o in &output.additional_outputs {
-                print!(
-                    "{}",
-                    to_name_and_optional_description(o.as_ref(), WithDescription)
-                );
-            }
-            println!();
         } else if !output
             .additional_outputs
             .iter()
             .any(|o| o.short_name().eq_ignore_ascii_case(next))
         {
+            if next.eq_ignore_ascii_case("add") {
+                next = words
+                    .next()
+                    .ok_or_else(|| anyhow!("Missing output name after 'add'"))?;
+            } else {
+                output.additional_outputs.retain(|o| !o.prints_board())
+            }
             output.additional_outputs.push(
                 output_builder_from_str(next, &self.output_factories)
                     .map_err(|err| {
@@ -1369,17 +1374,17 @@ impl<B: Board> EngineUGI<B> {
 // take a BoardGameState instead of a board to correctly handle displaying the last move
 fn format_tt_entry<B: Board>(state: BoardGameState<B>, entry: TTEntry<B>) -> String {
     let pos = state.board;
-    let formatter = pos.pretty_formatter(state.last_move());
+    let formatter = pos.pretty_formatter(PieceToChar::Unicode, state.last_move());
     let mov = entry.mov.check_legal(&pos);
     let mut formatter = AdaptFormatter {
         underlying: formatter,
-        color_frame: Box::new(move |coords| {
+        color_frame: Box::new(move |coords, color| {
             if let Some(mov) = mov {
                 if coords == mov.src_square() || coords == mov.dest_square() {
                     return Some(style::Color::DarkRed);
                 }
             };
-            None
+            color
         }),
         display_piece: Box::new(move |coords, _, default| {
             if let Some(mov) = mov {

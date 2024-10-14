@@ -1,20 +1,21 @@
-use crate::games::{AbstractPieceType, ColoredPiece, ColoredPieceType, Coordinates};
-use crate::general::board::{ColPieceType, RectangularBoard};
+use crate::games::{Color, ColoredPiece};
+use crate::general::board::RectangularBoard;
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
-use crate::general::moves::Move;
-use crate::general::squares::RectangularCoordinates;
-use crate::general::squares::SquareColor::White;
-use crate::output::text_output::{p1_color, p2_color, TextStream, TextWriter};
+use crate::general::squares::{RectangularCoordinates, SquareColor};
+use crate::output::text_output::{
+    display_color, p1_color, p2_color, AdaptFormatter, BoardFormatter, PieceToChar, TextStream,
+    TextWriter,
+};
 use crate::output::Message::Info;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
-use crate::{games, GameState};
+use crate::GameState;
 use anyhow::bail;
-use crossterm::style::{Color, Stylize};
-use itertools::Itertools;
+use crossterm::style;
+use crossterm::style::Color::{Reset, Rgb};
+use crossterm::style::Stylize;
 use std::fmt::{Display, Write};
 use std::io::stdout;
 
-// TODO: Should be a BoardToString variant
 #[derive(Debug)]
 pub(super) struct ChessOutput {
     writer: TextWriter,
@@ -26,38 +27,6 @@ impl Default for ChessOutput {
             writer: TextWriter::new_for(TextStream::Stdout(stdout()), vec![Info]),
         }
     }
-}
-
-fn color<B: RectangularBoard>(
-    piece: ColPieceType<B>,
-    square: B::Coordinates,
-    last_move: Option<B::Move>,
-) -> String {
-    let p1_bg_col = Color::White;
-    let p2_bg_col = Color::Black;
-    let p1_piece_col = p1_color();
-    let p2_piece_col = p2_color();
-    let move_bg_color = Color::DarkCyan;
-    let symbol = piece.to_ascii_char();
-    // let symbol = piece.uncolor().to_utf8_char();
-    let bg_color =
-        if last_move.is_some_and(|m| m.dest_square() == square || m.src_square() == square) {
-            move_bg_color
-        } else if square.square_color() == White {
-            p1_bg_col
-        } else {
-            p2_bg_col
-        };
-
-    if piece == ColPieceType::<B>::empty() {
-        "   ".to_string().with(Color::Black).to_string()
-    } else if piece.color().unwrap() == <B::Color as games::Color>::first() {
-        format!(" {} ", symbol.to_string().with(p1_piece_col))
-    } else {
-        format!(" {} ", symbol.to_string().with(p2_piece_col))
-    }
-    .on(bg_color)
-    .to_string()
 }
 
 impl NamedEntity for ChessOutput {
@@ -92,28 +61,108 @@ impl<B: RectangularBoard> Output<B> for ChessOutput {
         if last_move.is_none() {
             writeln!(res, "Starting new game!").unwrap();
         }
-        for y in 0..pos.height() {
-            let mut line = " ".to_string();
-            for x in 0..pos.width() {
-                let square = B::Coordinates::from_row_column(y, x).flip_up_down(pos.size());
-                let piece = pos.colored_piece_on(square);
-                write!(
-                    &mut line,
-                    "{0}",
-                    color::<B>(piece.colored_piece_type(), square, last_move)
-                )
-                .unwrap();
-            }
-            writeln!(line, " {0}", pos.height() - y).unwrap();
-            write!(res, "{line}").unwrap();
-        }
-        _ = writeln!(res, "  {  }", ('A'..).take(pos.width() as usize).join("  "));
-        res
+        pretty_as_chessboard(&pos, pos.pretty_formatter(PieceToChar::Acii, last_move))
     }
 }
 
-// TODO: Use the pretty_formatter framework for this:
-// Just write another implementation of `format_pretty`, without overwriting `pretty_formatter`.
+/// Except for RGB colors, how these colors are displayed depends on the style of the terminal.
+/// We still try to guess some value
+pub fn guess_colorgrad_color(color: style::Color) -> colorgrad::Color {
+    let name = match color {
+        style::Color::Reset => return guess_colorgrad_color(style::Color::White),
+        style::Color::Black => "black",
+        style::Color::DarkGrey => "darkgrey",
+        style::Color::Red => "red",
+        style::Color::DarkRed => "darkred",
+        style::Color::Green => "green",
+        style::Color::DarkGreen => "darkgreen",
+        style::Color::Yellow => "yellow",
+        style::Color::DarkYellow => "darkyellow",
+        style::Color::Blue => "blue",
+        style::Color::DarkBlue => "darkblue",
+        style::Color::Magenta => "magenta",
+        style::Color::DarkMagenta => "darkmagenta",
+        style::Color::Cyan => "cyan",
+        style::Color::DarkCyan => "darkcyan",
+        style::Color::White => "white",
+        style::Color::Grey => "grey",
+        Rgb { r, g, b } => return colorgrad::Color::from([r, g, b]),
+        style::Color::AnsiValue(_) => {
+            panic!("ANSI color codes are not supported")
+        }
+    };
+    colorgrad::Color::from_html(name).expect("incorrect color name")
+}
+
+fn pretty_as_chessboard<B: RectangularBoard>(
+    pos: &B,
+    formatter: Box<dyn BoardFormatter<B>>,
+) -> String {
+    let pos = *pos;
+    let flip = formatter.flip_board();
+    let formatter = AdaptFormatter {
+        underlying: formatter,
+        color_frame: Box::new(|_, color| color),
+        display_piece: Box::new(move |square, width, _| {
+            let piece = pos.colored_piece_on(square);
+            if let Some(color) = piece.color() {
+                format!("{0:^1$}", piece.to_ascii_char(), width)
+                    .with(display_color(color))
+                    .to_string()
+            } else {
+                " ".repeat(width)
+            }
+        }),
+        horizontal_spacer_interval: None,
+        vertical_spacer_interval: None,
+    };
+    let mut res = String::default();
+    for y in 0..pos.height() {
+        let mut line = "".to_string();
+        for x in 0..pos.width() {
+            let display_x = if flip { pos.width() - 1 - x } else { x };
+            let display_y = if flip { y } else { pos.height() - 1 - y };
+            let square = B::Coordinates::from_row_column(display_y, display_x);
+            let color = pos.colored_piece_on(square).color();
+            let bg_color = match pos.background_color(square) {
+                SquareColor::White => colorgrad::Color::from_html("aliceblue").unwrap(),
+                SquareColor::Black => colorgrad::Color::from_html("darkslategrey").unwrap(),
+            };
+            let bg_color = match formatter.frame_color(square) {
+                None => bg_color,
+                Some(col) => bg_color.interpolate_rgb(&guess_colorgrad_color(col), 0.25),
+            };
+
+            let color = match color {
+                None => Reset,
+                Some(x) => {
+                    if x.is_first() {
+                        p1_color()
+                    } else {
+                        p2_color()
+                    }
+                }
+            };
+            let [r, g, b, _] = bg_color.to_rgba8();
+            let bg_color = Rgb { r, g, b };
+            let piece = formatter
+                .display_piece(square, 3)
+                .with(color)
+                .bold()
+                .on(bg_color);
+            write!(&mut line, "{piece}").unwrap();
+        }
+        let y = if flip { y + 1 } else { pos.height() - y };
+        writeln!(res, " {y:>2} {line}").unwrap();
+    }
+    res += "    ";
+    for x in 0..pos.get_width() {
+        let idx = if flip { pos.get_width() - 1 - x } else { x };
+        write!(res, "{:^3}", ('A'..).nth(idx).unwrap()).unwrap();
+    }
+    res + "\n"
+}
+
 #[derive(Default, Copy, Clone, Debug)]
 pub struct ChessOutputBuilder {}
 

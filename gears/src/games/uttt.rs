@@ -46,7 +46,7 @@ use crate::general::squares::{
 };
 use crate::output::text_output::{
     board_to_string, display_board_pretty, p1_color, p2_color, AdaptFormatter, BoardFormatter,
-    DefaultBoardFormatter,
+    DefaultBoardFormatter, PieceToChar,
 };
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
@@ -874,14 +874,21 @@ impl Board for UtttBoard {
         display_board_pretty(self, fmt)
     }
 
-    fn pretty_formatter(&self, last_move: Option<UtttMove>) -> Box<dyn BoardFormatter<Self>> {
+    fn pretty_formatter(
+        &self,
+        piece_to_char: PieceToChar,
+        last_move: Option<UtttMove>,
+    ) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;
         let formatter = AdaptFormatter {
-            underlying: Box::new(DefaultBoardFormatter::new(*self, last_move)),
-            color_frame: Box::new(move |c| {
-                if pos.is_sub_board_won(UtttColor::first(), c.sub_board()) {
+            underlying: Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move)),
+            color_frame: Box::new(move |sq, col| {
+                if col.is_some() {
+                    return col;
+                }
+                if pos.is_sub_board_won(UtttColor::first(), sq.sub_board()) {
                     Some(p1_color().into())
-                } else if pos.is_sub_board_won(UtttColor::second(), c.sub_board()) {
+                } else if pos.is_sub_board_won(UtttColor::second(), sq.sub_board()) {
                     Some(p2_color().into())
                 } else {
                     None

@@ -28,7 +28,7 @@ use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
 use crate::general::squares::{GridCoordinates, GridSize};
 use crate::output::text_output::{
-    board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter,
+    board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter, PieceToChar,
 };
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
@@ -725,8 +725,12 @@ impl Board for MNKBoard {
         display_board_pretty(self, fmt)
     }
 
-    fn pretty_formatter(&self, last_move: Option<Self::Move>) -> Box<dyn BoardFormatter<Self>> {
-        Box::new(DefaultBoardFormatter::new(*self, last_move))
+    fn pretty_formatter(
+        &self,
+        piece_to_char: PieceToChar,
+        last_move: Option<Self::Move>,
+    ) -> Box<dyn BoardFormatter<Self>> {
+        Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move))
     }
 
     fn background_color(&self, square: GridCoordinates) -> SquareColor {

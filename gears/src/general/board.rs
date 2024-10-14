@@ -29,7 +29,7 @@ use crate::general::move_list::MoveList;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
 use crate::general::moves::Move;
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
-use crate::output::text_output::BoardFormatter;
+use crate::output::text_output::{BoardFormatter, PieceToChar};
 use crate::search::Depth;
 use crate::PlayerResult::Lose;
 use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
@@ -505,7 +505,11 @@ pub trait Board:
 
     /// Allows boards to customize how they want to be formatted.
     /// For example, the [`Chessboard`] can give the king square a red frame if the king is in check.
-    fn pretty_formatter(&self, last_move: Option<Self::Move>) -> Box<dyn BoardFormatter<Self>>;
+    fn pretty_formatter(
+        &self,
+        piece: PieceToChar,
+        last_move: Option<Self::Move>,
+    ) -> Box<dyn BoardFormatter<Self>>;
 
     /// The background color of the given coordinates, e.g. the color of the square of a chessboard.
     /// For rectangular boards, this can often be implemented with `coords.square_color()`,
