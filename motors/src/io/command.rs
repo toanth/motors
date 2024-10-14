@@ -407,6 +407,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
         ),
         ugi_command!(quit, All, "Exits the program immediately", |ugi, _, _| {
             if cfg!(feature = "fuzzing") {
+                eprintln!("Fuzzing is enabled, ignoring 'quit' command");
                 return Ok(());
             }
             ugi.quit(QuitProgram)

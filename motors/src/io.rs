@@ -404,6 +404,9 @@ impl<B: Board> EngineUGI<B> {
             "output".bold(),
             ", e.g., 'output pretty' or 'output chess'".dim()
         ));
+        if self.fuzzing_mode() {
+            self.write_message(Warning, &"Fuzzing Mode Enabled!".bold().to_string());
+        }
 
         let mut input = Input::new(self.state.protocol == Interactive, self);
         loop {
