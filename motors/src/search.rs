@@ -181,7 +181,7 @@ impl Display for BenchResult {
             f,
             "depth {0}, time {2} ms, {1} nodes, {3} nps, hash {4:X}",
             self.depth.get(),
-            self.nodes.to_string().bold(),
+            Colorize::bold(self.nodes.to_string().as_str()),
             self.time.as_millis().to_string().color(Red),
             (self.nodes as f64 / self.time.as_millis() as f64 * 1000.0)
                 .round()
