@@ -466,7 +466,10 @@ pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
 ) -> String {
     use std::fmt::Write;
     let flip = flip && B::should_flip_visually();
-    let mut res = pos.settings().text().unwrap_or_default();
+    let mut res = String::new();
+    if let Some(text) = pos.settings().text() {
+        res = format!("{text}\n");
+    }
     for y in 0..pos.height() {
         let yc = if flip { y } else { pos.height() - 1 - y };
         write!(&mut res, "{:>2} ", yc + 1).unwrap();
@@ -590,7 +593,7 @@ fn border_cross<B: RectangularBoard>(
         }
     } else if y == 0 {
         UPPER_BORDER
-    } else if y == pos.get_width() {
+    } else if y == pos.get_height() {
         LOWER_BORDER
     } else {
         CROSS

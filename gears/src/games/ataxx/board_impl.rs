@@ -13,6 +13,7 @@ use crate::general::board::{
 use crate::general::common::{Res, Tokens};
 use crate::general::move_list::MoveList;
 use crate::general::moves::Move;
+use crate::general::squares::sup_distance;
 use anyhow::{anyhow, bail};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::num::NonZeroUsize;
@@ -139,14 +140,14 @@ impl AtaxxBoard {
         if !empty.is_bit_set_at(mov.dest_square().bb_idx()) {
             return false;
         }
+        let pieces = self.active_bb();
         if mov.typ() == Cloning {
-            self.active_bb()
+            pieces
                 .moore_neighbors()
                 .is_bit_set_at(mov.dest_square().bb_idx())
         } else {
-            self.active_bb()
-                .extended_moore_neighbors(2)
-                .is_bit_set_at(mov.dest_square().bb_idx())
+            pieces.is_bit_set_at(mov.src_square().bb_idx())
+                && sup_distance(mov.src_square(), mov.dest_square()) == 2
         }
     }
 

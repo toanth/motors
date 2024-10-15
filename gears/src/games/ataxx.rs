@@ -489,6 +489,8 @@ impl UnverifiedAtaxxBoard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::general::board::Strictness::Relaxed;
+    use crate::general::moves::Move;
 
     #[test]
     fn startpos_test() {
@@ -528,5 +530,22 @@ mod tests {
         let pos = AtaxxBoard::from_fen("7/7/7/o6/ooooooo/ooooooo/xxxxxxx x 1 2", Strict).unwrap();
         let moves = pos.legal_moves();
         assert_eq!(moves.len(), 1);
+    }
+
+    #[test]
+    fn moves_test() {
+        let pos = AtaxxBoard::from_fen("o5o/5o1/7/7/x6/1x5/6x O 1 2", Relaxed).unwrap();
+        assert!(AtaxxMove::from_text("a7a6", &pos).is_err());
+        assert!(AtaxxMove::from_text("c7a6", &pos).is_err());
+        assert!(AtaxxMove::from_text("c7a5", &pos).is_err());
+        assert!(AtaxxMove::from_text("a7a4", &pos).is_err());
+        assert!(AtaxxMove::from_text("g1g2", &pos).is_err());
+        let mov = AtaxxMove::from_text("g2", &AtaxxBoard::default()).unwrap();
+        assert!(!pos.is_move_legal(mov));
+        let mov = AtaxxMove::from_text("a7c5", &pos).unwrap();
+        assert!(pos.legal_moves().contains(&mov));
+        let pos = pos.make_move(mov).unwrap();
+        assert!(AtaxxMove::from_extended_text("a3c5", &pos).is_err());
+        assert!(AtaxxMove::from_text("a3b5", &pos).is_ok());
     }
 }

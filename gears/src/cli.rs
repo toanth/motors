@@ -9,6 +9,7 @@ use crate::general::common::{
 };
 use crate::OutputArgs;
 use anyhow::anyhow;
+use arbitrary::Arbitrary;
 use derive_more::Display;
 use itertools::Itertools;
 use num::PrimInt;
@@ -17,7 +18,17 @@ use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 #[derive(
-    Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Display, derive_more::FromStr, EnumIter,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Debug,
+    Display,
+    derive_more::FromStr,
+    EnumIter,
+    Arbitrary,
 )]
 pub enum Game {
     /// Normal Chess, Chess960 or Double Fisher Random Chess.

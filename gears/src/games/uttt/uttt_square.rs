@@ -197,7 +197,7 @@ impl UtttSquare {
     pub const fn no_coordinates_const() -> Self {
         Self {
             sub_board: SmallGridSquare::no_coordinates_const(),
-            sub_square: SmallGridSquare::no_coordinates_const(),
+            sub_square: SmallGridSquare::from_bb_index(0),
         }
     }
 }

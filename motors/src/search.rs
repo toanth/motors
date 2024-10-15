@@ -28,7 +28,6 @@ use gears::general::board::Board;
 use gears::general::common::anyhow::bail;
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
 use gears::general::move_list::MoveList;
-use gears::general::moves::Move;
 use gears::output::Message;
 use gears::output::Message::Warning;
 use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON};
@@ -942,21 +941,6 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             }
             output.write_message(Warning, "search() called in a position with no legal moves");
         }
-        eprintln!(
-            "{} [{:?}]",
-            res.chosen_move.to_underlying().into(),
-            res.chosen_move
-        );
-        eprintln!(
-            "{} [{:?}]",
-            B::Move::default().to_underlying().into(),
-            B::Move::default()
-        );
-        eprintln!(
-            "{0}, {1}",
-            res.chosen_move == B::Move::default(),
-            res.chosen_move.is_null()
-        );
         debug_assert!(res.chosen_move == B::Move::default() || pos.is_move_legal(res.chosen_move));
 
         output.write_search_res(res);

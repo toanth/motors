@@ -228,8 +228,17 @@ impl Move<MNKBoard> for FillSquare {
 
     fn from_compact_text(s: &str, pos: &MNKBoard) -> Res<Self> {
         let c = GridCoordinates::from_str(s)?;
-        if !pos.is_empty(c) {
-            bail!("The square {c} is already occupied, can only place on an empty square")
+        if !pos.size().coordinates_valid(c) {
+            bail!(
+                "The square {0} lies outside of the board (size: {1})",
+                c.to_string().bold(),
+                pos.size()
+            )
+        } else if !pos.is_empty(c) {
+            bail!(
+                "The square {} is already occupied, can only place on an empty square",
+                c.to_string().bold()
+            )
         }
         Ok(FillSquare { target: c })
     }
@@ -263,7 +272,7 @@ pub struct MnkSettings {
 impl MnkSettings {
     fn check_invariants(self) -> bool {
         self.height <= 26
-            && self.width <= MAX_WIDTH as DimT
+            && self.width < MAX_WIDTH as DimT
             && self.height * self.width <= 128
             && self.height * self.width >= 1
             && self.k <= min(self.height, self.width)
@@ -429,7 +438,7 @@ impl MNKBoard {
 
 impl Display for MNKBoard {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{0}", self.as_unicode_diagram(false))
+        write!(f, "{0}", self.as_fen())
     }
 }
 
@@ -469,21 +478,6 @@ impl Board for MNKBoard {
         }
     }
 
-    fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
-        vec![
-            GenericSelect {
-                name: "large",
-                val: || {
-                    Self::from_fen("11 11 4 x 11/11/11/11/11/11/11/11/11/11/11", Relaxed).unwrap()
-                },
-            },
-            GenericSelect {
-                name: "tictactoe",
-                val: Self::default,
-            },
-        ]
-    }
-
     fn from_name(name: &str) -> Res<Self> {
         board_from_name(name).or_else(|err| {
             let pattern = Regex::new(r"([0-9]+),([0-9]+),([0-9]+)").unwrap();
@@ -508,6 +502,40 @@ impl Board for MNKBoard {
                 )
             }
         })
+    }
+
+    fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
+        vec![
+            GenericSelect {
+                name: "large",
+                val: || {
+                    Self::from_fen("11 11 4 x 11/11/11/11/11/11/11/11/11/11/11", Relaxed).unwrap()
+                },
+            },
+            GenericSelect {
+                name: "tictactoe",
+                val: Self::default,
+            },
+        ]
+    }
+
+    fn bench_positions() -> Vec<Self> {
+        let fens = &[
+            "3 3 3 x 3/3/3",
+            "5 5 4 x X4/5/O2X1/O1X2/O4",
+            "9 9 2 o 8X/9/9/9/9/9/9/9/9",
+            "9 11 5 o O1O3O4/9X1/7O3/7X3/11/4XX5/X7X2/OO3O4X/OX8X",
+            "20 5 4 o 5/5/5/5/1O3/5/5/5/5/5/1O3/X1X2/4O/1O3/5/5/1X2X/X4/5/5",
+            "1 25 1 x 25",
+            "3 26 2 o 26/26/10X15",
+            "3 26 2 o 3X5O2XO12/7O12O2X1X/O9X6X8",
+            "8 6 5 o 1X4/2XO2/2X3/1OX2O/OO1X1X/1O4/X4X/3O2",
+            "10 8 5 x 2X3X1/X4O1X/2OXO2O/O1OO4/1X2X3/X2O2X1/OXOOXO1O/1X1XOO1X/5XO1/XOX1O2X",
+            "10 12 5 o 12/9X2/12/3O1O2X3/6OO4/4X2X4/3X8/O2O2X4X/4X4O2/12",
+        ];
+        fens.map(|f| Self::from_fen(f, Relaxed).unwrap())
+            .into_iter()
+            .collect()
     }
 
     fn settings(&self) -> Self::Settings {

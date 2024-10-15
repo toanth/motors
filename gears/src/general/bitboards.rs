@@ -97,7 +97,8 @@ const fn compute_anti_diagonal_bbs() -> [[u128; 128]; MAX_WIDTH] {
 // TODO: Store as array of structs? Could speed up mnk
 
 // allow width of at most 26 to prevent issues with square notation (26 letters in the alphabet)
-pub const MAX_WIDTH: usize = 26;
+// with one extra to make some boundary conditions go away
+pub const MAX_WIDTH: usize = 27;
 
 const STEPS: [u128; 128] = compute_step_bbs();
 
