@@ -178,7 +178,7 @@ impl Display for BenchResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,
-            "depth {0}, time {2} ms, {1} nodes, {3} nps, hash {4:X}",
+            "depth {0}, time {2} ms, {1} nodes, {3} nps, hash {4}",
             self.depth.get().to_string().important(),
             self.nodes.to_string().important(),
             self.time.as_millis().to_string().dark_red(),
@@ -186,7 +186,7 @@ impl Display for BenchResult {
                 .round()
                 .to_string()
                 .dark_red(),
-            self.pv_score_hash,
+            format!("{:X}", self.pv_score_hash).dimmed(),
         )
     }
 }
