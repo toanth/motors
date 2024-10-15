@@ -7,15 +7,16 @@ use crate::search::multithreading::{
 use crate::search::statistics::{Statistics, Summary};
 use crate::search::tt::TT;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
+use colored::Color::Red;
 use colored::Colorize;
 use crossbeam_channel::unbounded;
 use derive_more::{Add, Neg, Sub};
 use dyn_clone::DynClone;
-use gears::crossterm::style::{Attribute, StyledContent, Stylize};
+use gears::crossterm::style::{StyledContent, Stylize};
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::bail;
-use gears::general::common::{ColorMsg, EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
+use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
 use gears::general::move_list::MoveList;
 use gears::output::Message;
 use gears::output::Message::Warning;
@@ -181,11 +182,11 @@ impl Display for BenchResult {
             "depth {0}, time {2} ms, {1} nodes, {3} nps, hash {4:X}",
             self.depth.get(),
             self.nodes.to_string().bold(),
-            self.time.as_millis().to_string().red(),
+            self.time.as_millis().to_string().color(Red),
             (self.nodes as f64 / self.time.as_millis() as f64 * 1000.0)
                 .round()
                 .to_string()
-                .red(),
+                .color(Red),
             self.pv_score_hash,
         )
     }
