@@ -39,7 +39,7 @@ use crate::io::command::{
 use crate::io::input::Input;
 use crate::io::ugi_output::{pretty_score, score_gradient, UgiOutput};
 use crate::io::ProgramStatus::{Quit, Run};
-use crate::io::Protocol::Interactive;
+use crate::io::Protocol::{Interactive, UGI};
 use crate::io::SearchType::*;
 use crate::search::multithreading::EngineWrapper;
 use crate::search::tt::{TTEntry, DEFAULT_HASH_SIZE_MB, TT};
@@ -418,7 +418,10 @@ impl<B: Board> EngineUGI<B> {
             self.write_message(Warning, &"Fuzzing Mode Enabled!".important().to_string());
         }
 
-        let mut input = Input::new(self.state.protocol == Interactive, self);
+        let (mut input, interactive) = Input::new(self.state.protocol == Interactive, self);
+        if self.state.protocol == Interactive && !interactive {
+            self.state.protocol = UGI; // Will be overwritten shortly, and isn't really used much anyway
+        }
         loop {
             input.set_interactive(self.state.protocol == Interactive, self);
             let input = match input.get_line(self) {
@@ -1361,7 +1364,7 @@ impl<B: Board> EngineUGI<B> {
                 name: SetEngine,
                 value: Combo(UgiCombo {
                     val: engine.short_name(),
-                    default: Some(engine.short_name()),
+                    default: Some(engine.long_name()),
                     options: self
                         .searcher_factories
                         .iter()

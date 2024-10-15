@@ -32,6 +32,8 @@ thiserror = "1.0.64"
 inquire = "0.7.5"
 # TODO: Should probably move autocompletion to gears? Then this dependency would be unnecessary
 edit-distance = "2.1.3"
+# This is used exclusively for bench output, because OpenBench chokes on the colored output from crossterm
+# but accepts the output from colored (which doesn't appear to contain colors when used like this)
 colored = "2.1.0"
 
 

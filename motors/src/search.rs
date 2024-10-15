@@ -177,6 +177,7 @@ impl Default for BenchResult {
 
 impl Display for BenchResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // Uses colored instead of crossterm because that's necessary for OpenBench to parse the output
         writeln!(
             f,
             "depth {0}, time {2} ms, {1} nodes, {3} nps, hash {4:X}",

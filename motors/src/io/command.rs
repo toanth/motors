@@ -670,7 +670,7 @@ fn complete_option<B: Board>() -> Box<dyn CommandTrait<GoState<B>>> {
 #[expect(clippy::too_many_lines)]
 pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>> {
     let mut res = vec![depth_cmd()];
-    if !matches!(mode.unwrap_or(Perft), Perft | SplitPerft) {
+    if !matches!(mode.unwrap_or(Normal), Perft | SplitPerft) {
         let mut additional: CommandList<GoState<B>> = vec![
             Box::new(Command::<GoState<B>> {
                 primary_name: format!("{}time", B::Color::first().ascii_color_char()),

@@ -23,7 +23,7 @@ use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{ColorMsg, Res};
 use inquire::Text;
-use std::io::stdin;
+use std::io::{stdin, stdout, IsTerminal};
 
 trait GetLine<B: Board> {
     fn get_line(&mut self, ugi: &mut EngineUGI<B>) -> Res<String>;
@@ -38,9 +38,8 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
     fn get_line(&mut self, ugi: &mut EngineUGI<B>) -> Res<String> {
         // If reading the input failed, always terminate. This probably means that the pipe is broken or similar,
         // so there's no point in continuing.
-        // TODO: During a go command, the prompt interferes with the engine's simultaneous output.
         // Since Inquire doesn't seem to have an option to do anything about this (like re-drawing the prompt after each line of output),
-        // maybe just disable it while a `go` command is running?
+        // we just disable it while a `go` command is running?
 
         self.autocompletion.state.pos = ugi.state.board;
         if ugi
@@ -48,7 +47,6 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
             .engine
             .main_atomic_search_data()
             .currently_searching()
-        // This doesn't (yet) work for `bench`, `tt`, and `eval`
         {
             ugi.write_ugi(&format!(
                 " [{0} Type '{1}' to cancel]",
@@ -73,9 +71,8 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
             let string = Text::new(&"Enter a command or move:".important().to_string())
                 .with_help_message(help)
                 .with_autocomplete(self.autocompletion.clone())
-                .prompt()
-                .map_err(|err| anyhow!(err));
-            string
+                .prompt()?;
+            Ok(string)
         }
     }
 }
@@ -117,14 +114,17 @@ pub struct Input<B: Board> {
 }
 
 impl<B: Board> Input<B> {
-    pub fn new(interactive: bool, ugi: &mut EngineUGI<B>) -> Self {
+    pub fn new(mut interactive: bool, ugi: &mut EngineUGI<B>) -> (Self, bool) {
+        if interactive && !stdout().is_terminal() {
+            interactive = false;
+        }
         let typ = if interactive {
             Interactive(InteractiveInput::new(ugi))
         } else {
             NonInteractive(NonInteractiveInput::default())
         };
 
-        Self { typ }
+        (Self { typ }, interactive)
     }
 
     pub fn set_interactive(&mut self, value: bool, ugi: &mut EngineUGI<B>) {
