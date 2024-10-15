@@ -672,6 +672,7 @@ name = "motors"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "colored",
  "criterion",
  "crossbeam-channel",
  "crossbeam-utils",

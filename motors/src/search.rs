@@ -1,15 +1,3 @@
-use std::collections::HashMap;
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::hint::spin_loop;
-use std::marker::PhantomData;
-use std::num::NonZeroUsize;
-use std::ops::{Index, IndexMut};
-use std::sync::atomic::Ordering::Acquire;
-use std::sync::Arc;
-use std::thread::spawn;
-use std::time::{Duration, Instant};
-
 use crate::eval::Eval;
 use crate::search::multithreading::SearchThreadType::*;
 use crate::search::multithreading::SearchType::*;
@@ -19,6 +7,7 @@ use crate::search::multithreading::{
 use crate::search::statistics::{Statistics, Summary};
 use crate::search::tt::TT;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
+use colored::Colorize;
 use crossbeam_channel::unbounded;
 use derive_more::{Add, Neg, Sub};
 use dyn_clone::DynClone;
@@ -36,6 +25,17 @@ use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType};
 use itertools::Itertools;
 use rand::prelude::StdRng;
 use rand::SeedableRng;
+use std::collections::HashMap;
+use std::fmt::{Debug, Display, Formatter};
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::hint::spin_loop;
+use std::marker::PhantomData;
+use std::num::NonZeroUsize;
+use std::ops::{Index, IndexMut};
+use std::sync::atomic::Ordering::Acquire;
+use std::sync::Arc;
+use std::thread::spawn;
+use std::time::{Duration, Instant};
 use strum_macros::FromRepr;
 
 #[cfg(feature = "chess")]
@@ -180,12 +180,12 @@ impl Display for BenchResult {
             f,
             "depth {0}, time {2} ms, {1} nodes, {3} nps, hash {4:X}",
             self.depth.get(),
-            self.nodes.to_string().important(),
-            self.time.as_millis().to_string().important(),
+            self.nodes.to_string().bold(),
+            self.time.as_millis().to_string().red(),
             (self.nodes as f64 / self.time.as_millis() as f64 * 1000.0)
                 .round()
                 .to_string()
-                .bold(),
+                .red(),
             self.pv_score_hash,
         )
     }
