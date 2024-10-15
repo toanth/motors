@@ -26,7 +26,7 @@ use gears::crossterm::style::{StyledContent, Stylize};
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::bail;
-use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
+use gears::general::common::{ColorMsg, EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
 use gears::general::move_list::MoveList;
 use gears::output::Message;
 use gears::output::Message::Warning;
@@ -179,13 +179,13 @@ impl Display for BenchResult {
         writeln!(
             f,
             "depth {0}, time {2} ms, {1} nodes, {3} nps, hash {4:X}",
-            self.depth.get().to_string().bold(),
-            self.nodes.to_string().bold(),
-            self.time.as_millis().to_string().red(),
+            self.depth.get().to_string().important(),
+            self.nodes.to_string().important(),
+            self.time.as_millis().to_string().dark_red(),
             (self.nodes as f64 / self.time.as_millis() as f64 * 1000.0)
                 .round()
                 .to_string()
-                .red(),
+                .dark_red(),
             self.pv_score_hash,
         )
     }

@@ -15,10 +15,11 @@ use crate::play::player::{EnginePlayer, Protocol};
 use crate::play::ugi_client::{Client, PlayerId};
 use crate::play::ugi_input::EngineStatus::*;
 use crate::play::ugi_input::HandleBestMove::{Ignore, Play};
-use gears::crossterm::style::Stylize;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{parse_duration_ms, parse_int_from_str, tokens, Res, Tokens};
+use gears::general::common::{
+    parse_duration_ms, parse_int_from_str, tokens, ColorMsg, Res, Tokens,
+};
 use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::score::{ScoreT, SCORE_LOST, SCORE_WON};
@@ -280,7 +281,7 @@ impl<B: Board> InputThread<B> {
                 ),
             } {
                 bail!("Invalid UGI message ('{ugi_str}') from engine '{engine_name}' while in state {status}: {err}",
-                                   ugi_str = command.to_string().add(" ").add(&words.join(" ")).red())
+                                   ugi_str = command.to_string().add(" ").add(&words.join(" ")).error())
             }
         }
         // Empty uci commands should be ignored, according to the spec

@@ -3,11 +3,10 @@ use crate::games::chess::ChessColor;
 use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, Size, Width};
 #[cfg(feature = "chess")]
 use crate::general::bitboards::chess::ChessBitboard;
-use crate::general::common::{parse_int, tokens, Res};
+use crate::general::common::{parse_int, tokens, ColorMsg, Res};
 use crate::general::squares::SquareColor::{Black, White};
 use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
-use crossterm::style::Stylize;
 use std::cmp::max;
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -132,7 +131,7 @@ impl GridCoordinates {
         if !file.is_ascii_alphabetic() {
             bail!(
                 "file (column) '{}' must be a valid ascii letter",
-                file.to_string().red()
+                file.to_string().error()
             );
         }
         let column = char_to_file(file.to_ascii_lowercase());

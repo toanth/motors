@@ -1,8 +1,7 @@
 use crate::general::board::{Board, Strictness};
-use crate::general::common::{NamedEntity, Res, Tokens};
+use crate::general::common::{ColorMsg, NamedEntity, Res, Tokens};
 use crate::general::moves::Move;
 use anyhow::{anyhow, bail};
-use crossterm::style::Stylize;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use strum_macros::EnumIter;
@@ -265,7 +264,7 @@ pub fn parse_ugi_position_part<B: Board>(
             || first_word.eq_ignore_ascii_case("p"))
     {
         let Some(pos_word) = rest.next() else {
-            bail!("Missing position after '{}' option", "position".bold())
+            bail!("Missing position after '{}' option", "position".important())
         };
         return parse_ugi_position_part(pos_word, rest, false, old_board, strictness);
     }
@@ -276,9 +275,9 @@ pub fn parse_ugi_position_part<B: Board>(
         name => B::from_name(name).map_err(|err| {
             anyhow!(
                 "{err} Additionally, '{0}', '{1}' and '{2}' are also always recognized.",
-                "startpos".bold(),
-                "fen <fen>".bold(),
-                "old".bold()
+                "startpos".important(),
+                "fen <fen>".important(),
+                "old".important()
             )
         })?,
     })
@@ -327,7 +326,7 @@ pub fn parse_ugi_position_and_moves<
             if parsed_position {
                 return Ok(()); // don't error to allow other options following a position command
             } else {
-                bail!("'{}' is not a valid position or move", first_word.red())
+                bail!("'{}' is not a valid position or move", first_word.error())
             }
         };
         parsed_move = true;
@@ -349,8 +348,8 @@ pub fn parse_ugi_position_and_moves<
                 if !parsed_move {
                     bail!(
                         "'{0}' must be followed by a move, but '{1}' is not a pseudolegal {2} move: {err}",
-                        "moves".bold(),
-                        next_word.red(),
+                        "moves".important(),
+                        next_word.error(),
                         B::game_name()
                     )
                 }
@@ -367,7 +366,7 @@ pub fn parse_ugi_position_and_moves<
         parsed_move = true;
     }
     if !parsed_move {
-        bail!("Missing move after '{}'", "moves".bold())
+        bail!("Missing move after '{}'", "moves".important())
     }
     Ok(())
 }

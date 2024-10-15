@@ -1,5 +1,4 @@
 use anyhow::{anyhow, bail};
-use crossterm::style::Stylize;
 use regex::Regex;
 use static_assertions::const_assert_eq;
 use std::cmp::min;
@@ -231,13 +230,13 @@ impl Move<MNKBoard> for FillSquare {
         if !pos.size().coordinates_valid(c) {
             bail!(
                 "The square {0} lies outside of the board (size: {1})",
-                c.to_string().bold(),
+                c.to_string().important(),
                 pos.size()
             )
         } else if !pos.is_empty(c) {
             bail!(
                 "The square {} is already occupied, can only place on an empty square",
-                c.to_string().bold()
+                c.to_string().important()
             )
         }
         Ok(FillSquare { target: c })
@@ -498,7 +497,7 @@ impl Board for MNKBoard {
                 bail!(
                     "{0} It's also not an m,n,k list, which must have the format '{1}', e.g. '3,3,3'.",
                     err,
-                    "<m>,<n>,<k>".bold()
+                    "<m>,<n>,<k>".important()
                 )
             }
         })

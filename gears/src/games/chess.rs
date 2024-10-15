@@ -37,7 +37,7 @@ use crate::general::board::{
     NameToPos, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{
-    parse_int_from_str, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
+    parse_int_from_str, ColorMsg, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
 };
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
@@ -563,7 +563,7 @@ impl Board for Chessboard {
             let fullmove_number = fullmove_number.parse::<NonZeroUsize>().map_err(|err| {
                 anyhow!(
                     "Couldn't parse fullmove counter '{}': {err}",
-                    fullmove_number.red()
+                    fullmove_number.error()
                 )
             })?;
             board.0.ply = ply_counter_from_fullmove_nr::<Chessboard>(fullmove_number, color);
@@ -618,8 +618,8 @@ impl Board for Chessboard {
                     if square.square_color() == SquareColor::White {
                         " ".repeat(width)
                     } else {
-                        // call .dim() after formatting the width because crossterm seems to count the dimming escape sequences
-                        format!("{:^1$}", "*", width).dim().to_string()
+                        // call .dimmed() after formatting the width because crossterm seems to count the dimming escape sequences
+                        format!("{:^1$}", "*", width).dimmed().to_string()
                     }
                 } else {
                     let c = if piece_to_char == PieceToChar::Acii {
@@ -885,7 +885,7 @@ impl Chessboard {
             }
         }
         bail!("(D)FRC positions must be of the format {0} or {1}, with N < 960 and M < 921600, e.g. frc123",
-            "frc<N>".bold(), "dfrc<M>".bold())
+            "frc<N>".important(), "dfrc<M>".important())
     }
 }
 

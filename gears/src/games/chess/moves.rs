@@ -4,7 +4,6 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use arbitrary::Arbitrary;
-use crossterm::style::Stylize;
 use itertools::Itertools;
 use num::iter;
 use strum::IntoEnumIterator;
@@ -25,7 +24,7 @@ use crate::games::{
 };
 use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::bitboards::{Bitboard, RawBitboard};
-use crate::general::common::Res;
+use crate::general::common::{ColorMsg, Res};
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::PseudoLegal;
 use crate::general::moves::{ExtendedFormat, Legality, Move, MoveFlags, UntrustedMove};
@@ -253,7 +252,7 @@ impl Move<Chessboard> for ChessMove {
         }
         // Need to check this before creating slices because splitting unicode character panics.
         if !s.is_ascii() {
-            bail!("Move '{}' contains a non-ASCII character", s.red());
+            bail!("Move '{}' contains a non-ASCII character", s.error());
         }
         if s.len() < 4 {
             bail!("Move too short: '{s}'. Must be <from square><to square>, e.g. e2e4, and possibly a promotion piece.");
@@ -300,7 +299,7 @@ impl Move<Chessboard> for ChessMove {
         if !board.is_move_pseudolegal(res) {
             bail!(
                 "The move '{0}' is not (pseudo)legal in position '{board}'",
-                s.red()
+                s.error()
             )
         }
         Ok(res)
@@ -635,7 +634,7 @@ impl<'a> MoveParser<'a> {
                 // can't use `to_extended_text` because that requires pseudolegal moves.
                 bail!(
                     "Castling move '{}' is not pseudolegal in the current position",
-                    mov.to_string().red()
+                    mov.to_string().error()
                 );
             }
             parser.check_check_checkmate_captures_and_ep(mov, board)?; // check this once the move is known to be pseudolegal
@@ -775,11 +774,11 @@ impl<'a> MoveParser<'a> {
 
     fn parse_square_rank_or_file(&mut self) -> Res<()> {
         let Some(file) = self.current_char() else {
-            bail!("Move '{}' is too short", self.consumed().red())
+            bail!("Move '{}' is too short", self.consumed().error())
         };
         self.advance_char();
         let Some(rank) = self.current_char() else {
-            bail!("Move '{}' is too short", self.consumed().red())
+            bail!("Move '{}' is too short", self.consumed().error())
         };
         match ChessSquare::from_chars(file, rank) {
             Ok(sq) => {
@@ -793,9 +792,9 @@ impl<'a> MoveParser<'a> {
                 x => {
                     // doesn't reset the current char, but that's fine because we're aborting anyway
                     if self.piece == Empty && !self.is_capture {
-                        bail!("A move must start with a valid file, rank or piece, but '{}' is neither", x.to_string().red())
+                        bail!("A move must start with a valid file, rank or piece, but '{}' is neither", x.to_string().error())
                     } else {
-                        bail!("'{}' is not a valid file or rank", x.to_string().red())
+                        bail!("'{}' is not a valid file or rank", x.to_string().error())
                     }
                 }
             },
@@ -976,7 +975,7 @@ impl<'a> MoveParser<'a> {
                 };
                 let (from, from_bb) = f(self.start_file, self.start_rank);
                 let to = f(self.target_file, self.target_rank).0;
-                let (from, to) = (from.bold(), to.bold());
+                let (from, to) = (from.important(), to.important());
                 let mut additional = String::new();
                 if board.is_game_lost_slow() {
                     additional = format!(" ({} has been checkmated)", board.active_player);
@@ -989,15 +988,15 @@ impl<'a> MoveParser<'a> {
                     if piece.is_empty() {
                         bail!(
                             "The square {from} is empty, so the move '{}' is invalid{1}",
-                            self.consumed().bold(),
+                            self.consumed().important(),
                             additional
                         )
                     } else if piece.color().unwrap() != board.active_player {
                         bail!("There is a {0} on {from}, but it's {1}'s turn to move, so the move '{2}' is invalid{3}",
-                            piece.symbol.name(), board.active_player, self.consumed().bold(), additional)
+                            piece.symbol.name(), board.active_player, self.consumed().important(), additional)
                     } else {
                         bail!("There is a {0} on {from}, but it can't move to {to}, so the move '{1}' is invalid{2}",
-                            piece.symbol.name(), self.consumed().bold(), additional)
+                            piece.symbol.name(), self.consumed().important(), additional)
                     }
                 }
                 if (board.colored_piece_bb(board.active_player, self.piece) & from_bb).is_zero() {
@@ -1005,7 +1004,7 @@ impl<'a> MoveParser<'a> {
                         "There is no {0} {1} on {from}, so the move '{2}' is invalid{3}",
                         board.active_player,
                         self.piece.name(),
-                        self.consumed().bold(),
+                        self.consumed().important(),
                         additional
                     )
                 } else {
@@ -1013,7 +1012,7 @@ impl<'a> MoveParser<'a> {
                         "There is no legal {0} {1} move from {from} to {to}, so the move '{2}' is invalid{3}",
                         board.active_player,
                         self.piece.name(),
-                        self.consumed().bold(),
+                        self.consumed().important(),
                         additional
                     );
                 }
@@ -1060,8 +1059,8 @@ impl<'a> MoveParser<'a> {
             };
             bail!(
                 "The move notation '{0}' claims that it {typ}, but the move {1} actually doesn't",
-                self.consumed().red(),
-                mov.to_string().bold() // can't use to_extended_text() here, as that requires pseudolegal moves
+                self.consumed().error(),
+                mov.to_string().important() // can't use to_extended_text() here, as that requires pseudolegal moves
             );
         }
         Ok(())

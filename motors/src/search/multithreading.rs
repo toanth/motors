@@ -1,11 +1,10 @@
 use crate::eval::Eval;
 use crate::io::ugi_output::UgiOutput;
 use dyn_clone::clone_box;
-use gears::crossterm::style::Stylize;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{parse_int_from_str, Name, NamedEntity, Res};
+use gears::general::common::{parse_int_from_str, ColorMsg, Name, NamedEntity, Res};
 use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::score::{Score, NO_SCORE_YET};
@@ -275,7 +274,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                     let mut guard = info.lock().unwrap();
                     let Some(val) = guard.options.get_mut(&name) else {
                         bail!("The engine '{0}' doesn't provide the option '{1}', so it can't be set to value '{2}'",
-                            guard.engine.short_name().bold(), name.to_string().red(), value.bold());
+                            guard.engine.short_name().important(), name.to_string().error(), value.important());
                     };
                     self.engine.set_option(name, val, value)?
                 }

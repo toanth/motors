@@ -1,6 +1,6 @@
 use crate::games::{Color, ColoredPiece};
 use crate::general::board::RectangularBoard;
-use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
+use crate::general::common::{ColorMsg, NamedEntity, Res, StaticallyNamedEntity};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::text_output::{
     display_color, p1_color, p2_color, AdaptFormatter, BoardFormatter, PieceToChar, TextStream,
@@ -148,7 +148,7 @@ fn pretty_as_chessboard<B: RectangularBoard>(
             let piece = formatter
                 .display_piece(square, 3)
                 .with(color)
-                .bold()
+                .important()
                 .on(bg_color);
             write!(&mut line, "{piece}").unwrap();
         }

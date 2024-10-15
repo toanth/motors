@@ -1,6 +1,6 @@
 use crate::games::{Color, ColoredPiece, DimT, Settings};
 use crate::general::board::{Board, RectangularBoard};
-use crate::general::common::{NamedEntity, Res};
+use crate::general::common::{ColorMsg, NamedEntity, Res};
 use crate::general::move_list::MoveList;
 use crate::general::moves::ExtendedFormat::{Alternative, Standard};
 use crate::general::moves::Move;
@@ -509,11 +509,11 @@ pub fn display_color<C: Color>(color: C) -> style::Color {
 
 fn with_color(text: &str, color: Option<style::Color>, highlight: bool) -> String {
     if let Some(color) = color {
-        text.with(color).bold().to_string()
+        text.with(color).important().to_string()
     } else if highlight {
-        text.dark_cyan().bold().to_string()
+        text.dark_cyan().important().to_string()
     } else {
-        text.dim().to_string()
+        text.dimmed().to_string()
     }
 }
 
@@ -688,7 +688,7 @@ pub fn display_board_pretty<B: RectangularBoard>(
     let mut res: Vec<String> = vec![];
     for y in 0..pos.get_height() {
         res.push(write_horizontal_bar(y, pos, &colors, fmt));
-        let mut line = format!(" {:>2} ", (y + 1)).dim().to_string();
+        let mut line = format!(" {:>2} ", (y + 1)).dimmed().to_string();
         for x in 0..pos.get_width() {
             let mut col = colors[y][x];
             if col.is_none() && x > 0 {
@@ -717,12 +717,12 @@ pub fn display_board_pretty<B: RectangularBoard>(
     if let Some(text) = pos.settings().text() {
         res.insert(0, text);
     }
-    res.insert(0, format!("{0} '{1}'", "Fen:".dim(), pos.as_fen()));
+    res.insert(0, format!("{0} '{1}'", "Fen:".dimmed(), pos.as_fen()));
     let mut line = "    ".to_string();
     for x in 0..pos.get_width() {
         let xc = if flip { pos.get_width() - 1 - x } else { x };
         line += &format!(" {:^3}", ('A'..).nth(xc).unwrap())
-            .dim()
+            .dimmed()
             .to_string();
     }
     res.push(line);
@@ -782,9 +782,9 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
         let c = format!("{c:^0$}", width);
 
         let Some(color) = piece.color() else {
-            return c.dim().to_string();
+            return c.dimmed().to_string();
         };
-        c.with(display_color(color)).bold().to_string()
+        c.with(display_color(color)).important().to_string()
     }
 
     fn frame_color(&self, square: B::Coordinates) -> Option<style::Color> {

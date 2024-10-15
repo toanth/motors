@@ -33,7 +33,8 @@ use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, Strictness};
 use gears::general::common::anyhow::anyhow;
 use gears::general::common::{
-    parse_duration_ms, parse_int, parse_int_from_str, tokens, Name, NamedEntity, Res, Tokens,
+    parse_duration_ms, parse_int, parse_int_from_str, tokens, ColorMsg, Name, NamedEntity, Res,
+    Tokens,
 };
 use gears::general::move_list::MoveList;
 use gears::general::moves::{ExtendedFormat, Move};
@@ -121,9 +122,9 @@ fn display_cmd<S: CommandState>(
     cmd: &dyn CommandTrait<S>,
 ) -> std::fmt::Result {
     if let Some(desc) = cmd.description() {
-        write!(f, "{}: {desc}.", cmd.short_name().bold())
+        write!(f, "{}: {desc}.", cmd.short_name().important())
     } else {
-        write!(f, "{}", cmd.short_name().bold())
+        write!(f, "{}", cmd.short_name().important())
     }
 }
 
@@ -358,7 +359,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
                 go_state.limit = ugi.state.ponder_limit.ok_or_else(|| {
                     anyhow!(
                         "The engine received a '{}' command but wasn't pondering",
-                        cmd.bold()
+                        cmd.important()
                     )
                 })?;
                 ugi.start_search(go_state)
@@ -397,7 +398,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             |ugi, _, _| {
                 ugi.write_message(
                     Warning,
-                    &format!("{} isn't supported and will be ignored", "register".red()),
+                    &format!("{} isn't supported and will be ignored", "register".error()),
                 );
                 Ok(())
             }
@@ -410,7 +411,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
                 // TODO: Update move history by calling a proper method of ugi
                 ugi.state.board = ugi.state.board.make_nullmove().ok_or(anyhow!(
                     "Could not flip the side to move (board: '{}'",
-                    ugi.state.board.as_fen().bold()
+                    ugi.state.board.as_fen().important()
                 ))?;
                 ugi.print_board();
                 Ok(())
@@ -897,7 +898,7 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
             //         |go, _, word| {
             //             debug_assert!(go.reading_moves);
             //             let mov = B::Move::from_compact_text(word, &go.board).map_err(|err| {
-            //                 anyhow!("{err}. '{}' is not a valid 'go' option.", word.bold())
+            //                 anyhow!("{err}. '{}' is not a valid 'go' option.", word.important())
             //             })?;
             //             go.search_moves.as_mut().unwrap().push(mov);
             //             go.cont = true;
@@ -1133,7 +1134,7 @@ pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool) -> CommandList<B>
         let cmd = Command {
             primary_name,
             other_names,
-            help_text: format!("Play move '{}'", mov.to_string().bold()),
+            help_text: format!("Play move '{}'", mov.to_string().important()),
             standard: All,
             autocomplete_recurse: false,
             func: |_, _, _| Ok(()),
@@ -1320,7 +1321,7 @@ fn underline_match(name: &str, word: &str) -> String {
 fn completion_text<B: Board, T: AbstractCommand<B> + ?Sized>(n: &T, word: &str) -> String {
     use std::fmt::Write;
     let name = n.short_name();
-    let mut res = format!("{}", underline_match(&name, word).bold());
+    let mut res = format!("{}", underline_match(&name, word).important());
     for name in n.secondary_names() {
         write!(&mut res, " | {}", underline_match(&name, word)).unwrap();
     }

@@ -4,12 +4,11 @@ use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::ataxx::{AtaxxBoard, AtaxxColor, AtaxxSquare};
 use crate::games::{AbstractPieceType, ColoredPieceType, Coordinates, DimT, PieceType};
 use crate::general::board::Board;
-use crate::general::common::Res;
+use crate::general::common::{ColorMsg, Res};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
 use anyhow::bail;
 use arbitrary::Arbitrary;
-use crossterm::style::Stylize;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
@@ -212,7 +211,7 @@ impl Move<AtaxxBoard> for AtaxxMove {
         }
         // Need to check this before creating slices because splitting unicode character panics.
         if !s.is_ascii() {
-            bail!("Move '{}' contains a non-ASCII character", s.red());
+            bail!("Move '{}' contains a non-ASCII character", s.error());
         }
         if s.len() != 2 && s.len() != 4 {
             bail!("Incorrect move length: '{s}'. Must contain exactly one or two squares");
@@ -229,11 +228,14 @@ impl Move<AtaxxBoard> for AtaxxMove {
         };
         if !board.is_move_pseudolegal(res) {
             if !board.is_empty(to_square) {
-                bail!("The square {} is not empty", to_square.to_string().bold())
+                bail!(
+                    "The square {} is not empty",
+                    to_square.to_string().important()
+                )
             } else if from_square != AtaxxSquare::no_coordinates() {
                 bail!("The")
             }
-            bail!("No piece can move to {}", to_square.to_string().red())
+            bail!("No piece can move to {}", to_square.to_string().error())
         }
 
         Ok(res)
