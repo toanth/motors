@@ -182,10 +182,7 @@ impl Display for BenchResult {
             self.depth.get().to_string().important(),
             self.nodes.to_string().important(),
             self.time.as_millis().to_string().dark_red(),
-            (self.nodes as f64 / self.time.as_millis() as f64 * 1000.0)
-                .round()
-                .to_string()
-                .dark_red(),
+            (self.nodes as f64 / self.time.as_millis() as f64 * 1000.0).round(),
             format!("{:X}", self.pv_score_hash).dimmed(),
         )
     }
