@@ -262,8 +262,8 @@ impl Engine<Chessboard> for Caps {
             self,
             self.eval.as_ref(),
             "0.1.0",
-            Depth::new_unchecked(12),
-            NodesLimit::new(30_000).unwrap(),
+            Depth::new_unchecked(15),
+            NodesLimit::new(20_000).unwrap(),
             None,
             options,
         )
