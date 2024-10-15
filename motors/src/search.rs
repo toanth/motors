@@ -22,13 +22,11 @@ use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use crossbeam_channel::unbounded;
 use derive_more::{Add, Neg, Sub};
 use dyn_clone::DynClone;
-use gears::crossterm::style;
-use gears::crossterm::style::Color::{DarkRed, Reset};
 use gears::crossterm::style::{Attribute, StyledContent, Stylize};
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::bail;
-use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
+use gears::general::common::{ColorMsg, EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
 use gears::general::move_list::MoveList;
 use gears::output::Message;
 use gears::output::Message::Warning;
@@ -176,31 +174,18 @@ impl Default for BenchResult {
     }
 }
 
-fn bold_parseable(text: &str) -> String {
-    format!("{0}{text}{1}", Attribute::Bold, Attribute::Reset)
-}
-
-fn red_parseable(text: &str) -> String {
-    format!(
-        "{0}{text}{1}",
-        style::SetForegroundColor(DarkRed),
-        style::SetForegroundColor(Reset)
-    )
-}
-
 impl Display for BenchResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,
             "depth {0}, time {2} ms, {1} nodes, {3} nps, hash {4:X}",
             self.depth.get(),
-            bold_parseable(&self.nodes.to_string()),
-            red_parseable(&self.time.as_millis().to_string()),
-            red_parseable(
-                &(self.nodes as f64 / self.time.as_millis() as f64 * 1000.0)
-                    .round()
-                    .to_string()
-            ),
+            self.nodes.to_string().important(),
+            self.time.as_millis().to_string().important(),
+            (self.nodes as f64 / self.time.as_millis() as f64 * 1000.0)
+                .round()
+                .to_string()
+                .bold(),
             self.pv_score_hash,
         )
     }
