@@ -65,7 +65,7 @@ use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
 use gears::general::perft::{perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
-use gears::output::text_output::{display_color, AdaptFormatter, PieceToChar};
+use gears::output::text_output::{display_color, AdaptFormatter};
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, SearchLimit, TimeControl};
@@ -1402,7 +1402,7 @@ impl<B: Board> EngineUGI<B> {
 // take a BoardGameState instead of a board to correctly handle displaying the last move
 fn format_tt_entry<B: Board>(state: BoardGameState<B>, entry: TTEntry<B>) -> String {
     let pos = state.board;
-    let formatter = pos.pretty_formatter(PieceToChar::Unicode, state.last_move());
+    let formatter = pos.pretty_formatter(None, state.last_move());
     let mov = entry.mov.check_legal(&pos);
     let mut formatter = AdaptFormatter {
         underlying: formatter,
@@ -1449,7 +1449,7 @@ fn format_tt_entry<B: Board>(state: BoardGameState<B>, entry: TTEntry<B>) -> Str
 
 fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>) -> String {
     let eval = RefCell::new(eval);
-    let formatter = pos.pretty_formatter(PieceToChar::Ascii, last);
+    let formatter = pos.pretty_formatter(None, last);
     let eval_pos = eval.borrow_mut().eval(&pos);
     let mut formatter = AdaptFormatter {
         underlying: formatter,

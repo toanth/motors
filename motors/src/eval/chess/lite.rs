@@ -365,7 +365,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
 impl Eval<Chessboard> for LiTEval {
     fn piece_scale(&self) -> ScoreT {
-        8
+        5
     }
 
     fn eval(&mut self, pos: &Chessboard) -> Score {

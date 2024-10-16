@@ -876,7 +876,7 @@ impl Board for UtttBoard {
 
     fn pretty_formatter(
         &self,
-        piece_to_char: PieceToChar,
+        piece_to_char: Option<PieceToChar>,
         last_move: Option<UtttMove>,
     ) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;

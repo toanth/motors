@@ -183,7 +183,10 @@ impl<B: Board> UgiOutput<B> {
             multipv = multipv.dimmed().to_string();
         }
         // bold after formatting because crossterms seems to count the control characters towards the format width
-        let iter = format!("{:>3}", info.depth).important();
+        let mut iter = format!("{:>3}", info.depth);
+        if info.mpv_type() != SecondaryLine {
+            iter = iter.important().to_string();
+        }
         let complete = if info.complete {
             "   ".to_string()
         } else {

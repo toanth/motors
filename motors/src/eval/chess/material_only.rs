@@ -37,7 +37,7 @@ impl StaticallyNamedEntity for MaterialOnlyEval {
 
 impl Eval<Chessboard> for MaterialOnlyEval {
     fn piece_scale(&self) -> ScoreT {
-        8
+        5
     }
     fn eval(&mut self, pos: &Chessboard) -> Score {
         let mut color = pos.active_player();

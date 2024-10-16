@@ -21,7 +21,7 @@ use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
     parse_int_from_str, select_name_static, to_name_and_optional_description, tokens, ColorMsg,
-    IterIntersperse, NamedEntity, Res, StaticallyNamedEntity, Tokens,
+    NamedEntity, Res, StaticallyNamedEntity, Tokens,
 };
 use gears::general::moves::ExtendedFormat::Alternative;
 use gears::general::moves::Move;
@@ -236,8 +236,7 @@ impl<B: Board> TextInputThread<B> {
                     cmd.names
                         .iter()
                         .map(|c| format!("'{}'", c.important()))
-                        .intersperse_(", ".to_string())
-                        .collect::<String>()
+                        .join(", ")
                         + ":",
                     description = cmd.description.unwrap_or("<No description>")
                 );
@@ -287,8 +286,7 @@ impl<B: Board> TextInputThread<B> {
                 .legal_moves_slow()
                 .into_iter()
                 .map(|m| m.to_extended_text(&board, Alternative))
-                .intersperse_(", ".to_string())
-                .collect::<String>()
+                .join(", ")
         );
     }
 
@@ -354,13 +352,7 @@ impl<B: Board> TextInputThread<B> {
         let Some(name) = words.next() else {
             bail!(
                 "Missing the name of the new player (e.g. 'human'). Loaded players are {}",
-                client
-                    .state
-                    .players
-                    .iter()
-                    .map(Player::get_name)
-                    .intersperse_(", ")
-                    .collect::<String>()
+                client.state.players.iter().map(Player::get_name).join(", ")
             )
         };
         let (p1, p2) = (

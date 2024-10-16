@@ -366,7 +366,7 @@ impl Board for AtaxxBoard {
 
     fn pretty_formatter(
         &self,
-        piece_to_char: PieceToChar,
+        piece_to_char: Option<PieceToChar>,
         last_move: Option<Self::Move>,
     ) -> Box<dyn BoardFormatter<Self>> {
         Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move))

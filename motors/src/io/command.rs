@@ -480,8 +480,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             Custom,
             "Display the specified / current position with specified / enabled outputs or 'prettyascii' if no output is set",
             |ugi, words, _| ugi.handle_print(words),
-            -> |state: ACState<B>| add(position_options::<B>(true, Some(state.pos)),
-                select_command::<B, dyn OutputBuilder<B>>(state.outputs.as_slice())),
+            -> |state: ACState<B>| add(select_command::<B, dyn OutputBuilder<B>>(state.outputs.as_slice()), position_options::<B>(true, Some(state.pos))),
             recurse=true
         ),
         ugi_command!(

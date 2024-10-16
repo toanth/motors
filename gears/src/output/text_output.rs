@@ -291,7 +291,7 @@ impl BoardToText {
             Pretty => {
                 let mut formatter = m
                     .get_board()
-                    .pretty_formatter(PieceToChar::Unicode, m.last_move());
+                    .pretty_formatter(Some(PieceToChar::Unicode), m.last_move());
                 format!(
                     "{time_above}{}{time_below}",
                     m.get_board().display_pretty(formatter.as_mut())
@@ -300,7 +300,7 @@ impl BoardToText {
             PrettyAscii => {
                 let mut formatter = m
                     .get_board()
-                    .pretty_formatter(PieceToChar::Ascii, m.last_move());
+                    .pretty_formatter(Some(PieceToChar::Ascii), m.last_move());
                 format!(
                     "{time_above}{}{time_below}",
                     m.get_board().display_pretty(formatter.as_mut())
@@ -757,7 +757,8 @@ pub struct DefaultBoardFormatter<B: RectangularBoard> {
 }
 
 impl<B: RectangularBoard> DefaultBoardFormatter<B> {
-    pub fn new(pos: B, piece_to_char: PieceToChar, last_move: Option<B::Move>) -> Self {
+    pub fn new(pos: B, piece_to_char: Option<PieceToChar>, last_move: Option<B::Move>) -> Self {
+        let piece_to_char = piece_to_char.unwrap_or(PieceToChar::Ascii);
         let flip = pos.active_player() == B::Color::second();
         Self {
             piece_to_char,

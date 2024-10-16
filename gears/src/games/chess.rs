@@ -597,7 +597,7 @@ impl Board for Chessboard {
 
     fn pretty_formatter(
         &self,
-        piece_to_char: PieceToChar,
+        piece_to_char: Option<PieceToChar>,
         last_move: Option<ChessMove>,
     ) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;
@@ -622,7 +622,7 @@ impl Board for Chessboard {
                         format!("{:^1$}", "*", width).dimmed().to_string()
                     }
                 } else {
-                    let c = if piece_to_char == PieceToChar::Ascii {
+                    let c = if piece_to_char.unwrap_or(PieceToChar::Ascii) == PieceToChar::Ascii {
                         piece.to_ascii_char()
                     } else {
                         // uncolored because some fonts have trouble with black pawns, and some make white pieces hard to see

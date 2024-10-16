@@ -500,7 +500,7 @@ pub trait Board:
     /// For example, the [`Chessboard`] can give the king square a red frame if the king is in check.
     fn pretty_formatter(
         &self,
-        piece: PieceToChar,
+        piece: Option<PieceToChar>,
         last_move: Option<Self::Move>,
     ) -> Box<dyn BoardFormatter<Self>>;
 

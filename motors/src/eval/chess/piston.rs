@@ -210,6 +210,6 @@ impl Eval<Chessboard> for PistonEval {
     }
 
     fn piece_scale(&self) -> ScoreT {
-        8
+        5
     }
 }
