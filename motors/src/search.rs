@@ -808,8 +808,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
 
     fn to_bench_res(&self) -> BenchResult {
         let mut hasher = DefaultHasher::new();
-        for mov in self.current_mpv_pv() {
-            mov.hash(&mut hasher);
+        if self.params.num_multi_pv > 0 {
+            for mov in self.current_mpv_pv() {
+                mov.hash(&mut hasher);
+            }
         }
         // the score can differ even if the pv is the same, so make sure to include that in the hash
         self.best_score().hash(&mut hasher);
@@ -1169,7 +1171,12 @@ mod tests {
             assert!(res.depth.get() <= 1);
             assert!(res.nodes <= 100); // TODO: Assert exactly 1
             let res = engine.search_with_new_tt(p, SearchLimit::depth_(1));
-            assert!(p.legal_moves_slow().into_iter().contains(&res.chosen_move));
+            let legal_moves = p.legal_moves_slow();
+            if legal_moves.num_moves() > 0 {
+                assert!(legal_moves.into_iter().contains(&res.chosen_move));
+            } else {
+                assert!(res.chosen_move.is_null());
+            }
             // empty search moves, which is something the engine should handle
             let res = engine
                 .search(SearchParams::for_pos(p, SearchLimit::depth_(2)).restrict_moves(vec![]));

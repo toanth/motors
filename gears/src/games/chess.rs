@@ -307,6 +307,10 @@ impl Board for Chessboard {
             "2r2rk1/1p3pbp/p3ppp1/8/8/1P2N1P1/1PPP2PP/2KR3R w - - 42 42",
             "7r/pBrkqQ1p/3b4/5b2/8/6P1/PP2PP1P/R1BR2K1 w - - 1 17", // mate in 2
             "k7/3B4/4N3/K7/8/8/8/8 w - - 16 9",                     // KNBvK
+            // maximum number of legal moves (and mate in one)
+            "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1",
+            // the same position with flipped side to move has no legal moves
+            "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 b - - 0 1",
         ];
         fens.map(|fen| Self::from_fen(fen, Strict).unwrap())
             .iter()
@@ -1462,6 +1466,14 @@ mod tests {
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 8 + 2 * 6);
         assert_eq!(board.legal_moves_slow().len(), 3);
+        // maximum number of legal moves in any position reachable from startpos
+        let fen = "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1";
+        let board = Chessboard::from_fen(fen, Strict).unwrap();
+        assert_eq!(board.legal_moves_slow().len(), 218);
+        assert!(board.debug_verify_invariants(Strict).is_ok());
+        let board = board.flip_side_to_move().unwrap();
+        assert!(board.legal_moves_slow().is_empty());
+        assert_eq!(board.player_result_slow(&NoHistory::default()), Some(Draw));
     }
 
     #[test]

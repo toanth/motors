@@ -523,7 +523,12 @@ impl Caps {
                 self.state.multi_pvs[self.state.current_pv_num]
                     .pv
                     .assign_from(pv);
-                debug_assert_eq!(node_type != FailLow, pv.length > 0);
+                debug_assert_eq!(
+                    pv.length == 0,
+                    node_type == FailLow
+                        || pos.player_result_slow(&self.state.params.history).is_some(),
+                    "{pos} {node_type}"
+                );
                 if self.state.current_pv_num == 0 {
                     if pv.length > 0 {
                         let chosen_move = pv[0];
@@ -1364,6 +1369,9 @@ mod tests {
     fn depth_1_nodes_test(mut engine: Caps, tt: TT) {
         for pos in Chessboard::bench_positions() {
             _ = engine.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
+            if pos.legal_moves_slow().is_empty() {
+                continue;
+            }
             let root_entry = tt.load(pos.zobrist_hash(), 0).unwrap();
             assert!(root_entry.depth <= 2); // possible extensions
             assert_eq!(root_entry.bound(), Exact);

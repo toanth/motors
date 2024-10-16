@@ -1475,7 +1475,7 @@ fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>
                         .with(score_color)
                         .to_string()
                 }
-                Err(_) => " None".bold().to_string(),
+                Err(_) => " None".dimmed().to_string(),
             };
             format!("{0}{1}", piece, score)
         }),
