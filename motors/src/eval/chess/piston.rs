@@ -208,4 +208,8 @@ impl Eval<Chessboard> for PistonEval {
             ChessColor::Black => -score,
         }
     }
+
+    fn piece_scale(&self) -> ScoreT {
+        8
+    }
 }

@@ -5,7 +5,7 @@ use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 use gears::general::common::StaticallyNamedEntity;
-use gears::score::{PhaseType, PhasedScore, Score};
+use gears::score::{PhaseType, PhasedScore, Score, ScoreT};
 
 pub mod rand_eval;
 
@@ -23,6 +23,16 @@ pub trait Eval<B: Board>: Debug + Send + StaticallyNamedEntity + DynClone + 'sta
 
     fn eval_incremental(&mut self, _old_pos: &B, _mov: B::Move, new_pos: &B, _ply: usize) -> Score {
         self.eval(new_pos)
+    }
+
+    /// How much larger do we expect variation in piece scores to be than variation in eval scores?
+    /// This is used for coloring the eval score in the pretty 'eval' command, which removes each piece
+    /// and prints the resulting eval delta. The value returned by this function doesn't have to be
+    /// exact or calculated in any complex way, it just needs to be a rough ballpark estimate:
+    /// For example, in chess, queen values are typically much larger than whole eval values,
+    /// but in other games like ataxx or mnk, there isn't that much of a difference
+    fn piece_scale(&self) -> ScoreT {
+        2
     }
 }
 

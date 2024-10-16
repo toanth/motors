@@ -20,7 +20,7 @@ use gears::general::board::Board;
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::moves::Move;
 use gears::general::squares::RectangularCoordinates;
-use gears::score::{PhaseType, Score};
+use gears::score::{PhaseType, Score, ScoreT};
 
 use crate::eval::chess::lite::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
 use crate::eval::{Eval, ScoreType};
@@ -364,6 +364,10 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 }
 
 impl Eval<Chessboard> for LiTEval {
+    fn piece_scale(&self) -> ScoreT {
+        8
+    }
+
     fn eval(&mut self, pos: &Chessboard) -> Score {
         self.stack.clear();
         let (state, score) = Self::eval_from_scratch(pos);

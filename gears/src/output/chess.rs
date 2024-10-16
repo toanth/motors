@@ -61,7 +61,7 @@ impl<B: RectangularBoard> Output<B> for ChessOutput {
         if last_move.is_none() {
             writeln!(res, "Starting new game!").unwrap();
         }
-        pretty_as_chessboard(&pos, pos.pretty_formatter(PieceToChar::Acii, last_move))
+        pretty_as_chessboard(&pos, pos.pretty_formatter(PieceToChar::Ascii, last_move))
     }
 }
 
@@ -115,6 +115,7 @@ fn pretty_as_chessboard<B: RectangularBoard>(
         }),
         horizontal_spacer_interval: None,
         vertical_spacer_interval: None,
+        square_width: None,
     };
     let mut res = String::default();
     for y in 0..pos.height() {

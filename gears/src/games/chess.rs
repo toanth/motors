@@ -622,7 +622,7 @@ impl Board for Chessboard {
                         format!("{:^1$}", "*", width).dimmed().to_string()
                     }
                 } else {
-                    let c = if piece_to_char == PieceToChar::Acii {
+                    let c = if piece_to_char == PieceToChar::Ascii {
                         piece.to_ascii_char()
                     } else {
                         // uncolored because some fonts have trouble with black pawns, and some make white pieces hard to see
@@ -634,6 +634,7 @@ impl Board for Chessboard {
             }),
             horizontal_spacer_interval: None,
             vertical_spacer_interval: None,
+            square_width: None,
         })
     }
 
@@ -690,6 +691,23 @@ impl Chessboard {
         let bb = square.bb().raw();
         self.piece_bbs[piece as usize] ^= bb;
         self.color_bbs[color as usize] ^= bb;
+        // It's not really clear how to so handle these flags when removing pieces, so we just unset them on a best effort basis
+        if piece == Rook {
+            for side in CastleRight::iter() {
+                if self.castling.rook_start_file(color, side) == square.file()
+                    && square.rank() == 7 * color as DimT
+                {
+                    self.castling.unset_castle_right(color, side);
+                }
+            }
+        } else if piece == Pawn {
+            if self
+                .ep_square
+                .is_some_and(|sq| sq.pawn_advance_unchecked(color) == square)
+            {
+                self.ep_square = None;
+            }
+        }
     }
 
     fn move_piece(&mut self, from: ChessSquare, to: ChessSquare, piece: ChessPieceType) {

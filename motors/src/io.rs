@@ -21,6 +21,8 @@ mod command;
 mod input;
 pub mod ugi_output;
 
+use itertools::Itertools;
+use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
@@ -28,8 +30,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use itertools::Itertools;
-
+use crate::eval::Eval;
 use crate::io::ascii_art::print_as_ascii_art;
 use crate::io::cli::EngineOpts;
 use crate::io::command::Standard::Custom;
@@ -37,7 +38,7 @@ use crate::io::command::{
     accept_depth, go_options, query_options, ugi_commands, CommandList, GoState,
 };
 use crate::io::input::Input;
-use crate::io::ugi_output::{pretty_score, score_gradient, UgiOutput};
+use crate::io::ugi_output::{color_for_score, pretty_score, score_gradient, suffix_for, UgiOutput};
 use crate::io::ProgramStatus::{Quit, Run};
 use crate::io::Protocol::{Interactive, UGI};
 use crate::io::SearchType::*;
@@ -50,9 +51,9 @@ use crate::{
 use gears::cli::select_game;
 use gears::crossterm::style;
 use gears::crossterm::style::Stylize;
-use gears::games::{BoardHistory, OutputList, ZobristHistory};
+use gears::games::{BoardHistory, ColoredPiece, OutputList, ZobristHistory};
 use gears::general::board::Strictness::{Relaxed, Strict};
-use gears::general::board::{Board, Strictness};
+use gears::general::board::{Board, Strictness, UnverifiedBoard};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
@@ -64,7 +65,7 @@ use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
 use gears::general::perft::{perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
-use gears::output::text_output::{AdaptFormatter, PieceToChar};
+use gears::output::text_output::{display_color, AdaptFormatter, PieceToChar};
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, SearchLimit, TimeControl};
@@ -918,11 +919,13 @@ impl<B: Board> EngineUGI<B> {
             if let Some(eval_name) = info.eval() {
                 let mut eval =
                     create_eval_from_str(&eval_name.short_name(), &self.eval_factories)?.build();
-                let eval = eval.eval(&state.board);
-                format!(
-                    "Eval Score: {}\n",
-                    pretty_score(eval, None, &score_gradient(), true, false)
-                )
+                let eval_score = eval.eval(&state.board);
+                let diagram = show_eval_pos(state.board, state.last_move(), eval);
+                diagram
+                    + &format!(
+                        "Eval Score: {}\n",
+                        pretty_score(eval_score, None, &score_gradient(), true, false)
+                    )
             } else {
                 format!(
                     "The engine '{}' doesn't have an eval function",
@@ -1423,6 +1426,7 @@ fn format_tt_entry<B: Board>(state: BoardGameState<B>, entry: TTEntry<B>) -> Str
         }),
         horizontal_spacer_interval: None,
         vertical_spacer_interval: None,
+        square_width: None,
     };
     let mut res = pos.display_pretty(&mut formatter);
     let move_string = if let Some(mov) = mov {
@@ -1441,4 +1445,43 @@ fn format_tt_entry<B: Board>(state: BoardGameState<B>, entry: TTEntry<B>) -> Str
     )
     .unwrap();
     res
+}
+
+fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>) -> String {
+    let eval = RefCell::new(eval);
+    let formatter = pos.pretty_formatter(PieceToChar::Ascii, last);
+    let eval_pos = eval.borrow_mut().eval(&pos);
+    let mut formatter = AdaptFormatter {
+        underlying: formatter,
+        color_frame: Box::new(|_, col| col),
+        display_piece: Box::new(move |coords, _, default| {
+            let piece = pos.colored_piece_on(coords);
+            let Some(color) = piece.color() else {
+                return default;
+            };
+            let piece = format!(
+                "{}:",
+                piece.to_ascii_char().to_string().with(display_color(color))
+            );
+            let score = match pos.remove_piece(coords).unwrap().verify(Relaxed) {
+                Ok(pos) => {
+                    let diff = eval_pos - eval.borrow_mut().eval(&pos);
+                    let (val, suffix) = suffix_for(diff.0 as isize, Some(10_000));
+                    // reduce the scale by some scale because we expect pieces values to be much larger
+                    // than eval values. The ideal scale depends on the game and eval,
+                    let score_color =
+                        color_for_score(diff / eval.borrow().piece_scale(), &score_gradient());
+                    format!("{:>5}", format!("{val:>3}{suffix}"))
+                        .with(score_color)
+                        .to_string()
+                }
+                Err(_) => " None".bold().to_string(),
+            };
+            format!("{0}{1}", piece, score)
+        }),
+        horizontal_spacer_interval: None,
+        vertical_spacer_interval: None,
+        square_width: Some(7),
+    };
+    pos.display_pretty(&mut formatter)
 }

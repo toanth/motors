@@ -886,6 +886,8 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
         let mask = !ExtendedRawBitboard::single_piece(self.size().to_internal_key(sq));
         this.x_bb &= mask;
         this.o_bb &= mask;
+        this.last_move = None;
+        this.ply = 0;
         UnverifiedMnkBoard(this)
     }
 

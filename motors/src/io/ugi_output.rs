@@ -245,23 +245,31 @@ impl<B: Board> UgiOutput<B> {
     }
 }
 
-fn write_with_suffix(val: u64, dimmed: bool) -> String {
+pub fn suffix_for(val: isize, start: Option<usize>) -> (isize, &'static str) {
+    if start.is_some() && val.unsigned_abs() < start.unwrap() {
+        return (val, "");
+    }
     let mut div = 1;
     for suffix in ["", "K", "M", "B"] {
         // just doing val = (val + 500) / 1000 each iteration would accumulate errors and round 499_500 to 1_000_000
-        let new_val = (val + (div / 2)) / div;
-        if new_val >= 1000 {
+        let new_val = (val + val.signum() * (div / 2)) / div;
+        if new_val.abs() >= 1000 {
             div *= 1000;
         } else {
-            let res = format!(" {:>7}", format!("(+{new_val:>3}{suffix})"));
-            return if dimmed {
-                res.dimmed().to_string()
-            } else {
-                res
-            };
+            return (new_val, suffix);
         }
     }
-    "???".to_string()
+    (val, "???")
+}
+
+fn write_with_suffix(val: u64, dimmed: bool) -> String {
+    let (new_val, suffix) = suffix_for(val as isize, None);
+    let res = format!(" {:>7}", format!("(+{new_val:>3}{suffix})"));
+    if dimmed {
+        res.dimmed().to_string()
+    } else {
+        res
+    }
 }
 
 pub fn score_gradient() -> LinearGradient {

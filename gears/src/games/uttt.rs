@@ -897,6 +897,7 @@ impl Board for UtttBoard {
             display_piece: Box::new(|_, _, default| default),
             horizontal_spacer_interval: Some(3),
             vertical_spacer_interval: Some(3),
+            square_width: None,
         };
         Box::new(formatter)
     }
@@ -1019,6 +1020,8 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
         let bb = ExtendedRawBitboard::single_piece(square.bb_idx());
         self.0.colors_internal[0] &= !bb;
         self.0.colors_internal[1] &= !bb;
+        self.0.last_move = UtttMove::NULL;
+        self.0.ply_since_start = 0;
         self
     }
 

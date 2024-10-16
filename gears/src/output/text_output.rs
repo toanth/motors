@@ -23,7 +23,7 @@ use strum_macros::EnumIter;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum PieceToChar {
-    Acii,
+    Ascii,
     Unicode,
 }
 
@@ -300,7 +300,7 @@ impl BoardToText {
             PrettyAscii => {
                 let mut formatter = m
                     .get_board()
-                    .pretty_formatter(PieceToChar::Acii, m.last_move());
+                    .pretty_formatter(PieceToChar::Ascii, m.last_move());
                 format!(
                     "{time_above}{}{time_below}",
                     m.get_board().display_pretty(formatter.as_mut())
@@ -607,7 +607,7 @@ fn write_horizontal_bar<B: RectangularBoard>(
     fmt: &dyn BoardFormatter<B>,
 ) -> String {
     use fmt::Write;
-    let sq_width = 3; // TODO: Allow changing
+    let sq_width = fmt.overwrite_width().unwrap_or(3);
     let flip = fmt.flip_board() && B::should_flip_visually();
     let y_spacer = y % fmt.vertical_spacer_interval() == 0;
     let mut res = "    ".to_string();
@@ -673,6 +673,7 @@ pub fn display_board_pretty<B: RectangularBoard>(
     fmt: &mut dyn BoardFormatter<B>,
 ) -> String {
     let flip = fmt.flip_board() && B::should_flip_visually();
+    let sq_width = fmt.overwrite_width().unwrap_or(3);
     let mut colors = vec![vec![None; pos.get_width() + 1]; pos.get_height() + 1];
     #[allow(clippy::needless_range_loop)]
     for y in 0..pos.get_height() {
@@ -701,7 +702,10 @@ pub fn display_board_pretty<B: RectangularBoard>(
             };
             line += &with_color(bar, col, x % fmt.horizontal_spacer_interval() == 0);
             let xc = if flip { pos.get_width() - 1 - x } else { x };
-            line += &fmt.display_piece(B::Coordinates::from_row_column(y as DimT, xc as DimT), 3);
+            line += &fmt.display_piece(
+                B::Coordinates::from_row_column(y as DimT, xc as DimT),
+                sq_width,
+            );
         }
         line += &with_color(
             HEAVY_VERTICAL_BAR,
@@ -721,7 +725,7 @@ pub fn display_board_pretty<B: RectangularBoard>(
     let mut line = "    ".to_string();
     for x in 0..pos.get_width() {
         let xc = if flip { pos.get_width() - 1 - x } else { x };
-        line += &format!(" {:^3}", ('A'..).nth(xc).unwrap())
+        line += &format!(" {:^sq_width$}", ('A'..).nth(xc).unwrap())
             .dimmed()
             .to_string();
     }
@@ -739,6 +743,8 @@ pub trait BoardFormatter<B: Board> {
     fn horizontal_spacer_interval(&self) -> usize;
 
     fn vertical_spacer_interval(&self) -> usize;
+
+    fn overwrite_width(&self) -> Option<usize>;
 }
 
 pub struct DefaultBoardFormatter<B: RectangularBoard> {
@@ -773,7 +779,7 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
             } else {
                 ' '
             }
-        } else if self.piece_to_char == PieceToChar::Acii {
+        } else if self.piece_to_char == PieceToChar::Ascii {
             // for most games, it makes sense to always upper case letters. Chess overwrites this behavior
             piece.to_ascii_char().to_ascii_uppercase()
         } else {
@@ -809,6 +815,10 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
     fn vertical_spacer_interval(&self) -> usize {
         self.vertical_spacer_interval
     }
+
+    fn overwrite_width(&self) -> Option<usize> {
+        None
+    }
 }
 
 #[allow(type_alias_bounds)]
@@ -821,6 +831,7 @@ pub struct AdaptFormatter<B: Board> {
     pub display_piece: Box<dyn Fn(B::Coordinates, usize, String) -> String>,
     pub horizontal_spacer_interval: Option<usize>,
     pub vertical_spacer_interval: Option<usize>,
+    pub square_width: Option<usize>,
 }
 
 impl<B: Board> BoardFormatter<B> for AdaptFormatter<B> {
@@ -846,5 +857,9 @@ impl<B: Board> BoardFormatter<B> for AdaptFormatter<B> {
     fn vertical_spacer_interval(&self) -> usize {
         self.vertical_spacer_interval
             .unwrap_or_else(|| self.underlying.vertical_spacer_interval())
+    }
+
+    fn overwrite_width(&self) -> Option<usize> {
+        self.square_width
     }
 }
