@@ -6,26 +6,29 @@ use crate::general::bitboards::ataxx::{INVALID_EDGE_MASK, LEAPING};
 use crate::general::bitboards::chess::KINGS;
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
-use crate::general::board::{read_common_fen_part, UnverifiedBoard};
-use crate::general::common::Res;
+use crate::general::board::Strictness::Strict;
+use crate::general::board::{
+    ply_counter_from_fullmove_nr, read_common_fen_part, Strictness, UnverifiedBoard,
+};
+use crate::general::common::{Res, Tokens};
 use crate::general::move_list::MoveList;
 use crate::general::moves::Move;
+use crate::general::squares::sup_distance;
+use anyhow::{anyhow, bail};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::iter::Peekable;
 use std::num::NonZeroUsize;
-use std::str::SplitWhitespace;
 
 impl AtaxxBoard {
     pub fn create(blocked: AtaxxBitboard, x_bb: AtaxxBitboard, o_bb: AtaxxBitboard) -> Res<Self> {
         let blocked = blocked | INVALID_EDGE_MASK;
         if (o_bb & x_bb).has_set_bit() {
-            return Err(format!(
+            return Err(anyhow!(
                 "Overlapping x and o pieces (bitboard: {})",
                 o_bb & x_bb
             ));
         }
         if (blocked & (o_bb | x_bb)).has_set_bit() {
-            return Err(format!(
+            return Err(anyhow!(
                 "Pieces on blocked squares (bitboard: {}",
                 blocked & (o_bb | x_bb)
             ));
@@ -137,14 +140,14 @@ impl AtaxxBoard {
         if !empty.is_bit_set_at(mov.dest_square().bb_idx()) {
             return false;
         }
+        let pieces = self.active_bb();
         if mov.typ() == Cloning {
-            self.active_bb()
+            pieces
                 .moore_neighbors()
                 .is_bit_set_at(mov.dest_square().bb_idx())
         } else {
-            self.active_bb()
-                .extended_moore_neighbors(2)
-                .is_bit_set_at(mov.dest_square().bb_idx())
+            pieces.is_bit_set_at(mov.src_square().bb_idx())
+                && sup_distance(mov.src_square(), mov.dest_square()) == 2
         }
     }
 
@@ -156,24 +159,28 @@ impl AtaxxBoard {
         ZobristHash(hasher.finish())
     }
 
-    pub fn read_fen_impl(words: &mut Peekable<SplitWhitespace>) -> Res<Self> {
+    pub fn read_fen_impl(words: &mut Tokens, strictness: Strictness) -> Res<Self> {
         let empty = AtaxxBoard::empty();
         let mut board = read_common_fen_part::<AtaxxBoard>(words, empty.into())?;
         let color = board.0.active_player();
         if let Some(halfmove_clock) = words.next() {
             board.0.ply_100_ctr = halfmove_clock
                 .parse::<usize>()
-                .map_err(|err| format!("Couldn't parse halfmove clock: {err}"))?;
+                .map_err(|err| anyhow!("Couldn't parse halfmove clock: {err}"))?;
             let fullmove_number = words.next().unwrap_or("1");
             let fullmove_number = fullmove_number
                 .parse::<NonZeroUsize>()
-                .map_err(|err| format!("Couldn't parse fullmove counter: {err}"))?;
-            board.0.ply =
-                (fullmove_number.get() - 1) * 2 + usize::from(color == AtaxxColor::second());
+                .map_err(|err| anyhow!("Couldn't parse fullmove counter: {err}"))?;
+            board.0.ply = ply_counter_from_fullmove_nr::<AtaxxBoard>(
+                fullmove_number,
+                board.0.active_player(),
+            );
+        } else if strictness == Strict {
+            bail!("In strict mode, FENs must contain a move counter and halfmove clock")
         } else {
             board.0.ply = usize::from(color == AtaxxColor::second());
             board.0.ply_100_ctr = 0;
         }
-        board.verify_with_level(CheckFen)
+        board.verify_with_level(CheckFen, strictness)
     }
 }

@@ -20,6 +20,7 @@
 
 use crate::general::common::Res;
 use crate::PlayerResult;
+use anyhow::anyhow;
 use derive_more::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use num::ToPrimitive;
 use std::fmt::{Display, Formatter};
@@ -94,13 +95,13 @@ impl Div<ScoreT> for Score {
 }
 
 impl TryFrom<isize> for Score {
-    type Error = String;
+    type Error = anyhow::Error;
 
     fn try_from(value: isize) -> Res<Self> {
-        let score = ScoreT::try_from(value).map_err(|err| err.to_string())?;
+        let score = ScoreT::try_from(value)?;
         Score(score)
             .verify_valid()
-            .ok_or_else(|| format!("{score} is outside of the valid values for a Score"))
+            .ok_or_else(|| anyhow!("{score} is outside of the valid values for a Score"))
     }
 }
 
@@ -156,7 +157,7 @@ pub const MIN_ALPHA: Score = Score(-31_001);
 pub const MAX_BETA: Score = Score(31_001);
 pub const SCORE_LOST: Score = Score(-31_000);
 pub const SCORE_WON: Score = Score(31_000);
-pub const SCORE_TIME_UP: Score = Score(SCORE_WON.0 + 1000);
+pub const SCORE_TIME_UP: Score = Score(SCORE_LOST.0 - 1000);
 // can't use + directly because derive_more's + isn't `const`
 pub const MIN_SCORE_WON: Score = Score(SCORE_WON.0 - 1000);
 pub const MAX_SCORE_LOST: Score = Score(SCORE_LOST.0 + 1000);

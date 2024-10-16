@@ -15,39 +15,50 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-
 use crate::games::{
     AbstractPieceType, BoardHistory, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT,
     NoHistory, Settings, Size, ZobristHash,
 };
 use crate::general::board::SelfChecks::{Assertion, Verify};
+use crate::general::board::Strictness::Relaxed;
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    select_name_static, EntityList, GenericSelect, IterIntersperse, Res, StaticallyNamedEntity,
+    select_name_static, tokens, ColorMsg, EntityList, GenericSelect, Res, StaticallyNamedEntity,
+    Tokens,
 };
 use crate::general::move_list::MoveList;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
 use crate::general::moves::Move;
-use crate::general::squares::{RectangularCoordinates, RectangularSize};
+use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
+use crate::output::text_output::{BoardFormatter, PieceToChar};
 use crate::search::Depth;
 use crate::PlayerResult::Lose;
 use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
+use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
-use colored::Colorize;
 use itertools::Itertools;
 use rand::Rng;
+use std::fmt;
 use std::fmt::{Debug, Display};
-use std::iter::Peekable;
-use std::str::SplitWhitespace;
+use std::num::NonZeroUsize;
 
 pub(crate) type NameToPos<B> = GenericSelect<fn() -> B>;
 
-// Enum variants are listed in order; later checks include earlier checks.
+/// How many checks to execute.
+/// Enum variants are listed in order; later checks include earlier checks.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum SelfChecks {
     CheckFen,
     Verify,
     Assertion,
+}
+
+/// How strict are the game rules interpreted.
+/// For example, [`Relaxed`] doesn't care about reachability from startpos.
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+pub enum Strictness {
+    Relaxed,
+    Strict,
 }
 
 pub trait UnverifiedBoard<B: Board>: Debug + Copy + Clone + From<B>
@@ -60,11 +71,11 @@ where
 
     /// Same as `verify_with_level(Verify) for release builds
     /// and `verify_with_level(Assertion) in debug builds
-    fn verify(self) -> Res<B> {
+    fn verify(self, strictness: Strictness) -> Res<B> {
         if cfg!(debug_assertions) {
-            self.verify_with_level(Assertion)
+            self.verify_with_level(Assertion, strictness)
         } else {
-            self.verify_with_level(Verify)
+            self.verify_with_level(Verify, strictness)
         }
     }
 
@@ -74,8 +85,10 @@ where
     /// (it should already be ensured through other means that the move results in a legal position or `None`).
     /// If `checks` is `Assertion`, this performs internal validity checks, which is useful for asserting that there are no
     /// bugs in the implementation, but unnecessary if this function is only called to check the validity of a FEN.
-    /// `CheckFen` sometimes needs to do less work than `Verify`.
-    fn verify_with_level(self, level: SelfChecks) -> Res<B>;
+    /// `CheckFen` sometimes needs to do less work than `Verify` because the FEN format makes it impossible to express some
+    /// invalid board states, such as two pieces being on the same square.
+    /// Strictness refers to which positions are considered legal.
+    fn verify_with_level(self, level: SelfChecks, strictness: Strictness) -> Res<B>;
 
     // TODO: Refactor such that debug_verify_invariants actually checks invariants that should not be broken in a Board
     // but are getting corrected in the verify method of an UnverifiedBoard
@@ -195,10 +208,17 @@ pub trait Board:
     }
 
     /// The starting position of the game.
+    ///
+    /// The settings are used e.g. to set the m, n and k parameters of the mnk board.
     /// This always returns the same position, even when there are technically multiple starting positions.
     /// For example, the `Chessboard` implementation supports (D)FRC, but `startpos()` still only returns
     /// the standard chess start pos
     fn startpos_for_settings(settings: Self::Settings) -> Self;
+
+    /// The starting position for the current board's settings.
+    fn startpos_with_current_settings(self) -> Self {
+        Self::startpos_for_settings(self.settings())
+    }
 
     /// Like `startpos_for_settings()` with default settings.
     /// Most boards have empty settings, so explicitly passing in settings is unnecessary.
@@ -209,16 +229,8 @@ pub trait Board:
 
     /// Constructs a specific, well-known position from its name, such as 'kiwipete' in chess.
     /// Not to be confused with `from_fen`, which can load arbitrary positions.
-    fn from_name(name: &str) -> Res<Self> {
-        select_name_static(
-            name,
-            Self::name_to_pos_map().iter(),
-            "position",
-            &Self::game_name(),
-            NoDescription,
-        )
-        .map(|f| (f.val)())
-    }
+    /// Can be implemented by calling [`board_from_name`].
+    fn from_name(name: &str) -> Res<Self>;
 
     /// Returns a Vec mapping well-known position names to their FEN, for example for kiwipete in chess.
     /// Can be implemented by a concrete `Board`, which will make `from_name` recognize the name and lets the
@@ -226,32 +238,34 @@ pub trait Board:
     /// "startpos" is handled automatically in `from_name` but can be overwritten here.
     #[must_use]
     fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
-        vec![NameToPos {
-            name: "startpos",
-            val: || Self::startpos_for_settings(Self::Settings::default()),
-        }]
+        vec![]
     }
 
     #[must_use]
-    fn bench_positions() -> Vec<Self> {
-        Self::name_to_pos_map()
-            .iter()
-            .map(|f| (f.val)())
-            .collect_vec()
-    }
+    fn bench_positions() -> Vec<Self>;
 
     fn settings(&self) -> Self::Settings;
 
     /// The player who can now move.
     fn active_player(&self) -> Self::Color;
 
+    /// The player that cannot currently move.
     fn inactive_player(&self) -> Self::Color {
         self.active_player().other()
     }
 
-    /// The number of moves (turns) since the start of the game.
-    fn fullmove_ctr(&self) -> usize {
-        self.halfmove_ctr_since_start() / 2
+    /// The 0-based number of moves (turns) since the start of the game.
+    fn fullmove_ctr_0_based(&self) -> usize {
+        (self
+            .halfmove_ctr_since_start()
+            .saturating_sub(usize::from(!self.active_player().is_first())))
+            / 2
+    }
+
+    /// The 1-based number of moves(turns) since the start of the game.
+    /// This format is used in FENs.
+    fn fullmove_ctr_1_based(&self) -> usize {
+        1 + self.fullmove_ctr_0_based()
     }
 
     /// The number of half moves (plies) since the start of the game.
@@ -295,12 +309,12 @@ pub trait Board:
     /// Takes in a reference to self because some boards have a size determined at runtime,
     /// and the default perft depth can change depending on that (or even depending on the current position)
     fn default_perft_depth(&self) -> Depth {
-        Depth::new(5)
+        Depth::new_unchecked(4)
     }
 
     /// Returns the maximum perft depth possible, i.e., perft depth will be clamped to this value.
     fn max_perft_depth() -> Depth {
-        Depth::new(50)
+        Depth::new_unchecked(50)
     }
 
     /// Returns a list of pseudo legal moves, that is, moves which can either be played using
@@ -442,15 +456,15 @@ pub trait Board:
     /// Reads in a compact textual description of the board, such that `B::from_fen(board.as_fen()) == b` holds.
     /// Assumes that the entire string represents the FEN, without any trailing tokens.
     /// Use the lower-level `read_fen_and_advance_input` if this assumption doesn't have to hold.
-    fn from_fen(string: &str) -> Res<Self> {
-        let mut words = string.split_whitespace().peekable();
-        let res = Self::read_fen_and_advance_input(&mut words)
-            .map_err(|err| format!("Failed to parse FEN {}: {err}", string.bold()))?;
+    fn from_fen(string: &str, strictness: Strictness) -> Res<Self> {
+        let mut words = tokens(string);
+        let res = Self::read_fen_and_advance_input(&mut words, strictness)
+            .map_err(|err| anyhow!("Failed to parse FEN '{}': {err}", string.important()))?;
         if let Some(next) = words.next() {
-            return Err(format!(
+            return Err(anyhow!(
                 "Input `{0}' contained additional characters after FEN, starting with '{1}'",
-                string.bold(),
-                next.red()
+                string.important(),
+                next.error()
             ));
         }
         Ok(res)
@@ -458,22 +472,48 @@ pub trait Board:
 
     /// Like `from_fen`, but changes the `input` argument to contain the reining input instead of panicking when there's
     /// any remaining input after reading the fen.
-    fn read_fen_and_advance_input(input: &mut Peekable<SplitWhitespace>) -> Res<Self>;
+    fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self>;
+
+    /// Returns true iff the board should be flipped when viewed from the second player's perspective.
+    /// For example, this is the case for chess, but not for Ultimate Tic-Tac-Toe.
+    fn should_flip_visually() -> bool;
 
     /// Returns an ASCII art representation of the board.
     /// This is not meant to return a FEN, but instead a diagram where the pieces
     /// are identified by their letters in algebraic notation.
+    /// Rectangular boards can implement this with the `[board_to_string]` function
     fn as_ascii_diagram(&self, flip: bool) -> String;
 
     /// Returns a UTF-8 representation of the board.
     /// This is not meant to return a FEN, but instead a diagram where the pieces
     /// are identified by their unicode symbols.
+    /// Rectangular boards can implement this with the `[board_to_string]` function
     fn as_unicode_diagram(&self, flip: bool) -> String;
+
+    /// Returns a text-based representation of the board that's intended to look pretty.
+    /// This can be implemented by calling `as_ascii_diagram` or `as_unicode_diagram`, but the intention
+    /// is for the output to contain more information, like using colors to show the last move.
+    /// Rectangular boards can implement this with the `[display_board_pretty]` function
+    fn display_pretty(&self, formatter: &mut dyn BoardFormatter<Self>) -> String;
+
+    /// Allows boards to customize how they want to be formatted.
+    /// For example, the [`Chessboard`] can give the king square a red frame if the king is in check.
+    fn pretty_formatter(
+        &self,
+        piece: PieceToChar,
+        last_move: Option<Self::Move>,
+    ) -> Box<dyn BoardFormatter<Self>>;
+
+    /// The background color of the given coordinates, e.g. the color of the square of a chessboard.
+    /// For rectangular boards, this can often be implemented with `coords.square_color()`,
+    /// but it's also valid to always return `White`.
+    // TODO: Maybe each board should be able to define its own square color enum?
+    fn background_color(&self, coords: Self::Coordinates) -> SquareColor;
 
     /// Verifies that all invariants of this board are satisfied. It should never be possible for this function to
     /// fail for a bug-free program; failure most likely means the `Board` implementation is bugged.
-    fn debug_verify_invariants(self) -> Res<Self> {
-        Self::Unverified::new(self).verify_with_level(Assertion)
+    fn debug_verify_invariants(self, strictness: Strictness) -> Res<Self> {
+        Self::Unverified::new(self).verify_with_level(Assertion, strictness)
     }
 
     /// Place a piece of the given type and color on the given square. Doesn't check that the resulting position is
@@ -504,6 +544,14 @@ pub trait RectangularBoard: Board<Coordinates: RectangularCoordinates> {
 
     fn width(&self) -> DimT;
 
+    fn get_width(&self) -> usize {
+        self.width() as usize
+    }
+
+    fn get_height(&self) -> usize {
+        self.height() as usize
+    }
+
     fn idx_to_coordinates(&self, idx: DimT) -> Self::Coordinates;
 }
 
@@ -521,6 +569,35 @@ where
     fn idx_to_coordinates(&self, idx: DimT) -> Self::Coordinates {
         self.size().idx_to_coordinates(idx)
     }
+}
+
+pub fn ply_counter_from_fullmove_nr<B: Board>(
+    fullmove_nr: NonZeroUsize,
+    active: B::Color,
+) -> usize {
+    (fullmove_nr.get() - 1) * 2 + usize::from(!active.is_first())
+}
+
+/// Constructs a specific, well-known position from its name, such as 'kiwipete' in chess.
+/// Not to be confused with `from_fen`, which can load arbitrary positions.
+/// However, `"fen <x>"` forwards to [`B::from_fen`]
+pub fn board_from_name<B: Board>(name: &str) -> Res<B> {
+    let mut tokens = tokens(name);
+    if tokens
+        .next()
+        .unwrap_or_default()
+        .eq_ignore_ascii_case("fen")
+    {
+        return B::from_fen(&tokens.join(" "), Relaxed);
+    }
+    select_name_static(
+        name,
+        B::name_to_pos_map().iter(),
+        "position",
+        &B::game_name(),
+        NoDescription,
+    )
+    .map(|f| (f.val)())
 }
 
 pub fn position_fen_part<B: RectangularBoard>(pos: &B) -> String {
@@ -549,51 +626,34 @@ pub fn position_fen_part<B: RectangularBoard>(pos: &B) -> String {
     res
 }
 
-pub fn common_fen_part<T: RectangularBoard>(pos: &T) -> String {
+pub fn common_fen_part<T: RectangularBoard>(pos: &T, halfmove: bool, fullmove: bool) -> String {
+    use fmt::Write;
     let stm = pos.active_player();
-    let halfmove_ctr = pos.halfmove_repetition_clock();
-    format!("{} {stm} {halfmove_ctr}", position_fen_part(pos))
-}
-
-pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
-    pos: &B,
-    piece_to_char: F,
-    flip: bool,
-) -> String {
-    use std::fmt::Write;
-    let mut squares = (0..pos.height())
-        .cartesian_product(0..pos.width())
-        .map(|(row, column)| {
-            piece_to_char(pos.colored_piece_on(B::Coordinates::from_row_column(row, column)))
-        })
-        .intersperse_(' ')
-        .collect_vec();
-    squares.push(' ');
-    let mut rows = squares
-        .chunks(pos.width() as usize * 2)
-        .zip((1..).map(|x| x.to_string()))
-        .map(|(row, nr)| format!("{} {nr}\n", row.iter().collect::<String>()))
-        .collect_vec();
-    if !flip {
-        rows.reverse();
+    let mut res = format!("{} {stm}", position_fen_part(pos));
+    if halfmove {
+        write!(&mut res, " {}", pos.halfmove_repetition_clock()).unwrap();
     }
-    rows.push(
-        ('A'..)
-            .take(pos.width() as usize)
-            .fold(String::default(), |mut s, c| -> String {
-                write!(s, "{c} ").unwrap();
-                s
-            }),
-    );
-    rows.iter().flat_map(|x| x.chars()).collect::<String>() + "\n"
+    if fullmove {
+        write!(&mut res, " {}", pos.fullmove_ctr_1_based()).unwrap()
+    }
+    res
 }
 
 pub(crate) fn read_position_fen<B: RectangularBoard>(
     position: &str,
     mut board: B::Unverified,
-) -> Result<B::Unverified, String> {
+) -> Res<B::Unverified> {
     let lines = position.split('/');
     debug_assert!(lines.clone().count() > 0);
+    let num_lines = lines.clone().count();
+    if num_lines != board.size().height().val() {
+        bail!(
+            "The {0} board has a height of {1}, but the FEN contains {2} rows",
+            B::game_name(),
+            board.size().height().val().to_string().important(),
+            num_lines.to_string().important()
+        )
+    }
 
     let mut square = 0;
     for (line, line_num) in lines.zip(0_usize..) {
@@ -603,11 +663,10 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
 
         let handle_skipped = |digit_in_line, skipped_digits, idx: &mut usize| {
             if skipped_digits > 0 {
-                let num_skipped = line[digit_in_line - skipped_digits..digit_in_line]
-                    .parse::<usize>()
-                    .map_err(|err| err.to_string())?;
+                let num_skipped =
+                    line[digit_in_line - skipped_digits..digit_in_line].parse::<usize>()?;
                 if num_skipped == 0 {
-                    return Err("FEN position can't contain the number 0".to_string());
+                    bail!("FEN position can't contain the number 0".to_string())
                 }
                 *idx = idx.saturating_add(num_skipped);
             }
@@ -619,17 +678,17 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
                 skipped_digits += 1;
                 continue;
             }
-            let symbol = ColPieceType::<B>::from_ascii_char(c).ok_or_else(|| {
-                format!(
+            let Some(symbol) = ColPieceType::<B>::from_ascii_char(c) else {
+                bail!(
                     "Invalid character in {0} FEN position description (not a piece): {1}",
                     B::game_name(),
-                    c.to_string().red()
+                    c.to_string().error()
                 )
-            })?;
+            };
             handle_skipped(i, skipped_digits, &mut square)?;
             skipped_digits = 0;
             if square >= board.size().num_squares() {
-                return Err(format!("FEN position contains at least {square} squares, but the board only has {0} squares", board.size().num_squares()));
+                bail!("FEN position contains at least {square} squares, but the board only has {0} squares", board.size().num_squares());
             }
 
             board = board.place_piece_unchecked(
@@ -644,50 +703,50 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
         handle_skipped(line.len(), skipped_digits, &mut square)?;
         let line_len = square - square_before_line;
         if line_len != board.size().width().val() {
-            return Err(format!(
+            bail!(
                 "Line '{line}' has incorrect width: {line_len}, should be {0}",
                 board.size().width().val()
-            ));
+            );
         }
     }
     Ok(board)
 }
 
 pub(crate) fn read_common_fen_part<B: RectangularBoard>(
-    words: &mut Peekable<SplitWhitespace>,
+    words: &mut Tokens,
     board: B::Unverified,
-) -> Result<B::Unverified, String> {
-    let position_part = words
-        .next()
-        .ok_or_else(|| format!("Empty {0} FEN string", B::game_name()))?;
+) -> Res<B::Unverified> {
+    let Some(position_part) = words.next() else {
+        bail!("Empty {0} FEN string", B::game_name())
+    };
     let mut board = read_position_fen::<B>(position_part, board)?;
 
-    let active = words.next().ok_or_else(|| {
-        format!(
+    let Some(active) = words.next() else {
+        bail!(
             "{0} FEN ends after the position description and doesn't include the active player",
             B::game_name()
         )
-    })?;
+    };
     let correct_chars = [
         B::Color::first().ascii_color_char(),
         B::Color::second().ascii_color_char(),
     ];
     if active.chars().count() != 1 {
-        return Err(format!(
+        bail!(
             "Expected a single char to describe the active player ('{0}' or '{1}'), got '{2}'",
-            correct_chars[0].to_string().bold(),
-            correct_chars[1].to_string().bold(),
-            active.red()
-        ));
+            correct_chars[0].to_string().important(),
+            correct_chars[1].to_string().important(),
+            active.error()
+        );
     }
-    let active = B::Color::from_char(active.chars().next().unwrap()).ok_or_else(|| {
-        format!(
+    let Some(active) = B::Color::from_char(active.chars().next().unwrap()) else {
+        bail!(
             "Expected '{0}' or '{1}' for the color, not '{2}'",
-            correct_chars[0].to_string().bold(),
-            correct_chars[1].to_string().bold(),
-            active.red()
+            correct_chars[0].to_string().important(),
+            correct_chars[1].to_string().important(),
+            active.error()
         )
-    })?;
+    };
     board = board.set_active_player(active);
     Ok(board)
 }

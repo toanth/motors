@@ -2,10 +2,11 @@ use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use gears::games::chess::Chessboard;
+use gears::general::board::Board;
 use gears::search::SearchLimit;
 use motors::eval::chess::lite::LiTEval;
 use motors::search::chess::caps::Caps;
-use motors::search::{run_bench_with, Benchable, Engine};
+use motors::search::{run_bench_with, Engine};
 
 pub fn caps_startpos_bench(c: &mut Criterion) {
     c.bench_function("bench 12 startpos", |b| {
@@ -24,6 +25,7 @@ fn caps_normal_bench_depth_7(c: &mut Criterion) {
                 &mut engine,
                 SearchLimit::depth_(7),
                 Some(SearchLimit::nodes_(20_000)),
+                &Chessboard::bench_positions(),
             )
         });
     });

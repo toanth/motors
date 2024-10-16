@@ -96,6 +96,7 @@ use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
 use gears::games::chess::Chessboard;
 use gears::general::board::Board;
+use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Res;
 use serde_json::from_reader;
 use std::env::args;
@@ -149,17 +150,15 @@ pub fn get_datasets<B: Board>() -> Res<Vec<AnnotatedFenFile>> {
 /// [`SideToMove`][load_data::Perspective::SideToMove] instead. The [`weight`][load_data::AnnotatedFenFile::weight] field
 /// can be used to reduce the effect of lower-quality datasets. It is typically not needed.
 pub fn load_datasets_from_json(json_file_path: &Path) -> Res<Vec<AnnotatedFenFile>> {
-    let json_file = File::open(json_file_path).map_err(|err| format!(
+    let json_file = File::open(json_file_path).map_err(|err| anyhow!(
         "Could not open the dataset json file: {err}. Check that the path is correct, maybe try using an absolute path. \
         The current path is '{}'.", json_file_path.display()
     ))?;
     let mut files: Vec<AnnotatedFenFile> = from_reader(BufReader::new(json_file))
-        .map_err(|err| format!("Couldn't read the JSON file: {err}"))?;
+        .map_err(|err| anyhow!("Couldn't read the JSON file: {err}"))?;
 
     if files.is_empty() {
-        return Err(
-            "The json file appears to be empty. Please add at least one dataset".to_string(),
-        );
+        bail!("The json file appears to be empty. Please add at least one dataset".to_string(),)
     }
     // Ideally, the `AnnotatedFenFile` would store a `PathBuf`, but that makes serialization more difficult.
     for file in &mut files {

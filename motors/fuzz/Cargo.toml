@@ -21,8 +21,8 @@ default = ["fuzzing"]
 fuzzing = ["motors/fuzzing"]
 
 [[bin]]
-name = "ugi_chess"
-path = "fuzz_targets/ugi_chess.rs"
+name = "ugi"
+path = "fuzz_targets/ugi.rs"
 test = false
 doc = false
 bench = false

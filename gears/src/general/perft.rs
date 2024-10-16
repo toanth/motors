@@ -3,7 +3,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
-use crate::search::{Depth, MAX_DEPTH};
+use crate::search::Depth;
 
 #[derive(Copy, Clone, Debug)]
 pub struct PerftRes {
@@ -104,20 +104,19 @@ pub fn split_perft<B: Board>(depth: Depth, pos: B) -> SplitPerftRes<B> {
     }
 }
 
-pub fn perft_for<B: Board, Iter: IntoIterator<Item = B>>(
-    mut depth: Depth,
-    positions: Iter,
-) -> PerftRes {
+pub fn perft_for<B: Board>(depth: Depth, positions: &[B]) -> PerftRes {
     let mut res = PerftRes {
         time: Duration::default(),
         nodes: 0,
         depth,
     };
     for pos in positions {
-        if depth.get() == 0 || depth == MAX_DEPTH {
-            depth = pos.default_perft_depth();
-        }
-        let this_res = perft(depth, pos);
+        let depth = if depth.get() == 0 || depth >= B::max_perft_depth() {
+            pos.default_perft_depth()
+        } else {
+            depth
+        };
+        let this_res = perft(depth, *pos);
         res.time += this_res.time;
         res.nodes += this_res.nodes;
         res.depth = res.depth.max(this_res.depth);

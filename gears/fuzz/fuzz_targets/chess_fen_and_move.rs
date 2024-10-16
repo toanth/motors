@@ -15,17 +15,24 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-
 #![no_main]
 
+use gears::games::chess::moves::ChessMove;
 use gears::games::chess::Chessboard;
 use gears::general::board::Board;
 use gears::general::board::Strictness::Relaxed;
+use gears::general::moves::Move;
 use libfuzzer_sys::fuzz_target;
-use std::str::from_utf8;
 
-fuzz_target!(|data: &[u8]| {
-    if let Ok(str) = from_utf8(data) {
-        let _ = Chessboard::from_fen(str, Relaxed);
+fuzz_target!(|data: &str| {
+    let mut lines = data.lines();
+    let Ok(mut pos) = Chessboard::from_fen(lines.next().unwrap_or_default(), Relaxed) else {
+        return;
+    };
+    for line in lines {
+        if let Ok(mov) = ChessMove::from_text(line, &pos) {
+            pos = pos.make_move(mov).unwrap_or(pos);
+        }
     }
+    pos.debug_verify_invariants(Relaxed).unwrap();
 });

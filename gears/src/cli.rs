@@ -8,6 +8,8 @@ use crate::general::common::{
     nonzero_usize, parse_int_from_str, select_name_static, NamedEntity, Res,
 };
 use crate::OutputArgs;
+use anyhow::anyhow;
+use arbitrary::Arbitrary;
 use derive_more::Display;
 use itertools::Itertools;
 use num::PrimInt;
@@ -16,7 +18,17 @@ use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 #[derive(
-    Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Display, derive_more::FromStr, EnumIter,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Debug,
+    Display,
+    derive_more::FromStr,
+    EnumIter,
+    Arbitrary,
 )]
 pub enum Game {
     /// Normal Chess, Chess960 or Double Fisher Random Chess.
@@ -51,10 +63,14 @@ impl NamedEntity for Game {
 
     fn description(&self) -> Option<String> {
         Some(match self {
+            #[cfg(feature = "chess")]
             Game::Chess => "Normal Chess, Chess960 or Double Fisher Random Chess.",
-            Game::Ataxx => "Ataxx is a simple but challenging game played on a 7x7 grid where your goal is to convert your opponent's pieces",
+            #[cfg(feature = "ataxx")]
+            Game::Ataxx => "Ataxx is a simple but challenging game played on a 7x7 grid where your goal is to convert your opponent's pieces.",
+            #[cfg(feature = "mnk")]
             Game::Mnk => "m,n,k games are a generalization of Tic-Tac-Toe or Gomoku. Currently, this implementation \
                 only supports boards up to 128 squares.",
+            #[cfg(feature = "uttt")]
             Game::Uttt => "Ultimate Tic-Tac-Toe is a challenging version of Tic-Tac-Toe where every square is itself a Tic-Tac-Toe board.",
             #[expect(unreachable_patterns)]
             _ => return None,
@@ -77,10 +93,10 @@ pub type ArgIter = Peekable<Args>;
 
 pub fn get_next_arg(args: &mut ArgIter, name: &str) -> Res<String> {
     match args.next() {
-        None => Err(format!("Missing value for {name} (args ended)")),
+        None => Err(anyhow!("Missing value for {name} (args ended)")),
         Some(arg) => {
             if arg.starts_with('-') {
-                Err(format!("Missing value for {name} (next arg was '{arg}'"))
+                Err(anyhow!("Missing value for {name} (next arg was '{arg}'"))
             } else {
                 Ok(arg)
             }

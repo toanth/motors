@@ -1,3 +1,4 @@
+use anyhow::bail;
 use arbitrary::Arbitrary;
 use std::cmp::min;
 use std::fmt;
@@ -15,7 +16,7 @@ use crate::games::PlayerResult::Lose;
 use crate::general::board::Board;
 use crate::general::common::{parse_int, EntityList, Res, StaticallyNamedEntity};
 use crate::general::move_list::MoveList;
-use crate::general::squares::{RectangularCoordinates, RectangularSize};
+use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
 use crate::output::OutputBuilder;
 use crate::PlayerResult;
 
@@ -196,7 +197,7 @@ pub fn char_to_file(file: char) -> DimT {
 // Assume 2D grid for now.
 #[must_use]
 pub trait Coordinates:
-    Eq + Copy + Debug + Default + FromStr<Err = String> + Display + for<'a> Arbitrary<'a>
+    Eq + Copy + Debug + Default + FromStr<Err = anyhow::Error> + Display + for<'a> Arbitrary<'a>
 {
     type Size: Size<Self>;
 
@@ -272,9 +273,7 @@ pub trait Size<C: Coordinates>:
         if self.coordinates_valid(coordinates) {
             Ok(coordinates)
         } else {
-            Err(format!(
-                "Coordinates {coordinates} lie outside of the board (size {self})"
-            ))
+            bail!("Coordinates {coordinates} lie outside of the board (size {self})")
         }
     }
 }
@@ -296,7 +295,11 @@ pub type OutputList<B> = EntityList<Box<dyn OutputBuilder<B>>>;
 #[must_use]
 pub struct ZobristHash(pub u64);
 
-pub trait Settings: Eq + Copy + Debug + Default {}
+pub trait Settings: Eq + Copy + Debug + Default {
+    fn text(&self) -> Option<String> {
+        None
+    }
+}
 
 pub trait BoardHistory<B: Board>: Default + Debug + Clone + 'static {
     fn len(&self) -> usize;

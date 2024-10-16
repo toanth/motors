@@ -2,8 +2,8 @@
 
 use crate::eval::{count_occurrences, display, interpolate, WeightsInterpretation};
 use crate::trace::TraceTrait;
-use colored::Colorize;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
+use gears::general::common::ColorMsg;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use rayon::prelude::*;
@@ -188,7 +188,7 @@ impl Weight {
     /// The string takes up at least `width` characters
     pub fn to_string(self, special: bool, width: usize) -> String {
         if special {
-            format!("{:width$}", self.0.round()).red().to_string()
+            format!("{:width$}", self.0.round()).error().to_string()
         } else {
             format!("{:width$}", self.0.round())
         }
@@ -808,7 +808,7 @@ pub fn print_optimized_weights<D: Datapoint>(
     interpolate(&occurrence_counts, &mut weights, interpretation);
     println!(
         "Scaling factor: {scale:.2}, {0}:\n{1}",
-        "Final eval".bold(),
+        "Final eval".important(),
         display(interpretation, &weights, &[])
     );
 }

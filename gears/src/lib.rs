@@ -14,7 +14,13 @@ use crate::search::TimeControl;
 use crate::AdjudicationReason::*;
 use crate::GameResult::Aborted;
 use crate::MatchStatus::Over;
-use crate::PlayerResult::Win;
+use crate::PlayerResult::{Draw, Lose, Win};
+pub use arrayvec;
+pub use colorgrad;
+pub use crossterm;
+pub use rand;
+pub use strum;
+pub use strum_macros;
 
 /// A few helpers for interacting with the command line.
 pub mod cli;
@@ -41,6 +47,24 @@ pub enum PlayerResult {
     Win,
     Lose,
     Draw,
+}
+
+impl PlayerResult {
+    pub fn flip(self) -> Self {
+        match self {
+            Win => Lose,
+            Lose => Win,
+            Draw => Draw,
+        }
+    }
+
+    pub fn flip_if(self, condition: bool) -> Self {
+        if condition {
+            self.flip()
+        } else {
+            self
+        }
+    }
 }
 
 /// Result of a match from a player's perspective, together with the reason for this outcome
@@ -174,9 +198,16 @@ pub enum Quitting {
 }
 
 /// Base trait for the different modes in which the user can run the program.
-/// It only contains one method: [`run`].
+/// It contains one important method: [`run`].
+/// The [`handle_input`] and [`quit`] method are really just hacks to support fuzzing.
 pub trait AbstractRun: Debug {
     fn run(&mut self) -> Quitting;
+    fn handle_input(&mut self, _input: &str) -> Res<()> {
+        Ok(())
+    }
+    fn quit(&mut self) -> Res<()> {
+        Ok(())
+    }
 }
 
 /// `AnyRunnable` is a type-erased [`AbstractRun`], and almost the only thing that isn't generic over the Game.
@@ -187,9 +218,7 @@ pub type AnyRunnable = Box<dyn AbstractRun>;
 pub trait GameState<B: Board> {
     fn initial_pos(&self) -> B;
     fn get_board(&self) -> B;
-    fn game_name(&self) -> String {
-        B::game_name()
-    }
+    fn game_name(&self) -> &str;
     fn move_history(&self) -> &[B::Move];
     fn active_player(&self) -> B::Color {
         self.get_board().active_player()

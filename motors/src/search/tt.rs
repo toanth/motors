@@ -1,5 +1,8 @@
 use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T1};
-use std::mem::{size_of, transmute_copy};
+use std::fmt::{Display, Formatter};
+use std::mem::size_of;
+#[cfg(feature = "unsafe")]
+use std::mem::transmute_copy;
 use std::ptr::addr_of;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
@@ -31,12 +34,25 @@ enum OptionalNodeType {
 
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 #[repr(C)]
-pub(super) struct TTEntry<B: Board> {
+pub struct TTEntry<B: Board> {
     pub hash: ZobristHash,     // 8 bytes
     pub score: Score,          // 4 bytes
     pub mov: UntrustedMove<B>, // depends, 2 bytes for chess (atm never more)
     pub depth: u8,             // 1 byte
     bound: OptionalNodeType,   // 1 byte
+}
+
+impl<B: Board> Display for TTEntry<B> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "move {0} score {1} bound {2} depth {3}",
+            self.mov,
+            self.score,
+            self.bound(),
+            self.depth
+        )
+    }
 }
 
 impl<B: Board> TTEntry<B> {
@@ -250,13 +266,12 @@ mod test {
     use crate::search::chess::caps::Caps;
     use crate::search::multithreading::AtomicSearchState;
     use crate::search::NodeType::Exact;
-    use crate::search::{Benchable, Engine};
-    use crate::search::{SearchParams, SearchState};
+    use crate::search::{Engine, SearchParams};
     use gears::games::chess::moves::ChessMove;
     use gears::games::ZobristHistory;
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
     use gears::search::{Depth, SearchLimit};
-    use rand::distributions::Uniform;
+    use rand::distr::Uniform;
     use rand::{thread_rng, Rng, RngCore};
     use std::thread::{sleep, spawn};
     use std::time::Duration;
@@ -286,18 +301,20 @@ mod test {
     #[cfg(feature = "chess")]
     fn test_load_store() {
         for pos in Chessboard::bench_positions() {
-            let num_bytes_in_size = thread_rng().sample(Uniform::new(4, 25));
+            let num_bytes_in_size = thread_rng().sample(Uniform::new(4, 25).unwrap());
             let size_in_bytes = (1 << num_bytes_in_size)
-                + thread_rng().sample(Uniform::new(0, 1 << num_bytes_in_size));
+                + thread_rng().sample(Uniform::new(0, 1 << num_bytes_in_size).unwrap());
             let mut tt = TT::new_with_bytes(size_in_bytes);
             for mov in pos.pseudolegal_moves() {
                 let score = Score(
-                    thread_rng().sample(Uniform::new(MIN_NORMAL_SCORE.0, MAX_NORMAL_SCORE.0)),
+                    thread_rng()
+                        .sample(Uniform::new(MIN_NORMAL_SCORE.0, MAX_NORMAL_SCORE.0).unwrap()),
                 );
-                let depth = thread_rng().sample(Uniform::new(1, 100));
-                let bound =
-                    OptionalNodeType::from_repr(thread_rng().sample(Uniform::new(0, 3)) + 1)
-                        .unwrap();
+                let depth = thread_rng().sample(Uniform::new(1, 100).unwrap());
+                let bound = OptionalNodeType::from_repr(
+                    thread_rng().sample(Uniform::new(0, 3).unwrap()) + 1,
+                )
+                .unwrap();
                 let entry: TTEntry<Chessboard> = TTEntry {
                     hash: pos.zobrist_hash(),
                     score,
@@ -308,7 +325,7 @@ mod test {
                 let packed = entry.to_packed();
                 let val = TTEntry::from_packed(packed);
                 assert_eq!(val, entry);
-                let ply = thread_rng().sample(Uniform::new(0, 100));
+                let ply = thread_rng().sample(Uniform::new(0, 100).unwrap());
                 tt.store(entry, ply);
                 let loaded = tt.load(entry.hash, ply).unwrap();
                 assert_eq!(entry, loaded);
@@ -373,15 +390,15 @@ mod test {
         );
         tt.store(next_entry, 1);
         let mov = engine
-            .search_with_tt(pos, SearchLimit::depth(Depth::new(1)), tt.clone())
+            .search_with_tt(pos, SearchLimit::depth(Depth::new_unchecked(1)), tt.clone())
             .chosen_move;
         assert_eq!(mov, bad_move);
-        let limit = SearchLimit::depth(Depth::new(3));
+        let limit = SearchLimit::depth(Depth::new_unchecked(3));
         let mut engine2 = Caps::default();
         _ = engine2.search_with_new_tt(pos, limit);
         let nodes = engine2.search_state().uci_nodes();
         engine2.forget();
-        let _ = engine.search_with_tt(pos, SearchLimit::depth(Depth::new(5)), tt.clone());
+        let _ = engine.search_with_tt(pos, SearchLimit::depth(Depth::new_unchecked(5)), tt.clone());
         let entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0);
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().depth, 5);

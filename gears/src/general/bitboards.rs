@@ -19,9 +19,8 @@ use crate::games::chess::squares::ChessSquare;
 #[cfg(feature = "chess")]
 use crate::games::chess::squares::ChessboardSize;
 use crate::games::{DimT, Size};
-use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::common::{pop_lsb128, pop_lsb64};
-use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, RectangularSize};
+use crate::general::squares::{RectangularCoordinates, RectangularSize};
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Direction {
@@ -98,7 +97,8 @@ const fn compute_anti_diagonal_bbs() -> [[u128; 128]; MAX_WIDTH] {
 // TODO: Store as array of structs? Could speed up mnk
 
 // allow width of at most 26 to prevent issues with square notation (26 letters in the alphabet)
-pub const MAX_WIDTH: usize = 26;
+// with one extra to make some boundary conditions go away
+pub const MAX_WIDTH: usize = 27;
 
 const STEPS: [u128; 128] = compute_step_bbs();
 
@@ -650,6 +650,14 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     fn ones_for_size(self, size: C::Size) -> impl Iterator<Item=C> {
         self.one_indices().map(move |i| size.to_coordinates_unchecked(i))
     }
+
+    fn to_square(self) -> Option<C> {
+        if self.is_single_piece() {
+            self.size().check_coordinates(self.size().to_coordinates_unchecked(self.trailing_zeros())).ok()
+        } else {
+            None
+        }
+    }
 }
 
 // Deriving Eq and Partial Eq means that irrelevant bits are also getting compared.
@@ -845,6 +853,7 @@ where
 
 /// 8x8 bitboards Chessboards. Not necessarily only for chess, e.g. checkers would use the same bitboard.
 /// Treated specially because some operations are much simpler and faster for 8x8 boards.
+#[cfg(feature = "chess")]
 pub mod chess {
     use crate::games::chess::squares::NUM_SQUARES;
     use crate::games::chess::ChessColor;
@@ -1124,10 +1133,14 @@ pub mod chess {
     }
 }
 
+#[cfg(feature = "ataxx")]
 pub mod ataxx {
     use super::*;
     use crate::games::ataxx::AtaxxSquare;
-    use crate::general::bitboards::chess::{A_FILE, CHESS_ANTI_DIAGONALS, CHESS_DIAGONALS};
+    use crate::general::bitboards::chess::{
+        ChessBitboard, A_FILE, CHESS_ANTI_DIAGONALS, CHESS_DIAGONALS,
+    };
+    use crate::general::squares::{GridCoordinates, GridSize};
 
     pub const INVALID_EDGE_MASK: AtaxxBitboard = AtaxxBitboard::from_u64(0xff80_8080_8080_8080);
 

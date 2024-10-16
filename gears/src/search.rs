@@ -1,3 +1,4 @@
+use anyhow::{anyhow, bail};
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
 use std::ops::Sub;
@@ -8,8 +9,10 @@ use crate::general::board::Board;
 use derive_more::{Add, AddAssign, SubAssign};
 use itertools::Itertools;
 
-use crate::general::common::parse_fp_from_str;
+use crate::general::common::{parse_fp_from_str, Res};
+use crate::general::moves::Move;
 use crate::score::Score;
+use crate::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
 
 pub const MAX_DEPTH: Depth = Depth(10_000);
 
@@ -20,36 +23,52 @@ pub struct SearchResult<B: Board> {
     pub score: Option<Score>,
     // TODO: NodeType to represent UCI upper bound and lower bound scores
     pub ponder_move: Option<B::Move>,
+    pub pos: B,
 }
 
 impl<B: Board> SearchResult<B> {
-    pub fn move_only(chosen_move: B::Move) -> Self {
+    pub fn move_only(chosen_move: B::Move, pos: B) -> Self {
+        debug_assert!(chosen_move.is_null() || pos.is_move_legal(chosen_move));
         Self {
             chosen_move,
+            pos,
             ..Default::default()
         }
     }
 
-    pub fn move_and_score(chosen_move: B::Move, score: Score) -> Self {
-        Self::new(chosen_move, score, None)
+    pub fn move_and_score(chosen_move: B::Move, score: Score, pos: B) -> Self {
+        Self::new(chosen_move, score, None, pos)
     }
 
-    pub fn new(chosen_move: B::Move, score: Score, ponder_move: Option<B::Move>) -> Self {
+    pub fn new(chosen_move: B::Move, score: Score, ponder_move: Option<B::Move>, pos: B) -> Self {
         debug_assert!(score.verify_valid().is_some());
+        debug_assert!(chosen_move.is_null() || pos.is_move_legal(chosen_move));
+        #[cfg(debug_assertions)]
+        if !chosen_move.is_null() {
+            let new_pos = pos.make_move(chosen_move).unwrap();
+            if let Some(ponder) = ponder_move {
+                debug_assert!(
+                    new_pos.is_move_legal(ponder),
+                    "{ponder}, {new_pos}, {pos}, {chosen_move}"
+                );
+            }
+        }
         Self {
             chosen_move,
             score: Some(score),
             ponder_move,
+            pos,
         }
     }
 
-    pub fn new_from_pv(score: Score, pv: &[B::Move]) -> Self {
+    pub fn new_from_pv(score: Score, pos: B, pv: &[B::Move]) -> Self {
         debug_assert!(score.verify_valid().is_some());
         // the pv may be empty if search is called in a position where the game is over
         Self::new(
             pv.first().copied().unwrap_or_default(),
             score,
             pv.get(1).copied(),
+            pos,
         )
     }
 
@@ -68,6 +87,13 @@ impl<B: Board> Display for SearchResult<B> {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum MpvType {
+    OnlyLine,
+    MainOfMultiple,
+    SecondaryLine,
+}
+
 #[derive(Debug)]
 #[must_use]
 pub struct SearchInfo<B: Board> {
@@ -77,9 +103,12 @@ pub struct SearchInfo<B: Board> {
     pub time: Duration,
     pub nodes: NodesLimit,
     pub pv_num: usize,
+    pub max_num_pvs: usize,
     pub pv: Vec<B::Move>,
     pub score: Score,
     pub hashfull: usize,
+    pub pos: B,
+    pub complete: bool,
     pub additional: Option<String>,
 }
 
@@ -92,9 +121,12 @@ impl<B: Board> Default for SearchInfo<B> {
             time: Duration::default(),
             nodes: NodesLimit::MAX,
             pv_num: 1,
+            max_num_pvs: 1,
             pv: vec![],
             score: Score::default(),
             hashfull: 0,
+            pos: B::default(),
+            complete: false,
             additional: None,
         }
     }
@@ -110,13 +142,14 @@ impl<B: Board> SearchInfo<B> {
         }
     }
 
-    /// This function is the default for the info callback function.
-    pub fn ignore(self) {
-        // do nothing.
-    }
-
-    pub fn to_search_result(&self) -> SearchResult<B> {
-        SearchResult::move_and_score(self.pv[0], self.score)
+    pub fn mpv_type(&self) -> MpvType {
+        if self.max_num_pvs == 1 {
+            OnlyLine
+        } else if self.pv_num == 0 {
+            MainOfMultiple
+        } else {
+            SecondaryLine
+        }
     }
 }
 
@@ -173,7 +206,7 @@ impl Display for TimeControl {
 }
 
 impl FromStr for TimeControl {
-    type Err = String;
+    type Err = anyhow::Error;
 
     // assume that the start time and increment strings don't contain a `+`
 
@@ -183,7 +216,7 @@ impl FromStr for TimeControl {
         }
         // For now, don't support movestogo TODO: Add support
         let mut parts = s.split('+');
-        let start_time = parts.next().ok_or_else(|| "Empty TC".to_string())?;
+        let start_time = parts.next().ok_or_else(|| anyhow!("Empty TC"))?;
         let start_time = parse_fp_from_str::<f64>(start_time.trim(), "the start time")?.max(0.0);
         let start_time = Duration::from_secs_f64(start_time);
         let mut increment = Duration::default();
@@ -275,9 +308,19 @@ impl Depth {
         self.0 as isize
     }
 
-    pub const fn new(val: usize) -> Self {
+    pub const fn new_unchecked(val: usize) -> Self {
         debug_assert!(val <= Self::MAX.get());
         Self(val)
+    }
+
+    pub fn try_new(val: isize) -> Res<Self> {
+        if val < 0 {
+            bail!("Depth must not be negative, but it is {val}")
+        } else if val > Self::MAX.get() as isize {
+            bail!("Depth must be at most {}, not {val}", Self::MAX.get())
+        } else {
+            Ok(Self(val as usize))
+        }
     }
 }
 
@@ -333,7 +376,7 @@ impl Default for SearchLimit {
             fixed_time: Duration::MAX,
             depth: MAX_DEPTH,
             nodes: NodesLimit::new(u64::MAX).unwrap(),
-            mate: Depth::new(0), // only finding a mate in 0 would stop the search
+            mate: Depth::new_unchecked(0), // only finding a mate in 0 would stop the search
         }
     }
 }
@@ -356,7 +399,7 @@ impl Display for SearchLimit {
         if self.nodes.get() != u64::MAX {
             limits.push(format!("{} nodes", self.nodes.get()));
         }
-        if self.mate != Depth::new(0) {
+        if self.mate != Depth::new_unchecked(0) {
             limits.push(format!("mate in {} plies", self.mate.get()));
         }
         if limits.len() == 1 {
@@ -394,7 +437,7 @@ impl SearchLimit {
     }
 
     pub fn depth_(depth: usize) -> Self {
-        Self::depth(Depth::new(depth))
+        Self::depth(Depth::new_unchecked(depth))
     }
 
     pub fn mate(depth: Depth) -> Self {
@@ -405,7 +448,7 @@ impl SearchLimit {
     }
 
     pub fn mate_in_moves(num_moves: usize) -> Self {
-        Self::mate(Depth::new(num_moves * 2))
+        Self::mate(Depth::new_unchecked(num_moves * 2))
     }
 
     pub fn nodes(nodes: NodesLimit) -> Self {

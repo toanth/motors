@@ -1,14 +1,16 @@
+#[cfg(feature = "chess")]
+use crate::games::chess::ChessColor;
+use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, Size, Width};
+#[cfg(feature = "chess")]
+use crate::general::bitboards::chess::ChessBitboard;
+use crate::general::common::{parse_int, tokens, ColorMsg, Res};
+use crate::general::squares::SquareColor::{Black, White};
+use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
-use colored::Colorize;
 use std::cmp::max;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-
-use crate::games::chess::ChessColor;
-use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, Size, Width};
-use crate::general::bitboards::chess::ChessBitboard;
-use crate::general::common::{parse_int, Res};
 
 pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
     fn from_row_column(row: DimT, column: DimT) -> Self;
@@ -19,6 +21,13 @@ pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
     }
     fn file(self) -> DimT {
         self.column()
+    }
+    fn square_color(self) -> SquareColor {
+        if (self.row() as usize + self.column() as usize) % 2 == 0 {
+            Black
+        } else {
+            White
+        }
     }
 }
 
@@ -79,16 +88,18 @@ impl RectangularCoordinates for GridCoordinates {
 }
 
 impl FromStr for GridCoordinates {
-    type Err = String;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut s = s.trim().chars();
 
-        let file = s.next().ok_or("Empty input")?;
-        let mut words = s.as_str().split_whitespace().peekable();
+        let Some(file) = s.next() else {
+            bail!("Empty input")
+        };
+        let mut words = tokens(s.as_str());
         let rank: usize = parse_int(&mut words, "rank (row)")?;
         if words.count() > 0 {
-            return Err("too many words".to_string());
+            bail!("too many words".to_string());
         }
         Self::algebraic_coordinate(file, rank)
     }
@@ -118,13 +129,13 @@ impl Display for GridCoordinates {
 impl GridCoordinates {
     pub fn algebraic_coordinate(file: char, rank: usize) -> Res<Self> {
         if !file.is_ascii_alphabetic() {
-            return Err(format!(
+            bail!(
                 "file (column) '{}' must be a valid ascii letter",
-                file.to_string().red()
-            ));
+                file.to_string().error()
+            );
         }
         let column = char_to_file(file.to_ascii_lowercase());
-        let rank = DimT::try_from(rank).map_err(|err| err.to_string())?;
+        let rank = DimT::try_from(rank)?;
         Ok(GridCoordinates {
             column,
             row: rank.wrapping_sub(1),
@@ -267,7 +278,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SquareColor {
     White,
     Black,
@@ -275,6 +286,7 @@ pub enum SquareColor {
 
 // Ideally, there would be an alias setting `INTERNAL_WIDTH` or a default parameter for `INTERNAL_WIDTH` to `max(8, W)`,
 // but both of those things aren't possible in stale Rust.
+/// A square of a board with at most 255 squares, and some reasonable restrictions on side length (e.g. not 255x1)  .
 #[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Hash, Arbitrary)]
 #[must_use]
 pub struct SmallGridSquare<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> {
@@ -284,7 +296,7 @@ pub struct SmallGridSquare<const H: usize, const W: usize, const INTERNAL_WIDTH:
 impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> FromStr
     for SmallGridSquare<H, W, INTERNAL_WIDTH>
 {
-    type Err = String;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         GridCoordinates::from_str(s)
@@ -332,7 +344,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
             file,
             // + 1 because the rank number uses 1-based indices
             rank.to_digit(H as u32 + 1).ok_or_else(|| {
-                format!("the rank is '{rank}', which does not represent a number between 1 and {H} (the height)")
+                anyhow!("the rank is '{rank}', which does not represent a number between 1 and {H} (the height)")
             })? as usize,
         )
         .and_then(|c| GridSize::new(Height(H as DimT), Width(W as DimT)).check_coordinates(c))
@@ -392,6 +404,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
         Self::unchecked(self.bb_idx() - 1)
     }
 
+    #[cfg(feature = "chess")]
     pub fn pawn_advance_unchecked(self, color: ChessColor) -> Self {
         match color {
             ChessColor::White => self.north_unchecked(),

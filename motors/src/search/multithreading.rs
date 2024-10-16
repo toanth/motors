@@ -1,32 +1,31 @@
-use colored::Colorize;
-use std::hint::spin_loop;
-use std::marker::PhantomData;
-use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU64};
-use std::sync::{Arc, Mutex, MutexGuard};
-
+use crate::eval::Eval;
+use crate::io::ugi_output::UgiOutput;
 use dyn_clone::clone_box;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
-use portable_atomic::AtomicUsize;
-
-use crate::eval::Eval;
-use gears::general::common::{parse_int_from_str, Res};
+use gears::general::common::anyhow::{anyhow, bail};
+use gears::general::common::{parse_int_from_str, ColorMsg, Name, NamedEntity, Res};
 use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::score::{Score, NO_SCORE_YET};
 use gears::search::{Depth, SearchLimit};
 use gears::ugi::EngineOptionName;
 use gears::ugi::EngineOptionName::{Hash, Threads};
+use portable_atomic::AtomicUsize;
+use std::hint::spin_loop;
+use std::marker::PhantomData;
+use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU64};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 use crate::search::multithreading::EngineReceives::*;
 use crate::search::multithreading::SearchThreadType::{Auxiliary, Main};
 use crate::search::multithreading::SearchType::{Infinite, Normal, Ponder};
-use crate::search::tt::TT;
+use crate::search::tt::{TTEntry, TT};
 use crate::search::{
-    AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EngineInfo, SearchParams, SearchState,
+    AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EngineInfo, SearchParams,
 };
-use crate::ugi_engine::UgiOutput;
 
 pub type Sender<T> = crossbeam_channel::Sender<T>;
 pub type Receiver<T> = crossbeam_channel::Receiver<T>;
@@ -38,9 +37,6 @@ pub enum EngineReceives<B: Board> {
     Forget,
     SetOption(EngineOptionName, String, Arc<Mutex<EngineInfo>>),
     Search(SearchParams<B>),
-    Bench(B, SearchLimit, Arc<Mutex<UgiOutput<B>>>),
-    TTEntry(B, Arc<Mutex<UgiOutput<B>>>),
-    EvalFor(B, Arc<Mutex<UgiOutput<B>>>),
     SetEval(Box<dyn Eval<B>>),
 }
 
@@ -77,13 +73,11 @@ pub struct MainThreadData<B: Board> {
 impl<B: Board> MainThreadData<B> {
     pub fn new_search(&mut self, ponder: bool, limit: &SearchLimit) -> Res<()> {
         if self.atomic_search_data[0].currently_searching() {
-            return Err(
-                format!("Cannot start a new search with limit '{limit}' because the engine is already searching"),
-            );
+            bail!("Cannot start a new search with limit '{limit}' because the engine is already searching");
         }
         self.search_type = SearchType::new(ponder, limit);
         for data in &mut self.atomic_search_data {
-            data.reset();
+            data.new_search();
         }
         Ok(())
     }
@@ -153,7 +147,7 @@ impl<B: Board> Default for AtomicSearchState<B> {
 }
 
 impl<B: Board> AtomicSearchState<B> {
-    pub fn reset(&self) {
+    pub fn new_search(&self) {
         // all stores can be Relaxed because we're overwriting all members
         self.set_score(NO_SCORE_YET);
         self.set_ponder_move(None);
@@ -161,7 +155,7 @@ impl<B: Board> AtomicSearchState<B> {
         self.update_seldepth(0);
         self.set_depth(0);
         self.edges.store(0, Relaxed);
-        self.set_searching(false);
+        self.set_searching(true); // only called immediately before entering the search
         self.suppress_best_move.store(false, Relaxed);
         self.should_stop.store(false, Relaxed);
     }
@@ -172,12 +166,12 @@ impl<B: Board> AtomicSearchState<B> {
 
     /// Intended to be used by the search thread, uses Relaxed ordering.
     /// Note that any other thread might want to load with Acquire semantic.
-    pub(super) fn currently_searching(&self) -> bool {
+    pub fn currently_searching(&self) -> bool {
         self.currently_searching.load(Relaxed)
     }
 
     /// Should only be used by the search thread, uses Relaxed ordering. Any other thread should never set this value.
-    pub(super) fn set_searching(&self, val: bool) {
+    pub fn set_searching(&self, val: bool) {
         self.currently_searching.store(val, Relaxed);
     }
 
@@ -186,11 +180,11 @@ impl<B: Board> AtomicSearchState<B> {
     }
 
     pub fn depth(&self) -> Depth {
-        Depth::new(self.depth.load(Relaxed) as usize)
+        Depth::new_unchecked(self.depth.load(Relaxed) as usize)
     }
 
     pub fn seldepth(&self) -> Depth {
-        Depth::new(self.seldepth.load(Relaxed))
+        Depth::new_unchecked(self.seldepth.load(Relaxed))
     }
 
     pub fn score(&self) -> Score {
@@ -210,21 +204,21 @@ impl<B: Board> AtomicSearchState<B> {
         }
     }
 
-    pub fn set_stop(&self, val: bool) {
+    pub(super) fn set_stop(&self, val: bool) {
         self.should_stop.store(val, Release)
     }
 
-    pub fn count_node(&self) {
+    pub(super) fn count_node(&self) {
         // TODO: Test if using a relaxed load, non-atomic add, and relaxed store is faster
         // (should compile to `add` instead of `lock add` on x86)
         self.edges.fetch_add(1, Relaxed);
     }
 
-    pub fn set_depth(&self, depth: isize) {
+    pub(super) fn set_depth(&self, depth: isize) {
         self.depth.store(depth, Relaxed);
     }
 
-    pub fn update_seldepth(&self, current_seldepth: usize) {
+    pub(super) fn update_seldepth(&self, current_seldepth: usize) {
         self.seldepth.fetch_max(current_seldepth, Relaxed);
     }
 
@@ -233,11 +227,11 @@ impl<B: Board> AtomicSearchState<B> {
         self.score.store(score.0, Relaxed);
     }
 
-    pub fn set_best_move(&self, best: B::Move) {
+    pub(super) fn set_best_move(&self, best: B::Move) {
         self.best_move.store(best.to_underlying().into(), Relaxed);
     }
 
-    pub fn set_ponder_move(&self, ponder_move: Option<B::Move>) {
+    pub(super) fn set_ponder_move(&self, ponder_move: Option<B::Move>) {
         self.ponder_move.store(
             ponder_move.unwrap_or_default().to_underlying().into(),
             Relaxed,
@@ -261,48 +255,9 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         let _ = self.engine.search(params); // the engine takes care of sending the search result
     }
 
-    fn bench_single_position(
-        &mut self,
-        pos: B,
-        limit: SearchLimit,
-        output: Arc<Mutex<UgiOutput<B>>>,
-    ) {
-        // self.engine.stop();
-        let res = self.engine.clean_bench(pos, limit);
-        output.lock().unwrap().write_ugi(&res.to_string());
-    }
-
-    fn get_tt_entry(&mut self, pos: B, output: Arc<Mutex<UgiOutput<B>>>) {
-        if let Some(entry) = self
-            .engine
-            .search_state()
-            .tt()
-            .load::<B>(pos.zobrist_hash(), 0)
-        {
-            let msg = format!(
-                "move {0} score {1} bound {2} depth {3}",
-                entry.mov,
-                entry.score,
-                entry.bound(),
-                entry.depth
-            );
-            output.lock().unwrap().write_ugi(&msg);
-        } else {
-            output.lock().unwrap().write_ugi("<none>");
-        };
-    }
-
-    fn get_static_eval(&mut self, pos: B, output: Arc<Mutex<UgiOutput<B>>>) {
-        let eval = self.engine.static_eval(pos);
-        output
-            .lock()
-            .unwrap()
-            .write_ugi(&format!("score cp {eval}"));
-    }
-
     fn write_error(&mut self, msg: &str) {
         self.engine.search_state_mut().send_non_ugi(Error, msg);
-        eprintln!("Engine thread encountered a fatal error: '{msg}'");
+        eprintln!("Engine thread encountered an error: '{msg}'");
     }
 
     fn handle_input(&mut self, received: EngineReceives<B>) -> Res<bool> {
@@ -318,7 +273,8 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                 _ => {
                     let mut guard = info.lock().unwrap();
                     let Some(val) = guard.options.get_mut(&name) else {
-                        return Err(format!("The engine '{0}' doesn't provide the option '{1}', so it can't be set to value '{2}'", guard.engine.short.bold(), name.to_string().red(), value.bold()));
+                        bail!("The engine '{0}' doesn't provide the option '{1}', so it can't be set to value '{2}'",
+                            guard.engine.short_name().important(), name.to_string().error(), value.important());
                     };
                     self.engine.set_option(name, val, value)?
                 }
@@ -326,9 +282,6 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
             Search(params) => {
                 self.start_search(params);
             }
-            Bench(pos, limit, output) => self.bench_single_position(pos, limit, output),
-            TTEntry(pos, output) => self.get_tt_entry(pos, output),
-            EvalFor(pos, output) => self.get_static_eval(pos, output),
             SetEval(eval) => self.engine.set_eval(eval),
         };
         Ok(false)
@@ -347,8 +300,8 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         loop {
             match self.try_handle_input() {
                 Err(msg) => {
-                    self.write_error(&msg);
-                    break;
+                    self.write_error(&msg.to_string());
+                    // continue as normal
                 }
                 Ok(should_quit) => {
                     if should_quit {
@@ -371,11 +324,22 @@ pub struct EngineWrapper<B: Board> {
     main_thread_data: MainThreadData<B>,
     // If we receive a `setoption name Hash` while searching, we only apply that to the next search
     tt_for_next_search: TT,
+    // It's possible to temporarily add or remove threads
+    overwrite_num_threads: Option<usize>,
 }
 
 impl<B: Board> Drop for EngineWrapper<B> {
     fn drop(&mut self) {
+        self.main_atomic_search_data().set_stop(true);
         _ = self.main.send(Quit);
+        let start_time = Instant::now();
+        while self.main_atomic_search_data().currently_searching() {
+            spin_loop();
+            if start_time.elapsed() > Duration::from_millis(500) {
+                eprintln!("Warning: Engine hasn't stopped 500ms after being told to quit");
+                break;
+            }
+        }
     }
 }
 
@@ -401,9 +365,11 @@ impl<B: Board> EngineWrapper<B> {
             eval_builder,
             main_thread_data,
             tt_for_next_search: tt,
+            overwrite_num_threads: None,
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn start_search(
         &mut self,
         pos: B,
@@ -412,7 +378,27 @@ impl<B: Board> EngineWrapper<B> {
         search_moves: Option<Vec<B::Move>>,
         multi_pv: usize,
         ponder: bool,
+        threads: Option<usize>,
     ) -> Res<()> {
+        self.resize_threads(self.num_threads());
+        self.overwrite_num_threads = None;
+        let threads = match threads {
+            None => self.num_threads(),
+            Some(t) => {
+                if t == 0 || t > self.get_engine_info().max_threads() {
+                    bail!(
+                        "Invalid number of threads ({t}), must be at least 1 and at most {}",
+                        self.get_engine_info().max_threads
+                    )
+                }
+                let current = self.num_threads();
+                self.overwrite_num_threads = Some(current);
+                if t > current {
+                    self.resize_threads(t);
+                }
+                t
+            }
+        };
         self.main_thread_data.new_search(ponder, &limit)?; // resets the atomic search state
         let thread_data = self.main_thread_data.clone();
         let params = SearchParams::create(
@@ -427,15 +413,15 @@ impl<B: Board> EngineWrapper<B> {
         );
         // reset `stop` first such that a finished ponder command won't print anything
         // self.search_sender().new_search(params.limit.is_infinite());
-        self.start_search_with(params)
+        self.start_search_with(params, threads)
     }
 
-    fn start_search_with(&mut self, params: SearchParams<B>) -> Res<()> {
+    fn start_search_with(&mut self, params: SearchParams<B>, threads: usize) -> Res<()> {
         assert_eq!(
             self.main_thread_data.atomic_search_data.len(),
             self.auxiliary.len() + 1
         );
-        for (i, o) in &mut self.auxiliary.iter_mut().enumerate() {
+        for (i, o) in &mut self.auxiliary.iter_mut().enumerate().take(threads - 1) {
             Self::send_start_search(
                 o,
                 params.auxiliary(self.main_thread_data.atomic_search_data[i + 1].clone()),
@@ -449,7 +435,9 @@ impl<B: Board> EngineWrapper<B> {
         params: SearchParams<B>,
     ) -> Res<()> {
         debug_assert!(Arc::strong_count(&params.atomic) >= 2);
-        sender.send(Search(params)).map_err(|err| err.to_string())
+        sender
+            .send(Search(params))
+            .map_err(|err| anyhow!(err.to_string()))
     }
 
     pub fn set_tt(&mut self, tt: TT) {
@@ -462,25 +450,28 @@ impl<B: Board> EngineWrapper<B> {
         self.tt_for_next_search.clone()
     }
 
+    pub fn resize_threads(&mut self, count: usize) {
+        self.auxiliary.resize_with(count - 1, || {
+            self.searcher_builder
+                .build_in_new_thread(self.eval_builder.build())
+                .0
+        });
+        self.main_thread_data
+            .atomic_search_data
+            .resize_with(count, || Arc::new(AtomicSearchState::default()));
+    }
+
     pub fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()> {
         if name == Threads {
             let count: usize = parse_int_from_str(&value, "num threads")?;
-            let max = self.engine_info().max_threads;
+            let max = self.get_engine_info().max_threads;
             if count == 0 || count > max {
-                return Err(format!(
+                bail!(
                     "Trying to set the number of threads to {count}. The maximum number of threads for this engine is {max}."
-                ));
+                );
             }
-            self.auxiliary.clear();
-            self.auxiliary.resize_with(count - 1, || {
-                self.searcher_builder
-                    .build_in_new_thread(self.eval_builder.build())
-                    .0
-            });
-            self.main_thread_data.atomic_search_data.truncate(1);
-            self.main_thread_data
-                .atomic_search_data
-                .resize_with(count, || Arc::new(AtomicSearchState::default()));
+            self.overwrite_num_threads = None;
+            self.resize_threads(count);
             Ok(())
         } else if name == Hash {
             let value: usize = parse_int_from_str(&value, "hash size in mb")?;
@@ -496,7 +487,7 @@ impl<B: Board> EngineWrapper<B> {
                     value.clone(),
                     self.main_thread_data.engine_info.clone(),
                 ))
-                .map_err(|err| err.to_string())?;
+                .map_err(|err| anyhow!(err.to_string()))?;
             }
             self.main
                 .send(SetOption(
@@ -504,34 +495,23 @@ impl<B: Board> EngineWrapper<B> {
                     value,
                     self.main_thread_data.engine_info.clone(),
                 ))
-                .map_err(|err| err.to_string())
+                .map_err(|err| anyhow!(err.to_string()))
         }
     }
 
-    pub fn start_bench(&mut self, pos: B, limit: SearchLimit) -> Res<()> {
-        self.main
-            .send(Bench(pos, limit, self.main_thread_data.output.clone()))
-            .map_err(|err| err.to_string())
-    }
-
-    pub fn static_eval(&mut self, pos: B) -> Res<()> {
-        self.main
-            .send(EvalFor(pos, self.main_thread_data.output.clone()))
-            .map_err(|err| err.to_string())
-    }
-
-    pub fn tt_entry(&mut self, pos: B) -> Res<()> {
-        self.main
-            .send(TTEntry(pos, self.main_thread_data.output.clone()))
-            .map_err(|err| err.to_string())
+    pub fn tt_entry(&mut self, pos: &B) -> Option<TTEntry<B>> {
+        self.tt_for_next_search.load(pos.zobrist_hash(), 0)
     }
 
     pub fn set_eval(&mut self, eval: Box<dyn Eval<B>>) -> Res<()> {
         for aux in &self.auxiliary {
             aux.send(SetEval(clone_box(eval.as_ref())))
-                .map_err(|err| err.to_string())?;
+                .map_err(|err| anyhow!(err.to_string()))?;
         }
-        self.main.send(SetEval(eval)).map_err(|err| err.to_string())
+        self.get_engine_info().eval = Some(Name::new(eval.as_ref()));
+        self.main
+            .send(SetEval(eval))
+            .map_err(|err| anyhow!(err.to_string()))
     }
 
     pub fn send_stop(&mut self, suppress_best_move: bool) {
@@ -553,30 +533,47 @@ impl<B: Board> EngineWrapper<B> {
                 .suppress_best_move
                 .store(false, Release);
         }
+        // it's possible that the current search had been done with a different number of threads, so remove superfluous entries
+        self.resize_threads(self.num_threads());
+        self.overwrite_num_threads = None;
     }
 
     pub fn send_quit(&mut self) -> Res<()> {
         self.send_stop(false);
         for o in &mut self.auxiliary {
-            o.send(Quit).map_err(|err| err.to_string())?;
+            o.send(Quit).map_err(|err| anyhow!(err.to_string()))?;
         }
-        self.main.send(Quit).map_err(|err| err.to_string())
+        self.main.send(Quit).map_err(|err| anyhow!(err.to_string()))
     }
 
     pub fn send_forget(&mut self) -> Res<()> {
         for o in &mut self.auxiliary {
-            o.send(Forget).map_err(|err| err.to_string())?;
+            o.send(Forget).map_err(|err| anyhow!(err.to_string()))?;
         }
         // tt_for_next_search references the same TT as the TT used during search unless it has been changed with `setoption`
         self.tt_for_next_search.forget();
-        self.main.send(Forget).map_err(|err| err.to_string())
+        self.main
+            .send(Forget)
+            .map_err(|err| anyhow!(err.to_string()))
     }
 
-    pub fn engine_info(&self) -> MutexGuard<EngineInfo> {
+    pub fn get_engine_info(&self) -> MutexGuard<EngineInfo> {
         self.main_thread_data.engine_info.lock().unwrap()
     }
 
+    pub fn get_engine_info_arc(&self) -> Arc<Mutex<EngineInfo>> {
+        self.main_thread_data.engine_info.clone()
+    }
+
     pub fn num_threads(&self) -> usize {
-        self.auxiliary.len() + 1
+        if let Some(num) = self.overwrite_num_threads {
+            num
+        } else {
+            self.auxiliary.len() + 1
+        }
+    }
+
+    pub fn main_atomic_search_data(&self) -> Arc<AtomicSearchState<B>> {
+        self.main_thread_data.atomic_search_data[0].clone()
     }
 }
