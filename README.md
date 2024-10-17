@@ -1,18 +1,32 @@
+![image](/MotorsEngineChess.png)
+
 # Motors
 
 This repository contains 4 crates related to board games:
 
 - `gears`: **Board representation** and general utility
 - `motors`: **Engines**
-- `monitors`: a ***UGI client**, will eventually include a GUI (text-based for now)
+- `monitors`: a WIP **UGI client**, will eventually include a GUI (text-based for now)
 - `pliers`: **Tuner** for HCE eval weights
 
 Currently, the most interesting part is probably the superhuman UCI [Chess960](<https://en.wikipedia.org/wiki/Fischer_random_chess>), DFRC
-and **Chess Engine** `CAPS`.
+and **Chess Engine** `CAPS-LiTE`.
 
-## CAPS
+[//]: # (Motors &#40;**Mo**re **t**han **or**dinary **s**earchers&#41;)
+Motors
+is both the name of this GitHub repo,
 
-A chess engine estimated at >= 3k elo when used with a hand-crafted evaluation function.
+and of the `motors` crate, which contains engines.
+
+An engine typically consists of two parts, the *searcher* and the *evaluation function*,
+such as `caps-lite`.
+These parts can be freely changed, including during a match.
+
+## Searchers
+
+### CAPS
+
+A chess searcher estimated at > 3k elo when paired with the hand-crafted evaluation function `LiTE`.
 
 Current features:
 
@@ -41,28 +55,19 @@ Current features:
     - Almost full UCI compliance, including `searchmoves`, `ponder`, `multipv`, etc. Notable missing features are endgame tablebases and a
       built-in opening book.
 - Eval function can be changed at runtime (see below)
-- ## Other Engines
+
+### Other Searchers
 
 In addition to the **C**hess-playing **A**lpha-beta **P**runing **S**earch (**CAPS**),
 there is also the **G**eneral **A**lpha-beta **P**runing **S**earch (**GAPS**, a game-agnostic engine, currently still very basic),
-and **random** (a random mover).
-Except for **random**, those engines can be combined with any evaluation function supporting the current game.
+and **Random** (a random mover).
+Except for **Random**, those engines can be combined with any evaluation function supporting the current game.
 
-They are currently being worked on and will be stronger in the future.
-There will also be additional engines, like **M**inimalistic **A**lpha-beta **P**runing **S**earch (**MAPS**),
-a simple alpha-beta pruning search without any further techniques, or an MCTS implementation.
+They are currently being worked on and should become significantly stronger in the future.
+Further plans include additional engines, like **M**inimalistic **A**lpha-beta **P**runing **S**earch (**MAPS**),
+a simple alpha-beta pruning search without any further techniques, and an MCTS searcher.
 
 ## Evaluation Functions
-
-### MateOnCE
-
-**Mate**rial **On**ly **C**hess **E**val, a material-only evaluation function for chess,
-using the classical piece values 1, 3, 3, 5, 9.
-
-### PiSTOn
-
-**Pi**ece **S**quare **T**able **On**ly eval, a chess eval using only piece square tables,
-similar to the well-known PeSTO engine.
 
 ### LiTE
 
@@ -70,7 +75,17 @@ similar to the well-known PeSTO engine.
 been tuned using the `pliers` tuner.
 It can be interpreted as a single layers perceptron, a neural net consisting of a single neuron.
 Such an eval functions is also often called a Hand-Crafted Eval function (HCE).
-The default eval for chess.
+This is the default eval for chess.
+
+### PiSTOn
+
+**Pi**ece **S**quare **T**able **On**ly eval, a chess eval using only piece square tables,
+similar to the well-known PeSTO engine.
+
+### MateOnCE
+
+**Mate**rial **On**ly **C**hess **E**val, a material-only evaluation function for chess,
+using the classical piece values 1, 3, 3, 5, 9.
 
 ### BAtE
 
@@ -84,7 +99,7 @@ The default eval for chess.
 
 **L**inear **U**ltimate **T**ic-tac-toe **E**val, a simple hand-crafted eval for UTTT.
 
-### random
+### Random
 
 Returns random values. Still stronger than the *random* engine when used as eval function
 for an actual engine like `caps` or `gaps`.
@@ -120,29 +135,28 @@ This engine can be used out of the box with any UCI chess GUI.
 #### Manual User Input
 
 All engines use the UCI or the very similar and mostly compatible UGI protocol for communicating with the GUI.
-But this interface has also been designed to be easy to use for a human.
-Incorrect commands will generally produce helpful error messages, although by default, the engine will terminate after getting an
-incorrect command.
-The easiest way to make the engine keep going after an incorrect command is to use the *debug* mode, either by typing `debug` or
-passing `--debug` as command line flags.
-This also turns on logging, which can be turned off again with `log off`.
-Use `output <name>` to change how the engine prints the current position.
-The default is `fen`, but it's also possible to generate ASCII or UTF-8 diagrams, or export the pgn:
-For example, typing `show pgn` will keep the output unchanged but export a PGN of the current match.
-`help`will print a short summary of additional commands, those commands wills generally produce context-dependent additional help in error
-messages.
 
-For example, to select the game *Chess* (this is already the default), type `play ataxx`.
+But this interface has also been designed to be easy to use for a human.
+Incorrect commands will generally produce helpful error messages.
+Typing the start of a command will list context-dependent autocompletion options.
+
+Use `output <name>` to change how the engine prints the current position.
+
+The default is `pretty`, a human-readably diagram of the current position, but it's also possible to generate alternative
+ASCII or UTF-8 diagrams, or export the FEN or PGN of the current match:
+
+For example, typing `show pgn` will keep the output unchanged but export a PGN of the current match.
+To select the game *Chess* (this is already the default), type `play chess`.
 To select the engine `GAPS` with eval `PiSTON`, type `engine gaps-piston`.
 Names are case-insensitive; leaving out the eval will use the default eval for the current game,
 which is `lite` for chess.
-Alternatively, it's also possible to change the eval of an engine during the game without resetting the engine using `set-eval`
+Alternatively, it's also possible to change the eval of an engine during the game without resetting the engine using `set_eval`
 (the `eval` command instead prints the static eval of the current position).
 There are many more options, this document is too short to list them all in detail.
 
 ### Command line flags
 
-Command line flags function similarly to user input at runtime, but are a bit more restrictive in some cases.
+Command line flags are handled similarly to user input at runtime, but are a bit more restrictive in some cases.
 For example, to play `Ataxx` with `GAPS` and the `BAtE` eval, pass the following command-line flags: `--game ataxx --engine gaps-bate`.
 `bate` is already the default eval for `Ataxx`, and `GAPS` is the default engine for `Ataxx`, so this is equivalent to just `--game ataxx`.
 

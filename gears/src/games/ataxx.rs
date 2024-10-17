@@ -12,21 +12,27 @@ use crate::games::{
 use crate::general::bitboards::ataxx::{AtaxxBitboard, INVALID_EDGE_MASK};
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
-use crate::general::board::{board_to_string, position_fen_part, SelfChecks, UnverifiedBoard};
-use crate::general::common::{Res, StaticallyNamedEntity};
+use crate::general::board::Strictness::Strict;
+use crate::general::board::{
+    board_from_name, common_fen_part, SelfChecks, Strictness, UnverifiedBoard,
+};
+use crate::general::common::{Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
-use crate::general::squares::{SmallGridSize, SmallGridSquare};
+use crate::general::squares::SquareColor::White;
+use crate::general::squares::{SmallGridSize, SmallGridSquare, SquareColor};
+use crate::output::text_output::{
+    board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter, PieceToChar,
+};
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose, Win};
+use anyhow::bail;
 use arbitrary::Arbitrary;
 use itertools::Itertools;
-use rand::prelude::SliceRandom;
+use rand::prelude::IndexedRandom;
 use rand::Rng;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
-use std::iter::Peekable;
 use std::ops::Not;
-use std::str::SplitWhitespace;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
@@ -86,7 +92,7 @@ pub struct AtaxxBoard {
 impl Default for AtaxxBoard {
     fn default() -> Self {
         let x_bb = AtaxxBitboard::from_u64(0x41);
-        let o_bb = x_bb << ((7 - 2) * 8);
+        let o_bb = x_bb << ((7 - 1) * 8);
         Self::create(AtaxxBitboard::default(), x_bb, o_bb).unwrap()
     }
 }
@@ -145,6 +151,10 @@ impl Board for AtaxxBoard {
         Self::default()
     }
 
+    fn from_name(name: &str) -> Res<Self> {
+        board_from_name(name)
+    }
+
     fn bench_positions() -> Vec<Self> {
         let fens = vec![
             "x-1-1-o/-1-1-1-/1-1-1-1/-1-1-1-/1-1-1-1/-1-1-1-/o-1-1-x x 0 1",
@@ -199,7 +209,7 @@ impl Board for AtaxxBoard {
             "x6/7/4x2/3x3/7/7/o5x o 2 2",
         ];
         fens.iter()
-            .map(|fen| Self::from_fen(fen).unwrap())
+            .map(|fen| Self::from_fen(fen, Strict).unwrap())
             .collect_vec()
     }
 
@@ -331,21 +341,15 @@ impl Board for AtaxxBoard {
     }
 
     fn as_fen(&self) -> String {
-        let stm = match self.active_player {
-            O => 'o',
-            X => 'x',
-        };
-
-        format!(
-            "{} {stm} {halfmove_clock} {fullmove_ctr}",
-            position_fen_part(self),
-            halfmove_clock = self.halfmove_repetition_clock(),
-            fullmove_ctr = self.fullmove_ctr() + 1,
-        )
+        common_fen_part(self, true, true)
     }
 
-    fn read_fen_and_advance_input(string: &mut Peekable<SplitWhitespace>) -> Res<Self> {
-        Self::read_fen_impl(string)
+    fn read_fen_and_advance_input(string: &mut Tokens, strictness: Strictness) -> Res<Self> {
+        Self::read_fen_impl(string, strictness)
+    }
+
+    fn should_flip_visually() -> bool {
+        true
     }
 
     fn as_ascii_diagram(&self, flip: bool) -> String {
@@ -354,6 +358,23 @@ impl Board for AtaxxBoard {
 
     fn as_unicode_diagram(&self, flip: bool) -> String {
         board_to_string(self, AtaxxPiece::to_utf8_char, flip)
+    }
+
+    fn display_pretty(&self, fmt: &mut dyn BoardFormatter<Self>) -> String {
+        display_board_pretty(self, fmt)
+    }
+
+    fn pretty_formatter(
+        &self,
+        piece_to_char: Option<PieceToChar>,
+        last_move: Option<Self::Move>,
+    ) -> Box<dyn BoardFormatter<Self>> {
+        Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move))
+    }
+
+    fn background_color(&self, _coords: Self::Coordinates) -> SquareColor {
+        // Don't pay a checkerboard pattern, just make everything white
+        White
     }
 }
 
@@ -368,23 +389,23 @@ impl From<AtaxxBoard> for UnverifiedAtaxxBoard {
 }
 
 impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
-    fn verify_with_level(self, level: SelfChecks) -> Res<AtaxxBoard> {
+    fn verify_with_level(self, level: SelfChecks, _strictness: Strictness) -> Res<AtaxxBoard> {
         let this = self.0;
         let blocked = this.blocked_bb();
         if blocked & INVALID_EDGE_MASK != INVALID_EDGE_MASK {
-            return Err(format!(
+            bail!(
                 "A squares outside of the board is being used ({})",
                 AtaxxSquare::unchecked((!blocked & INVALID_EDGE_MASK).pop_lsb())
-            ));
+            );
         }
         if this.ply_100_ctr > 100 {
-            return Err(format!(
+            bail!(
                 "The halfmove clock is too large: It must be a number between 0 and 100, not {}",
                 this.ply_100_ctr
-            ));
+            );
         }
         if this.ply > 10_000 {
-            return Err(format!("Ridiculously large ply number ({})", this.ply));
+            bail!("Ridiculously large ply number ({})", this.ply);
         }
 
         if level == CheckFen {
@@ -395,18 +416,18 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
         }
         let mut overlap = this.colors[0] & this.colors[1];
         if overlap.has_set_bit() {
-            return Err(format!(
+            bail!(
                 "Both players have a piece on the same square ('{}')",
                 AtaxxSquare::from_bb_index(overlap.pop_lsb())
-            ));
+            );
         }
         for color in AtaxxColor::iter() {
             let mut overlap = this.empty & this.colors[color as usize];
             if overlap.has_set_bit() {
-                return Err(format!(
+                bail!(
                     "The square '{}' is both empty and occupied by a player",
                     AtaxxSquare::from_bb_index(overlap.pop_lsb())
-                ));
+                );
             }
         }
         Ok(this)
@@ -468,11 +489,13 @@ impl UnverifiedAtaxxBoard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::general::board::Strictness::Relaxed;
+    use crate::general::moves::Move;
 
     #[test]
     fn startpos_test() {
         let pos = AtaxxBoard::default();
-        assert!(pos.debug_verify_invariants().is_ok());
+        assert!(pos.debug_verify_invariants(Strict).is_ok());
         assert_eq!(pos.color_bb(O).num_ones(), 2);
         assert_eq!(pos.color_bb(X).num_ones(), 2);
         assert!((pos.blocked_bb() & !INVALID_EDGE_MASK).is_zero());
@@ -490,7 +513,7 @@ mod tests {
     #[test]
     fn empty_pos_test() {
         let pos = AtaxxBoard::empty();
-        assert!(pos.debug_verify_invariants().is_ok());
+        assert!(pos.debug_verify_invariants(Strict).is_ok());
         assert!(pos.color_bb(O).is_zero());
         assert!(pos.color_bb(X).is_zero());
         assert!(pos.is_game_lost_slow());
@@ -501,11 +524,28 @@ mod tests {
     #[test]
     fn simple_test() {
         let fen = "7/7/7/o6/ooooooo/1oooooo/xxxxxxx x 1 2";
-        let pos = AtaxxBoard::from_fen(fen).unwrap();
+        let pos = AtaxxBoard::from_fen(fen, Strict).unwrap();
         let moves = pos.legal_moves();
         assert_eq!(moves.len(), 2);
-        let pos = AtaxxBoard::from_fen("7/7/7/o6/ooooooo/ooooooo/xxxxxxx x 1 2").unwrap();
+        let pos = AtaxxBoard::from_fen("7/7/7/o6/ooooooo/ooooooo/xxxxxxx x 1 2", Strict).unwrap();
         let moves = pos.legal_moves();
         assert_eq!(moves.len(), 1);
+    }
+
+    #[test]
+    fn moves_test() {
+        let pos = AtaxxBoard::from_fen("o5o/5o1/7/7/x6/1x5/6x O 1 2", Relaxed).unwrap();
+        assert!(AtaxxMove::from_text("a7a6", &pos).is_err());
+        assert!(AtaxxMove::from_text("c7a6", &pos).is_err());
+        assert!(AtaxxMove::from_text("c7a5", &pos).is_err());
+        assert!(AtaxxMove::from_text("a7a4", &pos).is_err());
+        assert!(AtaxxMove::from_text("g1g2", &pos).is_err());
+        let mov = AtaxxMove::from_text("g2", &AtaxxBoard::default()).unwrap();
+        assert!(!pos.is_move_legal(mov));
+        let mov = AtaxxMove::from_text("a7c5", &pos).unwrap();
+        assert!(pos.legal_moves().contains(&mov));
+        let pos = pos.make_move(mov).unwrap();
+        assert!(AtaxxMove::from_extended_text("a3c5", &pos).is_err());
+        assert!(AtaxxMove::from_text("a3b5", &pos).is_ok());
     }
 }

@@ -1,14 +1,14 @@
+use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
-use std::fmt::{Display, Formatter};
-use std::iter::Peekable;
-use std::num::NonZeroUsize;
-use std::ops::Not;
-use std::str::{FromStr, SplitWhitespace};
-
-use colored::Colorize;
+use crossterm::style::Color::Red;
+use crossterm::style::Stylize;
 use itertools::Itertools;
 use rand::prelude::IteratorRandom;
 use rand::Rng;
+use std::fmt::{Display, Formatter};
+use std::num::NonZeroUsize;
+use std::ops::Not;
+use std::str::FromStr;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
@@ -31,16 +31,20 @@ use crate::general::bitboards::chess::{
 };
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
+use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    board_to_string, position_fen_part, read_common_fen_part, NameToPos, SelfChecks,
-    UnverifiedBoard,
+    board_from_name, ply_counter_from_fullmove_nr, position_fen_part, read_common_fen_part,
+    NameToPos, SelfChecks, Strictness, UnverifiedBoard,
 };
-use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    parse_int_from_str, select_name_static, EntityList, GenericSelect, Res, StaticallyNamedEntity,
+    parse_int_from_str, ColorMsg, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
 };
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
-use crate::general::squares::RectangularCoordinates;
+use crate::general::squares::{RectangularCoordinates, SquareColor};
+use crate::output::text_output::{
+    board_to_string, display_board_pretty, display_color, AdaptFormatter, BoardFormatter,
+    DefaultBoardFormatter, PieceToChar,
+};
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 
@@ -138,14 +142,14 @@ impl StaticallyNamedEntity for Chessboard {
     where
         Self: Sized,
     {
-        "Chess game".to_string()
+        "Chess".to_string()
     }
 
     fn static_description() -> String
     where
         Self: Sized,
     {
-        "Chess or Chess960 game".to_string()
+        "A Chess, Chess960 (a.k.a FRC) or DFRC game".to_string()
     }
 }
 
@@ -173,22 +177,13 @@ impl Board for Chessboard {
     }
 
     fn startpos_for_settings(_: Self::Settings) -> Self {
-        Self::from_fen(START_FEN).expect("Internal error: Couldn't parse startpos fen")
+        Self::from_fen(START_FEN, Strict).expect("Internal error: Couldn't parse startpos fen")
     }
 
     fn from_name(name: &str) -> Res<Self> {
-        // this is the default implementation in the parent trait
-        select_name_static(
-            name,
-            Self::name_to_pos_map().iter(),
-            "position",
-            &Self::game_name(),
-            NoDescription,
-        )
-        .map(|f| (f.val)())
-        .or_else(|err| {
+        board_from_name(name).or_else(|err| {
             Self::parse_numbered_startpos(name)
-                .map_err(|err2| format!("{err} It's also not a (D)FRC startpos [{err2}]."))
+                .map_err(|err2| anyhow!("{err} It's also not a (D)FRC startpos [{err2}]."))
         })
     }
 
@@ -199,46 +194,57 @@ impl Board for Chessboard {
                 val: || {
                     Self::from_fen(
                         "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+                        Strict,
                     )
                     .unwrap()
                 },
             },
             GenericSelect {
                 name: "lucena",
-                val: || Self::from_fen("1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1").unwrap(),
+                val: || Self::from_fen("1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1", Strict).unwrap(),
             },
             GenericSelect {
                 name: "philidor",
-                val: || Self::from_fen("3k4/R7/7r/2KP4/8/8/8/8 w - - 0 1").unwrap(),
+                val: || Self::from_fen("3k4/R7/7r/2KP4/8/8/8/8 w - - 0 1", Strict).unwrap(),
             },
             GenericSelect {
                 name: "mate_in_1",
-                val: || Self::from_fen("8/7r/8/K1k5/8/8/4p3/8 b - - 10 11").unwrap(),
+                val: || Self::from_fen("8/7r/8/K1k5/8/8/4p3/8 b - - 10 11", Strict).unwrap(),
             },
             GenericSelect {
                 name: "draw_in_1",
-                val: || Self::from_fen("2B2k2/8/8/5B2/8/8/8/KR6 w - - 99 123").unwrap(),
+                val: || Self::from_fen("2B2k2/8/8/5B2/8/8/8/KR6 w - - 99 123", Strict).unwrap(),
             },
             GenericSelect {
                 name: "unusual",
                 val: || {
                     Self::from_fen(
                         "2kb1b2/pR2P1P1/P1N1P3/1p2Pp2/P5P1/1N6/4P2B/2qR2K1 w - f6 99 123",
+                        Strict,
                     )
                     .unwrap()
                 },
             },
             GenericSelect {
                 name: "see_win_pawn",
-                val: || Self::from_fen("k6q/3n1n2/3b4/2P1p3/3P1P2/3N1NP1/8/1K6 w - - 0 1").unwrap(),
+                val: || {
+                    Self::from_fen("k6q/3n1n2/3b4/2P1p3/3P1P2/3N1NP1/8/1K6 w - - 0 1", Strict)
+                        .unwrap()
+                },
             },
             GenericSelect {
                 name: "see_xray",
-                val: || Self::from_fen("5q1k/8/8/8/RRQ2nrr/8/8/K7 w - - 0 1").unwrap(),
+                val: || Self::from_fen("5q1k/8/8/8/RRQ2nrr/8/8/K7 w - - 0 1", Strict).unwrap(),
             },
             GenericSelect {
                 name: "zugzwang",
-                val: || Self::from_fen("6Q1/8/8/7k/8/8/3p1pp1/3Kbrrb w - - 26 14").unwrap(),
+                val: || Self::from_fen("6Q1/8/8/7k/8/8/3p1pp1/3Kbrrb w - - 26 14", Strict).unwrap(),
+            },
+            GenericSelect {
+                name: "puzzle",
+                val: || {
+                    Self::from_fen("rk6/p1r3p1/P3B1Kp/1p2B3/8/8/8/8 w - - 0 1", Strict).unwrap()
+                },
             },
         ]
     }
@@ -246,7 +252,7 @@ impl Board for Chessboard {
     fn bench_positions() -> Vec<Self> {
         let fens = [
             // fens from Stormphrax, ultimately from bitgenie, with some new fens.
-            "r3k2r/2pb1ppp/2pp1q2/p7/1nP1B3/1P2P3/P2N1PPP/R2QK2R w KQkq a6 0 14",
+            "r3k2r/2pb1ppp/2pp1q2/p7/1nP1B3/1P2P3/P2N1PPP/R2QK2R w KQkq - 0 14",
             "4rrk1/2p1b1p1/p1p3q1/4p3/2P2n1p/1P1NR2P/PB3PP1/3R1QK1 b - - 2 24",
             "r3qbrk/6p1/2b2pPp/p3pP1Q/PpPpP2P/3P1B2/2PB3K/R5R1 w - - 16 42",
             "6k1/1R3p2/6p1/2Bp3p/3P2q1/P7/1P2rQ1K/5R2 b - - 4 44",
@@ -258,7 +264,7 @@ impl Board for Chessboard {
             "4q1bk/6b1/7p/p1p4p/PNPpP2P/KN4P1/3Q4/4R3 b - - 0 37",
             "2q3r1/1r2pk2/pp3pp1/2pP3p/P1Pb1BbP/1P4Q1/R3NPP1/4R1K1 w - - 2 34",
             "1r2r2k/1b4q1/pp5p/2pPp1p1/P3Pn2/1P1B1Q1P/2R3P1/4BR1K b - - 1 37",
-            "r3kbbr/pp1n1p1P/3ppnp1/q5N1/1P1pP3/P1N1B3/2P1QP2/R3KB1R b KQkq b3 0 17",
+            "r3kbbr/pp1n1p1P/3ppnp1/q5N1/1P1pP3/P1N1B3/2P1QP2/R3KB1R b KQkq - 0 17",
             "8/6pk/2b1Rp2/3r4/1R1B2PP/P5K1/8/2r5 b - - 16 42",
             "1r4k1/4ppb1/2n1b1qp/pB4p1/1n1BP1P1/7P/2PNQPK1/3RN3 w - - 8 29",
             "8/p2B4/PkP5/4p1pK/4Pb1p/5P2/8/8 w - - 29 68",
@@ -292,7 +298,7 @@ impl Board for Chessboard {
             "2rqr1k1/1p3p1p/p2p2p1/P1nPb3/2B1P3/5P2/1PQ2NPP/R1R4K w - - 3 25",
             "r1b2rk1/p1q1ppbp/6p1/2Q5/8/4BP2/PPP3PP/2KR1B1R b - - 2 14",
             "6r1/5k2/p1b1r2p/1pB1p1p1/1Pp3PP/2P1R1K1/2P2P2/3R4 w - - 1 36",
-            "rnbqkb1r/pppppppp/5n2/8/2PP4/8/PP2PPPP/RNBQKBNR b KQkq c3 0 2",
+            "rnbqkb1r/pppppppp/5n2/8/2PP4/8/PP2PPPP/RNBQKBNR b KQkq - 0 2",
             "2rr2k1/1p4bp/p1q1p1p1/4Pp1n/2PB4/1PN3P1/P3Q2P/2RR2K1 w - f6 0 20",
             "3br1k1/p1pn3p/1p3n2/5pNq/2P1p3/1PN3PP/P2Q1PB1/4R1K1 w - - 0 23",
             "2r2b2/5p2/5k2/p1r1pP2/P2pB3/1P3P2/K1P3R1/7R w - - 23 93",
@@ -301,8 +307,12 @@ impl Board for Chessboard {
             "2r2rk1/1p3pbp/p3ppp1/8/8/1P2N1P1/1PPP2PP/2KR3R w - - 42 42",
             "7r/pBrkqQ1p/3b4/5b2/8/6P1/PP2PP1P/R1BR2K1 w - - 1 17", // mate in 2
             "k7/3B4/4N3/K7/8/8/8/8 w - - 16 9",                     // KNBvK
+            // maximum number of legal moves (and mate in one)
+            "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1",
+            // the same position with flipped side to move has no legal moves
+            "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 b - - 0 1",
         ];
-        fens.map(|fen| Self::from_fen(fen).unwrap())
+        fens.map(|fen| Self::from_fen(fen, Strict).unwrap())
             .iter()
             .copied()
             .collect_vec()
@@ -508,23 +518,23 @@ impl Board for Chessboard {
         res + &format!(
             " {stm} {castle_rights} {ep_square} {halfmove_clock} {move_number}",
             halfmove_clock = self.ply_100_ctr,
-            move_number = self.fullmove_ctr() + 1
+            move_number = self.fullmove_ctr_1_based()
         )
     }
 
-    fn read_fen_and_advance_input(words: &mut Peekable<SplitWhitespace>) -> Res<Self> {
+    fn read_fen_and_advance_input(words: &mut Tokens, strictness: Strictness) -> Res<Self> {
         let mut board = Chessboard::empty();
         board = read_common_fen_part::<Chessboard>(words, board)?;
         let color = board.0.active_player();
-        let castling_word = words
-            .next()
-            .ok_or_else(|| "FEN ends after color to move, missing castling rights".to_string())?;
+        let Some(castling_word) = words.next() else {
+            bail!("FEN ends after color to move, missing castling rights")
+        };
         let castling_rights =
-            CastlingFlags::default().parse_castling_rights(castling_word, &board.0)?;
+            CastlingFlags::default().parse_castling_rights(castling_word, &board.0, strictness)?;
 
-        let ep_square = words.next().ok_or_else(|| {
-            "FEN ends after castling rights, missing en passant square".to_string()
-        })?;
+        let Some(ep_square) = words.next() else {
+            bail!("FEN ends after castling rights, missing en passant square")
+        };
         let ep_square = if ep_square == "-" {
             None
         } else {
@@ -532,9 +542,12 @@ impl Board for Chessboard {
             let ep_capturing = square.bb().pawn_advance(!color);
             let ep_capturing = ep_capturing.west() | ep_capturing.east();
             // The current FEN standard disallows giving an ep square unless a pawn can legally capture.
-            // This library instead uses pseudolegal ep captures, but some existing programs give   fens that contain an
-            // ep square after every double pawn push, so we silently ignore those invalid ep squares.
+            // This library instead uses pseudolegal ep captures, but some existing programs give fens that contain an
+            // ep square after every double pawn push, so we silently ignore those invalid ep squares unless in strict mode.
             if (board.0.colored_piece_bb(color, Pawn) & ep_capturing).is_zero() {
+                if strictness == Strict {
+                    bail!("The ep square is set to {ep_square} even though no pawn can recapture. In strict mode, this is not allowed")
+                }
                 None
             } else {
                 Some(square)
@@ -546,18 +559,20 @@ impl Board for Chessboard {
         // the halfmove clock fails -- but don't do this for the fullmove number.
         if let Ok(halfmove_clock) = halfmove_clock.parse::<usize>() {
             board = board.set_halfmove_repetition_clock(halfmove_clock);
-            let fullmove_number = words.next().ok_or_else(|| {
-                format!(
+            let Some(fullmove_number) = words.next() else {
+                bail!(
                     "The FEN contains a valid halfmove clock ('{halfmove_clock}') but no fullmove counter",
                 )
-            })?;
+            };
             let fullmove_number = fullmove_number.parse::<NonZeroUsize>().map_err(|err| {
-                format!(
+                anyhow!(
                     "Couldn't parse fullmove counter '{}': {err}",
-                    fullmove_number.red()
+                    fullmove_number.error()
                 )
             })?;
-            board.0.ply = (fullmove_number.get() - 1) * 2 + usize::from(color == Black);
+            board.0.ply = ply_counter_from_fullmove_nr::<Chessboard>(fullmove_number, color);
+        } else if strictness == Strict {
+            bail!("FEN doesn't contain a halfmove clock and fullmove counter, but they are required in strict mode")
         } else {
             board.0.ply_100_ctr = 0;
             board.0.ply = usize::from(color == Black);
@@ -565,7 +580,11 @@ impl Board for Chessboard {
         board.0.active_player = color;
         board.0.castling = castling_rights;
         // also sets the zobrist hash
-        board.verify_with_level(CheckFen)
+        board.verify_with_level(CheckFen, strictness)
+    }
+
+    fn should_flip_visually() -> bool {
+        true
     }
 
     fn as_ascii_diagram(&self, flip: bool) -> String {
@@ -574,6 +593,57 @@ impl Board for Chessboard {
 
     fn as_unicode_diagram(&self, flip: bool) -> String {
         board_to_string(self, ChessPiece::to_utf8_char, flip)
+    }
+
+    fn display_pretty(&self, display_coordinates: &mut dyn BoardFormatter<Self>) -> String {
+        display_board_pretty(self, display_coordinates)
+    }
+
+    fn pretty_formatter(
+        &self,
+        piece_to_char: Option<PieceToChar>,
+        last_move: Option<ChessMove>,
+    ) -> Box<dyn BoardFormatter<Self>> {
+        let pos = *self;
+        let king_square = self.king_square(self.active_player);
+        let color_frame = Box::new(move |square, col| {
+            if pos.is_in_check() && square == king_square {
+                Some(Red)
+            } else {
+                col
+            }
+        });
+        Box::new(AdaptFormatter {
+            underlying: Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move)),
+            color_frame,
+            display_piece: Box::new(move |square, width, _default| {
+                let piece = pos.colored_piece_on(square);
+                if piece.is_empty() {
+                    if square.square_color() == SquareColor::White {
+                        " ".repeat(width)
+                    } else {
+                        // call .dimmed() after formatting the width because crossterm seems to count the dimming escape sequences
+                        format!("{:^1$}", "*", width).dimmed().to_string()
+                    }
+                } else {
+                    let c = if piece_to_char.unwrap_or(PieceToChar::Ascii) == PieceToChar::Ascii {
+                        piece.to_ascii_char()
+                    } else {
+                        // uncolored because some fonts have trouble with black pawns, and some make white pieces hard to see
+                        piece.uncolored().to_utf8_char()
+                    };
+                    let s = format!("{c:^0$}", width);
+                    s.with(display_color(piece.color().unwrap())).to_string()
+                }
+            }),
+            horizontal_spacer_interval: None,
+            vertical_spacer_interval: None,
+            square_width: None,
+        })
+    }
+
+    fn background_color(&self, square: ChessSquare) -> SquareColor {
+        square.square_color()
     }
 }
 
@@ -589,6 +659,10 @@ impl Chessboard {
 
     pub fn active_player_bb(&self) -> ChessBitboard {
         self.colored_bb(self.active_player)
+    }
+
+    pub fn inactive_player_bb(&self) -> ChessBitboard {
+        self.colored_bb(self.inactive_player())
     }
 
     pub fn occupied_bb(&self) -> ChessBitboard {
@@ -608,21 +682,6 @@ impl Chessboard {
         self.colored_bb(color) & self.piece_bb(piece)
     }
 
-    // fn try_place_piece(&mut self, square: ChessSquare, piece: ColoredChessPieceType) -> Res<()> {
-    //     let idx = square.bb_idx();
-    //     if idx >= NUM_SQUARES {
-    //         return Err(format!("Coordinates {square} are outside the chess board"));
-    //     }
-    //     if self.is_occupied(square) {
-    //         return Err(format!("Square {square} is occupied"));
-    //     }
-    //     if piece == ColoredChessPieceType::Empty {
-    //         return Err("Can't place the empty piece".to_string());
-    //     }
-    //     self.place_piece(square, piece);
-    //     Ok(())
-    // }
-
     fn remove_piece_unchecked(
         &mut self,
         square: ChessSquare,
@@ -636,11 +695,34 @@ impl Chessboard {
         let bb = square.bb().raw();
         self.piece_bbs[piece as usize] ^= bb;
         self.color_bbs[color as usize] ^= bb;
+        // It's not really clear how to so handle these flags when removing pieces, so we just unset them on a best effort basis
+        if piece == Rook {
+            for side in CastleRight::iter() {
+                if self.castling.rook_start_file(color, side) == square.file()
+                    && square.rank() == 7 * color as DimT
+                {
+                    self.castling.unset_castle_right(color, side);
+                }
+            }
+        } else if piece == Pawn {
+            if self
+                .ep_square
+                .is_some_and(|sq| sq.pawn_advance_unchecked(color) == square)
+            {
+                self.ep_square = None;
+            }
+        }
     }
 
     fn move_piece(&mut self, from: ChessSquare, to: ChessSquare, piece: ChessPieceType) {
         debug_assert_ne!(piece, Empty);
-        debug_assert_eq!(self.piece_type_on(from), piece);
+        // for a castling move, the rook has already been moved to the square still occupied by the king
+        debug_assert!(
+            self.piece_type_on(from) == piece
+                || (piece == King && self.piece_type_on(from) == Rook),
+            "{}",
+            self.piece_type_on(from)
+        );
         debug_assert_eq!(
             self.active_player,
             self.colored_piece_on(from).color().unwrap()
@@ -719,7 +801,7 @@ impl Chessboard {
         mut board: UnverifiedChessboard,
     ) -> Res<UnverifiedChessboard> {
         if num >= 960 {
-            return Err(format!("There are only 960 starting positions in chess960 (0 to 959), so position {num} doesn't exist"));
+            bail!("There are only 960 starting positions in chess960 (0 to 959), so position {num} doesn't exist");
         }
         assert!(board.0.colored_bb(color).is_zero());
         assert_eq!((board.0.occupied_bb().raw() & 0xffff), 0);
@@ -804,7 +886,7 @@ impl Chessboard {
         res.0.color_bbs[White as usize] = RawStandardBitboard::default();
         res = Self::chess960_startpos_white(white_num, White, res)?;
         // the hash is computed in the verify method
-        Ok(res.verify_with_level(Assertion).expect("Internal error: Setting up a Chess960 starting position resulted in an invalid position"))
+        Ok(res.verify_with_level(Assertion, Strict).expect("Internal error: Setting up a Chess960 starting position resulted in an invalid position"))
     }
 
     pub fn dfrc_startpos_from_single_num(num: usize) -> Res<Self> {
@@ -824,8 +906,8 @@ impl Chessboard {
                     .and_then(|num: usize| Self::dfrc_startpos_from_single_num(num));
             }
         }
-        Err(format!("(D)FRC positions must be of the format {0} or {1}, with N < 960 and M < 921600, e.g. frc123",
-            "frc<N>".bold(), "dfrc<M>".bold()))
+        bail!("(D)FRC positions must be of the format {0} or {1}, with N < 960 and M < 921600, e.g. frc123",
+            "frc<N>".important(), "dfrc<M>".important())
     }
 }
 
@@ -846,19 +928,17 @@ impl From<Chessboard> for UnverifiedChessboard {
 }
 
 impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
-    fn verify_with_level(self, checks: SelfChecks) -> Res<Chessboard> {
+    fn verify_with_level(self, checks: SelfChecks, strictness: Strictness) -> Res<Chessboard> {
         let mut this = self.0;
         for color in ChessColor::iter() {
             if !this.colored_piece_bb(color, King).is_single_piece() {
-                return Err(format!("The {color} player does not have exactly one king"));
+                bail!("The {color} player does not have exactly one king")
             }
             if (this.colored_piece_bb(color, Pawn)
                 & (ChessBitboard::rank_no(0) | ChessBitboard::rank_no(7)))
             .has_set_bit()
             {
-                return Err(format!(
-                    "The {color} player has a pawn on the first or eight rank"
-                ));
+                bail!("The {color} player has a pawn on the first or eight rank");
             }
         }
 
@@ -868,14 +948,14 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                     & this.colored_piece_bb(color, Rook))
                 .has_set_bit();
                 if this.castling.can_castle(color, side) && !has_eligible_rook {
-                    return Err(format!(
+                    bail!(
                         "Color {color} can castle {side}, but there is no rook to castle{}",
                         if checks == CheckFen {
                             " (invalid castling flag in FEN?)"
                         } else {
                             ""
                         }
-                    ));
+                    );
                 }
             }
         }
@@ -883,58 +963,81 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
 
         if let Some(ep_square) = this.ep_square {
             if ![2, 5].contains(&ep_square.rank()) {
-                return Err(format!(
+                bail!(
                     "FEN specifies invalid ep square (not on the third or sixth rank): '{ep_square}'"
-                ));
+                );
             }
             let remove_pawn_square = ep_square.pawn_advance_unchecked(inactive_player);
+            let pawn_origin_square = ep_square.pawn_advance_unchecked(this.active_player);
             if this.colored_piece_on(remove_pawn_square).symbol
                 != ColoredChessPieceType::new(inactive_player, Pawn)
             {
-                return Err(format!("FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}"));
+                bail!("FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}");
+            } else if !this.is_empty(ep_square) {
+                bail!(
+                    "The en passant square ({ep_square}) must be empty, but it's occupied by a {}",
+                    this.piece_type_on(ep_square).name()
+                )
+            } else if !this.is_empty(pawn_origin_square) {
+                bail!("The en passant square is set to {ep_square}, so the pawn must have come from {pawn_origin_square}. But this square isn't empty")
             }
             let active = this.active_player();
             // In the current version of the FEN standard, the ep square should only be set if a pawn can capture.
             // This implementation follows that rule, but many other implementations give the ep square after every double pawn push.
-            // To achieve consistent results, such an incorrect ep square is removed when parsing the FEN; it should
+            // To achieve consistent results, such an incorrect ep square is removed when parsing the FEN in Relaxed mode; it should
             // no longer exist at this point.
-            if checks != CheckFen {
+            if checks != CheckFen || strictness == Strict {
                 let possible_ep_pawns =
                     remove_pawn_square.bb().west() | remove_pawn_square.bb().east();
                 if (possible_ep_pawns & this.colored_piece_bb(active, Pawn)).is_zero() {
-                    return Err(format!("The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square"))   ;
+                    bail!("The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square");
                 }
             }
         }
 
         if this.is_in_check_on_square(inactive_player, this.king_square(inactive_player)) {
-            return Err(format!(
-                "Player {inactive_player} is in check, but it's not their turn to move"
-            ));
+            bail!("Player {inactive_player} is in check, but it's not their turn to move");
+        } else if strictness == Strict {
+            let checkers = this.all_attacking(this.king_square(this.active_player))
+                & this.inactive_player_bb();
+            let num_attacking = checkers.num_ones();
+            if num_attacking > 2 {
+                bail!(
+                    "{} is in check from {num_attacking} pieces, which is not allowed in strict mode",
+                    this.active_player
+                )
+            }
         }
         // we allow loading FENs where more than one piece gives check to the king in a way that could not have been reached
         // from startpos, e.g. "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1"
         if this.ply_100_ctr >= 100 {
-            return Err(format!(
+            bail!(
                 "The 50 move rule has been exceeded (there have already been {0} plies played)",
                 this.ply_100_ctr
-            ));
-        }
-        if this.ply >= 100_000 {
-            return Err(format!("Ridiculously large ply counter: {0}", this.ply));
+            );
+        } else if this.ply >= 100_000 {
+            bail!("Ridiculously large ply counter: {0}", this.ply);
+        } else if strictness == Strict && this.ply_100_ctr > this.ply {
+            bail!("The halfmove repetition clock ({0}) is larger than the number of played half moves ({1}), \
+                which is not allowed in strict mode", this.ply_100_ctr, this.ply)
         }
 
+        let mut num_promoted_pawns: [isize; 2] = [0, 0];
+        let startpos_piece_count = [8, 2, 2, 2, 1, 1];
         for piece in ColoredChessPieceType::pieces() {
             let color = piece.color().unwrap();
             let bb = this.colored_piece_bb(color, piece.uncolor());
             if bb.num_ones() > 20 {
                 // Catch this now to prevent crashes down the line because the move list is too small for made-up invalid positions.
                 // (This is lax enough to allow many invalid positions that likely won't lead to a crash)
-                return Err(format!(
+                bail!(
                     "There are {0} {color} {piece}s in this position. There can never be more than 10 pieces \
-                    of the same type in a legal chess position (but this implementation accepts up to 20)",
+                    of the same type in a legal chess position (but this implementation accepts up to 20 in non-strict mode)",
                     bb.num_ones()
-                ));
+                );
+            } else if strictness == Strict {
+                num_promoted_pawns[color as usize] +=
+                    0.max(bb.num_ones() as isize - startpos_piece_count[piece.uncolor() as usize]);
             }
             if checks != CheckFen {
                 for other_piece in ColoredChessPieceType::pieces() {
@@ -946,11 +1049,15 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                             .colored_piece_bb(other_piece.color().unwrap(), other_piece.uncolor()))
                     .has_set_bit()
                     {
-                        return Err(format!(
-                            "There are two pieces on the same square: {piece} and {other_piece}"
-                        ));
+                        bail!("There are two pieces on the same square: {piece} and {other_piece}");
                     }
                 }
+            }
+        }
+        for color in ChessColor::iter() {
+            let num_pawns = this.colored_piece_bb(color, Pawn).num_ones() as isize;
+            if strictness == Strict && num_promoted_pawns[color as usize] + num_pawns > 8 {
+                bail!("Incorrect piece distribution for {color}")
             }
         }
         this.hash = this.compute_zobrist();
@@ -1016,6 +1123,7 @@ mod tests {
     use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
     use crate::games::{Coordinates, NoHistory, RectangularCoordinates, ZobristHistory};
     use crate::general::board::RectangularBoard;
+    use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::Move;
     use crate::general::perft::perft;
     use crate::search::Depth;
@@ -1033,8 +1141,8 @@ mod tests {
         assert_eq!(board.0.width(), 8);
         assert_eq!(board.0.height(), 8);
         assert_eq!(board.0.halfmove_ctr_since_start(), 0);
-        assert_eq!(board.0.fullmove_ctr(), 0);
-        assert!(board.verify().is_err());
+        assert_eq!(board.0.fullmove_ctr_0_based(), 0);
+        assert!(board.verify(Relaxed).is_err());
     }
 
     #[test]
@@ -1045,7 +1153,7 @@ mod tests {
         assert_eq!(board.width(), 8);
         assert_eq!(board.height(), 8);
         assert_eq!(board.halfmove_ctr_since_start(), 0);
-        assert_eq!(board.fullmove_ctr(), 0);
+        assert_eq!(board.fullmove_ctr_1_based(), 1);
         assert_eq!(board.ply, 0);
         assert_eq!(board.ply_100_ctr, 0);
         assert!(board.ep_square.is_none());
@@ -1098,17 +1206,21 @@ mod tests {
             "q0018446744073709551615",
             "QQQQKQQQ\nwV0 \n",
             "kQQQQQDDw-W0w",
+            "2rr2k1/1p4bp/p1q1pqp1/4Pp1n/2PB4/1PN3P1/P3Q2P/2Rr2K1 w - f6 0 20",
+            // TODO: Allow this? Requires larger move list?
+            "QQQQQQBk/Q6B/Q6Q/Q6Q/Q6Q/Q6Q/Q6Q/KQQQQQQQ w - - 0 1",
         ];
         for fen in fens {
-            let pos = Chessboard::from_fen(fen);
+            let pos = Chessboard::from_fen(fen, Relaxed);
             assert!(pos.is_err());
         }
+        // TODO: Fens that parse as Relaxed but not strict
     }
 
     #[test]
     fn simple_fen_test() {
         let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w Qk - 0 1";
-        let board = Chessboard::from_fen(fen).unwrap();
+        let board = Chessboard::from_fen(fen, Strict).unwrap();
         assert!(!board.castling.can_castle(White, Kingside));
         assert!(board.castling.can_castle(White, Queenside));
         assert!(board.castling.can_castle(Black, Kingside));
@@ -1119,73 +1231,99 @@ mod tests {
             "QQKBnknn/8/8/8/8/8/8/8 w - - 0 1",
             "b5k1/b3Q3/3Q1Q2/5Q2/K1bQ1Qb1/2bbbbb1/6Q1/3QQ2b b - - 0 1",
             "rnbq1bn1/pppppp1p/8/K7/5k2/8/PPPP1PPP/RNBQ1BNR w - - 0 1",
-            &Chessboard::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w HhAa - 0 1")
-                .unwrap()
-                .as_fen(),
+            &Chessboard::from_fen(
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w HhAa - 0 1",
+                Strict,
+            )
+            .unwrap()
+            .as_fen(),
             "rnbqkbnr/1ppppppp/p7/8/8/8/PPPPPPP1/RNBQKBN1 w Ah - 0 1",
-            "rnbqkbnr/1ppppppp/p7/8/3pP3/8/PPPP1PP1/RNBQKBN1 b Ah e3 0 1",
+            "rnbqkbnr/1ppppppp/p7/8/3pP3/8/PPPP1PP1/RNBQKBN1 b Ah e3 3 1",
             // chess960 fens (from webperft):
             "1rqbkrbn/1ppppp1p/1n6/p1N3p1/8/2P4P/PP1PPPP1/1RQBKRBN w FBfb - 0 9",
-            "rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9",
-            "rqbbknr1/1ppp2pp/p5n1/4pp2/P7/1PP5/1Q1PPPPP/R1BBKNRN w GAga - 0 9",
+            "rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 1 42",
+            "rqbbknr1/1ppp2pp/p5n1/4pp2/P7/1PP5/1Q1PPPPP/R1BBKNRN w GAga - 42 9",
         ];
         for fen in fens {
-            let board = Chessboard::from_fen(fen).unwrap();
+            let board = Chessboard::from_fen(fen, Relaxed).unwrap();
             assert_eq!(fen, board.as_fen());
-            assert_eq!(board, Chessboard::from_fen(&board.as_fen()).unwrap());
+            assert_eq!(
+                board,
+                Chessboard::from_fen(&board.as_fen(), Relaxed).unwrap()
+            );
         }
     }
 
     #[test]
     fn invalid_castle_right_test() {
         let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w AQk - 0 1";
-        let board = Chessboard::from_fen(fen);
+        let board = Chessboard::from_fen(fen, Relaxed);
         assert!(board.is_err());
+    }
+
+    #[test]
+    fn failed_fuzz_test() {
+        let pos = Chessboard::from_fen(
+            "r2k3r/ppp1pp1p/2nqb1Nn/3P4/4P3/2PP4/PR1NBPPP/R2NKRQ1 w KQkq - 1 5",
+            Relaxed,
+        )
+        .unwrap();
+        pos.debug_verify_invariants(Relaxed).unwrap();
+        for mov in pos.legal_moves_slow() {
+            let new_pos = pos.make_move(mov).unwrap_or(pos);
+            new_pos.debug_verify_invariants(Relaxed).unwrap();
+        }
+        let mov = ChessMove::from_text("sB3x", &pos);
+        assert!(mov.is_err());
     }
 
     #[test]
     fn simple_perft_test() {
         let endgame_fen = "6k1/8/6K1/8/3B1N2/8/8/7R w - - 0 1";
-        let board = Chessboard::from_fen(endgame_fen).unwrap();
-        let perft_res = perft(Depth::new(1), board);
-        assert_eq!(perft_res.depth, Depth::new(1));
+        let board = Chessboard::from_fen(endgame_fen, Relaxed).unwrap();
+        let perft_res = perft(Depth::new_unchecked(1), board);
+        assert_eq!(perft_res.depth, Depth::new_unchecked(1));
         assert_eq!(perft_res.nodes, 5 + 7 + 13 + 14);
         assert!(perft_res.time.as_millis() <= 1);
         let board = Chessboard::default();
-        let perft_res = perft(Depth::new(1), board);
-        assert_eq!(perft_res.depth, Depth::new(1));
+        let perft_res = perft(Depth::new_unchecked(1), board);
+        assert_eq!(perft_res.depth, Depth::new_unchecked(1));
         assert_eq!(perft_res.nodes, 20);
         assert!(perft_res.time.as_millis() <= 2);
-        let perft_res = perft(Depth::new(2), board);
-        assert_eq!(perft_res.depth, Depth::new(2));
+        let perft_res = perft(Depth::new_unchecked(2), board);
+        assert_eq!(perft_res.depth, Depth::new_unchecked(2));
         assert_eq!(perft_res.nodes, 20 * 20);
         assert!(perft_res.time.as_millis() <= 20);
 
-        let board =
-            Chessboard::from_fen("r1bqkbnr/1pppNppp/p1n5/8/8/8/PPPPPPPP/R1BQKBNR b KQkq - 0 3")
-                .unwrap();
-        let perft_res = perft(Depth::new(1), board);
+        let board = Chessboard::from_fen(
+            "r1bqkbnr/1pppNppp/p1n5/8/8/8/PPPPPPPP/R1BQKBNR b KQkq - 0 3",
+            Strict,
+        )
+        .unwrap();
+        let perft_res = perft(Depth::new_unchecked(1), board);
         assert_eq!(perft_res.nodes, 26);
-        assert_eq!(perft(Depth::new(3), board).nodes, 16790);
+        assert_eq!(perft(Depth::new_unchecked(3), board).nodes, 16790);
 
         let board = Chessboard::from_fen(
             "rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9",
+            Strict,
         )
         .unwrap();
-        let perft_res = perft(Depth::new(4), board);
+        let perft_res = perft(Depth::new_unchecked(4), board);
         assert_eq!(perft_res.nodes, 890_435);
 
         // DFRC
         let board = Chessboard::from_fen(
             "r1q1k1rn/1p1ppp1p/1npb2b1/p1N3p1/8/1BP4P/PP1PPPP1/1RQ1KRBN w BFag - 0 9",
+            Strict,
         )
         .unwrap();
-        assert_eq!(perft(Depth::new(4), board).nodes, 1_187_103);
+        assert_eq!(perft(Depth::new_unchecked(4), board).nodes, 1_187_103);
     }
 
     #[test]
     fn mate_test() {
-        let board = Chessboard::from_fen("4k3/8/4K3/8/8/8/8/6R1 w - - 0 1").unwrap();
+        let board = Chessboard::from_fen("4k3/8/4K3/8/8/8/8/6R1 w - - 0 1", Strict).unwrap();
         let moves = board.pseudolegal_moves();
         for mov in moves {
             if mov.src_square() == board.king_square(White) {
@@ -1269,10 +1407,10 @@ mod tests {
     #[test]
     fn checkmate_test() {
         let fen = "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3";
-        let pos = Chessboard::from_fen(fen).unwrap();
+        let pos = Chessboard::from_fen(fen, Strict).unwrap();
         assert_eq!(pos.active_player, White);
         assert_eq!(pos.ply, 4);
-        assert!(pos.debug_verify_invariants().is_ok());
+        assert!(pos.debug_verify_invariants(Strict).is_ok());
         assert!(pos.is_in_check());
         assert!(pos.is_in_check_on_square(White, pos.king_square(White)));
         let moves = pos.pseudolegal_moves();
@@ -1283,6 +1421,27 @@ mod tests {
         assert_eq!(pos.player_result_slow(&NoHistory::default()), Some(Lose));
         assert!(!pos.is_stalemate_slow());
         assert!(pos.make_nullmove().is_none());
+        // this position can be claimed as a draw according to FIDE rules but it's also a mate in 1
+        let pos = Chessboard::from_fen("k7/p1P5/1PK5/8/8/8/8/8 w - - 99 51", Strict).unwrap();
+        assert!(pos.match_result_slow(&NoHistory::default()).is_none());
+        let mut draws = 0;
+        let mut wins = 0;
+        for mov in pos.legal_moves_slow() {
+            let new_pos = pos.make_move(mov).unwrap();
+            if let Some(res) = new_pos.player_result_slow(&NoHistory::default()) {
+                match res {
+                    PlayerResult::Win => {
+                        unreachable!("The other player can't win through one of our moves")
+                    }
+                    Lose => {
+                        wins += 1;
+                    }
+                    Draw => draws += 1,
+                }
+            }
+        }
+        assert_eq!(draws, 5);
+        assert_eq!(wins, 3);
     }
 
     #[test]
@@ -1290,21 +1449,31 @@ mod tests {
         // There's a similar test in `motors`
         // This fen is actually a legal chess position
         let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
-        let board = Chessboard::from_fen(fen).unwrap();
+        let board = Chessboard::from_fen(fen, Strict).unwrap();
         assert_eq!(board.active_player, White);
-        assert_eq!(perft(Depth::new(3), board).nodes, 568_299);
+        assert_eq!(perft(Depth::new_unchecked(3), board).nodes, 568_299);
         // not a legal chess position, but the board should support this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
-        let board = Chessboard::from_fen(fen).unwrap();
+        assert!(Chessboard::from_fen(fen, Strict).is_err());
+        let board = Chessboard::from_fen(fen, Relaxed).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 3);
         let mut rng = thread_rng();
         let mov = board.random_legal_move(&mut rng).unwrap();
         let board = board.make_move(mov).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 2);
         let fen = "B4Q1b/8/8/8/2K3P1/5k2/8/b4RNB b - - 0 1"; // far too many checks, but we still accept it
-        let board = Chessboard::from_fen(fen).unwrap();
+        assert!(Chessboard::from_fen(fen, Strict).is_err());
+        let board = Chessboard::from_fen(fen, Relaxed).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 8 + 2 * 6);
         assert_eq!(board.legal_moves_slow().len(), 3);
+        // maximum number of legal moves in any position reachable from startpos
+        let fen = "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1";
+        let board = Chessboard::from_fen(fen, Strict).unwrap();
+        assert_eq!(board.legal_moves_slow().len(), 218);
+        assert!(board.debug_verify_invariants(Strict).is_ok());
+        let board = board.flip_side_to_move().unwrap();
+        assert!(board.legal_moves_slow().is_empty());
+        assert_eq!(board.player_result_slow(&NoHistory::default()), Some(Draw));
     }
 
     #[test]
@@ -1313,7 +1482,7 @@ mod tests {
         let mut startpos_found = false;
         for i in 0..960 {
             let board = Chessboard::chess_960_startpos(i).unwrap();
-            assert!(board.debug_verify_invariants().is_ok());
+            assert!(board.debug_verify_invariants(Strict).is_ok());
             assert!(fens.insert(board.as_fen()));
             let num_moves = board.pseudolegal_moves().len();
             assert!((18..=21).contains(&num_moves)); // 21 legal moves because castling can be legal
@@ -1335,7 +1504,7 @@ mod tests {
     #[test]
     fn castling_attack_test() {
         let fen = "8/8/8/8/8/8/3k4/RK6 b A - 0 1";
-        let pos = Chessboard::from_fen(fen).unwrap();
+        let pos = Chessboard::from_fen(fen, Strict).unwrap();
         let moves = pos.legal_moves_slow();
         // check that castling moves don't count as attacking squares
         assert!(pos.castling.can_castle(White, Queenside));
@@ -1343,7 +1512,7 @@ mod tests {
         let attacking = pos.all_attacking(ChessSquare::from_str("d1").unwrap());
         assert_eq!(attacking.num_ones(), 1);
         let fen = "8/8/8/3k4/8/8/8/1KRn4 w C - 0 1";
-        let pos = Chessboard::from_fen(fen).unwrap();
+        let pos = Chessboard::from_fen(fen, Strict).unwrap();
         assert!(pos.castling.can_castle(White, Kingside));
         assert!(ChessMove::from_extended_text("0-0", &pos).is_err());
     }
@@ -1376,7 +1545,7 @@ mod tests {
             "8/2nk4/8/8/8/8/1NN5/1K6 w - - 0 1",
         ];
         for fen in insufficient {
-            let board = Chessboard::from_fen(fen).unwrap();
+            let board = Chessboard::from_fen(fen, Strict).unwrap();
             assert!(board.has_insufficient_material(), "{fen}");
             assert!(!board.can_reasonably_win(board.active_player), "{fen}");
             assert!(
@@ -1385,12 +1554,12 @@ mod tests {
             );
         }
         for fen in sufficient {
-            let board = Chessboard::from_fen(fen).unwrap();
+            let board = Chessboard::from_fen(fen, Strict).unwrap();
             assert!(!board.has_insufficient_material(), "{fen}");
             assert!(board.can_reasonably_win(board.active_player), "{fen}");
         }
         for fen in sufficient_but_unreasonable {
-            let board = Chessboard::from_fen(fen).unwrap();
+            let board = Chessboard::from_fen(fen, Strict).unwrap();
             assert!(!board.has_insufficient_material(), "{fen}");
             assert!(!board.can_reasonably_win(board.active_player), "{fen}");
         }

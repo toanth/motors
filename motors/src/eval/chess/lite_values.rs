@@ -17,14 +17,15 @@
  */
 
 use crate::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
-use crate::eval::ScoreType;
+use crate::eval::{ScoreType, SingleFeatureScore};
 use gears::games::chess::pieces::ChessPieceType::Knight;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::ChessColor;
 use gears::games::chess::ChessColor::White;
+use gears::general::common::StaticallyNamedEntity;
 use gears::score::{p, PhasedScore};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 
 #[rustfmt::skip]
 const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = [
@@ -444,49 +445,55 @@ const KING_ZONE_ATTACK: [PhasedScore; 6] = [
     p(6, 19),
 ];
 
-#[allow(type_alias_bounds)]
-pub type SingleFeatureScore<L: LiteValues> = <L::Score as ScoreType>::SingleFeatureScore;
-
 /// This is a trait because there are two different instantiations:
 /// The normal eval values and the version used by the tuner, where these functions return traces.
-pub trait LiteValues: Debug + Default + Copy + Clone + Send + 'static {
+pub trait LiteValues:
+    Debug + Default + Copy + Clone + Send + 'static + StaticallyNamedEntity
+{
     type Score: ScoreType;
 
     fn psqt(
+        &self,
         square: ChessSquare,
         piece: ChessPieceType,
         color: ChessColor,
-    ) -> SingleFeatureScore<Self>;
+    ) -> SingleFeatureScore<Self::Score>;
 
-    fn passed_pawn(square: ChessSquare) -> SingleFeatureScore<Self>;
+    fn passed_pawn(square: ChessSquare) -> SingleFeatureScore<Self::Score>;
 
-    fn unsupported_pawn() -> SingleFeatureScore<Self>;
+    fn unsupported_pawn() -> SingleFeatureScore<Self::Score>;
 
-    fn doubled_pawn() -> SingleFeatureScore<Self>;
+    fn doubled_pawn() -> SingleFeatureScore<Self::Score>;
 
-    fn bishop_pair() -> SingleFeatureScore<Self>;
+    fn bishop_pair() -> SingleFeatureScore<Self::Score>;
 
-    fn rook_openness(openness: FileOpenness) -> SingleFeatureScore<Self>;
+    fn rook_openness(openness: FileOpenness) -> SingleFeatureScore<Self::Score>;
 
-    fn king_openness(openness: FileOpenness) -> SingleFeatureScore<Self>;
+    fn king_openness(openness: FileOpenness) -> SingleFeatureScore<Self::Score>;
 
-    fn bishop_openness(openness: FileOpenness, len: usize) -> SingleFeatureScore<Self>;
+    fn bishop_openness(openness: FileOpenness, len: usize) -> SingleFeatureScore<Self::Score>;
 
-    fn outpost(piece: ChessPieceType) -> SingleFeatureScore<Self>;
+    fn pawn_shield(&self, color: ChessColor, config: usize) -> SingleFeatureScore<Self::Score>;
 
-    fn pawn_shield(config: usize) -> SingleFeatureScore<Self>;
+    fn outpost(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 
-    fn pawn_protection(piece: ChessPieceType) -> SingleFeatureScore<Self>;
+    fn pawn_protection(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 
-    fn pawn_attack(piece: ChessPieceType) -> SingleFeatureScore<Self>;
+    fn pawn_attack(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 
-    fn mobility(piece: ChessPieceType, mobility: usize) -> SingleFeatureScore<Self>;
+    fn mobility(piece: ChessPieceType, mobility: usize) -> SingleFeatureScore<Self::Score>;
 
-    fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> SingleFeatureScore<Self>;
+    fn threats(
+        attacking: ChessPieceType,
+        targeted: ChessPieceType,
+    ) -> SingleFeatureScore<Self::Score>;
 
-    fn defended(protecting: ChessPieceType, target: ChessPieceType) -> SingleFeatureScore<Self>;
+    fn defended(
+        protecting: ChessPieceType,
+        target: ChessPieceType,
+    ) -> SingleFeatureScore<Self::Score>;
 
-    fn king_zone_attack(attacking: ChessPieceType) -> SingleFeatureScore<Self>;
+    fn king_zone_attack(attacking: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 }
 
 /// Eval values tuned on a combination of the zurichess dataset and a dataset used by 4ku,
@@ -495,30 +502,53 @@ pub trait LiteValues: Debug + Default + Copy + Clone + Send + 'static {
 #[derive(Debug, Default, Copy, Clone)]
 pub struct Lite {}
 
+impl StaticallyNamedEntity for Lite {
+    fn static_short_name() -> impl Display
+    where
+        Self: Sized,
+    {
+        "LiTE"
+    }
+
+    fn static_long_name() -> String
+    where
+        Self: Sized,
+    {
+        "Chess LiTE: Linear Tuned Eval for Chess".to_string()
+    }
+
+    fn static_description() -> String
+    where
+        Self: Sized,
+    {
+        "A classical evaluation for chess, tuned using 'pliers'".to_string()
+    }
+}
+
 impl LiteValues for Lite {
     type Score = PhasedScore;
 
-    fn psqt(square: ChessSquare, piece: ChessPieceType, color: ChessColor) -> Self::Score {
+    fn psqt(&self, square: ChessSquare, piece: ChessPieceType, color: ChessColor) -> Self::Score {
         PSQTS[piece as usize][square.flip_if(color == White).bb_idx()]
     }
 
-    fn passed_pawn(square: ChessSquare) -> Self::Score {
+    fn passed_pawn(square: ChessSquare) -> PhasedScore {
         PASSED_PAWNS[square.bb_idx()]
     }
 
-    fn unsupported_pawn() -> SingleFeatureScore<Self> {
+    fn unsupported_pawn() -> PhasedScore {
         UNSUPPORTED_PAWN
     }
 
-    fn doubled_pawn() -> SingleFeatureScore<Self> {
+    fn doubled_pawn() -> PhasedScore {
         DOUBLED_PAWN
     }
 
-    fn bishop_pair() -> Self::Score {
+    fn bishop_pair() -> SingleFeatureScore<Self::Score> {
         BISHOP_PAIR
     }
 
-    fn rook_openness(openness: FileOpenness) -> Self::Score {
+    fn rook_openness(openness: FileOpenness) -> SingleFeatureScore<Self::Score> {
         match openness {
             FileOpenness::Open => ROOK_OPEN_FILE,
             FileOpenness::Closed => ROOK_CLOSED_FILE,
@@ -527,7 +557,7 @@ impl LiteValues for Lite {
         }
     }
 
-    fn king_openness(openness: FileOpenness) -> Self::Score {
+    fn king_openness(openness: FileOpenness) -> SingleFeatureScore<Self::Score> {
         match openness {
             FileOpenness::Open => KING_OPEN_FILE,
             FileOpenness::Closed => KING_CLOSED_FILE,
@@ -536,38 +566,44 @@ impl LiteValues for Lite {
         }
     }
 
-    fn bishop_openness(openness: FileOpenness, len: usize) -> SingleFeatureScore<Self> {
+    fn bishop_openness(openness: FileOpenness, len: usize) -> PhasedScore {
         BISHOP_OPENNESS[openness as usize][len - 1]
     }
 
-    fn outpost(piece: ChessPieceType) -> SingleFeatureScore<Self> {
+    fn outpost(piece: ChessPieceType) -> PhasedScore {
         OUTPOSTS[piece as usize - Knight as usize]
     }
 
-    fn pawn_shield(config: usize) -> Self::Score {
+    fn pawn_shield(&self, _color: ChessColor, config: usize) -> SingleFeatureScore<Self::Score> {
         PAWN_SHIELDS[config]
     }
 
-    fn pawn_protection(piece: ChessPieceType) -> Self::Score {
+    fn pawn_protection(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
         PAWN_PROTECTION[piece as usize]
     }
 
-    fn pawn_attack(piece: ChessPieceType) -> Self::Score {
+    fn pawn_attack(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
         PAWN_ATTACKS[piece as usize]
     }
 
-    fn mobility(piece: ChessPieceType, mobility: usize) -> Self::Score {
+    fn mobility(piece: ChessPieceType, mobility: usize) -> SingleFeatureScore<Self::Score> {
         MOBILITY[piece as usize - 1][mobility]
     }
 
-    fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> Self::Score {
+    fn threats(
+        attacking: ChessPieceType,
+        targeted: ChessPieceType,
+    ) -> SingleFeatureScore<Self::Score> {
         THREATS[attacking as usize - 1][targeted as usize]
     }
-    fn defended(protecting: ChessPieceType, target: ChessPieceType) -> Self::Score {
+    fn defended(
+        protecting: ChessPieceType,
+        target: ChessPieceType,
+    ) -> SingleFeatureScore<Self::Score> {
         DEFENDED[protecting as usize - 1][target as usize]
     }
 
-    fn king_zone_attack(attacking: ChessPieceType) -> SingleFeatureScore<Self> {
+    fn king_zone_attack(attacking: ChessPieceType) -> PhasedScore {
         KING_ZONE_ATTACK[attacking as usize]
     }
 }

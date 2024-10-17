@@ -1,11 +1,10 @@
 use std::fmt::Display;
-use std::iter::Peekable;
 use std::str::SplitWhitespace;
 
 use itertools::Itertools;
 
 use crate::general::board::Board;
-use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
+use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity, Tokens};
 use crate::output::text_output::DisplayType::Fen;
 use crate::output::text_output::{BoardToText, TextStream};
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
@@ -71,7 +70,7 @@ impl AbstractOutput for Logger {
         }
     }
 
-    fn write_ugi_input(&mut self, mut message: Peekable<SplitWhitespace>, player: Option<&str>) {
+    fn write_ugi_input(&mut self, mut message: Tokens, player: Option<&str>) {
         match player {
             None => self.stream.write(">", &message.join(" ")),
             Some(name) => self.stream.write(&format!("({name})>"), &message.join(" ")),
@@ -117,7 +116,7 @@ impl LoggerBuilder {
         }
     }
 
-    pub fn from_words(words: &mut Peekable<SplitWhitespace>) -> Self {
+    pub fn from_words(words: &mut Tokens) -> Self {
         Self::new(&words.join(" "))
     }
 

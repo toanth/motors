@@ -53,7 +53,7 @@ impl StaticallyNamedEntity for BasicMnkEval {
 }
 
 impl Eval<MNKBoard> for BasicMnkEval {
-    fn eval(&mut self, pos: &MNKBoard) -> Score {
+    fn eval(&mut self, pos: &MNKBoard, _ply: usize) -> Score {
         Score(
             eval_player(pos.active_player_bb(), pos.size())
                 - eval_player(pos.inactive_player_bb(), pos.size()),

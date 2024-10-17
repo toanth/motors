@@ -52,7 +52,7 @@ impl StaticallyNamedEntity for Bate {
 }
 
 impl Eval<AtaxxBoard> for Bate {
-    fn eval(&mut self, pos: &AtaxxBoard) -> Score {
+    fn eval(&mut self, pos: &AtaxxBoard, _ply: usize) -> Score {
         let diff = pos.active_bb().num_ones() as ScoreT - pos.inactive_bb().num_ones() as ScoreT;
         // multiply by 10 so that scores are somewhat more spread out, similar to scores in other games
         Score(diff * 10)

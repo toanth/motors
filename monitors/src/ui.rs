@@ -1,6 +1,7 @@
 use crate::play::ugi_client::Client;
 use dyn_clone::DynClone;
 use gears::general::board::Board;
+use gears::general::common::anyhow::bail;
 use gears::general::common::{EntityList, NamedEntity, Res, StaticallyNamedEntity};
 use std::sync::{Arc, Mutex};
 
@@ -24,10 +25,10 @@ pub trait InputBuilder<B: Board>: NamedEntity + DynClone {
         if option.is_empty() {
             Ok(())
         } else {
-            Err(format!(
+            bail!(
                 "Unrecognized option {option} for match input '{}'",
                 self.long_name()
-            ))
+            )
         }
     }
 }

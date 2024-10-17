@@ -87,7 +87,7 @@ impl Display for UtttSquare {
 }
 
 impl FromStr for UtttSquare {
-    type Err = String;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         SmallGridSquare::<9, 9, 9>::from_str(s).map(|c| Self::from_row_column(c.row(), c.column()))
@@ -170,6 +170,15 @@ impl UtttSquare {
         }
     }
 
+    pub fn unchecked(idx: usize) -> Self {
+        let sub_board_idx = idx / 9;
+        let sub_square_idx = idx % 9;
+        Self {
+            sub_board: SmallGridSquare::unchecked(sub_board_idx),
+            sub_square: SmallGridSquare::unchecked(sub_square_idx),
+        }
+    }
+
     pub fn iter() -> impl Iterator<Item = Self> {
         (0..9).cartesian_product(0..9).map(|(a, b)| Self {
             sub_board: SmallGridSquare::from_bb_index(a),
@@ -188,7 +197,7 @@ impl UtttSquare {
     pub const fn no_coordinates_const() -> Self {
         Self {
             sub_board: SmallGridSquare::no_coordinates_const(),
-            sub_square: SmallGridSquare::no_coordinates_const(),
+            sub_square: SmallGridSquare::from_bb_index(0),
         }
     }
 }

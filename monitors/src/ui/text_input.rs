@@ -1,27 +1,11 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::io::stdin;
-use std::iter::Peekable;
-use std::str::{FromStr, SplitWhitespace};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::thread::{Builder, JoinHandle};
 
-use colored::Colorize;
 use itertools::Itertools;
 use rand::thread_rng;
-
-use gears::games::Color;
-use gears::general::board::Board;
-use gears::general::common::Description::{NoDescription, WithDescription};
-use gears::general::common::{
-    parse_int_from_str, select_name_static, to_name_and_optional_description, IterIntersperse,
-    NamedEntity, Res, StaticallyNamedEntity,
-};
-use gears::general::moves::Move;
-use gears::output::Message::{Info, Warning};
-use gears::search::TimeControl;
-use gears::ugi::{parse_ugi_position, EngineOption};
-use gears::MatchStatus::{Ongoing, Over};
-use gears::{output_builder_from_str, GameState};
 
 use crate::cli::PlayerArgs::{Engine, Human};
 use crate::cli::{parse_engine, parse_human, HumanArgs, PlayerArgs};
@@ -30,7 +14,24 @@ use crate::play::ugi_client::Client;
 use crate::play::ugi_input::BestMoveAction::Play;
 use crate::ui::text_input::DefaultPlayer::{Active, Inactive, NoPlayer};
 use crate::ui::{Input, InputBuilder};
+use gears::games::Color;
+use gears::general::board::Board;
+use gears::general::board::Strictness::Relaxed;
+use gears::general::common::anyhow::{anyhow, bail};
+use gears::general::common::Description::{NoDescription, WithDescription};
+use gears::general::common::{
+    parse_int_from_str, select_name_static, to_name_and_optional_description, tokens, ColorMsg,
+    NamedEntity, Res, StaticallyNamedEntity, Tokens,
+};
+use gears::general::moves::ExtendedFormat::Alternative;
+use gears::general::moves::Move;
+use gears::output::Message::{Info, Warning};
+use gears::search::TimeControl;
+use gears::ugi::{parse_ugi_position_part, EngineOption};
+use gears::MatchStatus::{Ongoing, Over};
+use gears::{output_builder_from_str, GameState};
 
+// TODO: Unify with motors `Command`, probably move to gears
 struct TextSelection<F> {
     names: Vec<&'static str>,
     func: F,
@@ -76,8 +77,7 @@ enum DefaultPlayer {
     NoPlayer,
 }
 
-type Command<B> =
-    TextSelection<for<'a> fn(MutexGuard<Client<B>>, &'a mut Peekable<SplitWhitespace>) -> Res<()>>;
+type Command<B> = TextSelection<for<'a> fn(MutexGuard<Client<B>>, &'a mut Tokens) -> Res<()>>;
 
 pub(super) struct TextInputThread<B: Board> {
     commands: Vec<Command<B>>,
@@ -146,7 +146,7 @@ impl<B: Board> TextInputThread<B> {
                 // The program has been terminated
                 break;
             };
-            match input_thread.handle_input(client, input.split_whitespace().peekable(), input) {
+            match input_thread.handle_input(client, tokens(input), input) {
                 Ok(continue_running) => {
                     if !continue_running {
                         break;
@@ -167,7 +167,7 @@ impl<B: Board> TextInputThread<B> {
     fn handle_input(
         &self,
         ugi_client: Arc<Mutex<Client<B>>>,
-        mut words: Peekable<SplitWhitespace>,
+        mut words: Tokens,
         input: &str,
     ) -> Res<bool> {
         let command = words.next().unwrap_or_default();
@@ -182,12 +182,12 @@ impl<B: Board> TextInputThread<B> {
             let mut client = ugi_client.lock().unwrap();
             match B::Move::from_text(input, client.board()) {
                 Ok(mov) => {
-                    let active_player = client
-                        .active_player()
-                        .ok_or_else(|| "Ignoring move because the game is over".to_string())?;
+                    let Some(active_player) = client.active_player() else {
+                        bail!("Ignoring move because the game is over".to_string())
+                    };
                     client
                         .play_move(mov)
-                        .map_err(|err| format!("Ignoring input: {err}"))?;
+                        .map_err(|err| anyhow!("Ignoring input: {err}"))?;
                     // `play_move` will have stopped the clock by now.
                     assert!(client
                         .state
@@ -197,7 +197,7 @@ impl<B: Board> TextInputThread<B> {
                     return Ok(true);
                 }
                 Err(err) => {
-                    let func = select_name_static(command, self.commands.iter(), "command", &B::game_name(), NoDescription).map_err(|msg| format!("'{command}' is not a pseudolegal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?.func;
+                    let func = select_name_static(command, self.commands.iter(), "command", &B::game_name(), NoDescription).map_err(|msg| anyhow!("'{command}' is not a pseudolegal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?.func;
                     func(client, &mut words)?;
                 }
             }
@@ -216,7 +216,7 @@ impl<B: Board> TextInputThread<B> {
         Ok(true)
     }
 
-    fn print_help(commands: &[Command<B>], words: &mut Peekable<SplitWhitespace>) -> Res<()> {
+    fn print_help(commands: &[Command<B>], words: &mut Tokens) -> Res<()> {
         if let Some(name) = words.next() {
             let desc = select_name_static(
                 name,
@@ -235,9 +235,8 @@ impl<B: Board> TextInputThread<B> {
                     "{:25}  {description}",
                     cmd.names
                         .iter()
-                        .map(|c| format!("'{}'", c.bold()))
-                        .intersperse_(", ".to_string())
-                        .collect::<String>()
+                        .map(|c| format!("'{}'", c.important()))
+                        .join(", ")
                         + ":",
                     description = cmd.description.unwrap_or("<No description>")
                 );
@@ -248,7 +247,7 @@ impl<B: Board> TextInputThread<B> {
 
     fn get_side(
         client: &MutexGuard<Client<B>>,
-        words: &mut Peekable<SplitWhitespace>,
+        words: &mut Tokens,
         default_player: DefaultPlayer,
     ) -> Res<B::Color> {
         match words
@@ -268,14 +267,12 @@ impl<B: Board> TextInputThread<B> {
                     default_player
                 };
                 if player == Active {
-                    Ok(client.active_player().ok_or_else(|| {
-                        "No color given and there is no active player (the match isn't running)"
-                            .to_string()
-                    })?)
+                    Ok(client.active_player().ok_or_else(||
+                        anyhow!("No color given and there is no active player (the match isn't running)"))?)
                 } else if player == Inactive {
-                    Ok(client.active_player().ok_or_else(|| "No color given and there is no inactive player (the match isn't running)".to_string())?.other())
+                    Ok(client.active_player().ok_or_else(|| anyhow!("No color given and there is no inactive player (the match isn't running)"))?.other())
                 } else {
-                    Err("Missing the side. Valid values are 'white', 'p1', 'black', 'p2', 'active' and 'inactive'".to_string())
+                    bail!("Missing the side. Valid values are 'white', 'p1', 'black', 'p2', 'active' and 'inactive'")
                 }
             }
         }
@@ -288,9 +285,8 @@ impl<B: Board> TextInputThread<B> {
             board
                 .legal_moves_slow()
                 .into_iter()
-                .map(|m| m.to_extended_text(&board))
-                .intersperse_(", ".to_string())
-                .collect::<String>()
+                .map(|m| m.to_extended_text(&board, Alternative))
+                .join(", ")
         );
     }
 
@@ -298,84 +294,67 @@ impl<B: Board> TextInputThread<B> {
         let board = client.state.the_match.board;
         let mut rng = thread_rng();
         let over = matches!(client.match_state().status, Over(_));
-        let mov = board.random_legal_move(&mut rng).ok_or_else(|| {
-            format!(
+        let Some(mov) = board.random_legal_move(&mut rng) else {
+            bail!(
                 "There are no legal moves in the current position ({}){reason}",
                 board.as_fen(),
                 reason = if over { ". The game is over" } else { "" }
             )
-        })?;
+        };
         client.play_move(mov)
     }
 
-    fn handle_stop(
-        mut client: MutexGuard<Client<B>>,
-        words: &mut Peekable<SplitWhitespace>,
-    ) -> Res<()> {
+    fn handle_stop(mut client: MutexGuard<Client<B>>, words: &mut Tokens) -> Res<()> {
         let side = Self::get_side(&client, words, Active)?;
         if !client.state.get_player(side).is_engine() {
-            return Err(format!(
-                "The {side} player is a human and not an engine, so they can't be stopped"
-            ));
+            bail!("The {side} player is a human and not an engine, so they can't be stopped")
         }
         match client.active_player() {
-            None => Err("The match isn't running".to_string()),
+            None => bail!("The match isn't running"),
             Some(p) => {
                 if p == side {
                     client.stop_thinking(side, Play);
                     Ok(())
                 } else {
-                    Err(format!("The {p} player is not currently thinking"))
+                    bail!("The {p} player is not currently thinking")
                 }
             }
         }
     }
 
-    fn handle_position(
-        mut client: MutexGuard<Client<B>>,
-        words: &mut Peekable<SplitWhitespace>,
-    ) -> Res<()> {
+    fn handle_position(mut client: MutexGuard<Client<B>>, words: &mut Tokens) -> Res<()> {
         let old_board = *client.board();
-        client.reset_to_new_start_position(parse_ugi_position(words, &old_board)?);
+        // TODO: Use parse_ugi_position
+        client.reset_to_new_start_position(parse_ugi_position_part(
+            "position", words, false, &old_board, Relaxed,
+        )?);
         let Some(word) = words.next() else {
             return Ok(());
         };
         if word != "moves" {
-            return Err(format!("Unrecognized word '{word}' after position command, expected either 'moves' or nothing"));
+            bail!("Unrecognized word '{word}' after position command, expected either 'moves' or nothing")
         }
         for mov in words {
             let mov = B::Move::from_compact_text(mov, client.board())
-                .map_err(|err| format!("Couldn't parse move: {err}"))?;
+                .map_err(|err| anyhow!("Couldn't parse move: {err}"))?;
             client.play_move_internal(mov)?;
         }
         Ok(())
     }
 
-    fn handle_undo(
-        mut client: MutexGuard<Client<B>>,
-        words: &mut Peekable<SplitWhitespace>,
-    ) -> Res<()> {
+    fn handle_undo(mut client: MutexGuard<Client<B>>, words: &mut Tokens) -> Res<()> {
         let num = parse_int_from_str(words.next().unwrap_or("1"), "num moves")?;
         client.undo_halfmoves(num)
     }
 
-    fn handle_set_player(
-        mut client: MutexGuard<Client<B>>,
-        words: &mut Peekable<SplitWhitespace>,
-    ) -> Res<()> {
+    fn handle_set_player(mut client: MutexGuard<Client<B>>, words: &mut Tokens) -> Res<()> {
         let side = Self::get_side(&client, words, NoPlayer)?;
-        let name = words.next().ok_or_else(|| {
-            format!(
+        let Some(name) = words.next() else {
+            bail!(
                 "Missing the name of the new player (e.g. 'human'). Loaded players are {}",
-                client
-                    .state
-                    .players
-                    .iter()
-                    .map(Player::get_name)
-                    .intersperse_(", ")
-                    .collect::<String>()
+                client.state.players.iter().map(Player::get_name).join(", ")
             )
-        })?;
+        };
         let (p1, p2) = (
             client.state.id(B::Color::first()),
             client.state.id(B::Color::second()),
@@ -400,18 +379,13 @@ impl<B: Board> TextInputThread<B> {
             return Ok(());
         }
         if found {
-            Err(format!(
-                "The player '{name}' is already playing in this match"
-            ))
+            bail!("The player '{name}' is already playing in this match")
         } else {
-            Err(format!("No player with the given name '{name}' found. Maybe you need to load this player first (type 'load_player <options>')"))
+            bail!("No player with the given name '{name}' found. Maybe you need to load this player first (type 'load_player <options>')")
         }
     }
 
-    fn handle_tc(
-        mut client: MutexGuard<Client<B>>,
-        words: &mut Peekable<SplitWhitespace>,
-    ) -> Res<()> {
+    fn handle_tc(mut client: MutexGuard<Client<B>>, words: &mut Tokens) -> Res<()> {
         let color = Self::get_side(&client, words, Active)?;
         let tc = TimeControl::from_str(words.next().unwrap_or_default())?;
         client.state.get_player_mut(color).set_time(tc)?;
@@ -419,10 +393,7 @@ impl<B: Board> TextInputThread<B> {
         Ok(())
     }
 
-    fn handle_load_player(
-        ugi_client: Arc<Mutex<Client<B>>>,
-        words: &mut Peekable<SplitWhitespace>,
-    ) -> Res<()> {
+    fn handle_load_player(ugi_client: Arc<Mutex<Client<B>>>, words: &mut Tokens) -> Res<()> {
         let mut words = words.map(ToString::to_string).peekable();
         let args = if words
             .peek()
@@ -438,10 +409,7 @@ impl<B: Board> TextInputThread<B> {
         Ok(())
     }
 
-    fn handle_ui(
-        mut client: MutexGuard<Client<B>>,
-        words: &mut Peekable<SplitWhitespace>,
-    ) -> Res<()> {
+    fn handle_ui(mut client: MutexGuard<Client<B>>, words: &mut Tokens) -> Res<()> {
         match words.next() {
             None => {
                 let infos = client
@@ -456,17 +424,15 @@ impl<B: Board> TextInputThread<B> {
                 if name == "add" {
                     name = words
                         .next()
-                        .ok_or_else(|| "Expected an output name after 'add'".to_string())?;
+                        .ok_or_else(|| anyhow!("Expected an output name after 'add'"))?;
                     replace = false;
                 } else if name == "remove" {
                     name = words
                         .next()
-                        .ok_or_else(|| "Expected an output name after 'remove'".to_string())?;
+                        .ok_or_else(|| anyhow!("Expected an output name after 'remove'"))?;
                     match client.outputs.iter().position(|o| o.matches(name)) {
                         None => {
-                            return Err(format!(
-                                "There is no output with name '{name}' currently in use"
-                            ))
+                            bail!("There is no output with name '{name}' currently in use")
                         }
                         Some(idx) => {
                             client.outputs.remove(idx);
@@ -487,10 +453,7 @@ impl<B: Board> TextInputThread<B> {
         Ok(())
     }
 
-    fn handle_print(
-        mut client: MutexGuard<Client<B>>,
-        words: &mut Peekable<SplitWhitespace>,
-    ) -> Res<()> {
+    fn handle_print(mut client: MutexGuard<Client<B>>, words: &mut Tokens) -> Res<()> {
         match words.next().unwrap_or_default() {
             "" => client.show(),
             x => {
@@ -502,10 +465,7 @@ impl<B: Board> TextInputThread<B> {
         Ok(())
     }
 
-    fn handle_info(
-        mut client: MutexGuard<Client<B>>,
-        words: &mut Peekable<SplitWhitespace>,
-    ) -> Res<()> {
+    fn handle_info(mut client: MutexGuard<Client<B>>, words: &mut Tokens) -> Res<()> {
         let color = Self::get_side(&client, words, Active)?;
         match client.state.get_player_mut(color) {
             Player::Engine(engine) => {
@@ -542,15 +502,10 @@ impl<B: Board> TextInputThread<B> {
         Ok(())
     }
 
-    fn handle_send_ugi(
-        mut client: MutexGuard<Client<B>>,
-        words: &mut Peekable<SplitWhitespace>,
-    ) -> Res<()> {
+    fn handle_send_ugi(mut client: MutexGuard<Client<B>>, words: &mut Tokens) -> Res<()> {
         let player = Self::get_side(&client, words, Active)?;
         if !client.state.get_player_mut(player).is_engine() {
-            return Err(format!(
-                "The {player} player is not an engine and can't receive UGI commands"
-            ));
+            bail!("The {player} player is not an engine and can't receive UGI commands")
         }
         client.send_ugi_message(player, words.join(" ").as_str().trim());
         Ok(())

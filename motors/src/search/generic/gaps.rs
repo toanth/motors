@@ -13,17 +13,17 @@ use crate::eval::Eval;
 use crate::search::statistics::SearchType::MainSearch;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use crate::search::{
-    ABSearchState, AbstractEngine, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo,
-    SearchState,
+    AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchState,
+    SearchStateFor,
 };
 
-const MAX_DEPTH: Depth = Depth::new(100);
+const MAX_DEPTH: Depth = Depth::new_unchecked(100);
 
 type DefaultEval = RandEval;
 
 #[derive(Debug)]
 pub struct Gaps<B: Board> {
-    state: ABSearchState<B, EmptySearchStackEntry, NoCustomInfo>,
+    state: SearchState<B, EmptySearchStackEntry, NoCustomInfo>,
     eval: Box<dyn Eval<B>>,
 }
 
@@ -53,7 +53,10 @@ impl<B: Board> StaticallyNamedEntity for Gaps<B> {
     }
 }
 
-impl<B: Board> AbstractEngine<B> for Gaps<B> {
+impl<B: Board> Engine<B> for Gaps<B> {
+    type SearchStackEntry = EmptySearchStackEntry;
+    type CustomInfo = NoCustomInfo;
+
     fn max_bench_depth(&self) -> Depth {
         MAX_DEPTH
     }
@@ -63,15 +66,13 @@ impl<B: Board> AbstractEngine<B> for Gaps<B> {
             self,
             self.eval.as_ref(),
             "0.0.1",
-            Depth::new(4),
+            Depth::new_unchecked(4),
             NodesLimit::new(50_000).unwrap(),
             None,
             vec![],
         )
     }
-}
 
-impl<B: Board> Engine<B> for Gaps<B> {
     fn set_eval(&mut self, eval: Box<dyn Eval<B>>) {
         self.eval = eval;
     }
@@ -93,8 +94,10 @@ impl<B: Board> Engine<B> for Gaps<B> {
 
                 self.state.current_pv_num = pv_num;
                 self.state.atomic().set_depth(depth);
+                self.state.atomic().update_seldepth(depth as usize);
+                self.state.atomic().count_node();
                 let iteration_score = self.negamax(pos, 0, depth, SCORE_LOST, SCORE_WON);
-                self.state.current_pv_data().score = iteration_score;
+                self.state.current_pv_data_mut().score = iteration_score;
                 if self.state.stop_flag() {
                     break 'id;
                 }
@@ -104,8 +107,8 @@ impl<B: Board> Engine<B> for Gaps<B> {
                     self.state.atomic().set_score(iteration_score);
                     self.state.atomic().set_best_move(best_mpv_move);
                 }
+                self.search_state().send_search_info(true);
                 self.state.excluded_moves.push(best_mpv_move);
-                self.send_search_info();
             }
             self.state
                 .excluded_moves
@@ -113,7 +116,23 @@ impl<B: Board> Engine<B> for Gaps<B> {
             self.state.statistics.next_id_iteration();
         }
 
-        SearchResult::move_and_score(self.state.atomic().best_move(), self.state.atomic().score())
+        SearchResult::move_and_score(
+            self.state.atomic().best_move(),
+            self.state.atomic().score(),
+            pos,
+        )
+    }
+
+    fn search_state(&self) -> &SearchStateFor<B, Self> {
+        &self.state
+    }
+
+    fn search_state_mut(&mut self) -> &mut SearchStateFor<B, Self> {
+        &mut self.state
+    }
+
+    fn static_eval(&mut self, pos: B, ply: usize) -> Score {
+        self.eval.eval(&pos, ply)
     }
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
@@ -121,23 +140,19 @@ impl<B: Board> Engine<B> for Gaps<B> {
         elapsed >= hard_limit.min(tc.remaining / 32 + tc.increment / 2)
     }
 
-    fn search_state(&self) -> &impl SearchState<B> {
-        &self.state
-    }
-
-    fn search_state_mut(&mut self) -> &mut impl SearchState<B> {
-        &mut self.state
-    }
-
     fn with_eval(eval: Box<dyn Eval<B>>) -> Self {
         Self {
-            state: ABSearchState::new(MAX_DEPTH),
+            state: SearchState::new(MAX_DEPTH),
             eval,
         }
     }
 
-    fn static_eval(&mut self, pos: B) -> Score {
-        self.eval.eval(&pos)
+    fn search_state_dyn(&self) -> &dyn AbstractSearchState<B> {
+        &self.state
+    }
+
+    fn search_state_mut_dyn(&mut self) -> &mut dyn AbstractSearchState<B> {
+        &mut self.state
     }
 }
 
@@ -160,7 +175,7 @@ impl<B: Board> Gaps<B> {
             return game_result_to_score(res, ply);
         }
         if depth <= 0 {
-            return self.eval.eval(&pos);
+            return self.eval.eval(&pos, ply);
         }
 
         let mut best_score = SCORE_LOST;
@@ -177,7 +192,7 @@ impl<B: Board> Gaps<B> {
                 continue;
             }
             self.state.statistics.count_legal_make_move(MainSearch);
-            self.state.count_node();
+            self.state.atomic().count_node();
 
             self.state.params.history.push(&pos);
 
@@ -197,7 +212,7 @@ impl<B: Board> Gaps<B> {
             if ply == 0 {
                 // don't set score here because it's set in `do_search`, which handles situations like the position
                 // being checkmate
-                self.state.current_pv_data().pv[0] = mov;
+                self.state.current_pv_data_mut().pv.reset_to_move(mov);
             }
             if score < beta {
                 continue;

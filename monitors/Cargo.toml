@@ -6,21 +6,21 @@ edition = "2021"
 [dependencies]
 gears = { path = "../gears", default-features = false }
 
-rand = "0.8.5"
-num = "0.4.1"
-colored = "2.0.4"
-strum = "0.26.2"
+rand = "0.9.0-alpha.2"
+num = "0.4.3"
+strum = "0.26.3"
 crossbeam-channel = "0.5.8"
 crossbeam-utils = "0.8.19"
 dyn-clone = "1.0.17"
-itertools = "0.12.0"
-whoami = "1.5.1"
-lazy_static = "1.4.0"
+itertools = "0.13.0"
+whoami = "1.5.2"
+lazy_static = "1.5.0"
 motors = { path = "../motors", optional = true, default-features = false }
 
 [features]
-default = ["motors", "motors/generic-engines", "chess", "mnk", "ataxx"]
+default = ["motors", "motors/generic-engines", "chess", "mnk", "ataxx", "uttt"]
 motors = ["dep:motors"]
 chess = ["gears/chess", "motors?/chess", "motors?/chess-engines"]
 mnk = ["gears/mnk", "motors?/mnk", "motors?/mnk-engines"]
 ataxx = ["gears/ataxx", "motors?/ataxx", "motors?/ataxx-engines"]
+uttt = ["gears/uttt", "motors?/uttt", "motors?/uttt-engines"]

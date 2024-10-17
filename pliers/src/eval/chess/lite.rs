@@ -11,12 +11,13 @@ use gears::games::chess::see::SEE_SCORES;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::ChessColor::White;
 use gears::games::chess::{ChessColor, Chessboard};
+use gears::general::common::StaticallyNamedEntity;
 use motors::eval::chess::lite::GenericLiTEval;
-use motors::eval::chess::lite_values::{LiteValues, SingleFeatureScore, MAX_MOBILITY};
+use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
 use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
-use motors::eval::ScoreType;
-use std::fmt::Formatter;
+use motors::eval::{ScoreType, SingleFeatureScore};
+use std::fmt::{Display, Formatter};
 use strum::IntoEnumIterator;
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -63,10 +64,33 @@ impl LiTETrace {
     const NUM_FEATURES: usize = Self::KING_ZONE_ATTACK_OFFSET + Self::NUM_KING_ZONE_ATTACK_FEATURES;
 }
 
+impl StaticallyNamedEntity for LiTETrace {
+    fn static_short_name() -> impl Display
+    where
+        Self: Sized,
+    {
+        "tune lite"
+    }
+
+    fn static_long_name() -> String
+    where
+        Self: Sized,
+    {
+        Self::static_short_name().to_string()
+    }
+
+    fn static_description() -> String
+    where
+        Self: Sized,
+    {
+        Self::static_long_name()
+    }
+}
+
 impl LiteValues for LiTETrace {
     type Score = SparseTrace;
 
-    fn psqt(square: ChessSquare, piece: ChessPieceType, color: ChessColor) -> SingleFeature {
+    fn psqt(&self, square: ChessSquare, piece: ChessPieceType, color: ChessColor) -> SingleFeature {
         let square = square.flip_if(color == White);
         let idx = square.bb_idx() + piece as usize * NUM_SQUARES;
         SingleFeature::new(idx)
@@ -117,12 +141,12 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(idx)
     }
 
-    fn outpost(piece: ChessPieceType) -> SingleFeatureScore<Self> {
+    fn outpost(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
         let idx = Self::OUTPOST_OFFSET + piece as usize - Knight as usize;
         SingleFeature::new(idx)
     }
 
-    fn pawn_shield(config: usize) -> SingleFeature {
+    fn pawn_shield(&self, _color: ChessColor, config: usize) -> SingleFeature {
         let idx = Self::PAWN_SHIELD_OFFSET + config;
         SingleFeature::new(idx)
     }
@@ -335,6 +359,6 @@ impl Eval<Chessboard> for TuneLiTEval {
     type Filter = SkipChecks;
 
     fn feature_trace(pos: &Chessboard) -> impl TraceTrait {
-        GenericLiTEval::<LiTETrace>::do_eval(pos)
+        GenericLiTEval::<LiTETrace>::default().do_eval(pos)
     }
 }

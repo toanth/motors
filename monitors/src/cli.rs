@@ -10,8 +10,9 @@ use std::time::Duration;
 use itertools::Itertools;
 
 use gears::cli::{get_next_arg, get_next_int, get_next_nonzero_usize, parse_output, ArgIter, Game};
+use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
-    nonzero_u64, parse_duration_ms, parse_fp_from_str, parse_int_from_str, Res,
+    nonzero_u64, parse_duration_ms, parse_fp_from_str, parse_int_from_str, tokens, Res,
 };
 use gears::score::Score;
 use gears::search::{Depth, TimeControl};
@@ -160,20 +161,20 @@ fn parse_key_equals_value(arg: &str) -> Res<(&str, Res<&str>)> {
     let key = parts.next().unwrap();
     let value = parts
         .next()
-        .ok_or_else(|| format!("Expected '=<value>' after '{key}'"));
+        .ok_or_else(|| anyhow!("Expected '=<value>' after '{key}'"));
     if let Some(rest) = parts.next() {
         let rest = rest.to_string().add(&parts.join("="));
-        return Err(format!(
+        bail!(
             "Expected an argument of the form 'key=value' or 'key' but got '{key}={}={rest}'",
             value.unwrap()
-        ));
+        )
     }
     Ok((key, value))
 }
 
 fn parse_game(args: &mut ArgIter, res: &mut CommandLineArgs) -> Res<()> {
     let game = get_next_arg(args, "game")?.to_lowercase();
-    res.game = Game::from_str(&game).map_err(|err| err.to_string())?;
+    res.game = Game::from_str(&game)?;
     Ok(())
 }
 
@@ -195,11 +196,9 @@ fn parse_adjudication(args: &mut ArgIter, is_draw: bool) -> Res<ScoreAdjudicatio
             "movecount" => res.move_number = parse_int_from_str(val, "movecount")?,
             "movenumber" => res.start_after = parse_int_from_str(val, "movenumber")?,
             "score" => res.score_threshold = Score(parse_int_from_str(val, "score")?),
-            "twosided" => twosided = bool::from_str(val).map_err(|err| err.to_string())?,
+            "twosided" => twosided = bool::from_str(val)?,
             _ => {
-                return Err(format!(
-                    "Invalid adjudication setting '{val}' with unknown key '{key}'"
-                ))
+                bail!("Invalid adjudication setting '{val}' with unknown key '{key}'")
             }
         }
     }
@@ -224,30 +223,30 @@ pub fn parse_engine<Iter: Iterator<Item = String>>(
             "conf" => todo!("Engine config files aren't supported for now"),
             "name" => res.display_name = Some(value?.to_string()),
             "cmd" => res.cmd = value?.to_string(),
-            "dir" => res.path = Some(PathBuf::from_str(value?).map_err(|err| err.to_string())?),
+            "dir" => res.path = Some(PathBuf::from_str(value?)?),
             "arg" => res.engine_args.push(value?.to_string()),
             "initstr" => res.init_string = Some(value?.to_string()),
-            "stderr" => res.stderr = Some(PathBuf::from_str(value?).map_err(|err| err.to_string())?),
+            "stderr" => res.stderr = Some(PathBuf::from_str(value?)?),
             "restart" => todo!(),
             "trust" => eprintln!("The 'trust' engine option is always ignored and only exist for compatibility"),
             "proto" => match value?.to_ascii_lowercase().as_str() {
                 "ugi" => res.proto = Some(Ugi),
                 "uci" => res.proto = Some(Uci),
-                x => return Err(format!("Unrecognized engine protocol '{x}'. Only 'uci', 'ugi' or simply not specifying this argument are valid"))
+                x => bail!("Unrecognized engine protocol '{x}'. Only 'uci', 'ugi' or simply not specifying this argument are valid")
             },
             "tc" => res.tc = Some(TimeControl::from_str(value?)?),
             "st" => res.move_time = Some(Duration::from_secs_f64(parse_fp_from_str(value?, "st (move time)")?)),
-            "timemargin" => res.time_margin = Some(TimeMargin(parse_duration_ms(&mut value?.split_whitespace().peekable(), "timemargin")?)),
+            "timemargin" => res.time_margin = Some(TimeMargin(parse_duration_ms(&mut tokens(value?), "timemargin")?)),
             "book" => todo!(),
             "bookdepth" => todo!(),
             "whitepov" => res.white_pov = true,
-            "depth" => res.depth = Some(Depth::new(parse_int_from_str(value?, "depth")?)),
-            "mate" => res.mate = Some(Depth::new(parse_int_from_str(value?, "mate")?)),
+            "depth" => res.depth = Some(Depth::try_new(parse_int_from_str(value?, "depth")?)?),
+            "mate" => res.mate = Some(Depth::try_new(parse_int_from_str(value?, "mate")?)?),
             "nodes" => res.nodes = Some(nonzero_u64(parse_int_from_str(value?, "nodes")?, "nodes")?),
             "ponder" => todo!("'ponder' isn't yet implemented"),
             "tscale" => todo!("'tscale' isn't yet implemented"),
             x => match x.strip_prefix("option.") {
-                None => return Err(format!("Unknown engine option {x}")),
+                None => bail!("Unknown engine option {x}"),
                 Some(opt) => { res.custom_options.insert(x.to_string(), opt.to_string()); },
             },
         }
@@ -266,7 +265,7 @@ pub fn parse_human<Iter: Iterator<Item = String>>(args: &mut Peekable<Iter>) -> 
         match key {
             "tc" => res.tc = Some(TimeControl::from_str(value?)?),
             "name" => res.name = Some(value?.to_string()),
-            x => return Err(format!("Unknown argument '{x}' for a human player")),
+            x => bail!("Unknown argument '{x}' for a human player"),
         }
     }
     Ok(res)
@@ -400,9 +399,7 @@ pub fn parse_cli() -> Res<CommandLineArgs> {
             "-resultformat" => todo!(),
             "-startpos" => todo!(), // set one startpos for all matches. Incompatible with sprt.
             x => {
-                return Err(format!(
-                    "Unrecognized option '{x}'. Type --help for a list of all valid options"
-                ))
+                bail!("Unrecognized option '{x}'. Type --help for a list of all valid options")
             }
         }
     }

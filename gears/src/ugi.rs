@@ -1,11 +1,10 @@
-use crate::general::board::Board;
-use colored::Colorize;
-use std::fmt::{Display, Formatter};
-use std::iter::Peekable;
-use std::str::{FromStr, SplitWhitespace};
-
-use crate::general::common::{NamedEntity, Res};
+use crate::general::board::{Board, Strictness};
+use crate::general::common::{ColorMsg, NamedEntity, Res, Tokens};
 use crate::general::moves::Move;
+use anyhow::{anyhow, bail};
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
+use strum_macros::EnumIter;
 
 /// Ugi-related helpers that are used by both `motors` and `monitors`.
 
@@ -109,7 +108,7 @@ impl Display for EngineOptionType {
                 for o in &c.options {
                     write!(f, " var {o}")?;
                 }
-                write!(f, " default {default}")?;
+                write!(f, "{default}")?;
             }
             EngineOptionType::Button => { /*nothing to do*/ }
             EngineOptionType::UString(s) => {
@@ -122,7 +121,7 @@ impl Display for EngineOptionType {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Hash)]
+#[derive(Debug, Eq, PartialEq, Clone, Hash, EnumIter)]
 #[must_use]
 pub enum EngineOptionName {
     Hash,
@@ -133,7 +132,38 @@ pub enum EngineOptionName {
     UCIOpponent,
     UCIEngineAbout,
     MoveOverhead,
+    Strictness,
+    SetEngine,
+    SetEval,
     Other(String),
+}
+
+impl NamedEntity for EngineOptionName {
+    fn short_name(&self) -> String {
+        self.name().to_string()
+    }
+
+    fn long_name(&self) -> String {
+        self.short_name()
+    }
+
+    fn description(&self) -> Option<String> {
+        let res = match self {
+            EngineOptionName::Hash => "Size of the Transposition Table in MB",
+            EngineOptionName::Threads => "Number of search threads",
+            EngineOptionName::Ponder => "Pondering mode. Currently, pondering is supported even without this option, so it has no effect",
+            EngineOptionName::MultiPv => "The number of Principal Variation (PV) lines to output",
+            EngineOptionName::UciElo => "Limit strength to this elo. Currently not supported",
+            EngineOptionName::UCIOpponent => "The opponent. Currently only used to output the name in PGNs",
+            EngineOptionName::UCIEngineAbout => "Information about the engine. Can't be changed, only queried",
+            EngineOptionName::MoveOverhead => "Subtract this from the remaining time each move to account for overhead of sending the move",
+            EngineOptionName::Strictness => "Be more restrictive about the positions to accept. By default, many non-standard positions are accepted",
+            EngineOptionName::SetEngine => "Change the current searcher, and optionally the eval. Similar effect to `uginewgame`",
+            EngineOptionName::SetEval => "Change the current evaluation function without resetting the engine state, such as clearing the TT",
+            EngineOptionName::Other(name) => { return Some(format!("Custom option named '{name}'")) }
+        };
+        Some(res.to_string())
+    }
 }
 
 impl EngineOptionName {
@@ -147,6 +177,9 @@ impl EngineOptionName {
             EngineOptionName::UCIOpponent => "UCI_Opponent",
             EngineOptionName::UCIEngineAbout => "UCI_EngineAbout",
             EngineOptionName::MoveOverhead => "MoveOverhead",
+            EngineOptionName::Strictness => "Strict",
+            EngineOptionName::SetEngine => "Engine",
+            EngineOptionName::SetEval => "SetEval",
             EngineOptionName::Other(x) => x,
         }
     }
@@ -159,17 +192,20 @@ impl Display for EngineOptionName {
 }
 
 impl FromStr for EngineOptionName {
-    type Err = String;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s.to_ascii_lowercase().as_str() {
-            "hash" => EngineOptionName::Hash,
+            "hash" | "tt" => EngineOptionName::Hash,
             "threads" => EngineOptionName::Threads,
             "ponder" => EngineOptionName::Ponder,
             "multipv" => EngineOptionName::MultiPv,
             "uci_opponent" => EngineOptionName::UCIOpponent,
             "uci_elo" => EngineOptionName::UciElo,
             "move overhead" | "moveoverhead" => EngineOptionName::MoveOverhead,
+            "strict" => EngineOptionName::Strictness,
+            "engine" => EngineOptionName::SetEngine,
+            "seteval" => EngineOptionName::SetEval,
             _ => EngineOptionName::Other(s.to_string()),
         })
     }
@@ -215,44 +251,152 @@ impl NamedEntity for EngineOption {
     }
 }
 
-pub fn parse_ugi_position<B: Board>(
-    words: &mut Peekable<SplitWhitespace>,
+pub fn parse_ugi_position_part<B: Board>(
+    first_word: &str,
+    rest: &mut Tokens,
+    allow_position_part: bool,
     old_board: &B,
+    strictness: Strictness,
 ) -> Res<B> {
-    // let input = words.remainder().unwrap_or_default().trim();
-    let position_word = words
-        .next()
-        .ok_or_else(|| "Missing position after 'position' command".to_string())?;
-    Ok(match position_word {
-        "fen" | "f" => B::read_fen_and_advance_input(words)?,
+    if allow_position_part
+        && (first_word.eq_ignore_ascii_case("position")
+            || first_word.eq_ignore_ascii_case("pos")
+            || first_word.eq_ignore_ascii_case("p"))
+    {
+        let Some(pos_word) = rest.next() else {
+            bail!("Missing position after '{}' option", "position".important())
+        };
+        return parse_ugi_position_part(pos_word, rest, false, old_board, strictness);
+    }
+    Ok(match first_word.to_ascii_lowercase().as_str() {
+        "fen" | "f" => B::read_fen_and_advance_input(rest, strictness)?,
         "startpos" | "s" => B::startpos_for_settings(old_board.settings()),
-        "old" | "o" | "previous" | "p" => *old_board,
+        "current" | "c" => *old_board,
         name => B::from_name(name).map_err(|err| {
-            format!(
+            anyhow!(
                 "{err} Additionally, '{0}', '{1}' and '{2}' are also always recognized.",
-                "startpos".bold(),
-                "fen <fen>".bold(),
-                "old".bold()
+                "startpos".important(),
+                "fen <fen>".important(),
+                "old".important()
             )
         })?,
     })
 }
 
-pub fn parse_ugi_position_and_moves<B: Board>(
-    words: &mut Peekable<SplitWhitespace>,
+#[allow(clippy::too_many_arguments)]
+pub fn parse_ugi_position_and_moves<
+    B: Board,
+    S,
+    F: Fn(&mut S, B::Move) -> Res<()>,
+    G: Fn(&mut S),
+    H: Fn(&mut S) -> &mut B,
+>(
+    first_word: &str,
+    rest: &mut Tokens,
+    accept_pos_word: bool,
+    strictness: Strictness,
+    old_board: &B,
+    state: &mut S,
+    make_move: F,
+    finish_pos: G,
+    get_board: H,
+) -> Res<()> {
+    let mut parsed_position = false;
+    let pos = parse_ugi_position_part(first_word, rest, accept_pos_word, old_board, strictness);
+    if let Ok(pos) = pos {
+        *(get_board(state)) = pos;
+        // don't reset the position if all we get was moves
+        finish_pos(state);
+        parsed_position = true;
+    }
+    let mut first_move_word = first_word;
+    if parsed_position {
+        match rest.peek() {
+            None => return Ok(()),
+            Some(word) => first_move_word = *word,
+        }
+    }
+    let mut parsed_move = false;
+    if first_move_word.eq_ignore_ascii_case("moves") || first_move_word.eq_ignore_ascii_case("m") {
+        if parsed_position {
+            _ = rest.next();
+        }
+    } else {
+        let Ok(first_move) = B::Move::from_text(first_move_word, get_board(state)) else {
+            if parsed_position {
+                return Ok(()); // don't error to allow other options following a position command
+            } else {
+                bail!("'{}' is not a valid position or move", first_word.error())
+            }
+        };
+        parsed_move = true;
+        if parsed_position {
+            _ = rest.next();
+        }
+        make_move(state, first_move).map_err(|err| {
+            anyhow!(
+                "move '{first_move}' is pseudolegal but not legal in position '{}': {err}",
+                *get_board(state)
+            )
+        })?;
+    }
+    // TODO: Handle flip / nullmove?
+    while let Some(next_word) = rest.peek().copied() {
+        let mov = match B::Move::from_text(next_word, get_board(state)) {
+            Ok(mov) => mov,
+            Err(err) => {
+                if !parsed_move {
+                    bail!(
+                        "'{0}' must be followed by a move, but '{1}' is not a pseudolegal {2} move: {err}",
+                        "moves".important(),
+                        next_word.error(),
+                        B::game_name()
+                    )
+                }
+                return Ok(()); // allow parsing other commands after a position subcommand
+            }
+        };
+        _ = rest.next();
+        make_move(state, mov).map_err(|err| {
+            anyhow!(
+                "move '{mov}' is not legal in position '{}': {err}",
+                *get_board(state)
+            )
+        })?;
+        parsed_move = true;
+    }
+    if !parsed_move {
+        bail!("Missing move after '{}'", "moves".important())
+    }
+    Ok(())
+}
+
+pub fn load_ugi_position<B: Board>(
+    first_word: &str,
+    rest: &mut Tokens,
+    accept_pos_word: bool,
+    strictness: Strictness,
     old_board: &B,
 ) -> Res<B> {
-    let mut board = parse_ugi_position(words, old_board)?;
-    match words.next() {
-        None => return Ok(board),
-        Some("moves") => {}
-        Some(x) => return Err(format!("Expected either nothing or 'moves', got '{x}")),
-    }
-    for mov in words {
-        let mov = B::Move::from_compact_text(mov, &board)?;
-        board = board
-            .make_move(mov)
-            .ok_or_else(|| format!("move '{mov}' is not legal in position '{board}'"))?;
-    }
+    let mut board = *old_board;
+    parse_ugi_position_and_moves(
+        first_word,
+        rest,
+        accept_pos_word,
+        strictness,
+        old_board,
+        &mut board,
+        |pos, next_move| {
+            debug_assert!(pos.is_move_legal(next_move));
+            *pos = pos.make_move(next_move).ok_or_else(|| {
+                anyhow!(
+                    "Move '{next_move}' is not legal in position '{pos}' (but it is pseudolegal)"
+                )
+            })?;
+            Ok(())
+        },
+        |_| (),
+        |board| board,
+    )?;
     Ok(board)
 }

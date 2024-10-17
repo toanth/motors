@@ -7,6 +7,7 @@ use gears::games::mnk::MNKBoard;
 use gears::games::uttt::UtttBoard;
 use gears::games::OutputList;
 use gears::general::board::{Board, RectangularBoard};
+use gears::general::common::anyhow::anyhow;
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{select_name_dyn, Res};
 use gears::output::{normal_outputs, required_outputs};
@@ -137,10 +138,10 @@ pub fn create_client_match_for_game<B: Board>(
 }
 
 pub fn run_program() -> Res<()> {
-    let args = parse_cli().map_err(|err| format!("Error parsing command line arguments: {err}"))?;
+    let args = parse_cli().map_err(|err| anyhow!("Error parsing command line arguments: {err}"))?;
 
     let mut the_match =
-        create_match(args).map_err(|err| format!("Couldn't start the client: {err}"))?;
+        create_match(args).map_err(|err| anyhow!("Couldn't start the client: {err}"))?;
     _ = the_match.run();
     Ok(())
 }

@@ -24,8 +24,8 @@ use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: ChessMove| {
     for pos in Chessboard::bench_positions() {
-        let _ = pos.is_move_pseudolegal(data);
-        if pos.is_move_pseudolegal(data) {
+        let pl = pos.is_move_pseudolegal(data);
+        if pl {
             let _ = pos.make_move(data);
             assert!(pos.pseudolegal_moves().contains(&data));
         }

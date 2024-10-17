@@ -7,20 +7,6 @@ use std::time::{Duration, Instant};
 use crossbeam_utils::sync::{Parker, Unparker};
 use strum::IntoEnumIterator;
 
-use gears::games::{BoardHistory, Color, ZobristHistory};
-use gears::general::board::Board;
-use gears::general::common::Res;
-use gears::general::moves::Move;
-use gears::output::Message::*;
-use gears::output::{Message, OutputBox, OutputBuilder};
-use gears::search::{SearchInfo, TimeControl};
-use gears::MatchStatus::*;
-use gears::Quitting::*;
-use gears::{
-    output_builder_from_str, player_res_to_match_res, AbstractRun, AdjudicationReason, GameOver,
-    GameOverReason, GameResult, GameState, MatchResult, MatchStatus, PlayerResult, Quitting,
-};
-
 use crate::cli::CommandLineArgs;
 use crate::play::adjudication::{Adjudication, Adjudicator};
 use crate::play::player::Player::{Engine, Human};
@@ -31,6 +17,20 @@ use crate::play::ugi_input::BestMoveAction;
 use crate::play::ugi_input::BestMoveAction::Ignore;
 use crate::play::ugi_input::EngineStatus::*;
 use crate::ui::Input;
+use gears::games::{BoardHistory, Color, ZobristHistory};
+use gears::general::board::Board;
+use gears::general::board::Strictness::Relaxed;
+use gears::general::common::anyhow::bail;
+use gears::general::common::Res;
+use gears::output::Message::*;
+use gears::output::{Message, OutputBox, OutputBuilder};
+use gears::search::{SearchInfo, TimeControl};
+use gears::MatchStatus::*;
+use gears::Quitting::*;
+use gears::{
+    output_builder_from_str, player_res_to_match_res, AbstractRun, AdjudicationReason, GameOver,
+    GameOverReason, GameResult, GameState, MatchResult, MatchStatus, PlayerResult, Quitting,
+};
 
 // TODO: Use tokio? Probably more efficient and it has non-blocking reads.
 
@@ -96,6 +96,7 @@ impl<B: Board> UgiMatchState<B> {
 #[derive(Debug)]
 pub struct ClientState<B: Board> {
     pub the_match: UgiMatchState<B>,
+    game_name: String,
     pub players: Vec<Player<B>>,
     /// The ith entry is the builder used to construct the ith player.
     pub player_builders: Vec<PlayerBuilder>,
@@ -179,6 +180,10 @@ impl<B: Board> GameState<B> for ClientState<B> {
         self.the_match.board
     }
 
+    fn game_name(&self) -> &str {
+        &self.game_name
+    }
+
     fn move_history(&self) -> &[B::Move] {
         self.the_match.move_history.as_slice()
     }
@@ -238,7 +243,7 @@ impl<B: Board> Client<B> {
     ) -> Res<Arc<Mutex<Self>>> {
         let initial_pos = match &args.start_pos {
             None => B::default(),
-            Some(fen) => B::from_fen(fen)?,
+            Some(fen) => B::from_fen(fen, Relaxed)?,
         };
         let event = args
             .event
@@ -258,6 +263,7 @@ impl<B: Board> Client<B> {
         let match_state = UgiMatchState::new(initial_pos, event, site);
         let state = ClientState {
             the_match: match_state,
+            game_name: B::game_name(),
             players: vec![],
             player_builders: vec![],
             wait_after_match: args.wait_after_match,
@@ -401,9 +407,9 @@ impl<B: Board> Client<B> {
         for output in &mut self.outputs {
             output.update_engine_info(&engine.display_name, &info);
         }
-        let current_match = engine.current_match.as_mut().ok_or_else(|| {
-            format!("The engine sent info ('{info}') while it wasn't playing in match")
-        })?;
+        let Some(current_match) = engine.current_match.as_mut() else {
+            bail!("The engine sent info ('{info}') while it wasn't playing in match")
+        };
         current_match.search_info = Some(info);
         Ok(())
     }
@@ -423,10 +429,8 @@ impl<B: Board> Client<B> {
     /// and does not transfer control to the other player.
     pub fn play_move_internal(&mut self, mov: B::Move) -> Res<()> {
         if !self.board().is_move_pseudolegal(mov) {
-            return Err(format!(
-                "The move '{}' is not pseudolegal in the current position",
-                mov.extended_formatter(*self.board())
-            ));
+            // can't use to_extended_text because that assumes pseudolegality internally
+            bail!("The move '{mov}' is not pseudolegal in the current position",)
         }
         let Some(board) = self.board().make_move(mov) else {
             let player_res = GameOver {
@@ -437,10 +441,7 @@ impl<B: Board> Client<B> {
                 player_res,
                 self.active_player().unwrap(),
             ));
-            return Err(format!(
-                "Invalid move '{mov}' in position {}",
-                self.board().as_fen(),
-            ));
+            bail!("Invalid move '{mov}' in position {}", self.board().as_fen(),)
         };
 
         *self.board() = board;
@@ -608,7 +609,8 @@ impl<B: Board> Client<B> {
     pub fn undo_halfmoves(&mut self, num_plies_to_undo: usize) -> Res<()> {
         let plies_played = self.match_state().move_history.len();
         if plies_played < num_plies_to_undo {
-            return Err(format!("Couldn't undo the last {num_plies_to_undo} half moves because only {plies_played} half moves have been played so far (this is the initial position: '{}')", self.board().as_fen()));
+            bail!("Couldn't undo the last {num_plies_to_undo} half moves because only {plies_played} half moves \
+                have been played so far (this is the initial position: '{}')", self.board().as_fen())
         }
         let prev_ply = plies_played - num_plies_to_undo;
         self.rewind_to_ply(prev_ply)

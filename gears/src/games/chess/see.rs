@@ -169,6 +169,7 @@ mod tests {
     use super::*;
     use crate::games::chess::Chessboard;
     use crate::games::Board;
+    use crate::general::board::Strictness::Relaxed;
     use crate::general::common::parse_int_from_str;
 
     #[test]
@@ -373,7 +374,7 @@ mod tests {
         ];
         for testcase in tests {
             let mut parts = testcase.split(';');
-            let board = Chessboard::from_fen(parts.next().unwrap()).unwrap();
+            let board = Chessboard::from_fen(parts.next().unwrap(), Relaxed).unwrap();
             let mov = ChessMove::from_extended_text(parts.next().unwrap().trim(), &board).unwrap();
             let expected_score = parse_int_from_str(parts.next().unwrap().trim(), "score").unwrap();
             let result = board.see(mov, SeeScore(-9999), SeeScore(9999));

@@ -5,14 +5,17 @@ use dyn_clone::clone_box;
 use rand::rngs::StdRng;
 
 use gears::cli::{ArgIter, Game};
+#[cfg(feature = "ataxx")]
 use gears::games::ataxx::AtaxxBoard;
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
 #[cfg(feature = "mnk")]
 use gears::games::mnk::MNKBoard;
+#[cfg(feature = "uttt")]
 use gears::games::uttt::UtttBoard;
 use gears::games::OutputList;
 use gears::general::board::Board;
+use gears::general::common::anyhow::anyhow;
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{select_name_dyn, Res};
 use gears::general::perft::perft;
@@ -20,18 +23,25 @@ use gears::output::normal_outputs;
 use gears::search::{Depth, SearchLimit};
 use gears::Quitting::*;
 use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs, Quitting};
+use std::fmt::{Display, Formatter};
 
-use crate::cli::Mode::{Bench, Perft};
-use crate::cli::{parse_cli, EngineOpts, Mode};
+#[cfg(feature = "ataxx")]
 use crate::eval::ataxx::bate::Bate;
+use crate::eval::chess::lite::KingGambot;
+#[cfg(feature = "chess")]
 use crate::eval::chess::lite::LiTEval;
+#[cfg(feature = "chess")]
 use crate::eval::chess::material_only::MaterialOnlyEval;
 #[cfg(feature = "chess")]
 use crate::eval::chess::piston::PistonEval;
 #[cfg(feature = "mnk")]
 use crate::eval::mnk::base::BasicMnkEval;
 use crate::eval::rand_eval::RandEval;
+#[cfg(feature = "uttt")]
 use crate::eval::uttt::lute::Lute;
+use crate::io::cli::{parse_cli, EngineOpts};
+use crate::io::ugi_output::UgiOutput;
+use crate::io::EngineUGI;
 #[cfg(feature = "caps")]
 use crate::search::chess::caps::Caps;
 #[cfg(feature = "gaps")]
@@ -41,19 +51,36 @@ use crate::search::generic::random_mover::RandomMover;
 use crate::search::multithreading::EngineWrapper;
 use crate::search::tt::TT;
 use crate::search::{
-    run_bench_with, AbstractEvalBuilder, AbstractSearcherBuilder, Benchable, EvalBuilder, EvalList,
+    run_bench_with, AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EvalBuilder, EvalList,
     SearcherBuilder, SearcherList,
 };
-use crate::ugi_engine::{EngineUGI, UgiOutput};
+use crate::Mode::{Bench, Perft};
 
-pub mod cli;
 pub mod eval;
+pub mod io;
 pub mod search;
-pub mod ugi_engine;
+
+#[derive(Debug, Default, Copy, Clone)]
+pub enum Mode {
+    #[default]
+    Engine,
+    Bench(Option<Depth>, bool),
+    Perft(Option<Depth>),
+}
+
+impl Display for Mode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Mode::Engine => write!(f, "engine"),
+            Bench(_, _) => write!(f, "bench"),
+            Perft(_) => write!(f, "perft"),
+        }
+    }
+}
 
 #[derive(Debug)]
 struct BenchRun<B: Board> {
-    engine: Box<dyn Benchable<B>>,
+    engine: Box<dyn Engine<B>>,
     depth: Option<Depth>,
     with_nodes: bool,
 }
@@ -67,7 +94,7 @@ impl<B: Board> BenchRun<B> {
         let Bench(depth, with_nodes) = options.mode else {
             unreachable!()
         };
-        let engine = create_engine_bench_from_str(&options.engine, all_searchers, all_evals)?;
+        let engine = create_engine_box_from_str(&options.engine, all_searchers, all_evals)?;
         Ok(Self {
             engine,
             depth,
@@ -85,7 +112,12 @@ impl<B: Board> AbstractRun for BenchRun<B> {
             None
         };
         let depth = self.depth.unwrap_or(engine.default_bench_depth());
-        let res = run_bench_with(engine, SearchLimit::depth(depth), nodes);
+        let res = run_bench_with(
+            engine,
+            SearchLimit::depth(depth),
+            nodes,
+            &B::bench_positions(),
+        );
         println!("{res}");
         QuitProgram
     }
@@ -169,16 +201,16 @@ pub fn create_engine_from_str<B: Board>(
     ))
 }
 
-pub fn create_engine_bench_from_str<B: Board>(
+pub fn create_engine_box_from_str<B: Board>(
     name: &str,
     searchers: &SearcherList<B>,
     evals: &EvalList<B>,
-) -> Res<Box<dyn Benchable<B>>> {
+) -> Res<Box<dyn Engine<B>>> {
     let (searcher, eval) = name.split_once('-').unwrap_or((name, "default"));
 
     let searcher_builder = create_searcher_from_str(searcher, searchers)?;
     let eval_builder = create_eval_from_str(eval, evals)?;
-    Ok(searcher_builder.build_for_bench(eval_builder.as_ref()))
+    Ok(searcher_builder.build(eval_builder.as_ref()))
 }
 
 pub fn create_match_for_game<B: Board>(
@@ -242,6 +274,7 @@ pub fn list_chess_evals() -> EvalList<Chessboard> {
         EvalBuilder::<Chessboard, MaterialOnlyEval>::default(),
     ));
     res.push(Box::new(EvalBuilder::<Chessboard, PistonEval>::default()));
+    res.push(Box::new(EvalBuilder::<Chessboard, KingGambot>::default()));
     res.push(Box::new(EvalBuilder::<Chessboard, LiTEval>::default()));
     res
 }
@@ -345,10 +378,10 @@ pub fn create_match(args: EngineOpts) -> Res<AnyRunnable> {
 
 pub fn run_program_with_args(args: ArgIter) -> Res<()> {
     let args =
-        parse_cli(args).map_err(|err| format!("Failed to parse command line arguments: {err}"))?;
+        parse_cli(args).map_err(|err| anyhow!("Failed to parse command line arguments: {err}"))?;
     let mode = args.mode;
     let mut the_match =
-        create_match(args).map_err(|err| format!("Couldn't start the {mode}: {err}"))?;
+        create_match(args).map_err(|err| anyhow!("Couldn't start the {mode}: {err}"))?;
     _ = the_match.run();
     Ok(())
 }

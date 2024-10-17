@@ -1,7 +1,9 @@
 //! This module contains generic test functions that are completely independent of the actual game.
 //! Since those generics aren't instantiated here, there are no actual tests here.
 use crate::games::{Color, ColoredPiece, Coordinates, Size, ZobristHash};
+use crate::general::board::Strictness::Strict;
 use crate::general::board::{Board, UnverifiedBoard};
+use crate::general::moves::ExtendedFormat::{Alternative, Standard};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::Move;
 use itertools::Itertools;
@@ -42,7 +44,10 @@ impl<B: Board> GenericTests<B> {
             );
             p = p.remove_piece(coords).unwrap();
         }
-        assert_eq!(p.verify(), B::empty().into().verify());
+        assert_eq!(
+            p.verify(Strict).map_err(|_| ()),
+            B::empty().into().verify(Strict).map_err(|_| ())
+        );
         assert!(size
             .check_coordinates(Coordinates::no_coordinates())
             .is_err());
@@ -53,11 +58,12 @@ impl<B: Board> GenericTests<B> {
         for pos in positions {
             let pos = (pos.val)();
             for mov in pos.legal_moves_slow() {
-                let encoded = mov.to_extended_text(&pos);
-                println!("{pos} -- {encoded}");
-                let decoded = B::Move::from_extended_text(&encoded, &pos);
-                assert!(decoded.is_ok());
-                assert_eq!(decoded.unwrap(), mov);
+                for format in [Standard, Alternative] {
+                    let encoded = mov.to_extended_text(&pos, format);
+                    let decoded = B::Move::from_extended_text(&encoded, &pos);
+                    assert!(decoded.is_ok());
+                    assert_eq!(decoded.unwrap(), mov);
+                }
             }
         }
     }
@@ -65,10 +71,13 @@ impl<B: Board> GenericTests<B> {
     pub fn fen_roundtrip_test() {
         let positions = B::bench_positions();
         for pos in positions {
-            assert_eq!(pos, B::from_fen(&pos.as_fen()).unwrap());
+            assert_eq!(pos, B::from_fen(&pos.as_fen(), Strict).unwrap());
             // FENs might be different after one fen->position->fen roundtrip because the parser can accept more than
             // what's produced as output, but writing a FEN two times should produce the same result.
-            assert_eq!(pos.as_fen(), B::from_fen(&pos.as_fen()).unwrap().as_fen());
+            assert_eq!(
+                pos.as_fen(),
+                B::from_fen(&pos.as_fen(), Strict).unwrap().as_fen()
+            );
         }
     }
 
@@ -119,9 +128,15 @@ impl<B: Board> GenericTests<B> {
             let ply = pos.halfmove_ctr_since_start();
             // use a new hash set per position because bench positions can be only one ply away from each other
             let mut hashes = HashSet::new();
-            let _ = pos.debug_verify_invariants().unwrap();
-            assert!(pos.debug_verify_invariants().is_ok());
-            assert_eq!(B::from_fen(&pos.as_fen()).unwrap(), pos);
+            let _ = pos.debug_verify_invariants(Strict).unwrap();
+            assert!(pos.debug_verify_invariants(Strict).is_ok());
+            assert_eq!(
+                B::from_fen(&pos.as_fen(), Strict).unwrap(),
+                pos,
+                "{:?}\n{}",
+                pos,
+                pos.as_fen()
+            );
             let hash = pos.zobrist_hash().0;
             hashes.insert(hash);
             assert_ne!(hash, 0);
@@ -139,13 +154,13 @@ impl<B: Board> GenericTests<B> {
                 let new_pos = pos.make_move(mov);
                 assert_eq!(new_pos.is_some(), pos.is_pseudolegal_move_legal(mov));
                 let Some(new_pos) = new_pos else { continue };
-                let legal = new_pos.debug_verify_invariants();
+                let legal = new_pos.debug_verify_invariants(Strict);
                 assert!(legal.is_ok());
                 assert_eq!(new_pos.active_player().other(), pos.active_player());
                 assert_ne!(new_pos.as_fen(), pos.as_fen());
 
-                let roundtrip = B::from_fen(&new_pos.as_fen()).unwrap();
-                assert!(roundtrip.debug_verify_invariants().is_ok());
+                let roundtrip = B::from_fen(&new_pos.as_fen(), Strict).unwrap();
+                assert!(roundtrip.debug_verify_invariants(Strict).is_ok());
                 assert_eq!(roundtrip.as_fen(), new_pos.as_fen());
                 assert_eq!(
                     roundtrip.legal_moves_slow().into_iter().collect_vec(),
