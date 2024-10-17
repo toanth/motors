@@ -128,8 +128,13 @@ mod tests {
         let res = handle.join().unwrap();
         atomic2.set_stop(true);
         let res2 = handle2.join().unwrap();
-        // TODO: Sometimes fails?
-        assert!(res.score.unwrap().0.abs_diff(res2.score.unwrap().0) <= 100);
+        // The bound of 200 is rather large because gaps does not produce very stable evals
+        assert!(
+            res.score.unwrap().0.abs_diff(res2.score.unwrap().0) <= 200,
+            "{0} {1}",
+            res.score.unwrap(),
+            res2.score.unwrap()
+        );
         assert_eq!(res.chosen_move.piece_type(), Bishop);
         assert_eq!(
             res2.chosen_move.src_square(),

@@ -136,7 +136,7 @@ const_assert_eq!(size_of::<TTEntry<Chessboard>>(), 16);
 #[cfg(feature = "chess")]
 const_assert_eq!(size_of::<TTEntry<Chessboard>>(), size_of::<AtomicTTEntry>());
 
-pub const DEFAULT_HASH_SIZE_MB: usize = 4;
+pub const DEFAULT_HASH_SIZE_MB: usize = 16;
 
 /// Note that resizing the TT during search will wait until the search is finished
 /// (all threads will receive a new arc)
