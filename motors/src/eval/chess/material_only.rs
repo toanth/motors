@@ -39,7 +39,7 @@ impl Eval<Chessboard> for MaterialOnlyEval {
     fn piece_scale(&self) -> ScoreT {
         5
     }
-    fn eval(&mut self, pos: &Chessboard) -> Score {
+    fn eval(&mut self, pos: &Chessboard, _ply: usize) -> Score {
         let mut color = pos.active_player();
         let mut score = 0;
         for _ in 0..2 {

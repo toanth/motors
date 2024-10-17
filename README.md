@@ -12,7 +12,10 @@ This repository contains 4 crates related to board games:
 Currently, the most interesting part is probably the superhuman UCI [Chess960](<https://en.wikipedia.org/wiki/Fischer_random_chess>), DFRC
 and **Chess Engine** `CAPS-LiTE`.
 
-Motors (**Mo**re **t**han **or**dinary **s**earchers) is both the name of this GitHub repo,
+[//]: # (Motors &#40;**Mo**re **t**han **or**dinary **s**earchers&#41;)
+Motors
+is both the name of this GitHub repo,
+
 and of the `motors` crate, which contains engines.
 
 An engine typically consists of two parts, the *searcher* and the *evaluation function*,

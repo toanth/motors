@@ -239,14 +239,35 @@ impl Engine<Chessboard> for Caps {
     type SearchStackEntry = CapsSearchStackEntry;
     type CustomInfo = CapsCustomInfo;
 
+    fn with_eval(eval: Box<dyn Eval<Chessboard>>) -> Self {
+        Self {
+            state: SearchState::new(Depth::new_unchecked(SEARCH_STACK_LEN)),
+            eval,
+        }
+    }
+
+    fn static_eval(&mut self, pos: Chessboard, ply: usize) -> Score {
+        self.eval.eval(&pos, ply)
+    }
+
     fn max_bench_depth(&self) -> Depth {
         DEPTH_SOFT_LIMIT
     }
 
-    fn print_spsa_params(&self) {
-        for line in cc::ob_param_string() {
-            println!("{line}");
-        }
+    fn search_state_dyn(&self) -> &dyn AbstractSearchState<Chessboard> {
+        &self.state
+    }
+
+    fn search_state_mut_dyn(&mut self) -> &mut dyn AbstractSearchState<Chessboard> {
+        &mut self.state
+    }
+
+    fn search_state(&self) -> &SearchStateFor<Chessboard, Self> {
+        &self.state
+    }
+
+    fn search_state_mut(&mut self) -> &mut SearchStateFor<Chessboard, Self> {
+        &mut self.state
     }
 
     fn engine_info(&self) -> EngineInfo {
@@ -267,6 +288,21 @@ impl Engine<Chessboard> for Caps {
             None,
             options,
         )
+    }
+
+    fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
+        debug_assert!(self.state.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0);
+        let elapsed = start_time.elapsed();
+        // divide by 4 unless moves to go is very small, but don't divide by 1 (or zero) to avoid timeouts
+        // TODO: Compute at the start of the search instead of every time:
+        // Instead of storing a SearchLimit, store a different struct that contains soft and hard bounds
+        let divisor = tc
+            .moves_to_go
+            .unwrap_or(usize::MAX)
+            .clamp(2, cc::hard_limit_div()) as u32;
+        // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
+        // (assuming the move overhead is set correctly)
+        elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment)
     }
 
     fn set_option(
@@ -299,6 +335,12 @@ impl Engine<Chessboard> for Caps {
             NoDescription,
         )
         .map(|_| {}) // only called to produce an error message
+    }
+
+    fn print_spsa_params(&self) {
+        for line in cc::ob_param_string() {
+            println!("{line}");
+        }
     }
 
     fn set_eval(&mut self, eval: Box<dyn Eval<Chessboard>>) {
@@ -342,48 +384,6 @@ impl Engine<Chessboard> for Caps {
         self.state.custom.original_board_hist.push(&pos);
 
         self.iterative_deepening(pos, soft_limit)
-    }
-
-    fn search_state(&self) -> &SearchStateFor<Chessboard, Self> {
-        &self.state
-    }
-
-    fn search_state_mut(&mut self) -> &mut SearchStateFor<Chessboard, Self> {
-        &mut self.state
-    }
-
-    fn static_eval(&mut self, pos: Chessboard) -> Score {
-        self.eval.eval(&pos)
-    }
-
-    fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
-        debug_assert!(self.state.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0);
-        let elapsed = start_time.elapsed();
-        // divide by 4 unless moves to go is very small, but don't divide by 1 (or zero) to avoid timeouts
-        // TODO: Compute at the start of the search instead of every time:
-        // Instead of storing a SearchLimit, store a different struct that contains soft and hard bounds
-        let divisor = tc
-            .moves_to_go
-            .unwrap_or(usize::MAX)
-            .clamp(2, cc::hard_limit_div()) as u32;
-        // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
-        // (assuming the move overhead is set correctly)
-        elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment)
-    }
-
-    fn with_eval(eval: Box<dyn Eval<Chessboard>>) -> Self {
-        Self {
-            state: SearchState::new(Depth::new_unchecked(SEARCH_STACK_LEN)),
-            eval,
-        }
-    }
-
-    fn search_state_dyn(&self) -> &dyn AbstractSearchState<Chessboard> {
-        &self.state
-    }
-
-    fn search_state_mut_dyn(&mut self) -> &mut dyn AbstractSearchState<Chessboard> {
-        &mut self.state
     }
 }
 
@@ -1184,7 +1184,7 @@ impl Caps {
 
     fn eval(&mut self, pos: Chessboard, ply: usize) -> Score {
         let res = if ply == 0 {
-            self.eval.eval(&pos)
+            self.eval.eval(&pos, 0)
         } else {
             let old_pos = &self.state.search_stack[ply - 1].pos;
             let mov = &self.state.search_stack[ply - 1].last_tried_move();

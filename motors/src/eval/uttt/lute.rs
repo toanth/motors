@@ -64,7 +64,7 @@ const PSQT: [Score; 9] = [
 ];
 
 impl Eval<UtttBoard> for Lute {
-    fn eval(&mut self, pos: &UtttBoard) -> Score {
+    fn eval(&mut self, pos: &UtttBoard, _ply: usize) -> Score {
         let mut score = Score::default();
         for color in [pos.active_player(), pos.inactive_player()] {
             for sub_board in UtttSubSquare::iter() {

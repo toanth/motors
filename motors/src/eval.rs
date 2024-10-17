@@ -19,10 +19,12 @@ pub mod mnk;
 pub mod uttt;
 
 pub trait Eval<B: Board>: Debug + Send + StaticallyNamedEntity + DynClone + 'static {
-    fn eval(&mut self, pos: &B) -> Score;
+    /// Eval the given board at the given depth in a search. To just eval a single position,
+    /// `ply` should be set to 0. Most eval functions completely ignore it.
+    fn eval(&mut self, pos: &B, _ply: usize) -> Score;
 
-    fn eval_incremental(&mut self, _old_pos: &B, _mov: B::Move, new_pos: &B, _ply: usize) -> Score {
-        self.eval(new_pos)
+    fn eval_incremental(&mut self, _old_pos: &B, _mov: B::Move, new_pos: &B, ply: usize) -> Score {
+        self.eval(new_pos, ply)
     }
 
     /// How much larger do we expect variation in piece scores to be than variation in eval scores?
@@ -35,6 +37,9 @@ pub trait Eval<B: Board>: Debug + Send + StaticallyNamedEntity + DynClone + 'sta
         2
     }
 }
+
+#[expect(type_alias_bounds)]
+pub type SingleFeatureScore<S: ScoreType> = S::SingleFeatureScore;
 
 /// There is only one implementation of this trait in this crate: [`PhasedScore`].
 ///

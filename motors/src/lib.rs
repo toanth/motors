@@ -27,6 +27,7 @@ use std::fmt::{Display, Formatter};
 
 #[cfg(feature = "ataxx")]
 use crate::eval::ataxx::bate::Bate;
+use crate::eval::chess::lite::KingGambot;
 #[cfg(feature = "chess")]
 use crate::eval::chess::lite::LiTEval;
 #[cfg(feature = "chess")]
@@ -273,6 +274,7 @@ pub fn list_chess_evals() -> EvalList<Chessboard> {
         EvalBuilder::<Chessboard, MaterialOnlyEval>::default(),
     ));
     res.push(Box::new(EvalBuilder::<Chessboard, PistonEval>::default()));
+    res.push(Box::new(EvalBuilder::<Chessboard, KingGambot>::default()));
     res.push(Box::new(EvalBuilder::<Chessboard, LiTEval>::default()));
     res
 }

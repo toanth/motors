@@ -20,8 +20,9 @@ use gears::general::board::Board;
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::moves::Move;
 use gears::general::squares::RectangularCoordinates;
-use gears::score::{PhaseType, Score, ScoreT};
+use gears::score::{PhaseType, PhasedScore, Score, ScoreT};
 
+use crate::eval::chess::king_gambot::KingGambotValues;
 use crate::eval::chess::lite::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
 use crate::eval::{Eval, ScoreType};
 
@@ -36,9 +37,12 @@ struct EvalState<Tuned: LiteValues> {
 #[derive(Default, Debug, Clone)]
 pub struct GenericLiTEval<Tuned: LiteValues> {
     stack: Vec<EvalState<Tuned>>,
+    tuned: Tuned,
 }
 
 pub type LiTEval = GenericLiTEval<Lite>;
+
+pub type KingGambot = GenericLiTEval<KingGambotValues>;
 
 pub const TEMPO: Score = Score(10);
 // TODO: Differentiate between rooks and kings in front of / behind pawns?
@@ -97,31 +101,31 @@ impl<Tuned: LiteValues> StaticallyNamedEntity for GenericLiTEval<Tuned> {
     where
         Self: Sized,
     {
-        "LiTE"
+        Tuned::static_short_name()
     }
 
     fn static_long_name() -> String
     where
         Self: Sized,
     {
-        "Chess LiTE: Linear Tuned Eval for Chess".to_string()
+        Tuned::static_long_name()
     }
 
     fn static_description() -> String
     where
         Self: Sized,
     {
-        "A classical evaluation for chess, tuned using 'pliers'".to_string()
+        Tuned::static_description()
     }
 }
 
 impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
-    fn psqt(pos: &Chessboard) -> Tuned::Score {
+    fn psqt(&self, pos: &Chessboard) -> Tuned::Score {
         let mut res = Tuned::Score::default();
         for color in ChessColor::iter() {
             for piece in ChessPieceType::pieces() {
                 for square in pos.colored_piece_bb(color, piece).ones() {
-                    res += Tuned::psqt(square, piece, color);
+                    res += self.tuned.psqt(square, piece, color);
                 }
             }
             res = -res;
@@ -147,7 +151,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let our_pawns = pos.colored_piece_bb(color, Pawn);
         let king_square = pos.king_square(color);
         let idx = pawn_shield_idx(our_pawns, king_square, color);
-        Tuned::pawn_shield(idx)
+        Tuned::default().pawn_shield(color, idx)
     }
 
     fn pawns(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
@@ -250,6 +254,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     }
 
     fn psqt_delta(
+        &self,
         old_pos: &Chessboard,
         mov: ChessMove,
         new_pos: &Chessboard,
@@ -260,31 +265,37 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let mut phase_delta = PhaseType::default();
         let piece = mov.piece_type();
         let captured = mov.captured(old_pos);
-        delta -= Tuned::psqt(mov.src_square(), piece, moving_player);
+        delta -= self.tuned.psqt(mov.src_square(), piece, moving_player);
         if mov.is_castle() {
             let side = mov.castle_side();
-            delta += Tuned::psqt(new_pos.king_square(moving_player), King, moving_player);
+            delta += self
+                .tuned
+                .psqt(new_pos.king_square(moving_player), King, moving_player);
             // since PSQTs are player-relative, castling always takes place on the 0th rank
             let rook_dest_square = ChessSquare::from_rank_file(7, side.rook_dest_file());
             let rook_start_square =
                 ChessSquare::from_rank_file(7, old_pos.rook_start_file(moving_player, side));
-            delta += Tuned::psqt(rook_dest_square, Rook, Black);
-            delta -= Tuned::psqt(rook_start_square, Rook, Black);
+            delta += self.tuned.psqt(rook_dest_square, Rook, Black);
+            delta -= self.tuned.psqt(rook_start_square, Rook, Black);
         } else if mov.promo_piece() == Empty {
-            delta += Tuned::psqt(mov.dest_square(), piece, moving_player);
+            delta += self.tuned.psqt(mov.dest_square(), piece, moving_player);
         } else {
-            delta += Tuned::psqt(mov.dest_square(), mov.promo_piece(), moving_player);
+            delta += self
+                .tuned
+                .psqt(mov.dest_square(), mov.promo_piece(), moving_player);
             phase_delta += PIECE_PHASE[mov.promo_piece() as usize];
         }
         if mov.is_ep() {
-            delta += Tuned::psqt(
+            delta += self.tuned.psqt(
                 mov.square_of_pawn_taken_by_ep().unwrap(),
                 Pawn,
                 moving_player.other(),
             );
         } else if captured != Empty {
             // capturing a piece increases our score by the piece's psqt value from the opponent's point of view
-            delta += Tuned::psqt(mov.dest_square(), captured, moving_player.other());
+            delta += self
+                .tuned
+                .psqt(mov.dest_square(), captured, moving_player.other());
             phase_delta -= PIECE_PHASE[captured as usize];
         }
         // the position is always evaluated from white's perspective
@@ -297,7 +308,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         )
     }
 
-    fn eval_from_scratch(pos: &Chessboard) -> (EvalState<Tuned>, Tuned::Score) {
+    fn eval_from_scratch(&self, pos: &Chessboard) -> (EvalState<Tuned>, Tuned::Score) {
         let mut state = EvalState::default();
 
         let mut phase = 0;
@@ -306,15 +317,15 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         state.phase = phase;
 
-        let psqt_score = Self::psqt(pos);
+        let psqt_score = self.psqt(pos);
         state.psqt_score = psqt_score.clone();
         state.hash = pos.zobrist_hash();
         let score: Tuned::Score = Self::recomputed_every_time(pos) + psqt_score;
         (state, score)
     }
 
-    pub fn do_eval(pos: &Chessboard) -> <Tuned::Score as ScoreType>::Finalized {
-        let (state, score) = Self::eval_from_scratch(pos);
+    pub fn do_eval(&self, pos: &Chessboard) -> <Tuned::Score as ScoreType>::Finalized {
+        let (state, score) = self.eval_from_scratch(pos);
         score.finalize(
             state.phase,
             24,
@@ -324,6 +335,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     }
 
     fn incremental(
+        &self,
         mut state: EvalState<Tuned>,
         old_pos: &Chessboard,
         mov: ChessMove,
@@ -333,28 +345,28 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         Tuned::Score: Display,
     {
         if old_pos.zobrist_hash() != state.hash {
-            return Self::eval_from_scratch(new_pos);
+            return self.eval_from_scratch(new_pos);
         }
         if mov != ChessMove::default() {
             // null moves are encoded as a1a1, but it's possible that there's a "captured" piece on a1
             debug_assert_eq!(
-                Self::psqt(old_pos),
+                self.psqt(old_pos),
                 state.psqt_score,
                 "{0} {1} {old_pos} {new_pos} {mov}",
-                Self::psqt(old_pos),
+                self.psqt(old_pos),
                 state.psqt_score
             );
             debug_assert_eq!(&old_pos.make_move(mov).unwrap(), new_pos);
-            let (psqt_delta, phase_delta) = Self::psqt_delta(old_pos, mov, new_pos);
+            let (psqt_delta, phase_delta) = self.psqt_delta(old_pos, mov, new_pos);
             state.psqt_score += psqt_delta;
             state.phase += phase_delta;
             debug_assert_eq!(
                 state.psqt_score,
-                Self::psqt(new_pos),
+                self.psqt(new_pos),
                 "{0} {1} {2} {old_pos} {new_pos} {mov}",
                 state.psqt_score,
-                Self::psqt(new_pos),
-                Self::psqt_delta(old_pos, mov, new_pos).0,
+                self.psqt(new_pos),
+                self.psqt_delta(old_pos, mov, new_pos).0,
             );
         }
         state.hash = new_pos.zobrist_hash();
@@ -363,16 +375,34 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     }
 }
 
-impl Eval<Chessboard> for LiTEval {
-    fn piece_scale(&self) -> ScoreT {
-        5
-    }
+fn eval_lite<Tuned: LiteValues<Score = PhasedScore>>(
+    this: &mut GenericLiTEval<Tuned>,
+    pos: &Chessboard,
+) -> Score {
+    this.stack.clear();
+    let (state, score) = this.eval_from_scratch(pos);
+    this.stack.push(state);
+    score.finalize(state.phase, 24, pos.active_player(), TEMPO)
+}
 
-    fn eval(&mut self, pos: &Chessboard) -> Score {
-        self.stack.clear();
-        let (state, score) = Self::eval_from_scratch(pos);
-        self.stack.push(state);
-        score.finalize(state.phase, 24, pos.active_player(), TEMPO)
+fn eval_lite_incremental<Tuned: LiteValues<Score = PhasedScore>>(
+    this: &mut GenericLiTEval<Tuned>,
+    old_pos: &Chessboard,
+    mov: ChessMove,
+    new_pos: &Chessboard,
+    ply: usize,
+) -> Score {
+    debug_assert!(this.stack.len() >= ply);
+    debug_assert!(ply > 0);
+    let entry = this.stack[ply - 1];
+    let (entry, score) = this.incremental(entry, old_pos, mov, new_pos);
+    this.stack.resize(ply + 1, entry);
+    score.finalize(entry.phase, 24, new_pos.active_player(), TEMPO)
+}
+
+impl Eval<Chessboard> for LiTEval {
+    fn eval(&mut self, pos: &Chessboard, _ply: usize) -> Score {
+        eval_lite(self, pos)
     }
 
     // Zobrist hash collisions should be rare enough not to matter, and even when they occur,
@@ -384,11 +414,35 @@ impl Eval<Chessboard> for LiTEval {
         new_pos: &Chessboard,
         ply: usize,
     ) -> Score {
-        debug_assert!(self.stack.len() >= ply);
-        debug_assert!(ply > 0);
-        let entry = self.stack[ply - 1];
-        let (entry, score) = Self::incremental(entry, old_pos, mov, new_pos);
-        self.stack.resize(ply + 1, entry);
-        score.finalize(entry.phase, 24, new_pos.active_player(), TEMPO)
+        eval_lite_incremental(self, old_pos, mov, new_pos, ply)
+    }
+
+    fn piece_scale(&self) -> ScoreT {
+        5
+    }
+}
+
+impl Eval<Chessboard> for KingGambot {
+    fn eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
+        self.tuned.us = if ply % 2 == 0 {
+            pos.active_player()
+        } else {
+            pos.inactive_player()
+        };
+        eval_lite(self, pos)
+    }
+
+    fn eval_incremental(
+        &mut self,
+        old_pos: &Chessboard,
+        mov: ChessMove,
+        new_pos: &Chessboard,
+        ply: usize,
+    ) -> Score {
+        eval_lite_incremental(self, old_pos, mov, new_pos, ply)
+    }
+
+    fn piece_scale(&self) -> ScoreT {
+        5
     }
 }

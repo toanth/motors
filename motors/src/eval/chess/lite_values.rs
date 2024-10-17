@@ -17,13 +17,14 @@
  */
 
 use crate::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
-use crate::eval::ScoreType;
+use crate::eval::{ScoreType, SingleFeatureScore};
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::ChessColor;
 use gears::games::chess::ChessColor::White;
+use gears::general::common::StaticallyNamedEntity;
 use gears::score::{p, PhasedScore};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 
 #[rustfmt::skip]
 const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = [
@@ -436,14 +437,17 @@ const KING_ZONE_ATTACK: [PhasedScore; 6] = [
 
 /// This is a trait because there are two different instantiations:
 /// The normal eval values and the version used by the tuner, where these functions return traces.
-pub trait LiteValues: Debug + Default + Copy + Clone + Send + 'static {
+pub trait LiteValues:
+    Debug + Default + Copy + Clone + Send + 'static + StaticallyNamedEntity
+{
     type Score: ScoreType;
 
     fn psqt(
+        &self,
         square: ChessSquare,
         piece: ChessPieceType,
         color: ChessColor,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    ) -> SingleFeatureScore<Self::Score>;
 
     fn passed_pawn(square: ChessSquare) -> <Self::Score as ScoreType>::SingleFeatureScore;
 
@@ -462,7 +466,11 @@ pub trait LiteValues: Debug + Default + Copy + Clone + Send + 'static {
         len: usize,
     ) -> <Self::Score as ScoreType>::SingleFeatureScore;
 
-    fn pawn_shield(config: usize) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn pawn_shield(
+        &self,
+        color: ChessColor,
+        config: usize,
+    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
 
     fn pawn_protection(piece: ChessPieceType) -> <Self::Score as ScoreType>::SingleFeatureScore;
 
@@ -494,10 +502,33 @@ pub trait LiteValues: Debug + Default + Copy + Clone + Send + 'static {
 #[derive(Debug, Default, Copy, Clone)]
 pub struct Lite {}
 
+impl StaticallyNamedEntity for Lite {
+    fn static_short_name() -> impl Display
+    where
+        Self: Sized,
+    {
+        "LiTE"
+    }
+
+    fn static_long_name() -> String
+    where
+        Self: Sized,
+    {
+        "Chess LiTE: Linear Tuned Eval for Chess".to_string()
+    }
+
+    fn static_description() -> String
+    where
+        Self: Sized,
+    {
+        "A classical evaluation for chess, tuned using 'pliers'".to_string()
+    }
+}
+
 impl LiteValues for Lite {
     type Score = PhasedScore;
 
-    fn psqt(square: ChessSquare, piece: ChessPieceType, color: ChessColor) -> Self::Score {
+    fn psqt(&self, square: ChessSquare, piece: ChessPieceType, color: ChessColor) -> Self::Score {
         PSQTS[piece as usize][square.flip_if(color == White).bb_idx()]
     }
 
@@ -542,7 +573,7 @@ impl LiteValues for Lite {
         BISHOP_OPENNESS[openness as usize][len - 1]
     }
 
-    fn pawn_shield(config: usize) -> Self::Score {
+    fn pawn_shield(&self, _color: ChessColor, config: usize) -> Self::Score {
         PAWN_SHIELDS[config]
     }
 

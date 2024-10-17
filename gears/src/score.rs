@@ -24,7 +24,7 @@ use anyhow::anyhow;
 use derive_more::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use num::ToPrimitive;
 use std::fmt::{Display, Formatter};
-use std::ops::Div;
+use std::ops::{Div, DivAssign};
 
 /// Valid scores fit into 16 bits, but it's possible to temporarily overflow that range with some operations,
 /// e.g. when computing `score - previous_score`. So in order to avoid bugs related to that, simply use 32 bits.
@@ -253,6 +253,21 @@ impl MulAssign<usize> for PhasedScore {
                 .unwrap()
         ));
         self.0 *= rhs as ScoreT;
+    }
+}
+
+impl Div<usize> for PhasedScore {
+    type Output = Self;
+
+    fn div(mut self, rhs: usize) -> Self::Output {
+        self *= rhs;
+        self
+    }
+}
+
+impl DivAssign<usize> for PhasedScore {
+    fn div_assign(&mut self, rhs: usize) {
+        self.0 /= rhs as ScoreT;
     }
 }
 

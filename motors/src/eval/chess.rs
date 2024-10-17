@@ -8,6 +8,7 @@ use gears::general::bitboards::Bitboard;
 use gears::general::squares::RectangularCoordinates;
 use strum_macros::EnumIter;
 
+pub mod king_gambot;
 pub mod lite;
 pub mod lite_values;
 pub mod material_only;
@@ -196,10 +197,10 @@ mod tests {
     }
 
     fn generic_eval_test<E: Eval<Chessboard> + Default>() {
-        let score = E::default().eval(&Chessboard::default());
+        let score = E::default().eval(&Chessboard::default(), 0);
         assert!(score.abs() <= Score(25));
         assert!(score >= Score(0));
-        let score = E::default().eval(&Chessboard::from_name("lucena").unwrap());
+        let score = E::default().eval(&Chessboard::from_name("lucena").unwrap(), 0);
         assert!(score >= Score(100));
     }
 

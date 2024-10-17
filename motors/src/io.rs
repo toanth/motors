@@ -919,7 +919,7 @@ impl<B: Board> EngineUGI<B> {
             if let Some(eval_name) = info.eval() {
                 let mut eval =
                     create_eval_from_str(&eval_name.short_name(), &self.eval_factories)?.build();
-                let eval_score = eval.eval(&state.board);
+                let eval_score = eval.eval(&state.board, 0);
                 let diagram = show_eval_pos(state.board, state.last_move(), eval);
                 diagram
                     + &format!(
@@ -1289,7 +1289,12 @@ impl<B: Board> EngineUGI<B> {
         let eval_name = engine_info
             .eval()
             .as_ref()
-            .map(|i| i.long_name())
+            .map(|i| i.short_name())
+            .unwrap_or("<none>".to_string());
+        let eval_long_name = engine_info
+            .eval()
+            .as_ref()
+            .map(|e| e.long_name())
             .unwrap_or("<none>".to_string());
         let max_threads = engine_info.max_threads();
         drop(engine_info);
@@ -1333,7 +1338,7 @@ impl<B: Board> EngineUGI<B> {
                     default: Some(format!(
                         "Motors by ToTheAnd. Game: {2}. Engine: {0}. Eval: {1}  ",
                         engine.long,
-                        eval_name.clone(),
+                        eval_long_name,
                         B::game_name()
                     )),
                 }),
@@ -1363,15 +1368,16 @@ impl<B: Board> EngineUGI<B> {
                     default: Some(false),
                 }),
             },
+            // We would like to send long names, but unfortunately GUIs strugglw with that
             EngineOption {
                 name: SetEngine,
                 value: Combo(UgiCombo {
                     val: engine.short_name(),
-                    default: Some(engine.long_name()),
+                    default: Some(engine.short_name()),
                     options: self
                         .searcher_factories
                         .iter()
-                        .map(|s| s.long_name())
+                        .map(|s| s.short_name())
                         .collect_vec(),
                 }),
             },
@@ -1383,7 +1389,7 @@ impl<B: Board> EngineUGI<B> {
                     options: self
                         .eval_factories
                         .iter()
-                        .map(|e| e.long_name())
+                        .map(|e| e.short_name())
                         .collect_vec(),
                 }),
             },
@@ -1393,9 +1399,11 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn write_engine_ascii_art(&mut self) {
-        let text = self.state.engine.get_engine_info().short_name();
-        let text = print_as_ascii_art(&text, 2).dark_cyan().to_string();
-        self.write_ugi(&text);
+        if self.is_interactive() {
+            let text = self.state.engine.get_engine_info().short_name();
+            let text = print_as_ascii_art(&text, 2).dark_cyan().to_string();
+            self.write_ugi(&text);
+        }
     }
 }
 
@@ -1450,7 +1458,7 @@ fn format_tt_entry<B: Board>(state: BoardGameState<B>, entry: TTEntry<B>) -> Str
 fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>) -> String {
     let eval = RefCell::new(eval);
     let formatter = pos.pretty_formatter(None, last);
-    let eval_pos = eval.borrow_mut().eval(&pos);
+    let eval_pos = eval.borrow_mut().eval(&pos, 0);
     let mut formatter = AdaptFormatter {
         underlying: formatter,
         color_frame: Box::new(|_, col| col),
@@ -1465,7 +1473,7 @@ fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>
             );
             let score = match pos.remove_piece(coords).unwrap().verify(Relaxed) {
                 Ok(pos) => {
-                    let diff = eval_pos - eval.borrow_mut().eval(&pos);
+                    let diff = eval_pos - eval.borrow_mut().eval(&pos, 0);
                     let (val, suffix) = suffix_for(diff.0 as isize, Some(10_000));
                     // reduce the scale by some scale because we expect pieces values to be much larger
                     // than eval values. The ideal scale depends on the game and eval,

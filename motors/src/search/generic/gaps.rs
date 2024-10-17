@@ -131,8 +131,8 @@ impl<B: Board> Engine<B> for Gaps<B> {
         &mut self.state
     }
 
-    fn static_eval(&mut self, pos: B) -> Score {
-        self.eval.eval(&pos)
+    fn static_eval(&mut self, pos: B, ply: usize) -> Score {
+        self.eval.eval(&pos, ply)
     }
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
@@ -175,7 +175,7 @@ impl<B: Board> Gaps<B> {
             return game_result_to_score(res, ply);
         }
         if depth <= 0 {
-            return self.eval.eval(&pos);
+            return self.eval.eval(&pos, ply);
         }
 
         let mut best_score = SCORE_LOST;

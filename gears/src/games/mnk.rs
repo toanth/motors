@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail};
-use regex::Regex;
+use itertools::Itertools;
 use static_assertions::const_assert_eq;
 use std::cmp::min;
 use std::fmt::{self, Debug, Display, Formatter};
@@ -479,11 +479,11 @@ impl Board for MNKBoard {
 
     fn from_name(name: &str) -> Res<Self> {
         board_from_name(name).or_else(|err| {
-            let pattern = Regex::new(r"([0-9]+),([0-9]+),([0-9]+)").unwrap();
-            if let Some(captures) = pattern.captures(name) {
-                let height = parse_int_from_str(&captures[1], "m")?;
-                let width = parse_int_from_str(&captures[2], "n")?;
-                let k = parse_int_from_str(&captures[3], "k")?;
+            let parts = name.split(",").collect_vec();
+            if parts.len() == 3 {
+                let height = parse_int_from_str(&parts[0], "m")?;
+                let width = parse_int_from_str(&parts[1], "n")?;
+                let k = parse_int_from_str(&parts[2], "k")?;
                 let settings = MnkSettings {
                     height,
                     width,
