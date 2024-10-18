@@ -77,7 +77,7 @@ impl<B: Board> MainThreadData<B> {
         }
         self.search_type = SearchType::new(ponder, limit);
         for data in &mut self.atomic_search_data {
-            data.new_search();
+            data.reset(true);
         }
         Ok(())
     }
@@ -147,7 +147,8 @@ impl<B: Board> Default for AtomicSearchState<B> {
 }
 
 impl<B: Board> AtomicSearchState<B> {
-    pub fn new_search(&self) {
+    // called on 'ucinewgame' and on starting a new search
+    pub fn reset(&self, starting_search: bool) {
         // all stores can be Relaxed because we're overwriting all members
         self.set_score(NO_SCORE_YET);
         self.set_ponder_move(None);
@@ -155,7 +156,7 @@ impl<B: Board> AtomicSearchState<B> {
         self.update_seldepth(0);
         self.set_depth(0);
         self.nodes.store(0, Relaxed);
-        self.set_searching(true); // only called immediately before entering the search
+        self.set_searching(starting_search);
         self.suppress_best_move.store(false, Relaxed);
         self.should_stop.store(false, Relaxed);
     }

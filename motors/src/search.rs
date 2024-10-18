@@ -750,7 +750,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
         }
         if hard {
             self.custom.hard_forget_except_tt();
-            self.params.atomic.new_search();
+            self.params.atomic.reset(false);
         } else {
             self.custom.new_search();
         }
