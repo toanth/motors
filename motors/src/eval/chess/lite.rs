@@ -24,7 +24,7 @@ use gears::score::{PhaseType, PhasedScore, Score, ScoreT};
 
 use crate::eval::chess::king_gambot::KingGambotValues;
 use crate::eval::chess::lite::FileOpenness::{Closed, Open, SemiClosed, SemiOpen};
-use crate::eval::{Eval, ScoreType};
+use crate::eval::{Eval, ScoreType, SingleFeatureScore};
 
 #[derive(Debug, Default, Copy, Clone)]
 struct EvalState<Tuned: LiteValues> {
@@ -32,6 +32,8 @@ struct EvalState<Tuned: LiteValues> {
     phase: PhaseType,
     // scores are stored from the perspective of the white player
     psqt_score: Tuned::Score,
+    pawn_shield_score: Tuned::Score,
+    pawn_score: Tuned::Score,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -133,10 +135,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         res
     }
 
-    fn bishop_pair(
-        pos: &Chessboard,
-        color: ChessColor,
-    ) -> <Tuned::Score as ScoreType>::SingleFeatureScore {
+    fn bishop_pair(pos: &Chessboard, color: ChessColor) -> SingleFeatureScore<Tuned::Score> {
         if pos.colored_piece_bb(color, Bishop).more_than_one_bit_set() {
             Tuned::bishop_pair()
         } else {
@@ -144,17 +143,21 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
     }
 
-    fn pawn_shield(
-        pos: &Chessboard,
-        color: ChessColor,
-    ) -> <Tuned::Score as ScoreType>::SingleFeatureScore {
+    fn pawn_shield_for(pos: &Chessboard, color: ChessColor) -> SingleFeatureScore<Tuned::Score> {
         let our_pawns = pos.colored_piece_bb(color, Pawn);
         let king_square = pos.king_square(color);
         let idx = pawn_shield_idx(our_pawns, king_square, color);
         Tuned::default().pawn_shield(color, idx)
     }
 
-    fn pawns(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
+    fn pawn_shield(pos: &Chessboard) -> Tuned::Score {
+        let mut score = Tuned::Score::default();
+        score += Self::pawn_shield_for(pos, White);
+        score -= Self::pawn_shield_for(pos, Black);
+        score
+    }
+
+    fn pawns_for(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let our_pawns = pos.colored_piece_bb(color, Pawn);
         let their_pawns = pos.colored_piece_bb(color.other(), Pawn);
         let mut score = Tuned::Score::default();
@@ -176,16 +179,11 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         let num_doubled_pawns = (our_pawns & (our_pawns.north())).num_ones();
         score += Tuned::doubled_pawn() * num_doubled_pawns;
-        for piece in ChessPieceType::pieces() {
-            let bb = pos.colored_piece_bb(color, piece);
-            let pawn_attacks = our_pawns.pawn_attacks(color);
-            let protected_by_pawns = pawn_attacks & bb;
-            score += Tuned::pawn_protection(piece) * protected_by_pawns.num_ones();
-            let attacked_by_pawns = pawn_attacks & pos.colored_piece_bb(color.other(), piece);
-            score += Tuned::pawn_attack(piece) * attacked_by_pawns.num_ones();
-        }
-
         score
+    }
+
+    fn pawns(pos: &Chessboard) -> Tuned::Score {
+        Self::pawns_for(pos, White) - Self::pawns_for(pos, Black)
     }
 
     fn open_lines(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
@@ -211,24 +209,24 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn outposts(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
-        let mut score = Tuned::Score::default();
-        let our_pawns = pos.colored_piece_bb(color, Pawn);
-        let pawn_protection = our_pawns.pawn_attacks(color);
-        for piece in ChessPieceType::non_pawn_pieces() {
-            for square in pos.colored_piece_bb(color, piece).ones() {
-                let in_front = ((A_FILE << (square.flip_if(color == Black).bb_idx())) << 8)
-                    .flip_if(color == Black);
-                let potential_attackers = in_front.west() | in_front.east();
-                if pawn_protection.is_bit_set_at(square.bb_idx())
-                    && (potential_attackers & pos.colored_piece_bb(!color, Pawn)).is_zero()
-                {
-                    score += Tuned::outpost(piece);
-                }
-            }
-        }
-        score
-    }
+    // fn outposts(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
+    //     let mut score = Tuned::Score::default();
+    //     let our_pawns = pos.colored_piece_bb(color, Pawn);
+    //     let pawn_protection = our_pawns.pawn_attacks(color);
+    //     for piece in ChessPieceType::non_pawn_pieces() {
+    //         for square in pos.colored_piece_bb(color, piece).ones() {
+    //             let in_front = ((A_FILE << (square.flip_if(color == Black).bb_idx())) << 8)
+    //                 .flip_if(color == Black);
+    //             let potential_attackers = in_front.west() | in_front.east();
+    //             if pawn_protection.is_bit_set_at(square.bb_idx())
+    //                 && (potential_attackers & pos.colored_piece_bb(!color, Pawn)).is_zero()
+    //             {
+    //                 score += Tuned::outpost(piece);
+    //             }
+    //         }
+    //     }
+    //     score
+    // }
 
     fn mobility_and_threats(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
@@ -236,8 +234,16 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             .colored_piece_bb(color.other(), Pawn)
             .pawn_attacks(color.other());
         let king_zone = Chessboard::normal_king_attacks_from(pos.king_square(color.other()));
-        if (pos.colored_piece_bb(color, Pawn).pawn_attacks(color) & king_zone).has_set_bit() {
-            score += Tuned::king_zone_attack(Pawn);
+        let our_pawns = pos.colored_piece_bb(color, Pawn);
+        let pawn_king_attacks = (our_pawns.pawn_attacks(color) & king_zone).num_ones();
+        score += Tuned::king_zone_attack(Pawn) * pawn_king_attacks;
+        for piece in ChessPieceType::pieces() {
+            let bb = pos.colored_piece_bb(color, piece);
+            let pawn_attacks = our_pawns.pawn_attacks(color);
+            let protected_by_pawns = pawn_attacks & bb;
+            score += Tuned::pawn_protection(piece) * protected_by_pawns.num_ones();
+            let attacked_by_pawns = pawn_attacks & pos.colored_piece_bb(color.other(), piece);
+            score += Tuned::pawn_attack(piece) * attacked_by_pawns.num_ones();
         }
         for piece in ChessPieceType::non_pawn_pieces() {
             for square in pos.colored_piece_bb(color, piece).ones() {
@@ -263,10 +269,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let mut score = Tuned::Score::default();
         for color in ChessColor::iter() {
             score += Self::bishop_pair(pos, color);
-            score += Self::pawns(pos, color);
-            score += Self::pawn_shield(pos, color);
             score += Self::open_lines(pos, color);
-            score += Self::outposts(pos, color);
+            // score += Self::outposts(pos, color);
             score += Self::mobility_and_threats(pos, color);
             score = -score;
         }
@@ -339,8 +343,13 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
         let psqt_score = self.psqt(pos);
         state.psqt_score = psqt_score.clone();
+        let pawn_shield_score = Self::pawn_shield(pos);
+        state.pawn_shield_score = pawn_shield_score.clone();
+        let pawn_score = Self::pawns(pos);
+        state.pawn_score = pawn_score.clone();
         state.hash = pos.zobrist_hash();
-        let score: Tuned::Score = Self::recomputed_every_time(pos) + psqt_score;
+        let score: Tuned::Score =
+            Self::recomputed_every_time(pos) + psqt_score + pawn_shield_score + pawn_score;
         (state, score)
     }
 
@@ -367,6 +376,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         if old_pos.zobrist_hash() != state.hash {
             return self.eval_from_scratch(new_pos);
         }
+        // search may have made a null move in NMP
         if mov != ChessMove::default() {
             // null moves are encoded as a1a1, but it's possible that there's a "captured" piece on a1
             debug_assert_eq!(
@@ -388,9 +398,21 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 self.psqt(new_pos),
                 self.psqt_delta(old_pos, mov, new_pos).0,
             );
+            // TODO: Test if this is actually faster -- getting the captured piece is quite expensive
+            // (but this could be remedied by reusing that info from `psqt_delta`, or by using a redundant mailbox)
+            // In the long run, move pawn protection / attacks to another function and cache `Self::pawns` as well
+            if matches!(mov.piece_type(), Pawn | King) || mov.captured(&old_pos) == Pawn {
+                state.pawn_shield_score = Self::pawn_shield(new_pos);
+            }
+            if mov.piece_type() == Pawn || mov.captured(&old_pos) == Pawn {
+                state.pawn_score = Self::pawns(new_pos);
+            }
         }
         state.hash = new_pos.zobrist_hash();
-        let score = Self::recomputed_every_time(new_pos) + state.psqt_score.clone();
+        let score = Self::recomputed_every_time(new_pos)
+            + state.psqt_score.clone()
+            + state.pawn_shield_score.clone()
+            + state.pawn_score.clone();
         (state, score)
     }
 }
