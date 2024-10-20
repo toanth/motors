@@ -268,12 +268,12 @@ mod tests {
         let positions =
             FenReader::<Chessboard, PistonEval>::load_from_str(positions, SideToMove).unwrap();
         assert_eq!(positions.data().len(), 2);
-        assert_eq!(positions.data()[0].outcome, Outcome::new(0.5));
-        assert_eq!(positions.data()[1].outcome, Outcome::new(1.0));
+        assert_eq!(positions.data()[0].outcome(), Outcome::new(0.5));
+        assert_eq!(positions.data()[1].outcome(), Outcome::new(1.0));
         assert_eq!(positions.num_weights(), NUM_PIECE_SQUARE_ENTRIES * 2);
         // the kings are on mirrored positions and cancel each other out
-        assert_eq!(positions.data()[0].features.len(), 0);
-        assert_eq!(positions.data()[1].features.len(), 1);
+        assert_eq!(positions.data()[0].features().count(), 0);
+        assert_eq!(positions.data()[1].features().count(), 1 * 2); // 1 feature per phases
         let batch = positions.batch(0, 1);
         let eval_scale = 100.0;
         let mut optimizer = AdamW::<CrossEntropyLoss>::new(batch, eval_scale);

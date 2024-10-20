@@ -391,11 +391,10 @@ fn grad_for_eval_scale<D: Datapoint>(
         let cp_eval = cp_eval_for_weights(weights, data);
         let prediction = cp_to_wr(cp_eval, eval_scale);
         let outcome = data.outcome();
-        let sample_grad = <DefaultOptimizer as Optimizer<D>>::Loss::sample_gradient(
-            prediction,
-            outcome,
-            data.sampling_weight(),
-        ) * cp_eval.0;
+        let sample_grad =
+            <DefaultOptimizer as Optimizer<D>>::Loss::sample_gradient(prediction, outcome)
+                * cp_eval.0
+                * data.sampling_weight();
         scaled_grad += sample_grad;
         loss += sample_loss(prediction, data.outcome()) * data.sampling_weight();
     }
