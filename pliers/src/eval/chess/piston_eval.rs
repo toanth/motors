@@ -24,9 +24,12 @@ impl WeightsInterpretation for PistonEval {
 }
 
 impl Eval<Chessboard> for PistonEval {
-    const NUM_WEIGHTS: usize = Self::NUM_FEATURES * NUM_PHASES;
-
-    const NUM_FEATURES: usize = NUM_PIECE_SQUARE_ENTRIES;
+    fn num_features() -> usize {
+        NUM_PIECE_SQUARE_ENTRIES
+    }
+    fn num_weights() -> usize {
+        Self::num_features() * NUM_PHASES
+    }
 
     type D = TaperedDatapoint;
     type Filter = NoFilter;

@@ -17,7 +17,6 @@
  */
 use crate::eval::chess::lite_values::{Lite, LiteValues};
 use crate::eval::chess::FileOpenness;
-use crate::eval::SingleFeatureScore;
 use gears::games::chess::pieces::ChessPieceType;
 use gears::games::chess::pieces::ChessPieceType::King;
 use gears::games::chess::squares::ChessSquare;
@@ -34,8 +33,8 @@ const KING_GAMBOT_VALUES: [PhasedScore; 64] =   [
     p(450, 100),    p(450, 100),    p(450, 100),    p(450, 100),    p(450, 100),    p(450, 100),    p(450, 100),    p(450, 100),
     p(400, 0),      p(400, 0),      p(400, 0),      p(400, 0),      p(400, 0),      p(400, 0),      p(400, 0),      p(400, 0),
     p(300, -100),   p(300, -100),   p(300, -100),   p(300, -100),   p(300, -100),   p(300, -100),   p(300, -100),   p(300, -100),
-    p(200, -200),     p(200, -200),     p(200, -200),     p(200, -200),     p(200, -200),     p(200, -200),     p(200, -200),     p(200, -200),
-    p(0, -200),  p(0, -200),  p(0, -200),  p(0, -200),  p(0, -200),  p(0, -200),  p(0, -200),  p(0, -200),
+    p(200, -200),   p(200, -200),   p(200, -200),   p(200, -200),   p(200, -200),   p(200, -200),   p(200, -200),   p(200, -200),
+    p(0, -200),     p(0, -200),     p(0, -200),     p(0, -200),     p(0, -200),     p(0, -200),     p(0, -200),     p(0, -200),
     p(-200, -200),  p(-200, -200),  p(-200, -200),  p(-200, -200),  p(-200, -200),  p(-200, -200),  p(-200, -200),  p(-200, -200),
 ];
 
@@ -115,10 +114,6 @@ impl LiteValues for KingGambotValues {
         } else {
             value
         }
-    }
-
-    fn outpost(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
-        Lite::outpost(piece)
     }
 
     fn pawn_protection(piece: ChessPieceType) -> PhasedScore {

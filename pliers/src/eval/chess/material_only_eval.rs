@@ -26,14 +26,18 @@ impl WeightsInterpretation for MaterialOnlyEval {
 }
 
 impl Eval<Chessboard> for MaterialOnlyEval {
-    const NUM_WEIGHTS: usize = NUM_CHESS_PIECES - 1;
-    const NUM_FEATURES: usize = Self::NUM_WEIGHTS;
+    fn num_weights() -> usize {
+        NUM_CHESS_PIECES - 1
+    }
+    fn num_features() -> usize {
+        Self::num_weights()
+    }
 
     type D = NonTaperedDatapoint;
     type Filter = NoFilter;
 
     fn feature_trace(pos: &Chessboard) -> impl TraceTrait {
-        let mut trace = SimpleTrace::for_features(Self::NUM_FEATURES);
+        let mut trace = SimpleTrace::for_features(Self::num_features());
         for color in ChessColor::iter() {
             for piece in ChessPieceType::non_king_pieces() {
                 let num_pieces = pos.colored_piece_bb(color, piece).num_ones() as isize;

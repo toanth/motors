@@ -58,8 +58,13 @@
 //! # }
 //!
 //! # impl Eval<AtaxxBoard> for MyAtaxxEval {
-//! #    const NUM_WEIGHTS: usize = 0;
-//! #    const NUM_FEATURES: usize = 0;
+//! #    fn num_weights() -> usize {
+//! #        todo!()
+//! #    }
+//! #    fn num_features() -> usize {
+//! #        todo!()
+//! #    }
+//!
 //! #    type D = NonTaperedDatapoint;
 //! #    type Filter = NoFilter;
 //!
@@ -86,6 +91,8 @@
 //! - Better printing of tuned values, with changing values highlighted in red
 //! - Prints more information in general, like the sample count, the maximum weight change, etc
 //! - Some additional, albeit rarely needed, features
+
+extern crate core;
 
 use crate::eval::Eval;
 use crate::eval::EvalScale::{InitialWeights, Scale};
@@ -187,7 +194,7 @@ pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
 ) -> Res<()> {
     #[cfg(debug_assertions)]
     println!("Running in debug mode. Run in release mode for increased performance.");
-    let mut dataset = Dataset::new(E::NUM_WEIGHTS);
+    let mut dataset = Dataset::new(E::num_weights());
     for file in file_list {
         dataset.union(FenReader::<B, E>::load_from_file(file)?);
     }
@@ -213,19 +220,19 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
     println!("(FEN: {fen}\n");
     let e = E::default();
     let dataset = FenReader::<Chessboard, E>::load_from_str(&fen, White).unwrap();
-    assert_eq!(dataset.num_weights(), E::NUM_WEIGHTS);
+    assert_eq!(dataset.num_weights(), E::num_weights());
     let scale = match e.eval_scale() {
         Scale(scale) => scale,
         InitialWeights(_) => 100.0, // Tuning the scaling factor one a single position is just going to result in inf or 0.
     };
     let mut optimizer = DefaultOptimizer::new(dataset.as_batch(), scale);
     let weights = optimize_entire_batch(dataset.as_batch(), scale, 1, &e, &mut optimizer);
-    assert_eq!(weights.len(), E::NUM_WEIGHTS);
+    assert_eq!(weights.len(), E::num_weights());
     println!(
         "There are {0} weights and {1} out of {2} active features",
         weights.len(),
         dataset.data()[0].features().count(),
-        E::NUM_FEATURES
+        E::num_features()
     );
     print_optimized_weights(&weights, dataset.as_batch(), scale, &e);
     println!("\nEND DEBUG POSITION OUTPUT\n");

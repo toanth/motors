@@ -75,7 +75,7 @@ const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = [
     // queen
     [
         p( 874,  968),    p( 876,  982),    p( 891,  995),    p( 907,  992),    p( 906,  995),    p( 926,  983),    p( 976,  931),    p( 922,  962),
-        p( 883,  961),    p( 859,  992),    p( 861, 1019),    p( 853, 1037),    p( 861, 1048),    p( 900, 1008),    p( 903,  989),    p( 946,  966),
+        p( 883,  961),    p( 859,  992),    p( 861, 1020),    p( 853, 1037),    p( 861, 1048),    p( 900, 1008),    p( 903,  989),    p( 946,  966),
         p( 891,  965),    p( 883,  985),    p( 883, 1008),    p( 881, 1017),    p( 904, 1018),    p( 943, 1002),    p( 950,  971),    p( 938,  977),
         p( 876,  980),    p( 882,  990),    p( 876, 1000),    p( 875, 1014),    p( 880, 1024),    p( 892, 1014),    p( 902, 1013),    p( 909,  989),
         p( 888,  969),    p( 874,  989),    p( 880,  992),    p( 880, 1010),    p( 881, 1008),    p( 884, 1007),    p( 898,  991),    p( 905,  983),
@@ -96,20 +96,6 @@ const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = [
     ],
 ];
 
-#[rustfmt::skip]
-const PASSED_PAWNS: [PhasedScore; NUM_SQUARES] =[
-        p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),
-        p(  33,   86),    p(  30,   85),    p(  20,   88),    p(  33,   68),    p(  18,   73),    p(  19,   76),    p( -16,   94),    p( -11,   92),
-        p(  42,  122),    p(  48,  122),    p(  38,   99),    p(  22,   67),    p(  36,   67),    p(  16,   95),    p(   1,  103),    p( -28,  124),
-        p(  24,   72),    p(  18,   70),    p(  23,   53),    p(  16,   43),    p(  -2,   45),    p(   7,   57),    p( -10,   74),    p( -10,   77),
-        p(   8,   45),    p(  -3,   43),    p( -15,   33),    p(  -9,   24),    p( -17,   29),    p( -11,   37),    p( -19,   53),    p( -11,   49),
-        p(   2,   14),    p( -12,   22),    p( -15,   16),    p( -16,    8),    p( -14,   13),    p(  -8,   16),    p( -14,   35),    p(   9,   16),
-        p(  -4,   15),    p(  -2,   20),    p(  -9,   16),    p(  -8,    5),    p(   6,    1),    p(   7,    6),    p(  12,   18),    p(   7,   13),
-        p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),
-];
-const UNSUPPORTED_PAWN: PhasedScore = p(-11, -10);
-const DOUBLED_PAWN: PhasedScore = p(-6, -21);
-
 const BISHOP_PAIR: PhasedScore = p(23, 58);
 const ROOK_OPEN_FILE: PhasedScore = p(16, 5);
 const ROOK_CLOSED_FILE: PhasedScore = p(-12, -3);
@@ -120,13 +106,13 @@ const KING_SEMIOPEN_FILE: PhasedScore = p(-9, 5);
 #[rustfmt::skip]
 const BISHOP_OPENNESS: [[PhasedScore; 8]; 4] = [
     // Open
-    [p(-7, 5), p(-2, 7), p(-2, 9), p(3, 7), p(4, 10), p(5, 12), p(10, 11), p(21, 6), ],
+    [p(-7, 5), p(-2, 7), p(-2, 9), p(3, 7), p(4, 10), p(5, 12), p(10, 11), p(21, 6)],
     // Closed
-    [p(0, 0), p(0, 0), p(12, -29), p(-15, 9), p(0, 12), p(3, 4), p(2, 10), p(-0, 6), ],
+    [p(-2, 7), p(-2, 9), p(3, 7), p(4, 10), p(5, 12), p(10, 11), p(21, 6), p(0, 0)],
     // SemiOpen
-    [p(0, 0), p(-16, 22), p(1, 20), p(1, 14), p(-1, 19), p(4, 14), p(1, 11), p(12, 11), ],
+    [p(-2, 9), p(3, 7), p(4, 10), p(5, 12), p(10, 11), p(21, 6), p(0, 0), p(0, 0)],
     // SemiClosed
-    [p(0, 0), p(11, -13), p(8, 6), p(5, 1), p(9, 4), p(4, 4), p(8, 7), p(3, 4), ],
+    [p(3, 7), p(4, 10), p(5, 12), p(10, 11), p(21, 6), p(0, 0), p(0, 0), p(12, -29)],
 ];
 const PAWN_SHIELDS: [PhasedScore; NUM_PAWN_SHIELD_CONFIGURATIONS] = [
     p(-4, 3),    /*0b0000*/
@@ -226,12 +212,24 @@ const PAWN_SHIELDS: [PhasedScore; NUM_PAWN_SHIELD_CONFIGURATIONS] = [
     p(0, 0),     /*0b1110*/
     p(-7, -40),  /*0b1111*/
 ];
+
+#[rustfmt::skip]
+const PASSED_PAWNS: [PhasedScore; NUM_SQUARES] = [
+        p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),
+        p(  33,   86),    p(  30,   85),    p(  20,   88),    p(  33,   68),    p(  18,   73),    p(  19,   76),    p( -16,   94),    p( -11,   92),
+        p(  42,  122),    p(  48,  122),    p(  38,   99),    p(  22,   67),    p(  36,   67),    p(  16,   95),    p(   1,  103),    p( -28,  124),
+        p(  24,   72),    p(  18,   70),    p(  23,   53),    p(  16,   43),    p(  -2,   45),    p(   7,   57),    p( -10,   74),    p( -10,   77),
+        p(   8,   45),    p(  -3,   43),    p( -15,   33),    p(  -9,   24),    p( -17,   29),    p( -11,   37),    p( -19,   53),    p( -11,   49),
+        p(   2,   14),    p( -12,   22),    p( -15,   16),    p( -16,    8),    p( -14,   13),    p(  -8,   16),    p( -14,   35),    p(   9,   16),
+        p(  -4,   15),    p(  -2,   20),    p(  -9,   16),    p(  -8,    5),    p(   6,    1),    p(   7,    6),    p(  12,   18),    p(   7,   13),
+        p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),
+];
+const UNSUPPORTED_PAWN: PhasedScore = p(-11, -10);
+const DOUBLED_PAWN: PhasedScore = p(-6, -21);
 const PAWN_PROTECTION: [PhasedScore; NUM_CHESS_PIECES] =
     [p(13, 7), p(2, 9), p(10, 14), p(9, 9), p(-4, 19), p(-46, 8)];
 const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] =
     [p(0, 0), p(38, 9), p(42, 35), p(51, -9), p(37, -39), p(0, 0)];
-
-const OUTPOSTS: [PhasedScore; 5] = [p(0, 0), p(0, 0), p(0, 0), p(0, 0), p(0, 0)];
 
 pub const MAX_MOBILITY: usize = 7 + 7 + 7 + 6;
 const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = [
@@ -326,9 +324,9 @@ const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = [
         p(0, 0),
     ],
     [
-        p(-34, -35),
-        p(-35, 20),
-        p(-38, 69),
+        p(-35, -35),
+        p(-35, 21),
+        p(-39, 70),
         p(-33, 87),
         p(-30, 104),
         p(-25, 109),
@@ -342,7 +340,7 @@ const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = [
         p(1, 144),
         p(4, 145),
         p(7, 147),
-        p(8, 153),
+        p(8, 154),
         p(11, 152),
         p(20, 149),
         p(35, 141),
@@ -352,7 +350,7 @@ const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = [
         p(106, 97),
         p(198, 62),
         p(251, 17),
-        p(287, 1),
+        p(287, 2),
         p(337, -32),
     ],
     [
@@ -460,8 +458,6 @@ pub trait LiteValues:
 
     fn pawn_shield(&self, color: ChessColor, config: usize) -> SingleFeatureScore<Self::Score>;
 
-    fn outpost(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
-
     fn pawn_protection(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 
     fn pawn_attack(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
@@ -553,10 +549,6 @@ impl LiteValues for Lite {
 
     fn bishop_openness(openness: FileOpenness, len: usize) -> PhasedScore {
         BISHOP_OPENNESS[openness as usize][len - 1]
-    }
-
-    fn outpost(piece: ChessPieceType) -> PhasedScore {
-        OUTPOSTS[piece as usize - 1]
     }
 
     fn pawn_shield(&self, _color: ChessColor, config: usize) -> SingleFeatureScore<Self::Score> {

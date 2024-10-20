@@ -27,13 +27,14 @@
 //! in an existing eval function. This avoids having to repeat the eval function implementation for the tuner.
 //! [`TuneLiTEval`] is an example of how such an implementation can look like.
 
-use crate::gd::{Feature, FeatureT, Float};
+use crate::gd::{Feature, FeatureT, Float, Weights};
+use core::fmt;
 use gears::games::Color;
 use gears::score::PhaseType;
 use motors::eval::ScoreType;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 // TODO: Only a single generic trace type
@@ -42,20 +43,46 @@ type FeatureIndex = usize;
 
 type FeatureCount = isize;
 
+/// A subset of features. Each Single feature belongs to exactly one such subset.
+///
+/// Each subset gets printed separately.
+/// For example, such a subset might be a piece square table, or mobility.
+pub trait FeatureSubSet: Debug + Copy + Clone + Eq + PartialEq {
+    /// The number of features in this subset
+    fn num_features(self) -> usize;
+
+    /// All features in a subset have consecutive indices in the range `Self::start_idx()..(Self::start_idx() + Self::num_features())`
+    fn start_idx(self) -> usize;
+
+    /// Output the weights belonging to this feature subset, coloring them red if the corresponding entry in `special` is set.
+    fn write(self, f: &mut Formatter, weights: &Weights, special: &[bool]) -> fmt::Result;
+}
+
 /// A single feature, building block of [`SparseTrace`].
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
 pub struct SingleFeature {
+    num_subset_features: usize,
     idx: FeatureIndex,
     count: FeatureCount,
 }
 
 impl SingleFeature {
-    pub(super) fn new(idx: FeatureIndex) -> Self {
-        Self { idx, count: 1 }
+    pub(super) fn new<T: FeatureSubSet>(sub_feature_set: T, idx: FeatureIndex) -> Self {
+        assert!(idx < sub_feature_set.num_features());
+        let idx = idx + sub_feature_set.start_idx();
+        Self {
+            num_subset_features: sub_feature_set.num_features(),
+            idx,
+            count: 1,
+        }
     }
 
-    pub(super) fn no_feature() -> Self {
-        Self::default()
+    pub(super) fn no_feature<T: FeatureSubSet>(sub_feature_set: T) -> Self {
+        Self {
+            num_subset_features: sub_feature_set.num_features(),
+            idx: sub_feature_set.start_idx(),
+            count: 0,
+        }
     }
 }
 
