@@ -12,12 +12,18 @@ use std::marker::PhantomData;
 use std::ops::{DivAssign, MulAssign};
 use std::time::Instant;
 
-// TODO: Better value
 /// If the batch size exceeds this value, a multithreaded implementation will be used for computing the gradient and loss.
 /// Not doing multithreading for small batch sizes isn't only meant to improve performance,
 /// it also makes it easier to debug problems with the eval because stack traces and debugger steps
 /// are simpler.
-pub const MIN_MULTITHREADING_BATCH_SIZE: usize = 10_000;
+pub const MIN_MULTITHREADING_BATCH_SIZE: usize = 1024;
+
+/// By default, larger datasets are split up into batches of this size
+// pub const DEFAULT_BATCH_SIZE: usize = 1 << 10;
+pub const DEFAULT_BATCH_SIZE: usize = 1 << 14;
+
+/// Divide the learning rate by this factor each print interval.
+pub const DEFAULT_LR_DROP: Float = 1.02;
 
 /// Gradient Descent based tuning works with real numbers. This is the type used to represent those.
 pub type Float = f64;
@@ -216,6 +222,17 @@ impl Weights {
     /// The number of weights.
     pub fn num_weights(&self) -> usize {
         self.0.len()
+    }
+
+    /// A new list of weights, computed as self * factor + other * (1.0 - factor)
+    pub fn interpolate(&self, other: &Weights, factor: Float) -> Weights {
+        debug_assert_eq!(self.num_weights(), other.num_weights());
+        debug_assert!(factor >= 0.0 && factor <= 1.0);
+        let mut res = Vec::with_capacity(self.num_weights());
+        for (a, b) in self.iter().zip(other.iter()) {
+            res.push(Weight(a.0 * factor + b.0 * (1.0 - factor)));
+        }
+        Weights(res)
     }
 }
 
@@ -524,6 +541,11 @@ impl<D: Datapoint> Dataset<D> {
         self.weights_in_pos
     }
 
+    /// The number of data points.
+    pub fn len(&self) -> usize {
+        self.data_points.len()
+    }
+
     /// Access the underlying array of data points.
     pub fn data(&self) -> &[D] {
         &self.data_points
@@ -561,6 +583,7 @@ impl<D: Datapoint> Dataset<D> {
     /// Note that this needs to compute the sum of sampling weights,
     /// which makes this an `O(n)` operation, where `n` is the size of the returned batch.
     pub fn batch(&self, start_idx: usize, end_idx: usize) -> Batch<D> {
+        let end_idx = end_idx.min(self.len());
         let datapoints = &self.data_points[start_idx..end_idx];
         let weight_sum = if D::all_sampling_weights_identical() {
             datapoints
@@ -729,41 +752,62 @@ pub fn compute_scaled_gradient<D: Datapoint, G: LossGradient>(
         grad
     }
 }
-/// This is where the actual optimization happens.
-///
-/// Optimize the weights using the given [optimizer](Optimizer) for `num_epochs` epochs, where the gradient is computed
-/// over the entire batch each epoch. Regularly prints the current weights using the supplied [weights interpretation](WeightsInterpretation).
-pub fn optimize_entire_batch<D: Datapoint>(
-    batch: Batch<D>,
-    eval_scale: ScalingFactor,
-    num_epochs: usize,
+
+/// Small helper function to get the initial weights for the given weights interpretation.
+pub fn initial_weights(
+    num_weights: usize,
     weights_interpretation: &dyn WeightsInterpretation,
-    optimizer: &mut dyn Optimizer<D>,
 ) -> Weights {
-    let mut prev_weights: Vec<Weight> = vec![];
-    let mut weights = Weights::new(batch.num_weights);
-    let initial_lr_factor = if weights_interpretation.retune_from_zero() {
-        0.25
+    if weights_interpretation.retune_from_zero() {
+        Weights::new(num_weights)
     } else {
-        0.5
-    };
-    optimizer.lr_drop(initial_lr_factor);
-    if !weights_interpretation.retune_from_zero() {
-        weights = weights_interpretation
+        let weights = weights_interpretation
             .initial_weights()
             .expect("if `retune_from_zero()` returns `false`, there must be initial weights");
         assert_eq!(
             weights.num_weights(),
-            batch.num_weights,
+            num_weights,
             "Incorrect number of initial weights. Maybe your `Eval::NUM_WEIGHTS` is incorrect or your initial_weights() returns incorrect weights?"
         );
+        weights
     }
+}
+
+/// This is where the actual optimization happens.
+///
+/// Optimize the weights using the given [optimizer](Optimizer) for `num_epochs` epochs, where the gradient is computed
+/// over the entire batch each epoch. Regularly prints the current weights using the supplied [weights interpretation](WeightsInterpretation).
+pub fn optimize_dataset<D: Datapoint>(
+    dataset: &mut Dataset<D>,
+    eval_scale: ScalingFactor,
+    max_num_epochs: usize,
+    lr_drop: Float,
+    batch_size: Option<usize>,
+    initial_weights: Weights,
+    weights_interpretation: &dyn WeightsInterpretation,
+    optimizer: &mut dyn Optimizer<D>,
+) -> Weights {
+    let mut prev_weights: Vec<Weight> = vec![];
+    let mut weights = initial_weights;
     let mut prev_loss = Float::INFINITY;
     let start = Instant::now();
-    for epoch in 0..num_epochs {
-        optimizer.iteration(&mut weights, batch, eval_scale, epoch);
-        if epoch % 50 == 0 {
-            let loss = loss(&weights, batch, eval_scale);
+    let print_interval = if let Some(batch_size) = batch_size {
+        1.max(100 / (dataset.len() / batch_size).max(2).ilog2() as usize)
+    } else {
+        50
+    };
+    let gradient =
+        compute_scaled_gradient::<D, QuadraticLoss>(&weights, dataset.as_batch(), eval_scale);
+    println!("Gradient: {:?}", gradient.0);
+    let mut stop_counter = 0;
+    for epoch in 1..=max_num_epochs {
+        if let Some(batch_size) = batch_size {
+            optimizer.iteration_batched(&mut weights, dataset, batch_size, eval_scale, epoch);
+        } else {
+            optimizer.iteration_unbatched(&mut weights, dataset.as_batch(), eval_scale, epoch);
+        }
+        if epoch % print_interval == 0 || epoch == 1 {
+            let loss = loss(&weights, dataset.as_batch(), eval_scale);
             println!(
                 "Epoch {epoch} complete, weights:\n {}",
                 display(weights_interpretation, &weights, &prev_weights)
@@ -778,30 +822,30 @@ pub fn optimize_entire_batch<D: Datapoint>(
                 }
             }
             println!(
-                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), quadratic loss: {loss}, cross-entropy loss: {celoss}, loss got smaller by: 1/1_000_000 * {1}, \
-                maximum weight change to 50 epochs ago: {max_diff:.2}",
+                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
+                maximum weight change to {print_interval} epoch(s) ago: {max_diff:.2}",
                 epoch as f32 / elapsed.as_secs_f32(),
                 (prev_loss - loss) * 1_000_000.0,
                 elapsed = elapsed.as_secs(),
-                celoss = loss_for(&weights, batch, eval_scale, cross_entropy_sample_loss),
             );
-            if loss <= 0.001 && epoch >= 20 {
+            if loss <= 0.001 && epoch >= print_interval / 2 {
                 println!("loss less than epsilon, stopping after {epoch} epochs");
                 break;
             }
-            if max_diff.abs() <= 0.05 && epoch >= 50 {
-                println!(
-                    "Maximum absolute weight change less than 0.05, stopping after {epoch} epochs"
-                );
-                break;
+            if max_diff.abs() <= 0.05 && epoch >= print_interval {
+                stop_counter += 1;
+                if stop_counter >= 3 {
+                    println!(
+                        "Maximum absolute weight change was less than 0.05 3 times in a row, stopping after {epoch} epochs"
+                    );
+                    break;
+                }
+            } else {
+                stop_counter = 0;
             }
             prev_weights.clone_from(&weights.0);
             prev_loss = loss;
-        }
-        if epoch == 20.min(num_epochs / 100) {
-            optimizer.lr_drop(1.0 / initial_lr_factor); // undo the raised lr.
-        } else if epoch == num_epochs / 2 {
-            optimizer.lr_drop(2.0);
+            optimizer.lr_drop(lr_drop);
         }
     }
     weights
@@ -809,17 +853,25 @@ pub fn optimize_entire_batch<D: Datapoint>(
 
 /// Convenience function for optimizing with the [`AdamW`] optimizer.
 pub fn adamw_optimize<D: Datapoint, G: LossGradient>(
-    batch: Batch<D>,
+    mut dataset: Dataset<D>,
     eval_scale: ScalingFactor,
     num_epochs: usize,
     format_weights: &dyn WeightsInterpretation,
 ) -> Weights {
-    optimize_entire_batch(
-        batch,
+    let batch_size = DEFAULT_BATCH_SIZE
+        .min(dataset.len() / 4)
+        .max(MIN_MULTITHREADING_BATCH_SIZE);
+    let initial = initial_weights(dataset.num_weights(), format_weights);
+    let mut optimizer = AdamW::<G>::new(dataset.as_batch(), Some(&initial), eval_scale);
+    optimize_dataset(
+        &mut dataset,
         eval_scale,
         num_epochs,
+        DEFAULT_LR_DROP,
+        Some(batch_size),
+        initial,
         format_weights,
-        &mut AdamW::<G>::new(batch, eval_scale),
+        &mut optimizer,
     )
 }
 
@@ -863,7 +915,7 @@ pub trait Optimizer<D: Datapoint> {
     /// Create a new optimizer.
     ///
     /// The [`Batch`] and [`ScalingFactor`] can be used to set internal hyperparameters.
-    fn new(batch: Batch<D>, eval_scale: ScalingFactor) -> Self
+    fn new(batch: Batch<D>, initial_weights: Option<&Weights>, eval_scale: ScalingFactor) -> Self
     where
         Self: Sized;
 
@@ -871,7 +923,7 @@ pub trait Optimizer<D: Datapoint> {
     fn lr_drop(&mut self, factor: Float);
 
     /// A single iteration of the optimizer.
-    fn iteration(
+    fn iteration_unbatched(
         &mut self,
         weights: &mut Weights,
         batch: Batch<'_, D>,
@@ -879,8 +931,31 @@ pub trait Optimizer<D: Datapoint> {
         i: usize,
     );
 
-    /// A simple but generic optimization procedure. Usually, calling [`optimize_entire_batch`] (directly or through
-    /// the [`optimize`](super::optimize) function) results in faster convergence. This function is primarily useful for debugging.
+    /// Like [`iteration`], but split the dataset into batches of len `batch_size` and perform a gradient descent step after each batch.
+    ///
+    /// Even though this can introduce noise, it also generally leads to much faster convergence because it's cheaper to compute
+    /// the gradient for smaller batches, and the result is often of comparative quality. In fact, the extra noise can sometimes even
+    /// help to break out of local optima.
+    fn iteration_batched(
+        &mut self,
+        weights: &mut Weights,
+        dataset: &mut Dataset<D>,
+        batch_size: usize,
+        eval_scale: ScalingFactor,
+        i: usize,
+    ) {
+        let batch_size = batch_size.min(dataset.len());
+        // round down and discard leftover samples; they'll most likely be mixed in after shuffling
+        let num_batches = dataset.len() / batch_size;
+        dataset.shuffle();
+        for b in 0..num_batches {
+            let batch = dataset.batch(batch_size * b, batch_size * (b + 1));
+            self.iteration_unbatched(weights, batch, eval_scale, i * num_batches + b);
+        }
+    }
+
+    /// A simple but generic optimization procedure. Usually, calling [`optimize_dataset`] (directly or through
+    /// the [`optimize`](super::optimize_dataset) function) results in faster convergence. This function is primarily useful for debugging.
     fn optimize_simple(
         &mut self,
         batch: Batch<'_, D>,
@@ -889,7 +964,7 @@ pub trait Optimizer<D: Datapoint> {
     ) -> Weights {
         let mut weights = Weights::new(batch.num_weights);
         for i in 0..num_iterations {
-            self.iteration(&mut weights, batch, eval_scale, i);
+            self.iteration_unbatched(&mut weights, batch, eval_scale, i);
         }
         weights
     }
@@ -908,7 +983,11 @@ impl<D: Datapoint> Optimizer<D> for SimpleGDOptimizer {
     where
         Self: Sized;
 
-    fn new(_batch: Batch<D>, eval_scale: ScalingFactor) -> Self {
+    fn new(
+        _batch: Batch<D>,
+        _initial_weights: Option<&Weights>,
+        eval_scale: ScalingFactor,
+    ) -> Self {
         Self {
             alpha: eval_scale / 4.0,
         }
@@ -918,7 +997,7 @@ impl<D: Datapoint> Optimizer<D> for SimpleGDOptimizer {
         self.alpha /= factor;
     }
 
-    fn iteration(
+    fn iteration_unbatched(
         &mut self,
         weights: &mut Weights,
         batch: Batch<D>,
@@ -952,16 +1031,20 @@ pub struct AdamwHyperParams {
     pub lambda: Float,
 }
 
-impl AdamwHyperParams {
-    fn for_eval_scale(eval_scale: ScalingFactor) -> Self {
+impl Default for AdamwHyperParams {
+    fn default() -> Self {
         Self {
-            alpha: eval_scale / 50.0,
+            // alpha: 1.0,
+            alpha: 10.0,
+            // alpha: eval_scale / 50.0,
             // Setting these values too low can introduce crazy swings in the eval values and loss when it would
             // otherwise appear converged -- maybe because of numerical instability?
             beta1: 0.9,
             beta2: 0.999,
-            epsilon: 1e-7,
-            lambda: 1e-4,
+            // use a relatively large value for epsilon to avoid crazy swings when the weights have almost converged for a long time,
+            // because at that point v is close to zero, while m is much more susceptible to smaller random changes, due to the smaller beta value.
+            epsilon: 1e-3,
+            lambda: 1e-5,
         }
     }
 }
@@ -977,47 +1060,55 @@ impl<D: Datapoint, G: LossGradient> Optimizer<D> for Adam<G> {
     where
         Self: Sized;
 
-    fn new(batch: Batch<D>, eval_scale: ScalingFactor) -> Self
+    fn new(batch: Batch<D>, initial_weights: Option<&Weights>, eval_scale: ScalingFactor) -> Self
     where
         Self: Sized,
     {
-        Self(AdamW::adam(batch, eval_scale))
+        Self(AdamW::adam(batch, initial_weights, eval_scale))
     }
 
     fn lr_drop(&mut self, factor: Float) {
         <AdamW<G> as Optimizer<D>>::lr_drop(&mut self.0, factor);
     }
 
-    fn iteration(
+    fn iteration_unbatched(
         &mut self,
         weights: &mut Weights,
         batch: Batch<'_, D>,
         eval_scale: ScalingFactor,
         i: usize,
     ) {
-        self.0.iteration(weights, batch, eval_scale, i);
+        self.0.iteration_unbatched(weights, batch, eval_scale, i);
     }
 }
 
 /// An implementation of the very widely used [AdamW](https://arxiv.org/abs/1711.05101) optimizer,
-/// which extends the [`Adam`] optimizer with weight decay.
+/// which extends the [`Adam`] optimizer with weight decay,
+/// using a schedule-free learning rate approach (<https://arxiv.org/pdf/2405.15682>)
 #[derive(Debug)]
 #[must_use]
 pub struct AdamW<G: LossGradient> {
     /// Hyperparameters. Should be set before starting to optimize.
     pub hyper_params: AdamwHyperParams,
-    /// first moment (exponentially moving average)
-    m: Weights,
-    /// second moment (exponentially moving average)
+    /// See <https://arxiv.org/pdf/2405.15682>. This is the base sequence, where we perform our updates.
+    /// We evaluate the gradient at an interpolation between this base sequence and the sequence of trained weights.
+    z: Weights,
+    /// Second moment (exponentially moving average), similar to the base AdamW optimizer.
     v: Weights,
+    /// The interpolation constant `c` between the trained weights (usually called `x`) and `z` is calculated from this
+    stepsize_square_sum: Float,
     _phantom: PhantomData<G>,
 }
 
 impl<G: LossGradient> AdamW<G> {
     /// Create a new `Adam` optimizer, which is the same as an [`AdamW`] optimizer with the `lambda` hyperparameter
     /// set to zero.
-    pub fn adam<D: Datapoint>(batch: Batch<D>, eval_scale: ScalingFactor) -> Self {
-        let mut res = Self::new(batch, eval_scale);
+    pub fn adam<D: Datapoint>(
+        batch: Batch<D>,
+        initial_weights: Option<&Weights>,
+        eval_scale: ScalingFactor,
+    ) -> Self {
+        let mut res = Self::new(batch, initial_weights, eval_scale);
         res.hyper_params.lambda = 0.0;
         res
     }
@@ -1028,12 +1119,15 @@ impl<D: Datapoint, G: LossGradient> Optimizer<D> for AdamW<G> {
     where
         Self: Sized;
 
-    fn new(batch: Batch<D>, eval_scale: ScalingFactor) -> Self {
-        let hyper_params = AdamwHyperParams::for_eval_scale(eval_scale);
+    fn new(batch: Batch<D>, initial_weights: Option<&Weights>, _eval_scale: ScalingFactor) -> Self {
+        let hyper_params = AdamwHyperParams::default();
         Self {
             hyper_params,
-            m: Weights::new(batch.num_weights),
+            z: initial_weights
+                .cloned()
+                .unwrap_or_else(|| Weights::new(batch.num_weights)),
             v: Weights::new(batch.num_weights),
+            stepsize_square_sum: 0.0,
             _phantom: PhantomData,
         }
     }
@@ -1042,7 +1136,7 @@ impl<D: Datapoint, G: LossGradient> Optimizer<D> for AdamW<G> {
         self.hyper_params.alpha /= factor;
     }
 
-    fn iteration(
+    fn iteration_unbatched(
         &mut self,
         weights: &mut Weights,
         batch: Batch<D>,
@@ -1052,17 +1146,23 @@ impl<D: Datapoint, G: LossGradient> Optimizer<D> for AdamW<G> {
         let iteration = iteration + 1;
         let beta1 = self.hyper_params.beta1;
         let beta2 = self.hyper_params.beta2;
-        let gradient = compute_scaled_gradient::<D, G>(weights, batch, eval_scale);
+        let y = weights.interpolate(&self.z, beta1); // TODO: See if getting rid of the memory allocation improves performance
+        let gradient = compute_scaled_gradient::<D, G>(&y, batch, eval_scale);
+        let step_size = self.hyper_params.alpha * (1.0 - beta2.powi(iteration as i32)); // doesn't include warm up for now
+        self.stepsize_square_sum += step_size * step_size;
+        let c = step_size * step_size / self.stepsize_square_sum;
         for i in 0..gradient.len() {
-            // biased since the values are initialized to 0, so the exponential moving average is wrong
-            self.m[i] = self.m[i] * beta1 + gradient[i] * (1.0 - beta1);
-            self.v[i] = self.v[i] * beta2 + gradient[i] * gradient[i].0 * (1.0 - beta2);
-            let unbiased_m = self.m[i] / (1.0 - beta1.powi(iteration as i32));
-            let unbiased_v = self.v[i] / (1.0 - beta2.powi(iteration as i32));
-            let w = weights[i];
-            weights[i] -= w * self.hyper_params.lambda
-                + unbiased_m * self.hyper_params.alpha
-                    / (unbiased_v.0.sqrt() + self.hyper_params.epsilon);
+            self.v[i] = self.v[i] * beta2 + gradient[i] * gradient[i].0 * (1.0 - beta2); // biased since the values are initialized to 0, so the exponential moving average is wrong
+            self.z[i] = self.z[i]
+                - gradient[i] * step_size / (self.v[i].0.sqrt() + self.hyper_params.epsilon)
+                - y[i] * self.hyper_params.lambda * step_size;
+            weights[i] = weights[i] * (1.0 - c) + self.z[i] * c;
+        }
+        if iteration <= 2 || iteration == 10 {
+            println!(
+                "\nBATCH {iteration}\ngrad: |{gradient}|\nz: |{0}|\nv: |{1}|\nlambda: {3}, epsilon: {4}, alpha: {5}, c: {6}, curr step size: {7}, scaling: {8}\nweights: |{2}|",
+                self.z, self.v, weights, self.hyper_params.lambda, self.hyper_params.epsilon, self.hyper_params.alpha, c, step_size, 2.0 * eval_scale / batch.weight_sum
+            )
         }
     }
 }
@@ -1304,14 +1404,14 @@ mod tests {
 
             let optimizers: [AnyOptimizer; 5] = [
                 Box::new(SimpleGDOptimizer { alpha: 1.0 }),
-                Box::new(Adam::<QuadraticLoss>::new(batch, scale)),
-                Box::new(Adam::<CrossEntropyLoss>::new(batch, scale)),
-                Box::new(AdamW::<QuadraticLoss>::new(batch, scale)),
-                Box::new(AdamW::<CrossEntropyLoss>::new(batch, scale)),
+                Box::new(Adam::<QuadraticLoss>::new(batch, Some(&weights), scale)),
+                Box::new(Adam::<CrossEntropyLoss>::new(batch, Some(&weights), scale)),
+                Box::new(AdamW::<QuadraticLoss>::new(batch, Some(&weights), scale)),
+                Box::new(AdamW::<CrossEntropyLoss>::new(batch, Some(&weights), scale)),
             ];
             for mut optimizer in optimizers {
                 for i in 0..200 {
-                    optimizer.iteration(&mut weights_copy, batch, scale, i);
+                    optimizer.iteration_unbatched(&mut weights_copy, batch, scale, i);
                 }
                 let remaining_loss = loss_for(&weights_copy, batch, scale, quadratic_sample_loss);
                 assert!(remaining_loss <= 0.001, "{remaining_loss}");
@@ -1380,7 +1480,7 @@ mod tests {
                 num_weights: 1,
                 weight_sum: 1.0,
             };
-            let mut adam = Adam::<QuadraticLoss>::new(batch, eval_scale);
+            let mut adam = Adam::<QuadraticLoss>::new(batch, None, eval_scale);
             let weights = adam.optimize_simple(batch, eval_scale, 20);
             assert_eq!(weights.len(), 1);
             let weight = weights[0].0;
