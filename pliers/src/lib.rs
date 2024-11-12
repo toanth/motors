@@ -117,8 +117,7 @@ pub mod gd;
 pub mod load_data;
 pub mod trace;
 
-const DEFAULT_NUM_EPOCHS: usize = 6000;
-// const DEFAULT_NUM_EPOCHS: usize = 4000;
+const DEFAULT_NUM_EPOCHS: usize = 4000;
 
 /// The 'main function' of this library.
 ///
@@ -199,7 +198,7 @@ pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
     for file in file_list {
         dataset.union(FenReader::<B, E>::load_from_file(file)?);
     }
-    dataset.add_datapoints_for_zeroed_weights();
+    // dataset.add_datapoints_for_zeroed_weights();
     let e = E::default();
     let batch = dataset.as_batch();
     let scale = e.eval_scale().to_scaling_factor(batch, &e);

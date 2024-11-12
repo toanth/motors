@@ -306,11 +306,8 @@ pub struct Feature {
 
 impl Feature {
     /// Constructs a new feature.
-    pub fn new(feature: FeatureT, idx: u16) -> Self {
-        Self {
-            count: feature,
-            idx,
-        }
+    pub fn new(count: FeatureT, idx: u16) -> Self {
+        Self { count, idx }
     }
 
     /// Converts the feature to a [`Float`].
@@ -585,20 +582,20 @@ impl<D: Datapoint> Dataset<D> {
         self.sampling_weight_sum += other.sampling_weight_sum;
     }
 
-    /// Adds a few datapoints that have all features set and result in a draw, which shifts the optimal value for rarely seen features
-    /// towards zero.
-    pub fn add_datapoints_for_zeroed_weights(&mut self) {
-        let num_features = self.num_weights() / D::num_weights_per_feature();
-        for i in 0..num_features {
-            let mut features: Vec<Feature> = (0..num_features)
-                .map(|i| Feature::new(0, i as u16))
-                .collect();
-            features[i].count = 100;
-            let datapoint = D::new_from_features(features, 0.5, Outcome::new(0.5), 1.0);
-            self.data_points.push(datapoint);
-        }
-        self.sampling_weight_sum += num_features as Float;
-    }
+    // /// Adds a few datapoints that have all features set and result in a draw, which shifts the optimal value for rarely seen features
+    // /// towards zero.
+    // pub fn add_datapoints_for_zeroed_weights(&mut self) {
+    //     let num_features = self.num_weights() / D::num_weights_per_feature();
+    //     for i in 0..num_features {
+    //         let mut features: Vec<Feature> = (0..num_features)
+    //             .map(|i| Feature::new(0, i as u16))
+    //             .collect();
+    //         features[i].count = 100;
+    //         let datapoint = D::new_from_features(features, 0.5, Outcome::new(0.5), 1.0);
+    //         self.data_points.push(datapoint);
+    //     }
+    //     self.sampling_weight_sum += num_features as Float;
+    // }
 
     /// Shuffle the dataset, which is useful when not tuning on the entire dataset.
     pub fn shuffle(&mut self) {
@@ -940,22 +937,22 @@ pub trait Optimizer<D: Datapoint> {
         i: usize,
     );
 
-    /// Run the optimizer for an epoch, splitting the data into batches of size `batch_size`
-    fn epoch_batched(
-        &mut self,
-        weights: &mut Weights,
-        data: &mut Dataset<D>,
-        batch_size: usize,
-        eval_scale: ScalingFactor,
-        i: usize,
-    ) {
-        let num_batches = 1.max(data.data_points.len() / batch_size);
-        for b in 0..num_batches {
-            let i = i * num_batches + b;
-            let batch = data.batch(b * batch_size, (b + 1) * batch_size);
-            self.iteration(weights, batch, eval_scale, i);
-        }
-    }
+    // /// Run the optimizer for an epoch, splitting the data into batches of size `batch_size`
+    // fn epoch_batched(
+    //     &mut self,
+    //     weights: &mut Weights,
+    //     data: &mut Dataset<D>,
+    //     batch_size: usize,
+    //     eval_scale: ScalingFactor,
+    //     i: usize,
+    // ) {
+    //     let num_batches = 1.max(data.data_points.len() / batch_size);
+    //     for b in 0..num_batches {
+    //         let i = i * num_batches + b;
+    //         let batch = data.batch(b * batch_size, (b + 1) * batch_size);
+    //         self.iteration(weights, batch, eval_scale, i);
+    //     }
+    // }
 
     /// A simple but generic optimization procedure. Usually, calling [`optimize_dataset`] (directly or through
     /// the [`optimize`](super::optimize) function) results in faster convergence. This function is primarily useful for debugging.
@@ -1033,7 +1030,7 @@ pub struct AdamwHyperParams {
 impl AdamwHyperParams {
     fn for_eval_scale(eval_scale: ScalingFactor) -> Self {
         Self {
-            alpha: eval_scale / 100.0,
+            alpha: eval_scale / 50.0,
             // Setting these values too low can introduce crazy swings in the eval values and loss when it would
             // otherwise appear converged -- maybe because of numerical instability?
             beta1: 0.9,
