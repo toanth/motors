@@ -403,12 +403,12 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             // TODO: Test if this is actually faster -- getting the captured piece is quite expensive
             // (but this could be remedied by reusing that info from `psqt_delta`, or by using a redundant mailbox)
             // In the long run, move pawn protection / attacks to another function and cache `Self::pawns` as well
-            if matches!(mov.piece_type(), Pawn | King) || mov.captured(&old_pos) == Pawn {
-                state.pawn_shield_score = Self::pawn_shield(new_pos);
-            }
-            if mov.piece_type() == Pawn || mov.captured(&old_pos) == Pawn {
-                state.pawn_score = Self::pawns(new_pos);
-            }
+            // if matches!(mov.piece_type(), Pawn | King) || mov.captured(&old_pos) == Pawn {
+            state.pawn_shield_score = Self::pawn_shield(new_pos);
+            // }
+            // if mov.piece_type() == Pawn || mov.captured(&old_pos) == Pawn {
+            state.pawn_score = Self::pawns(new_pos);
+            // }
         }
         state.hash = new_pos.zobrist_hash();
         let score = Self::recomputed_every_time(new_pos)
