@@ -750,6 +750,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
         }
         if hard {
             self.custom.hard_forget_except_tt();
+            self.params.atomic.reset(false);
         } else {
             self.custom.new_search();
         }
@@ -903,7 +904,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     /// Can be called during search.
     /// For smp, this only returns the number of nodes looked at in the current thread.
     fn uci_nodes(&self) -> u64 {
-        self.search_params().atomic.edges()
+        self.search_params().atomic.nodes()
     }
 
     fn tt(&self) -> &TT {

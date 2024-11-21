@@ -77,7 +77,7 @@ impl<B: Board> MainThreadData<B> {
         }
         self.search_type = SearchType::new(ponder, limit);
         for data in &mut self.atomic_search_data {
-            data.new_search();
+            data.reset(true);
         }
         Ok(())
     }
@@ -120,7 +120,7 @@ pub struct AtomicSearchState<B: Board> {
     // hasn't yet been stopped, this is set to false; the thread may still spin until it receives a stop.
     currently_searching: AtomicBool,
     pub suppress_best_move: AtomicBool,
-    edges: AtomicU64,
+    nodes: AtomicU64,
     depth: AtomicIsize,
     seldepth: AtomicUsize,
     best_move: AtomicUsize,
@@ -135,7 +135,7 @@ impl<B: Board> Default for AtomicSearchState<B> {
             should_stop: AtomicBool::new(false),
             currently_searching: AtomicBool::new(false),
             suppress_best_move: AtomicBool::new(false),
-            edges: AtomicU64::new(0),
+            nodes: AtomicU64::new(0),
             depth: AtomicIsize::new(0),
             seldepth: AtomicUsize::new(0),
             best_move: AtomicUsize::new(B::Move::default().to_underlying().into()),
@@ -147,15 +147,16 @@ impl<B: Board> Default for AtomicSearchState<B> {
 }
 
 impl<B: Board> AtomicSearchState<B> {
-    pub fn new_search(&self) {
+    // called on 'ucinewgame' and on starting a new search
+    pub fn reset(&self, starting_search: bool) {
         // all stores can be Relaxed because we're overwriting all members
         self.set_score(NO_SCORE_YET);
         self.set_ponder_move(None);
         self.set_best_move(B::Move::default());
         self.update_seldepth(0);
         self.set_depth(0);
-        self.edges.store(0, Relaxed);
-        self.set_searching(true); // only called immediately before entering the search
+        self.nodes.store(0, Relaxed);
+        self.set_searching(starting_search);
         self.suppress_best_move.store(false, Relaxed);
         self.should_stop.store(false, Relaxed);
     }
@@ -175,8 +176,8 @@ impl<B: Board> AtomicSearchState<B> {
         self.currently_searching.store(val, Relaxed);
     }
 
-    pub fn edges(&self) -> u64 {
-        self.edges.load(Relaxed)
+    pub fn nodes(&self) -> u64 {
+        self.nodes.load(Relaxed)
     }
 
     pub fn depth(&self) -> Depth {
@@ -211,7 +212,7 @@ impl<B: Board> AtomicSearchState<B> {
     pub(super) fn count_node(&self) {
         // TODO: Test if using a relaxed load, non-atomic add, and relaxed store is faster
         // (should compile to `add` instead of `lock add` on x86)
-        self.edges.fetch_add(1, Relaxed);
+        self.nodes.fetch_add(1, Relaxed);
     }
 
     pub(super) fn set_depth(&self, depth: isize) {
