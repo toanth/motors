@@ -246,7 +246,9 @@ pub trait Eval<B: Board>: WeightsInterpretation + Default {
     /// For a normal, non-tapered, eval, the number of weights is the same as the number of features.
     /// For a tapered eval, it's twice the number of features. It would also be perfectly fine, if unusual,
     /// to only taper some features or to use 3 phases.
-    const NUM_WEIGHTS: usize;
+    /// Conceptually, this should be a compile time constant. However, Rust's compile time computation is so limited that it's
+    /// sometimes more convenient to calculate this at runtime.
+    fn num_weights() -> usize;
 
     /// A feature is a property of the position that gets recognized by the eval.
     ///
@@ -254,8 +256,10 @@ pub trait Eval<B: Board>: WeightsInterpretation + Default {
     /// of squares times the number of pieces. Each feature value counts how often the feature appears in a position,
     /// from white's perspective (so the equivalent black feature count gets subtracted).
     /// See also [`feature_trace`](Self::feature_trace).
+    /// Conceptually, this should be a compile time constant. However, Rust's compile time computation is so limited that it's
+    /// sometimes more convenient to calculate this at runtime.
     // TODO: Remove this requirement?
-    const NUM_FEATURES: usize;
+    fn num_features() -> usize;
 
     /// How a position is represented in the tuner.
     ///
@@ -346,7 +350,7 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
     eval: &E,
 ) -> ScalingFactor {
     assert_eq!(
-        E::NUM_WEIGHTS,
+        E::num_weights(),
         weights.len(),
         "The batch doesn't seem to have been created by this eval function"
     );

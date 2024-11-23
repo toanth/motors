@@ -196,7 +196,7 @@ impl WeightsInterpretation for TuneLiTEval {
     fn display(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
         |f: &mut Formatter<'_>, weights: &Weights, old_weights: &[Weight]| {
             let special = changed_at_least(-1.0, weights, old_weights);
-            assert_eq!(weights.len(), Self::NUM_WEIGHTS);
+            assert_eq!(weights.len(), Self::num_weights());
 
             write_psqts(f, weights, &special)?;
             writeln!(f, "\n#[rustfmt::skip]")?;
@@ -315,7 +315,7 @@ impl WeightsInterpretation for TuneLiTEval {
                 idx += 1;
             }
             writeln!(f, "];")?;
-            assert_eq!(idx, Self::NUM_FEATURES);
+            assert_eq!(idx, Self::num_features());
             Ok(())
         }
     }
@@ -329,7 +329,7 @@ impl WeightsInterpretation for TuneLiTEval {
     }
 
     fn initial_weights(&self) -> Option<Weights> {
-        let mut weights = vec![Weight(0.0); Self::NUM_WEIGHTS];
+        let mut weights = vec![Weight(0.0); Self::num_weights()];
         for piece in ChessPieceType::non_king_pieces() {
             let piece_val = Weight(SEE_SCORES[piece as usize].0 as Float);
             for square in 0..NUM_SQUARES {
@@ -343,8 +343,13 @@ impl WeightsInterpretation for TuneLiTEval {
 }
 
 impl Eval<Chessboard> for TuneLiTEval {
-    const NUM_WEIGHTS: usize = Self::NUM_FEATURES * 2;
-    const NUM_FEATURES: usize = LiTETrace::NUM_FEATURES;
+    fn num_weights() -> usize {
+        Self::num_features() * 2
+    }
+    fn num_features() -> usize {
+        LiTETrace::NUM_FEATURES
+        // LiteFeatureSubset::iter().map(|f| f.num_features()).sum()
+    }
     type D = TaperedDatapoint;
     type Filter = SkipChecks;
 

@@ -157,7 +157,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
     ///
     /// This is primarily intended for debugging and small examples.
     pub fn load_from_str(annotated_fens: &str, perspective: Perspective) -> Res<Dataset<E::D>> {
-        let mut res = Dataset::new(E::NUM_WEIGHTS);
+        let mut res = Dataset::new(E::num_weights());
         for (idx, line) in annotated_fens.lines().enumerate() {
             Self::load_datapoint_from_annotated_fen(line, idx, perspective, 1.0, &mut res)?;
         }
@@ -179,7 +179,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
             input_file.path.as_str().important()
         );
         let reader = BufReader::new(file);
-        let id = || (Dataset::new(E::NUM_WEIGHTS), 0);
+        let id = || (Dataset::new(E::num_weights()), 0);
         let (dataset, num_lines) = reader
             .lines()
             .enumerate()

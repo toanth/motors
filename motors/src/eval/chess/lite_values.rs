@@ -30,82 +30,82 @@ use std::fmt::{Debug, Display};
 const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = [
     // pawn
     [
-        p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),
-        p( 133,  186),    p( 130,  185),    p( 120,  189),    p( 133,  169),    p( 119,  174),    p( 120,  177),    p(  83,  195),    p(  92,  192),
-        p(  65,  123),    p(  62,  124),    p(  74,  120),    p(  82,  124),    p(  67,  125),    p( 117,  110),    p(  92,  132),    p(  88,  122),
-        p(  51,  113),    p(  63,  109),    p(  61,  103),    p(  66,   97),    p(  82,   98),    p(  83,   94),    p(  77,  103),    p(  71,   96),
-        p(  48,  100),    p(  55,  102),    p(  64,   95),    p(  73,   94),    p(  77,   92),    p(  77,   88),    p(  71,   92),    p(  59,   86),
-        p(  43,   97),    p(  51,   94),    p(  55,   94),    p(  59,  100),    p(  67,   97),    p(  62,   93),    p(  70,   84),    p(  54,   85),
-        p(  50,   98),    p(  51,   97),    p(  58,   98),    p(  57,  105),    p(  54,  108),    p(  72,   98),    p(  73,   84),    p(  55,   87),
-        p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),
+        p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    
+        p( 133,  186),    p( 130,  185),    p( 120,  189),    p( 133,  169),    p( 119,  174),    p( 120,  177),    p(  83,  195),    p(  92,  192),    
+        p(  65,  123),    p(  62,  124),    p(  74,  120),    p(  82,  124),    p(  67,  125),    p( 117,  110),    p(  92,  132),    p(  88,  122),    
+        p(  51,  113),    p(  63,  109),    p(  61,  103),    p(  66,   97),    p(  82,   98),    p(  83,   94),    p(  77,  103),    p(  71,   96),    
+        p(  48,  100),    p(  55,  102),    p(  64,   95),    p(  73,   94),    p(  77,   92),    p(  77,   88),    p(  71,   92),    p(  59,   86),    
+        p(  43,   97),    p(  51,   94),    p(  55,   94),    p(  59,  100),    p(  67,   97),    p(  62,   93),    p(  70,   84),    p(  54,   85),    
+        p(  50,   98),    p(  51,   97),    p(  58,   98),    p(  57,  105),    p(  54,  108),    p(  72,   98),    p(  73,   84),    p(  55,   87),    
+        p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    p( 100,  100),    
     ],
     // knight
     [
-        p( 185,  270),    p( 209,  303),    p( 243,  315),    p( 267,  305),    p( 299,  307),    p( 213,  303),    p( 230,  302),    p( 213,  253),
-        p( 275,  304),    p( 286,  313),    p( 300,  310),    p( 313,  313),    p( 304,  309),    p( 327,  298),    p( 286,  309),    p( 290,  296),
-        p( 291,  302),    p( 302,  307),    p( 319,  316),    p( 321,  319),    p( 337,  313),    p( 360,  303),    p( 313,  303),    p( 308,  300),
-        p( 304,  311),    p( 310,  309),    p( 317,  320),    p( 343,  322),    p( 320,  324),    p( 334,  321),    p( 315,  312),    p( 332,  305),
-        p( 300,  314),    p( 299,  308),    p( 305,  320),    p( 312,  324),    p( 319,  325),    p( 316,  312),    p( 327,  304),    p( 316,  309),
-        p( 275,  300),    p( 276,  304),    p( 284,  304),    p( 290,  318),    p( 297,  314),    p( 283,  298),    p( 298,  295),    p( 294,  304),
-        p( 271,  305),    p( 281,  309),    p( 277,  305),    p( 289,  309),    p( 292,  303),    p( 285,  300),    p( 295,  301),    p( 290,  314),
-        p( 244,  301),    p( 282,  300),    p( 266,  302),    p( 285,  307),    p( 296,  304),    p( 291,  293),    p( 289,  300),    p( 268,  299),
+        p( 185,  270),    p( 209,  303),    p( 243,  315),    p( 267,  305),    p( 299,  307),    p( 213,  303),    p( 230,  302),    p( 213,  253),    
+        p( 275,  304),    p( 286,  313),    p( 300,  310),    p( 313,  313),    p( 304,  309),    p( 327,  298),    p( 286,  309),    p( 290,  296),    
+        p( 291,  302),    p( 302,  307),    p( 319,  316),    p( 321,  319),    p( 337,  313),    p( 360,  303),    p( 313,  303),    p( 308,  300),    
+        p( 304,  311),    p( 310,  309),    p( 317,  320),    p( 343,  322),    p( 320,  324),    p( 334,  321),    p( 315,  312),    p( 332,  305),    
+        p( 300,  314),    p( 299,  308),    p( 305,  320),    p( 312,  324),    p( 319,  325),    p( 316,  312),    p( 327,  304),    p( 316,  309),    
+        p( 275,  300),    p( 276,  304),    p( 284,  304),    p( 290,  318),    p( 297,  314),    p( 283,  298),    p( 298,  295),    p( 294,  304),    
+        p( 271,  305),    p( 281,  309),    p( 277,  305),    p( 289,  309),    p( 292,  303),    p( 285,  300),    p( 295,  301),    p( 290,  314),    
+        p( 244,  301),    p( 282,  300),    p( 266,  302),    p( 285,  307),    p( 296,  304),    p( 291,  293),    p( 289,  300),    p( 268,  299),    
     ],
     // bishop
     [
-        p( 280,  315),    p( 255,  314),    p( 248,  307),    p( 224,  315),    p( 223,  315),    p( 225,  307),    p( 282,  304),    p( 252,  308),
-        p( 280,  303),    p( 285,  306),    p( 288,  306),    p( 281,  308),    p( 284,  303),    p( 294,  303),    p( 272,  308),    p( 274,  303),
-        p( 298,  309),    p( 303,  305),    p( 295,  310),    p( 303,  302),    p( 307,  306),    p( 333,  309),    p( 319,  303),    p( 311,  311),
-        p( 281,  310),    p( 298,  309),    p( 300,  305),    p( 317,  311),    p( 311,  307),    p( 307,  309),    p( 302,  308),    p( 282,  311),
-        p( 292,  308),    p( 281,  311),    p( 300,  309),    p( 314,  308),    p( 313,  308),    p( 298,  307),    p( 291,  309),    p( 311,  299),
-        p( 293,  307),    p( 304,  310),    p( 301,  310),    p( 304,  310),    p( 307,  310),    p( 304,  307),    p( 306,  302),    p( 310,  300),
-        p( 309,  311),    p( 303,  300),    p( 311,  303),    p( 296,  310),    p( 302,  308),    p( 303,  305),    p( 313,  301),    p( 303,  298),
-        p( 294,  304),    p( 314,  309),    p( 306,  307),    p( 290,  311),    p( 303,  309),    p( 296,  313),    p( 303,  297),    p( 301,  295),
+        p( 280,  315),    p( 255,  314),    p( 248,  307),    p( 224,  315),    p( 223,  315),    p( 225,  307),    p( 282,  304),    p( 252,  308),    
+        p( 280,  303),    p( 285,  306),    p( 288,  306),    p( 281,  308),    p( 284,  303),    p( 294,  303),    p( 272,  308),    p( 274,  303),    
+        p( 298,  309),    p( 303,  305),    p( 295,  310),    p( 303,  302),    p( 307,  306),    p( 333,  309),    p( 319,  303),    p( 311,  311),    
+        p( 281,  310),    p( 298,  309),    p( 300,  305),    p( 317,  311),    p( 311,  307),    p( 307,  309),    p( 302,  308),    p( 282,  311),    
+        p( 292,  308),    p( 281,  311),    p( 300,  309),    p( 314,  308),    p( 313,  308),    p( 298,  307),    p( 291,  309),    p( 311,  299),    
+        p( 293,  307),    p( 304,  310),    p( 301,  310),    p( 304,  310),    p( 307,  310),    p( 304,  307),    p( 306,  302),    p( 310,  300),    
+        p( 309,  311),    p( 303,  300),    p( 311,  303),    p( 296,  310),    p( 302,  308),    p( 303,  305),    p( 313,  301),    p( 303,  298),    
+        p( 294,  304),    p( 314,  309),    p( 306,  307),    p( 290,  311),    p( 303,  309),    p( 296,  313),    p( 303,  297),    p( 301,  295),    
     ],
     // rook
     [
-        p( 458,  550),    p( 449,  559),    p( 446,  565),    p( 444,  562),    p( 456,  559),    p( 476,  553),    p( 484,  552),    p( 494,  545),
-        p( 432,  556),    p( 429,  562),    p( 438,  562),    p( 454,  552),    p( 444,  554),    p( 464,  549),    p( 475,  546),    p( 490,  537),
-        p( 437,  553),    p( 455,  548),    p( 453,  550),    p( 457,  545),    p( 484,  534),    p( 493,  530),    p( 516,  527),    p( 488,  530),
-        p( 435,  552),    p( 442,  548),    p( 443,  551),    p( 448,  546),    p( 457,  537),    p( 466,  532),    p( 473,  534),    p( 469,  529),
-        p( 430,  548),    p( 430,  547),    p( 431,  548),    p( 437,  545),    p( 444,  541),    p( 438,  540),    p( 457,  533),    p( 447,  531),
-        p( 427,  544),    p( 426,  542),    p( 430,  541),    p( 432,  542),    p( 439,  536),    p( 447,  528),    p( 470,  515),    p( 452,  520),
-        p( 430,  538),    p( 434,  539),    p( 439,  540),    p( 442,  538),    p( 450,  531),    p( 464,  521),    p( 473,  516),    p( 441,  525),
-        p( 439,  542),    p( 435,  539),    p( 437,  543),    p( 441,  539),    p( 449,  533),    p( 455,  532),    p( 452,  529),    p( 446,  530),
+        p( 458,  550),    p( 449,  559),    p( 446,  565),    p( 444,  562),    p( 456,  559),    p( 476,  553),    p( 484,  552),    p( 494,  545),    
+        p( 432,  556),    p( 429,  562),    p( 438,  562),    p( 454,  552),    p( 444,  554),    p( 464,  549),    p( 475,  546),    p( 490,  537),    
+        p( 437,  553),    p( 455,  548),    p( 453,  550),    p( 457,  545),    p( 484,  534),    p( 493,  530),    p( 516,  527),    p( 488,  530),    
+        p( 435,  552),    p( 442,  548),    p( 443,  551),    p( 448,  546),    p( 457,  537),    p( 466,  532),    p( 473,  534),    p( 469,  529),    
+        p( 430,  548),    p( 430,  547),    p( 431,  548),    p( 437,  545),    p( 444,  541),    p( 438,  540),    p( 457,  533),    p( 447,  531),    
+        p( 427,  544),    p( 426,  542),    p( 430,  541),    p( 432,  542),    p( 439,  536),    p( 447,  528),    p( 470,  515),    p( 452,  520),    
+        p( 430,  538),    p( 434,  539),    p( 439,  540),    p( 442,  538),    p( 450,  531),    p( 464,  521),    p( 473,  516),    p( 441,  525),    
+        p( 439,  542),    p( 435,  539),    p( 437,  543),    p( 441,  539),    p( 449,  533),    p( 455,  532),    p( 452,  529),    p( 446,  530),    
     ],
     // queen
     [
-        p( 874,  968),    p( 876,  982),    p( 890,  995),    p( 907,  992),    p( 906,  995),    p( 925,  983),    p( 976,  931),    p( 921,  962),
-        p( 883,  961),    p( 859,  992),    p( 861, 1020),    p( 853, 1037),    p( 861, 1048),    p( 900, 1008),    p( 903,  989),    p( 946,  967),
-        p( 891,  965),    p( 883,  985),    p( 883, 1008),    p( 881, 1017),    p( 903, 1018),    p( 943, 1002),    p( 950,  971),    p( 938,  977),
-        p( 876,  980),    p( 882,  990),    p( 876, 1000),    p( 875, 1014),    p( 880, 1024),    p( 892, 1014),    p( 902, 1013),    p( 909,  990),
-        p( 887,  969),    p( 874,  989),    p( 880,  992),    p( 880, 1010),    p( 881, 1008),    p( 883, 1007),    p( 898,  992),    p( 905,  984),
-        p( 883,  955),    p( 889,  973),    p( 882,  989),    p( 879,  992),    p( 884,  999),    p( 890,  989),    p( 905,  970),    p( 904,  957),
-        p( 886,  953),    p( 883,  962),    p( 890,  966),    p( 889,  979),    p( 890,  979),    p( 892,  962),    p( 902,  939),    p( 911,  912),
-        p( 872,  950),    p( 883,  940),    p( 883,  955),    p( 891,  956),    p( 893,  949),    p( 882,  949),    p( 882,  938),    p( 886,  927),
+        p( 874,  968),    p( 876,  982),    p( 890,  995),    p( 907,  992),    p( 906,  995),    p( 925,  983),    p( 976,  931),    p( 921,  962),    
+        p( 883,  961),    p( 859,  992),    p( 861, 1020),    p( 853, 1037),    p( 861, 1048),    p( 900, 1008),    p( 903,  989),    p( 946,  967),    
+        p( 891,  965),    p( 883,  985),    p( 883, 1008),    p( 881, 1017),    p( 903, 1018),    p( 943, 1002),    p( 950,  971),    p( 938,  977),    
+        p( 876,  980),    p( 882,  990),    p( 876, 1000),    p( 875, 1014),    p( 880, 1024),    p( 892, 1014),    p( 902, 1013),    p( 909,  990),    
+        p( 887,  969),    p( 874,  989),    p( 880,  992),    p( 880, 1010),    p( 881, 1008),    p( 883, 1007),    p( 898,  992),    p( 905,  984),    
+        p( 883,  955),    p( 889,  973),    p( 882,  989),    p( 879,  992),    p( 884,  999),    p( 890,  989),    p( 905,  970),    p( 904,  957),    
+        p( 886,  953),    p( 883,  962),    p( 890,  966),    p( 889,  979),    p( 890,  979),    p( 892,  962),    p( 902,  939),    p( 911,  912),    
+        p( 872,  950),    p( 883,  940),    p( 883,  955),    p( 891,  956),    p( 893,  949),    p( 882,  949),    p( 882,  938),    p( 886,  927),    
     ],
     // king
     [
-        p( 152, -103),    p(  57,  -49),    p(  81,  -41),    p(   4,   -9),    p(  26,  -21),    p(  10,  -12),    p(  64,  -21),    p( 220, -106),
-        p( -23,   -3),    p( -69,   26),    p( -77,   36),    p( -12,   25),    p( -44,   34),    p( -72,   47),    p( -37,   32),    p(   9,   -1),
-        p( -44,    5),    p( -37,   22),    p( -81,   40),    p( -87,   48),    p( -53,   42),    p( -20,   35),    p( -57,   33),    p( -32,   10),
-        p( -27,   -1),    p( -91,   22),    p(-106,   39),    p(-128,   49),    p(-127,   46),    p(-107,   38),    p(-112,   27),    p( -99,   15),
-        p( -46,   -4),    p(-112,   17),    p(-122,   34),    p(-145,   47),    p(-150,   45),    p(-127,   31),    p(-140,   22),    p(-118,   12),
-        p( -37,   -1),    p( -88,   12),    p(-118,   27),    p(-126,   36),    p(-121,   34),    p(-135,   27),    p(-105,   12),    p( -75,    9),
-        p(  28,  -10),    p( -70,    6),    p( -82,   15),    p(-103,   24),    p(-109,   25),    p( -93,   16),    p( -62,    0),    p(   4,   -4),
-        p(  46,  -42),    p(  43,  -47),    p(  37,  -35),    p( -24,  -14),    p(  29,  -33),    p( -20,  -18),    p(  36,  -43),    p(  62,  -52),
+        p( 152, -103),    p(  57,  -49),    p(  81,  -41),    p(   4,   -9),    p(  26,  -21),    p(  10,  -12),    p(  64,  -21),    p( 220, -106),    
+        p( -23,   -3),    p( -69,   26),    p( -77,   36),    p( -12,   25),    p( -44,   34),    p( -72,   47),    p( -37,   32),    p(   9,   -1),    
+        p( -44,    5),    p( -37,   22),    p( -81,   40),    p( -87,   48),    p( -53,   42),    p( -20,   35),    p( -57,   33),    p( -32,   10),    
+        p( -27,   -1),    p( -91,   22),    p(-106,   39),    p(-128,   49),    p(-127,   46),    p(-107,   38),    p(-112,   27),    p( -99,   15),    
+        p( -46,   -4),    p(-112,   17),    p(-122,   34),    p(-145,   47),    p(-150,   45),    p(-127,   31),    p(-140,   22),    p(-118,   12),    
+        p( -37,   -1),    p( -88,   12),    p(-118,   27),    p(-126,   36),    p(-121,   34),    p(-135,   27),    p(-105,   12),    p( -75,    9),    
+        p(  28,  -10),    p( -70,    6),    p( -82,   15),    p(-103,   24),    p(-109,   25),    p( -93,   16),    p( -62,    0),    p(   4,   -4),    
+        p(  46,  -42),    p(  43,  -47),    p(  37,  -35),    p( -24,  -14),    p(  29,  -33),    p( -20,  -18),    p(  36,  -43),    p(  62,  -52),    
     ],
 ];
 
 #[rustfmt::skip]
 const PASSED_PAWNS: [PhasedScore; NUM_SQUARES] =[
-        p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),
-        p(  33,   86),    p(  30,   85),    p(  20,   89),    p(  33,   69),    p(  19,   74),    p(  20,   77),    p( -17,   95),    p(  -8,   92),
-        p(  41,  122),    p(  48,  122),    p(  37,   99),    p(  21,   67),    p(  36,   66),    p(  15,   94),    p(   1,  102),    p( -27,  123),
-        p(  24,   72),    p(  17,   70),    p(  23,   53),    p(  16,   43),    p(  -1,   44),    p(   7,   57),    p( -11,   74),    p( -10,   77),
-        p(   8,   45),    p(  -3,   43),    p( -15,   34),    p(  -9,   24),    p( -17,   29),    p( -11,   37),    p( -19,   54),    p( -11,   50),
-        p(   2,   14),    p( -12,   22),    p( -15,   16),    p( -16,    8),    p( -14,   13),    p(  -8,   17),    p( -14,   36),    p(   9,   16),
-        p(  -4,   15),    p(  -2,   20),    p(  -9,   16),    p(  -8,    5),    p(   6,    1),    p(   7,    7),    p(  12,   18),    p(   7,   13),
-        p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),
+        p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    
+        p(  33,   86),    p(  30,   85),    p(  20,   89),    p(  33,   69),    p(  19,   74),    p(  20,   77),    p( -17,   95),    p(  -8,   92),    
+        p(  41,  122),    p(  48,  122),    p(  37,   99),    p(  21,   67),    p(  36,   66),    p(  15,   94),    p(   1,  102),    p( -27,  123),    
+        p(  24,   72),    p(  17,   70),    p(  23,   53),    p(  16,   43),    p(  -1,   44),    p(   7,   57),    p( -11,   74),    p( -10,   77),    
+        p(   8,   45),    p(  -3,   43),    p( -15,   34),    p(  -9,   24),    p( -17,   29),    p( -11,   37),    p( -19,   54),    p( -11,   50),    
+        p(   2,   14),    p( -12,   22),    p( -15,   16),    p( -16,    8),    p( -14,   13),    p(  -8,   17),    p( -14,   36),    p(   9,   16),    
+        p(  -4,   15),    p(  -2,   20),    p(  -9,   16),    p(  -8,    5),    p(   6,    1),    p(   7,    7),    p(  12,   18),    p(   7,   13),    
+        p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    
 ];
 const UNSUPPORTED_PAWN: PhasedScore = p(-11, -10);
 const DOUBLED_PAWN: PhasedScore = p(-6, -22);
@@ -120,13 +120,13 @@ const KING_SEMIOPEN_FILE: PhasedScore = p(-9, 7);
 #[rustfmt::skip]
 const BISHOP_OPENNESS: [[PhasedScore; 8]; 4] = [
     // Open
-    [p(-7, 5), p(-2, 7), p(-2, 9), p(3, 7), p(4, 10), p(5, 12), p(10, 11), p(21, 6), ],
+    [p(-7, 5), p(-2, 7), p(-2, 9), p(3, 7), p(4, 10), p(5, 12), p(10, 11), p(21, 6), ], 
     // Closed
-    [p(0, 0), p(0, 0), p(13, -31), p(-15, 9), p(0, 13), p(3, 4), p(2, 10), p(-0, 6), ],
+    [p(0, 0), p(0, 0), p(13, -31), p(-15, 9), p(0, 13), p(3, 4), p(2, 10), p(-0, 6), ], 
     // SemiOpen
-    [p(0, 0), p(-16, 22), p(2, 20), p(1, 14), p(-1, 19), p(3, 14), p(1, 11), p(12, 11), ],
+    [p(0, 0), p(-16, 22), p(2, 20), p(1, 14), p(-1, 19), p(3, 14), p(1, 11), p(12, 11), ], 
     // SemiClosed
-    [p(0, 0), p(11, -13), p(8, 6), p(5, 1), p(9, 4), p(4, 4), p(8, 7), p(3, 4), ],
+    [p(0, 0), p(11, -13), p(8, 6), p(5, 1), p(9, 4), p(4, 4), p(8, 7), p(3, 4), ], 
 ];
 const PAWN_SHIELDS: [PhasedScore; NUM_PAWN_SHIELD_CONFIGURATIONS] = [
     p(-7, 7),    /*0b0000*/
@@ -449,51 +449,39 @@ pub trait LiteValues:
         color: ChessColor,
     ) -> SingleFeatureScore<Self::Score>;
 
-    fn passed_pawn(square: ChessSquare) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn passed_pawn(square: ChessSquare) -> SingleFeatureScore<Self::Score>;
 
-    fn unsupported_pawn() -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn unsupported_pawn() -> SingleFeatureScore<Self::Score>;
 
-    fn doubled_pawn() -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn doubled_pawn() -> SingleFeatureScore<Self::Score>;
 
-    fn bishop_pair() -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn bishop_pair() -> SingleFeatureScore<Self::Score>;
 
-    fn rook_openness(openness: FileOpenness) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn rook_openness(openness: FileOpenness) -> SingleFeatureScore<Self::Score>;
 
-    fn king_openness(openness: FileOpenness) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn king_openness(openness: FileOpenness) -> SingleFeatureScore<Self::Score>;
 
-    fn bishop_openness(
-        openness: FileOpenness,
-        len: usize,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn bishop_openness(openness: FileOpenness, len: usize) -> SingleFeatureScore<Self::Score>;
 
-    fn pawn_shield(
-        &self,
-        color: ChessColor,
-        config: usize,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn pawn_shield(&self, color: ChessColor, config: usize) -> SingleFeatureScore<Self::Score>;
 
-    fn pawn_protection(piece: ChessPieceType) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn pawn_protection(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 
-    fn pawn_attack(piece: ChessPieceType) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn pawn_attack(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 
-    fn mobility(
-        piece: ChessPieceType,
-        mobility: usize,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn mobility(piece: ChessPieceType, mobility: usize) -> SingleFeatureScore<Self::Score>;
 
     fn threats(
         attacking: ChessPieceType,
         targeted: ChessPieceType,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    ) -> SingleFeatureScore<Self::Score>;
 
     fn defended(
         protecting: ChessPieceType,
         target: ChessPieceType,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    ) -> SingleFeatureScore<Self::Score>;
 
-    fn king_zone_attack(
-        attacking: ChessPieceType,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn king_zone_attack(attacking: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 }
 
 /// Eval values tuned on a combination of the zurichess dataset and a dataset used by 4ku,
@@ -532,73 +520,71 @@ impl LiteValues for Lite {
         PSQTS[piece as usize][square.flip_if(color == White).bb_idx()]
     }
 
-    fn passed_pawn(square: ChessSquare) -> Self::Score {
+    fn passed_pawn(square: ChessSquare) -> PhasedScore {
         PASSED_PAWNS[square.bb_idx()]
     }
 
-    fn unsupported_pawn() -> <Self::Score as ScoreType>::SingleFeatureScore {
+    fn unsupported_pawn() -> PhasedScore {
         UNSUPPORTED_PAWN
     }
 
-    fn doubled_pawn() -> <Self::Score as ScoreType>::SingleFeatureScore {
+    fn doubled_pawn() -> PhasedScore {
         DOUBLED_PAWN
     }
 
-    fn bishop_pair() -> Self::Score {
+    fn bishop_pair() -> PhasedScore {
         BISHOP_PAIR
     }
 
-    fn rook_openness(openness: FileOpenness) -> Self::Score {
+    fn rook_openness(openness: FileOpenness) -> PhasedScore {
         match openness {
             FileOpenness::Open => ROOK_OPEN_FILE,
             FileOpenness::Closed => ROOK_CLOSED_FILE,
             FileOpenness::SemiOpen => ROOK_SEMIOPEN_FILE,
-            FileOpenness::SemiClosed => Self::Score::default(),
+            FileOpenness::SemiClosed => PhasedScore::default(),
         }
     }
 
-    fn king_openness(openness: FileOpenness) -> Self::Score {
+    fn king_openness(openness: FileOpenness) -> PhasedScore {
         match openness {
             FileOpenness::Open => KING_OPEN_FILE,
             FileOpenness::Closed => KING_CLOSED_FILE,
             FileOpenness::SemiOpen => KING_SEMIOPEN_FILE,
-            FileOpenness::SemiClosed => Self::Score::default(),
+            FileOpenness::SemiClosed => PhasedScore::default(),
         }
     }
 
     fn bishop_openness(
         openness: FileOpenness,
         len: usize,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore {
+    ) -> <PhasedScore as ScoreType>::SingleFeatureScore {
         BISHOP_OPENNESS[openness as usize][len - 1]
     }
 
-    fn pawn_shield(&self, _color: ChessColor, config: usize) -> Self::Score {
+    fn pawn_shield(&self, _color: ChessColor, config: usize) -> PhasedScore {
         PAWN_SHIELDS[config]
     }
 
-    fn pawn_protection(piece: ChessPieceType) -> Self::Score {
+    fn pawn_protection(piece: ChessPieceType) -> PhasedScore {
         PAWN_PROTECTION[piece as usize]
     }
 
-    fn pawn_attack(piece: ChessPieceType) -> Self::Score {
+    fn pawn_attack(piece: ChessPieceType) -> PhasedScore {
         PAWN_ATTACKS[piece as usize]
     }
 
-    fn mobility(piece: ChessPieceType, mobility: usize) -> Self::Score {
+    fn mobility(piece: ChessPieceType, mobility: usize) -> PhasedScore {
         MOBILITY[piece as usize - 1][mobility]
     }
 
-    fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> Self::Score {
+    fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> PhasedScore {
         THREATS[attacking as usize - 1][targeted as usize]
     }
-    fn defended(protecting: ChessPieceType, target: ChessPieceType) -> Self::Score {
+    fn defended(protecting: ChessPieceType, target: ChessPieceType) -> PhasedScore {
         DEFENDED[protecting as usize - 1][target as usize]
     }
 
-    fn king_zone_attack(
-        attacking: ChessPieceType,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore {
+    fn king_zone_attack(attacking: ChessPieceType) -> PhasedScore {
         KING_ZONE_ATTACK[attacking as usize]
     }
 }

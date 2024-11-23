@@ -698,15 +698,15 @@ pub fn compute_scaled_gradient<D: Datapoint, G: LossGradient>(
 ///
 /// Optimize the weights using the given [optimizer](Optimizer) for `num_epochs` epochs, where the gradient is computed
 /// over the entire batch each epoch. Regularly prints the current weights using the supplied [weights interpretation](WeightsInterpretation).
-pub fn optimize_entire_batch<D: Datapoint>(
-    batch: Batch<D>,
+pub fn optimize_dataset<D: Datapoint>(
+    dataset: &mut Dataset<D>,
     eval_scale: ScalingFactor,
     num_epochs: usize,
     weights_interpretation: &dyn WeightsInterpretation,
     optimizer: &mut dyn Optimizer<D>,
 ) -> Weights {
     let mut prev_weights: Vec<Weight> = vec![];
-    let mut weights = Weights::new(batch.num_weights);
+    let mut weights = Weights::new(dataset.num_weights());
     let initial_lr_factor = if weights_interpretation.retune_from_zero() {
         0.25
     } else {
@@ -719,22 +719,23 @@ pub fn optimize_entire_batch<D: Datapoint>(
             .expect("if `retune_from_zero()` returns `false`, there must be initial weights");
         assert_eq!(
             weights.num_weights(),
-            batch.num_weights,
+            dataset.num_weights(),
             "Incorrect number of initial weights. Maybe your `Eval::NUM_WEIGHTS` is incorrect or your initial_weights() returns incorrect weights?"
         );
     }
     let mut prev_loss = Float::INFINITY;
     let start = Instant::now();
+    let print_interval = 50;
     for epoch in 0..num_epochs {
-        optimizer.iteration(&mut weights, batch, eval_scale, epoch);
-        if epoch % 50 == 0 {
-            let loss = loss(&weights, batch, eval_scale);
+        optimizer.iteration(&mut weights, dataset.as_batch(), eval_scale, epoch);
+        if epoch % print_interval == 0 {
+            let loss = loss(&weights, dataset.as_batch(), eval_scale);
             println!(
                 "Epoch {epoch} complete, weights:\n {}",
                 display(weights_interpretation, &weights, &prev_weights)
             );
             let elapsed = start.elapsed();
-            // If no weight changed by more than 0.05 within the last 50 epochs, stop.
+            // If no weight changed by more than 0.05 within the last `print_interval` epochs, stop.
             let mut max_diff: Float = 0.0;
             for i in 0..prev_weights.len() {
                 let diff = weights[i].0 - prev_weights[i].0;
@@ -744,17 +745,17 @@ pub fn optimize_entire_batch<D: Datapoint>(
             }
             println!(
                 "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), quadratic loss: {loss}, cross-entropy loss: {celoss}, loss got smaller by: 1/1_000_000 * {1}, \
-                maximum weight change to 50 epochs ago: {max_diff:.2}",
+                maximum weight change to {print_interval} epochs ago: {max_diff:.2}",
                 epoch as f32 / elapsed.as_secs_f32(),
                 (prev_loss - loss) * 1_000_000.0,
                 elapsed = elapsed.as_secs(),
-                celoss = loss_for(&weights, batch, eval_scale, cross_entropy_sample_loss),
+                celoss = loss_for(&weights, dataset.as_batch(), eval_scale, cross_entropy_sample_loss),
             );
-            if loss <= 0.001 && epoch >= 20 {
+            if loss <= 0.001 && epoch >= print_interval {
                 println!("loss less than epsilon, stopping after {epoch} epochs");
                 break;
             }
-            if max_diff.abs() <= 0.05 && epoch >= 50 {
+            if max_diff.abs() <= 0.05 && epoch >= print_interval {
                 println!(
                     "Maximum absolute weight change less than 0.05, stopping after {epoch} epochs"
                 );
@@ -774,17 +775,18 @@ pub fn optimize_entire_batch<D: Datapoint>(
 
 /// Convenience function for optimizing with the [`AdamW`] optimizer.
 pub fn adamw_optimize<D: Datapoint, G: LossGradient>(
-    batch: Batch<D>,
+    dataset: &mut Dataset<D>,
     eval_scale: ScalingFactor,
     num_epochs: usize,
     format_weights: &dyn WeightsInterpretation,
 ) -> Weights {
-    optimize_entire_batch(
-        batch,
+    let mut optimizer = AdamW::<G>::new(dataset.as_batch(), eval_scale);
+    optimize_dataset(
+        dataset,
         eval_scale,
         num_epochs,
         format_weights,
-        &mut AdamW::<G>::new(batch, eval_scale),
+        &mut optimizer,
     )
 }
 
