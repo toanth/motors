@@ -198,6 +198,7 @@ pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
     for file in file_list {
         dataset.union(FenReader::<B, E>::load_from_file(file)?);
     }
+    dataset.add_datapoints_for_zeroed_weights();
     let e = E::default();
     let batch = dataset.as_batch();
     let scale = e.eval_scale().to_scaling_factor(batch, &e);

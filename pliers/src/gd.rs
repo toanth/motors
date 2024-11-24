@@ -582,6 +582,21 @@ impl<D: Datapoint> Dataset<D> {
         self.sampling_weight_sum += other.sampling_weight_sum;
     }
 
+    /// For each feature, adds a datapoint where this feature appears multiple times and results in a draw,
+    /// which shifts the optimal value for rarely seen features towards zero.
+    pub fn add_datapoints_for_zeroed_weights(&mut self) {
+        let num_features = self.num_weights() / D::num_weights_per_feature();
+        for i in 0..num_features {
+            let mut features: Vec<Feature> = (0..num_features)
+                .map(|i| Feature::new(0, i as u16))
+                .collect();
+            features[i].count = 100;
+            let datapoint = D::new_from_features(features, 0.5, Outcome::new(0.5), 1.0);
+            self.data_points.push(datapoint);
+        }
+        self.sampling_weight_sum += num_features as Float;
+    }
+
     /// Shuffle the dataset, which is useful when not tuning on the entire dataset.
     pub fn shuffle(&mut self) {
         self.data_points.shuffle(&mut thread_rng());

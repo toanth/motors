@@ -17,3 +17,7 @@ rayon = "1.10.0"
 serde_json = "1.0.117"
 serde = { version = "1.0.197", features = ["derive"] }
 
+[features]
+# Saves space when using tapered datapoints but makes the tuner slower
+save_space = []
+default = []
