@@ -1431,6 +1431,7 @@ mod tests {
         );
         let d3_nodes = caps.search_state().uci_nodes();
         caps.forget();
+        assert_eq!(caps.search_state().uci_nodes(), 0);
         let fresh_d3_search = caps.search_with_new_tt(pos, d3);
         assert!(
             !fresh_d3_search.score.unwrap().is_game_over_score(),
@@ -1439,9 +1440,12 @@ mod tests {
         );
         let fresh_d3_nodes = caps.search_state().uci_nodes();
         assert!(
-            d3_nodes + d3_nodes / 3 < fresh_d3_nodes,
+            fresh_d3_nodes > d3_nodes + d3_nodes / 4,
             "{fresh_d3_nodes} {d3_nodes}"
         );
+        caps.forget();
+        _ = caps.search_with_new_tt(pos, d3);
+        assert_eq!(caps.search_state().uci_nodes(), fresh_d3_nodes);
     }
 
     #[test]

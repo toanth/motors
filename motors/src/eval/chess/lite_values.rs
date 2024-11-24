@@ -96,20 +96,6 @@ const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = [
     ],
 ];
 
-#[rustfmt::skip]
-const PASSED_PAWNS: [PhasedScore; NUM_SQUARES] =[
-        p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),
-        p(  33,   86),    p(  30,   85),    p(  20,   89),    p(  33,   69),    p(  19,   74),    p(  20,   77),    p( -17,   95),    p(  -8,   92),
-        p(  41,  122),    p(  48,  122),    p(  37,   99),    p(  21,   67),    p(  36,   66),    p(  15,   94),    p(   1,  102),    p( -27,  123),
-        p(  24,   72),    p(  17,   70),    p(  23,   53),    p(  16,   43),    p(  -1,   44),    p(   7,   57),    p( -11,   74),    p( -10,   77),
-        p(   8,   45),    p(  -3,   43),    p( -15,   34),    p(  -9,   24),    p( -17,   29),    p( -11,   37),    p( -19,   54),    p( -11,   50),
-        p(   2,   14),    p( -12,   22),    p( -15,   16),    p( -16,    8),    p( -14,   13),    p(  -8,   17),    p( -14,   36),    p(   9,   16),
-        p(  -4,   15),    p(  -2,   20),    p(  -9,   16),    p(  -8,    5),    p(   6,    1),    p(   7,    7),    p(  12,   18),    p(   7,   13),
-        p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),
-];
-const UNSUPPORTED_PAWN: PhasedScore = p(-11, -10);
-const DOUBLED_PAWN: PhasedScore = p(-6, -22);
-
 const BISHOP_PAIR: PhasedScore = p(23, 58);
 const ROOK_OPEN_FILE: PhasedScore = p(16, 5);
 const ROOK_CLOSED_FILE: PhasedScore = p(-12, -3);
@@ -120,13 +106,13 @@ const KING_SEMIOPEN_FILE: PhasedScore = p(-9, 7);
 #[rustfmt::skip]
 const BISHOP_OPENNESS: [[PhasedScore; 8]; 4] = [
     // Open
-    [p(-7, 5), p(-2, 7), p(-2, 9), p(3, 7), p(4, 10), p(5, 12), p(10, 11), p(21, 6), ],
+    [p(-7, 5), p(-2, 7), p(-2, 9), p(3, 7), p(4, 10), p(5, 12), p(10, 11), p(21, 6)],
     // Closed
-    [p(0, 0), p(0, 0), p(13, -31), p(-15, 9), p(0, 13), p(3, 4), p(2, 10), p(-0, 6), ],
+    [p(0, 0), p(0, 0), p(13, -31), p(-15, 9), p(0, 13), p(3, 4), p(2, 10), p(-0, 6)],
     // SemiOpen
-    [p(0, 0), p(-16, 22), p(2, 20), p(1, 14), p(-1, 19), p(3, 14), p(1, 11), p(12, 11), ],
+    [p(0, 0), p(-16, 22), p(2, 20), p(1, 14), p(-1, 19), p(3, 14), p(1, 11), p(12, 11)],
     // SemiClosed
-    [p(0, 0), p(11, -13), p(8, 6), p(5, 1), p(9, 4), p(4, 4), p(8, 7), p(3, 4), ],
+    [p(0, 0), p(11, -13), p(8, 6), p(5, 1), p(9, 4), p(4, 4), p(8, 7), p(3, 4)],
 ];
 const PAWN_SHIELDS: [PhasedScore; NUM_PAWN_SHIELD_CONFIGURATIONS] = [
     p(-7, 7),    /*0b0000*/
@@ -226,6 +212,20 @@ const PAWN_SHIELDS: [PhasedScore; NUM_PAWN_SHIELD_CONFIGURATIONS] = [
     p(0, 0),     /*0b1110*/
     p(22, -54),  /*0b1111*/
 ];
+
+#[rustfmt::skip]
+const PASSED_PAWNS: [PhasedScore; NUM_SQUARES] = [
+        p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),
+        p(  33,   86),    p(  30,   85),    p(  20,   89),    p(  33,   69),    p(  19,   74),    p(  20,   77),    p( -17,   95),    p(  -8,   92),
+        p(  41,  122),    p(  48,  122),    p(  37,   99),    p(  21,   67),    p(  36,   66),    p(  15,   94),    p(   1,  102),    p( -27,  123),
+        p(  24,   72),    p(  17,   70),    p(  23,   53),    p(  16,   43),    p(  -1,   44),    p(   7,   57),    p( -11,   74),    p( -10,   77),
+        p(   8,   45),    p(  -3,   43),    p( -15,   34),    p(  -9,   24),    p( -17,   29),    p( -11,   37),    p( -19,   54),    p( -11,   50),
+        p(   2,   14),    p( -12,   22),    p( -15,   16),    p( -16,    8),    p( -14,   13),    p(  -8,   17),    p( -14,   36),    p(   9,   16),
+        p(  -4,   15),    p(  -2,   20),    p(  -9,   16),    p(  -8,    5),    p(   6,    1),    p(   7,    7),    p(  12,   18),    p(   7,   13),
+        p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),    p(   0,    0),
+];
+const UNSUPPORTED_PAWN: PhasedScore = p(-11, -10);
+const DOUBLED_PAWN: PhasedScore = p(-6, -22);
 const PAWN_PROTECTION: [PhasedScore; NUM_CHESS_PIECES] =
     [p(13, 7), p(2, 9), p(10, 14), p(9, 9), p(-4, 19), p(-46, 9)];
 const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] =
@@ -449,51 +449,39 @@ pub trait LiteValues:
         color: ChessColor,
     ) -> SingleFeatureScore<Self::Score>;
 
-    fn passed_pawn(square: ChessSquare) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn passed_pawn(square: ChessSquare) -> SingleFeatureScore<Self::Score>;
 
-    fn unsupported_pawn() -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn unsupported_pawn() -> SingleFeatureScore<Self::Score>;
 
-    fn doubled_pawn() -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn doubled_pawn() -> SingleFeatureScore<Self::Score>;
 
-    fn bishop_pair() -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn bishop_pair() -> SingleFeatureScore<Self::Score>;
 
-    fn rook_openness(openness: FileOpenness) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn rook_openness(openness: FileOpenness) -> SingleFeatureScore<Self::Score>;
 
-    fn king_openness(openness: FileOpenness) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn king_openness(openness: FileOpenness) -> SingleFeatureScore<Self::Score>;
 
-    fn bishop_openness(
-        openness: FileOpenness,
-        len: usize,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn bishop_openness(openness: FileOpenness, len: usize) -> SingleFeatureScore<Self::Score>;
 
-    fn pawn_shield(
-        &self,
-        color: ChessColor,
-        config: usize,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn pawn_shield(&self, color: ChessColor, config: usize) -> SingleFeatureScore<Self::Score>;
 
-    fn pawn_protection(piece: ChessPieceType) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn pawn_protection(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 
-    fn pawn_attack(piece: ChessPieceType) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn pawn_attack(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 
-    fn mobility(
-        piece: ChessPieceType,
-        mobility: usize,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn mobility(piece: ChessPieceType, mobility: usize) -> SingleFeatureScore<Self::Score>;
 
     fn threats(
         attacking: ChessPieceType,
         targeted: ChessPieceType,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    ) -> SingleFeatureScore<Self::Score>;
 
     fn defended(
         protecting: ChessPieceType,
         target: ChessPieceType,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    ) -> SingleFeatureScore<Self::Score>;
 
-    fn king_zone_attack(
-        attacking: ChessPieceType,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore;
+    fn king_zone_attack(attacking: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 }
 
 /// Eval values tuned on a combination of the zurichess dataset and a dataset used by 4ku,
@@ -532,73 +520,71 @@ impl LiteValues for Lite {
         PSQTS[piece as usize][square.flip_if(color == White).bb_idx()]
     }
 
-    fn passed_pawn(square: ChessSquare) -> Self::Score {
+    fn passed_pawn(square: ChessSquare) -> PhasedScore {
         PASSED_PAWNS[square.bb_idx()]
     }
 
-    fn unsupported_pawn() -> <Self::Score as ScoreType>::SingleFeatureScore {
+    fn unsupported_pawn() -> PhasedScore {
         UNSUPPORTED_PAWN
     }
 
-    fn doubled_pawn() -> <Self::Score as ScoreType>::SingleFeatureScore {
+    fn doubled_pawn() -> PhasedScore {
         DOUBLED_PAWN
     }
 
-    fn bishop_pair() -> Self::Score {
+    fn bishop_pair() -> PhasedScore {
         BISHOP_PAIR
     }
 
-    fn rook_openness(openness: FileOpenness) -> Self::Score {
+    fn rook_openness(openness: FileOpenness) -> PhasedScore {
         match openness {
             FileOpenness::Open => ROOK_OPEN_FILE,
             FileOpenness::Closed => ROOK_CLOSED_FILE,
             FileOpenness::SemiOpen => ROOK_SEMIOPEN_FILE,
-            FileOpenness::SemiClosed => Self::Score::default(),
+            FileOpenness::SemiClosed => PhasedScore::default(),
         }
     }
 
-    fn king_openness(openness: FileOpenness) -> Self::Score {
+    fn king_openness(openness: FileOpenness) -> PhasedScore {
         match openness {
             FileOpenness::Open => KING_OPEN_FILE,
             FileOpenness::Closed => KING_CLOSED_FILE,
             FileOpenness::SemiOpen => KING_SEMIOPEN_FILE,
-            FileOpenness::SemiClosed => Self::Score::default(),
+            FileOpenness::SemiClosed => PhasedScore::default(),
         }
     }
 
     fn bishop_openness(
         openness: FileOpenness,
         len: usize,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore {
+    ) -> <PhasedScore as ScoreType>::SingleFeatureScore {
         BISHOP_OPENNESS[openness as usize][len - 1]
     }
 
-    fn pawn_shield(&self, _color: ChessColor, config: usize) -> Self::Score {
+    fn pawn_shield(&self, _color: ChessColor, config: usize) -> PhasedScore {
         PAWN_SHIELDS[config]
     }
 
-    fn pawn_protection(piece: ChessPieceType) -> Self::Score {
+    fn pawn_protection(piece: ChessPieceType) -> PhasedScore {
         PAWN_PROTECTION[piece as usize]
     }
 
-    fn pawn_attack(piece: ChessPieceType) -> Self::Score {
+    fn pawn_attack(piece: ChessPieceType) -> PhasedScore {
         PAWN_ATTACKS[piece as usize]
     }
 
-    fn mobility(piece: ChessPieceType, mobility: usize) -> Self::Score {
+    fn mobility(piece: ChessPieceType, mobility: usize) -> PhasedScore {
         MOBILITY[piece as usize - 1][mobility]
     }
 
-    fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> Self::Score {
+    fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> PhasedScore {
         THREATS[attacking as usize - 1][targeted as usize]
     }
-    fn defended(protecting: ChessPieceType, target: ChessPieceType) -> Self::Score {
+    fn defended(protecting: ChessPieceType, target: ChessPieceType) -> PhasedScore {
         DEFENDED[protecting as usize - 1][target as usize]
     }
 
-    fn king_zone_attack(
-        attacking: ChessPieceType,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore {
+    fn king_zone_attack(attacking: ChessPieceType) -> PhasedScore {
         KING_ZONE_ATTACK[attacking as usize]
     }
 }

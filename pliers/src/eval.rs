@@ -13,6 +13,7 @@ use crate::load_data::Filter;
 use crate::trace::TraceTrait;
 use derive_more::Display;
 use gears::general::board::Board;
+use std::fmt;
 use std::fmt::Formatter;
 
 pub mod chess;
@@ -36,27 +37,89 @@ pub fn changed_at_least(threshold: Float, weights: &Weights, old_weights: &[Weig
 }
 
 /// Like [`write_phased`], but each entry takes up at least `width` chars
-#[must_use]
 pub fn write_phased_with_width(
+    f: &mut Formatter,
     weights: &[Weight],
     feature_idx: usize,
     special: &[bool],
     width: usize,
-) -> String {
+) -> fmt::Result {
     let i = 2 * feature_idx;
-    format!(
+    write!(
+        f,
         "p({0}, {1})",
         weights[i].to_string(special.get(i).copied().unwrap_or_default(), width),
         weights[i + 1].to_string(special.get(i + 1).copied().unwrap_or_default(), width)
     )
 }
 
-/// Convert a pair of weights to string, coloring each one red if the corresponding `special` entry is set.
+/// Write a pair of weights to `f`, coloring each one red if the corresponding `special` entry is set.
 ///
 /// The two weight indices are `feature_idx * 2` and `feature_idx * 2 + 1`.
-#[must_use]
-pub fn write_phased(weights: &[Weight], feature_idx: usize, special: &[bool]) -> String {
-    write_phased_with_width(weights, feature_idx, special, 0)
+pub fn write_phased(
+    f: &mut Formatter,
+    weights: &[Weight],
+    feature_idx: usize,
+    special: &[bool],
+) -> fmt::Result {
+    write_phased_with_width(f, weights, feature_idx, special, 0)
+}
+
+/// Write a range of phased weight pairs to `f`, coloring each pair red if the corresponding `special` entry is set.
+///
+/// Each index `i` in `start..(start + len)` corresponds to the two weight indices `2 * i` and `2 * i + 1`
+pub fn write_range_phased(
+    f: &mut Formatter,
+    weights: &[Weight],
+    start: usize,
+    len: usize,
+    special: &[bool],
+    brackets: bool,
+) -> fmt::Result {
+    assert!(len > 0);
+    if len == 1 {
+        return write_phased(f, weights, start, special);
+    }
+    if brackets {
+        write!(f, "[")?;
+    }
+    write_phased(f, weights, start, special)?;
+    for i in 1..len {
+        write!(f, ", ")?;
+        write_phased(f, weights, start + i, special)?;
+    }
+    if brackets {
+        write!(f, "]")?;
+    }
+    Ok(())
+}
+
+/// Write a 2dimensional range of phased weight pairs to `f`, similarly to [`write_range_phased`].
+pub fn write_2d_range_phased(
+    f: &mut Formatter,
+    weights: &[Weight],
+    start: usize,
+    inner_len: usize,
+    outer_len: usize,
+    special: &[bool],
+) -> fmt::Result {
+    writeln!(f, "[")?;
+    for outer in 0..outer_len {
+        if outer == 0 {
+            write!(f, "    [")?;
+        } else {
+            write!(f, "],\n    [")?;
+        }
+        write_range_phased(
+            f,
+            weights,
+            start + outer * inner_len,
+            inner_len,
+            special,
+            false,
+        )?;
+    }
+    writeln!(f, "]\n];")
 }
 
 /// Returns a vector of [`Float`]s, where each entry counts to how often the corresponding feature appears in the
@@ -246,7 +309,9 @@ pub trait Eval<B: Board>: WeightsInterpretation + Default {
     /// For a normal, non-tapered, eval, the number of weights is the same as the number of features.
     /// For a tapered eval, it's twice the number of features. It would also be perfectly fine, if unusual,
     /// to only taper some features or to use 3 phases.
-    const NUM_WEIGHTS: usize;
+    /// Conceptually, this should be a compile time constant. However, Rust's compile time computation is so limited that it's
+    /// sometimes more convenient to calculate this at runtime.
+    fn num_weights() -> usize;
 
     /// A feature is a property of the position that gets recognized by the eval.
     ///
@@ -254,8 +319,10 @@ pub trait Eval<B: Board>: WeightsInterpretation + Default {
     /// of squares times the number of pieces. Each feature value counts how often the feature appears in a position,
     /// from white's perspective (so the equivalent black feature count gets subtracted).
     /// See also [`feature_trace`](Self::feature_trace).
+    /// Conceptually, this should be a compile time constant. However, Rust's compile time computation is so limited that it's
+    /// sometimes more convenient to calculate this at runtime.
     // TODO: Remove this requirement?
-    const NUM_FEATURES: usize;
+    fn num_features() -> usize;
 
     /// How a position is represented in the tuner.
     ///
@@ -324,11 +391,10 @@ fn grad_for_eval_scale<D: Datapoint>(
         let cp_eval = cp_eval_for_weights(weights, data);
         let prediction = cp_to_wr(cp_eval, eval_scale);
         let outcome = data.outcome();
-        let sample_grad = <DefaultOptimizer as Optimizer<D>>::Loss::sample_gradient(
-            prediction,
-            outcome,
-            data.sampling_weight(),
-        ) * cp_eval.0;
+        let sample_grad =
+            <DefaultOptimizer as Optimizer<D>>::Loss::sample_gradient(prediction, outcome)
+                * cp_eval.0
+                * data.sampling_weight();
         scaled_grad += sample_grad;
         loss += sample_loss(prediction, data.outcome()) * data.sampling_weight();
     }
@@ -346,7 +412,7 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
     eval: &E,
 ) -> ScalingFactor {
     assert_eq!(
-        E::NUM_WEIGHTS,
+        E::num_weights(),
         weights.len(),
         "The batch doesn't seem to have been created by this eval function"
     );

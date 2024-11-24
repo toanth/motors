@@ -88,8 +88,12 @@ fn write_phased_psqt(
         }
         let idx = offset + square;
 
-        let str = write_phased_with_width(weights, idx, special, 4);
-        write!(f, "{str},{TAB}")?;
+        write_phased_with_width(f, weights, idx, special, 4)?;
+        if square % 8 == 7 {
+            write!(f, ",")?;
+        } else {
+            write!(f, ",{TAB}")?;
+        }
     }
     writeln!(f)?;
     if piece.is_some() {

@@ -131,7 +131,7 @@ pub fn sample_loss_for_cp(
 /// Since `loss` is the cross-entropy loss, this cancels out to `(prediction.0 - outcome.0) * sample_weight`
 pub trait LossGradient: Sync + Copy {
     /// Compute the gradient of the loss of the sigmoid of a single sample.
-    fn sample_gradient(score: WrScore, outcome: Outcome, weight: Float) -> Float;
+    fn sample_gradient(score: WrScore, outcome: Outcome) -> Float;
 }
 
 /// The gradient of the quadratic loss applied to the sigmoid of the cp eval.
@@ -140,8 +140,8 @@ pub trait LossGradient: Sync + Copy {
 pub struct QuadraticLoss {}
 
 impl LossGradient for QuadraticLoss {
-    fn sample_gradient(prediction: WrScore, outcome: Outcome, sample_weight: Float) -> Float {
-        (prediction.0 - outcome.0) * prediction.0 * (1.0 - prediction.0) * sample_weight
+    fn sample_gradient(prediction: WrScore, outcome: Outcome) -> Float {
+        (prediction.0 - outcome.0) * prediction.0 * (1.0 - prediction.0)
     }
 }
 
@@ -151,8 +151,8 @@ pub struct CrossEntropyLoss {}
 
 impl LossGradient for CrossEntropyLoss {
     /// The gradient of the cross-entropy loss of the sigmoid of the cp eval. See [`scaled_sample_grad`].
-    fn sample_gradient(prediction: WrScore, outcome: Outcome, sample_weight: Float) -> Float {
-        (prediction.0 - outcome.0) * sample_weight
+    fn sample_gradient(prediction: WrScore, outcome: Outcome) -> Float {
+        prediction.0 - outcome.0
     }
 }
 
@@ -300,19 +300,19 @@ pub(super) type FeatureT = i8;
 #[derive(Debug, Default, Copy, Clone, PartialOrd, PartialEq)]
 #[must_use]
 pub struct Feature {
-    feature: FeatureT,
+    count: FeatureT,
     idx: u16,
 }
 
 impl Feature {
     /// Constructs a new feature.
-    pub fn new(feature: FeatureT, idx: u16) -> Self {
-        Self { feature, idx }
+    pub fn new(count: FeatureT, idx: u16) -> Self {
+        Self { count, idx }
     }
 
     /// Converts the feature to a [`Float`].
     pub fn float(self) -> Float {
-        self.feature as Float
+        self.count as Float
     }
     /// The zero-based index of this feature.
     ///
@@ -323,17 +323,12 @@ impl Feature {
     }
 }
 
-/// A phased eval interpolates between middlegame and endgame [`Weight`]s using this multiplier.
-///
-/// This value should be in `[0, 1]`.
-#[derive(Debug, Copy, Clone)]
-pub struct PhaseMultiplier(Float);
-
 /// Struct used for tuning.
 ///
 /// Each [`WeightedFeature`] of a [`Datapoint`] is multiplied by the corresponding current eval weight and added up
 /// to compute the [`CpScore`]. Users should not generally need to worry about this, unless they want to implement
 /// their own tuning algorithm.
+#[derive(Debug, Copy, Clone)]
 pub struct WeightedFeature {
     /// The weight of this entry.
     pub weight: Float,
@@ -359,7 +354,17 @@ pub trait Datapoint: Clone + Send + Sync {
     ///
     /// The `weight` is used for downweighting samples, but of the three provided trait implementations,
     /// only [`WeightedDatapoint`] cares about this. It should rarely be needed.
-    fn new<T: TraceTrait>(trace: T, outcome: Outcome, weight: Float) -> Self;
+    fn new<T: TraceTrait>(trace: T, outcome: Outcome, weight: Float) -> Self {
+        Self::new_from_features(trace.as_features(0), trace.phase(), outcome, weight)
+    }
+
+    /// Create a new datapoint from a list of features, phase, outcome and weight (only needed for [`WeightedDatapoint`]).
+    fn new_from_features(
+        features: Vec<Feature>,
+        phase: Float,
+        outcome: Outcome,
+        weight: Float,
+    ) -> Self;
 
     /// The outcome of this position, a [win rate prediction](Outcome) between `0` and `1`.
     fn outcome(&self) -> Outcome;
@@ -369,6 +374,15 @@ pub trait Datapoint: Clone + Send + Sync {
     /// This weight can depend on the general weight of this datapoint as well as on the phase tapering factor
     /// for a tapered eval.
     fn features(&self) -> impl Iterator<Item = WeightedFeature>;
+
+    /// Into how many weights does a feature get transformed. For a [`TaperedDatapoint`], this is the number of phases (2),
+    /// for a non-tapered datapoint this is 1.
+    fn num_weights_per_feature() -> usize;
+
+    /// In most cases, sampling weights are unused, and this enables some optimizations.
+    fn all_sampling_weights_identical() -> bool {
+        true
+    }
 
     /// A value of 2.0 effectively duplicates this datapoint, so it will influence the gradient twice as much.
     fn sampling_weight(&self) -> Float {
@@ -386,11 +400,13 @@ pub struct NonTaperedDatapoint {
 }
 
 impl Datapoint for NonTaperedDatapoint {
-    fn new<T: TraceTrait>(trace: T, outcome: Outcome, _weight: Float) -> Self {
-        Self {
-            features: trace.as_features(0),
-            outcome,
-        }
+    fn new_from_features(
+        features: Vec<Feature>,
+        _phase: Float,
+        outcome: Outcome,
+        _weight: Float,
+    ) -> Self {
+        Self { features, outcome }
     }
 
     fn outcome(&self) -> Outcome {
@@ -402,42 +418,83 @@ impl Datapoint for NonTaperedDatapoint {
             .iter()
             .map(|feature| WeightedFeature::new(feature.idx(), feature.float()))
     }
+
+    fn num_weights_per_feature() -> usize {
+        1
+    }
 }
 
 /// A Datapoint where each feature corresponds to two weights, interpolated based on the game phase.
 #[derive(Debug, Clone)]
 pub struct TaperedDatapoint {
     /// The features of this position.
-    pub features: Vec<Feature>,
+    #[cfg(not(feature = "save_space"))]
+    features: Vec<WeightedFeature>,
+    #[cfg(feature = "save_space")]
+    features: Vec<Feature>,
+    #[cfg(feature = "save_space")]
+    phase: Float,
     /// The win rate prediction of the FEN (can be based on the WDL result or an engine's score).
-    pub outcome: Outcome,
-    /// The game phase.
-    pub phase: PhaseMultiplier,
+    outcome: Outcome,
 }
 
 impl Datapoint for TaperedDatapoint {
-    fn new<T: TraceTrait>(trace: T, outcome: Outcome, _weight: Float) -> Self {
+    #[cfg(feature = "save_space")]
+    fn new_from_features(
+        features: Vec<Feature>,
+        phase: Float,
+        outcome: Outcome,
+        _weight: Float,
+    ) -> Self {
         Self {
-            features: trace.as_features(0),
+            features,
+            phase,
             outcome,
-            phase: PhaseMultiplier(trace.phase()),
         }
+    }
+
+    #[cfg(not(feature = "save_space"))]
+    fn new_from_features(
+        features: Vec<Feature>,
+        phase: Float,
+        outcome: Outcome,
+        _weight: Float,
+    ) -> Self {
+        // Doing this here instead of "on demand" in [`features`] dramatically improves performance
+        // while still keeping memory requirements manageable
+        let features = features
+            .into_iter()
+            .flat_map(|feature| {
+                [
+                    WeightedFeature::new(feature.idx() * 2, feature.float() * phase),
+                    WeightedFeature::new(feature.idx() * 2 + 1, feature.float() * (1.0 - phase)),
+                ]
+            })
+            .collect();
+        Self { features, outcome }
     }
 
     fn outcome(&self) -> Outcome {
         self.outcome
     }
 
+    #[cfg(feature = "save_space")]
     fn features(&self) -> impl Iterator<Item = WeightedFeature> {
         self.features.iter().flat_map(|feature| {
             [
-                WeightedFeature::new(feature.idx() * 2, feature.float() * self.phase.0),
-                WeightedFeature::new(
-                    feature.idx() * 2 + 1,
-                    feature.float() * (1.0 - self.phase.0),
-                ),
+                WeightedFeature::new(feature.idx() * 2, feature.float() * self.phase),
+                WeightedFeature::new(feature.idx() * 2 + 1, feature.float() * (1.0 - self.phase)),
             ]
         })
+    }
+
+    #[cfg(not(feature = "save_space"))]
+    fn features(&self) -> impl Iterator<Item = WeightedFeature> {
+        self.features.iter().copied()
+    }
+
+    fn num_weights_per_feature() -> usize {
+        2
     }
 }
 
@@ -451,9 +508,14 @@ pub struct WeightedDatapoint {
 }
 
 impl Datapoint for WeightedDatapoint {
-    fn new<T: TraceTrait>(trace: T, outcome: Outcome, weight: Float) -> Self {
+    fn new_from_features(
+        features: Vec<Feature>,
+        phase: Float,
+        outcome: Outcome,
+        weight: Float,
+    ) -> Self {
         Self {
-            inner: TaperedDatapoint::new(trace, outcome, weight),
+            inner: TaperedDatapoint::new_from_features(features, phase, outcome, weight),
             weight,
         }
     }
@@ -464,6 +526,10 @@ impl Datapoint for WeightedDatapoint {
 
     fn features(&self) -> impl Iterator<Item = WeightedFeature> {
         self.inner.features()
+    }
+
+    fn num_weights_per_feature() -> usize {
+        TaperedDatapoint::num_weights_per_feature()
     }
 
     fn sampling_weight(&self) -> Float {
@@ -478,7 +544,7 @@ impl Datapoint for WeightedDatapoint {
 #[derive(Debug)]
 #[must_use]
 pub struct Dataset<D: Datapoint> {
-    datapoints: Vec<D>,
+    data_points: Vec<D>,
     weights_in_pos: usize,
     sampling_weight_sum: Float,
 }
@@ -487,7 +553,7 @@ impl<D: Datapoint> Dataset<D> {
     /// Create a new dataset, where each data point consist of `num_weights` weights.
     pub fn new(num_weights: usize) -> Self {
         Self {
-            datapoints: vec![],
+            data_points: vec![],
             weights_in_pos: num_weights,
             sampling_weight_sum: 0.0,
         }
@@ -500,31 +566,31 @@ impl<D: Datapoint> Dataset<D> {
 
     /// Access the underlying array of data points.
     pub fn data(&self) -> &[D] {
-        &self.datapoints
+        &self.data_points
     }
 
     /// Add a new datapoint.
     pub fn push(&mut self, datapoint: D) {
         self.sampling_weight_sum += datapoint.sampling_weight();
-        self.datapoints.push(datapoint);
+        self.data_points.push(datapoint);
     }
 
     /// Combine two datasets into one larger dataset without removing duplicate positions.
     pub fn union(&mut self, mut other: Dataset<D>) {
         assert_eq!(self.weights_in_pos, other.weights_in_pos);
-        self.datapoints.append(&mut other.datapoints);
+        self.data_points.append(&mut other.data_points);
         self.sampling_weight_sum += other.sampling_weight_sum;
     }
 
     /// Shuffle the dataset, which is useful when not tuning on the entire dataset.
     pub fn shuffle(&mut self) {
-        self.datapoints.shuffle(&mut thread_rng());
+        self.data_points.shuffle(&mut thread_rng());
     }
 
     /// Converts the entire dataset into a single batch.
     pub fn as_batch(&self) -> Batch<D> {
         Batch {
-            datapoints: &self.datapoints,
+            datapoints: &self.data_points,
             num_weights: self.weights_in_pos,
             weight_sum: self.sampling_weight_sum,
         }
@@ -532,11 +598,20 @@ impl<D: Datapoint> Dataset<D> {
 
     /// Turns a subset of the dataset into a batch.
     ///
-    /// Note that this needs to compute the sum of sampling weights,
+    /// Note that unless `D::all_sampling_weights_identical()` returns true, this needs to compute the sum of sampling weights,
     /// which makes this an `O(n)` operation, where `n` is the size of the returned batch.
     pub fn batch(&self, start_idx: usize, end_idx: usize) -> Batch<D> {
-        let datapoints = &self.datapoints[start_idx..end_idx];
-        let weight_sum = datapoints.iter().map(Datapoint::sampling_weight).sum();
+        let end_idx = end_idx.min(self.data_points.len());
+        let datapoints = &self.data_points[start_idx..end_idx];
+        let weight_sum = if D::all_sampling_weights_identical() {
+            datapoints
+                .first()
+                .map(|d| d.sampling_weight())
+                .unwrap_or(1.0)
+                * datapoints.len() as Float
+        } else {
+            datapoints.iter().map(Datapoint::sampling_weight).sum()
+        };
         Batch {
             datapoints,
             num_weights: self.weights_in_pos,
@@ -668,7 +743,7 @@ pub fn compute_scaled_gradient<D: Datapoint, G: LossGradient>(
 
                     // constant factors have been moved outside the loop
                     let scaled_delta =
-                        G::sample_gradient(wr_prediction, data.outcome(), data.sampling_weight());
+                        G::sample_gradient(wr_prediction, data.outcome()) * data.sampling_weight();
                     grad.update(data, scaled_delta);
                     grad
                 },
@@ -688,7 +763,8 @@ pub fn compute_scaled_gradient<D: Datapoint, G: LossGradient>(
             // don't use a separate loop for multiplying with `constant_factor` because the gradient may very well be
             // larger than the numer of samples, so this would likely be slower
             let scaled_delta = constant_factor
-                * G::sample_gradient(wr_prediction, data.outcome(), data.sampling_weight());
+                * G::sample_gradient(wr_prediction, data.outcome())
+                * data.sampling_weight();
             grad.update(data, scaled_delta);
         }
         grad
@@ -698,15 +774,15 @@ pub fn compute_scaled_gradient<D: Datapoint, G: LossGradient>(
 ///
 /// Optimize the weights using the given [optimizer](Optimizer) for `num_epochs` epochs, where the gradient is computed
 /// over the entire batch each epoch. Regularly prints the current weights using the supplied [weights interpretation](WeightsInterpretation).
-pub fn optimize_entire_batch<D: Datapoint>(
-    batch: Batch<D>,
+pub fn optimize_dataset<D: Datapoint>(
+    dataset: &mut Dataset<D>,
     eval_scale: ScalingFactor,
     num_epochs: usize,
     weights_interpretation: &dyn WeightsInterpretation,
     optimizer: &mut dyn Optimizer<D>,
 ) -> Weights {
     let mut prev_weights: Vec<Weight> = vec![];
-    let mut weights = Weights::new(batch.num_weights);
+    let mut weights = Weights::new(dataset.num_weights());
     let initial_lr_factor = if weights_interpretation.retune_from_zero() {
         0.25
     } else {
@@ -719,22 +795,23 @@ pub fn optimize_entire_batch<D: Datapoint>(
             .expect("if `retune_from_zero()` returns `false`, there must be initial weights");
         assert_eq!(
             weights.num_weights(),
-            batch.num_weights,
+            dataset.num_weights(),
             "Incorrect number of initial weights. Maybe your `Eval::NUM_WEIGHTS` is incorrect or your initial_weights() returns incorrect weights?"
         );
     }
     let mut prev_loss = Float::INFINITY;
     let start = Instant::now();
+    let print_interval = 50;
     for epoch in 0..num_epochs {
-        optimizer.iteration(&mut weights, batch, eval_scale, epoch);
-        if epoch % 50 == 0 {
-            let loss = loss(&weights, batch, eval_scale);
+        optimizer.iteration(&mut weights, dataset.as_batch(), eval_scale, epoch);
+        if epoch % print_interval == 0 {
+            let loss = loss(&weights, dataset.as_batch(), eval_scale);
             println!(
                 "Epoch {epoch} complete, weights:\n {}",
                 display(weights_interpretation, &weights, &prev_weights)
             );
             let elapsed = start.elapsed();
-            // If no weight changed by more than 0.05 within the last 50 epochs, stop.
+            // If no weight changed by more than 0.05 within the last `print_interval` epochs, stop.
             let mut max_diff: Float = 0.0;
             for i in 0..prev_weights.len() {
                 let diff = weights[i].0 - prev_weights[i].0;
@@ -744,17 +821,17 @@ pub fn optimize_entire_batch<D: Datapoint>(
             }
             println!(
                 "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), quadratic loss: {loss}, cross-entropy loss: {celoss}, loss got smaller by: 1/1_000_000 * {1}, \
-                maximum weight change to 50 epochs ago: {max_diff:.2}",
+                maximum weight change to {print_interval} epochs ago: {max_diff:.2}",
                 epoch as f32 / elapsed.as_secs_f32(),
                 (prev_loss - loss) * 1_000_000.0,
                 elapsed = elapsed.as_secs(),
-                celoss = loss_for(&weights, batch, eval_scale, cross_entropy_sample_loss),
+                celoss = loss_for(&weights, dataset.as_batch(), eval_scale, cross_entropy_sample_loss),
             );
-            if loss <= 0.001 && epoch >= 20 {
+            if loss <= 0.001 && epoch >= print_interval {
                 println!("loss less than epsilon, stopping after {epoch} epochs");
                 break;
             }
-            if max_diff.abs() <= 0.05 && epoch >= 50 {
+            if max_diff.abs() <= 0.05 && epoch >= print_interval {
                 println!(
                     "Maximum absolute weight change less than 0.05, stopping after {epoch} epochs"
                 );
@@ -774,17 +851,18 @@ pub fn optimize_entire_batch<D: Datapoint>(
 
 /// Convenience function for optimizing with the [`AdamW`] optimizer.
 pub fn adamw_optimize<D: Datapoint, G: LossGradient>(
-    batch: Batch<D>,
+    dataset: &mut Dataset<D>,
     eval_scale: ScalingFactor,
     num_epochs: usize,
     format_weights: &dyn WeightsInterpretation,
 ) -> Weights {
-    optimize_entire_batch(
-        batch,
+    let mut optimizer = AdamW::<G>::new(dataset.as_batch(), eval_scale);
+    optimize_dataset(
+        dataset,
         eval_scale,
         num_epochs,
         format_weights,
-        &mut AdamW::<G>::new(batch, eval_scale),
+        &mut optimizer,
     )
 }
 
@@ -844,7 +922,7 @@ pub trait Optimizer<D: Datapoint> {
         i: usize,
     );
 
-    /// A simple but generic optimization procedure. Usually, calling [`optimize_entire_batch`] (directly or through
+    /// A simple but generic optimization procedure. Usually, calling [`optimize_dataset`] (directly or through
     /// the [`optimize`](super::optimize) function) results in faster convergence. This function is primarily useful for debugging.
     fn optimize_simple(
         &mut self,
