@@ -203,7 +203,7 @@ impl<B: Board> UgiOutput<B> {
             .with(Rgb { r, g, b })
             .dimmed();
         let text = format!(
-                " {iter}{complete} {seldepth:>3} {multipv} {score}  {time}{s}  {nodes}{M}{diff_string}  {nps}  {tt}{p}  {pv}",
+                " {iter}{complete} {seldepth:>3} {multipv} {score}  {time}{s}  {nodes}{M}{diff_string}  {nps}{M}  {tt}{p}  {pv}",
                 s = if in_seconds {"s"} else {"m"}.dimmed(),
                 M = "M".dimmed(),
                 p = "%".dimmed(),
