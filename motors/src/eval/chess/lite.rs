@@ -283,6 +283,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         &self,
         old_pos: &Chessboard,
         mov: ChessMove,
+        captured: ChessPieceType,
         new_pos: &Chessboard,
     ) -> (Tuned::Score, PhaseType) {
         let moving_player = old_pos.active_player();
@@ -290,7 +291,6 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let mut delta = Tuned::Score::default();
         let mut phase_delta = PhaseType::default();
         let piece = mov.piece_type();
-        let captured = mov.captured(old_pos);
         delta -= self.tuned.psqt(mov.src_square(), piece, moving_player);
         if mov.is_castle() {
             let side = mov.castle_side();
@@ -389,7 +389,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 state.psqt_score
             );
             debug_assert_eq!(&old_pos.make_move(mov).unwrap(), new_pos);
-            let (psqt_delta, phase_delta) = self.psqt_delta(old_pos, mov, new_pos);
+            let captured = mov.captured(old_pos);
+            let (psqt_delta, phase_delta) = self.psqt_delta(old_pos, mov, captured, new_pos);
             state.psqt_score += psqt_delta;
             state.phase += phase_delta;
             debug_assert_eq!(
@@ -398,15 +399,15 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 "{0} {1} {2} {old_pos} {new_pos} {mov}",
                 state.psqt_score,
                 self.psqt(new_pos),
-                self.psqt_delta(old_pos, mov, new_pos).0,
+                self.psqt_delta(old_pos, mov, captured, new_pos).0,
             );
             // TODO: Test if this is actually faster -- getting the captured piece is quite expensive
             // (but this could be remedied by reusing that info from `psqt_delta`, or by using a redundant mailbox)
             // In the long run, move pawn protection / attacks to another function and cache `Self::pawns` as well
-            if matches!(mov.piece_type(), Pawn | King) || mov.captured(&old_pos) == Pawn {
+            if matches!(mov.piece_type(), Pawn | King) || captured == Pawn {
                 state.pawn_shield_score = Self::pawn_shield(new_pos);
             }
-            if mov.piece_type() == Pawn || mov.captured(&old_pos) == Pawn {
+            if mov.piece_type() == Pawn || captured == Pawn {
                 state.pawn_score = Self::pawns(new_pos);
             }
         }

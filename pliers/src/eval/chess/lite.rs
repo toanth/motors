@@ -1,10 +1,14 @@
 //! The hand-crafted eval used by the `caps` chess engine.
 
-use crate::eval::chess::{write_phased_psqt, write_psqts, SkipChecks, NUM_PSQT_FEATURES};
+use crate::eval::chess::lite::LiteFeatureSubset::*;
+use crate::eval::chess::{write_phased_psqt, write_psqts, SkipChecks};
 use crate::eval::EvalScale::Scale;
-use crate::eval::{changed_at_least, write_phased, Eval, EvalScale, WeightsInterpretation};
+use crate::eval::{
+    changed_at_least, write_2d_range_phased, write_phased, write_range_phased, Eval, EvalScale,
+    WeightsInterpretation,
+};
 use crate::gd::{Float, TaperedDatapoint, Weight, Weights};
-use crate::trace::{SingleFeature, SparseTrace, TraceTrait};
+use crate::trace::{FeatureSubSet, SingleFeature, SparseTrace, TraceTrait};
 use gears::games::chess::pieces::ChessPieceType::*;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::see::SEE_SCORES;
@@ -16,51 +20,207 @@ use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
 use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
-use motors::eval::ScoreType;
+use std::fmt;
 use std::fmt::{Display, Formatter};
+use std::iter::Iterator;
 use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
 #[derive(Debug, Default, Copy, Clone)]
 struct LiTETrace {}
 
-impl LiTETrace {
-    const ONE_BISHOP_PAIR_FEATURE: usize = 1;
-    const NUM_ROOK_OPENNESS_FEATURES: usize = 3;
-    const NUM_KING_OPENNESS_FEATURES: usize = 3;
-    const NUM_BISHOP_OPENNESS_FEATURES: usize = 4 * 8;
-    const NUM_PASSED_PAWN_FEATURES: usize = NUM_SQUARES;
-    const NUM_UNSUPPORTED_PAWN_FEATURES: usize = 1;
-    const NUM_DOUBLED_PAWN_FEATURES: usize = 1;
-    const NUM_PAWN_PROTECTION_FEATURES: usize = NUM_CHESS_PIECES;
-    const NUM_PAWN_ATTACKS_FEATURES: usize = NUM_CHESS_PIECES;
-    const NUM_MOBILITY_FEATURES: usize = (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1);
-    const NUM_THREAT_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
-    const NUM_DEFENSE_FEATURES: usize = (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES;
-    const NUM_KING_ZONE_ATTACK_FEATURES: usize = NUM_CHESS_PIECES;
-
-    const PASSED_PAWN_OFFSET: usize = NUM_PSQT_FEATURES;
-    const UNSUPPORTED_PAWN_OFFSET: usize =
-        Self::PASSED_PAWN_OFFSET + Self::NUM_PASSED_PAWN_FEATURES;
-    const DOUBLED_PAWN_OFFSET: usize =
-        Self::UNSUPPORTED_PAWN_OFFSET + Self::NUM_UNSUPPORTED_PAWN_FEATURES;
-    const BISHOP_PAIR_OFFSET: usize = Self::DOUBLED_PAWN_OFFSET + Self::NUM_DOUBLED_PAWN_FEATURES;
-    const ROOK_OPENNESS_OFFSET: usize = Self::BISHOP_PAIR_OFFSET + Self::ONE_BISHOP_PAIR_FEATURE;
-    const KING_OPENNESS_OFFSET: usize =
-        Self::ROOK_OPENNESS_OFFSET + Self::NUM_ROOK_OPENNESS_FEATURES;
-    const BISHOP_OPENNESS_OFFSET: usize =
-        Self::KING_OPENNESS_OFFSET + Self::NUM_KING_OPENNESS_FEATURES;
-    const PAWN_SHIELD_OFFSET: usize =
-        Self::BISHOP_OPENNESS_OFFSET + Self::NUM_BISHOP_OPENNESS_FEATURES;
-    const PAWN_PROTECTION_OFFSET: usize = Self::PAWN_SHIELD_OFFSET + NUM_PAWN_SHIELD_CONFIGURATIONS;
-    const PAWN_ATTACKS_OFFSET: usize =
-        Self::PAWN_PROTECTION_OFFSET + Self::NUM_PAWN_PROTECTION_FEATURES;
-    const MOBILITY_OFFSET: usize = Self::PAWN_ATTACKS_OFFSET + Self::NUM_PAWN_ATTACKS_FEATURES;
-    const THREAT_OFFSET: usize = Self::MOBILITY_OFFSET + Self::NUM_MOBILITY_FEATURES;
-    const DEFENSE_OFFSET: usize = Self::THREAT_OFFSET + Self::NUM_THREAT_FEATURES;
-    const KING_ZONE_ATTACK_OFFSET: usize = Self::DEFENSE_OFFSET + Self::NUM_DEFENSE_FEATURES;
-
-    const NUM_FEATURES: usize = Self::KING_ZONE_ATTACK_OFFSET + Self::NUM_KING_ZONE_ATTACK_FEATURES;
+/// All features considered by LiTE.
+#[allow(missing_docs)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, EnumIter)]
+pub enum LiteFeatureSubset {
+    Psqt,
+    BishopPair,
+    RookOpenness,
+    KingOpenness,
+    BishopOpenness,
+    PawnShield,
+    PassedPawn,
+    UnsupportedPawn,
+    DoubledPawn,
+    PawnProtection,
+    PawnAttacks,
+    Mobility,
+    Threat,
+    Defense,
+    KingZoneAttack,
 }
+
+impl FeatureSubSet for LiteFeatureSubset {
+    fn num_features(self) -> usize {
+        match self {
+            Psqt => NUM_SQUARES * NUM_CHESS_PIECES,
+            BishopPair => 1,
+            RookOpenness => 3,
+            KingOpenness => 3,
+            BishopOpenness => 4 * 8,
+            PawnShield => NUM_PAWN_SHIELD_CONFIGURATIONS,
+            PassedPawn => NUM_SQUARES,
+            UnsupportedPawn => 1,
+            DoubledPawn => 1,
+            PawnProtection => NUM_CHESS_PIECES,
+            PawnAttacks => NUM_CHESS_PIECES,
+            Mobility => (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1),
+            Threat => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
+            Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
+            KingZoneAttack => NUM_CHESS_PIECES,
+        }
+    }
+
+    fn start_idx(self) -> usize {
+        Self::iter()
+            .take_while(|x| *x != self)
+            .map(|x| x.num_features())
+            .sum()
+    }
+
+    fn write(self, f: &mut Formatter, weights: &Weights, special: &[bool]) -> fmt::Result {
+        match self {
+            Psqt => {
+                return write_psqts(f, weights, special);
+            }
+            BishopPair => {
+                write!(f, "\nconst BISHOP_PAIR: PhasedScore = ")?;
+            }
+            RookOpenness => {
+                for (i, openness) in ["OPEN", "CLOSED", "SEMIOPEN"].iter().enumerate() {
+                    write!(f, "const ROOK_{openness}_FILE: PhasedScore = ")?;
+                    write_phased(f, weights, self.start_idx() + i, &special)?;
+                    writeln!(f, ";")?;
+                }
+                return Ok(());
+            }
+            KingOpenness => {
+                for (i, openness) in ["OPEN", "CLOSED", "SEMIOPEN"].iter().enumerate() {
+                    write!(f, "const KING_{openness}_FILE: PhasedScore = ")?;
+                    write_phased(f, weights, self.start_idx() + i, &special)?;
+                    writeln!(f, ";")?;
+                }
+                return Ok(());
+            }
+            BishopOpenness => {
+                writeln!(f, "#[rustfmt::skip]")?;
+                writeln!(f, "const BISHOP_OPENNESS: [[PhasedScore; 8]; 4] = [")?;
+                for openness in FileOpenness::iter() {
+                    write!(f, "    // {openness}\n    [")?;
+                    write_range_phased(
+                        f,
+                        weights,
+                        self.start_idx() + 8 * openness as usize,
+                        8,
+                        special,
+                        false,
+                    )?;
+                    writeln!(f, "],")?;
+                }
+                return writeln!(f, "];");
+            }
+            PawnShield => {
+                writeln!(
+                    f,
+                    "const PAWN_SHIELDS: [PhasedScore; NUM_PAWN_SHIELD_CONFIGURATIONS] = ["
+                )?;
+                for i in 0..NUM_PAWN_SHIELD_CONFIGURATIONS {
+                    let config = if i < 1 << 6 {
+                        format!("{i:#06b}")
+                    } else if i < (1 << 6) + (1 << 4) {
+                        format!("{:#04b}", i - (1 << 6))
+                    } else {
+                        format!("{:#04b}", i - (1 << 6) - (1 << 4))
+                    };
+                    write_phased(f, weights, self.start_idx() + i, &special)?;
+                    write!(f, " /*{config}*/, ")?;
+                }
+                return writeln!(f, "];");
+            }
+            PassedPawn => {
+                writeln!(f, "\n#[rustfmt::skip]")?;
+                write!(f, "const PASSED_PAWNS: [PhasedScore; NUM_SQUARES] = ")?;
+                return write_phased_psqt(f, weights, &special, None, self.start_idx());
+            }
+            UnsupportedPawn => {
+                write!(f, "const UNSUPPORTED_PAWN: PhasedScore = ")?;
+            }
+            DoubledPawn => {
+                write!(f, "const DOUBLED_PAWN: PhasedScore = ")?;
+            }
+            PawnProtection => {
+                write!(
+                    f,
+                    "const PAWN_PROTECTION: [PhasedScore; NUM_CHESS_PIECES] = "
+                )?;
+            }
+            PawnAttacks => {
+                write!(f, "const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = ")?;
+            }
+            Mobility => {
+                writeln!(f, "\npub const MAX_MOBILITY: usize = 7 + 7 + 7 + 6;")?;
+                writeln!(
+                    f,
+                    "const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = ["
+                )?;
+                for _piece in ChessPieceType::non_pawn_pieces() {
+                    write_range_phased(
+                        f,
+                        weights,
+                        self.start_idx() + (_piece as usize - 1) * (MAX_MOBILITY + 1),
+                        MAX_MOBILITY + 1,
+                        special,
+                        true,
+                    )?;
+                    writeln!(f, ",")?;
+                }
+                return writeln!(f, "];");
+            }
+            Threat => {
+                writeln!(
+                    f,
+                    "const THREATS: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = "
+                )?;
+                return write_2d_range_phased(
+                    f,
+                    weights,
+                    self.start_idx(),
+                    NUM_CHESS_PIECES,
+                    NUM_CHESS_PIECES - 1,
+                    special,
+                );
+            }
+            Defense => {
+                writeln!(
+                    f,
+                    "const DEFENDED: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = "
+                )?;
+                return write_2d_range_phased(
+                    f,
+                    weights,
+                    self.start_idx(),
+                    NUM_CHESS_PIECES,
+                    NUM_CHESS_PIECES - 1,
+                    special,
+                );
+            }
+            KingZoneAttack => {
+                write!(f, "const KING_ZONE_ATTACK: [PhasedScore; 6] = ")?;
+            }
+        }
+        write_range_phased(
+            f,
+            weights,
+            self.start_idx(),
+            self.num_features(),
+            special,
+            true,
+        )?;
+        writeln!(f, ";")
+    }
+}
+
+impl LiTETrace {}
 
 impl StaticallyNamedEntity for LiTETrace {
     fn static_short_name() -> impl Display
@@ -91,62 +251,52 @@ impl LiteValues for LiTETrace {
     fn psqt(&self, square: ChessSquare, piece: ChessPieceType, color: ChessColor) -> SingleFeature {
         let square = square.flip_if(color == White);
         let idx = square.bb_idx() + piece as usize * NUM_SQUARES;
-        SingleFeature::new(idx)
+        SingleFeature::new(Psqt, idx)
     }
 
     fn passed_pawn(square: ChessSquare) -> SingleFeature {
-        let idx = Self::PASSED_PAWN_OFFSET + square.bb_idx();
-        SingleFeature::new(idx)
+        let idx = square.bb_idx();
+        SingleFeature::new(PassedPawn, idx)
     }
 
-    fn unsupported_pawn() -> <Self::Score as ScoreType>::SingleFeatureScore {
-        let idx = Self::UNSUPPORTED_PAWN_OFFSET;
-        SingleFeature::new(idx)
+    fn unsupported_pawn() -> SingleFeature {
+        SingleFeature::new(UnsupportedPawn, 0)
     }
 
-    fn doubled_pawn() -> <Self::Score as ScoreType>::SingleFeatureScore {
-        let idx = Self::DOUBLED_PAWN_OFFSET;
-        SingleFeature::new(idx)
+    fn doubled_pawn() -> SingleFeature {
+        SingleFeature::new(DoubledPawn, 0)
     }
 
     fn bishop_pair() -> SingleFeature {
-        let idx = Self::BISHOP_PAIR_OFFSET;
-        SingleFeature::new(idx)
+        SingleFeature::new(BishopPair, 0)
     }
 
     fn rook_openness(openness: FileOpenness) -> SingleFeature {
         if openness == SemiClosed {
-            return SingleFeature::no_feature();
+            return SingleFeature::no_feature(RookOpenness);
         }
-        let idx = Self::ROOK_OPENNESS_OFFSET + openness as usize;
-        SingleFeature::new(idx)
+        SingleFeature::new(RookOpenness, openness as usize)
     }
 
     fn king_openness(openness: FileOpenness) -> SingleFeature {
         if openness == SemiClosed {
-            return SingleFeature::no_feature();
+            return SingleFeature::no_feature(KingOpenness);
         }
-        let idx = Self::KING_OPENNESS_OFFSET + openness as usize;
-        SingleFeature::new(idx)
+        SingleFeature::new(KingOpenness, openness as usize)
     }
 
-    fn bishop_openness(
-        openness: FileOpenness,
-        len: usize,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore {
+    fn bishop_openness(openness: FileOpenness, len: usize) -> SingleFeature {
         debug_assert!(len <= 8);
-        let idx = Self::BISHOP_OPENNESS_OFFSET + openness as usize * 8 + len - 1;
-        SingleFeature::new(idx)
+        let idx = openness as usize * 8 + len - 1;
+        SingleFeature::new(BishopOpenness, idx)
     }
 
     fn pawn_shield(&self, _color: ChessColor, config: usize) -> SingleFeature {
-        let idx = Self::PAWN_SHIELD_OFFSET + config;
-        SingleFeature::new(idx)
+        SingleFeature::new(PawnShield, config)
     }
 
     fn pawn_protection(piece: ChessPieceType) -> SingleFeature {
-        let idx = Self::PAWN_PROTECTION_OFFSET + piece as usize;
-        SingleFeature::new(idx)
+        SingleFeature::new(PawnProtection, piece as usize)
     }
 
     fn pawn_attack(piece: ChessPieceType) -> SingleFeature {
@@ -154,34 +304,28 @@ impl LiteValues for LiTETrace {
         // two pawns at once this doesn't have to mean that the resulting feature count is zero. So manually exclude this
         // because pawns attacking pawns don't necessarily create an immediate thread like pawns attacking pieces.
         if piece == Pawn {
-            return SingleFeature::no_feature();
+            return SingleFeature::no_feature(PawnAttacks);
         }
-        let idx = Self::PAWN_ATTACKS_OFFSET + piece as usize;
-        SingleFeature::new(idx)
+        SingleFeature::new(PawnAttacks, piece as usize)
     }
 
     fn mobility(piece: ChessPieceType, mobility: usize) -> SingleFeature {
-        let idx = Self::MOBILITY_OFFSET + (piece as usize - 1) * (MAX_MOBILITY + 1) + mobility;
-        SingleFeature::new(idx)
+        let idx = (piece as usize - 1) * (MAX_MOBILITY + 1) + mobility;
+        SingleFeature::new(Mobility, idx)
     }
 
     fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> SingleFeature {
-        let idx =
-            Self::THREAT_OFFSET + (attacking as usize - 1) * NUM_CHESS_PIECES + targeted as usize;
-        SingleFeature::new(idx)
+        let idx = (attacking as usize - 1) * NUM_CHESS_PIECES + targeted as usize;
+        SingleFeature::new(Threat, idx)
     }
 
     fn defended(protecting: ChessPieceType, target: ChessPieceType) -> SingleFeature {
-        let idx =
-            Self::DEFENSE_OFFSET + (protecting as usize - 1) * NUM_CHESS_PIECES + target as usize;
-        SingleFeature::new(idx)
+        let idx = (protecting as usize - 1) * NUM_CHESS_PIECES + target as usize;
+        SingleFeature::new(Defense, idx)
     }
 
-    fn king_zone_attack(
-        attacking: ChessPieceType,
-    ) -> <Self::Score as ScoreType>::SingleFeatureScore {
-        let idx = Self::KING_ZONE_ATTACK_OFFSET + attacking as usize;
-        SingleFeature::new(idx)
+    fn king_zone_attack(attacking: ChessPieceType) -> SingleFeature {
+        SingleFeature::new(KingZoneAttack, attacking as usize)
     }
 }
 
@@ -191,131 +335,14 @@ impl LiteValues for LiTETrace {
 pub struct TuneLiTEval {}
 
 impl WeightsInterpretation for TuneLiTEval {
-    // TODO: Make shorter
     #[allow(clippy::too_many_lines)]
     fn display(&self) -> fn(&mut Formatter, &Weights, &[Weight]) -> std::fmt::Result {
         |f: &mut Formatter<'_>, weights: &Weights, old_weights: &[Weight]| {
             let special = changed_at_least(-1.0, weights, old_weights);
             assert_eq!(weights.len(), Self::num_weights());
-
-            write_psqts(f, weights, &special)?;
-            writeln!(f, "\n#[rustfmt::skip]")?;
-            write!(f, "const PASSED_PAWNS: [PhasedScore; NUM_SQUARES] =")?;
-            write_phased_psqt(f, weights, &special, None, NUM_PSQT_FEATURES)?;
-            let mut idx = LiTETrace::UNSUPPORTED_PAWN_OFFSET;
-
-            writeln!(
-                f,
-                "const UNSUPPORTED_PAWN: PhasedScore = {};",
-                write_phased(weights, idx, &special)
-            )?;
-            idx += 1;
-            writeln!(
-                f,
-                "const DOUBLED_PAWN: PhasedScore = {};",
-                write_phased(weights, idx, &special)
-            )?;
-            idx += 1;
-
-            writeln!(
-                f,
-                "\nconst BISHOP_PAIR: PhasedScore = {};",
-                write_phased(weights, idx, &special),
-            )?;
-            idx += 1;
-
-            for piece in ["ROOK", "KING"] {
-                for openness in ["OPEN", "CLOSED", "SEMIOPEN"] {
-                    writeln!(
-                        f,
-                        "const {piece}_{openness}_FILE: PhasedScore = {};",
-                        write_phased(weights, idx, &special)
-                    )?;
-                    idx += 1;
-                }
+            for subset in LiteFeatureSubset::iter() {
+                subset.write(f, weights, &special)?
             }
-            writeln!(f, "#[rustfmt::skip]")?;
-            writeln!(f, "const BISHOP_OPENNESS: [[PhasedScore; 8]; 4] = [")?;
-            for openness in FileOpenness::iter() {
-                write!(f, "    // {openness}\n    [")?;
-                for _len in 0..8 {
-                    write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                    idx += 1;
-                }
-                writeln!(f, "], ")?;
-            }
-            writeln!(f, "];")?;
-
-            writeln!(
-                f,
-                "const PAWN_SHIELDS: [PhasedScore; NUM_PAWN_SHIELD_CONFIGURATIONS] = ["
-            )?;
-            for i in 0..NUM_PAWN_SHIELD_CONFIGURATIONS {
-                let config = if i < 1 << 6 {
-                    format!("{i:#06b}")
-                } else if i < (1 << 6) + (1 << 4) {
-                    format!("{:#04b}", i - (1 << 6))
-                } else {
-                    format!("{:#04b}", i - (1 << 6) - (1 << 4))
-                };
-                write!(f, "{} /*{config}*/, ", write_phased(weights, idx, &special),)?;
-                idx += 1;
-            }
-            writeln!(f, "];")?;
-            writeln!(
-                f,
-                " const PAWN_PROTECTION: [PhasedScore; NUM_CHESS_PIECES] = ["
-            )?;
-            for _feature in 0..LiTETrace::NUM_PAWN_PROTECTION_FEATURES {
-                write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                idx += 1;
-            }
-            writeln!(f, "\n];")?;
-            writeln!(
-                f,
-                " const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = ["
-            )?;
-            for _feature in 0..LiTETrace::NUM_PAWN_ATTACKS_FEATURES {
-                write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                idx += 1;
-            }
-            writeln!(f, "\n];")?;
-            writeln!(f, "\npub const MAX_MOBILITY: usize = 7 + 7 + 7 + 6;")?;
-            writeln!(
-                f,
-                "const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = ["
-            )?;
-            for _piece in ChessPieceType::non_pawn_pieces() {
-                write!(f, "[")?;
-                for _mobility in 0..=MAX_MOBILITY {
-                    write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                    idx += 1;
-                }
-                writeln!(f, "],")?;
-            }
-            writeln!(f, "];")?;
-            for name in ["THREATS", "DEFENDED"] {
-                writeln!(
-                    f,
-                    "const {name}: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = ["
-                )?;
-                for _piece in ChessPieceType::non_pawn_pieces() {
-                    write!(f, "[")?;
-                    for _threatened in ChessPieceType::pieces() {
-                        write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                        idx += 1;
-                    }
-                    writeln!(f, "],")?;
-                }
-                writeln!(f, "];")?;
-            }
-            write!(f, "const KING_ZONE_ATTACK: [PhasedScore; 6] = [")?;
-            for _piece in ChessPieceType::pieces() {
-                write!(f, "{}, ", write_phased(weights, idx, &special))?;
-                idx += 1;
-            }
-            writeln!(f, "];")?;
-            assert_eq!(idx, Self::num_features());
             Ok(())
         }
     }
@@ -347,8 +374,7 @@ impl Eval<Chessboard> for TuneLiTEval {
         Self::num_features() * 2
     }
     fn num_features() -> usize {
-        LiTETrace::NUM_FEATURES
-        // LiteFeatureSubset::iter().map(|f| f.num_features()).sum()
+        LiteFeatureSubset::iter().map(|f| f.num_features()).sum()
     }
     type D = TaperedDatapoint;
     type Filter = SkipChecks;
