@@ -577,12 +577,27 @@ impl Caps {
                 self.state.multi_pvs[self.state.current_pv_num]
                     .pv
                     .assign_from(pv);
-                debug_assert_eq!(
-                    pv.length == 0,
-                    node_type == FailLow
-                        || pos.player_result_slow(&self.state.params.history).is_some(),
-                    "{pos} {node_type}"
-                );
+
+                if cfg!(debug_assertions) {
+                    if pos.player_result_slow(&self.state.params.history).is_some() {
+                        assert_eq!(pv.length, 0);
+                    } else {
+                        match node_type {
+                            FailHigh => debug_assert_eq!(pv.length, 1, "{pos} {node_type}"),
+                            Exact => debug_assert!(
+                                // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
+                                // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
+                                pv.length + 2
+                                    >= self.state.custom.depth_hard_limit.min(depth as usize)
+                                    || pv_score.is_won_lost_or_draw_score(),
+                                "{depth} {0} {pv_score} {1}",
+                                pv.length,
+                                self.state.uci_nodes()
+                            ),
+                            FailLow => debug_assert_eq!(pv.length, 0),
+                        }
+                    }
+                }
                 if self.state.current_pv_num == 0 {
                     if pv.length > 0 {
                         let chosen_move = pv[0];
@@ -605,7 +620,7 @@ impl Caps {
             }
             // assert this now because this doesn't hold for incomplete iterations
             debug_assert!(
-                !pv_score.is_game_over_score() || pv_score.plies_until_game_over().unwrap() <= 256,
+                !pv_score.is_won_or_lost() || pv_score.plies_until_game_over().unwrap() <= 256,
                 "{pv_score}"
             );
 
@@ -818,7 +833,7 @@ impl Caps {
                     // unless we'd be storing a mate score -- we really want to avoid storing unproved mates in the TT.
                     // It's possible to beat beta with a score of getting mated, so use `is_game_over_score`
                     // instead of `is_game_won_score`
-                    if depth < cc::nmp_verif_depth() && !score.is_game_over_score() {
+                    if depth < cc::nmp_verif_depth() && !score.is_won_or_lost() {
                         return score;
                     }
                     *self.state.custom.nmp_disabled_for(pos.active_player()) = true;
@@ -1244,7 +1259,7 @@ impl Caps {
             let mov = &self.state.search_stack[ply - 1].last_tried_move();
             self.eval.eval_incremental(old_pos, *mov, &pos, ply)
         };
-        debug_assert!(!res.is_game_over_score());
+        debug_assert!(!res.is_won_or_lost());
         res
     }
 
@@ -1324,7 +1339,7 @@ mod tests {
     use gears::general::board::Strictness::{Relaxed, Strict};
     use gears::search::NodesLimit;
 
-    use crate::eval::chess::lite::LiTEval;
+    use crate::eval::chess::lite::{KingGambot, LiTEval};
     use crate::eval::chess::material_only::MaterialOnlyEval;
     use crate::eval::chess::piston::PistonEval;
     use crate::eval::rand_eval::RandEval;
@@ -1416,7 +1431,7 @@ mod tests {
         depth_1_nodes_test(Caps::for_eval::<RandEval>(), tt.clone());
         depth_1_nodes_test(Caps::for_eval::<MaterialOnlyEval>(), tt.clone());
         depth_1_nodes_test(Caps::for_eval::<PistonEval>(), tt.clone());
-        depth_1_nodes_test(Caps::for_eval::<LiTEval>(), tt.clone());
+        depth_1_nodes_test(Caps::for_eval::<KingGambot>(), tt.clone());
     }
 
     // TODO: Eventually, make sure that GAPS also passed this
@@ -1488,7 +1503,7 @@ mod tests {
         assert_eq!(caps.search_state().uci_nodes(), 0);
         let fresh_d3_search = caps.search_with_new_tt(pos, d3);
         assert!(
-            !fresh_d3_search.score.unwrap().is_game_over_score(),
+            !fresh_d3_search.score.unwrap().is_won_or_lost(),
             "{}",
             fresh_d3_search.score.unwrap().0
         );

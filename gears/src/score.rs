@@ -112,8 +112,12 @@ impl Score {
     pub fn is_game_lost_score(self) -> bool {
         self <= MAX_SCORE_LOST
     }
-    pub fn is_game_over_score(self) -> bool {
+    pub fn is_won_or_lost(self) -> bool {
         self.is_game_won_score() || self.is_game_lost_score()
+    }
+    // a draw implies score == 0, but score == 0 does not imply a draw
+    pub fn is_won_lost_or_draw_score(self) -> bool {
+        self.is_won_or_lost() || self.0 == 0
     }
     /// Returns a negative number of plies if the game is lost
     pub fn plies_until_game_won(self) -> Option<isize> {

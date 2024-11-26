@@ -311,7 +311,7 @@ pub fn pretty_score(
     if !main_line {
         res = res.dimmed().to_string();
     }
-    if score.is_game_over_score() {
+    if score.is_won_or_lost() {
         res = res.important().to_string();
     } else {
         write!(&mut res, "{}", "cp".dimmed()).unwrap();
