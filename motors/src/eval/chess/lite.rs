@@ -209,24 +209,24 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    // fn outposts(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
-    //     let mut score = Tuned::Score::default();
-    //     let our_pawns = pos.colored_piece_bb(color, Pawn);
-    //     let pawn_protection = our_pawns.pawn_attacks(color);
-    //     for piece in ChessPieceType::non_pawn_pieces() {
-    //         for square in pos.colored_piece_bb(color, piece).ones() {
-    //             let in_front = ((A_FILE << (square.flip_if(color == Black).bb_idx())) << 8)
-    //                 .flip_if(color == Black);
-    //             let potential_attackers = in_front.west() | in_front.east();
-    //             if pawn_protection.is_bit_set_at(square.bb_idx())
-    //                 && (potential_attackers & pos.colored_piece_bb(!color, Pawn)).is_zero()
-    //             {
-    //                 score += Tuned::outpost(piece);
-    //             }
-    //         }
-    //     }
-    //     score
-    // }
+    fn outposts(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
+        let mut score = Tuned::Score::default();
+        let our_pawns = pos.colored_piece_bb(color, Pawn);
+        let pawn_protection = our_pawns.pawn_attacks(color);
+        for piece in ChessPieceType::non_pawn_pieces() {
+            for square in pos.colored_piece_bb(color, piece).ones() {
+                let in_front = ((A_FILE << (square.flip_if(color == Black).bb_idx())) << 8)
+                    .flip_if(color == Black);
+                let potential_attackers = in_front.west() | in_front.east();
+                if pawn_protection.is_bit_set_at(square.bb_idx())
+                    && (potential_attackers & pos.colored_piece_bb(!color, Pawn)).is_zero()
+                {
+                    score += Tuned::outpost(piece);
+                }
+            }
+        }
+        score
+    }
 
     fn mobility_and_threats(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
@@ -272,7 +272,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         for color in ChessColor::iter() {
             score += Self::bishop_pair(pos, color);
             score += Self::open_lines(pos, color);
-            // score += Self::outposts(pos, color);
+            score += Self::outposts(pos, color);
             score += Self::mobility_and_threats(pos, color);
             score = -score;
         }

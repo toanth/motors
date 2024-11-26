@@ -42,6 +42,7 @@ pub enum LiteFeatureSubset {
     PassedPawn,
     UnsupportedPawn,
     DoubledPawn,
+    Outpost,
     PawnProtection,
     PawnAttacks,
     Mobility,
@@ -68,6 +69,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             Threat => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             KingZoneAttack => NUM_CHESS_PIECES,
+            Outpost => NUM_CHESS_PIECES - 1,
         }
     }
 
@@ -147,6 +149,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             DoubledPawn => {
                 write!(f, "const DOUBLED_PAWN: PhasedScore = ")?;
+            }
+            Outpost => {
+                write!(f, "const OUTPOST: [PhasedScore; NUM_CHESS_PIECES - 1] = ")?;
             }
             PawnProtection => {
                 write!(
@@ -326,6 +331,10 @@ impl LiteValues for LiTETrace {
 
     fn king_zone_attack(attacking: ChessPieceType) -> SingleFeature {
         SingleFeature::new(KingZoneAttack, attacking as usize)
+    }
+
+    fn outpost(piece: ChessPieceType) -> SingleFeature {
+        SingleFeature::new(Outpost, piece as usize - 1)
     }
 }
 
