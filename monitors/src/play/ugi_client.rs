@@ -215,6 +215,10 @@ impl<B: Board> GameState<B> for ClientState<B> {
     fn thinking_since(&self, color: B::Color) -> Option<Instant> {
         self.get_player(color).thinking_since()
     }
+
+    fn engine_state(&self) -> Res<String> {
+        Ok("Getting the internal engine state is not supported in the match manager".to_string())
+    }
 }
 
 /// The word `Client` is used instead of the more common term `Ugi GUI` to avoid confusion with regard to the actual GUI,

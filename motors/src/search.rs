@@ -58,6 +58,7 @@ pub struct EngineInfo {
     default_bench_nodes: NodesLimit,
     options: HashMap<EngineOptionName, EngineOptionType>,
     max_threads: usize,
+    pub internal_state_description: Option<String>,
 }
 
 impl NamedEntity for EngineInfo {
@@ -118,6 +119,7 @@ impl EngineInfo {
             default_bench_nodes,
             max_threads,
             options,
+            internal_state_description: None,
         }
     }
 
@@ -686,6 +688,10 @@ pub trait CustomInfo<B: Board>: Default + Clone + Debug {
         self.hard_forget_except_tt();
     }
     fn hard_forget_except_tt(&mut self);
+
+    fn write_internal_info(&self) -> Option<String> {
+        None
+    }
 }
 
 #[derive(Default, Clone, Debug)]
@@ -725,6 +731,8 @@ pub trait AbstractSearchState<B: Board> {
     fn to_search_info(&self, complete: bool) -> SearchInfo<B>;
     fn aggregated_statistics(&self) -> &Statistics;
     fn send_search_info(&self, complete: bool);
+    /// Engine-specific info, like the contents of history tables.
+    fn write_internal_info(&self) -> Option<String>;
 }
 
 #[derive(Debug)]
@@ -854,6 +862,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
             let info = self.to_search_info(complete);
             output.write_search_info(info);
         }
+    }
+
+    fn write_internal_info(&self) -> Option<String> {
+        self.custom.write_internal_info()
     }
 }
 

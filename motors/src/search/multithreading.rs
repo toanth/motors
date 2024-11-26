@@ -24,7 +24,8 @@ use crate::search::multithreading::SearchThreadType::{Auxiliary, Main};
 use crate::search::multithreading::SearchType::{Infinite, Normal, Ponder};
 use crate::search::tt::{TTEntry, TT};
 use crate::search::{
-    AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EngineInfo, SearchParams,
+    AbstractEvalBuilder, AbstractSearchState, AbstractSearcherBuilder, Engine, EngineInfo,
+    SearchParams,
 };
 
 pub type Sender<T> = crossbeam_channel::Sender<T>;
@@ -38,6 +39,7 @@ pub enum EngineReceives<B: Board> {
     SetOption(EngineOptionName, String, Arc<Mutex<EngineInfo>>),
     Search(SearchParams<B>),
     SetEval(Box<dyn Eval<B>>),
+    Print(Arc<Mutex<EngineInfo>>),
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -284,6 +286,16 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                 self.start_search(params);
             }
             SetEval(eval) => self.engine.set_eval(eval),
+            Print(engine_info) => {
+                let state_info = self.engine.search_state().write_internal_info();
+                let info = state_info.unwrap_or_else(|| {
+                    format!(
+                        "The engine {} doesn't support printing internal engine information.",
+                        self.engine.short_name()
+                    )
+                });
+                engine_info.lock().unwrap().internal_state_description = Some(info);
+            }
         };
         Ok(false)
     }
@@ -512,6 +524,12 @@ impl<B: Board> EngineWrapper<B> {
         self.get_engine_info().eval = Some(Name::new(eval.as_ref()));
         self.main
             .send(SetEval(eval))
+            .map_err(|err| anyhow!(err.to_string()))
+    }
+
+    pub fn send_print(&self) -> Res<()> {
+        self.main
+            .send(Print(self.get_engine_info_arc()))
             .map_err(|err| anyhow!(err.to_string()))
     }
 

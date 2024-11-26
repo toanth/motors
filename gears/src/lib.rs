@@ -239,6 +239,7 @@ pub trait GameState<B: Board> {
     fn player_name(&self, color: B::Color) -> Option<String>;
     fn time(&self, color: B::Color) -> Option<TimeControl>;
     fn thinking_since(&self, color: B::Color) -> Option<Instant>;
+    fn engine_state(&self) -> Res<String>;
 }
 
 pub fn output_builder_from_str<B: Board>(

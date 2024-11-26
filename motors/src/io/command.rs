@@ -454,6 +454,12 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             -> |state: ACState<B>| options_options::<B, false>(state.info.clone(), true)
         ),
         ugi_command!(
+            engine_state,
+            Custom,
+            "Prints information about the internal engine state, if supported",
+            |ugi, _, _| ugi.handle_engine_print()
+        ),
+        ugi_command!(
             output | o,
             Custom,
             "Sets outputs, which are used to print the game state. Permanent version of 'show'",

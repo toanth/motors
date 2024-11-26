@@ -879,7 +879,6 @@ dependencies = [
 name = "pliers"
 version = "0.9.0"
 dependencies = [
- "colored",
  "derive_more",
  "gears",
  "motors",

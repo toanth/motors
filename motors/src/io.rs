@@ -28,6 +28,7 @@ use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use crate::eval::Eval;
@@ -315,6 +316,26 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
 
     fn thinking_since(&self, _color: B::Color) -> Option<Instant> {
         None
+    }
+
+    fn engine_state(&self) -> Res<String> {
+        self.engine.get_engine_info().internal_state_description = None;
+        self.engine.send_print()?;
+        let start = Instant::now();
+        loop {
+            let description = self
+                .engine
+                .get_engine_info()
+                .internal_state_description
+                .take();
+            if let Some(description) = description {
+                return Ok(description);
+            }
+            sleep(Duration::from_millis(10));
+            if start.elapsed().as_millis() > 200 {
+                bail!("Failed to show internal engine state (can't be used when the engine is currently searching)");
+            }
+        }
     }
 }
 
@@ -650,6 +671,31 @@ impl<B: Board> EngineUGI<B> {
             B::game_name(),
             info.long_name(),
         )
+    }
+
+    fn handle_engine_print(&mut self) -> Res<()> {
+        self.state
+            .engine
+            .get_engine_info()
+            .internal_state_description = None;
+        self.state.engine.send_print()?;
+        let start = Instant::now();
+        loop {
+            let description = self
+                .state
+                .engine
+                .get_engine_info()
+                .internal_state_description
+                .take();
+            if let Some(description) = description {
+                self.write_ugi(description.as_str());
+                return Ok(());
+            }
+            sleep(Duration::from_millis(10));
+            if start.elapsed().as_millis() > 200 {
+                bail!("Failed to show internal engine state (can't be used when the engine is currently searching)");
+            }
+        }
     }
 
     fn handle_setoption(&mut self, words: &mut Tokens) -> Res<()> {

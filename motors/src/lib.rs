@@ -240,25 +240,25 @@ pub fn create_match_for_game<B: Board>(
 #[cfg(feature = "chess")]
 #[must_use]
 pub fn list_chess_outputs() -> OutputList<Chessboard> {
-    normal_outputs::<Chessboard>()
+    normal_outputs::<Chessboard>(true)
 }
 
 #[cfg(feature = "ataxx")]
 #[must_use]
 pub fn list_ataxx_outputs() -> OutputList<AtaxxBoard> {
-    normal_outputs::<AtaxxBoard>()
+    normal_outputs::<AtaxxBoard>(true)
 }
 
 #[cfg(feature = "uttt")]
 #[must_use]
 pub fn list_uttt_outputs() -> OutputList<UtttBoard> {
-    normal_outputs::<UtttBoard>()
+    normal_outputs::<UtttBoard>(true)
 }
 
 #[cfg(feature = "mnk")]
 #[must_use]
 pub fn list_mnk_outputs() -> OutputList<MNKBoard> {
-    normal_outputs::<MNKBoard>()
+    normal_outputs::<MNKBoard>(true)
 }
 
 #[must_use]

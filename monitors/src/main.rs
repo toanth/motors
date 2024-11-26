@@ -45,7 +45,7 @@ pub fn required_uis<B: Board>() -> (OutputList<B>, InputList<B>) {
 
 #[must_use]
 pub fn normal_uis<B: RectangularBoard>() -> (OutputList<B>, InputList<B>) {
-    (normal_outputs(), text_based_inputs()) // TODO: Add additional interactive uis, like a GUI
+    (normal_outputs(false), text_based_inputs()) // TODO: Add additional interactive uis, like a GUI
 }
 
 #[must_use]

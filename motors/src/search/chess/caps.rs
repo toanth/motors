@@ -3,20 +3,31 @@ use std::mem::take;
 use std::time::{Duration, Instant};
 
 use crate::eval::chess::lite::LiTEval;
+use crate::eval::Eval;
+use crate::io::ugi_output::{color_for_score, score_gradient};
+use crate::search::chess::caps_values::cc;
+use crate::search::move_picker::MovePicker;
+use crate::search::statistics::SearchType;
+use crate::search::statistics::SearchType::{MainSearch, Qsearch};
+use crate::search::tt::TTEntry;
+use crate::search::*;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::arrayvec::ArrayVec;
-use gears::games::chess::moves::ChessMove;
+use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
 use gears::games::chess::pieces::ChessPieceType::Pawn;
 use gears::games::chess::see::SeeScore;
+use gears::games::chess::squares::ChessSquare;
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
 use gears::games::{n_fold_repetition, BoardHistory, ZobristHash, ZobristHistory};
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::Description::NoDescription;
 use gears::general::common::{
-    parse_bool_from_str, parse_int_from_str, select_name_static, Res, StaticallyNamedEntity,
+    parse_bool_from_str, parse_int_from_str, select_name_static, ColorMsg, Res,
+    StaticallyNamedEntity,
 };
 use gears::general::move_list::EagerNonAllocMoveList;
 use gears::general::moves::Move;
+use gears::output::text_output::AdaptFormatter;
 use gears::output::Message::Debug;
 use gears::score::{
     game_result_to_score, ScoreT, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA,
@@ -27,14 +38,6 @@ use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::Check;
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
 use itertools::Itertools;
-
-use crate::eval::Eval;
-use crate::search::chess::caps_values::cc;
-use crate::search::move_picker::MovePicker;
-use crate::search::statistics::SearchType;
-use crate::search::statistics::SearchType::{MainSearch, Qsearch};
-use crate::search::tt::TTEntry;
-use crate::search::*;
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
 const DEPTH_SOFT_LIMIT: Depth = Depth::new_unchecked(225);
@@ -167,6 +170,57 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
             *value = 0;
         }
     }
+
+    fn write_internal_info(&self) -> Option<String> {
+        Some(
+            write_single_hist_table(&self.history, false)
+                + "\n"
+                + &write_single_hist_table(&self.history, true),
+        )
+    }
+}
+
+fn write_single_hist_table(table: &HistoryHeuristic, flip: bool) -> String {
+    let show_square = |from: ChessSquare| {
+        let sum: i32 = ChessSquare::iter()
+            .map(|to| {
+                let idx = if flip {
+                    ChessMove::new(to, from, ChessMoveFlags::QueenMove).from_to_square()
+                } else {
+                    ChessMove::new(from, to, ChessMoveFlags::QueenMove).from_to_square()
+                };
+                table.0[idx]
+            })
+            .sum();
+        sum as f64 / 64.0
+    };
+    let as_nums = ChessSquare::iter()
+        .map(|sq| {
+            let score = show_square(sq);
+            format!("{score:^7.1}").with(color_for_score(
+                Score((score * 4.0) as ScoreT),
+                &score_gradient(),
+            ))
+        })
+        .collect_vec();
+
+    let formatter = Chessboard::default().pretty_formatter(None, None);
+    let mut formatter = AdaptFormatter {
+        underlying: formatter,
+        color_frame: Box::new(|_, col| col),
+        display_piece: Box::new(move |sq, _, _| as_nums[sq.bb_idx()].to_string()),
+        horizontal_spacer_interval: None,
+        vertical_spacer_interval: None,
+        square_width: Some(7),
+    };
+    let text = if flip {
+        "Main History Destination Square:\n"
+    } else {
+        "Main History Source Square:\n"
+    }
+    .important()
+    .to_string();
+    text + &Chessboard::default().display_pretty(&mut formatter)
 }
 
 #[derive(Debug, Default, Clone)]

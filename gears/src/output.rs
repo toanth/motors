@@ -9,6 +9,7 @@ use crate::games::OutputList;
 use crate::general::board::{Board, RectangularBoard};
 use crate::general::common::{NamedEntity, Res, Tokens};
 use crate::output::chess::ChessOutputBuilder;
+use crate::output::engine_state::EngineStateOutputBuilder;
 use crate::output::logger::LoggerBuilder;
 use crate::output::text_output::{DisplayType, TextOutputBuilder};
 use crate::output::Message::*;
@@ -16,6 +17,7 @@ use crate::search::SearchInfo;
 use crate::{GameOverReason, GameState, MatchResult, MatchStatus};
 
 pub mod chess;
+pub mod engine_state;
 pub mod logger;
 pub mod text_output;
 
@@ -149,8 +151,11 @@ pub fn required_outputs<B: Board>() -> OutputList<B> {
 }
 
 #[must_use]
-pub fn normal_outputs<B: RectangularBoard>() -> OutputList<B> {
+pub fn normal_outputs<B: RectangularBoard>(for_engine: bool) -> OutputList<B> {
     let mut res: OutputList<B> = vec![Box::<ChessOutputBuilder>::default()];
+    if for_engine {
+        res.push(Box::<EngineStateOutputBuilder>::default());
+    }
     res.append(&mut required_outputs());
     res
 }
