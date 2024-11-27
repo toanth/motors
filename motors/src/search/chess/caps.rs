@@ -568,7 +568,7 @@ impl Caps {
 
             let atomic = &self.state.params.atomic;
             let pv = &self.state.search_stack[0].pv;
-            if pv.length > 0 && node_type != FailLow {
+            if pv.length > 0 {
                 if self.state.current_pv_num == 0 {
                     let chosen_move = pv[0];
                     let ponder_move = pv.get(1);
@@ -614,7 +614,9 @@ impl Caps {
                             self.state.uci_nodes()
                         ),
                         // We don't clear the PV on a fail low node so that we can still send a useful info
-                        FailLow => {}
+                        FailLow => {
+                            debug_assert_eq!(0, pv.length);
+                        }
                     }
                 }
             }
@@ -672,6 +674,9 @@ impl Caps {
         let is_pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
         debug_assert!(!root || is_pv_node); // root implies pv node
         debug_assert!(alpha + 1 == beta || is_pv_node); // alpha + 1 < beta implies Exact node
+        if is_pv_node {
+            self.state.search_stack[ply].pv.clear();
+        }
 
         let ply_100_ctr = pos.halfmove_repetition_clock();
         if !root
