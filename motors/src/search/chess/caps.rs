@@ -543,7 +543,11 @@ impl Caps {
             }
             self.state.atomic().set_depth(depth); // set depth now so that an immediate stop doesn't increment the depth
             self.state.atomic().count_node();
-            let pv_score = self.negamax(pos, 0, self.state.depth().isize(), *alpha, *beta, Exact);
+            let Some(pv_score) =
+                self.negamax(pos, 0, self.state.depth().isize(), *alpha, *beta, Exact)
+            else {
+                return false;
+            };
 
             self.state.send_non_ugi(
                 Debug,
@@ -568,7 +572,9 @@ impl Caps {
 
             let atomic = &self.state.params.atomic;
             let pv = &self.state.search_stack[0].pv;
-            if pv.length > 0 {
+            // adding ` && node_type != FailLow` gains elo, which is weird because this only prevents incomplete search iterations that have
+            // already changed the PV from affecting the chosen move.
+            if pv.length > 0 && node_type != FailLow {
                 if self.state.current_pv_num == 0 {
                     let chosen_move = pv[0];
                     let ponder_move = pv.get(1);
@@ -587,10 +593,6 @@ impl Caps {
                     // todo: stop flag condition necessary?
                     atomic.set_score(pv_score.min(MAX_NORMAL_SCORE));
                 }
-            }
-
-            if self.state.stop_flag() {
-                return false;
             }
 
             if node_type == FailLow {
@@ -663,7 +665,7 @@ impl Caps {
         mut alpha: Score,
         beta: Score,
         mut expected_node_type: NodeType,
-    ) -> Score {
+    ) -> Option<Score> {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= DEPTH_HARD_LIMIT.get());
         debug_assert!(depth <= DEPTH_SOFT_LIMIT.isize());
@@ -690,7 +692,7 @@ impl Caps {
                 || pos.is_50mr_draw()
                 || pos.has_insufficient_material())
         {
-            return Score(0);
+            return Some(Score(0));
         }
         let in_check = pos.is_in_check();
         // Check extensions. Increase the depth by 1 if in check.
@@ -701,7 +703,7 @@ impl Caps {
         }
         // limit.mate() is the min of the original limit.mate and DEPTH_HARD_LIMIT
         if depth <= 0 || ply >= self.state.custom.depth_hard_limit {
-            return self.qsearch(pos, alpha, beta, ply);
+            return Some(self.qsearch(pos, alpha, beta, ply));
         }
         let can_prune = !is_pv_node && !in_check;
 
@@ -729,7 +731,7 @@ impl Caps {
                         || tt_bound == Exact)
                 {
                     self.state.statistics.tt_cutoff(MainSearch, tt_bound);
-                    return tt_entry.score;
+                    return Some(tt_entry.score);
                 }
                 // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
                 // at what the type of this node is going to be.
@@ -797,7 +799,7 @@ impl Caps {
                 margin /= cc::rfp_fail_high_div();
             }
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
-                return eval;
+                return Some(eval);
             }
 
             // NMP (Null Move Pruning). If static eval of our position is above beta, this node probably isn't that interesting.
@@ -831,7 +833,7 @@ impl Caps {
                     -beta,
                     -beta + 1,
                     FailLow, // the child node is expected to fail low, leading to a fail high in this node
-                );
+                )?;
                 self.state.search_stack[ply].tried_moves.pop();
                 self.state.params.history.pop();
                 if score >= beta {
@@ -840,18 +842,18 @@ impl Caps {
                     // It's possible to beat beta with a score of getting mated, so use `is_game_over_score`
                     // instead of `is_game_won_score`
                     if depth < cc::nmp_verif_depth() && !score.is_won_or_lost() {
-                        return score;
+                        return Some(score);
                     }
                     *self.state.custom.nmp_disabled_for(pos.active_player()) = true;
                     // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so technically we
                     // should use `depth - reduction`, but using `depth - 1 - reduction` is less expensive and good enough.
                     let verification_score =
-                        self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh);
+                        self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh)?;
                     self.state.search_stack[ply].tried_moves.clear();
                     *self.state.custom.nmp_disabled_for(pos.active_player()) = false;
                     // The verification score is more trustworthy than the nmp score.
                     if verification_score >= beta {
-                        return verification_score;
+                        return Some(verification_score);
                     }
                 }
             }
@@ -926,7 +928,7 @@ impl Caps {
                     -beta,
                     -alpha,
                     expected_node_type.inverse(),
-                );
+                )?;
             } else {
                 // LMR (Late Move Reductions): Trust the move ordering (quiet history, continuation history and capture history heuristics)
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
@@ -959,7 +961,7 @@ impl Caps {
                     -(alpha + 1),
                     -alpha,
                     FailHigh,
-                );
+                )?;
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
                 if alpha < score && reduction > 0 {
@@ -971,7 +973,7 @@ impl Caps {
                         -(alpha + 1),
                         -alpha,
                         FailHigh, // we still expect a fail high here
-                    );
+                    )?;
                 }
                 // If the full-depth search also performed better than expected, do a full-depth search with the
                 // full window to find the true score. If the score was at least `beta`, don't search again
@@ -979,7 +981,7 @@ impl Caps {
                 if alpha < score && score < beta {
                     debug_assert_eq!(expected_node_type, Exact);
                     self.state.statistics.lmr_second_retry();
-                    score = -self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha, Exact);
+                    score = -self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha, Exact)?;
                 }
             }
 
@@ -997,9 +999,8 @@ impl Caps {
             if self.should_stop() {
                 // The current child's score is not trustworthy, but all already seen children are.
                 // This only matters for the root; all other nodes get their return value ignored.
-                // If the root returned NO_SCORE_YET, we ignore it in `aspiration()`, otherwise we can use that
-                // as a lower bound for the score, and the score belonging to the chosen move.
-                return SCORE_TIME_UP;
+                // This should really be used in aspiration() by inspecting the PV, but somehow that loses elo
+                return None;
             }
             debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);
 
@@ -1047,7 +1048,7 @@ impl Caps {
 
         if self.state.search_stack[ply].tried_moves.is_empty() {
             // TODO: Merge cached in-check branch
-            return game_result_to_score(pos.no_moves_result(), ply);
+            return Some(game_result_to_score(pos.no_moves_result(), ply));
         }
 
         let tt_entry: TTEntry<Chessboard> = TTEntry::new(
@@ -1064,7 +1065,7 @@ impl Caps {
             self.state.tt_mut().store(tt_entry, ply);
         }
 
-        best_score
+        Some(best_score)
     }
 
     fn update_continuation_hist(
