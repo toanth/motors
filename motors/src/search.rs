@@ -826,6 +826,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
         }
         // the score can differ even if the pv is the same, so make sure to include that in the hash
         self.best_score().hash(&mut hasher);
+        // The pv doesn't necessarily contain the best move for multipv searches. When run though cli `--bench`, the bench search doesn't do multipv,
+        // but it's possible to input e.g. `bench mpv 2` to get a multipv bench. Additionally, bench is important for debugging, so to catch
+        // bugs where the best move changes but not the PV, the best move and ponder move are included in the bench hash
+        self.best_move().hash(&mut hasher);
+        self.ponder_move().hash(&mut hasher);
         let hash = hasher.finish();
         BenchResult {
             nodes: self.uci_nodes(),

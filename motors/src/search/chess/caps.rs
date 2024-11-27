@@ -567,57 +567,58 @@ impl Caps {
             };
 
             let atomic = &self.state.params.atomic;
-            if node_type == FailLow {
-                // In a fail low node, we didn't get any new information, and it's possible that we just discovered
-                // a problem with our chosen move. So increase the soft limit such that we can gather more information.
-                soft_limit_scale = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
-            } else {
-                self.state.multi_pvs[self.state.current_pv_num].score = pv_score;
-                let pv = &self.state.search_stack[0].pv;
+            let pv = &self.state.search_stack[0].pv;
+            if pv.length > 0 && node_type != FailLow {
+                if self.state.current_pv_num == 0 {
+                    let chosen_move = pv[0];
+                    let ponder_move = pv.get(1);
+                    atomic.set_best_move(chosen_move);
+                    atomic.set_ponder_move(ponder_move);
+                }
                 self.state.multi_pvs[self.state.current_pv_num]
                     .pv
                     .assign_from(pv);
-
-                if cfg!(debug_assertions) {
-                    if pos.player_result_slow(&self.state.params.history).is_some() {
-                        assert_eq!(pv.length, 0);
-                    } else {
-                        match node_type {
-                            FailHigh => debug_assert_eq!(pv.length, 1, "{pos} {node_type}"),
-                            Exact => debug_assert!(
-                                // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
-                                // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
-                                pv.length + 2
-                                    >= self.state.custom.depth_hard_limit.min(depth as usize)
-                                    || pv_score.is_won_lost_or_draw_score(),
-                                "{depth} {0} {pv_score} {1}",
-                                pv.length,
-                                self.state.uci_nodes()
-                            ),
-                            FailLow => debug_assert_eq!(pv.length, 0),
-                        }
-                    }
-                }
-                if self.state.current_pv_num == 0 {
-                    if pv.length > 0 {
-                        let chosen_move = pv[0];
-                        let ponder_move = pv.get(1);
-                        atomic.set_best_move(chosen_move);
-                        atomic.set_ponder_move(ponder_move);
-                    }
-                    // We can't really trust FailHigh scores. Even though we should still prefer a fail high move, we don't
-                    // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
-                    if node_type == Exact {
-                        atomic.set_score(pv_score); // can't be SCORE_TIME_UP or similar because that wouldn't be exact
-                    } else if !self.state.stop_flag() {
-                        atomic.set_score(pv_score.min(MAX_NORMAL_SCORE));
-                    }
+                self.state.multi_pvs[self.state.current_pv_num].score = pv_score;
+                // We can't really trust FailHigh scores. Even though we should still prefer a fail high move, we don't
+                // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
+                if node_type == Exact {
+                    atomic.set_score(pv_score); // can't be SCORE_TIME_UP or similar because that wouldn't be exact
+                } else if node_type == FailHigh && !self.state.stop_flag() {
+                    // todo: stop flag condition necessary?
+                    atomic.set_score(pv_score.min(MAX_NORMAL_SCORE));
                 }
             }
 
             if self.state.stop_flag() {
                 return false;
             }
+
+            if node_type == FailLow {
+                // In a fail low node, we didn't get any new information, and it's possible that we just discovered
+                // a problem with our chosen move. So increase the soft limit such that we can gather more information.
+                soft_limit_scale = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
+            }
+            if cfg!(debug_assertions) {
+                if pos.player_result_slow(&self.state.params.history).is_some() {
+                    assert_eq!(pv.length, 0);
+                } else {
+                    match node_type {
+                        FailHigh => debug_assert_eq!(pv.length, 1, "{pos} {node_type}"),
+                        Exact => debug_assert!(
+                            // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
+                            // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
+                            pv.length + 2 >= self.state.custom.depth_hard_limit.min(depth as usize)
+                                || pv_score.is_won_lost_or_draw_score(),
+                            "{depth} {0} {pv_score} {1}",
+                            pv.length,
+                            self.state.uci_nodes()
+                        ),
+                        // We don't clear the PV on a fail low node so that we can still send a useful info
+                        FailLow => {}
+                    }
+                }
+            }
+
             // assert this now because this doesn't hold for incomplete iterations
             debug_assert!(
                 !pv_score.is_won_or_lost() || pv_score.plies_until_game_over().unwrap() <= 256,
