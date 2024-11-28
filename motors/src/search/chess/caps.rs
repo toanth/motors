@@ -826,16 +826,20 @@ impl Caps {
                     .push(ChessMove::default());
                 let reduction =
                     cc::nmp_base() + depth / cc::nmp_depth_div() + isize::from(they_blundered);
-                let score = -self.negamax(
+                let nmp_res = self.negamax(
                     new_pos,
                     ply + 1,
                     depth - 1 - reduction,
                     -beta,
                     -beta + 1,
                     FailLow, // the child node is expected to fail low, leading to a fail high in this node
-                )?;
+                );
                 self.state.search_stack[ply].tried_moves.pop();
                 self.state.params.history.pop();
+                let Some(negated_score) = nmp_res else {
+                    return None;
+                };
+                let score = -negated_score;
                 if score >= beta {
                     // For shallow depths, don't bother with doing a verification search to avoid useless re-searches,
                     // unless we'd be storing a mate score -- we really want to avoid storing unproved mates in the TT.
@@ -848,12 +852,12 @@ impl Caps {
                     // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so technically we
                     // should use `depth - reduction`, but using `depth - 1 - reduction` is less expensive and good enough.
                     let verification_score =
-                        self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh)?;
+                        self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh);
                     self.state.search_stack[ply].tried_moves.clear();
                     *self.state.custom.nmp_disabled_for(pos.active_player()) = false;
                     // The verification score is more trustworthy than the nmp score.
-                    if verification_score >= beta {
-                        return Some(verification_score);
+                    if !verification_score.is_some_and(|score| score < beta) {
+                        return verification_score;
                     }
                 }
             }
