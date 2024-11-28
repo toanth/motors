@@ -15,7 +15,7 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-
+use std::env;
 use std::process::exit;
 use std::str::FromStr;
 
@@ -98,7 +98,7 @@ fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts) -> Res<()> {
         "-engine" | "-e" => opts.engine = get_next_arg(args, "engine")?,
         "-game" | "-g" => opts.game = Game::from_str(&get_next_arg(args, "engine")?.to_lowercase())?,
         "-debug" | "-d" => opts.debug = true,
-        "-fallback-input" => opts.interactive = false,
+        "-non-interactive" => opts.interactive = false,
         "-additional-output" | "-output" | "-o" => parse_output(args, &mut opts.outputs)?,
         "-help" => { print_help(); exit(0); },
         x => bail!("Unrecognized option '{x}'. Only 'bench', 'bench-simple', 'perft', '--engine', '--game', '--debug' and '--outputs' are valid.")
@@ -108,6 +108,9 @@ fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts) -> Res<()> {
 
 pub fn parse_cli(mut args: ArgIter) -> Res<EngineOpts> {
     let mut res = EngineOpts::for_game(Game::default(), false);
+    if env::var("NO_COLOR").is_ok() {
+        res.interactive = false;
+    }
     while args.peek().is_some() {
         parse_option(&mut args, &mut res)?;
     }
@@ -124,7 +127,7 @@ fn print_help() {
     \n--{1} sets the engine, and optionally the eval. For example, `caps-lite` sets the default engine CAPS with the default eval LiTE,\
     and `random` sets the engine to be a random mover. Obviously, the engine must be valid for the selected game.\
     \n--{2} turns on debug mode, which makes the engine continue on errors and log all communications.\
-    \n--{7} makes the engine start in non-interactive mode. Try this if the engine can't be used with a GUI\
+    \n--{7} makes the engine start in non-interactive mode. Try this if the engine can't be used with a GUI. Setting the NO_COLOR environment variable also does this.\
     \n--{3} can be used to determine how the engine prints extra information; it's mostly useful for development but can also be used to export PGNs, for example.\
     \n--{4} and --{5} are useful for testing the engine and move generation speed, respectively,\
     `bench` is also useful to get a \"hash\" of the search tree explored by the engine.\
@@ -136,6 +139,6 @@ fn print_help() {
     "bench".important(),
     "perft".important(),
     "help".important(),
-    "fallback-input".important(),
+    "non-interactive".important(),
     )
 }
