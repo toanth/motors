@@ -65,7 +65,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             PawnProtection => NUM_CHESS_PIECES,
             PawnAttacks => NUM_CHESS_PIECES,
             Mobility => (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1),
-            Threat => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
+            Threat => (NUM_CHESS_PIECES - 1) * (NUM_CHESS_PIECES - 1) * 2,
             Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             KingZoneAttack => NUM_CHESS_PIECES,
         }
@@ -179,13 +179,25 @@ impl FeatureSubSet for LiteFeatureSubset {
             Threat => {
                 writeln!(
                     f,
-                    "const THREATS: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = "
+                    "const THREATS_INACTIVE: [[PhasedScore; NUM_CHESS_PIECES - 1]; NUM_CHESS_PIECES - 1] = "
+                )?;
+                write_2d_range_phased(
+                    f,
+                    weights,
+                    self.start_idx(),
+                    NUM_CHESS_PIECES - 1,
+                    NUM_CHESS_PIECES - 1,
+                    special,
+                )?;
+                writeln!(
+                    f,
+                    "const THREATS_ACTIVE: [[PhasedScore; NUM_CHESS_PIECES - 1]; NUM_CHESS_PIECES - 1] = "
                 )?;
                 return write_2d_range_phased(
                     f,
                     weights,
-                    self.start_idx(),
-                    NUM_CHESS_PIECES,
+                    self.start_idx() + (NUM_CHESS_PIECES - 1) * (NUM_CHESS_PIECES - 1),
+                    NUM_CHESS_PIECES - 1,
                     NUM_CHESS_PIECES - 1,
                     special,
                 );
@@ -314,8 +326,14 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(Mobility, idx)
     }
 
-    fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> SingleFeature {
-        let idx = (attacking as usize - 1) * NUM_CHESS_PIECES + targeted as usize;
+    fn threats(
+        attacking: ChessPieceType,
+        targeted: ChessPieceType,
+        is_active: bool,
+    ) -> SingleFeature {
+        let idx = is_active as usize * ((NUM_CHESS_PIECES - 1) * (NUM_CHESS_PIECES - 1))
+            + (attacking as usize - 1) * (NUM_CHESS_PIECES - 1)
+            + targeted as usize;
         SingleFeature::new(Threat, idx)
     }
 

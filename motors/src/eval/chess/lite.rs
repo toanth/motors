@@ -209,27 +209,9 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    // fn outposts(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
-    //     let mut score = Tuned::Score::default();
-    //     let our_pawns = pos.colored_piece_bb(color, Pawn);
-    //     let pawn_protection = our_pawns.pawn_attacks(color);
-    //     for piece in ChessPieceType::non_pawn_pieces() {
-    //         for square in pos.colored_piece_bb(color, piece).ones() {
-    //             let in_front = ((A_FILE << (square.flip_if(color == Black).bb_idx())) << 8)
-    //                 .flip_if(color == Black);
-    //             let potential_attackers = in_front.west() | in_front.east();
-    //             if pawn_protection.is_bit_set_at(square.bb_idx())
-    //                 && (potential_attackers & pos.colored_piece_bb(!color, Pawn)).is_zero()
-    //             {
-    //                 score += Tuned::outpost(piece);
-    //             }
-    //         }
-    //     }
-    //     score
-    // }
-
     fn mobility_and_threats(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
+        let is_active = color == pos.active_player();
         let attacked_by_pawn = pos
             .colored_piece_bb(color.other(), Pawn)
             .pawn_attacks(color.other());
@@ -253,9 +235,10 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                     pos.attacks_no_castle_or_pawn_push(square, piece, color) & !attacked_by_pawn;
                 let mobility = (attacks & !pos.colored_bb(color)).num_ones();
                 score += Tuned::mobility(piece, mobility);
-                for threatened_piece in ChessPieceType::pieces() {
+                for threatened_piece in ChessPieceType::non_king_pieces() {
                     let attacked = pos.colored_piece_bb(color.other(), threatened_piece) & attacks;
-                    score += Tuned::threats(piece, threatened_piece) * attacked.num_ones();
+                    score +=
+                        Tuned::threats(piece, threatened_piece, is_active) * attacked.num_ones();
                     let defended = pos.colored_piece_bb(color, threatened_piece) & attacks;
                     score += Tuned::defended(piece, threatened_piece) * defended.num_ones();
                 }
@@ -272,7 +255,6 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         for color in ChessColor::iter() {
             score += Self::bishop_pair(pos, color);
             score += Self::open_lines(pos, color);
-            // score += Self::outposts(pos, color);
             score += Self::mobility_and_threats(pos, color);
             score = -score;
         }
