@@ -543,7 +543,11 @@ impl Caps {
             }
             self.state.atomic().set_depth(depth); // set depth now so that an immediate stop doesn't increment the depth
             self.state.atomic().count_node();
-            let pv_score = self.negamax(pos, 0, self.state.depth().isize(), *alpha, *beta, Exact);
+            let Some(pv_score) =
+                self.negamax(pos, 0, self.state.depth().isize(), *alpha, *beta, Exact)
+            else {
+                return false;
+            };
 
             self.state.send_non_ugi(
                 Debug,
@@ -567,57 +571,58 @@ impl Caps {
             };
 
             let atomic = &self.state.params.atomic;
+            let pv = &self.state.search_stack[0].pv;
+            // adding ` && node_type != FailLow` gains elo, which is weird because this only prevents incomplete search iterations that have
+            // already changed the PV from affecting the chosen move.
+            if pv.length > 0 && node_type != FailLow {
+                if self.state.current_pv_num == 0 {
+                    let chosen_move = pv[0];
+                    let ponder_move = pv.get(1);
+                    atomic.set_best_move(chosen_move);
+                    atomic.set_ponder_move(ponder_move);
+                }
+                self.state.multi_pvs[self.state.current_pv_num]
+                    .pv
+                    .assign_from(pv);
+                self.state.multi_pvs[self.state.current_pv_num].score = pv_score;
+                // We can't really trust FailHigh scores. Even though we should still prefer a fail high move, we don't
+                // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
+                if node_type == Exact {
+                    atomic.set_score(pv_score); // can't be SCORE_TIME_UP or similar because that wouldn't be exact
+                } else if node_type == FailHigh && !self.state.stop_flag() {
+                    // todo: stop flag condition necessary?
+                    atomic.set_score(pv_score.min(MAX_NORMAL_SCORE));
+                }
+            }
+
             if node_type == FailLow {
                 // In a fail low node, we didn't get any new information, and it's possible that we just discovered
                 // a problem with our chosen move. So increase the soft limit such that we can gather more information.
                 soft_limit_scale = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
-            } else {
-                self.state.multi_pvs[self.state.current_pv_num].score = pv_score;
-                let pv = &self.state.search_stack[0].pv;
-                self.state.multi_pvs[self.state.current_pv_num]
-                    .pv
-                    .assign_from(pv);
-
-                if cfg!(debug_assertions) {
-                    if pos.player_result_slow(&self.state.params.history).is_some() {
-                        assert_eq!(pv.length, 0);
-                    } else {
-                        match node_type {
-                            FailHigh => debug_assert_eq!(pv.length, 1, "{pos} {node_type}"),
-                            Exact => debug_assert!(
-                                // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
-                                // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
-                                pv.length + 2
-                                    >= self.state.custom.depth_hard_limit.min(depth as usize)
-                                    || pv_score.is_won_lost_or_draw_score(),
-                                "{depth} {0} {pv_score} {1}",
-                                pv.length,
-                                self.state.uci_nodes()
-                            ),
-                            FailLow => debug_assert_eq!(pv.length, 0),
+            }
+            if cfg!(debug_assertions) {
+                if pos.player_result_slow(&self.state.params.history).is_some() {
+                    assert_eq!(pv.length, 0);
+                } else {
+                    match node_type {
+                        FailHigh => debug_assert_eq!(pv.length, 1, "{pos} {node_type}"),
+                        Exact => debug_assert!(
+                            // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
+                            // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
+                            pv.length + 2 >= self.state.custom.depth_hard_limit.min(depth as usize)
+                                || pv_score.is_won_lost_or_draw_score(),
+                            "{depth} {0} {pv_score} {1}",
+                            pv.length,
+                            self.state.uci_nodes()
+                        ),
+                        // We don't clear the PV on a fail low node so that we can still send a useful info
+                        FailLow => {
+                            debug_assert_eq!(0, pv.length);
                         }
                     }
                 }
-                if self.state.current_pv_num == 0 {
-                    if pv.length > 0 {
-                        let chosen_move = pv[0];
-                        let ponder_move = pv.get(1);
-                        atomic.set_best_move(chosen_move);
-                        atomic.set_ponder_move(ponder_move);
-                    }
-                    // We can't really trust FailHigh scores. Even though we should still prefer a fail high move, we don't
-                    // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
-                    if node_type == Exact {
-                        atomic.set_score(pv_score); // can't be SCORE_TIME_UP or similar because that wouldn't be exact
-                    } else if !self.state.stop_flag() {
-                        atomic.set_score(pv_score.min(MAX_NORMAL_SCORE));
-                    }
-                }
             }
 
-            if self.state.stop_flag() {
-                return false;
-            }
             // assert this now because this doesn't hold for incomplete iterations
             debug_assert!(
                 !pv_score.is_won_or_lost() || pv_score.plies_until_game_over().unwrap() <= 256,
@@ -660,7 +665,7 @@ impl Caps {
         mut alpha: Score,
         beta: Score,
         mut expected_node_type: NodeType,
-    ) -> Score {
+    ) -> Option<Score> {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= DEPTH_HARD_LIMIT.get());
         debug_assert!(depth <= DEPTH_SOFT_LIMIT.isize());
@@ -671,6 +676,9 @@ impl Caps {
         let is_pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
         debug_assert!(!root || is_pv_node); // root implies pv node
         debug_assert!(alpha + 1 == beta || is_pv_node); // alpha + 1 < beta implies Exact node
+        if is_pv_node {
+            self.state.search_stack[ply].pv.clear();
+        }
 
         let ply_100_ctr = pos.halfmove_repetition_clock();
         if !root
@@ -684,7 +692,7 @@ impl Caps {
                 || pos.is_50mr_draw()
                 || pos.has_insufficient_material())
         {
-            return Score(0);
+            return Some(Score(0));
         }
         let in_check = pos.is_in_check();
         // Check extensions. Increase the depth by 1 if in check.
@@ -695,7 +703,7 @@ impl Caps {
         }
         // limit.mate() is the min of the original limit.mate and DEPTH_HARD_LIMIT
         if depth <= 0 || ply >= self.state.custom.depth_hard_limit {
-            return self.qsearch(pos, alpha, beta, ply);
+            return Some(self.qsearch(pos, alpha, beta, ply));
         }
         let can_prune = !is_pv_node && !in_check;
 
@@ -723,7 +731,7 @@ impl Caps {
                         || tt_bound == Exact)
                 {
                     self.state.statistics.tt_cutoff(MainSearch, tt_bound);
-                    return tt_entry.score;
+                    return Some(tt_entry.score);
                 }
                 // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
                 // at what the type of this node is going to be.
@@ -791,7 +799,7 @@ impl Caps {
                 margin /= cc::rfp_fail_high_div();
             }
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
-                return eval;
+                return Some(eval);
             }
 
             // NMP (Null Move Pruning). If static eval of our position is above beta, this node probably isn't that interesting.
@@ -818,7 +826,7 @@ impl Caps {
                     .push(ChessMove::default());
                 let reduction =
                     cc::nmp_base() + depth / cc::nmp_depth_div() + isize::from(they_blundered);
-                let score = -self.negamax(
+                let nmp_res = self.negamax(
                     new_pos,
                     ply + 1,
                     depth - 1 - reduction,
@@ -828,13 +836,17 @@ impl Caps {
                 );
                 self.state.search_stack[ply].tried_moves.pop();
                 self.state.params.history.pop();
+                let Some(negated_score) = nmp_res else {
+                    return None;
+                };
+                let score = -negated_score;
                 if score >= beta {
                     // For shallow depths, don't bother with doing a verification search to avoid useless re-searches,
                     // unless we'd be storing a mate score -- we really want to avoid storing unproved mates in the TT.
                     // It's possible to beat beta with a score of getting mated, so use `is_game_over_score`
                     // instead of `is_game_won_score`
                     if depth < cc::nmp_verif_depth() && !score.is_won_or_lost() {
-                        return score;
+                        return Some(score);
                     }
                     *self.state.custom.nmp_disabled_for(pos.active_player()) = true;
                     // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so technically we
@@ -844,7 +856,7 @@ impl Caps {
                     self.state.search_stack[ply].tried_moves.clear();
                     *self.state.custom.nmp_disabled_for(pos.active_player()) = false;
                     // The verification score is more trustworthy than the nmp score.
-                    if verification_score >= beta {
+                    if !verification_score.is_some_and(|score| score < beta) {
                         return verification_score;
                     }
                 }
@@ -920,7 +932,7 @@ impl Caps {
                     -beta,
                     -alpha,
                     expected_node_type.inverse(),
-                );
+                )?;
             } else {
                 // LMR (Late Move Reductions): Trust the move ordering (quiet history, continuation history and capture history heuristics)
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
@@ -953,7 +965,7 @@ impl Caps {
                     -(alpha + 1),
                     -alpha,
                     FailHigh,
-                );
+                )?;
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
                 if alpha < score && reduction > 0 {
@@ -965,7 +977,7 @@ impl Caps {
                         -(alpha + 1),
                         -alpha,
                         FailHigh, // we still expect a fail high here
-                    );
+                    )?;
                 }
                 // If the full-depth search also performed better than expected, do a full-depth search with the
                 // full window to find the true score. If the score was at least `beta`, don't search again
@@ -973,7 +985,7 @@ impl Caps {
                 if alpha < score && score < beta {
                     debug_assert_eq!(expected_node_type, Exact);
                     self.state.statistics.lmr_second_retry();
-                    score = -self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha, Exact);
+                    score = -self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha, Exact)?;
                 }
             }
 
@@ -991,9 +1003,8 @@ impl Caps {
             if self.should_stop() {
                 // The current child's score is not trustworthy, but all already seen children are.
                 // This only matters for the root; all other nodes get their return value ignored.
-                // If the root returned NO_SCORE_YET, we ignore it in `aspiration()`, otherwise we can use that
-                // as a lower bound for the score, and the score belonging to the chosen move.
-                return SCORE_TIME_UP;
+                // This should really be used in aspiration() by inspecting the PV, but somehow that loses elo
+                return None;
             }
             debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);
 
@@ -1041,7 +1052,7 @@ impl Caps {
 
         if self.state.search_stack[ply].tried_moves.is_empty() {
             // TODO: Merge cached in-check branch
-            return game_result_to_score(pos.no_moves_result(), ply);
+            return Some(game_result_to_score(pos.no_moves_result(), ply));
         }
 
         let tt_entry: TTEntry<Chessboard> = TTEntry::new(
@@ -1058,7 +1069,7 @@ impl Caps {
             self.state.tt_mut().store(tt_entry, ply);
         }
 
-        best_score
+        Some(best_score)
     }
 
     fn update_continuation_hist(

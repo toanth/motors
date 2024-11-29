@@ -162,7 +162,8 @@ impl EngineInfo {
 pub struct BenchResult {
     pub nodes: u64,
     pub time: Duration,
-    pub depth: Depth,
+    pub max_depth: Depth,
+    pub depth: Option<Depth>,
     pub pv_score_hash: u64,
 }
 
@@ -171,7 +172,8 @@ impl Default for BenchResult {
         Self {
             nodes: 0,
             time: Duration::default(),
-            depth: Depth::MIN,
+            depth: None,
+            max_depth: Depth::try_new(0).unwrap(),
             pv_score_hash: 0,
         }
     }
@@ -180,10 +182,15 @@ impl Default for BenchResult {
 impl Display for BenchResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         // Uses colored instead of crossterm because that's necessary for OpenBench to parse the output
+        let depth = if let Some(depth) = self.depth {
+            format!("depth {depth}, ")
+        } else {
+            String::new()
+        };
         writeln!(
             f,
-            "depth {0}, time {2} ms, {1} nodes, {3} nps, hash {4:X}",
-            self.depth.get(),
+            "{depth}max depth {0}, time {2} ms, {1} nodes, {3} nps, hash {4:X}",
+            self.max_depth.get(),
             Colorize::bold(self.nodes.to_string().as_str()),
             self.time.as_millis().to_string().color(Red),
             (self.nodes as f64 / self.time.as_millis() as f64 * 1000.0)
@@ -826,11 +833,17 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
         }
         // the score can differ even if the pv is the same, so make sure to include that in the hash
         self.best_score().hash(&mut hasher);
+        // The pv doesn't necessarily contain the best move for multipv searches. When run though cli `--bench`, the bench search doesn't do multipv,
+        // but it's possible to input e.g. `bench mpv 2` to get a multipv bench. Additionally, bench is important for debugging, so to catch
+        // bugs where the best move changes but not the PV, the best move and ponder move are included in the bench hash
+        self.best_move().hash(&mut hasher);
+        self.ponder_move().hash(&mut hasher);
         let hash = hasher.finish();
         BenchResult {
             nodes: self.uci_nodes(),
             time: self.start_time().elapsed(),
-            depth: self.depth(),
+            max_depth: self.depth(),
+            depth: None,
             pv_score_hash: hash,
         }
     }
@@ -1142,6 +1155,9 @@ pub fn run_bench_with<B: Board>(
             single_bench(position, engine, limit, tt.clone(), &mut total, &mut hasher);
         }
     }
+    if limit.depth != SearchLimit::infinite().depth {
+        total.depth = Some(limit.depth);
+    }
     total.pv_score_hash = hasher.finish();
     if cfg!(feature = "statistics") {
         eprintln!(
@@ -1169,7 +1185,7 @@ fn single_bench<B: Board>(
     let res = engine.bench(*pos, limit, tt);
     total.nodes += res.nodes;
     total.time += res.time;
-    total.depth = total.depth.max(res.depth);
+    total.max_depth = total.max_depth.max(res.max_depth);
     res.pv_score_hash.hash(hasher);
 }
 
@@ -1183,7 +1199,8 @@ mod tests {
         let tt = TT::default();
         for p in B::bench_positions() {
             let res = engine.bench(p, SearchLimit::nodes_(1), tt.clone());
-            assert!(res.depth.get() <= 1);
+            assert!(res.depth.is_none());
+            assert!(res.max_depth.get() <= 1);
             assert!(res.nodes <= 100); // TODO: Assert exactly 1
             let res = engine.search_with_new_tt(p, SearchLimit::depth_(1));
             let legal_moves = p.legal_moves_slow();
