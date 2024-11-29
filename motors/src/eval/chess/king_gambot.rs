@@ -128,12 +128,8 @@ impl LiteValues for KingGambotValues {
         Lite::mobility(piece, mobility)
     }
 
-    fn threats(
-        attacking: ChessPieceType,
-        targeted: ChessPieceType,
-        is_active: bool,
-    ) -> PhasedScore {
-        Lite::threats(attacking, targeted, is_active)
+    fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> PhasedScore {
+        Lite::threats(attacking, targeted)
     }
 
     fn defended(protecting: ChessPieceType, target: ChessPieceType) -> PhasedScore {

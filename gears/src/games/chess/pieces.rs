@@ -54,15 +54,15 @@ pub enum ChessPieceType {
 }
 
 impl ChessPieceType {
-    pub fn pieces() -> impl Iterator<Item = ChessPieceType> {
+    pub fn pieces() -> impl DoubleEndedIterator<Item = ChessPieceType> {
         Self::iter().dropping_back(1)
     }
 
-    pub fn non_king_pieces() -> impl Iterator<Item = ChessPieceType> {
+    pub fn non_king_pieces() -> impl DoubleEndedIterator<Item = ChessPieceType> {
         Self::iter().dropping_back(2)
     }
 
-    pub fn non_pawn_pieces() -> impl Iterator<Item = ChessPieceType> {
+    pub fn non_pawn_pieces() -> impl DoubleEndedIterator<Item = ChessPieceType> {
         Self::pieces().dropping(1)
     }
 
