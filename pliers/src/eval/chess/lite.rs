@@ -42,8 +42,6 @@ pub enum LiteFeatureSubset {
     PassedPawn,
     UnsupportedPawn,
     DoubledPawn,
-    PawnProtection,
-    PawnAttacks,
     Mobility,
     Threat,
     Defense,
@@ -65,8 +63,8 @@ impl FeatureSubSet for LiteFeatureSubset {
             PawnProtection => NUM_CHESS_PIECES,
             PawnAttacks => NUM_CHESS_PIECES,
             Mobility => (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1),
-            Threat => (NUM_CHESS_PIECES - 1) * (NUM_CHESS_PIECES - 1),
-            Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
+            Threat => NUM_CHESS_PIECES * NUM_CHESS_PIECES,
+            Defense => NUM_CHESS_PIECES * NUM_CHESS_PIECES,
             KingZoneAttack => NUM_CHESS_PIECES,
         }
     }
@@ -148,15 +146,6 @@ impl FeatureSubSet for LiteFeatureSubset {
             DoubledPawn => {
                 write!(f, "const DOUBLED_PAWN: PhasedScore = ")?;
             }
-            PawnProtection => {
-                write!(
-                    f,
-                    "const PAWN_PROTECTION: [PhasedScore; NUM_CHESS_PIECES] = "
-                )?;
-            }
-            PawnAttacks => {
-                write!(f, "const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = ")?;
-            }
             Mobility => {
                 writeln!(f, "\npub const MAX_MOBILITY: usize = 7 + 7 + 7 + 6;")?;
                 writeln!(
@@ -179,28 +168,28 @@ impl FeatureSubSet for LiteFeatureSubset {
             Threat => {
                 writeln!(
                     f,
-                    "const THREATS: [[PhasedScore; NUM_CHESS_PIECES - 1]; NUM_CHESS_PIECES - 1] = "
-                )?;
-                return write_2d_range_phased(
-                    f,
-                    weights,
-                    self.start_idx(),
-                    NUM_CHESS_PIECES - 1,
-                    NUM_CHESS_PIECES - 1,
-                    special,
-                );
-            }
-            Defense => {
-                writeln!(
-                    f,
-                    "const DEFENDED: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = "
+                    "const THREATS: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES] = "
                 )?;
                 return write_2d_range_phased(
                     f,
                     weights,
                     self.start_idx(),
                     NUM_CHESS_PIECES,
-                    NUM_CHESS_PIECES - 1,
+                    NUM_CHESS_PIECES,
+                    special,
+                );
+            }
+            Defense => {
+                writeln!(
+                    f,
+                    "const DEFENDED: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES] = "
+                )?;
+                return write_2d_range_phased(
+                    f,
+                    weights,
+                    self.start_idx(),
+                    NUM_CHESS_PIECES,
+                    NUM_CHESS_PIECES,
                     special,
                 );
             }
@@ -295,32 +284,18 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(PawnShield, config)
     }
 
-    fn pawn_protection(piece: ChessPieceType) -> SingleFeature {
-        SingleFeature::new(PawnProtection, piece as usize)
-    }
-
-    fn pawn_attack(piece: ChessPieceType) -> SingleFeature {
-        // For example a pawn attacking another pawn is itself attacked by a pawn, but since a pawn could be attacking
-        // two pawns at once this doesn't have to mean that the resulting feature count is zero. So manually exclude this
-        // because pawns attacking pawns don't necessarily create an immediate thread like pawns attacking pieces.
-        if piece == Pawn {
-            return SingleFeature::no_feature(PawnAttacks);
-        }
-        SingleFeature::new(PawnAttacks, piece as usize)
-    }
-
     fn mobility(piece: ChessPieceType, mobility: usize) -> SingleFeature {
         let idx = (piece as usize - 1) * (MAX_MOBILITY + 1) + mobility;
         SingleFeature::new(Mobility, idx)
     }
 
     fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> SingleFeature {
-        let idx = (attacking as usize - 1) * (NUM_CHESS_PIECES - 1) + targeted as usize;
+        let idx = attacking as usize * NUM_CHESS_PIECES + targeted as usize;
         SingleFeature::new(Threat, idx)
     }
 
     fn defended(protecting: ChessPieceType, target: ChessPieceType) -> SingleFeature {
-        let idx = (protecting as usize - 1) * NUM_CHESS_PIECES + target as usize;
+        let idx = protecting as usize * NUM_CHESS_PIECES + target as usize;
         SingleFeature::new(Defense, idx)
     }
 

@@ -98,6 +98,13 @@ pub fn anti_diagonal_openness(
     )
 }
 
+#[derive(Default, Copy, Clone)]
+struct AttackDefense {
+    piece: ChessPieceType,
+    attacker: ChessPieceType,
+    defender: ChessPieceType,
+}
+
 impl<Tuned: LiteValues> StaticallyNamedEntity for GenericLiTEval<Tuned> {
     fn static_short_name() -> impl Display
     where
@@ -212,8 +219,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     fn mobility_and_threats(
         pos: &Chessboard,
         color: ChessColor,
-        attacked_squares: &mut [(ChessPieceType, ChessPieceType); 64],
-        defended_squares: &mut [(ChessPieceType, ChessPieceType); 64],
+        attacked_defended: &mut [AttackDefense; 64],
     ) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let attacked_by_pawn = pos
@@ -227,12 +233,6 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         // let pawn_king_attacks = (pawn_attacks & king_zone).num_ones();
         // score += Tuned::king_zone_attack(Pawn) * pawn_king_attacks;
-        for piece in ChessPieceType::pieces() {
-            let protected_by_pawns = pawn_attacks & pos.colored_piece_bb(color, piece);
-            score += Tuned::pawn_protection(piece) * protected_by_pawns.num_ones();
-            let attacked_by_pawns = pawn_attacks & pos.colored_piece_bb(!color, piece);
-            score += Tuned::pawn_attack(piece) * attacked_by_pawns.num_ones();
-        }
         for piece in ChessPieceType::non_pawn_pieces().rev() {
             for square in pos.colored_piece_bb(color, piece).ones() {
                 let attacks =
@@ -242,16 +242,30 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 for threatened_piece in ChessPieceType::non_king_pieces() {
                     let attacked = pos.colored_piece_bb(color.other(), threatened_piece) & attacks;
                     for victim in attacked.ones() {
-                        attacked_squares[victim.bb_idx()] = (piece, threatened_piece);
+                        attacked_defended[victim.bb_idx()].piece = threatened_piece;
+                        attacked_defended[victim.bb_idx()].attacker = piece;
                     }
                     let defended = pos.colored_piece_bb(color, threatened_piece) & attacks;
                     for protected in defended.ones() {
-                        defended_squares[protected.bb_idx()] = (piece, threatened_piece);
+                        attacked_defended[protected.bb_idx()].piece = threatened_piece;
+                        attacked_defended[protected.bb_idx()].defender = piece;
                     }
                 }
                 if (attacks & king_zone).has_set_bit() {
                     score += Tuned::king_zone_attack(piece);
                 }
+            }
+        }
+        for piece in ChessPieceType::pieces() {
+            let protected_by_pawns = pawn_attacks & pos.colored_piece_bb(color, piece);
+            let attacked_by_pawns = pawn_attacks & pos.colored_piece_bb(!color, piece);
+            for square in protected_by_pawns.ones() {
+                attacked_defended[square.bb_idx()].piece = piece;
+                attacked_defended[square.bb_idx()].defender = Pawn;
+            }
+            for square in attacked_by_pawns.ones() {
+                attacked_defended[square.bb_idx()].piece = piece;
+                attacked_defended[square.bb_idx()].attacker = Pawn;
             }
         }
         score
@@ -260,19 +274,16 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     fn recomputed_every_time(pos: &Chessboard) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         for color in ChessColor::iter() {
-            let mut attackers = [(Empty, Empty); 64];
-            let mut defenders = [(Empty, Empty); 64];
+            let mut attackers_defenders = [AttackDefense::default(); 64];
             score += Self::bishop_pair(pos, color);
             score += Self::open_lines(pos, color);
-            score += Self::mobility_and_threats(pos, color, &mut attackers, &mut defenders);
-            for (attacker, victim) in attackers {
-                if victim != Empty {
-                    score += Tuned::threats(attacker, victim);
+            score += Self::mobility_and_threats(pos, color, &mut attackers_defenders);
+            for entry in attackers_defenders {
+                if entry.attacker != Empty {
+                    score += Tuned::threats(entry.attacker, entry.piece);
                 }
-            }
-            for (defender, victim) in defenders {
-                if victim != Empty {
-                    score += Tuned::defended(defender, victim);
+                if entry.defender != Empty {
+                    score += Tuned::defended(entry.defender, entry.piece);
                 }
             }
             score = -score;

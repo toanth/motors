@@ -116,13 +116,13 @@ impl LiteValues for KingGambotValues {
         }
     }
 
-    fn pawn_protection(piece: ChessPieceType) -> PhasedScore {
-        Lite::pawn_protection(piece)
-    }
-
-    fn pawn_attack(piece: ChessPieceType) -> PhasedScore {
-        Lite::pawn_attack(piece)
-    }
+    // fn pawn_protection(piece: ChessPieceType) -> PhasedScore {
+    //     Lite::pawn_protection(piece)
+    // }
+    //
+    // fn pawn_attack(piece: ChessPieceType) -> PhasedScore {
+    //     Lite::pawn_attack(piece)
+    // }
 
     fn mobility(piece: ChessPieceType, mobility: usize) -> PhasedScore {
         Lite::mobility(piece, mobility)
