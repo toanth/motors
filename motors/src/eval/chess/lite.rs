@@ -250,9 +250,9 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         for piece in ChessPieceType::non_pawn_pieces() {
             for square in pos.colored_piece_bb(color, piece).ones() {
-                let attacks =
-                    pos.attacks_no_castle_or_pawn_push(square, piece, color) & !attacked_by_pawn;
+                let attacks = pos.attacks_no_castle_or_pawn_push(square, piece, color);
                 all_attacks |= attacks;
+                let attacks = attacks & !attacked_by_pawn;
                 let mobility = (attacks & !pos.colored_bb(color)).num_ones();
                 score += Tuned::mobility(piece, mobility);
                 for threatened_piece in ChessPieceType::pieces() {
@@ -407,9 +407,6 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 self.psqt(new_pos),
                 self.psqt_delta(old_pos, mov, captured, new_pos).0,
             );
-            // TODO: Test if this is actually faster -- getting the captured piece is quite expensive
-            // (but this could be remedied by reusing that info from `psqt_delta`, or by using a redundant mailbox)
-            // In the long run, move pawn protection / attacks to another function and cache `Self::pawns` as well
             if matches!(mov.piece_type(), Pawn | King) || captured == Pawn {
                 state.pawn_shield_score = Self::pawn_shield(new_pos);
             }
