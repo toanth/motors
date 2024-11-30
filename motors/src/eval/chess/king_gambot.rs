@@ -141,8 +141,8 @@ impl LiteValues for KingGambotValues {
         Lite::num_defended(num)
     }
 
-    fn num_attacked(num: usize) -> SingleFeatureScore<Self::Score> {
-        Lite::num_attacked(num)
+    fn num_hanging_for_white(num: usize) -> SingleFeatureScore<Self::Score> {
+        Lite::num_hanging_for_white(num)
     }
 
     fn king_zone_attack(attacking: ChessPieceType) -> PhasedScore {

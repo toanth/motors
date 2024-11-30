@@ -228,7 +228,12 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     //     score
     // }
 
-    fn mobility_and_threats(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
+    fn mobility_and_threats(
+        pos: &Chessboard,
+        color: ChessColor,
+        all_attacked: &mut ChessBitboard,
+        all_defended: &mut ChessBitboard,
+    ) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let attacked_by_pawn = pos
             .colored_piece_bb(color.other(), Pawn)
@@ -251,7 +256,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         for piece in ChessPieceType::non_pawn_pieces() {
             for square in pos.colored_piece_bb(color, piece).ones() {
                 let attacks = pos.attacks_no_castle_or_pawn_push(square, piece, color);
-                all_attacks |= attacks;
+                all_attacks |= attacks; // TODO: Test only doing this for mobility, and possibly defended pieces
                 let attacks = attacks & !attacked_by_pawn;
                 let mobility = (attacks & !pos.colored_bb(color)).num_ones();
                 score += Tuned::mobility(piece, mobility);
@@ -266,21 +271,35 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 }
             }
         }
-        let all_defended = pos.colored_bb(color) & all_attacks;
+        *all_defended = pos.colored_bb(color) & all_attacks;
         score += Tuned::num_defended(all_defended.num_ones());
-        let all_attacked = pos.colored_bb(color.other()) & all_attacks;
-        score += Tuned::num_attacked(all_attacked.num_ones().min(8));
+        *all_attacked = pos.colored_bb(color.other()) & all_attacks;
         score
     }
 
     fn recomputed_every_time(pos: &Chessboard) -> Tuned::Score {
         let mut score = Tuned::Score::default();
+        let mut attacked_by = [ChessBitboard::default(), ChessBitboard::default()];
+        let mut defended_by = [ChessBitboard::default(), ChessBitboard::default()];
         for color in ChessColor::iter() {
             score += Self::bishop_pair(pos, color);
             score += Self::open_lines(pos, color);
             // score += Self::outposts(pos, color);
-            score += Self::mobility_and_threats(pos, color);
+            score += Self::mobility_and_threats(
+                pos,
+                color,
+                &mut attacked_by[color as usize],
+                &mut defended_by[color as usize],
+            );
             score = -score;
+        }
+        let white_hanging = attacked_by[Black as usize] & !defended_by[White as usize];
+        let black_hanging = attacked_by[White as usize] & !defended_by[Black as usize];
+        let num_hanging = white_hanging.num_ones() as isize - black_hanging.num_ones() as isize;
+        if num_hanging > 0 {
+            score += Tuned::num_hanging_for_white(num_hanging as usize);
+        } else {
+            score -= Tuned::num_hanging_for_white(num_hanging.unsigned_abs());
         }
         score
     }

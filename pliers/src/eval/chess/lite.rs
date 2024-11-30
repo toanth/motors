@@ -49,7 +49,7 @@ pub enum LiteFeatureSubset {
     Threat,
     Defense,
     NumDefended,
-    NumAttacked,
+    NumHanging,
     KingZoneAttack,
 }
 
@@ -71,7 +71,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             Threat => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             NumDefended => 16 + 1,
-            NumAttacked => 9,
+            NumHanging => 6,
             KingZoneAttack => NUM_CHESS_PIECES,
         }
     }
@@ -212,8 +212,8 @@ impl FeatureSubSet for LiteFeatureSubset {
             NumDefended => {
                 writeln!(f, "\npub const NUM_DEFENDED: [PhasedScore; 17] = ")?;
             }
-            NumAttacked => {
-                writeln!(f, "\npub const NUM_ATTACKED: [PhasedScore; 9] = ")?;
+            NumHanging => {
+                writeln!(f, "\npub const NUM_HANGING: [PhasedScore; 6] = ")?;
             }
             KingZoneAttack => {
                 write!(f, "const KING_ZONE_ATTACK: [PhasedScore; 6] = ")?;
@@ -339,8 +339,8 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(NumDefended, num)
     }
 
-    fn num_attacked(num: usize) -> SingleFeatureScore<Self::Score> {
-        SingleFeature::new(NumAttacked, num)
+    fn num_hanging_for_white(num: usize) -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(NumHanging, num.min(5))
     }
 
     fn king_zone_attack(attacking: ChessPieceType) -> SingleFeature {
