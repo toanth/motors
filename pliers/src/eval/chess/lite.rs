@@ -20,6 +20,7 @@ use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
 use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
+use motors::eval::SingleFeatureScore;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::iter::Iterator;
@@ -47,6 +48,7 @@ pub enum LiteFeatureSubset {
     Mobility,
     Threat,
     Defense,
+    DefendedPieces,
     KingZoneAttack,
 }
 
@@ -67,6 +69,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             Mobility => (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1),
             Threat => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
+            DefendedPieces => 16 + 1,
             KingZoneAttack => NUM_CHESS_PIECES,
         }
     }
@@ -204,6 +207,9 @@ impl FeatureSubSet for LiteFeatureSubset {
                     special,
                 );
             }
+            DefendedPieces => {
+                writeln!(f, "\npub const NUM_DEFENDED: [PhasedScore; 17] = ")?;
+            }
             KingZoneAttack => {
                 write!(f, "const KING_ZONE_ATTACK: [PhasedScore; 6] = ")?;
             }
@@ -322,6 +328,10 @@ impl LiteValues for LiTETrace {
     fn defended(protecting: ChessPieceType, target: ChessPieceType) -> SingleFeature {
         let idx = (protecting as usize - 1) * NUM_CHESS_PIECES + target as usize;
         SingleFeature::new(Defense, idx)
+    }
+
+    fn num_defended(num: usize) -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(DefendedPieces, num)
     }
 
     fn king_zone_attack(attacking: ChessPieceType) -> SingleFeature {

@@ -239,6 +239,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         if (pawn_attacks & king_zone).has_set_bit() {
             score += Tuned::king_zone_attack(Pawn);
         }
+        let mut all_attacks = pawn_attacks;
         // let pawn_king_attacks = (pawn_attacks & king_zone).num_ones();
         // score += Tuned::king_zone_attack(Pawn) * pawn_king_attacks;
         for piece in ChessPieceType::pieces() {
@@ -251,6 +252,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             for square in pos.colored_piece_bb(color, piece).ones() {
                 let attacks =
                     pos.attacks_no_castle_or_pawn_push(square, piece, color) & !attacked_by_pawn;
+                all_attacks |= attacks;
                 let mobility = (attacks & !pos.colored_bb(color)).num_ones();
                 score += Tuned::mobility(piece, mobility);
                 for threatened_piece in ChessPieceType::pieces() {
@@ -264,6 +266,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 }
             }
         }
+        let all_defended = pos.colored_bb(color) & all_attacks;
+        score += Tuned::num_defended(all_defended.num_ones());
         score
     }
 

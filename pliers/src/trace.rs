@@ -67,11 +67,15 @@ pub struct SingleFeature {
 }
 
 impl SingleFeature {
-    pub(super) fn new<T: FeatureSubSet>(sub_feature_set: T, idx: FeatureIndex) -> Self {
-        assert!(idx < sub_feature_set.num_features());
-        let idx = idx + sub_feature_set.start_idx();
+    pub(super) fn new<T: FeatureSubSet>(feature_subset: T, idx: FeatureIndex) -> Self {
+        let num_subset_features = feature_subset.num_features();
+        assert!(
+            idx < num_subset_features,
+            "incorrect feature index: {idx} must be less than {num_subset_features}"
+        );
+        let idx = idx + feature_subset.start_idx();
         Self {
-            num_subset_features: sub_feature_set.num_features(),
+            num_subset_features,
             idx,
             count: 1,
         }
