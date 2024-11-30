@@ -94,10 +94,11 @@
 
 extern crate core;
 
-use crate::eval::Eval;
 use crate::eval::EvalScale::{InitialWeights, Scale};
+use crate::eval::{count_occurrences, display, Eval};
 use crate::gd::{
     optimize_dataset, print_optimized_weights, Datapoint, Dataset, DefaultOptimizer, Optimizer,
+    Weight, Weights,
 };
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
@@ -202,6 +203,13 @@ pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
     let batch = dataset.as_batch();
     let scale = e.eval_scale().to_scaling_factor(batch, &e);
     let mut optimizer = O::new(batch, scale);
+    let occurrences = Weights(
+        count_occurrences(batch)
+            .iter()
+            .map(|o| Weight(*o))
+            .collect(),
+    );
+    println!("Occurrences:\n{}", display(&e, &occurrences, &[]));
     let weights = optimize_dataset(&mut dataset, scale, num_epochs, &e, &mut optimizer);
     print_optimized_weights(&weights, dataset.as_batch(), scale, &e);
     Ok(())

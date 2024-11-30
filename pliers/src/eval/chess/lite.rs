@@ -48,7 +48,8 @@ pub enum LiteFeatureSubset {
     Mobility,
     Threat,
     Defense,
-    DefendedPieces,
+    NumDefended,
+    NumAttacked,
     KingZoneAttack,
 }
 
@@ -69,7 +70,8 @@ impl FeatureSubSet for LiteFeatureSubset {
             Mobility => (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1),
             Threat => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
-            DefendedPieces => 16 + 1,
+            NumDefended => 16 + 1,
+            NumAttacked => 9,
             KingZoneAttack => NUM_CHESS_PIECES,
         }
     }
@@ -207,8 +209,11 @@ impl FeatureSubSet for LiteFeatureSubset {
                     special,
                 );
             }
-            DefendedPieces => {
+            NumDefended => {
                 writeln!(f, "\npub const NUM_DEFENDED: [PhasedScore; 17] = ")?;
+            }
+            NumAttacked => {
+                writeln!(f, "\npub const NUM_ATTACKED: [PhasedScore; 9] = ")?;
             }
             KingZoneAttack => {
                 write!(f, "const KING_ZONE_ATTACK: [PhasedScore; 6] = ")?;
@@ -331,7 +336,11 @@ impl LiteValues for LiTETrace {
     }
 
     fn num_defended(num: usize) -> SingleFeatureScore<Self::Score> {
-        SingleFeature::new(DefendedPieces, num)
+        SingleFeature::new(NumDefended, num)
+    }
+
+    fn num_attacked(num: usize) -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(NumAttacked, num)
     }
 
     fn king_zone_attack(attacking: ChessPieceType) -> SingleFeature {

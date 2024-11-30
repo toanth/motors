@@ -268,6 +268,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         let all_defended = pos.colored_bb(color) & all_attacks;
         score += Tuned::num_defended(all_defended.num_ones());
+        let all_attacked = pos.colored_bb(color.other()) & all_attacks;
+        score += Tuned::num_attacked(all_attacked.num_ones().min(8));
         score
     }
 
