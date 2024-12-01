@@ -92,7 +92,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             RookOpenness => {
                 for (i, openness) in ["OPEN", "CLOSED", "SEMIOPEN"].iter().enumerate() {
                     write!(f, "const ROOK_{openness}_FILE: PhasedScore = ")?;
-                    write_phased(f, weights, self.start_idx() + i, &special)?;
+                    write_phased(f, weights, self.start_idx() + i, special)?;
                     writeln!(f, ";")?;
                 }
                 return Ok(());
@@ -100,7 +100,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             KingOpenness => {
                 for (i, openness) in ["OPEN", "CLOSED", "SEMIOPEN"].iter().enumerate() {
                     write!(f, "const KING_{openness}_FILE: PhasedScore = ")?;
-                    write_phased(f, weights, self.start_idx() + i, &special)?;
+                    write_phased(f, weights, self.start_idx() + i, special)?;
                     writeln!(f, ";")?;
                 }
                 return Ok(());
@@ -135,7 +135,7 @@ impl FeatureSubSet for LiteFeatureSubset {
                     } else {
                         format!("{:#04b}", i - (1 << 6) - (1 << 4))
                     };
-                    write_phased(f, weights, self.start_idx() + i, &special)?;
+                    write_phased(f, weights, self.start_idx() + i, special)?;
                     write!(f, " /*{config}*/, ")?;
                 }
                 return writeln!(f, "];");
@@ -143,7 +143,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             PassedPawn => {
                 writeln!(f, "\n#[rustfmt::skip]")?;
                 write!(f, "const PASSED_PAWNS: [PhasedScore; NUM_SQUARES] = ")?;
-                return write_phased_psqt(f, weights, &special, None, self.start_idx());
+                return write_phased_psqt(f, weights, special, None, self.start_idx());
             }
             UnsupportedPawn => {
                 write!(f, "const UNSUPPORTED_PAWN: PhasedScore = ")?;

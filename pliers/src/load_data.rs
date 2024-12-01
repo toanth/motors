@@ -97,7 +97,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         const IGNORED: [char; 10] = ['\"', '\'', '[', ']', '(', ')', '{', '}', ' ', '\t'];
         // This would be a great time to use the `.remainder()` method, but that isn't stable :/
         let wdl = input.next().ok_or_else(|| anyhow!("Missing wdl"))?;
-        let wdl = wdl.trim_matches(&IGNORED);
+        let wdl = wdl.trim_matches(IGNORED);
         for (key, value) in WDL_MAP {
             if wdl.starts_with(key) {
                 return Ok(Outcome::new(value));

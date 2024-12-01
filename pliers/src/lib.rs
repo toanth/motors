@@ -203,12 +203,7 @@ pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
     let batch = dataset.as_batch();
     let scale = e.eval_scale().to_scaling_factor(batch, &e);
     let mut optimizer = O::new(batch, scale);
-    let occurrences = Weights(
-        count_occurrences(batch)
-            .iter()
-            .map(|o| Weight(*o))
-            .collect(),
-    );
+    let occurrences = Weights(count_occurrences(batch).into_iter().map(Weight).collect());
     println!("Occurrences:\n{}", display(&e, &occurrences, &[]));
     let weights = optimize_dataset(&mut dataset, scale, num_epochs, &e, &mut optimizer);
     print_optimized_weights(&weights, dataset.as_batch(), scale, &e);
@@ -281,7 +276,7 @@ mod tests {
         assert_eq!(positions.num_weights(), NUM_PIECE_SQUARE_ENTRIES * 2);
         // the kings are on mirrored positions and cancel each other out
         assert_eq!(positions.data()[0].features().count(), 0);
-        assert_eq!(positions.data()[1].features().count(), 1 * 2); // 1 feature per phases
+        assert_eq!(positions.data()[1].features().count(), 2); // 1 feature per phases
         let batch = positions.batch(0, 1);
         let eval_scale = 100.0;
         let mut optimizer = AdamW::<CrossEntropyLoss>::new(batch, eval_scale);

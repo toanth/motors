@@ -836,10 +836,7 @@ impl Caps {
                 );
                 self.state.search_stack[ply].tried_moves.pop();
                 self.state.params.history.pop();
-                let Some(negated_score) = nmp_res else {
-                    return None;
-                };
-                let score = -negated_score;
+                let score = -nmp_res?;
                 if score >= beta {
                     // For shallow depths, don't bother with doing a verification search to avoid useless re-searches,
                     // unless we'd be storing a mate score -- we really want to avoid storing unproved mates in the TT.

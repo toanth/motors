@@ -481,9 +481,9 @@ impl Board for MNKBoard {
         board_from_name(name).or_else(|err| {
             let parts = name.split(",").collect_vec();
             if parts.len() == 3 {
-                let height = parse_int_from_str(&parts[0], "m")?;
-                let width = parse_int_from_str(&parts[1], "n")?;
-                let k = parse_int_from_str(&parts[2], "k")?;
+                let height = parse_int_from_str(parts[0], "m")?;
+                let width = parse_int_from_str(parts[1], "n")?;
+                let k = parse_int_from_str(parts[2], "k")?;
                 let settings = MnkSettings {
                     height,
                     width,

@@ -264,7 +264,7 @@ impl Div<usize> for PhasedScore {
     type Output = Self;
 
     fn div(mut self, rhs: usize) -> Self::Output {
-        self *= rhs;
+        self /= rhs;
         self
     }
 }
