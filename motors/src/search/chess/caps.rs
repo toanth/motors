@@ -31,7 +31,7 @@ use gears::output::text_output::AdaptFormatter;
 use gears::output::Message::Debug;
 use gears::score::{
     game_result_to_score, ScoreT, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA,
-    NO_SCORE_YET, SCORE_TIME_UP,
+    NO_SCORE_YET,
 };
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
