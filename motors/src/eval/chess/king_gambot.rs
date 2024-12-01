@@ -108,7 +108,7 @@ impl LiteValues for KingGambotValues {
     }
 
     fn pawn_shield(&self, color: ChessColor, config: usize) -> PhasedScore {
-        let value = Lite::default().pawn_shield(color, config) / 2;
+        let value = Lite::default().pawn_shield(color, config);
         if self.us == color {
             value / 2
         } else {

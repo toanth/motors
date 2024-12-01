@@ -262,7 +262,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                         pos.colored_piece_bb(color, threatened_piece) & attacks_no_pawn_recapture;
                     score += Tuned::defended(piece, threatened_piece) * defended.num_ones();
                 }
-                if (attacks & king_zone).has_set_bit() {
+                if (attacks_no_pawn_recapture & king_zone).has_set_bit() {
                     score += Tuned::king_zone_attack(piece);
                 }
             }

@@ -1267,7 +1267,12 @@ impl Caps {
             let mov = &self.state.search_stack[ply - 1].last_tried_move();
             self.eval.eval_incremental(old_pos, *mov, &pos, ply)
         };
-        debug_assert!(!res.is_won_or_lost());
+        debug_assert!(
+            !res.is_won_or_lost(),
+            "{res} {0} {1}, {pos}",
+            res.0,
+            self.eval.eval(&pos, ply)
+        );
         res
     }
 
