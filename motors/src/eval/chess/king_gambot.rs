@@ -143,4 +143,8 @@ impl LiteValues for KingGambotValues {
     fn king_zone_attack(attacking: ChessPieceType) -> PhasedScore {
         Lite::king_zone_attack(attacking)
     }
+
+    fn can_give_check(piece: ChessPieceType) -> PhasedScore {
+        Lite::can_give_check(piece)
+    }
 }

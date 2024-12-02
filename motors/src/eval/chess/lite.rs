@@ -8,7 +8,7 @@ use gears::games::chess::pieces::ChessPieceType::*;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::squares::ChessSquare;
 use gears::games::chess::ChessColor::{Black, White};
-use gears::games::chess::{ChessColor, Chessboard};
+use gears::games::chess::{ChessColor, Chessboard, SliderMove};
 use gears::games::Color;
 use gears::games::{DimT, ZobristHash};
 use gears::general::bitboards::chess::{
@@ -209,27 +209,22 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    // fn outposts(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
-    //     let mut score = Tuned::Score::default();
-    //     let our_pawns = pos.colored_piece_bb(color, Pawn);
-    //     let pawn_protection = our_pawns.pawn_attacks(color);
-    //     for piece in ChessPieceType::non_pawn_pieces() {
-    //         for square in pos.colored_piece_bb(color, piece).ones() {
-    //             let in_front = ((A_FILE << (square.flip_if(color == Black).bb_idx())) << 8)
-    //                 .flip_if(color == Black);
-    //             let potential_attackers = in_front.west() | in_front.east();
-    //             if pawn_protection.is_bit_set_at(square.bb_idx())
-    //                 && (potential_attackers & pos.colored_piece_bb(!color, Pawn)).is_zero()
-    //             {
-    //                 score += Tuned::outpost(piece);
-    //             }
-    //         }
-    //     }
-    //     score
-    // }
+    fn checking(pos: &Chessboard, color: ChessColor) -> [ChessBitboard; 5] {
+        let mut result = [ChessBitboard::default(); 5];
+        let square = pos.king_square(color);
+        result[Pawn as usize] = Chessboard::single_pawn_captures(!color, square);
+        result[Knight as usize] = Chessboard::knight_attacks_from(square);
+        result[Bishop as usize] = pos.slider_attacks_from(square, SliderMove::Bishop, square.bb());
+        result[Rook as usize] = pos.slider_attacks_from(square, SliderMove::Rook, square.bb());
+        result[Queen as usize] = result[Rook as usize] | result[Bishop as usize];
+        result
+    }
 
     fn mobility_and_threats(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
+
+        let checking_squares = Self::checking(pos, !color);
+
         let attacked_by_pawn = pos
             .colored_piece_bb(color.other(), Pawn)
             .pawn_attacks(color.other());
@@ -265,10 +260,16 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 if (attacks_no_pawn_recapture & king_zone).has_set_bit() {
                     score += Tuned::king_zone_attack(piece);
                 }
+                if piece != King
+                    && (attacks_no_pawn_recapture & checking_squares[piece as usize]).has_set_bit()
+                {
+                    score += Tuned::can_give_check(piece);
+                }
             }
         }
         let all_defended = pos.colored_bb(color) & (all_attacks & !attacked_by_pawn);
         score += Tuned::num_defended(all_defended.num_ones());
+
         score
     }
 

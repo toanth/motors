@@ -1114,6 +1114,12 @@ impl UnverifiedChessboard {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum SliderMove {
+    Bishop,
+    Rook,
+}
+
 #[cfg(test)]
 mod tests {
     use rand::thread_rng;
