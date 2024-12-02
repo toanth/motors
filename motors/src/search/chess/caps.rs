@@ -674,6 +674,7 @@ impl Caps {
 
         let root = ply == 0;
         let is_pv_node = expected_node_type == Exact; // TODO: Make this a generic argument of search?
+        let mut tt_hit = false;
         debug_assert!(!root || is_pv_node); // root implies pv node
         debug_assert!(alpha + 1 == beta || is_pv_node); // alpha + 1 < beta implies Exact node
         if is_pv_node {
@@ -717,6 +718,7 @@ impl Caps {
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.state.multi_pvs.len() > 1;
         if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
+            tt_hit = true;
             if !ignore_tt_entry {
                 let tt_bound = tt_entry.bound();
                 debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
@@ -856,6 +858,26 @@ impl Caps {
                     if !verification_score.is_some_and(|score| score < beta) {
                         return verification_score;
                     }
+                }
+            }
+
+            // Razoring. If static eval is far below alpha, it's unlikely that any quiet move can meet alpha, so call
+            // qsearch immediately. If the result still doesn't raise alpha, just give up and return the qsearch score.
+            // This obviously has the potential to miss quite a few tactics, so only do this at low depths and when
+            // the difference between the static eval and alpha is really large.
+            let razoring_margin = Score(600);
+            if depth == 1 && eval + razoring_margin <= alpha && !eval.is_game_lost_score() {
+                let qsearch_score = self.qsearch(pos, alpha, beta, ply);
+                if qsearch_score <= alpha {
+                    return Some(qsearch_score);
+                }
+                // don't count moves that we tried in qsearch, because that's not really the same node
+                self.state.search_stack[ply].tried_moves.clear();
+                // Since we're in a non-pv node, qsearch must have failed high. So assume that a normal search also fails high.
+                expected_node_type = FailHigh;
+                // Now that we have a qsearch score, use that instead of static eval if the eval isn't from the TT
+                if !tt_hit {
+                    eval = qsearch_score;
                 }
             }
         }
@@ -1253,6 +1275,7 @@ impl Caps {
             .statistics
             .count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
 
+        // TODO: Update capthist?
         let tt_entry: TTEntry<Chessboard> =
             TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
         self.state.tt_mut().store(tt_entry, ply);
