@@ -148,7 +148,7 @@ impl LiteValues for KingGambotValues {
         Lite::can_give_check(piece)
     }
 
-    fn pinned(piece: ChessPieceType) -> PhasedScore {
-        Lite::pinned(piece)
+    fn pinned(pinning: ChessPieceType, piece: ChessPieceType) -> PhasedScore {
+        Lite::pinned(pinning, piece)
     }
 }

@@ -20,7 +20,6 @@ use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
 use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
-use motors::eval::SingleFeatureScore;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::iter::Iterator;
@@ -74,7 +73,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             DefendedPieces => 16 + 1,
             KingZoneAttack => NUM_CHESS_PIECES,
             CanGiveCheck => NUM_CHESS_PIECES - 1,
-            Pinned => NUM_CHESS_PIECES - 2,
+            Pinned => (NUM_CHESS_PIECES - 2) * 3,
         }
     }
 
@@ -221,7 +220,18 @@ impl FeatureSubSet for LiteFeatureSubset {
                 write!(f, "const CAN_GIVE_CHECK: [PhasedScore; 5] = ")?;
             }
             Pinned => {
-                write!(f, "const PINNED: [PhasedScore; NUM_CHESS_PIECES - 2] = [")?;
+                write!(
+                    f,
+                    "const PINNED: [[PhasedScore; 3]; NUM_CHESS_PIECES - 2] = "
+                )?;
+                return write_2d_range_phased(
+                    f,
+                    weights,
+                    self.start_idx(),
+                    3,
+                    NUM_CHESS_PIECES - 2,
+                    special,
+                );
             }
         }
         write_range_phased(
@@ -352,8 +362,11 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(CanGiveCheck, piece as usize)
     }
 
-    fn pinned(piece: ChessPieceType) -> SingleFeature {
-        SingleFeature::new(Pinned, piece as usize - 1)
+    fn pinned(pinning: ChessPieceType, piece: ChessPieceType) -> SingleFeature {
+        SingleFeature::new(
+            Pinned,
+            (piece as usize - 1) * 3 + pinning as usize - Bishop as usize,
+        )
     }
 }
 
