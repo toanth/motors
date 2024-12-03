@@ -637,12 +637,6 @@ impl LiteValues for Lite {
     }
 
     fn pinned(pinning: ChessPieceType, piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
-        println!(
-            "{0} {1} {2}",
-            pinning as usize,
-            Bishop as usize,
-            pinning as usize - Bishop as usize
-        );
         PINNED[piece as usize - 1][pinning as usize - Bishop as usize]
     }
 }
