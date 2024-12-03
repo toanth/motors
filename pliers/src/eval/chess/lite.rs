@@ -51,6 +51,7 @@ pub enum LiteFeatureSubset {
     DefendedPieces,
     KingZoneAttack,
     CanGiveCheck,
+    Pinned,
 }
 
 impl FeatureSubSet for LiteFeatureSubset {
@@ -73,6 +74,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             DefendedPieces => 16 + 1,
             KingZoneAttack => NUM_CHESS_PIECES,
             CanGiveCheck => NUM_CHESS_PIECES - 1,
+            Pinned => NUM_CHESS_PIECES - 2,
         }
     }
 
@@ -218,6 +220,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             CanGiveCheck => {
                 write!(f, "const CAN_GIVE_CHECK: [PhasedScore; 5] = ")?;
             }
+            Pinned => {
+                write!(f, "const PINNED: [PhasedScore; NUM_CHESS_PIECES - 2] = [")?;
+            }
         }
         write_range_phased(
             f,
@@ -335,7 +340,7 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(Defense, idx)
     }
 
-    fn num_defended(num: usize) -> SingleFeatureScore<Self::Score> {
+    fn num_defended(num: usize) -> SingleFeature {
         SingleFeature::new(DefendedPieces, num)
     }
 
@@ -343,8 +348,12 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(KingZoneAttack, attacking as usize)
     }
 
-    fn can_give_check(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
+    fn can_give_check(piece: ChessPieceType) -> SingleFeature {
         SingleFeature::new(CanGiveCheck, piece as usize)
+    }
+
+    fn pinned(piece: ChessPieceType) -> SingleFeature {
+        SingleFeature::new(Pinned, piece as usize - 1)
     }
 }
 

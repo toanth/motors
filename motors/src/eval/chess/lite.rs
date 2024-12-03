@@ -265,6 +265,14 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 {
                     score += Tuned::can_give_check(piece);
                 }
+                let bb_without =
+                    pos.occupied_bb() ^ square.bb() ^ pos.colored_piece_bb(color, King);
+                if (pos.ray_attacks(pos.king_square(color), square, bb_without)
+                    & pos.colored_bb(!color))
+                .has_set_bit()
+                {
+                    score += Tuned::pinned(piece);
+                }
             }
         }
         let all_defended = pos.colored_bb(color) & (all_attacks & !attacked_by_pawn);

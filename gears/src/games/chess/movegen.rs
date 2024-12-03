@@ -361,6 +361,8 @@ impl Chessboard {
             | Self::single_pawn_captures(White, square) & self.colored_piece_bb(Black, Pawn)
     }
 
+    /// Returns a Bitboard of all uncolored attackers of a given square, assuming the given blocker configuration.
+    /// Assumes that the target square is empty, and stops the ray at ray_square if that isn't empty.
     pub fn ray_attacks(
         &self,
         target: ChessSquare,
