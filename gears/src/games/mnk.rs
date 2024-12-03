@@ -621,13 +621,14 @@ impl Board for MNKBoard {
         self.random_legal_move(rng) // all pseudolegal moves are legal for m,n,k games
     }
 
-    fn make_move(self, mov: Self::Move) -> Option<Self> {
+    fn make_move(&self, mov: Self::Move) -> Option<Self> {
         Some(self.make_move_for_player(mov, self.active_player()))
     }
 
-    fn make_nullmove(mut self) -> Option<Self> {
-        self.active_player = self.active_player.other();
-        Some(self)
+    fn make_nullmove(&self) -> Option<Self> {
+        let mut this = self.clone();
+        this.active_player = self.active_player.other();
+        Some(this)
     }
 
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {
@@ -1016,13 +1017,13 @@ mod test {
 
     #[test]
     fn perft_startpos_test() {
-        let r = perft(Depth::new_unchecked(1), MNKBoard::default());
+        let r = perft(Depth::new_unchecked(1), &MNKBoard::default());
         assert_eq!(r.depth.get(), 1);
         assert_eq!(r.nodes, 9);
         assert!(r.time.as_millis() <= 1); // 1 ms should be far more than enough even on a very slow device
         let r = split_perft(
             Depth::new_unchecked(2),
-            MNKBoard::empty_for_settings(MnkSettings::new(Height(8), Width(12), 2)),
+            &MNKBoard::empty_for_settings(MnkSettings::new(Height(8), Width(12), 2)),
         );
         assert_eq!(r.perft_res.depth.get(), 2);
         assert_eq!(r.perft_res.nodes, 96 * 95);
@@ -1030,7 +1031,7 @@ mod test {
         assert!(r.perft_res.time.as_millis() <= 50);
         let r = split_perft(
             Depth::new_unchecked(3),
-            MNKBoard::empty_for_settings(MnkSettings::new(Height(4), Width(3), 3)),
+            &MNKBoard::empty_for_settings(MnkSettings::new(Height(4), Width(3), 3)),
         );
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes, 12 * 11 * 10);
@@ -1038,7 +1039,7 @@ mod test {
         assert!(r.perft_res.time.as_millis() <= 1000);
         let r = split_perft(
             Depth::new_unchecked(5),
-            MNKBoard::empty_for_settings(MnkSettings::new(Height(5), Width(5), 5)),
+            &MNKBoard::empty_for_settings(MnkSettings::new(Height(5), Width(5), 5)),
         );
         assert_eq!(r.perft_res.depth.get(), 5);
         assert_eq!(r.perft_res.nodes, 25 * 24 * 23 * 22 * 21);
@@ -1047,7 +1048,7 @@ mod test {
 
         let r = split_perft(
             Depth::new_unchecked(9),
-            MNKBoard::startpos_for_settings(MnkSettings::titactoe()),
+            &MNKBoard::startpos_for_settings(MnkSettings::titactoe()),
         );
         assert_eq!(r.perft_res.depth.get(), 9);
         assert!(r.perft_res.nodes >= 100_000);
@@ -1059,7 +1060,7 @@ mod test {
         assert!(r.perft_res.time.as_millis() <= 4000);
 
         let board = MNKBoard::empty_for_settings(MnkSettings::new(Height(2), Width(2), 2));
-        let r = split_perft(Depth::new_unchecked(3), board);
+        let r = split_perft(Depth::new_unchecked(3), &board);
         assert_eq!(r.perft_res.depth.get(), 3);
         assert_eq!(r.perft_res.nodes, 2 * 3 * 4);
         assert!(r.children.iter().all(|x| x.1 == 2 * 3));

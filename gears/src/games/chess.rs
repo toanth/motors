@@ -5,6 +5,7 @@ use crossterm::style::Stylize;
 use itertools::Itertools;
 use rand::prelude::IteratorRandom;
 use rand::Rng;
+use std::cell::Cell;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroUsize;
 use std::ops::Not;
@@ -112,10 +113,11 @@ impl Color for ChessColor {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Copy, Clone, Arbitrary)]
+#[derive(Eq, PartialEq, Debug, Clone, Arbitrary)]
 pub struct Chessboard {
     piece_bbs: [RawStandardBitboard; NUM_CHESS_PIECES],
     color_bbs: [RawStandardBitboard; NUM_COLORS],
+    // attack_bb: Cell<RawStandardBitboard>,
     ply: usize,
     ply_100_ctr: usize,
     active_player: ChessColor,
@@ -167,6 +169,7 @@ impl Board for Chessboard {
         UnverifiedChessboard(Self {
             piece_bbs: Default::default(),
             color_bbs: Default::default(),
+            // attack_bb: Cell::new(RawStandardBitboard::default()),
             ply: 0,
             ply_100_ctr: 0,
             active_player: White,
@@ -313,8 +316,7 @@ impl Board for Chessboard {
             "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 b - - 0 1",
         ];
         fens.map(|fen| Self::from_fen(fen, Strict).unwrap())
-            .iter()
-            .copied()
+            .into_iter()
             .collect_vec()
     }
 
@@ -391,21 +393,22 @@ impl Board for Chessboard {
         moves.into_iter().choose(rng)
     }
 
-    fn make_move(self, mov: Self::Move) -> Option<Self> {
-        self.make_move_impl(mov, |_hash| ())
+    fn make_move(&self, mov: Self::Move) -> Option<Self> {
+        self.clone().make_move_impl(mov, |_hash| ())
     }
 
-    fn make_nullmove(mut self) -> Option<Self> {
-        self.ply += 1;
+    fn make_nullmove(&self) -> Option<Self> {
+        let mut this = self.clone();
+        this.ply += 1;
         // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove
-        self.ply_100_ctr = 0;
-        if self.ep_square.is_some() {
-            self.hash ^=
-                PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[self.ep_square.unwrap().file() as usize];
-            self.ep_square = None;
+        this.ply_100_ctr = 0;
+        if this.ep_square.is_some() {
+            this.hash ^=
+                PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[this.ep_square.unwrap().file() as usize];
+            this.ep_square = None;
         }
-        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
-        self.flip_side_to_move()
+        this.hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+        this.flip_side_to_move()
     }
 
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {
@@ -604,7 +607,8 @@ impl Board for Chessboard {
         piece_to_char: Option<PieceToChar>,
         last_move: Option<ChessMove>,
     ) -> Box<dyn BoardFormatter<Self>> {
-        let pos = *self;
+        let pos = self.clone();
+        let pos_copy = pos.clone();
         let king_square = self.king_square(self.active_player);
         let color_frame = Box::new(move |square, col| {
             if pos.is_in_check() && square == king_square {
@@ -614,10 +618,14 @@ impl Board for Chessboard {
             }
         });
         Box::new(AdaptFormatter {
-            underlying: Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move)),
+            underlying: Box::new(DefaultBoardFormatter::new(
+                self.clone(),
+                piece_to_char,
+                last_move,
+            )),
             color_frame,
             display_piece: Box::new(move |square, width, _default| {
-                let piece = pos.colored_piece_on(square);
+                let piece = pos_copy.colored_piece_on(square);
                 if piece.is_empty() {
                     if square.square_color() == SquareColor::White {
                         " ".repeat(width)
@@ -823,7 +831,7 @@ impl Chessboard {
         };
         let mut place_piece = |i: usize, typ: ChessPieceType| {
             let bit = ith_zero(i, board.0.occupied_bb());
-            board = board.place_piece_unchecked(
+            board = board.clone().place_piece_unchecked(
                 ChessSquare::from_bb_index(bit),
                 ColoredChessPieceType::new(White, typ),
             );
@@ -916,7 +924,7 @@ impl Display for Chessboard {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 #[must_use]
 pub struct UnverifiedChessboard(Chessboard);
 
@@ -1068,8 +1076,8 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
     }
 
     fn place_piece_unchecked(self, square: ChessSquare, piece: ColoredChessPieceType) -> Self {
-        let mut this = self.0;
-        debug_assert!(self.0.is_empty(square));
+        let mut this = self.0.clone();
+        debug_assert!(this.is_empty(square));
         let bb = square.bb().raw();
         this.piece_bbs[piece.uncolor() as usize] ^= bb;
         this.color_bbs[piece.color().unwrap() as usize] ^= bb;
@@ -1273,9 +1281,9 @@ mod tests {
             Relaxed,
         )
         .unwrap();
-        pos.debug_verify_invariants(Relaxed).unwrap();
+        let pos = pos.debug_verify_invariants(Relaxed).unwrap();
         for mov in pos.legal_moves_slow() {
-            let new_pos = pos.make_move(mov).unwrap_or(pos);
+            let new_pos = pos.make_move(mov).unwrap_or(pos.clone());
             new_pos.debug_verify_invariants(Relaxed).unwrap();
         }
         let mov = ChessMove::from_text("sB3x", &pos);
@@ -1286,16 +1294,16 @@ mod tests {
     fn simple_perft_test() {
         let endgame_fen = "6k1/8/6K1/8/3B1N2/8/8/7R w - - 0 1";
         let board = Chessboard::from_fen(endgame_fen, Relaxed).unwrap();
-        let perft_res = perft(Depth::new_unchecked(1), board);
+        let perft_res = perft(Depth::new_unchecked(1), &board);
         assert_eq!(perft_res.depth, Depth::new_unchecked(1));
         assert_eq!(perft_res.nodes, 5 + 7 + 13 + 14);
         assert!(perft_res.time.as_millis() <= 1);
         let board = Chessboard::default();
-        let perft_res = perft(Depth::new_unchecked(1), board);
+        let perft_res = perft(Depth::new_unchecked(1), &board);
         assert_eq!(perft_res.depth, Depth::new_unchecked(1));
         assert_eq!(perft_res.nodes, 20);
         assert!(perft_res.time.as_millis() <= 2);
-        let perft_res = perft(Depth::new_unchecked(2), board);
+        let perft_res = perft(Depth::new_unchecked(2), &board);
         assert_eq!(perft_res.depth, Depth::new_unchecked(2));
         assert_eq!(perft_res.nodes, 20 * 20);
         assert!(perft_res.time.as_millis() <= 20);
@@ -1305,16 +1313,16 @@ mod tests {
             Strict,
         )
         .unwrap();
-        let perft_res = perft(Depth::new_unchecked(1), board);
+        let perft_res = perft(Depth::new_unchecked(1), &board);
         assert_eq!(perft_res.nodes, 26);
-        assert_eq!(perft(Depth::new_unchecked(3), board).nodes, 16790);
+        assert_eq!(perft(Depth::new_unchecked(3), &board).nodes, 16790);
 
         let board = Chessboard::from_fen(
             "rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9",
             Strict,
         )
         .unwrap();
-        let perft_res = perft(Depth::new_unchecked(4), board);
+        let perft_res = perft(Depth::new_unchecked(4), &board);
         assert_eq!(perft_res.nodes, 890_435);
 
         // DFRC
@@ -1323,7 +1331,7 @@ mod tests {
             Strict,
         )
         .unwrap();
-        assert_eq!(perft(Depth::new_unchecked(4), board).nodes, 1_187_103);
+        assert_eq!(perft(Depth::new_unchecked(4), &board).nodes, 1_187_103);
     }
 
     #[test]
@@ -1415,7 +1423,7 @@ mod tests {
         let pos = Chessboard::from_fen(fen, Strict).unwrap();
         assert_eq!(pos.active_player, White);
         assert_eq!(pos.ply, 4);
-        assert!(pos.debug_verify_invariants(Strict).is_ok());
+        assert!(pos.clone().debug_verify_invariants(Strict).is_ok());
         assert!(pos.is_in_check());
         assert!(pos.is_in_check_on_square(White, pos.king_square(White)));
         let moves = pos.pseudolegal_moves();
@@ -1456,7 +1464,7 @@ mod tests {
         let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
         let board = Chessboard::from_fen(fen, Strict).unwrap();
         assert_eq!(board.active_player, White);
-        assert_eq!(perft(Depth::new_unchecked(3), board).nodes, 568_299);
+        assert_eq!(perft(Depth::new_unchecked(3), &board).nodes, 568_299);
         // not a legal chess position, but the board should support this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
         assert!(Chessboard::from_fen(fen, Strict).is_err());
@@ -1475,7 +1483,7 @@ mod tests {
         let fen = "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1";
         let board = Chessboard::from_fen(fen, Strict).unwrap();
         assert_eq!(board.legal_moves_slow().len(), 218);
-        assert!(board.debug_verify_invariants(Strict).is_ok());
+        assert!(board.clone().debug_verify_invariants(Strict).is_ok());
         let board = board.flip_side_to_move().unwrap();
         assert!(board.legal_moves_slow().is_empty());
         assert_eq!(board.player_result_slow(&NoHistory::default()), Some(Draw));
@@ -1487,7 +1495,7 @@ mod tests {
         let mut startpos_found = false;
         for i in 0..960 {
             let board = Chessboard::chess_960_startpos(i).unwrap();
-            assert!(board.debug_verify_invariants(Strict).is_ok());
+            assert!(board.clone().debug_verify_invariants(Strict).is_ok());
             assert!(fens.insert(board.as_fen()));
             let num_moves = board.pseudolegal_moves().len();
             assert!((18..=21).contains(&num_moves)); // 21 legal moves because castling can be legal

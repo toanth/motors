@@ -230,7 +230,7 @@ impl BoardToText {
         );
         let mut board = m.initial_pos();
         for (ply, mov) in m.move_history().iter().enumerate() {
-            let mov_str = mov.extended_formatter(board, Standard);
+            let mov_str = mov.extended_formatter(&board, Standard);
             if ply % 2 == 0 {
                 res += &format!("\n{}. {mov_str}", ply / 2 + 1);
             } else {
@@ -762,7 +762,7 @@ impl<B: RectangularBoard> DefaultBoardFormatter<B> {
         let flip = pos.active_player() == B::Color::second();
         Self {
             piece_to_char,
-            pos,
+            pos: pos.clone(),
             last_move,
             flip,
             vertical_spacer_interval: pos.get_height(),

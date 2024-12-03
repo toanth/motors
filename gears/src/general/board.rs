@@ -61,7 +61,7 @@ pub enum Strictness {
     Strict,
 }
 
-pub trait UnverifiedBoard<B: Board>: Debug + Copy + Clone + From<B>
+pub trait UnverifiedBoard<B: Board>: Debug + Clone + From<B>
 where
     B: Board<Unverified = Self>,
 {
@@ -172,7 +172,6 @@ pub trait Board:
     + Default
     + Debug
     + Display
-    + Copy
     + Clone
     + Send
     + Sync
@@ -364,12 +363,12 @@ pub trait Board:
     /// like ignoring a check in chess. Not meant to return None on moves that never make sense,
     /// like moving to a square outside the board (in that case, the function should panic).
     /// In other words, this function only gracefully checks legality assuming that the move is pseudolegal.
-    fn make_move(self, mov: Self::Move) -> Option<Self>;
+    fn make_move(&self, mov: Self::Move) -> Option<Self>;
 
     /// Makes a nullmove, i.e. flips the active player. While this action isn't strictly legal in most games,
     /// it's still very useful and necessary for null move pruning.
     /// `make_move`
-    fn make_nullmove(self) -> Option<Self>;
+    fn make_nullmove(&self) -> Option<Self>;
 
     /// Returns true iff the move is pseudolegal, that is, it can be played with `make_move` without
     /// causing a panic. When it is not certain that a move is definitely (pseudo)legal, `Untrusted<Move>`
@@ -691,13 +690,11 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
                 bail!("FEN position contains at least {square} squares, but the board only has {0} squares", board.size().num_squares());
             }
 
-            board = board.place_piece_unchecked(
-                board
-                    .size()
-                    .idx_to_coordinates(square as DimT)
-                    .flip_up_down(board.size()),
-                symbol,
-            );
+            let sq = board
+                .size()
+                .idx_to_coordinates(square as DimT)
+                .flip_up_down(board.size());
+            board = board.place_piece_unchecked(sq, symbol);
             square += 1;
         }
         handle_skipped(line.len(), skipped_digits, &mut square)?;

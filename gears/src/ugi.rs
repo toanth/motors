@@ -271,7 +271,7 @@ pub fn parse_ugi_position_part<B: Board>(
     Ok(match first_word.to_ascii_lowercase().as_str() {
         "fen" | "f" => B::read_fen_and_advance_input(rest, strictness)?,
         "startpos" | "s" => B::startpos_for_settings(old_board.settings()),
-        "current" | "c" => *old_board,
+        "current" | "c" => old_board.clone(),
         name => B::from_name(name).map_err(|err| {
             anyhow!(
                 "{err} Additionally, '{0}', '{1}' and '{2}' are also always recognized.",
@@ -378,7 +378,7 @@ pub fn load_ugi_position<B: Board>(
     strictness: Strictness,
     old_board: &B,
 ) -> Res<B> {
-    let mut board = *old_board;
+    let mut board = old_board.clone();
     parse_ugi_position_and_moves(
         first_word,
         rest,

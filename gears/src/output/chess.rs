@@ -101,13 +101,14 @@ fn pretty_as_chessboard<B: RectangularBoard>(
     pos: &B,
     formatter: Box<dyn BoardFormatter<B>>,
 ) -> String {
-    let pos = *pos;
+    let pos = pos.clone();
+    let pos_copy = pos.clone();
     let flip = formatter.flip_board();
     let formatter = AdaptFormatter {
         underlying: formatter,
         color_frame: Box::new(|_, color| color),
         display_piece: Box::new(move |square, width, _| {
-            let piece = pos.colored_piece_on(square);
+            let piece = pos_copy.colored_piece_on(square);
             if let Some(color) = piece.color() {
                 format!("{0:^1$}", piece.to_ascii_char(), width)
                     .with(display_color(color))

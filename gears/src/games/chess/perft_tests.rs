@@ -16,7 +16,7 @@ mod tests {
     #[test]
     fn kiwipete_test() {
         let board = Chessboard::from_name("kiwipete").unwrap();
-        let res = perft(Depth::new_unchecked(4), board);
+        let res = perft(Depth::new_unchecked(4), &board);
         assert_eq!(res.nodes, 4_085_603);
         // Disabled in debug mode because that would take too long. TODO: Optimize movegen, especially in debug mode.
         if !cfg!(debug_assertions) {
@@ -26,7 +26,7 @@ mod tests {
                 Strict,
             )
             .unwrap();
-            let res = perft(Depth::new_unchecked(4), board);
+            let res = perft(Depth::new_unchecked(4), &board);
             assert_eq!(res.nodes, 4_119_629);
             // kiwipete after white plays a2a3
             let board = Chessboard::from_fen(
@@ -34,7 +34,7 @@ mod tests {
                 Strict,
             )
             .unwrap();
-            let res = perft(Depth::new_unchecked(4), board);
+            let res = perft(Depth::new_unchecked(4), &board);
             assert_eq!(res.nodes, 4_627_439);
         }
     }
@@ -46,15 +46,15 @@ mod tests {
             Strict,
         )
         .unwrap();
-        let res = perft(Depth::new_unchecked(1), board);
+        let res = perft(Depth::new_unchecked(1), &board);
         assert_eq!(res.nodes, 99);
         assert!(res.time.as_millis() <= 2);
-        let res = perft(Depth::new_unchecked(2), board);
+        let res = perft(Depth::new_unchecked(2), &board);
         assert_eq!(res.nodes, 6271);
-        let res = perft(Depth::new_unchecked(3), board);
+        let res = perft(Depth::new_unchecked(3), &board);
         assert_eq!(res.nodes, 568_299);
         if cfg!(not(debug_assertions)) {
-            let res = perft(Depth::new_unchecked(4), board);
+            let res = perft(Depth::new_unchecked(4), &board);
             assert_eq!(res.nodes, 34_807_627);
         }
     }
@@ -75,7 +75,7 @@ mod tests {
         ];
         for (depth, perft_num) in expected.iter().enumerate() {
             assert_eq!(
-                perft(Depth::new_unchecked(depth + 1), pos).nodes,
+                perft(Depth::new_unchecked(depth + 1), &pos).nodes,
                 *perft_num
             );
         }
@@ -164,7 +164,7 @@ mod tests {
                             .enumerate()
                             .filter(|(_depth, x)| **x != INVALID)
                         {
-                            let res = perft(Depth::new_unchecked(depth), board);
+                            let res = perft(Depth::new_unchecked(depth), &board);
                             assert_eq!(res.depth.get(), depth);
                             assert_eq!(res.nodes, *expected_count);
                             println!(

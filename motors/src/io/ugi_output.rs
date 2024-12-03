@@ -92,7 +92,7 @@ impl<B: Board> UgiOutput<B> {
         }
     }
 
-    pub fn write_search_res(&mut self, res: SearchResult<B>) {
+    pub fn write_search_res(&mut self, res: &SearchResult<B>) {
         if self.pretty {
             let mut move_text = res
                 .chosen_move
@@ -170,7 +170,7 @@ impl<B: Board> UgiOutput<B> {
 
         let pv = pretty_pv(
             &info.pv,
-            info.pos,
+            &info.pos,
             self.previous_info.as_ref().map(|i| i.pv.as_ref()),
             info.mpv_type(),
         );
@@ -370,7 +370,7 @@ fn write_move_nr(
 
 fn pretty_pv<B: Board>(
     pv: &[B::Move],
-    mut pos: B,
+    pos: &B,
     previous: Option<&[B::Move]>,
     mpv_type: MpvType,
 ) -> String {
@@ -378,6 +378,7 @@ fn pretty_pv<B: Board>(
     let mut same_so_far = true;
     let mut res = String::new();
     let pv = pv.iter();
+    let mut pos = pos.clone();
     for (idx, mov) in pv.enumerate() {
         if !pos.is_move_legal(*mov) {
             return format!("{res} [Invalid PV move '{}'", mov.to_string().error());

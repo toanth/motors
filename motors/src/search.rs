@@ -203,11 +203,13 @@ impl Display for BenchResult {
 }
 
 // TODO: Use ArrayVec
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Pv<B: Board, const LIMIT: usize> {
     list: [B::Move; LIMIT],
     length: usize,
 }
+
+impl<B: Board, const LIMIT: usize> Copy for Pv<B, LIMIT> {}
 
 impl<B: Board, const LIMIT: usize> Default for Pv<B, LIMIT> {
     fn default() -> Self {
@@ -418,15 +420,15 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
     /// For engines like `RandomMover` where there is no static eval, this should return `Score(0)`.
     /// Most evals completely ignore the `ply` parameter, but it can be used e.g. to decide which color we are
     /// for asymmetric evals.
-    fn static_eval(&mut self, pos: B, ply: usize) -> Score;
+    fn static_eval(&mut self, pos: &B, ply: usize) -> Score;
 
-    fn clean_bench(&mut self, pos: B, limit: SearchLimit) -> BenchResult {
+    fn clean_bench(&mut self, pos: &B, limit: SearchLimit) -> BenchResult {
         self.forget();
         let _ = self.search_with_new_tt(pos, limit);
         self.search_state_dyn().to_bench_res()
     }
 
-    fn bench(&mut self, pos: B, limit: SearchLimit, tt: TT) -> BenchResult {
+    fn bench(&mut self, pos: &B, limit: SearchLimit, tt: TT) -> BenchResult {
         let _ = self.search_with_tt(pos, limit, tt);
         self.search_state_dyn().to_bench_res()
     }
@@ -536,11 +538,11 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
     fn set_eval(&mut self, eval: Box<dyn Eval<B>>);
 
     /// The simplest version of the search function, ignores history-related rules like repetitions.
-    fn search_with_new_tt(&mut self, pos: B, limit: SearchLimit) -> SearchResult<B> {
+    fn search_with_new_tt(&mut self, pos: &B, limit: SearchLimit) -> SearchResult<B> {
         self.search_with_tt(pos, limit, TT::default())
     }
 
-    fn search_with_tt(&mut self, pos: B, limit: SearchLimit, tt: TT) -> SearchResult<B> {
+    fn search_with_tt(&mut self, pos: &B, limit: SearchLimit, tt: TT) -> SearchResult<B> {
         self.search(SearchParams::new_unshared(
             pos,
             limit,
@@ -554,7 +556,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
     fn search(&mut self, search_params: SearchParams<B>) -> SearchResult<B> {
         self.search_state_mut_dyn().new_search(search_params);
         let res = self.do_search();
-        self.search_state_mut_dyn().end_search(res);
+        self.search_state_mut_dyn().end_search(&res);
         res
     }
 
@@ -596,11 +598,11 @@ pub struct SearchParams<B: Board> {
 }
 
 impl<B: Board> SearchParams<B> {
-    pub fn for_pos(pos: B, limit: SearchLimit) -> Self {
+    pub fn for_pos(pos: &B, limit: SearchLimit) -> Self {
         Self::new_unshared(pos, limit, ZobristHistory::default(), TT::default())
     }
 
-    pub fn new_unshared(pos: B, limit: SearchLimit, history: ZobristHistory<B>, tt: TT) -> Self {
+    pub fn new_unshared(pos: &B, limit: SearchLimit, history: ZobristHistory<B>, tt: TT) -> Self {
         Self::with_atomic_state(
             pos,
             limit,
@@ -611,7 +613,7 @@ impl<B: Board> SearchParams<B> {
     }
 
     pub fn with_atomic_state(
-        pos: B,
+        pos: &B,
         limit: SearchLimit,
         history: ZobristHistory<B>,
         tt: TT,
@@ -622,7 +624,7 @@ impl<B: Board> SearchParams<B> {
 
     #[expect(clippy::too_many_arguments)]
     pub fn create(
-        pos: B,
+        pos: &B,
         limit: SearchLimit,
         history: ZobristHistory<B>,
         tt: TT,
@@ -631,6 +633,7 @@ impl<B: Board> SearchParams<B> {
         atomic: Arc<AtomicSearchState<B>>,
         thread_type: SearchThreadType<B>,
     ) -> Self {
+        let pos = pos.clone();
         Self {
             pos,
             limit,
@@ -662,7 +665,7 @@ impl<B: Board> SearchParams<B> {
         // allow calling this on an auxiliary thread as well
         //assert!(matches!(self.thread_type, Main(_)));
         Self {
-            pos: self.pos,
+            pos: self.pos.clone(),
             limit: self.limit,
             atomic,
             history: self.history.clone(),
@@ -708,7 +711,7 @@ impl<B: Board> CustomInfo<B> for NoCustomInfo {
     fn hard_forget_except_tt(&mut self) {}
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 struct PVData<B: Board> {
     alpha: Score,
     beta: Score,
@@ -716,6 +719,8 @@ struct PVData<B: Board> {
     pv: Pv<B, 200>, // A PV of 200 plies should be more than enough for anybody (tm)
     score: Score,
 }
+
+impl<B: Board> Copy for PVData<B> {}
 
 impl<B: Board> Default for PVData<B> {
     fn default() -> Self {
@@ -732,7 +737,7 @@ impl<B: Board> Default for PVData<B> {
 pub trait AbstractSearchState<B: Board> {
     fn forget(&mut self, hard: bool);
     fn new_search(&mut self, params: SearchParams<B>);
-    fn end_search(&mut self, res: SearchResult<B>);
+    fn end_search(&mut self, res: &SearchResult<B>);
     fn search_params(&self) -> &SearchParams<B>;
     fn to_bench_res(&self) -> BenchResult;
     fn to_search_info(&self, complete: bool) -> SearchInfo<B>;
@@ -810,7 +815,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
         // can already be set
     }
 
-    fn end_search(&mut self, res: SearchResult<B>) {
+    fn end_search(&mut self, res: &SearchResult<B>) {
         self.statistics_mut().end_search();
         self.send_statistics();
         self.aggregate_match_statistics();
@@ -860,7 +865,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
             pv: self.current_mpv_pv().into(),
             score: self.current_pv_data().score,
             hashfull: self.estimate_hashfull(),
-            pos: self.params.pos,
+            pos: self.params.pos.clone(),
             complete,
             additional: Self::additional(),
         }
@@ -917,7 +922,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             self.best_move(),
             self.best_score(),
             self.ponder_move(),
-            self.params.pos,
+            &self.params.pos,
         )
     }
 
@@ -956,7 +961,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     /// c) the search hasn't been cancelled yet. It will wait until the search has been cancelled.
     /// Auxiliary threads and ponder searches both return instantly from this function, without printing anything.
     /// If the search result has chosen a null move, this instead outputs a warning and a random legal move.
-    fn send_search_res(&mut self, res: SearchResult<B>) {
+    fn send_search_res(&mut self, res: &SearchResult<B>) {
         let search_params = self.search_params();
         let Main(data) = &search_params.thread_type else {
             return;
@@ -969,7 +974,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
                 spin_loop();
             }
         }
-        let pos = self.search_params().pos;
+        let pos = &self.search_params().pos;
         let mut output = data.output.lock().unwrap();
         if res.chosen_move == B::Move::default() {
             let mut rng = StdRng::seed_from_u64(42); // keep everything deterministic
@@ -977,7 +982,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             if chosen_move != B::Move::default() {
                 debug_assert!(pos.is_move_legal(chosen_move));
                 output.write_message(Warning, "Not even a single iteration finished");
-                output.write_search_res(SearchResult::<B>::move_only(chosen_move, pos));
+                output.write_search_res(&SearchResult::<B>::move_only(chosen_move, pos));
                 return;
             }
             output.write_message(Warning, "search() called in a position with no legal moves");
@@ -994,7 +999,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     fn new_with(search_stack: Vec<E>, custom: C) -> Self {
         let start_time = Instant::now();
         let params = SearchParams::new_unshared(
-            B::default(),
+            &B::default(),
             SearchLimit::infinite(),
             ZobristHistory::default(),
             TT::minimal(),
@@ -1182,7 +1187,7 @@ fn single_bench<B: Board>(
         limit.fixed_time = limit.fixed_time.min(Duration::from_millis(20));
         limit
     };
-    let res = engine.bench(*pos, limit, tt);
+    let res = engine.bench(pos, limit, tt);
     total.nodes += res.nodes;
     total.time += res.time;
     total.max_depth = total.max_depth.max(res.max_depth);
@@ -1198,11 +1203,11 @@ mod tests {
     pub fn generic_engine_test<B: Board, E: Engine<B>>(mut engine: E) {
         let tt = TT::default();
         for p in B::bench_positions() {
-            let res = engine.bench(p, SearchLimit::nodes_(1), tt.clone());
+            let res = engine.bench(&p, SearchLimit::nodes_(1), tt.clone());
             assert!(res.depth.is_none());
             assert!(res.max_depth.get() <= 1);
             assert!(res.nodes <= 100); // TODO: Assert exactly 1
-            let res = engine.search_with_new_tt(p, SearchLimit::depth_(1));
+            let res = engine.search_with_new_tt(&p, SearchLimit::depth_(1));
             let legal_moves = p.legal_moves_slow();
             if legal_moves.num_moves() > 0 {
                 assert!(legal_moves.into_iter().contains(&res.chosen_move));
@@ -1211,14 +1216,14 @@ mod tests {
             }
             // empty search moves, which is something the engine should handle
             let res = engine
-                .search(SearchParams::for_pos(p, SearchLimit::depth_(2)).restrict_moves(vec![]));
+                .search(SearchParams::for_pos(&p, SearchLimit::depth_(2)).restrict_moves(vec![]));
             assert!(res.chosen_move.is_null());
             let mut search_moves = p.pseudolegal_moves().into_iter().collect_vec();
             search_moves.truncate(search_moves.len() / 2);
             search_moves.push(search_moves.first().copied().unwrap_or_default());
             search_moves.push(B::Move::default());
             let multi_pv = search_moves.len() + 3;
-            let params = SearchParams::for_pos(p, SearchLimit::nodes_(1_234))
+            let params = SearchParams::for_pos(&p, SearchLimit::nodes_(1_234))
                 .additional_pvs(multi_pv - 1)
                 .restrict_moves(search_moves.clone());
             let res = engine.search(params);

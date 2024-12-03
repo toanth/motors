@@ -160,11 +160,11 @@ impl<B: Board> BoardGameState<B> {
                 self.board
             )
         })?;
-        Ok(self.board)
+        Ok(self.board.clone())
     }
 
     fn clear_state(&mut self) {
-        self.board = self.initial_pos;
+        self.board = self.initial_pos.clone();
         self.mov_hist.clear();
         self.board_hist.clear();
         self.status = Run(NotStarted);
@@ -176,7 +176,7 @@ impl<B: Board> BoardGameState<B> {
         allow_pos_word: bool,
         strictness: Strictness,
     ) -> Res<()> {
-        let pos = self.board;
+        let pos = self.board.clone();
         let Some(next_word) = words.next() else {
             bail!(
                 "Missing position after '{}' command",
@@ -192,7 +192,7 @@ impl<B: Board> BoardGameState<B> {
             self,
             |this, mov| this.make_move(mov).map(|_| ()),
             |this| {
-                this.initial_pos = this.board;
+                this.initial_pos = this.board.clone();
                 this.clear_state()
             },
             |state| &mut state.board,
@@ -266,11 +266,11 @@ impl<B: Board> AbstractRun for EngineUGI<B> {
 
 impl<B: Board> GameState<B> for EngineGameState<B> {
     fn initial_pos(&self) -> B {
-        self.initial_pos
+        self.initial_pos.clone()
     }
 
     fn get_board(&self) -> B {
-        self.board
+        self.board.clone()
     }
 
     fn game_name(&self) -> &str {
@@ -631,7 +631,7 @@ impl<B: Board> EngineUGI<B> {
             create_engine_box_from_str(&engine, &self.searcher_factories, &self.eval_factories)?;
         let limit = SearchLimit::per_move(Duration::from_millis(1_000));
         let params = SearchParams::new_unshared(
-            self.state.board,
+            &self.state.board,
             limit,
             self.state.board_hist.clone(),
             TT::default(),
@@ -859,7 +859,7 @@ impl<B: Board> EngineUGI<B> {
                 let bench_positions = if opts.complete {
                     B::bench_positions()
                 } else {
-                    vec![self.state.board]
+                    vec![self.state.board.clone()]
                 };
                 return self.bench(opts.limit, &bench_positions);
             }
@@ -867,7 +867,7 @@ impl<B: Board> EngineUGI<B> {
                 let positions = if opts.complete {
                     B::bench_positions()
                 } else {
-                    vec![self.state.board]
+                    vec![self.state.board.clone()]
                 };
                 self.output()
                     .write_ugi(&perft_for(opts.limit.depth, &positions).to_string())
@@ -879,7 +879,7 @@ impl<B: Board> EngineUGI<B> {
                         "splitperft".important()
                     )
                 }
-                self.write_ugi(&split_perft(opts.limit.depth, self.state.board).to_string());
+                self.write_ugi(&split_perft(opts.limit.depth, &self.state.board).to_string());
             }
             _ => return self.start_search(opts),
         }
@@ -966,7 +966,7 @@ impl<B: Board> EngineUGI<B> {
                 let mut eval =
                     create_eval_from_str(&eval_name.short_name(), &self.eval_factories)?.build();
                 let eval_score = eval.eval(&state.board, 0);
-                let diagram = show_eval_pos(state.board, state.last_move(), eval);
+                let diagram = show_eval_pos(&state.board, state.last_move(), eval);
                 diagram
                     + &format!(
                         "Eval Score: {}\n",
@@ -1455,7 +1455,7 @@ impl<B: Board> EngineUGI<B> {
 
 // take a BoardGameState instead of a board to correctly handle displaying the last move
 fn format_tt_entry<B: Board>(state: BoardGameState<B>, entry: TTEntry<B>) -> String {
-    let pos = state.board;
+    let pos = state.board.clone();
     let formatter = pos.pretty_formatter(None, state.last_move());
     let mov = entry.mov.check_legal(&pos);
     let mut formatter = AdaptFormatter {
@@ -1501,7 +1501,9 @@ fn format_tt_entry<B: Board>(state: BoardGameState<B>, entry: TTEntry<B>) -> Str
     res
 }
 
-fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>) -> String {
+fn show_eval_pos<B: Board>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>>) -> String {
+    let pos = pos.clone();
+    let pos_copy = pos.clone();
     let eval = RefCell::new(eval);
     let formatter = pos.pretty_formatter(None, last);
     let eval_pos = eval.borrow_mut().eval(&pos, 0);
@@ -1517,7 +1519,7 @@ fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>
                 "{}:",
                 piece.to_ascii_char().to_string().with(display_color(color))
             );
-            let score = match pos.remove_piece(coords).unwrap().verify(Relaxed) {
+            let score = match pos.clone().remove_piece(coords).unwrap().verify(Relaxed) {
                 Ok(pos) => {
                     let diff = eval_pos - eval.borrow_mut().eval(&pos, 0);
                     let (val, suffix) = suffix_for(diff.0 as isize, Some(10_000));
@@ -1537,5 +1539,5 @@ fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>
         vertical_spacer_interval: None,
         square_width: Some(7),
     };
-    pos.display_pretty(&mut formatter)
+    pos_copy.display_pretty(&mut formatter)
 }

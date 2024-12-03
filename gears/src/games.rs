@@ -145,12 +145,14 @@ where
     }
 }
 
-#[derive(Eq, PartialEq, Default, Debug, Copy, Clone)]
+#[derive(Eq, PartialEq, Default, Debug, Clone)]
 #[must_use]
 pub struct GenericPiece<B: Board, ColType: ColoredPieceType<B>> {
     symbol: ColType,
     coordinates: B::Coordinates,
 }
+
+impl<B: Board, ColType: ColoredPieceType<B>> Copy for GenericPiece<B, ColType> {}
 
 impl<B: Board<Piece = Self>, ColType: ColoredPieceType<B>> ColoredPiece<B>
     for GenericPiece<B, ColType>
@@ -376,7 +378,7 @@ impl<B: Board> BoardHistory<B> for BoardCopyHistory<B> {
     }
 
     fn push(&mut self, board: &B) {
-        self.0.push(*board);
+        self.0.push(board.clone());
     }
 
     fn pop(&mut self) {

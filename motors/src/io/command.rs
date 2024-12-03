@@ -625,7 +625,7 @@ impl<B: Board> GoState<B> {
             search_type,
             complete: false,
             strictness: ugi.strictness,
-            board: ugi.state.board,
+            board: ugi.state.board.clone(),
             board_hist: ugi.state.board_hist.clone(),
             move_overhead,
         }
@@ -1009,7 +1009,7 @@ pub fn query_options<B: Board>() -> CommandList<EngineUGI<B>> {
             }
         ),
         ugi_command!(game | g, Custom, "The current game", |ugi, _, _| {
-            let board = ugi.state.board;
+            let board = &ugi.state.board;
             ugi.write_ugi(&format!(
                 "{0}\n{1}",
                 &board.long_name(),
@@ -1055,7 +1055,7 @@ pub fn position_options<B: Board>(accept_pos_word: bool, pos: Option<B>) -> Comm
                 *pos = parse_ugi_position_part("fen", words, false, pos, Relaxed)?;
                 Ok(())
             },
-            -> |state: ACState<B>| moves_options(state.pos, true)
+            -> |state: ACState<B>| moves_options(&state.pos, true)
         ),
         pos_command!(
             startpos | s,
@@ -1065,7 +1065,7 @@ pub fn position_options<B: Board>(accept_pos_word: bool, pos: Option<B>) -> Comm
                 *pos = B::startpos();
                 Ok(())
             },
-            -> |state: ACState<B>| moves_options(state.pos, true),
+            -> |state: ACState<B>| moves_options(&state.pos, true),
             [] |mut state: ACState<B>| {
                 state.pos = B::default();
                 state
@@ -1076,7 +1076,7 @@ pub fn position_options<B: Board>(accept_pos_word: bool, pos: Option<B>) -> Comm
             Custom,
             "Current position, useful in combination with 'moves'",
             |_, _, _| Ok(()),
-            -> |state: ACState<B>| moves_options(state.pos, true)
+            -> |state: ACState<B>| moves_options(&state.pos, true)
         ),
     ];
     if accept_pos_word {
@@ -1107,17 +1107,17 @@ pub fn position_options<B: Board>(accept_pos_word: bool, pos: Option<B>) -> Comm
                 state.pos = func();
                 state
             })),
-            sub_commands: SubCommandsFn::new(|state: ACState<B>| moves_options(state.pos, true)),
+            sub_commands: SubCommandsFn::new(|state: ACState<B>| moves_options(&state.pos, true)),
         });
         res.push(c);
     }
     if let Some(pos) = pos {
-        res.append(&mut moves_options(pos, true))
+        res.append(&mut moves_options(&pos, true))
     }
     res
 }
 
-pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool) -> CommandList<B> {
+pub fn moves_options<B: Board>(pos: &B, allow_moves_word: bool) -> CommandList<B> {
     let mut res: CommandList<B> = vec![];
     if allow_moves_word {
         res.push(pos_command!(
@@ -1125,13 +1125,13 @@ pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool) -> CommandList<B>
             All,
             "Apply moves to the specified position",
             |_, _, _| Ok(()),
-            -> |state: ACState<B>| moves_options(state.pos, false)
+            -> |state: ACState<B>| moves_options(&state.pos, false)
         ));
     }
     for mov in pos.legal_moves_slow().iter_moves() {
         let primary_name = mov.to_string();
         let mut other_names = ArrayVec::default();
-        let extended = mov.to_extended_text(&pos, ExtendedFormat::Standard);
+        let extended = mov.to_extended_text(pos, ExtendedFormat::Standard);
         if extended != primary_name {
             other_names.push(extended);
         }
@@ -1149,7 +1149,7 @@ pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool) -> CommandList<B>
             })),
             sub_commands: SubCommandsFn::new(move |state: ACState<B>| {
                 // let pos = state.pos.make_move(the_move).unwrap_or(state.pos);
-                moves_options(state.pos, false)
+                moves_options(&state.pos, false)
             }),
         };
         res.push(Box::new(cmd));
@@ -1251,7 +1251,7 @@ impl<B: Board> CommandAutocomplete<B> {
         Self {
             list: Rc::new(list),
             state: ACState {
-                pos: ugi.state.board,
+                pos: ugi.state.board.clone(),
                 outputs: ugi.output_factories.clone(),
                 searchers: ugi.searcher_factories.clone(),
                 evals: ugi.eval_factories.clone(),
@@ -1375,7 +1375,7 @@ fn suggestions<B: Board>(
         }
     }
     if should_complete_this {
-        let moves = moves_options(autocomplete.state.pos, false);
+        let moves = moves_options(&autocomplete.state.pos, false);
         for mov in moves {
             push(&mut res, to_complete, mov.upcast_box().as_ref());
         }

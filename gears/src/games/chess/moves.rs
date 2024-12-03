@@ -438,11 +438,11 @@ impl Chessboard {
     }
 
     pub fn make_move_and_prefetch_tt<F: Fn(ZobristHash)>(
-        self,
+        &self,
         mov: ChessMove,
         prefetch: F,
     ) -> Option<Self> {
-        self.make_move_impl(mov, prefetch)
+        self.clone().make_move_impl(mov, prefetch)
     }
 
     /// Is only ever called on a copy of the board, so no need to undo the changes when a move gets aborted due to pseudo-legality.
@@ -1161,7 +1161,7 @@ mod tests {
             for pos in Chessboard::bench_positions() {
                 if let Some(mov) = mov.check_pseudolegal(&pos) {
                     println!("{pos} -- {mov} {}", mov.flags() as usize);
-                    pos.make_move(mov);
+                    _ = pos.make_move(mov);
                     // check that the move representation is unique
                     assert!(
                         pos.pseudolegal_moves().contains(&mov),

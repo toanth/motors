@@ -110,9 +110,9 @@ where
 
     /// Returns a formatter object that implements `Display` such that it prints the result of `to_extended_text`.
     /// Like [`self.format_extended`], an implementation *may* choose to not require pseudolegality.
-    fn extended_formatter(self, pos: B, format: ExtendedFormat) -> ExtendedFormatter<B> {
+    fn extended_formatter(self, pos: &B, format: ExtendedFormat) -> ExtendedFormatter<B> {
         ExtendedFormatter {
-            pos,
+            pos: pos.clone(),
             mov: self,
             format,
         }
@@ -120,7 +120,7 @@ where
 
     /// A convenience method based on `format_extended` that returns a `String`.
     fn to_extended_text(self, board: &B, format: ExtendedFormat) -> String {
-        self.extended_formatter(*board, format).to_string()
+        self.extended_formatter(board, format).to_string()
     }
 
     /// Parse a longer text representation emitted by `format_extended`, such as long algebraic notation.
@@ -179,10 +179,12 @@ impl<B: Board> Display for ExtendedFormatter<B> {
 /// where it is expected to be used. For example, moves generated through normal movegen functions should always be at least
 /// pseudolegal for the given position, but a move loaded from the TT may not be pseudolegal, which is why it's wrapped
 /// in this struct.
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
 #[must_use]
 #[repr(transparent)]
 pub struct UntrustedMove<B: Board>(B::Move);
+
+impl<B: Board> Copy for UntrustedMove<B> {}
 
 impl<B: Board> Display for UntrustedMove<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {

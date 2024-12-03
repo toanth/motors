@@ -753,24 +753,26 @@ impl Board for UtttBoard {
         self.random_legal_move(rng)
     }
 
-    fn make_move(mut self, mov: Self::Move) -> Option<Self> {
+    fn make_move(&self, mov: Self::Move) -> Option<Self> {
+        let mut this = self.clone();
         let color = self.active;
         let square = mov.dest_square();
         let bb = ExtendedRawBitboard::single_piece(square.bb_idx());
-        self.colors_internal[color as usize] |= bb;
-        self.open &= !bb;
-        self.update_won_bb(square, color);
-        self.active = !self.active;
-        self.last_move = mov;
-        self.ply_since_start += 1;
-        Some(self)
+        this.colors_internal[color as usize] |= bb;
+        this.open &= !bb;
+        this.update_won_bb(square, color);
+        this.active = !this.active;
+        this.last_move = mov;
+        this.ply_since_start += 1;
+        Some(this)
     }
 
-    fn make_nullmove(mut self) -> Option<Self> {
-        self.active = !self.active;
-        self.last_move = UtttMove::NULL;
-        self.ply_since_start += 1;
-        Some(self)
+    fn make_nullmove(&self) -> Option<Self> {
+        let mut this = self.clone();
+        this.active = !this.active;
+        this.last_move = UtttMove::NULL;
+        this.ply_since_start += 1;
+        Some(this)
     }
 
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {

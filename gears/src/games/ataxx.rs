@@ -284,15 +284,16 @@ impl Board for AtaxxBoard {
         self.random_legal_move(rng)
     }
 
-    fn make_move(self, mov: Self::Move) -> Option<Self> {
-        Some(self.make_move_impl(mov))
+    fn make_move(&self, mov: Self::Move) -> Option<Self> {
+        Some(self.clone().make_move_impl(mov))
     }
 
-    fn make_nullmove(mut self) -> Option<Self> {
-        self.active_player = self.active_player.other();
-        self.ply += 1;
-        self.ply_100_ctr += 1;
-        Some(self)
+    fn make_nullmove(&self) -> Option<Self> {
+        let mut this = self.clone();
+        this.active_player = self.active_player.other();
+        this.ply += 1;
+        this.ply_100_ctr += 1;
+        Some(this)
     }
 
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {

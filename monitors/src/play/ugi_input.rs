@@ -496,7 +496,7 @@ impl<B: Board> InputThread<B> {
     fn handle_info(words: Tokens, client: &mut MutexGuard<Client<B>>, engine: PlayerId) -> Res<()> {
         let mut res = SearchInfo::default();
         let mut pv_moves = vec![];
-        let board = *client.board();
+        let board = client.board().clone();
         let mut words = words.peekable();
         if words.peek().is_some_and(|opt| *opt == "string") {
             words.next();

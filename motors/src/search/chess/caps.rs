@@ -300,8 +300,8 @@ impl Engine<Chessboard> for Caps {
         }
     }
 
-    fn static_eval(&mut self, pos: Chessboard, ply: usize) -> Score {
-        self.eval.eval(&pos, ply)
+    fn static_eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
+        self.eval.eval(pos, ply)
     }
 
     fn max_bench_depth(&self) -> Depth {
@@ -403,7 +403,7 @@ impl Engine<Chessboard> for Caps {
 
     fn do_search(&mut self) -> SearchResult<Chessboard> {
         let mut limit = self.state.params.limit;
-        let pos = self.state.params.pos;
+        let pos = self.state.params.pos.clone();
         limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
         self.state.custom.depth_hard_limit = if limit.mate.get() == 0 {
             DEPTH_HARD_LIMIT.get()
@@ -437,7 +437,7 @@ impl Engine<Chessboard> for Caps {
         self.state.custom.original_board_hist = take(&mut self.state.search_params_mut().history);
         self.state.custom.original_board_hist.push(&pos);
 
-        self.iterative_deepening(pos, soft_limit)
+        self.iterative_deepening(&pos, soft_limit)
     }
 }
 
@@ -453,7 +453,7 @@ impl Caps {
     /// better moves within the same time or nodes budget because the lower-depth searches are comparatively cheap.
     fn iterative_deepening(
         &mut self,
-        pos: Chessboard,
+        pos: &Chessboard,
         soft_limit: Duration,
     ) -> SearchResult<Chessboard> {
         let max_depth = DEPTH_SOFT_LIMIT.min(self.limit().depth).isize();
@@ -525,7 +525,7 @@ impl Caps {
     /// it should in theory still be trustworthy if the root failed high)
     fn aspiration(
         &mut self,
-        pos: Chessboard,
+        pos: &Chessboard,
         unscaled_soft_limit: Duration,
         depth: isize,
         alpha: &mut Score,
@@ -543,9 +543,14 @@ impl Caps {
             }
             self.state.atomic().set_depth(depth); // set depth now so that an immediate stop doesn't increment the depth
             self.state.atomic().count_node();
-            let Some(pv_score) =
-                self.negamax(pos, 0, self.state.depth().isize(), *alpha, *beta, Exact)
-            else {
+            let Some(pv_score) = self.negamax(
+                pos.clone(),
+                0,
+                self.state.depth().isize(),
+                *alpha,
+                *beta,
+                Exact,
+            ) else {
                 return false;
             };
 
@@ -703,7 +708,7 @@ impl Caps {
         }
         // limit.mate() is the min of the original limit.mate and DEPTH_HARD_LIMIT
         if depth <= 0 || ply >= self.state.custom.depth_hard_limit {
-            return Some(self.qsearch(pos, alpha, beta, ply));
+            return Some(self.qsearch(pos.clone(), alpha, beta, ply));
         }
         let can_prune = !is_pv_node && !in_check;
 
@@ -713,7 +718,7 @@ impl Caps {
         // In case of a collision, if there's no best_move to store because the node failed low,
         // store a null move in the TT. This helps IIR.
         let mut best_move = ChessMove::default();
-        let mut eval = self.eval(pos, ply);
+        let mut eval = self.eval(&pos, ply);
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.state.multi_pvs.len() > 1;
         if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
@@ -765,7 +770,7 @@ impl Caps {
             self.state.statistics.tt_miss(MainSearch);
         };
 
-        self.record_pos(pos, eval, ply);
+        self.record_pos(&pos, eval, ply);
 
         // like the commonly used `improving` and `regressing`, these variables compare the current static eval with
         // the static eval 2 plies ago to recognize blunders. Conceptually, `improving` and `regressing` can be seen as
@@ -848,8 +853,14 @@ impl Caps {
                     *self.state.custom.nmp_disabled_for(pos.active_player()) = true;
                     // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so technically we
                     // should use `depth - reduction`, but using `depth - 1 - reduction` is less expensive and good enough.
-                    let verification_score =
-                        self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh);
+                    let verification_score = self.negamax(
+                        pos.clone(),
+                        ply,
+                        depth - 1 - reduction,
+                        beta - 1,
+                        beta,
+                        FailHigh,
+                    );
                     self.state.search_stack[ply].tried_moves.clear();
                     *self.state.custom.nmp_disabled_for(pos.active_player()) = false;
                     // The verification score is more trustworthy than the nmp score.
@@ -867,8 +878,11 @@ impl Caps {
         debug_assert!(self.state.search_stack[ply].tried_moves.is_empty());
 
         let mut move_picker =
-            MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
-        let move_scorer = CapsMoveScorer { board: pos, ply };
+            MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos.clone(), best_move, false);
+        let move_scorer = CapsMoveScorer {
+            board: pos.clone(),
+            ply,
+        };
         while let Some((mov, move_score)) = move_picker.next(&move_scorer, &self.state) {
             // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
             // so don't even bother looking at them in the last few layers.
@@ -916,7 +930,7 @@ impl Caps {
 
             let debug_history_len = self.state.params.history.len(); // TODO: Remove
 
-            self.record_move(mov, pos, ply, MainSearch);
+            self.record_move(mov, &pos, ply, MainSearch);
             // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove
             // that the other moves are worse, which we can do with a zero window search. Should this assumption fail,
             // re-search with a full window.
@@ -956,7 +970,7 @@ impl Caps {
                 reduction = reduction.min(depth - 1);
 
                 score = -self.negamax(
-                    new_pos,
+                    new_pos.clone(),
                     ply + 1,
                     depth - 1 - reduction,
                     -(alpha + 1),
@@ -968,7 +982,7 @@ impl Caps {
                 if alpha < score && reduction > 0 {
                     self.state.statistics.lmr_first_retry();
                     score = -self.negamax(
-                        new_pos,
+                        new_pos.clone(),
                         ply + 1,
                         depth - 1,
                         -(alpha + 1),
@@ -1161,7 +1175,7 @@ impl Caps {
         self.state.atomic().update_seldepth(ply);
         // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
-        let mut best_score = self.eval(pos, ply);
+        let mut best_score = self.eval(&pos, ply);
         let mut bound_so_far = FailLow;
 
         // see main search, store an invalid random move in the TT entry if all moves failed low.
@@ -1216,11 +1230,14 @@ impl Caps {
             bound_so_far = Exact;
             alpha = best_score;
         }
-        self.record_pos(pos, best_score, ply);
+        self.record_pos(&pos, best_score, ply);
 
         let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
-            MovePicker::new(pos, best_move, true);
-        let move_scorer = CapsMoveScorer { board: pos, ply };
+            MovePicker::new(pos.clone(), best_move, true);
+        let move_scorer = CapsMoveScorer {
+            board: pos.clone(),
+            ply,
+        };
         let mut children_visited = 0;
         while let Some((mov, score)) = move_picker.next(&move_scorer, &self.state) {
             debug_assert!(mov.is_tactical(&pos));
@@ -1231,7 +1248,7 @@ impl Caps {
             let Some(new_pos) = pos.make_move(mov) else {
                 continue;
             };
-            self.record_move(mov, pos, ply, Qsearch);
+            self.record_move(mov, &pos, ply, Qsearch);
             children_visited += 1;
             let score = -self.qsearch(new_pos, -beta, -alpha, ply + 1);
             self.undo_move();
@@ -1259,32 +1276,32 @@ impl Caps {
         best_score
     }
 
-    fn eval(&mut self, pos: Chessboard, ply: usize) -> Score {
+    fn eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
         let res = if ply == 0 {
-            self.eval.eval(&pos, 0)
+            self.eval.eval(pos, 0)
         } else {
             let old_pos = &self.state.search_stack[ply - 1].pos;
             let mov = &self.state.search_stack[ply - 1].last_tried_move();
-            self.eval.eval_incremental(old_pos, *mov, &pos, ply)
+            self.eval.eval_incremental(old_pos, *mov, pos, ply)
         };
         debug_assert!(
             !res.is_won_or_lost(),
             "{res} {0} {1}, {pos}",
             res.0,
-            self.eval.eval(&pos, ply)
+            self.eval.eval(pos, ply)
         );
         res
     }
 
-    fn record_pos(&mut self, pos: Chessboard, eval: Score, ply: usize) {
-        self.state.search_stack[ply].pos = pos;
+    fn record_pos(&mut self, pos: &Chessboard, eval: Score, ply: usize) {
+        self.state.search_stack[ply].pos = pos.clone();
         self.state.search_stack[ply].eval = eval;
         self.state.search_stack[ply].tried_moves.clear();
     }
 
-    fn record_move(&mut self, mov: ChessMove, old_pos: Chessboard, ply: usize, typ: SearchType) {
+    fn record_move(&mut self, mov: ChessMove, old_pos: &Chessboard, ply: usize, typ: SearchType) {
         self.state.atomic().count_node();
-        self.state.params.history.push(&old_pos);
+        self.state.params.history.push(old_pos);
         self.state.search_stack[ply].tried_moves.push(mov);
         self.state.statistics.count_legal_make_move(typ);
     }
@@ -1294,6 +1311,7 @@ impl Caps {
     }
 }
 
+// TODO: Take a reference?
 #[derive(Debug)]
 struct CapsMoveScorer {
     board: Chessboard,
@@ -1368,7 +1386,7 @@ mod tests {
             for _ in 0..42 {
                 let mut engine = Caps::for_eval::<RandEval>();
                 let res = engine
-                    .search_with_new_tt(board, SearchLimit::depth(Depth::new_unchecked(depth)));
+                    .search_with_new_tt(&board, SearchLimit::depth(Depth::new_unchecked(depth)));
                 assert!(res.score.unwrap().is_game_won_score());
                 assert_eq!(res.score.unwrap().plies_until_game_won(), Some(1));
             }
@@ -1393,7 +1411,7 @@ mod tests {
             let pos = Chessboard::from_fen(fen, Strict).unwrap();
             let mut engine = Caps::for_eval::<PistonEval>();
             let res = engine
-                .search_with_new_tt(pos, SearchLimit::nodes(NodesLimit::new(30_000).unwrap()));
+                .search_with_new_tt(&pos, SearchLimit::nodes(NodesLimit::new(30_000).unwrap()));
             assert!(res.score.is_some_and(|score| score > Score(min)));
             assert!(res.score.is_some_and(|score| score < Score(max)));
         }
@@ -1403,7 +1421,7 @@ mod tests {
     fn lucena_test() {
         let pos = Chessboard::from_name("lucena").unwrap();
         let mut engine = Caps::for_eval::<PistonEval>();
-        let res = engine.search_with_new_tt(pos, SearchLimit::depth(Depth::new_unchecked(7)));
+        let res = engine.search_with_new_tt(&pos, SearchLimit::depth(Depth::new_unchecked(7)));
         // TODO: More aggressive bound once the engine is stronger
         assert!(res.score.unwrap() >= Score(200));
     }
@@ -1413,7 +1431,7 @@ mod tests {
         let pos = Chessboard::from_name("philidor").unwrap();
         let mut engine = Caps::for_eval::<LiTEval>();
         let res =
-            engine.search_with_new_tt(pos, SearchLimit::nodes(NodesLimit::new(50_000).unwrap()));
+            engine.search_with_new_tt(&pos, SearchLimit::nodes(NodesLimit::new(50_000).unwrap()));
         assert!(res.score.unwrap().abs() <= Score(200));
     }
 
@@ -1422,7 +1440,7 @@ mod tests {
         let pos = Chessboard::from_name("kiwipete").unwrap();
         let mut engine = Caps::for_eval::<LiTEval>();
         let res =
-            engine.search_with_new_tt(pos, SearchLimit::nodes(NodesLimit::new(12_345).unwrap()));
+            engine.search_with_new_tt(&pos, SearchLimit::nodes(NodesLimit::new(12_345).unwrap()));
         let score = res.score.unwrap();
         assert!(score.abs() <= Score(64), "{score}");
         assert!(
@@ -1450,7 +1468,7 @@ mod tests {
     // TODO: Eventually, make sure that GAPS also passed this
     fn depth_1_nodes_test(mut engine: Caps, tt: TT) {
         for pos in Chessboard::bench_positions() {
-            _ = engine.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
+            _ = engine.search_with_tt(&pos, SearchLimit::depth_(1), tt.clone());
             if pos.legal_moves_slow().is_empty() {
                 continue;
             }
@@ -1475,10 +1493,10 @@ mod tests {
     fn only_one_move_test() {
         let fen = "B4QRb/8/8/8/2K3P1/5k2/8/b3RRNB b - - 0 1";
         let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
-        assert!(pos.debug_verify_invariants(Strict).is_err());
+        assert!(pos.clone().debug_verify_invariants(Strict).is_err());
         let mut caps = Caps::for_eval::<PistonEval>();
         let limit = SearchLimit::per_move(Duration::from_millis(999_999_999));
-        let res = caps.search_with_new_tt(pos, limit);
+        let res = caps.search_with_new_tt(&pos, limit);
         assert_eq!(
             res.chosen_move,
             ChessMove::from_compact_text("f3g3", &pos).unwrap()
@@ -1492,12 +1510,12 @@ mod tests {
         let pos = Chessboard::from_fen("k7/3B4/4N3/K7/8/8/8/8 w - - 16 9", Strict).unwrap();
         let mut caps = Caps::for_eval::<LiTEval>();
         let limit = SearchLimit::mate_in_moves(5);
-        let res = caps.search_with_new_tt(pos, limit);
+        let res = caps.search_with_new_tt(&pos, limit);
         assert!(res.score.unwrap().is_game_won_score());
         let nodes = caps.search_state().uci_nodes();
         let tt = caps.search_state().tt().clone();
         // Don't clear the internal state
-        let second_search = caps.search_with_tt(pos, limit, tt.clone());
+        let second_search = caps.search_with_tt(&pos, limit, tt.clone());
         assert!(second_search.score.unwrap().is_game_won_score());
         let second_search_nodes = caps.search_state().uci_nodes();
         assert!(
@@ -1505,7 +1523,7 @@ mod tests {
             "{second_search_nodes} {nodes}"
         );
         let d3 = SearchLimit::depth(Depth::new_unchecked(3));
-        let d3_search = caps.search_with_tt(pos, d3, tt.clone());
+        let d3_search = caps.search_with_tt(&pos, d3, tt.clone());
         assert!(
             d3_search.score.unwrap().is_game_won_score(),
             "{}",
@@ -1514,7 +1532,7 @@ mod tests {
         let d3_nodes = caps.search_state().uci_nodes();
         caps.forget();
         assert_eq!(caps.search_state().uci_nodes(), 0);
-        let fresh_d3_search = caps.search_with_new_tt(pos, d3);
+        let fresh_d3_search = caps.search_with_new_tt(&pos, d3);
         assert!(
             !fresh_d3_search.score.unwrap().is_won_or_lost(),
             "{}",
@@ -1526,7 +1544,7 @@ mod tests {
             "{fresh_d3_nodes} {d3_nodes}"
         );
         caps.forget();
-        _ = caps.search_with_new_tt(pos, d3);
+        _ = caps.search_with_new_tt(&pos, d3);
         assert_eq!(caps.search_state().uci_nodes(), fresh_d3_nodes);
     }
 

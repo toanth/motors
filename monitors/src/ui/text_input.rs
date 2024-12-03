@@ -279,7 +279,7 @@ impl<B: Board> TextInputThread<B> {
     }
 
     fn list_moves(mut client: MutexGuard<Client<B>>) {
-        let board = client.match_state().board;
+        let board = client.match_state().board.clone();
         println!(
             "{}",
             board
@@ -291,7 +291,7 @@ impl<B: Board> TextInputThread<B> {
     }
 
     fn random_move(mut client: MutexGuard<Client<B>>) -> Res<()> {
-        let board = client.state.the_match.board;
+        let board = client.state.the_match.board.clone();
         let mut rng = thread_rng();
         let over = matches!(client.match_state().status, Over(_));
         let Some(mov) = board.random_legal_move(&mut rng) else {
@@ -323,7 +323,7 @@ impl<B: Board> TextInputThread<B> {
     }
 
     fn handle_position(mut client: MutexGuard<Client<B>>, words: &mut Tokens) -> Res<()> {
-        let old_board = *client.board();
+        let old_board = client.board().clone();
         // TODO: Use parse_ugi_position
         client.reset_to_new_start_position(parse_ugi_position_part(
             "position", words, false, &old_board, Relaxed,

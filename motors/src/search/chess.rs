@@ -66,10 +66,10 @@ mod tests {
         assert!(game_over_pos.is_game_lost_slow());
         for i in 1..123 {
             let res = engine
-                .search_with_new_tt(game_over_pos, SearchLimit::depth(Depth::new_unchecked(i)));
+                .search_with_new_tt(&game_over_pos, SearchLimit::depth(Depth::new_unchecked(i)));
             assert!(res.ponder_move.is_none());
             assert_eq!(res.chosen_move, ChessMove::default());
-            let res = engine.search_with_new_tt(game_over_pos, SearchLimit::nodes_(i as u64));
+            let res = engine.search_with_new_tt(&game_over_pos, SearchLimit::nodes_(i as u64));
             assert!(res.ponder_move.is_none());
             assert_eq!(res.chosen_move, ChessMove::default());
         }
@@ -78,7 +78,7 @@ mod tests {
     fn generic_search_test<E: Engine<Chessboard>>(mut engine: E) {
         let fen = "7r/pBrkqQ1p/3b4/5b2/8/6P1/PP2PP1P/R1BR2K1 w - - 1 17";
         let board = Chessboard::from_fen(fen, Strict).unwrap();
-        let res = engine.search_with_new_tt(board, SearchLimit::mate(Depth::new_unchecked(5)));
+        let res = engine.search_with_new_tt(&board, SearchLimit::mate(Depth::new_unchecked(5)));
         assert_eq!(
             res.chosen_move,
             ChessMove::new(
@@ -103,14 +103,14 @@ mod tests {
         let atomic = Arc::new(AtomicSearchState::default());
         let atomic2 = Arc::new(AtomicSearchState::default());
         let params = SearchParams::with_atomic_state(
-            board,
+            &board,
             SearchLimit::infinite(),
             ZobristHistory::default(),
             tt.clone(),
             atomic.clone(),
         );
         let params2 = SearchParams::with_atomic_state(
-            board,
+            &board,
             SearchLimit::infinite(),
             ZobristHistory::default(),
             tt.clone(),
@@ -149,7 +149,7 @@ mod tests {
         let board = Chessboard::from_fen(fen, Strict).unwrap();
         let mut engine = Caps::for_eval::<LiTEval>();
         // TODO: New testcase that asserts that unfinished iterations can still change the score
-        let res = engine.search_with_new_tt(board, SearchLimit::depth_(1));
+        let res = engine.search_with_new_tt(&board, SearchLimit::depth_(1));
         // let res = engine.search_with_new_tt(board, SearchLimit::nodes_(5_000));
         let score = res.score.unwrap();
         assert!(res.score.unwrap() >= Score(1400), "{score}");
@@ -160,7 +160,8 @@ mod tests {
         for i in (2..55).step_by(3) {
             // do this several times to get different random numbers
             let mut engine = Caps::for_eval::<RandEval>();
-            let res = engine.search_with_new_tt(board, SearchLimit::depth(Depth::new_unchecked(i)));
+            let res =
+                engine.search_with_new_tt(&board, SearchLimit::depth(Depth::new_unchecked(i)));
             assert_eq!(res.score.unwrap(), SCORE_LOST + 2);
             assert_eq!(res.chosen_move.to_string(), "h1g1");
         }
@@ -197,7 +198,7 @@ mod tests {
         let mut engine = Caps::for_eval::<MaterialOnlyEval>();
         for depth in 1..10 {
             let res = engine.search(SearchParams::new_unshared(
-                board,
+                &board,
                 SearchLimit::depth(Depth::new_unchecked(depth)),
                 hist.clone(),
                 TT::default(),

@@ -170,13 +170,13 @@ mod tests {
         for mov in position.legal_moves_slow() {
             let new_board = position.make_move(mov).unwrap();
             assert_ne!(new_board.hash, hash);
-            let previous = hashes.insert(new_board.hash.0, new_board);
+            let previous = hashes.insert(new_board.hash.0, new_board.clone());
             assert!(previous.is_none());
             let different_bits = (new_board.hash.0 ^ hash.0).count_ones();
             assert!((16..=48).contains(&different_bits));
             for mov in new_board.legal_moves_slow() {
                 let new_board = new_board.make_move(mov).unwrap();
-                let previous = hashes.insert(new_board.hash.0, new_board);
+                let previous = hashes.insert(new_board.hash.0, new_board.clone());
                 if previous.is_some() {
                     let old_board = previous.unwrap();
                     println!(
@@ -186,7 +186,7 @@ mod tests {
                     );
                     // There's one ep move after one ply from the current position, which creates the only transposition reachable within 2 plies
                     if old_board != new_board {
-                        collisions.insert(new_board.hash.0, [old_board, new_board]);
+                        collisions.insert(new_board.hash.0, [old_board, new_board.clone()]);
                     }
                 }
                 let different_bits = (new_board.hash.0 ^ hash.0).count_ones();
@@ -232,7 +232,10 @@ mod tests {
                 let Some(new_pos) = pos.make_move(m) else {
                     continue;
                 };
-                assert!(new_pos.debug_verify_invariants(Strict).is_ok(), "{pos} {m}");
+                assert!(
+                    new_pos.clone().debug_verify_invariants(Strict).is_ok(),
+                    "{pos} {m}"
+                );
                 if !(m.is_double_pawn_push()
                     || m.is_capture(&pos)
                     || m.is_promotion()

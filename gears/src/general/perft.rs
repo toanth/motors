@@ -65,20 +65,20 @@ fn do_perft<B: Board>(depth: usize, pos: B) -> u64 {
     nodes
 }
 
-pub fn perft<B: Board>(depth: Depth, pos: B) -> PerftRes {
+pub fn perft<B: Board>(depth: Depth, pos: &B) -> PerftRes {
     let depth = depth.min(B::max_perft_depth());
     let start = Instant::now();
     let nodes = if depth.get() == 0 {
         1
     } else {
-        do_perft(depth.get(), pos)
+        do_perft(depth.get(), pos.clone())
     };
     let time = start.elapsed();
 
     PerftRes { time, nodes, depth }
 }
 
-pub fn split_perft<B: Board>(depth: Depth, pos: B) -> SplitPerftRes<B> {
+pub fn split_perft<B: Board>(depth: Depth, pos: &B) -> SplitPerftRes<B> {
     assert!(depth.get() > 0);
     let depth = depth.min(B::max_perft_depth());
     let mut nodes = 0;
@@ -116,7 +116,7 @@ pub fn perft_for<B: Board>(depth: Depth, positions: &[B]) -> PerftRes {
         } else {
             depth
         };
-        let this_res = perft(depth, *pos);
+        let this_res = perft(depth, pos);
         res.time += this_res.time;
         res.nodes += this_res.nodes;
         res.depth = res.depth.max(this_res.depth);

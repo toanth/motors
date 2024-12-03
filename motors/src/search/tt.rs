@@ -32,7 +32,7 @@ enum OptionalNodeType {
     NodeTypeFailLow = NodeType::FailLow as u8,
 }
 
-#[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
 #[repr(C)]
 pub struct TTEntry<B: Board> {
     pub hash: ZobristHash,     // 8 bytes
@@ -41,6 +41,8 @@ pub struct TTEntry<B: Board> {
     pub depth: u8,             // 1 byte
     bound: OptionalNodeType,   // 1 byte
 }
+
+impl<B: Board> Copy for TTEntry<B> {}
 
 impl<B: Board> Display for TTEntry<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -390,24 +392,32 @@ mod test {
         );
         tt.store(next_entry, 1);
         let mov = engine
-            .search_with_tt(pos, SearchLimit::depth(Depth::new_unchecked(1)), tt.clone())
+            .search_with_tt(
+                &pos,
+                SearchLimit::depth(Depth::new_unchecked(1)),
+                tt.clone(),
+            )
             .chosen_move;
         assert_eq!(mov, bad_move);
         let limit = SearchLimit::depth(Depth::new_unchecked(3));
         let mut engine2 = Caps::default();
-        _ = engine2.search_with_new_tt(pos, limit);
+        _ = engine2.search_with_new_tt(&pos, limit);
         let nodes = engine2.search_state().uci_nodes();
         engine2.forget();
-        let _ = engine.search_with_tt(pos, SearchLimit::depth(Depth::new_unchecked(5)), tt.clone());
+        let _ = engine.search_with_tt(
+            &pos,
+            SearchLimit::depth(Depth::new_unchecked(5)),
+            tt.clone(),
+        );
         let entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0);
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().depth, 5);
-        _ = engine2.search_with_tt(pos, limit, tt.clone());
+        _ = engine2.search_with_tt(&pos, limit, tt.clone());
         assert!(engine2.search_state().uci_nodes() <= nodes);
         tt.forget();
         let atomic = Arc::new(AtomicSearchState::default());
         let params = SearchParams::with_atomic_state(
-            pos,
+            &pos,
             SearchLimit::infinite(),
             ZobristHistory::default(),
             tt.clone(),
@@ -418,7 +428,7 @@ mod test {
         let atomic2 = Arc::new(AtomicSearchState::default());
         let mut params2 = params.auxiliary(atomic2.clone());
         let pos2 = Chessboard::from_name("kiwipete").unwrap();
-        params2.pos = pos2;
+        params2.pos = pos2.clone();
         let handle = spawn(move || engine.search(params));
         let handle2 = spawn(
             move || engine2.search(params2), /*SearchResult::<Chessboard>::move_only(ChessMove::NULL)*/

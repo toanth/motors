@@ -415,7 +415,7 @@ impl<B: Board> EngineWrapper<B> {
         self.main_thread_data.new_search(ponder, &limit)?; // resets the atomic search state
         let thread_data = self.main_thread_data.clone();
         let params = SearchParams::create(
-            pos,
+            &pos,
             limit,
             history.clone(),
             self.tt_for_next_search.clone(),

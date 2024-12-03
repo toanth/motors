@@ -80,7 +80,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
     fn do_search(&mut self) -> SearchResult<B> {
         let mut limit = self.state.params.limit;
         let max_depth = MAX_DEPTH.min(limit.depth).isize();
-        let pos = self.state.params.pos;
+        let pos = self.state.params.pos.clone();
         limit.fixed_time = limit.fixed_time.min(limit.tc.remaining);
 
         self.state.statistics.next_id_iteration();
@@ -96,7 +96,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
                 self.state.atomic().set_depth(depth);
                 self.state.atomic().update_seldepth(depth as usize);
                 self.state.atomic().count_node();
-                let iteration_score = self.negamax(pos, 0, depth, SCORE_LOST, SCORE_WON);
+                let iteration_score = self.negamax(pos.clone(), 0, depth, SCORE_LOST, SCORE_WON);
                 self.state.current_pv_data_mut().score = iteration_score;
                 if self.state.stop_flag() {
                     break 'id;
@@ -119,7 +119,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
         SearchResult::move_and_score(
             self.state.atomic().best_move(),
             self.state.atomic().score(),
-            pos,
+            &pos,
         )
     }
 
@@ -131,8 +131,8 @@ impl<B: Board> Engine<B> for Gaps<B> {
         &mut self.state
     }
 
-    fn static_eval(&mut self, pos: B, ply: usize) -> Score {
-        self.eval.eval(&pos, ply)
+    fn static_eval(&mut self, pos: &B, ply: usize) -> Score {
+        self.eval.eval(pos, ply)
     }
 
     fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {

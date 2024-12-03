@@ -27,8 +27,9 @@ pub struct SearchResult<B: Board> {
 }
 
 impl<B: Board> SearchResult<B> {
-    pub fn move_only(chosen_move: B::Move, pos: B) -> Self {
+    pub fn move_only(chosen_move: B::Move, pos: &B) -> Self {
         debug_assert!(chosen_move.is_null() || pos.is_move_legal(chosen_move));
+        let pos = pos.clone();
         Self {
             chosen_move,
             pos,
@@ -36,13 +37,14 @@ impl<B: Board> SearchResult<B> {
         }
     }
 
-    pub fn move_and_score(chosen_move: B::Move, score: Score, pos: B) -> Self {
+    pub fn move_and_score(chosen_move: B::Move, score: Score, pos: &B) -> Self {
         Self::new(chosen_move, score, None, pos)
     }
 
-    pub fn new(chosen_move: B::Move, score: Score, ponder_move: Option<B::Move>, pos: B) -> Self {
+    pub fn new(chosen_move: B::Move, score: Score, ponder_move: Option<B::Move>, pos: &B) -> Self {
         debug_assert!(score.verify_valid().is_some());
         debug_assert!(chosen_move.is_null() || pos.is_move_legal(chosen_move));
+        let pos = pos.clone();
         #[cfg(debug_assertions)]
         if !chosen_move.is_null() {
             let new_pos = pos.make_move(chosen_move).unwrap();
@@ -61,7 +63,7 @@ impl<B: Board> SearchResult<B> {
         }
     }
 
-    pub fn new_from_pv(score: Score, pos: B, pv: &[B::Move]) -> Self {
+    pub fn new_from_pv(score: Score, pos: &B, pv: &[B::Move]) -> Self {
         debug_assert!(score.verify_valid().is_some());
         // the pv may be empty if search is called in a position where the game is over
         Self::new(
