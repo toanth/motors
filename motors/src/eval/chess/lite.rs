@@ -235,13 +235,12 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Tuned::king_zone_attack(Pawn);
         }
         let mut all_attacks = pawn_attacks;
-        // let pawn_king_attacks = (pawn_attacks & king_zone).num_ones();
-        // score += Tuned::king_zone_attack(Pawn) * pawn_king_attacks;
         for piece in ChessPieceType::pieces() {
             let protected_by_pawns = pawn_attacks & pos.colored_piece_bb(color, piece);
             score += Tuned::pawn_protection(piece) * protected_by_pawns.num_ones();
-            let attacked_by_pawns = pawn_attacks & pos.colored_piece_bb(!color, piece);
-            score += Tuned::pawn_attack(piece) * attacked_by_pawns.num_ones();
+            if (pawn_attacks & pos.colored_piece_bb(!color, piece)).has_set_bit() {
+                score += Tuned::pawn_attack(piece);
+            }
         }
         for piece in ChessPieceType::non_pawn_pieces() {
             for square in pos.colored_piece_bb(color, piece).ones() {
@@ -253,9 +252,11 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 for threatened_piece in ChessPieceType::pieces() {
                     let attacked = pos.colored_piece_bb(color.other(), threatened_piece) & attacks;
                     score += Tuned::threats(piece, threatened_piece) * attacked.num_ones();
-                    let defended =
-                        pos.colored_piece_bb(color, threatened_piece) & attacks_no_pawn_recapture;
-                    score += Tuned::defended(piece, threatened_piece) * defended.num_ones();
+                    if (pos.colored_piece_bb(color, threatened_piece) & attacks_no_pawn_recapture)
+                        .has_set_bit()
+                    {
+                        score += Tuned::defended(piece, threatened_piece);
+                    }
                 }
                 if (attacks_no_pawn_recapture & king_zone).has_set_bit() {
                     score += Tuned::king_zone_attack(piece);
