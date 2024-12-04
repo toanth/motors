@@ -2,14 +2,15 @@ use crate::games::{Color, ColoredPiece, DimT, Settings};
 use crate::general::board::{Board, RectangularBoard};
 use crate::general::common::{ColorMsg, NamedEntity, Res};
 use crate::general::move_list::MoveList;
-use crate::general::moves::ExtendedFormat::{Alternative, Standard};
+use crate::general::moves::ExtendedFormat::Alternative;
 use crate::general::moves::Move;
 use crate::general::squares::RectangularCoordinates;
 use crate::general::squares::SquareColor::Black;
+use crate::output::pgn::match_to_pgn_string;
 use crate::output::text_output::DisplayType::*;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
+use crate::GameState;
 use crate::MatchStatus::*;
-use crate::{AdjudicationReason, GameOverReason, GameResult, GameState};
 use anyhow::{anyhow, bail};
 use crossterm::style;
 use crossterm::style::Stylize;
@@ -179,71 +180,7 @@ pub struct BoardToText {
 
 impl BoardToText {
     fn match_to_pgn<B: Board>(m: &dyn GameState<B>) -> String {
-        let result = match m.match_status() {
-            Over(r) => match r.result {
-                GameResult::P1Win => "1-0",
-                GameResult::P2Win => "0-1",
-                GameResult::Draw => "1/2-1/2",
-                GameResult::Aborted => "??",
-            },
-            _ => "\"??\"",
-        };
-        let status = m.match_status();
-        let termination = match &status {
-            NotStarted => "not started",
-            Ongoing => "unterminated",
-            Over(ref res) => match res.reason {
-                GameOverReason::Normal => "normal",
-                GameOverReason::Adjudication(ref reason) => match reason {
-                    AdjudicationReason::TimeUp => "time forfeit",
-                    AdjudicationReason::InvalidMove => "rules infraction",
-                    AdjudicationReason::AbortedByUser => "abandoned",
-                    AdjudicationReason::EngineError => "emergency",
-                    AdjudicationReason::Adjudicator(ref reason) => reason,
-                },
-            },
-        };
-        let mut res = format!(
-            "[Event \"{event}\"]\n\
-        [Site \"{site}\"]\n\
-        [Date \"{date}\"]\n\
-        [Round \"1\"]\n\
-        [{p1_name} \"{p1}\"]\n\
-        [{p2_name} \"{p2}\"]\n\
-        [Result \"{result}\"]\n\
-        [TimeControl \"??\"]\n\
-        [Termination \"{termination}\"]\n\
-        [Variant \"From Position\"]\n\
-        [FEN \"{fen}\"]\n\
-        ; automatically generated {game} pgn",
-            game = m.game_name(),
-            event = m.event(),
-            site = m.site(),
-            date = chrono::offset::Utc::now().to_rfc2822(),
-            fen = m.initial_pos().as_fen(),
-            p1 = m.player_name(B::Color::first()).unwrap_or("??".to_string()),
-            p2 = m
-                .player_name(B::Color::second())
-                .unwrap_or("??".to_string()),
-            p1_name = B::Color::first(),
-            p2_name = B::Color::second(),
-        );
-        let mut board = m.initial_pos();
-        for (ply, mov) in m.move_history().iter().enumerate() {
-            let mov_str = mov.extended_formatter(board, Standard);
-            if ply % 2 == 0 {
-                res += &format!("\n{}. {mov_str}", ply / 2 + 1);
-            } else {
-                res += &format!(" {mov_str}");
-            }
-            board = board.make_move(*mov).unwrap();
-        }
-        if let Over(x) = m.match_status() {
-            if !matches!(x.result, GameResult::Aborted) {
-                res += &(" ".to_string() + result);
-            }
-        }
-        res
+        match_to_pgn_string(m)
     }
 
     fn list_moves<B: Board>(m: &dyn GameState<B>) -> String {

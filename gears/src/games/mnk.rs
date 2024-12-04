@@ -225,25 +225,34 @@ impl Move<MNKBoard> for FillSquare {
         write!(f, "{}", self.target)
     }
 
-    fn from_compact_text(s: &str, pos: &MNKBoard) -> Res<Self> {
-        let c = GridCoordinates::from_str(s)?;
-        if !pos.size().coordinates_valid(c) {
+    fn parse_compact_text<'a>(s: &'a str, board: &MNKBoard) -> Res<(&'a str, FillSquare)> {
+        let Some(mut square_str) = s.get(..2) else {
+            bail!(
+                "m,n,k move '{}' doesn't start with a square consisting of two ASCII characters",
+                s.error()
+            )
+        };
+        if s.bytes().nth(2).is_some_and(|c| c.is_ascii_digit()) {
+            square_str = &s[..3]; // m,n,k fens can contain two-digit files
+        }
+        let c = GridCoordinates::from_str(square_str)?;
+        if !board.size().coordinates_valid(c) {
             bail!(
                 "The square {0} lies outside of the board (size: {1})",
                 c.to_string().important(),
-                pos.size()
+                board.size()
             )
-        } else if !pos.is_empty(c) {
+        } else if !board.is_empty(c) {
             bail!(
                 "The square {} is already occupied, can only place on an empty square",
                 c.to_string().important()
             )
         }
-        Ok(FillSquare { target: c })
+        Ok((&s[square_str.len()..], FillSquare { target: c }))
     }
 
-    fn from_extended_text(s: &str, board: &MNKBoard) -> Res<Self> {
-        Self::from_compact_text(s, board)
+    fn parse_extended_text<'a>(s: &'a str, board: &MNKBoard) -> Res<(&'a str, FillSquare)> {
+        Self::parse_compact_text(s, board)
     }
 
     fn from_usize_unchecked(val: usize) -> UntrustedMove<MNKBoard> {

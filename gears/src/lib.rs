@@ -2,23 +2,26 @@
 //! It is designed to be easily extensible to new games. [`gears`](crate) forms the foundation of the `motors`, `monitors`
 //! and `pliers` crates, which deal with engines, UI, and tuning, respectively.
 
-use std::fmt::{Debug, Display, Formatter};
-use std::time::Instant;
-
-use crate::games::Color;
-use crate::general::board::Board;
+use crate::games::{BoardHistory, Color, ZobristHistory};
+use crate::general::board::{Board, Strictness};
 use crate::general::common::Description::WithDescription;
-use crate::general::common::{select_name_dyn, Res};
+use crate::general::common::{select_name_dyn, ColorMsg, Res, Tokens};
 use crate::output::OutputBuilder;
 use crate::search::TimeControl;
+use crate::ugi::parse_ugi_position_and_moves;
 use crate::AdjudicationReason::*;
 use crate::GameResult::Aborted;
-use crate::MatchStatus::Over;
+use crate::MatchStatus::{NotStarted, Over};
 use crate::PlayerResult::{Draw, Lose, Win};
+use crate::ProgramStatus::Run;
+use anyhow::{anyhow, bail};
 pub use arrayvec;
 pub use colorgrad;
 pub use crossterm;
 pub use rand;
+use std::fmt::{Debug, Display, Formatter};
+use std::str::FromStr;
+use std::time::Instant;
 pub use strum;
 pub use strum_macros;
 
@@ -102,14 +105,85 @@ pub enum GameResult {
     Aborted,
 }
 
+const P1_VICTORY: &str = "Player 1 won";
+const P2_VICTORY: &str = "Player 2 won";
+const DRAW: &str = "The game ended in a draw";
+const ABORTED: &str = "The game was aborted";
+
 impl Display for GameResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            GameResult::P1Win => write!(f, "Player 1 won"),
-            GameResult::P2Win => write!(f, "Player 2 won"),
-            GameResult::Draw => write!(f, "The game ended in a draw"),
-            Aborted => write!(f, "The game was aborted"),
+            GameResult::P1Win => write!(f, "{}", P1_VICTORY),
+            GameResult::P2Win => write!(f, "{}", P2_VICTORY),
+            GameResult::Draw => write!(f, "{}", DRAW),
+            Aborted => write!(f, "{}", ABORTED),
         }
+    }
+}
+
+impl FromStr for GameResult {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim_ascii() {
+            P1_VICTORY => Ok(GameResult::P1Win),
+            P2_VICTORY => Ok(GameResult::P2Win),
+            DRAW => Ok(GameResult::Draw),
+            ABORTED | "*" => Ok(Aborted),
+            _ => {
+                let s = s.replace("O", "0").replace(char::is_whitespace, "");
+                match s.as_str() {
+                    "1" | "1.0" | "1,0" | "1-0" | "1.0-0.0" | "1,0-0,0" => Ok(GameResult::P1Win),
+                    "0" | "0.0" | "0,0" | "0-1" | "0.0-1.0" | "0,0-1,0" | "2" => {
+                        Ok(GameResult::P2Win)
+                    }
+                    "0.5" | "0,5" | "0.5-0.5" | "0,5-0,5" | "1/2-1/2" => Ok(GameResult::Draw),
+                    _ => bail!("Unrecognized game result '{}'", s.error()),
+                }
+            }
+        }
+    }
+}
+
+impl Into<f32> for GameResult {
+    fn into(self) -> f32 {
+        match self {
+            GameResult::P1Win => 1.0,
+            GameResult::P2Win => 0.0,
+            GameResult::Draw => 0.5,
+            Aborted => f32::NAN,
+        }
+    }
+}
+
+impl Into<f64> for GameResult {
+    fn into(self) -> f64 {
+        match self {
+            GameResult::P1Win => 1.0,
+            GameResult::P2Win => 0.0,
+            GameResult::Draw => 0.5,
+            Aborted => f64::NAN,
+        }
+    }
+}
+
+impl GameResult {
+    pub fn check_finished(self) -> Option<Self> {
+        if self == Aborted {
+            None
+        } else {
+            Some(self)
+        }
+    }
+
+    fn to_canonical_string(self) -> String {
+        match self {
+            GameResult::P1Win => "1-0",
+            GameResult::P2Win => "0-1",
+            GameResult::Draw => "1/2-1/2",
+            Aborted => "*",
+        }
+        .to_string()
     }
 }
 
@@ -197,6 +271,19 @@ pub enum Quitting {
     QuitMatch,
 }
 
+/// The program can either be running, or be about to quit
+#[derive(Debug, Clone)]
+pub enum ProgramStatus {
+    Run(MatchStatus),
+    Quit(Quitting),
+}
+
+impl Default for ProgramStatus {
+    fn default() -> Self {
+        Run(NotStarted)
+    }
+}
+
 /// Base trait for the different modes in which the user can run the program.
 /// It contains one important method: [`run`].
 /// The [`handle_input`] and [`quit`] method are really just hacks to support fuzzing.
@@ -263,4 +350,79 @@ pub fn create_selected_output_builders<B: Board>(
         .iter()
         .map(|o| output_builder_from_str(&o.name, list))
         .collect()
+}
+
+/// Everything that's necessary to reconstruct the match without match-specific info like timers.
+/// Can be used to represent everything that gets set through a ugi `position` command, or the data inside a PGN.
+#[derive(Debug, Default, Clone)]
+pub struct MatchState<B: Board> {
+    pub board: B,
+    pub status: ProgramStatus,
+    pub mov_hist: Vec<B::Move>,
+    pub board_hist: ZobristHistory<B>,
+    pub pos_before_moves: B,
+    pub last_played_color: B::Color,
+}
+
+impl<B: Board> MatchState<B> {
+    pub fn last_move(&self) -> Option<B::Move> {
+        self.mov_hist.last().copied()
+    }
+
+    pub fn make_move(&mut self, mov: B::Move) -> Res<B> {
+        debug_assert!(self.board.is_move_pseudolegal(mov));
+        if let Run(Over(result)) = &self.status {
+            bail!(
+                "Cannot play move '{mov}' because the game is already over: {0} ({1}). The position is '{2}'",
+                result.result, result.reason, self.board
+            )
+        }
+        self.board_hist.push(&self.board);
+        self.mov_hist.push(mov);
+        self.board = self.board.make_move(mov).ok_or_else(|| {
+            anyhow!(
+                "Illegal move {mov} (pseudolegal but not legal) in position {}",
+                self.board
+            )
+        })?;
+        Ok(self.board)
+    }
+
+    pub fn clear_state(&mut self) {
+        self.board = self.pos_before_moves;
+        self.mov_hist.clear();
+        self.board_hist.clear();
+        self.status = Run(NotStarted);
+    }
+
+    pub fn handle_position(
+        &mut self,
+        words: &mut Tokens,
+        allow_pos_word: bool,
+        strictness: Strictness,
+    ) -> Res<()> {
+        let pos = self.board;
+        let Some(next_word) = words.next() else {
+            bail!(
+                "Missing position after '{}' command",
+                "position".important()
+            )
+        };
+        parse_ugi_position_and_moves(
+            next_word,
+            words,
+            allow_pos_word,
+            strictness,
+            &pos,
+            self,
+            |this, mov| this.make_move(mov).map(|_| ()),
+            |this| {
+                this.pos_before_moves = this.board;
+                this.clear_state()
+            },
+            |state| &mut state.board,
+        )?;
+        self.last_played_color = self.board.active_player();
+        Ok(())
+    }
 }

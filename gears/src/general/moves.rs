@@ -18,6 +18,7 @@
 
 use crate::general::board::Board;
 use crate::general::common::Res;
+use anyhow::bail;
 use arbitrary::Arbitrary;
 use num::PrimInt;
 use std::fmt;
@@ -93,10 +94,6 @@ where
     /// without using a `Board`.
     fn format_compact(self, f: &mut Formatter<'_>) -> fmt::Result;
 
-    /// Parse a compact text representation emitted by `to_compact_text`, such as the one used by UCI
-    /// Needs to ensure that the move is at least pseudolegal.  
-    fn from_compact_text(s: &str, board: &B) -> Res<B::Move>;
-
     /// Returns a longer representation of the move that may require the board, such as long algebraic notation
     /// Implementations of this trait *may* choose to ignore the board and to not require pseudolegality.
     fn format_extended(
@@ -123,10 +120,38 @@ where
         self.extended_formatter(*board, format).to_string()
     }
 
+    /// Parse a compact text representation emitted by `to_compact_text`, such as the one used by UCI.
+    /// Returns the remaining input.
+    /// Needs to ensure that the move is at least pseudolegal.
+    fn parse_compact_text<'a>(s: &'a str, board: &B) -> Res<(&'a str, B::Move)>;
+
+    /// Parse a compact text representation emitted by `to_compact_text`, such as the one used by UCI.
+    /// Returns an error unless the entire input has been consumed.
+    /// Needs to ensure that the move is at least pseudolegal.
+    fn from_compact_text(s: &str, board: &B) -> Res<B::Move> {
+        let (remaining, parsed) = Self::parse_compact_text(s, board)?;
+        if !remaining.is_empty() {
+            bail!("Additional input after move {0}: '{1}'", parsed, remaining);
+        }
+        Ok(parsed)
+    }
+
+    /// Parse a longer text representation emitted by `format_extended`, such as long algebraic notation.
+    /// May optionally also parse additional notation, such as short algebraic notation.
+    /// Needs to ensure that the move is at least pseudolegal. Returns the remaining input.
+    fn parse_extended_text<'a>(s: &'a str, board: &B) -> Res<(&'a str, B::Move)>;
+
     /// Parse a longer text representation emitted by `format_extended`, such as long algebraic notation.
     /// May optionally also parse additional notation, such as short algebraic notation.
     /// Needs to ensure that the move is at least pseudolegal.
-    fn from_extended_text(s: &str, board: &B) -> Res<B::Move>;
+    /// Returns an error unless the entire input has been consumed.
+    fn from_extended_text(s: &str, board: &B) -> Res<B::Move> {
+        let (remaining, parsed) = Self::parse_extended_text(s, board)?;
+        if !remaining.is_empty() {
+            bail!("Additional input after move {0}: '{1}'", parsed, remaining);
+        }
+        Ok(parsed)
+    }
 
     /// Parse a text representation of the move. This may be the same as `from_compact_text`
     /// or may use a different notation, such as standard algebraic notation in chess.

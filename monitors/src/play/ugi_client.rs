@@ -39,6 +39,7 @@ pub type PlayerId = usize;
 const NO_PLAYER: PlayerId = PlayerId::MAX;
 
 // A struct that gets manipulated by the UI and the players
+// TODO: Use 'Match' struct
 #[derive(Debug, Clone)]
 pub struct UgiMatchState<B: Board> {
     pub status: MatchStatus,

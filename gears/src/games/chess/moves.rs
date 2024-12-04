@@ -245,31 +245,29 @@ impl Move<Chessboard> for ChessMove {
         )
     }
 
-    fn from_compact_text(s: &str, board: &Chessboard) -> Res<Self> {
-        let s = s.trim();
+    fn parse_compact_text<'a>(s: &'a str, board: &Chessboard) -> Res<(&'a str, ChessMove)> {
+        let s = s.trim_start(); // TODO: Remove?
         if s.is_empty() {
             bail!("Empty input");
         }
-        // Need to check this before creating slices because splitting unicode character panics.
-        if !s.is_ascii() {
-            bail!("Move '{}' contains a non-ASCII character", s.error());
-        }
         if s.len() < 4 {
             bail!("Move too short: '{s}'. Must be <from square><to square>, e.g. e2e4, and possibly a promotion piece.");
+        }
+        // Need to check this before creating slices because splitting unicode character panics.
+        if !s.get(..4).is_some_and(|s| s.is_ascii()) {
+            bail!(
+                "The first 4 bytes of '{}' contain a non-ASCII character",
+                s.error()
+            );
         }
         let from = ChessSquare::from_str(&s[..2])?;
         let mut to = ChessSquare::from_str(&s[2..4])?;
         let piece = board.colored_piece_on(from);
         let mut flags = ChessMoveFlags::normal_move(piece.uncolored());
-        if s.len() > 4 {
-            let promo = s.chars().nth(4).unwrap();
-            match promo {
-                'n' => flags = PromoKnight,
-                'b' => flags = PromoBishop,
-                'r' => flags = PromoRook,
-                'q' => flags = PromoQueen,
-                _ => bail!("Invalid character after to square: '{promo}'"),
-            }
+        let mut end_idx = 4;
+        if let Some((promo_flags, idx)) = parse_short_promo_piece(s) {
+            flags = promo_flags;
+            end_idx = idx;
         } else if piece.uncolored() == King {
             let rook_capture = board.colored_piece_on(to).symbol
                 == ColoredChessPieceType::new(piece.color().unwrap(), Rook);
@@ -302,7 +300,7 @@ impl Move<Chessboard> for ChessMove {
                 s.error()
             )
         }
-        Ok(res)
+        Ok((&s[end_idx..], res))
     }
 
     fn format_extended(
@@ -403,14 +401,6 @@ impl Move<Chessboard> for ChessMove {
         write!(f, "{res}")
     }
 
-    fn from_extended_text(s: &str, board: &Chessboard) -> Res<Self> {
-        let res = MoveParser::parse(s, board)?;
-        if !res.1.is_empty() {
-            bail!("Additional input after move {0}: '{1}'", res.0, res.1);
-        }
-        Ok(res.0)
-    }
-
     fn from_usize_unchecked(val: usize) -> UntrustedMove<Chessboard> {
         UntrustedMove::from_move(Self(val as u16))
     }
@@ -419,7 +409,29 @@ impl Move<Chessboard> for ChessMove {
         self.0
     }
 
-    // TODO: Parse pgn (not here though)
+    fn parse_extended_text<'a>(s: &'a str, board: &Chessboard) -> Res<(&'a str, ChessMove)> {
+        MoveParser::parse(s, board)
+    }
+}
+
+fn parse_short_promo_piece(s: &str) -> Option<(ChessMoveFlags, usize)> {
+    if s.len() > 4 {
+        let promo = s.chars().nth(4).unwrap().to_ascii_uppercase();
+        let num_bytes = promo.len_utf8() + 4;
+        let promo = ChessPieceType::from_ascii_char(promo)
+            .or_else(|| ChessPieceType::from_utf8_char(promo))?;
+        return Some((
+            match promo {
+                Knight => PromoKnight,
+                Bishop => PromoBishop,
+                Rook => PromoRook,
+                Queen => PromoQueen,
+                _ => return None,
+            },
+            num_bytes,
+        ));
+    }
+    None
 }
 
 impl Chessboard {
@@ -625,7 +637,7 @@ impl<'a> MoveParser<'a> {
         }
     }
 
-    pub fn parse(input: &'a str, board: &Chessboard) -> Res<(ChessMove, &'a str)> {
+    pub fn parse(input: &'a str, board: &Chessboard) -> Res<(&'a str, ChessMove)> {
         let mut parser = MoveParser::new(input);
         if let Some(mov) = parser.parse_castling(board) {
             parser.parse_check_mate();
@@ -638,7 +650,7 @@ impl<'a> MoveParser<'a> {
                 );
             }
             parser.check_check_checkmate_captures_and_ep(mov, board)?; // check this once the move is known to be pseudolegal
-            return Ok((mov, parser.remaining()));
+            return Ok((parser.remaining(), mov));
         }
         parser.parse_piece()?;
         parser.parse_maybe_capture()?;
@@ -655,7 +667,7 @@ impl<'a> MoveParser<'a> {
         let mov = parser.into_move(board)?;
         // this also consumes the character after the move if it exists, but that's probably fine
         // (I wonder at what point it will turn out to not be fine)
-        Ok((mov, remaining))
+        Ok((remaining, mov))
     }
 
     fn consumed(&self) -> &'a str {
@@ -744,12 +756,16 @@ impl<'a> MoveParser<'a> {
         match current {
             'a'..='h' | 'A' | 'C' | 'E'..='H' | 'x' | ':' | '×' => (),
             _ => {
-                self.piece = ColoredChessPieceType::from_utf8_char(current)
-                    .map(ColoredChessPieceType::uncolor)
-                    .or_else(|| ChessPieceType::from_utf8_char(current))
-                    .ok_or_else(|| {
-                        anyhow!("The move starts with '{current}', which is not a piece or file")
-                    })?;
+                self.piece =
+                    ColoredChessPieceType::from_utf8_char(current)
+                        .map(ColoredChessPieceType::uncolor)
+                        .or_else(|| ChessPieceType::from_utf8_char(current))
+                        .ok_or_else(|| {
+                            anyhow!(
+                            "The move '{}' starts with '{current}', which is not a piece or file",
+                            self.original_input.split_ascii_whitespace().next().unwrap().error()
+                        )
+                        })?;
                 self.advance_char();
             }
         };
@@ -899,13 +915,20 @@ impl<'a> MoveParser<'a> {
     fn parse_annotation(&mut self) {
         self.ignore_whitespace();
         let annotation_chars = [
-            '!', '?', '⌓', '□', ' ', '⩲', '⩱', '±', '∓', '∞', '/', '+', '-', '=',
+            '!', '?', '⌓', '□', ' ', '⩲', '⩱', '±', '∓', '∞', '/', '+', '-', '=', '$',
         ];
         while self
             .current_char()
             .is_some_and(|c| annotation_chars.contains(&c))
         {
-            self.advance_char();
+            if self.current_char().unwrap() != '$' {
+                self.advance_char();
+            } else {
+                self.advance_char();
+                while self.current_char().is_some_and(|c| c.is_ascii_digit()) {
+                    self.advance_char();
+                }
+            }
         }
     }
 

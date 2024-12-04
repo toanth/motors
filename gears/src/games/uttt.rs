@@ -298,22 +298,28 @@ impl Move<UtttBoard> for UtttMove {
         }
     }
 
-    fn from_compact_text(s: &str, board: &UtttBoard) -> Res<Self> {
+    fn parse_compact_text<'a>(s: &'a str, board: &UtttBoard) -> Res<(&'a str, UtttMove)> {
         // TODO: This is not pseudolegal, so allowing it seems dangerous
-        if s == "0000" {
-            return Ok(Self::NULL);
+        if s.starts_with("0000") {
+            return Ok((&s[4..], Self::NULL));
         }
-        let square = UtttSquare::from_str(s)?;
+        let Some(square_str) = s.get(..2) else {
+            bail!(
+                "UTTT move '{}' doesn't start with a square consisting of two ASCII characters",
+                s.error()
+            )
+        };
+        let square = UtttSquare::from_str(square_str)?;
         if !board.is_open(square) {
             bail!("Square {square} is not empty, so this move is invalid");
         } else if !board.is_move_pseudolegal(Self(square)) {
             bail!("Incorrect sub-board. The previous move determines the sub-board for this move")
         }
-        Ok(Self(square))
+        Ok((&s[2..], Self(square)))
     }
 
-    fn from_extended_text(s: &str, board: &UtttBoard) -> Res<Self> {
-        Self::from_compact_text(s, board)
+    fn parse_extended_text<'a>(s: &'a str, board: &UtttBoard) -> Res<(&'a str, UtttMove)> {
+        Self::parse_compact_text(s, board)
     }
 
     fn from_usize_unchecked(val: usize) -> UntrustedMove<UtttBoard> {

@@ -19,6 +19,7 @@ use crate::{GameOverReason, GameState, MatchResult, MatchStatus};
 pub mod chess;
 pub mod engine_state;
 pub mod logger;
+mod pgn;
 pub mod text_output;
 
 #[derive(Debug, Display, Eq, PartialEq, Copy, Clone)]

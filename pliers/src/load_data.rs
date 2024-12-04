@@ -9,6 +9,7 @@ use gears::general::board::Board;
 use gears::general::board::Strictness::Relaxed;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{parse_fp_from_str, tokens, ColorMsg, Res, Tokens};
+use gears::GameResult;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::ParallelBridge;
 use serde::Deserialize;
@@ -16,6 +17,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::marker::PhantomData;
 use std::path::Path;
+use std::str::FromStr;
 
 const WDL_MAP: [(&str, Float); 4] = [
     ("0-1", 0.0),
@@ -94,14 +96,15 @@ pub(super) struct FenReader<B: Board, E: Eval<B>> {
 
 impl<B: Board, E: Eval<B>> FenReader<B, E> {
     fn parse_wdl(input: &mut Tokens) -> Res<Outcome> {
-        const IGNORED: [char; 10] = ['\"', '\'', '[', ']', '(', ')', '{', '}', ' ', '\t'];
+        const IGNORED: &[char] = &['\"', '\'', '[', ']', '(', ')', '{', '}', ' ', '\t'];
         // This would be a great time to use the `.remainder()` method, but that isn't stable :/
         let wdl = input.next().ok_or_else(|| anyhow!("Missing wdl"))?;
-        let wdl = wdl.trim_matches(&IGNORED);
-        for (key, value) in WDL_MAP {
-            if wdl.starts_with(key) {
-                return Ok(Outcome::new(value));
-            }
+        let wdl = wdl.trim_matches(IGNORED);
+        if let Some(result) = GameResult::from_str(wdl)
+            .ok()
+            .and_then(|val| val.check_finished())
+        {
+            return Ok(Outcome::new(result.into()));
         }
         if let Ok(parsed) = parse_fp_from_str(wdl, "wdl") {
             return Ok(Outcome::new(parsed));

@@ -3,7 +3,7 @@ use crate::games::chess::ChessColor;
 use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, Size, Width};
 #[cfg(feature = "chess")]
 use crate::general::bitboards::chess::ChessBitboard;
-use crate::general::common::{parse_int, tokens, ColorMsg, Res};
+use crate::general::common::{parse_int, parse_int_from_str, tokens, ColorMsg, Res};
 use crate::general::squares::SquareColor::{Black, White};
 use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
@@ -91,17 +91,11 @@ impl FromStr for GridCoordinates {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut s = s.trim().chars();
-
-        let Some(file) = s.next() else {
-            bail!("Empty input")
+        let Some((file, rank)) = s.split_at_checked(1) else {
+            bail!("Square doesn't start with an ASCII character");
         };
-        let mut words = tokens(s.as_str());
-        let rank: usize = parse_int(&mut words, "rank (row)")?;
-        if words.count() > 0 {
-            bail!("too many words".to_string());
-        }
-        Self::algebraic_coordinate(file, rank)
+        let rank: usize = parse_int_from_str(rank, "rank (row)")?;
+        Self::algebraic_coordinate(file.chars().next().unwrap(), rank)
     }
 }
 

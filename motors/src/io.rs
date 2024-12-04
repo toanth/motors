@@ -40,7 +40,6 @@ use crate::io::command::{
 };
 use crate::io::input::Input;
 use crate::io::ugi_output::{color_for_score, pretty_score, score_gradient, suffix_for, UgiOutput};
-use crate::io::ProgramStatus::{Quit, Run};
 use crate::io::Protocol::{Interactive, UGI};
 use crate::io::SearchType::*;
 use crate::search::multithreading::EngineWrapper;
@@ -52,7 +51,7 @@ use crate::{
 use gears::cli::select_game;
 use gears::crossterm::style;
 use gears::crossterm::style::Stylize;
-use gears::games::{BoardHistory, ColoredPiece, OutputList, ZobristHistory};
+use gears::games::{ColoredPiece, OutputList, ZobristHistory};
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, Strictness, UnverifiedBoard};
 use gears::general::common::anyhow::{anyhow, bail};
@@ -72,13 +71,14 @@ use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
-use gears::ugi::{
-    parse_ugi_position_and_moves, EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin,
-    UgiString,
-};
+use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
 use gears::MatchStatus::*;
+use gears::ProgramStatus::{Quit, Run};
 use gears::Quitting::QuitProgram;
-use gears::{output_builder_from_str, AbstractRun, GameState, MatchStatus, PlayerResult, Quitting};
+use gears::{
+    output_builder_from_str, AbstractRun, GameState, MatchState, MatchStatus, PlayerResult,
+    Quitting,
+};
 
 const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
 
@@ -110,12 +110,6 @@ impl Display for SearchType {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum ProgramStatus {
-    Run(MatchStatus),
-    Quit(Quitting),
-}
-
 #[derive(
     Debug, Default, Copy, Clone, Eq, PartialEq, derive_more::Display, derive_more::FromStr,
 )]
@@ -127,86 +121,13 @@ pub enum Protocol {
     UAI,
 }
 
-#[derive(Debug, Clone)]
-struct BoardGameState<B: Board> {
-    board: B,
-    debug_mode: bool,
-    status: ProgramStatus,
-    mov_hist: Vec<B::Move>,
-    board_hist: ZobristHistory<B>,
-    initial_pos: B,
-    last_played_color: B::Color,
-    ponder_limit: Option<SearchLimit>,
-}
-
-impl<B: Board> BoardGameState<B> {
-    fn last_move(&self) -> Option<B::Move> {
-        self.mov_hist.last().copied()
-    }
-
-    fn make_move(&mut self, mov: B::Move) -> Res<B> {
-        debug_assert!(self.board.is_move_pseudolegal(mov));
-        if let Run(Over(result)) = &self.status {
-            bail!(
-                "Cannot play move '{mov}' because the game is already over: {0} ({1}). The position is '{2}'",
-                result.result, result.reason, self.board
-            )
-        }
-        self.board_hist.push(&self.board);
-        self.mov_hist.push(mov);
-        self.board = self.board.make_move(mov).ok_or_else(|| {
-            anyhow!(
-                "Illegal move {mov} (pseudolegal but not legal) in position {}",
-                self.board
-            )
-        })?;
-        Ok(self.board)
-    }
-
-    fn clear_state(&mut self) {
-        self.board = self.initial_pos;
-        self.mov_hist.clear();
-        self.board_hist.clear();
-        self.status = Run(NotStarted);
-    }
-
-    fn handle_position(
-        &mut self,
-        words: &mut Tokens,
-        allow_pos_word: bool,
-        strictness: Strictness,
-    ) -> Res<()> {
-        let pos = self.board;
-        let Some(next_word) = words.next() else {
-            bail!(
-                "Missing position after '{}' command",
-                "position".important()
-            )
-        };
-        parse_ugi_position_and_moves(
-            next_word,
-            words,
-            allow_pos_word,
-            strictness,
-            &pos,
-            self,
-            |this, mov| this.make_move(mov).map(|_| ()),
-            |this| {
-                this.initial_pos = this.board;
-                this.clear_state()
-            },
-            |state| &mut state.board,
-        )?;
-        self.last_played_color = self.board.active_player();
-        Ok(())
-    }
-}
-
 #[derive(Debug)]
 struct EngineGameState<B: Board> {
-    board_state: BoardGameState<B>,
+    position_state: MatchState<B>,
     game_name: String,
     protocol: Protocol,
+    debug_mode: bool,
+    ponder_limit: Option<SearchLimit>,
     engine: EngineWrapper<B>,
     /// This doesn't have to be the UGI engine name. It often isn't, especially when two engines with
     /// the same name play against each other, such as in a SPRT. It should be unique, however
@@ -216,16 +137,16 @@ struct EngineGameState<B: Board> {
 }
 
 impl<B: Board> Deref for EngineGameState<B> {
-    type Target = BoardGameState<B>;
+    type Target = MatchState<B>;
 
     fn deref(&self) -> &Self::Target {
-        &self.board_state
+        &self.position_state
     }
 }
 
 impl<B: Board> DerefMut for EngineGameState<B> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.board_state
+        &mut self.position_state
     }
 }
 
@@ -266,7 +187,7 @@ impl<B: Board> AbstractRun for EngineUGI<B> {
 
 impl<B: Board> GameState<B> for EngineGameState<B> {
     fn initial_pos(&self) -> B {
-        self.initial_pos
+        self.pos_before_moves
     }
 
     fn get_board(&self) -> B {
@@ -297,7 +218,7 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
     }
 
     fn site(&self) -> &str {
-        "??"
+        "?"
     }
 
     fn player_name(&self, color: B::Color) -> Option<String> {
@@ -360,25 +281,21 @@ impl<B: Board> EngineUGI<B> {
             TT::default(),
         )?;
         let display_name = engine.get_engine_info().short_name();
-        let board_state = BoardGameState {
+        let board_state = MatchState {
             board,
-            debug_mode: opts.debug,
             status: Run(NotStarted),
             mov_hist: vec![],
             board_hist: ZobristHistory::default(),
-            initial_pos: B::default(),
+            pos_before_moves: B::default(),
             last_played_color: B::Color::default(),
-            ponder_limit: None,
         };
-        let protocol = if opts.interactive {
-            Interactive
-        } else {
-            Protocol::UGI
-        };
+        let protocol = if opts.interactive { Interactive } else { UGI };
         let state = EngineGameState {
-            board_state,
+            position_state: board_state,
             game_name: B::game_name(),
             protocol,
+            debug_mode: opts.debug,
+            ponder_limit: None,
             engine,
             display_name,
             opponent_name: None,
@@ -621,7 +538,7 @@ impl<B: Board> EngineUGI<B> {
             let mov = B::Move::from_text(word, &state.board)?;
             state.make_move(mov)?;
         }
-        self.state.board_state = state;
+        self.state.position_state = state;
         if self.print_game_over(true) {
             return Ok(true);
         }
@@ -1051,13 +968,13 @@ impl<B: Board> EngineUGI<B> {
             }
         };
         if words.peek().is_some() {
-            let old_state = self.state.board_state.clone();
+            let old_state = self.state.position_state.clone();
             if let Err(err) = self.state.handle_position(words, true, self.strictness) {
-                self.state.board_state = old_state;
+                self.state.position_state = old_state;
                 return Err(err);
             }
             print(self, output, &self.state);
-            self.state.board_state = old_state;
+            self.state.position_state = old_state;
         } else {
             print(self, output, &self.state);
         }
@@ -1454,7 +1371,7 @@ impl<B: Board> EngineUGI<B> {
 }
 
 // take a BoardGameState instead of a board to correctly handle displaying the last move
-fn format_tt_entry<B: Board>(state: BoardGameState<B>, entry: TTEntry<B>) -> String {
+fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String {
     let pos = state.board;
     let formatter = pos.pretty_formatter(None, state.last_move());
     let mov = entry.mov.check_legal(&pos);

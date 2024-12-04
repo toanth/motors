@@ -17,7 +17,6 @@
  */
 
 use crate::io::command::Standard::*;
-use crate::io::ProgramStatus::Run;
 use crate::io::Protocol::Interactive;
 use crate::io::SearchType::{Bench, Normal, Perft, Ponder, SplitPerft};
 use crate::io::{EngineUGI, SearchType};
@@ -44,6 +43,7 @@ use gears::search::{Depth, NodesLimit, SearchLimit};
 use gears::ugi::{load_ugi_position, parse_ugi_position_part, EngineOptionName};
 use gears::GameResult;
 use gears::MatchStatus::{NotStarted, Ongoing, Over};
+use gears::ProgramStatus::Run;
 use gears::Quitting::{QuitMatch, QuitProgram};
 use inquire::autocompletion::Replacement;
 use inquire::{Autocomplete, CustomUserError};

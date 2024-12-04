@@ -201,27 +201,25 @@ impl Move<AtaxxBoard> for AtaxxMove {
         }
     }
 
-    fn from_compact_text(s: &str, board: &AtaxxBoard) -> Res<AtaxxMove> {
+    fn parse_compact_text<'a>(s: &'a str, board: &AtaxxBoard) -> Res<(&'a str, AtaxxMove)> {
         let s = s.trim();
         if s.is_empty() {
             bail!("Empty input");
         }
-        if s == "0000" {
-            return Ok(Self::default());
+        if s.starts_with("0000") {
+            return Ok((&s[4..], Self::default()));
         }
-        // Need to check this before creating slices because splitting unicode character panics.
-        if !s.is_ascii() {
-            bail!("Move '{}' contains a non-ASCII character", s.error());
-        }
-        if s.len() != 2 && s.len() != 4 {
-            bail!("Incorrect move length: '{s}'. Must contain exactly one or two squares");
-        }
-        let mut from_square = AtaxxSquare::no_coordinates();
-        let mut to_square = AtaxxSquare::from_str(&s[0..2])?;
-        if s.len() == 4 {
-            from_square = to_square;
-            to_square = AtaxxSquare::from_str(&s[2..4])?;
-        }
+        let Some(first_square) = s.get(..2) else {
+            bail!("Move '{}' doesn't start with 2 ascii characters", s.error());
+        };
+        let first_square = AtaxxSquare::from_str(first_square)?;
+        let second_square = s.get(2..4).and_then(|s| AtaxxSquare::from_str(s).ok());
+        let (remaining, mut from_square, mut to_square) = if let Some(sq) = second_square {
+            (&s[4..], first_square, sq)
+        } else {
+            (&s[2..], AtaxxSquare::no_coordinates(), first_square)
+        };
+
         let res = Self {
             source: from_square,
             target: to_square,
@@ -238,11 +236,11 @@ impl Move<AtaxxBoard> for AtaxxMove {
             bail!("No piece can move to {}", to_square.to_string().error())
         }
 
-        Ok(res)
+        Ok((remaining, res))
     }
 
-    fn from_extended_text(s: &str, board: &AtaxxBoard) -> Res<AtaxxMove> {
-        Self::from_compact_text(s, board)
+    fn parse_extended_text<'a>(s: &'a str, board: &AtaxxBoard) -> Res<(&'a str, AtaxxMove)> {
+        Self::parse_compact_text(s, board)
     }
 
     fn from_usize_unchecked(val: usize) -> UntrustedMove<AtaxxBoard> {
