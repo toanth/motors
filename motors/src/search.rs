@@ -1201,7 +1201,7 @@ mod tests {
             let res = engine.bench(p, SearchLimit::nodes_(1), tt.clone());
             assert!(res.depth.is_none());
             assert!(res.max_depth.get() <= 1);
-            assert!(res.nodes <= 100); // TODO: Assert exactly 1
+            assert!(res.nodes <= 200); // TODO: Assert exactly 1
             let res = engine.search_with_new_tt(p, SearchLimit::depth_(1));
             let legal_moves = p.legal_moves_slow();
             if legal_moves.num_moves() > 0 {

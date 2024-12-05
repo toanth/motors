@@ -1182,10 +1182,9 @@ impl Caps {
             // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
             // However, if we've already done qsearch on this position, we can just re-use the result,
             // so there is no point in checking the depth at all
-            if !is_pv
-                && ((bound == NodeType::lower_bound() && tt_entry.score >= beta)
-                    || (bound == NodeType::upper_bound() && tt_entry.score <= alpha)
-                    || bound == Exact)
+            if (bound == NodeType::lower_bound() && tt_entry.score >= beta)
+                || (bound == NodeType::upper_bound() && tt_entry.score <= alpha)
+                || bound == Exact
             {
                 self.state.statistics.tt_cutoff(Qsearch, bound);
                 return tt_entry.score;
@@ -1232,8 +1231,9 @@ impl Caps {
         let mut children_visited = 0;
         while let Some((mov, score)) = move_picker.next(&move_scorer, &self.state) {
             debug_assert!(mov.is_tactical(&pos));
-            if score < MoveScore(0) {
-                // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
+            if score < MoveScore(0) && !is_pv {
+                // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch,
+                // unless we're in a PV node.
                 break;
             }
             let Some(new_pos) = pos.make_move(mov) else {
