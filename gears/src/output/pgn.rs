@@ -28,7 +28,7 @@ use crate::output::pgn::TagPair::{Black, Date, Event, Other, Result, Round, Site
 use crate::MatchStatus::*;
 use crate::ProgramStatus::Run;
 use crate::{AdjudicationReason, GameOverReason, GameResult, GameState, MatchResult, MatchState};
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use std::fmt::Display;
 use std::iter::Peekable;
 use std::mem::take;
@@ -37,7 +37,7 @@ use std::str::{Chars, FromStr};
 pub fn match_to_pgn_string<B: Board>(m: &dyn GameState<B>) -> String {
     let result = match m.match_status() {
         Over(r) => r.result.to_canonical_string(),
-        _ => "\"*\"".to_string(),
+        _ => "*".to_string(),
     };
     let status = m.match_status();
     let termination = match &status {
@@ -93,12 +93,8 @@ pub fn match_to_pgn_string<B: Board>(m: &dyn GameState<B>) -> String {
         }
         board = board.make_move(*mov).unwrap();
     }
-    if let Over(x) = m.match_status() {
-        if !matches!(x.result, GameResult::Aborted) {
-            res.push(' ');
-            res += &result;
-        }
-    }
+    res.push(' ');
+    res += &result;
     res
 }
 
@@ -179,7 +175,7 @@ impl TagPair {
         })
     }
 
-    fn value(&self) -> String {
+    pub fn value(&self) -> String {
         match self {
             Event(value) => value.clone(),
             Site(value) => value.clone(),
@@ -202,9 +198,9 @@ impl TagPair {
 }
 
 #[derive(Debug, Default, Clone)]
-struct PgnData<B: Board> {
-    tag_pairs: Vec<TagPair>,
-    game: MatchState<B>,
+pub struct PgnData<B: Board> {
+    pub tag_pairs: Vec<TagPair>,
+    pub game: MatchState<B>,
 }
 
 struct PgnParser<'a, B: Board> {
@@ -224,10 +220,6 @@ impl<'a, B: Board> PgnParser<'a, B> {
             unread: input.chars().peekable(),
             res: PgnData::default(),
         }
-    }
-
-    fn is_symbol_char(c: char) -> bool {
-        c.is_ascii_digit() || c.is_alphabetic() || matches!(c, '_' | '+' | '#' | '=' | ':' | '-')
     }
 
     fn eat(&mut self) -> Option<char> {
@@ -414,9 +406,15 @@ impl<'a, B: Board> PgnParser<'a, B> {
 
 pub fn parse_pgn<B: Board>(pgn: &str) -> Res<PgnData<B>> {
     let mut parser: PgnParser<'_, B> = PgnParser::new(pgn);
-    parser.parse()
+    parser.parse().map_err(|err| {
+        anyhow!(
+            "{err}. Unconsumed input: '{}'",
+            &parser.original_input[parser.byte_idx..].to_string().error()
+        )
+    })
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::games::chess::moves::ChessMove;

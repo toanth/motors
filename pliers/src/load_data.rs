@@ -19,13 +19,6 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::str::FromStr;
 
-const WDL_MAP: [(&str, Float); 4] = [
-    ("0-1", 0.0),
-    ("1/2-1/2", 0.5),
-    ("0.5-0.5", 0.5),
-    ("1-0", 1.0),
-];
-
 /// A parsed FEN with metadata.
 ///
 /// The weight is inherited from the dataset but can also be changed by the [`Filter`], just like all members.

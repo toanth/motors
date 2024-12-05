@@ -214,7 +214,7 @@ impl Move<AtaxxBoard> for AtaxxMove {
         };
         let first_square = AtaxxSquare::from_str(first_square)?;
         let second_square = s.get(2..4).and_then(|s| AtaxxSquare::from_str(s).ok());
-        let (remaining, mut from_square, mut to_square) = if let Some(sq) = second_square {
+        let (remaining, from_square, to_square) = if let Some(sq) = second_square {
             (&s[4..], first_square, sq)
         } else {
             (&s[2..], AtaxxSquare::no_coordinates(), first_square)

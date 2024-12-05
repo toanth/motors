@@ -24,6 +24,7 @@ pub mod ugi_output;
 use itertools::Itertools;
 use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter, Write};
+use std::fs;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::str::FromStr;
@@ -65,6 +66,7 @@ use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
 use gears::general::perft::{perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
+use gears::output::pgn::parse_pgn;
 use gears::output::text_output::{display_color, AdaptFormatter};
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
@@ -1183,6 +1185,14 @@ impl<B: Board> EngineUGI<B> {
             // print the current board again, now that the match is over
             self.print_board();
         }
+        Ok(())
+    }
+
+    fn load_pgn(&mut self, words: &mut Tokens) -> Res<()> {
+        let file_text = fs::read_to_string(words.join(" "))?;
+        let pgn_data = parse_pgn::<B>(&file_text)?;
+        self.state.position_state = pgn_data.game;
+        self.print_board();
         Ok(())
     }
 

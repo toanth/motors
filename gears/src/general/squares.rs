@@ -3,7 +3,7 @@ use crate::games::chess::ChessColor;
 use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, Size, Width};
 #[cfg(feature = "chess")]
 use crate::general::bitboards::chess::ChessBitboard;
-use crate::general::common::{parse_int, parse_int_from_str, tokens, ColorMsg, Res};
+use crate::general::common::{parse_int_from_str, ColorMsg, Res};
 use crate::general::squares::SquareColor::{Black, White};
 use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
@@ -340,9 +340,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
             rank.to_digit(H as u32 + 1).ok_or_else(|| {
                 anyhow!("the rank is '{rank}', which does not represent a number between 1 and {H} (the height)")
             })? as usize,
-        )
-        .and_then(|c| GridSize::new(Height(H as DimT), Width(W as DimT)).check_coordinates(c))
-        .map(Self::from_coordinates)
+        ).and_then(|c| GridSize::new(Height(H as DimT), Width(W as DimT)).check_coordinates(c)).map(Self::from_coordinates)
     }
 
     pub fn to_grid_coordinates(self) -> GridCoordinates {

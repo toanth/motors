@@ -287,7 +287,7 @@ pub trait Board:
     /// Returns `true` iff there is no piece on the given square.
     fn is_empty(&self, coords: Self::Coordinates) -> bool;
 
-    /// Returns `true` iff a pice of the given type and color exists on the given coordinates.
+    /// Returns `true` iff a piece of the given type and color exists on the given coordinates.
     /// Can sometimes be implemented more efficiently than by comparing `colored_piece_on`.
     fn is_piece_on(&self, coords: Self::Coordinates, piece: ColPieceType<Self>) -> bool {
         self.colored_piece_on(coords).colored_piece_type() == piece

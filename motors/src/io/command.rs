@@ -526,6 +526,12 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             -> |state: ACState<B>| select_command::<B, dyn AbstractEvalBuilder<B>>(state.evals.as_slice())
         ),
         ugi_command!(
+            load_pgn | pgn,
+            Custom,
+            "Loads the given file, which must contain a PGN",
+            |ugi, words, _| { ugi.load_pgn(words) }
+        ),
+        ugi_command!(
             play | game,
             Custom,
             "Starts a new match, possibly of a new game, optionally setting a new engine and position",
