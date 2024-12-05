@@ -703,7 +703,7 @@ impl Caps {
         }
         // limit.mate() is the min of the original limit.mate and DEPTH_HARD_LIMIT
         if depth <= 0 || ply >= self.state.custom.depth_hard_limit {
-            return Some(self.qsearch(pos, alpha, beta, ply));
+            return Some(self.qsearch(pos, alpha, beta, ply, is_pv_node));
         }
         let can_prune = !is_pv_node && !in_check;
 
@@ -1155,7 +1155,14 @@ impl Caps {
     }
 
     /// Search only "tactical" moves to quieten down the position before calling eval
-    fn qsearch(&mut self, pos: Chessboard, mut alpha: Score, beta: Score, ply: usize) -> Score {
+    fn qsearch(
+        &mut self,
+        pos: Chessboard,
+        mut alpha: Score,
+        beta: Score,
+        ply: usize,
+        is_pv: bool,
+    ) -> Score {
         self.state.statistics.count_node_started(Qsearch);
         // updating seldepth only in qsearch meaningfully increased performance and was even measurable in a [0, 10] SPRT.
         self.state.atomic().update_seldepth(ply);
@@ -1175,9 +1182,10 @@ impl Caps {
             // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
             // However, if we've already done qsearch on this position, we can just re-use the result,
             // so there is no point in checking the depth at all
-            if (bound == NodeType::lower_bound() && tt_entry.score >= beta)
-                || (bound == NodeType::upper_bound() && tt_entry.score <= alpha)
-                || bound == Exact
+            if !is_pv
+                && ((bound == NodeType::lower_bound() && tt_entry.score >= beta)
+                    || (bound == NodeType::upper_bound() && tt_entry.score <= alpha)
+                    || bound == Exact)
             {
                 self.state.statistics.tt_cutoff(Qsearch, bound);
                 return tt_entry.score;
@@ -1233,7 +1241,7 @@ impl Caps {
             };
             self.record_move(mov, pos, ply, Qsearch);
             children_visited += 1;
-            let score = -self.qsearch(new_pos, -beta, -alpha, ply + 1);
+            let score = -self.qsearch(new_pos, -beta, -alpha, ply + 1, is_pv);
             self.undo_move();
             best_score = best_score.max(score);
             if score <= alpha {
