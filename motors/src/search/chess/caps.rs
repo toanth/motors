@@ -964,13 +964,13 @@ impl Caps {
                     FailHigh,
                 )?;
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
-                // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
+                // of the reduced depth. So do an almost full-depth search first, but don't use the full window quite yet.
                 if alpha < score && reduction > 0 {
                     self.state.statistics.lmr_first_retry();
                     score = -self.negamax(
                         new_pos,
                         ply + 1,
-                        depth - 1,
+                        depth - reduction.min(2),
                         -(alpha + 1),
                         -alpha,
                         FailHigh, // we still expect a fail high here
