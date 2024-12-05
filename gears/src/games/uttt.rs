@@ -16,7 +16,6 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::general::common::ColorMsg;
 pub mod uttt_square;
 #[cfg(test)]
 mod uttt_tests;
@@ -53,6 +52,7 @@ use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 use anyhow::bail;
 use arbitrary::Arbitrary;
+use colored::Colorize;
 use itertools::Itertools;
 use rand::Rng;
 use std::fmt;
@@ -306,7 +306,7 @@ impl Move<UtttBoard> for UtttMove {
         let Some(square_str) = s.get(..2) else {
             bail!(
                 "UTTT move '{}' doesn't start with a square consisting of two ASCII characters",
-                s.error()
+                s.red()
             )
         };
         let square = UtttSquare::from_str(square_str)?;
@@ -533,7 +533,7 @@ impl UtttBoard {
             || fen.contains(|c: char| ![' ', 'x', 'o', 'X', 'O'].contains(&c))
         {
             bail!(
-                "Incorrect alternative UTTT FEN '{}', must consist of exactly 81 chars, all of which must be ' ', 'x', 'o', 'X', or 'O'", fen.error()
+                "Incorrect alternative UTTT FEN '{}', must consist of exactly 81 chars, all of which must be ' ', 'x', 'o', 'X', or 'O'", fen.red()
             );
         }
         let mut board = UnverifiedUtttBoard::new(Self::empty());
@@ -549,7 +549,7 @@ impl UtttBoard {
                 board.0.active = UtttColor::from_char(c).unwrap().other();
                 let mov = board.last_move_mut();
                 if *mov != UtttMove::NULL {
-                    bail!("Upper case pieces are used for the last move, but there is more than one upper case letter in '{}'", fen.error());
+                    bail!("Upper case pieces are used for the last move, but there is more than one upper case letter in '{}'", fen.red());
                 }
                 *mov = UtttMove::new(square);
             }

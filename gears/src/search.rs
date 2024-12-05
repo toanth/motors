@@ -1,18 +1,19 @@
+use crate::general::board::Board;
+use crate::general::common::{parse_fp_from_str, Res};
+use crate::general::moves::Move;
+use crate::score::Score;
+use crate::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
 use anyhow::{anyhow, bail};
+use colored::{ColoredString, Colorize};
+use derive_more::{Add, AddAssign, SubAssign};
+use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
 use std::ops::Sub;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
-
-use crate::general::board::Board;
-use derive_more::{Add, AddAssign, SubAssign};
-use itertools::Itertools;
-
-use crate::general::common::{parse_fp_from_str, Res};
-use crate::general::moves::Move;
-use crate::score::Score;
-use crate::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
+use strum_macros::FromRepr;
+use NodeType::*;
 
 pub const MAX_DEPTH: Depth = Depth(10_000);
 
@@ -94,6 +95,56 @@ pub enum MpvType {
     SecondaryLine,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, FromRepr)]
+#[repr(u8)]
+#[must_use]
+pub enum NodeType {
+    /// Don't use 0 because that's used to represent the empty node type for the internal TT representation
+    /// score is a lower bound >= beta, cut-node (the most common node type)
+    FailHigh = 1,
+    /// score known exactly in `(alpha, beta)`, PV node (very rare, but those are the most important nodes)
+    Exact = 2,
+    /// score between alpha and beta, PV node (important node!)
+    FailLow = 3, // score is an upper bound <= alpha, all-node (relatively rare, but makes parent a cut-node)
+}
+
+impl Display for NodeType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FailHigh => write!(f, "Lower Bound"),
+            Exact => write!(f, "Exact"),
+            FailLow => write!(f, "Upper Bound"),
+        }
+    }
+}
+
+impl NodeType {
+    pub fn inverse(self) -> Self {
+        // Could maybe try some bit twiddling tricks in case the compiler doesn't already do that
+        match self {
+            FailHigh => FailLow,
+            Exact => Exact,
+            FailLow => FailHigh,
+        }
+    }
+
+    pub fn lower_bound() -> Self {
+        FailHigh
+    }
+
+    pub fn upper_bound() -> Self {
+        FailLow
+    }
+
+    pub fn comparison_str(&self, aligned: bool) -> ColoredString {
+        match self {
+            FailHigh => "≥".green(),
+            Exact => (if aligned { " " } else { "" }).into(),
+            FailLow => "≤".red(),
+        }
+    }
+}
+
 #[derive(Debug)]
 #[must_use]
 pub struct SearchInfo<B: Board> {
@@ -108,7 +159,7 @@ pub struct SearchInfo<B: Board> {
     pub score: Score,
     pub hashfull: usize,
     pub pos: B,
-    pub complete: bool,
+    pub bound: Option<NodeType>,
     pub additional: Option<String>,
 }
 
@@ -126,7 +177,7 @@ impl<B: Board> Default for SearchInfo<B> {
             score: Score::default(),
             hashfull: 0,
             pos: B::default(),
-            complete: false,
+            bound: None,
             additional: None,
         }
     }
@@ -155,8 +206,13 @@ impl<B: Board> SearchInfo<B> {
 
 impl<B: Board> Display for SearchInfo<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let bound = match self.bound.unwrap_or(Exact) {
+            FailHigh => " lowerbound",
+            Exact => "",
+            FailLow => " upperbound",
+        };
         write!(f,
-               "info depth {depth} seldepth {seldepth} multipv {multipv} score {score} time {time} nodes {nodes} nps {nps} hashfull {hashfull} pv",
+               "info depth {depth} seldepth {seldepth} multipv {multipv} score {score}{bound} time {time} nodes {nodes} nps {nps} hashfull {hashfull} pv",
                depth = self.depth.get(),
                score = self.score,
                time = self.time.as_millis(),

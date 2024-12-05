@@ -1,6 +1,6 @@
 use crate::games::{Color, ColoredPiece};
 use crate::general::board::RectangularBoard;
-use crate::general::common::{ColorMsg, NamedEntity, Res, StaticallyNamedEntity};
+use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::text_output::{
     display_color, p1_color, p2_color, AdaptFormatter, BoardFormatter, PieceToChar, TextStream,
@@ -10,9 +10,8 @@ use crate::output::Message::Info;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
 use crate::GameState;
 use anyhow::bail;
-use crossterm::style;
-use crossterm::style::Color::{Reset, Rgb};
-use crossterm::style::Stylize;
+use colored::Color::{TrueColor, White};
+use colored::Colorize;
 use std::fmt::{Display, Write};
 use std::io::stdout;
 
@@ -70,29 +69,25 @@ impl<B: RectangularBoard> Output<B> for ChessOutput {
 
 /// Except for RGB colors, how these colors are displayed depends on the style of the terminal.
 /// We still try to guess some value
-pub fn guess_colorgrad_color(color: style::Color) -> colorgrad::Color {
+pub fn guess_colorgrad_color(color: colored::Color) -> colorgrad::Color {
     let name = match color {
-        style::Color::Reset => return guess_colorgrad_color(style::Color::White),
-        style::Color::Black => "black",
-        style::Color::DarkGrey => "darkgrey",
-        style::Color::Red => "red",
-        style::Color::DarkRed => "darkred",
-        style::Color::Green => "green",
-        style::Color::DarkGreen => "darkgreen",
-        style::Color::Yellow => "yellow",
-        style::Color::DarkYellow => "darkyellow",
-        style::Color::Blue => "blue",
-        style::Color::DarkBlue => "darkblue",
-        style::Color::Magenta => "magenta",
-        style::Color::DarkMagenta => "darkmagenta",
-        style::Color::Cyan => "cyan",
-        style::Color::DarkCyan => "darkcyan",
-        style::Color::White => "white",
-        style::Color::Grey => "grey",
-        Rgb { r, g, b } => return colorgrad::Color::from([r, g, b]),
-        style::Color::AnsiValue(_) => {
-            panic!("ANSI color codes are not supported")
-        }
+        colored::Color::Black => "black",
+        colored::Color::BrightBlack => "darkgrey",
+        colored::Color::Red => "darkred",
+        colored::Color::BrightRed => "red",
+        colored::Color::Green => "darkgreen",
+        colored::Color::BrightGreen => "green",
+        colored::Color::Yellow => "darkyellow",
+        colored::Color::BrightYellow => "yellow",
+        colored::Color::Blue => "darkblue",
+        colored::Color::BrightBlue => "blue",
+        colored::Color::Magenta => "darkmagenta",
+        colored::Color::BrightMagenta => "magenta",
+        colored::Color::Cyan => "darkcyan",
+        colored::Color::BrightCyan => "cyan",
+        colored::Color::White => "white",
+        colored::Color::BrightWhite => "grey",
+        colored::Color::TrueColor { r, g, b } => return colorgrad::Color::from([r, g, b]),
     };
     colorgrad::Color::from_html(name).expect("incorrect color name")
 }
@@ -110,7 +105,7 @@ fn pretty_as_chessboard<B: RectangularBoard>(
             let piece = pos.colored_piece_on(square);
             if let Some(color) = piece.color() {
                 format!("{0:^1$}", piece.to_ascii_char(), width)
-                    .with(display_color(color))
+                    .color(display_color(color))
                     .to_string()
             } else {
                 " ".repeat(width)
@@ -138,7 +133,7 @@ fn pretty_as_chessboard<B: RectangularBoard>(
             };
 
             let color = match color {
-                None => Reset,
+                None => White,
                 Some(x) => {
                     if x.is_first() {
                         p1_color()
@@ -148,12 +143,12 @@ fn pretty_as_chessboard<B: RectangularBoard>(
                 }
             };
             let [r, g, b, _] = bg_color.to_rgba8();
-            let bg_color = Rgb { r, g, b };
+            let bg_color = TrueColor { r, g, b };
             let piece = formatter
                 .display_piece(square, 3)
-                .with(color)
-                .important()
-                .on(bg_color);
+                .color(color)
+                .bold()
+                .on_color(bg_color);
             write!(&mut line, "{piece}").unwrap();
         }
         let y = if flip { y + 1 } else { pos.height() - y };

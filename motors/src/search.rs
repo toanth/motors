@@ -6,13 +6,11 @@ use crate::search::multithreading::{
 };
 use crate::search::statistics::{Statistics, Summary};
 use crate::search::tt::TT;
-use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use colored::Color::Red;
 use colored::Colorize;
 use crossbeam_channel::unbounded;
 use derive_more::{Add, Neg, Sub};
 use dyn_clone::DynClone;
-use gears::crossterm::style::{StyledContent, Stylize};
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::bail;
@@ -21,7 +19,9 @@ use gears::general::move_list::MoveList;
 use gears::output::Message;
 use gears::output::Message::Warning;
 use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON};
-use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
+use gears::search::{
+    Depth, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl,
+};
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType};
 use itertools::Itertools;
 use rand::prelude::StdRng;
@@ -37,7 +37,6 @@ use std::sync::atomic::Ordering::Acquire;
 use std::sync::Arc;
 use std::thread::spawn;
 use std::time::{Duration, Instant};
-use strum_macros::FromRepr;
 
 #[cfg(feature = "chess")]
 pub mod chess;
@@ -511,7 +510,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
     /// Returns a [`SearchInfo`] object with information about the search so far.
     /// Can be called during search, only returns the information regarding the current thread.
     fn search_info(&self) -> SearchInfo<B> {
-        self.search_state_dyn().to_search_info(false)
+        self.search_state_dyn().to_search_info()
     }
 
     /// Sets an option with the name 'option' to the value 'value'.
@@ -715,6 +714,7 @@ struct PVData<B: Board> {
     radius: Score,
     pv: Pv<B, 200>, // A PV of 200 plies should be more than enough for anybody (tm)
     score: Score,
+    bound: Option<NodeType>,
 }
 
 impl<B: Board> Default for PVData<B> {
@@ -725,6 +725,7 @@ impl<B: Board> Default for PVData<B> {
             radius: Score(20),
             pv: Pv::default(),
             score: NO_SCORE_YET,
+            bound: None,
         }
     }
 }
@@ -735,9 +736,9 @@ pub trait AbstractSearchState<B: Board> {
     fn end_search(&mut self, res: SearchResult<B>);
     fn search_params(&self) -> &SearchParams<B>;
     fn to_bench_res(&self) -> BenchResult;
-    fn to_search_info(&self, complete: bool) -> SearchInfo<B>;
+    fn to_search_info(&self) -> SearchInfo<B>;
     fn aggregated_statistics(&self) -> &Statistics;
-    fn send_search_info(&self, complete: bool);
+    fn send_search_info(&self);
     /// Engine-specific info, like the contents of history tables.
     fn write_internal_info(&self) -> Option<String>;
 }
@@ -848,7 +849,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
         }
     }
 
-    fn to_search_info(&self, complete: bool) -> SearchInfo<B> {
+    fn to_search_info(&self) -> SearchInfo<B> {
         SearchInfo {
             best_move_of_all_pvs: self.best_move(),
             depth: self.depth(),
@@ -861,7 +862,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
             score: self.current_pv_data().score,
             hashfull: self.estimate_hashfull(),
             pos: self.params.pos,
-            complete,
+            bound: self.current_pv_data().bound,
             additional: Self::additional(),
         }
     }
@@ -870,9 +871,9 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
         &self.aggregated_statistics
     }
 
-    fn send_search_info(&self, complete: bool) {
+    fn send_search_info(&self) {
         if let Some(mut output) = self.search_params().thread_type.output() {
-            let info = self.to_search_info(complete);
+            let info = self.to_search_info();
             output.write_search_info(info);
         }
     }
@@ -1071,56 +1072,6 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         // and if the root never updates its PV (because it fails low or because the search is stopped), it will remain
         // empty. On the other hand, it can get updated during search; this only updates after each aw.
         self.multi_pvs[self.current_pv_num].pv.as_slice()
-    }
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, FromRepr)]
-#[repr(u8)]
-#[must_use]
-pub enum NodeType {
-    /// Don't use 0 because that's used to represent the empty node type for the internal TT representation
-    /// score is a lower bound >= beta, cut-node (the most common node type)
-    FailHigh = 1,
-    /// score known exactly in `(alpha, beta)`, PV node (very rare, but those are the most important nodes)
-    Exact = 2,
-    /// score between alpha and beta, PV node (important node!)
-    FailLow = 3, // score is an upper bound <= alpha, all-node (relatively rare, but makes parent a cut-node)
-}
-
-impl Display for NodeType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FailHigh => write!(f, "Lower Bound"),
-            Exact => write!(f, "Exact"),
-            FailLow => write!(f, "Upper Bound"),
-        }
-    }
-}
-
-impl NodeType {
-    pub fn inverse(self) -> Self {
-        // Could maybe try some bit twiddling tricks in case the compiler doesn't already do that
-        match self {
-            FailHigh => FailLow,
-            Exact => Exact,
-            FailLow => FailHigh,
-        }
-    }
-
-    pub fn lower_bound() -> Self {
-        FailHigh
-    }
-
-    pub fn upper_bound() -> Self {
-        FailLow
-    }
-
-    pub fn comparison_str(&self) -> StyledContent<&str> {
-        match self {
-            FailHigh => ">=".dark_green(),
-            Exact => "".stylize(),
-            FailLow => "<=".dark_red(),
-        }
     }
 }
 

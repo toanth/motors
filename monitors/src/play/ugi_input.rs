@@ -15,11 +15,10 @@ use crate::play::player::{EnginePlayer, Protocol};
 use crate::play::ugi_client::{Client, PlayerId};
 use crate::play::ugi_input::EngineStatus::*;
 use crate::play::ugi_input::HandleBestMove::{Ignore, Play};
+use gears::crossterm::style::Stylize;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{
-    parse_duration_ms, parse_int_from_str, tokens, ColorMsg, Res, Tokens,
-};
+use gears::general::common::{parse_duration_ms, parse_int_from_str, tokens, Res, Tokens};
 use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::score::{ScoreT, SCORE_LOST, SCORE_WON};
@@ -31,7 +30,6 @@ use gears::{
     player_res_to_match_res, AdjudicationReason, GameOver, GameOverReason, MatchStatus,
     PlayerResult,
 };
-
 // TODO: Does not currently handle engines that simply don't terminate the search (unless the user inputs 'stop')
 // (not receiving ugiok/uiok is handled, as is losing on time with a bestmove response,
 // but non-responding engines currently require user intervention)
@@ -281,7 +279,7 @@ impl<B: Board> InputThread<B> {
                 ),
             } {
                 bail!("Invalid UGI message ('{ugi_str}') from engine '{engine_name}' while in state {status}: {err}",
-                                   ugi_str = command.to_string().add(" ").add(&words.join(" ")).error())
+                                   ugi_str = command.to_string().add(" ").add(&words.join(" ")).red())
             }
         }
         // Empty uci commands should be ignored, according to the spec

@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
-use crossterm::style::Color::Red;
-use crossterm::style::Stylize;
+use colored::Color::Red;
+use colored::Colorize;
 use itertools::Itertools;
 use rand::prelude::IteratorRandom;
 use rand::Rng;
@@ -37,7 +37,7 @@ use crate::general::board::{
     NameToPos, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{
-    parse_int_from_str, ColorMsg, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
+    parse_int_from_str, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
 };
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
@@ -244,6 +244,17 @@ impl Board for Chessboard {
                 name: "puzzle",
                 val: || {
                     Self::from_fen("rk6/p1r3p1/P3B1Kp/1p2B3/8/8/8/8 w - - 0 1", Strict).unwrap()
+                },
+            },
+            // still very difficult for caps-lite to solve
+            GenericSelect {
+                name: "mate_in_16",
+                val: || {
+                    Self::from_fen(
+                        "1r1q1r2/5pk1/p2p1Np1/2pBp2p/1p2P2P/2PP2P1/1P1Q4/2K2R1b w - - 0 29",
+                        Strict,
+                    )
+                    .unwrap()
                 },
             },
         ]
@@ -567,7 +578,7 @@ impl Board for Chessboard {
             let fullmove_number = fullmove_number.parse::<NonZeroUsize>().map_err(|err| {
                 anyhow!(
                     "Couldn't parse fullmove counter '{}': {err}",
-                    fullmove_number.error()
+                    fullmove_number.red()
                 )
             })?;
             board.0.ply = ply_counter_from_fullmove_nr::<Chessboard>(fullmove_number, color);
@@ -633,7 +644,7 @@ impl Board for Chessboard {
                         piece.uncolored().to_utf8_char()
                     };
                     let s = format!("{c:^0$}", width);
-                    s.with(display_color(piece.color().unwrap())).to_string()
+                    s.color(display_color(piece.color().unwrap())).to_string()
                 }
             }),
             horizontal_spacer_interval: None,
@@ -906,7 +917,7 @@ impl Chessboard {
             }
         }
         bail!("(D)FRC positions must be of the format {0} or {1}, with N < 960 and M < 921600, e.g. frc123",
-            "frc<N>".important(), "dfrc<M>".important())
+            "frc<N>".bold(), "dfrc<M>".bold())
     }
 }
 

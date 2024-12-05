@@ -1,5 +1,7 @@
+use crate::general::common::Description::WithDescription;
+use crate::score::Score;
 pub use anyhow;
-use crossterm::style::Stylize;
+use colored::Colorize;
 use edit_distance::edit_distance;
 use itertools::Itertools;
 use num::{Float, PrimInt};
@@ -11,9 +13,6 @@ use std::iter::Peekable;
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::str::{FromStr, SplitWhitespace};
 use std::time::Duration;
-
-use crate::general::common::Description::WithDescription;
-use crate::score::Score;
 
 pub fn pop_lsb64(x: &mut u64) -> u32 {
     let shift = x.trailing_zeros();
@@ -107,23 +106,6 @@ pub fn ith_one_u128(idx: usize, val: u128) -> usize {
     }
 }
 
-/// Unfortunately, the crossterm color methods like `red` actually return the bright versions of colors,
-/// which often causes issues. So instead of remembering to call `.dark_red()` instead of  `.red()`, we
-/// hide that behind a method and must remember not to import crossterm
-pub trait ColorMsg: Stylize {
-    fn error(self) -> Self::Styled {
-        self.dark_red()
-    }
-    fn important(self) -> Self::Styled {
-        self.bold()
-    }
-    fn dimmed(self) -> Self::Styled {
-        self.dim()
-    }
-}
-
-impl<T: Stylize> ColorMsg for T {}
-
 pub type Tokens<'a> = Peekable<SplitWhitespace<'a>>;
 
 pub fn tokens(input: &str) -> Tokens {
@@ -174,10 +156,10 @@ pub fn parse_bool_from_str(input: &str, name: &str) -> Res<bool> {
     } else {
         Err(anyhow::anyhow!(
             "Incorrect value for '{0}': Expected either '{1}' or '{2}', not '{3}'",
-            name.important(),
-            "true".important(),
-            "false".important(),
-            input.error(),
+            name.bold(),
+            "true".bold(),
+            "false".bold(),
+            input.red(),
         ))
     }
 }
@@ -338,7 +320,7 @@ fn select_name_impl<
                         None => { format!("Valid {typ} names are {}", list_to_string(list, to_name)) }
                         Some(name) => {
                             let near_matches = list.clone().filter(|x|
-                                edit_distance(&to_name(x).to_ascii_lowercase(), &format!("'{}'", name.to_ascii_lowercase().important())) <= 3
+                                edit_distance(&to_name(x).to_ascii_lowercase(), &format!("'{}'", name.to_ascii_lowercase().bold())) <= 3
                             ).collect_vec();
                             if near_matches.is_empty() {
                                 format!("Valid {typ} names are {}", list_to_string(list, to_name))
@@ -349,9 +331,9 @@ fn select_name_impl<
                     }
                 }
             };
-            let game_name = game_name.important();
+            let game_name = game_name.bold();
             if let Some(name) = name {
-                let name = name.error();
+                let name = name.red();
                 Err(anyhow::anyhow!(
                     "Couldn't find {typ} '{name}' for the current game ({game_name}). {list_as_string}."))
             } else {

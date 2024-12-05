@@ -23,17 +23,16 @@ use crate::io::{EngineUGI, SearchType};
 use crate::search::{
     AbstractEvalBuilder, AbstractSearcherBuilder, EngineInfo, EvalList, SearcherList,
 };
+use colored::Colorize;
 use edit_distance::edit_distance;
 use gears::arrayvec::ArrayVec;
 use gears::cli::Game;
-use gears::crossterm::style::Stylize;
 use gears::games::{Color, OutputList, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, Strictness};
 use gears::general::common::anyhow::anyhow;
 use gears::general::common::{
-    parse_duration_ms, parse_int, parse_int_from_str, tokens, ColorMsg, Name, NamedEntity, Res,
-    Tokens,
+    parse_duration_ms, parse_int, parse_int_from_str, tokens, Name, NamedEntity, Res, Tokens,
 };
 use gears::general::move_list::MoveList;
 use gears::general::moves::{ExtendedFormat, Move};
@@ -122,9 +121,9 @@ fn display_cmd<S: CommandState>(
     cmd: &dyn CommandTrait<S>,
 ) -> std::fmt::Result {
     if let Some(desc) = cmd.description() {
-        write!(f, "{}: {desc}.", cmd.short_name().important())
+        write!(f, "{}: {desc}.", cmd.short_name().bold())
     } else {
-        write!(f, "{}", cmd.short_name().important())
+        write!(f, "{}", cmd.short_name().bold())
     }
 }
 
@@ -359,7 +358,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
                 go_state.limit = ugi.state.ponder_limit.ok_or_else(|| {
                     anyhow!(
                         "The engine received a '{}' command but wasn't pondering",
-                        cmd.important()
+                        cmd.bold()
                     )
                 })?;
                 ugi.start_search(go_state)
@@ -398,7 +397,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             |ugi, _, _| {
                 ugi.write_message(
                     Warning,
-                    &format!("{} isn't supported and will be ignored", "register".error()),
+                    &format!("{} isn't supported and will be ignored", "register".red()),
                 );
                 Ok(())
             }
@@ -411,7 +410,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
                 // TODO: Update move history by calling a proper method of ugi
                 ugi.state.board = ugi.state.board.make_nullmove().ok_or(anyhow!(
                     "Could not flip the side to move (board: '{}'",
-                    ugi.state.board.as_fen().important()
+                    ugi.state.board.as_fen().bold()
                 ))?;
                 ugi.print_board();
                 Ok(())
@@ -1145,7 +1144,7 @@ pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool) -> CommandList<B>
         let cmd = Command {
             primary_name,
             other_names,
-            help_text: format!("Play move '{}'", mov.to_string().important()),
+            help_text: format!("Play move '{}'", mov.to_string().bold()),
             standard: All,
             autocomplete_recurse: false,
             func: |_, _, _| Ok(()),
@@ -1323,7 +1322,7 @@ fn completions<B: Board>(
 
 fn underline_match(name: &str, word: &str) -> String {
     if name == word {
-        format!("{}", name.underlined())
+        format!("{}", name.underline())
     } else {
         name.to_string()
     }
@@ -1332,7 +1331,7 @@ fn underline_match(name: &str, word: &str) -> String {
 fn completion_text<B: Board, T: AbstractCommand<B> + ?Sized>(n: &T, word: &str) -> String {
     use std::fmt::Write;
     let name = n.short_name();
-    let mut res = format!("{}", underline_match(&name, word).important());
+    let mut res = format!("{}", underline_match(&name, word).bold());
     for name in n.secondary_names() {
         write!(&mut res, " | {}", underline_match(&name, word)).unwrap();
     }

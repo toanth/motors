@@ -1,6 +1,6 @@
 use crate::games::{Color, ColoredPiece, DimT, Settings};
 use crate::general::board::{Board, RectangularBoard};
-use crate::general::common::{ColorMsg, NamedEntity, Res};
+use crate::general::common::{NamedEntity, Res};
 use crate::general::move_list::MoveList;
 use crate::general::moves::ExtendedFormat::Alternative;
 use crate::general::moves::Move;
@@ -12,8 +12,7 @@ use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
 use crate::GameState;
 use crate::MatchStatus::*;
 use anyhow::{anyhow, bail};
-use crossterm::style;
-use crossterm::style::Stylize;
+use colored::Colorize;
 use std::fmt;
 use std::fs::File;
 use std::io::{stderr, stdout, Stderr, Stdout, Write};
@@ -426,17 +425,17 @@ pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
     res
 }
 
-pub fn p1_color() -> style::Color {
-    style::Color::DarkBlue
+pub fn p1_color() -> colored::Color {
+    colored::Color::Blue
     // #258ad1
 }
 
-pub fn p2_color() -> style::Color {
-    style::Color::DarkMagenta
+pub fn p2_color() -> colored::Color {
+    colored::Color::Magenta
     // #d23681
 }
 
-pub fn display_color<C: Color>(color: C) -> style::Color {
+pub fn display_color<C: Color>(color: C) -> colored::Color {
     if color.is_first() {
         p1_color()
     } else {
@@ -444,11 +443,11 @@ pub fn display_color<C: Color>(color: C) -> style::Color {
     }
 }
 
-fn with_color(text: &str, color: Option<style::Color>, highlight: bool) -> String {
+fn with_color(text: &str, color: Option<colored::Color>, highlight: bool) -> String {
     if let Some(color) = color {
-        text.with(color).important().to_string()
+        text.color(color).bold().to_string()
     } else if highlight {
-        text.dark_cyan().important().to_string()
+        text.cyan().bold().to_string()
     } else {
         text.dimmed().to_string()
     }
@@ -478,7 +477,7 @@ const RIGHT_BORDER: &str = "┨";
 const LOWER_BORDER: &str = "┷";
 const UPPER_BORDER: &str = "┯";
 
-const GOLD: style::Color = style::Color::Rgb {
+const GOLD: colored::Color = colored::Color::TrueColor {
     r: 255,
     g: 215,
     b: 0,
@@ -540,7 +539,7 @@ fn border_cross<B: RectangularBoard>(
 fn write_horizontal_bar<B: RectangularBoard>(
     y: usize,
     pos: &B,
-    colors: &[Vec<Option<style::Color>>],
+    colors: &[Vec<Option<colored::Color>>],
     fmt: &dyn BoardFormatter<B>,
 ) -> String {
     use fmt::Write;
@@ -673,7 +672,7 @@ pub fn display_board_pretty<B: RectangularBoard>(
 pub trait BoardFormatter<B: Board> {
     fn display_piece(&self, coords: B::Coordinates, width: usize) -> String;
 
-    fn frame_color(&self, coords: B::Coordinates) -> Option<style::Color>;
+    fn frame_color(&self, coords: B::Coordinates) -> Option<colored::Color>;
 
     fn flip_board(&self) -> bool;
 
@@ -728,10 +727,10 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
         let Some(color) = piece.color() else {
             return c.dimmed().to_string();
         };
-        c.with(display_color(color)).important().to_string()
+        c.color(display_color(color)).bold().to_string()
     }
 
-    fn frame_color(&self, square: B::Coordinates) -> Option<style::Color> {
+    fn frame_color(&self, square: B::Coordinates) -> Option<colored::Color> {
         if self
             .last_move
             .is_some_and(|m| m.src_square() == square || m.dest_square() == square)
@@ -761,7 +760,7 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
 
 #[allow(type_alias_bounds)]
 pub type AdaptPieceDisplay<B: Board> =
-    dyn Fn(B::Coordinates, Option<style::Color>) -> Option<style::Color>;
+    dyn Fn(B::Coordinates, Option<colored::Color>) -> Option<colored::Color>;
 
 pub struct AdaptFormatter<B: Board> {
     pub underlying: Box<dyn BoardFormatter<B>>,
@@ -778,7 +777,7 @@ impl<B: Board> BoardFormatter<B> for AdaptFormatter<B> {
         (self.display_piece)(square, width, underlying_res)
     }
 
-    fn frame_color(&self, coords: B::Coordinates) -> Option<style::Color> {
+    fn frame_color(&self, coords: B::Coordinates) -> Option<colored::Color> {
         let color = self.underlying.frame_color(coords);
         (self.color_frame)(coords, color)
     }

@@ -18,18 +18,19 @@
 
 // TODO: Keep this is a global object instead? Would make it easier to print warnings from anywhere, simplify search sender design
 
+use colored::Color::TrueColor;
+use colored::Colorize;
 use gears::colorgrad::{BasisGradient, Gradient, LinearGradient};
-use gears::crossterm::style::Color::Rgb;
-use gears::crossterm::style::Stylize;
 use gears::games::Color;
 use gears::general::board::Board;
-use gears::general::common::{sigmoid, ColorMsg, Tokens};
+use gears::general::common::{sigmoid, Tokens};
 use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::Move;
 use gears::output::{Message, OutputBox};
 use gears::score::Score;
 use gears::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
-use gears::search::{MpvType, SearchInfo, SearchResult};
+use gears::search::NodeType::*;
+use gears::search::{MpvType, NodeType, SearchInfo, SearchResult};
 use gears::{colorgrad, GameState};
 use std::fmt;
 use std::io::stdout;
@@ -40,7 +41,7 @@ use std::io::stdout;
 pub struct UgiOutput<B: Board> {
     pub(super) additional_outputs: Vec<OutputBox<B>>,
     pub(super) pretty: bool,
-    previous_info: Option<SearchInfo<B>>,
+    previous_exact_info: Option<SearchInfo<B>>,
     gradient: LinearGradient,
     alt_grad: BasisGradient,
 }
@@ -50,7 +51,7 @@ impl<B: Board> Default for UgiOutput<B> {
         Self {
             additional_outputs: vec![],
             pretty: false,
-            previous_info: None,
+            previous_exact_info: None,
             gradient: score_gradient(),
             alt_grad: colorgrad::GradientBuilder::new()
                 .html_colors(&["orange", "gold", "seagreen"])
@@ -94,12 +95,9 @@ impl<B: Board> UgiOutput<B> {
 
     pub fn write_search_res(&mut self, res: SearchResult<B>) {
         if self.pretty {
-            let mut move_text = res
-                .chosen_move
-                .to_extended_text(&res.pos, Standard)
-                .important();
+            let mut move_text = res.chosen_move.to_extended_text(&res.pos, Standard).bold();
             if let Some(score) = res.score {
-                move_text = move_text.with(color_for_score(score, &self.gradient));
+                move_text = move_text.color(color_for_score(score, &self.gradient));
             }
             let mut msg = format!("Chosen move: {move_text}",);
             if let Some(ponder) = res.ponder_move() {
@@ -121,24 +119,28 @@ impl<B: Board> UgiOutput<B> {
     }
 
     pub fn write_search_info(&mut self, info: SearchInfo<B>) {
+        let exact = info.bound == Some(Exact);
         if !self.pretty {
             self.write_ugi(&info.to_string());
-            self.previous_info = Some(info);
+            if exact {
+                self.previous_exact_info = Some(info);
+            }
             return;
         }
 
         if info.mpv_type() != SecondaryLine
             && self
-                .previous_info
+                .previous_exact_info
                 .as_ref()
                 .is_some_and(|i| i.depth != info.depth - 1)
         {
-            self.previous_info = None;
+            self.previous_exact_info = None;
         }
 
         let score = pretty_score(
             info.score,
-            self.previous_info.as_ref().map(|i| i.score),
+            info.bound,
+            self.previous_exact_info.as_ref().map(|i| i.score),
             &self.gradient,
             info.pv_num == 0,
             true,
@@ -146,7 +148,7 @@ impl<B: Board> UgiOutput<B> {
 
         let mut time = info.time.as_secs_f64();
         let nodes = info.nodes.get() as f64 / 1_000_000.0;
-        let diff_string = if let Some(prev) = &self.previous_info {
+        let diff_string = if let Some(prev) = &self.previous_exact_info {
             write_with_suffix(
                 info.nodes.get() - prev.nodes.get(),
                 info.mpv_type() == SecondaryLine,
@@ -157,7 +159,7 @@ impl<B: Board> UgiOutput<B> {
         let nps = nodes / time;
         let nps_color = self.alt_grad.at(nps as f32 / 4.0);
         let [r, g, b, _] = nps_color.to_rgba8();
-        let nps = format!("{nps:5.2}").with(Rgb { r, g, b }).dimmed();
+        let nps = format!("{nps:5.2}").color(TrueColor { r, g, b }).dimmed();
         let time_badness = 1.0 - (time + 1.0).log2() / 10.0;
         let [r, g, b, _] = self.alt_grad.at(time_badness as f32).to_rgba8();
         let mut in_seconds = true;
@@ -165,13 +167,13 @@ impl<B: Board> UgiOutput<B> {
             time /= 60.0;
             in_seconds = false;
         }
-        let time = format!("{time:5.1}").with(Rgb { r, g, b });
+        let time = format!("{time:5.1}").color(TrueColor { r, g, b });
         let nodes = format!("{nodes:6.1}");
 
         let pv = pretty_pv(
             &info.pv,
             info.pos,
-            self.previous_info.as_ref().map(|i| i.pv.as_ref()),
+            self.previous_exact_info.as_ref().map(|i| i.pv.as_ref()),
             info.mpv_type(),
         );
         let mut multipv = if info.mpv_type() == OnlyLine {
@@ -184,10 +186,12 @@ impl<B: Board> UgiOutput<B> {
         }
         // bold after formatting because crossterms seems to count the control characters towards the format width
         let mut iter = format!("{:>3}", info.depth);
-        if info.mpv_type() != SecondaryLine {
-            iter = iter.important().to_string();
+        if !exact {
+            iter = iter.dimmed().to_string();
+        } else if info.mpv_type() != SecondaryLine {
+            iter = iter.bold().to_string();
         }
-        let complete = if info.complete {
+        let complete = if info.bound.is_some() {
             "   ".to_string()
         } else {
             "(*)".dimmed().to_string()
@@ -196,24 +200,24 @@ impl<B: Board> UgiOutput<B> {
 
         let [r, g, b, _] = self
             .alt_grad
-            .at(0.75 - info.hashfull as f32 / 2000.0)
+            .at(0.5 - info.hashfull as f32 / 1000.0)
             .to_rgba8();
         let tt = format!("{:5.1}", info.hashfull as f64 / 10.0)
             .to_string()
-            .with(Rgb { r, g, b })
+            .color(TrueColor { r, g, b })
             .dimmed();
         let text = format!(
-                " {iter}{complete} {seldepth:>3} {multipv} {score}  {time}{s}  {nodes}{M}{diff_string}  {nps}{M}  {tt}{p}  {pv}",
+                " {iter}{complete} {seldepth:>3} {multipv} {score:>8}  {time}{s}  {nodes}{M}{diff_string}  {nps}{M}  {tt}{p}  {pv}",
                 s = if in_seconds {"s"} else {"m"}.dimmed(),
                 M = "M".dimmed(),
                 p = "%".dimmed(),
             );
         self.write_ugi(&text);
-        if !info.complete {
+        if info.bound.is_none() {
             self.write_ugi(&"[(*) Iteration did not complete]".dimmed().to_string());
         }
-        if info.mpv_type() != SecondaryLine {
-            self.previous_info = Some(info);
+        if info.mpv_type() != SecondaryLine && info.bound == Some(Exact) {
+            self.previous_exact_info = Some(info);
         }
     }
 
@@ -283,21 +287,21 @@ pub fn score_gradient() -> LinearGradient {
         .unwrap()
 }
 
-pub fn color_for_score(score: Score, gradient: &LinearGradient) -> gears::crossterm::style::Color {
+pub fn color_for_score(score: Score, gradient: &LinearGradient) -> colored::Color {
     let sigmoid_score = sigmoid(score, 100.0) as f32;
     let color = gradient.at(sigmoid_score);
     let [r, g, b, _] = color.to_rgba8();
-    Rgb { r, g, b }
+    TrueColor { r, g, b }
 }
 
 pub fn pretty_score(
     score: Score,
+    bound: Option<NodeType>,
     previous: Option<Score>,
     gradient: &LinearGradient,
     main_line: bool,
     min_width: bool,
 ) -> String {
-    use fmt::Write;
     let mut res = format!("{:>5}", score.0);
     if let Some(mate) = score.moves_until_game_won() {
         res = format!("#{mate}");
@@ -307,20 +311,22 @@ pub fn pretty_score(
     } else if !min_width {
         res = score.0.to_string();
     }
-    let mut res = res.with(color_for_score(score, gradient)).to_string();
+    let mut res = res.color(color_for_score(score, gradient));
     if !main_line {
-        res = res.dimmed().to_string();
+        res = res.dimmed();
     }
-    if score.is_won_or_lost() {
-        res = res.important().to_string();
+    let bound = bound.unwrap_or(Exact).comparison_str(true).to_string();
+    let res = if score.is_won_or_lost() {
+        format!("{bound} {}", res.bold())
     } else {
-        write!(&mut res, "{}", "cp".dimmed()).unwrap();
-    }
+        format!("{bound}{res}{}", "cp".dimmed())
+    };
+    // res = format!("{bound}{res}");
     if let Some(previous) = previous {
         if !main_line {
             return res.to_string() + "  ";
         }
-        // sigmoid - sigmoid instead of sigmoid(diff) to weight changes close to 0 stronger
+        // `sigmoid - sigmoid` instead of `sigmoid(diff)` to weight changes close to 0 stronger
         let x = 0.5 + 2.0 * (sigmoid(score, 100.0) as f32 - sigmoid(previous, 100.0) as f32);
         let color = gradient.at(x);
         let [r, g, b, _] = color.to_rgba8();
@@ -336,11 +342,14 @@ pub fn pretty_score(
         } else {
             '🡪'
         };
-        format!("{res} {}", c.to_string().important().with(Rgb { r, g, b }))
+        format!(
+            "{res} {}",
+            c.to_string().bold().color(TrueColor { r, g, b })
+        )
     } else if min_width {
-        res.to_string() + "  "
+        res + "  "
     } else {
-        res.to_string()
+        res
     }
 }
 
@@ -354,7 +363,7 @@ fn write_move_nr(
     use fmt::Write;
     let mut write = |move_nr: String| {
         if mpv_type == MainOfMultiple {
-            write!(res, "{}", move_nr.important()).unwrap();
+            write!(res, "{}", move_nr.bold()).unwrap();
         } else {
             write!(res, "{}", move_nr.dimmed()).unwrap();
         }
@@ -380,7 +389,7 @@ fn pretty_pv<B: Board>(
     let pv = pv.iter();
     for (idx, mov) in pv.enumerate() {
         if !pos.is_move_legal(*mov) {
-            return format!("{res} [Invalid PV move '{}'", mov.to_string().error());
+            return format!("{res} [Invalid PV move '{}'", mov.to_string().red());
         }
         // 'Alternative' would be cooler, but unfortunately most fonts struggle with unicode chess pieces,
         // especially in combination with bold / dim etc
@@ -392,7 +401,7 @@ fn pretty_pv<B: Board>(
         if previous == *mov || mpv_type == SecondaryLine {
             new_move = new_move.dimmed().to_string();
         } else if same_so_far && mpv_type != SecondaryLine {
-            new_move = new_move.important().to_string();
+            new_move = new_move.bold().to_string();
             same_so_far = false;
         }
         write_move_nr(

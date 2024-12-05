@@ -1,4 +1,5 @@
 use anyhow::{anyhow, bail};
+use colored::Colorize;
 use itertools::Itertools;
 use static_assertions::const_assert_eq;
 use std::cmp::min;
@@ -229,7 +230,7 @@ impl Move<MNKBoard> for FillSquare {
         let Some(mut square_str) = s.get(..2) else {
             bail!(
                 "m,n,k move '{}' doesn't start with a square consisting of two ASCII characters",
-                s.error()
+                s.red()
             )
         };
         if s.bytes().nth(2).is_some_and(|c| c.is_ascii_digit()) {
@@ -239,13 +240,13 @@ impl Move<MNKBoard> for FillSquare {
         if !board.size().coordinates_valid(c) {
             bail!(
                 "The square {0} lies outside of the board (size: {1})",
-                c.to_string().important(),
+                c.to_string().bold(),
                 board.size()
             )
         } else if !board.is_empty(c) {
             bail!(
                 "The square {} is already occupied, can only place on an empty square",
-                c.to_string().important()
+                c.to_string().bold()
             )
         }
         Ok((&s[square_str.len()..], FillSquare { target: c }))
@@ -506,7 +507,7 @@ impl Board for MNKBoard {
                 bail!(
                     "{0} It's also not an m,n,k list, which must have the format '{1}', e.g. '3,3,3'.",
                     err,
-                    "<m>,<n>,<k>".important()
+                    "<m>,<n>,<k>".bold()
                 )
             }
         })

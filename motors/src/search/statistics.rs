@@ -2,8 +2,8 @@ use crate::search::statistics::Mode::{Average, Percentage};
 use crate::search::statistics::NodeCounterType::{Begun, Completed};
 use crate::search::statistics::SearchCounter::*;
 use crate::search::statistics::SearchType::*;
-use crate::search::NodeType;
 use derive_more::Display;
+use gears::search::NodeType;
 #[expect(unused_imports)]
 use itertools::Itertools;
 use std::fmt::Formatter;

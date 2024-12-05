@@ -18,10 +18,11 @@
 use crate::io::command::{ugi_commands, CommandAutocomplete};
 use crate::io::input::InputEnum::{Interactive, NonInteractive};
 use crate::io::EngineUGI;
+use colored::Colorize;
 use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{ColorMsg, Res};
+use gears::general::common::Res;
 use inquire::Text;
 use std::io::{stdin, stdout, IsTerminal};
 
@@ -50,8 +51,8 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
         {
             ugi.write_ugi(&format!(
                 " [{0} Type '{1}' to cancel]",
-                "Searching...".important(),
-                "stop".important()
+                "Searching...".bold(),
+                "stop".bold()
             ));
             let pv_spacer = if ugi.state.board.active_player().is_first() {
                 ""
@@ -60,15 +61,15 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
             };
             ugi.write_ugi(
                 &format!(
-                    "\nIter  Seldepth     Score      Time    Nodes   (New)     NPS      TT     {pv_spacer}PV"
+                    "\nIter    Seldepth     Score      Time    Nodes   (New)     NPS      TT     {pv_spacer}PV"
                 )
-                .important()
+                .bold()
                 .to_string(),
             );
             NonInteractiveInput::default().get_line(ugi)
         } else {
             let help = "Type 'help' for a list of commands, '?' for a list of moves";
-            let string = Text::new(&"Enter a command or move:".important().to_string())
+            let string = Text::new(&"Enter a command or move:".bold().to_string())
                 .with_help_message(help)
                 .with_autocomplete(self.autocompletion.clone())
                 .prompt()?;

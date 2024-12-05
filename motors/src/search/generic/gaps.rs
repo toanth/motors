@@ -4,18 +4,17 @@ use std::time::{Duration, Instant};
 use gears::games::BoardHistory;
 use gears::general::board::Board;
 
-use gears::general::common::StaticallyNamedEntity;
-use gears::score::{game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE_WON};
-use gears::search::{Depth, NodesLimit, SearchResult, TimeControl};
-
 use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
 use crate::search::statistics::SearchType::MainSearch;
-use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use crate::search::{
     AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchState,
     SearchStateFor,
 };
+use gears::general::common::StaticallyNamedEntity;
+use gears::score::{game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE_WON};
+use gears::search::NodeType::*;
+use gears::search::{Depth, NodesLimit, SearchResult, TimeControl};
 
 const MAX_DEPTH: Depth = Depth::new_unchecked(100);
 
@@ -99,15 +98,17 @@ impl<B: Board> Engine<B> for Gaps<B> {
                 let iteration_score = self.negamax(pos, 0, depth, SCORE_LOST, SCORE_WON);
                 self.state.current_pv_data_mut().score = iteration_score;
                 if self.state.stop_flag() {
+                    self.state.current_pv_data_mut().bound = None;
                     break 'id;
                 }
+                self.state.current_pv_data_mut().bound = Some(Exact);
                 // only set now so that incomplete iterations are discarded
                 let best_mpv_move = self.state.current_pv_data().pv[0];
                 if pv_num == 0 {
                     self.state.atomic().set_score(iteration_score);
                     self.state.atomic().set_best_move(best_mpv_move);
                 }
-                self.search_state().send_search_info(true);
+                self.search_state().send_search_info();
                 self.state.excluded_moves.push(best_mpv_move);
             }
             self.state

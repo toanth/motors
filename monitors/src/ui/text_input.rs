@@ -14,14 +14,15 @@ use crate::play::ugi_client::Client;
 use crate::play::ugi_input::BestMoveAction::Play;
 use crate::ui::text_input::DefaultPlayer::{Active, Inactive, NoPlayer};
 use crate::ui::{Input, InputBuilder};
+use gears::crossterm::style::Stylize;
 use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::board::Strictness::Relaxed;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
-    parse_int_from_str, select_name_static, to_name_and_optional_description, tokens, ColorMsg,
-    NamedEntity, Res, StaticallyNamedEntity, Tokens,
+    parse_int_from_str, select_name_static, to_name_and_optional_description, tokens, NamedEntity,
+    Res, StaticallyNamedEntity, Tokens,
 };
 use gears::general::moves::ExtendedFormat::Alternative;
 use gears::general::moves::Move;
@@ -235,7 +236,7 @@ impl<B: Board> TextInputThread<B> {
                     "{:25}  {description}",
                     cmd.names
                         .iter()
-                        .map(|c| format!("'{}'", c.important()))
+                        .map(|c| format!("'{}'", c.bold()))
                         .join(", ")
                         + ":",
                     description = cmd.description.unwrap_or("<No description>")

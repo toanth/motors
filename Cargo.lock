@@ -425,6 +425,7 @@ dependencies = [
  "arbitrary",
  "arrayvec",
  "chrono",
+ "colored",
  "colorgrad",
  "criterion",
  "crossterm 0.28.1",

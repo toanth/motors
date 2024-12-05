@@ -23,8 +23,7 @@ use crate::general::board::SelfChecks::{Assertion, Verify};
 use crate::general::board::Strictness::Relaxed;
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    select_name_static, tokens, ColorMsg, EntityList, GenericSelect, Res, StaticallyNamedEntity,
-    Tokens,
+    select_name_static, tokens, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
 };
 use crate::general::move_list::MoveList;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
@@ -36,6 +35,7 @@ use crate::PlayerResult::Lose;
 use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
 use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
+use colored::Colorize;
 use itertools::Itertools;
 use rand::Rng;
 use std::fmt;
@@ -459,12 +459,12 @@ pub trait Board:
     fn from_fen(string: &str, strictness: Strictness) -> Res<Self> {
         let mut words = tokens(string);
         let res = Self::read_fen_and_advance_input(&mut words, strictness)
-            .map_err(|err| anyhow!("Failed to parse FEN '{}': {err}", string.important()))?;
+            .map_err(|err| anyhow!("Failed to parse FEN '{}': {err}", string.bold()))?;
         if let Some(next) = words.next() {
             return Err(anyhow!(
                 "Input `{0}' contained additional characters after FEN, starting with '{1}'",
-                string.important(),
-                next.error()
+                string.bold(),
+                next.red()
             ));
         }
         Ok(res)
@@ -650,8 +650,8 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
         bail!(
             "The {0} board has a height of {1}, but the FEN contains {2} rows",
             B::game_name(),
-            board.size().height().val().to_string().important(),
-            num_lines.to_string().important()
+            board.size().height().val().to_string().bold(),
+            num_lines.to_string().bold()
         )
     }
 
@@ -682,7 +682,7 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
                 bail!(
                     "Invalid character in {0} FEN position description (not a piece): {1}",
                     B::game_name(),
-                    c.to_string().error()
+                    c.to_string().red()
                 )
             };
             handle_skipped(i, skipped_digits, &mut square)?;
@@ -734,17 +734,17 @@ pub(crate) fn read_common_fen_part<B: RectangularBoard>(
     if active.chars().count() != 1 {
         bail!(
             "Expected a single char to describe the active player ('{0}' or '{1}'), got '{2}'",
-            correct_chars[0].to_string().important(),
-            correct_chars[1].to_string().important(),
-            active.error()
+            correct_chars[0].to_string().bold(),
+            correct_chars[1].to_string().bold(),
+            active.red()
         );
     }
     let Some(active) = B::Color::from_char(active.chars().next().unwrap()) else {
         bail!(
             "Expected '{0}' or '{1}' for the color, not '{2}'",
-            correct_chars[0].to_string().important(),
-            correct_chars[1].to_string().important(),
-            active.error()
+            correct_chars[0].to_string().bold(),
+            correct_chars[1].to_string().bold(),
+            active.red()
         )
     };
     board = board.set_active_player(active);

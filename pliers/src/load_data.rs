@@ -4,11 +4,12 @@ use crate::eval::Eval;
 use crate::gd::{Dataset, Float, Outcome};
 use crate::load_data::Perspective::SideToMove;
 use derive_more::Display;
+use gears::crossterm::style::Stylize;
 use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::board::Strictness::Relaxed;
 use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{parse_fp_from_str, tokens, ColorMsg, Res, Tokens};
+use gears::general::common::{parse_fp_from_str, tokens, Res, Tokens};
 use gears::GameResult;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::ParallelBridge;
@@ -102,7 +103,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         if let Ok(parsed) = parse_fp_from_str(wdl, "wdl") {
             return Ok(Outcome::new(parsed));
         }
-        bail!("'{}' is not a valid wdl", wdl.error())
+        bail!("'{}' is not a valid wdl", wdl.red())
     }
 
     fn read_annotated_fen(
@@ -136,7 +137,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
             anyhow!(
                 "Error in line {0}: Couldn't parse FEN '{1}': {err}",
                 line_num + 1,
-                input.important()
+                input.bold()
             )
         })?;
         for datapoint in E::Filter::filter(parse_res) {
@@ -172,7 +173,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         let weight = input_file.weight.unwrap_or(1.0);
         println!(
             "Loading FENs from file '{0}' (Outcomes are {perspective} relative), sampling weight: {weight:.1}",
-            input_file.path.as_str().important()
+            input_file.path.as_str().bold()
         );
         let reader = BufReader::new(file);
         let id = || (Dataset::new(E::num_weights()), 0);

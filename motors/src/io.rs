@@ -21,17 +21,6 @@ mod command;
 mod input;
 pub mod ugi_output;
 
-use itertools::Itertools;
-use std::cell::RefCell;
-use std::fmt::{Debug, Display, Formatter, Write};
-use std::fs;
-use std::ops::{Deref, DerefMut};
-use std::rc::Rc;
-use std::str::FromStr;
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::thread::sleep;
-use std::time::{Duration, Instant};
-
 use crate::eval::Eval;
 use crate::io::ascii_art::print_as_ascii_art;
 use crate::io::cli::EngineOpts;
@@ -49,16 +38,16 @@ use crate::search::{run_bench_with, EvalList, SearchParams, SearcherList};
 use crate::{
     create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match,
 };
+use colored::Color::Red;
+use colored::Colorize;
 use gears::cli::select_game;
-use gears::crossterm::style;
-use gears::crossterm::style::Stylize;
 use gears::games::{ColoredPiece, OutputList, ZobristHistory};
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, Strictness, UnverifiedBoard};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
-    parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_dyn, tokens, ColorMsg,
+    parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_dyn, tokens,
     NamedEntity,
 };
 use gears::general::common::{Res, Tokens};
@@ -81,6 +70,16 @@ use gears::{
     output_builder_from_str, AbstractRun, GameState, MatchState, MatchStatus, PlayerResult,
     Quitting,
 };
+use itertools::Itertools;
+use std::cell::RefCell;
+use std::fmt::{Debug, Display, Formatter, Write};
+use std::fs;
+use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
+use std::str::FromStr;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread::sleep;
+use std::time::{Duration, Instant};
 
 const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
 
@@ -352,11 +351,11 @@ impl<B: Board> EngineUGI<B> {
         self.write_engine_ascii_art();
         self.write_ugi(&format!(
             "[Type '{}' to change how the game state is displayed{}]",
-            "output".important(),
+            "output".bold(),
             ", e.g., 'output pretty' or 'output chess'".dimmed()
         ));
         if self.fuzzing_mode() {
-            self.write_message(Warning, &"Fuzzing Mode Enabled!".important().to_string());
+            self.write_message(Warning, &"Fuzzing Mode Enabled!".bold().to_string());
         }
 
         let (mut input, interactive) = Input::new(self.state.protocol == Interactive, self);
@@ -458,8 +457,8 @@ impl<B: Board> EngineUGI<B> {
                 Warning,
                 &format!(
                     "Ignoring trailing input starting with '{0}' after a valid '{1}' command",
-                    remaining.important().error(),
-                    cmd.short_name().important()
+                    remaining.bold().red(),
+                    cmd.short_name().bold()
                 )
                 .to_string(),
             );
@@ -471,14 +470,11 @@ impl<B: Board> EngineUGI<B> {
         // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
         // expositor UCI spec demands that an invalid token should cause the entire message to be ignored.
         let suggest_help = if self.is_interactive() {
-            format!(
-                "Type '{}' for a list of recognized commands",
-                "help".important()
-            )
+            format!("Type '{}' for a list of recognized commands", "help".bold())
         } else {
             format!(
                 "If you are a human, consider typing '{}' to see a list of recognized commands.",
-                "help".important()
+                "help".bold()
             )
         };
         let input = format!("{first_word} {}", rest.clone().join(" "));
@@ -487,20 +483,20 @@ impl<B: Board> EngineUGI<B> {
             let first_word = if first_len > 50 {
                 format!(
                     "{0}{1}",
-                    first_word.chars().take(50).collect::<String>().error(),
+                    first_word.chars().take(50).collect::<String>().red(),
                     "...(rest omitted for brevity)".dimmed()
                 )
             } else {
-                first_word.error().to_string()
+                first_word.red().to_string()
             };
             format!("Invalid first word '{first_word}' of a long UGI command")
         } else if rest.peek().is_none() {
-            format!("Invalid single-word UGI command '{}'", first_word.error())
+            format!("Invalid single-word UGI command '{}'", first_word.red())
         } else {
             format!(
                 "Invalid first word '{0}' of UGI command '{1}'",
-                first_word.error(),
-                input.trim().important()
+                first_word.red(),
+                input.trim().bold()
             )
         };
         self.write_message(
@@ -522,9 +518,9 @@ impl<B: Board> EngineUGI<B> {
         };
         let text = print_as_ascii_art(text, 10);
         let text = match res {
-            PlayerResult::Win => text.dark_green(),
-            PlayerResult::Lose => text.dark_red(),
-            PlayerResult::Draw => text.stylize(),
+            PlayerResult::Win => text.green(),
+            PlayerResult::Lose => text.red(),
+            PlayerResult::Draw => text.into(),
         };
         self.write_ugi(&text.to_string());
         true
@@ -731,10 +727,7 @@ impl<B: Board> EngineUGI<B> {
                     if opts.reading_moves {
                         let mov =
                             B::Move::from_compact_text(option, &opts.board).map_err(|err| {
-                                anyhow!(
-                                    "{err}. '{}' is not a valid 'go' option.",
-                                    option.important()
-                                )
+                                anyhow!("{err}. '{}' is not a valid 'go' option.", option.bold())
                             })?;
                         opts.search_moves.as_mut().unwrap().push(mov);
                         continue;
@@ -767,9 +760,9 @@ impl<B: Board> EngineUGI<B> {
         if opts.complete && !matches!(opts.search_type, Bench | Perft) {
             bail!(
                 "The '{0}' options can only be used for '{1}' and '{2}' searches",
-                "complete".important(),
-                "bench".important(),
-                "perft".important()
+                "complete".bold(),
+                "bench".bold(),
+                "perft".bold()
             )
         }
 
@@ -793,10 +786,7 @@ impl<B: Board> EngineUGI<B> {
             }
             SplitPerft => {
                 if opts.limit.depth.get() == 0 {
-                    bail!(
-                        "{} requires a depth of at least 1",
-                        "splitperft".important()
-                    )
+                    bail!("{} requires a depth of at least 1", "splitperft".bold())
                 }
                 self.write_ugi(&split_perft(opts.limit.depth, self.state.board).to_string());
             }
@@ -815,7 +805,7 @@ impl<B: Board> EngineUGI<B> {
         );
         if let Some(res) = opts.board.match_result_slow(&self.state.board_hist) {
             self.write_message(Warning, &format!("Starting a {3} search in position '{2}', but the game is already over. {0}, reason: {1}.",
-                                        res.result, res.reason, self.state.board.as_fen().important(), opts.search_type));
+                                                 res.result, res.reason, self.state.board.as_fen().bold(), opts.search_type));
         }
         self.state.status = Run(Ongoing);
         match opts.search_type {
@@ -889,20 +879,18 @@ impl<B: Board> EngineUGI<B> {
                 diagram
                     + &format!(
                         "Eval Score: {}\n",
-                        pretty_score(eval_score, None, &score_gradient(), true, false)
+                        pretty_score(eval_score, None, None, &score_gradient(), true, false)
                     )
             } else {
                 format!(
                     "The engine '{}' doesn't have an eval function",
-                    info.short_name().important()
+                    info.short_name().bold()
                 )
             }
         } else if let Some(entry) = self.state.engine.tt_entry(&state.board) {
             format_tt_entry(state, entry)
         } else {
-            "There is no TT entry for this position"
-                .important()
-                .to_string()
+            "There is no TT entry for this position".bold().to_string()
         };
         self.write_ugi(&text);
         Ok(())
@@ -911,7 +899,7 @@ impl<B: Board> EngineUGI<B> {
     fn handle_query(&mut self, words: &mut Tokens) -> Res<()> {
         let query = *words
             .peek()
-            .ok_or(anyhow!("Missing argument to '{}'", "query".important()))?;
+            .ok_or(anyhow!("Missing argument to '{}'", "query".bold()))?;
         match select_name_dyn(
             query,
             &self.commands.query,
@@ -1013,8 +1001,8 @@ impl<B: Board> EngineUGI<B> {
                     .map_err(|err| {
                         anyhow!(
                             "{err}\nSpecial commands are '{0}' and '{1}'.",
-                            "remove".important(),
-                            "add".important()
+                            "remove".bold(),
+                            "add".bold()
                         )
                     })?
                     .for_engine(&self.state)?,
@@ -1091,19 +1079,19 @@ impl<B: Board> EngineUGI<B> {
     fn print_help(&self) {
         let engine_name = format!(
             "{0} ({1})",
-            self.state.display_name.clone().important(),
-            self.state.engine.get_engine_info().long_name().important()
+            self.state.display_name.clone().bold(),
+            self.state.engine.get_engine_info().long_name().bold()
         );
-        let motors = "motors".important();
-        let game_name = B::game_name().important();
+        let motors = "motors".bold();
+        let game_name = B::game_name().bold();
         let mut text = format!("{motors}: A work-in-progress collection of engines for various games, \
             currently playing {game_name}, using the engine {engine_name}.\
             \nSeveral commands are supported (see https://backscattering.de/chess/uci/ for a description of the UCI interface):\n\
-            \n{}:\n", "UGI Commands".important());
+            \n{}:\n", "UGI Commands".bold());
         for cmd in self.commands.ugi.iter().filter(|c| c.standard() != Custom) {
             writeln!(&mut text, " {}", *cmd).unwrap();
         }
-        write!(&mut text, "\n{}:\n", "Custom Commands".important()).unwrap();
+        write!(&mut text, "\n{}:\n", "Custom Commands".bold()).unwrap();
         for cmd in self.commands.ugi.iter().filter(|c| c.standard() == Custom) {
             writeln!(&mut text, " {}", *cmd).unwrap();
         }
@@ -1119,9 +1107,9 @@ impl<B: Board> EngineUGI<B> {
             drop(info);
             self.write_ugi(&format!(
                 "\n{alias}: {short}\n{engine}: {long}\n{descr}: {description}",
-                alias = "Alias".important(),
-                engine = "Engine".important(),
-                descr = "Description".important(),
+                alias = "Alias".bold(),
+                engine = "Engine".bold(),
+                descr = "Description".bold(),
             ));
             return Ok(());
         };
@@ -1200,8 +1188,8 @@ impl<B: Board> EngineUGI<B> {
         writeln!(
             res,
             "{name}: {value}",
-            name = option.name.to_string().important(),
-            value = option.value.value_to_str().important()
+            name = option.name.to_string().bold(),
+            value = option.value.value_to_str().bold()
         )
         .unwrap();
     }
@@ -1239,8 +1227,8 @@ impl<B: Board> EngineUGI<B> {
                     None => {
                         bail!(
                             "No option named '{0}' exists. Type '{1}' for a list of options.",
-                            x.error(),
-                            "ugi".important()
+                            x.red(),
+                            "ugi".bold()
                         )
                     }
                 }
@@ -1374,7 +1362,7 @@ impl<B: Board> EngineUGI<B> {
     fn write_engine_ascii_art(&mut self) {
         if self.is_interactive() {
             let text = self.state.engine.get_engine_info().short_name();
-            let text = print_as_ascii_art(&text, 2).dark_cyan().to_string();
+            let text = print_as_ascii_art(&text, 2).cyan().to_string();
             self.write_ugi(&text);
         }
     }
@@ -1390,7 +1378,7 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
         color_frame: Box::new(move |coords, color| {
             if let Some(mov) = mov {
                 if coords == mov.src_square() || coords == mov.dest_square() {
-                    return Some(style::Color::DarkRed);
+                    return Some(Red);
                 }
             };
             color
@@ -1400,7 +1388,7 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
                 if mov.src_square() == coords {
                     return default.dimmed().to_string();
                 } else if mov.dest_square() == coords {
-                    return default.important().to_string();
+                    return default.bold().to_string();
                 }
             }
             default
@@ -1411,17 +1399,17 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
     };
     let mut res = pos.display_pretty(&mut formatter);
     let move_string = if let Some(mov) = mov {
-        mov.to_extended_text(&pos, Standard).important().to_string()
+        mov.to_extended_text(&pos, Standard).bold().to_string()
     } else {
         "<none>".to_string()
     };
-    let bound_str = entry.bound().comparison_str().important().to_string();
+    let bound_str = entry.bound().comparison_str(false).bold().to_string();
     write!(
         &mut res,
         "\nScore: {bound_str}{0} ({1}), Depth: {2}, Best Move: {3}",
-        pretty_score(entry.score, None, &score_gradient(), true, false),
+        pretty_score(entry.score, None, None, &score_gradient(), true, false),
         entry.bound(),
-        entry.depth.to_string().important(),
+        entry.depth.to_string().bold(),
         move_string,
     )
     .unwrap();
@@ -1442,7 +1430,10 @@ fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>
             };
             let piece = format!(
                 "{}:",
-                piece.to_ascii_char().to_string().with(display_color(color))
+                piece
+                    .to_ascii_char()
+                    .to_string()
+                    .color(display_color(color))
             );
             let score = match pos.remove_piece(coords).unwrap().verify(Relaxed) {
                 Ok(pos) => {
@@ -1453,7 +1444,7 @@ fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>
                     let score_color =
                         color_for_score(diff / eval.borrow().piece_scale(), &score_gradient());
                     format!("{:>5}", format!("{val:>3}{suffix}"))
-                        .with(score_color)
+                        .color(score_color)
                         .to_string()
                 }
                 Err(_) => " None".dimmed().to_string(),

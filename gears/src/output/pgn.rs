@@ -20,7 +20,7 @@
 
 use crate::games::{BoardHistory, Color};
 use crate::general::board::Board;
-use crate::general::common::{ColorMsg, Res};
+use crate::general::common::Res;
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Move;
 use crate::output::pgn::RoundNumber::{Custom, Number, Unimportant, Unknown};
@@ -29,6 +29,7 @@ use crate::MatchStatus::*;
 use crate::ProgramStatus::Run;
 use crate::{AdjudicationReason, GameOverReason, GameResult, GameState, MatchResult, MatchState};
 use anyhow::{anyhow, bail};
+use colored::Colorize;
 use std::fmt::Display;
 use std::iter::Peekable;
 use std::mem::take;
@@ -363,13 +364,13 @@ impl<'a, B: Board> PgnParser<'a, B> {
         if let Run(Over(_)) = self.res.game.status {
             bail!(
                 "The game has already ended, cannot parse additional moves at start of '{}'",
-                string.important()
+                string.bold()
             )
         }
         let prev_board = &self.res.game.board;
         let (remaining, mov) = B::Move::parse_extended_text(string, prev_board)?;
         let Some(new_board) = prev_board.make_move(mov) else {
-            bail!("Illegal psuedolegal move '{}'", mov.to_string().error());
+            bail!("Illegal psuedolegal move '{}'", mov.to_string().red());
         };
         self.res.game.board_hist.push(prev_board);
         self.res.game.mov_hist.push(mov);
@@ -409,7 +410,7 @@ pub fn parse_pgn<B: Board>(pgn: &str) -> Res<PgnData<B>> {
     parser.parse().map_err(|err| {
         anyhow!(
             "{err}. Unconsumed input: '{}'",
-            &parser.original_input[parser.byte_idx..].to_string().error()
+            &parser.original_input[parser.byte_idx..].to_string().red()
         )
     })
 }

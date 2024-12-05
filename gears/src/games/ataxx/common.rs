@@ -4,11 +4,12 @@ use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::ataxx::{AtaxxBoard, AtaxxColor, AtaxxSquare};
 use crate::games::{AbstractPieceType, ColoredPieceType, Coordinates, DimT, PieceType};
 use crate::general::board::Board;
-use crate::general::common::{ColorMsg, Res};
+use crate::general::common::Res;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
 use anyhow::bail;
 use arbitrary::Arbitrary;
+use colored::Colorize;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
@@ -210,7 +211,7 @@ impl Move<AtaxxBoard> for AtaxxMove {
             return Ok((&s[4..], Self::default()));
         }
         let Some(first_square) = s.get(..2) else {
-            bail!("Move '{}' doesn't start with 2 ascii characters", s.error());
+            bail!("Move '{}' doesn't start with 2 ascii characters", s.red());
         };
         let first_square = AtaxxSquare::from_str(first_square)?;
         let second_square = s.get(2..4).and_then(|s| AtaxxSquare::from_str(s).ok());
@@ -226,14 +227,11 @@ impl Move<AtaxxBoard> for AtaxxMove {
         };
         if !board.is_move_pseudolegal(res) {
             if !board.is_empty(to_square) {
-                bail!(
-                    "The square {} is not empty",
-                    to_square.to_string().important()
-                )
+                bail!("The square {} is not empty", to_square.to_string().bold())
             } else if from_square != AtaxxSquare::no_coordinates() {
                 bail!("The")
             }
-            bail!("No piece can move to {}", to_square.to_string().error())
+            bail!("No piece can move to {}", to_square.to_string().red())
         }
 
         Ok((remaining, res))

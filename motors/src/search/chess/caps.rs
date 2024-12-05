@@ -22,8 +22,7 @@ use gears::games::{n_fold_repetition, BoardHistory, ZobristHash, ZobristHistory}
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::Description::NoDescription;
 use gears::general::common::{
-    parse_bool_from_str, parse_int_from_str, select_name_static, ColorMsg, Res,
-    StaticallyNamedEntity,
+    parse_bool_from_str, parse_int_from_str, select_name_static, Res, StaticallyNamedEntity,
 };
 use gears::general::move_list::EagerNonAllocMoveList;
 use gears::general::moves::Move;
@@ -33,6 +32,7 @@ use gears::score::{
     game_result_to_score, ScoreT, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA,
     NO_SCORE_YET,
 };
+use gears::search::NodeType::*;
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::Check;
@@ -197,7 +197,7 @@ fn write_single_hist_table(table: &HistoryHeuristic, flip: bool) -> String {
     let as_nums = ChessSquare::iter()
         .map(|sq| {
             let score = show_square(sq);
-            format!("{score:^7.1}").with(color_for_score(
+            format!("{score:^7.1}").color(color_for_score(
                 Score((score * 4.0) as ScoreT),
                 &score_gradient(),
             ))
@@ -218,7 +218,7 @@ fn write_single_hist_table(table: &HistoryHeuristic, flip: bool) -> String {
     } else {
         "Main History Source Square:\n"
     }
-    .important()
+    .bold()
     .to_string();
     text + &Chessboard::default().display_pretty(&mut formatter)
 }
@@ -468,6 +468,7 @@ impl Caps {
             self.state.statistics.next_id_iteration();
             for pv_num in 0..multi_pv {
                 self.state.current_pv_num = pv_num;
+                self.state.current_pv_data_mut().bound = None;
                 let mut pv_data = self.state.multi_pvs[pv_num];
                 let keep_searching = self.aspiration(
                     pos,
@@ -484,14 +485,14 @@ impl Caps {
                 self.state.multi_pvs[pv_num].radius = pv_data.radius;
                 self.state.excluded_moves.push(chosen_move);
                 if keep_searching {
-                    self.search_state().send_search_info(true);
+                    self.search_state().send_search_info();
                 } else {
                     // send one final search info, but don't send empty PVs or PVs from a fail high
                     // that would consist of only one move, and don't send a PV if it's
                     let pv = self.state.current_mpv_pv();
                     let immediately_aborted = self.state.depth().get() < depth as usize;
                     if !pv.is_empty() && (depth == 1 || pv.len() > 1) && !immediately_aborted {
-                        self.search_state().send_search_info(false);
+                        self.search_state().send_search_info();
                     }
                     return self.state.search_result();
                 }
@@ -543,6 +544,7 @@ impl Caps {
             }
             self.state.atomic().set_depth(depth); // set depth now so that an immediate stop doesn't increment the depth
             self.state.atomic().count_node();
+            let asp_start_time = Instant::now();
             let Some(pv_score) =
                 self.negamax(pos, 0, self.state.depth().isize(), *alpha, *beta, Exact)
             else {
@@ -569,6 +571,7 @@ impl Caps {
             } else {
                 Exact
             };
+            self.state.current_pv_data_mut().bound = Some(node_type);
 
             let atomic = &self.state.params.atomic;
             let pv = &self.state.search_stack[0].pv;
@@ -587,11 +590,13 @@ impl Caps {
                 self.state.multi_pvs[self.state.current_pv_num].score = pv_score;
                 // We can't really trust FailHigh scores. Even though we should still prefer a fail high move, we don't
                 // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
-                if node_type == Exact {
-                    atomic.set_score(pv_score); // can't be SCORE_TIME_UP or similar because that wouldn't be exact
-                } else if node_type == FailHigh && !self.state.stop_flag() {
-                    // todo: stop flag condition necessary?
-                    atomic.set_score(pv_score.min(MAX_NORMAL_SCORE));
+                if self.state.current_pv_num == 0 {
+                    if node_type == Exact {
+                        atomic.set_score(pv_score); // can't be SCORE_TIME_UP or similar because that wouldn't be exact
+                    } else if node_type == FailHigh && !self.state.stop_flag() {
+                        // todo: stop flag condition necessary?
+                        atomic.set_score(pv_score.min(MAX_NORMAL_SCORE));
+                    }
                 }
             }
 
@@ -609,7 +614,9 @@ impl Caps {
                         Exact => debug_assert!(
                             // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
                             // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
-                            pv.length + 2 >= self.state.custom.depth_hard_limit.min(depth as usize)
+                            self.state.multi_pv() > 1
+                                || pv.length + pv.length / 4
+                                    >= self.state.custom.depth_hard_limit.min(depth as usize)
                                 || pv_score.is_won_lost_or_draw_score(),
                             "{depth} {0} {pv_score} {1}",
                             pv.length,
@@ -645,6 +652,8 @@ impl Caps {
 
             if node_type == Exact {
                 return true;
+            } else if asp_start_time.elapsed().as_millis() >= 1000 {
+                self.state.send_search_info();
             }
         }
     }

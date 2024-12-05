@@ -15,16 +15,16 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::Mode;
+use colored::Colorize;
+use gears::cli::{get_next_arg, get_next_int, parse_output, ArgIter, Game};
+use gears::general::common::anyhow::bail;
+use gears::general::common::{parse_int_from_str, Res};
+use gears::search::Depth;
+use gears::OutputArgs;
 use std::env;
 use std::process::exit;
 use std::str::FromStr;
-
-use crate::Mode;
-use gears::cli::{get_next_arg, get_next_int, parse_output, ArgIter, Game};
-use gears::general::common::anyhow::bail;
-use gears::general::common::{parse_int_from_str, ColorMsg, Res};
-use gears::search::Depth;
-use gears::OutputArgs;
 
 use crate::Mode::{Bench, Engine, Perft};
 
@@ -132,13 +132,13 @@ fn print_help() {
     \n--{4} and --{5} are useful for testing the engine and move generation speed, respectively,\
     `bench` is also useful to get a \"hash\" of the search tree explored by the engine.\
     Typing '{6}' while the program is running will also show help messages",
-    "game".important(),
-    "engine".important(),
-    "debug".important(),
-    "additional-outputs".important(),
-    "bench".important(),
-    "perft".important(),
-    "help".important(),
-    "non-interactive".important(),
+             "game".bold(),
+             "engine".bold(),
+             "debug".bold(),
+             "additional-outputs".bold(),
+             "bench".bold(),
+             "perft".bold(),
+             "help".bold(),
+             "non-interactive".bold(),
     )
 }

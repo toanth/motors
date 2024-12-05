@@ -1,10 +1,19 @@
 use crate::eval::Eval;
 use crate::io::ugi_output::UgiOutput;
+use crate::search::multithreading::EngineReceives::*;
+use crate::search::multithreading::SearchThreadType::{Auxiliary, Main};
+use crate::search::multithreading::SearchType::{Infinite, Normal, Ponder};
+use crate::search::tt::{TTEntry, TT};
+use crate::search::{
+    AbstractEvalBuilder, AbstractSearchState, AbstractSearcherBuilder, Engine, EngineInfo,
+    SearchParams,
+};
+use colored::Colorize;
 use dyn_clone::clone_box;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{parse_int_from_str, ColorMsg, Name, NamedEntity, Res};
+use gears::general::common::{parse_int_from_str, Name, NamedEntity, Res};
 use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::score::{Score, NO_SCORE_YET};
@@ -18,15 +27,6 @@ use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU64};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
-
-use crate::search::multithreading::EngineReceives::*;
-use crate::search::multithreading::SearchThreadType::{Auxiliary, Main};
-use crate::search::multithreading::SearchType::{Infinite, Normal, Ponder};
-use crate::search::tt::{TTEntry, TT};
-use crate::search::{
-    AbstractEvalBuilder, AbstractSearchState, AbstractSearcherBuilder, Engine, EngineInfo,
-    SearchParams,
-};
 
 pub type Sender<T> = crossbeam_channel::Sender<T>;
 pub type Receiver<T> = crossbeam_channel::Receiver<T>;
@@ -277,7 +277,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                     let mut guard = info.lock().unwrap();
                     let Some(val) = guard.options.get_mut(&name) else {
                         bail!("The engine '{0}' doesn't provide the option '{1}', so it can't be set to value '{2}'",
-                            guard.engine.short_name().important(), name.to_string().error(), value.important());
+                            guard.engine.short_name().bold(), name.to_string().red(), value.bold());
                     };
                     self.engine.set_option(name, val, value)?
                 }

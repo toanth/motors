@@ -7,14 +7,14 @@ use rand::{thread_rng, Rng, RngCore, SeedableRng};
 
 use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
-use gears::general::common::StaticallyNamedEntity;
-use gears::score::Score;
-use gears::search::{Depth, NodesLimit, SearchInfo, SearchResult, TimeControl};
-
 use crate::search::{
     AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchState,
     SearchStateFor,
 };
+use gears::general::common::StaticallyNamedEntity;
+use gears::score::Score;
+use gears::search::NodeType::Exact;
+use gears::search::{Depth, NodesLimit, SearchInfo, SearchResult, TimeControl};
 
 pub trait SeedRng: Rng + SeedableRng {}
 
@@ -146,7 +146,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
             score: Score(0),
             hashfull: 0,
             pos: self.search_state().params.pos,
-            complete: true,
+            bound: Some(Exact),
             additional: None,
         }
     }

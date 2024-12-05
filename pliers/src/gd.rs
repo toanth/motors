@@ -3,7 +3,7 @@
 use crate::eval::{count_occurrences, display, interpolate, WeightsInterpretation};
 use crate::trace::TraceTrait;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
-use gears::general::common::ColorMsg;
+use gears::crossterm::style::Stylize;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use rayon::prelude::*;
@@ -188,7 +188,7 @@ impl Weight {
     /// The string takes up at least `width` characters
     pub fn to_string(self, special: bool, width: usize) -> String {
         if special {
-            format!("{:width$}", self.0.round()).error().to_string()
+            format!("{:width$}", self.0.round()).red().to_string()
         } else {
             format!("{:width$}", self.0.round())
         }
@@ -886,7 +886,7 @@ pub fn print_optimized_weights<D: Datapoint>(
     interpolate(&occurrence_counts, &mut weights, interpretation);
     println!(
         "Scaling factor: {scale:.2}, {0}:\n{1}",
-        "Final eval".important(),
+        "Final eval".bold(),
         display(interpretation, &weights, &[])
     );
 }
@@ -947,7 +947,8 @@ pub struct SimpleGDOptimizer {
 }
 
 impl<D: Datapoint> Optimizer<D> for SimpleGDOptimizer {
-    type Loss = QuadraticLoss
+    type Loss
+        = QuadraticLoss
     where
         Self: Sized;
 
@@ -1016,7 +1017,8 @@ impl AdamwHyperParams {
 pub struct Adam<G: LossGradient>(AdamW<G>);
 
 impl<D: Datapoint, G: LossGradient> Optimizer<D> for Adam<G> {
-    type Loss = G
+    type Loss
+        = G
     where
         Self: Sized;
 
@@ -1067,7 +1069,8 @@ impl<G: LossGradient> AdamW<G> {
 }
 
 impl<D: Datapoint, G: LossGradient> Optimizer<D> for AdamW<G> {
-    type Loss = G
+    type Loss
+        = G
     where
         Self: Sized;
 

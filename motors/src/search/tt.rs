@@ -11,13 +11,13 @@ use portable_atomic::AtomicU128;
 use static_assertions::const_assert_eq;
 use strum_macros::FromRepr;
 
-use crate::search::NodeType;
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
 use gears::games::ZobristHash;
 use gears::general::board::Board;
 use gears::general::moves::{Move, UntrustedMove};
 use gears::score::{Score, ScoreT, SCORE_WON};
+use gears::search::NodeType;
 use OptionalNodeType::*;
 
 type AtomicTTEntry = AtomicU128;
@@ -263,20 +263,19 @@ impl TT {
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use crate::search::chess::caps::Caps;
     use crate::search::multithreading::AtomicSearchState;
-    use crate::search::NodeType::Exact;
     use crate::search::{Engine, SearchParams};
     use gears::games::chess::moves::ChessMove;
     use gears::games::ZobristHistory;
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
+    use gears::search::NodeType::Exact;
     use gears::search::{Depth, SearchLimit};
     use rand::distr::Uniform;
     use rand::{thread_rng, Rng, RngCore};
     use std::thread::{sleep, spawn};
     use std::time::Duration;
-
-    use super::*;
 
     #[test]
     #[cfg(feature = "chess")]

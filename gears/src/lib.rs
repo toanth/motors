@@ -5,7 +5,7 @@
 use crate::games::{BoardHistory, Color, ZobristHistory};
 use crate::general::board::{Board, Strictness};
 use crate::general::common::Description::WithDescription;
-use crate::general::common::{select_name_dyn, ColorMsg, Res, Tokens};
+use crate::general::common::{select_name_dyn, Res, Tokens};
 use crate::output::OutputBuilder;
 use crate::search::TimeControl;
 use crate::ugi::parse_ugi_position_and_moves;
@@ -18,6 +18,7 @@ use anyhow::{anyhow, bail};
 pub use arrayvec;
 pub use colorgrad;
 pub use crossterm;
+use crossterm::style::Stylize;
 pub use rand;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
@@ -138,7 +139,7 @@ impl FromStr for GameResult {
                         Ok(GameResult::P2Win)
                     }
                     "0.5" | "0,5" | "0.5-0.5" | "0,5-0,5" | "1/2-1/2" => Ok(GameResult::Draw),
-                    _ => bail!("Unrecognized game result '{}'", s.error()),
+                    _ => bail!("Unrecognized game result '{}'", s.red()),
                 }
             }
         }
@@ -403,10 +404,7 @@ impl<B: Board> MatchState<B> {
     ) -> Res<()> {
         let pos = self.board;
         let Some(next_word) = words.next() else {
-            bail!(
-                "Missing position after '{}' command",
-                "position".important()
-            )
+            bail!("Missing position after '{}' command", "position".bold())
         };
         parse_ugi_position_and_moves(
             next_word,

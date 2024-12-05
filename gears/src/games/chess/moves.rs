@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use arbitrary::Arbitrary;
+use colored::Colorize;
 use itertools::Itertools;
 use num::iter;
 use strum::IntoEnumIterator;
@@ -24,7 +25,7 @@ use crate::games::{
 };
 use crate::general::bitboards::chess::ChessBitboard;
 use crate::general::bitboards::{Bitboard, RawBitboard};
-use crate::general::common::{ColorMsg, Res};
+use crate::general::common::Res;
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::PseudoLegal;
 use crate::general::moves::{ExtendedFormat, Legality, Move, MoveFlags, UntrustedMove};
@@ -257,7 +258,7 @@ impl Move<Chessboard> for ChessMove {
         if !s.get(..4).is_some_and(|s| s.is_ascii()) {
             bail!(
                 "The first 4 bytes of '{}' contain a non-ASCII character",
-                s.error()
+                s.red()
             );
         }
         let from = ChessSquare::from_str(&s[..2])?;
@@ -297,7 +298,7 @@ impl Move<Chessboard> for ChessMove {
         if !board.is_move_pseudolegal(res) {
             bail!(
                 "The move '{0}' is not (pseudo)legal in position '{board}'",
-                s.error()
+                s.red()
             )
         }
         Ok((&s[end_idx..], res))
@@ -646,7 +647,7 @@ impl<'a> MoveParser<'a> {
                 // can't use `to_extended_text` because that requires pseudolegal moves.
                 bail!(
                     "Castling move '{}' is not pseudolegal in the current position",
-                    mov.to_string().error()
+                    mov.to_string().red()
                 );
             }
             parser.check_check_checkmate_captures_and_ep(mov, board)?; // check this once the move is known to be pseudolegal
@@ -763,7 +764,7 @@ impl<'a> MoveParser<'a> {
                         .ok_or_else(|| {
                             anyhow!(
                             "The move '{}' starts with '{current}', which is not a piece or file",
-                            self.original_input.split_ascii_whitespace().next().unwrap().error()
+                            self.original_input.split_ascii_whitespace().next().unwrap().red()
                         )
                         })?;
                 self.advance_char();
@@ -790,11 +791,11 @@ impl<'a> MoveParser<'a> {
 
     fn parse_square_rank_or_file(&mut self) -> Res<()> {
         let Some(file) = self.current_char() else {
-            bail!("Move '{}' is too short", self.consumed().error())
+            bail!("Move '{}' is too short", self.consumed().red())
         };
         self.advance_char();
         let Some(rank) = self.current_char() else {
-            bail!("Move '{}' is too short", self.consumed().error())
+            bail!("Move '{}' is too short", self.consumed().red())
         };
         match ChessSquare::from_chars(file, rank) {
             Ok(sq) => {
@@ -808,9 +809,9 @@ impl<'a> MoveParser<'a> {
                 x => {
                     // doesn't reset the current char, but that's fine because we're aborting anyway
                     if self.piece == Empty && !self.is_capture {
-                        bail!("A move must start with a valid file, rank or piece, but '{}' is neither", x.to_string().error())
+                        bail!("A move must start with a valid file, rank or piece, but '{}' is neither", x.to_string().red())
                     } else {
-                        bail!("'{}' is not a valid file or rank", x.to_string().error())
+                        bail!("'{}' is not a valid file or rank", x.to_string().red())
                     }
                 }
             },
@@ -998,7 +999,7 @@ impl<'a> MoveParser<'a> {
                 };
                 let (from, from_bb) = f(self.start_file, self.start_rank);
                 let to = f(self.target_file, self.target_rank).0;
-                let (from, to) = (from.important(), to.important());
+                let (from, to) = (from.bold(), to.bold());
                 let mut additional = String::new();
                 if board.is_game_lost_slow() {
                     additional = format!(" ({} has been checkmated)", board.active_player);
@@ -1011,15 +1012,15 @@ impl<'a> MoveParser<'a> {
                     if piece.is_empty() {
                         bail!(
                             "The square {from} is empty, so the move '{}' is invalid{1}",
-                            self.consumed().important(),
+                            self.consumed().bold(),
                             additional
                         )
                     } else if piece.color().unwrap() != board.active_player {
                         bail!("There is a {0} on {from}, but it's {1}'s turn to move, so the move '{2}' is invalid{3}",
-                            piece.symbol.name(), board.active_player, self.consumed().important(), additional)
+                            piece.symbol.name(), board.active_player, self.consumed().bold(), additional)
                     } else {
                         bail!("There is a {0} on {from}, but it can't move to {to}, so the move '{1}' is invalid{2}",
-                            piece.symbol.name(), self.consumed().important(), additional)
+                            piece.symbol.name(), self.consumed().bold(), additional)
                     }
                 }
                 if (board.colored_piece_bb(board.active_player, self.piece) & from_bb).is_zero() {
@@ -1027,7 +1028,7 @@ impl<'a> MoveParser<'a> {
                         "There is no {0} {1} on {from}, so the move '{2}' is invalid{3}",
                         board.active_player,
                         self.piece.name(),
-                        self.consumed().important(),
+                        self.consumed().bold(),
                         additional
                     )
                 } else {
@@ -1035,7 +1036,7 @@ impl<'a> MoveParser<'a> {
                         "There is no legal {0} {1} move from {from} to {to}, so the move '{2}' is invalid{3}",
                         board.active_player,
                         self.piece.name(),
-                        self.consumed().important(),
+                        self.consumed().bold(),
                         additional
                     );
                 }
@@ -1082,8 +1083,8 @@ impl<'a> MoveParser<'a> {
             };
             bail!(
                 "The move notation '{0}' claims that it {typ}, but the move {1} actually doesn't",
-                self.consumed().error(),
-                mov.to_string().important() // can't use to_extended_text() here, as that requires pseudolegal moves
+                self.consumed().red(),
+                mov.to_string().bold() // can't use to_extended_text() here, as that requires pseudolegal moves
             );
         }
         Ok(())
