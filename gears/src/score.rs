@@ -246,16 +246,18 @@ impl Mul<usize> for PhasedScore {
 
 impl MulAssign<usize> for PhasedScore {
     fn mul_assign(&mut self, rhs: usize) {
-        debug_assert!(is_valid_score(
-            (self.mg().0 as isize * rhs.to_isize().unwrap())
+        if cfg!(debug_assertions) {
+            let mg = self.mg();
+            let eg = self.eg();
+            let mg_res = (mg.0 as isize * rhs.to_isize().unwrap())
                 .try_into()
-                .unwrap()
-        ));
-        debug_assert!(is_valid_score(
-            (self.eg().0 as isize * rhs.to_isize().unwrap())
+                .unwrap();
+            debug_assert!(is_valid_score(mg_res));
+            let eg_res = (eg.0 as isize * rhs.to_isize().unwrap())
                 .try_into()
-                .unwrap()
-        ));
+                .unwrap();
+            debug_assert!(is_valid_score(eg_res));
+        }
         self.0 *= rhs as ScoreT;
     }
 }
@@ -264,14 +266,17 @@ impl Div<usize> for PhasedScore {
     type Output = Self;
 
     fn div(mut self, rhs: usize) -> Self::Output {
-        self *= rhs;
+        self /= rhs;
         self
     }
 }
 
 impl DivAssign<usize> for PhasedScore {
     fn div_assign(&mut self, rhs: usize) {
-        self.0 /= rhs as ScoreT;
+        *self = Self::new(
+            (self.mg().0 as CompactScoreT) / rhs as CompactScoreT,
+            (self.eg().0 as CompactScoreT) / rhs as CompactScoreT,
+        );
     }
 }
 
@@ -317,24 +322,44 @@ mod tests {
             let mg_b = Score(ScoreT::from(mg_b));
             let eg_a = Score(ScoreT::from(eg_a));
             let eg_b = Score(ScoreT::from(eg_b));
-            let sum = taper_a + taper_b;
-            assert_eq!(
-                sum.mg(),
-                mg_a + mg_b,
-                "{0} {mg_a} {mg_b} -- {1}",
-                sum.mg(),
-                sum.0
-            );
-            assert_eq!(
-                sum.eg(),
-                eg_a + eg_b,
-                "{0} {eg_a} {eg_b} -- {1}",
-                sum.eg(),
-                sum.0
-            );
-            let op = taper_a * 3 - taper_b * 7;
-            assert_eq!(op.mg(), mg_a * 3 - mg_b * 7);
-            assert_eq!(op.eg(), eg_a * 3 - eg_b * 7);
+            for op in 0..4 {
+                let c = taper_b.mg().0.clamp(0, 90);
+                let mut d = taper_b.eg().0 as usize;
+                if d == 0 {
+                    d = 1;
+                }
+                let func = |a: PhasedScore, b: PhasedScore| match op {
+                    0 => a + b,
+                    1 => a - b,
+                    2 => a * c as usize,
+                    _ => a / d,
+                };
+                let f2 = |a: Score, b: Score| match op {
+                    0 => a + b,
+                    1 => a - b,
+                    2 => a * c,
+                    _ => a / d as ScoreT,
+                };
+                let res = func(taper_a, taper_b);
+                assert_eq!(
+                    res.mg(),
+                    f2(mg_a, mg_b),
+                    "{0} {mg_a} {mg_b} -- {1}, op `{2}`",
+                    res.mg(),
+                    res.0,
+                    op
+                );
+                assert_eq!(
+                    res.eg(),
+                    f2(eg_a, eg_b),
+                    "{0} {eg_a} {eg_b} -- {1}",
+                    res.eg(),
+                    res.0
+                );
+            }
+            let op = taper_a * 3 / 2 - taper_b * 7;
+            assert_eq!(op.mg(), mg_a * 3 / 2 - mg_b * 7);
+            assert_eq!(op.eg(), eg_a * 3 / 2 - eg_b * 7);
         }
     }
 }

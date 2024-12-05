@@ -6,7 +6,7 @@ use crate::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
 use crate::games::chess::squares::ChessSquare;
 use crate::games::chess::CastleRight::*;
 use crate::games::chess::ChessColor::*;
-use crate::games::chess::{ChessColor, Chessboard};
+use crate::games::chess::{ChessColor, Chessboard, SliderMove};
 use crate::games::{Board, Color, ColoredPieceType};
 use crate::general::bitboards::chess::{ChessBitboard, KINGS, KNIGHTS, PAWN_CAPTURES};
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
@@ -14,12 +14,6 @@ use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::move_list::MoveList;
 use crate::general::moves::Move;
 use crate::general::squares::RectangularCoordinates;
-
-#[derive(Debug, Copy, Clone)]
-enum SliderMove {
-    Bishop,
-    Rook,
-}
 
 impl Chessboard {
     fn single_pawn_moves(
@@ -332,7 +326,7 @@ impl Chessboard {
         PAWN_CAPTURES[color as usize][square.bb_idx()]
     }
 
-    fn slider_attacks_from(
+    pub fn slider_attacks_from(
         &self,
         square: ChessSquare,
         slider_move: SliderMove,

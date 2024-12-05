@@ -704,13 +704,12 @@ impl Chessboard {
                     self.castling.unset_castle_right(color, side);
                 }
             }
-        } else if piece == Pawn {
-            if self
+        } else if piece == Pawn
+            && self
                 .ep_square
                 .is_some_and(|sq| sq.pawn_advance_unchecked(color) == square)
-            {
-                self.ep_square = None;
-            }
+        {
+            self.ep_square = None;
         }
     }
 
@@ -1113,6 +1112,12 @@ impl UnverifiedChessboard {
         self.0.ply_100_ctr = ply;
         self
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum SliderMove {
+    Bishop,
+    Rook,
 }
 
 #[cfg(test)]
