@@ -1231,7 +1231,7 @@ impl Caps {
         let mut children_visited = 0;
         while let Some((mov, score)) = move_picker.next(&move_scorer, &self.state) {
             debug_assert!(mov.is_tactical(&pos));
-            if score < MoveScore(0) || (!is_pv && children_visited >= 3) {
+            if score < MoveScore(0) || (!is_pv && children_visited >= 2) {
                 // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch,
                 // LMP moves in non-pv nodes.
                 break;
