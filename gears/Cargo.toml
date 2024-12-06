@@ -23,7 +23,6 @@ strum_macros = "0.26.4"
 derive_more = { version = "1.0.0", features = ["full"] }
 itertools = "0.13.0"
 chrono = "0.4.38"
-static_assertions = "1.1.0"
 dyn-clone = "1.0.17"
 arrayvec = "0.7.6"
 edit-distance = "2.1.3"

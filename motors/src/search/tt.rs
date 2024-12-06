@@ -1,14 +1,10 @@
 use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T1};
 use std::fmt::{Display, Formatter};
 use std::mem::size_of;
-#[cfg(feature = "unsafe")]
-use std::mem::transmute_copy;
 use std::ptr::addr_of;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
-
-use portable_atomic::AtomicU128;
-use static_assertions::const_assert_eq;
 use strum_macros::FromRepr;
 
 #[cfg(feature = "chess")]
@@ -20,7 +16,33 @@ use gears::score::{Score, ScoreT, SCORE_WON};
 use gears::search::NodeType;
 use OptionalNodeType::*;
 
-type AtomicTTEntry = AtomicU128;
+#[derive(Debug, Default)]
+#[repr(C)]
+#[repr(align(16))]
+pub struct AtomicTTEntry {
+    hash: AtomicU64,
+    val: AtomicU64,
+}
+
+impl AtomicTTEntry {
+    fn store(&self, entry: NonAtomicTransmute) {
+        self.hash.store(entry.hash, Relaxed);
+        self.val.store(entry.val, Relaxed);
+    }
+}
+
+#[derive(Debug, Default, Copy, Clone)]
+#[repr(C)]
+struct NonAtomicTransmute {
+    hash: u64,
+    val: u64,
+}
+
+#[repr(C)]
+union TransmuteTTEntry<B: Board> {
+    entry: TTEntry<B>,
+    transmuted: NonAtomicTransmute,
+}
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, FromRepr)]
 #[repr(u8)]
@@ -78,63 +100,57 @@ impl<B: Board> TTEntry<B> {
         NodeType::from_repr(self.bound as u8).unwrap()
     }
 
-    #[cfg(feature = "unsafe")]
-    fn to_packed(self) -> u128 {
-        if size_of::<Self>() == 128 / 8 {
-            // `transmute_copy` is needed because otherwise the compiler complains that the sizes might not match.
-            unsafe { transmute_copy::<Self, u128>(&self) }
+    fn write(self, entry: &AtomicTTEntry) {
+        assert_eq!(size_of::<AtomicTTEntry>(), size_of::<TTEntry<B>>());
+        if cfg!(feature = "unsafe") {
+            let c = TransmuteTTEntry { entry: self };
+            unsafe {
+                entry.store(c.transmuted);
+            }
         } else {
-            self.to_packed_fallback()
+            entry.hash.store(self.hash.0, Relaxed);
+            let val = ((self.score.0 as u64) << (64 - 32))
+                | ((self.mov.to_underlying().into() as u64) << 16)
+                | ((self.depth as u64) << 8);
+            entry.val.store(val, Relaxed);
         }
     }
 
-    fn to_packed_fallback(self) -> u128 {
-        let score = self.score.0 as u32; // don't sign extend negative scores
-        ((self.hash.0 as u128) << 64)
-            | ((score as u128) << (64 - 32))
-            | ((self.mov.to_underlying().into() as u128) << 16)
-            | ((self.depth as u128) << 8)
-            | self.bound as u128
-    }
-
-    #[cfg(not(feature = "unsafe"))]
-    fn to_packed(self) -> u128 {
-        self.to_packed_fallback()
-    }
-
     #[cfg(feature = "unsafe")]
-    fn from_packed(packed: u128) -> Self {
-        if size_of::<Self>() == 128 / 8 {
-            unsafe { transmute_copy::<u128, Self>(&packed) }
+    fn load(entry: &AtomicTTEntry) -> Self {
+        assert_eq!(size_of::<AtomicTTEntry>(), size_of::<TTEntry<B>>());
+        let hash = entry.hash.load(Relaxed);
+        let val = entry.val.load(Relaxed);
+        if cfg!(feature = "unsafe") {
+            let c = TransmuteTTEntry {
+                transmuted: NonAtomicTransmute { hash, val },
+            };
+            unsafe { c.entry }
         } else {
-            Self::from_packed_fallback(packed)
-        }
-    }
-
-    #[cfg(not(feature = "unsafe"))]
-    fn from_packed(val: u128) -> Self {
-        Self::from_packed_fallback(val)
-    }
-
-    fn from_packed_fallback(val: u128) -> Self {
-        let hash = ZobristHash((val >> 64) as u64);
-        let score = Score(((val >> (64 - 32)) & 0xffff_ffff) as ScoreT);
-        let mov = B::Move::from_usize_unchecked(((val >> 16) & 0xffff) as usize);
-        let depth = ((val >> 8) & 0xff) as u8;
-        let bound = OptionalNodeType::from_repr((val & 0xff) as u8).unwrap();
-        Self {
-            hash,
-            score,
-            mov,
-            depth,
-            bound,
+            let hash = ZobristHash(hash);
+            let score = Score(((val >> (64 - 32)) & 0xffff_ffff) as ScoreT);
+            let mov = B::Move::from_usize_unchecked(((val >> 16) & 0xffff) as usize);
+            let depth = ((val >> 8) & 0xff) as u8;
+            let bound = OptionalNodeType::from_repr((val & 0xff) as u8).unwrap();
+            Self {
+                hash,
+                score,
+                mov,
+                depth,
+                bound,
+            }
         }
     }
 }
+
+const _: () = assert!(size_of::<NonAtomicTransmute>() == size_of::<AtomicTTEntry>());
 #[cfg(feature = "chess")]
-const_assert_eq!(size_of::<TTEntry<Chessboard>>(), 16);
+const _: () =
+    assert!(size_of::<TTEntry<Chessboard>>() == size_of::<TransmuteTTEntry<Chessboard>>());
 #[cfg(feature = "chess")]
-const_assert_eq!(size_of::<TTEntry<Chessboard>>(), size_of::<AtomicTTEntry>());
+const _: () = assert!(size_of::<NonAtomicTransmute>() == size_of::<TransmuteTTEntry<Chessboard>>());
+#[cfg(feature = "chess")]
+const _: () = assert!(size_of::<TTEntry<Chessboard>>() == 16);
 
 pub const DEFAULT_HASH_SIZE_MB: usize = 16;
 
@@ -158,7 +174,7 @@ impl TT {
     pub fn new_with_bytes(size_in_bytes: usize) -> Self {
         let new_size = 1.max(size_in_bytes / size_of::<AtomicTTEntry>());
         let mut arr = Vec::with_capacity(new_size);
-        arr.resize_with(new_size, AtomicU128::default);
+        arr.resize_with(new_size, AtomicTTEntry::default);
         let tt = arr.into_boxed_slice().into();
         Self(tt)
     }
@@ -178,7 +194,7 @@ impl TT {
     pub fn forget(&mut self) {
         // TODO: Instead of overwriting every entry, simply increase the age such that old entries will be ignored
         for entry in self.0.iter() {
-            entry.store(0, Relaxed);
+            entry.store(NonAtomicTransmute { hash: 0, val: 0 });
         }
     }
 
@@ -190,7 +206,7 @@ impl TT {
             .0
             .iter()
             .take(len)
-            .filter(|e: &&AtomicTTEntry| TTEntry::<B>::from_packed(e.load(Relaxed)).bound != Empty)
+            .filter(|e| TTEntry::<B>::load(e).bound != Empty)
             .count();
         if len < 1000 {
             (num_used as f64 * 1000.0 / len as f64).round() as usize
@@ -228,12 +244,12 @@ impl TT {
             entry.score.0,
             won = entry.score.plies_until_game_won().unwrap_or(-1),
         );
-        self.0[idx].store(entry.to_packed(), Relaxed);
+        entry.write(&self.0[idx]);
     }
 
     pub(super) fn load<B: Board>(&self, hash: ZobristHash, ply: usize) -> Option<TTEntry<B>> {
         let idx = self.index_of(hash);
-        let mut entry = TTEntry::from_packed(self.0[idx].load(Relaxed));
+        let mut entry = TTEntry::load(&self.0[idx]);
         // Mate score adjustments, see `store`
         if let Some(plies) = entry.score.plies_until_game_won() {
             if plies < 0 {
@@ -290,8 +306,9 @@ mod test {
                 i as isize,
                 NodeType::from_repr(i as u8 % 3 + 1).unwrap(),
             );
-            let converted = entry.to_packed();
-            assert_eq!(TTEntry::from_packed(converted), entry);
+            let a = AtomicTTEntry::default();
+            let converted = entry.write(&a);
+            assert_eq!(TTEntry::load(&a), entry);
             i += 1;
         }
     }
@@ -321,8 +338,9 @@ mod test {
                     depth,
                     bound,
                 };
-                let packed = entry.to_packed();
-                let val = TTEntry::from_packed(packed);
+                let a = AtomicTTEntry::default();
+                let packed = entry.write(&a);
+                let val = TTEntry::load(&a);
                 assert_eq!(val, entry);
                 let ply = thread_rng().sample(Uniform::new(0, 100).unwrap());
                 tt.store(entry, ply);

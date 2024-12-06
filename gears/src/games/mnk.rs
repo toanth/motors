@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail};
 use colored::Colorize;
 use itertools::Itertools;
-use static_assertions::const_assert_eq;
 use std::cmp::min;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -176,7 +175,7 @@ pub struct FillSquare {
     // pub player: Player,
 }
 
-const_assert_eq!(size_of::<FillSquare>(), 2);
+const _: () = assert!(size_of::<FillSquare>() == 2);
 
 impl Default for FillSquare {
     fn default() -> Self {
