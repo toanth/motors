@@ -726,7 +726,8 @@ impl Caps {
         let mut eval = self.eval(pos, ply);
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.state.multi_pvs.len() > 1;
-        if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
+        let old_entry = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply);
+        if let Some(tt_entry) = old_entry {
             if !ignore_tt_entry {
                 let tt_bound = tt_entry.bound();
                 debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
@@ -1062,7 +1063,7 @@ impl Caps {
             return Some(game_result_to_score(pos.no_moves_result(), ply));
         }
 
-        let tt_entry: TTEntry<Chessboard> = TTEntry::new(
+        let new_entry: TTEntry<Chessboard> = TTEntry::new(
             pos.zobrist_hash(),
             best_score,
             best_move,
@@ -1073,11 +1074,17 @@ impl Caps {
         // TODO: eventually test that not overwriting PV nodes unless the depth is quite a bit greater gains
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
-        if !(root && self.state.current_pv_num > 0) {
-            self.state.tt_mut().store(tt_entry, ply);
+        if !(root && self.state.current_pv_num > 0)
+            && !old_entry.is_some_and(|e| Self::should_not_replace(&e, &new_entry))
+        {
+            self.state.tt_mut().store(new_entry, ply);
         }
 
         Some(best_score)
+    }
+
+    fn should_not_replace(old: &TTEntry<Chessboard>, new: &TTEntry<Chessboard>) -> bool {
+        old.age == new.age && old.depth > new.depth + 3
     }
 
     fn update_continuation_hist(
