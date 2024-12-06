@@ -1407,7 +1407,7 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
     write!(
         &mut res,
         "\nScore: {bound_str}{0} ({1}), Depth: {2}, Best Move: {3}",
-        pretty_score(entry.score, None, None, &score_gradient(), true, false),
+        pretty_score(entry.score(), None, None, &score_gradient(), true, false),
         entry.bound(),
         entry.depth.to_string().bold(),
         move_string,

@@ -153,6 +153,10 @@ impl Score {
             None
         }
     }
+
+    pub fn compact(self) -> CompactScoreT {
+        self.0 as CompactScoreT
+    }
 }
 
 /// `SCORE_WON` and `SCORE_LOST` need to fit into 16 bits for the tapered score to work,

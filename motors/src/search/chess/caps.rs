@@ -736,12 +736,12 @@ impl Caps {
                 // simply return it.
                 if !is_pv_node
                     && tt_entry.depth as isize >= depth
-                    && ((tt_entry.score >= beta && tt_bound == NodeType::lower_bound())
-                        || (tt_entry.score <= alpha && tt_bound == NodeType::upper_bound())
+                    && ((tt_entry.score() >= beta && tt_bound == NodeType::lower_bound())
+                        || (tt_entry.score() <= alpha && tt_bound == NodeType::upper_bound())
                         || tt_bound == Exact)
                 {
                     self.state.statistics.tt_cutoff(MainSearch, tt_bound);
-                    return Some(tt_entry.score);
+                    return Some(tt_entry.score());
                 }
                 // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
                 // at what the type of this node is going to be.
@@ -750,10 +750,10 @@ impl Caps {
                         // TODO: Base instead on relation between tt score and window?
                         // Or only update if the difference between tt score and the window is large?
                         tt_bound
-                    } else if tt_entry.score <= alpha {
+                    } else if tt_entry.score() <= alpha {
                         FailLow
                     } else {
-                        debug_assert!(tt_entry.score >= beta); // we're using a null window
+                        debug_assert!(tt_entry.score() >= beta); // we're using a null window
                         FailHigh
                     }
                 }
@@ -765,10 +765,10 @@ impl Caps {
                 // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
                 // create any problems, but should be kept in mind.
                 if tt_bound == Exact
-                    || (tt_bound == NodeType::lower_bound() && tt_entry.score >= eval)
-                    || (tt_bound == NodeType::upper_bound() && tt_entry.score <= eval)
+                    || (tt_bound == NodeType::lower_bound() && tt_entry.score() >= eval)
+                    || (tt_bound == NodeType::upper_bound() && tt_entry.score() <= eval)
                 {
-                    eval = tt_entry.score;
+                    eval = tt_entry.score();
                 }
             }
         } else {
@@ -1066,6 +1066,7 @@ impl Caps {
             pos.zobrist_hash(),
             best_score,
             best_move,
+            self.state.age,
             depth,
             bound_so_far,
         );
@@ -1185,16 +1186,16 @@ impl Caps {
             // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
             // However, if we've already done qsearch on this position, we can just re-use the result,
             // so there is no point in checking the depth at all
-            if (bound == NodeType::lower_bound() && tt_entry.score >= beta)
-                || (bound == NodeType::upper_bound() && tt_entry.score <= alpha)
+            if (bound == NodeType::lower_bound() && tt_entry.score() >= beta)
+                || (bound == NodeType::upper_bound() && tt_entry.score() <= alpha)
                 || bound == Exact
             {
                 self.state.statistics.tt_cutoff(Qsearch, bound);
-                return tt_entry.score;
+                return tt_entry.score();
             }
             // If the TT score is an upper bound, it can't be worse than the stand pat score unless it's from a regular
             // search entry, i.e. depth is greater than 0.
-            if bound == FailLow && tt_entry.score < best_score {
+            if bound == FailLow && tt_entry.score() < best_score {
                 debug_assert!(tt_entry.depth > 0);
             }
             // even though qsearch never checks for game over conditions, it's still possible for it to load a checkmate score
@@ -1205,10 +1206,10 @@ impl Caps {
             // nonregression SPRT with `[-7, 0]` bounds even though I don't know why, and those conditions make it fail
             // the re-search test case. So the conditions are still disabled for now,
             // test reintroducing them at some point in the future after I have TT aging!
-            if (bound == NodeType::lower_bound() && tt_entry.score >= best_score)
-                || (bound == NodeType::upper_bound() && tt_entry.score <= best_score)
+            if (bound == NodeType::lower_bound() && tt_entry.score() >= best_score)
+                || (bound == NodeType::upper_bound() && tt_entry.score() <= best_score)
             {
-                best_score = tt_entry.score;
+                best_score = tt_entry.score();
             };
             if let Some(mov) = tt_entry.mov.check_pseudolegal(&pos) {
                 best_move = mov;
@@ -1263,8 +1264,14 @@ impl Caps {
             .statistics
             .count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
 
-        let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
+        let tt_entry: TTEntry<Chessboard> = TTEntry::new(
+            pos.zobrist_hash(),
+            best_score,
+            best_move,
+            self.state.age,
+            0,
+            bound_so_far,
+        );
         self.state.tt_mut().store(tt_entry, ply);
         best_score
     }

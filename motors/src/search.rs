@@ -5,7 +5,7 @@ use crate::search::multithreading::{
     AtomicSearchState, EngineReceives, EngineThread, SearchThreadType, Sender,
 };
 use crate::search::statistics::{Statistics, Summary};
-use crate::search::tt::TT;
+use crate::search::tt::{AgeT, TT};
 use colored::Color::Red;
 use colored::Colorize;
 use crossbeam_channel::unbounded;
@@ -747,6 +747,7 @@ pub trait AbstractSearchState<B: Board> {
 pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     search_stack: Vec<E>,
     params: SearchParams<B>,
+    age: AgeT,
     custom: C,
     excluded_moves: Vec<B::Move>,
     multi_pvs: Vec<PVData<B>>,
@@ -780,6 +781,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
     fn new_search(&mut self, mut parameters: SearchParams<B>) {
         parameters.atomic.set_searching(true);
         self.forget(false);
+        self.age += 1; // can wrap around
         let moves = parameters.pos.legal_moves_slow();
         let num_moves = moves.num_moves();
         self.current_pv_num = 0;
@@ -1010,6 +1012,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             params,
             excluded_moves: vec![],
             current_pv_num: 0,
+            age: AgeT::default(),
         }
     }
 
