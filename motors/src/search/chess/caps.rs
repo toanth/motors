@@ -575,6 +575,8 @@ impl Caps {
 
             let atomic = &self.state.params.atomic;
             let pv = &self.state.search_stack[0].pv;
+            // we don't trust the best move in fail low nodes, but we still want to display an updated score
+            self.state.multi_pvs[self.state.current_pv_num].score = pv_score;
             // adding ` && node_type != FailLow` gains elo, which is weird because this only prevents incomplete search iterations that have
             // already changed the PV from affecting the chosen move.
             if pv.length > 0 && node_type != FailLow {
@@ -587,7 +589,6 @@ impl Caps {
                 self.state.multi_pvs[self.state.current_pv_num]
                     .pv
                     .assign_from(pv);
-                self.state.multi_pvs[self.state.current_pv_num].score = pv_score;
                 // We can't really trust FailHigh scores. Even though we should still prefer a fail high move, we don't
                 // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
                 if self.state.current_pv_num == 0 {

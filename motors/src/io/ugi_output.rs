@@ -315,15 +315,15 @@ pub fn pretty_score(
     if !main_line {
         res = res.dimmed();
     }
-    let bound = bound.unwrap_or(Exact).comparison_str(true).to_string();
+    let bound_string = bound.unwrap_or(Exact).comparison_str(min_width).to_string();
     let res = if score.is_won_or_lost() {
-        format!("{bound} {}", res.bold())
+        format!("{bound_string} {}", res.bold())
     } else {
-        format!("{bound}{res}{}", "cp".dimmed())
+        format!("{bound_string}{res}{}", "cp".dimmed())
     };
     // res = format!("{bound}{res}");
     if let Some(previous) = previous {
-        if !main_line {
+        if !main_line || bound != Some(Exact) {
             return res.to_string() + "  ";
         }
         // `sigmoid - sigmoid` instead of `sigmoid(diff)` to weight changes close to 0 stronger
