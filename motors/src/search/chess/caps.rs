@@ -1,5 +1,6 @@
 use std::cmp::min;
 use std::mem::take;
+use std::num::Wrapping;
 use std::time::{Duration, Instant};
 
 use crate::eval::chess::lite::LiTEval;
@@ -1084,7 +1085,8 @@ impl Caps {
     }
 
     fn should_not_replace(old: &TTEntry<Chessboard>, new: &TTEntry<Chessboard>) -> bool {
-        old.age == new.age && old.depth > new.depth + 3
+        let age_diff = new.age - old.age;
+        age_diff <= Wrapping(1) && old.depth > new.depth + 3
     }
 
     fn update_continuation_hist(
@@ -1187,7 +1189,8 @@ impl Caps {
 
         // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
         // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
+        let old_entry = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply);
+        if let Some(tt_entry) = old_entry {
             debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
             let bound = tt_entry.bound();
             // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
@@ -1279,7 +1282,9 @@ impl Caps {
             0,
             bound_so_far,
         );
-        self.state.tt_mut().store(tt_entry, ply);
+        if !old_entry.is_some_and(|e| Self::should_not_replace(&e, &tt_entry)) {
+            self.state.tt_mut().store(tt_entry, ply);
+        }
         best_score
     }
 
