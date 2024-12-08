@@ -948,7 +948,7 @@ impl Caps {
                 let mut reduction = 0;
                 if !in_check && num_uninteresting_visited >= cc::lmr_min_uninteresting() {
                     reduction = depth / cc::lmr_depth_div()
-                        + (num_uninteresting_visited + 1).ilog2() as isize
+                        + (num_uninteresting_visited + 1 + we_blundered as isize).ilog2() as isize
                         + cc::lmr_const();
                     // Reduce bad captures and quiet moves with bad combined history scores more.
                     if move_score < MoveScore(cc::lmr_bad_hist()) {
