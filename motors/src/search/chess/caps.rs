@@ -863,7 +863,7 @@ impl Caps {
                     self.state.search_stack[ply].tried_moves.clear();
                     *self.state.custom.nmp_disabled_for(pos.active_player()) = false;
                     // The verification score is more trustworthy than the nmp score.
-                    if !verification_score.is_some_and(|score| score < beta) {
+                    if verification_score.is_none_or(|score| score >= beta) {
                         return verification_score;
                     }
                 }

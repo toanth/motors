@@ -30,8 +30,8 @@ struct MoveListScorer<'a, B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: 
     excluded: B::Move,
 }
 
-impl<'a, B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> IntoIterator
-    for MoveListScorer<'a, B, E, MAX_LEN, Scorer>
+impl<B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> IntoIterator
+    for MoveListScorer<'_, B, E, MAX_LEN, Scorer>
 {
     type Item = B::Move;
     type IntoIter = UnscoredMoveIter<B, MAX_LEN>;

@@ -233,7 +233,7 @@ impl Move<MNKBoard> for FillSquare {
                 s.red()
             )
         };
-        if s.bytes().nth(2).is_some_and(|c| c.is_ascii_digit()) {
+        if s.as_bytes().get(2).is_some_and(|c| c.is_ascii_digit()) {
             square_str = &s[..3]; // m,n,k fens can contain two-digit files
         }
         let c = GridCoordinates::from_str(square_str)?;

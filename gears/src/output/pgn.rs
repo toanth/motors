@@ -193,8 +193,8 @@ impl TagPair {
             "White" => White(value),
             "Black" => Black(value),
             "Result" => Result(GameResult::from_str(value.trim_ascii())?),
-            "WhiteElo" => WhiteElo(parse_int_from_str(&value.trim_ascii(), "white elo")?),
-            "BlackElo" => BlackElo(parse_int_from_str(&value.trim_ascii(), "white elo")?),
+            "WhiteElo" => WhiteElo(parse_int_from_str(value.trim_ascii(), "white elo")?),
+            "BlackElo" => BlackElo(parse_int_from_str(value.trim_ascii(), "white elo")?),
             "WhiteTitle" => WhiteTitle(value),
             "BlackTitle" => BlackTitle(value),
             "WhiteType" => WhiteType(PlayerType::from_str(&value)?),
@@ -322,7 +322,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
             bail!("Empty tag after starting a tag pair with '['")
         }
         self.ignore_whitespace()?;
-        if !self.unread.peek().is_some_and(|&c| c == '"') {
+        if self.unread.peek().is_none_or(|&c| c != '"') {
             bail!("Expected the tag value to start with a quote ('\"')")
         }
         self.eat();
@@ -339,7 +339,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
             value.push(c);
         }
         self.ignore_whitespace()?;
-        if !self.unread.peek().is_some_and(|&c| c == ']') {
+        if self.unread.peek().is_none_or(|&c| c != ']') {
             bail!("Expected the tag pair to end with a closing bracket (']')")
         }
         self.eat();
