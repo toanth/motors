@@ -410,9 +410,8 @@ impl Board for Chessboard {
         self.ply += 1;
         // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove
         self.ply_100_ctr = 0;
-        if self.ep_square.is_some() {
-            self.hash ^=
-                PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[self.ep_square.unwrap().file() as usize];
+        if let Some(sq) = self.ep_square {
+            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[sq.file() as usize];
             self.ep_square = None;
         }
         self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
@@ -751,8 +750,10 @@ impl Chessboard {
         self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
     }
 
+    /// A mate that happens on the 100 move rule counter reaching 100 takes precedence.
+    /// This barely every happens, which is why we can afford the slow operation of checking for a checkmate in that case.
     pub fn is_50mr_draw(&self) -> bool {
-        self.ply_100_ctr >= 100
+        self.ply_100_ctr >= 100 && !self.is_checkmate_slow()
     }
 
     /// Note that this function isn't entire correct according to the FIDE rules because it doesn't check for legality,
@@ -761,11 +762,21 @@ impl Chessboard {
     /// TODO: Should there be a `ZobristRepetition3FoldPedanticChess` that actually does movegen?
     /// TODO: Only set the ep square if there are pseudolegal en passants possible
     pub fn is_3fold_repetition<H: BoardHistory<Self>>(&self, history: &H) -> bool {
+        // There's no need to test if the repetition is a checkmate, because checkmate positions can't repeat
         n_fold_repetition(3, history, self, self.ply_100_ctr)
     }
 
+    /// Check if the current position is a checkmate.
+    /// This requires calculating all legal moves and seeing if the side to move is in check.
     pub fn is_stalemate_slow(&self) -> bool {
-        self.legal_moves_slow().is_empty() && !self.is_in_check()
+        !self.is_in_check() && self.legal_moves_slow().is_empty()
+    }
+
+    /// Check if the current position is a checkmate.
+    /// This requires calculating all legal moves and seeing if the side to move is in check.
+    pub fn is_checkmate_slow(&self) -> bool {
+        // test `is_in_check()` first because it's faster and a precondition for generating legal moves
+        self.is_in_check() && self.legal_moves_slow().is_empty()
     }
 
     pub fn has_insufficient_material(&self) -> bool {

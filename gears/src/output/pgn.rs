@@ -20,11 +20,15 @@
 
 use crate::games::{BoardHistory, Color};
 use crate::general::board::Board;
-use crate::general::common::Res;
+use crate::general::board::Strictness::Relaxed;
+use crate::general::common::{parse_bool_from_str, parse_int_from_str, Res};
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Move;
 use crate::output::pgn::RoundNumber::{Custom, Number, Unimportant, Unknown};
-use crate::output::pgn::TagPair::{Black, Date, Event, Other, Result, Round, Site, White};
+use crate::output::pgn::TagPair::{
+    Black, BlackElo, BlackTitle, BlackType, Date, Event, Fen, Other, Result, Round, SetUp, Site,
+    White, WhiteElo, WhiteTitle, WhiteType,
+};
 use crate::MatchStatus::*;
 use crate::ProgramStatus::Run;
 use crate::{AdjudicationReason, GameOverReason, GameResult, GameState, MatchResult, MatchState};
@@ -131,6 +135,23 @@ pub enum PlayerType {
     Program,
 }
 
+impl FromStr for PlayerType {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "human" => Ok(PlayerType::Human),
+            "program" => Ok(PlayerType::Program),
+            _ => bail!(
+                "unknown player type '{0}', must be '{1}' or '{2}'",
+                s.red(),
+                "human".bold(),
+                "program".bold()
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum TagPair {
     Event(String),
@@ -146,9 +167,9 @@ pub enum TagPair {
     BlackTitle(String),
     WhiteType(PlayerType),
     BlackType(PlayerType),
-    Other(UnknownTagPair),
     SetUp(bool),
     Fen(String),
+    Other(UnknownTagPair),
 }
 
 impl TagPair {
@@ -172,6 +193,14 @@ impl TagPair {
             "White" => White(value),
             "Black" => Black(value),
             "Result" => Result(GameResult::from_str(value.trim_ascii())?),
+            "WhiteElo" => WhiteElo(parse_int_from_str(&value.trim_ascii(), "white elo")?),
+            "BlackElo" => BlackElo(parse_int_from_str(&value.trim_ascii(), "white elo")?),
+            "WhiteTitle" => WhiteTitle(value),
+            "BlackTitle" => BlackTitle(value),
+            "WhiteType" => WhiteType(PlayerType::from_str(&value)?),
+            "BlackType" => BlackType(PlayerType::from_str(&value)?),
+            "FEN" => Fen(value.trim_ascii().to_string()),
+            "SetUp" => SetUp(parse_bool_from_str(value.trim_ascii(), "set up")?),
             _ => Other(UnknownTagPair { tag, value }),
         })
     }
@@ -322,6 +351,9 @@ impl<'a, B: Board> PgnParser<'a, B> {
         while let Some(&c) = self.unread.peek() {
             if c == '[' {
                 let tag_pair = self.parse_tag_pair()?;
+                if let TagPair::Fen(fen) = &tag_pair {
+                    self.res.game.board = B::from_fen(fen, Relaxed)?;
+                }
                 self.res.tag_pairs.push(tag_pair);
                 self.ignore_whitespace()?;
             } else {

@@ -11,3 +11,7 @@ debug = 1 # useful for profiling, maybe remove this eventually
 
 [profile.bench]
 debug = true
+
+[profile.dev]
+# dramatically speeds up unit tests
+opt-level = 1

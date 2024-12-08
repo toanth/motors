@@ -1184,7 +1184,6 @@ mod tests {
             let mov = ChessMove::from_usize_unchecked(mov);
             for pos in Chessboard::bench_positions() {
                 if let Some(mov) = mov.check_pseudolegal(&pos) {
-                    println!("{pos} -- {mov} {}", mov.flags() as usize);
                     pos.make_move(mov);
                     // check that the move representation is unique
                     assert!(
@@ -1215,12 +1214,7 @@ mod tests {
         ];
         for (pos, moves) in tests {
             for mov in *moves {
-                let mov = ChessMove::from_text(mov, pos);
-                if let Err(err) = mov {
-                    eprintln!("{err}");
-                    panic!();
-                }
-                let mov = mov.unwrap();
+                let mov = ChessMove::from_text(mov, pos).unwrap();
                 assert!(mov.is_castle());
                 assert!(!mov.is_capture(pos));
             }
