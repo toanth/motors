@@ -20,6 +20,7 @@ use std::time::Instant;
 pub const MIN_MULTITHREADING_BATCH_SIZE: usize = 10_000;
 
 /// Gradient Descent based tuning works with real numbers. This is the type used to represent those.
+/// TODO: Test using f32, or maybe even f16
 pub type Float = f64;
 
 /// The result of calling the eval function.

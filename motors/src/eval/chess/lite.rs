@@ -220,6 +220,19 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         result
     }
 
+    fn rooks(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
+        let rooks = pos.colored_piece_bb(color, Rook);
+        if rooks.num_ones() == 2 {
+            let mut rooks = rooks.ones();
+            let sq1 = rooks.next().unwrap();
+            let sq2 = rooks.next().unwrap();
+            if sq1.rank() == sq2.rank() || sq1.file() == sq2.file() {
+                return Tuned::rook_preconnection().into();
+            }
+        }
+        Tuned::Score::default()
+    }
+
     fn mobility_and_threats(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
 
@@ -278,7 +291,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         for color in ChessColor::iter() {
             score += Self::bishop_pair(pos, color);
             score += Self::open_lines(pos, color);
-            // score += Self::outposts(pos, color);
+            score += Self::rooks(pos, color);
             score += Self::mobility_and_threats(pos, color);
             score = -score;
         }

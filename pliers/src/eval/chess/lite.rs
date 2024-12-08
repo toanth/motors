@@ -36,6 +36,7 @@ struct LiTETrace {}
 pub enum LiteFeatureSubset {
     Psqt,
     BishopPair,
+    RookPreConnect,
     RookOpenness,
     KingOpenness,
     BishopOpenness,
@@ -58,6 +59,7 @@ impl FeatureSubSet for LiteFeatureSubset {
         match self {
             Psqt => NUM_SQUARES * NUM_CHESS_PIECES,
             BishopPair => 1,
+            RookPreConnect => 1,
             RookOpenness => 3,
             KingOpenness => 3,
             BishopOpenness => 4 * 8,
@@ -90,6 +92,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             BishopPair => {
                 write!(f, "\nconst BISHOP_PAIR: PhasedScore = ")?;
+            }
+            RookPreConnect => {
+                write!(f, "const ROOK_PRECONNECT: PhasedScore = ")?;
             }
             RookOpenness => {
                 for (i, openness) in ["OPEN", "CLOSED", "SEMIOPEN"].iter().enumerate() {
@@ -280,6 +285,10 @@ impl LiteValues for LiTETrace {
 
     fn bishop_pair() -> SingleFeature {
         SingleFeature::new(BishopPair, 0)
+    }
+
+    fn rook_preconnection() -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(RookPreConnect, 0)
     }
 
     fn rook_openness(openness: FileOpenness) -> SingleFeature {
