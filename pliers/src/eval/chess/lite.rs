@@ -37,6 +37,7 @@ pub enum LiteFeatureSubset {
     Psqt,
     BishopPair,
     RookOpenness,
+    QueenOpenness,
     KingOpenness,
     BishopOpenness,
     PawnShield,
@@ -59,6 +60,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             Psqt => NUM_SQUARES * NUM_CHESS_PIECES,
             BishopPair => 1,
             RookOpenness => 3,
+            QueenOpenness => 3,
             KingOpenness => 3,
             BishopOpenness => 4 * 8,
             PawnShield => NUM_PAWN_SHIELD_CONFIGURATIONS,
@@ -91,22 +93,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             BishopPair => {
                 write!(f, "\nconst BISHOP_PAIR: PhasedScore = ")?;
             }
-            RookOpenness => {
-                for (i, openness) in ["OPEN", "CLOSED", "SEMIOPEN"].iter().enumerate() {
-                    write!(f, "const ROOK_{openness}_FILE: PhasedScore = ")?;
-                    write_phased(f, weights, self.start_idx() + i, special)?;
-                    writeln!(f, ";")?;
-                }
-                return Ok(());
-            }
-            KingOpenness => {
-                for (i, openness) in ["OPEN", "CLOSED", "SEMIOPEN"].iter().enumerate() {
-                    write!(f, "const KING_{openness}_FILE: PhasedScore = ")?;
-                    write_phased(f, weights, self.start_idx() + i, special)?;
-                    writeln!(f, ";")?;
-                }
-                return Ok(());
-            }
+            RookOpenness => return write_openness(f, weights, special, "ROOK", self),
+            QueenOpenness => return write_openness(f, weights, special, "QUEEN", self),
+            KingOpenness => return write_openness(f, weights, special, "KING", self),
             BishopOpenness => {
                 writeln!(f, "#[rustfmt::skip]")?;
                 writeln!(f, "const BISHOP_OPENNESS: [[PhasedScore; 8]; 4] = [")?;
@@ -231,6 +220,21 @@ impl FeatureSubSet for LiteFeatureSubset {
     }
 }
 
+fn write_openness(
+    f: &mut Formatter,
+    weights: &Weights,
+    special: &[bool],
+    name: &str,
+    feature: LiteFeatureSubset,
+) -> fmt::Result {
+    for (i, openness) in ["OPEN", "CLOSED", "SEMIOPEN"].iter().enumerate() {
+        write!(f, "const {name}_{openness}_FILE: PhasedScore = ")?;
+        write_phased(f, weights, feature.start_idx() + i, special)?;
+        writeln!(f, ";")?;
+    }
+    Ok(())
+}
+
 impl LiTETrace {}
 
 impl StaticallyNamedEntity for LiTETrace {
@@ -287,6 +291,13 @@ impl LiteValues for LiTETrace {
             return SingleFeature::no_feature(RookOpenness);
         }
         SingleFeature::new(RookOpenness, openness as usize)
+    }
+
+    fn queen_openness(openness: FileOpenness) -> SingleFeatureScore<Self::Score> {
+        if openness == SemiClosed {
+            return SingleFeature::no_feature(QueenOpenness);
+        }
+        SingleFeature::new(QueenOpenness, openness as usize)
     }
 
     fn king_openness(openness: FileOpenness) -> SingleFeature {

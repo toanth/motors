@@ -17,6 +17,7 @@
  */
 use crate::eval::chess::lite_values::{Lite, LiteValues};
 use crate::eval::chess::FileOpenness;
+use crate::eval::SingleFeatureScore;
 use gears::games::chess::pieces::ChessPieceType;
 use gears::games::chess::pieces::ChessPieceType::King;
 use gears::games::chess::squares::ChessSquare;
@@ -97,6 +98,10 @@ impl LiteValues for KingGambotValues {
 
     fn rook_openness(openness: FileOpenness) -> PhasedScore {
         Lite::rook_openness(openness)
+    }
+
+    fn queen_openness(openness: FileOpenness) -> SingleFeatureScore<Self::Score> {
+        Lite::queen_openness(openness)
     }
 
     fn king_openness(openness: FileOpenness) -> PhasedScore {

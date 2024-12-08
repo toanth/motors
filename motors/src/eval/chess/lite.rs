@@ -195,6 +195,11 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         for rook in rooks.ones() {
             score += Tuned::rook_openness(file_openness(rook.file(), our_pawns, their_pawns));
         }
+        // Queens on (semi)open/closed files
+        let queens = pos.colored_piece_bb(color.other(), Queen);
+        for queen in queens.ones() {
+            score += Tuned::queen_openness(file_openness(queen.file(), our_pawns, their_pawns));
+        }
         // King on (semi)open/closed file
         let king_square = pos.king_square(color);
         let king_file = king_square.file();
