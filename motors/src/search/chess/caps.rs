@@ -723,7 +723,8 @@ impl Caps {
         // In case of a collision, if there's no best_move to store because the node failed low,
         // store a null move in the TT. This helps IIR.
         let mut best_move = ChessMove::default();
-        let mut eval = self.eval(pos, ply);
+        // Don't initialize eval just now to save work in case we get a TT cutoff
+        let mut eval;
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.state.multi_pvs.len() > 1;
         if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
@@ -761,6 +762,7 @@ impl Caps {
                 if let Some(tt_move) = tt_entry.mov.check_pseudolegal(&pos) {
                     best_move = tt_move;
                 }
+                eval = self.eval(pos, ply);
                 // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
                 // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
                 // create any problems, but should be kept in mind.
@@ -770,9 +772,12 @@ impl Caps {
                 {
                     eval = tt_entry.score;
                 }
+            } else {
+                eval = self.eval(pos, ply);
             }
         } else {
             self.state.statistics.tt_miss(MainSearch);
+            eval = self.eval(pos, ply);
         };
 
         self.record_pos(pos, eval, ply);
@@ -1171,7 +1176,7 @@ impl Caps {
         self.state.atomic().update_seldepth(ply);
         // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
-        let mut best_score = self.eval(pos, ply);
+        let mut best_score;
         let mut bound_so_far = FailLow;
 
         // see main search, store an invalid random move in the TT entry if all moves failed low.
@@ -1192,6 +1197,7 @@ impl Caps {
                 self.state.statistics.tt_cutoff(Qsearch, bound);
                 return tt_entry.score;
             }
+            best_score = self.eval(pos, ply);
             // If the TT score is an upper bound, it can't be worse than the stand pat score unless it's from a regular
             // search entry, i.e. depth is greater than 0.
             if bound == FailLow && tt_entry.score < best_score {
@@ -1213,6 +1219,8 @@ impl Caps {
             if let Some(mov) = tt_entry.mov.check_pseudolegal(&pos) {
                 best_move = mov;
             }
+        } else {
+            best_score = self.eval(pos, ply);
         }
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
