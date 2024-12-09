@@ -814,7 +814,8 @@ impl Caps {
                 margin /= cc::rfp_fail_high_div();
             }
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
-                return Some(eval);
+                // Fail firm: The static eval isn't too trustworthy, so interpolate it with beta
+                return Some((eval + beta) / 2);
             }
 
             // NMP (Null Move Pruning). If static eval of our position is above beta, this node probably isn't that interesting.
