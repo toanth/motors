@@ -6,6 +6,7 @@ use crate::eval::chess::lite::LiTEval;
 use crate::eval::Eval;
 use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::chess::caps_values::cc;
+use crate::search::chess::caps_values::cc::max_move_loop_pruning_depth;
 use crate::search::move_picker::MovePicker;
 use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
@@ -967,6 +968,15 @@ impl Caps {
                         reduction += 1;
                     }
                     if we_blundered {
+                        reduction += 1;
+                    }
+                    // Futility Reduction: If this move is not a good SEE capture and our eval is significantly less than `alpha`,
+                    // reduce
+                    if !in_check
+                        && depth > max_move_loop_pruning_depth()
+                        && move_score < KILLER_SCORE
+                        && eval + 400 + Score(32) * (depth as ScoreT) < alpha
+                    {
                         reduction += 1;
                     }
                 }
