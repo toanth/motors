@@ -37,6 +37,7 @@ use gears::search::*;
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::Check;
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
+use gears::PlayerResult::Lose;
 use itertools::Itertools;
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
@@ -1201,7 +1202,7 @@ impl Caps {
             // If the TT score is an upper bound, it can't be worse than the stand pat score unless it's from a regular
             // search entry, i.e. depth is greater than 0.
             if bound == FailLow && tt_entry.score < best_score {
-                debug_assert!(tt_entry.depth > 0);
+                debug_assert!(pos.is_in_check() || tt_entry.depth > 0);
             }
             // even though qsearch never checks for game over conditions, it's still possible for it to load a checkmate score
             // and propagate that up to a qsearch parent node, where it gets saved with a depth of 0, so game over scores
@@ -1222,6 +1223,12 @@ impl Caps {
         } else {
             best_score = self.eval(pos, ply);
         }
+        // When in check, the stand pat observation doesn't hold (and we also can't trust our eval function)
+        let in_check = pos.is_in_check();
+        // TODO: Don't even call eval when in check (requires slightly reworking incremental updates)
+        if in_check {
+            best_score = game_result_to_score(Lose, ply + 1);
+        }
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
         // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
@@ -1229,7 +1236,6 @@ impl Caps {
         if best_score >= beta {
             return best_score;
         }
-        // TODO: Set stand pat to SCORE_LOST when in check, generate evasions?
         if best_score > alpha {
             bound_so_far = Exact;
             alpha = best_score;
@@ -1237,12 +1243,12 @@ impl Caps {
         self.record_pos(pos, best_score, ply);
 
         let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
-            MovePicker::new(pos, best_move, true);
+            MovePicker::new(pos, best_move, !in_check);
         let move_scorer = CapsMoveScorer { board: pos, ply };
         let mut children_visited = 0;
         while let Some((mov, score)) = move_picker.next(&move_scorer, &self.state) {
-            debug_assert!(mov.is_tactical(&pos));
-            if score < MoveScore(0) {
+            debug_assert!(in_check || mov.is_tactical(&pos));
+            if score < MoveScore(0) && !in_check {
                 // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
                 break;
             }
@@ -1368,6 +1374,8 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
 mod tests {
     use gears::games::chess::Chessboard;
     use gears::general::board::Strictness::{Relaxed, Strict};
+    #[cfg(not(debug_assertions))]
+    use gears::general::moves::ExtendedFormat::Standard;
     use gears::search::NodesLimit;
 
     use crate::eval::chess::lite::{KingGambot, LiTEval};
@@ -1597,7 +1605,7 @@ mod tests {
             let score = res.score.unwrap();
             println!(
                 "chosen move {0}, fen {1}, depth {2}, time {3}ms",
-                res.chosen_move.extended_formatter(pos),
+                res.chosen_move.extended_formatter(pos, Standard),
                 pos.as_fen(),
                 engine.state.depth(),
                 engine.state.start_time.elapsed().as_millis()
