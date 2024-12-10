@@ -1106,8 +1106,7 @@ impl Caps {
     }
 
     fn should_not_replace(old: &TTEntry<Chessboard>, new: &TTEntry<Chessboard>) -> bool {
-        let age_diff = new.age - old.age;
-        age_diff <= Wrapping(1) && old.depth > new.depth + 3
+        new.age == old.age && new.depth < old.depth
     }
 
     fn update_continuation_hist(
