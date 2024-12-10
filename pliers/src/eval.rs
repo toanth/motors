@@ -367,7 +367,7 @@ pub struct FormatWeights<'a> {
     old_weights: &'a [Weight],
 }
 
-impl<'a> Display for FormatWeights<'a> {
+impl Display for FormatWeights<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         (self.format_weights)(f, self.weights, self.old_weights)
     }

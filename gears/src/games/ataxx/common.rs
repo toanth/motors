@@ -207,8 +207,8 @@ impl Move<AtaxxBoard> for AtaxxMove {
         if s.is_empty() {
             bail!("Empty input");
         }
-        if s.starts_with("0000") {
-            return Ok((&s[4..], Self::default()));
+        if let Some(rest) = s.strip_prefix("0000") {
+            return Ok((rest, Self::default()));
         }
         let Some(first_square) = s.get(..2) else {
             bail!("Move '{}' doesn't start with 2 ascii characters", s.red());

@@ -300,8 +300,8 @@ impl Move<UtttBoard> for UtttMove {
 
     fn parse_compact_text<'a>(s: &'a str, board: &UtttBoard) -> Res<(&'a str, UtttMove)> {
         // TODO: This is not pseudolegal, so allowing it seems dangerous
-        if s.starts_with("0000") {
-            return Ok((&s[4..], Self::NULL));
+        if let Some(rest) = s.strip_prefix("0000") {
+            return Ok((rest, Self::NULL));
         }
         let Some(square_str) = s.get(..2) else {
             bail!(

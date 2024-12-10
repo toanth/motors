@@ -38,6 +38,7 @@ use gears::search::*;
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::Check;
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
+use gears::PlayerResult::{Lose, Win};
 use itertools::Itertools;
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
@@ -674,7 +675,7 @@ impl Caps {
         ply: usize,
         mut depth: isize,
         mut alpha: Score,
-        beta: Score,
+        mut beta: Score,
         mut expected_node_type: NodeType,
     ) -> Option<Score> {
         debug_assert!(alpha < beta);
@@ -689,6 +690,18 @@ impl Caps {
         debug_assert!(alpha + 1 == beta || is_pv_node); // alpha + 1 < beta implies Exact node
         if is_pv_node {
             self.state.search_stack[ply].pv.clear();
+        }
+
+        // Mate Distance Pruning (MDP): If we've already found a mate in n, don't bother looking for longer mates.
+        // This isn't intended to gain elo (since it only works in positions that are already won or lost)
+        // but makes the engine better at finding shorter checkmates. Don't do MDP at the root because that can prevent us
+        // from ever returning exact scores, since for a mate in 1 the score would always be exactly `beta`.
+        if !root {
+            alpha = alpha.max(game_result_to_score(Lose, ply));
+            beta = beta.min(game_result_to_score(Win, ply + 1));
+            if alpha >= beta {
+                return Some(alpha);
+            }
         }
 
         let ply_100_ctr = pos.halfmove_repetition_clock();
@@ -724,7 +737,8 @@ impl Caps {
         // In case of a collision, if there's no best_move to store because the node failed low,
         // store a null move in the TT. This helps IIR.
         let mut best_move = ChessMove::default();
-        let mut eval = self.eval(pos, ply);
+        // Don't initialize eval just now to save work in case we get a TT cutoff
+        let mut eval;
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.state.multi_pvs.len() > 1;
         let old_entry = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply);
@@ -763,6 +777,7 @@ impl Caps {
                 if let Some(tt_move) = tt_entry.mov.check_pseudolegal(&pos) {
                     best_move = tt_move;
                 }
+                eval = self.eval(pos, ply);
                 // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
                 // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
                 // create any problems, but should be kept in mind.
@@ -772,9 +787,12 @@ impl Caps {
                 {
                     eval = tt_entry.score();
                 }
+            } else {
+                eval = self.eval(pos, ply);
             }
         } else {
             self.state.statistics.tt_miss(MainSearch);
+            eval = self.eval(pos, ply);
         };
 
         self.record_pos(pos, eval, ply);
@@ -865,7 +883,7 @@ impl Caps {
                     self.state.search_stack[ply].tried_moves.clear();
                     *self.state.custom.nmp_disabled_for(pos.active_player()) = false;
                     // The verification score is more trustworthy than the nmp score.
-                    if !verification_score.is_some_and(|score| score < beta) {
+                    if verification_score.is_none_or(|score| score >= beta) {
                         return verification_score;
                     }
                 }
@@ -961,6 +979,9 @@ impl Caps {
                         reduction -= 1;
                     }
                     if !is_pv_node {
+                        reduction += 1;
+                    }
+                    if we_blundered {
                         reduction += 1;
                     }
                 }
@@ -1181,7 +1202,7 @@ impl Caps {
         self.state.atomic().update_seldepth(ply);
         // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
-        let mut best_score = self.eval(pos, ply);
+        let mut best_score;
         let mut bound_so_far = FailLow;
 
         // see main search, store an invalid random move in the TT entry if all moves failed low.
@@ -1203,6 +1224,7 @@ impl Caps {
                 self.state.statistics.tt_cutoff(Qsearch, bound);
                 return tt_entry.score();
             }
+            best_score = self.eval(pos, ply);
             // If the TT score is an upper bound, it can't be worse than the stand pat score unless it's from a regular
             // search entry, i.e. depth is greater than 0.
             if bound == FailLow && tt_entry.score() < best_score {
@@ -1224,6 +1246,8 @@ impl Caps {
             if let Some(mov) = tt_entry.mov.check_pseudolegal(&pos) {
                 best_move = mov;
             }
+        } else {
+            best_score = self.eval(pos, ply);
         }
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
@@ -1479,7 +1503,7 @@ mod tests {
     // TODO: Eventually, make sure that GAPS also passed this
     fn depth_1_nodes_test(mut engine: Caps, tt: TT) {
         for pos in Chessboard::bench_positions() {
-            _ = engine.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
+            let res = engine.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
             if pos.legal_moves_slow().is_empty() {
                 continue;
             }

@@ -74,7 +74,6 @@ impl<B: Board> UgiOutput<B> {
 
 impl<B: Board> UgiOutput<B> {
     /// Part of the UGI specification, but not the UCI specification
-
     pub(super) fn write_response(&mut self, response: &str) {
         self.write_ugi(&format!("response {response}"));
     }

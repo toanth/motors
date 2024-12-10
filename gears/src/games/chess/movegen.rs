@@ -311,8 +311,8 @@ impl Chessboard {
         }
     }
 
-    /// All the following methods can be called with squares that do not contain the specified piece.
-    /// This makes sense because it allows to find all pieces able to attack a given square.
+    // All the following methods can be called with squares that do not contain the specified piece.
+    // This makes sense because it allows to find all pieces able to attack a given square.
 
     pub fn normal_king_attacks_from(square: ChessSquare) -> ChessBitboard {
         KINGS[square.bb_idx()]

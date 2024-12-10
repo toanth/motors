@@ -637,7 +637,7 @@ pub struct Batch<'a, D: Datapoint> {
 // deriving `Copy` doesn't work for some reason, because apparently `D` would have to be copyable for that?
 impl<D: Datapoint> Copy for Batch<'_, D> {}
 
-impl<'a, D: Datapoint> Deref for Batch<'a, D> {
+impl<D: Datapoint> Deref for Batch<'_, D> {
     type Target = [D];
 
     fn deref(&self) -> &Self::Target {

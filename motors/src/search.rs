@@ -1156,7 +1156,13 @@ mod tests {
             assert!(res.depth.is_none());
             assert!(res.max_depth.get() <= 1);
             assert!(res.nodes <= 100); // TODO: Assert exactly 1
-            let res = engine.search_with_new_tt(p, SearchLimit::depth_(1));
+            let params = SearchParams::new_unshared(
+                p,
+                SearchLimit::depth_(1),
+                ZobristHistory::default(),
+                tt.clone(),
+            );
+            let res = engine.search(params);
             let legal_moves = p.legal_moves_slow();
             if legal_moves.num_moves() > 0 {
                 assert!(legal_moves.into_iter().contains(&res.chosen_move));
@@ -1164,17 +1170,28 @@ mod tests {
                 assert!(res.chosen_move.is_null());
             }
             // empty search moves, which is something the engine should handle
-            let res = engine
-                .search(SearchParams::for_pos(p, SearchLimit::depth_(2)).restrict_moves(vec![]));
+            let params = SearchParams::new_unshared(
+                p,
+                SearchLimit::depth_(2),
+                ZobristHistory::default(),
+                tt.clone(),
+            )
+            .restrict_moves(vec![]);
+            let res = engine.search(params);
             assert!(res.chosen_move.is_null());
             let mut search_moves = p.pseudolegal_moves().into_iter().collect_vec();
             search_moves.truncate(search_moves.len() / 2);
             search_moves.push(search_moves.first().copied().unwrap_or_default());
             search_moves.push(B::Move::default());
             let multi_pv = search_moves.len() + 3;
-            let params = SearchParams::for_pos(p, SearchLimit::nodes_(1_234))
-                .additional_pvs(multi_pv - 1)
-                .restrict_moves(search_moves.clone());
+            let params = SearchParams::new_unshared(
+                p,
+                SearchLimit::nodes_(1_234),
+                ZobristHistory::default(),
+                tt.clone(),
+            )
+            .additional_pvs(multi_pv - 1)
+            .restrict_moves(search_moves.clone());
             let res = engine.search(params);
             assert!(search_moves.contains(&res.chosen_move));
             // assert_eq!(engine.search_state().internal_node_count(), 1_234); // TODO: Assert exact match

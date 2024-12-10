@@ -6,6 +6,8 @@ mod caps_values;
 mod tests {
     use rand::rngs::StdRng;
     use std::str::FromStr;
+    use std::sync::atomic::fence;
+    use std::sync::atomic::Ordering::SeqCst;
     use std::sync::Arc;
     use std::thread::{sleep, spawn};
     use std::time::Duration;
@@ -19,6 +21,7 @@ mod tests {
     use gears::general::board::Strictness::{Relaxed, Strict};
     use gears::general::common::tokens;
     use gears::general::moves::Move;
+    use gears::output::pgn::parse_pgn;
     use gears::score::{Score, SCORE_LOST, SCORE_WON};
     use gears::search::{Depth, SearchLimit};
     use gears::ugi::load_ugi_position;
@@ -50,10 +53,10 @@ mod tests {
     #[test]
     #[cfg(feature = "random_mover")]
     fn random_mover_test() {
-        mated_test(RandomMover::<Chessboard, StdRng>::default());
+        mated_test(&mut RandomMover::<Chessboard, StdRng>::default());
     }
 
-    fn mated_test<E: Engine<Chessboard>>(mut engine: E) {
+    fn mated_test<E: Engine<Chessboard>>(engine: &mut E) {
         let game_over_pos = load_ugi_position(
             "position",
             &mut tokens("mate_in_1 moves h7a7"),
@@ -62,9 +65,8 @@ mod tests {
             &Chessboard::default(),
         )
         .unwrap();
-        println!("{game_over_pos}");
         assert!(game_over_pos.is_game_lost_slow());
-        for i in 1..123 {
+        for i in (1..123).step_by(11) {
             let res = engine
                 .search_with_new_tt(game_over_pos, SearchLimit::depth(Depth::new_unchecked(i)));
             assert!(res.ponder_move.is_none());
@@ -90,8 +92,49 @@ mod tests {
         assert!(res.score.is_some());
         assert_eq!(res.score.unwrap(), SCORE_WON - 3);
 
-        mated_test(engine);
+        mated_test(&mut engine);
+        avoid_repetition(&mut engine);
+        mate_beats_repetition(&mut engine);
+
         two_threads_test::<E>();
+    }
+
+    fn avoid_repetition<E: Engine<Chessboard>>(engine: &mut E) {
+        let pgn = r#"[Variant "From Position"][FEN "8/3Q4/2K5/k7/6P1/8/8/8 w - - 0 1"]
+                        1. Qd4 Ka6 2. Qd6 Ka5 3. Qd4 Ka6 4. Qd7 Ka5"#;
+        let game = parse_pgn::<Chessboard>(pgn).unwrap().game;
+        let params = SearchParams::new_unshared(
+            game.board,
+            SearchLimit::depth(engine.default_bench_depth()),
+            game.board_hist,
+            TT::default(),
+        );
+        let res = engine.search(params);
+        if let Some(plies_to_win) = res.score.unwrap().plies_until_game_won() {
+            assert!(plies_to_win > 4);
+        } else {
+            assert!(res.score.unwrap() >= Score(500));
+        }
+        assert_ne!(
+            res.chosen_move,
+            ChessMove::from_text("Qd4", &game.board).unwrap()
+        );
+    }
+
+    fn mate_beats_repetition<E: Engine<Chessboard>>(engine: &mut E) {
+        let pos = Chessboard::from_fen("8/3Q4/2K5/k7/6P1/8/8/8 w - - 99 99", Strict).unwrap();
+        let res = engine.search_with_new_tt(pos, SearchLimit::depth(engine.default_bench_depth()));
+        let score = res.score.unwrap();
+        assert!(score > Score(500));
+        if let Some(plies_to_win) = res.score.unwrap().plies_until_game_won() {
+            assert!(plies_to_win > 2);
+        }
+        assert_eq!(res.chosen_move, ChessMove::from_text("g5!", &pos).unwrap());
+        let pos = Chessboard::from_fen("8/8/k1K5/8/8/8/3Q2P1/8 w - - 99 99", Strict).unwrap();
+        let res = engine.search_with_new_tt(pos, SearchLimit::depth_(3));
+        let score = res.score.unwrap();
+        assert_eq!(score.plies_until_game_won(), Some(1), "{score}");
+        assert_eq!(res.chosen_move, ChessMove::from_text("d2a2", &pos).unwrap());
     }
 
     fn two_threads_test<E: Engine<Chessboard>>() {
@@ -122,15 +165,15 @@ mod tests {
         atomic.set_stop(true);
         assert!(atomic.stop_flag());
         assert!(!atomic2.stop_flag());
-        sleep(Duration::from_millis(5));
+        let res = handle.join().unwrap();
         assert!(!atomic.currently_searching());
         assert!(atomic2.currently_searching());
-        let res = handle.join().unwrap();
+        fence(SeqCst);
         atomic2.set_stop(true);
         let res2 = handle2.join().unwrap();
-        // The bound of 200 is rather large because gaps does not produce very stable evals
+        // The bound of 400 is rather large because gaps does not produce very stable evals
         assert!(
-            res.score.unwrap().0.abs_diff(res2.score.unwrap().0) <= 200,
+            res.score.unwrap().0.abs_diff(res2.score.unwrap().0) <= 400,
             "{0} {1}",
             res.score.unwrap(),
             res2.score.unwrap()

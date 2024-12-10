@@ -146,9 +146,9 @@ impl FromStr for GameResult {
     }
 }
 
-impl Into<f32> for GameResult {
-    fn into(self) -> f32 {
-        match self {
+impl From<GameResult> for f32 {
+    fn from(value: GameResult) -> Self {
+        match value {
             GameResult::P1Win => 1.0,
             GameResult::P2Win => 0.0,
             GameResult::Draw => 0.5,
@@ -157,9 +157,9 @@ impl Into<f32> for GameResult {
     }
 }
 
-impl Into<f64> for GameResult {
-    fn into(self) -> f64 {
-        match self {
+impl From<GameResult> for f64 {
+    fn from(value: GameResult) -> Self {
+        match value {
             GameResult::P1Win => 1.0,
             GameResult::P2Win => 0.0,
             GameResult::Draw => 0.5,

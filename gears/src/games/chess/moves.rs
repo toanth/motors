@@ -964,15 +964,11 @@ impl<'a> MoveParser<'a> {
         let mut moves = board.pseudolegal_moves().into_iter().filter(|mov| {
             mov.piece_type() == self.piece
                 && mov.dest_square().file() == self.target_file.unwrap()
-                && !self
+                && self
                     .target_rank
-                    .is_some_and(|r| r != mov.dest_square().rank())
-                && !self
-                    .start_file
-                    .is_some_and(|f| f != mov.src_square().file())
-                && !self
-                    .start_rank
-                    .is_some_and(|r| r != mov.src_square().rank())
+                    .is_none_or(|r| r == mov.dest_square().rank())
+                && self.start_file.is_none_or(|f| f == mov.src_square().file())
+                && self.start_rank.is_none_or(|r| r == mov.src_square().rank())
                 && self.promotion == mov.promo_piece()
                 && board.is_pseudolegal_move_legal(*mov)
         });
@@ -1184,7 +1180,6 @@ mod tests {
             let mov = ChessMove::from_usize_unchecked(mov);
             for pos in Chessboard::bench_positions() {
                 if let Some(mov) = mov.check_pseudolegal(&pos) {
-                    println!("{pos} -- {mov} {}", mov.flags() as usize);
                     pos.make_move(mov);
                     // check that the move representation is unique
                     assert!(
@@ -1215,12 +1210,7 @@ mod tests {
         ];
         for (pos, moves) in tests {
             for mov in *moves {
-                let mov = ChessMove::from_text(mov, pos);
-                if let Err(err) = mov {
-                    eprintln!("{err}");
-                    panic!();
-                }
-                let mov = mov.unwrap();
+                let mov = ChessMove::from_text(mov, pos).unwrap();
                 assert!(mov.is_castle());
                 assert!(!mov.is_capture(pos));
             }

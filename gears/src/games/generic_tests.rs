@@ -60,9 +60,7 @@ impl<B: Board> GenericTests<B> {
             for mov in pos.legal_moves_slow() {
                 for format in [Standard, Alternative] {
                     let encoded = mov.to_extended_text(&pos, format);
-                    println!("{}", encoded);
                     let decoded = B::Move::from_extended_text(&encoded, &pos);
-                    println!("{:?}", decoded);
                     assert!(decoded.is_ok());
                     assert_eq!(decoded.unwrap(), mov);
                 }

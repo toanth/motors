@@ -1,5 +1,4 @@
 #[cfg(test)]
-
 mod common {
     use crate::general::common::*;
 
