@@ -38,6 +38,7 @@ use gears::search::*;
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::Check;
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
+use gears::PlayerResult::{Lose, Win};
 use itertools::Itertools;
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
@@ -674,7 +675,7 @@ impl Caps {
         ply: usize,
         mut depth: isize,
         mut alpha: Score,
-        beta: Score,
+        mut beta: Score,
         mut expected_node_type: NodeType,
     ) -> Option<Score> {
         debug_assert!(alpha < beta);
@@ -689,6 +690,18 @@ impl Caps {
         debug_assert!(alpha + 1 == beta || is_pv_node); // alpha + 1 < beta implies Exact node
         if is_pv_node {
             self.state.search_stack[ply].pv.clear();
+        }
+
+        // Mate Distance Pruning (MDP): If we've already found a mate in n, don't bother looking for longer mates.
+        // This isn't intended to gain elo (since it only works in positions that are already won or lost)
+        // but makes the engine better at finding shorter checkmates. Don't do MDP at the root because that can prevent us
+        // from ever returning exact scores, since for a mate in 1 the score would always be exactly `beta`.
+        if !root {
+            alpha = alpha.max(game_result_to_score(Lose, ply));
+            beta = beta.min(game_result_to_score(Win, ply + 1));
+            if alpha >= beta {
+                return Some(alpha);
+            }
         }
 
         let ply_100_ctr = pos.halfmove_repetition_clock();
@@ -1481,7 +1494,7 @@ mod tests {
     // TODO: Eventually, make sure that GAPS also passed this
     fn depth_1_nodes_test(mut engine: Caps, tt: TT) {
         for pos in Chessboard::bench_positions() {
-            _ = engine.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
+            let res = engine.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
             if pos.legal_moves_slow().is_empty() {
                 continue;
             }
