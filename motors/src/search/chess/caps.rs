@@ -6,7 +6,6 @@ use crate::eval::chess::lite::LiTEval;
 use crate::eval::Eval;
 use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::chess::caps_values::cc;
-use crate::search::chess::caps_values::cc::max_move_loop_pruning_depth;
 use crate::search::move_picker::MovePicker;
 use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
@@ -986,9 +985,9 @@ impl Caps {
                     // Futility Reduction: If this move is not a good SEE capture and our eval is significantly less than `alpha`,
                     // reduce
                     if !in_check
-                        && depth > max_move_loop_pruning_depth()
+                        && depth >= cc::min_fr_depth()
                         && move_score < KILLER_SCORE
-                        && eval + 400 + Score(32) * (depth as ScoreT) < alpha
+                        && eval + cc::fr_base() + cc::fr_scale() * (depth as ScoreT) < alpha
                     {
                         reduction += 1;
                     }
@@ -1494,7 +1493,7 @@ mod tests {
     // TODO: Eventually, make sure that GAPS also passed this
     fn depth_1_nodes_test(mut engine: Caps, tt: TT) {
         for pos in Chessboard::bench_positions() {
-            let res = engine.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
+            let _ = engine.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
             if pos.legal_moves_slow().is_empty() {
                 continue;
             }
