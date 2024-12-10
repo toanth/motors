@@ -27,7 +27,7 @@ use crate::games::{
     ColoredPieceType, DimT, PieceType, Settings, ZobristHash,
 };
 use crate::general::bitboards::chess::{
-    ChessBitboard, BLACK_SQUARES, CORNER_SQUARES, WHITE_SQUARES,
+    black_squares, white_squares, ChessBitboard, CORNER_SQUARES,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
@@ -481,7 +481,7 @@ impl Board for Chessboard {
         }
         let bishops = self.colored_piece_bb(player, Bishop);
         if self.colored_piece_bb(player, Knight).is_zero()
-            && ((bishops & WHITE_SQUARES).is_zero() || (bishops & BLACK_SQUARES).is_zero())
+            && ((bishops & white_squares()).is_zero() || (bishops & black_squares()).is_zero())
         {
             return false;
         }
@@ -787,7 +787,7 @@ impl Chessboard {
             return false;
         }
         let bishops = self.piece_bb(Bishop);
-        if (bishops & BLACK_SQUARES).has_set_bit() && (bishops & WHITE_SQUARES).has_set_bit() {
+        if (bishops & black_squares()).has_set_bit() && (bishops & white_squares()).has_set_bit() {
             return false; // opposite-colored bishops (even if they belong to different players)
         }
         if bishops.has_set_bit() && self.piece_bb(Knight).has_set_bit() {
