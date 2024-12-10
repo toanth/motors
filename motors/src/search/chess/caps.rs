@@ -1106,7 +1106,7 @@ impl Caps {
     }
 
     fn should_not_replace(old: &TTEntry<Chessboard>, new: &TTEntry<Chessboard>) -> bool {
-        new.age == old.age && new.depth < old.depth
+        new.age == old.age && new.depth + 5 < old.depth
     }
 
     fn update_continuation_hist(
