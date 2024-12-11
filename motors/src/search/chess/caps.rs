@@ -982,15 +982,15 @@ impl Caps {
                     if we_blundered {
                         reduction += 1;
                     }
-                    // Futility Reduction: If this move is not a good SEE capture and our eval is significantly less than `alpha`,
-                    // reduce
-                    if !in_check
-                        && depth >= cc::min_fr_depth()
-                        && move_score < KILLER_SCORE
-                        && eval + cc::fr_base() + cc::fr_scale() * (depth as ScoreT) < alpha
-                    {
-                        reduction += 1;
-                    }
+                }
+                // Futility Reduction: If this move is not a TT move, good SEE capture or killer, and our eval is significantly
+                // less than alpha, reduce.
+                if !in_check
+                    && depth >= cc::min_fr_depth()
+                    && move_score < KILLER_SCORE
+                    && eval + cc::fr_base() + cc::fr_scale() * (depth as ScoreT) < alpha
+                {
+                    reduction += 1;
                 }
                 // this ensures that check extensions prevent going into qsearch while in check
                 reduction = reduction.min(depth - 1);
@@ -1019,6 +1019,7 @@ impl Caps {
                 // If the full-depth search also performed better than expected, do a full-depth search with the
                 // full window to find the true score. If the score was at least `beta`, don't search again
                 // -- this move is probably already too good, so don't waste more time finding out how good it is exactly.
+                // This can only trigger in PV nodes, because all other nodes are searched with a null window anyway.
                 if alpha < score && score < beta {
                     debug_assert_eq!(expected_node_type, Exact);
                     self.state.statistics.lmr_second_retry();
