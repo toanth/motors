@@ -61,7 +61,7 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
             };
             ugi.write_ugi(
                 &format!(
-                    "\nIter    Seldepth     Score      Time    Nodes   (New)     NPS      TT     {pv_spacer}PV"
+                    "\nIter    Seldepth    Score      Time    Nodes   (New)     NPS      TT     {pv_spacer}PV"
                 )
                 .bold()
                 .to_string(),

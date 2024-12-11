@@ -963,8 +963,17 @@ pub mod chess {
         res
     };
 
-    pub const WHITE_SQUARES: ChessBitboard = ChessBitboard::from_u64(0x55aa_55aa_55aa_55aa);
-    pub const BLACK_SQUARES: ChessBitboard = ChessBitboard::from_u64(0xaa55_aa55_aa55_aa55);
+    pub const fn white_squares() -> ChessBitboard {
+        COLORED_SQUARES[White as usize]
+    }
+    pub const fn black_squares() -> ChessBitboard {
+        COLORED_SQUARES[Black as usize]
+    }
+
+    pub const COLORED_SQUARES: [ChessBitboard; 2] = [
+        ChessBitboard::from_u64(0x55aa_55aa_55aa_55aa),
+        ChessBitboard::from_u64(0xaa55_aa55_aa55_aa55),
+    ];
     pub const CORNER_SQUARES: ChessBitboard = ChessBitboard::from_u64(0x8100_0000_0000_0081);
 
     pub const A_FILE: ChessBitboard = ChessBitboard::from_u64(0x0101_0101_0101_0101);
