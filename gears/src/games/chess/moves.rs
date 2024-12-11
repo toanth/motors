@@ -515,9 +515,10 @@ impl Chessboard {
             if self.is_in_check() {
                 return None;
             }
-            let step = if side == Kingside { 1 } else { -1 }; // TODO: Doens't work for chess960 castling?!
-                                                              // no need to test for check on the target square as that will be done at the end of this function after
-                                                              // the rook has moved
+            // This works even for DFRC castling because the king is always placed between the rooks
+            let step = if side == Kingside { 1 } else { -1 };
+            // no need to test for check on the target square as that will be done at the end of this function after
+            // the rook has moved
             for file in iter::range_step(from_file + step, to_file as isize, step) {
                 if self.is_in_check_on_square(
                     color,

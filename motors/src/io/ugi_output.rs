@@ -305,6 +305,7 @@ pub fn pretty_score(
     if let Some(mate) = score.moves_until_game_won() {
         res = format!("#{mate}");
         if min_width {
+            // 2 spaces because we don't print `cp`
             res = format!("  {:>5}", format!("#{mate}"))
         }
     } else if !min_width {
@@ -316,7 +317,7 @@ pub fn pretty_score(
     }
     let bound_string = bound.unwrap_or(Exact).comparison_str(min_width).to_string();
     let res = if score.is_won_or_lost() {
-        format!("{bound_string} {}", res.bold())
+        format!("{bound_string}{}", res.bold())
     } else {
         format!("{bound_string}{res}{}", "cp".dimmed())
     };
