@@ -1393,6 +1393,8 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
 mod tests {
     use gears::games::chess::Chessboard;
     use gears::general::board::Strictness::{Relaxed, Strict};
+    #[cfg(not(debug_assertions))]
+    use gears::general::moves::ExtendedFormat::Standard;
     use gears::search::NodesLimit;
 
     use crate::eval::chess::lite::{KingGambot, LiTEval};
@@ -1622,7 +1624,7 @@ mod tests {
             let score = res.score.unwrap();
             println!(
                 "chosen move {0}, fen {1}, depth {2}, time {3}ms",
-                res.chosen_move.extended_formatter(pos),
+                res.chosen_move.extended_formatter(pos, Standard),
                 pos.as_fen(),
                 engine.state.depth(),
                 engine.state.start_time.elapsed().as_millis()

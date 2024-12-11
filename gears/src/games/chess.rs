@@ -322,6 +322,12 @@ impl Board for Chessboard {
             "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1",
             // the same position with flipped side to move has no legal moves
             "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 b - - 0 1",
+            // // caused an assertion failure once and is a chess960 FEN
+            // "nrb1nkrq/2pp1ppp/p4b2/1p2p3/P4B2/3P4/1PP1PPPP/NR1BNRKQ w gb - 0 9",
+            // // a very weird position (not reachable from startpos, but still somewhat realistic)
+            // "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1",
+            // // mate in 15 that stronger engines tend to miss(even lichess SF only finds a mate in 17 with max parameters)
+            // "5k2/1p5Q/p2r1qp1/P1p1RpN1/2P5/3P3P/5PP1/6K1 b - - 0 56",
         ];
         fens.map(|fen| Self::from_fen(fen, Strict).unwrap())
             .iter()
@@ -732,9 +738,13 @@ impl Chessboard {
             "{}",
             self.piece_type_on(from)
         );
-        debug_assert_eq!(
-            self.active_player,
-            self.colored_piece_on(from).color().unwrap()
+        debug_assert!(
+            (self.active_player ==
+            self.colored_piece_on(from).color().unwrap())
+            // in chess960 castling, it's possible that the rook has been sent to the king square,
+            // which means the color bit of the king square is currently not set
+            || (piece == King && self.piece_bb(Rook).is_bit_set_at(from.bb_idx())),
+            "{self}"
         );
         // with chess960 castling, it's possible to move to the source square or a square occupied by a rook
         debug_assert!(
