@@ -3,6 +3,7 @@ use strum::IntoEnumIterator;
 
 use crate::eval::chess::lite_values::*;
 use crate::eval::chess::{pawn_shield_idx, DiagonalOpenness, FileOpenness};
+use gears::games::chess::attack_data::Attacks;
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::ChessPieceType::*;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
@@ -230,7 +231,11 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         result
     }
 
-    fn mobility_and_threats(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
+    fn mobility_and_threats(
+        pos: &Chessboard,
+        color: ChessColor,
+        attack_data: &mut Attacks,
+    ) -> Tuned::Score {
         let mut score = Tuned::Score::default();
 
         let checking_squares = Self::checking(pos, !color);
@@ -275,22 +280,26 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 {
                     score += Tuned::can_give_check(piece);
                 }
+                if piece != Knight && piece != King {
+                    attack_data.push_bitboard(color, attacks);
+                }
             }
         }
+        attack_data.set_attacks_for(color, all_attacks);
         let all_defended = pos.colored_bb(color) & (all_attacks & !attacked_by_pawn);
         score += Tuned::num_defended(all_defended.num_ones());
 
         score
     }
 
-    fn recomputed_every_time(pos: &Chessboard) -> Tuned::Score {
+    fn recomputed_every_time(pos: &Chessboard, attacks: &mut Attacks) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         for color in ChessColor::iter() {
             score += Self::bishop_pair(pos, color);
             score += Self::bad_bishop(pos, color);
             score += Self::open_lines(pos, color);
             // score += Self::outposts(pos, color);
-            score += Self::mobility_and_threats(pos, color);
+            score += Self::mobility_and_threats(pos, color, attacks);
             score = -score;
         }
         score
@@ -351,7 +360,11 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         )
     }
 
-    fn eval_from_scratch(&self, pos: &Chessboard) -> (EvalState<Tuned>, Tuned::Score) {
+    fn eval_from_scratch(
+        &self,
+        pos: &Chessboard,
+        attacks: &mut Attacks,
+    ) -> (EvalState<Tuned>, Tuned::Score) {
         let mut state = EvalState::default();
 
         let mut phase = 0;
@@ -368,12 +381,16 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         state.pawn_score = pawn_score.clone();
         state.hash = pos.zobrist_hash();
         let score: Tuned::Score =
-            Self::recomputed_every_time(pos) + psqt_score + pawn_shield_score + pawn_score;
+            Self::recomputed_every_time(pos, attacks) + psqt_score + pawn_shield_score + pawn_score;
         (state, score)
     }
 
-    pub fn do_eval(&self, pos: &Chessboard) -> <Tuned::Score as ScoreType>::Finalized {
-        let (state, score) = self.eval_from_scratch(pos);
+    pub fn do_eval(
+        &self,
+        pos: &Chessboard,
+        attacks: &mut Attacks,
+    ) -> <Tuned::Score as ScoreType>::Finalized {
+        let (state, score) = self.eval_from_scratch(pos, attacks);
         score.finalize(
             state.phase,
             24,
@@ -388,12 +405,13 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         old_pos: &Chessboard,
         mov: ChessMove,
         new_pos: &Chessboard,
+        attacks: &mut Attacks,
     ) -> (EvalState<Tuned>, Tuned::Score)
     where
         Tuned::Score: Display,
     {
         if old_pos.zobrist_hash() != state.hash {
-            return self.eval_from_scratch(new_pos);
+            return self.eval_from_scratch(new_pos, attacks);
         }
         // search may have made a null move in NMP
         if mov != ChessMove::default() {
@@ -429,7 +447,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             }
         }
         state.hash = new_pos.zobrist_hash();
-        let score = Self::recomputed_every_time(new_pos)
+        let score = Self::recomputed_every_time(new_pos, attacks)
             + state.psqt_score.clone()
             + state.pawn_shield_score.clone()
             + state.pawn_score.clone();
@@ -440,9 +458,10 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 fn eval_lite<Tuned: LiteValues<Score = PhasedScore>>(
     this: &mut GenericLiTEval<Tuned>,
     pos: &Chessboard,
+    attacks: &mut Attacks,
 ) -> Score {
     this.stack.clear();
-    let (state, score) = this.eval_from_scratch(pos);
+    let (state, score) = this.eval_from_scratch(pos, attacks);
     this.stack.push(state);
     score.finalize(state.phase, 24, pos.active_player(), TEMPO)
 }
@@ -453,18 +472,19 @@ fn eval_lite_incremental<Tuned: LiteValues<Score = PhasedScore>>(
     mov: ChessMove,
     new_pos: &Chessboard,
     ply: usize,
+    attacks: &mut Attacks,
 ) -> Score {
     debug_assert!(this.stack.len() >= ply);
     debug_assert!(ply > 0);
     let entry = this.stack[ply - 1];
-    let (entry, score) = this.incremental(entry, old_pos, mov, new_pos);
+    let (entry, score) = this.incremental(entry, old_pos, mov, new_pos, attacks);
     this.stack.resize(ply + 1, entry);
     score.finalize(entry.phase, 24, new_pos.active_player(), TEMPO)
 }
 
 impl Eval<Chessboard> for LiTEval {
-    fn eval(&mut self, pos: &Chessboard, _ply: usize) -> Score {
-        eval_lite(self, pos)
+    fn eval(&mut self, pos: &Chessboard, _ply: usize, data: &mut Attacks) -> Score {
+        eval_lite(self, pos, data)
     }
 
     // Zobrist hash collisions should be rare enough not to matter, and even when they occur,
@@ -475,8 +495,9 @@ impl Eval<Chessboard> for LiTEval {
         mov: ChessMove,
         new_pos: &Chessboard,
         ply: usize,
+        attacks: &mut Attacks,
     ) -> Score {
-        eval_lite_incremental(self, old_pos, mov, new_pos, ply)
+        eval_lite_incremental(self, old_pos, mov, new_pos, ply, attacks)
     }
 
     fn piece_scale(&self) -> ScoreT {
@@ -485,13 +506,13 @@ impl Eval<Chessboard> for LiTEval {
 }
 
 impl Eval<Chessboard> for KingGambot {
-    fn eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
+    fn eval(&mut self, pos: &Chessboard, ply: usize, attacks: &mut Attacks) -> Score {
         self.tuned.us = if ply % 2 == 0 {
             pos.active_player()
         } else {
             pos.inactive_player()
         };
-        eval_lite(self, pos)
+        eval_lite(self, pos, attacks)
     }
 
     fn eval_incremental(
@@ -500,8 +521,9 @@ impl Eval<Chessboard> for KingGambot {
         mov: ChessMove,
         new_pos: &Chessboard,
         ply: usize,
+        attacks: &mut Attacks,
     ) -> Score {
-        eval_lite_incremental(self, old_pos, mov, new_pos, ply)
+        eval_lite_incremental(self, old_pos, mov, new_pos, ply, attacks)
     }
 
     fn piece_scale(&self) -> ScoreT {

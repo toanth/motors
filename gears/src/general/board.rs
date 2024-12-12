@@ -150,6 +150,21 @@ where
     // Might be useful to print such boards, but the implementation might be annoying
 }
 
+/// Sometimes, movegen and make_move can be sped up by using additional data that is not stored in the board itself
+pub trait ExternalData: Debug + Default {
+    fn check_initialized(&self) -> Option<&Self>;
+}
+
+/// Most boards use this as their external data.
+#[derive(Debug, Default)]
+pub struct NoExternalData {}
+
+impl ExternalData for NoExternalData {
+    fn check_initialized(&self) -> Option<&Self> {
+        None
+    }
+}
+
 // Rustc warns that the `Board` bounds are not enforced but removing them makes the program fail to compile
 #[expect(type_alias_bounds)]
 pub type ColPieceType<B: Board> = <B::Piece as ColoredPiece<B>>::ColoredPieceType;
@@ -189,6 +204,9 @@ pub trait Board:
     type Move: Move<Self>;
     type MoveList: MoveList<Self> + Default;
     type Unverified: UnverifiedBoard<Self>;
+    // External data that can be used to speed up movegen and make_move, like bitboards of attacked squares.
+    // Some evaluation functions generate this data anyway, so passing it to movegen and make_move allows not doing the work twice.
+    type ExternalData: ExternalData;
 
     /// Returns the name of the game, such as 'chess'.
     #[must_use]
@@ -317,28 +335,36 @@ pub trait Board:
         Depth::new_unchecked(50)
     }
 
-    /// Returns a list of pseudo legal moves, that is, moves which can either be played using
-    /// `make_move` or which will cause `make_move` to return `None`.
-    fn pseudolegal_moves(&self) -> Self::MoveList {
-        let mut moves = Self::MoveList::default();
-        self.gen_pseudolegal(&mut moves);
-        moves
-    }
-
     /// Generate pseudolegal moves into the supplied move list. Can be more efficient than `pseudolegal_moves`
     /// because it avoids moving around large move lists, and is generic over the move list to allow arbitrary code
     /// upon adding moves, such as scoring or filtering the new move.
-    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T);
+    fn gen_pseudolegal<T: MoveList<Self>>(
+        &self,
+        moves: &mut T,
+        external: Option<&Self::ExternalData>,
+    );
 
     /// Generate moves that are considered "tactical" into the supplied move list.
     /// Can be more efficient than `tactical_pseudolegal` and is generic over the move list.
     /// Note that some games don't consider any moves tactical, so this function may have no effect.
-    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T);
+    fn gen_tactical_pseudolegal<T: MoveList<Self>>(
+        &self,
+        moves: &mut T,
+        external: Option<&Self::ExternalData>,
+    );
+
+    /// Returns a list of pseudo legal moves, that is, moves which can either be played using
+    /// `make_move` or which will cause `make_move` to return `None`.
+    fn pseudolegal_moves(&self) -> Self::MoveList {
+        let mut moves = Self::MoveList::default();
+        self.gen_pseudolegal(&mut moves, None);
+        moves
+    }
 
     /// Returns a list of pseudo legal moves that are considered "tactical", such as captures and promotions in chess.
     fn tactical_pseudolegal(&self) -> Self::MoveList {
         let mut moves = Self::MoveList::default();
-        self.gen_tactical_pseudolegal(&mut moves);
+        self.gen_tactical_pseudolegal(&mut moves, None);
         moves
     }
 
@@ -365,6 +391,12 @@ pub trait Board:
     /// like moving to a square outside the board (in that case, the function should panic).
     /// In other words, this function only gracefully checks legality assuming that the move is pseudolegal.
     fn make_move(self, mov: Self::Move) -> Option<Self>;
+
+    /// Like `make_move`, but can use information from `_list` to speed up the implementation.
+    /// The default implementation simply forwards to [`make_move`].
+    fn make_move_from(self, mov: Self::Move, _list: &Self::MoveList) -> Option<Self> {
+        self.make_move(mov)
+    }
 
     /// Makes a nullmove, i.e. flips the active player. While this action isn't strictly legal in most games,
     /// it's still very useful and necessary for null move pruning.

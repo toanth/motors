@@ -19,8 +19,8 @@ use crate::general::bitboards::{
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    board_from_name, position_fen_part, read_position_fen, NameToPos, RectangularBoard, SelfChecks,
-    Strictness, UnverifiedBoard,
+    board_from_name, position_fen_part, read_position_fen, NameToPos, NoExternalData,
+    RectangularBoard, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
@@ -466,6 +466,7 @@ impl Board for MNKBoard {
     type MoveList = EagerNonAllocMoveList<Self, 128>;
 
     type Unverified = UnverifiedMnkBoard;
+    type ExternalData = NoExternalData;
 
     fn empty_for_settings(settings: MnkSettings) -> MNKBoard {
         Self::startpos_for_settings(settings)
@@ -589,7 +590,7 @@ impl Board for MNKBoard {
         Square::new(symbol, coordinates)
     }
 
-    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
+    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T, _: Option<&NoExternalData>) {
         let mut empty = self.empty_bb();
         while empty.has_set_bit() {
             let idx = empty.pop_lsb();
@@ -603,7 +604,11 @@ impl Board for MNKBoard {
         }
     }
 
-    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, _moves: &mut T) {
+    fn gen_tactical_pseudolegal<T: MoveList<Self>>(
+        &self,
+        _moves: &mut T,
+        _: Option<&NoExternalData>,
+    ) {
         // currently, no moves are considered tactical
     }
 

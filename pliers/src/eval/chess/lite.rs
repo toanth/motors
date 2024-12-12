@@ -9,6 +9,7 @@ use crate::eval::{
 };
 use crate::gd::{Float, TaperedDatapoint, Weight, Weights};
 use crate::trace::{FeatureSubSet, SingleFeature, SparseTrace, TraceTrait};
+use gears::games::chess::attack_data::Attacks;
 use gears::games::chess::pieces::ChessPieceType::*;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::see::SEE_SCORES;
@@ -408,6 +409,6 @@ impl Eval<Chessboard> for TuneLiTEval {
     type Filter = SkipChecks;
 
     fn feature_trace(pos: &Chessboard) -> impl TraceTrait {
-        GenericLiTEval::<LiTETrace>::default().do_eval(pos)
+        GenericLiTEval::<LiTETrace>::default().do_eval(pos, &mut Attacks::default())
     }
 }

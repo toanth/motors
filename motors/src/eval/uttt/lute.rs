@@ -19,7 +19,7 @@
 use crate::eval::Eval;
 use gears::games::uttt::{UtttBoard, UtttSubSquare};
 use gears::general::bitboards::RawBitboard;
-use gears::general::board::Board;
+use gears::general::board::{Board, NoExternalData};
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::Score;
 use std::fmt::Display;
@@ -64,7 +64,7 @@ const PSQT: [Score; 9] = [
 ];
 
 impl Eval<UtttBoard> for Lute {
-    fn eval(&mut self, pos: &UtttBoard, _ply: usize) -> Score {
+    fn eval(&mut self, pos: &UtttBoard, _ply: usize, _data: &mut NoExternalData) -> Score {
         let mut score = Score::default();
         for color in [pos.active_player(), pos.inactive_player()] {
             for sub_board in UtttSubSquare::iter() {

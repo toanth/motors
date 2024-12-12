@@ -417,7 +417,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
     /// For engines like `RandomMover` where there is no static eval, this should return `Score(0)`.
     /// Most evals completely ignore the `ply` parameter, but it can be used e.g. to decide which color we are
     /// for asymmetric evals.
-    fn static_eval(&mut self, pos: B, ply: usize) -> Score;
+    fn static_eval(&mut self, pos: B) -> Score;
 
     fn clean_bench(&mut self, pos: B, limit: SearchLimit) -> BenchResult {
         self.forget();

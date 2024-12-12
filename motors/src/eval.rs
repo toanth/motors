@@ -20,11 +20,27 @@ pub mod uttt;
 
 pub trait Eval<B: Board>: Debug + Send + StaticallyNamedEntity + DynClone + 'static {
     /// Eval the given board at the given depth in a search. To just eval a single position,
-    /// `ply` should be set to 0. Most eval functions completely ignore it.
-    fn eval(&mut self, pos: &B, _ply: usize) -> Score;
+    /// `eval_simple` can be used, which sets `ply` and `data` to default values. Most eval functions completely ignore them.
+    /// `ply` is used for keeping track of incremental updates, and `data` can be used to save computed results that will also
+    /// help with generating and playing moves.
+    fn eval(&mut self, pos: &B, _ply: usize, _data: &mut B::ExternalData) -> Score;
 
-    fn eval_incremental(&mut self, _old_pos: &B, _mov: B::Move, new_pos: &B, ply: usize) -> Score {
-        self.eval(new_pos, ply)
+    /// Eval a single position. Calls [`eval`] with default values for `_ply` and `_data`.
+    fn eval_simple(&mut self, pos: &B) -> Score {
+        self.eval(pos, 0, &mut B::ExternalData::default())
+    }
+
+    /// Eval this position while potentially reusing information computed for the old position.
+    /// The default implementation ignores `_old_pos` and simply forwards to [`eval`].
+    fn eval_incremental(
+        &mut self,
+        _old_pos: &B,
+        _mov: B::Move,
+        new_pos: &B,
+        ply: usize,
+        data: &mut B::ExternalData,
+    ) -> Score {
+        self.eval(new_pos, ply, data)
     }
 
     /// How much larger do we expect variation in piece scores to be than variation in eval scores?

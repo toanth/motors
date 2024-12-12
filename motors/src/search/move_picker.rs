@@ -1,7 +1,7 @@
 use crate::search::move_picker::MovePickerState::*;
 use crate::search::{Engine, MoveScore, MoveScorer, SearchStateFor};
 use gears::arrayvec::{ArrayVec, IntoIter};
-use gears::general::board::Board;
+use gears::general::board::{Board, ExternalData};
 use gears::general::move_list::MoveList;
 use gears::general::moves::Move;
 use itertools::Itertools;
@@ -108,6 +108,7 @@ impl<B: Board, const MAX_LEN: usize> MovePicker<B, MAX_LEN> {
         &mut self,
         scorer: &Scorer,
         state: &SearchStateFor<B, E>,
+        external_data: &B::ExternalData,
     ) -> Option<ScoredMove<B>> {
         match &mut self.state {
             TTMove => {
@@ -123,9 +124,11 @@ impl<B: Board, const MAX_LEN: usize> MovePicker<B, MAX_LEN> {
                     excluded: self.tt_move,
                 };
                 if self.tactical_only {
-                    self.pos.gen_tactical_pseudolegal(&mut scorer);
+                    self.pos
+                        .gen_tactical_pseudolegal(&mut scorer, external_data.check_initialized());
                 } else {
-                    self.pos.gen_pseudolegal(&mut scorer);
+                    self.pos
+                        .gen_pseudolegal(&mut scorer, external_data.check_initialized());
                 }
                 let res = Self::next_from_list(&mut list);
                 self.state = List(list);

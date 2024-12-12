@@ -13,6 +13,7 @@ use crate::search::tt::TTEntry;
 use crate::search::*;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::arrayvec::ArrayVec;
+use gears::games::chess::attack_data::Attacks;
 use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
 use gears::games::chess::pieces::ChessPieceType::Pawn;
 use gears::games::chess::see::SeeScore;
@@ -301,8 +302,8 @@ impl Engine<Chessboard> for Caps {
         }
     }
 
-    fn static_eval(&mut self, pos: Chessboard, ply: usize) -> Score {
-        self.eval.eval(&pos, ply)
+    fn static_eval(&mut self, pos: Chessboard) -> Score {
+        self.eval.eval_simple(&pos)
     }
 
     fn max_bench_depth(&self) -> Depth {
@@ -738,6 +739,7 @@ impl Caps {
         let mut best_move = ChessMove::default();
         // Don't initialize eval just now to save work in case we get a TT cutoff
         let mut eval;
+        let mut attacks = Attacks::default();
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.state.multi_pvs.len() > 1;
         if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
@@ -775,7 +777,7 @@ impl Caps {
                 if let Some(tt_move) = tt_entry.mov.check_pseudolegal(&pos) {
                     best_move = tt_move;
                 }
-                eval = self.eval(pos, ply);
+                eval = self.eval(pos, ply, &mut attacks);
                 // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
                 // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
                 // create any problems, but should be kept in mind.
@@ -786,11 +788,11 @@ impl Caps {
                     eval = tt_entry.score;
                 }
             } else {
-                eval = self.eval(pos, ply);
+                eval = self.eval(pos, ply, &mut attacks);
             }
         } else {
             self.state.statistics.tt_miss(MainSearch);
-            eval = self.eval(pos, ply);
+            eval = self.eval(pos, ply, &mut attacks);
         };
 
         self.record_pos(pos, eval, ply);
@@ -897,7 +899,7 @@ impl Caps {
         let mut move_picker =
             MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
         let move_scorer = CapsMoveScorer { board: pos, ply };
-        while let Some((mov, move_score)) = move_picker.next(&move_scorer, &self.state) {
+        while let Some((mov, move_score)) = move_picker.next(&move_scorer, &self.state, &attacks) {
             // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
             // so don't even bother looking at them in the last few layers.
             // FP (Futility Pruning): If the static eval is far below alpha,
@@ -1207,6 +1209,7 @@ impl Caps {
 
         // see main search, store an invalid random move in the TT entry if all moves failed low.
         let mut best_move = ChessMove::default();
+        let mut attacks = Attacks::default();
 
         // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
         // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
@@ -1223,7 +1226,7 @@ impl Caps {
                 self.state.statistics.tt_cutoff(Qsearch, bound);
                 return tt_entry.score;
             }
-            best_score = self.eval(pos, ply);
+            best_score = self.eval(pos, ply, &mut attacks);
             // If the TT score is an upper bound, it can't be worse than the stand pat score unless it's from a regular
             // search entry, i.e. depth is greater than 0.
             if bound == FailLow && tt_entry.score < best_score {
@@ -1246,7 +1249,7 @@ impl Caps {
                 best_move = mov;
             }
         } else {
-            best_score = self.eval(pos, ply);
+            best_score = self.eval(pos, ply, &mut attacks);
         }
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
@@ -1266,7 +1269,7 @@ impl Caps {
             MovePicker::new(pos, best_move, true);
         let move_scorer = CapsMoveScorer { board: pos, ply };
         let mut children_visited = 0;
-        while let Some((mov, score)) = move_picker.next(&move_scorer, &self.state) {
+        while let Some((mov, score)) = move_picker.next(&move_scorer, &self.state, &attacks) {
             debug_assert!(mov.is_tactical(&pos));
             if score < MoveScore(0) {
                 // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
@@ -1303,19 +1306,19 @@ impl Caps {
         best_score
     }
 
-    fn eval(&mut self, pos: Chessboard, ply: usize) -> Score {
+    fn eval(&mut self, pos: Chessboard, ply: usize, data: &mut Attacks) -> Score {
         let res = if ply == 0 {
-            self.eval.eval(&pos, 0)
+            self.eval.eval(&pos, 0, data)
         } else {
             let old_pos = &self.state.search_stack[ply - 1].pos;
             let mov = &self.state.search_stack[ply - 1].last_tried_move();
-            self.eval.eval_incremental(old_pos, *mov, &pos, ply)
+            self.eval.eval_incremental(old_pos, *mov, &pos, ply, data)
         };
         debug_assert!(
             !res.is_won_or_lost(),
             "{res} {0} {1}, {pos}",
             res.0,
-            self.eval.eval(&pos, ply)
+            self.eval.eval(&pos, ply, data)
         );
         res
     }

@@ -1,12 +1,11 @@
-use std::fmt::Display;
-use strum::IntoEnumIterator;
-
 use gears::games::mnk::{MNKBoard, MnkBitboard};
 use gears::general::bitboards::{Bitboard, RawBitboard, RayDirections};
-use gears::general::board::Board;
+use gears::general::board::{Board, NoExternalData};
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::squares::GridSize;
 use gears::score::{Score, ScoreT};
+use std::fmt::Display;
+use strum::IntoEnumIterator;
 
 use crate::eval::Eval;
 
@@ -53,7 +52,7 @@ impl StaticallyNamedEntity for BasicMnkEval {
 }
 
 impl Eval<MNKBoard> for BasicMnkEval {
-    fn eval(&mut self, pos: &MNKBoard, _ply: usize) -> Score {
+    fn eval(&mut self, pos: &MNKBoard, _ply: usize, _data: &mut NoExternalData) -> Score {
         Score(
             eval_player(pos.active_player_bb(), pos.size())
                 - eval_player(pos.inactive_player_bb(), pos.size()),

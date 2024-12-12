@@ -1,6 +1,7 @@
 use std::fmt::Display;
 use strum::IntoEnumIterator;
 
+use gears::games::chess::attack_data::Attacks;
 use gears::games::chess::pieces::ChessPieceType;
 use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::bitboards::RawBitboard;
@@ -178,7 +179,7 @@ impl StaticallyNamedEntity for PistonEval {
 }
 
 impl Eval<Chessboard> for PistonEval {
-    fn eval(&mut self, pos: &Chessboard, _ply: usize) -> Score {
+    fn eval(&mut self, pos: &Chessboard, _ply: usize, _data: &mut Attacks) -> Score {
         let mut mg = Score(0);
         let mut eg = Score(0);
         let mut phase = 0;

@@ -91,10 +91,10 @@ mod tests {
         );
         assert!(res.score.is_some());
         assert_eq!(res.score.unwrap(), SCORE_WON - 3);
-
         mated_test(&mut engine);
         avoid_repetition(&mut engine);
         mate_beats_repetition(&mut engine);
+        underpromotion(&mut engine);
 
         two_threads_test::<E>();
     }
@@ -135,6 +135,21 @@ mod tests {
         let score = res.score.unwrap();
         assert_eq!(score.plies_until_game_won(), Some(1), "{score}");
         assert_eq!(res.chosen_move, ChessMove::from_text("d2a2", &pos).unwrap());
+    }
+
+    fn underpromotion<E: Engine<Chessboard>>(engine: &mut E) {
+        let pos = Chessboard::from_fen("8/4NP1k/6N1/4NN2/8/8/8/2K5 w - - 0 1", Strict).unwrap();
+        // gaps wouldn't find the mate in 1 at depth 1, because it's a game over condition that requires movegen
+        for depth in 2..=3 {
+            let res = engine.search_with_new_tt(pos, SearchLimit::depth_(depth));
+            let score = res.score.unwrap();
+            assert!(score.is_game_won_score(), "{depth}: {score}");
+            assert_eq!(score.plies_until_game_won(), Some(1), "{score}");
+            assert_eq!(
+                res.chosen_move,
+                ChessMove::from_text("f7f8=N#", &pos).unwrap()
+            );
+        }
     }
 
     fn two_threads_test<E: Engine<Chessboard>>() {

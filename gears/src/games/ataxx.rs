@@ -14,7 +14,7 @@ use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    board_from_name, common_fen_part, SelfChecks, Strictness, UnverifiedBoard,
+    board_from_name, common_fen_part, NoExternalData, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
@@ -141,6 +141,7 @@ impl Board for AtaxxBoard {
     type MoveList = AtaxxMoveList;
 
     type Unverified = UnverifiedAtaxxBoard;
+    type ExternalData = NoExternalData; // It could make sense to actually implement this for Ataxx
 
     fn empty_for_settings(_settings: Self::Settings) -> Self {
         let empty = AtaxxBitboard::default();
@@ -263,11 +264,15 @@ impl Board for AtaxxBoard {
         Self::Piece::new(typ, coordinates)
     }
 
-    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
+    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T, _: Option<&NoExternalData>) {
         self.gen_legal(moves)
     }
 
-    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, _moves: &mut T) {
+    fn gen_tactical_pseudolegal<T: MoveList<Self>>(
+        &self,
+        _moves: &mut T,
+        _: Option<&NoExternalData>,
+    ) {
         // currently, no moves are considered tactical
     }
 

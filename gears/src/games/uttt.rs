@@ -35,7 +35,7 @@ use crate::general::board::SelfChecks::*;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
     board_from_name, common_fen_part, ply_counter_from_fullmove_nr, read_common_fen_part, Board,
-    SelfChecks, Strictness, UnverifiedBoard,
+    NoExternalData, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{ith_one_u128, parse_int, Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
@@ -659,6 +659,7 @@ impl Board for UtttBoard {
     type Move = UtttMove;
     type MoveList = UtttMoveList;
     type Unverified = UnverifiedUtttBoard;
+    type ExternalData = NoExternalData; // It could make sense to actually implement this for UTTT.
 
     fn empty_for_settings(_settings: UtttSettings) -> Self {
         Self::default()
@@ -715,7 +716,7 @@ impl Board for UtttBoard {
         }
     }
 
-    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
+    fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T, _: Option<&NoExternalData>) {
         // don't assume that the board is empty in startpos to support different starting positions
         if self.player_result_no_movegen(&NoHistory::default()) == Some(Lose) {
             return;
@@ -740,7 +741,11 @@ impl Board for UtttBoard {
         }
     }
 
-    fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, _moves: &mut T) {
+    fn gen_tactical_pseudolegal<T: MoveList<Self>>(
+        &self,
+        _moves: &mut T,
+        _: Option<&NoExternalData>,
+    ) {
         // TODO: Test considering moves that win a sub-board as tactical
         // currently, no moves are considered tactical
     }

@@ -197,10 +197,10 @@ mod tests {
     }
 
     fn generic_eval_test<E: Eval<Chessboard> + Default>() {
-        let score = E::default().eval(&Chessboard::default(), 0);
+        let score = E::default().eval_simple(&Chessboard::default());
         assert!(score.abs() <= Score(25));
         assert!(score >= Score(0));
-        let score = E::default().eval(&Chessboard::from_name("lucena").unwrap(), 0);
+        let score = E::default().eval_simple(&Chessboard::from_name("lucena").unwrap());
         assert!(score >= Score(100));
     }
 

@@ -1,3 +1,4 @@
+use crate::games::chess::attack_data::Attacks;
 use crate::games::chess::castling::CastleRight;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
@@ -102,9 +103,28 @@ impl Chessboard {
         moves: &mut T,
         filter: ChessBitboard,
         only_tactical: bool,
+        attack_data: Option<&Attacks>,
     ) {
-        self.gen_slider_moves(SliderMove::Bishop, moves, filter);
-        self.gen_slider_moves(SliderMove::Rook, moves, filter);
+        if let Some(attacks) = attack_data {
+            let attacks = attacks.for_color(self.active_player);
+            let mut idx = 0;
+            for piece in [Bishop, Rook, Queen] {
+                for from in self.colored_piece_bb(self.active_player, piece).ones() {
+                    let bb = attacks.sliders[idx] & filter;
+                    for to in bb.ones() {
+                        debug_assert!(self
+                            .colored_piece_bb(self.active_player, piece)
+                            .is_bit_set_at(from.bb_idx()));
+                        let mov = ChessMove::new(from, to, ChessMoveFlags::normal_move(piece));
+                        moves.add_move(mov);
+                    }
+                    idx += 1;
+                }
+            }
+        } else {
+            self.gen_slider_moves(SliderMove::Bishop, moves, filter);
+            self.gen_slider_moves(SliderMove::Rook, moves, filter);
+        }
         self.gen_knight_moves(moves, filter);
         self.gen_king_moves(moves, filter, only_tactical);
         self.gen_pawn_moves(moves, only_tactical);

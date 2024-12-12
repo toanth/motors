@@ -874,7 +874,7 @@ impl<B: Board> EngineUGI<B> {
             if let Some(eval_name) = info.eval() {
                 let mut eval =
                     create_eval_from_str(&eval_name.short_name(), &self.eval_factories)?.build();
-                let eval_score = eval.eval(&state.board, 0);
+                let eval_score = eval.eval_simple(&state.board);
                 let diagram = show_eval_pos(state.board, state.last_move(), eval);
                 diagram
                     + &format!(
@@ -1419,7 +1419,7 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
 fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>) -> String {
     let eval = RefCell::new(eval);
     let formatter = pos.pretty_formatter(None, last);
-    let eval_pos = eval.borrow_mut().eval(&pos, 0);
+    let eval_pos = eval.borrow_mut().eval_simple(&pos);
     let mut formatter = AdaptFormatter {
         underlying: formatter,
         color_frame: Box::new(|_, col| col),
@@ -1437,7 +1437,7 @@ fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>
             );
             let score = match pos.remove_piece(coords).unwrap().verify(Relaxed) {
                 Ok(pos) => {
-                    let diff = eval_pos - eval.borrow_mut().eval(&pos, 0);
+                    let diff = eval_pos - eval.borrow_mut().eval_simple(&pos);
                     let (val, suffix) = suffix_for(diff.0 as isize, Some(10_000));
                     // reduce the scale by some scale because we expect pieces values to be much larger
                     // than eval values. The ideal scale depends on the game and eval,
