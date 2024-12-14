@@ -27,10 +27,10 @@ use std::hash::Hash;
 
 /// Statically known properties of a move.
 /// Many games don't have a distinction between legal and pseudolegal moves, so those moves are always `Legal`.
-/// In some contexts, such as when loading a move from the TT, it's unknown if this is actually a pseudolegal move
+/// In some contexts, such as when loading a move from the TT, it's unknown whether this is actually a pseudolegal move
 /// for the given position, which is why such a move is represented as a `Untrusted<Move>`.
-/// Note that legality depends on the position and can't be statically enforced; incorrectly asserting (pseudo)legality
-/// usually results in a panic when playing the move, although *there is not guarantee given; the behavior is unspecified*.
+/// Note that legality depends on the position and can't be statically enforced; incorrectly assuming (pseudo)legality
+/// usually results in a panic when playing the move, although *there is no guarantee given; the behavior is unspecified*.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Legality {
     PseudoLegal,

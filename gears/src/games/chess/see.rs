@@ -3,11 +3,11 @@ use crate::games::chess::moves::ChessMoveFlags::{NormalPawnMove, PromoQueen};
 use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use crate::games::chess::squares::ChessSquare;
-use crate::games::chess::{ChessColor, Chessboard};
+use crate::games::chess::{ChessColor, Chessboard, PAWN_CAPTURES};
 use crate::games::{AbstractPieceType, Board, Color, Coordinates};
-use crate::general::bitboards::chess::{ChessBitboard, PAWN_CAPTURES};
+use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::RayDirections::Vertical;
-use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::moves::Move;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use std::mem::swap;
@@ -114,7 +114,7 @@ impl Chessboard {
             // xrays for sliders
             let ray_attacks = self.ray_attacks(square, attacker, blockers_left);
             let new_attack = ray_attacks & !(removed_attackers | *all_remaining_attackers);
-            debug_assert!(new_attack.0.count_ones() <= 1);
+            debug_assert!(new_attack.count_ones() <= 1);
             *all_remaining_attackers |= new_attack;
             let (flags, new_piece) = if piece == Pawn && square.is_backrank() {
                 (PromoQueen, Queen)

@@ -6,11 +6,11 @@ use crate::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
 use crate::games::chess::squares::ChessSquare;
 use crate::games::chess::CastleRight::*;
 use crate::games::chess::ChessColor::*;
-use crate::games::chess::{ChessColor, Chessboard, SliderMove};
+use crate::games::chess::{ChessBitboardTrait, ChessColor, Chessboard, SliderMove, PAWN_CAPTURES};
 use crate::games::{Board, Color, ColoredPieceType};
-use crate::general::bitboards::chess::{ChessBitboard, KINGS, KNIGHTS, PAWN_CAPTURES};
+use crate::general::bitboards::chessboard::{ChessBitboard, KINGS, KNIGHTS};
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
-use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
+use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::move_list::MoveList;
 use crate::general::moves::Move;
 use crate::general::squares::RectangularCoordinates;
@@ -124,7 +124,7 @@ impl Chessboard {
         if color == White {
             regular_pawn_moves = (pawns.north() & free, 8);
             double_pawn_moves = (
-                ((pawns & ChessBitboard::rank_no(1)) << 16) & free.north() & free,
+                ((pawns & ChessBitboard::rank(1)) << 16) & free.north() & free,
                 16,
             );
             right_pawn_captures = (pawns.north_east() & capturable, 9);
@@ -132,7 +132,7 @@ impl Chessboard {
         } else {
             regular_pawn_moves = (pawns.south() & free, -8);
             double_pawn_moves = (
-                ((pawns & ChessBitboard::rank_no(6)) >> 16) & free.south() & free,
+                ((pawns & ChessBitboard::rank(6)) >> 16) & free.south() & free,
                 -16,
             );
             right_pawn_captures = (pawns.south_west() & capturable, -9);
@@ -176,44 +176,44 @@ impl Chessboard {
         // Castling, handling the general (D)FRC case.
         let king_file = king_square.file() as usize;
         const KING_QUEENSIDE_BB: [ChessBitboard; 8] = [
-            ChessBitboard::from_u64(!0), // impossible
-            ChessBitboard::from_u64(0b0000_0100),
-            ChessBitboard::from_u64(0b0000_0000), // no square to check
-            ChessBitboard::from_u64(0b0000_0100),
-            ChessBitboard::from_u64(0b0000_1100),
-            ChessBitboard::from_u64(0b0001_1100),
-            ChessBitboard::from_u64(0b0011_1100),
-            ChessBitboard::from_u64(!0), // impossible
+            ChessBitboard::new(!0), // impossible
+            ChessBitboard::new(0b0000_0100),
+            ChessBitboard::new(0b0000_0000), // no square to check
+            ChessBitboard::new(0b0000_0100),
+            ChessBitboard::new(0b0000_1100),
+            ChessBitboard::new(0b0001_1100),
+            ChessBitboard::new(0b0011_1100),
+            ChessBitboard::new(!0), // impossible
         ];
         const KING_KINGSIDE_BB: [ChessBitboard; 8] = [
-            ChessBitboard::from_u64(!0), // impossible
-            ChessBitboard::from_u64(0b0111_1100),
-            ChessBitboard::from_u64(0b0111_1000),
-            ChessBitboard::from_u64(0b0111_0000),
-            ChessBitboard::from_u64(0b0110_0000),
-            ChessBitboard::from_u64(0b0100_0000),
-            ChessBitboard::from_u64(0b0000_0000),
-            ChessBitboard::from_u64(!0), // impossible
+            ChessBitboard::new(!0), // impossible
+            ChessBitboard::new(0b0111_1100),
+            ChessBitboard::new(0b0111_1000),
+            ChessBitboard::new(0b0111_0000),
+            ChessBitboard::new(0b0110_0000),
+            ChessBitboard::new(0b0100_0000),
+            ChessBitboard::new(0b0000_0000),
+            ChessBitboard::new(!0), // impossible
         ];
         const ROOK_QUEENSIDE_BB: [ChessBitboard; 8] = [
-            ChessBitboard::new(RawStandardBitboard(0b0000_1110)),
-            ChessBitboard::new(RawStandardBitboard(0b0000_1100)),
-            ChessBitboard::new(RawStandardBitboard(0b0000_1000)),
-            ChessBitboard::new(RawStandardBitboard(0b0000_0000)),
-            ChessBitboard::new(RawStandardBitboard(0b0000_1000)),
-            ChessBitboard::new(RawStandardBitboard(0b0001_1000)),
-            ChessBitboard::from_u64(!0), // impossible
-            ChessBitboard::from_u64(!0), // impossible
+            ChessBitboard::new(0b0000_1110),
+            ChessBitboard::new(0b0000_1100),
+            ChessBitboard::new(0b0000_1000),
+            ChessBitboard::new(0b0000_0000),
+            ChessBitboard::new(0b0000_1000),
+            ChessBitboard::new(0b0001_1000),
+            ChessBitboard::new(!0), // impossible
+            ChessBitboard::new(!0), // impossible
         ];
         const ROOK_KINGSIDE_BB: [ChessBitboard; 8] = [
-            ChessBitboard::from_u64(!0), // impossible
-            ChessBitboard::from_u64(!0), // impossible
-            ChessBitboard::new(RawStandardBitboard(0b0011_1000)),
-            ChessBitboard::new(RawStandardBitboard(0b0011_0000)),
-            ChessBitboard::new(RawStandardBitboard(0b0010_0000)),
-            ChessBitboard::new(RawStandardBitboard(0b0000_0000)),
-            ChessBitboard::new(RawStandardBitboard(0b0010_0000)),
-            ChessBitboard::new(RawStandardBitboard(0b0110_0000)),
+            ChessBitboard::new(!0), // impossible
+            ChessBitboard::new(!0), // impossible
+            ChessBitboard::new(0b0011_1000),
+            ChessBitboard::new(0b0011_0000),
+            ChessBitboard::new(0b0010_0000),
+            ChessBitboard::new(0b0000_0000),
+            ChessBitboard::new(0b0010_0000),
+            ChessBitboard::new(0b0110_0000),
         ];
         let (rook_free_bb, king_free_bb) = match side {
             Queenside => (
@@ -250,7 +250,7 @@ impl Chessboard {
     ) {
         let color = self.active_player;
         let king = self.colored_piece_bb(color, King);
-        let king_square = ChessSquare::from_bb_index(king.trailing_zeros());
+        let king_square = ChessSquare::from_bb_index(king.num_trailing_zeros());
         let mut attacks = Self::normal_king_attacks_from(king_square) & filter;
         while attacks.has_set_bit() {
             let target = attacks.pop_lsb();

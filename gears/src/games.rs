@@ -27,6 +27,7 @@ pub mod mnk;
 pub mod ataxx;
 #[cfg(feature = "chess")]
 pub mod chess;
+mod fairy;
 #[cfg(test)]
 mod generic_tests;
 #[cfg(feature = "uttt")]
@@ -145,12 +146,14 @@ where
     }
 }
 
-#[derive(Eq, PartialEq, Default, Debug, Copy, Clone)]
+#[derive(Eq, PartialEq, Default, Debug, Clone)]
 #[must_use]
 pub struct GenericPiece<B: Board, ColType: ColoredPieceType<B>> {
     symbol: ColType,
     coordinates: B::Coordinates,
 }
+
+impl<B: Board, ColType: ColoredPieceType<B>> Copy for GenericPiece<B, ColType> {}
 
 impl<B: Board<Piece = Self>, ColType: ColoredPieceType<B>> ColoredPiece<B>
     for GenericPiece<B, ColType>
@@ -257,7 +260,7 @@ pub trait Size<C: Coordinates>:
     /// Converts coordinates into an internal key. This function is injective, but **no further guarantees** are
     /// given. In particular, returned value do not have to be 0-based and do not have to be consecutive.
     /// E.g. for Ataxx, this returns the index of embedding the ataxx board into a 8x8 board.
-    fn to_internal_key(self, coordinates: C) -> usize;
+    fn internal_key(self, coordinates: C) -> usize;
 
     /// Converts an internal key into coordinates, the inverse of `to_internal_key`.
     /// No further assumptions about which keys are valid should be made; in particular, there may be gaps in the set
@@ -269,12 +272,45 @@ pub trait Size<C: Coordinates>:
 
     fn coordinates_valid(self, coordinates: C) -> bool;
 
+    #[inline]
     fn check_coordinates(self, coordinates: C) -> Res<C> {
         if self.coordinates_valid(coordinates) {
             Ok(coordinates)
         } else {
             bail!("Coordinates {coordinates} lie outside of the board (size {self})")
         }
+    }
+}
+
+pub trait KnownSize<C: Coordinates>: Size<C> + Default {
+    #[inline]
+    fn num_squares() -> usize {
+        Self::default().num_squares()
+    }
+
+    #[inline]
+    fn internal_key(coordinates: C) -> usize {
+        Self::default().internal_key(coordinates)
+    }
+
+    #[inline]
+    fn coordinates_unchecked(internal_key: usize) -> C {
+        Self::default().to_coordinates_unchecked(internal_key)
+    }
+
+    #[inline]
+    fn valid_coordinates() -> impl Iterator<Item = C> {
+        Self::default().valid_coordinates()
+    }
+
+    #[inline]
+    fn coordinates_valid(coordinates: C) -> bool {
+        Self::default().coordinates_valid(coordinates)
+    }
+
+    #[inline]
+    fn check_coordinates(coordinates: C) -> Res<C> {
+        Self::default().check_coordinates(coordinates)
     }
 }
 
@@ -295,7 +331,7 @@ pub type OutputList<B> = EntityList<Box<dyn OutputBuilder<B>>>;
 #[must_use]
 pub struct ZobristHash(pub u64);
 
-pub trait Settings: Eq + Copy + Debug + Default {
+pub trait Settings: Eq + Debug + Default {
     fn text(&self) -> Option<String> {
         None
     }

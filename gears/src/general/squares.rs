@@ -1,8 +1,8 @@
 #[cfg(feature = "chess")]
 use crate::games::chess::ChessColor;
-use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, Size, Width};
-#[cfg(feature = "chess")]
-use crate::general::bitboards::chess::ChessBitboard;
+use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, KnownSize, Size, Width};
+use crate::general::bitboards::chessboard::ChessBitboard;
+use crate::general::bitboards::KnownSizeBitboard;
 use crate::general::common::{parse_int_from_str, Res};
 use crate::general::squares::SquareColor::{Black, White};
 use anyhow::{anyhow, bail};
@@ -37,7 +37,7 @@ pub fn manhattan_distance<C: RectangularCoordinates>(a: C, b: C) -> usize {
     a.row().abs_diff(b.row()) as usize + a.column().abs_diff(b.column()) as usize
 }
 
-// Compute the supremum norm of a - b
+// Compute the supremum norm of a - b (a.k.a. chebyshev distance)
 pub fn sup_distance<C: RectangularCoordinates>(a: C, b: C) -> usize {
     max(a.row().abs_diff(b.row()), a.column().abs_diff(b.column())) as usize
 }
@@ -190,7 +190,7 @@ impl Size<GridCoordinates> for GridSize {
         self.height.val() * self.width.val()
     }
 
-    fn to_internal_key(self, coordinates: GridCoordinates) -> usize {
+    fn internal_key(self, coordinates: GridCoordinates) -> usize {
         coordinates.row() as usize * self.width.val() + coordinates.column() as usize
     }
 
@@ -237,7 +237,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
         H * W
     }
 
-    fn to_internal_key(self, coordinates: SmallGridSquare<H, W, INTERNAL_WIDTH>) -> usize {
+    fn internal_key(self, coordinates: SmallGridSquare<H, W, INTERNAL_WIDTH>) -> usize {
         coordinates.bb_idx()
     }
 
@@ -255,6 +255,11 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
     fn coordinates_valid(self, coordinates: SmallGridSquare<H, W, INTERNAL_WIDTH>) -> bool {
         (coordinates.idx as usize) < H * INTERNAL_WIDTH && coordinates.file() < W as DimT
     }
+}
+
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
+    KnownSize<SmallGridSquare<H, W, INTERNAL_WIDTH>> for SmallGridSize<H, W>
+{
 }
 
 impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>

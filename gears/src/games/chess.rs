@@ -26,10 +26,8 @@ use crate::games::{
     file_to_char, n_fold_repetition, AbstractPieceType, Board, BoardHistory, Color, ColoredPiece,
     ColoredPieceType, DimT, PieceType, Settings, ZobristHash,
 };
-use crate::general::bitboards::chess::{
-    black_squares, white_squares, ChessBitboard, CORNER_SQUARES,
-};
-use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
+use crate::general::bitboards::chessboard::{black_squares, white_squares, ChessBitboard};
+use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
@@ -666,11 +664,11 @@ impl Board for Chessboard {
 impl Chessboard {
     pub fn piece_bb(&self, piece: ChessPieceType) -> ChessBitboard {
         debug_assert_ne!(piece, Empty);
-        ChessBitboard::new(self.piece_bbs[piece.to_uncolored_idx()])
+        ChessBitboard::from_raw(self.piece_bbs[piece.to_uncolored_idx()])
     }
 
     pub fn colored_bb(&self, color: ChessColor) -> ChessBitboard {
-        ChessBitboard::new(self.color_bbs[color as usize])
+        ChessBitboard::from_raw(self.color_bbs[color as usize])
     }
 
     pub fn active_player_bb(&self) -> ChessBitboard {
@@ -815,7 +813,7 @@ impl Chessboard {
     }
 
     pub fn king_square(&self, color: ChessColor) -> ChessSquare {
-        ChessSquare::from_bb_index(self.colored_piece_bb(color, King).trailing_zeros())
+        ChessSquare::from_bb_index(self.colored_piece_bb(color, King).num_trailing_zeros())
     }
 
     pub fn is_in_check(&self) -> bool {
@@ -835,7 +833,7 @@ impl Chessboard {
             bail!("There are only 960 starting positions in chess960 (0 to 959), so position {num} doesn't exist");
         }
         assert!(board.0.colored_bb(color).is_zero());
-        assert_eq!((board.0.occupied_bb().raw() & 0xffff), 0);
+        assert_eq!(board.0.occupied_bb().raw() & 0xffff, 0);
         let mut extract_factor = |i: usize| {
             let res = num % i;
             num /= i;
@@ -843,7 +841,7 @@ impl Chessboard {
         };
         let ith_zero = |i: usize, bb: ChessBitboard| {
             let mut i = i as isize;
-            let bb = bb.0;
+            let bb = bb.raw();
             let mut idx = 0;
             while i >= 0 {
                 if bb & (1 << idx) == 0 {
@@ -911,7 +909,7 @@ impl Chessboard {
         let mut res = Self::empty();
         res = Self::chess960_startpos_white(black_num, Black, res)?;
         for bb in &mut res.0.piece_bbs {
-            *bb = ChessBitboard::new(*bb).flip_up_down().raw();
+            *bb = ChessBitboard::from_raw(*bb).flip_up_down().raw();
         }
         res.0.color_bbs[Black as usize] = res.0.colored_bb(White).flip_up_down().raw();
         res.0.color_bbs[White as usize] = RawStandardBitboard::default();
@@ -966,7 +964,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 bail!("The {color} player does not have exactly one king")
             }
             if (this.colored_piece_bb(color, Pawn)
-                & (ChessBitboard::rank_no(0) | ChessBitboard::rank_no(7)))
+                & (ChessBitboard::rank_0() | ChessBitboard::rank(7)))
             .has_set_bit()
             {
                 bail!("The {color} player has a pawn on the first or eight rank");
@@ -1152,6 +1150,50 @@ pub enum SliderMove {
     Rook,
 }
 
+pub trait ChessBitboardTrait: KnownSizeBitboard<RawStandardBitboard, ChessSquare> {
+    fn pawn_ranks() -> Self {
+        Self::from_raw(0x00ff_0000_0000_ff00)
+    }
+
+    fn pawn_advance(self, color: ChessColor) -> Self {
+        match color {
+            White => self.north(),
+            Black => self.south(),
+        }
+    }
+
+    // For attacks of a single pawn, there's a precomputed table
+    fn pawn_attacks(self, color: ChessColor) -> Self {
+        let advanced = self.pawn_advance(color);
+        advanced.east() | advanced.west()
+    }
+}
+
+const fn precompute_single_pawn_capture(color: ChessColor, square_idx: usize) -> u64 {
+    let pawn = 1 << square_idx;
+    let not_a_file = pawn & !ChessBitboard::A_FILE.0;
+    let not_h_file = pawn & !(ChessBitboard::A_FILE.0 << 7);
+    match color {
+        White => (not_a_file << 7) | (not_h_file << 9),
+        Black => (not_a_file >> 9) | (not_h_file >> 7),
+    }
+}
+
+pub const PAWN_CAPTURES: [[ChessBitboard; 64]; 2] = {
+    let mut res = [[ChessBitboard::new(0); 64]; 2];
+    let mut i = 0;
+    while i < 64 {
+        res[White as usize][i] = ChessBitboard::new(precompute_single_pawn_capture(White, i));
+        res[Black as usize][i] = ChessBitboard::new(precompute_single_pawn_capture(Black, i));
+        i += 1;
+    }
+    res
+};
+
+impl ChessBitboardTrait for ChessBitboard {}
+
+pub const CORNER_SQUARES: ChessBitboard = ChessBitboard::new(0x8100_0000_0000_0081);
+
 #[cfg(test)]
 mod tests {
     use rand::thread_rng;
@@ -1205,14 +1247,14 @@ mod tests {
         assert!(!board.is_3fold_repetition(&ZobristHistory::default()));
         assert!(!board.has_insufficient_material());
         assert!(!board.is_50mr_draw());
-        assert_eq!(board.colored_bb(White), ChessBitboard::from_u64(0xffff));
+        assert_eq!(board.colored_bb(White), ChessBitboard::from_raw(0xffff));
         assert_eq!(
             board.colored_bb(Black),
-            ChessBitboard::from_u64(0xffff_0000_0000_0000)
+            ChessBitboard::from_raw(0xffff_0000_0000_0000)
         );
         assert_eq!(
             board.occupied_bb(),
-            ChessBitboard::from_u64(0xffff_0000_0000_ffff)
+            ChessBitboard::from_raw(0xffff_0000_0000_ffff)
         );
         assert_eq!(board.king_square(White), E_1);
         assert_eq!(board.king_square(Black), E_8);

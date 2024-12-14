@@ -14,18 +14,6 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use std::str::{FromStr, SplitWhitespace};
 use std::time::Duration;
 
-pub fn pop_lsb64(x: &mut u64) -> u32 {
-    let shift = x.trailing_zeros();
-    *x &= *x - 1;
-    shift
-}
-
-pub fn pop_lsb128(x: &mut u128) -> u32 {
-    let shift = x.trailing_zeros();
-    *x &= *x - 1;
-    shift
-}
-
 // The `bitintr` crate provides similar features, but unfortunately it is bugged and unmaintained.
 
 #[allow(unused)]
@@ -412,51 +400,51 @@ pub fn nonzero_u64(val: u64, name: &str) -> Res<NonZeroU64> {
 mod tests {
     use rand::{thread_rng, Rng};
 
-    use crate::general::common::{ith_one_u128, ith_one_u64, pop_lsb128, pop_lsb64};
-
-    #[test]
-    fn pop_lsb64_test() {
-        let mut x = 1;
-        assert_eq!(pop_lsb64(&mut x), 0);
-        assert_eq!(x, 0);
-        x = 2;
-        assert_eq!(pop_lsb64(&mut x), 1);
-        assert_eq!(x, 0);
-        x = 3;
-        assert_eq!(pop_lsb64(&mut x), 0);
-        assert_eq!(x, 2);
-        x = 0b110_001;
-        assert_eq!(pop_lsb64(&mut x), 0);
-        assert_eq!(x, 0b110_000);
-        x = 0b1100_1011_0011_1001_0000_0000_0000_0000_0000;
-        assert_eq!(pop_lsb64(&mut x), 20);
-        assert_eq!(x, 0b1100_1011_0011_1000_0000_0000_0000_0000_0000);
-    }
-
-    #[test]
-    fn pop_lsb128_test() {
-        let mut rng = thread_rng();
-        for _ in 0..10_000 {
-            let mut val = rng.gen_range(0..=u64::MAX);
-            let mut val_u128 = val as u128;
-            assert_eq!(pop_lsb64(&mut val), pop_lsb128(&mut val_u128));
-            assert_eq!(val, val_u128 as u64);
-        }
-        let mut val = u64::MAX as u128 + 1;
-        assert_eq!(pop_lsb128(&mut val), 64);
-        assert_eq!(val, 0);
-        val = (0b100_0101_0110_1001_0101_1010 << 64) + 0b100_1010_0011;
-        let copy = val;
-        assert_eq!(pop_lsb128(&mut val), 0);
-        assert_eq!(val, copy - 1);
-        val = 0b100_0101_0110_1001_0101_1010 << 64;
-        let copy = val;
-        assert_eq!(pop_lsb128(&mut val), 65);
-        assert_eq!(val, copy - (1 << 65));
-        val = u128::MAX;
-        assert_eq!(pop_lsb128(&mut val), 0);
-        assert_eq!(val, u128::MAX - 1);
-    }
+    use crate::general::common::{ith_one_u128, ith_one_u64};
+    // TODO: Test this on bitboards instead
+    // #[test]
+    // fn pop_lsb64_test() {
+    //     let mut x = 1;
+    //     assert_eq!(pop_lsb64(&mut x), 0);
+    //     assert_eq!(x, 0);
+    //     x = 2;
+    //     assert_eq!(pop_lsb64(&mut x), 1);
+    //     assert_eq!(x, 0);
+    //     x = 3;
+    //     assert_eq!(pop_lsb64(&mut x), 0);
+    //     assert_eq!(x, 2);
+    //     x = 0b110_001;
+    //     assert_eq!(pop_lsb64(&mut x), 0);
+    //     assert_eq!(x, 0b110_000);
+    //     x = 0b1100_1011_0011_1001_0000_0000_0000_0000_0000;
+    //     assert_eq!(pop_lsb64(&mut x), 20);
+    //     assert_eq!(x, 0b1100_1011_0011_1000_0000_0000_0000_0000_0000);
+    // }
+    //
+    // #[test]
+    // fn pop_lsb128_test() {
+    //     let mut rng = thread_rng();
+    //     for _ in 0..10_000 {
+    //         let mut val = rng.gen_range(0..=u64::MAX);
+    //         let mut val_u128 = val as u128;
+    //         assert_eq!(pop_lsb64(&mut val), pop_lsb128(&mut val_u128));
+    //         assert_eq!(val, val_u128 as u64);
+    //     }
+    //     let mut val = u64::MAX as u128 + 1;
+    //     assert_eq!(pop_lsb128(&mut val), 64);
+    //     assert_eq!(val, 0);
+    //     val = (0b100_0101_0110_1001_0101_1010 << 64) + 0b100_1010_0011;
+    //     let copy = val;
+    //     assert_eq!(pop_lsb128(&mut val), 0);
+    //     assert_eq!(val, copy - 1);
+    //     val = 0b100_0101_0110_1001_0101_1010 << 64;
+    //     let copy = val;
+    //     assert_eq!(pop_lsb128(&mut val), 65);
+    //     assert_eq!(val, copy - (1 << 65));
+    //     val = u128::MAX;
+    //     assert_eq!(pop_lsb128(&mut val), 0);
+    //     assert_eq!(val, u128::MAX - 1);
+    // }
 
     #[test]
     fn ith_one_u64_test() {

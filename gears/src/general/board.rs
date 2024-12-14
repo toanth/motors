@@ -155,7 +155,7 @@ where
 pub type ColPieceType<B: Board> = <B::Piece as ColoredPiece<B>>::ColoredPieceType;
 
 #[expect(type_alias_bounds)]
-pub type PieceType<B: Board> = <ColPieceType<B> as ColoredPieceType<B>>::Uncolored;
+pub type PieceTypeOf<B: Board> = <ColPieceType<B> as ColoredPieceType<B>>::Uncolored;
 
 #[expect(type_alias_bounds)]
 pub type BoardSize<B: Board> = <B::Coordinates as Coordinates>::Size;
@@ -301,7 +301,7 @@ pub trait Board:
 
     /// Returns the uncolored piece type at the given coordinates.
     /// Can sometimes be implemented more efficiently than `colored_piece_on`
-    fn piece_type_on(&self, coords: Self::Coordinates) -> PieceType<Self> {
+    fn piece_type_on(&self, coords: Self::Coordinates) -> PieceTypeOf<Self> {
         self.colored_piece_on(coords).uncolored()
     }
 

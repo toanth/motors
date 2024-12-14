@@ -29,7 +29,8 @@ use crate::games::{
     GenericPiece, NoHistory, PieceType, Settings, ZobristHash,
 };
 use crate::general::bitboards::{
-    Bitboard, DefaultBitboard, ExtendedRawBitboard, RawBitboard, RawStandardBitboard,
+    Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, KnownSizeBitboard, RawBitboard,
+    RawStandardBitboard,
 };
 use crate::general::board::SelfChecks::*;
 use crate::general::board::Strictness::Strict;
@@ -73,7 +74,7 @@ pub type UtttSubSize = SmallGridSize<3, 3>;
 
 pub type UtttSubSquare = SmallGridSquare<3, 3, 3>;
 
-pub type UtttSubBitboard = DefaultBitboard<RawStandardBitboard, UtttSubSquare>;
+pub type UtttSubBitboard = DynamicallySizedBitboard<RawStandardBitboard, UtttSubSquare>;
 
 #[derive(Debug, Default, Eq, PartialEq, Copy, Clone)]
 pub struct UtttSettings {}
@@ -381,8 +382,8 @@ impl StaticallyNamedEntity for UtttBoard {
 // TODO: BitboardBoard trait with default implementations like empty_bb() = !occupied_bb(), active_player_bb(), etc
 // (Need to make sure this works for bitboards where only some of the bits are used)
 impl UtttBoard {
-    const BOARD_BB: ExtendedRawBitboard = ExtendedRawBitboard(0x1_ffff_ffff_ffff_ffff_ffff);
-    const SUB_BOARD_MASK: RawStandardBitboard = RawStandardBitboard(0x1ff);
+    const BOARD_BB: ExtendedRawBitboard = 0x1_ffff_ffff_ffff_ffff_ffff;
+    const SUB_BOARD_MASK: RawStandardBitboard = 0x1ff;
 
     const NUM_SQUARES: usize = 81;
 
@@ -417,13 +418,12 @@ impl UtttBoard {
 
     pub fn won_sub_boards(&self, color: UtttColor) -> UtttSubBitboard {
         let bb = self.colors_internal[color as usize];
-        UtttSubBitboard::new(RawStandardBitboard((bb >> Self::NUM_SQUARES).0 as u64))
+        UtttSubBitboard::from_raw((bb >> Self::NUM_SQUARES) as u64)
     }
 
     fn get_sub_board(bb: RawUtttBitboard, sub_board: UtttSubSquare) -> UtttSubBitboard {
-        let bb =
-            RawStandardBitboard((bb >> (sub_board.bb_idx() * 9)).0 as u64) & Self::SUB_BOARD_MASK;
-        UtttSubBitboard::new(bb)
+        let bb = (bb >> (sub_board.bb_idx() * 9)) as u64 & Self::SUB_BOARD_MASK;
+        UtttSubBitboard::from_raw(bb)
     }
 
     pub fn sub_board(&self, color: UtttColor, sub_board: UtttSubSquare) -> UtttSubBitboard {
@@ -435,10 +435,10 @@ impl UtttBoard {
     }
 
     pub fn is_sub_board_won_at(sub_board: UtttSubBitboard, square: UtttSubSquare) -> bool {
-        const ROW_BB: RawStandardBitboard = RawStandardBitboard(0b111);
-        const COLUMN_BB: RawStandardBitboard = RawStandardBitboard(0b001_001_001);
-        const DIAG_BB: RawStandardBitboard = RawStandardBitboard(0b100_010_001);
-        const ANTI_DIAG_BB: RawStandardBitboard = RawStandardBitboard(0b001_010_100);
+        const ROW_BB: RawStandardBitboard = 0b111;
+        const COLUMN_BB: RawStandardBitboard = 0b001_001_001;
+        const DIAG_BB: RawStandardBitboard = 0b100_010_001;
+        const ANTI_DIAG_BB: RawStandardBitboard = 0b001_010_100;
         let bb = sub_board.raw();
         let row_bb = ROW_BB << (3 * square.row());
         let column_bb = COLUMN_BB << square.column();
@@ -470,9 +470,7 @@ impl UtttBoard {
         );
         self.colors_internal[color as usize] |=
             RawUtttBitboard::single_piece(Self::NUM_SQUARES + sub_board.bb_idx());
-        self.open &= !ExtendedRawBitboard::from_u128(
-            (Self::SUB_BOARD_MASK.to_primitive() as u128) << (sub_board.bb_idx() * 9),
-        );
+        self.open &= !((Self::SUB_BOARD_MASK as u128) << (sub_board.bb_idx() * 9));
         debug_assert!(self.is_sub_board_won(color, sub_board));
         debug_assert!(!self.is_sub_board_open(sub_board));
     }
@@ -495,15 +493,15 @@ impl UtttBoard {
     fn won_masks() -> [UtttSubBitboard; 8] {
         [
             UtttSubBitboard::diagonal(UtttSubSquare::from_rank_file(1, 1))
-                & UtttSubBitboard::new(Self::SUB_BOARD_MASK),
+                & UtttSubBitboard::from_raw(Self::SUB_BOARD_MASK),
             UtttSubBitboard::anti_diagonal(UtttSubSquare::from_rank_file(1, 1))
-                & UtttSubBitboard::new(Self::SUB_BOARD_MASK),
-            UtttSubBitboard::file_no(0) & UtttSubBitboard::new(Self::SUB_BOARD_MASK),
-            UtttSubBitboard::file_no(1) & UtttSubBitboard::new(Self::SUB_BOARD_MASK),
-            UtttSubBitboard::file_no(2) & UtttSubBitboard::new(Self::SUB_BOARD_MASK),
-            UtttSubBitboard::rank_no(0) & UtttSubBitboard::new(Self::SUB_BOARD_MASK),
-            UtttSubBitboard::rank_no(1) & UtttSubBitboard::new(Self::SUB_BOARD_MASK),
-            UtttSubBitboard::rank_no(2) & UtttSubBitboard::new(Self::SUB_BOARD_MASK),
+                & UtttSubBitboard::from_raw(Self::SUB_BOARD_MASK),
+            UtttSubBitboard::file(0) & UtttSubBitboard::from_raw(Self::SUB_BOARD_MASK),
+            UtttSubBitboard::file(1) & UtttSubBitboard::from_raw(Self::SUB_BOARD_MASK),
+            UtttSubBitboard::file(2) & UtttSubBitboard::from_raw(Self::SUB_BOARD_MASK),
+            UtttSubBitboard::rank(0) & UtttSubBitboard::from_raw(Self::SUB_BOARD_MASK),
+            UtttSubBitboard::rank(1) & UtttSubBitboard::from_raw(Self::SUB_BOARD_MASK),
+            UtttSubBitboard::rank(2) & UtttSubBitboard::from_raw(Self::SUB_BOARD_MASK),
         ]
     }
 
@@ -751,7 +749,7 @@ impl Board for UtttBoard {
             return None;
         }
         let idx = rng.gen_range(0..open.num_ones());
-        let idx = ith_one_u128(idx, open.0);
+        let idx = ith_one_u128(idx, open);
         Some(UtttMove(UtttSquare::from_bb_idx(idx)))
     }
 

@@ -3,7 +3,7 @@ use std::time::Duration;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use gears::games::chess::ChessColor::White;
 use gears::games::chess::Chessboard;
-use gears::general::bitboards::RawBitboard;
+use gears::general::bitboards::{Bitboard, RawBitboard};
 use gears::general::board::Board;
 use gears::general::board::Strictness::Relaxed;
 use gears::general::perft::perft;

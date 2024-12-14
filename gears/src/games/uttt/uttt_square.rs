@@ -43,7 +43,7 @@ impl Size<UtttSquare> for UtttSize {
         9 * 9
     }
 
-    fn to_internal_key(self, coordinates: UtttSquare) -> usize {
+    fn internal_key(self, coordinates: UtttSquare) -> usize {
         coordinates.bb_idx()
     }
 

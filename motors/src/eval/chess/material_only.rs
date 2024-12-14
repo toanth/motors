@@ -44,7 +44,7 @@ impl Eval<Chessboard> for MaterialOnlyEval {
         let mut score = 0;
         for _ in 0..2 {
             for piece in ChessPieceType::non_king_pieces() {
-                let num_pieces = pos.colored_piece_bb(color, piece).0.count_ones() as ScoreT;
+                let num_pieces = pos.colored_piece_bb(color, piece).count_ones() as ScoreT;
                 score += num_pieces * MATERIAL_VALUE[piece as usize];
             }
             score = -score;

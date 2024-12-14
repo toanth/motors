@@ -2,8 +2,7 @@ use crate::games::ataxx::common::AtaxxMove;
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::{AtaxxBitboard, AtaxxBoard, AtaxxColor, AtaxxMoveList};
 use crate::games::{Board, Color, ZobristHash};
-use crate::general::bitboards::ataxx::{INVALID_EDGE_MASK, LEAPING};
-use crate::general::bitboards::chess::KINGS;
+use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, KINGS};
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::Strict;
@@ -20,7 +19,7 @@ use std::num::NonZeroUsize;
 
 impl AtaxxBoard {
     pub fn create(blocked: AtaxxBitboard, x_bb: AtaxxBitboard, o_bb: AtaxxBitboard) -> Res<Self> {
-        let blocked = blocked | INVALID_EDGE_MASK;
+        let blocked = blocked | AtaxxBitboard::INVALID_EDGE_MASK;
         if (o_bb & x_bb).has_set_bit() {
             return Err(anyhow!(
                 "Overlapping x and o pieces (bitboard: {})",
@@ -75,15 +74,16 @@ impl AtaxxBoard {
             moves.add_move(AtaxxMove::cloning(sq));
         }
         for source in pieces.ones() {
-            let leaps = LEAPING[source.bb_idx()] & empty;
+            let leaps = AtaxxBitboard::new(ATAXX_LEAPERS[source.bb_idx()].raw()) & empty;
             for target in leaps.ones() {
                 moves.add_move(AtaxxMove::leaping(source, target));
             }
         }
         if moves.num_moves() == 0 && pieces.has_set_bit() {
-            let other_bb = self.color_bb(self.active_player.other());
+            let other_bb = self.color_bb(self.inactive_player());
             // if the other player doesn't have any legal moves, the game is over.
             // return an empty move list in that case so that the user can pick up on this
+            // otherwise, the only legal move is the passing move
             if (other_bb.extended_moore_neighbors(2) & empty).has_set_bit() {
                 moves.add_move(AtaxxMove::default());
             }

@@ -9,8 +9,7 @@ use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::{
     Board, BoardHistory, Color, ColoredPiece, GenericPiece, NoHistory, Settings, ZobristHash,
 };
-use crate::general::bitboards::ataxx::{AtaxxBitboard, INVALID_EDGE_MASK};
-use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
+use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard, SmallGridBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
@@ -35,6 +34,8 @@ use std::fmt::{Display, Formatter};
 use std::ops::Not;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
+
+type AtaxxBitboard = SmallGridBitboard<7, 7>;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
 pub struct AtaxxSettings {
@@ -91,7 +92,7 @@ pub struct AtaxxBoard {
 
 impl Default for AtaxxBoard {
     fn default() -> Self {
-        let x_bb = AtaxxBitboard::from_u64(0x41);
+        let x_bb = AtaxxBitboard::new(0x41);
         let o_bb = x_bb << ((7 - 1) * 8);
         Self::create(AtaxxBitboard::default(), x_bb, o_bb).unwrap()
     }
@@ -272,12 +273,7 @@ impl Board for AtaxxBoard {
     }
 
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
-        let moves = self.pseudolegal_moves();
-        if moves.is_empty() {
-            None
-        } else {
-            moves.choose(rng).copied()
-        }
+        self.pseudolegal_moves().choose(rng).copied()
     }
 
     fn random_pseudolegal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
@@ -392,10 +388,10 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
     fn verify_with_level(self, level: SelfChecks, _strictness: Strictness) -> Res<AtaxxBoard> {
         let this = self.0;
         let blocked = this.blocked_bb();
-        if blocked & INVALID_EDGE_MASK != INVALID_EDGE_MASK {
+        if blocked & AtaxxBitboard::INVALID_EDGE_MASK != AtaxxBitboard::INVALID_EDGE_MASK {
             bail!(
                 "A squares outside of the board is being used ({})",
-                AtaxxSquare::unchecked((!blocked & INVALID_EDGE_MASK).pop_lsb())
+                AtaxxSquare::unchecked((!blocked & AtaxxBitboard::INVALID_EDGE_MASK).pop_lsb())
             );
         }
         if this.ply_100_ctr > 100 {
@@ -498,7 +494,7 @@ mod tests {
         assert!(pos.debug_verify_invariants(Strict).is_ok());
         assert_eq!(pos.color_bb(O).num_ones(), 2);
         assert_eq!(pos.color_bb(X).num_ones(), 2);
-        assert!((pos.blocked_bb() & !INVALID_EDGE_MASK).is_zero());
+        assert!((pos.blocked_bb() & !AtaxxBitboard::INVALID_EDGE_MASK).is_zero());
         let moves = pos.pseudolegal_moves();
         for mov in pos.pseudolegal_moves() {
             assert!(pos.is_move_legal(mov));

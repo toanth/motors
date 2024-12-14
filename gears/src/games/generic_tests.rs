@@ -27,7 +27,7 @@ impl<B: Board> GenericTests<B> {
             assert!(size.check_coordinates(coords).is_ok());
             assert_ne!(coords, B::Coordinates::no_coordinates());
             assert_eq!(
-                size.to_coordinates_unchecked(size.to_internal_key(coords)),
+                size.to_coordinates_unchecked(size.internal_key(coords)),
                 coords
             );
             let flipped = coords.flip_up_down(size);

@@ -23,8 +23,8 @@ use crate::games::{
     char_to_file, file_to_char, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType,
     DimT, ZobristHash,
 };
-use crate::general::bitboards::chess::ChessBitboard;
-use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::general::bitboards::chessboard::ChessBitboard;
+use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::common::Res;
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::PseudoLegal;
@@ -985,11 +985,11 @@ impl<'a> MoveParser<'a> {
                             }
                             None => (
                                 format!("the {} file", file_to_char(file)),
-                                ChessBitboard::file_no(file),
+                                ChessBitboard::file(file),
                             ),
                         }
                     } else if let Some(rank) = rank {
-                        (format!("rank {}", rank), ChessBitboard::rank_no(rank))
+                        (format!("rank {}", rank), ChessBitboard::rank(rank))
                     } else {
                         ("any square".to_string(), !ChessBitboard::default())
                     }

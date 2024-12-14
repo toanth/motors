@@ -6,16 +6,14 @@ use crate::eval::chess::{pawn_shield_idx, DiagonalOpenness, FileOpenness};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::ChessPieceType::*;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
-use gears::games::chess::squares::ChessSquare;
+use gears::games::chess::squares::{ChessSquare, ChessboardSize};
 use gears::games::chess::ChessColor::{Black, White};
-use gears::games::chess::{ChessColor, Chessboard, SliderMove};
+use gears::games::chess::{ChessBitboardTrait, ChessColor, Chessboard, SliderMove};
 use gears::games::Color;
 use gears::games::{DimT, ZobristHash};
-use gears::general::bitboards::chess::{
-    ChessBitboard, A_FILE, CHESS_ANTI_DIAGONALS, CHESS_DIAGONALS, COLORED_SQUARES,
-};
-use gears::general::bitboards::Bitboard;
+use gears::general::bitboards::chessboard::{ChessBitboard, COLORED_SQUARES};
 use gears::general::bitboards::RawBitboard;
+use gears::general::bitboards::{Bitboard, KnownSizeBitboard};
 use gears::general::board::Board;
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::moves::Move;
@@ -73,7 +71,7 @@ pub fn file_openness(
     our_pawns: ChessBitboard,
     their_pawns: ChessBitboard,
 ) -> FileOpenness {
-    let file = ChessBitboard::file_no(file);
+    let file = ChessBitboard::file(file);
     openness(file, our_pawns, their_pawns)
 }
 
@@ -82,7 +80,8 @@ pub fn diagonal_openness(
     our_pawns: ChessBitboard,
     their_pawns: ChessBitboard,
 ) -> (DiagonalOpenness, usize) {
-    let diag = CHESS_DIAGONALS[square.bb_idx()];
+    // TODO: don't pass size
+    let diag = ChessBitboard::diag_for_sq(square, ChessboardSize::default());
     (openness(diag, our_pawns, their_pawns), diag.num_ones())
 }
 
@@ -91,7 +90,7 @@ pub fn anti_diagonal_openness(
     our_pawns: ChessBitboard,
     their_pawns: ChessBitboard,
 ) -> (DiagonalOpenness, usize) {
-    let anti_diag = CHESS_ANTI_DIAGONALS[square.bb_idx()];
+    let anti_diag = ChessBitboard::anti_diag_for_sq(square, ChessboardSize::default());
     (
         openness(anti_diag, our_pawns, their_pawns),
         anti_diag.num_ones(),
@@ -174,13 +173,13 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
         for square in our_pawns.ones() {
             let normalized_square = square.flip_if(color == White);
-            let in_front =
-                (A_FILE << (square.flip_if(color == Black).bb_idx() + 8)).flip_if(color == Black);
+            let in_front = (ChessBitboard::A_FILE << (square.flip_if(color == Black).bb_idx() + 8))
+                .flip_if(color == Black);
             let blocking = in_front | in_front.west() | in_front.east();
             if (in_front & our_pawns).is_zero() && (blocking & their_pawns).is_zero() {
                 score += Tuned::passed_pawn(normalized_square);
             }
-            let file = ChessBitboard::file_no(square.file());
+            let file = ChessBitboard::file(square.file());
             let neighbors = file.west() | file.east();
             let supporting = neighbors & !blocking;
             if (supporting & our_pawns).is_zero() {

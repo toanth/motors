@@ -13,8 +13,7 @@ use crate::games::mnk::Symbol::{Empty, O, X};
 use crate::games::PlayerResult::Draw;
 use crate::games::*;
 use crate::general::bitboards::{
-    remove_ones_above, Bitboard, DefaultBitboard, ExtendedRawBitboard, RawBitboard, RayDirections,
-    MAX_WIDTH,
+    Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboard, RayDirections, MAX_WIDTH,
 };
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
@@ -349,7 +348,7 @@ impl Settings for MnkSettings {
     }
 }
 
-pub type MnkBitboard = DefaultBitboard<ExtendedRawBitboard, GridCoordinates>;
+pub type MnkBitboard = DynamicallySizedBitboard<ExtendedRawBitboard, GridCoordinates>;
 
 #[derive(Copy, Clone, Default, Debug, Arbitrary)]
 pub struct MNKBoard {
@@ -396,11 +395,11 @@ impl StaticallyNamedEntity for MNKBoard {
 
 impl MNKBoard {
     pub fn x_bb(self) -> MnkBitboard {
-        MnkBitboard::from_raw(self.x_bb, self.size())
+        MnkBitboard::new(self.x_bb, self.size())
     }
 
     pub fn o_bb(self) -> MnkBitboard {
-        MnkBitboard::from_raw(self.o_bb, self.size())
+        MnkBitboard::new(self.o_bb, self.size())
     }
 
     pub fn player_bb(self, player: MnkColor) -> MnkBitboard {
@@ -423,10 +422,9 @@ impl MNKBoard {
     }
 
     pub fn empty_bb(self) -> MnkBitboard {
-        MnkBitboard::from_uint(
-            remove_ones_above(!self.occupied_bb().0, self.num_squares() - 1),
-            self.size(),
-        )
+        let n = self.num_squares() - 1;
+        let res = !self.occupied_bb().raw() & (u128::MAX >> (127 - n));
+        MnkBitboard::new(res, self.size())
     }
 
     pub fn k(self) -> u32 {
@@ -479,8 +477,8 @@ impl Board for MNKBoard {
         assert!(settings.height * settings.width <= 128);
         MNKBoard {
             ply: 0,
-            x_bb: ExtendedRawBitboard(0),
-            o_bb: ExtendedRawBitboard(0),
+            x_bb: 0,
+            o_bb: 0,
             settings,
             active_player: MnkColor::first(),
             last_move: None,
@@ -571,17 +569,17 @@ impl Board for MNKBoard {
     }
 
     fn is_empty(&self, coords: Self::Coordinates) -> bool {
-        let idx = self.size().to_internal_key(coords);
+        let idx = self.size().internal_key(coords);
         // slightly faster than calling `empty_bb()`
         !self.occupied_bb().is_bit_set_at(idx)
     }
 
     fn colored_piece_on(&self, coordinates: Self::Coordinates) -> Square {
-        let idx = self.size().to_internal_key(coordinates);
-        debug_assert!(self.x_bb & self.o_bb == ExtendedRawBitboard(0));
-        let symbol = if (self.x_bb >> idx) & 1 == 1 {
+        let idx = self.size().internal_key(coordinates);
+        debug_assert!(self.x_bb & self.o_bb == 0);
+        let symbol = if self.x_bb.is_bit_set_at(idx) {
             X
-        } else if (self.o_bb >> idx) & 1 == 1 {
+        } else if self.o_bb.is_bit_set_at(idx) {
             O
         } else {
             Empty
@@ -609,13 +607,13 @@ impl Board for MNKBoard {
 
     fn random_legal_move<T: Rng>(&self, rng: &mut T) -> Option<Self::Move> {
         let empty = self.empty_bb();
-        debug_assert!(empty.0.ilog2() < self.num_squares() as u32);
-        let num_empty = empty.0.count_ones() as usize;
+        debug_assert!(empty.ilog2() < self.num_squares() as u32);
+        let num_empty = empty.count_ones() as usize;
         if num_empty == 0 {
             return None;
         }
         let idx = rng.gen_range(0..num_empty);
-        let target = ith_one_u128(idx, empty.0);
+        let target = ith_one_u128(idx, empty.raw());
 
         Some(FillSquare {
             target: self.size().to_coordinates_unchecked(target),
@@ -674,8 +672,8 @@ impl Board for MNKBoard {
     /// Not actually a zobrist hash function, but should work well enough
     fn zobrist_hash(&self) -> ZobristHash {
         let mut hasher = DefaultHasher::new();
-        self.x_bb.0.hash(&mut hasher);
-        self.o_bb.0.hash(&mut hasher);
+        self.x_bb.hash(&mut hasher);
+        self.o_bb.hash(&mut hasher);
         // Don't need to hash the side to move because that is given by the parity of the number of nonempty squares
         ZobristHash(hasher.finish())
     }
@@ -797,13 +795,11 @@ impl MNKBoard {
         let player_bb = self.player_bb(player);
         let blockers = !self.player_bb(player);
         debug_assert!((blockers.raw()
-            & ExtendedRawBitboard::single_piece(self.size().to_internal_key(square)))
+            & ExtendedRawBitboard::single_piece(self.size().internal_key(square)))
         .is_zero());
 
         for dir in RayDirections::iter() {
-            if (MnkBitboard::slider_attacks(square, blockers, dir) & player_bb)
-                .to_primitive()
-                .count_ones()
+            if (MnkBitboard::slider_attacks(square, blockers, dir) & player_bb).count_ones()
                 >= self.k() - 1
             {
                 return true;
@@ -826,7 +822,7 @@ pub struct UnverifiedMnkBoard(MNKBoard);
 impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
     fn verify_with_level(self, level: SelfChecks, strictness: Strictness) -> Res<MNKBoard> {
         let mut this = self.0;
-        let non_empty = this.occupied_bb().0.count_ones();
+        let non_empty = this.occupied_bb().count_ones();
         // support custom starting positions where pieces have already been placed
         if this.ply > non_empty {
             bail!(
@@ -878,7 +874,7 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
     }
 
     fn place_piece_unchecked(mut self, sq: GridCoordinates, piece: Symbol) -> Self {
-        let placed_bb = ExtendedRawBitboard::single_piece(self.size().to_internal_key(sq));
+        let placed_bb = ExtendedRawBitboard::single_piece(self.size().internal_key(sq));
         let bb = match piece {
             X => &mut self.0.x_bb,
             O => &mut self.0.o_bb,
@@ -893,7 +889,7 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
 
     fn remove_piece_unchecked(self, sq: GridCoordinates) -> Self {
         let mut this = self.0;
-        let mask = !ExtendedRawBitboard::single_piece(self.size().to_internal_key(sq));
+        let mask = !ExtendedRawBitboard::single_piece(self.size().internal_key(sq));
         this.x_bb &= mask;
         this.o_bb &= mask;
         this.last_move = None;
@@ -1002,21 +998,18 @@ mod test {
         assert_eq!(board.active_player(), MnkColor::first());
         let board = board.make_move(mov).unwrap();
         assert_eq!(board.size().num_squares(), 9);
-        assert_eq!(board.x_bb, ExtendedRawBitboard(1));
-        assert_eq!(board.o_bb, ExtendedRawBitboard(0));
+        assert_eq!(board.x_bb, 1);
+        assert_eq!(board.o_bb, 0);
         assert_eq!(board.ply, 1);
-        assert_eq!(
-            board.empty_bb().raw(),
-            !ExtendedRawBitboard(1) & ExtendedRawBitboard(0x1ff)
-        );
+        assert_eq!(board.empty_bb().raw(), !1 & 0x1ff);
         assert_eq!(board.active_player(), MnkColor::second());
         assert!(!board.is_game_lost());
 
         let board = MNKBoard::empty_for_settings(MnkSettings::new(Height(3), Width(4), 1));
         let board = board.make_move(mov).unwrap();
         assert!(board.is_game_lost());
-        assert_ne!(board.x_bb().to_primitive(), 0);
-        assert_eq!(board.o_bb().to_primitive(), 0);
+        assert_ne!(board.x_bb().raw(), 0);
+        assert_eq!(board.o_bb().raw(), 0);
         assert!(board.x_bb().is_single_piece());
         assert_eq!(
             board.pseudolegal_moves().len() + 1,
@@ -1087,10 +1080,7 @@ mod test {
                 target: board.idx_to_coordinates(4),
             })
             .unwrap();
-        assert_eq!(
-            board.x_bb(),
-            MnkBitboard::from_uint(0x10, GridSize::tictactoe())
-        );
+        assert_eq!(board.x_bb(), MnkBitboard::new(0x10, GridSize::tictactoe()));
         assert_eq!(
             board
                 .colored_piece_on(board.size().to_coordinates_unchecked(4))
@@ -1154,7 +1144,7 @@ mod test {
     #[test]
     fn from_fen_test() {
         let board = MNKBoard::from_fen("4 3 2 x 3/3/3/3", Strict).unwrap();
-        assert_eq!(board.occupied_bb().raw(), ExtendedRawBitboard(0));
+        assert_eq!(board.occupied_bb().raw(), 0);
         assert_eq!(board.size(), GridSize::new(Height(4), Width(3)));
         assert_eq!(board.k(), 2);
         assert_eq!(
@@ -1163,15 +1153,12 @@ mod test {
         );
 
         let board = MNKBoard::from_fen("3 4 3 x 3X/4/2O1", Strict).unwrap();
-        assert_eq!(
-            board.occupied_bb().raw(),
-            ExtendedRawBitboard(0b1000_0000_0100)
-        );
+        assert_eq!(board.occupied_bb().raw(), 0b1000_0000_0100);
         assert_eq!(
             board,
             MNKBoard {
-                x_bb: ExtendedRawBitboard(0b1000_0000_0000),
-                o_bb: ExtendedRawBitboard(0b0000_0000_0100),
+                x_bb: 0b1000_0000_0000,
+                o_bb: 0b0000_0000_0100,
                 ply: 2,
                 settings: MnkSettings::new(Height(3), Width(4), 3),
                 active_player: MnkColor::first(),
@@ -1183,8 +1170,8 @@ mod test {
         assert_eq!(board, copy);
 
         let board = MNKBoard::from_fen("7 3 2 o X1O/3/OXO/1X1/XO1/XXX/1OO", Relaxed).unwrap();
-        let white_bb = ExtendedRawBitboard(0b001_000_010_010_001_111_000);
-        let black_bb = ExtendedRawBitboard(0b100_000_101_000_010_000_110);
+        let white_bb = 0b001_000_010_010_001_111_000;
+        let black_bb = 0b100_000_101_000_010_000_110;
         assert_eq!(
             board,
             MNKBoard {
@@ -1199,9 +1186,8 @@ mod test {
         assert_eq!(board, MNKBoard::from_fen(&board.as_fen(), Relaxed).unwrap());
 
         let board = MNKBoard::from_fen("4 12 3 x 12/11X/1X10/2X1X3XXX1", Relaxed).unwrap();
-        let white_bb =
-            ExtendedRawBitboard(0b0000_0000_0000_1000_0000_0000_0000_0000_0010_0111_0001_0100);
-        let black_bb = ExtendedRawBitboard(0);
+        let white_bb = 0b0000_0000_0000_1000_0000_0000_0000_0000_0010_0111_0001_0100;
+        let black_bb = 0;
         assert_eq!(
             board,
             MNKBoard {
@@ -1282,9 +1268,6 @@ mod test {
             new_pos.player_result_slow(&NoHistory::default()),
             Some(Lose)
         );
-        assert_eq!(
-            new_pos.active_player_bb(),
-            MnkBitboard::from_uint(0, pos.size())
-        );
+        assert_eq!(new_pos.active_player_bb(), MnkBitboard::new(0, pos.size()));
     }
 }

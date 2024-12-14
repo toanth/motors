@@ -333,11 +333,11 @@ mod tests {
             // another pinned pawns test (this time without en passant)
         "4Q3/5p2/6k1/8/4p3/8/2B3K1/8 b - - 0 1 ;D1 7 ;D2 203 ;D3 1250 ;D4 37962 ;D5 227787 ;D6 7036323 ;D7 41501304",
         // maximum number of legal moves (and mate in one)
-        "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1; D1 218; D2 99; D3 19073; D4 85043; D5 13853661", // D6 115892741",
+        "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1 ;D1 218 ;D2 99 ;D3 19073 ;D4 85043 ;D5 13853661", // D6 115892741",
         // the same position with flipped side to move has no legal moves
-        "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 b - - 0 1; D1 0; D2 0; D3 0; D4 0; D5 0; D6 0; D7 0",
+        "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 b - - 0 1 ;D1 0 ;D2 0 ;D3 0 ;D4 0 ;D5 0 ;D6 0 ;D7 0",
         // a very weird position (not reachable from startpos, but still somewhat realistic)
-        "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1; D1 4; D2 16; D3 176; D4 1936; D5 22428; D6 255135; D7 3830854",
+        "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1 ;D1 4 ;D2 16 ;D3 176 ;D4 1936 ;D5 22428 ;D6 255135 ;D7 3830854",
             ];
 
     /// This perft test suite is also taken from Ethereal: <https://github.com/AndyGrant/Ethereal/blob/master/src/perft/fischer.epd>.
