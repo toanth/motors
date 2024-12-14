@@ -617,7 +617,7 @@ impl Caps {
                             // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
                             // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
                             self.state.multi_pv() > 1
-                                || pv.length + pv.length / 4
+                                || pv.length + pv.length / 3
                                     >= self.state.custom.depth_hard_limit.min(depth as usize)
                                 || pv_score.is_won_lost_or_draw_score(),
                             "{depth} {0} {pv_score} {1}",
@@ -737,6 +737,7 @@ impl Caps {
         // store a null move in the TT. This helps IIR.
         let mut best_move = ChessMove::default();
         // Don't initialize eval just now to save work in case we get a TT cutoff
+        let raw_eval;
         let mut eval;
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.state.multi_pvs.len() > 1;
@@ -775,7 +776,8 @@ impl Caps {
                 if let Some(tt_move) = tt_entry.mov.check_pseudolegal(&pos) {
                     best_move = tt_move;
                 }
-                eval = self.eval(pos, ply);
+                raw_eval = self.eval(pos, ply);
+                eval = raw_eval;
                 // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
                 // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
                 // create any problems, but should be kept in mind.
@@ -786,11 +788,13 @@ impl Caps {
                     eval = tt_entry.score;
                 }
             } else {
-                eval = self.eval(pos, ply);
+                raw_eval = self.eval(pos, ply);
+                eval = raw_eval;
             }
         } else {
             self.state.statistics.tt_miss(MainSearch);
-            eval = self.eval(pos, ply);
+            raw_eval = self.eval(pos, ply);
+            eval = raw_eval;
         };
 
         self.record_pos(pos, eval, ply);
@@ -983,7 +987,7 @@ impl Caps {
                         reduction += 1;
                     }
                 }
-                // Futility Reduction: If this move is not a TT move, good SEE capture or killer, and our eval is significantly
+                // FR (Futility Reductions): If this move is not a TT move, good SEE capture or killer, and our eval is significantly
                 // less than alpha, reduce.
                 if !in_check
                     && depth >= cc::min_fr_depth()
@@ -992,8 +996,13 @@ impl Caps {
                 {
                     reduction += 1;
                 }
-                // this ensures that check extensions prevent going into qsearch while in check
-                reduction = reduction.min(depth - 1);
+                // CR (Complexity Reductions): If the raw eval and TT score differ by a lot, be more careful about reducing
+                if (raw_eval - eval).abs() >= Score(100) {
+                    reduction -= 1;
+                }
+                // this ensures that check extensions prevent going into qsearch while in check, and that we don't accidentally
+                // extend (although it may be worth to test removing the lower bound of 0; extending when the TT move fails could make sense)
+                reduction = reduction.clamp(0, depth - 1);
 
                 score = -self.negamax(
                     new_pos,
