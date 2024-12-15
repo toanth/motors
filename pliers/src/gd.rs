@@ -989,7 +989,7 @@ pub struct AdamwHyperParams {
 impl AdamwHyperParams {
     fn for_eval_scale(eval_scale: ScalingFactor) -> Self {
         Self {
-            alpha: eval_scale / 50.0,
+            alpha: eval_scale / 40.0,
             // Setting these values too low can introduce crazy swings in the eval values and loss when it would
             // otherwise appear converged -- maybe because of numerical instability?
             beta1: 0.9,
