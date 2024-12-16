@@ -714,32 +714,14 @@ impl<B: Board> EngineUGI<B> {
             accept_depth(&mut opts.limit, words)?;
         }
         while let Some(option) = words.next() {
-            opts.cont = false;
             let cmd = select_name_dyn(
                 option,
                 &self.commands.go,
                 "go option",
                 &self.state.game_name,
                 WithDescription,
-            );
-            match cmd {
-                Ok(cmd) => cmd.func()(&mut opts, words, option)?,
-                // TODO: Handle as command, no need for reading_moves
-                Err(err) => {
-                    if opts.reading_moves {
-                        let mov =
-                            B::Move::from_compact_text(option, &opts.board).map_err(|err| {
-                                anyhow!("{err}. '{}' is not a valid 'go' option.", option.bold())
-                            })?;
-                        opts.search_moves.as_mut().unwrap().push(mov);
-                        continue;
-                    }
-                    bail!(err)
-                }
-            }
-            if !opts.cont {
-                opts.reading_moves = false;
-            }
+            )?;
+            cmd.func()(&mut opts, words, option)?;
         }
         opts.limit.tc.remaining = opts
             .limit
