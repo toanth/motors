@@ -1126,7 +1126,10 @@ impl Caps {
         );
         // Store the old move in the Move table
         if let Some(old_move) = old_entry.mov() {
-            if old_move != tt_entry.mov && old_move.trust_unchecked() != ChessMove::NULL {
+            if depth > 5
+                && old_move != tt_entry.mov
+                && old_move.trust_unchecked() != ChessMove::NULL
+            {
                 *self.state.custom.move_table.entry_mut(&pos) = old_move;
             }
         }
