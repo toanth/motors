@@ -741,7 +741,8 @@ impl Caps {
         let mut eval;
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.state.multi_pvs.len() > 1;
-        if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
+        let old_entry = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply);
+        if let Some(tt_entry) = old_entry {
             if !ignore_tt_entry {
                 let tt_bound = tt_entry.bound();
                 debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
@@ -826,6 +827,11 @@ impl Caps {
                 * depth as ScoreT;
             if expected_node_type == FailHigh {
                 margin /= cc::rfp_fail_high_div();
+            }
+            if let Some(entry) = old_entry {
+                if entry.score >= eval && entry.bound() != NodeType::upper_bound() {
+                    margin -= margin / 4;
+                }
             }
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
                 return Some(eval);
