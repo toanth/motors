@@ -155,7 +155,7 @@ impl<B: Board> AtomicSearchState<B> {
         self.set_score(NO_SCORE_YET);
         self.set_ponder_move(None);
         self.set_best_move(B::Move::default());
-        self.update_seldepth(0);
+        self.seldepth.store(0, Relaxed); // don't use `update_seldepth` as that uses `fetch_max`.
         self.set_depth(0);
         self.nodes.store(0, Relaxed);
         self.set_searching(starting_search);
@@ -480,7 +480,7 @@ impl<B: Board> EngineWrapper<B> {
             let max = self.get_engine_info().max_threads;
             if count == 0 || count > max {
                 bail!(
-                    "Trying to set the number of threads to {count}. The maximum number of threads for this engine is {max}."
+                    "Trying to set the number of threads to {count}. The maximum number of threads for this engine on this machine is {max}."
                 );
             }
             self.overwrite_num_threads = None;
