@@ -1434,9 +1434,6 @@ fn completions<B: Board>(
 ) -> Vec<(isize, Completion)> {
     let mut res: Vec<(isize, Completion)> = vec![];
     let mut next_token = rest.peek().copied();
-    // ignore all other suggestions if the last complete token requires a subcommand
-    let prefer_current_completions =
-        next_token.is_none_or(|n| n == to_complete) && node.subcmd_required();
     // compute this before `next_token` might be changed in the loop
     let add_subcommands =
         next_token.is_none_or(|n| n == to_complete) || node.autocomplete_recurse();
@@ -1446,9 +1443,6 @@ fn completions<B: Board>(
             // If this command is the last complete token or can recurse, add all subcommands to completions
             if add_subcommands {
                 push(&mut res, to_complete, child.as_ref());
-                // if prefer_current_completions {
-                //     res.last_mut().unwrap().0 -= 10;
-                // }
             }
             // if the next token is a subcommand of this command, add suggestions for it.
             // This consumes tokens, so check all remaining subcommands again for the remaining input
@@ -1457,11 +1451,6 @@ fn completions<B: Board>(
                 _ = rest.next(); // eat the token for the subcommand
                 *state = child.change_autocomplete_state(state.clone());
                 let mut new_completions = completions(child.as_ref(), state, rest, to_complete);
-                // if prefer_current_completions {
-                // for (badness, _c) in &mut new_completions {
-                //     *badness -= 10;
-                // }
-                // }
                 next_token = rest.peek().copied();
                 res.append(&mut new_completions);
             }

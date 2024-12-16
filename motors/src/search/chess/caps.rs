@@ -25,7 +25,7 @@ use gears::general::common::{
     parse_bool_from_str, parse_int_from_str, select_name_static, Res, StaticallyNamedEntity,
 };
 use gears::general::move_list::EagerNonAllocMoveList;
-use gears::general::moves::Move;
+use gears::general::moves::{Move, UntrustedMove};
 use gears::output::text_output::AdaptFormatter;
 use gears::output::Message::Debug;
 use gears::output::OutputOpts;
@@ -130,6 +130,24 @@ impl Default for ContHist {
     }
 }
 
+#[derive(Debug, Clone)]
+struct MoveTable(Vec<UntrustedMove<Chessboard>>);
+
+impl Default for MoveTable {
+    fn default() -> Self {
+        Self(vec![UntrustedMove::default(); 1 << 16])
+    }
+}
+
+impl MoveTable {
+    fn entry(&self, pos: &Chessboard) -> UntrustedMove<Chessboard> {
+        self.0[(pos.zobrist_hash().0 % (1 << 16)) as usize]
+    }
+    fn entry_mut(&mut self, pos: &Chessboard) -> &mut UntrustedMove<Chessboard> {
+        &mut self.0[(pos.zobrist_hash().0 % (1 << 16)) as usize]
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct CapsCustomInfo {
     history: HistoryHeuristic,
@@ -142,6 +160,10 @@ pub struct CapsCustomInfo {
     /// our previous move instead of the opponent's previous move, i.e. the move 2 plies ago instead of 1 ply ago.
     follow_up_move_hist: ContHist,
     capt_hist: CaptHist,
+    /// A table that stores the best moves of nodes that got evicted from the TT.
+    /// This has two effects: On the one hand, it provides some small resistance to collisions, and on the other hand,
+    /// it allows keeping track of the second-best move in a node
+    move_table: MoveTable,
     original_board_hist: ZobristHistory<Chessboard>,
     nmp_disabled: [bool; 2],
     depth_hard_limit: usize,
@@ -741,7 +763,8 @@ impl Caps {
         let mut eval;
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.state.multi_pvs.len() > 1;
-        if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
+        let old_entry = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply);
+        if let Some(tt_entry) = old_entry {
             if !ignore_tt_entry {
                 let tt_bound = tt_entry.bound();
                 debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
@@ -1101,6 +1124,12 @@ impl Caps {
             depth,
             bound_so_far,
         );
+        // Store the old move in the Move table
+        if let Some(old) = old_entry {
+            if old.mov != tt_entry.mov && old.mov.trust_unchecked() != ChessMove::NULL {
+                *self.state.custom.move_table.entry_mut(&pos) = old.mov;
+            }
+        }
         // TODO: eventually test that not overwriting PV nodes unless the depth is quite a bit greater gains
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
@@ -1352,7 +1381,9 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
     fn score_move(&self, mov: ChessMove, state: &CapsState) -> MoveScore {
         // The move list is iterated backwards, which is why better moves get higher scores
         // No need to check against the TT move because that's already handled by the move picker
-        if mov == state.search_stack[self.ply].killer {
+        if mov == state.custom.move_table.entry(&self.board).trust_unchecked() {
+            KILLER_SCORE + MoveScore(1)
+        } else if mov == state.search_stack[self.ply].killer {
             KILLER_SCORE
         } else if !mov.is_tactical(&self.board) {
             let countermove_score = if self.ply > 0 {
