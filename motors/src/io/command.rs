@@ -91,8 +91,6 @@ pub trait AbstractCommand<B: Board>: NamedEntity + Display {
 
     fn sub_commands(&self, state: ACState<B>) -> SubCommandList<B>;
 
-    fn subcmd_required(&self) -> bool;
-
     fn change_autocomplete_state(&self, state: ACState<B>) -> ACState<B>;
 
     fn autocomplete_recurse(&self) -> bool;
@@ -179,10 +177,6 @@ impl<B: Board> SubCommandsFn<B> {
             Some(f) => f(state),
         }
     }
-
-    fn is_empty(&self) -> bool {
-        self.0.is_none()
-    }
 }
 
 #[derive(Debug)]
@@ -243,10 +237,6 @@ impl<State: CommandState + 'static> AbstractCommand<State::B> for Command<State>
 
     fn sub_commands(&self, state: ACState<State::B>) -> SubCommandList<State::B> {
         self.sub_commands.call(state)
-    }
-
-    fn subcmd_required(&self) -> bool {
-        !self.sub_commands.is_empty()
     }
 
     fn change_autocomplete_state(&self, state: ACState<State::B>) -> ACState<State::B> {
@@ -1328,10 +1318,6 @@ impl<B: Board> AbstractCommand<B> for CustomCommand {
         vec![]
     }
 
-    fn subcmd_required(&self) -> bool {
-        false
-    }
-
     fn change_autocomplete_state(&self, state: ACState<B>) -> ACState<B> {
         state
     }
@@ -1435,8 +1421,6 @@ fn completions<B: Board>(
     let mut res: Vec<(isize, Completion)> = vec![];
     let mut next_token = rest.peek().copied();
     // ignore all other suggestions if the last complete token requires a subcommand
-    let prefer_current_completions =
-        next_token.is_none_or(|n| n == to_complete) && node.subcmd_required();
     // compute this before `next_token` might be changed in the loop
     let add_subcommands =
         next_token.is_none_or(|n| n == to_complete) || node.autocomplete_recurse();
