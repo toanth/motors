@@ -16,8 +16,8 @@ use crate::ui::text_input::DefaultPlayer::{Active, Inactive, NoPlayer};
 use crate::ui::{Input, InputBuilder};
 use gears::crossterm::style::Stylize;
 use gears::games::Color;
-use gears::general::board::Board;
 use gears::general::board::Strictness::Relaxed;
+use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
@@ -198,7 +198,9 @@ impl<B: Board> TextInputThread<B> {
                     return Ok(true);
                 }
                 Err(err) => {
-                    let func = select_name_static(command, self.commands.iter(), "command", &B::game_name(), NoDescription).map_err(|msg| anyhow!("'{command}' is not a pseudolegal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?.func;
+                    let func = select_name_static(command, self.commands.iter(), "command", &B::game_name(), NoDescription)
+                        .map_err(|msg| anyhow!("'{command}' is not a pseudolegal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?
+                        .func;
                     func(client, &mut words)?;
                 }
             }

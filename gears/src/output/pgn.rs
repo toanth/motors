@@ -19,8 +19,8 @@
 //! <See https://ia902908.us.archive.org/26/items/pgn-standard-1994-03-12/PGN_standard_1994-03-12.txt>
 
 use crate::games::{BoardHistory, Color};
-use crate::general::board::Board;
 use crate::general::board::Strictness::Relaxed;
+use crate::general::board::{Board, BoardHelpers};
 use crate::general::common::{parse_bool_from_str, parse_int_from_str, Res};
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Move;

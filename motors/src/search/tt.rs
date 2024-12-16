@@ -269,6 +269,7 @@ mod test {
     use crate::search::{Engine, SearchParams};
     use gears::games::chess::moves::ChessMove;
     use gears::games::ZobristHistory;
+    use gears::general::board::BoardHelpers;
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
     use gears::search::NodeType::Exact;
     use gears::search::{Depth, SearchLimit};

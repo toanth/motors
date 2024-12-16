@@ -41,9 +41,9 @@ use crate::{
 use colored::Color::Red;
 use colored::Colorize;
 use gears::cli::select_game;
-use gears::games::{ColoredPiece, OutputList, ZobristHistory};
+use gears::games::{CharType, ColoredPiece, OutputList, ZobristHistory};
 use gears::general::board::Strictness::{Relaxed, Strict};
-use gears::general::board::{Board, Strictness, UnverifiedBoard};
+use gears::general::board::{Board, BoardHelpers, Strictness, UnverifiedBoard};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
@@ -1431,7 +1431,7 @@ fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>
             let piece = format!(
                 "{}:",
                 piece
-                    .to_ascii_char()
+                    .to_char(CharType::Ascii)
                     .to_string()
                     .color(display_color(color))
             );

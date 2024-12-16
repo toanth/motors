@@ -1,4 +1,4 @@
-use crate::games::{Color, ColoredPiece, DimT, Settings};
+use crate::games::{CharType, Color, ColoredPiece, DimT, Settings};
 use crate::general::board::{Board, RectangularBoard};
 use crate::general::common::{NamedEntity, Res};
 use crate::general::move_list::MoveList;
@@ -20,12 +20,6 @@ use std::mem::swap;
 use std::path::Path;
 use std::str::SplitWhitespace;
 use strum_macros::EnumIter;
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum PieceToChar {
-    Ascii,
-    Unicode,
-}
 
 #[derive(Debug)]
 pub enum TextStream {
@@ -227,7 +221,7 @@ impl BoardToText {
             Pretty => {
                 let mut formatter = m
                     .get_board()
-                    .pretty_formatter(Some(PieceToChar::Unicode), m.last_move());
+                    .pretty_formatter(Some(CharType::Unicode), m.last_move());
                 format!(
                     "{time_above}{}{time_below}",
                     m.get_board().display_pretty(formatter.as_mut())
@@ -236,7 +230,7 @@ impl BoardToText {
             PrettyAscii => {
                 let mut formatter = m
                     .get_board()
-                    .pretty_formatter(Some(PieceToChar::Ascii), m.last_move());
+                    .pretty_formatter(Some(CharType::Ascii), m.last_move());
                 format!(
                     "{time_above}{}{time_below}",
                     m.get_board().display_pretty(formatter.as_mut())
@@ -244,11 +238,11 @@ impl BoardToText {
             }
             Ascii => format!(
                 "{time_above}{}{time_below}",
-                m.get_board().as_ascii_diagram(flipped)
+                m.get_board().as_diagram(CharType::Ascii, flipped)
             ),
             Unicode => format!(
                 "{time_above}{}{time_below}",
-                m.get_board().as_unicode_diagram(flipped)
+                m.get_board().as_diagram(CharType::Unicode, flipped)
             ),
             Fen => m.get_board().as_fen(),
             Pgn => Self::match_to_pgn(m),
@@ -395,9 +389,10 @@ impl<B: Board> OutputBuilder<B> for TextOutputBuilder {
     }
 }
 
-pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
+pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece, CharType) -> char>(
     pos: &B,
     piece_to_char: F,
+    typ: CharType,
     flip: bool,
 ) -> String {
     use std::fmt::Write;
@@ -411,7 +406,10 @@ pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece) -> char>(
         write!(&mut res, "{:>2} ", yc + 1).unwrap();
         for x in 0..pos.width() {
             let xc = if flip { pos.width() - 1 - x } else { x };
-            let c = piece_to_char(pos.colored_piece_on(B::Coordinates::from_row_column(yc, xc)));
+            let c = piece_to_char(
+                pos.colored_piece_on(B::Coordinates::from_row_column(yc, xc)),
+                typ,
+            );
             write!(&mut res, " {c}").unwrap();
         }
         res += "\n";
@@ -684,7 +682,7 @@ pub trait BoardFormatter<B: Board> {
 }
 
 pub struct DefaultBoardFormatter<B: RectangularBoard> {
-    pub piece_to_char: PieceToChar,
+    pub piece_to_char: CharType,
     pub pos: B,
     pub last_move: Option<B::Move>,
     pub flip: bool,
@@ -693,8 +691,8 @@ pub struct DefaultBoardFormatter<B: RectangularBoard> {
 }
 
 impl<B: RectangularBoard> DefaultBoardFormatter<B> {
-    pub fn new(pos: B, piece_to_char: Option<PieceToChar>, last_move: Option<B::Move>) -> Self {
-        let piece_to_char = piece_to_char.unwrap_or(PieceToChar::Ascii);
+    pub fn new(pos: B, piece_to_char: Option<CharType>, last_move: Option<B::Move>) -> Self {
+        let piece_to_char = piece_to_char.unwrap_or(CharType::Ascii);
         let flip = pos.active_player() == B::Color::second();
         Self {
             piece_to_char,
@@ -716,11 +714,11 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
             } else {
                 ' '
             }
-        } else if self.piece_to_char == PieceToChar::Ascii {
+        } else if self.piece_to_char == CharType::Ascii {
             // for most games, it makes sense to always upper case letters. Chess overwrites this behavior
-            piece.to_ascii_char().to_ascii_uppercase()
+            piece.to_char(CharType::Ascii).to_ascii_uppercase()
         } else {
-            piece.to_utf8_char()
+            piece.to_char(CharType::Unicode)
         };
         let c = format!("{c:^0$}", width);
 

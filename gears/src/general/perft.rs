@@ -1,4 +1,4 @@
-use crate::general::board::Board;
+use crate::general::board::{Board, BoardHelpers};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};

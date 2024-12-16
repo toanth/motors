@@ -16,8 +16,8 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::games::{
-    AbstractPieceType, BoardHistory, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT,
-    NoHistory, Settings, Size, ZobristHash,
+    AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates,
+    DimT, NoHistory, Settings, Size, ZobristHash,
 };
 use crate::general::board::SelfChecks::{Assertion, Verify};
 use crate::general::board::Strictness::Relaxed;
@@ -29,7 +29,7 @@ use crate::general::move_list::MoveList;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
 use crate::general::moves::Move;
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
-use crate::output::text_output::{BoardFormatter, PieceToChar};
+use crate::output::text_output::BoardFormatter;
 use crate::search::Depth;
 use crate::PlayerResult::Lose;
 use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
@@ -165,6 +165,8 @@ pub type BoardSize<B: Board> = <B::Coordinates as Coordinates>::Size;
 /// However, a `Board` is assumed to be markovian and needs to satisfy `Copy` and `'static`.
 /// When this is not desired, the `GameState` should be used instead, it contains a copy of the current board
 /// and additional non-markovian information, such as the history of zobrist hashes for games that need this.
+// TODO: Some methods are not meant to be overwritten, they are only trait methods because of the convenient calling syntax.
+// Move those methods into a separate trait that extends `Board` and has a blanket impl for Boards.
 pub trait Board:
     Eq
     + PartialEq
@@ -189,12 +191,6 @@ pub trait Board:
     type Move: Move<Self>;
     type MoveList: MoveList<Self> + Default;
     type Unverified: UnverifiedBoard<Self>;
-
-    /// Returns the name of the game, such as 'chess'.
-    #[must_use]
-    fn game_name() -> String {
-        Self::static_short_name().to_string()
-    }
 
     /// The position returned by this function does not have to be legal, e.g. in chess it would
     /// not include any kings. However, this is still useful to set up the board and is used
@@ -249,25 +245,6 @@ pub trait Board:
     /// The player who can now move.
     fn active_player(&self) -> Self::Color;
 
-    /// The player that cannot currently move.
-    fn inactive_player(&self) -> Self::Color {
-        self.active_player().other()
-    }
-
-    /// The 0-based number of moves (turns) since the start of the game.
-    fn fullmove_ctr_0_based(&self) -> usize {
-        (self
-            .halfmove_ctr_since_start()
-            .saturating_sub(usize::from(!self.active_player().is_first())))
-            / 2
-    }
-
-    /// The 1-based number of moves(turns) since the start of the game.
-    /// This format is used in FENs.
-    fn fullmove_ctr_1_based(&self) -> usize {
-        1 + self.fullmove_ctr_0_based()
-    }
-
     /// The number of half moves (plies) since the start of the game.
     fn halfmove_ctr_since_start(&self) -> usize;
 
@@ -278,11 +255,6 @@ pub trait Board:
     /// The size of the board expressed as coordinates.
     /// The value returned from this function does not correspond to a valid square.
     fn size(&self) -> <Self::Coordinates as Coordinates>::Size;
-
-    /// The number of squares of the board.
-    fn num_squares(&self) -> usize {
-        self.size().num_squares()
-    }
 
     /// Returns `true` iff there is no piece on the given square.
     fn is_empty(&self, coords: Self::Coordinates) -> bool;
@@ -308,21 +280,11 @@ pub trait Board:
     /// Returns the default depth that should be used for perft if not otherwise specified.
     /// Takes in a reference to self because some boards have a size determined at runtime,
     /// and the default perft depth can change depending on that (or even depending on the current position)
-    fn default_perft_depth(&self) -> Depth {
-        Depth::new_unchecked(4)
-    }
+    fn default_perft_depth(&self) -> Depth;
 
     /// Returns the maximum perft depth possible, i.e., perft depth will be clamped to this value.
     fn max_perft_depth() -> Depth {
-        Depth::new_unchecked(50)
-    }
-
-    /// Returns a list of pseudo legal moves, that is, moves which can either be played using
-    /// `make_move` or which will cause `make_move` to return `None`.
-    fn pseudolegal_moves(&self) -> Self::MoveList {
-        let mut moves = Self::MoveList::default();
-        self.gen_pseudolegal(&mut moves);
-        moves
+        Depth::try_new(20).unwrap()
     }
 
     /// Generate pseudolegal moves into the supplied move list. Can be more efficient than `pseudolegal_moves`
@@ -334,13 +296,6 @@ pub trait Board:
     /// Can be more efficient than `tactical_pseudolegal` and is generic over the move list.
     /// Note that some games don't consider any moves tactical, so this function may have no effect.
     fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T);
-
-    /// Returns a list of pseudo legal moves that are considered "tactical", such as captures and promotions in chess.
-    fn tactical_pseudolegal(&self) -> Self::MoveList {
-        let mut moves = Self::MoveList::default();
-        self.gen_tactical_pseudolegal(&mut moves);
-        moves
-    }
 
     /// Returns a list of legal moves, that is, moves that can be played using `make_move`
     /// and will not return `None`.
@@ -404,15 +359,6 @@ pub trait Board:
     /// For example, being checkmated in chess is a loss for the current player.
     fn player_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult>;
 
-    fn match_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<MatchResult> {
-        let player_res = self.player_result_slow(history)?;
-        let game_over = GameOver {
-            result: player_res,
-            reason: GameOverReason::Normal,
-        };
-        Some(player_res_to_match_res(game_over, self.active_player()))
-    }
-
     /// Only called when there are no legal moves.
     /// In that case, the function returns the game state from the current player's perspective.
     /// Note that this doesn't check that there are indeed no legal moves to avoid paying the performance cost of that.
@@ -453,6 +399,100 @@ pub trait Board:
     /// Returns a compact textual description of the board that can be read in again with `from_fen`.
     fn as_fen(&self) -> String;
 
+    /// Like `from_fen`, but changes the `input` argument to contain the reining input instead of panicking when there's
+    /// any remaining input after reading the fen.
+    fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self>;
+
+    /// Returns true iff the board should be flipped when viewed from the second player's perspective.
+    /// For example, this is the case for chess, but not for Ultimate Tic-Tac-Toe.
+    fn should_flip_visually() -> bool;
+
+    /// Returns an ASCII (or unicode) art representation of the board.
+    /// This is not meant to return a FEN, but instead a diagram where the pieces
+    /// are identified by their letters in algebraic notation.
+    /// Rectangular boards can implement this with the `[board_to_string]` function
+    fn as_diagram(&self, typ: CharType, flip: bool) -> String;
+
+    /// Returns a text-based representation of the board that's intended to look pretty.
+    /// This can be implemented by calling `as_ascii_diagram` or `as_unicode_diagram`, but the intention
+    /// is for the output to contain more information, like using colors to show the last move.
+    /// Rectangular boards can implement this with the `[display_board_pretty]` function
+    fn display_pretty(&self, formatter: &mut dyn BoardFormatter<Self>) -> String;
+
+    /// Allows boards to customize how they want to be formatted.
+    /// For example, the [`Chessboard`] can give the king square a red frame if the king is in check.
+    fn pretty_formatter(
+        &self,
+        piece: Option<CharType>,
+        last_move: Option<Self::Move>,
+    ) -> Box<dyn BoardFormatter<Self>>;
+
+    /// The background color of the given coordinates, e.g. the color of the square of a chessboard.
+    /// For rectangular boards, this can often be implemented with `coords.square_color()`,
+    /// but it's also valid to always return `White`.
+    // TODO: Maybe each board should be able to define its own square color enum?
+    fn background_color(&self, coords: Self::Coordinates) -> SquareColor;
+}
+
+/// This trait contains associated functions that can be called on `Board` instances but shouldn't be overridden by `Board` implementations.
+/// The purpose of splitting them out into their own trait is to make implementing `Board` less confusing.
+pub trait BoardHelpers: Board {
+    /// Returns the name of the game, such as 'chess'.
+    #[must_use]
+    fn game_name() -> String {
+        Self::static_short_name().to_string()
+    }
+
+    /// The player who cannot currently move.
+    fn inactive_player(&self) -> Self::Color {
+        self.active_player().other()
+    }
+
+    /// The 0-based number of moves (turns) since the start of the game.
+    fn fullmove_ctr_0_based(&self) -> usize {
+        (self
+            .halfmove_ctr_since_start()
+            .saturating_sub(usize::from(!self.active_player().is_first())))
+            / 2
+    }
+
+    /// The 1-based number of moves(turns) since the start of the game.
+    /// This format is used in FENs.
+    fn fullmove_ctr_1_based(&self) -> usize {
+        1 + self.fullmove_ctr_0_based()
+    }
+
+    /// The number of squares of the board.
+    fn num_squares(&self) -> usize {
+        self.size().num_squares()
+    }
+
+    /// Returns a list of pseudo legal moves, that is, moves which can either be played using
+    /// `make_move` or which will cause `make_move` to return `None`.
+    fn pseudolegal_moves(&self) -> Self::MoveList {
+        let mut moves = Self::MoveList::default();
+        self.gen_pseudolegal(&mut moves);
+        moves
+    }
+
+    /// Returns a list of pseudo legal moves that are considered "tactical", such as captures and promotions in chess.
+    fn tactical_pseudolegal(&self) -> Self::MoveList {
+        let mut moves = Self::MoveList::default();
+        self.gen_tactical_pseudolegal(&mut moves);
+        moves
+    }
+
+    /// Returns an optional [`MatchResult`]. Unlike a [`PlayerResult`], a [`MatchResult`] doesn't contain `Win` or `Lose` variants,
+    /// but instead `P1Win` and `P1Lose`. Also, it contains a [`GameOverReason`].
+    fn match_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<MatchResult> {
+        let player_res = self.player_result_slow(history)?;
+        let game_over = GameOver {
+            result: player_res,
+            reason: GameOverReason::Normal,
+        };
+        Some(player_res_to_match_res(game_over, self.active_player()))
+    }
+
     /// Reads in a compact textual description of the board, such that `B::from_fen(board.as_fen()) == b` holds.
     /// Assumes that the entire string represents the FEN, without any trailing tokens.
     /// Use the lower-level `read_fen_and_advance_input` if this assumption doesn't have to hold.
@@ -469,46 +509,6 @@ pub trait Board:
         }
         Ok(res)
     }
-
-    /// Like `from_fen`, but changes the `input` argument to contain the reining input instead of panicking when there's
-    /// any remaining input after reading the fen.
-    fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self>;
-
-    /// Returns true iff the board should be flipped when viewed from the second player's perspective.
-    /// For example, this is the case for chess, but not for Ultimate Tic-Tac-Toe.
-    fn should_flip_visually() -> bool;
-
-    /// Returns an ASCII art representation of the board.
-    /// This is not meant to return a FEN, but instead a diagram where the pieces
-    /// are identified by their letters in algebraic notation.
-    /// Rectangular boards can implement this with the `[board_to_string]` function
-    fn as_ascii_diagram(&self, flip: bool) -> String;
-
-    /// Returns a UTF-8 representation of the board.
-    /// This is not meant to return a FEN, but instead a diagram where the pieces
-    /// are identified by their unicode symbols.
-    /// Rectangular boards can implement this with the `[board_to_string]` function
-    fn as_unicode_diagram(&self, flip: bool) -> String;
-
-    /// Returns a text-based representation of the board that's intended to look pretty.
-    /// This can be implemented by calling `as_ascii_diagram` or `as_unicode_diagram`, but the intention
-    /// is for the output to contain more information, like using colors to show the last move.
-    /// Rectangular boards can implement this with the `[display_board_pretty]` function
-    fn display_pretty(&self, formatter: &mut dyn BoardFormatter<Self>) -> String;
-
-    /// Allows boards to customize how they want to be formatted.
-    /// For example, the [`Chessboard`] can give the king square a red frame if the king is in check.
-    fn pretty_formatter(
-        &self,
-        piece: Option<PieceToChar>,
-        last_move: Option<Self::Move>,
-    ) -> Box<dyn BoardFormatter<Self>>;
-
-    /// The background color of the given coordinates, e.g. the color of the square of a chessboard.
-    /// For rectangular boards, this can often be implemented with `coords.square_color()`,
-    /// but it's also valid to always return `White`.
-    // TODO: Maybe each board should be able to define its own square color enum?
-    fn background_color(&self, coords: Self::Coordinates) -> SquareColor;
 
     /// Verifies that all invariants of this board are satisfied. It should never be possible for this function to
     /// fail for a bug-free program; failure most likely means the `Board` implementation is bugged.
@@ -538,6 +538,8 @@ pub trait Board:
         Self::Unverified::new(self).set_ply_since_start(ply)
     }
 }
+
+impl<B: Board> BoardHelpers for B {}
 
 pub trait RectangularBoard: Board<Coordinates: RectangularCoordinates> {
     fn height(&self) -> DimT;
@@ -613,7 +615,7 @@ pub fn position_fen_part<B: RectangularBoard>(pos: &B) -> String {
                     res += &empty_ctr.to_string();
                 }
                 empty_ctr = 0;
-                res.push(piece.to_ascii_char());
+                res.push(piece.to_char(CharType::Ascii));
             }
         }
         if empty_ctr > 0 {
@@ -678,7 +680,7 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
                 skipped_digits += 1;
                 continue;
             }
-            let Some(symbol) = ColPieceType::<B>::from_ascii_char(c) else {
+            let Some(symbol) = ColPieceType::<B>::from_char(c) else {
                 bail!(
                     "Invalid character in {0} FEN position description (not a piece): {1}",
                     B::game_name(),
@@ -728,8 +730,8 @@ pub(crate) fn read_common_fen_part<B: RectangularBoard>(
         )
     };
     let correct_chars = [
-        B::Color::first().ascii_color_char(),
-        B::Color::second().ascii_color_char(),
+        B::Color::first().color_char(CharType::Ascii),
+        B::Color::second().color_char(CharType::Ascii),
     ];
     if active.chars().count() != 1 {
         bail!(

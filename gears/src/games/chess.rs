@@ -23,8 +23,8 @@ use crate::games::chess::squares::{ChessSquare, ChessboardSize};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::chess::ChessColor::{Black, White};
 use crate::games::{
-    file_to_char, n_fold_repetition, AbstractPieceType, Board, BoardHistory, Color, ColoredPiece,
-    ColoredPieceType, DimT, PieceType, Settings, ZobristHash,
+    file_to_char, n_fold_repetition, AbstractPieceType, Board, BoardHistory, CharType, Color,
+    ColoredPiece, ColoredPieceType, DimT, PieceType, Settings, ZobristHash,
 };
 use crate::general::bitboards::chessboard::{black_squares, white_squares, ChessBitboard};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard};
@@ -32,7 +32,7 @@ use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
     board_from_name, ply_counter_from_fullmove_nr, position_fen_part, read_common_fen_part,
-    NameToPos, SelfChecks, Strictness, UnverifiedBoard,
+    BoardHelpers, NameToPos, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{
     parse_int_from_str, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
@@ -41,8 +41,9 @@ use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::text_output::{
     board_to_string, display_board_pretty, display_color, AdaptFormatter, BoardFormatter,
-    DefaultBoardFormatter, PieceToChar,
+    DefaultBoardFormatter,
 };
+use crate::search::Depth;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 
@@ -102,7 +103,7 @@ impl Color for ChessColor {
         Black
     }
 
-    fn ascii_color_char(self) -> char {
+    fn color_char(self, _typ: CharType) -> char {
         match self {
             White => 'w',
             Black => 'b',
@@ -388,6 +389,10 @@ impl Board for Chessboard {
         )
     }
 
+    fn default_perft_depth(&self) -> Depth {
+        Depth::try_new(4).unwrap()
+    }
+
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
         self.gen_pseudolegal_moves(moves, !self.colored_bb(self.active_player), false)
     }
@@ -601,12 +606,8 @@ impl Board for Chessboard {
         true
     }
 
-    fn as_ascii_diagram(&self, flip: bool) -> String {
-        board_to_string(self, ChessPiece::to_ascii_char, flip)
-    }
-
-    fn as_unicode_diagram(&self, flip: bool) -> String {
-        board_to_string(self, ChessPiece::to_utf8_char, flip)
+    fn as_diagram(&self, typ: CharType, flip: bool) -> String {
+        board_to_string(self, ChessPiece::to_char, typ, flip)
     }
 
     fn display_pretty(&self, display_coordinates: &mut dyn BoardFormatter<Self>) -> String {
@@ -615,7 +616,7 @@ impl Board for Chessboard {
 
     fn pretty_formatter(
         &self,
-        piece_to_char: Option<PieceToChar>,
+        piece_to_char: Option<CharType>,
         last_move: Option<ChessMove>,
     ) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;
@@ -640,11 +641,11 @@ impl Board for Chessboard {
                         format!("{:^1$}", "*", width).dimmed().to_string()
                     }
                 } else {
-                    let c = if piece_to_char.unwrap_or(PieceToChar::Ascii) == PieceToChar::Ascii {
-                        piece.to_ascii_char()
+                    let c = if piece_to_char.unwrap_or(CharType::Ascii) == CharType::Ascii {
+                        piece.to_char(CharType::Ascii)
                     } else {
                         // uncolored because some fonts have trouble with black pawns, and some make white pieces hard to see
-                        piece.uncolored().to_utf8_char()
+                        piece.uncolored().to_char(CharType::Unicode)
                     };
                     let s = format!("{c:^0$}", width);
                     s.color(display_color(piece.color().unwrap())).to_string()

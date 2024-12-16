@@ -5,11 +5,10 @@ use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, FromRepr};
 
 use crate::games::chess::pieces::ChessPieceType::*;
-use crate::games::chess::pieces::ColoredChessPieceType::BlackPawn;
 
 use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard};
-use crate::games::{AbstractPieceType, ColoredPieceType, GenericPiece, PieceType};
+use crate::games::{AbstractPieceType, CharType, ColoredPieceType, GenericPiece, PieceType};
 
 pub const NUM_CHESS_PIECES: usize = 6;
 pub const NUM_COLORS: usize = 2;
@@ -81,7 +80,7 @@ impl ChessPieceType {
 
 impl Display for ChessPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_utf8_char())
+        write!(f, "{}", self.to_char(CharType::Unicode))
     }
 }
 
@@ -90,29 +89,28 @@ impl AbstractPieceType for ChessPieceType {
         Empty
     }
 
-    fn to_ascii_char(self) -> char {
-        match self {
-            Empty => '.',
-            Pawn => 'p',
-            Knight => 'N',
-            Bishop => 'B',
-            Rook => 'R',
-            Queen => 'Q',
-            King => 'K',
-        }
-    }
-
-    fn to_utf8_char(self) -> char {
-        // The black pieces are often the prettiest and the easiest to recognize, though this depends very much on the font
-        match self {
-            Empty => '.',
-            // Some fonts have problems with the black pawn for some reason, so use the white version to circumvent that
-            Pawn => UNICODE_WHITE_PAWN,
-            Knight => UNICODE_BLACK_KNIGHT,
-            Bishop => UNICODE_BLACK_BISHOP,
-            Rook => UNICODE_BLACK_ROOK,
-            Queen => UNICODE_BLACK_QUEEN,
-            King => UNICODE_BLACK_KING,
+    fn to_char(self, typ: CharType) -> char {
+        match typ {
+            CharType::Ascii => match self {
+                Empty => '.',
+                Pawn => 'p',
+                Knight => 'N',
+                Bishop => 'B',
+                Rook => 'R',
+                Queen => 'Q',
+                King => 'K',
+            },
+            // The black pieces are often the prettiest and the easiest to recognize, though this depends very much on the font
+            CharType::Unicode => match self {
+                Empty => '.',
+                // Some fonts have problems with the black pawn and use the emoji instead, so use the white version to circumvent that
+                Pawn => UNICODE_WHITE_PAWN,
+                Knight => UNICODE_BLACK_KNIGHT,
+                Bishop => UNICODE_BLACK_BISHOP,
+                Rook => UNICODE_BLACK_ROOK,
+                Queen => UNICODE_BLACK_QUEEN,
+                King => UNICODE_BLACK_KING,
+            },
         }
     }
 
@@ -121,30 +119,26 @@ impl AbstractPieceType for ChessPieceType {
     }
 
     /// Also parses German notation.
-    fn from_ascii_char(c: char) -> Option<Self> {
-        match c {
-            ' ' => Some(Pawn),
-            'N' | 'S' => Some(Knight),
-            'B' | 'L' => Some(Bishop),
-            'R' | 'T' => Some(Rook),
-            'Q' | 'D' => Some(Queen),
-            'K' => Some(King),
-            _ => None,
-        }
-    }
-
-    fn from_utf8_char(c: char) -> Option<Self> {
-        match c {
+    fn from_char(c: char) -> Option<Self> {
+        match c.to_ascii_lowercase() {
             ' ' => Some(Empty),
             // it's normal to use white symbols as colorless symbols, so also support that
             // And since we output the black pieces, we should definitely parse them, too
-            UNICODE_NEUTRAL_PAWN | UNICODE_WHITE_PAWN | UNICODE_BLACK_PAWN => Some(Pawn),
-            UNICODE_NEUTRAL_KNIGHT | UNICODE_WHITE_KNIGHT | UNICODE_BLACK_KNIGHT => Some(Knight),
-            UNICODE_NEUTRAL_BISHOP | UNICODE_WHITE_BISHOP | UNICODE_BLACK_BISHOP => Some(Bishop),
-            UNICODE_NEUTRAL_ROOK | UNICODE_WHITE_ROOK | UNICODE_BLACK_ROOK => Some(Rook),
-            UNICODE_NEUTRAL_QUEEN | UNICODE_WHITE_QUEEN | UNICODE_BLACK_QUEEN => Some(Queen),
-            UNICODE_NEUTRAL_KING | UNICODE_WHITE_KING | UNICODE_BLACK_KING => Some(King),
-            _ => Self::from_ascii_char(c),
+            'p' | UNICODE_NEUTRAL_PAWN | UNICODE_WHITE_PAWN | UNICODE_BLACK_PAWN => Some(Pawn),
+            'n' | 's' | UNICODE_NEUTRAL_KNIGHT | UNICODE_WHITE_KNIGHT | UNICODE_BLACK_KNIGHT => {
+                Some(Knight)
+            }
+            'b' | 'l' | UNICODE_NEUTRAL_BISHOP | UNICODE_WHITE_BISHOP | UNICODE_BLACK_BISHOP => {
+                Some(Bishop)
+            }
+            'r' | 't' | UNICODE_NEUTRAL_ROOK | UNICODE_WHITE_ROOK | UNICODE_BLACK_ROOK => {
+                Some(Rook)
+            }
+            'q' | 'd' | UNICODE_NEUTRAL_QUEEN | UNICODE_WHITE_QUEEN | UNICODE_BLACK_QUEEN => {
+                Some(Queen)
+            }
+            'k' | UNICODE_NEUTRAL_KING | UNICODE_WHITE_KING | UNICODE_BLACK_KING => Some(King),
+            _ => None,
         }
     }
 
@@ -203,7 +197,7 @@ impl ColoredChessPieceType {
 
 impl Display for ColoredChessPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_utf8_char())
+        write!(f, "{}", self.to_char(CharType::Unicode))
     }
 }
 
@@ -212,86 +206,66 @@ impl AbstractPieceType for ColoredChessPieceType {
         Self::Empty
     }
 
-    fn to_ascii_char(self) -> char {
-        match self {
-            ColoredChessPieceType::Empty => '.',
-            ColoredChessPieceType::WhitePawn => 'P',
-            ColoredChessPieceType::WhiteKnight => 'N',
-            ColoredChessPieceType::WhiteBishop => 'B',
-            ColoredChessPieceType::WhiteRook => 'R',
-            ColoredChessPieceType::WhiteQueen => 'Q',
-            ColoredChessPieceType::WhiteKing => 'K',
-            ColoredChessPieceType::BlackPawn => 'p',
-            ColoredChessPieceType::BlackKnight => 'n',
-            ColoredChessPieceType::BlackBishop => 'b',
-            ColoredChessPieceType::BlackRook => 'r',
-            ColoredChessPieceType::BlackQueen => 'q',
-            ColoredChessPieceType::BlackKing => 'k',
-        }
-    }
-
-    fn to_utf8_char(self) -> char {
-        match self {
-            ColoredChessPieceType::Empty => '.',
-            ColoredChessPieceType::WhitePawn => UNICODE_WHITE_PAWN,
-            ColoredChessPieceType::WhiteKnight => UNICODE_WHITE_KNIGHT,
-            ColoredChessPieceType::WhiteBishop => UNICODE_WHITE_BISHOP,
-            ColoredChessPieceType::WhiteRook => UNICODE_WHITE_ROOK,
-            ColoredChessPieceType::WhiteQueen => UNICODE_WHITE_QUEEN,
-            ColoredChessPieceType::WhiteKing => UNICODE_WHITE_KING,
-            ColoredChessPieceType::BlackPawn => UNICODE_BLACK_PAWN,
-            ColoredChessPieceType::BlackKnight => UNICODE_BLACK_KNIGHT,
-            ColoredChessPieceType::BlackBishop => UNICODE_BLACK_BISHOP,
-            ColoredChessPieceType::BlackRook => UNICODE_BLACK_ROOK,
-            ColoredChessPieceType::BlackQueen => UNICODE_BLACK_QUEEN,
-            ColoredChessPieceType::BlackKing => UNICODE_BLACK_KING,
+    fn to_char(self, typ: CharType) -> char {
+        match typ {
+            CharType::Ascii => match self {
+                ColoredChessPieceType::Empty => '.',
+                ColoredChessPieceType::WhitePawn => 'P',
+                ColoredChessPieceType::WhiteKnight => 'N',
+                ColoredChessPieceType::WhiteBishop => 'B',
+                ColoredChessPieceType::WhiteRook => 'R',
+                ColoredChessPieceType::WhiteQueen => 'Q',
+                ColoredChessPieceType::WhiteKing => 'K',
+                ColoredChessPieceType::BlackPawn => 'p',
+                ColoredChessPieceType::BlackKnight => 'n',
+                ColoredChessPieceType::BlackBishop => 'b',
+                ColoredChessPieceType::BlackRook => 'r',
+                ColoredChessPieceType::BlackQueen => 'q',
+                ColoredChessPieceType::BlackKing => 'k',
+            },
+            CharType::Unicode => match self {
+                ColoredChessPieceType::Empty => '.',
+                ColoredChessPieceType::WhitePawn => UNICODE_WHITE_PAWN,
+                ColoredChessPieceType::WhiteKnight => UNICODE_WHITE_KNIGHT,
+                ColoredChessPieceType::WhiteBishop => UNICODE_WHITE_BISHOP,
+                ColoredChessPieceType::WhiteRook => UNICODE_WHITE_ROOK,
+                ColoredChessPieceType::WhiteQueen => UNICODE_WHITE_QUEEN,
+                ColoredChessPieceType::WhiteKing => UNICODE_WHITE_KING,
+                ColoredChessPieceType::BlackPawn => UNICODE_BLACK_PAWN,
+                ColoredChessPieceType::BlackKnight => UNICODE_BLACK_KNIGHT,
+                ColoredChessPieceType::BlackBishop => UNICODE_BLACK_BISHOP,
+                ColoredChessPieceType::BlackRook => UNICODE_BLACK_ROOK,
+                ColoredChessPieceType::BlackQueen => UNICODE_BLACK_QUEEN,
+                ColoredChessPieceType::BlackKing => UNICODE_BLACK_KING,
+            },
         }
     }
 
     fn to_default_utf8_char(self) -> char {
         if self == ColoredChessPieceType::Empty {
-            self.to_utf8_char()
+            self.to_char(CharType::Unicode)
         } else {
-            ColoredChessPieceType::new(Black, self.uncolor()).to_utf8_char()
+            ColoredChessPieceType::new(Black, self.uncolor()).to_char(CharType::Unicode)
         }
     }
 
     /// Also parses German notation (pawns are still represented as 'p' to avoid ambiguity with bishops).
-    fn from_ascii_char(c: char) -> Option<Self> {
+    fn from_char(c: char) -> Option<Self> {
         match c {
             ' ' => Some(ColoredChessPieceType::Empty),
-            'P' => Some(ColoredChessPieceType::WhitePawn),
-            'N' | 'S' => Some(ColoredChessPieceType::WhiteKnight),
-            'B' | 'L' => Some(ColoredChessPieceType::WhiteBishop),
-            'R' | 'T' => Some(ColoredChessPieceType::WhiteRook),
-            'Q' | 'D' => Some(ColoredChessPieceType::WhiteQueen),
-            'K' => Some(ColoredChessPieceType::WhiteKing),
-            'p' => Some(ColoredChessPieceType::BlackPawn),
-            'n' | 's' => Some(ColoredChessPieceType::BlackKnight),
-            'b' | 'l' => Some(ColoredChessPieceType::BlackBishop),
-            'r' | 't' => Some(ColoredChessPieceType::BlackRook),
-            'q' | 'd' => Some(ColoredChessPieceType::BlackQueen),
-            'k' => Some(ColoredChessPieceType::BlackKing),
+            'P' | UNICODE_WHITE_PAWN => Some(ColoredChessPieceType::WhitePawn),
+            'N' | 'S' | UNICODE_WHITE_KNIGHT => Some(ColoredChessPieceType::WhiteKnight),
+            'B' | 'L' | UNICODE_WHITE_BISHOP => Some(ColoredChessPieceType::WhiteBishop),
+            'R' | 'T' | UNICODE_WHITE_ROOK => Some(ColoredChessPieceType::WhiteRook),
+            'Q' | 'D' | UNICODE_WHITE_QUEEN => Some(ColoredChessPieceType::WhiteQueen),
+            'K' | UNICODE_WHITE_KING => Some(ColoredChessPieceType::WhiteKing),
+            'p' | UNICODE_BLACK_PAWN => Some(ColoredChessPieceType::BlackPawn),
+            'n' | 's' | UNICODE_BLACK_KNIGHT => Some(ColoredChessPieceType::BlackKnight),
+            'b' | 'l' | UNICODE_BLACK_BISHOP => Some(ColoredChessPieceType::BlackBishop),
+            'r' | 't' | UNICODE_BLACK_ROOK => Some(ColoredChessPieceType::BlackRook),
+            'q' | 'd' | UNICODE_BLACK_QUEEN => Some(ColoredChessPieceType::BlackQueen),
+            'k' | UNICODE_BLACK_KING => Some(ColoredChessPieceType::BlackKing),
             _ => None,
-        }
-    }
-
-    fn from_utf8_char(c: char) -> Option<Self> {
-        match c {
-            ' ' => Some(ColoredChessPieceType::Empty),
-            UNICODE_WHITE_PAWN => Some(ColoredChessPieceType::WhitePawn),
-            UNICODE_WHITE_KNIGHT => Some(ColoredChessPieceType::WhiteKnight),
-            UNICODE_WHITE_BISHOP => Some(ColoredChessPieceType::WhiteBishop),
-            UNICODE_WHITE_ROOK => Some(ColoredChessPieceType::WhiteRook),
-            UNICODE_WHITE_QUEEN => Some(ColoredChessPieceType::WhiteQueen),
-            UNICODE_WHITE_KING => Some(ColoredChessPieceType::WhiteKing),
-            UNICODE_BLACK_PAWN => Some(ColoredChessPieceType::BlackPawn),
-            UNICODE_BLACK_KNIGHT => Some(ColoredChessPieceType::BlackKnight),
-            UNICODE_BLACK_BISHOP => Some(ColoredChessPieceType::BlackBishop),
-            UNICODE_BLACK_ROOK => Some(ColoredChessPieceType::BlackRook),
-            UNICODE_BLACK_QUEEN => Some(ColoredChessPieceType::BlackQueen),
-            UNICODE_BLACK_KING => Some(ColoredChessPieceType::BlackKing),
-            _ => Self::from_ascii_char(c),
         }
     }
 
@@ -306,7 +280,7 @@ impl ColoredPieceType<Chessboard> for ColoredChessPieceType {
     fn color(self) -> Option<ChessColor> {
         match self {
             ColoredChessPieceType::Empty => None,
-            x => ChessColor::iter().nth((x as u8 / BlackPawn as u8) as usize),
+            x => ChessColor::iter().nth((x as u8 / BLACK_OFFSET as u8) as usize),
         }
     }
 

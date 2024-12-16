@@ -17,7 +17,7 @@ use lazy_static::lazy_static;
 use whoami::fallible::realname;
 
 use gears::games::chess::Chessboard;
-use gears::general::board::Board;
+use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::anyhow::bail;
 use gears::general::common::Res;
 use gears::output::Message::*;

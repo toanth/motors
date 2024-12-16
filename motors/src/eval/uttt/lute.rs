@@ -19,7 +19,7 @@
 use crate::eval::Eval;
 use gears::games::uttt::{UtttBoard, UtttSubSquare};
 use gears::general::bitboards::RawBitboard;
-use gears::general::board::Board;
+use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::Score;
 use std::fmt::Display;

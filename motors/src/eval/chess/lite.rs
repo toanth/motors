@@ -14,7 +14,7 @@ use gears::games::{DimT, ZobristHash};
 use gears::general::bitboards::chessboard::{ChessBitboard, COLORED_SQUARES};
 use gears::general::bitboards::RawBitboard;
 use gears::general::bitboards::{Bitboard, KnownSizeBitboard};
-use gears::general::board::Board;
+use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::moves::Move;
 use gears::general::squares::RectangularCoordinates;

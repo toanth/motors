@@ -1,4 +1,4 @@
-use crate::general::board::{Board, Strictness};
+use crate::general::board::{Board, BoardHelpers, Strictness};
 use crate::general::common::{NamedEntity, Res, Tokens};
 use crate::general::moves::Move;
 use anyhow::{anyhow, bail};

@@ -2,7 +2,7 @@ use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::common::AtaxxPieceType::{Blocked, Empty, Occupied};
 use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::ataxx::{AtaxxBoard, AtaxxColor, AtaxxSquare};
-use crate::games::{AbstractPieceType, ColoredPieceType, Coordinates, DimT, PieceType};
+use crate::games::{AbstractPieceType, CharType, ColoredPieceType, Coordinates, DimT, PieceType};
 use crate::general::board::Board;
 use crate::general::common::Res;
 use crate::general::moves::Legality::Legal;
@@ -44,8 +44,8 @@ pub enum AtaxxPieceType {
 }
 
 impl Display for AtaxxPieceType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_utf8_char())
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_char(CharType::Unicode))
     }
 }
 
@@ -54,7 +54,7 @@ impl AbstractPieceType for AtaxxPieceType {
         Empty
     }
 
-    fn to_ascii_char(self) -> char {
+    fn to_char(self, _typ: CharType) -> char {
         match self {
             Empty => '.',
             Blocked => '-',
@@ -62,7 +62,7 @@ impl AbstractPieceType for AtaxxPieceType {
         }
     }
 
-    fn from_utf8_char(c: char) -> Option<Self> {
+    fn from_char(c: char) -> Option<Self> {
         match c {
             '.' => Some(Empty),
             '-' => Some(Blocked),
@@ -94,8 +94,8 @@ pub enum ColoredAtaxxPieceType {
 }
 
 impl Display for ColoredAtaxxPieceType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_utf8_char())
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_char(CharType::Unicode))
     }
 }
 
@@ -104,7 +104,7 @@ impl AbstractPieceType for ColoredAtaxxPieceType {
         Self::Empty
     }
 
-    fn to_ascii_char(self) -> char {
+    fn to_char(self, _typ: CharType) -> char {
         match self {
             ColoredAtaxxPieceType::Empty => '.',
             ColoredAtaxxPieceType::Blocked => '-',
@@ -113,7 +113,7 @@ impl AbstractPieceType for ColoredAtaxxPieceType {
         }
     }
 
-    fn from_utf8_char(c: char) -> Option<Self> {
+    fn from_char(c: char) -> Option<Self> {
         match c {
             '.' => Some(Self::Empty),
             '-' => Some(Self::Blocked),

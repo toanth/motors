@@ -3,7 +3,7 @@
 //! and `pliers` crates, which deal with engines, UI, and tuning, respectively.
 
 use crate::games::{BoardHistory, Color, ZobristHistory};
-use crate::general::board::{Board, Strictness};
+use crate::general::board::{Board, BoardHelpers, Strictness};
 use crate::general::common::Description::WithDescription;
 use crate::general::common::{select_name_dyn, Res, Tokens};
 use crate::output::OutputBuilder;

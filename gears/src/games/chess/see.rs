@@ -169,6 +169,7 @@ mod tests {
     use super::*;
     use crate::games::chess::Chessboard;
     use crate::games::Board;
+    use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::common::parse_int_from_str;
 

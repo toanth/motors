@@ -20,7 +20,7 @@ use crate::games::uttt::ColoredUtttPieceType::{OStone, XStone};
 use crate::games::uttt::UtttColor::*;
 use crate::games::uttt::{UtttBoard, UtttMove, UtttPiece, UtttSubSquare};
 use crate::general::board::Strictness::Strict;
-use crate::general::board::{Board, UnverifiedBoard};
+use crate::general::board::{Board, BoardHelpers, UnverifiedBoard};
 use crate::general::perft::perft;
 use crate::search::Depth;
 

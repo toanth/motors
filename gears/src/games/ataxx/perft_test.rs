@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod tests {
     use crate::games::ataxx::AtaxxBoard;
-    use crate::games::Board;
+    use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Strict;
     use crate::general::perft::perft;
     use crate::search::Depth;

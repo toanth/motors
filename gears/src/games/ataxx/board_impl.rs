@@ -7,7 +7,7 @@ use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    ply_counter_from_fullmove_nr, read_common_fen_part, Strictness, UnverifiedBoard,
+    ply_counter_from_fullmove_nr, read_common_fen_part, BoardHelpers, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{Res, Tokens};
 use crate::general::move_list::MoveList;

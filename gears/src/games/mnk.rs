@@ -18,8 +18,8 @@ use crate::general::bitboards::{
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    board_from_name, position_fen_part, read_position_fen, NameToPos, RectangularBoard, SelfChecks,
-    Strictness, UnverifiedBoard,
+    board_from_name, position_fen_part, read_position_fen, BoardHelpers, NameToPos,
+    RectangularBoard, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
@@ -27,8 +27,9 @@ use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
 use crate::general::squares::{GridCoordinates, GridSize};
 use crate::output::text_output::{
-    board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter, PieceToChar,
+    board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter,
 };
+use crate::search::Depth;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub enum Symbol {
@@ -72,17 +73,16 @@ impl Color for MnkColor {
         }
     }
 
-    fn ascii_color_char(self) -> char {
-        match self {
-            MnkColor::X => 'x',
-            MnkColor::O => 'o',
-        }
-    }
-
-    fn utf8_color_char(self) -> char {
-        match self {
-            MnkColor::X => UNICODE_X,
-            MnkColor::O => UNICODE_O,
+    fn color_char(self, typ: CharType) -> char {
+        match typ {
+            CharType::Ascii => match self {
+                MnkColor::X => 'x',
+                MnkColor::O => 'o',
+            },
+            CharType::Unicode => match self {
+                MnkColor::X => UNICODE_X,
+                MnkColor::O => UNICODE_O,
+            },
         }
     }
 }
@@ -95,23 +95,22 @@ impl AbstractPieceType for Symbol {
         Symbol::Empty
     }
 
-    fn to_ascii_char(self) -> char {
-        match self {
-            X => 'X',
-            O => 'O',
-            Empty => '.',
+    fn to_char(self, typ: CharType) -> char {
+        match typ {
+            CharType::Ascii => match self {
+                X => 'X',
+                O => 'O',
+                Empty => '.',
+            },
+            CharType::Unicode => match self {
+                X => UNICODE_X,
+                O => UNICODE_O,
+                Empty => '.',
+            },
         }
     }
 
-    fn to_utf8_char(self) -> char {
-        match self {
-            X => UNICODE_X,
-            O => UNICODE_O,
-            Empty => '.',
-        }
-    }
-
-    fn from_utf8_char(c: char) -> Option<Self> {
+    fn from_char(c: char) -> Option<Self> {
         match c {
             ' ' => Some(Empty),
             'X' | UNICODE_X => Some(X),
@@ -161,7 +160,7 @@ impl ColoredPieceType<MNKBoard> for Symbol {
 
 impl Display for Symbol {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.to_utf8_char())
+        write!(f, "{}", self.to_char(CharType::Unicode))
     }
 }
 
@@ -587,6 +586,10 @@ impl Board for MNKBoard {
         Square::new(symbol, coordinates)
     }
 
+    fn default_perft_depth(&self) -> Depth {
+        Depth::try_new(1_000_000 / self.num_squares() as isize).unwrap()
+    }
+
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
         let mut empty = self.empty_bb();
         while empty.has_set_bit() {
@@ -710,8 +713,8 @@ impl Board for MNKBoard {
         if !settings.check_invariants() {
             bail!("mnk invariants violated (at least one value is too large or too small)");
         }
-        let x_str = X.to_ascii_char().to_ascii_lowercase().to_string();
-        let o_str = O.to_ascii_char().to_ascii_lowercase().to_string();
+        let x_str = X.to_char(CharType::Ascii).to_ascii_lowercase().to_string();
+        let o_str = O.to_char(CharType::Ascii).to_ascii_lowercase().to_string();
         let active_player = words
             .next()
             .ok_or_else(|| anyhow!("No active player in mnk fen"))?;
@@ -752,12 +755,8 @@ impl Board for MNKBoard {
         false
     }
 
-    fn as_ascii_diagram(&self, flip: bool) -> String {
-        board_to_string(self, Square::to_ascii_char, flip)
-    }
-
-    fn as_unicode_diagram(&self, flip: bool) -> String {
-        board_to_string(self, Square::to_utf8_char, flip)
+    fn as_diagram(&self, typ: CharType, flip: bool) -> String {
+        board_to_string(self, Square::to_char, typ, flip)
     }
 
     fn display_pretty(&self, fmt: &mut dyn BoardFormatter<Self>) -> String {
@@ -766,7 +765,7 @@ impl Board for MNKBoard {
 
     fn pretty_formatter(
         &self,
-        piece_to_char: Option<PieceToChar>,
+        piece_to_char: Option<CharType>,
         last_move: Option<Self::Move>,
     ) -> Box<dyn BoardFormatter<Self>> {
         Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move))

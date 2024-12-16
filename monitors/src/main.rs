@@ -6,7 +6,7 @@ use gears::games::chess::Chessboard;
 use gears::games::mnk::MNKBoard;
 use gears::games::uttt::UtttBoard;
 use gears::games::OutputList;
-use gears::general::board::{Board, RectangularBoard};
+use gears::general::board::{Board, BoardHelpers, RectangularBoard};
 use gears::general::common::anyhow::anyhow;
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{select_name_dyn, Res};

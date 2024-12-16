@@ -1,10 +1,9 @@
-use crate::games::{Color, ColoredPiece};
+use crate::games::{CharType, Color, ColoredPiece};
 use crate::general::board::RectangularBoard;
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::text_output::{
-    display_color, p1_color, p2_color, AdaptFormatter, BoardFormatter, PieceToChar, TextStream,
-    TextWriter,
+    display_color, p1_color, p2_color, AdaptFormatter, BoardFormatter, TextStream, TextWriter,
 };
 use crate::output::Message::Info;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
@@ -60,10 +59,7 @@ impl<B: RectangularBoard> Output<B> for ChessOutput {
         if last_move.is_none() {
             writeln!(res, "Starting new game!").unwrap();
         }
-        pretty_as_chessboard(
-            &pos,
-            pos.pretty_formatter(Some(PieceToChar::Ascii), last_move),
-        )
+        pretty_as_chessboard(&pos, pos.pretty_formatter(Some(CharType::Ascii), last_move))
     }
 }
 
@@ -104,7 +100,7 @@ fn pretty_as_chessboard<B: RectangularBoard>(
         display_piece: Box::new(move |square, width, _| {
             let piece = pos.colored_piece_on(square);
             if let Some(color) = piece.color() {
-                format!("{0:^1$}", piece.to_ascii_char(), width)
+                format!("{0:^1$}", piece.to_char(CharType::Ascii), width)
                     .color(display_color(color))
                     .to_string()
             } else {

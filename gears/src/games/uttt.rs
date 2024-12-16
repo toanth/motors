@@ -25,7 +25,7 @@ use crate::games::uttt::ColoredUtttPieceType::{OStone, XStone};
 use crate::games::uttt::UtttColor::{O, X};
 use crate::games::uttt::UtttPieceType::{Empty, Occupied};
 use crate::games::{
-    AbstractPieceType, BoardHistory, Color, ColoredPiece, ColoredPieceType, Coordinates,
+    AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates,
     GenericPiece, NoHistory, PieceType, Settings, ZobristHash,
 };
 use crate::general::bitboards::{
@@ -36,7 +36,7 @@ use crate::general::board::SelfChecks::*;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
     board_from_name, common_fen_part, ply_counter_from_fullmove_nr, read_common_fen_part, Board,
-    SelfChecks, Strictness, UnverifiedBoard,
+    BoardHelpers, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{ith_one_u128, parse_int, Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
@@ -47,8 +47,9 @@ use crate::general::squares::{
 };
 use crate::output::text_output::{
     board_to_string, display_board_pretty, p1_color, p2_color, AdaptFormatter, BoardFormatter,
-    DefaultBoardFormatter, PieceToChar,
+    DefaultBoardFormatter,
 };
+use crate::search::Depth;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 use anyhow::bail;
@@ -106,7 +107,7 @@ impl Color for UtttColor {
         }
     }
 
-    fn ascii_color_char(self) -> char {
+    fn color_char(self, _typ: CharType) -> char {
         match self {
             X => 'x',
             O => 'o',
@@ -122,8 +123,8 @@ pub enum UtttPieceType {
 }
 
 impl Display for UtttPieceType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_ascii_char())
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_char(CharType::Ascii))
     }
 }
 
@@ -132,14 +133,14 @@ impl AbstractPieceType for UtttPieceType {
         Empty
     }
 
-    fn to_ascii_char(self) -> char {
+    fn to_char(self, _typ: CharType) -> char {
         match self {
             Empty => '.',
             Occupied => 'x',
         }
     }
 
-    fn from_utf8_char(c: char) -> Option<Self> {
+    fn from_char(c: char) -> Option<Self> {
         match c {
             '.' => Some(Empty),
             'o' | 'x' => Some(Occupied),
@@ -169,8 +170,8 @@ pub enum ColoredUtttPieceType {
 }
 
 impl Display for ColoredUtttPieceType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_ascii_char())
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_char(CharType::Ascii))
     }
 }
 
@@ -182,23 +183,22 @@ impl AbstractPieceType for ColoredUtttPieceType {
         Self::Empty
     }
 
-    fn to_ascii_char(self) -> char {
-        match self {
-            ColoredUtttPieceType::Empty => '.',
-            XStone => 'x',
-            OStone => 'o',
+    fn to_char(self, typ: CharType) -> char {
+        match typ {
+            CharType::Ascii => match self {
+                ColoredUtttPieceType::Empty => '.',
+                XStone => 'x',
+                OStone => 'o',
+            },
+            CharType::Unicode => match self {
+                ColoredUtttPieceType::Empty => '.',
+                XStone => UNICODE_X,
+                OStone => UNICODE_O,
+            },
         }
     }
 
-    fn to_utf8_char(self) -> char {
-        match self {
-            ColoredUtttPieceType::Empty => '.',
-            XStone => UNICODE_X,
-            OStone => UNICODE_O,
-        }
-    }
-
-    fn from_utf8_char(c: char) -> Option<Self> {
+    fn from_char(c: char) -> Option<Self> {
         match c {
             '.' => Some(ColoredUtttPieceType::Empty),
             'x' | 'X' | UNICODE_X => Some(XStone),
@@ -539,7 +539,7 @@ impl UtttBoard {
             if c == ' ' {
                 continue;
             }
-            let symbol = ColoredUtttPieceType::from_ascii_char(c).unwrap();
+            let symbol = ColoredUtttPieceType::from_char(c).unwrap();
             let square = UtttSquare::from_bb_idx(idx);
             debug_assert!(board.check_coordinates(square).is_ok());
             board = board.place_piece_unchecked(square, symbol);
@@ -559,7 +559,7 @@ impl UtttBoard {
         let mut res = String::with_capacity(Self::NUM_SQUARES);
         for i in 0..Self::NUM_SQUARES {
             let square = UtttSquare::from_bb_idx(i);
-            let mut c = self.colored_piece_on(square).to_ascii_char();
+            let mut c = self.colored_piece_on(square).to_char(CharType::Ascii);
             if c == '.' {
                 c = ' ';
             }
@@ -574,7 +574,7 @@ impl UtttBoard {
     #[must_use]
     pub fn yet_another_fen_format(&self) -> String {
         let mut res = String::new();
-        res.push(self.active.ascii_color_char().to_ascii_uppercase());
+        res.push(self.active.color_char(CharType::Ascii).to_ascii_uppercase());
         res.push(';');
         for sub_board in UtttSubSquare::iter() {
             let c = if sub_board == self.last_move.dest_square().sub_square()
@@ -597,7 +597,7 @@ impl UtttBoard {
                 let c = self
                     .colored_piece_on(sq)
                     .symbol
-                    .to_ascii_char()
+                    .to_char(CharType::Ascii)
                     .to_ascii_uppercase();
                 res.push(c);
             }
@@ -711,6 +711,10 @@ impl Board for UtttBoard {
         } else {
             UtttPiece::new(ColoredUtttPieceType::Empty, square)
         }
+    }
+
+    fn default_perft_depth(&self) -> Depth {
+        Depth::try_new(4).unwrap()
     }
 
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
@@ -866,12 +870,8 @@ impl Board for UtttBoard {
         false
     }
 
-    fn as_ascii_diagram(&self, flip: bool) -> String {
-        board_to_string(self, UtttPiece::to_ascii_char, flip)
-    }
-
-    fn as_unicode_diagram(&self, flip: bool) -> String {
-        board_to_string(self, UtttPiece::to_utf8_char, flip)
+    fn as_diagram(&self, typ: CharType, flip: bool) -> String {
+        board_to_string(self, UtttPiece::to_char, typ, flip)
     }
 
     fn display_pretty(&self, fmt: &mut dyn BoardFormatter<Self>) -> String {
@@ -880,7 +880,7 @@ impl Board for UtttBoard {
 
     fn pretty_formatter(
         &self,
-        piece_to_char: Option<PieceToChar>,
+        piece_to_char: Option<CharType>,
         last_move: Option<UtttMove>,
     ) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;

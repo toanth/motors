@@ -2,7 +2,7 @@
 //! Since those generics aren't instantiated here, there are no actual tests here.
 use crate::games::{Color, ColoredPiece, Coordinates, Size, ZobristHash};
 use crate::general::board::Strictness::Strict;
-use crate::general::board::{Board, UnverifiedBoard};
+use crate::general::board::{Board, BoardHelpers, UnverifiedBoard};
 use crate::general::moves::ExtendedFormat::{Alternative, Standard};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::Move;

@@ -14,7 +14,7 @@ use gears::games::mnk::MNKBoard;
 #[cfg(feature = "uttt")]
 use gears::games::uttt::UtttBoard;
 use gears::games::OutputList;
-use gears::general::board::Board;
+use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::anyhow::anyhow;
 use gears::general::common::Description::WithDescription;
 use gears::general::common::{select_name_dyn, Res};

@@ -7,21 +7,23 @@ use crate::games::ataxx::common::{AtaxxMove, ColoredAtaxxPieceType, MAX_ATAXX_MO
 use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::{
-    Board, BoardHistory, Color, ColoredPiece, GenericPiece, NoHistory, Settings, ZobristHash,
+    Board, BoardHistory, CharType, Color, ColoredPiece, GenericPiece, NoHistory, Settings,
+    ZobristHash,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard, SmallGridBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    board_from_name, common_fen_part, SelfChecks, Strictness, UnverifiedBoard,
+    board_from_name, common_fen_part, BoardHelpers, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::SquareColor::White;
 use crate::general::squares::{SmallGridSize, SmallGridSquare, SquareColor};
 use crate::output::text_output::{
-    board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter, PieceToChar,
+    board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter,
 };
+use crate::search::Depth;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose, Win};
 use anyhow::bail;
@@ -73,7 +75,7 @@ impl Color for AtaxxColor {
         }
     }
 
-    fn ascii_color_char(self) -> char {
+    fn color_char(self, _typ: CharType) -> char {
         match self {
             X => 'x',
             O => 'o',
@@ -264,6 +266,10 @@ impl Board for AtaxxBoard {
         Self::Piece::new(typ, coordinates)
     }
 
+    fn default_perft_depth(&self) -> Depth {
+        Depth::try_new(4).unwrap()
+    }
+
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
         self.gen_legal(moves)
     }
@@ -348,12 +354,8 @@ impl Board for AtaxxBoard {
         true
     }
 
-    fn as_ascii_diagram(&self, flip: bool) -> String {
-        board_to_string(self, AtaxxPiece::to_ascii_char, flip)
-    }
-
-    fn as_unicode_diagram(&self, flip: bool) -> String {
-        board_to_string(self, AtaxxPiece::to_utf8_char, flip)
+    fn as_diagram(&self, typ: CharType, flip: bool) -> String {
+        board_to_string(self, AtaxxPiece::to_char, typ, flip)
     }
 
     fn display_pretty(&self, fmt: &mut dyn BoardFormatter<Self>) -> String {
@@ -362,7 +364,7 @@ impl Board for AtaxxBoard {
 
     fn pretty_formatter(
         &self,
-        piece_to_char: Option<PieceToChar>,
+        piece_to_char: Option<CharType>,
         last_move: Option<Self::Move>,
     ) -> Box<dyn BoardFormatter<Self>> {
         Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move))

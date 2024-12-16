@@ -17,8 +17,8 @@ mod tests {
     use gears::games::chess::squares::ChessSquare;
     use gears::games::chess::Chessboard;
     use gears::games::{n_fold_repetition, BoardHistory, ZobristHistory};
-    use gears::general::board::Board;
     use gears::general::board::Strictness::{Relaxed, Strict};
+    use gears::general::board::{Board, BoardHelpers};
     use gears::general::common::tokens;
     use gears::general::moves::Move;
     use gears::output::pgn::parse_pgn;

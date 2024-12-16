@@ -131,8 +131,8 @@ mod tests {
     use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
     use crate::games::chess::pieces::ChessPieceType::*;
     use crate::games::chess::squares::{D_FILE_NO, E_FILE_NO};
-    use crate::general::board::Board;
     use crate::general::board::Strictness::Strict;
+    use crate::general::board::{Board, BoardHelpers};
     use crate::general::moves::Move;
     use std::collections::HashMap;
 

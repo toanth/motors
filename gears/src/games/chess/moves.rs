@@ -20,11 +20,12 @@ use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{
-    char_to_file, file_to_char, AbstractPieceType, Board, Color, ColoredPiece, ColoredPieceType,
-    DimT, ZobristHash,
+    char_to_file, file_to_char, AbstractPieceType, Board, CharType, Color, ColoredPiece,
+    ColoredPieceType, DimT, ZobristHash,
 };
 use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
+use crate::general::board::BoardHelpers;
 use crate::general::common::Res;
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::PseudoLegal;
@@ -321,9 +322,9 @@ impl Move<Chessboard> for ChessMove {
             Pawn => String::default(),
             uncolored => {
                 if format == Standard {
-                    uncolored.to_ascii_char().to_string()
+                    uncolored.to_char(CharType::Ascii).to_string()
                 } else {
-                    piece.to_utf8_char().to_string()
+                    piece.to_char(CharType::Unicode).to_string()
                 }
             }
         };
@@ -388,9 +389,9 @@ impl Move<Chessboard> for ChessMove {
         if self.is_promotion() {
             res.push('=');
             if format == Standard {
-                res.push(self.flags().promo_piece().to_ascii_char());
+                res.push(self.flags().promo_piece().to_char(CharType::Ascii));
             } else {
-                res.push(self.flags().promo_piece().to_utf8_char());
+                res.push(self.flags().promo_piece().to_char(CharType::Unicode));
             }
         }
         let board = board.make_move(self).unwrap();
@@ -419,8 +420,8 @@ fn parse_short_promo_piece(s: &str) -> Option<(ChessMoveFlags, usize)> {
     if s.len() > 4 {
         let promo = s.chars().nth(4).unwrap().to_ascii_uppercase();
         let num_bytes = promo.len_utf8() + 4;
-        let promo = ChessPieceType::from_ascii_char(promo)
-            .or_else(|| ChessPieceType::from_utf8_char(promo))?;
+        let promo =
+            ChessPieceType::from_char(promo).or_else(|| ChessPieceType::from_char(promo))?;
         return Some((
             match promo {
                 Knight => PromoKnight,
@@ -759,9 +760,9 @@ impl<'a> MoveParser<'a> {
             'a'..='h' | 'A' | 'C' | 'E'..='H' | 'x' | ':' | '×' => (),
             _ => {
                 self.piece =
-                    ColoredChessPieceType::from_utf8_char(current)
+                    ColoredChessPieceType::from_char(current)
                         .map(ColoredChessPieceType::uncolor)
-                        .or_else(|| ChessPieceType::from_utf8_char(current))
+                        .or_else(|| ChessPieceType::from_char(current))
                         .ok_or_else(|| {
                             anyhow!(
                             "The move '{}' starts with '{current}', which is not a piece or file",
@@ -870,9 +871,9 @@ impl<'a> MoveParser<'a> {
             allow_fail = false;
         }
         let piece = self.current_char().and_then(|c| {
-            ColoredChessPieceType::from_utf8_char(c)
+            ColoredChessPieceType::from_char(c)
                 .map(ColoredChessPieceType::uncolor)
-                .or_else(|| ChessPieceType::from_utf8_char(c))
+                .or_else(|| ChessPieceType::from_char(c))
         });
         if piece.is_some() {
             self.promotion = piece.unwrap();
@@ -1097,6 +1098,7 @@ mod tests {
     use crate::games::chess::Chessboard;
     use crate::games::generic_tests;
     use crate::games::Board;
+    use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Strict;
     use crate::general::moves::ExtendedFormat::{Alternative, Standard};
     use crate::general::moves::Move;

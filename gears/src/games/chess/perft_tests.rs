@@ -4,6 +4,7 @@
 mod tests {
     use crate::games::chess::Chessboard;
     use crate::games::Board;
+    use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::perft::perft;
     use crate::search::Depth;

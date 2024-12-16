@@ -27,7 +27,7 @@ use colored::Colorize;
 use edit_distance::edit_distance;
 use gears::arrayvec::ArrayVec;
 use gears::cli::Game;
-use gears::games::{Color, OutputList, ZobristHistory};
+use gears::games::{CharType, Color, OutputList, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, Strictness};
 use gears::general::common::anyhow::anyhow;
@@ -683,9 +683,9 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
     if !matches!(mode.unwrap_or(Normal), Perft | SplitPerft) {
         let mut additional: CommandList<GoState<B>> = vec![
             Box::new(Command::<GoState<B>> {
-                primary_name: format!("{}time", B::Color::first().ascii_color_char()),
+                primary_name: format!("{}time", B::Color::first().color_char(CharType::Ascii)),
                 other_names: ArrayVec::from_iter([
-                    format!("{}t", B::Color::first().ascii_color_char()),
+                    format!("{}t", B::Color::first().color_char(CharType::Ascii)),
                     "p1time".to_string(),
                     "p1t".to_string(),
                 ]),
@@ -704,9 +704,9 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
                 sub_commands: SubCommandsFn::default(),
             }),
             Box::new(Command::<GoState<B>> {
-                primary_name: format!("{}time", B::Color::second().ascii_color_char()),
+                primary_name: format!("{}time", B::Color::second().color_char(CharType::Ascii)),
                 other_names: ArrayVec::from_iter([
-                    format!("{}t", B::Color::second().ascii_color_char()),
+                    format!("{}t", B::Color::second().color_char(CharType::Ascii)),
                     "p2time".to_string(),
                     "p2t".to_string(),
                 ]),
@@ -726,9 +726,9 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
                 sub_commands: SubCommandsFn::default(),
             }),
             Box::new(Command::<GoState<B>> {
-                primary_name: format!("{}inc", B::Color::first().ascii_color_char()),
+                primary_name: format!("{}inc", B::Color::first().color_char(CharType::Ascii)),
                 other_names: ArrayVec::from_iter([
-                    format!("{}i", B::Color::first().ascii_color_char()),
+                    format!("{}i", B::Color::first().color_char(CharType::Ascii)),
                     "p1inc".to_string(),
                 ]),
                 help_text: format!("Increment in ms for {}", B::Color::first()),
@@ -747,9 +747,9 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
                 sub_commands: SubCommandsFn::default(),
             }),
             Box::new(Command::<GoState<B>> {
-                primary_name: format!("{}inc", B::Color::second().ascii_color_char()),
+                primary_name: format!("{}inc", B::Color::second().color_char(CharType::Ascii)),
                 other_names: ArrayVec::from_iter([
-                    format!("{}i", B::Color::second().ascii_color_char()),
+                    format!("{}i", B::Color::second().color_char(CharType::Ascii)),
                     "p2inc".to_string(),
                 ]),
                 help_text: format!("Increment in ms for {}", B::Color::second()),
@@ -963,7 +963,7 @@ pub fn query_options<B: Board>() -> CommandList<EngineUGI<B>> {
             primary_name: "p1turn".to_string(),
             other_names: ArrayVec::from_iter([format!(
                 "{}turn",
-                B::Color::first().ascii_color_char()
+                B::Color::first().color_char(CharType::Ascii)
             )]),
             help_text: "Is it the first player's turn?".to_string(),
             standard: UgiNotUci,
@@ -981,7 +981,7 @@ pub fn query_options<B: Board>() -> CommandList<EngineUGI<B>> {
             primary_name: "p2turn".to_string(),
             other_names: ArrayVec::from_iter([format!(
                 "{}turn",
-                B::Color::second().ascii_color_char()
+                B::Color::second().color_char(CharType::Ascii)
             )]),
             help_text: "Is it the second player's turn?".to_string(),
             standard: UgiNotUci,

@@ -2,7 +2,7 @@ use std::fmt::Display;
 use std::time::{Duration, Instant};
 
 use gears::games::BoardHistory;
-use gears::general::board::Board;
+use gears::general::board::{Board, BoardHelpers};
 
 use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;

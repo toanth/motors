@@ -22,7 +22,7 @@ use colored::Color::TrueColor;
 use colored::Colorize;
 use gears::colorgrad::{BasisGradient, Gradient, LinearGradient};
 use gears::games::Color;
-use gears::general::board::Board;
+use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::{sigmoid, Tokens};
 use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::Move;

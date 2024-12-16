@@ -8,10 +8,6 @@ use std::marker::PhantomData;
 use std::ops::Not;
 use std::str::FromStr;
 
-use derive_more::{BitXor, BitXorAssign};
-use rand::Rng;
-use strum::IntoEnumIterator;
-
 use crate::games::PlayerResult::Lose;
 use crate::general::board::Board;
 use crate::general::common::{parse_int, EntityList, Res, StaticallyNamedEntity};
@@ -19,6 +15,10 @@ use crate::general::move_list::MoveList;
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
 use crate::output::OutputBuilder;
 use crate::PlayerResult;
+use derive_more::{BitXor, BitXorAssign};
+use rand::Rng;
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
 #[cfg(feature = "mnk")]
 pub mod mnk;
@@ -32,6 +32,12 @@ mod fairy;
 mod generic_tests;
 #[cfg(feature = "uttt")]
 pub mod uttt;
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, EnumIter)]
+pub enum CharType {
+    Ascii,
+    Unicode,
+}
 
 pub trait Color:
     Debug + Display + Default + Copy + Clone + PartialEq + Eq + Send + Hash + Not + IntoEnumIterator
@@ -48,50 +54,36 @@ pub trait Color:
         self == Self::first()
     }
 
-    fn ascii_color_char(self) -> char;
-    fn utf8_color_char(self) -> char {
-        self.ascii_color_char()
-    }
-    // don't accept `'w'` and `'b'` as first and second because many games have black as the first player
+    fn color_char(self, _typ: CharType) -> char;
+
     // ASCII cases are ignored, but unicode in general can be weird as usual, so cases matter
     fn from_char(color: char) -> Option<Self> {
-        if color.eq_ignore_ascii_case(&Self::first().ascii_color_char())
-            || color == Self::first().utf8_color_char()
-        {
-            Some(Self::first())
-        } else if color.eq_ignore_ascii_case(&Self::second().ascii_color_char())
-            || color == Self::second().utf8_color_char()
-        {
-            Some(Self::second())
-        } else {
-            None
+        for char_type in CharType::iter() {
+            for col in Self::iter() {
+                if color.eq_ignore_ascii_case(&col.color_char(char_type)) {
+                    return Some(col);
+                }
+            }
         }
+        None
     }
 }
 
 pub trait AbstractPieceType: Eq + Copy + Debug + Default + Display {
     fn empty() -> Self;
 
-    fn to_ascii_char(self) -> char;
-
-    fn to_utf8_char(self) -> char {
-        self.to_ascii_char()
-    }
+    fn to_char(self, typ: CharType) -> char;
 
     /// For chess, uncolored piece symbols are different from both white and black piece symbols, but
     /// used very rarely (and kind of ugly). So this maps to the much more common black piece version,
     /// which is useful for text-based outputs that color the pieces themselves.
     fn to_default_utf8_char(self) -> char {
-        self.to_utf8_char()
+        self.to_char(CharType::Unicode)
     }
 
     #[must_use]
-    fn from_ascii_char(c: char) -> Option<Self> {
-        Self::from_utf8_char(c)
-    }
-
-    /// `from_utf8_char` should accept a (not necessarily strict) superset of `from_ascii_char`
-    fn from_utf8_char(c: char) -> Option<Self>;
+    // when parsing chars, we don't distinguish between ascii and unicode symbols
+    fn from_char(c: char) -> Option<Self>;
 
     fn to_uncolored_idx(self) -> usize;
 }
@@ -127,12 +119,8 @@ where
         self.colored_piece_type().uncolor()
     }
 
-    fn to_utf8_char(self) -> char {
-        self.colored_piece_type().to_utf8_char()
-    }
-
-    fn to_ascii_char(self) -> char {
-        self.colored_piece_type().to_ascii_char()
+    fn to_char(self, typ: CharType) -> char {
+        self.colored_piece_type().to_char(typ)
     }
 
     fn is_empty(self) -> bool {

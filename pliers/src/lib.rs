@@ -103,7 +103,7 @@ use crate::gd::{
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
 use gears::games::chess::Chessboard;
-use gears::general::board::Board;
+use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Res;
 use serde_json::from_reader;
@@ -261,7 +261,7 @@ mod tests {
     use gears::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
     use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
     use gears::games::chess::ChessColor::White;
-    use gears::games::{AbstractPieceType, ColoredPieceType};
+    use gears::games::{AbstractPieceType, CharType, ColoredPieceType};
     use ChessPieceType::*;
 
     #[test]
@@ -320,7 +320,7 @@ mod tests {
         for piece in ChessPieceType::non_king_pieces() {
             let str = format!(
                 "8/7{0}/8/8/8/k7/8/K7 w - - 0 1 | {1}\n",
-                ColoredChessPieceType::new(White, piece).to_ascii_char(),
+                ColoredChessPieceType::new(White, piece).to_char(CharType::Ascii),
                 cp_to_wr(CpScore(piece_val(piece) as Float), eval_scale),
             );
             fens += &str;

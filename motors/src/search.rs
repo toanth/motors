@@ -1143,6 +1143,7 @@ fn single_bench<B: Board>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gears::general::board::BoardHelpers;
     use gears::general::moves::Move;
 
     // A testcase that any engine should pass
