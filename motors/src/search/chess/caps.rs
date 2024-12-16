@@ -1129,6 +1129,7 @@ impl Caps {
             if depth > 5
                 && old_move != tt_entry.mov
                 && old_move.trust_unchecked() != ChessMove::NULL
+                && best_move != ChessMove::NULL
             {
                 *self.state.custom.move_table.entry_mut(&pos) = old_move;
             }
