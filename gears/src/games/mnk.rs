@@ -433,7 +433,7 @@ impl MNKBoard {
     fn make_move_for_player(mut self, mov: <Self as Board>::Move, player: MnkColor) -> Self {
         debug_assert!(self.is_move_pseudolegal(mov));
         self = UnverifiedMnkBoard::new(self)
-            .place_piece_unchecked(mov.target, player.into())
+            .place_piece(mov.target, player.into())
             .0;
         self.ply += 1;
         self.last_move = Some(mov);
@@ -794,7 +794,7 @@ impl MNKBoard {
         let player_bb = self.player_bb(player);
         let blockers = !self.player_bb(player);
         debug_assert!((blockers.raw()
-            & ExtendedRawBitboard::single_piece(self.size().internal_key(square)))
+            & ExtendedRawBitboard::single_piece_at(self.size().internal_key(square)))
         .is_zero());
 
         for dir in RayDirections::iter() {
@@ -872,13 +872,13 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
         self.0.size()
     }
 
-    fn place_piece_unchecked(mut self, sq: GridCoordinates, piece: Symbol) -> Self {
-        let placed_bb = ExtendedRawBitboard::single_piece(self.size().internal_key(sq));
+    fn place_piece(mut self, sq: GridCoordinates, piece: Symbol) -> Self {
+        let placed_bb = ExtendedRawBitboard::single_piece_at(self.size().internal_key(sq));
         let bb = match piece {
             X => &mut self.0.x_bb,
             O => &mut self.0.o_bb,
             Empty => {
-                return self.remove_piece_unchecked(sq);
+                return self.remove_piece(sq);
             }
         };
         *bb |= placed_bb;
@@ -886,9 +886,9 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
         self
     }
 
-    fn remove_piece_unchecked(self, sq: GridCoordinates) -> Self {
+    fn remove_piece(self, sq: GridCoordinates) -> Self {
         let mut this = self.0;
-        let mask = !ExtendedRawBitboard::single_piece(self.size().internal_key(sq));
+        let mask = !ExtendedRawBitboard::single_piece_at(self.size().internal_key(sq));
         this.x_bb &= mask;
         this.o_bb &= mask;
         this.last_move = None;
@@ -896,8 +896,8 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
         UnverifiedMnkBoard(this)
     }
 
-    fn piece_on(&self, coords: GridCoordinates) -> Res<Square> {
-        Ok(self.0.colored_piece_on(self.check_coordinates(coords)?))
+    fn piece_on(&self, coords: GridCoordinates) -> Square {
+        self.0.colored_piece_on(coords)
     }
 
     fn set_active_player(mut self, player: MnkColor) -> Self {

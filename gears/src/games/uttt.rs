@@ -469,7 +469,7 @@ impl UtttBoard {
             )
         );
         self.colors_internal[color as usize] |=
-            RawUtttBitboard::single_piece(Self::NUM_SQUARES + sub_board.bb_idx());
+            RawUtttBitboard::single_piece_at(Self::NUM_SQUARES + sub_board.bb_idx());
         self.open &= !((Self::SUB_BOARD_MASK as u128) << (sub_board.bb_idx() * 9));
         debug_assert!(self.is_sub_board_won(color, sub_board));
         debug_assert!(!self.is_sub_board_open(sub_board));
@@ -542,7 +542,7 @@ impl UtttBoard {
             let symbol = ColoredUtttPieceType::from_char(c).unwrap();
             let square = UtttSquare::from_bb_idx(idx);
             debug_assert!(board.check_coordinates(square).is_ok());
-            board = board.place_piece_unchecked(square, symbol);
+            board = board.place_piece(square, symbol);
             if c.is_uppercase() {
                 board.0.active = UtttColor::from_char(c).unwrap().other();
                 let mov = board.last_move_mut();
@@ -764,7 +764,7 @@ impl Board for UtttBoard {
     fn make_move(mut self, mov: Self::Move) -> Option<Self> {
         let color = self.active;
         let square = mov.dest_square();
-        let bb = ExtendedRawBitboard::single_piece(square.bb_idx());
+        let bb = ExtendedRawBitboard::single_piece_at(square.bb_idx());
         self.colors_internal[color as usize] |= bb;
         self.open &= !bb;
         self.update_won_bb(square, color);
@@ -1013,15 +1013,15 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
         self.0.size()
     }
 
-    fn place_piece_unchecked(mut self, square: UtttSquare, piece: ColoredUtttPieceType) -> Self {
+    fn place_piece(mut self, square: UtttSquare, piece: ColoredUtttPieceType) -> Self {
         let color = piece.color().unwrap();
-        let bb = ExtendedRawBitboard::single_piece(square.bb_idx());
+        let bb = ExtendedRawBitboard::single_piece_at(square.bb_idx());
         self.0.colors_internal[color as usize] |= bb;
         self
     }
 
-    fn remove_piece_unchecked(mut self, square: UtttSquare) -> Self {
-        let bb = ExtendedRawBitboard::single_piece(square.bb_idx());
+    fn remove_piece(mut self, square: UtttSquare) -> Self {
+        let bb = ExtendedRawBitboard::single_piece_at(square.bb_idx());
         self.0.colors_internal[0] &= !bb;
         self.0.colors_internal[1] &= !bb;
         self.0.last_move = UtttMove::NULL;
@@ -1029,8 +1029,8 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
         self
     }
 
-    fn piece_on(&self, coords: UtttSquare) -> Res<UtttPiece> {
-        Ok(self.0.colored_piece_on(self.check_coordinates(coords)?))
+    fn piece_on(&self, coords: UtttSquare) -> UtttPiece {
+        self.0.colored_piece_on(coords)
     }
 
     fn set_active_player(mut self, player: UtttColor) -> Self {

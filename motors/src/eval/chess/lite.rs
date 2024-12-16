@@ -14,7 +14,7 @@ use gears::games::{DimT, ZobristHash};
 use gears::general::bitboards::chessboard::{ChessBitboard, COLORED_SQUARES};
 use gears::general::bitboards::RawBitboard;
 use gears::general::bitboards::{Bitboard, KnownSizeBitboard};
-use gears::general::board::{Board, BoardHelpers};
+use gears::general::board::{BitboardBoard, Board, BoardHelpers};
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::moves::Move;
 use gears::general::squares::RectangularCoordinates;
@@ -257,7 +257,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 let attacks = pos.attacks_no_castle_or_pawn_push(square, piece, color);
                 all_attacks |= attacks;
                 let attacks_no_pawn_recapture = attacks & !attacked_by_pawn;
-                let mobility = (attacks_no_pawn_recapture & !pos.colored_bb(color)).num_ones();
+                let mobility = (attacks_no_pawn_recapture & !pos.player_bb(color)).num_ones();
                 score += Tuned::mobility(piece, mobility);
                 for threatened_piece in ChessPieceType::pieces() {
                     let attacked = pos.colored_piece_bb(color.other(), threatened_piece) & attacks;
@@ -276,7 +276,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 }
             }
         }
-        let all_defended = pos.colored_bb(color) & (all_attacks & !attacked_by_pawn);
+        let all_defended = pos.player_bb(color) & (all_attacks & !attacked_by_pawn);
         score += Tuned::num_defended(all_defended.num_ones());
 
         score

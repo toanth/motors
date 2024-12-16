@@ -1,8 +1,7 @@
 #[cfg(feature = "chess")]
 use crate::games::chess::ChessColor;
 use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, KnownSize, Size, Width};
-use crate::general::bitboards::chessboard::ChessBitboard;
-use crate::general::bitboards::KnownSizeBitboard;
+use crate::general::bitboards::{KnownSizeBitboard, SmallGridBitboard};
 use crate::general::common::{parse_int_from_str, Res};
 use crate::general::squares::SquareColor::{Black, White};
 use anyhow::{anyhow, bail};
@@ -360,11 +359,6 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
         self.idx
     }
 
-    // TODO: Don't return a ChessBitboard
-    pub fn bb(self) -> ChessBitboard {
-        ChessBitboard::single_piece(self.bb_idx())
-    }
-
     /// Note that this isn't necessarily consecutive because the bitboard assumes a width of at least 8 for efficiency reasons.
     pub fn bb_idx(self) -> usize {
         self.idx as usize
@@ -428,6 +422,12 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
 
     pub const fn no_coordinates_const() -> Self {
         Self::unchecked(H * INTERNAL_WIDTH)
+    }
+}
+
+impl<const H: usize, const W: usize> SmallGridSquare<H, W, 8> {
+    pub fn bb(self) -> SmallGridBitboard<H, W> {
+        SmallGridBitboard::single_piece(self)
     }
 }
 

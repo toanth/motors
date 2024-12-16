@@ -97,7 +97,7 @@ mod tests {
     use gears::games::chess::{ChessColor, Chessboard};
     use gears::games::DimT;
     use gears::general::bitboards::RawBitboard;
-    use gears::general::board::Board;
+    use gears::general::board::{BitboardBoard, Board};
     use gears::score::Score;
     use strum::IntoEnumIterator;
 

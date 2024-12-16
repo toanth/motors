@@ -25,7 +25,7 @@ use crate::games::{
 };
 use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
-use crate::general::board::BoardHelpers;
+use crate::general::board::{BitboardBoard, BoardHelpers};
 use crate::general::common::Res;
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::PseudoLegal;
@@ -153,7 +153,7 @@ impl ChessMove {
 
     pub fn is_non_ep_capture(self, board: &Chessboard) -> bool {
         board
-            .colored_bb(board.active_player.other())
+            .player_bb(board.active_player.other())
             .is_bit_set_at(self.dest_square().bb_idx())
     }
 
@@ -583,7 +583,7 @@ impl Chessboard {
             PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         self.move_piece(from, to, piece);
         if mov.is_promotion() {
-            let bb = to.bb().raw();
+            let bb = to.bb();
             self.piece_bbs[Pawn as usize] ^= bb;
             self.piece_bbs[mov.flags().promo_piece() as usize] ^= bb;
             new_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, color, to);

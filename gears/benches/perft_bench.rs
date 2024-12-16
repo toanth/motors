@@ -94,7 +94,7 @@ pub fn bitboard_ones_bench(c: &mut Criterion) {
         b.iter(|| {
             for pos in &positions {
                 let mut sum = 0;
-                for piece in pos.colored_bb(White).ones() {
+                for piece in pos.player_bb(White).ones() {
                     sum += piece.bb_idx();
                 }
                 black_box(sum);
@@ -109,7 +109,7 @@ pub fn bitboard_poplsb_bench(c: &mut Criterion) {
         b.iter(|| {
             let mut sum = 0;
             for pos in &positions {
-                let mut bb = pos.colored_bb(White);
+                let mut bb = pos.player_bb(White);
                 while bb.has_set_bit() {
                     sum += bb.pop_lsb();
                 }

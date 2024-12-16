@@ -163,7 +163,7 @@ pub trait RawBitboard:
         debug_assert!(low.is_single_piece());
         debug_assert!(high.is_single_piece());
         debug_assert!(low.num_trailing_zeros() <= high.num_trailing_zeros());
-        ((high - Self::single_piece(0)) ^ (low - Self::single_piece(0))) | high
+        ((high - Self::single_piece_at(0)) ^ (low - Self::single_piece_at(0))) | high
     }
 
     #[inline]
@@ -186,7 +186,7 @@ pub trait RawBitboard:
 
     #[must_use]
     #[inline]
-    fn single_piece(idx: usize) -> Self {
+    fn single_piece_at(idx: usize) -> Self {
         Self::one() << idx
     }
 
@@ -300,7 +300,7 @@ pub enum RayDirections {
     AntiDiagonal,
 }
 
-/// A bitboard extends a [`RawBitboard`] (simply a set of 64 / 128 bits) with a size,
+/// A bitboard extends a [`RawBitboard`] (simply a set of 64 / 128 / ... bits) with a size,
 /// which allows talking about concepts like rows.
 #[must_use]
 pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
@@ -460,7 +460,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     where
         F: Fn(Self) -> Self,
     {
-        let piece = Self::new(R::single_piece(idx), blockers.size());
+        let piece = Self::new(R::single_piece_at(idx), blockers.size());
         debug_assert!(!(piece & ray).is_zero());
         let blockers = blockers & ray;
         let reversed_blockers = reverse(blockers);
@@ -646,9 +646,22 @@ pub trait KnownSizeBitboard<R: RawBitboard, C: RectangularCoordinates<Size: Know
         Bitboard::new(raw, C::Size::default())
     }
 
+    // May panic if those coordinates aren't valid, which can happen for runtime sizes
+    // (but should be able to be statically checked for [`KnownSizeBitboard`]s).
+    // The same goes for similar methods using this function.
     #[inline]
-    fn single_piece(idx: usize) -> Self {
-        Self::from_raw(RawBitboard::single_piece(idx))
+    fn idx_of(c: C) -> usize {
+        C::Size::default().internal_key(c)
+    }
+
+    #[inline]
+    fn is_bit_set(self, c: C) -> bool {
+        self.is_bit_set_at(Self::idx_of(c))
+    }
+
+    #[inline]
+    fn single_piece(c: C) -> Self {
+        Self::from_raw(RawBitboard::single_piece_at(Self::idx_of(c)))
     }
 
     #[inline]
@@ -696,6 +709,8 @@ fn flip_lowest_byte(bb: u64) -> u64 {
     Clone,
     Eq,
     PartialEq,
+    Hash,
+    Arbitrary,
     derive_more::Deref,
     derive_more::DerefMut,
     Sub,
@@ -1096,7 +1111,8 @@ mod tests {
     #[test]
     fn precomputed_test() {
         for i in 0..64 {
-            let bb = ChessBitboard::single_piece(i);
+            // equivalent to `ChessSquare::from_bb_index(i).bb()`
+            let bb = ChessBitboard::new(RawStandardBitboard::single_piece_at(i));
             let king = bb.west() | bb.east() | bb;
             let king = king.south() | king.north() | king;
             let leaping = king.west() | king.east() | king;

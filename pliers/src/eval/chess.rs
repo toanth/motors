@@ -9,6 +9,7 @@ use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::ChessColor::White;
 use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::bitboards::{Bitboard, RawBitboard};
+use gears::general::board::BitboardBoard;
 use motors::eval::chess::CHESS_PHASE_VALUES;
 use std::fmt::Formatter;
 use strum::IntoEnumIterator;

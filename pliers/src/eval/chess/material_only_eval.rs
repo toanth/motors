@@ -7,6 +7,7 @@ use crate::trace::{BasicTrace, SimpleTrace, TraceTrait};
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::bitboards::RawBitboard;
+use gears::general::board::BitboardBoard;
 use std::fmt::Formatter;
 use strum::IntoEnumIterator;
 

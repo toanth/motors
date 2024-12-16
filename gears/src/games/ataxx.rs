@@ -10,11 +10,14 @@ use crate::games::{
     Board, BoardHistory, CharType, Color, ColoredPiece, GenericPiece, NoHistory, Settings,
     ZobristHash,
 };
-use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard, SmallGridBitboard};
+use crate::general::bitboards::{
+    KnownSizeBitboard, RawBitboard, RawStandardBitboard, SmallGridBitboard,
+};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    board_from_name, common_fen_part, BoardHelpers, SelfChecks, Strictness, UnverifiedBoard,
+    board_from_name, common_fen_part, BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks,
+    Strictness, UnverifiedBoard,
 };
 use crate::general::common::{Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
@@ -85,8 +88,8 @@ impl Color for AtaxxColor {
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Arbitrary)]
 pub struct AtaxxBoard {
-    colors: [RawStandardBitboard; NUM_COLORS],
-    empty: RawStandardBitboard,
+    colors: [AtaxxBitboard; NUM_COLORS],
+    empty: AtaxxBitboard,
     active_player: AtaxxColor,
     ply_100_ctr: usize,
     ply: usize,
@@ -376,6 +379,19 @@ impl Board for AtaxxBoard {
     }
 }
 
+impl BitboardBoard for AtaxxBoard {
+    type RawBitboard = RawStandardBitboard;
+    type Bitboard = AtaxxBitboard;
+
+    fn piece_bb(&self, _piece: PieceTypeOf<Self>) -> Self::Bitboard {
+        self.colors[0] | self.colors[1]
+    }
+
+    fn player_bb(&self, color: Self::Color) -> Self::Bitboard {
+        self.colors[color as usize]
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 #[must_use]
 pub struct UnverifiedAtaxxBoard(AtaxxBoard);
@@ -435,8 +451,8 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
         self.0.size()
     }
 
-    fn place_piece_unchecked(mut self, square: AtaxxSquare, piece: ColoredAtaxxPieceType) -> Self {
-        let bb = RawStandardBitboard::single_piece(square.bb_idx());
+    fn place_piece(mut self, square: AtaxxSquare, piece: ColoredAtaxxPieceType) -> Self {
+        let bb = AtaxxBitboard::single_piece(square);
         self.0.colors[0] &= !bb;
         self.0.colors[1] &= !bb;
         self.0.empty &= !bb;
@@ -449,16 +465,16 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
         self
     }
 
-    fn remove_piece_unchecked(mut self, square: AtaxxSquare) -> Self {
-        let bb = RawStandardBitboard::single_piece(square.bb_idx());
+    fn remove_piece(mut self, square: AtaxxSquare) -> Self {
+        let bb = AtaxxBitboard::single_piece(square);
         self.0.colors[0] &= !bb;
         self.0.colors[1] &= !bb;
         self.0.empty |= bb;
         self
     }
 
-    fn piece_on(&self, coords: AtaxxSquare) -> Res<AtaxxPiece> {
-        Ok(self.0.colored_piece_on(self.check_coordinates(coords)?))
+    fn piece_on(&self, coords: AtaxxSquare) -> AtaxxPiece {
+        self.0.colored_piece_on(coords)
     }
 
     fn set_active_player(mut self, player: AtaxxColor) -> Self {
@@ -478,8 +494,8 @@ impl UnverifiedAtaxxBoard {
         self
     }
 
-    pub fn set_blockers_bb(mut self, blockers_bb: RawStandardBitboard) -> Self {
-        self.0.empty = self.0.empty ^ self.0.blocked_bb().raw() ^ blockers_bb;
+    pub fn set_blockers_bb(mut self, blockers_bb: AtaxxBitboard) -> Self {
+        self.0.empty = self.0.empty ^ self.0.blocked_bb() ^ blockers_bb;
         self
     }
 }

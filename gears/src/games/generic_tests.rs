@@ -42,7 +42,7 @@ impl<B: Board> GenericTests<B> {
                 pos.is_empty(coords),
                 pos.colored_piece_on(coords).color().is_none()
             );
-            p = p.remove_piece(coords).unwrap();
+            p = p.try_remove_piece(coords).unwrap();
         }
         assert_eq!(
             p.verify(Strict).map_err(|_| ()),

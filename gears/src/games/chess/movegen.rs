@@ -11,6 +11,7 @@ use crate::games::{Board, Color, ColoredPieceType};
 use crate::general::bitboards::chessboard::{ChessBitboard, KINGS, KNIGHTS};
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
+use crate::general::board::{BitboardBoard, BoardHelpers};
 use crate::general::move_list::MoveList;
 use crate::general::moves::Move;
 use crate::general::squares::RectangularCoordinates;
@@ -79,7 +80,7 @@ impl Chessboard {
             let mut incorrect = false;
             incorrect |= mov.is_ep() && self.ep_square() != Some(mov.dest_square());
             incorrect |= mov.is_promotion() && !mov.dest_square().is_backrank();
-            let capturable = self.colored_bb(color.other())
+            let capturable = self.player_bb(color.other())
                 | self.ep_square.map(ChessSquare::bb).unwrap_or_default();
             !incorrect
                 && Self::single_pawn_moves(color, src, capturable, self.empty_bb())
@@ -94,7 +95,7 @@ impl Chessboard {
     /// Used for castling and to implement `is_in_check`:
     /// Pretend there is a king of color `us` at `square` and test if it is in check.
     pub fn is_in_check_on_square(&self, us: ChessColor, square: ChessSquare) -> bool {
-        (self.all_attacking(square) & self.colored_bb(us.other())).has_set_bit()
+        (self.all_attacking(square) & self.player_bb(us.other())).has_set_bit()
     }
 
     pub(super) fn gen_pseudolegal_moves<T: MoveList<Self>>(
@@ -115,7 +116,7 @@ impl Chessboard {
         let pawns = self.colored_piece_bb(color, Pawn);
         let occupied = self.occupied_bb();
         let free = !occupied;
-        let opponent = self.colored_bb(color.other());
+        let opponent = self.player_bb(color.other());
         let regular_pawn_moves;
         let double_pawn_moves;
         let left_pawn_captures;

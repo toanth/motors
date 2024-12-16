@@ -20,6 +20,7 @@ use gears::games::chess::squares::ChessSquare;
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
 use gears::games::{n_fold_repetition, BoardHistory, ZobristHash, ZobristHistory};
 use gears::general::bitboards::RawBitboard;
+use gears::general::board::BitboardBoard;
 use gears::general::common::Description::NoDescription;
 use gears::general::common::{
     parse_bool_from_str, parse_int_from_str, select_name_static, Res, StaticallyNamedEntity,

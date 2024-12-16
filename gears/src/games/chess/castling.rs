@@ -13,8 +13,8 @@ use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{char_to_file, Board, ColoredPieceType, DimT};
 use crate::general::bitboards::RawBitboard;
-use crate::general::board::Strictness;
 use crate::general::board::Strictness::Strict;
+use crate::general::board::{BitboardBoard, Strictness};
 use crate::general::common::Res;
 use crate::general::squares::RectangularCoordinates;
 

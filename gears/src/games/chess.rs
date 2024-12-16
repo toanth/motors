@@ -32,7 +32,7 @@ use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
     board_from_name, ply_counter_from_fullmove_nr, position_fen_part, read_common_fen_part,
-    BoardHelpers, NameToPos, SelfChecks, Strictness, UnverifiedBoard,
+    BitboardBoard, BoardHelpers, NameToPos, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{
     parse_int_from_str, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
@@ -113,8 +113,8 @@ impl Color for ChessColor {
 
 #[derive(Eq, PartialEq, Debug, Copy, Clone, Arbitrary)]
 pub struct Chessboard {
-    piece_bbs: [RawStandardBitboard; NUM_CHESS_PIECES],
-    color_bbs: [RawStandardBitboard; NUM_COLORS],
+    piece_bbs: [ChessBitboard; NUM_CHESS_PIECES],
+    color_bbs: [ChessBitboard; NUM_COLORS],
     ply: usize,
     ply_100_ctr: usize,
     active_player: ChessColor,
@@ -370,7 +370,7 @@ impl Board for Chessboard {
     fn colored_piece_on(&self, square: Self::Coordinates) -> Self::Piece {
         let idx = square.bb_idx();
         let uncolored = self.piece_type_on(square);
-        let color = if self.colored_bb(Black).is_bit_set_at(idx) {
+        let color = if self.player_bb(Black).is_bit_set_at(idx) {
             Black
         } else {
             White // use white as color for `Empty` because that's what `new` expects
@@ -394,11 +394,11 @@ impl Board for Chessboard {
     }
 
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
-        self.gen_pseudolegal_moves(moves, !self.colored_bb(self.active_player), false)
+        self.gen_pseudolegal_moves(moves, !self.player_bb(self.active_player), false)
     }
 
     fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
-        self.gen_pseudolegal_moves(moves, self.colored_bb(self.active_player.other()), true)
+        self.gen_pseudolegal_moves(moves, self.player_bb(self.active_player.other()), true)
     }
 
     fn random_legal_move<T: Rng>(&self, rng: &mut T) -> Option<Self::Move> {
@@ -467,7 +467,7 @@ impl Board for Chessboard {
     /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
     /// return `false` if there is a realistic way to win).
     fn can_reasonably_win(&self, player: ChessColor) -> bool {
-        if self.colored_bb(player).is_single_piece() {
+        if self.player_bb(player).is_single_piece() {
             return false; // we only have our king left
         }
         // return true if the opponent has pawns because that can create possibilities to force them
@@ -662,41 +662,21 @@ impl Board for Chessboard {
     }
 }
 
-impl Chessboard {
-    pub fn piece_bb(&self, piece: ChessPieceType) -> ChessBitboard {
+impl BitboardBoard for Chessboard {
+    type RawBitboard = RawStandardBitboard;
+    type Bitboard = ChessBitboard;
+
+    fn piece_bb(&self, piece: PieceTypeOf<Self>) -> Self::Bitboard {
         debug_assert_ne!(piece, Empty);
-        ChessBitboard::from_raw(self.piece_bbs[piece.to_uncolored_idx()])
+        self.piece_bbs[piece as usize]
     }
 
-    pub fn colored_bb(&self, color: ChessColor) -> ChessBitboard {
-        ChessBitboard::from_raw(self.color_bbs[color as usize])
+    fn player_bb(&self, color: Self::Color) -> Self::Bitboard {
+        self.color_bbs[color as usize]
     }
+}
 
-    pub fn active_player_bb(&self) -> ChessBitboard {
-        self.colored_bb(self.active_player)
-    }
-
-    pub fn inactive_player_bb(&self) -> ChessBitboard {
-        self.colored_bb(self.inactive_player())
-    }
-
-    pub fn occupied_bb(&self) -> ChessBitboard {
-        debug_assert!((self.colored_bb(White) & self.colored_bb(Black)).is_zero());
-        self.colored_bb(White) | self.colored_bb(Black)
-    }
-
-    pub fn empty_bb(&self) -> ChessBitboard {
-        !self.occupied_bb()
-    }
-
-    pub fn is_occupied(&self, square: ChessSquare) -> bool {
-        self.occupied_bb().is_bit_set_at(square.bb_idx())
-    }
-
-    pub fn colored_piece_bb(&self, color: ChessColor, piece: ChessPieceType) -> ChessBitboard {
-        self.colored_bb(color) & self.piece_bb(piece)
-    }
-
+impl Chessboard {
     fn remove_piece_unchecked(
         &mut self,
         square: ChessSquare,
@@ -707,7 +687,7 @@ impl Chessboard {
             self.colored_piece_on(square),
             ChessPiece::new(ColoredChessPieceType::new(color, piece), square)
         );
-        let bb = square.bb().raw();
+        let bb = square.bb();
         self.piece_bbs[piece as usize] ^= bb;
         self.color_bbs[color as usize] ^= bb;
         // It's not really clear how to so handle these flags when removing pieces, so we just unset them on a best effort basis
@@ -753,7 +733,7 @@ impl Chessboard {
         );
         // use ^ instead of | for to merge the from and to bitboards because in chess960 castling,
         // it is possible that from == to or that there's another piece on the target square
-        let bb = (from.bb() ^ to.bb()).raw();
+        let bb = from.bb() ^ to.bb();
         let color = self.active_player;
         self.color_bbs[color as usize] ^= bb;
         self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
@@ -833,7 +813,7 @@ impl Chessboard {
         if num >= 960 {
             bail!("There are only 960 starting positions in chess960 (0 to 959), so position {num} doesn't exist");
         }
-        assert!(board.0.colored_bb(color).is_zero());
+        assert!(board.0.player_bb(color).is_zero());
         assert_eq!(board.0.occupied_bb().raw() & 0xffff, 0);
         let mut extract_factor = |i: usize| {
             let res = num % i;
@@ -854,7 +834,7 @@ impl Chessboard {
         };
         let mut place_piece = |i: usize, typ: ChessPieceType| {
             let bit = ith_zero(i, board.0.occupied_bb());
-            board = board.place_piece_unchecked(
+            board = board.place_piece(
                 ChessSquare::from_bb_index(bit),
                 ColoredChessPieceType::new(White, typ),
             );
@@ -910,10 +890,10 @@ impl Chessboard {
         let mut res = Self::empty();
         res = Self::chess960_startpos_white(black_num, Black, res)?;
         for bb in &mut res.0.piece_bbs {
-            *bb = ChessBitboard::from_raw(*bb).flip_up_down().raw();
+            *bb = bb.flip_up_down();
         }
-        res.0.color_bbs[Black as usize] = res.0.colored_bb(White).flip_up_down().raw();
-        res.0.color_bbs[White as usize] = RawStandardBitboard::default();
+        res.0.color_bbs[Black as usize] = res.0.player_bb(White).flip_up_down();
+        res.0.color_bbs[White as usize] = ChessBitboard::default();
         res = Self::chess960_startpos_white(white_num, White, res)?;
         // the hash is computed in the verify method
         Ok(res.verify_with_level(Assertion, Strict).expect("Internal error: Setting up a Chess960 starting position resulted in an invalid position"))
@@ -1098,24 +1078,24 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         self.0.size()
     }
 
-    fn place_piece_unchecked(self, square: ChessSquare, piece: ColoredChessPieceType) -> Self {
+    fn place_piece(self, square: ChessSquare, piece: ColoredChessPieceType) -> Self {
         let mut this = self.0;
         debug_assert!(self.0.is_empty(square));
-        let bb = square.bb().raw();
+        let bb = square.bb();
         this.piece_bbs[piece.uncolor() as usize] ^= bb;
         this.color_bbs[piece.color().unwrap() as usize] ^= bb;
         this.into()
     }
 
-    fn remove_piece_unchecked(mut self, sq: ChessSquare) -> Self {
+    fn remove_piece(mut self, sq: ChessSquare) -> Self {
         let piece = self.0.colored_piece_on(sq);
         self.0
             .remove_piece_unchecked(sq, piece.symbol.uncolor(), piece.color().unwrap());
         self
     }
 
-    fn piece_on(&self, coords: ChessSquare) -> Res<ChessPiece> {
-        Ok(self.0.colored_piece_on(self.check_coordinates(coords)?))
+    fn piece_on(&self, coords: ChessSquare) -> ChessPiece {
+        self.0.colored_piece_on(coords)
     }
 
     fn set_active_player(mut self, player: ChessColor) -> Self {
@@ -1248,9 +1228,9 @@ mod tests {
         assert!(!board.is_3fold_repetition(&ZobristHistory::default()));
         assert!(!board.has_insufficient_material());
         assert!(!board.is_50mr_draw());
-        assert_eq!(board.colored_bb(White), ChessBitboard::from_raw(0xffff));
+        assert_eq!(board.player_bb(White), ChessBitboard::from_raw(0xffff));
         assert_eq!(
-            board.colored_bb(Black),
+            board.player_bb(Black),
             ChessBitboard::from_raw(0xffff_0000_0000_0000)
         );
         assert_eq!(

@@ -3,7 +3,7 @@ use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::{AtaxxBitboard, AtaxxBoard, AtaxxColor, AtaxxMoveList};
 use crate::games::{Board, Color, ZobristHash};
 use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, KINGS};
-use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
@@ -34,8 +34,8 @@ impl AtaxxBoard {
         }
         // it's legal for the position to not contain any pieces at all
         Ok(Self {
-            colors: [x_bb.raw(), o_bb.raw()],
-            empty: !(blocked | o_bb | x_bb).raw(),
+            colors: [x_bb, o_bb],
+            empty: !(blocked | o_bb | x_bb),
             active_player: AtaxxColor::first(),
             ply_100_ctr: 0,
             ply: 0,
@@ -43,19 +43,19 @@ impl AtaxxBoard {
     }
 
     pub fn color_bb(&self, color: AtaxxColor) -> AtaxxBitboard {
-        AtaxxBitboard::new(self.colors[color as usize])
+        self.colors[color as usize]
     }
 
     pub fn occupied_non_blocked_bb(&self) -> AtaxxBitboard {
-        AtaxxBitboard::new(self.colors[0] | self.colors[1])
+        self.colors[0] | self.colors[1]
     }
 
     pub fn empty_bb(&self) -> AtaxxBitboard {
-        AtaxxBitboard::new(self.empty)
+        self.empty
     }
 
     pub fn blocked_bb(&self) -> AtaxxBitboard {
-        AtaxxBitboard::new(!(self.empty | self.colors[0] | self.colors[1]))
+        !(self.empty | self.colors[0] | self.colors[1])
     }
 
     pub fn active_bb(&self) -> AtaxxBitboard {
@@ -109,7 +109,7 @@ impl AtaxxBoard {
                     .is_bit_set_at(mov.src_square().bb_idx())
         );
         if mov.typ() == Leaping {
-            let source_bb = mov.src_square().bb().raw();
+            let source_bb = AtaxxBitboard::single_piece(mov.src_square());
             self.colors[color as usize] ^= source_bb;
             self.empty ^= source_bb;
             self.ply_100_ctr += 1;
@@ -118,8 +118,8 @@ impl AtaxxBoard {
         }
         debug_assert!(self.empty_bb().is_bit_set_at(mov.dest_square().bb_idx()));
         let dest = mov.dest_square();
-        let dest_bb = dest.bb().raw();
-        let in_range = KINGS[dest.bb_idx()].raw();
+        let dest_bb = AtaxxBitboard::single_piece(dest);
+        let in_range = AtaxxBitboard::new(KINGS[dest.bb_idx()].raw());
         let converted = self.colors[color.other() as usize] & in_range;
         debug_assert!((converted & dest_bb).is_zero());
         self.colors[color.other() as usize] ^= converted;

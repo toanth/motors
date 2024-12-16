@@ -19,6 +19,7 @@ use crate::games::{
     AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates,
     DimT, NoHistory, Settings, Size, ZobristHash,
 };
+use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::{Assertion, Verify};
 use crate::general::board::Strictness::Relaxed;
 use crate::general::common::Description::NoDescription;
@@ -106,36 +107,42 @@ where
     /// However, this function can still fail if the piece can't be placed because the coordinates.
     /// If there is a piece already on the square, it is implementation-defined what will happen; possible options include
     /// replacing the piece, returning an `Err`, or silently going into a bad state that will return an `Err` on `verify`.
-    ///  Not intended to do any expensive checks.
-    fn place_piece(self, piece: B::Piece) -> Res<Self> {
+    /// Not intended to do any expensive checks.
+    fn try_place_piece(self, piece: B::Piece) -> Res<Self> {
         let square = self.check_coordinates(piece.coordinates())?;
         // TODO: PieceType should not include the empty square; use a different, generic, struct for that
-        Ok(self.place_piece_unchecked(square, piece.colored_piece_type()))
+        Ok(self.place_piece(square, piece.colored_piece_type()))
     }
 
     /// Like `place_piece`, but does not check that the coordinates are valid.
-    fn place_piece_unchecked(self, coords: B::Coordinates, piece: ColPieceType<B>) -> Self;
+    fn place_piece(self, coords: B::Coordinates, piece: ColPieceType<B>) -> Self;
 
     /// Remove the piece at the given coordinates. If there is no piece there, nothing happens.
     /// If the coordinates are invalid, an `Err` is returned.
     /// Some `UnverifiedBoard`s can represent multiple pieces at the same coordinates; it is implementation-defined
     /// what this method does in that case.
-    fn remove_piece(self, coords: B::Coordinates) -> Res<Self> {
-        let coords = self.check_coordinates(coords)?;
-        if self.piece_on(coords).unwrap().is_empty() {
+    fn try_remove_piece(self, coords: B::Coordinates) -> Res<Self> {
+        if self.try_get_piece_on(coords)?.is_empty() {
             Ok(self)
         } else {
-            Ok(self.remove_piece_unchecked(coords))
+            Ok(self.remove_piece(coords))
         }
     }
 
-    /// Like `remove_piece`, but does not check that the coordinates are valid.
-    fn remove_piece_unchecked(self, coords: B::Coordinates) -> Self;
+    /// Like `try_remove_piece`, but does not check that the coordinates are valid.
+    fn remove_piece(self, coords: B::Coordinates) -> Self;
 
     /// Returns the piece on the given coordinates, or `None` if the coordinates aren't valid.
     /// Some `UnverifiedBoard`s can represent multiple pieces at the same coordinates; it is implementation-defined
     /// what this method does in that case (but it should never return empty coordinates in that case).
-    fn piece_on(&self, coords: B::Coordinates) -> Res<B::Piece>;
+    fn try_get_piece_on(&self, coords: B::Coordinates) -> Res<B::Piece> {
+        Ok(self.piece_on(self.check_coordinates(coords)?))
+    }
+
+    /// Returns the piece on the given coordinates, or `None` if the coordinates aren't valid.
+    /// Some `UnverifiedBoard`s can represent multiple pieces at the same coordinates; it is implementation-defined
+    /// what this method does in that case (but it should never return empty coordinates in that case).
+    fn piece_on(&self, coords: B::Coordinates) -> B::Piece;
 
     /// Set the active player. Like all of these functions, it does not guarantee or check that the resulting position
     /// is legal. For example, in chess, the side not to move might be in check, so that it would be possible to capture the king.
@@ -467,6 +474,11 @@ pub trait BoardHelpers: Board {
         self.size().num_squares()
     }
 
+    /// Are these coordinates occupied, i.e., not empty?
+    fn is_occupied(&self, coords: Self::Coordinates) -> bool {
+        !self.is_empty(coords)
+    }
+
     /// Returns a list of pseudo legal moves, that is, moves which can either be played using
     /// `make_move` or which will cause `make_move` to return `None`.
     fn pseudolegal_moves(&self) -> Self::MoveList {
@@ -518,22 +530,22 @@ pub trait BoardHelpers: Board {
 
     /// Place a piece of the given type and color on the given square. Doesn't check that the resulting position is
     /// legal (hence the `Unverified` return type), but can still fail if the piece can't be placed because e.g. there
-    /// is already a piece on that square. See `[UnverifiedBoard::place_piece]`.
+    /// is already a piece on that square. See [`UnverifiedBoard::try_place_piece`].
     fn place_piece(self, piece: Self::Piece) -> Res<Self::Unverified> {
-        Self::Unverified::new(self).place_piece(piece)
+        Self::Unverified::new(self).try_place_piece(piece)
     }
 
-    /// Remove a piece from the given square. See `[UnverifiedBoard::remove_piece]`.
+    /// Remove a piece from the given square. See [`UnverifiedBoard::try_remove_piece`].
     fn remove_piece(self, square: Self::Coordinates) -> Res<Self::Unverified> {
-        Self::Unverified::new(self).remove_piece(square)
+        Self::Unverified::new(self).try_remove_piece(square)
     }
 
-    /// Set the active player. See `[UnverifiedBoard::set_active_player]`.
+    /// Set the active player. See [`UnverifiedBoard::set_active_player`].
     fn set_active_player(self, new_active: Self::Color) -> Self::Unverified {
         Self::Unverified::new(self).set_active_player(new_active)
     }
 
-    /// Set the ply counter since the start of the game. See `[UnverifiedBoard::set_ply_since_start]`
+    /// Set the ply counter since the start of the game. See [`UnverifiedBoard::set_ply_since_start`]
     fn set_ply_since_start(self, ply: usize) -> Res<Self::Unverified> {
         Self::Unverified::new(self).set_ply_since_start(ply)
     }
@@ -570,6 +582,56 @@ where
 
     fn idx_to_coordinates(&self, idx: DimT) -> Self::Coordinates {
         self.size().idx_to_coordinates(idx)
+    }
+}
+
+/// A trait for [`Board`]s that use [`Bitboard`]s.
+/// Bitboards are small bitvector representations of sets of squares.
+/// This trait mainly exists to make implementing new games easier, because
+/// implementing it trait provides some default implementations,
+/// but *those might not be optimal* depending on the internal representation,
+/// and *they might even be wrong* because this assumes that each square is either occupied by a piece or empty.
+// There is no actual reason why bitboards would require rectangular coordinates,
+// but currently all boards are rectangular and lifting this restriction would need a bit of restructuring.
+pub trait BitboardBoard: Board<Coordinates: RectangularCoordinates> {
+    type RawBitboard: RawBitboard;
+    type Bitboard: Bitboard<Self::RawBitboard, Self::Coordinates>;
+
+    /// Bitboard of all pieces of the given [`PieceType`], independent of which player they belong to.
+    /// Note that it might not be valid to use the empty piece, if such a piece exists.
+    fn piece_bb(&self, piece: PieceTypeOf<Self>) -> Self::Bitboard;
+
+    /// Bitboard of all pieces of the given type and color, e.g. all black rooks in chess.
+    /// Note that it might not be valid to use the empty piece, if such a piece exists.
+    // TODO: Remove empty from pieces, use options
+    fn colored_piece_bb(&self, color: Self::Color, piece: PieceTypeOf<Self>) -> Self::Bitboard {
+        self.piece_bb(piece) & self.player_bb(color)
+    }
+
+    /// Bitboard of all pieces of a player.
+    fn player_bb(&self, color: Self::Color) -> Self::Bitboard;
+
+    /// Bitboard of all pieces of the active player.
+    fn active_player_bb(&self) -> Self::Bitboard {
+        self.player_bb(self.active_player())
+    }
+
+    /// Bitboard of all pieces of the inactive player.
+    fn inactive_player_bb(&self) -> Self::Bitboard {
+        self.player_bb(self.inactive_player())
+    }
+
+    /// Bitboard of all pieces, i.e. all non-empty squares.
+    fn occupied_bb(&self) -> Self::Bitboard {
+        let first_bb = self.player_bb(Self::Color::first());
+        let second_bb = self.player_bb(Self::Color::second());
+        debug_assert!((first_bb & second_bb).is_zero());
+        first_bb | second_bb
+    }
+
+    /// Bitboard of all empty squares.
+    fn empty_bb(&self) -> Self::Bitboard {
+        !self.occupied_bb()
     }
 }
 
@@ -693,7 +755,7 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
                 bail!("FEN position contains at least {square} squares, but the board only has {0} squares", board.size().num_squares());
             }
 
-            board = board.place_piece_unchecked(
+            board = board.place_piece(
                 board
                     .size()
                     .idx_to_coordinates(square as DimT)

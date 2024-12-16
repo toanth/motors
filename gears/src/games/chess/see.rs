@@ -8,6 +8,7 @@ use crate::games::{AbstractPieceType, Board, Color, Coordinates};
 use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::RayDirections::Vertical;
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
+use crate::general::board::{BitboardBoard, BoardHelpers};
 use crate::general::moves::Move;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use std::mem::swap;
@@ -102,10 +103,9 @@ impl Chessboard {
         let mut see_attack = |attacker: ChessSquare,
                               all_remaining_attackers: &mut ChessBitboard,
                               piece: ChessPieceType| {
-            let idx = attacker.bb_idx();
             // `&= !` instead of `^` because in the case of a regular pawn move, the moving pawn wasn't part of the attacker bb.
-            *all_remaining_attackers &= !ChessBitboard::single_piece(idx);
-            removed_attackers |= ChessBitboard::single_piece(idx);
+            *all_remaining_attackers &= !ChessBitboard::single_piece(attacker);
+            removed_attackers |= ChessBitboard::single_piece(attacker);
             debug_assert_eq!(
                 removed_attackers & !self.occupied_bb(),
                 ChessBitboard::default()
