@@ -26,8 +26,8 @@ use gears::general::board::Board;
 use gears::general::common::{sigmoid, Tokens};
 use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::Move;
-use gears::output::{Message, OutputBox};
-use gears::score::Score;
+use gears::output::{Message, OutputBox, OutputOpts};
+use gears::score::{Score, SCORE_LOST, SCORE_WON};
 use gears::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
 use gears::search::NodeType::*;
 use gears::search::{MpvType, NodeType, SearchInfo, SearchResult};
@@ -232,20 +232,20 @@ impl<B: Board> UgiOutput<B> {
         }
     }
 
-    pub fn show(&mut self, m: &dyn GameState<B>) -> bool {
+    pub fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts) -> bool {
         for output in &mut self.additional_outputs {
-            output.show(m);
+            output.show(m, opts);
         }
         self.additional_outputs
             .iter()
             .any(|o| !o.is_logger() && o.prints_board())
     }
 
-    pub fn format(&mut self, m: &dyn GameState<B>) -> String {
+    pub fn format(&mut self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
         use std::fmt::Write;
         let mut res = String::new();
         for output in &mut self.additional_outputs {
-            write!(&mut res, "{}", output.as_string(m)).unwrap();
+            write!(&mut res, "{}", output.as_string(m, opts)).unwrap();
         }
         res
     }
@@ -315,7 +315,13 @@ pub fn pretty_score(
     if !main_line {
         res = res.dimmed();
     }
-    let bound_string = bound.unwrap_or(Exact).comparison_str(min_width).to_string();
+    // some (but not all) terminals have trouble with colored bold symbols, and using `bold` would remove the color in some cases.
+    // For some reason, only using the ansi colore codes (.green(), .red(), etc) creates these problems, but true colors work fine
+    let bound_string = match bound.unwrap_or(Exact) {
+        FailHigh => "≥".color(color_for_score(SCORE_WON, gradient)).bold(),
+        Exact => (if min_width { " " } else { "" }).into(),
+        FailLow => "≤".color(color_for_score(SCORE_LOST, gradient)).bold(),
+    };
     let res = if score.is_won_or_lost() {
         format!("{bound_string}{}", res.bold())
     } else {

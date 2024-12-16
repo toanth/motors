@@ -23,6 +23,7 @@ use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Res;
+use gears::output::OutputOpts;
 use inquire::Text;
 use std::io::{stdin, stdout, IsTerminal};
 
@@ -84,7 +85,7 @@ impl<B: Board> InteractiveInput<B> {
             autocompletion: CommandAutocomplete::new(ugi_commands(), ugi),
         };
         // technically, we could also use an inquire formatter, but that doesn't seem to handle multi-line messages well
-        ugi.print_board();
+        ugi.print_board(OutputOpts::default());
         res
     }
 }

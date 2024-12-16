@@ -29,6 +29,7 @@ use gears::general::move_list::EagerNonAllocMoveList;
 use gears::general::moves::Move;
 use gears::output::text_output::AdaptFormatter;
 use gears::output::Message::Debug;
+use gears::output::OutputOpts;
 use gears::score::{
     game_result_to_score, ScoreT, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA,
     NO_SCORE_YET,
@@ -206,7 +207,7 @@ fn write_single_hist_table(table: &HistoryHeuristic, flip: bool) -> String {
         })
         .collect_vec();
 
-    let formatter = Chessboard::default().pretty_formatter(None, None);
+    let formatter = Chessboard::default().pretty_formatter(None, None, OutputOpts::default());
     let mut formatter = AdaptFormatter {
         underlying: formatter,
         color_frame: Box::new(|_, col| col),

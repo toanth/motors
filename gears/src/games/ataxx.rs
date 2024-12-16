@@ -23,6 +23,7 @@ use crate::general::squares::{SmallGridSize, SmallGridSquare, SquareColor};
 use crate::output::text_output::{
     board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter, PieceToChar,
 };
+use crate::output::OutputOpts;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose, Win};
 use anyhow::bail;
@@ -373,8 +374,14 @@ impl Board for AtaxxBoard {
         &self,
         piece_to_char: Option<PieceToChar>,
         last_move: Option<Self::Move>,
+        opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
-        Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move))
+        Box::new(DefaultBoardFormatter::new(
+            *self,
+            piece_to_char,
+            last_move,
+            opts,
+        ))
     }
 
     fn background_color(&self, _coords: Self::Coordinates) -> SquareColor {

@@ -191,7 +191,7 @@ pub trait NamedEntity: Debug {
     /// Is `name` (close to) a prefix of this entity's name, as determined by `matcher`?
     /// This can be overwritten in an implementation to consider additional names.
     /// 0 means an exact match, higher values are worse matches
-    fn autocomplete_badness(&self, input: &str, matcher: fn(&str, &str) -> usize) -> usize {
+    fn autocomplete_badness(&self, input: &str, matcher: fn(&str, &str) -> isize) -> isize {
         matcher(input, &self.short_name())
     }
 }

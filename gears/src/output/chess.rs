@@ -7,7 +7,7 @@ use crate::output::text_output::{
     TextWriter,
 };
 use crate::output::Message::Info;
-use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
+use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder, OutputOpts};
 use crate::GameState;
 use anyhow::bail;
 use colored::Color::{TrueColor, White};
@@ -53,7 +53,7 @@ impl AbstractOutput for ChessOutput {
 }
 
 impl<B: RectangularBoard> Output<B> for ChessOutput {
-    fn as_string(&self, m: &dyn GameState<B>) -> String {
+    fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
         let mut res = String::default();
         let pos = m.get_board();
         let last_move = m.last_move();
@@ -62,7 +62,7 @@ impl<B: RectangularBoard> Output<B> for ChessOutput {
         }
         pretty_as_chessboard(
             &pos,
-            pos.pretty_formatter(Some(PieceToChar::Ascii), last_move),
+            pos.pretty_formatter(Some(PieceToChar::Ascii), last_move, opts),
         )
     }
 }

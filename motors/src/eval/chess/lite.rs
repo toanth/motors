@@ -286,9 +286,6 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             }
         }
         attack_data.set_attacks_for(color, all_attacks);
-        let all_defended = pos.colored_bb(color) & (all_attacks & !attacked_by_pawn);
-        score += Tuned::num_defended(all_defended.num_ones());
-
         score
     }
 

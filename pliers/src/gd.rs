@@ -89,8 +89,8 @@ impl<T: Fn(WrScore, Outcome) -> Float + Sync + Copy> LossFn for T {}
 /// - Under somewhat reasonable assumptions, minimizing the cross-entropy loss is equivalent to minimizing the quadratic loss
 /// - The quadratic loss is always zero for a perfect prediction, unlike the cross-entropy loss
 /// - The quadratic loss is slightly cheaper to compute
-pub fn sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
-    cross_entropy_sample_loss(wr_prediction, outcome)
+pub fn default_sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
+    quadratic_sample_loss(wr_prediction, outcome)
 }
 
 /// The quadratic sample is loss is the square of `wr_prediction - outcome)`.
@@ -103,6 +103,7 @@ pub fn quadratic_sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float 
 
 /// The cross-entropy is a good choice when optimizing anything where the output is a sigmoid, but it has some
 /// undesirable properties.
+// TODO: Test if this is bugged?
 pub fn cross_entropy_sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Float {
     let expected = outcome.0;
     let epsilon = 1e-8;
@@ -112,23 +113,10 @@ pub fn cross_entropy_sample_loss(wr_prediction: WrScore, outcome: Outcome) -> Fl
     res
 }
 
-/// The loss of an eval score, see [`sample_loss`].
-pub fn sample_loss_for_cp(
-    eval: CpScore,
-    outcome: Outcome,
-    eval_scale: ScalingFactor,
-    sample_weight: Float,
-) -> Float {
-    let wr_prediction = cp_to_wr(eval, eval_scale);
-    sample_loss(wr_prediction, outcome) * sample_weight
-}
-
 /// The *gradient* of the loss function and sigmoid, based on a single sample.
 ///
 /// Constant factors are ignored by this function.
 /// Optimization works by changing weights into the opposite direction of the gradient.
-/// This is  `d/deval loss(prediction) = d/deval loss(sigmoid(eval, scaling_factor))`.
-/// Since `loss` is the cross-entropy loss, this cancels out to `(prediction.0 - outcome.0) * sample_weight`
 pub trait LossGradient: Sync + Copy {
     /// Compute the gradient of the loss of the sigmoid of a single sample.
     fn sample_gradient(score: WrScore, outcome: Outcome) -> Float;
@@ -151,6 +139,8 @@ pub struct CrossEntropyLoss {}
 
 impl LossGradient for CrossEntropyLoss {
     /// The gradient of the cross-entropy loss of the sigmoid of the cp eval. See [`scaled_sample_grad`].
+    /// This is  `d/deval loss(prediction) = d/deval loss(sigmoid(eval, scaling_factor))`.
+    /// Since `loss` is the cross-entropy loss, this cancels out to `(prediction.0 - outcome.0) * sample_weight`
     fn sample_gradient(prediction: WrScore, outcome: Outcome) -> Float {
         prediction.0 - outcome.0
     }
@@ -293,10 +283,10 @@ pub(super) type FeatureT = i8;
 /// Then, for each position, all weights corresponding to this feature are multiplied by the feature count
 /// and added up over all features to compute the [`CpScore`].
 ///
-/// Because usually, most features will appear in a given position, the list of features is stored as a sparse array
+/// Because usually, most features will not appear in a given position, the list of features is stored as a sparse array
 /// (i.e. only non-zero features are actually stored).
-/// Users should not generally have to deal with this type directly; building their `[trace]`(TraceTrait) on top of
-/// `[SimpleTrace]` should take care of constructing this struct.
+/// Users should not generally have to deal with this type directly; building their [`trace`](TraceTrait) on top of
+/// [`SimpleTrace`] should take care of constructing this struct.
 #[derive(Debug, Default, Copy, Clone, PartialOrd, PartialEq)]
 #[must_use]
 pub struct Feature {
@@ -375,7 +365,7 @@ pub trait Datapoint: Clone + Send + Sync {
     /// for a tapered eval.
     fn features(&self) -> impl Iterator<Item = WeightedFeature>;
 
-    /// Into how many weights does a feature get transformed. For a [`TaperedDatapoint`], this is the number of phases (2),
+    /// Into how many weights does a feature get transformed? For a [`TaperedDatapoint`], this is the number of phases (2),
     /// for a non-tapered datapoint this is 1.
     fn num_weights_per_feature() -> usize;
 
@@ -425,6 +415,7 @@ impl Datapoint for NonTaperedDatapoint {
 }
 
 /// A Datapoint where each feature corresponds to two weights, interpolated based on the game phase.
+/// This should be the go-to type for most hand-crafted eval functions.
 #[derive(Debug, Clone)]
 pub struct TaperedDatapoint {
     /// The features of this position.
@@ -820,12 +811,11 @@ pub fn optimize_dataset<D: Datapoint>(
                 }
             }
             println!(
-                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), quadratic loss: {loss}, cross-entropy loss: {celoss}, loss got smaller by: 1/1_000_000 * {1}, \
+                "[{elapsed}s] Epoch {epoch} ({0:.1} epochs/s), quadratic loss: {loss}, loss got smaller by: 1/1_000_000 * {1}, \
                 maximum weight change to {print_interval} epochs ago: {max_diff:.2}",
                 epoch as f32 / elapsed.as_secs_f32(),
                 (prev_loss - loss) * 1_000_000.0,
                 elapsed = elapsed.as_secs(),
-                celoss = loss_for(&weights, dataset.as_batch(), eval_scale, cross_entropy_sample_loss),
             );
             if loss <= 0.001 && epoch >= print_interval {
                 println!("loss less than epsilon, stopping after {epoch} epochs");
@@ -999,7 +989,7 @@ pub struct AdamwHyperParams {
 impl AdamwHyperParams {
     fn for_eval_scale(eval_scale: ScalingFactor) -> Self {
         Self {
-            alpha: eval_scale / 50.0,
+            alpha: eval_scale / 40.0,
             // Setting these values too low can introduce crazy swings in the eval values and loss when it would
             // otherwise appear converged -- maybe because of numerical instability?
             beta1: 0.9,
@@ -1135,7 +1125,7 @@ mod tests {
                 num_weights: 1,
                 weight_sum: 1.0,
             };
-            for eval_scale in 1..100 {
+            for eval_scale in 1..100_i8 {
                 let loss = loss_for(
                     &weights,
                     batch,
@@ -1154,7 +1144,7 @@ mod tests {
     #[test]
     pub fn compute_gradient_test() {
         let weights = Weights(vec![Weight(0.0)]);
-        for outcome in [0.0_f64, 0.5, 1.0] {
+        for outcome in [0.0, 0.5, 1.0] {
             let data_points = [NonTaperedDatapoint {
                 features: vec![Feature::new(1, 0)],
                 outcome: Outcome::new(outcome),
