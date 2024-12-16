@@ -829,8 +829,8 @@ impl Caps {
                 margin /= cc::rfp_fail_high_div();
             }
             if let Some(entry) = old_entry {
-                if entry.score >= eval && entry.bound() != NodeType::upper_bound() {
-                    margin -= margin / 4;
+                if entry.score <= eval && entry.bound() == NodeType::upper_bound() {
+                    margin += margin / 4;
                 }
             }
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
