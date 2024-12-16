@@ -9,7 +9,7 @@ use crate::search::chess::caps_values::cc;
 use crate::search::move_picker::MovePicker;
 use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
-use crate::search::tt::TTEntry;
+use crate::search::tt::{FetchResult, TTEntry};
 use crate::search::*;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::arrayvec::ArrayVec;
@@ -764,7 +764,7 @@ impl Caps {
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.state.multi_pvs.len() > 1;
         let old_entry = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply);
-        if let Some(tt_entry) = old_entry {
+        if let FetchResult::Entry(tt_entry) = old_entry {
             if !ignore_tt_entry {
                 let tt_bound = tt_entry.bound();
                 debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
@@ -1125,9 +1125,9 @@ impl Caps {
             bound_so_far,
         );
         // Store the old move in the Move table
-        if let Some(old) = old_entry {
-            if old.mov != tt_entry.mov && old.mov.trust_unchecked() != ChessMove::NULL {
-                *self.state.custom.move_table.entry_mut(&pos) = old.mov;
+        if let Some(old_move) = old_entry.mov() {
+            if old_move != tt_entry.mov && old_move.trust_unchecked() != ChessMove::NULL {
+                *self.state.custom.move_table.entry_mut(&pos) = old_move;
             }
         }
         // TODO: eventually test that not overwriting PV nodes unless the depth is quite a bit greater gains
@@ -1240,7 +1240,9 @@ impl Caps {
 
         // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
         // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
+        if let FetchResult::Entry(tt_entry) =
+            self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply)
+        {
             debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
             let bound = tt_entry.bound();
             // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
@@ -1532,7 +1534,9 @@ mod tests {
             if pos.legal_moves_slow().is_empty() {
                 continue;
             }
-            let root_entry = tt.load(pos.zobrist_hash(), 0).unwrap();
+            let FetchResult::Entry(root_entry) = tt.load(pos.zobrist_hash(), 0) else {
+                unreachable!();
+            };
             assert!(root_entry.depth <= 2); // possible extensions
             assert_eq!(root_entry.bound(), Exact);
             assert!(root_entry.mov.check_legal(&pos).is_some());
@@ -1541,7 +1545,7 @@ mod tests {
             for m in moves {
                 let new_pos = pos.make_move(m).unwrap();
                 let entry = tt.load::<Chessboard>(new_pos.zobrist_hash(), 0);
-                let Some(entry) = entry else {
+                let FetchResult::Entry(entry) = entry else {
                     continue; // it's possible that a position is not in the TT because qsearch didn't save it
                 };
                 assert!(entry.depth <= 1);

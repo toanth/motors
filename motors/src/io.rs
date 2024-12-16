@@ -33,7 +33,7 @@ use crate::io::ugi_output::{color_for_score, pretty_score, score_gradient, suffi
 use crate::io::Protocol::{Interactive, UGI};
 use crate::io::SearchType::*;
 use crate::search::multithreading::EngineWrapper;
-use crate::search::tt::{TTEntry, DEFAULT_HASH_SIZE_MB, TT};
+use crate::search::tt::{FetchResult, TTEntry, DEFAULT_HASH_SIZE_MB, TT};
 use crate::search::{run_bench_with, EvalList, SearchParams, SearcherList};
 use crate::{
     create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match,
@@ -871,7 +871,7 @@ impl<B: Board> EngineUGI<B> {
                     info.short_name().bold()
                 )
             }
-        } else if let Some(entry) = self.state.engine.tt_entry(&state.board) {
+        } else if let FetchResult::Entry(entry) = self.state.engine.tt_entry(&state.board) {
             format_tt_entry(state, entry)
         } else {
             "There is no TT entry for this position".bold().to_string()

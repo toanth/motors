@@ -3,7 +3,7 @@ use crate::io::ugi_output::UgiOutput;
 use crate::search::multithreading::EngineReceives::*;
 use crate::search::multithreading::SearchThreadType::{Auxiliary, Main};
 use crate::search::multithreading::SearchType::{Infinite, Normal, Ponder};
-use crate::search::tt::{TTEntry, TT};
+use crate::search::tt::{FetchResult, TTEntry, TT};
 use crate::search::{
     AbstractEvalBuilder, AbstractSearchState, AbstractSearcherBuilder, Engine, EngineInfo,
     SearchParams,
@@ -512,7 +512,7 @@ impl<B: Board> EngineWrapper<B> {
         }
     }
 
-    pub fn tt_entry(&mut self, pos: &B) -> Option<TTEntry<B>> {
+    pub fn tt_entry(&mut self, pos: &B) -> FetchResult<B> {
         self.tt_for_next_search.load(pos.zobrist_hash(), 0)
     }
 

@@ -231,7 +231,7 @@ impl TT {
         self.0[idx].store(entry.to_packed(), Relaxed);
     }
 
-    pub(super) fn load<B: Board>(&self, hash: ZobristHash, ply: usize) -> Option<TTEntry<B>> {
+    pub(super) fn load<B: Board>(&self, hash: ZobristHash, ply: usize) -> FetchResult<B> {
         let idx = self.index_of(hash);
         let mut entry = TTEntry::from_packed(self.0[idx].load(Relaxed));
         // Mate score adjustments, see `store`
@@ -243,10 +243,12 @@ impl TT {
             }
         }
         debug_assert!(entry.score.0.abs() <= SCORE_WON.0);
-        if entry.hash != hash || entry.bound == Empty {
-            None
+        if entry.bound == Empty {
+            FetchResult::Nothing
+        } else if entry.hash != hash {
+            FetchResult::Move(entry.mov)
         } else {
-            Some(entry)
+            FetchResult::Entry(entry)
         }
     }
 
@@ -257,6 +259,23 @@ impl TT {
                 #[cfg(all(target_arch = "x86_64", target_feature = "sse"))]
                 _mm_prefetch::<_MM_HINT_T1>(addr_of!(self.0[self.index_of(hash)]) as *const i8);
             }
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum FetchResult<B: Board> {
+    Entry(TTEntry<B>),
+    Move(UntrustedMove<B>),
+    Nothing,
+}
+
+impl<B: Board> FetchResult<B> {
+    pub fn mov(&self) -> Option<UntrustedMove<B>> {
+        match self {
+            FetchResult::Entry(e) => Some(e.mov),
+            FetchResult::Move(m) => Some(*m),
+            FetchResult::Nothing => None,
         }
     }
 }
@@ -326,7 +345,9 @@ mod test {
                 assert_eq!(val, entry);
                 let ply = thread_rng().sample(Uniform::new(0, 100).unwrap());
                 tt.store(entry, ply);
-                let loaded = tt.load(entry.hash, ply).unwrap();
+                let FetchResult::Entry(loaded) = tt.load(entry.hash, ply) else {
+                    unreachable!();
+                };
                 assert_eq!(entry, loaded);
             }
         }
@@ -399,8 +420,10 @@ mod test {
         engine2.forget();
         let _ = engine.search_with_tt(pos, SearchLimit::depth(Depth::new_unchecked(5)), tt.clone());
         let entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0);
-        assert!(entry.is_some());
-        assert_eq!(entry.unwrap().depth, 5);
+        let FetchResult::Entry(entry) = entry else {
+            unreachable!()
+        };
+        assert_eq!(entry.depth, 5);
         _ = engine2.search_with_tt(pos, limit, tt.clone());
         assert!(engine2.search_state().uci_nodes() <= nodes);
         tt.forget();
@@ -434,8 +457,12 @@ mod test {
         );
         let hashfull = tt.estimate_hashfull::<Chessboard>();
         assert!(hashfull > 0, "{hashfull}");
-        let entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0).unwrap();
-        let entry2 = tt.load::<Chessboard>(pos2.zobrist_hash(), 0).unwrap();
+        let FetchResult::Entry(entry) = tt.load::<Chessboard>(pos.zobrist_hash(), 0) else {
+            unreachable!()
+        };
+        let FetchResult::Entry(entry2) = tt.load::<Chessboard>(pos2.zobrist_hash(), 0) else {
+            unreachable!()
+        };
         assert_eq!(entry.hash, pos.zobrist_hash());
         assert_eq!(entry2.hash, pos2.zobrist_hash());
         assert!(pos.is_move_legal(mov));
