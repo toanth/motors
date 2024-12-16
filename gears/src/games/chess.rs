@@ -45,6 +45,7 @@ use crate::output::text_output::{
     board_to_string, display_board_pretty, display_color, AdaptFormatter, BoardFormatter,
     DefaultBoardFormatter, PieceToChar,
 };
+use crate::output::OutputOpts;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 
@@ -619,6 +620,7 @@ impl Board for Chessboard {
         &self,
         piece_to_char: Option<PieceToChar>,
         last_move: Option<ChessMove>,
+        opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;
         let king_square = self.king_square(self.active_player);
@@ -630,7 +632,12 @@ impl Board for Chessboard {
             }
         });
         Box::new(AdaptFormatter {
-            underlying: Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move)),
+            underlying: Box::new(DefaultBoardFormatter::new(
+                *self,
+                piece_to_char,
+                last_move,
+                opts,
+            )),
             color_frame,
             display_piece: Box::new(move |square, width, _default| {
                 let piece = pos.colored_piece_on(square);

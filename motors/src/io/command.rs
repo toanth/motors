@@ -37,7 +37,7 @@ use gears::general::common::{
 use gears::general::move_list::MoveList;
 use gears::general::moves::{ExtendedFormat, Move};
 use gears::output::Message::Warning;
-use gears::output::OutputBuilder;
+use gears::output::{OutputBuilder, OutputOpts};
 use gears::search::{Depth, NodesLimit, SearchLimit};
 use gears::ugi::{load_ugi_position, parse_ugi_position_part, EngineOptionName};
 use gears::GameResult;
@@ -412,7 +412,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
                     "Could not flip the side to move (board: '{}'",
                     ugi.state.board.as_fen().bold()
                 ))?;
-                ugi.print_board();
+                ugi.print_board(OutputOpts::default());
                 Ok(())
             }
         ),
@@ -484,7 +484,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             print | show | s | display,
             Custom,
             "Display the specified / current position with specified / enabled outputs or 'prettyascii' if no output is set",
-            |ugi, words, _| ugi.handle_print(words),
+            |ugi, words, _| ugi.handle_print(words, OutputOpts::default()),
             -> |state: ACState<B>| add(select_command::<B, dyn OutputBuilder<B>>(state.outputs.as_slice()), position_options::<B>(true, Some(state.pos))),
             recurse=true
         ),

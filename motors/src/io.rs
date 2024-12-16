@@ -58,7 +58,7 @@ use gears::output::logger::LoggerBuilder;
 use gears::output::pgn::parse_pgn;
 use gears::output::text_output::{display_color, AdaptFormatter};
 use gears::output::Message::*;
-use gears::output::{Message, OutputBox, OutputBuilder};
+use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
 use gears::search::{Depth, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
@@ -506,7 +506,9 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn print_game_over(&mut self, flip: bool) -> bool {
-        self.print_board();
+        self.print_board(OutputOpts {
+            disable_flipping: true,
+        });
         let Some(res) = self.state.board.player_result_slow(&self.state.board_hist) else {
             return false;
         };
@@ -692,15 +694,15 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn print_board(&mut self) {
+    fn print_board(&mut self, opts: OutputOpts) {
         // TODO: Rework the output system
-        _ = self.handle_print(&mut tokens(""));
+        _ = self.handle_print(&mut tokens(""), opts);
     }
 
     fn handle_position(&mut self, words: &mut Tokens) -> Res<()> {
         self.state.handle_position(words, false, self.strictness)?;
         if self.is_interactive() {
-            self.print_board();
+            self.print_board(OutputOpts::default());
         }
         Ok(())
     }
@@ -947,14 +949,14 @@ impl<B: Board> EngineUGI<B> {
         }
     }
 
-    fn handle_print(&mut self, words: &mut Tokens) -> Res<()> {
+    fn handle_print(&mut self, words: &mut Tokens, opts: OutputOpts) -> Res<()> {
         let output = self.select_output(words)?;
         let print = |this: &Self, output: Option<OutputBox<B>>, state| match output {
             None => {
-                this.output().show(state);
+                this.output().show(state, opts);
             }
             Some(mut output) => {
-                output.show(state);
+                output.show(state, opts);
             }
         };
         if words.peek().is_some() {
@@ -1009,7 +1011,7 @@ impl<B: Board> EngineUGI<B> {
             );
             if self.is_interactive() {
                 drop(output);
-                self.print_board();
+                self.print_board(OutputOpts::default());
             }
         }
         Ok(())
@@ -1171,7 +1173,7 @@ impl<B: Board> EngineUGI<B> {
             self.handle_quit(QuitProgram)?;
         } else {
             // print the current board again, now that the match is over
-            self.print_board();
+            self.print_board(OutputOpts::default());
         }
         Ok(())
     }
@@ -1180,7 +1182,7 @@ impl<B: Board> EngineUGI<B> {
         let file_text = fs::read_to_string(words.join(" "))?;
         let pgn_data = parse_pgn::<B>(&file_text)?;
         self.state.position_state = pgn_data.game;
-        self.print_board();
+        self.print_board(OutputOpts::default());
         Ok(())
     }
 
@@ -1371,7 +1373,7 @@ impl<B: Board> EngineUGI<B> {
 // take a BoardGameState instead of a board to correctly handle displaying the last move
 fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String {
     let pos = state.board;
-    let formatter = pos.pretty_formatter(None, state.last_move());
+    let formatter = pos.pretty_formatter(None, state.last_move(), OutputOpts::default());
     let mov = entry.mov.check_legal(&pos);
     let mut formatter = AdaptFormatter {
         underlying: formatter,
@@ -1418,7 +1420,7 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
 
 fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>) -> String {
     let eval = RefCell::new(eval);
-    let formatter = pos.pretty_formatter(None, last);
+    let formatter = pos.pretty_formatter(None, last, OutputOpts::default());
     let eval_pos = eval.borrow_mut().eval(&pos, 0);
     let mut formatter = AdaptFormatter {
         underlying: formatter,

@@ -48,6 +48,7 @@ use crate::output::text_output::{
     board_to_string, display_board_pretty, p1_color, p2_color, AdaptFormatter, BoardFormatter,
     DefaultBoardFormatter, PieceToChar,
 };
+use crate::output::OutputOpts;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 use anyhow::bail;
@@ -884,10 +885,16 @@ impl Board for UtttBoard {
         &self,
         piece_to_char: Option<PieceToChar>,
         last_move: Option<UtttMove>,
+        opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;
         let formatter = AdaptFormatter {
-            underlying: Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move)),
+            underlying: Box::new(DefaultBoardFormatter::new(
+                *self,
+                piece_to_char,
+                last_move,
+                opts,
+            )),
             color_frame: Box::new(move |sq, col| {
                 if col.is_some() {
                     return col;
