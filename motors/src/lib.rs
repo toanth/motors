@@ -4,27 +4,6 @@ use std::sync::{Arc, Mutex};
 use dyn_clone::clone_box;
 use rand::rngs::StdRng;
 
-use gears::cli::{ArgIter, Game};
-#[cfg(feature = "ataxx")]
-use gears::games::ataxx::AtaxxBoard;
-#[cfg(feature = "chess")]
-use gears::games::chess::Chessboard;
-#[cfg(feature = "mnk")]
-use gears::games::mnk::MNKBoard;
-#[cfg(feature = "uttt")]
-use gears::games::uttt::UtttBoard;
-use gears::games::OutputList;
-use gears::general::board::Board;
-use gears::general::common::anyhow::anyhow;
-use gears::general::common::Description::WithDescription;
-use gears::general::common::{select_name_dyn, Res};
-use gears::general::perft::perft;
-use gears::output::normal_outputs;
-use gears::search::{Depth, SearchLimit};
-use gears::Quitting::*;
-use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs, Quitting};
-use std::fmt::{Display, Formatter};
-
 #[cfg(feature = "ataxx")]
 use crate::eval::ataxx::bate::Bate;
 use crate::eval::chess::lite::KingGambot;
@@ -55,6 +34,26 @@ use crate::search::{
     SearcherBuilder, SearcherList,
 };
 use crate::Mode::{Bench, Perft};
+use gears::cli::{ArgIter, Game};
+#[cfg(feature = "ataxx")]
+use gears::games::ataxx::AtaxxBoard;
+#[cfg(feature = "chess")]
+use gears::games::chess::Chessboard;
+#[cfg(feature = "mnk")]
+use gears::games::mnk::MNKBoard;
+#[cfg(feature = "uttt")]
+use gears::games::uttt::UtttBoard;
+use gears::games::OutputList;
+use gears::general::board::Board;
+use gears::general::common::anyhow::anyhow;
+use gears::general::common::Description::WithDescription;
+use gears::general::common::{select_name_dyn, Res};
+use gears::general::perft::perft;
+use gears::output::normal_outputs;
+use gears::search::{Depth, SearchLimit};
+use gears::Quitting::*;
+use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs, Quitting};
+use std::fmt::{Display, Formatter};
 
 pub mod eval;
 pub mod io;

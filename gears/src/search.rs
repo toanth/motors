@@ -202,6 +202,17 @@ impl<B: Board> SearchInfo<B> {
             SecondaryLine
         }
     }
+
+    pub fn effective_branching_factor(&self) -> f64 {
+        // this method of computing the effective branching factor is somewhat flawed, but it's what most engines do,
+        // so for the sake of comparability we do this as well
+        let depth = self.depth.get() as u64;
+        if depth == 0 {
+            return 0.0; // I hate NaNs.
+        }
+        // subtract the depth to not count the root node, which means the branching factor for depth 1 is the number of legal moves
+        ((self.nodes.get() - depth) as f64).powf(1.0 / depth as f64)
+    }
 }
 
 impl<B: Board> Display for SearchInfo<B> {

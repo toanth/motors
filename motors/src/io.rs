@@ -787,9 +787,11 @@ impl<B: Board> EngineUGI<B> {
                 opts.search_type, opts.limit
             ),
         );
-        if let Some(res) = opts.board.match_result_slow(&self.state.board_hist) {
-            self.write_message(Warning, &format!("Starting a {3} search in position '{2}', but the game is already over. {0}, reason: {1}.",
-                                                 res.result, res.reason, self.state.board.as_fen().bold(), opts.search_type));
+        if self.state.debug_mode || self.is_interactive() {
+            if let Some(res) = opts.board.match_result_slow(&self.state.board_hist) {
+                self.write_message(Warning, &format!("Starting a {3} search in position '{2}', but the game is already over. {0}, reason: {1}.",
+                                                     res.result, res.reason, self.state.board.as_fen().bold(), opts.search_type));
+            }
         }
         self.state.status = Run(Ongoing);
         match opts.search_type {

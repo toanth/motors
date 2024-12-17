@@ -205,8 +205,9 @@ impl<B: Board> UgiOutput<B> {
             .to_string()
             .color(TrueColor { r, g, b })
             .dimmed();
+        let branching = format!("{:>6.2}", info.effective_branching_factor()).dimmed();
         let text = format!(
-                " {iter}{complete} {seldepth:>3} {multipv} {score:>8}  {time}{s}  {nodes}{M}{diff_string}  {nps}{M}  {tt}{p}  {pv}",
+                " {iter}{complete} {seldepth:>3} {multipv} {score:>8}  {time}{s}  {nodes}{M}{diff_string}  {nps}{M}  {branching} {tt}{p}  {pv}",
                 s = if in_seconds {"s"} else {"m"}.dimmed(),
                 M = "M".dimmed(),
                 p = "%".dimmed(),

@@ -481,6 +481,12 @@ impl Board for Chessboard {
         }
     }
 
+    fn is_game_lost_slow(&self) -> bool {
+        // faster than the default implementation because we're not checking draw conditions
+        // and are saving movegen unless we've discovered that we're in check
+        self.is_checkmate_slow()
+    }
+
     /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
     /// return `false` if there is a realistic way to win).
     fn can_reasonably_win(&self, player: ChessColor) -> bool {
@@ -1408,6 +1414,7 @@ mod tests {
             "8/8/4B3/7k/8/8/1K6/6b1 w - - 0 1",
             "8/3k4/8/8/8/8/1NN5/1K6 w - - 0 1",
             "8/2nk4/8/8/8/8/1NN5/1K6 w - - 0 1",
+            "1b4B1/b1b2B1B/1bKbBkB1/2bBbB2/2BbBb2/1B1Bb1b1/B1B2b1b/1B4b1 w - - 0 1",
         ];
         for fen in insufficient {
             let board = Chessboard::from_fen(fen, Strict).unwrap();
@@ -1424,7 +1431,7 @@ mod tests {
             assert!(board.can_reasonably_win(board.active_player), "{fen}");
         }
         for fen in sufficient_but_unreasonable {
-            let board = Chessboard::from_fen(fen, Strict).unwrap();
+            let board = Chessboard::from_fen(fen, Relaxed).unwrap();
             assert!(!board.has_insufficient_material(), "{fen}");
             assert!(!board.can_reasonably_win(board.active_player), "{fen}");
         }
