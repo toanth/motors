@@ -108,31 +108,55 @@ impl Chessboard {
     ) {
         // When used in search with an eval function that computes attacks, this is currently always true.
         if let Some(attacks) = attack_data {
-            let our_attacks = attacks.for_color(self.active_player);
-            let mut idx = 0;
-            for piece in [Bishop, Rook, Queen] {
-                for from in self.colored_piece_bb(self.active_player, piece).ones() {
-                    let bb = our_attacks.sliders[idx] & filter;
-                    for to in bb.ones() {
-                        debug_assert!(self
-                            .colored_piece_bb(self.active_player, piece)
-                            .is_bit_set_at(from.bb_idx()));
-                        let mov = ChessMove::new(from, to, ChessMoveFlags::normal_move(piece));
-                        moves.add_move(mov);
-                    }
-                    idx += 1;
+            return self
+                .gen_pseudolegal_with_attack_data::<T, ONLY_TACTICAL>(moves, filter, attacks);
+        }
+        self.gen_slider_moves(SliderMove::Bishop, moves, filter);
+        self.gen_slider_moves(SliderMove::Rook, moves, filter);
+        self.gen_knight_moves(moves, filter);
+        self.gen_king_moves::<T, ONLY_TACTICAL>(moves, filter);
+        self.gen_pawn_moves::<T, ONLY_TACTICAL>(moves);
+    }
+
+    fn gen_pseudolegal_with_attack_data<T: MoveList<Self>, const ONLY_TACTICAL: bool>(
+        &self,
+        moves: &mut T,
+        mut non_king_filter: ChessBitboard,
+        attacks: &Attacks,
+    ) {
+        debug_assert_eq!(
+            attacks.checkers & !self.inactive_player_bb(),
+            ChessBitboard::default()
+        );
+        // Don't even bother generating king moves to squares that are attacked by the opponent
+        let king_filter = non_king_filter & !attacks.for_color(self.inactive_player()).all;
+        self.gen_king_moves::<T, ONLY_TACTICAL>(moves, king_filter); // TODO: Could also only gen non-castle moves here
+        if attacks.checkers.more_than_one_bit_set() {
+            // If we're in double check, we only need to generate king moves
+            return;
+        }
+        let non_slider_checkers = attacks.checkers & (self.piece_bb(Pawn) | self.piece_bb(Knight));
+        if non_slider_checkers.has_set_bit() {
+            // If we're in check by a non-slider, don't even bother generating non-king moves unless they capture the checker
+            non_king_filter &= non_slider_checkers;
+        }
+        let our_attacks = attacks.for_color(self.active_player);
+        let mut idx = 0;
+        for piece in [Bishop, Rook, Queen] {
+            for from in self.colored_piece_bb(self.active_player, piece).ones() {
+                let bb = our_attacks.sliders[idx] & non_king_filter;
+                for to in bb.ones() {
+                    debug_assert!(self
+                        .colored_piece_bb(self.active_player, piece)
+                        .is_bit_set_at(from.bb_idx()));
+                    let mov = ChessMove::new(from, to, ChessMoveFlags::normal_move(piece));
+                    moves.add_move(mov);
                 }
+                idx += 1;
             }
-            // Don't even bother generating king moves to squares that are attacked by the opponent
-            let king_filter = filter & !attacks.for_color(self.inactive_player()).all;
-            self.gen_king_moves::<T, ONLY_TACTICAL>(moves, king_filter);
-        } else {
-            self.gen_slider_moves(SliderMove::Bishop, moves, filter);
-            self.gen_slider_moves(SliderMove::Rook, moves, filter);
-            self.gen_king_moves::<T, ONLY_TACTICAL>(moves, filter);
         }
         self.gen_pawn_moves::<T, ONLY_TACTICAL>(moves);
-        self.gen_knight_moves(moves, filter);
+        self.gen_knight_moves(moves, non_king_filter);
     }
 
     fn gen_pawn_moves<T: MoveList<Self>, const ONLY_TACTICAL: bool>(&self, moves: &mut T) {

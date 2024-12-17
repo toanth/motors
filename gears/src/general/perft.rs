@@ -1,4 +1,4 @@
-use crate::general::board::Board;
+use crate::general::board::{Board, ExternalData};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
@@ -48,7 +48,7 @@ impl<B: Board> Display for SplitPerftRes<B> {
     }
 }
 
-fn do_perft<B: Board>(depth: usize, pos: B) -> u64 {
+fn do_perft<B: Board>(depth: usize, pos: B, with_external: bool) -> u64 {
     let mut nodes = 0;
     if depth == 1 {
         return pos.legal_moves_slow().into_iter().count() as u64;
@@ -56,29 +56,40 @@ fn do_perft<B: Board>(depth: usize, pos: B) -> u64 {
     // if pos.game_result_no_movegen().is_some() {
     //     return 0; // the game is over (e.g. 50mr)
     // }
-    for mov in pos.pseudolegal_moves() {
-        if let Some(new_pos) = pos.make_move(mov) {
-            nodes += do_perft(depth - 1, new_pos);
+    if with_external {
+        let mut list = B::MoveList::default();
+        let data = B::ExternalData::init_manually(&pos);
+        pos.gen_pseudolegal(&mut list, Some(&data));
+        for mov in pos.pseudolegal_moves() {
+            if let Some(new_pos) = pos.make_move(mov) {
+                nodes += do_perft(depth - 1, new_pos, with_external);
+            }
+        }
+    } else {
+        for mov in pos.pseudolegal_moves() {
+            if let Some(new_pos) = pos.make_move(mov) {
+                nodes += do_perft(depth - 1, new_pos, with_external);
+            }
         }
     }
     // no need to handle the case of no legal moves, since we already return 0.
     nodes
 }
 
-pub fn perft<B: Board>(depth: Depth, pos: B) -> PerftRes {
+pub fn perft<B: Board>(depth: Depth, pos: B, with_external: bool) -> PerftRes {
     let depth = depth.min(B::max_perft_depth());
     let start = Instant::now();
     let nodes = if depth.get() == 0 {
         1
     } else {
-        do_perft(depth.get(), pos)
+        do_perft(depth.get(), pos, with_external)
     };
     let time = start.elapsed();
 
     PerftRes { time, nodes, depth }
 }
 
-pub fn split_perft<B: Board>(depth: Depth, pos: B) -> SplitPerftRes<B> {
+pub fn split_perft<B: Board>(depth: Depth, pos: B, with_external: bool) -> SplitPerftRes<B> {
     assert!(depth.get() > 0);
     let depth = depth.min(B::max_perft_depth());
     let mut nodes = 0;
@@ -89,7 +100,7 @@ pub fn split_perft<B: Board>(depth: Depth, pos: B) -> SplitPerftRes<B> {
             let child_nodes = if depth.get() == 1 {
                 1
             } else {
-                do_perft(depth.get() - 1, new_pos)
+                do_perft(depth.get() - 1, new_pos, with_external)
             };
             children.push((mov, child_nodes));
             nodes += child_nodes;
@@ -104,7 +115,7 @@ pub fn split_perft<B: Board>(depth: Depth, pos: B) -> SplitPerftRes<B> {
     }
 }
 
-pub fn perft_for<B: Board>(depth: Depth, positions: &[B]) -> PerftRes {
+pub fn perft_for<B: Board>(depth: Depth, positions: &[B], with_external: bool) -> PerftRes {
     let mut res = PerftRes {
         time: Duration::default(),
         nodes: 0,
@@ -116,7 +127,7 @@ pub fn perft_for<B: Board>(depth: Depth, positions: &[B]) -> PerftRes {
         } else {
             depth
         };
-        let this_res = perft(depth, *pos);
+        let this_res = perft(depth, *pos, with_external);
         res.time += this_res.time;
         res.nodes += this_res.nodes;
         res.depth = res.depth.max(this_res.depth);

@@ -75,7 +75,7 @@ mod tests {
         for (fen, counts) in positions {
             let pos = AtaxxBoard::from_fen(fen, Strict).unwrap();
             for (depth, &count) in counts.iter().enumerate() {
-                let res = perft(Depth::new_unchecked(depth), pos);
+                let res = perft(Depth::new_unchecked(depth), pos, true);
                 assert_eq!(res.nodes, count);
             }
         }

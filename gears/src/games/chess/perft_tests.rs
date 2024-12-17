@@ -18,7 +18,7 @@ mod tests {
     #[test]
     fn kiwipete_test() {
         let board = Chessboard::from_name("kiwipete").unwrap();
-        let res = perft(Depth::new_unchecked(4), board);
+        let res = perft(Depth::new_unchecked(4), board, false);
         assert_eq!(res.nodes, 4_085_603);
         // Disabled in debug mode because that would take too long. TODO: Optimize movegen, especially in debug mode.
         if !cfg!(debug_assertions) {
@@ -28,7 +28,7 @@ mod tests {
                 Strict,
             )
             .unwrap();
-            let res = perft(Depth::new_unchecked(4), board);
+            let res = perft(Depth::new_unchecked(4), board, true);
             assert_eq!(res.nodes, 4_119_629);
             // kiwipete after white plays a2a3
             let board = Chessboard::from_fen(
@@ -36,7 +36,7 @@ mod tests {
                 Strict,
             )
             .unwrap();
-            let res = perft(Depth::new_unchecked(4), board);
+            let res = perft(Depth::new_unchecked(4), board, true);
             assert_eq!(res.nodes, 4_627_439);
         }
     }
@@ -48,15 +48,15 @@ mod tests {
             Strict,
         )
         .unwrap();
-        let res = perft(Depth::new_unchecked(1), board);
+        let res = perft(Depth::new_unchecked(1), board, true);
         assert_eq!(res.nodes, 99);
         assert!(res.time.as_millis() <= 2);
-        let res = perft(Depth::new_unchecked(2), board);
+        let res = perft(Depth::new_unchecked(2), board, false);
         assert_eq!(res.nodes, 6271);
-        let res = perft(Depth::new_unchecked(3), board);
+        let res = perft(Depth::new_unchecked(3), board, true);
         assert_eq!(res.nodes, 568_299);
         if cfg!(not(debug_assertions)) {
-            let res = perft(Depth::new_unchecked(4), board);
+            let res = perft(Depth::new_unchecked(4), board, false);
             assert_eq!(res.nodes, 34_807_627);
         }
     }
@@ -77,7 +77,7 @@ mod tests {
         ];
         for (depth, perft_num) in expected.iter().enumerate() {
             assert_eq!(
-                perft(Depth::new_unchecked(depth + 1), pos).nodes,
+                perft(Depth::new_unchecked(depth + 1), pos, true).nodes,
                 *perft_num
             );
         }
@@ -112,13 +112,13 @@ mod tests {
     #[test]
     #[ignore]
     fn standard_perft_test() {
-        perft_test(&STANDARD_FENS);
+        perft_test(&STANDARD_FENS, true);
     }
 
     #[test]
     #[ignore]
     fn chess960_perft_test() {
-        perft_test(&CHESS_960_FENS);
+        perft_test(&CHESS_960_FENS, true);
     }
 
     #[test]
@@ -135,11 +135,11 @@ mod tests {
             "rk3r2/8/8/5r2/6R1/8/8/R3K1R1 w AGaf - 0 1 ;D1 31 ;D2 841 ;D3 23877 ;D4 711547 ;D5 20894205",// ;D6 644033568"
         ];
 
-        perft_test(&FENS);
+        perft_test(&FENS, true);
     }
 
     /// Parallelizes the perft testcases so that this takes less time, but the chess960 suite still takes a very long time.
-    fn perft_test(fens: &'static [&'static str]) {
+    fn perft_test(fens: &'static [&'static str], with_external: bool) {
         let start_time = Instant::now();
         let num_threads = available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap());
         println!("Running perft test with {num_threads} threads in parallel");
@@ -169,7 +169,7 @@ mod tests {
                             .enumerate()
                             .filter(|(_depth, x)| **x != INVALID)
                         {
-                            let res = perft(Depth::new_unchecked(depth), board);
+                            let res = perft(Depth::new_unchecked(depth), board, with_external);
                             assert_eq!(res.depth.get(), depth);
                             assert_eq!(res.nodes, *expected_count);
                             println!(
@@ -333,11 +333,11 @@ mod tests {
             // another pinned pawns test (this time without en passant)
         "4Q3/5p2/6k1/8/4p3/8/2B3K1/8 b - - 0 1 ;D1 7 ;D2 203 ;D3 1250 ;D4 37962 ;D5 227787 ;D6 7036323 ;D7 41501304",
         // maximum number of legal moves (and mate in one)
-        "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1; D1 218; D2 99; D3 19073; D4 85043; D5 13853661", // D6 115892741",
+        "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1 ;D1 218 ;D2 99 ;D3 19073 ;D4 85043 ;D5 13853661", // D6 115892741",
         // the same position with flipped side to move has no legal moves
-        "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 b - - 0 1; D1 0; D2 0; D3 0; D4 0; D5 0; D6 0; D7 0",
+        "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 b - - 0 1 ;D1 0 ;D2 0 ;D3 0 ;D4 0 ;D5 0 ;D6 0 ;D7 0",
         // a very weird position (not reachable from startpos, but still somewhat realistic)
-        "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1; D1 4; D2 16; D3 176; D4 1936; D5 22428; D6 255135; D7 3830854",
+        "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1 ;D1 4 ;D2 16 ;D3 176 ;D4 1936 ;D5 22428 ;D6 255135 ;D7 3830854",
             ];
 
     /// This perft test suite is also taken from Ethereal: <https://github.com/AndyGrant/Ethereal/blob/master/src/perft/fischer.epd>.

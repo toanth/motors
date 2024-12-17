@@ -9,7 +9,7 @@ use gears::games::chess::pieces::ChessPieceType::*;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::squares::ChessSquare;
 use gears::games::chess::ChessColor::{Black, White};
-use gears::games::chess::{ChessColor, Chessboard, SliderMove};
+use gears::games::chess::{ChessColor, Chessboard};
 use gears::games::Color;
 use gears::games::{DimT, ZobristHash};
 use gears::general::bitboards::chess::{
@@ -220,17 +220,6 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn checking(pos: &Chessboard, color: ChessColor) -> [ChessBitboard; 5] {
-        let mut result = [ChessBitboard::default(); 5];
-        let square = pos.king_square(color);
-        result[Pawn as usize] = Chessboard::single_pawn_captures(!color, square);
-        result[Knight as usize] = Chessboard::knight_attacks_from(square);
-        result[Bishop as usize] = pos.slider_attacks_from(square, SliderMove::Bishop, square.bb());
-        result[Rook as usize] = pos.slider_attacks_from(square, SliderMove::Rook, square.bb());
-        result[Queen as usize] = result[Rook as usize] | result[Bishop as usize];
-        result
-    }
-
     fn mobility_and_threats(
         pos: &Chessboard,
         color: ChessColor,
@@ -238,7 +227,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     ) -> Tuned::Score {
         let mut score = Tuned::Score::default();
 
-        let checking_squares = Self::checking(pos, !color);
+        // computes squares that would put the other player in check
+        let checking_squares = Attacks::compute_checking_squares(pos, !color);
 
         let attacked_by_pawn = pos
             .colored_piece_bb(color.other(), Pawn)
@@ -249,9 +239,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         if (pawn_attacks & king_zone).has_set_bit() {
             score += Tuned::king_zone_attack(Pawn);
         }
+        attack_data.checkers |= our_pawns & checking_squares[Pawn as usize];
         let mut all_attacks = pawn_attacks;
-        // let pawn_king_attacks = (pawn_attacks & king_zone).num_ones();
-        // score += Tuned::king_zone_attack(Pawn) * pawn_king_attacks;
         for piece in ChessPieceType::pieces() {
             let protected_by_pawns = pawn_attacks & pos.colored_piece_bb(color, piece);
             score += Tuned::pawn_protection(piece) * protected_by_pawns.num_ones();
@@ -259,6 +248,11 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Tuned::pawn_attack(piece) * attacked_by_pawns.num_ones();
         }
         for piece in ChessPieceType::non_pawn_pieces() {
+            let bb = pos.colored_piece_bb(color, piece);
+            let checkers = bb & checking_squares[piece as usize];
+            if checkers.has_set_bit() {
+                attack_data.checkers |= checkers;
+            }
             for square in pos.colored_piece_bb(color, piece).ones() {
                 let attacks = pos.attacks_no_castle_or_pawn_push(square, piece, color);
                 all_attacks |= attacks;

@@ -152,17 +152,22 @@ where
 }
 
 /// Sometimes, movegen and make_move can be sped up by using additional data that is not stored in the board itself
-pub trait ExternalData: Debug + Default {
+pub trait ExternalData<B: Board>: Debug + Default {
     fn check_initialized(&self) -> Option<&Self>;
+    fn init_manually(pos: &B) -> Self;
 }
 
 /// Most boards use this as their external data.
 #[derive(Debug, Default)]
 pub struct NoExternalData {}
 
-impl ExternalData for NoExternalData {
+impl<B: Board> ExternalData<B> for NoExternalData {
     fn check_initialized(&self) -> Option<&Self> {
         None
+    }
+
+    fn init_manually(_pos: &B) -> Self {
+        Self::default()
     }
 }
 
@@ -207,7 +212,7 @@ pub trait Board:
     type Unverified: UnverifiedBoard<Self>;
     // External data that can be used to speed up movegen and make_move, like bitboards of attacked squares.
     // Some evaluation functions generate this data anyway, so passing it to movegen and make_move allows not doing the work twice.
-    type ExternalData: ExternalData;
+    type ExternalData: ExternalData<Self>;
 
     /// Returns the name of the game, such as 'chess'.
     #[must_use]

@@ -766,13 +766,13 @@ impl<B: Board> EngineUGI<B> {
                     vec![self.state.board]
                 };
                 self.output()
-                    .write_ugi(&perft_for(opts.limit.depth, &positions).to_string())
+                    .write_ugi(&perft_for(opts.limit.depth, &positions, false).to_string())
             }
             SplitPerft => {
                 if opts.limit.depth.get() == 0 {
                     bail!("{} requires a depth of at least 1", "splitperft".bold())
                 }
-                self.write_ugi(&split_perft(opts.limit.depth, self.state.board).to_string());
+                self.write_ugi(&split_perft(opts.limit.depth, self.state.board, false).to_string());
             }
             _ => return self.start_search(opts),
         }

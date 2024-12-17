@@ -141,7 +141,7 @@ impl<B: Board> AbstractRun for PerftRun<B> {
     fn run(&mut self) -> Quitting {
         let pos = B::default();
         let depth = self.depth.unwrap_or(pos.default_perft_depth());
-        let res = perft(depth, pos);
+        let res = perft(depth, pos, false);
         println!("{res}");
         QuitProgram
     }
