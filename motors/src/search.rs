@@ -1099,6 +1099,9 @@ pub fn run_bench_with<B: Board>(
     let mut hasher = DefaultHasher::new();
     let mut total = BenchResult::default();
     let tt = TT::default();
+    if cfg!(debug_assertions) {
+        eprintln!("Running Perft; debug assertions are enabled");
+    }
     for position in bench_positions {
         // engine.forget();
         single_bench(position, engine, limit, tt.clone(), &mut total, &mut hasher);

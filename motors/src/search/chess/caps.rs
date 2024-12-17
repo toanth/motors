@@ -619,7 +619,7 @@ impl Caps {
                             // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
                             // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
                             self.state.multi_pv() > 1
-                                || pv.length + pv.length / 4
+                                || pv.length + pv.length / 2
                                     >= self.state.custom.depth_hard_limit.min(depth as usize)
                                 || pv_score.is_won_lost_or_draw_score(),
                             "{depth} {0} {pv_score} {1}",

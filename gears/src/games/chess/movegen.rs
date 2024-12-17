@@ -98,11 +98,10 @@ impl Chessboard {
         (self.all_attacking(square) & self.colored_bb(us.other())).has_set_bit()
     }
 
-    pub(super) fn gen_pseudolegal_moves<T: MoveList<Self>>(
+    pub(super) fn gen_pseudolegal_moves<T: MoveList<Self>, const ONLY_TACTICAL: bool>(
         &self,
         moves: &mut T,
         filter: ChessBitboard,
-        only_tactical: bool,
         attack_data: Option<&Attacks>,
     ) {
         if let Some(attacks) = attack_data {
@@ -126,11 +125,11 @@ impl Chessboard {
             self.gen_slider_moves(SliderMove::Rook, moves, filter);
         }
         self.gen_knight_moves(moves, filter);
-        self.gen_king_moves(moves, filter, only_tactical);
-        self.gen_pawn_moves(moves, only_tactical);
+        self.gen_king_moves::<T, ONLY_TACTICAL>(moves, filter);
+        self.gen_pawn_moves::<T, ONLY_TACTICAL>(moves);
     }
 
-    fn gen_pawn_moves<T: MoveList<Self>>(&self, moves: &mut T, only_tactical: bool) {
+    fn gen_pawn_moves<T: MoveList<Self>, const ONLY_TACTICAL: bool>(&self, moves: &mut T) {
         let color = self.active_player;
         let pawns = self.colored_piece_bb(color, Pawn);
         let occupied = self.occupied_bb();
@@ -175,13 +174,13 @@ impl Chessboard {
                     for flag in [PromoQueen, PromoKnight] {
                         moves.add_move(ChessMove::new(from, to, flag));
                     }
-                    if !only_tactical {
+                    if !ONLY_TACTICAL {
                         for flag in [PromoRook, PromoBishop] {
                             moves.add_move(ChessMove::new(from, to, flag));
                         }
                     }
                     continue;
-                } else if only_tactical && !is_capture {
+                } else if ONLY_TACTICAL && !is_capture {
                     continue;
                 }
                 moves.add_move(ChessMove::new(from, to, flag));
@@ -262,11 +261,10 @@ impl Chessboard {
         false
     }
 
-    fn gen_king_moves<T: MoveList<Self>>(
+    fn gen_king_moves<T: MoveList<Self>, const ONLY_CAPTURES: bool>(
         &self,
         moves: &mut T,
         filter: ChessBitboard,
-        only_captures: bool,
     ) {
         let color = self.active_player;
         let king = self.colored_piece_bb(color, King);
@@ -280,7 +278,7 @@ impl Chessboard {
                 NormalKingMove,
             ));
         }
-        if only_captures {
+        if ONLY_CAPTURES {
             return;
         }
         // Castling, handling the general (D)FRC case.

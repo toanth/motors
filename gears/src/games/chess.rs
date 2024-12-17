@@ -397,10 +397,9 @@ impl Board for Chessboard {
     }
 
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T, attack_data: Option<&Attacks>) {
-        self.gen_pseudolegal_moves(
+        self.gen_pseudolegal_moves::<T, false>(
             moves,
             !self.colored_bb(self.active_player),
-            false,
             attack_data,
         )
     }
@@ -410,10 +409,9 @@ impl Board for Chessboard {
         moves: &mut T,
         attack_data: Option<&Attacks>,
     ) {
-        self.gen_pseudolegal_moves(
+        self.gen_pseudolegal_moves::<T, true>(
             moves,
             self.colored_bb(self.active_player.other()),
-            true,
             attack_data,
         )
     }
