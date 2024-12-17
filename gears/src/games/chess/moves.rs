@@ -51,6 +51,7 @@ pub enum ChessMoveFlags {
 }
 
 impl ChessMoveFlags {
+    #[inline]
     pub fn normal_move(piece: ChessPieceType) -> Self {
         Self::from_repr(piece as usize).unwrap()
     }

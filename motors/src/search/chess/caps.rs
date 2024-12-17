@@ -1509,7 +1509,8 @@ mod tests {
             assert_eq!(root_entry.bound(), Exact);
             assert!(root_entry.mov.check_legal(&pos).is_some());
             let moves = pos.legal_moves_slow();
-            assert!(engine.state.uci_nodes() as usize >= moves.len()); // >= because of extensions
+            let nodes = engine.state.uci_nodes() as usize;
+            assert!(nodes >= moves.len(), "{pos}, {nodes}, {}", moves.len()); // >= because of extensions
             for m in moves {
                 let new_pos = pos.make_move(m).unwrap();
                 let entry = tt.load::<Chessboard>(new_pos.zobrist_hash(), 0);

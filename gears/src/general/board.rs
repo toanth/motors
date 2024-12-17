@@ -269,6 +269,7 @@ pub trait Board:
     fn active_player(&self) -> Self::Color;
 
     /// The player that cannot currently move.
+    #[inline]
     fn inactive_player(&self) -> Self::Color {
         self.active_player().other()
     }
@@ -299,6 +300,7 @@ pub trait Board:
     fn size(&self) -> <Self::Coordinates as Coordinates>::Size;
 
     /// The number of squares of the board.
+    #[inline]
     fn num_squares(&self) -> usize {
         self.size().num_squares()
     }
@@ -393,9 +395,13 @@ pub trait Board:
     /// In other words, this function only gracefully checks legality assuming that the move is pseudolegal.
     fn make_move(self, mov: Self::Move) -> Option<Self>;
 
-    /// Like `make_move`, but can use information from `_list` to speed up the implementation.
+    /// Like `make_move`, but can use information from `_external` to speed up the implementation.
     /// The default implementation simply forwards to [`make_move`].
-    fn make_move_from(self, mov: Self::Move, _list: &Self::MoveList) -> Option<Self> {
+    fn make_move_with(
+        self,
+        mov: Self::Move,
+        _external: Option<&Self::ExternalData>,
+    ) -> Option<Self> {
         self.make_move(mov)
     }
 
