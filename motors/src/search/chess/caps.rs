@@ -761,16 +761,14 @@ impl Caps {
                 // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
                 // at what the type of this node is going to be.
                 if !is_pv_node {
-                    expected_node_type = if tt_bound != Exact {
-                        // TODO: Base instead on relation between tt score and window?
-                        // Or only update if the difference between tt score and the window is large?
-                        tt_bound
-                    } else if tt_entry.score <= alpha {
+                    expected_node_type = if tt_entry.score <= alpha && tt_entry.bound() != FailHigh
+                    {
                         FailLow
-                    } else {
-                        debug_assert!(tt_entry.score >= beta); // we're using a null window
+                    } else if tt_entry.score >= beta && tt_entry.bound() != FailLow {
                         FailHigh
-                    }
+                    } else {
+                        expected_node_type
+                    };
                 }
 
                 if let Some(tt_move) = tt_entry.mov.check_pseudolegal(&pos) {
