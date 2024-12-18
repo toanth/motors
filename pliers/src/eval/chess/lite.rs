@@ -36,6 +36,7 @@ struct LiTETrace {}
 pub enum LiteFeatureSubset {
     Psqt,
     BishopPair,
+    BadBishop,
     RookOpenness,
     KingOpenness,
     BishopOpenness,
@@ -48,7 +49,6 @@ pub enum LiteFeatureSubset {
     Mobility,
     Threat,
     Defense,
-    DefendedPieces,
     KingZoneAttack,
     CanGiveCheck,
 }
@@ -58,6 +58,7 @@ impl FeatureSubSet for LiteFeatureSubset {
         match self {
             Psqt => NUM_SQUARES * NUM_CHESS_PIECES,
             BishopPair => 1,
+            BadBishop => 9,
             RookOpenness => 3,
             KingOpenness => 3,
             BishopOpenness => 4 * 8,
@@ -70,7 +71,6 @@ impl FeatureSubSet for LiteFeatureSubset {
             Mobility => (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1),
             Threat => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
-            DefendedPieces => 16 + 1,
             KingZoneAttack => NUM_CHESS_PIECES,
             CanGiveCheck => NUM_CHESS_PIECES - 1,
         }
@@ -90,6 +90,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             BishopPair => {
                 write!(f, "\nconst BISHOP_PAIR: PhasedScore = ")?;
+            }
+            BadBishop => {
+                write!(f, "const BAD_BISHOP: [PhasedScore; 9] = ")?;
             }
             RookOpenness => {
                 for (i, openness) in ["OPEN", "CLOSED", "SEMIOPEN"].iter().enumerate() {
@@ -209,9 +212,6 @@ impl FeatureSubSet for LiteFeatureSubset {
                     special,
                 );
             }
-            DefendedPieces => {
-                writeln!(f, "\npub const NUM_DEFENDED: [PhasedScore; 17] = ")?;
-            }
             KingZoneAttack => {
                 write!(f, "const KING_ZONE_ATTACK: [PhasedScore; 6] = ")?;
             }
@@ -282,6 +282,10 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(BishopPair, 0)
     }
 
+    fn bad_bishop(num_pawns: usize) -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(BadBishop, num_pawns)
+    }
+
     fn rook_openness(openness: FileOpenness) -> SingleFeature {
         if openness == SemiClosed {
             return SingleFeature::no_feature(RookOpenness);
@@ -333,10 +337,6 @@ impl LiteValues for LiTETrace {
     fn defended(protecting: ChessPieceType, target: ChessPieceType) -> SingleFeature {
         let idx = (protecting as usize - 1) * NUM_CHESS_PIECES + target as usize;
         SingleFeature::new(Defense, idx)
-    }
-
-    fn num_defended(num: usize) -> SingleFeatureScore<Self::Score> {
-        SingleFeature::new(DefendedPieces, num)
     }
 
     fn king_zone_attack(attacking: ChessPieceType) -> SingleFeature {

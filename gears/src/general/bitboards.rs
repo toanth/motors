@@ -455,8 +455,8 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     }
 
     // TODO: The following two methods are likely very slow. Find something faster
-    /// Flips the `_rank`th rank of the bitboard horizontally and leaves the other bits in an unspecified state.
-    fn flip_left_right(self, _rank: usize) -> Self {
+    /// Flips the 0th rank of the bitboard horizontally and leaves the other bits in an unspecified state.
+    fn flip_lowest_row(self) -> Self {
         let width = self.size().width().val();
         let mut bb = self;
         let file_mask = Self::file_0(self.size());
@@ -544,9 +544,12 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
 
     fn horizontal_attacks(square: C, blockers: Self) -> Self {
         let size = blockers.size();
-        let rank = square.row();
-        let rank_bb = Self::rank(rank, size);
-        Self::hyperbola_quintessence(size.to_internal_key(square), blockers, |x| x.flip_left_right(rank as usize), rank_bb)
+        let rank_bb = Self::rank_0(size);
+        let row = square.row() as usize;
+        let square = C::from_row_column(0, square.column());
+        let blockers = blockers >> (blockers.internal_width() * row);
+        let lowest_row = Self::hyperbola_quintessence(size.to_internal_key(square), blockers, |x| x.flip_lowest_row(), rank_bb);
+        lowest_row << (lowest_row.internal_width() * row)
     }
 
     fn vertical_attacks(square: C, blockers: Self) -> Self {
@@ -960,8 +963,17 @@ pub mod chess {
         res
     };
 
-    pub const WHITE_SQUARES: ChessBitboard = ChessBitboard::from_u64(0x55aa_55aa_55aa_55aa);
-    pub const BLACK_SQUARES: ChessBitboard = ChessBitboard::from_u64(0xaa55_aa55_aa55_aa55);
+    pub const fn white_squares() -> ChessBitboard {
+        COLORED_SQUARES[White as usize]
+    }
+    pub const fn black_squares() -> ChessBitboard {
+        COLORED_SQUARES[Black as usize]
+    }
+
+    pub const COLORED_SQUARES: [ChessBitboard; 2] = [
+        ChessBitboard::from_u64(0x55aa_55aa_55aa_55aa),
+        ChessBitboard::from_u64(0xaa55_aa55_aa55_aa55),
+    ];
     pub const CORNER_SQUARES: ChessBitboard = ChessBitboard::from_u64(0x8100_0000_0000_0081);
 
     pub const A_FILE: ChessBitboard = ChessBitboard::from_u64(0x0101_0101_0101_0101);
@@ -1099,14 +1111,15 @@ pub mod chess {
         }
 
         // idea from here: https://stackoverflow.com/questions/2602823/in-c-c-whats-the-simplest-way-to-reverse-the-order-of-bits-in-a-byte/2603254#2603254
-        fn flip_left_right(self, rank: usize) -> ChessBitboard {
+        // TODO: Can also use wrapping mul with diagonal for flipping
+        fn flip_lowest_row(self) -> ChessBitboard {
             const LOOKUP: [u8; 16] = [
                 0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe, 0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf,
             ];
-            let bb = self.0 >> (8 * rank);
+            let bb = self.0;
             Self::from_u64(u64::from(
                 LOOKUP[((bb >> 4) & 0xf) as usize] | (LOOKUP[(bb & 0xf) as usize] << 4),
-            )) << (8 * rank)
+            ))
         }
 
         fn flip_up_down(self) -> Self {
@@ -1301,13 +1314,8 @@ pub mod ataxx {
             AtaxxSize::default()
         }
 
-        fn flip_left_right(self, rank: usize) -> AtaxxBitboard {
-            AtaxxBitboard::new(
-                ChessBitboard::new(self.raw)
-                    .east()
-                    .flip_left_right(rank)
-                    .raw(),
-            )
+        fn flip_lowest_row(self) -> AtaxxBitboard {
+            AtaxxBitboard::new(ChessBitboard::new(self.raw).east().flip_lowest_row().raw())
         }
 
         fn flip_up_down(self) -> Self {

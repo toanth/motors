@@ -7,7 +7,7 @@ use crate::general::board::Board;
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity, Tokens};
 use crate::output::text_output::DisplayType::Fen;
 use crate::output::text_output::{BoardToText, TextStream};
-use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
+use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder, OutputOpts};
 use crate::GameState;
 
 #[derive(Debug)]
@@ -83,19 +83,19 @@ impl AbstractOutput for Logger {
 }
 
 impl<B: Board> Output<B> for Logger {
-    fn show(&mut self, m: &dyn GameState<B>) {
-        let msg = self.as_string(m);
+    fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts) {
+        let msg = self.as_string(m, opts);
         self.stream.write("Board:\n", &msg);
     }
 
-    fn as_string(&self, m: &dyn GameState<B>) -> String {
-        self.board_to_text.as_string(m)
+    fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
+        self.board_to_text.as_string(m, opts)
     }
 
     fn display_message_with_state(&mut self, m: &dyn GameState<B>, typ: Message, message: &str) {
         self.display_message(typ, message);
         if typ != Message::Info {
-            let str = self.as_string(m);
+            let str = self.as_string(m, OutputOpts::default());
             self.stream.write(typ.message_prefix(), &str);
         }
     }

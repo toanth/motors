@@ -205,22 +205,22 @@ mod bitboards {
         #[test]
         fn flip_left_right_test() {
             assert_eq!(
-                ChessBitboard::from_u64(0).flip_left_right(0),
+                ChessBitboard::from_u64(0).flip_lowest_row(),
                 ChessBitboard::from_u64(0)
             );
             assert_eq!(
-                ChessBitboard::from_u64(1).flip_left_right(0),
+                ChessBitboard::from_u64(1).flip_lowest_row(),
                 ChessBitboard::from_u64(0x80)
             );
-            for i in 0..7 {
-                assert_eq!(
-                    (ChessBitboard::from_u64(0x0003_4010_00e0).flip_left_right(i) >> (8 * i)).0
-                        & 0xff,
-                    (ChessBitboard::from_u64(0x00c0_0208_0007) >> (8 * i)).0 & 0xff
-                );
-            }
             assert_eq!(
-                ChessBitboard::from_u64(0xffff_ffff_ffff_fffe).flip_left_right(0),
+                ChessBitboard::from_u64(0x0003_4010_00e0)
+                    .flip_lowest_row()
+                    .0
+                    & 0xff,
+                ChessBitboard::from_u64(0x00c0_0208_0007).0 & 0xff
+            );
+            assert_eq!(
+                ChessBitboard::from_u64(0xffff_ffff_ffff_fffe).flip_lowest_row(),
                 ChessBitboard::from_u64(0xffff_ffff_ffff_ff7f & 0xff)
             );
         }
@@ -382,28 +382,28 @@ mod bitboards {
         fn flip_left_right_test() {
             let size = GridSize::new(Height(4), Width(3));
             assert_eq!(
-                MnkBitboard::from_uint(0, size).flip_left_right(0),
+                MnkBitboard::from_uint(0, size).flip_lowest_row(),
                 MnkBitboard::from_uint(0, size)
             );
             let size = GridSize::chess();
             assert_eq!(
-                MnkBitboard::from_uint(1, size).flip_left_right(0),
+                MnkBitboard::from_uint(1, size).flip_lowest_row(),
                 MnkBitboard::from_uint(0b1000_0000, size)
             );
             let size = GridSize::new(Height(12), Width(2));
             assert_eq!(
-                MnkBitboard::from_uint(0x02_34e1, size).flip_left_right(0),
+                MnkBitboard::from_uint(0x02_34e1, size).flip_lowest_row(),
                 MnkBitboard::from_uint(0x01_38d2, size)
             );
             let size = GridSize::new(Height(7), Width(3));
             assert_eq!(
-                MnkBitboard::from_uint(0b101_001_011_110_111_001, size).flip_left_right(0),
+                MnkBitboard::from_uint(0b101_001_011_110_111_001, size).flip_lowest_row(),
                 MnkBitboard::from_uint(0b101_100_110_011_111_100, size)
             );
             let size = GridSize::tictactoe();
             assert_eq!(
                 MnkBitboard::from_uint(0x4924_9249_2492_4924_9249_2492_4924_9249, size)
-                    .flip_left_right(0),
+                    .flip_lowest_row(),
                 MnkBitboard::from_uint(0x2492_4924_9249_2492_4924_9249_2492_4924, size)
             );
         }

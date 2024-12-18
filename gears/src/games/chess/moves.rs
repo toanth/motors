@@ -515,6 +515,7 @@ impl Chessboard {
             if self.is_in_check() {
                 return None;
             }
+            // This works even for DFRC castling because the king is always placed between the rooks
             let step = if side == Kingside { 1 } else { -1 };
             // no need to test for check on the target square as that will be done at the end of this function after
             // the rook has moved

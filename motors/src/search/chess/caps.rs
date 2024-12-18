@@ -29,6 +29,7 @@ use gears::general::move_list::EagerNonAllocMoveList;
 use gears::general::moves::Move;
 use gears::output::text_output::AdaptFormatter;
 use gears::output::Message::Debug;
+use gears::output::OutputOpts;
 use gears::score::{
     game_result_to_score, ScoreT, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA,
     NO_SCORE_YET,
@@ -206,7 +207,7 @@ fn write_single_hist_table(table: &HistoryHeuristic, flip: bool) -> String {
         })
         .collect_vec();
 
-    let formatter = Chessboard::default().pretty_formatter(None, None);
+    let formatter = Chessboard::default().pretty_formatter(None, None, OutputOpts::default());
     let mut formatter = AdaptFormatter {
         underlying: formatter,
         color_frame: Box::new(|_, col| col),
@@ -985,6 +986,15 @@ impl Caps {
                         reduction += 1;
                     }
                 }
+                // Futility Reduction: If this move is not a TT move, good SEE capture or killer, and our eval is significantly
+                // less than alpha, reduce.
+                if !in_check
+                    && depth >= cc::min_fr_depth()
+                    && move_score < KILLER_SCORE
+                    && eval + cc::fr_base() + cc::fr_scale() * (depth as ScoreT) < alpha
+                {
+                    reduction += 1;
+                }
                 // this ensures that check extensions prevent going into qsearch while in check
                 reduction = reduction.min(depth - 1);
 
@@ -1012,6 +1022,7 @@ impl Caps {
                 // If the full-depth search also performed better than expected, do a full-depth search with the
                 // full window to find the true score. If the score was at least `beta`, don't search again
                 // -- this move is probably already too good, so don't waste more time finding out how good it is exactly.
+                // This can only trigger in PV nodes, because all other nodes are searched with a null window anyway.
                 if alpha < score && score < beta {
                     debug_assert_eq!(expected_node_type, Exact);
                     self.state.statistics.lmr_second_retry();
@@ -1402,6 +1413,8 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
 mod tests {
     use gears::games::chess::Chessboard;
     use gears::general::board::Strictness::{Relaxed, Strict};
+    #[cfg(not(debug_assertions))]
+    use gears::general::moves::ExtendedFormat::Standard;
     use gears::search::NodesLimit;
 
     use crate::eval::chess::lite::{KingGambot, LiTEval};
@@ -1502,7 +1515,7 @@ mod tests {
     // TODO: Eventually, make sure that GAPS also passed this
     fn depth_1_nodes_test(mut engine: Caps, tt: TT) {
         for pos in Chessboard::bench_positions() {
-            let res = engine.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
+            let _ = engine.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
             if pos.legal_moves_slow().is_empty() {
                 continue;
             }
@@ -1631,7 +1644,7 @@ mod tests {
             let score = res.score.unwrap();
             println!(
                 "chosen move {0}, fen {1}, depth {2}, time {3}ms",
-                res.chosen_move.extended_formatter(pos),
+                res.chosen_move.extended_formatter(pos, Standard),
                 pos.as_fen(),
                 engine.state.depth(),
                 engine.state.start_time.elapsed().as_millis()

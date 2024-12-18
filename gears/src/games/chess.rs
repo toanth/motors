@@ -27,7 +27,7 @@ use crate::games::{
     ColoredPieceType, DimT, PieceType, Settings, ZobristHash,
 };
 use crate::general::bitboards::chess::{
-    ChessBitboard, BLACK_SQUARES, CORNER_SQUARES, WHITE_SQUARES,
+    black_squares, white_squares, ChessBitboard, CORNER_SQUARES,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
@@ -45,6 +45,7 @@ use crate::output::text_output::{
     board_to_string, display_board_pretty, display_color, AdaptFormatter, BoardFormatter,
     DefaultBoardFormatter, PieceToChar,
 };
+use crate::output::OutputOpts;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 
@@ -322,6 +323,12 @@ impl Board for Chessboard {
             "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1",
             // the same position with flipped side to move has no legal moves
             "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 b - - 0 1",
+            // caused an assertion failure once and is a chess960 FEN
+            "nrb1nkrq/2pp1ppp/p4b2/1p2p3/P4B2/3P4/1PP1PPPP/NR1BNRKQ w gb - 0 9",
+            // a very weird position (not reachable from startpos, but still somewhat realistic)
+            "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1",
+            // mate in 15 that stronger engines tend to miss(even lichess SF only finds a mate in 17 with max parameters)
+            "5k2/1p5Q/p2r1qp1/P1p1RpN1/2P5/3P3P/5PP1/6K1 b - - 0 56",
         ];
         fens.map(|fen| Self::from_fen(fen, Strict).unwrap())
             .iter()
@@ -481,7 +488,7 @@ impl Board for Chessboard {
         }
         let bishops = self.colored_piece_bb(player, Bishop);
         if self.colored_piece_bb(player, Knight).is_zero()
-            && ((bishops & WHITE_SQUARES).is_zero() || (bishops & BLACK_SQUARES).is_zero())
+            && ((bishops & white_squares()).is_zero() || (bishops & black_squares()).is_zero())
         {
             return false;
         }
@@ -613,6 +620,7 @@ impl Board for Chessboard {
         &self,
         piece_to_char: Option<PieceToChar>,
         last_move: Option<ChessMove>,
+        opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;
         let king_square = self.king_square(self.active_player);
@@ -624,7 +632,12 @@ impl Board for Chessboard {
             }
         });
         Box::new(AdaptFormatter {
-            underlying: Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move)),
+            underlying: Box::new(DefaultBoardFormatter::new(
+                *self,
+                piece_to_char,
+                last_move,
+                opts,
+            )),
             color_frame,
             display_piece: Box::new(move |square, width, _default| {
                 let piece = pos.colored_piece_on(square);
@@ -732,9 +745,13 @@ impl Chessboard {
             "{}",
             self.piece_type_on(from)
         );
-        debug_assert_eq!(
-            self.active_player,
-            self.colored_piece_on(from).color().unwrap()
+        debug_assert!(
+            (self.active_player ==
+            self.colored_piece_on(from).color().unwrap())
+            // in chess960 castling, it's possible that the rook has been sent to the king square,
+            // which means the color bit of the king square is currently not set
+            || (piece == King && self.piece_bb(Rook).is_bit_set_at(from.bb_idx())),
+            "{self}"
         );
         // with chess960 castling, it's possible to move to the source square or a square occupied by a rook
         debug_assert!(
@@ -787,7 +804,7 @@ impl Chessboard {
             return false;
         }
         let bishops = self.piece_bb(Bishop);
-        if (bishops & BLACK_SQUARES).has_set_bit() && (bishops & WHITE_SQUARES).has_set_bit() {
+        if (bishops & black_squares()).has_set_bit() && (bishops & white_squares()).has_set_bit() {
             return false; // opposite-colored bishops (even if they belong to different players)
         }
         if bishops.has_set_bit() && self.piece_bb(Knight).has_set_bit() {

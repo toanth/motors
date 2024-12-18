@@ -29,6 +29,7 @@ use crate::general::squares::{GridCoordinates, GridSize};
 use crate::output::text_output::{
     board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter, PieceToChar,
 };
+use crate::output::OutputOpts;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub enum Symbol {
@@ -769,8 +770,14 @@ impl Board for MNKBoard {
         &self,
         piece_to_char: Option<PieceToChar>,
         last_move: Option<Self::Move>,
+        opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
-        Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move))
+        Box::new(DefaultBoardFormatter::new(
+            *self,
+            piece_to_char,
+            last_move,
+            opts,
+        ))
     }
 
     fn background_color(&self, square: GridCoordinates) -> SquareColor {

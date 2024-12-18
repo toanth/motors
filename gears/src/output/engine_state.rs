@@ -19,7 +19,7 @@ use crate::general::board::Board;
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use crate::output::text_output::{TextStream, TextWriter};
 use crate::output::Message::Info;
-use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
+use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder, OutputOpts};
 use crate::GameState;
 use anyhow::bail;
 use std::fmt::Display;
@@ -63,7 +63,7 @@ impl AbstractOutput for EngineStateOutput {
 }
 
 impl<B: Board> Output<B> for EngineStateOutput {
-    fn as_string(&self, m: &dyn GameState<B>) -> String {
+    fn as_string(&self, m: &dyn GameState<B>, _opts: OutputOpts) -> String {
         m.engine_state().unwrap_or_else(|e| e.to_string())
     }
 }

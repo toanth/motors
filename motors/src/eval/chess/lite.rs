@@ -12,7 +12,7 @@ use gears::games::chess::{ChessColor, Chessboard, SliderMove};
 use gears::games::Color;
 use gears::games::{DimT, ZobristHash};
 use gears::general::bitboards::chess::{
-    ChessBitboard, A_FILE, CHESS_ANTI_DIAGONALS, CHESS_DIAGONALS,
+    ChessBitboard, A_FILE, CHESS_ANTI_DIAGONALS, CHESS_DIAGONALS, COLORED_SQUARES,
 };
 use gears::general::bitboards::Bitboard;
 use gears::general::bitboards::RawBitboard;
@@ -143,6 +143,16 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
     }
 
+    fn bad_bishop(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
+        let mut score = Tuned::Score::default();
+        let pawns = pos.colored_piece_bb(color, Pawn);
+        for bishop in pos.colored_piece_bb(color, Bishop).ones() {
+            let sq_color = bishop.square_color();
+            score += Tuned::bad_bishop((COLORED_SQUARES[sq_color as usize] & pawns).num_ones());
+        }
+        score
+    }
+
     fn pawn_shield_for(pos: &Chessboard, color: ChessColor) -> SingleFeatureScore<Tuned::Score> {
         let our_pawns = pos.colored_piece_bb(color, Pawn);
         let king_square = pos.king_square(color);
@@ -267,9 +277,6 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 }
             }
         }
-        let all_defended = pos.colored_bb(color) & (all_attacks & !attacked_by_pawn);
-        score += Tuned::num_defended(all_defended.num_ones());
-
         score
     }
 
@@ -277,6 +284,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let mut score = Tuned::Score::default();
         for color in ChessColor::iter() {
             score += Self::bishop_pair(pos, color);
+            score += Self::bad_bishop(pos, color);
             score += Self::open_lines(pos, color);
             // score += Self::outposts(pos, color);
             score += Self::mobility_and_threats(pos, color);

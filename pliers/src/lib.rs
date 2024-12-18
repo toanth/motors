@@ -102,6 +102,7 @@ use crate::gd::{
 };
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
+use gears::colored::Colorize;
 use gears::games::chess::Chessboard;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
@@ -203,6 +204,18 @@ pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
     let batch = dataset.as_batch();
     let scale = e.eval_scale().to_scaling_factor(batch, &e);
     let mut optimizer = O::new(batch, scale);
+
+    let num_all_features = batch
+        .datapoints
+        .iter()
+        .map(|d| d.features().count())
+        .sum::<usize>();
+    let average = num_all_features as f64 / batch.datapoints.len() as f64;
+    println!(
+        "\nAverage Number of Features per Position: {}\n",
+        format!("{average:.3}").bold()
+    );
+
     let occurrences = Weights(count_occurrences(batch).into_iter().map(Weight).collect());
     println!("Occurrences:\n{}", display(&e, &occurrences, &[]));
     let weights = optimize_dataset(&mut dataset, scale, num_epochs, &e, &mut optimizer);
