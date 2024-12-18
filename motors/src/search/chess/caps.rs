@@ -1,6 +1,5 @@
 use std::cmp::min;
 use std::mem::take;
-use std::num::Wrapping;
 use std::time::{Duration, Instant};
 
 use crate::eval::chess::lite::LiTEval;
@@ -1108,7 +1107,7 @@ impl Caps {
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
         if !(root && self.state.current_pv_num > 0)
-            && !old_entry.is_some_and(|e| Self::should_not_replace(&e, &new_entry))
+            && !old_entry.is_some_and(|e| Self::should_not_replace(&e, &new_entry, is_pv_node))
         {
             self.state.tt_mut().store(new_entry, ply);
         }
@@ -1116,8 +1115,12 @@ impl Caps {
         Some(best_score)
     }
 
-    fn should_not_replace(old: &TTEntry<Chessboard>, new: &TTEntry<Chessboard>) -> bool {
-        new.age == old.age && new.depth + 5 < old.depth
+    fn should_not_replace(
+        old: &TTEntry<Chessboard>,
+        new: &TTEntry<Chessboard>,
+        is_pv_node: bool,
+    ) -> bool {
+        new.age == old.age && new.depth + 1 < old.depth && !is_pv_node
     }
 
     fn update_continuation_hist(
@@ -1316,7 +1319,7 @@ impl Caps {
             0,
             bound_so_far,
         );
-        if !old_entry.is_some_and(|e| Self::should_not_replace(&e, &tt_entry)) {
+        if !old_entry.is_some_and(|e| Self::should_not_replace(&e, &tt_entry, false)) {
             self.state.tt_mut().store(tt_entry, ply);
         }
         best_score
