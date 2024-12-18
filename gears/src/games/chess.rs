@@ -239,6 +239,16 @@ impl Board for Chessboard {
                 },
             },
             GenericSelect {
+                name: "pinned",
+                val: || {
+                    Self::from_fen(
+                        "3q3r/7R/3r3Q/B2R2rk/1b3B1p/2B1Pp2/1qNKBR2/4B3 b - - 21 42",
+                        Strict,
+                    )
+                    .unwrap()
+                },
+            },
+            GenericSelect {
                 name: "see_xray",
                 val: || Self::from_fen("5q1k/8/8/8/RRQ2nrr/8/8/K7 w - - 0 1", Strict).unwrap(),
             },

@@ -249,7 +249,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Tuned::pawn_attack(piece) * attacked_by_pawns.num_ones();
         }
         for piece in ChessPieceType::non_king_pieces() {
-            let pinned = check_data.pinned & pos.colored_piece_bb(color, piece);
+            let pinned = check_data.pinned & pos.colored_piece_bb(!color, piece);
             score += Tuned::pinned(piece) * pinned.num_ones();
         }
         for piece in ChessPieceType::non_pawn_pieces() {

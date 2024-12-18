@@ -81,6 +81,7 @@ impl Attacks {
         &self.for_color[color as usize]
     }
 
+    // returns a bitboard of all pieces of the `color` player that are pinned against the king
     pub fn compute_pinned(pos: &Chessboard, color: ChessColor) -> ChessBitboard {
         let square = pos.king_square(color);
         let mut pinned = ChessBitboard::default();
@@ -90,7 +91,7 @@ impl Attacks {
             } else {
                 SliderMove::Rook
             };
-            let bb = pos.piece_bb(slider) | pos.piece_bb(Queen);
+            let bb = (pos.piece_bb(slider) | pos.piece_bb(Queen)) & pos.colored_bb(!color);
             let blockers = pos.colored_bb(!color);
             let potentially_pinning = pos.slider_attacks_from(square, slider_move, blockers) & bb;
             for piece in potentially_pinning.ones() {
@@ -188,6 +189,14 @@ mod test {
             .unwrap();
         let data = Attacks::init_manually(&pos);
         assert_eq!(data.pinned, ChessSquare::from_str("d1").unwrap().bb());
+        let pos = Chessboard::from_name("pinned").unwrap();
+        let data = Attacks::init_manually(&pos);
+        let expected = ChessSquare::from_str("c2").unwrap().bb()
+            | ChessSquare::from_str("c3").unwrap().bb()
+            | ChessSquare::from_str("d5").unwrap().bb()
+            | ChessSquare::from_str("f3").unwrap().bb()
+            | ChessSquare::from_str("g5").unwrap().bb();
+        assert_eq!(data.pinned, expected);
     }
 
     #[test]
