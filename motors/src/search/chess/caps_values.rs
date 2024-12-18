@@ -33,7 +33,7 @@ spsa_params! [
     they_blundered_threshold: ScoreT = 58; 0..=200; step=5;
     we_blundered_threshold: ScoreT = -47; -200..=0; step=5;
     iir_min_depth: isize = 4; 1..=15; step=1;
-    rfp_base: ScoreT = 158; 0..=900; step=15;
+    rfp_reduction: ScoreT = 158; 0..=900; step=15;
     rfp_blunder: ScoreT = 48; 0..=512; step=8;
     rfp_fail_high_div: ScoreT = 3; 1..=10; step=1;
     rfp_max_depth: isize = 6; 1..=10; step=1;
@@ -51,7 +51,7 @@ spsa_params! [
     lmp_base: isize = 4; 0..=64; step=1;
     lmp_scale: isize = 5; 0..=32; step=1;
     lmp_fail_low_div: isize = 2; 2..=16; step=1;
-    max_move_loop_pruning_depth: isize = 6; 1..=16; step=1;
+    max_fp_depth: isize = 6; 1..=16; step=1;
     lmr_min_uninteresting: isize = 3; 0..=16; step=1;
     lmr_depth_div: isize = 8; 2..=16; step=1;
     lmr_const: isize = -1; -4..=8; step=1;

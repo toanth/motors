@@ -822,7 +822,8 @@ impl Caps {
             // (like imminent threats) so don't prune too aggressively if our opponent hasn't blundered.
             // Be more careful about pruning too aggressively if the node is expected to fail low -- we should not rfp
             // a true fail low node, but our expectation may also be wrong.
-            let mut margin = (cc::rfp_base() - (ScoreT::from(they_blundered) * cc::rfp_blunder()))
+            let mut margin = (cc::rfp_reduction()
+                - (ScoreT::from(they_blundered) * cc::rfp_blunder()))
                 * depth as ScoreT;
             if expected_node_type == FailHigh {
                 margin /= cc::rfp_fail_high_div();
@@ -910,7 +911,7 @@ impl Caps {
                 cc::fp_base() + cc::fp_scale() * depth
             };
             let mut lmp_threshold = if we_blundered {
-                cc::lmp_blunder_base() + cc::lmp_blunder_scale() * depth
+                cc::lmp_blunder_base() + depth * depth * 3 / 4
             } else {
                 cc::lmp_base() + cc::lmp_scale() * depth
             };
@@ -918,12 +919,11 @@ impl Caps {
             if expected_node_type == FailLow {
                 lmp_threshold -= lmp_threshold / cc::lmp_fail_low_div();
             }
-            if can_prune
-                && best_score > MAX_SCORE_LOST
-                && depth <= cc::max_move_loop_pruning_depth()
-                && (num_uninteresting_visited >= lmp_threshold
-                    || (eval + Score(fp_margin as ScoreT) < alpha && move_score < KILLER_SCORE))
-            {
+            let lmp_condition = num_uninteresting_visited >= lmp_threshold;
+            let fp_condition = depth <= cc::max_fp_depth()
+                && eval + Score(fp_margin as ScoreT) < alpha
+                && move_score < KILLER_SCORE;
+            if can_prune && best_score > MAX_SCORE_LOST && (lmp_condition || fp_condition) {
                 break;
             }
 
