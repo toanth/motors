@@ -926,6 +926,14 @@ impl Caps {
             {
                 break;
             }
+            // History pruning: At very low depth, don't play quiet moves with bad history scores
+            if can_prune
+                && best_score > MAX_SCORE_LOST
+                && move_score.0 < cc::lmr_bad_hist()
+                && depth <= 2
+            {
+                continue;
+            }
 
             if ply == 0 && self.state.excluded_moves.contains(&mov) {
                 continue;
