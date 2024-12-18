@@ -228,7 +228,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let mut score = Tuned::Score::default();
 
         // computes squares that would put the other player in check
-        let checking_squares = Attacks::compute_checking_squares(pos, !color);
+        let check_data = Attacks::compute_checking_squares(pos, !color);
 
         let attacked_by_pawn = pos
             .colored_piece_bb(color.other(), Pawn)
@@ -239,7 +239,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         if (pawn_attacks & king_zone).has_set_bit() {
             score += Tuned::king_zone_attack(Pawn);
         }
-        attack_data.checkers |= our_pawns & checking_squares[Pawn as usize];
+        attack_data.checkers |= our_pawns & check_data.checking_squares[Pawn as usize];
+        attack_data.pinned |= check_data.pinned;
         let mut all_attacks = pawn_attacks;
         for piece in ChessPieceType::pieces() {
             let protected_by_pawns = pawn_attacks & pos.colored_piece_bb(color, piece);
@@ -247,9 +248,13 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             let attacked_by_pawns = pawn_attacks & pos.colored_piece_bb(!color, piece);
             score += Tuned::pawn_attack(piece) * attacked_by_pawns.num_ones();
         }
+        for piece in ChessPieceType::non_king_pieces() {
+            let pinned = check_data.pinned & pos.colored_piece_bb(color, piece);
+            score += Tuned::pinned(piece) * pinned.num_ones();
+        }
         for piece in ChessPieceType::non_pawn_pieces() {
             let bb = pos.colored_piece_bb(color, piece);
-            let checkers = bb & checking_squares[piece as usize];
+            let checkers = bb & check_data.checking_squares[piece as usize];
             if checkers.has_set_bit() {
                 attack_data.checkers |= checkers;
             }
@@ -270,7 +275,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                     score += Tuned::king_zone_attack(piece);
                 }
                 if piece != King
-                    && (attacks_no_pawn_recapture & checking_squares[piece as usize]).has_set_bit()
+                    && (attacks_no_pawn_recapture & check_data.checking_squares[piece as usize])
+                        .has_set_bit()
                 {
                     score += Tuned::can_give_check(piece);
                 }

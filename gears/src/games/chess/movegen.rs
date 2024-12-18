@@ -41,15 +41,14 @@ impl Chessboard {
         piece: ChessPieceType,
         color: ChessColor,
     ) -> ChessBitboard {
-        let square_bb_if_occupied = square.bb() & self.occupied_bb();
         match piece {
             Pawn => Self::single_pawn_captures(color, square),
             Knight => Self::knight_attacks_from(square),
-            Bishop => self.slider_attacks_from(square, SliderMove::Bishop, square_bb_if_occupied),
-            Rook => self.slider_attacks_from(square, SliderMove::Rook, square_bb_if_occupied),
+            Bishop => self.slider_attacks_from(square, SliderMove::Bishop, self.occupied_bb()),
+            Rook => self.slider_attacks_from(square, SliderMove::Rook, self.occupied_bb()),
             Queen => {
-                self.slider_attacks_from(square, SliderMove::Bishop, square_bb_if_occupied)
-                    | self.slider_attacks_from(square, SliderMove::Rook, square_bb_if_occupied)
+                self.slider_attacks_from(square, SliderMove::Bishop, self.occupied_bb())
+                    | self.slider_attacks_from(square, SliderMove::Rook, self.occupied_bb())
             }
             King => Self::normal_king_attacks_from(square),
             Empty => ChessBitboard::default(),
@@ -124,9 +123,14 @@ impl Chessboard {
         mut non_king_filter: ChessBitboard,
         attacks: &Attacks,
     ) {
+        let us = self.active_player;
         debug_assert_eq!(
             attacks.checkers & !self.inactive_player_bb(),
             ChessBitboard::default()
+        );
+        debug_assert_eq!(
+            attacks.checkers.has_set_bit(),
+            self.is_in_check_on_square(us, self.king_square(us))
         );
         // Don't even bother generating king moves to squares that are attacked by the opponent
         let king_filter = non_king_filter & !attacks.for_color(self.inactive_player()).all;
@@ -140,14 +144,14 @@ impl Chessboard {
             // If we're in check by a non-slider, don't even bother generating non-king moves unless they capture the checker
             non_king_filter &= non_slider_checkers;
         }
-        let our_attacks = attacks.for_color(self.active_player);
+        let our_attacks = attacks.for_color(us);
         let mut idx = 0;
         for piece in [Bishop, Rook, Queen] {
-            for from in self.colored_piece_bb(self.active_player, piece).ones() {
+            for from in self.colored_piece_bb(us, piece).ones() {
                 let bb = our_attacks.sliders[idx] & non_king_filter;
                 for to in bb.ones() {
                     debug_assert!(self
-                        .colored_piece_bb(self.active_player, piece)
+                        .colored_piece_bb(us, piece)
                         .is_bit_set_at(from.bb_idx()));
                     let mov = ChessMove::new(from, to, ChessMoveFlags::normal_move(piece));
                     moves.add_move(mov);
@@ -347,7 +351,7 @@ impl Chessboard {
         let queens = self.colored_piece_bb(color, Queen);
         let pieces = queens | non_queens;
         for from in pieces.ones() {
-            let attacks = self.slider_attacks_from(from, slider_move, from.bb()) & filter;
+            let attacks = self.slider_attacks_from(from, slider_move, self.occupied_bb()) & filter;
             for to in attacks.ones() {
                 let move_type = if queens.is_bit_set_at(from.bb_idx()) {
                     QueenMove
@@ -378,43 +382,36 @@ impl Chessboard {
         &self,
         square: ChessSquare,
         slider_move: SliderMove,
-        square_bb_if_occupied: ChessBitboard,
+        blockers: ChessBitboard,
     ) -> ChessBitboard {
-        let blockers = self.occupied_bb();
+        // the square itself mut not be occupied for HQ
+        let blockers = blockers & !square.bb();
         match slider_move {
-            SliderMove::Bishop => {
-                ChessBitboard::bishop_attacks(square, blockers ^ square_bb_if_occupied)
-            }
-            SliderMove::Rook => {
-                ChessBitboard::rook_attacks(square, blockers ^ square_bb_if_occupied)
-            }
+            SliderMove::Bishop => ChessBitboard::bishop_attacks(square, blockers),
+            SliderMove::Rook => ChessBitboard::rook_attacks(square, blockers),
         }
     }
 
     pub fn all_attacking(&self, square: ChessSquare) -> ChessBitboard {
         let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
         let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
-        let square_bb = square.bb();
-        let square_bb_if_occupied = if self.is_occupied(square) {
-            square_bb
-        } else {
-            ChessBitboard::default()
-        };
-        (rook_sliders & self.slider_attacks_from(square, SliderMove::Rook, square_bb_if_occupied))
+        (rook_sliders & self.slider_attacks_from(square, SliderMove::Rook, self.occupied_bb()))
             | (bishop_sliders
-                & self.slider_attacks_from(square, SliderMove::Bishop, square_bb_if_occupied))
+                & self.slider_attacks_from(square, SliderMove::Bishop, self.occupied_bb()))
             | (Self::knight_attacks_from(square) & self.piece_bb(Knight))
             | (Self::normal_king_attacks_from(square) & self.piece_bb(King))
             | Self::single_pawn_captures(Black, square) & self.colored_piece_bb(White, Pawn)
             | Self::single_pawn_captures(White, square) & self.colored_piece_bb(Black, Pawn)
     }
 
+    /// pieces attacking `target` through `ray_square`
     pub fn ray_attacks(
         &self,
         target: ChessSquare,
         ray_square: ChessSquare,
         blockers: ChessBitboard,
     ) -> ChessBitboard {
+        // TODO: Maybe precompute for all 64 x 64 combinations?
         let file_diff = target.file().wrapping_sub(ray_square.file());
         let rank_diff = target.rank().wrapping_sub(ray_square.rank());
         if file_diff == 0 {

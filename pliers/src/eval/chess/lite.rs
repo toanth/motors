@@ -48,6 +48,7 @@ pub enum LiteFeatureSubset {
     PawnProtection,
     PawnAttacks,
     Mobility,
+    Pinned,
     Threat,
     Defense,
     KingZoneAttack,
@@ -70,6 +71,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             PawnProtection => NUM_CHESS_PIECES,
             PawnAttacks => NUM_CHESS_PIECES,
             Mobility => (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1),
+            Pinned => NUM_CHESS_PIECES - 1, // kings can't be pinned
             Threat => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             KingZoneAttack => NUM_CHESS_PIECES,
@@ -184,6 +186,12 @@ impl FeatureSubSet for LiteFeatureSubset {
                     writeln!(f, ",")?;
                 }
                 return writeln!(f, "];");
+            }
+            Pinned => {
+                write!(
+                    f,
+                    "pub const PINNED: [PhasedScore; NUM_CHESS_PIECES - 1] = "
+                )?;
             }
             Threat => {
                 writeln!(
@@ -328,6 +336,10 @@ impl LiteValues for LiTETrace {
     fn mobility(piece: ChessPieceType, mobility: usize) -> SingleFeature {
         let idx = (piece as usize - 1) * (MAX_MOBILITY + 1) + mobility;
         SingleFeature::new(Mobility, idx)
+    }
+
+    fn pinned(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(Pinned, piece as usize)
     }
 
     fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> SingleFeature {

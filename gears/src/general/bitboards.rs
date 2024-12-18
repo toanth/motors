@@ -963,6 +963,54 @@ pub mod chess {
         res
     };
 
+    // lol.
+    // unfortunately, rust trait functions can't be const, so this simply has to be duplicated
+    // TODO: Test using .reverse_bits() at runtime
+    pub(super) const fn const_hyperbola_quintessence(
+        idx: usize,
+        block_square: usize,
+        ray: u64,
+    ) -> ChessBitboard {
+        let a = 1 << idx;
+        let b = 1 << block_square;
+        let max = if a > b { a } else { b };
+        let min = if a < b { a } else { b };
+        ChessBitboard::from_u64((max - min) & ray & !min)
+    }
+
+    pub const RAYS_EXCLUSIVE: [[ChessBitboard; 64]; 64] = {
+        let mut res = [[ChessBitboard::from_u64(0); 64]; 64];
+        let mut start = 0;
+        while start < 64 {
+            let file = start % 8;
+            let rank = start / 8;
+            let mut i = 0;
+            while i < 8 {
+                let sq = rank * 8 + i;
+                res[start][sq] = const_hyperbola_quintessence(start, sq, 0xff << (8 * rank));
+                let sq = 8 * i + file;
+                res[start][sq] = const_hyperbola_quintessence(start, sq, A_FILE.raw.0 << file);
+                i += 1;
+            }
+            let mut diag = CHESS_DIAGONALS[start].raw.0;
+            while diag != 0 {
+                let sq = diag.trailing_zeros() as usize;
+                res[start][sq] =
+                    const_hyperbola_quintessence(start, sq, CHESS_DIAGONALS[start].raw.0);
+                diag &= diag - 1;
+            }
+            let mut anti_diag = CHESS_ANTI_DIAGONALS[start].raw.0;
+            while anti_diag != 0 {
+                let sq = anti_diag.trailing_zeros() as usize;
+                res[start][sq] =
+                    const_hyperbola_quintessence(start, sq, CHESS_ANTI_DIAGONALS[start].raw.0);
+                anti_diag &= anti_diag - 1;
+            }
+            start += 1;
+        }
+        res
+    };
+
     pub const fn white_squares() -> ChessBitboard {
         COLORED_SQUARES[White as usize]
     }
@@ -1359,6 +1407,53 @@ mod tests {
             assert_eq!(KINGS[i], king ^ bb);
             assert_eq!(LEAPING[i].raw(), leaping.raw() & !king.raw());
         }
+    }
+
+    #[test]
+    fn const_hq_test() {
+        assert_eq!(
+            const_hyperbola_quintessence(0, 1, 0xff),
+            ChessBitboard::default()
+        );
+        assert_eq!(
+            const_hyperbola_quintessence(1, 0, 0xff),
+            ChessBitboard::default()
+        );
+        assert_eq!(
+            const_hyperbola_quintessence(0, 7, 0xff),
+            ChessBitboard::from_u64(0xff ^ 0x81)
+        );
+    }
+
+    #[test]
+    fn rays_test() {
+        for i in 0..64 {
+            for j in 0..64 {
+                assert_eq!(RAYS_EXCLUSIVE[i][j], RAYS_EXCLUSIVE[j][i], "{i} {j}");
+            }
+        }
+        assert_eq!(RAYS_EXCLUSIVE[0][0], ChessBitboard::default());
+        assert_eq!(RAYS_EXCLUSIVE[1][0], ChessBitboard::default());
+        assert_eq!(RAYS_EXCLUSIVE[2][0], ChessBitboard::single_piece(1));
+        assert_eq!(RAYS_EXCLUSIVE[7][0], ChessBitboard::from_u64(0xff ^ 0x81));
+        assert_eq!(RAYS_EXCLUSIVE[8][0], ChessBitboard::default());
+        assert_eq!(RAYS_EXCLUSIVE[16][0], ChessBitboard::single_piece(8));
+        assert_eq!(
+            RAYS_EXCLUSIVE[11][11 + 32],
+            ChessBitboard::from_u64(0x01010100 << 11)
+        );
+        assert_eq!(RAYS_EXCLUSIVE[42][40], ChessBitboard::single_piece(41));
+        assert_eq!(
+            RAYS_EXCLUSIVE[0][63],
+            CHESS_DIAGONALS[0] ^ ChessBitboard::from_u64(0x8000_0000_0000_0001)
+        );
+        assert_eq!(
+            RAYS_EXCLUSIVE[12][12 + 16 + 2],
+            ChessBitboard::single_piece(12 + 8 + 1)
+        );
+        assert_eq!(RAYS_EXCLUSIVE[20][20 - 3 + 3 * 8].num_ones(), 2);
+        assert_eq!(RAYS_EXCLUSIVE[1][63], ChessBitboard::default());
+        assert_eq!(RAYS_EXCLUSIVE[24][57], ChessBitboard::default());
     }
 
     #[test]

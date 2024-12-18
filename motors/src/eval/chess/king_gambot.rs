@@ -133,6 +133,10 @@ impl LiteValues for KingGambotValues {
         Lite::mobility(piece, mobility)
     }
 
+    fn pinned(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
+        Lite::pinned(piece)
+    }
+
     fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> PhasedScore {
         Lite::threats(attacking, targeted)
     }
