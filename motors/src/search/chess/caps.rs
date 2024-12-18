@@ -133,18 +133,20 @@ impl Default for ContHist {
 #[derive(Debug, Clone)]
 struct MoveTable(Vec<UntrustedMove<Chessboard>>);
 
+const MOVETABLE_SIZE: usize = 1 << 12;
+
 impl Default for MoveTable {
     fn default() -> Self {
-        Self(vec![UntrustedMove::default(); 1 << 16])
+        Self(vec![UntrustedMove::default(); MOVETABLE_SIZE])
     }
 }
 
 impl MoveTable {
     fn entry(&self, pos: &Chessboard) -> UntrustedMove<Chessboard> {
-        self.0[(pos.zobrist_hash().0 % (1 << 16)) as usize]
+        self.0[(pos.zobrist_hash().0 as usize % MOVETABLE_SIZE) as usize]
     }
     fn entry_mut(&mut self, pos: &Chessboard) -> &mut UntrustedMove<Chessboard> {
-        &mut self.0[(pos.zobrist_hash().0 % (1 << 16)) as usize]
+        &mut self.0[(pos.zobrist_hash().0 as usize % MOVETABLE_SIZE) as usize]
     }
 }
 
@@ -1124,9 +1126,9 @@ impl Caps {
             depth,
             bound_so_far,
         );
-        // Store the old move in the Move table
+        // Store the old move in the Move table if it comes from a pv node
         if let Some(old) = old_entry {
-            if old.mov != tt_entry.mov && old.mov.trust_unchecked() != ChessMove::NULL && depth > 5
+            if old.mov != tt_entry.mov && old.mov.trust_unchecked() != ChessMove::NULL && is_pv_node
             {
                 *self.state.custom.move_table.entry_mut(&pos) = old.mov;
             }
