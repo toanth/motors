@@ -991,7 +991,7 @@ impl Caps {
                     && move_score < KILLER_SCORE
                     && eval + cc::fr_base() + cc::fr_scale() * (depth as ScoreT) < alpha
                 {
-                    reduction += 1;
+                    reduction += (depth + 3) / 8;
                 }
                 // this ensures that check extensions prevent going into qsearch while in check
                 reduction = reduction.min(depth - 1);
