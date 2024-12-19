@@ -931,6 +931,8 @@ impl Caps {
                 && best_score > MAX_SCORE_LOST
                 && move_score.0 < cc::lmr_bad_hist()
                 && depth <= 2
+                && move_score.0 > -HIST_DIVISOR * 20
+            // TODO: Better move scores
             {
                 continue;
             }
