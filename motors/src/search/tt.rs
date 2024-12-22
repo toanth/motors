@@ -390,15 +390,15 @@ mod test {
         );
         tt.store(next_entry, 1);
         let mov = engine
-            .search_with_tt(pos, SearchLimit::depth(Depth::new_unchecked(1)), tt.clone())
+            .search_with_tt(pos, SearchLimit::depth(Depth::new(1)), tt.clone())
             .chosen_move;
         assert_eq!(mov, bad_move);
-        let limit = SearchLimit::depth(Depth::new_unchecked(3));
+        let limit = SearchLimit::depth(Depth::new(3));
         let mut engine2 = Caps::default();
         _ = engine2.search_with_new_tt(pos, limit);
         let nodes = engine2.search_state().uci_nodes();
         engine2.forget();
-        let _ = engine.search_with_tt(pos, SearchLimit::depth(Depth::new_unchecked(5)), tt.clone());
+        let _ = engine.search_with_tt(pos, SearchLimit::depth(Depth::new(5)), tt.clone());
         let entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0);
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().depth, 5);

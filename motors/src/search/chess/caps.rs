@@ -42,9 +42,9 @@ use gears::PlayerResult::{Lose, Win};
 use itertools::Itertools;
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
-const DEPTH_SOFT_LIMIT: Depth = Depth::new_unchecked(225);
+const DEPTH_SOFT_LIMIT: Depth = Depth::new(225);
 /// The maximum value of the `ply` parameter, i.e. the maximum depth (in plies) before qsearch is reached
-const DEPTH_HARD_LIMIT: Depth = Depth::new_unchecked(255);
+const DEPTH_HARD_LIMIT: Depth = Depth::new(255);
 
 /// Qsearch can't go more than 30 plies deep, so this prevents out of bounds accesses
 const SEARCH_STACK_LEN: usize = DEPTH_HARD_LIMIT.get() + 30;
@@ -297,7 +297,7 @@ impl Engine<Chessboard> for Caps {
 
     fn with_eval(eval: Box<dyn Eval<Chessboard>>) -> Self {
         Self {
-            state: SearchState::new(Depth::new_unchecked(SEARCH_STACK_LEN)),
+            state: SearchState::new(Depth::new(SEARCH_STACK_LEN)),
             eval,
         }
     }
@@ -339,7 +339,7 @@ impl Engine<Chessboard> for Caps {
             self,
             self.eval.as_ref(),
             "0.1.0",
-            Depth::new_unchecked(15),
+            Depth::new(15),
             NodesLimit::new(20_000).unwrap(),
             None,
             options,
@@ -1415,8 +1415,7 @@ mod tests {
         for depth in 1..=3 {
             for _ in 0..42 {
                 let mut engine = Caps::for_eval::<RandEval>();
-                let res = engine
-                    .search_with_new_tt(board, SearchLimit::depth(Depth::new_unchecked(depth)));
+                let res = engine.search_with_new_tt(board, SearchLimit::depth(Depth::new(depth)));
                 assert!(res.score.unwrap().is_game_won_score());
                 assert_eq!(res.score.unwrap().plies_until_game_won(), Some(1));
             }
@@ -1451,7 +1450,7 @@ mod tests {
     fn lucena_test() {
         let pos = Chessboard::from_name("lucena").unwrap();
         let mut engine = Caps::for_eval::<PistonEval>();
-        let res = engine.search_with_new_tt(pos, SearchLimit::depth(Depth::new_unchecked(7)));
+        let res = engine.search_with_new_tt(pos, SearchLimit::depth(Depth::new(7)));
         // TODO: More aggressive bound once the engine is stronger
         assert!(res.score.unwrap() >= Score(200));
     }
@@ -1552,7 +1551,7 @@ mod tests {
             second_search_nodes * 2 < nodes,
             "{second_search_nodes} {nodes}"
         );
-        let d3 = SearchLimit::depth(Depth::new_unchecked(3));
+        let d3 = SearchLimit::depth(Depth::new(3));
         let d3_search = caps.search_with_tt(pos, d3, tt.clone());
         assert!(
             d3_search.score.unwrap().is_game_won_score(),

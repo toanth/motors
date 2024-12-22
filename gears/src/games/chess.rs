@@ -72,6 +72,7 @@ impl Settings for ChessSettings {}
 #[derive(
     Copy, Clone, Eq, PartialEq, Debug, Default, Hash, EnumIter, derive_more::Display, Arbitrary,
 )]
+#[must_use]
 pub enum ChessColor {
     #[default]
     White = 0,
@@ -112,6 +113,7 @@ impl Color for ChessColor {
 }
 
 #[derive(Eq, PartialEq, Debug, Copy, Clone, Arbitrary)]
+#[must_use]
 pub struct Chessboard {
     piece_bbs: [ChessBitboard; NUM_CHESS_PIECES],
     color_bbs: [ChessBitboard; NUM_COLORS],
@@ -390,7 +392,7 @@ impl Board for Chessboard {
     }
 
     fn default_perft_depth(&self) -> Depth {
-        Depth::try_new(4).unwrap()
+        Depth::new(4)
     }
 
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
@@ -1098,6 +1100,10 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         self.0.colored_piece_on(coords)
     }
 
+    fn is_empty(&self, square: ChessSquare) -> bool {
+        self.0.is_empty(square)
+    }
+
     fn set_active_player(mut self, player: ChessColor) -> Self {
         self.0.active_player = player;
         self
@@ -1126,6 +1132,7 @@ impl UnverifiedChessboard {
 }
 
 #[derive(Debug, Copy, Clone)]
+#[must_use]
 pub enum SliderMove {
     Bishop,
     Rook,
@@ -1150,6 +1157,7 @@ pub trait ChessBitboardTrait: KnownSizeBitboard<RawStandardBitboard, ChessSquare
     }
 }
 
+#[must_use]
 const fn precompute_single_pawn_capture(color: ChessColor, square_idx: usize) -> u64 {
     let pawn = 1 << square_idx;
     let not_a_file = pawn & !ChessBitboard::A_FILE.0;
@@ -1328,10 +1336,10 @@ mod tests {
             Relaxed,
         )
         .unwrap();
-        pos.debug_verify_invariants(Relaxed).unwrap();
+        _ = pos.debug_verify_invariants(Relaxed).unwrap();
         for mov in pos.legal_moves_slow() {
             let new_pos = pos.make_move(mov).unwrap_or(pos);
-            new_pos.debug_verify_invariants(Relaxed).unwrap();
+            _ = new_pos.debug_verify_invariants(Relaxed).unwrap();
         }
         let mov = ChessMove::from_text("sB3x", &pos);
         assert!(mov.is_err());
@@ -1341,17 +1349,17 @@ mod tests {
     fn simple_perft_test() {
         let endgame_fen = "6k1/8/6K1/8/3B1N2/8/8/7R w - - 0 1";
         let board = Chessboard::from_fen(endgame_fen, Relaxed).unwrap();
-        let perft_res = perft(Depth::new_unchecked(1), board);
-        assert_eq!(perft_res.depth, Depth::new_unchecked(1));
+        let perft_res = perft(Depth::new(1), board);
+        assert_eq!(perft_res.depth, Depth::new(1));
         assert_eq!(perft_res.nodes, 5 + 7 + 13 + 14);
         assert!(perft_res.time.as_millis() <= 1);
         let board = Chessboard::default();
-        let perft_res = perft(Depth::new_unchecked(1), board);
-        assert_eq!(perft_res.depth, Depth::new_unchecked(1));
+        let perft_res = perft(Depth::new(1), board);
+        assert_eq!(perft_res.depth, Depth::new(1));
         assert_eq!(perft_res.nodes, 20);
         assert!(perft_res.time.as_millis() <= 2);
-        let perft_res = perft(Depth::new_unchecked(2), board);
-        assert_eq!(perft_res.depth, Depth::new_unchecked(2));
+        let perft_res = perft(Depth::new(2), board);
+        assert_eq!(perft_res.depth, Depth::new(2));
         assert_eq!(perft_res.nodes, 20 * 20);
         assert!(perft_res.time.as_millis() <= 20);
 
@@ -1360,16 +1368,16 @@ mod tests {
             Strict,
         )
         .unwrap();
-        let perft_res = perft(Depth::new_unchecked(1), board);
+        let perft_res = perft(Depth::new(1), board);
         assert_eq!(perft_res.nodes, 26);
-        assert_eq!(perft(Depth::new_unchecked(3), board).nodes, 16790);
+        assert_eq!(perft(Depth::new(3), board).nodes, 16790);
 
         let board = Chessboard::from_fen(
             "rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9",
             Strict,
         )
         .unwrap();
-        let perft_res = perft(Depth::new_unchecked(4), board);
+        let perft_res = perft(Depth::new(4), board);
         assert_eq!(perft_res.nodes, 890_435);
 
         // DFRC
@@ -1378,7 +1386,7 @@ mod tests {
             Strict,
         )
         .unwrap();
-        assert_eq!(perft(Depth::new_unchecked(4), board).nodes, 1_187_103);
+        assert_eq!(perft(Depth::new(4), board).nodes, 1_187_103);
     }
 
     #[test]
@@ -1511,7 +1519,7 @@ mod tests {
         let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
         let board = Chessboard::from_fen(fen, Strict).unwrap();
         assert_eq!(board.active_player, White);
-        assert_eq!(perft(Depth::new_unchecked(3), board).nodes, 568_299);
+        assert_eq!(perft(Depth::new(3), board).nodes, 568_299);
         // not a legal chess position, but the board should support this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
         assert!(Chessboard::from_fen(fen, Strict).is_err());

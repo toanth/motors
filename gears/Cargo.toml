@@ -36,9 +36,10 @@ thread_local = "1.1.8"
 # removing the regex dependency by replacing the single instance of using a regex improved compile times from ~30 to ~20 seconds
 
 [features]
-default = ["chess", "mnk", "ataxx", "uttt", "unsafe"]
+default = ["chess", "mnk", "ataxx", "uttt", "fairy", "unsafe"]
 unsafe = []
 chess = []
 mnk = []
 ataxx = []
 uttt = []
+fairy = ["chess"]

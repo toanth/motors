@@ -48,6 +48,7 @@ pub(crate) type NameToPos<B> = GenericSelect<fn() -> B>;
 /// How many checks to execute.
 /// Enum variants are listed in order; later checks include earlier checks.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[must_use]
 pub enum SelfChecks {
     CheckFen,
     Verify,
@@ -57,6 +58,7 @@ pub enum SelfChecks {
 /// How strict are the game rules interpreted.
 /// For example, [`Relaxed`] doesn't care about reachability from startpos.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[must_use]
 pub enum Strictness {
     Relaxed,
     Strict,
@@ -143,6 +145,9 @@ where
     /// Some `UnverifiedBoard`s can represent multiple pieces at the same coordinates; it is implementation-defined
     /// what this method does in that case (but it should never return empty coordinates in that case).
     fn piece_on(&self, coords: B::Coordinates) -> B::Piece;
+
+    /// See [`B::is_empty`].
+    fn is_empty(&self, coords: B::Coordinates) -> bool;
 
     /// Set the active player. Like all of these functions, it does not guarantee or check that the resulting position
     /// is legal. For example, in chess, the side not to move might be in check, so that it would be possible to capture the king.
@@ -291,7 +296,7 @@ pub trait Board:
 
     /// Returns the maximum perft depth possible, i.e., perft depth will be clamped to this value.
     fn max_perft_depth() -> Depth {
-        Depth::try_new(20).unwrap()
+        Depth::new(20)
     }
 
     /// Generate pseudolegal moves into the supplied move list. Can be more efficient than `pseudolegal_moves`
@@ -635,6 +640,7 @@ pub trait BitboardBoard: Board<Coordinates: RectangularCoordinates> {
     }
 }
 
+#[must_use]
 pub fn ply_counter_from_fullmove_nr<B: Board>(
     fullmove_nr: NonZeroUsize,
     active: B::Color,
@@ -664,6 +670,7 @@ pub fn board_from_name<B: Board>(name: &str) -> Res<B> {
     .map(|f| (f.val)())
 }
 
+#[must_use]
 pub fn position_fen_part<B: RectangularBoard>(pos: &B) -> String {
     let mut res: String = String::default();
     for y in (0..pos.height()).rev() {
@@ -690,6 +697,7 @@ pub fn position_fen_part<B: RectangularBoard>(pos: &B) -> String {
     res
 }
 
+#[must_use]
 pub fn common_fen_part<T: RectangularBoard>(pos: &T, halfmove: bool, fullmove: bool) -> String {
     use fmt::Write;
     let stm = pos.active_player();

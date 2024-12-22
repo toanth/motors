@@ -16,7 +16,7 @@ use gears::score::{game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE
 use gears::search::NodeType::*;
 use gears::search::{Depth, NodesLimit, SearchResult, TimeControl};
 
-const MAX_DEPTH: Depth = Depth::new_unchecked(100);
+const MAX_DEPTH: Depth = Depth::new(100);
 
 type DefaultEval = RandEval;
 
@@ -65,7 +65,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
             self,
             self.eval.as_ref(),
             "0.0.1",
-            Depth::new_unchecked(4),
+            Depth::new(4),
             NodesLimit::new(50_000).unwrap(),
             None,
             vec![],

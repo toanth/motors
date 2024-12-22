@@ -172,7 +172,7 @@ impl Default for BenchResult {
             nodes: 0,
             time: Duration::default(),
             depth: None,
-            max_depth: Depth::try_new(0).unwrap(),
+            max_depth: Depth::new(0),
             pv_score_hash: 0,
         }
     }
@@ -534,7 +534,8 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
 
     fn set_eval(&mut self, eval: Box<dyn Eval<B>>);
 
-    /// The simplest version of the search function, ignores history-related rules like repetitions.
+    /// The simplest version of the search function, ignores history-related rules like repetitions of positions that happened before
+    /// starting the search.
     fn search_with_new_tt(&mut self, pos: B, limit: SearchLimit) -> SearchResult<B> {
         self.search_with_tt(pos, limit, TT::default())
     }

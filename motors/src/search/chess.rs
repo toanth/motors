@@ -19,15 +19,15 @@ mod tests {
     use gears::games::{n_fold_repetition, BoardHistory, ZobristHistory};
     use gears::general::board::Strictness::{Relaxed, Strict};
     use gears::general::board::{Board, BoardHelpers};
-    use gears::general::common::tokens;
+    use gears::general::common::{tokens, NamedEntity};
     use gears::general::moves::Move;
     use gears::output::pgn::parse_pgn;
     use gears::score::{Score, SCORE_LOST, SCORE_WON};
-    use gears::search::{Depth, SearchLimit};
+    use gears::search::{Depth, NodesLimit, SearchLimit};
     use gears::ugi::load_ugi_position;
     use gears::PlayerResult::Draw;
 
-    use crate::eval::chess::lite::LiTEval;
+    use crate::eval::chess::lite::{KingGambot, LiTEval};
     use crate::eval::chess::material_only::MaterialOnlyEval;
     use crate::eval::chess::piston::PistonEval;
     use crate::eval::rand_eval::RandEval;
@@ -67,8 +67,7 @@ mod tests {
         .unwrap();
         assert!(game_over_pos.is_game_lost_slow());
         for i in (1..123).step_by(11) {
-            let res = engine
-                .search_with_new_tt(game_over_pos, SearchLimit::depth(Depth::new_unchecked(i)));
+            let res = engine.search_with_new_tt(game_over_pos, SearchLimit::depth(Depth::new(i)));
             assert!(res.ponder_move.is_none());
             assert_eq!(res.chosen_move, ChessMove::default());
             let res = engine.search_with_new_tt(game_over_pos, SearchLimit::nodes_(i as u64));
@@ -80,7 +79,7 @@ mod tests {
     fn generic_search_test<E: Engine<Chessboard>>(mut engine: E) {
         let fen = "7r/pBrkqQ1p/3b4/5b2/8/6P1/PP2PP1P/R1BR2K1 w - - 1 17";
         let board = Chessboard::from_fen(fen, Strict).unwrap();
-        let res = engine.search_with_new_tt(board, SearchLimit::mate(Depth::new_unchecked(5)));
+        let res = engine.search_with_new_tt(board, SearchLimit::mate(Depth::new(5)));
         assert_eq!(
             res.chosen_move,
             ChessMove::new(
@@ -203,7 +202,7 @@ mod tests {
         for i in (2..55).step_by(3) {
             // do this several times to get different random numbers
             let mut engine = Caps::for_eval::<RandEval>();
-            let res = engine.search_with_new_tt(board, SearchLimit::depth(Depth::new_unchecked(i)));
+            let res = engine.search_with_new_tt(board, SearchLimit::depth(Depth::new(i)));
             assert_eq!(res.score.unwrap(), SCORE_LOST + 2);
             assert_eq!(res.chosen_move.to_string(), "h1g1");
         }
@@ -241,12 +240,35 @@ mod tests {
         for depth in 1..10 {
             let res = engine.search(SearchParams::new_unshared(
                 board,
-                SearchLimit::depth(Depth::new_unchecked(depth)),
+                SearchLimit::depth(Depth::new(depth)),
                 hist.clone(),
                 TT::default(),
             ));
             assert_eq!(res.chosen_move, mov);
             assert_eq!(res.score.unwrap(), Score(0));
+        }
+    }
+
+    #[test]
+    fn mate_in_three() {
+        let pos = Chessboard::from_fen(
+            "r4r1k/7p/pp1pP2b/2p1p2P/2P2p2/3B3q/PP1BNP2/R1QR2K1 b - - 4 27",
+            Strict,
+        )
+        .unwrap();
+        let mut limit = SearchLimit::mate_in_moves(3);
+        let engines: [(Box<dyn Engine<Chessboard>>, u64); 3] = [
+            (Box::new(Caps::for_eval::<KingGambot>()), 100_000),
+            (Box::new(Caps::for_eval::<MaterialOnlyEval>()), 200_000),
+            (Box::new(Gaps::<Chessboard>::for_eval::<LiTEval>()), 800_000),
+        ];
+        for (mut engine, nodes) in engines.into_iter() {
+            println!("{}", engine.engine_info().short_name());
+            limit.nodes = NodesLimit::new(nodes).unwrap();
+            let res = engine.search_with_new_tt(pos, limit);
+            assert!(res.score.unwrap().is_game_won_score());
+            assert_eq!(res.score.unwrap().plies_until_game_won(), Some(5));
+            assert_eq!(res.chosen_move, ChessMove::from_text("f3", &pos).unwrap());
         }
     }
 }

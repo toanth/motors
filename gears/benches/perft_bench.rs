@@ -4,8 +4,8 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use gears::games::chess::ChessColor::White;
 use gears::games::chess::Chessboard;
 use gears::general::bitboards::{Bitboard, RawBitboard};
-use gears::general::board::Board;
 use gears::general::board::Strictness::Relaxed;
+use gears::general::board::{BitboardBoard, Board, BoardHelpers};
 use gears::general::perft::perft;
 use gears::search::Depth;
 
@@ -18,14 +18,14 @@ const PAWNS_FEN: &str = "k7/3P3P/7p/1p3pP1/2P5/3Pp3/2PP3P/K7 w - f6 0 2";
 pub fn perft_startpos_bench(c: &mut Criterion) {
     c.bench_function("perft 4 startpos", |b| {
         let pos = Chessboard::default();
-        b.iter(|| perft(Depth::new_unchecked(4), pos));
+        b.iter(|| perft(Depth::new(4), pos));
     });
 }
 
 pub fn perft_kiwipete_bench(c: &mut Criterion) {
     c.bench_function("perft 4 kiwipete", |b| {
         let pos = Chessboard::from_name("kiwipete").unwrap();
-        b.iter(|| perft(Depth::new_unchecked(4), pos));
+        b.iter(|| perft(Depth::new(4), pos));
     });
 }
 

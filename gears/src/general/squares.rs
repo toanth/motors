@@ -278,6 +278,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[must_use]
 pub enum SquareColor {
     White,
     Black,

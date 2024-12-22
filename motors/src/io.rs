@@ -753,7 +753,7 @@ impl<B: Board> EngineUGI<B> {
             }
             if matches!(opts.search_type, Perft | SplitPerft) {
                 let depth = if opts.complete { 2 } else { 3 };
-                opts.limit.depth = opts.limit.depth.min(Depth::new_unchecked(depth));
+                opts.limit.depth = opts.limit.depth.min(Depth::new(depth));
             }
         }
 

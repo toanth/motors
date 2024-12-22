@@ -85,6 +85,7 @@ impl Settings for UtttSettings {}
 #[derive(
     Debug, Default, Copy, Clone, Eq, PartialEq, Hash, derive_more::Display, EnumIter, Arbitrary,
 )]
+#[must_use]
 pub enum UtttColor {
     #[default]
     X = 0,
@@ -116,6 +117,7 @@ impl Color for UtttColor {
 }
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, EnumIter, FromRepr)]
+#[must_use]
 pub enum UtttPieceType {
     #[default]
     Empty,
@@ -162,6 +164,7 @@ impl PieceType<UtttBoard> for UtttPieceType {
 }
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, FromRepr)]
+#[must_use]
 pub enum ColoredUtttPieceType {
     XStone,
     OStone,
@@ -245,6 +248,7 @@ impl ColoredPieceType<UtttBoard> for ColoredUtttPieceType {
 pub type UtttPiece = GenericPiece<UtttBoard, ColoredUtttPieceType>;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
+#[must_use]
 pub struct UtttMove(UtttSquare);
 
 impl Default for UtttMove {
@@ -335,6 +339,7 @@ impl Move<UtttBoard> for UtttMove {
 pub type UtttMoveList = EagerNonAllocMoveList<UtttBoard, 81>;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
+#[must_use]
 pub struct UtttBoard {
     // contains not just the occupancy, but also won sub-boards in the higher bits.
     colors_internal: [RawUtttBitboard; 2],
@@ -714,7 +719,7 @@ impl Board for UtttBoard {
     }
 
     fn default_perft_depth(&self) -> Depth {
-        Depth::try_new(4).unwrap()
+        Depth::new(4)
     }
 
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
@@ -1031,6 +1036,10 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
 
     fn piece_on(&self, coords: UtttSquare) -> UtttPiece {
         self.0.colored_piece_on(coords)
+    }
+
+    fn is_empty(&self, square: UtttSquare) -> bool {
+        self.0.is_empty(square)
     }
 
     fn set_active_player(mut self, player: UtttColor) -> Self {

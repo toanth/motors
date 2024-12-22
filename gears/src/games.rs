@@ -20,18 +20,19 @@ use rand::Rng;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-#[cfg(feature = "mnk")]
-pub mod mnk;
-
 #[cfg(feature = "ataxx")]
 pub mod ataxx;
 #[cfg(feature = "chess")]
 pub mod chess;
-mod fairy;
-#[cfg(test)]
-mod generic_tests;
+#[cfg(feature = "fairy")]
+pub mod fairy;
+#[cfg(feature = "mnk")]
+pub mod mnk;
 #[cfg(feature = "uttt")]
 pub mod uttt;
+
+#[cfg(test)]
+mod generic_tests;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, EnumIter)]
 pub enum CharType {

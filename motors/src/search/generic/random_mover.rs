@@ -35,7 +35,7 @@ impl<B: Board, R: SeedRng> Default for RandomMover<B, R> {
     fn default() -> Self {
         Self {
             rng: R::seed_from_u64(thread_rng().next_u64()),
-            state: SearchState::new(Depth::new_unchecked(1)),
+            state: SearchState::new(Depth::new(1)),
         }
     }
 }
@@ -78,7 +78,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
     type CustomInfo = NoCustomInfo;
 
     fn max_bench_depth(&self) -> Depth {
-        Depth::new_unchecked(1)
+        Depth::new(1)
     }
 
     fn engine_info(&self) -> EngineInfo {
@@ -86,7 +86,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
             self,
             &RandEval::default(),
             "0.1.0",
-            Depth::new_unchecked(1),
+            Depth::new(1),
             NodesLimit::new(1).unwrap(),
             Some(1),
             vec![],
@@ -136,8 +136,8 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
     fn search_info(&self) -> SearchInfo<B> {
         SearchInfo {
             best_move_of_all_pvs: self.state.best_move(),
-            depth: Depth::new_unchecked(0),
-            seldepth: Depth::new_unchecked(0),
+            depth: Depth::new(0),
+            seldepth: Depth::new(0),
             time: Duration::default(),
             nodes: NodesLimit::new(1).unwrap(),
             pv_num: 1,

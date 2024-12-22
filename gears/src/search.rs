@@ -364,6 +364,11 @@ impl Depth {
         self.0 as isize
     }
 
+    pub const fn new(val: usize) -> Self {
+        assert!(val <= Self::MAX.get());
+        Self(val)
+    }
+
     pub const fn new_unchecked(val: usize) -> Self {
         debug_assert!(val <= Self::MAX.get());
         Self(val)
@@ -455,7 +460,7 @@ impl Display for SearchLimit {
         if self.nodes.get() != u64::MAX {
             limits.push(format!("{} nodes", self.nodes.get()));
         }
-        if self.mate != Depth::new_unchecked(0) {
+        if self.mate != Depth::new(0) {
             limits.push(format!("mate in {} plies", self.mate.get()));
         }
         if limits.len() == 1 {
@@ -504,7 +509,7 @@ impl SearchLimit {
     }
 
     pub fn mate_in_moves(num_moves: usize) -> Self {
-        Self::mate(Depth::new_unchecked(num_moves * 2))
+        Self::mate(Depth::new(num_moves * 2))
     }
 
     pub fn nodes(nodes: NodesLimit) -> Self {

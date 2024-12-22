@@ -56,6 +56,7 @@ pub type AtaxxSquare = SmallGridSquare<7, 7, 8>;
 #[derive(
     Debug, Default, Copy, Clone, Eq, PartialEq, Hash, derive_more::Display, EnumIter, Arbitrary,
 )]
+#[must_use]
 pub enum AtaxxColor {
     #[default]
     X,
@@ -87,6 +88,7 @@ impl Color for AtaxxColor {
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Arbitrary)]
+#[must_use]
 pub struct AtaxxBoard {
     colors: [AtaxxBitboard; NUM_COLORS],
     empty: AtaxxBitboard,
@@ -270,7 +272,7 @@ impl Board for AtaxxBoard {
     }
 
     fn default_perft_depth(&self) -> Depth {
-        Depth::try_new(4).unwrap()
+        Depth::new(4)
     }
 
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
@@ -475,6 +477,10 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
 
     fn piece_on(&self, coords: AtaxxSquare) -> AtaxxPiece {
         self.0.colored_piece_on(coords)
+    }
+
+    fn is_empty(&self, square: AtaxxSquare) -> bool {
+        self.0.is_empty(square)
     }
 
     fn set_active_player(mut self, player: AtaxxColor) -> Self {

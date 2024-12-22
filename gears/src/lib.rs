@@ -47,6 +47,7 @@ pub mod ugi;
 
 /// Result of a match from a player's perspective.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[must_use]
 pub enum PlayerResult {
     Win,
     Lose,
@@ -73,6 +74,7 @@ impl PlayerResult {
 
 /// Result of a match from a player's perspective, together with the reason for this outcome
 #[derive(Eq, PartialEq, Clone, Debug)]
+#[must_use]
 pub struct GameOver {
     pub result: PlayerResult,
     pub reason: GameOverReason,
@@ -99,6 +101,7 @@ impl MatchStatus {
 
 /// Low-level result of a match from a `MatchManager`'s perspective
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[must_use]
 pub enum GameResult {
     P1Win,
     P2Win,
@@ -190,6 +193,7 @@ impl GameResult {
 
 /// Reason for why the match manager adjudicated a match
 #[derive(Clone, Eq, PartialEq, Debug)]
+#[must_use]
 pub enum AdjudicationReason {
     TimeUp,
     InvalidMove,
@@ -212,6 +216,7 @@ impl Display for AdjudicationReason {
 
 /// Reason for why a match ended.
 #[derive(Clone, Eq, PartialEq, Debug)]
+#[must_use]
 pub enum GameOverReason {
     Normal,
     Adjudication(AdjudicationReason),
@@ -274,6 +279,7 @@ pub enum Quitting {
 
 /// The program can either be running, or be about to quit
 #[derive(Debug, Clone)]
+#[must_use]
 pub enum ProgramStatus {
     Run(MatchStatus),
     Quit(Quitting),
@@ -356,6 +362,7 @@ pub fn create_selected_output_builders<B: Board>(
 /// Everything that's necessary to reconstruct the match without match-specific info like timers.
 /// Can be used to represent everything that gets set through a ugi `position` command, or the data inside a PGN.
 #[derive(Debug, Default, Clone)]
+#[must_use]
 pub struct MatchState<B: Board> {
     pub board: B,
     pub status: ProgramStatus,

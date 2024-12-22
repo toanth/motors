@@ -156,16 +156,6 @@ pub trait RawBitboard:
 
     fn anti_diagonal_bb(width: usize, diag: usize) -> Self;
 
-    /// Returns a bitboard where exactly the bits in the inclusive interval [low, high] are set.
-    #[must_use]
-    #[inline]
-    fn squares_between(low: Self, high: Self) -> Self {
-        debug_assert!(low.is_single_piece());
-        debug_assert!(high.is_single_piece());
-        debug_assert!(low.num_trailing_zeros() <= high.num_trailing_zeros());
-        ((high - Self::single_piece_at(0)) ^ (low - Self::single_piece_at(0))) | high
-    }
-
     #[inline]
     fn is_zero(self) -> bool {
         // it might make sense to override this for custom types that implement large bitboards
@@ -327,6 +317,10 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
 {
     fn new(raw: R, size: C::Size) -> Self;
 
+    fn single_piece_for(square: C, size: C::Size) -> Self {
+        Self::new(R::single_piece_at(size.internal_key(square)), size)
+    }
+
     #[inline]
     fn rank_0_for(size: C::Size) -> Self {
         Self::new((R::one() << size.internal_width()) - R::one(), size)
@@ -347,6 +341,11 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     fn file_for(idx: DimT, size: C::Size) -> Self {
         debug_assert!(idx < size.width().0);
         Self::file_0_for(size) << idx as usize
+    }
+
+    #[inline]
+    fn backranks_for(size: C::Size) -> Self {
+        Self::rank_0_for(size) | Self::rank_for(size.height().get() - 1, size)
     }
 
     #[inline]
@@ -444,17 +443,6 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
         self.num_trailing_zeros() / self.internal_width()
     }
 
-    /// Returns a bitboard where exactly the bits in the inclusive interval [low, high] are set,
-    /// where `low_bb` is `Self::single_piece(low)` and `high_bb` is `Self::single_piece(high)`
-    #[inline]
-    fn square_between(low_bb: Self, high_bb: Self) -> Self {
-        debug_assert!(low_bb.is_single_piece());
-        debug_assert!(high_bb.is_single_piece());
-        debug_assert_eq!(low_bb.size(), high_bb.size());
-        let raw = R::squares_between(low_bb.raw(), high_bb.raw());
-        Self::new(raw, low_bb.size())
-    }
-
     #[inline]
     fn hyperbola_quintessence<F>(idx: usize, blockers: Self, reverse: F, ray: Self) -> Self
     where
@@ -524,6 +512,8 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     /// All slider attack functions, including `rook_attacks` and `bishop_attacks`, assume that the source square
     /// is empty, so if that's not the case, they should be called with `blockers ^ square_bitboard`.
     /// Despite the names, they are not only defined for chess bitboard, as the concept of rays is far more general.
+    // TODO: Precompute reversed rays, reverse blockers once (maybe even at a higher level, so it can be used for all movegen) and simply
+    // use the reversed blockers for all attacks
     #[inline]
     fn slider_attacks(square: C, blockers: Self, dir: RayDirections) -> Self {
         match dir {
@@ -1002,42 +992,100 @@ impl<R: RawBitboard, C: RectangularCoordinates<Size: KnownSize<C>>> KnownSizeBit
 {
 }
 
-// pub const A_FILE_8X8: RawStandardBitboard =
-//     RawStandardBitboard::from_primitive(0x0101_0101_0101_0101);
-// pub const FIRST_RANK_8X8: RawStandardBitboard = RawStandardBitboard::from_primitive(0xFF);
+pub enum Axis {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum AxisRequirement {
+    StrictlyGreater,
+    GreaterOrEqual,
+    Equal,
+    LessOrEqual,
+    StrictlyLess,
+    Unequal,
+    DontCare,
+}
+
+impl AxisRequirement {
+    pub const fn applies(self, diff: isize) -> bool {
+        match self {
+            AxisRequirement::StrictlyGreater => diff > 0,
+            AxisRequirement::GreaterOrEqual => diff >= 0,
+            AxisRequirement::Equal => diff == 0,
+            AxisRequirement::LessOrEqual => diff <= 0,
+            AxisRequirement::StrictlyLess => diff < 0,
+            AxisRequirement::Unequal => diff != 0,
+            AxisRequirement::DontCare => true,
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! shift_left {
+    ($bb: expr, $amount: expr) => {
+        if $amount >= 0 {
+            $bb << $amount
+        } else {
+            $bb >> -$amount
+        }
+    };
+}
+
+// can't be a lambda because rust doesn't support that in const fns
+const fn do_shift(
+    horizontal_shift: isize,
+    vertical_shift: isize,
+    width: isize,
+    file: isize,
+    bb: RawStandardBitboard,
+) -> RawStandardBitboard {
+    let shift = horizontal_shift + vertical_shift * width;
+    if file >= -horizontal_shift && file + horizontal_shift < width {
+        shift_left!(bb, shift)
+    } else {
+        0
+    }
+}
 
 // can be called at compile time or when constructing fairy chess rules
 // width is the internal width, so boards with a width less than 8, but height <= 8 can simply use 8 as the width
-const fn precompute_single_leaper_attacks(
+pub const fn precompute_single_leaper_attacks(
     square_idx: usize,
-    diff_1: isize,
-    diff_2: isize,
-    width: isize,
+    diff_1: usize,
+    diff_2: usize,
+    width: usize,
 ) -> u64 {
+    let diff_1 = diff_1 as isize;
+    let diff_2 = diff_2 as isize;
+    let width = width as isize;
     assert!(diff_1 <= diff_2); // an (a, b) leaper is the same as an (b, a) leaper
     let this_piece: u64 = 1 << square_idx;
     let file = square_idx as isize % width;
     let mut attacks: u64 = 0;
-    if file >= diff_1 {
-        attacks |=
-            (this_piece << (diff_2 * width - diff_1)) | (this_piece >> (diff_2 * width + diff_1));
+    let mut i = 0;
+    while i < 4 {
+        // for horizontal_dir in [-1, 1], for vertical_dir in [-1, 1]
+        let horizontal_dir = i / 2 * 2 - 1;
+        let vertical_dir = i % 2 * 2 - 1;
+        attacks |= do_shift(
+            diff_2 * horizontal_dir,
+            diff_1 * vertical_dir,
+            width,
+            file,
+            this_piece,
+        );
+        attacks |= do_shift(
+            diff_1 * horizontal_dir,
+            diff_2 * vertical_dir,
+            width,
+            file,
+            this_piece,
+        );
+        i += 1;
     }
-    if file + diff_1 < width {
-        attacks |=
-            (this_piece >> (diff_2 * width - diff_1)) | (this_piece << (diff_2 * width + diff_1));
-    }
-    if file >= diff_2 {
-        attacks |= this_piece >> (diff_1 * width + diff_2);
-        if diff_1 != 0 {
-            attacks |= this_piece << (diff_1 * width - diff_2);
-        }
-    }
-    if file + diff_2 < width {
-        attacks |= this_piece << (diff_1 * width + diff_2);
-        if diff_1 != 0 {
-            attacks |= this_piece >> (diff_1 * width - diff_2);
-        }
-    }
+
     attacks
 }
 
