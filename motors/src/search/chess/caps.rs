@@ -1001,10 +1001,16 @@ impl Caps {
                 }
                 // Futility Reduction: If this move is not a TT move, good SEE capture or killer, and our eval is significantly
                 // less than alpha, reduce.
+                let mut fr_margin = cc::fr_base() + cc::fr_scale() * (depth as ScoreT);
+                if is_noisy {
+                    // if the TT move is a capture, and we've reached this move, it's likely we won't find a better move
+                    fr_margin /= 2;
+                }
                 if !in_check
                     && depth >= cc::min_fr_depth()
                     && move_score < KILLER_SCORE
-                    && eval + cc::fr_base() + cc::fr_scale() * (depth as ScoreT) < alpha
+                    && eval + fr_margin < alpha
+                    && best_score > MAX_SCORE_LOST
                 {
                     reduction += 1;
                 }
