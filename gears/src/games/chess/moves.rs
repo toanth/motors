@@ -141,6 +141,7 @@ impl ChessMove {
         board.piece_type_on(self.dest_square())
     }
 
+    #[inline]
     pub fn is_capture(self, board: &Chessboard) -> bool {
         self.is_ep() || self.is_non_ep_capture(board)
     }
@@ -219,10 +220,12 @@ impl Move<Chessboard> for ChessMove {
         ChessSquare::from_bb_index(((self.0 >> 6) & 0x3f) as usize)
     }
 
+    #[inline]
     fn flags(self) -> ChessMoveFlags {
         ChessMoveFlags::iter().nth((self.0 >> 12) as usize).unwrap()
     }
 
+    #[inline]
     fn is_tactical(self, board: &Chessboard) -> bool {
         self.is_capture(board) || self.flags() == PromoQueen || self.flags() == PromoKnight
     }

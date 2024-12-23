@@ -821,6 +821,10 @@ impl Caps {
 
         self.record_pos(pos, eval, ply);
 
+        // If the current position is noisy, we want to be more conservative with margins.
+        let is_noisy =
+            in_check || (best_move != ChessMove::default() && best_move.is_tactical(&pos));
+
         // like the commonly used `improving` and `regressing`, these variables compare the current static eval with
         // the static eval 2 plies ago to recognize blunders. Conceptually, `improving` and `regressing` can be seen as
         // a prediction for how the eval is going to evolve, while these variables are more about cutting early after bad moves.
@@ -851,6 +855,9 @@ impl Caps {
                 * depth as ScoreT;
             if expected_node_type == FailHigh {
                 margin /= cc::rfp_fail_high_div();
+            }
+            if is_noisy {
+                margin *= 2;
             }
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
                 return Some(eval);
@@ -948,6 +955,14 @@ impl Caps {
                 && depth <= cc::max_move_loop_pruning_depth()
                 && (num_uninteresting_visited >= lmp_threshold
                     || (eval + Score(fp_margin as ScoreT) < alpha && move_score < KILLER_SCORE))
+            {
+                break;
+            }
+            // History Pruning: At very low depth, don't play quiet moves with bad history scores. Skipping bad captures too gained elo.
+            if can_prune
+                && best_score > MAX_SCORE_LOST
+                && move_score.0 < cc::lmr_bad_hist()
+                && depth <= 2
             {
                 break;
             }
