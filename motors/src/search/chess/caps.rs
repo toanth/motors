@@ -1126,9 +1126,11 @@ impl Caps {
             depth,
             bound_so_far,
         );
-        // Store the old move in the Move table if it comes from a pv node
+        // Store the old move in the Move table if it comes from a pv node or is not a low-depth entry
         if let Some(old) = old_entry {
-            if old.mov != tt_entry.mov && old.mov.trust_unchecked() != ChessMove::NULL && is_pv_node
+            if old.mov != tt_entry.mov
+                && old.mov.trust_unchecked() != ChessMove::NULL
+                && (old.bound() == Exact || old.depth >= 5)
             {
                 *self.state.custom.move_table.entry_mut(&pos) = old.mov;
             }
