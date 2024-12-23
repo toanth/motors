@@ -1333,11 +1333,6 @@ impl Caps {
         self.state.search_stack[ply].pos = pos;
         self.state.search_stack[ply].eval = eval;
         self.state.search_stack[ply].tried_moves.clear();
-        // Remove the killer of the next ply so that only sibling nodes can set killers
-        self.state
-            .search_stack
-            .get_mut(ply + 1)
-            .map(|e| e.killer = ChessMove::default());
     }
 
     fn record_move(&mut self, mov: ChessMove, old_pos: Chessboard, ply: usize, typ: SearchType) {
