@@ -795,6 +795,9 @@ impl Caps {
         self.record_pos(pos, eval, ply);
 
         // If the current position is noisy, we want to be more conservative with margins.
+        // However, captures and promos are generally good moves, so if our eval is the static eval instead of adjusted from the TT,
+        // a noisy condition would mean we're doing even better than expected. // TODO: Apply noisy for RFP etc only if eval is TT eval?
+        // If it's from the TT, however, and the first move didn't produce a beta cutoff, we're probably worse than expected
         let is_noisy =
             in_check || (best_move != ChessMove::default() && best_move.is_tactical(&pos));
 
@@ -827,9 +830,6 @@ impl Caps {
                 * depth as ScoreT;
             if expected_node_type == FailHigh {
                 margin /= cc::rfp_fail_high_div();
-            }
-            if is_noisy {
-                margin *= 2;
             }
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
                 return Some(eval);
@@ -1003,6 +1003,10 @@ impl Caps {
                     && move_score < KILLER_SCORE
                     && eval + cc::fr_base() + cc::fr_scale() * (depth as ScoreT) < alpha
                 {
+                    reduction += 1;
+                }
+                // if the TT move is a capture and we didn't already fail high, it's likely that later moves are worse
+                if !in_check && is_noisy {
                     reduction += 1;
                 }
                 // this ensures that check extensions prevent going into qsearch while in check
