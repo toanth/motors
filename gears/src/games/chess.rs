@@ -455,11 +455,7 @@ impl Board for Chessboard {
     }
 
     fn no_moves_result(&self) -> PlayerResult {
-        if self.is_in_check() {
-            Lose
-        } else {
-            Draw
-        }
+        self.no_moves_result_if(self.is_in_check())
     }
 
     /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
@@ -815,6 +811,14 @@ impl Chessboard {
             return false;
         }
         true
+    }
+
+    pub fn no_moves_result_if(&self, in_check: bool) -> PlayerResult {
+        if in_check {
+            Lose
+        } else {
+            Draw
+        }
     }
 
     pub fn ep_square(&self) -> Option<ChessSquare> {

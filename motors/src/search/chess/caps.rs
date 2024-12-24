@@ -706,15 +706,15 @@ impl Caps {
 
         let ply_100_ctr = pos.halfmove_repetition_clock();
         if !root
-            && (n_fold_repetition(2, &self.state.params.history, &pos, ply_100_ctr)
+            && (pos.is_50mr_draw()
+                || pos.has_insufficient_material()
+                || n_fold_repetition(2, &self.state.params.history, &pos, ply_100_ctr)
                 || n_fold_repetition(
                     3,
                     &self.state.custom.original_board_hist,
                     &pos,
                     ply_100_ctr.saturating_sub(ply),
-                )
-                || pos.is_50mr_draw()
-                || pos.has_insufficient_material())
+                ))
         {
             return Some(Score(0));
         }
@@ -734,10 +734,10 @@ impl Caps {
         let mut best_score = NO_SCORE_YET;
         let mut bound_so_far = FailLow;
 
-        // In case of a collision, if there's no best_move to store because the node failed low,
+        // If we didn't get a move from the TT and there's no best_move to store because the node failed low,
         // store a null move in the TT. This helps IIR.
         let mut best_move = ChessMove::default();
-        // Don't initialize eval just now to save work in case we get a TT cutoff
+        // Don't initialize eval just yet to save work in case we get a TT cutoff
         let mut eval;
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.state.multi_pvs.len() > 1;
@@ -762,8 +762,6 @@ impl Caps {
                 // at what the type of this node is going to be.
                 if !is_pv_node {
                     expected_node_type = if tt_bound != Exact {
-                        // TODO: Base instead on relation between tt score and window?
-                        // Or only update if the difference between tt score and the window is large?
                         tt_bound
                     } else if tt_entry.score <= alpha {
                         FailLow
@@ -800,17 +798,16 @@ impl Caps {
         let is_noisy =
             in_check || (best_move != ChessMove::default() && best_move.is_tactical(&pos));
 
-        // like the commonly used `improving` and `regressing`, these variables compare the current static eval with
+        // Like the commonly used `improving` and `regressing`, these variables compare the current static eval with
         // the static eval 2 plies ago to recognize blunders. Conceptually, `improving` and `regressing` can be seen as
         // a prediction for how the eval is going to evolve, while these variables are more about cutting early after bad moves.
-        // TODO: Currently, this uses the TT score when possible. Think about if there are unintended consequences.
         let they_blundered = ply >= 2
             && eval - self.state.search_stack[ply - 2].eval > Score(cc::they_blundered_threshold());
         let we_blundered = ply >= 2
             && eval - self.state.search_stack[ply - 2].eval < Score(cc::we_blundered_threshold());
 
         // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
-        // because the move ordering won't be great, so don't spend too much time on this node.
+        // because the move ordering won't be great, so don't spend too much time on it.
         // Instead, search it with reduced depth to fill the TT entry so that we can re-search it faster the next time
         // we see this node. If there was no TT entry because the node failed low, this node probably isn't that interesting,
         // so reducing the depth also makes sense in this case.
@@ -876,7 +873,7 @@ impl Caps {
                 if score >= beta {
                     // For shallow depths, don't bother with doing a verification search to avoid useless re-searches,
                     // unless we'd be storing a mate score -- we really want to avoid storing unproved mates in the TT.
-                    // It's possible to beat beta with a score of getting mated, so use `is_game_over_score`
+                    // It's possible to beat beta with a score of getting mated, so use `is_won_or_lost`
                     // instead of `is_game_won_score`
                     if depth < cc::nmp_verif_depth() && !score.is_won_or_lost() {
                         return Some(score);
@@ -952,13 +949,13 @@ impl Caps {
                 num_uninteresting_visited += 1;
             }
 
-            // O(1). Resets the child's pv length so that it's not the maximum length it used to be.
-            // TODO: Do this in `record_move`?
+            // Reset the child's pv in O(1).
+            // TODO: Do this in `record_move`? Would extend the PV to qsearch
             if let Some(s) = self.state.search_stack.get_mut(ply + 1) {
                 s.pv.clear()
             }
 
-            let debug_history_len = self.state.params.history.len(); // TODO: Remove
+            let debug_history_len = self.state.params.history.len();
 
             self.record_move(mov, pos, ply, MainSearch);
             // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove
@@ -1063,7 +1060,7 @@ impl Caps {
             debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);
 
             best_score = best_score.max(score);
-            // Save indentation by using `continue` instead of nested if statements.
+
             if score <= alpha {
                 continue;
             }
@@ -1089,7 +1086,7 @@ impl Caps {
                 bound_so_far = Exact;
                 continue;
             }
-            // Beta cutoff. Update history and killer for quiet moves, then break out of the moves loop.
+            // Beta cutoff. Update history and killer for quiet moves, then break out of the move loop.
             bound_so_far = FailHigh;
             self.update_histories_and_killer(&pos, mov, depth, ply, pos.active_player());
             break;
@@ -1105,8 +1102,7 @@ impl Caps {
         );
 
         if self.state.search_stack[ply].tried_moves.is_empty() {
-            // TODO: Merge cached in-check branch
-            return Some(game_result_to_score(pos.no_moves_result(), ply));
+            return Some(game_result_to_score(pos.no_moves_result_if(in_check), ply));
         }
 
         let tt_entry: TTEntry<Chessboard> = TTEntry::new(
@@ -1116,7 +1112,7 @@ impl Caps {
             depth,
             bound_so_far,
         );
-        // TODO: eventually test that not overwriting PV nodes unless the depth is quite a bit greater gains
+
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
         if !(root && self.state.current_pv_num > 0) {
@@ -1221,7 +1217,7 @@ impl Caps {
         let mut best_score;
         let mut bound_so_far = FailLow;
 
-        // see main search, store an invalid random move in the TT entry if all moves failed low.
+        // see main search, store an invalid null move in the TT entry if all moves failed low.
         let mut best_move = ChessMove::default();
 
         // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
