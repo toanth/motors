@@ -912,11 +912,14 @@ impl Caps {
             // FP (Futility Pruning): If the static eval is far below alpha,
             // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
             // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
-            let fp_margin = if we_blundered {
+            let mut fp_margin = if we_blundered {
                 cc::fp_blunder_base() + cc::fp_blunder_scale() * depth
             } else {
                 cc::fp_base() + cc::fp_scale() * depth
             };
+            if is_noisy {
+                fp_margin /= 2;
+            }
             let mut lmp_threshold = if we_blundered {
                 cc::lmp_blunder_base() + cc::lmp_blunder_scale() * depth
             } else {
