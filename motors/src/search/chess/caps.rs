@@ -831,6 +831,10 @@ impl Caps {
             if expected_node_type == FailHigh {
                 margin /= cc::rfp_fail_high_div();
             }
+            if is_noisy {
+                margin *= 2;
+            }
+
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
                 return Some(eval);
             }
