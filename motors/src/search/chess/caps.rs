@@ -1050,13 +1050,11 @@ impl Caps {
                     )?;
                 }
                 // If the full-depth search also performed better than expected, do a full-depth search with the
-                // full window to find the true score. If the score was at least `beta`, don't search again
-                // -- this move is probably already too good, so don't waste more time finding out how good it is exactly.
-                // This can only trigger in PV nodes, because all other nodes are searched with a null window anyway.
-                // The downside of this is that occasionally, the PV can be shorter than expected, because it's possible that
-                // the returned PV wasn't searched as PV nodes, so TODO: Use is_pv_node instead of score < beta as condition
-                if alpha < score && score < beta {
-                    debug_assert_eq!(expected_node_type, Exact);
+                // full window to find the true score.
+                // This is only relevant for PV nodes, because all other nodes are searched with a null window anyway.
+                // This is necessary to ensure that the PV doesn't get truncated, because otherwise there could be nodes in
+                // the PV that were not searched as PV nodes.
+                if is_pv_node && alpha < score {
                     self.state.statistics.lmr_second_retry();
                     score = -self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha, Exact)?;
                 }
