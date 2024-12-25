@@ -24,6 +24,7 @@ use gears::colorgrad::{BasisGradient, Gradient, LinearGradient};
 use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::common::{sigmoid, Tokens};
+use gears::general::move_list::MoveList;
 use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::Move;
 use gears::output::{Message, OutputBox, OutputOpts};
@@ -32,6 +33,7 @@ use gears::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
 use gears::search::NodeType::*;
 use gears::search::{MpvType, NodeType, SearchInfo, SearchResult};
 use gears::{colorgrad, GameState};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::fmt;
 use std::io::stdout;
 
@@ -44,6 +46,7 @@ pub struct UgiOutput<B: Board> {
     previous_exact_info: Option<SearchInfo<B>>,
     gradient: LinearGradient,
     alt_grad: BasisGradient,
+    progress_bar: Option<ProgressBar>,
 }
 
 impl<B: Board> Default for UgiOutput<B> {
@@ -59,6 +62,7 @@ impl<B: Board> Default for UgiOutput<B> {
                 .domain(&[0.0, 1.0])
                 .build::<BasisGradient>()
                 .unwrap(),
+            progress_bar: None,
         }
     }
 }
@@ -93,31 +97,62 @@ impl<B: Board> UgiOutput<B> {
     }
 
     pub fn write_search_res(&mut self, res: SearchResult<B>) {
-        if self.pretty {
-            let mut move_text = res.chosen_move.to_extended_text(&res.pos, Standard).bold();
-            if let Some(score) = res.score {
-                move_text = move_text.color(color_for_score(score, &self.gradient));
-            }
-            let mut msg = format!("Chosen move: {move_text}",);
-            if let Some(ponder) = res.ponder_move() {
-                let new_pos = res
-                    .pos
-                    .make_move(res.chosen_move)
-                    .expect("Search returned illegal move");
-                msg += &format!(
-                    " (expected response: {})",
-                    ponder.to_extended_text(&new_pos, Standard)
-                )
-                .dimmed()
-                .to_string();
-            }
-            self.write_ugi(&msg)
-        } else {
+        self.clear_progress_bar();
+        if !self.pretty {
             self.write_ugi(&res.to_string());
+            return;
         }
+        let mut move_text = res.chosen_move.to_extended_text(&res.pos, Standard).bold();
+        if let Some(score) = res.score {
+            move_text = move_text.color(color_for_score(score, &self.gradient));
+        }
+        let mut msg = format!("Chosen move: {move_text}",);
+        if let Some(ponder) = res.ponder_move() {
+            let new_pos = res
+                .pos
+                .make_move(res.chosen_move)
+                .expect("Search returned illegal move");
+            msg += &format!(
+                " (expected response: {})",
+                ponder.to_extended_text(&new_pos, Standard)
+            )
+            .dimmed()
+            .to_string();
+        }
+        self.write_ugi(&msg)
+    }
+
+    pub fn write_currmove(&mut self, pos: &B, mov: B::Move, move_nr: usize) {
+        if !pos.is_move_legal(mov) {
+            return;
+        }
+        let move_nr = move_nr + 1; // UGI wants 1-indexed output
+        let num_moves = pos.legal_moves_slow().num_moves();
+        if !self.pretty {
+            self.write_ugi("info currmove {mov} currmovenumber {move_nr}");
+            return;
+        }
+        // TODO: Faster implementation for number of legal moves in Board trait?
+        let bar = match &self.progress_bar {
+            None => {
+                let template = "{prefix}\n{bar:68.cyan/blue} {pos:>4}/{len:4}";
+                self.progress_bar = Some(
+                    ProgressBar::new(num_moves as u64)
+                        .with_style(ProgressStyle::with_template(template).unwrap()),
+                );
+                &self.progress_bar.as_ref().unwrap()
+            }
+            Some(bar) => bar,
+        };
+        let move_string = mov.to_extended_text(&pos, Standard).bold();
+        let elapsed = bar.elapsed().as_millis();
+        let msg = format!("Searching {move_string} ({move_nr}/{num_moves}), {elapsed} ms elapsed in this aspiration window");
+        bar.set_prefix(msg);
+        bar.set_position(move_nr as u64);
     }
 
     pub fn write_search_info(&mut self, info: SearchInfo<B>) {
+        self.clear_progress_bar();
         let exact = info.bound == Some(Exact);
         if !self.pretty {
             self.write_ugi(&info.to_string());
@@ -183,10 +218,19 @@ impl<B: Board> UgiOutput<B> {
         if info.mpv_type() == SecondaryLine {
             multipv = multipv.dimmed().to_string();
         }
-        // bold after formatting because crossterms seems to count the control characters towards the format width
+
         let mut iter = format!("{:>3}", info.depth);
         if !exact {
             iter = iter.dimmed().to_string();
+            if let Some(FailLow) = info.bound {
+                iter = iter
+                    .color(color_for_score(SCORE_LOST, &self.gradient))
+                    .to_string();
+            } else if let Some(FailHigh) = info.bound {
+                iter = iter
+                    .color(color_for_score(SCORE_WON, &self.gradient))
+                    .to_string();
+            }
         } else if info.mpv_type() != SecondaryLine {
             iter = iter.bold().to_string();
         }
@@ -218,6 +262,13 @@ impl<B: Board> UgiOutput<B> {
         if info.mpv_type() != SecondaryLine && info.bound == Some(Exact) {
             self.previous_exact_info = Some(info);
         }
+    }
+
+    fn clear_progress_bar(&mut self) {
+        if let Some(bar) = &self.progress_bar {
+            bar.finish_and_clear();
+        }
+        self.progress_bar = None;
     }
 
     pub(super) fn write_ugi_input(&mut self, msg: Tokens) {
@@ -395,7 +446,7 @@ fn pretty_pv<B: Board>(
     let pv = pv.iter();
     for (idx, mov) in pv.enumerate() {
         if !pos.is_move_legal(*mov) {
-            return format!("{res} [Invalid PV move '{}'", mov.to_string().red());
+            return format!("{res} [Invalid PV move '{}']", mov.to_string().red());
         }
         // 'Alternative' would be cooler, but unfortunately most fonts struggle with unicode chess pieces,
         // especially in combination with bold / dim etc

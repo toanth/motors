@@ -410,7 +410,7 @@ pub fn nonzero_u64(val: u64, name: &str) -> Res<NonZeroU64> {
 
 #[cfg(test)]
 mod tests {
-    use rand::{thread_rng, Rng};
+    use rand::{rng, Rng};
 
     use crate::general::common::{ith_one_u128, ith_one_u64, pop_lsb128, pop_lsb64};
 
@@ -435,9 +435,9 @@ mod tests {
 
     #[test]
     fn pop_lsb128_test() {
-        let mut rng = thread_rng();
+        let mut rng = rng();
         for _ in 0..10_000 {
-            let mut val = rng.gen_range(0..=u64::MAX);
+            let mut val = rng.random_range(0..=u64::MAX);
             let mut val_u128 = val as u128;
             assert_eq!(pop_lsb64(&mut val), pop_lsb128(&mut val_u128));
             assert_eq!(val, val_u128 as u64);
@@ -470,11 +470,11 @@ mod tests {
 
     #[test]
     fn ith_one_u128_test() {
-        let mut rng = thread_rng();
+        let mut rng = rng();
         for _ in 0..10_000 {
-            let val = rng.gen_range(0..=u64::MAX);
+            let val = rng.random_range(0..=u64::MAX);
             let val_u128 = val as u128;
-            let idx = rng.gen_range(0..val.count_ones()) as usize;
+            let idx = rng.random_range(0..val.count_ones()) as usize;
             assert_eq!(ith_one_u64(idx, val), ith_one_u128(idx, val_u128));
         }
         for i in 0..128 {

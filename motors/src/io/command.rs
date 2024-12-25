@@ -47,7 +47,7 @@ use inquire::autocompletion::Replacement;
 use inquire::{Autocomplete, CustomUserError};
 use itertools::Itertools;
 use rand::prelude::IndexedRandom;
-use rand::{thread_rng, Rng};
+use rand::{rng, Rng};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
@@ -1582,9 +1582,9 @@ pub fn random_command<B: Board>(
     for i in 0..depth {
         res.push(' ');
         let s = suggestions(ac, &res);
-        let s = s.choose(&mut thread_rng());
-        if thread_rng().gen_range(0..7) == 0 {
-            res += &thread_rng().gen_range(-42..10_000).to_string();
+        let s = s.choose(&mut rng());
+        if rng().random_range(0..7) == 0 {
+            res += &rng().random_range(-42..10_000).to_string();
         } else if depth == 0 || s.is_none() {
             return res;
         } else {

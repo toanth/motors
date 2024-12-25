@@ -236,7 +236,7 @@ pub struct CapsSearchStackEntry {
 
 impl SearchStackEntry<Chessboard> for CapsSearchStackEntry {
     fn pv(&self) -> Option<&[ChessMove]> {
-        Some(&self.pv.list[0..self.pv.length])
+        Some(self.pv.list.as_slice())
     }
 }
 
@@ -471,7 +471,7 @@ impl Caps {
             for pv_num in 0..multi_pv {
                 self.state.current_pv_num = pv_num;
                 self.state.current_pv_data_mut().bound = None;
-                let mut pv_data = self.state.multi_pvs[pv_num];
+                let mut pv_data = self.state.multi_pvs[pv_num].clone();
                 let keep_searching = self.aspiration(
                     pos,
                     soft_limit.mul_f64(soft_limit_scale),
@@ -481,11 +481,13 @@ impl Caps {
                     &mut pv_data.radius,
                     max_depth,
                 );
-                let chosen_move = self.state.search_stack[0].pv[0];
+                // TODO: Rework this, set the searchinfo in `aspiration()`
+                if let Some(chosen_move) = self.state.search_stack[0].pv.get(0) {
+                    self.state.excluded_moves.push(chosen_move);
+                }
                 self.state.multi_pvs[pv_num].alpha = pv_data.alpha;
                 self.state.multi_pvs[pv_num].beta = pv_data.beta;
                 self.state.multi_pvs[pv_num].radius = pv_data.radius;
-                self.state.excluded_moves.push(chosen_move);
                 if keep_searching {
                     self.search_state().send_search_info();
                 } else {
@@ -581,7 +583,7 @@ impl Caps {
             self.state.multi_pvs[self.state.current_pv_num].score = pv_score;
             // adding ` && node_type != FailLow` gains elo, which is weird because this only prevents incomplete search iterations that have
             // already changed the PV from affecting the chosen move.
-            if pv.length > 0 && node_type != FailLow {
+            if pv.len() > 0 && node_type != FailLow {
                 if self.state.current_pv_num == 0 {
                     let chosen_move = pv[0];
                     let ponder_move = pv.get(1);
@@ -610,24 +612,24 @@ impl Caps {
             }
             if cfg!(debug_assertions) {
                 if pos.player_result_slow(&self.state.params.history).is_some() {
-                    assert_eq!(pv.length, 0);
+                    assert_eq!(pv.len(), 0);
                 } else {
                     match node_type {
-                        FailHigh => debug_assert_eq!(pv.length, 1, "{pos} {node_type}"),
+                        FailHigh => debug_assert_eq!(pv.len(), 1, "{pos} {node_type}"),
                         Exact => debug_assert!(
                             // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
                             // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
                             self.state.multi_pv() > 1
-                                || pv.length + pv.length / 4
+                                || pv.len() + pv.len() / 4
                                     >= self.state.custom.depth_hard_limit.min(depth as usize)
                                 || pv_score.is_won_lost_or_draw_score(),
                             "{depth} {0} {pv_score} {1}",
-                            pv.length,
+                            pv.len(),
                             self.state.uci_nodes()
                         ),
                         // We don't clear the PV on a fail low node so that we can still send a useful info
                         FailLow => {
-                            debug_assert_eq!(0, pv.length);
+                            debug_assert_eq!(0, pv.len());
                         }
                     }
                 }
@@ -943,8 +945,14 @@ impl Caps {
                 break;
             }
 
-            if ply == 0 && self.state.excluded_moves.contains(&mov) {
-                continue;
+            if root {
+                if self.state.excluded_moves.contains(&mov) {
+                    continue;
+                }
+                if self.state.start_time.elapsed().as_millis() >= 3000 {
+                    let move_num = self.state.search_stack[0].tried_moves.len();
+                    self.state.send_currmove(mov, move_num)
+                }
             }
             let Some(new_pos) = pos.make_move_and_prefetch_tt(mov, self.prefetch()) else {
                 continue; // illegal pseudolegal move
@@ -954,7 +962,11 @@ impl Caps {
             }
 
             // Reset the child's pv in O(1).
-            // TODO: Do this in `record_move`? Would extend the PV to qsearch
+            // TODO: Do this in `record_move`? Would extend the PV to qsearch.Probably better to clear in `record_pos`, though
+            // would be fine to do it there since pv nodes never produce a TT cutoff, so when the pv of this nodes changes, the child's
+            // pv will have been cleared in record_pos after looking at the TT
+            // TODO: Should be entirely unnecessary to clear here, since we clear it at the start of each pv node anyway?
+            // also, clearing it here does nothing for re-searches
             if let Some(s) = self.state.search_stack.get_mut(ply + 1) {
                 s.pv.clear()
             }
@@ -1041,6 +1053,8 @@ impl Caps {
                 // full window to find the true score. If the score was at least `beta`, don't search again
                 // -- this move is probably already too good, so don't waste more time finding out how good it is exactly.
                 // This can only trigger in PV nodes, because all other nodes are searched with a null window anyway.
+                // The downside of this is that occasionally, the PV can be shorter than expected, because it's possible that
+                // the returned PV wasn't searched as PV nodes, so TODO: Use is_pv_node instead of score < beta as condition
                 if alpha < score && score < beta {
                     debug_assert_eq!(expected_node_type, Exact);
                     self.state.statistics.lmr_second_retry();
@@ -1059,6 +1073,8 @@ impl Caps {
             );
             // Check for cancellation right after searching a move to avoid storing incorrect information
             // in the TT or PV.
+            // TODO: Since we now abort directly using `?`, we can actually trust the score of all searched children here.
+            // So maybe store as an all-node to the TT?
             if self.should_stop() {
                 // The current child's score is not trustworthy, but all already seen children are.
                 // This only matters for the root; all other nodes get their return value ignored.
@@ -1085,7 +1101,7 @@ impl Caps {
                 else {
                     unreachable!()
                 };
-                current.pv.extend(ply, best_move, &child.pv);
+                current.pv.extend(best_move, &child.pv);
             }
 
             if score < beta {

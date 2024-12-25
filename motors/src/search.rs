@@ -11,6 +11,7 @@ use colored::Colorize;
 use crossbeam_channel::unbounded;
 use derive_more::{Add, Neg, Sub};
 use dyn_clone::DynClone;
+use gears::arrayvec::ArrayVec;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::bail;
@@ -202,17 +203,15 @@ impl Display for BenchResult {
 }
 
 // TODO: Use ArrayVec
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Pv<B: Board, const LIMIT: usize> {
-    list: [B::Move; LIMIT],
-    length: usize,
+    list: ArrayVec<B::Move, LIMIT>,
 }
 
 impl<B: Board, const LIMIT: usize> Default for Pv<B, LIMIT> {
     fn default() -> Self {
         Self {
-            list: [B::Move::default(); LIMIT],
-            length: 0,
+            list: ArrayVec::new(),
         }
     }
 }
@@ -234,40 +233,56 @@ impl<B: Board, const LIMIT: usize> IndexMut<usize> for Pv<B, LIMIT> {
 }
 
 impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
-    pub fn extend(&mut self, ply: usize, mov: B::Move, child_pv: &Pv<B, LIMIT>) {
-        self.list[ply] = mov;
-        for i in ply + 1..child_pv.length {
-            self.list[i] = child_pv.list[i];
-        }
-        self.length = (ply + 1).max(child_pv.length);
+    pub fn extend(&mut self, mov: B::Move, child_pv: &Pv<B, LIMIT>) {
+        self.reset_to_move(mov);
+        self.list
+            .try_extend_from_slice(child_pv.list.as_slice())
+            .unwrap();
+        // self.list[ply] = mov;
+        // for i in ply + 1..child_pv.length {
+        //     self.list[i] = child_pv.list[i];
+        // }
+        // self.length = (ply + 1).max(child_pv.length);
+    }
+
+    pub fn len(&self) -> usize {
+        self.list.len()
     }
 
     pub fn clear(&mut self) {
-        self.length = 0;
+        self.list.clear();
+        // self.length = 0;
     }
 
     pub fn reset_to_move(&mut self, mov: B::Move) {
-        self.list[0] = mov;
-        self.length = 1;
+        self.list.clear();
+        self.list.push(mov);
+        // self.list[0] = mov;
+        // self.length = 1;
     }
 
     fn as_slice(&self) -> &[B::Move] {
-        &self.list[..self.length]
+        self.list.as_slice()
     }
 
     fn assign_from<const OTHER_LIMIT: usize>(&mut self, other: &Pv<B, OTHER_LIMIT>) {
-        self.length = LIMIT.min(other.length);
-        for i in 0..self.length {
-            self.list[i] = other.list[i];
-        }
+        self.list.clear();
+        self.list
+            .try_extend_from_slice(other.list.as_slice())
+            .unwrap();
+        // self.length = LIMIT.min(other.length);
+        // for i in 0..self.length {
+        //     self.list[i] = other.list[i];
+        // }
     }
 
     fn get(&self, idx: usize) -> Option<B::Move> {
-        if idx < self.length {
-            Some(self.list[idx])
-        } else {
-            None
-        }
+        self.list.get(idx).copied()
+        // if idx < self.length {
+        //     Some(self.list[idx])
+        // } else {
+        //     None
+        // }
     }
 }
 
@@ -707,7 +722,7 @@ impl<B: Board> CustomInfo<B> for NoCustomInfo {
     fn hard_forget_except_tt(&mut self) {}
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 struct PVData<B: Board> {
     alpha: Score,
     beta: Score,
@@ -948,6 +963,12 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     fn send_non_ugi(&mut self, typ: Message, message: &str) {
         if let Some(mut output) = self.search_params().thread_type.output() {
             output.write_message(typ, message);
+        }
+    }
+
+    fn send_currmove(&mut self, mov: B::Move, move_nr: usize) {
+        if let Some(mut output) = self.search_params().thread_type.output() {
+            output.write_currmove(&self.params.pos, mov, move_nr);
         }
     }
 
