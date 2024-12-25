@@ -949,7 +949,7 @@ impl Caps {
                 if self.state.excluded_moves.contains(&mov) {
                     continue;
                 }
-                if self.state.start_time.elapsed().as_millis() >= 3000 {
+                if depth >= 8 && self.state.start_time.elapsed().as_millis() >= 3000 {
                     let move_num = self.state.search_stack[0].tried_moves.len();
                     self.state.send_currmove(mov, move_num)
                 }
@@ -959,16 +959,6 @@ impl Caps {
             };
             if move_score < KILLER_SCORE {
                 num_uninteresting_visited += 1;
-            }
-
-            // Reset the child's pv in O(1).
-            // TODO: Do this in `record_move`? Would extend the PV to qsearch.Probably better to clear in `record_pos`, though
-            // would be fine to do it there since pv nodes never produce a TT cutoff, so when the pv of this nodes changes, the child's
-            // pv will have been cleared in record_pos after looking at the TT
-            // TODO: Should be entirely unnecessary to clear here, since we clear it at the start of each pv node anyway?
-            // also, clearing it here does nothing for re-searches
-            if let Some(s) = self.state.search_stack.get_mut(ply + 1) {
-                s.pv.clear()
             }
 
             let debug_history_len = self.state.params.history.len();
