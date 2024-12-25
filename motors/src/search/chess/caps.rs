@@ -155,6 +155,8 @@ impl CapsCustomInfo {
 
 impl CustomInfo<Chessboard> for CapsCustomInfo {
     fn new_search(&mut self) {
+        debug_assert_eq!(self.nmp_disabled[0], false);
+        debug_assert_eq!(self.nmp_disabled[1], false);
         // don't update history values, malus and gravity already take care of that
     }
 
@@ -237,6 +239,10 @@ pub struct CapsSearchStackEntry {
 impl SearchStackEntry<Chessboard> for CapsSearchStackEntry {
     fn pv(&self) -> Option<&[ChessMove]> {
         Some(self.pv.list.as_slice())
+    }
+
+    fn last_played_move(&self) -> Option<ChessMove> {
+        self.tried_moves.last().copied()
     }
 }
 
@@ -899,6 +905,20 @@ impl Caps {
             }
         }
 
+        if self.state.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0
+            && self.state.last_msg_time.elapsed().as_millis() >= 1000
+        {
+            let score = self.qsearch(pos, alpha, beta, ply);
+            self.state.search_stack[ply].forget();
+            let flip = pos.active_player() != self.state.params.pos.active_player();
+            let score = score.flip_if(flip);
+            let alpha = alpha.flip_if(flip);
+            let beta = beta.flip_if(flip);
+            self.state
+                .send_currline(ply - 1, score, alpha.min(beta), beta.max(alpha));
+            // the current ply doesn't have a move
+        }
+
         // An uninteresting move is a quiet move or bad capture unless it's the TT or killer move
         // (i.e. it's every move that gets ordered after the killer). The name is a bit dramatic, the first few of those
         // can still be good candidates to explore.
@@ -909,61 +929,56 @@ impl Caps {
             MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
         let move_scorer = CapsMoveScorer { board: pos, ply };
         while let Some((mov, move_score)) = move_picker.next(&move_scorer, &self.state) {
-            // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
-            // so don't even bother looking at them in the last few layers.
-            // FP (Futility Pruning): If the static eval is far below alpha,
-            // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
-            // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
-            let fp_margin = if we_blundered {
-                cc::fp_blunder_base() + cc::fp_blunder_scale() * depth
-            } else {
-                cc::fp_base() + cc::fp_scale() * depth
-            };
-            let mut lmp_threshold = if we_blundered {
-                cc::lmp_blunder_base() + cc::lmp_blunder_scale() * depth
-            } else {
-                cc::lmp_base() + cc::lmp_scale() * depth
-            };
-            // LMP faster if we expect to fail low anyway
-            if expected_node_type == FailLow {
-                lmp_threshold -= lmp_threshold / cc::lmp_fail_low_div();
-            }
-            if can_prune
-                && best_score > MAX_SCORE_LOST
-                && depth <= cc::max_move_loop_pruning_depth()
-                && (num_uninteresting_visited >= lmp_threshold
-                    || (eval + Score(fp_margin as ScoreT) < alpha && move_score < KILLER_SCORE))
-            {
-                break;
-            }
-            // History Pruning: At very low depth, don't play quiet moves with bad history scores. Skipping bad captures too gained elo.
-            if can_prune
-                && best_score > MAX_SCORE_LOST
-                && move_score.0 < cc::lmr_bad_hist()
-                && depth <= 2
-            {
-                break;
+            if can_prune && best_score > MAX_SCORE_LOST {
+                // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
+                // so don't even bother looking at them in the last few layers.
+                // FP (Futility Pruning): If the static eval is far below alpha,
+                // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
+                // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
+                let fp_margin = if we_blundered {
+                    cc::fp_blunder_base() + cc::fp_blunder_scale() * depth
+                } else {
+                    cc::fp_base() + cc::fp_scale() * depth
+                };
+                let mut lmp_threshold = if we_blundered {
+                    cc::lmp_blunder_base() + cc::lmp_blunder_scale() * depth
+                } else {
+                    cc::lmp_base() + cc::lmp_scale() * depth
+                };
+                // LMP faster if we expect to fail low anyway
+                if expected_node_type == FailLow {
+                    lmp_threshold -= lmp_threshold / cc::lmp_fail_low_div();
+                }
+                if depth <= cc::max_move_loop_pruning_depth()
+                    && (num_uninteresting_visited >= lmp_threshold
+                        || (eval + Score(fp_margin as ScoreT) < alpha && move_score < KILLER_SCORE))
+                {
+                    break;
+                }
+                // History Pruning: At very low depth, don't play quiet moves with bad history scores. Skipping bad captures too gained elo.
+                if move_score.0 < cc::lmr_bad_hist() && depth <= 2 {
+                    break;
+                }
             }
 
-            if root {
-                if self.state.excluded_moves.contains(&mov) {
-                    continue;
-                }
-                if depth >= 8 && self.state.start_time.elapsed().as_millis() >= 3000 {
-                    let move_num = self.state.search_stack[0].tried_moves.len();
-                    self.state.send_currmove(mov, move_num)
-                }
+            if root && self.state.excluded_moves.contains(&mov) {
+                continue;
             }
             let Some(new_pos) = pos.make_move_and_prefetch_tt(mov, self.prefetch()) else {
                 continue; // illegal pseudolegal move
             };
+            let debug_history_len = self.state.params.history.len();
+            self.record_move(mov, pos, ply, MainSearch);
+            if root && depth >= 8 && self.state.start_time.elapsed().as_millis() >= 3000 {
+                let move_num = self.state.search_stack[0].tried_moves.len();
+                // will usually get a TT cutoff immediately
+                let score = -self.qsearch(new_pos, alpha, beta, 1);
+                self.state.send_currmove(mov, move_num, score, alpha, beta);
+            }
             if move_score < KILLER_SCORE {
                 num_uninteresting_visited += 1;
             }
 
-            let debug_history_len = self.state.params.history.len();
-
-            self.record_move(mov, pos, ply, MainSearch);
             // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove
             // that the other moves are worse, which we can do with a zero window search. Should this assumption fail,
             // re-search with a full window.

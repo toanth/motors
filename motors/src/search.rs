@@ -693,6 +693,7 @@ pub trait SearchStackEntry<B: Board>: Default + Clone + Debug {
         *self = Self::default();
     }
     fn pv(&self) -> Option<&[B::Move]>;
+    fn last_played_move(&self) -> Option<B::Move>;
 }
 
 #[derive(Copy, Clone, Default, Debug)]
@@ -700,6 +701,10 @@ pub struct EmptySearchStackEntry {}
 
 impl<B: Board> SearchStackEntry<B> for EmptySearchStackEntry {
     fn pv(&self) -> Option<&[B::Move]> {
+        None
+    }
+
+    fn last_played_move(&self) -> Option<B::Move> {
         None
     }
 }
@@ -767,6 +772,7 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     multi_pvs: Vec<PVData<B>>,
     current_pv_num: usize,
     start_time: Instant,
+    last_msg_time: Instant,
     statistics: Statistics,
     aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
 }
@@ -776,6 +782,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
 {
     fn forget(&mut self, hard: bool) {
         self.start_time = Instant::now();
+        self.last_msg_time = self.start_time;
         for e in &mut self.search_stack {
             e.forget();
         }
@@ -966,9 +973,31 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         }
     }
 
-    fn send_currmove(&mut self, mov: B::Move, move_nr: usize) {
-        if let Some(mut output) = self.search_params().thread_type.output() {
-            output.write_currmove(&self.params.pos, mov, move_nr);
+    fn send_currmove(
+        &mut self,
+        mov: B::Move,
+        move_nr: usize,
+        score: Score,
+        alpha: Score,
+        beta: Score,
+    ) {
+        if let Some(mut output) = self.params.thread_type.output() {
+            output.write_currmove(&self.params.pos, mov, move_nr, score, alpha, beta);
+            self.last_msg_time = Instant::now();
+        }
+    }
+
+    fn send_currline(&mut self, ply: usize, eval: Score, alpha: Score, beta: Score) {
+        if let Some(mut output) = self.params.thread_type.output() {
+            if self.search_stack[0].last_played_move().is_none() {
+                return;
+            }
+            let mut line = vec![];
+            for i in 0..ply {
+                line.push(self.search_stack[i].last_played_move().unwrap());
+            }
+            output.write_currline(self.params.pos, line.as_ref(), eval, alpha, beta);
+            self.last_msg_time = Instant::now();
         }
     }
 
@@ -1031,6 +1060,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             params,
             excluded_moves: vec![],
             current_pv_num: 0,
+            last_msg_time: start_time,
         }
     }
 
