@@ -1192,7 +1192,7 @@ impl Caps {
                     .capt_hist
                     .update(*disappointing, color, -bonus);
             }
-            self.state.custom.capt_hist.update(mov, color, -bonus);
+            self.state.custom.capt_hist.update(mov, color, bonus);
             return;
         }
         entry.killer = mov;
