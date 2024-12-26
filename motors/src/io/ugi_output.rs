@@ -139,7 +139,7 @@ impl<B: Board> UgiOutput<B> {
                 .with_style(ProgressStyle::with_template(template).unwrap())
         });
         let elapsed = bar.elapsed().as_millis();
-        let variation = pretty_variation(variation, pos, None, None);
+        let variation = pretty_variation(variation, pos, None, None, Exact);
         let eval = pretty_score(eval, None, None, &self.gradient, true, false);
         let alpha = pretty_score(alpha, None, None, &self.gradient, true, false);
         let beta = pretty_score(beta, None, None, &self.gradient, true, false);
@@ -266,6 +266,7 @@ impl<B: Board> UgiOutput<B> {
             info.pos,
             self.previous_exact_info.as_ref().map(|i| i.pv.as_ref()),
             Some(info.mpv_type()),
+            info.bound.unwrap_or(Exact),
         );
         let mut multipv = if info.mpv_type() == OnlyLine {
             "    ".to_string()
@@ -496,6 +497,7 @@ fn pretty_variation<B: Board>(
     mut pos: B,
     previous: Option<&[B::Move]>,
     mpv_type: Option<MpvType>,
+    node_type: NodeType,
 ) -> String {
     use fmt::Write;
     let mut same_so_far = true;
@@ -519,6 +521,11 @@ fn pretty_variation<B: Board>(
         } else if same_so_far && mpv_type != Some(SecondaryLine) {
             new_move = new_move.bold().to_string();
             same_so_far = false;
+        }
+        if node_type == FailLow {
+            new_move = new_move.red().to_string();
+        } else if node_type == FailHigh {
+            new_move = new_move.green().to_string();
         }
         write_move_nr(
             &mut res,

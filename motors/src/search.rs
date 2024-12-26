@@ -220,14 +220,12 @@ impl<B: Board, const LIMIT: usize> Index<usize> for Pv<B, LIMIT> {
     type Output = B::Move;
 
     fn index(&self, index: usize) -> &Self::Output {
-        // assert!(index < self.length);
         &self.list[index]
     }
 }
 
 impl<B: Board, const LIMIT: usize> IndexMut<usize> for Pv<B, LIMIT> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        // assert!(index < self.length);
         &mut self.list[index]
     }
 }
@@ -238,11 +236,6 @@ impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
         self.list
             .try_extend_from_slice(child_pv.list.as_slice())
             .unwrap();
-        // self.list[ply] = mov;
-        // for i in ply + 1..child_pv.length {
-        //     self.list[i] = child_pv.list[i];
-        // }
-        // self.length = (ply + 1).max(child_pv.length);
     }
 
     pub fn len(&self) -> usize {
@@ -251,14 +244,11 @@ impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
 
     pub fn clear(&mut self) {
         self.list.clear();
-        // self.length = 0;
     }
 
     pub fn reset_to_move(&mut self, mov: B::Move) {
         self.list.clear();
         self.list.push(mov);
-        // self.list[0] = mov;
-        // self.length = 1;
     }
 
     fn as_slice(&self) -> &[B::Move] {
@@ -270,19 +260,10 @@ impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
         self.list
             .try_extend_from_slice(other.list.as_slice())
             .unwrap();
-        // self.length = LIMIT.min(other.length);
-        // for i in 0..self.length {
-        //     self.list[i] = other.list[i];
-        // }
     }
 
     fn get(&self, idx: usize) -> Option<B::Move> {
         self.list.get(idx).copied()
-        // if idx < self.length {
-        //     Some(self.list[idx])
-        // } else {
-        //     None
-        // }
     }
 }
 
