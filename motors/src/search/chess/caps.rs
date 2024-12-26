@@ -1008,6 +1008,9 @@ impl Caps {
                     if !is_pv_node {
                         reduction += 1;
                     }
+                    if root {
+                        reduction -= 1;
+                    }
                     if we_blundered {
                         reduction += 1;
                     }
