@@ -1105,6 +1105,16 @@ impl Caps {
                     unreachable!()
                 };
                 current.pv.extend(best_move, &child.pv);
+                if depth > 1 && score < beta && !score.is_won_lost_or_draw_score() {
+                    debug_assert_eq!(
+                        self.state
+                            .tt()
+                            .load::<Chessboard>(new_pos.zobrist_hash(), ply + 1)
+                            .unwrap()
+                            .bound(),
+                        Exact
+                    );
+                }
             }
 
             if score < beta {
