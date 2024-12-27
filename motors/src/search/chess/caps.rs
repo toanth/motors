@@ -818,6 +818,9 @@ impl Caps {
         // so reducing the depth also makes sense in this case.
         if depth >= cc::iir_min_depth() && best_move == ChessMove::default() {
             depth -= 1;
+            if expected_node_type != FailHigh {
+                depth -= depth / 8;
+            }
         }
 
         if can_prune {
