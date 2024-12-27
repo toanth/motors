@@ -49,7 +49,7 @@ fn alternative_fen_test() {
         let roundtrip = UtttBoard::from_alternative_fen(&pos.to_alternative_fen(), Strict).unwrap();
         assert_eq!(roundtrip.legal_moves_slow(), pos.legal_moves_slow());
         assert_eq!(roundtrip, pos);
-        assert_eq!(roundtrip.zobrist_hash(), pos.zobrist_hash());
+        assert_eq!(roundtrip.hash_pos(), pos.hash_pos());
     }
 }
 

@@ -10,13 +10,12 @@ use gears::games::chess::squares::{ChessSquare, ChessboardSize};
 use gears::games::chess::ChessColor::{Black, White};
 use gears::games::chess::{ChessBitboardTrait, ChessColor, Chessboard, SliderMove};
 use gears::games::Color;
-use gears::games::{DimT, ZobristHash};
+use gears::games::{DimT, PosHash};
 use gears::general::bitboards::chessboard::{ChessBitboard, COLORED_SQUARES};
 use gears::general::bitboards::RawBitboard;
 use gears::general::bitboards::{Bitboard, KnownSizeBitboard};
 use gears::general::board::{BitboardBoard, Board, BoardHelpers};
 use gears::general::common::StaticallyNamedEntity;
-use gears::general::moves::Move;
 use gears::general::squares::RectangularCoordinates;
 use gears::score::{PhaseType, PhasedScore, Score, ScoreT};
 
@@ -26,7 +25,7 @@ use crate::eval::{Eval, ScoreType, SingleFeatureScore};
 
 #[derive(Debug, Default, Copy, Clone)]
 struct EvalState<Tuned: LiteValues> {
-    hash: ZobristHash,
+    hash: PosHash,
     phase: PhaseType,
     // scores are stored from the perspective of the white player
     psqt_score: Tuned::Score,
@@ -365,7 +364,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         state.pawn_shield_score = pawn_shield_score.clone();
         let pawn_score = Self::pawns(pos);
         state.pawn_score = pawn_score.clone();
-        state.hash = pos.zobrist_hash();
+        state.hash = pos.hash_pos();
         let score: Tuned::Score =
             Self::recomputed_every_time(pos) + psqt_score + pawn_shield_score + pawn_score;
         (state, score)
@@ -391,7 +390,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     where
         Tuned::Score: Display,
     {
-        if old_pos.zobrist_hash() != state.hash {
+        if old_pos.hash_pos() != state.hash {
             return self.eval_from_scratch(new_pos);
         }
         // search may have made a null move in NMP
@@ -427,7 +426,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 state.pawn_score = Self::pawns(new_pos);
             }
         }
-        state.hash = new_pos.zobrist_hash();
+        state.hash = new_pos.hash_pos();
         let score = Self::recomputed_every_time(new_pos)
             + state.psqt_score.clone()
             + state.pawn_shield_score.clone()

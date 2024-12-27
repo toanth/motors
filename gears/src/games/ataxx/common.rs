@@ -6,7 +6,7 @@ use crate::games::{AbstractPieceType, CharType, ColoredPieceType, Coordinates, D
 use crate::general::board::Board;
 use crate::general::common::Res;
 use crate::general::moves::Legality::Legal;
-use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
+use crate::general::moves::{Legality, Move, UntrustedMove};
 use anyhow::bail;
 use arbitrary::Arbitrary;
 use colored::Colorize;
@@ -172,23 +172,18 @@ impl Display for AtaxxMove {
 }
 
 impl Move<AtaxxBoard> for AtaxxMove {
-    type Flags = NoMoveFlags;
     type Underlying = u16;
 
     fn legality() -> Legality {
         Legal
     }
 
-    fn src_square(self) -> AtaxxSquare {
-        self.source
+    fn src_square_in(self, _pos: &AtaxxBoard) -> Option<AtaxxSquare> {
+        Some(self.source)
     }
 
-    fn dest_square(self) -> AtaxxSquare {
+    fn dest_square_in(self, _pos: &AtaxxBoard) -> AtaxxSquare {
         self.target
-    }
-
-    fn flags(self) -> Self::Flags {
-        NoMoveFlags::default()
     }
 
     fn is_tactical(self, _board: &AtaxxBoard) -> bool {
@@ -241,9 +236,9 @@ impl Move<AtaxxBoard> for AtaxxMove {
         Self::parse_compact_text(s, board)
     }
 
-    fn from_usize_unchecked(val: usize) -> UntrustedMove<AtaxxBoard> {
-        let source = AtaxxSquare::unchecked((val >> 8) & 0xff);
-        let target = AtaxxSquare::unchecked(val & 0xff);
+    fn from_u64_unchecked(val: u64) -> UntrustedMove<AtaxxBoard> {
+        let source = AtaxxSquare::unchecked(((val >> 8) & 0xff) as usize);
+        let target = AtaxxSquare::unchecked(val as usize & 0xff);
         UntrustedMove::from_move(Self { source, target })
     }
 
@@ -259,6 +254,14 @@ pub enum AtaxxMoveType {
 }
 
 impl AtaxxMove {
+    pub fn src_square(self) -> AtaxxSquare {
+        self.source
+    }
+
+    pub fn dest_square(self) -> AtaxxSquare {
+        self.target
+    }
+
     pub fn cloning(square: AtaxxSquare) -> Self {
         Self {
             target: square,

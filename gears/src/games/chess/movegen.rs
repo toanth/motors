@@ -13,7 +13,6 @@ use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizonta
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, BoardHelpers};
 use crate::general::move_list::MoveList;
-use crate::general::moves::Move;
 use crate::general::squares::RectangularCoordinates;
 
 impl Chessboard {

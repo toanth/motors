@@ -7,8 +7,7 @@ use crate::games::ataxx::common::{AtaxxMove, ColoredAtaxxPieceType, MAX_ATAXX_MO
 use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::{
-    Board, BoardHistory, CharType, Color, ColoredPiece, GenericPiece, NoHistory, Settings,
-    ZobristHash,
+    Board, BoardHistory, CharType, Color, ColoredPiece, GenericPiece, NoHistory, PosHash, Settings,
 };
 use crate::general::bitboards::{
     KnownSizeBitboard, RawBitboard, RawStandardBitboard, SmallGridBitboard,
@@ -343,7 +342,7 @@ impl Board for AtaxxBoard {
         true
     }
 
-    fn zobrist_hash(&self) -> ZobristHash {
+    fn hash_pos(&self) -> PosHash {
         self.hash_impl()
     }
 
@@ -525,7 +524,7 @@ mod tests {
             let child = pos.make_move(mov).unwrap();
             assert_ne!(child, pos);
             assert_eq!(child.active_player.other(), pos.active_player);
-            assert_ne!(child.zobrist_hash(), pos.zobrist_hash());
+            assert_ne!(child.hash_pos(), pos.hash_pos());
         }
         assert_eq!(moves.len(), 16);
     }

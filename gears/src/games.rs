@@ -40,6 +40,7 @@ pub enum CharType {
     Unicode,
 }
 
+/// Abstracts game-specific conventions about the names of the platers.
 pub trait Color:
     Debug + Display + Default + Copy + Clone + PartialEq + Eq + Send + Hash + Not + IntoEnumIterator
 {
@@ -70,6 +71,7 @@ pub trait Color:
     }
 }
 
+/// Common parts of colored and uncolored piece types
 pub trait AbstractPieceType: Eq + Copy + Debug + Default + Display {
     fn empty() -> Self;
 
@@ -82,7 +84,6 @@ pub trait AbstractPieceType: Eq + Copy + Debug + Default + Display {
         self.to_char(CharType::Unicode)
     }
 
-    #[must_use]
     // when parsing chars, we don't distinguish between ascii and unicode symbols
     fn from_char(c: char) -> Option<Self>;
 
@@ -109,6 +110,7 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType {
     fn new(color: B::Color, uncolored: Self::Uncolored) -> Self;
 }
 
+// TODO: Don't save coordinates in colored piece
 pub trait ColoredPiece<B: Board>: Eq + Copy + Debug + Default
 where
     B: Board<Piece = Self>,
@@ -186,7 +188,7 @@ pub fn char_to_file(file: char) -> DimT {
     file as DimT - b'a'
 }
 
-// Assume 2D grid for now.
+/// On a rectangular board, coordinates are called 'squares'.
 #[must_use]
 pub trait Coordinates:
     Eq + Copy + Debug + Default + FromStr<Err = anyhow::Error> + Display + for<'a> Arbitrary<'a>
@@ -199,6 +201,7 @@ pub trait Coordinates:
     /// mirrors the coordinates horizontally
     fn flip_left_right(self, size: Self::Size) -> Self;
 
+    // Ideally, this wouldn't exist. TODO: Test removing this
     fn no_coordinates() -> Self;
 }
 
@@ -318,7 +321,7 @@ pub type OutputList<B> = EntityList<Box<dyn OutputBuilder<B>>>;
     Arbitrary,
 )]
 #[must_use]
-pub struct ZobristHash(pub u64);
+pub struct PosHash(pub u64);
 
 pub trait Settings: Eq + Debug + Default {
     fn text(&self) -> Option<String> {
@@ -358,7 +361,7 @@ impl<B: Board> BoardHistory<B> for NoHistory {
 
 #[derive(Clone, Eq, PartialEq, Default, Debug)]
 #[must_use]
-pub struct ZobristHistory<B: Board>(pub Vec<ZobristHash>, PhantomData<B>);
+pub struct ZobristHistory<B: Board>(pub Vec<PosHash>, PhantomData<B>);
 
 impl<B: Board> BoardHistory<B> for ZobristHistory<B> {
     fn len(&self) -> usize {
@@ -366,11 +369,11 @@ impl<B: Board> BoardHistory<B> for ZobristHistory<B> {
     }
 
     fn is_repetition(&self, pos: &B, plies_ago: usize) -> bool {
-        pos.zobrist_hash() == self.0[self.0.len() - plies_ago]
+        pos.hash_pos() == self.0[self.0.len() - plies_ago]
     }
 
     fn push(&mut self, pos: &B) {
-        self.0.push(pos.zobrist_hash());
+        self.0.push(pos.hash_pos());
     }
 
     fn pop(&mut self) {

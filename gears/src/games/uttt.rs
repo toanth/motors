@@ -25,8 +25,8 @@ use crate::games::uttt::ColoredUtttPieceType::{OStone, XStone};
 use crate::games::uttt::UtttColor::{O, X};
 use crate::games::uttt::UtttPieceType::{Empty, Occupied};
 use crate::games::{
-    AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates,
-    GenericPiece, NoHistory, PieceType, Settings, ZobristHash,
+    AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, GenericPiece,
+    NoHistory, PieceType, PosHash, Settings,
 };
 use crate::general::bitboards::{
     Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, KnownSizeBitboard, RawBitboard,
@@ -41,7 +41,7 @@ use crate::general::board::{
 use crate::general::common::{ith_one_u128, parse_int, Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::moves::Legality::Legal;
-use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
+use crate::general::moves::{Legality, Move, UntrustedMove};
 use crate::general::squares::{
     RectangularCoordinates, SmallGridSize, SmallGridSquare, SquareColor,
 };
@@ -262,32 +262,31 @@ impl UtttMove {
         Self(square)
     }
     pub const NULL: Self = Self::new(UtttSquare::no_coordinates_const());
+
+    fn dest_square(self) -> UtttSquare {
+        self.0
+    }
 }
 
 impl Display for UtttMove {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.format_compact(f)
     }
 }
 
 impl Move<UtttBoard> for UtttMove {
-    type Flags = NoMoveFlags;
     type Underlying = u8;
 
     fn legality() -> Legality {
         Legal
     }
 
-    fn src_square(self) -> UtttSquare {
-        UtttSquare::no_coordinates()
+    fn src_square_in(self, _pos: &UtttBoard) -> Option<UtttSquare> {
+        None
     }
 
-    fn dest_square(self) -> UtttSquare {
+    fn dest_square_in(self, _pos: &UtttBoard) -> UtttSquare {
         self.0
-    }
-
-    fn flags(self) -> Self::Flags {
-        NoMoveFlags {}
     }
 
     fn is_tactical(self, _board: &UtttBoard) -> bool {
@@ -295,7 +294,7 @@ impl Move<UtttBoard> for UtttMove {
         false
     }
 
-    fn format_compact(self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn format_compact(self, f: &mut Formatter<'_>) -> fmt::Result {
         if self == Self::NULL {
             write!(f, "0000")
         } else {
@@ -327,8 +326,8 @@ impl Move<UtttBoard> for UtttMove {
         Self::parse_compact_text(s, board)
     }
 
-    fn from_usize_unchecked(val: usize) -> UntrustedMove<UtttBoard> {
-        UntrustedMove::from_move(Self(UtttSquare::unchecked(val)))
+    fn from_u64_unchecked(val: u64) -> UntrustedMove<UtttBoard> {
+        UntrustedMove::from_move(Self(UtttSquare::unchecked(val as usize)))
     }
 
     fn to_underlying(self) -> Self::Underlying {
@@ -648,7 +647,7 @@ impl UtttBoard {
 }
 
 impl Display for UtttBoard {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_fen())
     }
 }
@@ -827,12 +826,12 @@ impl Board for UtttBoard {
         true
     }
 
-    fn zobrist_hash(&self) -> ZobristHash {
-        // TODO: Test using a better hash. Also, `ZobristHash` is a bad name in general
+    fn hash_pos(&self) -> PosHash {
+        // TODO: Test using a better hash
         let mut hasher = DefaultHasher::default();
         // the bitboards and the last move must be part of the hash
         self.hash(&mut hasher);
-        ZobristHash(hasher.finish())
+        PosHash(hasher.finish())
     }
 
     fn as_fen(&self) -> String {

@@ -21,7 +21,7 @@ use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{
     char_to_file, file_to_char, AbstractPieceType, Board, CharType, Color, ColoredPiece,
-    ColoredPieceType, DimT, ZobristHash,
+    ColoredPieceType, DimT, PosHash,
 };
 use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
@@ -29,7 +29,7 @@ use crate::general::board::{BitboardBoard, BoardHelpers};
 use crate::general::common::Res;
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::PseudoLegal;
-use crate::general::moves::{ExtendedFormat, Legality, Move, MoveFlags, UntrustedMove};
+use crate::general::moves::{ExtendedFormat, Legality, Move, UntrustedMove};
 use crate::general::squares::RectangularCoordinates;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default, Debug, EnumIter, FromRepr)]
@@ -80,8 +80,6 @@ impl ChessMoveFlags {
     }
 }
 
-impl MoveFlags for ChessMoveFlags {}
-
 /// Members are stored as follows:
 /// Bits 0-5: from square
 /// Bits 6 - 11: To square
@@ -98,6 +96,16 @@ impl ChessMove {
     }
 
     pub const NULL: Self = Self(0);
+
+    #[inline]
+    pub fn src_square(self) -> ChessSquare {
+        ChessSquare::from_bb_index((self.0 & 0x3f) as usize)
+    }
+
+    #[inline]
+    pub fn dest_square(self) -> ChessSquare {
+        ChessSquare::from_bb_index(((self.0 >> 6) & 0x3f) as usize)
+    }
 
     pub fn square_of_pawn_taken_by_ep(self) -> Option<ChessSquare> {
         // TODO: Use board.ep_square instead
@@ -193,6 +201,10 @@ impl ChessMove {
         }
     }
 
+    fn flags(self) -> ChessMoveFlags {
+        ChessMoveFlags::iter().nth((self.0 >> 12) as usize).unwrap()
+    }
+
     pub fn from_to_square(self) -> usize {
         (self.0 & 0xfff) as usize
     }
@@ -205,23 +217,21 @@ impl Display for ChessMove {
 }
 
 impl Move<Chessboard> for ChessMove {
-    type Flags = ChessMoveFlags;
     type Underlying = u16;
 
+    #[inline]
     fn legality() -> Legality {
         PseudoLegal
     }
 
-    fn src_square(self) -> ChessSquare {
-        ChessSquare::from_bb_index((self.0 & 0x3f) as usize)
+    #[inline]
+    fn src_square_in(self, _pos: &Chessboard) -> Option<ChessSquare> {
+        Some(self.src_square())
     }
 
-    fn dest_square(self) -> ChessSquare {
-        ChessSquare::from_bb_index(((self.0 >> 6) & 0x3f) as usize)
-    }
-
-    fn flags(self) -> ChessMoveFlags {
-        ChessMoveFlags::iter().nth((self.0 >> 12) as usize).unwrap()
+    #[inline]
+    fn dest_square_in(self, _pos: &Chessboard) -> ChessSquare {
+        self.dest_square()
     }
 
     fn is_tactical(self, board: &Chessboard) -> bool {
@@ -403,7 +413,7 @@ impl Move<Chessboard> for ChessMove {
         write!(f, "{res}")
     }
 
-    fn from_usize_unchecked(val: usize) -> UntrustedMove<Chessboard> {
+    fn from_u64_unchecked(val: u64) -> UntrustedMove<Chessboard> {
         UntrustedMove::from_move(Self(val as u16))
     }
 
@@ -451,7 +461,7 @@ impl Chessboard {
         ChessSquare::from_rank_file(rank, file)
     }
 
-    pub fn make_move_and_prefetch_tt<F: Fn(ZobristHash)>(
+    pub fn make_move_and_prefetch_tt<F: Fn(PosHash)>(
         self,
         mov: ChessMove,
         prefetch: F,
@@ -461,7 +471,7 @@ impl Chessboard {
 
     /// Is only ever called on a copy of the board, so no need to undo the changes when a move gets aborted due to pseudo-legality.
     #[allow(clippy::too_many_lines)]
-    pub(super) fn make_move_impl<F: Fn(ZobristHash)>(
+    pub(super) fn make_move_impl<F: Fn(PosHash)>(
         mut self,
         mov: ChessMove,
         prefetch: F,
@@ -1180,7 +1190,7 @@ mod tests {
         // moves (except for 0) have been found through cargo fuzz
         let moves = [0, 60449, 38481, 28220];
         for mov in moves {
-            let mov = ChessMove::from_usize_unchecked(mov);
+            let mov = ChessMove::from_u64_unchecked(mov);
             for pos in Chessboard::bench_positions() {
                 if let Some(mov) = mov.check_pseudolegal(&pos) {
                     pos.make_move(mov);

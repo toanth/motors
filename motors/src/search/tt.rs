@@ -13,7 +13,7 @@ use strum_macros::FromRepr;
 
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
-use gears::games::ZobristHash;
+use gears::games::PosHash;
 use gears::general::board::Board;
 use gears::general::moves::{Move, UntrustedMove};
 use gears::score::{Score, ScoreT, SCORE_WON};
@@ -35,7 +35,7 @@ enum OptionalNodeType {
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 #[repr(C)]
 pub struct TTEntry<B: Board> {
-    pub hash: ZobristHash,     // 8 bytes
+    pub hash: PosHash,         // 8 bytes
     pub score: Score,          // 4 bytes
     pub mov: UntrustedMove<B>, // depends, 2 bytes for chess (atm never more)
     pub depth: u8,             // 1 byte
@@ -57,7 +57,7 @@ impl<B: Board> Display for TTEntry<B> {
 
 impl<B: Board> TTEntry<B> {
     pub fn new(
-        hash: ZobristHash,
+        hash: PosHash,
         score: Score,
         mov: B::Move,
         depth: isize,
@@ -117,9 +117,9 @@ impl<B: Board> TTEntry<B> {
     }
 
     fn from_packed_fallback(val: u128) -> Self {
-        let hash = ZobristHash((val >> 64) as u64);
+        let hash = PosHash((val >> 64) as u64);
         let score = Score(((val >> (64 - 32)) & 0xffff_ffff) as ScoreT);
-        let mov = B::Move::from_usize_unchecked(((val >> 16) & 0xffff) as usize);
+        let mov = B::Move::from_u64_unchecked(((val >> 16) & 0xffff) as u64);
         let depth = ((val >> 8) & 0xff) as u8;
         let bound = OptionalNodeType::from_repr((val & 0xff) as u8).unwrap();
         Self {
@@ -199,7 +199,7 @@ impl TT {
         }
     }
 
-    fn index_of(&self, hash: ZobristHash) -> usize {
+    fn index_of(&self, hash: PosHash) -> usize {
         // Uses the multiplication trick from here: <https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/>
         ((hash.0 as u128 * self.size_in_entries() as u128) >> usize::BITS as usize) as usize
     }
@@ -231,7 +231,7 @@ impl TT {
         self.0[idx].store(entry.to_packed(), Relaxed);
     }
 
-    pub(super) fn load<B: Board>(&self, hash: ZobristHash, ply: usize) -> Option<TTEntry<B>> {
+    pub(super) fn load<B: Board>(&self, hash: PosHash, ply: usize) -> Option<TTEntry<B>> {
         let idx = self.index_of(hash);
         let mut entry = TTEntry::from_packed(self.0[idx].load(Relaxed));
         // Mate score adjustments, see `store`
@@ -251,7 +251,7 @@ impl TT {
     }
 
     #[inline(always)]
-    pub fn prefetch(&self, hash: ZobristHash) {
+    pub fn prefetch(&self, hash: PosHash) {
         if cfg!(feature = "unsafe") {
             unsafe {
                 #[cfg(all(target_arch = "x86_64", target_feature = "sse"))]
@@ -285,7 +285,7 @@ mod test {
         let mut i = 1;
         for mov in board.pseudolegal_moves() {
             let entry: TTEntry<Chessboard> = TTEntry::new(
-                board.zobrist_hash(),
+                board.hash_pos(),
                 Score(i * i * (i % 2 * 2 - 1)),
                 mov,
                 i as isize,
@@ -316,7 +316,7 @@ mod test {
                 )
                 .unwrap();
                 let entry: TTEntry<Chessboard> = TTEntry {
-                    hash: pos.zobrist_hash(),
+                    hash: pos.hash_pos(),
                     score,
                     mov: UntrustedMove::from_move(mov),
                     depth,
@@ -346,7 +346,7 @@ mod test {
             let mut gen = thread_rng();
             let num_samples = 200_000;
             for _ in 0..num_samples {
-                let idx = tt.index_of(ZobristHash(gen.next_u64()));
+                let idx = tt.index_of(PosHash(gen.next_u64()));
                 occurrences[idx] += 1;
             }
             let expected = num_samples as f64 / size as f64;
@@ -378,11 +378,11 @@ mod test {
         let mut engine = Caps::default();
         let bad_move = ChessMove::from_compact_text("a2a3", &pos).unwrap();
         let entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.zobrist_hash(), MAX_NORMAL_SCORE, bad_move, 123, Exact);
+            TTEntry::new(pos.hash_pos(), MAX_NORMAL_SCORE, bad_move, 123, Exact);
         tt.store(entry, 0);
         let next_pos = pos.make_move(bad_move).unwrap();
         let next_entry: TTEntry<Chessboard> = TTEntry::new(
-            next_pos.zobrist_hash(),
+            next_pos.hash_pos(),
             MIN_NORMAL_SCORE,
             ChessMove::NULL,
             122,
@@ -399,7 +399,7 @@ mod test {
         let nodes = engine2.search_state().uci_nodes();
         engine2.forget();
         let _ = engine.search_with_tt(pos, SearchLimit::depth(Depth::new(5)), tt.clone());
-        let entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0);
+        let entry = tt.load::<Chessboard>(pos.hash_pos(), 0);
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().depth, 5);
         _ = engine2.search_with_tt(pos, limit, tt.clone());
@@ -435,10 +435,10 @@ mod test {
         );
         let hashfull = tt.estimate_hashfull::<Chessboard>();
         assert!(hashfull > 0, "{hashfull}");
-        let entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0).unwrap();
-        let entry2 = tt.load::<Chessboard>(pos2.zobrist_hash(), 0).unwrap();
-        assert_eq!(entry.hash, pos.zobrist_hash());
-        assert_eq!(entry2.hash, pos2.zobrist_hash());
+        let entry = tt.load::<Chessboard>(pos.hash_pos(), 0).unwrap();
+        let entry2 = tt.load::<Chessboard>(pos2.hash_pos(), 0).unwrap();
+        assert_eq!(entry.hash, pos.hash_pos());
+        assert_eq!(entry2.hash, pos2.hash_pos());
         assert!(pos.is_move_legal(mov));
         assert!(pos2.is_move_legal(mov));
     }

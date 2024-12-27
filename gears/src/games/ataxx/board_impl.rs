@@ -1,7 +1,7 @@
 use crate::games::ataxx::common::AtaxxMove;
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::{AtaxxBitboard, AtaxxBoard, AtaxxColor, AtaxxMoveList};
-use crate::games::{Board, Color, ZobristHash};
+use crate::games::{Board, Color, PosHash};
 use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, KINGS};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
@@ -11,7 +11,6 @@ use crate::general::board::{
 };
 use crate::general::common::{Res, Tokens};
 use crate::general::move_list::MoveList;
-use crate::general::moves::Move;
 use crate::general::squares::sup_distance;
 use anyhow::{anyhow, bail};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -153,10 +152,10 @@ impl AtaxxBoard {
 
     /// Doesn't actually use a *zobrist* hash computation because that's unnecessarily slow for ataxx.
     /// TODO: Test performance, both of the hasher and of the TT when using this hasher.
-    pub(super) fn hash_impl(&self) -> ZobristHash {
+    pub(super) fn hash_impl(&self) -> PosHash {
         let mut hasher = DefaultHasher::new();
         (self.colors[0], self.colors[1], self.active_player).hash(&mut hasher);
-        ZobristHash(hasher.finish())
+        PosHash(hasher.finish())
     }
 
     pub fn read_fen_impl(words: &mut Tokens, strictness: Strictness) -> Res<Self> {

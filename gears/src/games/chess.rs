@@ -24,7 +24,7 @@ use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::chess::ChessColor::{Black, White};
 use crate::games::{
     file_to_char, n_fold_repetition, AbstractPieceType, Board, BoardHistory, CharType, Color,
-    ColoredPiece, ColoredPieceType, DimT, PieceType, Settings, ZobristHash,
+    ColoredPiece, ColoredPieceType, DimT, PieceType, PosHash, Settings,
 };
 use crate::general::bitboards::chessboard::{black_squares, white_squares, ChessBitboard};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard};
@@ -122,7 +122,7 @@ pub struct Chessboard {
     active_player: ChessColor,
     castling: CastlingFlags,
     ep_square: Option<ChessSquare>, // eventually, see if using Optional and Noned instead of Option improves nps
-    hash: ZobristHash,
+    hash: PosHash,
 }
 
 impl Default for Chessboard {
@@ -173,7 +173,7 @@ impl Board for Chessboard {
             active_player: White,
             castling: CastlingFlags::default(),
             ep_square: None,
-            hash: ZobristHash(0),
+            hash: PosHash(0),
         })
     }
 
@@ -499,7 +499,7 @@ impl Board for Chessboard {
         true
     }
 
-    fn zobrist_hash(&self) -> ZobristHash {
+    fn hash_pos(&self) -> PosHash {
         self.hash
     }
 
@@ -1425,12 +1425,12 @@ mod tests {
     #[test]
     fn repetition_test() {
         let mut board = Chessboard::default();
-        let new_hash = board.make_nullmove().unwrap().zobrist_hash();
+        let new_hash = board.make_nullmove().unwrap().hash_pos();
         let moves = [
             "g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1", "f6g8", "e2e4",
         ];
         let mut hist = ZobristHistory::default();
-        assert_ne!(new_hash, board.zobrist_hash());
+        assert_ne!(new_hash, board.hash_pos());
         for (i, mov) in moves.iter().enumerate() {
             assert_eq!(
                 i > 3,
@@ -1460,13 +1460,13 @@ mod tests {
         }
         board = Chessboard::from_name("lucena").unwrap();
         assert_eq!(board.active_player, White);
-        let hash = board.zobrist_hash();
+        let hash = board.hash_pos();
         let moves = ["c1b1", "a2c2", "b1e1", "c2a2", "e1c1"];
         for mov in moves {
             board = board
                 .make_move(ChessMove::from_compact_text(mov, &board).unwrap())
                 .unwrap();
-            assert_ne!(board.zobrist_hash(), hash);
+            assert_ne!(board.hash_pos(), hash);
             assert!(!n_fold_repetition(2, &hist, &board, 12345));
         }
         assert_eq!(board.active_player, Black);

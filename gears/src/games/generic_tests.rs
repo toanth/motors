@@ -1,6 +1,6 @@
 //! This module contains generic test functions that are completely independent of the actual game.
 //! Since those generics aren't instantiated here, there are no actual tests here.
-use crate::games::{Color, ColoredPiece, Coordinates, Size, ZobristHash};
+use crate::games::{Color, ColoredPiece, Coordinates, PosHash, Size};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{Board, BoardHelpers, UnverifiedBoard};
 use crate::general::moves::ExtendedFormat::{Alternative, Standard};
@@ -95,20 +95,20 @@ impl<B: Board> GenericTests<B> {
             let pos = queue.front().copied().unwrap();
             let moves = pos.legal_moves_slow();
             queue.pop_front();
-            hashes.push(pos.zobrist_hash());
+            hashes.push(pos.hash_pos());
             for mov in moves {
                 queue.push_back(pos.make_move(mov).unwrap());
             }
         }
         for entry in queue {
-            hashes.push(entry.zobrist_hash());
+            hashes.push(entry.hash_pos());
         }
         hashes.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
         hashes = hashes.iter().dedup().copied().collect_vec();
         let num_hashes = hashes.len();
         assert!(num_hashes >= 1_000);
         for shift in 0..64 - 8 {
-            let get_bits = |hash: ZobristHash| (hash.0 >> shift) & 0xff;
+            let get_bits = |hash: PosHash| (hash.0 >> shift) & 0xff;
             let mut counts = vec![0; 256];
             for hash in &hashes {
                 counts[get_bits(*hash) as usize] += 1;
@@ -137,7 +137,7 @@ impl<B: Board> GenericTests<B> {
                 pos,
                 pos.as_fen()
             );
-            let hash = pos.zobrist_hash().0;
+            let hash = pos.hash_pos().0;
             hashes.insert(hash);
             assert_ne!(hash, 0);
             if B::Move::legality() == Legal {
@@ -167,12 +167,12 @@ impl<B: Board> GenericTests<B> {
                     new_pos.legal_moves_slow().into_iter().collect_vec()
                 );
                 assert_eq!(roundtrip, new_pos);
-                assert_eq!(roundtrip.zobrist_hash(), new_pos.zobrist_hash());
+                assert_eq!(roundtrip.hash_pos(), new_pos.hash_pos());
 
-                assert_ne!(new_pos.zobrist_hash().0, hash); // Even for null moves, the side to move has changed
+                assert_ne!(new_pos.hash_pos().0, hash); // Even for null moves, the side to move has changed
                 assert_eq!(new_pos.halfmove_ctr_since_start() - ply, 1);
-                assert!(!hashes.contains(&new_pos.zobrist_hash().0));
-                hashes.insert(new_pos.zobrist_hash().0);
+                assert!(!hashes.contains(&new_pos.hash_pos().0));
+                hashes.insert(new_pos.hash_pos().0);
             }
         }
     }

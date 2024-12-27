@@ -137,6 +137,18 @@ impl GridCoordinates {
     }
 }
 
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash, Arbitrary)]
+pub struct CompactSquare(DimT);
+
+impl CompactSquare {
+    pub fn new(square: GridCoordinates, size: GridSize) -> Self {
+        Self(DimT::try_from(size.internal_key(square)).unwrap())
+    }
+    pub fn square(self, size: GridSize) -> GridCoordinates {
+        size.idx_to_coordinates(self.0)
+    }
+}
+
 pub trait RectangularSize<C: RectangularCoordinates>: Size<C> {
     fn height(self) -> Height;
     fn width(self) -> Width;
@@ -285,7 +297,7 @@ pub enum SquareColor {
 }
 
 // Ideally, there would be an alias setting `INTERNAL_WIDTH` or a default parameter for `INTERNAL_WIDTH` to `max(8, W)`,
-// but both of those things aren't possible in stale Rust.
+// but both of those things aren't possible in stable Rust.
 /// A square of a board with at most 255 squares, and some reasonable restrictions on side length (e.g. not 255x1)  .
 #[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Hash, Arbitrary)]
 #[must_use]
@@ -421,6 +433,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
             .map(Self::from_bb_index)
     }
 
+    // Ideally, no_coordinates shouldn't be necessary, but sadly there's no `NonMaxU8` (except for a crate that xors U8::MAX on every access)
     pub const fn no_coordinates_const() -> Self {
         Self::unchecked(H * INTERNAL_WIDTH)
     }

@@ -43,13 +43,6 @@ pub enum ExtendedFormat {
     Alternative,
 }
 
-pub trait MoveFlags: Eq + Copy + Debug + Default {}
-
-#[derive(Eq, PartialEq, Debug, Copy, Clone, Default)]
-pub struct NoMoveFlags {}
-
-impl MoveFlags for NoMoveFlags {}
-
 /// A `Move` implementation uniquely describes a (pseudolegal) move in a given position. It may not store not enough
 /// information to reconstruct the move without the position.
 /// All `Move` functions that take a `Board` parameter assume that the move is pseudolegal for the given board
@@ -59,9 +52,7 @@ pub trait Move<B: Board>:
 where
     B: Board<Move = Self>,
 {
-    type Flags: MoveFlags;
-
-    type Underlying: PrimInt + Into<usize>;
+    type Underlying: PrimInt + Into<u64>;
 
     fn is_null(self) -> bool {
         self == Self::default()
@@ -75,13 +66,10 @@ where
 
     /// From which square does the piece move?
     /// When this doesn't make sense, such as for m,n,k games, return some default value, such as `no_coordinates()`
-    fn src_square(self) -> B::Coordinates;
+    fn src_square_in(self, pos: &B) -> Option<B::Coordinates>;
 
     /// To which square does the piece move / get placed.
-    fn dest_square(self) -> B::Coordinates;
-
-    /// Move flags. Not all Move implementations have them, in which case `Flags` can be `NoMoveFlags`
-    fn flags(self) -> Self::Flags;
+    fn dest_square_in(self, pos: &B) -> B::Coordinates;
 
     /// Tactical moves can drastically change the position and are often searched first, such as captures and queen or
     /// knight promotions in chess. Always returning `false` is a valid choice.
@@ -174,7 +162,7 @@ where
 
     /// Load the move from its raw underlying integer representation, the inverse of `to_underlying`.
     /// Does not take a `Board` and therefore does not ensure pseudolegality.
-    fn from_usize_unchecked(val: usize) -> UntrustedMove<B>;
+    fn from_u64_unchecked(val: u64) -> UntrustedMove<B>;
 
     /// Serialize this move into an internal integer representation.
     /// Typically, this function behaves like a `transmute`, i.e.,

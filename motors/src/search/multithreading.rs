@@ -125,8 +125,8 @@ pub struct AtomicSearchState<B: Board> {
     nodes: AtomicU64,
     depth: AtomicIsize,
     seldepth: AtomicUsize,
-    best_move: AtomicUsize,
-    ponder_move: AtomicUsize,
+    best_move: AtomicU64,
+    ponder_move: AtomicU64,
     score: AtomicI32,
     phantom_data: PhantomData<B>,
 }
@@ -140,8 +140,8 @@ impl<B: Board> Default for AtomicSearchState<B> {
             nodes: AtomicU64::new(0),
             depth: AtomicIsize::new(0),
             seldepth: AtomicUsize::new(0),
-            best_move: AtomicUsize::new(B::Move::default().to_underlying().into()),
-            ponder_move: AtomicUsize::new(B::Move::default().to_underlying().into()),
+            best_move: AtomicU64::new(B::Move::default().to_underlying().into()),
+            ponder_move: AtomicU64::new(B::Move::default().to_underlying().into()),
             score: AtomicI32::new(NO_SCORE_YET.0),
             phantom_data: PhantomData,
         }
@@ -195,11 +195,11 @@ impl<B: Board> AtomicSearchState<B> {
     }
 
     pub fn best_move(&self) -> B::Move {
-        B::Move::from_usize_unchecked(self.best_move.load(Relaxed)).trust_unchecked()
+        B::Move::from_u64_unchecked(self.best_move.load(Relaxed)).trust_unchecked()
     }
 
     pub fn ponder_move(&self) -> Option<B::Move> {
-        let mov = B::Move::from_usize_unchecked(self.ponder_move.load(Relaxed)).trust_unchecked();
+        let mov = B::Move::from_u64_unchecked(self.ponder_move.load(Relaxed)).trust_unchecked();
         if mov == B::Move::default() {
             None
         } else {
@@ -513,7 +513,7 @@ impl<B: Board> EngineWrapper<B> {
     }
 
     pub fn tt_entry(&mut self, pos: &B) -> Option<TTEntry<B>> {
-        self.tt_for_next_search.load(pos.zobrist_hash(), 0)
+        self.tt_for_next_search.load(pos.hash_pos(), 0)
     }
 
     pub fn set_eval(&mut self, eval: Box<dyn Eval<B>>) -> Res<()> {

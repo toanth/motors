@@ -9,7 +9,6 @@ use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::RayDirections::Vertical;
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, BoardHelpers};
-use crate::general::moves::Move;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use std::mem::swap;
 
@@ -172,6 +171,7 @@ mod tests {
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::common::parse_int_from_str;
+    use crate::general::moves::Move;
 
     #[test]
     fn trivial_see_test() {

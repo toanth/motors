@@ -17,7 +17,7 @@
  */
 use crate::games::{
     AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates,
-    DimT, NoHistory, Settings, Size, ZobristHash,
+    DimT, NoHistory, PosHash, Settings, Size,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::{Assertion, Verify};
@@ -64,16 +64,18 @@ pub enum Strictness {
     Strict,
 }
 
+/// An [`UnverifiedBoard`] is a [`Board`] where invariants can be violated.
 pub trait UnverifiedBoard<B: Board>: Debug + Copy + Clone + From<B>
 where
     B: Board<Unverified = Self>,
 {
+    /// Conceptually, this simply copies the board.
     fn new(board: B) -> Self {
         Self::from(board)
     }
 
-    /// Same as `verify_with_level(Verify) for release builds
-    /// and `verify_with_level(Assertion) in debug builds
+    /// Same as `verify_with_level(Verify)` for release builds
+    /// and `verify_with_level(Assertion)` in debug builds
     fn verify(self, strictness: Strictness) -> Res<B> {
         if cfg!(debug_assertions) {
             self.verify_with_level(Assertion, strictness)
@@ -104,11 +106,11 @@ where
         self.size().check_coordinates(coords)
     }
 
-    /// Place a piece of the given type and color on the given square. Like all functions that return an `UnverifiedBoard`,
+    /// Place a piece of the given type and color on the given square. Like all functions that return an [`UnverifiedBoard`],
     /// this doesn't check that the resulting position is legal.
     /// However, this function can still fail if the piece can't be placed because the coordinates.
     /// If there is a piece already on the square, it is implementation-defined what will happen; possible options include
-    /// replacing the piece, returning an `Err`, or silently going into a bad state that will return an `Err` on `verify`.
+    /// replacing the piece, returning an `Err`, or silently going into a bad state that will return an `Err` on [`Self::verify`].
     /// Not intended to do any expensive checks.
     fn try_place_piece(self, piece: B::Piece) -> Res<Self> {
         let square = self.check_coordinates(piece.coordinates())?;
@@ -116,12 +118,12 @@ where
         Ok(self.place_piece(square, piece.colored_piece_type()))
     }
 
-    /// Like `place_piece`, but does not check that the coordinates are valid.
+    /// Like [`Self::try_place_piece`], but does not check that the coordinates are valid.
     fn place_piece(self, coords: B::Coordinates, piece: ColPieceType<B>) -> Self;
 
     /// Remove the piece at the given coordinates. If there is no piece there, nothing happens.
     /// If the coordinates are invalid, an `Err` is returned.
-    /// Some `UnverifiedBoard`s can represent multiple pieces at the same coordinates; it is implementation-defined
+    /// Some [`UnverifiedBoard`]s can represent multiple pieces at the same coordinates; it is implementation-defined
     /// what this method does in that case.
     fn try_remove_piece(self, coords: B::Coordinates) -> Res<Self> {
         if self.try_get_piece_on(coords)?.is_empty() {
@@ -131,18 +133,18 @@ where
         }
     }
 
-    /// Like `try_remove_piece`, but does not check that the coordinates are valid.
+    /// Like [`Self::try_remove_piece`], but does not check that the coordinates are valid.
     fn remove_piece(self, coords: B::Coordinates) -> Self;
 
     /// Returns the piece on the given coordinates, or `None` if the coordinates aren't valid.
-    /// Some `UnverifiedBoard`s can represent multiple pieces at the same coordinates; it is implementation-defined
+    /// Some [`UnverifiedBoard`]s can represent multiple pieces at the same coordinates; it is implementation-defined
     /// what this method does in that case (but it should never return empty coordinates in that case).
     fn try_get_piece_on(&self, coords: B::Coordinates) -> Res<B::Piece> {
         Ok(self.piece_on(self.check_coordinates(coords)?))
     }
 
     /// Returns the piece on the given coordinates, or `None` if the coordinates aren't valid.
-    /// Some `UnverifiedBoard`s can represent multiple pieces at the same coordinates; it is implementation-defined
+    /// Some [`UnverifiedBoard`]s can represent multiple pieces at the same coordinates; it is implementation-defined
     /// what this method does in that case (but it should never return empty coordinates in that case).
     fn piece_on(&self, coords: B::Coordinates) -> B::Piece;
 
@@ -228,7 +230,7 @@ pub trait Board:
         Self::startpos_for_settings(self.settings())
     }
 
-    /// Like `startpos_for_settings()` with default settings.
+    /// Like [`Self::startpos_for_settings()`] with default settings.
     /// Most boards have empty settings, so explicitly passing in settings is unnecessary.
     /// Usually, `startpos()` returns the same as `default()`, but this isn't enforced.
     fn startpos() -> Self {
@@ -240,9 +242,9 @@ pub trait Board:
     /// Can be implemented by calling [`board_from_name`].
     fn from_name(name: &str) -> Res<Self>;
 
-    /// Returns a Vec mapping well-known position names to their FEN, for example for kiwipete in chess.
-    /// Can be implemented by a concrete `Board`, which will make `from_name` recognize the name and lets the
-    /// GUI know about supported positions.
+    /// Returns a Vec mapping well-known position names to their FEN, for example for `kiwipete` in chess.
+    /// Can be implemented by a concrete [`Board`], which will make [`Self::from_name`] recognize the name and lets the
+    /// UI know about supported positions.
     /// "startpos" is handled automatically in `from_name` but can be overwritten here.
     #[must_use]
     fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
@@ -261,12 +263,11 @@ pub trait Board:
     fn halfmove_ctr_since_start(&self) -> usize;
 
     /// An upper bound on the number of past plies that need to be considered for repetitions.
-    /// This can be the same as `halfmove_ctr_since_start` or always zero if repetitions aren't possible.
+    /// This can be the same as [`Self::halfmove_ctr_since_start`] or always zero if repetitions aren't possible.
     fn halfmove_repetition_clock(&self) -> usize;
 
-    /// The size of the board expressed as coordinates.
-    /// The value returned from this function does not correspond to a valid square.
-    fn size(&self) -> <Self::Coordinates as Coordinates>::Size;
+    /// The size of the board.
+    fn size(&self) -> BoardSize<Self>;
 
     /// Returns `true` iff there is no piece on the given square.
     fn is_empty(&self, coords: Self::Coordinates) -> bool;
@@ -284,7 +285,7 @@ pub trait Board:
     fn colored_piece_on(&self, coords: Self::Coordinates) -> Self::Piece;
 
     /// Returns the uncolored piece type at the given coordinates.
-    /// Can sometimes be implemented more efficiently than `colored_piece_on`
+    /// Can sometimes be implemented more efficiently than [`Self::colored_piece_on`]
     fn piece_type_on(&self, coords: Self::Coordinates) -> PieceTypeOf<Self> {
         self.colored_piece_on(coords).uncolored()
     }
@@ -299,13 +300,12 @@ pub trait Board:
         Depth::new(20)
     }
 
-    /// Generate pseudolegal moves into the supplied move list. Can be more efficient than `pseudolegal_moves`
-    /// because it avoids moving around large move lists, and is generic over the move list to allow arbitrary code
+    /// Generate pseudolegal moves into the supplied move list. Generic over the move list to allow arbitrary code
     /// upon adding moves, such as scoring or filtering the new move.
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T);
 
     /// Generate moves that are considered "tactical" into the supplied move list.
-    /// Can be more efficient than `tactical_pseudolegal` and is generic over the move list.
+    /// Generic over the move list, like [`Self::gen_pseudolegal`].
     /// Note that some games don't consider any moves tactical, so this function may have no effect.
     fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T);
 
@@ -362,11 +362,11 @@ pub trait Board:
     fn player_result_no_movegen<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult>;
 
     /// Returns the result (win/draw/loss), if any. Can be potentially slow because it can require movegen.
-    /// If movegen is used anyway (such as in an ab search), it is usually better to call `game_result_no_movegen`
-    /// and `no_moves_result` iff there were no legal moves.
-    /// Despite the name, this method is not always slower than `game_result_no_movegen`, for some games both
+    /// If movegen is used anyway (such as in an ab search), it is usually better to call [`Self::player_result_no_movegen`]
+    /// and [`Self::no_moves_result`] iff there were no legal moves.
+    /// Despite the name, this method is not always slower than `player_result_no_movegen`, for some games both
     /// implementations are identical. But in a generic setting, this shouldn't be relied upon, hence the name.
-    /// Note that many implementations never return `PlayerResult::Win` because the active player can't win the game,
+    /// Note that many implementations never return [`PlayerResult::Win`] because the active player can't win the game,
     /// which is the case because the current player is flipped after the winning move.
     /// For example, being checkmated in chess is a loss for the current player.
     fn player_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult>;
@@ -379,7 +379,7 @@ pub trait Board:
     fn no_moves_result(&self) -> PlayerResult;
 
     /// Returns true iff the game is lost for the player who can now move, like being checkmated in chess.
-    /// Using `game_result_no_movegen()` and `no_moves_result()` is often the faster option if movegen is needed anyway
+    /// Using [`Self::player_result_no_movegen()`] and [`Self::no_moves_result()`] is often the faster option if movegen is needed anyway
     fn is_game_lost_slow(&self) -> bool {
         self.player_result_slow(&NoHistory::default())
             .is_some_and(|x| x == Lose)
@@ -387,7 +387,7 @@ pub trait Board:
 
     /// Returns true iff the game is won for the current player after making the given move.
     /// This move has to be pseudolegal. If the move will likely be played anyway, it can be faster
-    /// to play it and use `game_result()` or `game_result_no_movegen()` and `no_moves_result` instead.
+    /// to play it and use [`Self::player_result()`] or [`Self::player_result_no_movegen()`] and [`Self::no_moves_result`] instead.
     fn is_game_won_after_slow(&self, mov: Self::Move) -> bool {
         self.make_move(mov)
             .map_or(false, |new_pos| new_pos.is_game_lost_slow())
@@ -399,14 +399,15 @@ pub trait Board:
     /// This is intended to be a comparatively cheap function and does not perform any kind of search.
     /// Typical cases where this returns false include chess positions where we only have our king left
     /// but the opponent still possesses enough material to mate (otherwise, the game would have ended in a draw).
-    /// The result of this function on a position where [`game_result_slow`] returns a `Some` is unspecified.
+    /// The result of this function on a position where [`Self::game_result_slow`] returns a `Some` is unspecified.
     /// This is an approximation; always returning `true` would be a valid implementation of this method.
     /// The implementation of this method for chess technically violates the FIDE rules (as does the insufficient material
     /// draw condition), but that shouldn't be a problem in practice -- this rule is only meant ot be applied in human games anyway,
     /// and the FIDE rules are effectively uncheckable.
     fn can_reasonably_win(&self, player: Self::Color) -> bool;
 
-    fn zobrist_hash(&self) -> ZobristHash;
+    /// The hash of this position. E.g. for chess, this is the zobrist hash.
+    fn hash_pos(&self) -> PosHash;
 
     /// Returns a compact textual description of the board that can be read in again with `from_fen`.
     fn as_fen(&self) -> String;
@@ -529,6 +530,7 @@ pub trait BoardHelpers: Board {
 
     /// Verifies that all invariants of this board are satisfied. It should never be possible for this function to
     /// fail for a bug-free program; failure most likely means the `Board` implementation is bugged.
+    /// For checking invariants that might be violated, use a `Board::Unverified` and call `verify_with_level`.
     fn debug_verify_invariants(self, strictness: Strictness) -> Res<Self> {
         Self::Unverified::new(self).verify_with_level(Assertion, strictness)
     }
@@ -760,7 +762,7 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
             handle_skipped(i, skipped_digits, &mut square)?;
             skipped_digits = 0;
             if square >= board.size().num_squares() {
-                bail!("FEN position contains at least {square} squares, but the board only has {0} squares", board.size().num_squares());
+                bail!("FEN position contains more than {square} squares, but the board only has {0} squares", board.size().num_squares());
             }
 
             board = board.place_piece(

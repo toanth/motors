@@ -729,10 +729,9 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
     }
 
     fn frame_color(&self, square: B::Coordinates) -> Option<colored::Color> {
-        if self
-            .last_move
-            .is_some_and(|m| m.src_square() == square || m.dest_square() == square)
-        {
+        if self.last_move.is_some_and(|m| {
+            m.src_square_in(&self.pos) == Some(square) || m.dest_square_in(&self.pos) == square
+        }) {
             Some(GOLD)
         } else {
             None

@@ -4,7 +4,7 @@ use crate::games::chess::pieces::ChessPieceType;
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
 use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard};
-use crate::games::ZobristHash;
+use crate::games::PosHash;
 use crate::general::bitboards::Bitboard;
 use crate::general::board::BitboardBoard;
 use crate::general::squares::RectangularCoordinates;
@@ -13,10 +13,10 @@ pub const NUM_PIECE_SQUARE_ENTRIES: usize = 64 * 6;
 pub const NUM_COLORED_PIECE_SQUARE_ENTRIES: usize = NUM_PIECE_SQUARE_ENTRIES * 2;
 
 pub struct PrecomputedZobristKeys {
-    pub piece_square_keys: [ZobristHash; NUM_COLORED_PIECE_SQUARE_ENTRIES],
-    pub castle_keys: [ZobristHash; 1 << (2 * 2)],
-    pub ep_file_keys: [ZobristHash; NUM_COLUMNS],
-    pub side_to_move_key: ZobristHash,
+    pub piece_square_keys: [PosHash; NUM_COLORED_PIECE_SQUARE_ENTRIES],
+    pub castle_keys: [PosHash; 1 << (2 * 2)],
+    pub ep_file_keys: [PosHash; NUM_COLUMNS],
+    pub side_to_move_key: PosHash,
 }
 
 impl PrecomputedZobristKeys {
@@ -25,7 +25,7 @@ impl PrecomputedZobristKeys {
         piece: ChessPieceType,
         color: ChessColor,
         square: ChessSquare,
-    ) -> ZobristHash {
+    ) -> PosHash {
         self.piece_square_keys[square.bb_idx() * 12 + piece as usize * 2 + color as usize]
     }
 }
@@ -48,14 +48,14 @@ impl PcgXslRr128_64Oneseq {
     }
 
     // const mut refs aren't stable yet, so returning the new state is a workaround
-    const fn gen(mut self) -> (Self, ZobristHash) {
+    const fn gen(mut self) -> (Self, PosHash) {
         self.0 = self.0.wrapping_mul(MUTLIPLIER);
         self.0 = self.0.wrapping_add(INCREMENT);
         let upper = (self.0 >> 64) as u64;
         let xored = upper ^ ((self.0 & u64::MAX as u128) as u64);
         (
             self,
-            ZobristHash(xored.rotate_right((upper >> (122 - 64)) as u32)),
+            PosHash(xored.rotate_right((upper >> (122 - 64)) as u32)),
         )
     }
 }
@@ -65,10 +65,10 @@ impl PcgXslRr128_64Oneseq {
 pub const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
     let mut res = {
         PrecomputedZobristKeys {
-            piece_square_keys: [ZobristHash(0); NUM_COLORED_PIECE_SQUARE_ENTRIES],
-            castle_keys: [ZobristHash(0); 1 << (2 * 2)],
-            ep_file_keys: [ZobristHash(0); NUM_COLUMNS],
-            side_to_move_key: ZobristHash(0),
+            piece_square_keys: [PosHash(0); NUM_COLORED_PIECE_SQUARE_ENTRIES],
+            castle_keys: [PosHash(0); 1 << (2 * 2)],
+            ep_file_keys: [PosHash(0); NUM_COLUMNS],
+            side_to_move_key: PosHash(0),
         }
     };
     let mut gen = PcgXslRr128_64Oneseq::new(0x42);
@@ -92,8 +92,8 @@ pub const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
 };
 
 impl Chessboard {
-    pub fn compute_zobrist(&self) -> ZobristHash {
-        let mut res = ZobristHash(0);
+    pub fn compute_zobrist(&self) -> PosHash {
+        let mut res = PosHash(0);
         for color in ChessColor::iter() {
             for piece in ChessPieceType::pieces() {
                 let pieces = self.colored_piece_bb(color, piece);
@@ -102,7 +102,7 @@ impl Chessboard {
                 }
             }
         }
-        res ^= self.ep_square.map_or(ZobristHash(0), |square| {
+        res ^= self.ep_square.map_or(PosHash(0), |square| {
             PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize]
         });
         res ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
@@ -113,12 +113,12 @@ impl Chessboard {
     }
 
     pub fn approximate_zobrist_after_move(
-        mut old_hash: ZobristHash,
+        mut old_hash: PosHash,
         color: ChessColor,
         piece: ChessPieceType,
         from: ChessSquare,
         to: ChessSquare,
-    ) -> ZobristHash {
+    ) -> PosHash {
         old_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, to);
         old_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, from);
         old_hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
@@ -134,7 +134,6 @@ mod tests {
     use crate::games::chess::squares::{D_FILE_NO, E_FILE_NO};
     use crate::general::board::Strictness::Strict;
     use crate::general::board::{Board, BoardHelpers};
-    use crate::general::moves::Move;
     use std::collections::HashMap;
 
     #[test]
@@ -210,21 +209,21 @@ mod tests {
             Strict,
         )
         .unwrap();
-        assert_eq!(position.zobrist_hash(), position.compute_zobrist());
+        assert_eq!(position.hash_pos(), position.compute_zobrist());
         let mov = ChessMove::new(
             ChessSquare::from_rank_file(1, E_FILE_NO),
             ChessSquare::from_rank_file(3, E_FILE_NO),
             ChessMoveFlags::NormalPawnMove,
         );
         let new_pos = position.make_move(mov).unwrap();
-        assert_eq!(new_pos.zobrist_hash(), new_pos.compute_zobrist());
+        assert_eq!(new_pos.hash_pos(), new_pos.compute_zobrist());
         let ep_move = ChessMove::new(
             ChessSquare::from_rank_file(3, D_FILE_NO),
             ChessSquare::from_rank_file(2, E_FILE_NO),
             ChessMoveFlags::EnPassant,
         );
         let after_ep = new_pos.make_move(ep_move).unwrap();
-        assert_eq!(after_ep.zobrist_hash(), after_ep.compute_zobrist());
+        assert_eq!(after_ep.hash_pos(), after_ep.compute_zobrist());
     }
 
     #[test]

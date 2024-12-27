@@ -18,7 +18,7 @@ use gears::games::chess::pieces::ChessPieceType::Pawn;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::ChessSquare;
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
-use gears::games::{n_fold_repetition, BoardHistory, ZobristHash, ZobristHistory};
+use gears::games::{n_fold_repetition, BoardHistory, PosHash, ZobristHistory};
 use gears::general::bitboards::RawBitboard;
 use gears::general::board::BitboardBoard;
 use gears::general::common::Description::NoDescription;
@@ -445,7 +445,7 @@ impl Engine<Chessboard> for Caps {
 
 #[allow(clippy::too_many_arguments)]
 impl Caps {
-    fn prefetch(&self) -> impl Fn(ZobristHash) + '_ {
+    fn prefetch(&self) -> impl Fn(PosHash) + '_ {
         |hash| self.state.tt().prefetch(hash)
     }
 
@@ -741,10 +741,10 @@ impl Caps {
         let mut eval;
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.state.multi_pvs.len() > 1;
-        if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
+        if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.hash_pos(), ply) {
             if !ignore_tt_entry {
                 let tt_bound = tt_entry.bound();
-                debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
+                debug_assert_eq!(tt_entry.hash, pos.hash_pos());
 
                 // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
                 // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
@@ -1094,13 +1094,8 @@ impl Caps {
             return Some(game_result_to_score(pos.no_moves_result(), ply));
         }
 
-        let tt_entry: TTEntry<Chessboard> = TTEntry::new(
-            pos.zobrist_hash(),
-            best_score,
-            best_move,
-            depth,
-            bound_so_far,
-        );
+        let tt_entry: TTEntry<Chessboard> =
+            TTEntry::new(pos.hash_pos(), best_score, best_move, depth, bound_so_far);
         // TODO: eventually test that not overwriting PV nodes unless the depth is quite a bit greater gains
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
@@ -1211,8 +1206,8 @@ impl Caps {
 
         // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
         // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
-            debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
+        if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.hash_pos(), ply) {
+            debug_assert_eq!(tt_entry.hash, pos.hash_pos());
             let bound = tt_entry.bound();
             // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
             // However, if we've already done qsearch on this position, we can just re-use the result,
@@ -1299,7 +1294,7 @@ impl Caps {
             .count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
 
         let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
+            TTEntry::new(pos.hash_pos(), best_score, best_move, 0, bound_so_far);
         self.state.tt_mut().store(tt_entry, ply);
         best_score
     }
@@ -1501,7 +1496,7 @@ mod tests {
             if pos.legal_moves_slow().is_empty() {
                 continue;
             }
-            let root_entry = tt.load(pos.zobrist_hash(), 0).unwrap();
+            let root_entry = tt.load(pos.hash_pos(), 0).unwrap();
             assert!(root_entry.depth <= 2); // possible extensions
             assert_eq!(root_entry.bound(), Exact);
             assert!(root_entry.mov.check_legal(&pos).is_some());
@@ -1509,7 +1504,7 @@ mod tests {
             assert!(engine.state.uci_nodes() as usize >= moves.len()); // >= because of extensions
             for m in moves {
                 let new_pos = pos.make_move(m).unwrap();
-                let entry = tt.load::<Chessboard>(new_pos.zobrist_hash(), 0);
+                let entry = tt.load::<Chessboard>(new_pos.hash_pos(), 0);
                 let Some(entry) = entry else {
                     continue; // it's possible that a position is not in the TT because qsearch didn't save it
                 };

@@ -46,7 +46,7 @@ impl<B: Board> Eval<B> for RandEval {
     fn eval(&mut self, pos: &B, _ply: usize) -> Score {
         if self.deterministic {
             // deterministic and faster than seeding a rng while still being good enough
-            let random = (pos.zobrist_hash().0
+            let random = (pos.hash_pos().0
                 % (MAX_NORMAL_SCORE.0 as i64 - MIN_NORMAL_SCORE.0 as i64 + 1) as u64)
                 as i64;
             Score((random + MIN_NORMAL_SCORE.0 as i64) as ScoreT)

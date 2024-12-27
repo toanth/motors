@@ -471,10 +471,7 @@ mod tests {
             data.game.mov_hist[0],
             ChessMove::from_text("e4", &Chessboard::default()).unwrap()
         );
-        assert_eq!(
-            data.game.board_hist.0[0],
-            Chessboard::default().zobrist_hash()
-        );
+        assert_eq!(data.game.board_hist.0[0], Chessboard::default().hash_pos());
     }
 
     #[test]

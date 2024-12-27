@@ -1377,7 +1377,7 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
         underlying: formatter,
         color_frame: Box::new(move |coords, color| {
             if let Some(mov) = mov {
-                if coords == mov.src_square() || coords == mov.dest_square() {
+                if Some(coords) == mov.src_square_in(&pos) || coords == mov.dest_square_in(&pos) {
                     return Some(Red);
                 }
             };
@@ -1385,9 +1385,9 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
         }),
         display_piece: Box::new(move |coords, _, default| {
             if let Some(mov) = mov {
-                if mov.src_square() == coords {
+                if mov.src_square_in(&pos) == Some(coords) {
                     return default.dimmed().to_string();
-                } else if mov.dest_square() == coords {
+                } else if mov.dest_square_in(&pos) == coords {
                     return default.bold().to_string();
                 }
             }

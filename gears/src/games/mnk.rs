@@ -24,7 +24,7 @@ use crate::general::board::{
 use crate::general::common::*;
 use crate::general::move_list::EagerNonAllocMoveList;
 use crate::general::moves::Legality::Legal;
-use crate::general::moves::{Legality, Move, NoMoveFlags, UntrustedMove};
+use crate::general::moves::{Legality, Move, UntrustedMove};
 use crate::general::squares::{GridCoordinates, GridSize};
 use crate::output::text_output::{
     board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter,
@@ -196,26 +196,25 @@ impl FillSquare {
     pub fn new(target: GridCoordinates) -> Self {
         FillSquare { target }
     }
+
+    fn dest_square(self) -> GridCoordinates {
+        self.target
+    }
 }
 
 impl Move<MNKBoard> for FillSquare {
-    type Flags = NoMoveFlags;
     type Underlying = u16;
 
     fn legality() -> Legality {
         Legal
     }
 
-    fn src_square(self) -> GridCoordinates {
-        GridCoordinates::no_coordinates()
+    fn src_square_in(self, _pos: &MNKBoard) -> Option<GridCoordinates> {
+        None
     }
 
-    fn dest_square(self) -> GridCoordinates {
-        self.target
-    }
-
-    fn flags(self) -> NoMoveFlags {
-        NoMoveFlags {}
+    fn dest_square_in(self, _pos: &MNKBoard) -> GridCoordinates {
+        self.dest_square()
     }
 
     fn is_tactical(self, _board: &MNKBoard) -> bool {
@@ -256,7 +255,7 @@ impl Move<MNKBoard> for FillSquare {
         Self::parse_compact_text(s, board)
     }
 
-    fn from_usize_unchecked(val: usize) -> UntrustedMove<MNKBoard> {
+    fn from_u64_unchecked(val: u64) -> UntrustedMove<MNKBoard> {
         UntrustedMove::from_move(Self {
             target: GridCoordinates::from_row_column(
                 ((val >> 8) & 0xff) as DimT,
@@ -676,12 +675,12 @@ impl Board for MNKBoard {
     }
 
     /// Not actually a zobrist hash function, but should work well enough
-    fn zobrist_hash(&self) -> ZobristHash {
+    fn hash_pos(&self) -> PosHash {
         let mut hasher = DefaultHasher::new();
         self.x_bb.hash(&mut hasher);
         self.o_bb.hash(&mut hasher);
         // Don't need to hash the side to move because that is given by the parity of the number of nonempty squares
-        ZobristHash(hasher.finish())
+        PosHash(hasher.finish())
     }
 
     fn as_fen(&self) -> String {
