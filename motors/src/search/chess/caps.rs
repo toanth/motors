@@ -816,7 +816,10 @@ impl Caps {
         // Instead, search it with reduced depth to fill the TT entry so that we can re-search it faster the next time
         // we see this node. If there was no TT entry because the node failed low, this node probably isn't that interesting,
         // so reducing the depth also makes sense in this case.
-        if depth >= cc::iir_min_depth() && best_move == ChessMove::default() {
+        if best_move == ChessMove::default()
+            && depth >= cc::iir_min_depth()
+            && expected_node_type != FailHigh
+        {
             depth -= 1;
         }
 
