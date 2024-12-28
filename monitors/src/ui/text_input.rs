@@ -14,7 +14,7 @@ use crate::play::ugi_client::Client;
 use crate::play::ugi_input::BestMoveAction::Play;
 use crate::ui::text_input::DefaultPlayer::{Active, Inactive, NoPlayer};
 use crate::ui::{Input, InputBuilder};
-use gears::crossterm::style::Stylize;
+use gears::colored::Colorize;
 use gears::games::Color;
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, BoardHelpers};

@@ -652,7 +652,8 @@ pub fn ply_counter_from_fullmove_nr<B: Board>(
 
 /// Constructs a specific, well-known position from its name, such as 'kiwipete' in chess.
 /// Not to be confused with `from_fen`, which can load arbitrary positions.
-/// However, `"fen <x>"` forwards to [`B::from_fen`]
+/// However, `"fen <x>"` forwards to [`B::from_fen`].
+// A free function instead of a default impl for [`B::from_name`] because Rust doesn't allow calling default impls in overriding impls.
 pub fn board_from_name<B: Board>(name: &str) -> Res<B> {
     let mut tokens = tokens(name);
     if tokens

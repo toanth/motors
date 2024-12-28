@@ -15,7 +15,7 @@ use crate::play::player::{EnginePlayer, Protocol};
 use crate::play::ugi_client::{Client, PlayerId};
 use crate::play::ugi_input::EngineStatus::*;
 use crate::play::ugi_input::HandleBestMove::{Ignore, Play};
-use gears::crossterm::style::Stylize;
+use gears::colored::Colorize;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{parse_duration_ms, parse_int_from_str, tokens, Res, Tokens};

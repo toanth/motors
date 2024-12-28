@@ -6,7 +6,7 @@ use crate::general::common::{parse_int_from_str, Res};
 use crate::general::squares::SquareColor::{Black, White};
 use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
-use crossterm::style::Stylize;
+use colored::Colorize;
 use std::cmp::max;
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -62,13 +62,6 @@ impl Coordinates for GridCoordinates {
         GridCoordinates {
             row: self.row,
             column: size.width.0 - 1 - self.column,
-        }
-    }
-
-    fn no_coordinates() -> Self {
-        GridCoordinates {
-            row: DimT::MAX,
-            column: DimT::MAX,
         }
     }
 }
@@ -134,6 +127,14 @@ impl GridCoordinates {
             column,
             row: rank.wrapping_sub(1),
         })
+    }
+
+    // TODO: Ideally, this shouldn't be necessary
+    pub fn no_coordinates() -> Self {
+        Self {
+            row: DimT::MAX,
+            column: DimT::MAX,
+        }
     }
 }
 
@@ -477,10 +478,6 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Coordinates
         } else {
             Self::from_rank_file(self.rank(), W as DimT - 1 - self.file())
         }
-    }
-
-    fn no_coordinates() -> Self {
-        Self::unchecked(H * INTERNAL_WIDTH)
     }
 }
 

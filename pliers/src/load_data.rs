@@ -4,7 +4,7 @@ use crate::eval::Eval;
 use crate::gd::{Dataset, Float, Outcome};
 use crate::load_data::Perspective::SideToMove;
 use derive_more::Display;
-use gears::crossterm::style::Stylize;
+use gears::colored::Colorize;
 use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::board::Strictness::Relaxed;

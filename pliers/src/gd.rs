@@ -3,7 +3,7 @@
 use crate::eval::{count_occurrences, display, interpolate, WeightsInterpretation};
 use crate::trace::TraceTrait;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
-use gears::crossterm::style::Stylize;
+use gears::colored::Colorize;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use rayon::prelude::*;

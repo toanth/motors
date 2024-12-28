@@ -375,7 +375,7 @@ impl Board for AtaxxBoard {
     }
 
     fn background_color(&self, _coords: Self::Coordinates) -> SquareColor {
-        // Don't pay a checkerboard pattern, just make everything white
+        // Don't paint a checkerboard pattern, just make everything white
         White
     }
 }
@@ -409,7 +409,7 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
         let blocked = this.blocked_bb();
         if blocked & AtaxxBitboard::INVALID_EDGE_MASK != AtaxxBitboard::INVALID_EDGE_MASK {
             bail!(
-                "A squares outside of the board is being used ({})",
+                "A square outside of the board is being used ({})",
                 AtaxxSquare::unchecked((!blocked & AtaxxBitboard::INVALID_EDGE_MASK).pop_lsb())
             );
         }

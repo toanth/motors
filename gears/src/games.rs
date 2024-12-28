@@ -200,9 +200,6 @@ pub trait Coordinates:
 
     /// mirrors the coordinates horizontally
     fn flip_left_right(self, size: Self::Size) -> Self;
-
-    // Ideally, this wouldn't exist. TODO: Test removing this
-    fn no_coordinates() -> Self;
 }
 
 pub type DimT = u8;

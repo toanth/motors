@@ -25,7 +25,6 @@ impl<B: Board> GenericTests<B> {
         for coords in coords {
             assert!(size.coordinates_valid(coords));
             assert!(size.check_coordinates(coords).is_ok());
-            assert_ne!(coords, B::Coordinates::no_coordinates());
             assert_eq!(
                 size.to_coordinates_unchecked(size.internal_key(coords)),
                 coords
@@ -48,9 +47,6 @@ impl<B: Board> GenericTests<B> {
             p.verify(Strict).map_err(|_| ()),
             B::empty().into().verify(Strict).map_err(|_| ())
         );
-        assert!(size
-            .check_coordinates(Coordinates::no_coordinates())
-            .is_err());
     }
 
     pub fn long_notation_roundtrip_test() {

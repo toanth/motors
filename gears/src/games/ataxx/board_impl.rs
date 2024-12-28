@@ -1,6 +1,6 @@
 use crate::games::ataxx::common::AtaxxMove;
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
-use crate::games::ataxx::{AtaxxBitboard, AtaxxBoard, AtaxxColor, AtaxxMoveList};
+use crate::games::ataxx::{AtaxxBitboard, AtaxxBoard, AtaxxColor, AtaxxMoveList, AtaxxSquare};
 use crate::games::{Board, Color, PosHash};
 use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, KINGS};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
@@ -68,6 +68,7 @@ impl AtaxxBoard {
     pub(super) fn gen_legal<T: MoveList<Self>>(&self, moves: &mut T) {
         let pieces = self.active_bb();
         let empty = self.empty_bb();
+        // TODO: Use precomputed table
         let neighbors = pieces.moore_neighbors() & empty;
         for sq in neighbors.ones() {
             moves.add_move(AtaxxMove::cloning(sq));
@@ -102,13 +103,11 @@ impl AtaxxBoard {
             return self;
         }
         debug_assert!(
-            mov.typ() == Cloning
-                || self
-                    .color_bb(color)
-                    .is_bit_set_at(mov.src_square().bb_idx())
+            mov.typ() == Cloning || self.color_bb(color).is_bit_set_at(mov.source as usize)
         );
         if mov.typ() == Leaping {
-            let source_bb = AtaxxBitboard::single_piece(mov.src_square());
+            let source = AtaxxSquare::unchecked(mov.source as usize);
+            let source_bb = AtaxxBitboard::single_piece(source);
             self.colors[color as usize] ^= source_bb;
             self.empty ^= source_bb;
             self.ply_100_ctr += 1;
@@ -145,8 +144,9 @@ impl AtaxxBoard {
                 .moore_neighbors()
                 .is_bit_set_at(mov.dest_square().bb_idx())
         } else {
-            pieces.is_bit_set_at(mov.src_square().bb_idx())
-                && sup_distance(mov.src_square(), mov.dest_square()) == 2
+            let source = AtaxxSquare::unchecked(mov.source as usize);
+            pieces.is_bit_set_at(mov.source as usize)
+                && sup_distance(source, mov.dest_square()) == 2
         }
     }
 

@@ -2,8 +2,8 @@ use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
 use crate::games::ataxx::common::AtaxxPieceType::{Blocked, Empty, Occupied};
 use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::ataxx::{AtaxxBoard, AtaxxColor, AtaxxSquare};
-use crate::games::{AbstractPieceType, CharType, ColoredPieceType, Coordinates, DimT, PieceType};
-use crate::general::board::Board;
+use crate::games::{AbstractPieceType, CharType, ColoredPieceType, DimT, PieceType};
+use crate::general::board::{Board, BoardHelpers};
 use crate::general::common::Res;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
@@ -161,8 +161,8 @@ pub const MAX_ATAXX_MOVES_IN_POS: usize =
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 #[repr(C)]
 pub struct AtaxxMove {
-    source: AtaxxSquare,
-    target: AtaxxSquare,
+    pub(super) source: u8,
+    pub(super) target: AtaxxSquare,
 }
 
 impl Display for AtaxxMove {
@@ -179,7 +179,11 @@ impl Move<AtaxxBoard> for AtaxxMove {
     }
 
     fn src_square_in(self, _pos: &AtaxxBoard) -> Option<AtaxxSquare> {
-        Some(self.source)
+        if self.source == u8::MAX {
+            None
+        } else {
+            Some(AtaxxSquare::unchecked(self.source as usize))
+        }
     }
 
     fn dest_square_in(self, _pos: &AtaxxBoard) -> AtaxxSquare {
@@ -210,23 +214,26 @@ impl Move<AtaxxBoard> for AtaxxMove {
         };
         let first_square = AtaxxSquare::from_str(first_square)?;
         let second_square = s.get(2..4).and_then(|s| AtaxxSquare::from_str(s).ok());
-        let (remaining, from_square, to_square) = if let Some(sq) = second_square {
-            (&s[4..], first_square, sq)
+        let (remaining, from, to_square) = if let Some(sq) = second_square {
+            (&s[4..], first_square.to_u8(), sq)
         } else {
-            (&s[2..], AtaxxSquare::no_coordinates(), first_square)
+            (&s[2..], u8::MAX, first_square)
         };
 
         let res = Self {
-            source: from_square,
+            source: from,
             target: to_square,
         };
         if !board.is_move_pseudolegal(res) {
-            if !board.is_empty(to_square) {
+            if board.is_occupied(to_square) {
                 bail!("The square {} is not empty", to_square.to_string().bold())
-            } else if from_square != AtaxxSquare::no_coordinates() {
-                bail!("The")
+            } else if let Some(from_square) = res.src_square_in(&board) {
+                bail!("There is no legal move from {from_square} to {to_square}");
             }
-            bail!("No piece can move to {}", to_square.to_string().red())
+            bail!(
+                "No piece can create a clone of itself on {}",
+                to_square.to_string().red()
+            )
         }
 
         Ok((remaining, res))
@@ -237,13 +244,13 @@ impl Move<AtaxxBoard> for AtaxxMove {
     }
 
     fn from_u64_unchecked(val: u64) -> UntrustedMove<AtaxxBoard> {
-        let source = AtaxxSquare::unchecked(((val >> 8) & 0xff) as usize);
+        let source = (val >> 8) as u8;
         let target = AtaxxSquare::unchecked(val as usize & 0xff);
         UntrustedMove::from_move(Self { source, target })
     }
 
     fn to_underlying(self) -> Self::Underlying {
-        (u16::from(self.source.to_u8()) << 8) | u16::from(self.target.to_u8())
+        (u16::from(self.source) << 8) | u16::from(self.target.to_u8())
     }
 }
 
@@ -254,10 +261,6 @@ pub enum AtaxxMoveType {
 }
 
 impl AtaxxMove {
-    pub fn src_square(self) -> AtaxxSquare {
-        self.source
-    }
-
     pub fn dest_square(self) -> AtaxxSquare {
         self.target
     }
@@ -265,16 +268,19 @@ impl AtaxxMove {
     pub fn cloning(square: AtaxxSquare) -> Self {
         Self {
             target: square,
-            source: AtaxxSquare::no_coordinates(),
+            source: u8::MAX,
         }
     }
 
     pub fn leaping(source: AtaxxSquare, target: AtaxxSquare) -> Self {
-        Self { source, target }
+        Self {
+            source: source.to_u8(),
+            target,
+        }
     }
 
     pub fn typ(self) -> AtaxxMoveType {
-        if self.source == AtaxxSquare::no_coordinates() {
+        if self.source == u8::MAX {
             Cloning
         } else {
             Leaping

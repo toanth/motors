@@ -112,13 +112,6 @@ impl Coordinates for UtttSquare {
             sub_square: self.sub_square.flip_left_right(size),
         }
     }
-
-    fn no_coordinates() -> Self {
-        Self {
-            sub_board: SmallGridSquare::no_coordinates_const(),
-            sub_square: SmallGridSquare::no_coordinates_const(),
-        }
-    }
 }
 
 impl RectangularCoordinates for UtttSquare {

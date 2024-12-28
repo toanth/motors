@@ -4,7 +4,7 @@ use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use crate::games::chess::squares::ChessSquare;
 use crate::games::chess::{ChessColor, Chessboard, PAWN_CAPTURES};
-use crate::games::{AbstractPieceType, Board, Color, Coordinates};
+use crate::games::{AbstractPieceType, Board, Color};
 use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::RayDirections::Vertical;
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
@@ -48,18 +48,18 @@ impl Chessboard {
         &self,
         color: ChessColor,
         all_remaining_attackers: ChessBitboard,
-    ) -> (Option<ChessPieceType>, ChessSquare) {
+    ) -> Option<(ChessPieceType, ChessSquare)> {
         for piece in ChessPieceType::pieces() {
             let mut current_attackers =
                 self.colored_piece_bb(color, piece) & all_remaining_attackers;
             if current_attackers.has_set_bit() {
-                return (
-                    Some(piece),
+                return Some((
+                    piece,
                     ChessSquare::from_bb_index(current_attackers.pop_lsb()),
-                );
+                ));
             };
         }
-        (None, ChessSquare::no_coordinates())
+        None
     }
 
     pub fn see(&self, mov: ChessMove, mut alpha: SeeScore, mut beta: SeeScore) -> SeeScore {
@@ -142,7 +142,7 @@ impl Chessboard {
             } else if eval > alpha {
                 alpha = eval;
             }
-            let (Some(piece), attacker_src_square) =
+            let Some((piece, attacker_src_square)) =
                 self.next_see_attacker(color, all_remaining_attackers)
             else {
                 return if color == self.active_player {
