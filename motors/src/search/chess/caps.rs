@@ -1008,11 +1008,12 @@ impl Caps {
                     if !is_pv_node {
                         reduction += 1;
                     }
-                    if root {
-                        reduction -= 1;
-                    }
                     if we_blundered {
                         reduction += 1;
+                    }
+                    // At the root, we want to consider other moves more carefully because we have to commit to a single move.
+                    if root {
+                        reduction = reduction * 3 / 4;
                     }
                 }
                 // Futility Reduction: If this move is not a TT move, good SEE capture or killer, and our eval is significantly
