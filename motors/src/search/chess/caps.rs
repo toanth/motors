@@ -928,7 +928,8 @@ impl Caps {
             if expected_node_type == FailLow {
                 lmp_threshold -= lmp_threshold / cc::lmp_fail_low_div();
             }
-            if can_prune
+            if !root
+                && !in_check
                 && best_score > MAX_SCORE_LOST
                 && depth <= cc::max_move_loop_pruning_depth()
                 && (num_uninteresting_visited >= lmp_threshold
@@ -1522,15 +1523,15 @@ mod tests {
     fn generic_test() {
         generic_engine_test(Caps::for_eval::<LiTEval>());
         generic_engine_test(Caps::for_eval::<RandEval>());
-        let tt = TT::default();
-        depth_1_nodes_test(Caps::for_eval::<RandEval>(), tt.clone());
-        depth_1_nodes_test(Caps::for_eval::<MaterialOnlyEval>(), tt.clone());
-        depth_1_nodes_test(Caps::for_eval::<PistonEval>(), tt.clone());
-        depth_1_nodes_test(Caps::for_eval::<KingGambot>(), tt.clone());
+        depth_1_nodes_test(Caps::for_eval::<RandEval>());
+        depth_1_nodes_test(Caps::for_eval::<MaterialOnlyEval>());
+        depth_1_nodes_test(Caps::for_eval::<PistonEval>());
+        depth_1_nodes_test(Caps::for_eval::<KingGambot>());
     }
 
     // TODO: Eventually, make sure that GAPS also passed this
-    fn depth_1_nodes_test(mut engine: Caps, tt: TT) {
+    fn depth_1_nodes_test(mut engine: Caps) {
+        let tt = TT::default();
         for pos in Chessboard::bench_positions() {
             let _ = engine.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
             if pos.legal_moves_slow().is_empty() {
@@ -1548,6 +1549,7 @@ mod tests {
                 let Some(entry) = entry else {
                     continue; // it's possible that a position is not in the TT because qsearch didn't save it
                 };
+                println!("{entry}, pos {pos}, mov {m} root {root_entry}");
                 assert!(entry.depth <= 1);
                 assert!(-entry.score <= root_entry.score);
             }
