@@ -33,7 +33,6 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
-use std::ops::{Index, IndexMut};
 use std::sync::atomic::Ordering::Acquire;
 use std::sync::Arc;
 use std::thread::spawn;
@@ -202,7 +201,6 @@ impl Display for BenchResult {
     }
 }
 
-// TODO: Use ArrayVec
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Pv<B: Board, const LIMIT: usize> {
     list: ArrayVec<B::Move, LIMIT>,
@@ -213,20 +211,6 @@ impl<B: Board, const LIMIT: usize> Default for Pv<B, LIMIT> {
         Self {
             list: ArrayVec::new(),
         }
-    }
-}
-
-impl<B: Board, const LIMIT: usize> Index<usize> for Pv<B, LIMIT> {
-    type Output = B::Move;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.list[index]
-    }
-}
-
-impl<B: Board, const LIMIT: usize> IndexMut<usize> for Pv<B, LIMIT> {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.list[index]
     }
 }
 

@@ -591,7 +591,7 @@ impl Caps {
             // already changed the PV from affecting the chosen move.
             if pv.len() > 0 && node_type != FailLow {
                 if self.state.current_pv_num == 0 {
-                    let chosen_move = pv[0];
+                    let chosen_move = pv.get(0).unwrap();
                     let ponder_move = pv.get(1);
                     atomic.set_best_move(chosen_move);
                     atomic.set_ponder_move(ponder_move);
