@@ -155,6 +155,8 @@ impl CapsCustomInfo {
 
 impl CustomInfo<Chessboard> for CapsCustomInfo {
     fn new_search(&mut self) {
+        debug_assert_eq!(self.nmp_disabled[0], false);
+        debug_assert_eq!(self.nmp_disabled[1], false);
         // don't update history values, malus and gravity already take care of that
     }
 
@@ -237,6 +239,10 @@ pub struct CapsSearchStackEntry {
 impl SearchStackEntry<Chessboard> for CapsSearchStackEntry {
     fn pv(&self) -> Option<&[ChessMove]> {
         Some(self.pv.list.as_slice())
+    }
+
+    fn last_played_move(&self) -> Option<ChessMove> {
+        self.tried_moves.last().copied()
     }
 }
 
@@ -585,7 +591,7 @@ impl Caps {
             // already changed the PV from affecting the chosen move.
             if pv.len() > 0 && node_type != FailLow {
                 if self.state.current_pv_num == 0 {
-                    let chosen_move = pv[0];
+                    let chosen_move = pv.get(0).unwrap();
                     let ponder_move = pv.get(1);
                     atomic.set_best_move(chosen_move);
                     atomic.set_ponder_move(ponder_move);
@@ -899,6 +905,20 @@ impl Caps {
             }
         }
 
+        if self.state.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0
+            && self.state.last_msg_time.elapsed().as_millis() >= 1000
+        {
+            let score = self.qsearch(pos, alpha, beta, ply);
+            self.state.search_stack[ply].forget();
+            let flip = pos.active_player() != self.state.params.pos.active_player();
+            let score = score.flip_if(flip);
+            let alpha = alpha.flip_if(flip);
+            let beta = beta.flip_if(flip);
+            self.state
+                .send_currline(ply - 1, score, alpha.min(beta), beta.max(alpha));
+            // the current ply doesn't have a move
+        }
+
         // An uninteresting move is a quiet move or bad capture unless it's the TT or killer move
         // (i.e. it's every move that gets ordered after the killer). The name is a bit dramatic, the first few of those
         // can still be good candidates to explore.
@@ -909,71 +929,56 @@ impl Caps {
             MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
         let move_scorer = CapsMoveScorer { board: pos, ply };
         while let Some((mov, move_score)) = move_picker.next(&move_scorer, &self.state) {
-            // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
-            // so don't even bother looking at them in the last few layers.
-            // FP (Futility Pruning): If the static eval is far below alpha,
-            // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
-            // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
-            let fp_margin = if we_blundered {
-                cc::fp_blunder_base() + cc::fp_blunder_scale() * depth
-            } else {
-                cc::fp_base() + cc::fp_scale() * depth
-            };
-            let mut lmp_threshold = if we_blundered {
-                cc::lmp_blunder_base() + cc::lmp_blunder_scale() * depth
-            } else {
-                cc::lmp_base() + cc::lmp_scale() * depth
-            };
-            // LMP faster if we expect to fail low anyway
-            if expected_node_type == FailLow {
-                lmp_threshold -= lmp_threshold / cc::lmp_fail_low_div();
-            }
-            if can_prune
-                && best_score > MAX_SCORE_LOST
-                && depth <= cc::max_move_loop_pruning_depth()
-                && (num_uninteresting_visited >= lmp_threshold
-                    || (eval + Score(fp_margin as ScoreT) < alpha && move_score < KILLER_SCORE))
-            {
-                break;
-            }
-            // History Pruning: At very low depth, don't play quiet moves with bad history scores. Skipping bad captures too gained elo.
-            if can_prune
-                && best_score > MAX_SCORE_LOST
-                && move_score.0 < cc::lmr_bad_hist()
-                && depth <= 2
-            {
-                break;
+            if can_prune && best_score > MAX_SCORE_LOST {
+                // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
+                // so don't even bother looking at them in the last few layers.
+                // FP (Futility Pruning): If the static eval is far below alpha,
+                // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
+                // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
+                let fp_margin = if we_blundered {
+                    cc::fp_blunder_base() + cc::fp_blunder_scale() * depth
+                } else {
+                    cc::fp_base() + cc::fp_scale() * depth
+                };
+                let mut lmp_threshold = if we_blundered {
+                    cc::lmp_blunder_base() + cc::lmp_blunder_scale() * depth
+                } else {
+                    cc::lmp_base() + cc::lmp_scale() * depth
+                };
+                // LMP faster if we expect to fail low anyway
+                if expected_node_type == FailLow {
+                    lmp_threshold -= lmp_threshold / cc::lmp_fail_low_div();
+                }
+                if depth <= cc::max_move_loop_pruning_depth()
+                    && (num_uninteresting_visited >= lmp_threshold
+                        || (eval + Score(fp_margin as ScoreT) < alpha && move_score < KILLER_SCORE))
+                {
+                    break;
+                }
+                // History Pruning: At very low depth, don't play quiet moves with bad history scores. Skipping bad captures too gained elo.
+                if move_score.0 < cc::lmr_bad_hist() && depth <= 2 {
+                    break;
+                }
             }
 
-            if root {
-                if self.state.excluded_moves.contains(&mov) {
-                    continue;
-                }
-                if self.state.start_time.elapsed().as_millis() >= 3000 {
-                    let move_num = self.state.search_stack[0].tried_moves.len();
-                    self.state.send_currmove(mov, move_num)
-                }
+            if root && self.state.excluded_moves.contains(&mov) {
+                continue;
             }
             let Some(new_pos) = pos.make_move_and_prefetch_tt(mov, self.prefetch()) else {
                 continue; // illegal pseudolegal move
             };
+            let debug_history_len = self.state.params.history.len();
+            self.record_move(mov, pos, ply, MainSearch);
+            if root && depth >= 8 && self.state.start_time.elapsed().as_millis() >= 3000 {
+                let move_num = self.state.search_stack[0].tried_moves.len();
+                // will usually get a TT cutoff immediately
+                let score = -self.qsearch(new_pos, alpha, beta, 1);
+                self.state.send_currmove(mov, move_num, score, alpha, beta);
+            }
             if move_score < KILLER_SCORE {
                 num_uninteresting_visited += 1;
             }
 
-            // Reset the child's pv in O(1).
-            // TODO: Do this in `record_move`? Would extend the PV to qsearch.Probably better to clear in `record_pos`, though
-            // would be fine to do it there since pv nodes never produce a TT cutoff, so when the pv of this nodes changes, the child's
-            // pv will have been cleared in record_pos after looking at the TT
-            // TODO: Should be entirely unnecessary to clear here, since we clear it at the start of each pv node anyway?
-            // also, clearing it here does nothing for re-searches
-            if let Some(s) = self.state.search_stack.get_mut(ply + 1) {
-                s.pv.clear()
-            }
-
-            let debug_history_len = self.state.params.history.len();
-
-            self.record_move(mov, pos, ply, MainSearch);
             // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove
             // that the other moves are worse, which we can do with a zero window search. Should this assumption fail,
             // re-search with a full window.
@@ -1050,13 +1055,11 @@ impl Caps {
                     )?;
                 }
                 // If the full-depth search also performed better than expected, do a full-depth search with the
-                // full window to find the true score. If the score was at least `beta`, don't search again
-                // -- this move is probably already too good, so don't waste more time finding out how good it is exactly.
-                // This can only trigger in PV nodes, because all other nodes are searched with a null window anyway.
-                // The downside of this is that occasionally, the PV can be shorter than expected, because it's possible that
-                // the returned PV wasn't searched as PV nodes, so TODO: Use is_pv_node instead of score < beta as condition
-                if alpha < score && score < beta {
-                    debug_assert_eq!(expected_node_type, Exact);
+                // full window to find the true score.
+                // This is only relevant for PV nodes, because all other nodes are searched with a null window anyway.
+                // This is necessary to ensure that the PV doesn't get truncated, because otherwise there could be nodes in
+                // the PV that were not searched as PV nodes.
+                if is_pv_node && alpha < score {
                     self.state.statistics.lmr_second_retry();
                     score = -self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha, Exact)?;
                 }
@@ -1102,6 +1105,16 @@ impl Caps {
                     unreachable!()
                 };
                 current.pv.extend(best_move, &child.pv);
+                if depth > 1 && score < beta && !score.is_won_lost_or_draw_score() {
+                    debug_assert_eq!(
+                        self.state
+                            .tt()
+                            .load::<Chessboard>(new_pos.zobrist_hash(), ply + 1)
+                            .unwrap()
+                            .bound(),
+                        Exact
+                    );
+                }
             }
 
             if score < beta {
