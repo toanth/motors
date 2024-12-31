@@ -70,11 +70,8 @@ fn update_history_score(entry: &mut i32, bonus: i32) {
 struct HistoryHeuristic([i32; 64 * 64 * 2]);
 
 impl HistoryHeuristic {
-    fn update(&mut self, mov: ChessMove, color: ChessColor, bonus: i32) {
-        update_history_score(
-            &mut self[mov.from_to_square() + color as usize * 64 * 64],
-            bonus,
-        );
+    fn update(&mut self, mov: ChessMove, bonus: i32) {
+        update_history_score(&mut self[mov.from_to_square()], bonus);
     }
 }
 
@@ -622,9 +619,8 @@ impl Caps {
                         Exact => debug_assert!(
                             // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
                             // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
-                            // TODO: This fails when using / 4 instead of / 2. Investigate
                             self.state.multi_pv() > 1
-                                || pv.len() + pv.len() / 2
+                                || pv.len() + pv.len() / 4 + 1
                                     >= self.state.custom.depth_hard_limit.min(depth as usize)
                                 || pv_score.is_won_lost_or_draw_score(),
                             "{depth} {0} {pv_score} {1}",
@@ -1168,7 +1164,7 @@ impl Caps {
             .dropping_back(1)
             .filter(|m| !m.is_tactical(pos))
         {
-            hist.update(*disappointing, prev_move, -bonus, color);
+            hist.update(*disappointing, prev_move, -bonus / 2, color);
         }
     }
 
@@ -1194,7 +1190,7 @@ impl Caps {
                 self.state
                     .custom
                     .capt_hist
-                    .update(*disappointing, color, -bonus);
+                    .update(*disappointing, color, -bonus / 2);
             }
             self.state.custom.capt_hist.update(mov, color, bonus);
             return;
@@ -1206,12 +1202,9 @@ impl Caps {
             .dropping_back(1)
             .filter(|m| !m.is_tactical(pos))
         {
-            self.state
-                .custom
-                .history
-                .update(*disappointing, color, -bonus);
+            self.state.custom.history.update(*disappointing, -bonus / 2);
         }
-        self.state.custom.history.update(mov, color, bonus);
+        self.state.custom.history.update(mov, bonus);
         if ply > 0 {
             let parent = before.last_mut().unwrap();
             Self::update_continuation_hist(
