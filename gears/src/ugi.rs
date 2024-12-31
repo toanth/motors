@@ -5,6 +5,7 @@ use anyhow::{anyhow, bail};
 use colored::Colorize;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 /// Ugi-related helpers that are used by both `motors` and `monitors`.
@@ -132,6 +133,7 @@ pub enum EngineOptionName {
     UciElo,
     UCIOpponent,
     UCIEngineAbout,
+    UCIShowCurrLine,
     MoveOverhead,
     Strictness,
     SetEngine,
@@ -157,6 +159,7 @@ impl NamedEntity for EngineOptionName {
             EngineOptionName::UciElo => "Limit strength to this elo. Currently not supported",
             EngineOptionName::UCIOpponent => "The opponent. Currently only used to output the name in PGNs",
             EngineOptionName::UCIEngineAbout => "Information about the engine. Can't be changed, only queried",
+            EngineOptionName::UCIShowCurrLine => "Every now and then, print the line currently being searched",
             EngineOptionName::MoveOverhead => "Subtract this from the remaining time each move to account for overhead of sending the move",
             EngineOptionName::Strictness => "Be more restrictive about the positions to accept. By default, many non-standard positions are accepted",
             EngineOptionName::SetEngine => "Change the current searcher, and optionally the eval. Similar effect to `uginewgame`",
@@ -177,6 +180,7 @@ impl EngineOptionName {
             EngineOptionName::UciElo => "UCI_Elo",
             EngineOptionName::UCIOpponent => "UCI_Opponent",
             EngineOptionName::UCIEngineAbout => "UCI_EngineAbout",
+            EngineOptionName::UCIShowCurrLine => "UCI_ShowCurrLine",
             EngineOptionName::MoveOverhead => "MoveOverhead",
             EngineOptionName::Strictness => "Strict",
             EngineOptionName::SetEngine => "Engine",
@@ -197,17 +201,11 @@ impl FromStr for EngineOptionName {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s.to_ascii_lowercase().as_str() {
-            "hash" | "tt" => EngineOptionName::Hash,
-            "threads" => EngineOptionName::Threads,
-            "ponder" => EngineOptionName::Ponder,
-            "multipv" => EngineOptionName::MultiPv,
-            "uci_opponent" => EngineOptionName::UCIOpponent,
-            "uci_elo" => EngineOptionName::UciElo,
-            "move overhead" | "moveoverhead" => EngineOptionName::MoveOverhead,
-            "strict" => EngineOptionName::Strictness,
-            "engine" => EngineOptionName::SetEngine,
-            "seteval" => EngineOptionName::SetEval,
-            _ => EngineOptionName::Other(s.to_string()),
+            "tt" => EngineOptionName::Hash,
+            "move overhead" => EngineOptionName::MoveOverhead,
+            name => EngineOptionName::iter()
+                .find(|n| n.name().eq_ignore_ascii_case(name))
+                .unwrap_or_else(|| EngineOptionName::Other(s.to_string())),
         })
     }
 }
