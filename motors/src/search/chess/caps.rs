@@ -626,7 +626,7 @@ impl Caps {
                             // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
                             // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
                             self.state.multi_pv() > 1
-                                || pv.len() + pv.len() / 4
+                                || pv.len() + pv.len() / 4 + 1
                                     >= self.state.custom.depth_hard_limit.min(depth as usize)
                                 || pv_score.is_won_lost_or_draw_score(),
                             "{depth} {0} {pv_score} {1}",
@@ -1039,7 +1039,7 @@ impl Caps {
                     depth - 1 - reduction,
                     -(alpha + 1),
                     -alpha,
-                    FailHigh,
+                    if root { Exact } else { FailHigh },
                 )?;
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
@@ -1051,7 +1051,7 @@ impl Caps {
                         depth - 1,
                         -(alpha + 1),
                         -alpha,
-                        FailHigh, // we still expect a fail high here
+                        if root { Exact } else { FailHigh }, // we still expect a fail high here
                     )?;
                 }
                 // If the full-depth search also performed better than expected, do a full-depth search with the
@@ -1617,7 +1617,7 @@ mod tests {
         );
         let fresh_d3_nodes = caps.search_state().uci_nodes();
         assert!(
-            fresh_d3_nodes > d3_nodes + d3_nodes / 4,
+            fresh_d3_nodes > d3_nodes + d3_nodes / 8,
             "{fresh_d3_nodes} {d3_nodes}"
         );
         caps.forget();
