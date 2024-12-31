@@ -67,7 +67,7 @@ fn update_history_score(entry: &mut i32, bonus: i32) {
 /// but didn't cause a beta cutoff. Order all non-TT non-killer moves based on that (as well as based on the continuation
 /// history)
 #[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
-struct HistoryHeuristic([i32; 64 * 64 * 2]);
+struct HistoryHeuristic([i32; 64 * 64]);
 
 impl HistoryHeuristic {
     fn update(&mut self, mov: ChessMove, bonus: i32) {
@@ -77,7 +77,7 @@ impl HistoryHeuristic {
 
 impl Default for HistoryHeuristic {
     fn default() -> Self {
-        HistoryHeuristic([0; 64 * 64 * 2])
+        HistoryHeuristic([0; 64 * 64])
     }
 }
 
@@ -1150,6 +1150,7 @@ impl Caps {
         mov: ChessMove,
         prev_move: ChessMove,
         bonus: i32,
+        malus: i32,
         color: ChessColor,
         pos: &Chessboard,
         hist: &mut ContHist,
@@ -1164,7 +1165,7 @@ impl Caps {
             .dropping_back(1)
             .filter(|m| !m.is_tactical(pos))
         {
-            hist.update(*disappointing, prev_move, -bonus / 2, color);
+            hist.update(*disappointing, prev_move, malus, color);
         }
     }
 
@@ -1180,6 +1181,7 @@ impl Caps {
             unreachable!()
         };
         let bonus = (depth * cc::hist_depth_bonus()) as i32;
+        let malus = -((depth - 1) * cc::hist_depth_bonus()) as i32;
         if mov.is_tactical(pos) {
             for disappointing in entry
                 .tried_moves
@@ -1190,7 +1192,7 @@ impl Caps {
                 self.state
                     .custom
                     .capt_hist
-                    .update(*disappointing, color, -bonus / 2);
+                    .update(*disappointing, color, malus);
             }
             self.state.custom.capt_hist.update(mov, color, bonus);
             return;
@@ -1202,7 +1204,7 @@ impl Caps {
             .dropping_back(1)
             .filter(|m| !m.is_tactical(pos))
         {
-            self.state.custom.history.update(*disappointing, -bonus / 2);
+            self.state.custom.history.update(*disappointing, malus);
         }
         self.state.custom.history.update(mov, bonus);
         if ply > 0 {
@@ -1211,6 +1213,7 @@ impl Caps {
                 mov,
                 parent.last_tried_move(),
                 bonus,
+                malus,
                 color,
                 pos,
                 &mut self.state.custom.countermove_hist,
@@ -1222,6 +1225,7 @@ impl Caps {
                     mov,
                     grandparent.last_tried_move(),
                     bonus,
+                    malus,
                     color,
                     pos,
                     &mut self.state.custom.follow_up_move_hist,
