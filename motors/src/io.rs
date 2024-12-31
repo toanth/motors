@@ -618,7 +618,10 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_setoption(&mut self, words: &mut Tokens) -> Res<()> {
-        if words.peek().is_some_and(|w| w.eq_ignore_ascii_case("name")) {
+        if words
+            .peek()
+            .is_some_and(|w| w.eq_ignore_ascii_case("name") || w.eq_ignore_ascii_case("n"))
+        {
             _ = words.next();
         }
         let mut name = String::default();

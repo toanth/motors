@@ -441,8 +441,10 @@ pub fn pretty_score(
         if !main_line || bound != Some(Exact) {
             return res.to_string() + "  ";
         }
-        // `sigmoid - sigmoid` instead of `sigmoid(diff)` to weight changes close to 0 stronger
-        let x = 0.5 + 2.0 * (sigmoid(score, 100.0) as f32 - sigmoid(previous, 100.0) as f32);
+        // use both `sigmoid - sigmoid` and `sigmoid(diff)` to weight changes close to 0 stronger
+        let x = ((0.5 + 2.0 * (sigmoid(score, 100.0) as f32 - sigmoid(previous, 100.0) as f32))
+            + sigmoid(score - previous, 50.0) as f32)
+            / 2.0;
         let color = gradient.at(x);
         let [r, g, b, _] = color.to_rgba8();
         let diff = score - previous;
