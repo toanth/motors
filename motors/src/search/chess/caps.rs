@@ -1416,7 +1416,8 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
                 0
             };
             MoveScore(
-                state.custom.history[mov.from_to_square()]
+                state.custom.history
+                    [mov.from_to_square() + self.board.active_player() as usize * 64 * 64]
                     + countermove_score
                     + follow_up_score / 2,
             )
