@@ -1199,7 +1199,7 @@ impl Caps {
             unreachable!()
         };
         let bonus = (depth * cc::hist_depth_bonus()) as i32;
-        let malus = -((depth - 1) * cc::hist_depth_bonus()) as i32;
+        let malus = -bonus;
         if mov.is_tactical(pos) {
             for disappointing in entry
                 .tried_moves
