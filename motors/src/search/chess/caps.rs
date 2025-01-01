@@ -668,7 +668,7 @@ impl Caps {
                 self.state.send_search_info();
             }
             fails += 1;
-            if fails >= 3 && depth > 4 {
+            if fails >= 2 && depth > 4 {
                 depth -= 1;
             }
         }
