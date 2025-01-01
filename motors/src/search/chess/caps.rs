@@ -1402,6 +1402,8 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
         // No need to check against the TT move because that's already handled by the move picker
         if mov == state.search_stack[self.ply].killer {
             KILLER_SCORE
+        } else if Some(mov) == state.search_stack[self.ply].pv.get(0) {
+            KILLER_SCORE - MoveScore(1)
         } else if !mov.is_tactical(&self.board) {
             let countermove_score = if self.ply > 0 {
                 let prev_move = state.search_stack[self.ply - 1].last_tried_move();
