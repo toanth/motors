@@ -538,13 +538,14 @@ impl Caps {
         &mut self,
         pos: Chessboard,
         unscaled_soft_limit: Duration,
-        depth: isize,
+        mut depth: isize,
         alpha: &mut Score,
         beta: &mut Score,
         window_radius: &mut Score,
         max_depth: isize,
     ) -> bool {
         let mut soft_limit_scale = 1.0;
+        let mut fails = 0;
         loop {
             let soft_limit = unscaled_soft_limit.mul_f64(soft_limit_scale);
             soft_limit_scale = 1.0;
@@ -626,7 +627,7 @@ impl Caps {
                             // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
                             // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
                             self.state.multi_pv() > 1
-                                || pv.len() + pv.len() / 4
+                                || pv.len() + pv.len() / 4 + 1
                                     >= self.state.custom.depth_hard_limit.min(depth as usize)
                                 || pv_score.is_won_lost_or_draw_score(),
                             "{depth} {0} {pv_score} {1}",
@@ -665,6 +666,10 @@ impl Caps {
                 return true;
             } else if asp_start_time.elapsed().as_millis() >= 1000 {
                 self.state.send_search_info();
+            }
+            fails += 1;
+            if fails >= 3 && depth > 4 {
+                depth -= 1;
             }
         }
     }
