@@ -153,6 +153,13 @@ impl Score {
             None
         }
     }
+    pub fn flip_if(self, flip: bool) -> Self {
+        if flip {
+            -self
+        } else {
+            self
+        }
+    }
 }
 
 /// `SCORE_WON` and `SCORE_LOST` need to fit into 16 bits for the tapered score to work,

@@ -1213,11 +1213,12 @@ pub fn options_options<B: Board, const VALUE: bool>(
     }
     if VALUE {
         for opt in &mut res {
-            let completion = SubCommandsFn(Some(Box::new(|_| {
+            let name = opt.short_name();
+            let completion = SubCommandsFn(Some(Box::new(move |_| {
                 let name = Name {
                     short: "value".to_string(),
                     long: "value".to_string(),
-                    description: Some("Set the value".to_string()),
+                    description: Some(format!("Set the value of '{name}'")),
                 };
                 vec![named_entity_to_command::<B, Name>(&name).upcast_box()]
             })));
