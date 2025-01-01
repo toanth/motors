@@ -749,7 +749,9 @@ impl Caps {
         let mut eval;
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.state.multi_pvs.len() > 1;
+        let mut tt_depth = None;
         if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
+            tt_depth = Some(tt_entry.depth);
             if !ignore_tt_entry {
                 let tt_bound = tt_entry.bound();
                 debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
@@ -822,7 +824,9 @@ impl Caps {
         // Instead, search it with reduced depth to fill the TT entry so that we can re-search it faster the next time
         // we see this node. If there was no TT entry because the node failed low, this node probably isn't that interesting,
         // so reducing the depth also makes sense in this case.
-        if depth >= cc::iir_min_depth() && best_move == ChessMove::default() {
+        if depth >= cc::iir_min_depth()
+            && (best_move == ChessMove::default() || tt_depth.is_some_and(|d| d < 3))
+        {
             depth -= 1;
         }
 
