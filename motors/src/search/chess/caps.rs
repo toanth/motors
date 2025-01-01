@@ -15,6 +15,7 @@ use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::arrayvec::ArrayVec;
 use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
 use gears::games::chess::pieces::ChessPieceType::Pawn;
+use gears::games::chess::pieces::{NUM_CHESS_PIECES, NUM_COLORS};
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::ChessSquare;
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
@@ -67,17 +68,21 @@ fn update_history_score(entry: &mut i32, bonus: i32) {
 /// but didn't cause a beta cutoff. Order all non-TT non-killer moves based on that (as well as based on the continuation
 /// history)
 #[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
-struct HistoryHeuristic([i32; 64 * 64]);
+struct HistoryHeuristic([i32; NUM_COLORS * NUM_CHESS_PIECES * 64]);
 
 impl HistoryHeuristic {
-    fn update(&mut self, mov: ChessMove, bonus: i32) {
-        update_history_score(&mut self[mov.from_to_square()], bonus);
+    fn idx(mov: ChessMove, color: ChessColor) -> usize {
+        mov.dest_square().bb_idx() + mov.piece_type() as usize * 64 + color as usize * 2 * 64
+    }
+
+    fn update(&mut self, mov: ChessMove, color: ChessColor, bonus: i32) {
+        update_history_score(&mut self[Self::idx(mov, color)], bonus);
     }
 }
 
 impl Default for HistoryHeuristic {
     fn default() -> Self {
-        HistoryHeuristic([0; 64 * 64])
+        HistoryHeuristic([0; NUM_COLORS * NUM_CHESS_PIECES * 64])
     }
 }
 
@@ -1217,9 +1222,12 @@ impl Caps {
             .dropping_back(1)
             .filter(|m| !m.is_tactical(pos))
         {
-            self.state.custom.history.update(*disappointing, malus);
+            self.state
+                .custom
+                .history
+                .update(*disappointing, color, malus);
         }
-        self.state.custom.history.update(mov, bonus);
+        self.state.custom.history.update(mov, color, bonus);
         if ply > 0 {
             let parent = before.last_mut().unwrap();
             Self::update_continuation_hist(
@@ -1426,7 +1434,7 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
                 0
             };
             MoveScore(
-                state.custom.history[mov.from_to_square()]
+                state.custom.history[HistoryHeuristic::idx(mov, self.board.active_player())]
                     + countermove_score
                     + follow_up_score / 2,
             )
