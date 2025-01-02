@@ -626,7 +626,7 @@ impl Caps {
                             // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
                             // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
                             self.state.multi_pv() > 1
-                                || pv.len() + pv.len() / 4
+                                || pv.len() + pv.len() / 4 + 1
                                     >= self.state.custom.depth_hard_limit.min(depth as usize)
                                 || pv_score.is_won_lost_or_draw_score(),
                             "{depth} {0} {pv_score} {1}",
@@ -1402,7 +1402,7 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
         // No need to check against the TT move because that's already handled by the move picker
         if mov == state.search_stack[self.ply].killer {
             KILLER_SCORE
-        } else if Some(mov) == state.search_stack[self.ply].pv.get(0) {
+        } else if Some(mov) == state.search_stack[0].pv.get(self.ply) {
             KILLER_SCORE - MoveScore(1)
         } else if !mov.is_tactical(&self.board) {
             let countermove_score = if self.ply > 0 {
