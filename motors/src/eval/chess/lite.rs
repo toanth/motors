@@ -219,6 +219,22 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
+    fn rook_king(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
+        let their_king = pos.king_square(color.other());
+        let mut score = Tuned::Score::default();
+        for rook in pos.colored_piece_bb(color, Rook).ones() {
+            if rook
+                .rank()
+                .abs_diff(their_king.rank())
+                .min(rook.file().abs_diff(their_king.file()))
+                <= 1
+            {
+                score += Tuned::rook_king();
+            }
+        }
+        score
+    }
+
     fn checking(pos: &Chessboard, color: ChessColor) -> [ChessBitboard; 5] {
         let mut result = [ChessBitboard::default(); 5];
         let square = pos.king_square(color);
@@ -286,7 +302,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Self::bishop_pair(pos, color);
             score += Self::bad_bishop(pos, color);
             score += Self::open_lines(pos, color);
-            // score += Self::outposts(pos, color);
+            score += Self::rook_king(pos, color);
             score += Self::mobility_and_threats(pos, color);
             score = -score;
         }

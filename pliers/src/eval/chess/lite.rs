@@ -51,6 +51,7 @@ pub enum LiteFeatureSubset {
     Defense,
     KingZoneAttack,
     CanGiveCheck,
+    RookKing,
 }
 
 impl FeatureSubSet for LiteFeatureSubset {
@@ -73,6 +74,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             KingZoneAttack => NUM_CHESS_PIECES,
             CanGiveCheck => NUM_CHESS_PIECES - 1,
+            RookKing => 1,
         }
     }
 
@@ -218,6 +220,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             CanGiveCheck => {
                 write!(f, "const CAN_GIVE_CHECK: [PhasedScore; 5] = ")?;
             }
+            RookKing => {
+                write!(f, "const ROOK_KING: PhasedScore = ")?;
+            }
         }
         write_range_phased(
             f,
@@ -345,6 +350,10 @@ impl LiteValues for LiTETrace {
 
     fn can_give_check(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
         SingleFeature::new(CanGiveCheck, piece as usize)
+    }
+
+    fn rook_king() -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(RookKing, 0)
     }
 }
 

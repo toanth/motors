@@ -148,4 +148,8 @@ impl LiteValues for KingGambotValues {
     fn can_give_check(piece: ChessPieceType) -> PhasedScore {
         Lite::can_give_check(piece)
     }
+
+    fn rook_king() -> SingleFeatureScore<Self::Score> {
+        Lite::rook_king()
+    }
 }
