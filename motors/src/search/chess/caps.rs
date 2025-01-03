@@ -747,6 +747,7 @@ impl Caps {
         let mut best_move = ChessMove::default();
         // Don't initialize eval just yet to save work in case we get a TT cutoff
         let mut eval;
+        let raw_eval;
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.state.multi_pvs.len() > 1;
         if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
@@ -783,6 +784,7 @@ impl Caps {
                     best_move = tt_move;
                 }
                 eval = self.eval(pos, ply);
+                raw_eval = eval;
                 // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
                 // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
                 // create any problems, but should be kept in mind.
@@ -794,10 +796,12 @@ impl Caps {
                 }
             } else {
                 eval = self.eval(pos, ply);
+                raw_eval = eval;
             }
         } else {
             self.state.statistics.tt_miss(MainSearch);
             eval = self.eval(pos, ply);
+            raw_eval = eval;
         };
 
         self.record_pos(pos, eval, ply);
@@ -860,6 +864,8 @@ impl Caps {
                 && eval >= nmp_threshold
                 && !*self.state.custom.nmp_disabled_for(pos.active_player())
                 && has_nonpawns
+                // if the TT move gives us a much higher score than static eval, that probably means passing the move is a bad idea
+                && raw_eval - eval < Score(100)
             {
                 // `make_nullmove` resets the 50mr counter, so we don't consider positions after a nullmove as repetitions,
                 // but we can still get TT cutoffs
