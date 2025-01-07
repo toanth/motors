@@ -1024,7 +1024,7 @@ impl Caps {
                     && move_score < KILLER_SCORE
                     && eval + cc::fr_base() + cc::fr_scale() * (depth as ScoreT) < alpha
                 {
-                    reduction += (depth + 3) / 8;
+                    reduction += (depth + 5) / 8;
                 }
                 // if the TT move is a capture and we didn't already fail high, it's likely that later moves are worse
                 if !in_check && is_noisy {
