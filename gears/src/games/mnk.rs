@@ -615,7 +615,7 @@ impl Board for MNKBoard {
         if num_empty == 0 {
             return None;
         }
-        let idx = rng.gen_range(0..num_empty);
+        let idx = rng.random_range(0..num_empty);
         let target = ith_one_u128(idx, empty.0);
 
         Some(FillSquare {

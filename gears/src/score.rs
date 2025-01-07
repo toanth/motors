@@ -153,6 +153,13 @@ impl Score {
             None
         }
     }
+    pub fn flip_if(self, flip: bool) -> Self {
+        if flip {
+            -self
+        } else {
+            self
+        }
+    }
 }
 
 /// `SCORE_WON` and `SCORE_LOST` need to fit into 16 bits for the tapered score to work,
@@ -285,7 +292,7 @@ mod tests {
     use super::*;
     use itertools::Itertools;
     use rand::prelude::SliceRandom;
-    use rand::thread_rng;
+    use rand::rng;
 
     #[test]
     fn tapered_test() {
@@ -314,7 +321,7 @@ mod tests {
                 );
             }
         }
-        v.shuffle(&mut thread_rng());
+        v.shuffle(&mut rng());
         for ((mg_a, eg_a), (mg_b, eg_b)) in v.iter().copied().tuple_windows() {
             let taper_a = p(mg_a, eg_a);
             let taper_b = p(mg_b, eg_b);

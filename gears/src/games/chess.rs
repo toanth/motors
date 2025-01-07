@@ -455,11 +455,7 @@ impl Board for Chessboard {
     }
 
     fn no_moves_result(&self) -> PlayerResult {
-        if self.is_in_check() {
-            Lose
-        } else {
-            Draw
-        }
+        self.no_moves_result_if(self.is_in_check())
     }
 
     /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
@@ -817,6 +813,14 @@ impl Chessboard {
         true
     }
 
+    pub fn no_moves_result_if(&self, in_check: bool) -> PlayerResult {
+        if in_check {
+            Lose
+        } else {
+            Draw
+        }
+    }
+
     pub fn ep_square(&self) -> Option<ChessSquare> {
         self.ep_square
     }
@@ -1161,7 +1165,7 @@ pub enum SliderMove {
 
 #[cfg(test)]
 mod tests {
-    use rand::thread_rng;
+    use rand::rng;
     use std::collections::HashSet;
 
     use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
@@ -1501,7 +1505,7 @@ mod tests {
         assert!(Chessboard::from_fen(fen, Strict).is_err());
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 3);
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let mov = board.random_legal_move(&mut rng).unwrap();
         let board = board.make_move(mov).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 2);

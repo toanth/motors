@@ -9,7 +9,7 @@ mod tests {
     use crate::search::Depth;
     use itertools::Itertools;
     use rand::prelude::SliceRandom;
-    use rand::thread_rng;
+    use rand::rng;
     use std::num::NonZeroUsize;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::thread::{available_parallelism, current, scope};
@@ -149,7 +149,7 @@ mod tests {
         let mut fens = fens.iter().collect_vec();
         // the chess960 perft suite takes so long that it makes sense to just stop the test suite at some point when doing
         // routine testing. Shuffle to ensure that all positions have a chance of being tested.
-        fens.shuffle(&mut thread_rng());
+        fens.shuffle(&mut rng());
         let testcases_per_thread = (num_fens + num_threads.get() - 1) / num_threads;
         let thread_data = fens.iter().chunks(testcases_per_thread);
         let mut thread_fens = vec![];
