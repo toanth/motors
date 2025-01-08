@@ -147,13 +147,12 @@ impl ChessMove {
     }
 
     pub fn is_ep(self) -> bool {
-        // TODO: Don't store that as flag, use board.ep_square
         self.flags() == EnPassant
     }
 
     pub fn is_non_ep_capture(self, board: &Chessboard) -> bool {
         board
-            .colored_bb(board.active_player.other())
+            .inactive_player_bb()
             .is_bit_set_at(self.dest_square().bb_idx())
     }
 
