@@ -1,9 +1,9 @@
 use crate::general::board::{Board, BoardHelpers};
+use crate::general::moves::Move;
+use crate::search::Depth;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
-
-use crate::search::Depth;
 
 #[derive(Copy, Clone, Debug)]
 pub struct PerftRes {
@@ -20,7 +20,7 @@ impl Display for PerftRes {
             depth = self.depth.get(),
             nodes = self.nodes,
             time = self.time.as_millis(),
-            nps = self.nodes * 1_000_000 / self.time.as_micros() as u64
+            nps = self.nodes * 1_000_000 / self.time.as_micros().max(1) as u64
         )
     }
 }
@@ -29,6 +29,7 @@ impl Display for PerftRes {
 pub struct SplitPerftRes<B: Board> {
     pub perft_res: PerftRes,
     pub children: Vec<(B::Move, u64)>,
+    pub pos: B,
 }
 
 impl<B: Board> Display for SplitPerftRes<B> {
@@ -39,10 +40,15 @@ impl<B: Board> Display for SplitPerftRes<B> {
             depth = self.perft_res.depth.get(),
             nodes = self.perft_res.nodes,
             time = self.perft_res.time.as_millis(),
-            nps = self.perft_res.nodes * 1_000_000 / self.perft_res.time.as_micros() as u64
+            nps = self.perft_res.nodes * 1_000_000 / self.perft_res.time.as_micros().max(1) as u64
         )?;
         for child in &self.children {
-            write!(f, "\n{0}\t{1}", child.0, child.1)?;
+            write!(
+                f,
+                "\n{0}\t{1}",
+                child.0.compact_formatter(&self.pos),
+                child.1
+            )?;
         }
         Ok(())
     }
@@ -51,7 +57,7 @@ impl<B: Board> Display for SplitPerftRes<B> {
 fn do_perft<B: Board>(depth: usize, pos: B) -> u64 {
     let mut nodes = 0;
     if depth == 1 {
-        return pos.legal_moves_slow().into_iter().count() as u64;
+        return pos.num_legal_moves() as u64;
     }
     // if pos.game_result_no_movegen().is_some() {
     //     return 0; // the game is over (e.g. 50mr)
@@ -96,11 +102,16 @@ pub fn split_perft<B: Board>(depth: Depth, pos: B) -> SplitPerftRes<B> {
         }
     }
     let time = start.elapsed();
-    children.sort_by(|a, b| a.0.to_string().cmp(&b.0.to_string()));
+    children.sort_by(|a, b| {
+        a.0.compact_formatter(&pos)
+            .to_string()
+            .cmp(&b.0.compact_formatter(&pos).to_string())
+    });
     let perft_res = PerftRes { time, nodes, depth };
     SplitPerftRes {
         perft_res,
         children,
+        pos,
     }
 }
 

@@ -1,8 +1,14 @@
 use std::process::abort;
 
+use crate::cli::{parse_cli, CommandLineArgs, HumanArgs, PlayerArgs};
+use crate::play::player::PlayerBuilder;
+use crate::play::ugi_client::RunClient;
+use crate::ui::text_input::TextInputBuilder;
+use crate::ui::{InputBuilder, InputList};
 use gears::cli::Game;
 use gears::games::ataxx::AtaxxBoard;
 use gears::games::chess::Chessboard;
+use gears::games::fairy::FairyBoard;
 use gears::games::mnk::MNKBoard;
 use gears::games::uttt::UtttBoard;
 use gears::games::OutputList;
@@ -12,12 +18,6 @@ use gears::general::common::Description::WithDescription;
 use gears::general::common::{select_name_dyn, Res};
 use gears::output::{normal_outputs, required_outputs};
 use gears::{create_selected_output_builders, output_builder_from_str, AnyRunnable};
-
-use crate::cli::{parse_cli, CommandLineArgs, HumanArgs, PlayerArgs};
-use crate::play::player::PlayerBuilder;
-use crate::play::ugi_client::RunClient;
-use crate::ui::text_input::TextInputBuilder;
-use crate::ui::{InputBuilder, InputList};
 
 pub mod cli;
 pub mod play;
@@ -64,6 +64,11 @@ fn list_uttt_uis() -> (OutputList<UtttBoard>, InputList<UtttBoard>) {
 }
 
 #[must_use]
+fn list_fairy_uis() -> (OutputList<FairyBoard>, InputList<FairyBoard>) {
+    normal_uis::<FairyBoard>()
+}
+
+#[must_use]
 fn list_mnk_uis() -> (OutputList<MNKBoard>, InputList<MNKBoard>) {
     normal_uis::<MNKBoard>()
 }
@@ -101,6 +106,7 @@ pub fn create_match(args: CommandLineArgs) -> Res<AnyRunnable> {
         Game::Mnk => create_client_match_for_game(args, list_mnk_uis()),
         Game::Ataxx => create_client_match_for_game(args, list_ataxx_uis()),
         Game::Uttt => create_client_match_for_game(args, list_uttt_uis()),
+        Game::Fairy => create_client_match_for_game(args, list_fairy_uis()),
     }
 }
 

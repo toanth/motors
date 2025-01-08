@@ -570,6 +570,7 @@ pub type SearchStateFor<B: Board, E: Engine<B>> =
     SearchState<B, E::SearchStackEntry, E::CustomInfo>;
 
 #[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg)]
+#[must_use]
 pub struct MoveScore(pub i32);
 
 impl MoveScore {

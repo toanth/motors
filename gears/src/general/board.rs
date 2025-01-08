@@ -21,7 +21,7 @@ use crate::games::{
 };
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::{Assertion, Verify};
-use crate::general::board::Strictness::Relaxed;
+use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
     select_name_static, tokens, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
@@ -40,10 +40,10 @@ use colored::Colorize;
 use itertools::Itertools;
 use rand::Rng;
 use std::fmt;
-use std::fmt::{Debug, Display};
+use std::fmt::{Debug, Display, Formatter};
 use std::num::NonZeroUsize;
 
-pub(crate) type NameToPos<B> = GenericSelect<fn() -> B>;
+pub type NameToPos<B> = GenericSelect<fn() -> B>;
 
 /// How many checks to execute.
 /// Enum variants are listed in order; later checks include earlier checks.
@@ -151,6 +151,8 @@ where
     /// See [`B::is_empty`].
     fn is_empty(&self, coords: B::Coordinates) -> bool;
 
+    fn active_player(&self) -> B::Color;
+
     /// Set the active player. Like all of these functions, it does not guarantee or check that the resulting position
     /// is legal. For example, in chess, the side not to move might be in check, so that it would be possible to capture the king.
     fn set_active_player(self, player: B::Color) -> Self;
@@ -159,6 +161,8 @@ where
     /// the ply counter is larger than the number of placed pieces in games like m,n,k games or Ultimate Tic-Tac-Toe.
     /// Can fail if the ply number is not representable in the internal representation.
     fn set_ply_since_start(self, ply: usize) -> Res<Self>;
+
+    fn set_halfmove_repetition_clock(self, ply: usize) -> Res<Self>;
 
     // TODO: Also put more methods, like `as_fen`, in this trait?
     // Might be useful to print such boards, but the implementation might be annoying
@@ -239,8 +243,10 @@ pub trait Board:
 
     /// Constructs a specific, well-known position from its name, such as 'kiwipete' in chess.
     /// Not to be confused with `from_fen`, which can load arbitrary positions.
-    /// Can be implemented by calling [`board_from_name`].
-    fn from_name(name: &str) -> Res<Self>;
+    /// The default implementation forwards to [`board_from_name`].
+    fn from_name(name: &str) -> Res<Self> {
+        board_from_name(name)
+    }
 
     /// Returns a Vec mapping well-known position names to their FEN, for example for `kiwipete` in chess.
     /// Can be implemented by a concrete [`Board`], which will make [`Self::from_name`] recognize the name and lets the
@@ -255,6 +261,15 @@ pub trait Board:
     fn bench_positions() -> Vec<Self>;
 
     fn settings(&self) -> Self::Settings;
+
+    /// Sets the variant based on the input and changes this board to the startpos for this variant
+    fn set_variant(&mut self, name: &str, _additional: &mut Tokens) -> Res<()> {
+        bail!(
+            "The game {0} does not support any variants, including '{1}'",
+            Self::game_name(),
+            name.red()
+        );
+    }
 
     /// The player who can now move.
     fn active_player(&self) -> Self::Color;
@@ -317,6 +332,22 @@ pub trait Board:
             pseudo_legal.filter_moves(|m| self.is_pseudolegal_move_legal(*m));
         }
         pseudo_legal
+    }
+
+    /// Returns the number of pseudolegal moves. Can sometimes be implemented more efficiently
+    /// than generating all pseudolegal moves and counting their number.
+    fn num_pseudolegal_moves(&self) -> usize {
+        self.pseudolegal_moves().num_moves()
+    }
+
+    /// Returns the number of legal moves. Automatically falls back to [`Self::num_pseudolegal_moves`] for games
+    /// with legal movegen.
+    fn num_legal_moves(&self) -> usize {
+        if Self::Move::legality() == Legal {
+            self.num_pseudolegal_moves()
+        } else {
+            self.legal_moves_slow().num_moves()
+        }
     }
 
     /// Returns a random legal move, that is, chooses a pseudorandom move from the set of legal moves.
@@ -409,10 +440,7 @@ pub trait Board:
     /// The hash of this position. E.g. for chess, this is the zobrist hash.
     fn hash_pos(&self) -> PosHash;
 
-    /// Returns a compact textual description of the board that can be read in again with `from_fen`.
-    fn as_fen(&self) -> String;
-
-    /// Like `from_fen`, but changes the `input` argument to contain the reining input instead of panicking when there's
+    /// Like [`Self::from_fen`], but changes the `input` argument to contain the reining input instead of panicking when there's
     /// any remaining input after reading the fen.
     fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self>;
 
@@ -500,6 +528,15 @@ pub trait BoardHelpers: Board {
         moves
     }
 
+    /// Returns an iterator over all the positions after making a legal move.
+    /// Not very useful for search because it doesn't allow changing the order of generated positions,
+    /// but convenient for some use cases.
+    fn children(self) -> impl Iterator<Item = Self> {
+        self.pseudolegal_moves()
+            .into_iter()
+            .filter_map(move |m| self.make_move(m))
+    }
+
     /// Returns an optional [`MatchResult`]. Unlike a [`PlayerResult`], a [`MatchResult`] doesn't contain `Win` or `Lose` variants,
     /// but instead `P1Win` and `P1Lose`. Also, it contains a [`GameOverReason`].
     fn match_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<MatchResult> {
@@ -514,6 +551,7 @@ pub trait BoardHelpers: Board {
     /// Reads in a compact textual description of the board, such that `B::from_fen(board.as_fen()) == b` holds.
     /// Assumes that the entire string represents the FEN, without any trailing tokens.
     /// Use the lower-level `read_fen_and_advance_input` if this assumption doesn't have to hold.
+    /// To print a board as fen, the [`Display`] implementation should be used.
     fn from_fen(string: &str, strictness: Strictness) -> Res<Self> {
         let mut words = tokens(string);
         let res = Self::read_fen_and_advance_input(&mut words, strictness)
@@ -526,6 +564,12 @@ pub trait BoardHelpers: Board {
             ));
         }
         Ok(res)
+    }
+
+    /// Returns a compact textual description of the board that can be read in again with `from_fen`.
+    /// Same as `self.to_string()`.
+    fn as_fen(&self) -> String {
+        self.to_string()
     }
 
     /// Verifies that all invariants of this board are satisfied. It should never be possible for this function to
@@ -638,30 +682,30 @@ pub trait BitboardBoard: Board<Coordinates: RectangularCoordinates> {
 
     /// Bitboard of all empty squares.
     fn empty_bb(&self) -> Self::Bitboard {
-        !self.occupied_bb()
+        !self.occupied_bb() & self.mask_bb()
     }
+
+    /// On many boards, not all bits of a bitboard correspond to squares.
+    /// This bitboard has ones on all squares and zeros otherwise.
+    fn mask_bb(&self) -> Self::Bitboard;
 }
 
 #[must_use]
-pub fn ply_counter_from_fullmove_nr<B: Board>(
-    fullmove_nr: NonZeroUsize,
-    active: B::Color,
-) -> usize {
-    (fullmove_nr.get() - 1) * 2 + usize::from(!active.is_first())
+pub fn ply_counter_from_fullmove_nr(fullmove_nr: NonZeroUsize, is_active_first: bool) -> usize {
+    (fullmove_nr.get() - 1) * 2 + usize::from(!is_active_first)
 }
 
 /// Constructs a specific, well-known position from its name, such as 'kiwipete' in chess.
 /// Not to be confused with `from_fen`, which can load arbitrary positions.
 /// However, `"fen <x>"` forwards to [`B::from_fen`].
-// A free function instead of a default impl for [`B::from_name`] because Rust doesn't allow calling default impls in overriding impls.
+/// A free function instead of a default impl for [`B::from_name`] because Rust doesn't allow calling default impls in overriding impls.
 pub fn board_from_name<B: Board>(name: &str) -> Res<B> {
     let mut tokens = tokens(name);
-    if tokens
-        .next()
-        .unwrap_or_default()
-        .eq_ignore_ascii_case("fen")
-    {
+    let first_token = tokens.next().unwrap_or_default();
+    if first_token.eq_ignore_ascii_case("fen") {
         return B::from_fen(&tokens.join(" "), Relaxed);
+    } else if first_token.eq_ignore_ascii_case("startpos") {
+        return Ok(B::startpos());
     }
     select_name_static(
         name,
@@ -674,44 +718,50 @@ pub fn board_from_name<B: Board>(name: &str) -> Res<B> {
 }
 
 #[must_use]
-pub fn position_fen_part<B: RectangularBoard>(pos: &B) -> String {
-    let mut res: String = String::default();
+pub fn position_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) -> fmt::Result {
     for y in (0..pos.height()).rev() {
         let mut empty_ctr = 0;
         for x in 0..pos.width() {
-            let piece = pos.colored_piece_on(B::Coordinates::from_row_column(y, x));
+            let piece = pos.colored_piece_on(B::Coordinates::from_rank_file(y, x));
             if piece.is_empty() {
                 empty_ctr += 1;
             } else {
                 if empty_ctr > 0 {
-                    res += &empty_ctr.to_string();
+                    write!(f, "{empty_ctr}")?;
                 }
                 empty_ctr = 0;
-                res.push(piece.to_char(CharType::Ascii));
+                write!(f, "{}", piece.to_char(CharType::Ascii))?;
             }
         }
         if empty_ctr > 0 {
-            res += &empty_ctr.to_string();
+            write!(f, "{empty_ctr}")?;
         }
         if y > 0 {
-            res.push('/');
+            write!(f, "/")?;
         }
     }
-    res
+    Ok(())
 }
 
-#[must_use]
-pub fn common_fen_part<T: RectangularBoard>(pos: &T, halfmove: bool, fullmove: bool) -> String {
-    use fmt::Write;
-    let stm = pos.active_player();
-    let mut res = format!("{} {stm}", position_fen_part(pos));
+pub fn common_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) -> fmt::Result {
+    position_fen_part(f, pos)?;
+    write!(f, " {}", pos.active_player())
+}
+
+pub fn simple_fen<T: RectangularBoard>(
+    f: &mut Formatter<'_>,
+    pos: &T,
+    halfmove: bool,
+    fullmove: bool,
+) -> fmt::Result {
+    common_fen_part(f, pos)?;
     if halfmove {
-        write!(&mut res, " {}", pos.halfmove_repetition_clock()).unwrap();
+        write!(f, " {}", pos.halfmove_repetition_clock())?;
     }
     if fullmove {
-        write!(&mut res, " {}", pos.fullmove_ctr_1_based()).unwrap()
+        write!(f, " {}", pos.fullmove_ctr_1_based())?;
     }
-    res
+    Ok(())
 }
 
 pub(crate) fn read_position_fen<B: RectangularBoard>(
@@ -787,6 +837,7 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
     Ok(board)
 }
 
+/// Reads the position and active player part
 pub(crate) fn read_common_fen_part<B: RectangularBoard>(
     words: &mut Tokens,
     board: B::Unverified,
@@ -824,4 +875,65 @@ pub(crate) fn read_common_fen_part<B: RectangularBoard>(
     };
     board = board.set_active_player(active);
     Ok(board)
+}
+
+pub(crate) fn read_two_move_numbers<B: RectangularBoard>(
+    words: &mut Tokens,
+    mut board: B::Unverified,
+    strictness: Strictness,
+) -> Res<B::Unverified> {
+    let halfmove_clock = words.next().unwrap_or("");
+    // Some FENs don't contain the halfmove clock and fullmove number, so assume that's the case if parsing
+    // the halfmove clock fails -- but don't do this for the fullmove number.
+    if let Ok(halfmove_clock) = halfmove_clock.parse::<usize>() {
+        board = board.set_halfmove_repetition_clock(halfmove_clock)?;
+        let Some(fullmove_number) = words.next() else {
+            bail!(
+                    "The FEN contains a valid halfmove clock ('{halfmove_clock}') but no fullmove counter",
+                )
+        };
+        let fullmove_number = fullmove_number.parse::<NonZeroUsize>().map_err(|err| {
+            anyhow!(
+                "Couldn't parse fullmove counter '{}': {err}",
+                fullmove_number.red()
+            )
+        })?;
+        board = board.set_ply_since_start(ply_counter_from_fullmove_nr(
+            fullmove_number,
+            board.active_player().is_first(),
+        ))?;
+    } else if strictness == Strict {
+        bail!("FEN doesn't contain a halfmove clock and fullmove counter, but they are required in strict mode")
+    } else {
+        board = board.set_halfmove_repetition_clock(0)?;
+        board = board.set_ply_since_start(usize::from(!board.active_player().is_first()))?;
+    }
+    Ok(board)
+}
+
+pub(crate) fn read_single_move_number<B: RectangularBoard>(
+    words: &mut Tokens,
+    board: B::Unverified,
+    strictness: Strictness,
+) -> Res<B::Unverified> {
+    let fullmove_nr = words.next().unwrap_or("");
+    if let Ok(fullmove_nr) = fullmove_nr.parse::<NonZeroUsize>() {
+        board.set_ply_since_start(ply_counter_from_fullmove_nr(
+            fullmove_nr,
+            board.active_player().is_first(),
+        ))
+    } else if strictness != Strict {
+        Ok(board)
+    } else {
+        bail!("FEN doesn't contain a valid fullmove counter, but that is required in strict mode")
+    }
+}
+
+pub(crate) fn read_simple_fen_part<B: RectangularBoard>(
+    words: &mut Tokens,
+    board: B::Unverified,
+    strictness: Strictness,
+) -> Res<B::Unverified> {
+    let board = read_common_fen_part::<B>(words, board)?;
+    read_two_move_numbers::<B>(words, board, strictness)
 }

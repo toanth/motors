@@ -263,33 +263,33 @@ mod bitboards {
         fn diag_test() {
             let size = GridSize::new(Height(1), Width(2));
             assert_eq!(
-                MnkBitboard::diag_for_sq(GridCoordinates::from_row_column(0, 0), size,)
+                MnkBitboard::diag_for_sq(GridCoordinates::from_rank_file(0, 0), size,)
                     & MnkBitboard::new(0b11, size),
                 MnkBitboard::new(1, size)
             );
             let size = GridSize::new(Height(3), Width(2));
             assert_eq!(
-                MnkBitboard::diag_for_sq(GridCoordinates::from_row_column(0, 0), size,),
+                MnkBitboard::diag_for_sq(GridCoordinates::from_rank_file(0, 0), size,),
                 MnkBitboard::new(0b00_1001, size)
             );
             assert_eq!(
-                MnkBitboard::diag_for_sq(GridCoordinates::from_row_column(0, 1), size,),
+                MnkBitboard::diag_for_sq(GridCoordinates::from_rank_file(0, 1), size,),
                 MnkBitboard::new(0b10, size)
             );
             let size = GridSize::new(Height(11), Width(8));
             assert_eq!(
-                MnkBitboard::diag_for_sq(GridCoordinates::from_row_column(0, 7), size,),
+                MnkBitboard::diag_for_sq(GridCoordinates::from_rank_file(0, 7), size,),
                 MnkBitboard::new(0x80, size)
             );
             let size = GridSize::new(Height(9), Width(8));
             assert_eq!(
-                MnkBitboard::diag_for_sq(GridCoordinates::from_row_column(1, 0), size,)
+                MnkBitboard::diag_for_sq(GridCoordinates::from_rank_file(1, 0), size,)
                     & MnkBitboard::new(u64::MAX as u128, size),
                 MnkBitboard::new(0x4020_1008_0402_0100, size)
             );
             let size = GridSize::new(Height(7), Width(3));
             assert_eq!(
-                MnkBitboard::diag_for_sq(GridCoordinates::from_row_column(0, 1), size,),
+                MnkBitboard::diag_for_sq(GridCoordinates::from_rank_file(0, 1), size,),
                 MnkBitboard::new(0b100_010, size)
             );
             for width in 1..12 {
@@ -301,11 +301,11 @@ mod bitboards {
                     let size = GridSize::new(Height(9), Width(width));
                     assert_eq!(
                         MnkBitboard::diag_for_sq(
-                            GridCoordinates::from_row_column(square / width, square % width),
+                            GridCoordinates::from_rank_file(square / width, square % width),
                             size,
                         ),
                         MnkBitboard::diag_for_sq(
-                            GridCoordinates::from_row_column(prev / width, prev % width),
+                            GridCoordinates::from_rank_file(prev / width, prev % width),
                             size
                         )
                     );
@@ -317,17 +317,17 @@ mod bitboards {
         fn anti_diag_test() {
             let size = GridSize::new(Height(3), Width(1));
             assert_eq!(
-                MnkBitboard::anti_diag_for_sq(GridCoordinates::from_row_column(0, 0), size,),
+                MnkBitboard::anti_diag_for_sq(GridCoordinates::from_rank_file(0, 0), size,),
                 MnkBitboard::new(1, size)
             );
             let size = GridSize::new(Height(4), Width(1));
             assert_eq!(
-                MnkBitboard::anti_diag_for_sq(GridCoordinates::from_row_column(1, 0), size,),
+                MnkBitboard::anti_diag_for_sq(GridCoordinates::from_rank_file(1, 0), size,),
                 MnkBitboard::new(0b10, size)
             );
             let size = GridSize::new(Height(3), Width(2));
             assert_eq!(
-                MnkBitboard::anti_diag_for_sq(GridCoordinates::from_row_column(0, 1), size,)
+                MnkBitboard::anti_diag_for_sq(GridCoordinates::from_rank_file(0, 1), size,)
                     & MnkBitboard::new(0b111_111, size),
                 MnkBitboard::new(0b0110, size)
             );
@@ -341,11 +341,11 @@ mod bitboards {
                     let size = GridSize::new(Height(9), Width(width));
                     assert_eq!(
                         MnkBitboard::anti_diag_for_sq(
-                            GridCoordinates::from_row_column(square / width, square % width),
+                            GridCoordinates::from_rank_file(square / width, square % width),
                             size,
                         ),
                         MnkBitboard::anti_diag_for_sq(
-                            GridCoordinates::from_row_column(prev / width, prev % width),
+                            GridCoordinates::from_rank_file(prev / width, prev % width),
                             size,
                         )
                     );
@@ -375,7 +375,7 @@ mod bitboards {
                 MnkBitboard::new(0b101_001_011_110_111_001, size).flip_lowest_row(),
                 MnkBitboard::new(0b101_100_110_011_111_100, size)
             );
-            let size = GridSize::tictactoe();
+            let size = GridSize::new(Height(50), Width(3));
             assert_eq!(
                 MnkBitboard::new(0x4924_9249_2492_4924_9249_2492_4924_9249, size).flip_lowest_row(),
                 MnkBitboard::new(0x2492_4924_9249_2492_4924_9249_2492_4924, size)

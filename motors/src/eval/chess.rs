@@ -185,7 +185,6 @@ mod tests {
         for pos in Chessboard::bench_positions() {
             for square in ChessSquare::iter() {
                 for color in ChessColor::iter() {
-                    let _fen = pos.as_fen();
                     let pawns = pos.colored_piece_bb(color, Pawn);
                     let actual = pawn_shield_idx(pawns, square, color);
                     let expected = expected_pawn_shield_idx(pawns, square, color);

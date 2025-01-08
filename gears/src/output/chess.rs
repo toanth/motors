@@ -117,7 +117,7 @@ fn pretty_as_chessboard<B: RectangularBoard>(
         for x in 0..pos.width() {
             let display_x = if flip { pos.width() - 1 - x } else { x };
             let display_y = if flip { y } else { pos.height() - 1 - y };
-            let square = B::Coordinates::from_row_column(display_y, display_x);
+            let square = B::Coordinates::from_rank_file(display_y, display_x);
             let color = pos.colored_piece_on(square).color();
             let bg_color = match pos.background_color(square) {
                 SquareColor::White => colorgrad::Color::from_html("aliceblue").unwrap(),

@@ -48,7 +48,7 @@ pub enum ExtendedFormat {
 /// All `Move` functions that take a `Board` parameter assume that the move is pseudolegal for the given board
 /// unless otherwise noted. [`UntrustedMove`] should be used when it's not clear that a move is pseudolegal.
 pub trait Move<B: Board>:
-    Eq + Copy + Clone + Debug + Default + Display + Hash + Send + for<'a> Arbitrary<'a>
+    Eq + Copy + Clone + Debug + Default + Hash + Send + for<'a> Arbitrary<'a>
 where
     B: Board<Move = Self>,
 {
@@ -76,21 +76,28 @@ where
     fn is_tactical(self, board: &B) -> bool;
 
     /// Compact text representation is used by UGI, e.g. for chess it's `<to><from><promo_piece_if_present>`.
-    /// Since this function doesn't take a `Board` parameter, it does not have qny pseudolegality requirements.
-    /// However, [``Self::from_compact_text] does take a board parameter and fails for non-pseudolegal moves.
-    /// This is because the compact text representation may not store enough information to recon           struct a `Move`
+    /// Takes a [`Board`] parameter because some move types may not store enough information to be printed in a human-readable
+    /// way without that.
+    /// Similarly, the compact text representation may not store enough information to reconstruct a `Move`
     /// without using a `Board`.
-    fn format_compact(self, f: &mut Formatter<'_>) -> fmt::Result;
+    /// This method **must not panic** for illegal moves.
+    /// Moves that don't need a board to be printed should implement the `Display` trait.
+    fn format_compact(self, f: &mut Formatter<'_>, _board: &B) -> fmt::Result;
 
     /// Returns a longer representation of the move that may require the board, such as long algebraic notation
     /// Implementations of this trait *may* choose to ignore the board and to not require pseudolegality.
     fn format_extended(
         self,
         f: &mut Formatter<'_>,
-        _board: &B,
+        board: &B,
         _format: ExtendedFormat,
     ) -> fmt::Result {
-        self.format_compact(f)
+        self.format_compact(f, board)
+    }
+
+    /// Returns a formatter object that implements `Display` such that it prints the result of `to_compact_text`.
+    fn compact_formatter(self, pos: &B) -> CompactFormatter<B> {
+        CompactFormatter { pos, mov: self }
     }
 
     /// Returns a formatter object that implements `Display` such that it prints the result of `to_extended_text`.
@@ -119,7 +126,11 @@ where
     fn from_compact_text(s: &str, board: &B) -> Res<B::Move> {
         let (remaining, parsed) = Self::parse_compact_text(s, board)?;
         if !remaining.is_empty() {
-            bail!("Additional input after move {0}: '{1}'", parsed, remaining);
+            bail!(
+                "Additional input after move {0}: '{1}'",
+                parsed.compact_formatter(board),
+                remaining
+            );
         }
         Ok(parsed)
     }
@@ -136,7 +147,11 @@ where
     fn from_extended_text(s: &str, board: &B) -> Res<B::Move> {
         let (remaining, parsed) = Self::parse_extended_text(s, board)?;
         if !remaining.is_empty() {
-            bail!("Additional input after move {0}: '{1}'", parsed, remaining);
+            bail!(
+                "Additional input after move {0}: '{1}'",
+                parsed.compact_formatter(board),
+                remaining
+            );
         }
         Ok(parsed)
     }
@@ -172,6 +187,18 @@ where
 }
 
 #[derive(Debug, Copy, Clone)]
+pub struct CompactFormatter<'a, B: Board> {
+    pos: &'a B,
+    mov: B::Move,
+}
+
+impl<'a, B: Board> Display for CompactFormatter<'a, B> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.mov.format_compact(f, self.pos)
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
 pub struct ExtendedFormatter<B: Board> {
     pos: B,
     mov: B::Move,
@@ -197,7 +224,10 @@ impl<B: Board> Display for ExtendedFormatter<B> {
 #[repr(transparent)]
 pub struct UntrustedMove<B: Board>(B::Move);
 
-impl<B: Board> Display for UntrustedMove<B> {
+impl<B: Board> Display for UntrustedMove<B>
+where
+    B::Move: Display,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         <B::Move as Display>::fmt(&self.0, f)
     }

@@ -38,7 +38,7 @@ colored = "2.1.0"
 
 
 [features]
-default = ["unsafe", "chess", "ataxx", "mnk", "uttt", "random_mover", "gaps", "caps"]
+default = ["unsafe", "chess", "ataxx", "mnk", "uttt", "fairy", "random_mover", "gaps", "caps"]
 random_mover = []
 gaps = []
 caps = ["chess"] # enabling the caps feature also enables the chess feature
@@ -57,6 +57,7 @@ chess = ["gears/chess"]
 ataxx = ["gears/ataxx"]
 mnk = ["gears/mnk"]
 uttt = ["gears/uttt"]
+fairy = ["gears/fairy"]
 
 [lib]
 name = "motors"

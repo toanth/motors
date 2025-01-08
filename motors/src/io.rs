@@ -62,7 +62,9 @@ use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{Depth, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
-use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
+use gears::ugi::{
+    load_ugi_pos_simple, EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString,
+};
 use gears::MatchStatus::*;
 use gears::ProgramStatus::{Quit, Run};
 use gears::Quitting::QuitProgram;
@@ -272,7 +274,7 @@ impl<B: Board> EngineUGI<B> {
         let output = Arc::new(Mutex::new(UgiOutput::new(opts.interactive)));
         let board = match opts.pos_name {
             None => B::default(),
-            Some(name) => B::from_name(&name)?,
+            Some(name) => load_ugi_pos_simple(&name, Relaxed, &B::default())?,
         };
         let engine = create_engine_from_str(
             &opts.engine,
@@ -675,6 +677,7 @@ impl<B: Board> EngineUGI<B> {
             SetEval => {
                 self.handle_set_eval(&mut tokens(&value))?;
             }
+            Variant => self.handle_variant(&mut tokens(&value))?,
             _ => {
                 let value = value.trim().to_string();
                 self.state
@@ -781,8 +784,10 @@ impl<B: Board> EngineUGI<B> {
                 } else {
                     vec![self.state.board]
                 };
-                self.output()
-                    .write_ugi(&perft_for(opts.limit.depth, &positions).to_string())
+                for i in 1..=opts.limit.depth.get() {
+                    self.output()
+                        .write_ugi(&perft_for(Depth::new(i), &positions).to_string())
+                }
             }
             SplitPerft => {
                 if opts.limit.depth.get() == 0 {
@@ -1153,6 +1158,11 @@ impl<B: Board> EngineUGI<B> {
         self.state.engine.set_eval(eval)?;
         self.write_engine_ascii_art();
         Ok(())
+    }
+
+    fn handle_variant(&mut self, words: &mut Tokens) -> Res<()> {
+        let first = words.next().unwrap_or_default();
+        self.state.position_state.handle_variant(first, words)
     }
 
     fn handle_play(&mut self, words: &mut Tokens) -> Res<()> {

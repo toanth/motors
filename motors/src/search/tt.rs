@@ -42,7 +42,10 @@ pub struct TTEntry<B: Board> {
     bound: OptionalNodeType,   // 1 byte
 }
 
-impl<B: Board> Display for TTEntry<B> {
+impl<B: Board> Display for TTEntry<B>
+where
+    B::Move: Display,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,

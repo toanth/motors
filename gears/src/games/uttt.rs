@@ -35,8 +35,8 @@ use crate::general::bitboards::{
 use crate::general::board::SelfChecks::*;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    board_from_name, common_fen_part, ply_counter_from_fullmove_nr, read_common_fen_part, Board,
-    BoardHelpers, SelfChecks, Strictness, UnverifiedBoard,
+    ply_counter_from_fullmove_nr, read_common_fen_part, simple_fen, Board, BoardHelpers,
+    SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{ith_one_u128, parse_int, Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
@@ -270,7 +270,11 @@ impl UtttMove {
 
 impl Display for UtttMove {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.format_compact(f)
+        if self.is_null() {
+            write!(f, "0000")
+        } else {
+            write!(f, "{}", self.dest_square())
+        }
     }
 }
 
@@ -294,12 +298,8 @@ impl Move<UtttBoard> for UtttMove {
         false
     }
 
-    fn format_compact(self, f: &mut Formatter<'_>) -> fmt::Result {
-        if self == Self::NULL {
-            write!(f, "0000")
-        } else {
-            write!(f, "{}", self.dest_square())
-        }
+    fn format_compact(self, f: &mut Formatter<'_>, _board: &UtttBoard) -> fmt::Result {
+        write!(f, "{self}")
     }
 
     fn parse_compact_text<'a>(s: &'a str, board: &UtttBoard) -> Res<(&'a str, UtttMove)> {
@@ -342,6 +342,7 @@ pub type UtttMoveList = EagerNonAllocMoveList<UtttBoard, 81>;
 pub struct UtttBoard {
     // contains not just the occupancy, but also won sub-boards in the higher bits.
     colors_internal: [RawUtttBitboard; 2],
+    // all squares where a piece can still be placed (different from empty squares because subboards can be closed)
     open: RawUtttBitboard,
     active: UtttColor,
     ply_since_start: usize,
@@ -648,7 +649,8 @@ impl UtttBoard {
 
 impl Display for UtttBoard {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_fen())
+        simple_fen(f, self, false, true)?;
+        write!(f, " {}", self.last_move)
     }
 }
 
@@ -668,10 +670,6 @@ impl Board for UtttBoard {
 
     fn startpos_for_settings(_settings: UtttSettings) -> Self {
         Self::default()
-    }
-
-    fn from_name(name: &str) -> Res<Self> {
-        board_from_name(name)
     }
 
     fn bench_positions() -> Vec<Self> {
@@ -751,6 +749,24 @@ impl Board for UtttBoard {
         // currently, no moves are considered tactical
     }
 
+    fn num_pseudolegal_moves(&self) -> usize {
+        // don't assume that the board is empty in startpos to support different starting positions
+        if self.player_result_no_movegen(&NoHistory::default()) == Some(Lose) {
+            return 0;
+        }
+        if self.last_move != UtttMove::NULL {
+            let sub_board = self.last_move.dest_square().sub_square();
+            if self.is_sub_board_open(sub_board) {
+                debug_assert!(
+                    !self.is_sub_board_won(X, sub_board) && !self.is_sub_board_won(O, sub_board)
+                );
+                return self.open_sub_board(sub_board).num_ones();
+            }
+        }
+        self.open_bb().num_ones()
+    }
+
+    // TODO: Incorrect? Add testcase!
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
         let open = self.open_bb();
         if open.is_zero() {
@@ -834,13 +850,6 @@ impl Board for UtttBoard {
         PosHash(hasher.finish())
     }
 
-    fn as_fen(&self) -> String {
-        use fmt::Write;
-        let mut res = common_fen_part(self, false, true);
-        write!(&mut res, " {}", self.last_move).unwrap();
-        res
-    }
-
     // TODO: Don't use a separate open bitboard, just set both players' bitboards to one for squares that are no longer
     // reachable because the sub board has been won, and update the piece_on function
 
@@ -858,7 +867,7 @@ impl Board for UtttBoard {
         }
         let fullmoves = NonZeroUsize::new(fullmove_counter).unwrap();
         pos.0.ply_since_start =
-            ply_counter_from_fullmove_nr::<UtttBoard>(fullmoves, pos.0.active_player());
+            ply_counter_from_fullmove_nr(fullmoves, pos.0.active_player().is_first());
         let Some(last_move) = input.next() else {
             bail!("Ultimate Tic-Tac-Toe FEN ends after ply counter, missing the last move")
         };
@@ -1041,6 +1050,10 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
         self.0.is_empty(square)
     }
 
+    fn active_player(&self) -> UtttColor {
+        self.0.active
+    }
+
     fn set_active_player(mut self, player: UtttColor) -> Self {
         self.0.active = player;
         self
@@ -1048,6 +1061,11 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
 
     fn set_ply_since_start(mut self, ply: usize) -> Res<Self> {
         self.0.ply_since_start = ply;
+        Ok(self)
+    }
+
+    fn set_halfmove_repetition_clock(self, _ply: usize) -> Res<Self> {
+        // ignored
         Ok(self)
     }
 }

@@ -402,7 +402,10 @@ impl<'a, B: Board> PgnParser<'a, B> {
         let prev_board = &self.res.game.board;
         let (remaining, mov) = B::Move::parse_extended_text(string, prev_board)?;
         let Some(new_board) = prev_board.make_move(mov) else {
-            bail!("Illegal psuedolegal move '{}'", mov.to_string().red());
+            bail!(
+                "Illegal psuedolegal move '{}'",
+                mov.compact_formatter(&prev_board).to_string().red()
+            );
         };
         self.res.game.board_hist.push(prev_board);
         self.res.game.mov_hist.push(mov);

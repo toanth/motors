@@ -13,6 +13,7 @@ pub mod rand_eval;
 pub mod ataxx;
 #[cfg(feature = "chess")]
 pub mod chess;
+mod fairy;
 #[cfg(feature = "mnk")]
 pub mod mnk;
 #[cfg(feature = "uttt")]

@@ -211,8 +211,23 @@ impl ChessMove {
 }
 
 impl Display for ChessMove {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.format_compact(f)
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if self.is_null() {
+            return write!(f, "0000");
+        }
+        let flag = match self.flags() {
+            PromoKnight => "n",
+            PromoBishop => "b",
+            PromoRook => "r",
+            PromoQueen => "q",
+            _ => "",
+        };
+        write!(
+            f,
+            "{from}{to}{flag}",
+            from = self.src_square(),
+            to = self.dest_square()
+        )
     }
 }
 
@@ -238,23 +253,8 @@ impl Move<Chessboard> for ChessMove {
         self.is_capture(board) || self.flags() == PromoQueen || self.flags() == PromoKnight
     }
 
-    fn format_compact(self, f: &mut Formatter<'_>) -> fmt::Result {
-        if self == Self::NULL {
-            return write!(f, "0000");
-        }
-        let flag = match self.flags() {
-            PromoKnight => "n",
-            PromoBishop => "b",
-            PromoRook => "r",
-            PromoQueen => "q",
-            _ => "",
-        };
-        write!(
-            f,
-            "{from}{to}{flag}",
-            from = self.src_square(),
-            to = self.dest_square()
-        )
+    fn format_compact(self, f: &mut Formatter<'_>, _board: &Chessboard) -> fmt::Result {
+        write!(f, "{self}")
     }
 
     fn parse_compact_text<'a>(s: &'a str, board: &Chessboard) -> Res<(&'a str, ChessMove)> {
@@ -605,7 +605,6 @@ impl Chessboard {
     }
 
     /// Called at the end of `make_nullmove` and `make_move`.
-    #[must_use]
     pub fn flip_side_to_move(mut self) -> Option<Self> {
         if self.is_in_check() {
             None

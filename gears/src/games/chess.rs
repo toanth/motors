@@ -1,12 +1,12 @@
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Color::Red;
 use colored::Colorize;
 use itertools::Itertools;
 use rand::prelude::IteratorRandom;
 use rand::Rng;
+use std::fmt;
 use std::fmt::{Display, Formatter};
-use std::num::NonZeroUsize;
 use std::ops::Not;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
@@ -31,8 +31,8 @@ use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawSta
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    board_from_name, ply_counter_from_fullmove_nr, position_fen_part, read_common_fen_part,
-    BitboardBoard, BoardHelpers, NameToPos, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard,
+    board_from_name, position_fen_part, read_common_fen_part, read_two_move_numbers, BitboardBoard,
+    BoardHelpers, NameToPos, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{
     parse_int_from_str, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
@@ -56,7 +56,7 @@ pub mod see;
 pub mod squares;
 pub mod zobrist;
 
-const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w HAha - 0 1";
+pub const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w HAha - 0 1";
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct ChessSettings {}
@@ -69,14 +69,22 @@ pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, MAX_CHESS_MOVES_IN_PO
 impl Settings for ChessSettings {}
 
 /// White is always the first player, Black is always the second
-#[derive(
-    Copy, Clone, Eq, PartialEq, Debug, Default, Hash, EnumIter, derive_more::Display, Arbitrary,
-)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Hash, EnumIter, Arbitrary)]
 #[must_use]
 pub enum ChessColor {
     #[default]
     White = 0,
     Black = 1,
+}
+
+impl Display for ChessColor {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let str = match self {
+            White => "white",
+            Black => "black",
+        };
+        write!(f, "{str}")
+    }
 }
 
 impl Not for ChessColor {
@@ -503,46 +511,6 @@ impl Board for Chessboard {
         self.hash
     }
 
-    fn as_fen(&self) -> String {
-        let res = position_fen_part(self);
-        let mut castle_rights = String::default();
-        // Always output chess960 castling rights. FEN output isn't necessary for UCI
-        // and almost all tools support chess960 FEN notation.
-        for color in ChessColor::iter() {
-            for side in CastleRight::iter().rev() {
-                if self.castling.can_castle(color, side) {
-                    let mut file = file_to_char(self.castling.rook_start_file(color, side));
-                    if color == White {
-                        file = file.to_ascii_uppercase();
-                    }
-                    castle_rights.push(file);
-                }
-            }
-        }
-        if castle_rights.is_empty() {
-            castle_rights += "-";
-        }
-        let mut ep_square = "-".to_string();
-        if let Some(square) = self.ep_square() {
-            // Internally, the ep square is set whenever a pseudolegal ep move is possible, but the FEN standard requires
-            // the ep square to be set only iff there is a legal ep move possible. So we check for that when outputting
-            // the FEN (printing the FEN should not be performance critical).
-            if self.legal_moves_slow().iter().any(|m| m.is_ep()) {
-                ep_square = square.to_string();
-            }
-        }
-
-        let stm = match self.active_player {
-            White => 'w',
-            Black => 'b',
-        };
-        res + &format!(
-            " {stm} {castle_rights} {ep_square} {halfmove_clock} {move_number}",
-            halfmove_clock = self.ply_100_ctr,
-            move_number = self.fullmove_ctr_1_based()
-        )
-    }
-
     fn read_fen_and_advance_input(words: &mut Tokens, strictness: Strictness) -> Res<Self> {
         let mut board = Chessboard::empty();
         board = read_common_fen_part::<Chessboard>(words, board)?;
@@ -575,31 +543,9 @@ impl Board for Chessboard {
             }
         };
         board = board.set_ep(ep_square);
-        let halfmove_clock = words.next().unwrap_or("");
-        // Some FENs don't contain the halfmove clock and fullmove number, so assume that's the case if parsing
-        // the halfmove clock fails -- but don't do this for the fullmove number.
-        if let Ok(halfmove_clock) = halfmove_clock.parse::<usize>() {
-            board = board.set_halfmove_repetition_clock(halfmove_clock);
-            let Some(fullmove_number) = words.next() else {
-                bail!(
-                    "The FEN contains a valid halfmove clock ('{halfmove_clock}') but no fullmove counter",
-                )
-            };
-            let fullmove_number = fullmove_number.parse::<NonZeroUsize>().map_err(|err| {
-                anyhow!(
-                    "Couldn't parse fullmove counter '{}': {err}",
-                    fullmove_number.red()
-                )
-            })?;
-            board.0.ply = ply_counter_from_fullmove_nr::<Chessboard>(fullmove_number, color);
-        } else if strictness == Strict {
-            bail!("FEN doesn't contain a halfmove clock and fullmove counter, but they are required in strict mode")
-        } else {
-            board.0.ply_100_ctr = 0;
-            board.0.ply = usize::from(color == Black);
-        }
         board.0.active_player = color;
         board.0.castling = castling_rights;
+        board = read_two_move_numbers::<Chessboard>(words, board, strictness)?;
         // also sets the zobrist hash
         board.verify_with_level(CheckFen, strictness)
     }
@@ -675,6 +621,15 @@ impl BitboardBoard for Chessboard {
 
     fn player_bb(&self, color: Self::Color) -> Self::Bitboard {
         self.color_bbs[color as usize]
+    }
+
+    fn empty_bb(&self) -> Self::Bitboard {
+        // no need to mask with a bitboard of valid squares because each of the 64 bits corresponds to a square
+        !self.occupied_bb()
+    }
+
+    fn mask_bb(&self) -> Self::Bitboard {
+        ChessBitboard::new(!0)
     }
 }
 
@@ -812,9 +767,7 @@ impl Chessboard {
         color: ChessColor,
         mut board: UnverifiedChessboard,
     ) -> Res<UnverifiedChessboard> {
-        if num >= 960 {
-            bail!("There are only 960 starting positions in chess960 (0 to 959), so position {num} doesn't exist");
-        }
+        ensure!(num < 960, "There are only 960 starting positions in chess960 (0 to 959), so position {num} doesn't exist");
         assert!(board.0.player_bb(color).is_zero());
         assert_eq!(board.0.occupied_bb().raw() & 0xffff, 0);
         let mut extract_factor = |i: usize| {
@@ -924,8 +877,46 @@ impl Chessboard {
 }
 
 impl Display for Chessboard {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{0}", self.as_fen())
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        position_fen_part(f, self)?;
+        if self.active_player.is_first() {
+            write!(f, " w ")?;
+        } else {
+            write!(f, " b ")?;
+        }
+        let mut has_castling_righs = false;
+        // Always output chess960 castling rights. FEN output isn't necessary for UCI
+        // and almost all tools support chess960 FEN notation.
+        for color in ChessColor::iter() {
+            for side in CastleRight::iter().rev() {
+                if self.castling.can_castle(color, side) {
+                    has_castling_righs = true;
+                    let mut file = file_to_char(self.castling.rook_start_file(color, side));
+                    if color == White {
+                        file = file.to_ascii_uppercase();
+                    }
+                    write!(f, "{file}")?;
+                }
+            }
+        }
+        if !has_castling_righs {
+            write!(f, "-")?;
+        }
+        let mut ep_square = None;
+        if let Some(square) = self.ep_square() {
+            // Internally, the ep square is set whenever a pseudolegal ep move is possible, but the FEN standard requires
+            // the ep square to be set only iff there is a legal ep move possible. So we check for that when outputting
+            // the FEN (printing the FEN should not be performance critical).
+            if self.legal_moves_slow().iter().any(|m| m.is_ep()) {
+                ep_square = Some(square);
+            }
+        }
+        if let Some(square) = ep_square {
+            write!(f, " {square} ")?;
+        } else {
+            write!(f, " - ")?;
+        }
+        write!(f, "{0} {1}", self.ply_100_ctr, self.fullmove_ctr_1_based())
     }
 }
 
@@ -943,15 +934,16 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
     fn verify_with_level(self, checks: SelfChecks, strictness: Strictness) -> Res<Chessboard> {
         let mut this = self.0;
         for color in ChessColor::iter() {
-            if !this.colored_piece_bb(color, King).is_single_piece() {
-                bail!("The {color} player does not have exactly one king")
-            }
-            if (this.colored_piece_bb(color, Pawn)
-                & (ChessBitboard::rank_0() | ChessBitboard::rank(7)))
-            .has_set_bit()
-            {
-                bail!("The {color} player has a pawn on the first or eight rank");
-            }
+            ensure!(
+                this.colored_piece_bb(color, King).is_single_piece(),
+                "The {color} player does not have exactly one king"
+            );
+            ensure!(
+                (this.colored_piece_bb(color, Pawn)
+                    & (ChessBitboard::rank_0() | ChessBitboard::rank(7)))
+                .is_zero(),
+                "The {color} player has a pawn on the first or eight rank"
+            );
         }
 
         for color in ChessColor::iter() {
@@ -974,11 +966,10 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         let inactive_player = this.active_player.other();
 
         if let Some(ep_square) = this.ep_square {
-            if ![2, 5].contains(&ep_square.rank()) {
-                bail!(
-                    "FEN specifies invalid ep square (not on the third or sixth rank): '{ep_square}'"
-                );
-            }
+            ensure!(
+                [2, 5].contains(&ep_square.rank()),
+                "FEN specifies invalid ep square (not on the third or sixth rank): '{ep_square}'"
+            );
             let remove_pawn_square = ep_square.pawn_advance_unchecked(inactive_player);
             let pawn_origin_square = ep_square.pawn_advance_unchecked(this.active_player);
             if this.colored_piece_on(remove_pawn_square).symbol
@@ -1001,9 +992,8 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             if checks != CheckFen || strictness == Strict {
                 let possible_ep_pawns =
                     remove_pawn_square.bb().west() | remove_pawn_square.bb().east();
-                if (possible_ep_pawns & this.colored_piece_bb(active, Pawn)).is_zero() {
-                    bail!("The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square");
-                }
+                ensure!((possible_ep_pawns & this.colored_piece_bb(active, Pawn)).has_set_bit(),
+                    "The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square");
             }
         }
 
@@ -1013,12 +1003,11 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             let checkers = this.all_attacking(this.king_square(this.active_player))
                 & this.inactive_player_bb();
             let num_attacking = checkers.num_ones();
-            if num_attacking > 2 {
-                bail!(
-                    "{} is in check from {num_attacking} pieces, which is not allowed in strict mode",
-                    this.active_player
-                )
-            }
+            ensure!(
+                num_attacking <= 2,
+                "{} is in check from {num_attacking} pieces, which is not allowed in strict mode",
+                this.active_player
+            );
         }
         // we allow loading FENs where more than one piece gives check to the king in a way that could not have been reached
         // from startpos, e.g. "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1"
@@ -1056,14 +1045,29 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                     if other_piece == piece {
                         continue;
                     }
-                    if (bb
-                        & this
+                    ensure!(
+                        (bb & this
                             .colored_piece_bb(other_piece.color().unwrap(), other_piece.uncolor()))
-                    .has_set_bit()
-                    {
-                        bail!("There are two pieces on the same square: {piece} and {other_piece}");
-                    }
+                        .is_zero(),
+                        "There are two pieces on the same square: {piece} and {other_piece}"
+                    );
                 }
+            }
+        }
+        if checks == Assertion {
+            ensure!(
+                (this.player_bb(White) & this.player_bb(Black)).is_zero(),
+                "A square is set both on the white and black player bitboard, but no piece bitboard has this bit set"
+            );
+            let mut pieces = ChessBitboard::default();
+            for piece in ChessPieceType::pieces() {
+                pieces |= this.piece_bb(piece);
+            }
+            if pieces != this.color_bbs[0] | this.color_bbs[1] {
+                bail!(
+                    "The colored bitboards and the piece bitboards don't match on the following squares: {}",
+                    pieces ^ (this.color_bbs[0] | this.color_bbs[1])
+                );
             }
         }
         for color in ChessColor::iter() {
@@ -1104,6 +1108,10 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         self.0.is_empty(square)
     }
 
+    fn active_player(&self) -> ChessColor {
+        self.0.active_player
+    }
+
     fn set_active_player(mut self, player: ChessColor) -> Self {
         self.0.active_player = player;
         self
@@ -1111,6 +1119,11 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
 
     fn set_ply_since_start(mut self, ply: usize) -> Res<Self> {
         self.0.ply = ply;
+        Ok(self)
+    }
+
+    fn set_halfmove_repetition_clock(mut self, ply: usize) -> Res<Self> {
+        self.0.ply_100_ctr = ply;
         Ok(self)
     }
 }

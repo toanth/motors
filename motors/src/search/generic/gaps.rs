@@ -241,17 +241,20 @@ impl<B: Board> Gaps<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::eval::ataxx::bate::Bate;
     use crate::eval::chess::lite::LiTEval;
     use crate::eval::mnk::base::BasicMnkEval;
     use crate::search::tests::generic_engine_test;
     use gears::games::ataxx::AtaxxBoard;
     use gears::games::chess::Chessboard;
+    use gears::games::fairy::FairyBoard;
     use gears::games::mnk::MNKBoard;
 
     #[test]
     fn generic_test() {
         generic_engine_test::<Chessboard, Gaps<Chessboard>>(Gaps::for_eval::<LiTEval>());
         generic_engine_test::<MNKBoard, Gaps<MNKBoard>>(Gaps::for_eval::<BasicMnkEval>());
-        generic_engine_test::<AtaxxBoard, Gaps<AtaxxBoard>>(Gaps::for_eval::<RandEval>());
+        generic_engine_test::<AtaxxBoard, Gaps<AtaxxBoard>>(Gaps::for_eval::<Bate>());
+        generic_engine_test::<FairyBoard, Gaps<FairyBoard>>(Gaps::for_eval::<RandEval>())
     }
 }

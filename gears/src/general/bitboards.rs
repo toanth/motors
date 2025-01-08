@@ -15,10 +15,13 @@ use num::{PrimInt, Unsigned};
 use strum_macros::EnumIter;
 
 use crate::games::{DimT, KnownSize, Size};
+use crate::general::bitboards::chessboard::{RAYS_EXCLUSIVE, RAYS_INCLUSIVE};
 use crate::general::squares::{
     RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare,
 };
 
+/// Remove all `1` bits in `bb` strictly above the given `idx`, where `bb` is the type, like `u64`,
+/// and `len` is the number of bits in the type, like `64`.
 macro_rules! remove_ones_above {
     ($bb: expr, $idx: expr, $typ:ty, $len: expr) => {
         if $idx < $len {
@@ -35,12 +38,19 @@ macro_rules! remove_ones_below {
     };
 }
 
+const MAX_STEP_SIZE: usize = 30;
+
 macro_rules! step_bb_for {
     ($typ: ty, $num_bits:expr) => {{
-        let mut res: [$typ; $num_bits] = [0; $num_bits];
+        const LEN: usize = if $num_bits < MAX_STEP_SIZE {
+            $num_bits
+        } else {
+            MAX_STEP_SIZE
+        };
+        let mut res: [$typ; LEN] = [0; LEN];
         res[0] = 1;
         let mut step = 1;
-        while step < $num_bits {
+        while step < LEN {
             let mut i = 0;
             while i < $num_bits {
                 res[step] |= 1 << i;
@@ -111,19 +121,39 @@ macro_rules! anti_diagonal_bb_for {
     }};
 }
 
+macro_rules! ray_between_exclusive {
+    ($a: expr, $b: expr, $ray: expr, $one: expr, $typ: ty) => {{
+        let a: $typ = $one << $a;
+        let b: $typ = $one << $b;
+        let max = if a > b { a } else { b };
+        let min = if a < b { a } else { b };
+        (max - min) & $ray & !min
+    }};
+}
+
+macro_rules! ray_between_inclusive {
+    ($a: expr, $b: expr, $ray: expr, $one: expr, $typ: ty) => {{
+        let a: $typ = $one << $a;
+        let b: $typ = $one << $b;
+        let max = if a > b { a } else { b };
+        let min = if a < b { a } else { b };
+        ((max - min) | max) & $ray
+    }};
+}
+
 // TODO: Store as array of structs? Could be a speed up
 
 // allow width of at most 26 to prevent issues with square notation (26 letters in the alphabet)
 // with one extra to make some boundary conditions go away
 pub const MAX_WIDTH: usize = 27;
 
-const STEPS_U64: [u64; 64] = step_bb_for!(u64, 64);
+const STEPS_U64: [u64; MAX_STEP_SIZE] = step_bb_for!(u64, 64);
 
 const DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = diagonal_bb_for!(u64, 64, STEPS_U64);
 
 const ANTI_DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = anti_diagonal_bb_for!(u64, 64, STEPS_U64);
 
-const STEPS_U128: [u128; 128] = step_bb_for!(u128, 128);
+const STEPS_U128: [u128; MAX_STEP_SIZE] = step_bb_for!(u128, 128);
 
 const DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = diagonal_bb_for!(u128, 128, STEPS_U128);
 
@@ -155,6 +185,8 @@ pub trait RawBitboard:
     fn diagonal_bb(width: usize, diag: usize) -> Self;
 
     fn anti_diagonal_bb(width: usize, diag: usize) -> Self;
+
+    fn remove_ones_above(self, idx: usize) -> Self;
 
     #[inline]
     fn is_zero(self) -> bool {
@@ -249,6 +281,10 @@ impl RawBitboard for RawStandardBitboard {
         ANTI_DIAGONALS_U64[width][sq]
     }
 
+    fn remove_ones_above(self, idx: usize) -> Self {
+        remove_ones_above!(self, idx, u64, 64)
+    }
+
     fn is_single_piece(self) -> bool {
         self.is_power_of_two()
     }
@@ -277,6 +313,10 @@ impl RawBitboard for ExtendedRawBitboard {
         ANTI_DIAGONALS_U128[width][sq]
     }
 
+    fn remove_ones_above(self, idx: usize) -> Self {
+        remove_ones_above!(self, idx, u128, 128)
+    }
+
     fn is_single_piece(self) -> bool {
         self.is_power_of_two()
     }
@@ -292,6 +332,7 @@ pub enum RayDirections {
 
 /// A bitboard extends a [`RawBitboard`] (simply a set of 64 / 128 / ... bits) with a size,
 /// which allows talking about concepts like rows.
+// TODO: Redesign: Use two traits: Sized bitboard and unsized bitboard.
 #[must_use]
 pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     Debug
@@ -323,12 +364,15 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
 
     #[inline]
     fn rank_0_for(size: C::Size) -> Self {
-        Self::new((R::one() << size.internal_width()) - R::one(), size)
+        Self::new((R::one() << size.width().val()) - R::one(), size)
     }
 
     #[inline]
     fn file_0_for(size: C::Size) -> Self {
-        Self::new(R::steps_bb(size.internal_width()), size)
+        let steps = R::steps_bb(size.internal_width());
+        // in theory, the compiler should be smart enough to realize that it can remove this for chess bitboards
+        let bb = steps.remove_ones_above(size.num_squares() - 1);
+        Self::new(bb, size)
     }
 
     #[inline]
@@ -348,6 +392,10 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
         Self::rank_0_for(size) | Self::rank_for(size.height().get() - 1, size)
     }
 
+    fn ray_exclusive(a: C, b: C, size: C::Size) -> Self;
+
+    fn ray_inclusive(a: C, b: C, size: C::Size) -> Self;
+
     #[inline]
     fn diag_for_sq(sq: C, size: C::Size) -> Self {
         debug_assert!(size.coordinates_valid(sq));
@@ -364,6 +412,16 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
             R::anti_diagonal_bb(size.internal_width(), size.internal_key(sq)),
             size,
         )
+    }
+
+    /// Not especially fast; meant to be called once to precompute this bitboard
+    fn valid_squares_for_size(size: C::Size) -> Self {
+        let rank_0 = Self::rank_0_for(size);
+        let mut ranks = rank_0;
+        for n in 1..size.height().val() {
+            ranks |= rank_0 << size.internal_width() * n;
+        }
+        ranks
     }
 
     fn raw(self) -> R;
@@ -474,7 +532,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
         let size = blockers.size();
         let rank_bb = Self::rank_0_for(size);
         let row = square.row() as usize;
-        let square = C::from_row_column(0, square.column());
+        let square = C::from_rank_file(0, square.column());
         let blockers = blockers >> (blockers.internal_width() * row);
         let lowest_row = Self::hyperbola_quintessence(
             size.internal_key(square),
@@ -775,6 +833,22 @@ impl<const H: usize, const W: usize> Bitboard<RawStandardBitboard, SmallGridSqua
         Self(raw)
     }
 
+    fn ray_exclusive(
+        a: SmallGridSquare<H, W, 8>,
+        b: SmallGridSquare<H, W, 8>,
+        _size: SmallGridSize<H, W>,
+    ) -> Self {
+        Self::new(RAYS_EXCLUSIVE[a.bb_idx()][b.bb_idx()])
+    }
+
+    fn ray_inclusive(
+        a: SmallGridSquare<H, W, 8>,
+        b: SmallGridSquare<H, W, 8>,
+        _size: SmallGridSize<H, W>,
+    ) -> Self {
+        Self::new(RAYS_INCLUSIVE[a.bb_idx()][b.bb_idx()])
+    }
+
     #[inline]
     fn raw(self) -> RawStandardBitboard {
         self.0
@@ -976,6 +1050,20 @@ impl<R: RawBitboard, C: RectangularCoordinates> Bitboard<R, C> for DynamicallySi
         Self { raw, size }
     }
 
+    fn ray_exclusive(a: C, b: C, size: C::Size) -> Self {
+        let ray = Self::ray(a, b, size).raw;
+        let underlying =
+            ray_between_exclusive!(size.internal_key(a), size.internal_key(b), ray, R::one(), R);
+        Self::new(underlying, size)
+    }
+
+    fn ray_inclusive(a: C, b: C, size: C::Size) -> Self {
+        let ray = Self::ray(a, b, size).raw;
+        let underlying =
+            ray_between_inclusive!(size.internal_key(a), size.internal_key(b), ray, R::one(), R);
+        Self::new(underlying, size)
+    }
+
     #[inline]
     fn raw(self) -> R {
         self.raw
@@ -987,39 +1075,25 @@ impl<R: RawBitboard, C: RectangularCoordinates> Bitboard<R, C> for DynamicallySi
     }
 }
 
+impl<R: RawBitboard, C: RectangularCoordinates> DynamicallySizedBitboard<R, C> {
+    fn ray(a: C, b: C, size: C::Size) -> Self {
+        if a.row() == b.row() {
+            Self::rank_for(a.row(), size)
+        } else if a.file() == b.file() {
+            Self::file_for(a.file(), size)
+        } else if a.file().wrapping_sub(a.rank()) == b.file().wrapping_sub(b.rank()) {
+            Self::diag_for_sq(a, size)
+        } else if a.file().wrapping_sub(a.rank()) == b.rank().wrapping_sub(b.file()) {
+            Self::anti_diag_for_sq(a, size)
+        } else {
+            return Self::new(R::zero(), size);
+        }
+    }
+}
+
 impl<R: RawBitboard, C: RectangularCoordinates<Size: KnownSize<C>>> KnownSizeBitboard<R, C>
     for DynamicallySizedBitboard<R, C>
 {
-}
-
-pub enum Axis {
-    Horizontal,
-    Vertical,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum AxisRequirement {
-    StrictlyGreater,
-    GreaterOrEqual,
-    Equal,
-    LessOrEqual,
-    StrictlyLess,
-    Unequal,
-    DontCare,
-}
-
-impl AxisRequirement {
-    pub const fn applies(self, diff: isize) -> bool {
-        match self {
-            AxisRequirement::StrictlyGreater => diff > 0,
-            AxisRequirement::GreaterOrEqual => diff >= 0,
-            AxisRequirement::Equal => diff == 0,
-            AxisRequirement::LessOrEqual => diff <= 0,
-            AxisRequirement::StrictlyLess => diff < 0,
-            AxisRequirement::Unequal => diff != 0,
-            AxisRequirement::DontCare => true,
-        }
-    }
 }
 
 #[macro_export]
@@ -1034,64 +1108,123 @@ macro_rules! shift_left {
 }
 
 // can't be a lambda because rust doesn't support that in const fns
-const fn do_shift(
-    horizontal_shift: isize,
-    vertical_shift: isize,
-    width: isize,
-    file: isize,
-    bb: RawStandardBitboard,
-) -> RawStandardBitboard {
-    let shift = horizontal_shift + vertical_shift * width;
-    if file >= -horizontal_shift && file + horizontal_shift < width {
-        shift_left!(bb, shift)
-    } else {
-        0
-    }
+#[macro_export]
+macro_rules! do_shift {
+    ($horizontal_shift: expr,
+    $vertical_shift: expr,
+    $width: expr,
+    $file: expr,
+    $bb: expr,
+    $typ: ty) => {{
+        let shift = $horizontal_shift + $vertical_shift * $width;
+        if $file >= -$horizontal_shift
+            && $file + $horizontal_shift < $width
+            && shift < <$typ>::BITS as isize
+            && -shift < <$typ>::BITS as isize
+        {
+            shift_left!($bb, shift)
+        } else {
+            0
+        }
+    }};
 }
 
 // can be called at compile time or when constructing fairy chess rules
 // width is the internal width, so boards with a width less than 8, but height <= 8 can simply use 8 as the width
-pub const fn precompute_single_leaper_attacks(
-    square_idx: usize,
-    diff_1: usize,
-    diff_2: usize,
-    width: usize,
-) -> u64 {
-    let diff_1 = diff_1 as isize;
-    let diff_2 = diff_2 as isize;
-    let width = width as isize;
-    assert!(diff_1 <= diff_2); // an (a, b) leaper is the same as an (b, a) leaper
-    let this_piece: u64 = 1 << square_idx;
-    let file = square_idx as isize % width;
-    let mut attacks: u64 = 0;
-    let mut i = 0;
-    while i < 4 {
-        // for horizontal_dir in [-1, 1], for vertical_dir in [-1, 1]
-        let horizontal_dir = i / 2 * 2 - 1;
-        let vertical_dir = i % 2 * 2 - 1;
-        attacks |= do_shift(
-            diff_2 * horizontal_dir,
-            diff_1 * vertical_dir,
-            width,
-            file,
-            this_piece,
-        );
-        attacks |= do_shift(
-            diff_1 * horizontal_dir,
-            diff_2 * vertical_dir,
-            width,
-            file,
-            this_piece,
-        );
-        i += 1;
-    }
-
-    attacks
+#[macro_export]
+macro_rules! precompute_leaper_attacks {
+    ($square_idx: expr, $diff_1: expr, $diff_2: expr, $repeat: expr, $width: expr, $typ: ty) => {{
+        let diff_1 = $diff_1 as isize;
+        let diff_2 = $diff_2 as isize;
+        let width = $width as isize;
+        assert!(diff_1 <= diff_2); // an (a, b) leaper is the same as an (b, a) leaper
+        let this_piece: $typ = 1 << $square_idx;
+        let file = $square_idx as isize % width;
+        let mut attacks: $typ = 0;
+        let mut i = 0;
+        while i < 4 {
+            // for horizontal_dir in [-1, 1], for vertical_dir in [-1, 1]
+            let horizontal_dir = i / 2 * 2 - 1;
+            let vertical_dir = i % 2 * 2 - 1;
+            let mut horizontal_offset = horizontal_dir;
+            let mut vertical_offset = vertical_dir;
+            let mut repetition = 0;
+            loop {
+                attacks |= $crate::do_shift!(
+                    diff_2 * horizontal_offset,
+                    diff_1 * vertical_offset,
+                    width,
+                    file,
+                    this_piece,
+                    $typ
+                );
+                attacks |= $crate::do_shift!(
+                    diff_1 * horizontal_offset,
+                    diff_2 * vertical_offset,
+                    width,
+                    file,
+                    this_piece,
+                    $typ
+                );
+                if !$repeat || repetition > $width {
+                    // TODO: max(width, height)
+                    break;
+                }
+                horizontal_offset += horizontal_dir;
+                vertical_offset += vertical_dir;
+                repetition += 1;
+            }
+            i += 1;
+        }
+        attacks
+    }};
 }
+
+// // can be called at compile time or when constructing fairy chess rules
+// // width is the internal width, so boards with a width less than 8, but height <= 8 can simply use 8 as the width
+// pub const fn precompute_leaper_attacks(
+//     square_idx: usize,
+//     diff_1: usize,
+//     diff_2: usize,
+//     rider: bool,
+//     width: usize,
+// ) -> u64 {
+//     let diff_1 = diff_1 as isize;
+//     let diff_2 = diff_2 as isize;
+//     let width = width as isize;
+//     assert!(diff_1 <= diff_2); // an (a, b) leaper is the same as an (b, a) leaper
+//     let this_piece: u64 = 1 << square_idx;
+//     let file = square_idx as isize % width;
+//     let mut attacks: u64 = 0;
+//     let mut i = 0;
+//     while i < 4 {
+//         // for horizontal_dir in [-1, 1], for vertical_dir in [-1, 1]
+//         let horizontal_dir = i / 2 * 2 - 1;
+//         let vertical_dir = i % 2 * 2 - 1;
+//         attacks |= do_shift!(
+//             diff_2 * horizontal_dir,
+//             diff_1 * vertical_dir,
+//             width,
+//             file,
+//             this_piece
+//         );
+//         attacks |= do_shift!(
+//             diff_1 * horizontal_dir,
+//             diff_2 * vertical_dir,
+//             width,
+//             file,
+//             this_piece
+//         );
+//         i += 1;
+//     }
+//
+//     attacks
+// }
 
 /// 8x8 bitboards. Not necessarily only for chess, e.g. checkers would use the same bitboard.
 /// Treated specially because some operations are much simpler and faster for 8x8 boards and boards
 /// with smaller width or height can use such a bitboard internally.
+// TODO: Use Raw bitboards
 pub mod chessboard {
     use super::*;
     use crate::games::chess::squares::NUM_SQUARES;
@@ -1103,7 +1236,7 @@ pub mod chessboard {
         let mut res: [ChessBitboard; 64] = [ChessBitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            res[i] = ChessBitboard::new(precompute_single_leaper_attacks(i, 1, 2, 8));
+            res[i] = ChessBitboard::new(precompute_leaper_attacks!(i, 1, 2, false, 8, u64));
             i += 1;
         }
         res
@@ -1113,8 +1246,8 @@ pub mod chessboard {
         let mut res = [ChessBitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            let bb = precompute_single_leaper_attacks(i, 1, 1, 8)
-                | precompute_single_leaper_attacks(i, 0, 1, 8);
+            let bb = precompute_leaper_attacks!(i, 1, 1, false, 8, u64)
+                | precompute_leaper_attacks!(i, 0, 1, false, 8, u64);
             res[i] = ChessBitboard::new(bb);
             i += 1;
         }
@@ -1126,11 +1259,59 @@ pub mod chessboard {
         let mut res = [ChessBitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            let bb = precompute_single_leaper_attacks(i, 2, 2, 8)
-                | precompute_single_leaper_attacks(i, 1, 2, 8)
-                | precompute_single_leaper_attacks(i, 0, 2, 8);
+            let bb = precompute_leaper_attacks!(i, 2, 2, false, 8, u64)
+                | precompute_leaper_attacks!(i, 1, 2, false, 8, u64)
+                | precompute_leaper_attacks!(i, 0, 2, false, 8, u64);
             res[i] = ChessBitboard::new(bb);
             i += 1;
+        }
+        res
+    };
+
+    pub const RAYS_INCLUSIVE: [[RawStandardBitboard; 64]; 64] = {
+        let mut res = [[0; 64]; 64];
+        let mut start = 0;
+        while start < 64 {
+            let file = start % 8;
+            let rank = start / 8;
+            let mut i = 0;
+            while i < 8 {
+                let sq = rank * 8 + i;
+                res[start][sq] = ray_between_inclusive!(start, sq, 0xff << (8 * rank), 1_u64, u64);
+                let sq = 8 * i + file;
+                res[start][sq] =
+                    ray_between_inclusive!(start, sq, ChessBitboard::A_FILE.0 << file, 1_u64, u64);
+                i += 1;
+            }
+            let mut diag = DIAGONALS_U64[8][start];
+            while diag != 0 {
+                let sq = diag.trailing_zeros() as usize;
+                res[start][sq] =
+                    ray_between_inclusive!(start, sq, DIAGONALS_U64[8][start], 1_u64, u64);
+                diag &= diag - 1;
+            }
+            let mut anti_diag = DIAGONALS_U64[8][start];
+            while anti_diag != 0 {
+                let sq = anti_diag.trailing_zeros() as usize;
+                res[start][sq] =
+                    ray_between_inclusive!(start, sq, ANTI_DIAGONALS_U64[8][start], 1_u64, u64);
+                anti_diag &= anti_diag - 1;
+            }
+            start += 1;
+        }
+        res
+    };
+
+    pub const RAYS_EXCLUSIVE: [[RawStandardBitboard; 64]; 64] = {
+        let mut res = [[0; 64]; 64];
+        let mut a = 0;
+        while a < 64 {
+            let mut b = 0;
+            while b < 64 {
+                res[a][b] = RAYS_INCLUSIVE[a][b] & !((1 << a) | (1 << b));
+                b += 1;
+            }
+            a += 1;
         }
         res
     };

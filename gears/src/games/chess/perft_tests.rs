@@ -6,6 +6,7 @@ mod tests {
     use crate::games::Board;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::{Relaxed, Strict};
+    use crate::general::common::parse_int_from_str;
     use crate::general::perft::perft;
     use crate::search::Depth;
     use itertools::Itertools;
@@ -94,12 +95,14 @@ mod tests {
             let fen = parts.next().unwrap();
             let mut res = vec![INVALID; 8];
             for r in parts {
-                assert_eq!(r.chars().nth(0).unwrap(), 'D');
-                assert!(r.chars().nth(1).unwrap().is_ascii_digit());
-                let depth = r.chars().nth(1).unwrap().to_digit(10).unwrap();
+                let mut words = r.split_whitespace();
+                let depth = words.next().unwrap();
+                let depth = depth.strip_prefix("D").unwrap();
+                let depth = parse_int_from_str::<usize>(depth, "perft depth").unwrap();
                 assert!(depth <= 7);
-                let node_count = r.split_whitespace().nth(1).unwrap().parse().unwrap();
-                res[depth as usize] = node_count;
+                let node_count = words.next().unwrap();
+                let node_count = parse_int_from_str(node_count, "perft node count").unwrap();
+                res[depth] = node_count;
             }
             ExpectedPerftRes { fen, res }
         }

@@ -48,10 +48,7 @@ impl<B: Board> SearchResult<B> {
         if !chosen_move.is_null() {
             let new_pos = pos.make_move(chosen_move).unwrap();
             if let Some(ponder) = ponder_move {
-                debug_assert!(
-                    new_pos.is_move_legal(ponder),
-                    "{ponder}, {new_pos}, {pos}, {chosen_move}"
-                );
+                debug_assert!(new_pos.is_move_legal(ponder));
             }
         }
         Self {
@@ -80,11 +77,15 @@ impl<B: Board> SearchResult<B> {
 
 impl<B: Board> Display for SearchResult<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "bestmove {}",
+            self.chosen_move.compact_formatter(&self.pos)
+        )?;
         if let Some(ponder) = self.ponder_move() {
-            write!(f, "bestmove {} ponder {ponder}", self.chosen_move)
-        } else {
-            write!(f, "bestmove {}", self.chosen_move)
+            write!(f, " ponder {}", ponder.compact_formatter(&self.pos))?;
         }
+        Ok(())
     }
 }
 
@@ -222,8 +223,10 @@ impl<B: Board> Display for SearchInfo<B> {
                nps = self.nps(),
                hashfull = self.hashfull,
         )?;
-        for mov in &self.pv {
-            write!(f, " {mov}")?;
+        let mut pos = self.pos;
+        for &mov in &self.pv {
+            write!(f, " {}", mov.compact_formatter(&pos))?;
+            pos = pos.make_move(mov).unwrap();
         }
         if let Some(ref additional) = self.additional {
             write!(f, " string {additional}")?;

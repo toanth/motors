@@ -1,5 +1,5 @@
 use crate::games::{CharType, Color, ColoredPiece, DimT, Settings};
-use crate::general::board::{Board, RectangularBoard};
+use crate::general::board::{Board, BoardHelpers, RectangularBoard};
 use crate::general::common::{NamedEntity, Res};
 use crate::general::move_list::MoveList;
 use crate::general::moves::ExtendedFormat::Alternative;
@@ -11,7 +11,7 @@ use crate::output::text_output::DisplayType::*;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
 use crate::GameState;
 use crate::MatchStatus::*;
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, ensure};
 use colored::Colorize;
 use std::fmt;
 use std::fs::File;
@@ -52,14 +52,13 @@ impl TextStream {
     }
 
     pub fn from_filename(name: &str) -> Res<Self> {
-        if !name.contains('.') {
-            // Although files of course don't have to contain a '.', requiring that feels like a good way to
-            // catch errors like typos where the user didn't mean to specify a file name.
-            bail!(
-                "'{name}' does not appear to be a valid log filename (it does not contain a '.'). \
+        // Although files of course don't have to contain a '.', requiring that feels like a good way to
+        // catch errors like typos where the user didn't mean to specify a file name.
+        ensure!(
+            name.contains('.'),
+            "'{name}' does not appear to be a valid log filename (it does not contain a '.'). \
                 Expected either a filename, 'stdout', 'stderr', or 'none'."
-            );
-        }
+        );
         let path = Path::new(name);
         let file = File::create(path).map_err(|err| anyhow!("Couldn't create log file: {err}"))?;
         Ok(TextStream::File(
@@ -193,8 +192,14 @@ impl BoardToText {
             format!("position fen {pos}")
         } else {
             let mut res = format!("position fen {} moves ", m.initial_pos().as_fen());
-            for mov in m.move_history() {
-                write!(&mut res, "{mov} ").unwrap();
+            let mut board = m.get_board();
+            for &mov in m.move_history() {
+                write!(&mut res, "{} ", mov.compact_formatter(&board)).unwrap();
+                let Some(new) = board.make_move(mov) else {
+                    write!(&mut res, "{}", "(invalid move)".red()).unwrap();
+                    return res;
+                };
+                board = new;
             }
             res
         }
@@ -407,7 +412,7 @@ pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece, CharType) -> char>(
         for x in 0..pos.width() {
             let xc = if flip { pos.width() - 1 - x } else { x };
             let c = piece_to_char(
-                pos.colored_piece_on(B::Coordinates::from_row_column(yc, xc)),
+                pos.colored_piece_on(B::Coordinates::from_rank_file(yc, xc)),
                 typ,
             );
             write!(&mut res, " {c}").unwrap();
@@ -612,7 +617,7 @@ pub fn display_board_pretty<B: RectangularBoard>(
     #[allow(clippy::needless_range_loop)]
     for y in 0..pos.get_height() {
         for x in 0..pos.get_width() {
-            let square = B::Coordinates::from_row_column(y as u8, x as u8);
+            let square = B::Coordinates::from_rank_file(y as u8, x as u8);
             if flip {
                 colors[y][pos.get_width() - 1 - x] = fmt.frame_color(square);
             } else {
@@ -637,7 +642,7 @@ pub fn display_board_pretty<B: RectangularBoard>(
             line += &with_color(bar, col, x % fmt.horizontal_spacer_interval() == 0);
             let xc = if flip { pos.get_width() - 1 - x } else { x };
             line += &fmt.display_piece(
-                B::Coordinates::from_row_column(y as DimT, xc as DimT),
+                B::Coordinates::from_rank_file(y as DimT, xc as DimT),
                 sq_width,
             );
         }

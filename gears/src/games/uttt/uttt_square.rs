@@ -90,7 +90,7 @@ impl FromStr for UtttSquare {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        SmallGridSquare::<9, 9, 9>::from_str(s).map(|c| Self::from_row_column(c.row(), c.column()))
+        SmallGridSquare::<9, 9, 9>::from_str(s).map(|c| Self::from_rank_file(c.row(), c.column()))
     }
 }
 
@@ -115,9 +115,9 @@ impl Coordinates for UtttSquare {
 }
 
 impl RectangularCoordinates for UtttSquare {
-    fn from_row_column(row: DimT, column: DimT) -> Self {
-        let sub_board = SmallGridSquare::from_row_column(row / 3, column / 3);
-        let sub_square = SmallGridSquare::from_row_column(row % 3, column % 3);
+    fn from_rank_file(row: DimT, column: DimT) -> Self {
+        let sub_board = SmallGridSquare::from_rank_file(row / 3, column / 3);
+        let sub_square = SmallGridSquare::from_rank_file(row % 3, column % 3);
         Self {
             sub_board,
             sub_square,

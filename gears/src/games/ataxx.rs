@@ -15,8 +15,7 @@ use crate::general::bitboards::{
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    board_from_name, common_fen_part, BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks,
-    Strictness, UnverifiedBoard,
+    simple_fen, BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
@@ -28,7 +27,7 @@ use crate::output::text_output::{
 use crate::search::Depth;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose, Win};
-use anyhow::bail;
+use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use itertools::Itertools;
 use rand::prelude::IndexedRandom;
@@ -106,7 +105,7 @@ impl Default for AtaxxBoard {
 
 impl Display for AtaxxBoard {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_fen())
+        simple_fen(f, self, true, true)
     }
 }
 
@@ -139,6 +138,7 @@ type AtaxxPiece = GenericPiece<AtaxxBoard, ColoredAtaxxPieceType>;
 pub type AtaxxMoveList = EagerNonAllocMoveList<AtaxxBoard, MAX_ATAXX_MOVES_IN_POS>;
 
 impl Board for AtaxxBoard {
+    // TODO: This is not a useful board state since neither player can make any moves
     type EmptyRes = AtaxxBoard;
     type Settings = AtaxxSettings;
     type Coordinates = AtaxxSquare;
@@ -156,10 +156,6 @@ impl Board for AtaxxBoard {
 
     fn startpos_for_settings(_settings: Self::Settings) -> Self {
         Self::default()
-    }
-
-    fn from_name(name: &str) -> Res<Self> {
-        board_from_name(name)
     }
 
     fn bench_positions() -> Vec<Self> {
@@ -243,7 +239,8 @@ impl Board for AtaxxBoard {
     }
 
     fn is_empty(&self, coords: Self::Coordinates) -> bool {
-        self.empty_bb().is_bit_set_at(coords.bb_idx())
+        // more efficient than empty_bb() unless the compiler manages to optimize the bitand away (unlikely)
+        !self.occupied_bb().is_bit_set_at(coords.bb_idx())
     }
 
     fn is_piece_on(&self, sq: AtaxxSquare, piece: ColoredAtaxxPieceType) -> bool {
@@ -280,6 +277,10 @@ impl Board for AtaxxBoard {
 
     fn gen_tactical_pseudolegal<T: MoveList<Self>>(&self, _moves: &mut T) {
         // currently, no moves are considered tactical
+    }
+
+    fn num_pseudolegal_moves(&self) -> usize {
+        self.num_moves()
     }
 
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
@@ -346,10 +347,6 @@ impl Board for AtaxxBoard {
         self.hash_impl()
     }
 
-    fn as_fen(&self) -> String {
-        common_fen_part(self, true, true)
-    }
-
     fn read_fen_and_advance_input(string: &mut Tokens, strictness: Strictness) -> Res<Self> {
         Self::read_fen_impl(string, strictness)
     }
@@ -391,6 +388,10 @@ impl BitboardBoard for AtaxxBoard {
     fn player_bb(&self, color: Self::Color) -> Self::Bitboard {
         self.colors[color as usize]
     }
+
+    fn mask_bb(&self) -> Self::Bitboard {
+        !AtaxxBitboard::INVALID_EDGE_MASK
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -413,15 +414,16 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
                 AtaxxSquare::unchecked((!blocked & AtaxxBitboard::INVALID_EDGE_MASK).pop_lsb())
             );
         }
-        if this.ply_100_ctr > 100 {
-            bail!(
-                "The halfmove clock is too large: It must be a number between 0 and 100, not {}",
-                this.ply_100_ctr
-            );
-        }
-        if this.ply > 10_000 {
-            bail!("Ridiculously large ply number ({})", this.ply);
-        }
+        ensure!(
+            this.ply_100_ctr <= 100,
+            "The halfmove clock is too large: It must be a number between 0 and 100, not {}",
+            this.ply_100_ctr
+        );
+        ensure!(
+            this.ply <= 10_000,
+            "Ridiculously large ply number ({})",
+            this.ply
+        );
 
         if level == CheckFen {
             return Ok(this);
@@ -430,20 +432,18 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
             assert_eq!(this.num_squares(), 49);
         }
         let mut overlap = this.colors[0] & this.colors[1];
-        if overlap.has_set_bit() {
-            bail!(
-                "Both players have a piece on the same square ('{}')",
-                AtaxxSquare::from_bb_index(overlap.pop_lsb())
-            );
-        }
+        ensure!(
+            overlap.is_zero(),
+            "Both players have a piece on the same square ('{}')",
+            AtaxxSquare::from_bb_index(overlap.pop_lsb())
+        );
         for color in AtaxxColor::iter() {
             let mut overlap = this.empty & this.colors[color as usize];
-            if overlap.has_set_bit() {
-                bail!(
-                    "The square '{}' is both empty and occupied by a player",
-                    AtaxxSquare::from_bb_index(overlap.pop_lsb())
-                );
-            }
+            ensure!(
+                overlap.is_zero(),
+                "The square '{}' is both empty and occupied by a player",
+                AtaxxSquare::from_bb_index(overlap.pop_lsb())
+            );
         }
         Ok(this)
     }
@@ -482,6 +482,10 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
         self.0.is_empty(square)
     }
 
+    fn active_player(&self) -> AtaxxColor {
+        self.0.active_player
+    }
+
     fn set_active_player(mut self, player: AtaxxColor) -> Self {
         self.0.active_player = player;
         self
@@ -489,6 +493,11 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
 
     fn set_ply_since_start(mut self, ply: usize) -> Res<Self> {
         self.0.ply = ply;
+        Ok(self)
+    }
+
+    fn set_halfmove_repetition_clock(mut self, ply: usize) -> Res<Self> {
+        self.0.ply_100_ctr = ply;
         Ok(self)
     }
 }

@@ -4,7 +4,7 @@ use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, KnownS
 use crate::general::bitboards::{KnownSizeBitboard, SmallGridBitboard};
 use crate::general::common::{parse_int_from_str, Res};
 use crate::general::squares::SquareColor::{Black, White};
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use std::cmp::max;
@@ -13,7 +13,7 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
-    fn from_row_column(row: DimT, column: DimT) -> Self;
+    fn from_rank_file(row: DimT, column: DimT) -> Self;
     fn row(self) -> DimT;
     fn column(self) -> DimT;
     fn rank(self) -> DimT {
@@ -67,7 +67,7 @@ impl Coordinates for GridCoordinates {
 }
 
 impl RectangularCoordinates for GridCoordinates {
-    fn from_row_column(row: DimT, column: DimT) -> Self {
+    fn from_rank_file(row: DimT, column: DimT) -> Self {
         GridCoordinates { row, column }
     }
 
@@ -88,7 +88,7 @@ impl FromStr for GridCoordinates {
             bail!("Square doesn't start with an ASCII character");
         };
         let rank: usize = parse_int_from_str(rank, "rank (row)")?;
-        Self::algebraic_coordinate(file.chars().next().unwrap(), rank)
+        Self::algebraic_coordinates(file.chars().next().unwrap(), rank)
     }
 }
 
@@ -114,13 +114,12 @@ impl Display for GridCoordinates {
 }
 
 impl GridCoordinates {
-    pub fn algebraic_coordinate(file: char, rank: usize) -> Res<Self> {
-        if !file.is_ascii_alphabetic() {
-            bail!(
-                "file (column) '{}' must be a valid ascii letter",
-                file.to_string().red()
-            );
-        }
+    pub fn algebraic_coordinates(file: char, rank: usize) -> Res<Self> {
+        ensure!(
+            file.is_ascii_alphabetic(),
+            "file (column) '{}' must be a valid ascii letter",
+            file.to_string().red()
+        );
         let column = char_to_file(file.to_ascii_lowercase());
         let rank = DimT::try_from(rank)?;
         Ok(GridCoordinates {
@@ -129,17 +128,26 @@ impl GridCoordinates {
         })
     }
 
+    pub fn pawn_push(mut self, up: bool) -> Self {
+        if up {
+            self.row += 1;
+        } else {
+            self.row -= 1;
+        }
+        self
+    }
+
     // TODO: Ideally, this shouldn't be necessary
     pub fn no_coordinates() -> Self {
         Self {
-            row: DimT::MAX,
+            row: 0,
             column: DimT::MAX,
         }
     }
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash, Arbitrary)]
-pub struct CompactSquare(DimT);
+pub struct CompactSquare(pub DimT);
 
 impl CompactSquare {
     pub fn new(square: GridCoordinates, size: GridSize) -> Self {
@@ -147,6 +155,9 @@ impl CompactSquare {
     }
     pub fn square(self, size: GridSize) -> GridCoordinates {
         size.idx_to_coordinates(self.0)
+    }
+    pub fn underlying(self) -> DimT {
+        self.0
     }
 }
 
@@ -158,11 +169,11 @@ pub trait RectangularSize<C: RectangularCoordinates>: Size<C> {
     }
 
     fn idx_to_coordinates(&self, idx: DimT) -> C {
-        C::from_row_column(idx / self.width().0, idx % self.width().0)
+        C::from_rank_file(idx / self.width().0, idx % self.width().0)
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Arbitrary)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Arbitrary)]
 #[must_use]
 pub struct GridSize {
     pub height: Height,
@@ -180,18 +191,22 @@ impl GridSize {
         Self { height, width }
     }
 
+    /// 8 x 8
     pub const fn chess() -> Self {
         Self::new(Height(8), Width(8))
     }
 
+    /// 7 x 7
     pub fn ataxx() -> Self {
         Self::new(Height(7), Width(7))
     }
 
+    /// 3 x 3
     pub const fn tictactoe() -> Self {
         Self::new(Height(3), Width(3))
     }
 
+    /// 6 x 7
     pub const fn connect4() -> Self {
         Self::new(Height(6), Width(7))
     }
@@ -353,7 +368,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
     }
 
     pub fn from_chars(file: char, rank: char) -> Res<Self> {
-        GridCoordinates::algebraic_coordinate(
+        GridCoordinates::algebraic_coordinates(
             file,
             // + 1 because the rank number uses 1-based indices
             rank.to_digit(H as u32 + 1).ok_or_else(|| {
@@ -484,7 +499,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Coordinates
 impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> RectangularCoordinates
     for SmallGridSquare<H, W, INTERNAL_WIDTH>
 {
-    fn from_row_column(row: DimT, column: DimT) -> Self {
+    fn from_rank_file(row: DimT, column: DimT) -> Self {
         Self::from_rank_file(row, column)
     }
 

@@ -12,7 +12,7 @@ use crate::games::PlayerResult::Lose;
 use crate::general::board::Board;
 use crate::general::common::{parse_int, EntityList, Res, StaticallyNamedEntity};
 use crate::general::move_list::MoveList;
-use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
+use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::OutputBuilder;
 use crate::PlayerResult;
 use derive_more::{BitXor, BitXorAssign};
@@ -204,7 +204,7 @@ pub trait Coordinates:
 
 pub type DimT = u8;
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Default, Arbitrary)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Arbitrary)]
 #[must_use]
 pub struct Height(pub DimT);
 
@@ -222,7 +222,7 @@ impl Height {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Default, Arbitrary)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Arbitrary)]
 #[must_use]
 pub struct Width(pub DimT);
 

@@ -389,7 +389,10 @@ fn pretty_pv<B: Board>(
     let pv = pv.iter();
     for (idx, mov) in pv.enumerate() {
         if !pos.is_move_legal(*mov) {
-            return format!("{res} [Invalid PV move '{}'", mov.to_string().red());
+            return format!(
+                "{res} [Invalid PV move '{}'",
+                mov.compact_formatter(&pos).to_string().red()
+            );
         }
         // 'Alternative' would be cooler, but unfortunately most fonts struggle with unicode chess pieces,
         // especially in combination with bold / dim etc

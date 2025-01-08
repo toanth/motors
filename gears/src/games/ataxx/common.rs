@@ -7,7 +7,7 @@ use crate::general::board::{Board, BoardHelpers};
 use crate::general::common::Res;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
-use anyhow::bail;
+use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use std::fmt;
@@ -167,7 +167,10 @@ pub struct AtaxxMove {
 
 impl Display for AtaxxMove {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.format_compact(f)
+        match self.typ() {
+            Leaping => write!(f, "{0}{1}", self.source, self.target),
+            Cloning => write!(f, "{}", self.target),
+        }
     }
 }
 
@@ -194,18 +197,13 @@ impl Move<AtaxxBoard> for AtaxxMove {
         false
     }
 
-    fn format_compact(self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self.typ() {
-            Leaping => write!(f, "{0}{1}", self.source, self.target),
-            Cloning => write!(f, "{}", self.target),
-        }
+    fn format_compact(self, f: &mut Formatter<'_>, _board: &AtaxxBoard) -> fmt::Result {
+        write!(f, "{self}")
     }
 
     fn parse_compact_text<'a>(s: &'a str, board: &AtaxxBoard) -> Res<(&'a str, AtaxxMove)> {
         let s = s.trim();
-        if s.is_empty() {
-            bail!("Empty input");
-        }
+        ensure!(!s.is_empty(), "Empty input");
         if let Some(rest) = s.strip_prefix("0000") {
             return Ok((rest, Self::default()));
         }

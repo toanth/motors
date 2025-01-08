@@ -43,7 +43,7 @@ impl CastleRight {
     }
 }
 
-#[derive(Eq, PartialEq, Default, Debug, Ord, PartialOrd, Copy, Clone, Arbitrary)]
+#[derive(Eq, PartialEq, Default, Debug, Ord, PartialOrd, Copy, Clone, Hash, Arbitrary)]
 #[must_use]
 /// Stores the queen/kingside castling files for white/black in 3 bits each and uses the upper 4 bits to store
 /// if castling is legal. More compact representations are possible because e.e. queenside castling to the h file
@@ -128,7 +128,7 @@ impl CastlingFlags {
             let num_kings = board.colored_piece_bb(color, King).num_ones();
             if num_kings != 1 {
                 bail!(
-                    "FEN must contain exactly one {color} king, but contains {num_kings} instead"
+                    "the FEN must contain exactly one {color} king, but instead it contains {num_kings}"
                 );
             }
             let king_square = board.king_square(color);

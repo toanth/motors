@@ -17,11 +17,13 @@ use crate::play::ugi_input::BestMoveAction;
 use crate::play::ugi_input::BestMoveAction::Ignore;
 use crate::play::ugi_input::EngineStatus::*;
 use crate::ui::Input;
+use gears::colored::Colorize;
 use gears::games::{BoardHistory, Color, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::anyhow::bail;
 use gears::general::common::Res;
+use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder};
 use gears::search::{SearchInfo, TimeControl};
@@ -31,7 +33,6 @@ use gears::{
     output_builder_from_str, player_res_to_match_res, AbstractRun, AdjudicationReason, GameOver,
     GameOverReason, GameResult, GameState, MatchResult, MatchStatus, PlayerResult, Quitting,
 };
-
 // TODO: Use tokio? Probably more efficient and it has non-blocking reads.
 
 pub type PlayerId = usize;
@@ -435,7 +436,10 @@ impl<B: Board> Client<B> {
     pub fn play_move_internal(&mut self, mov: B::Move) -> Res<()> {
         if !self.board().is_move_pseudolegal(mov) {
             // can't use to_extended_text because that assumes pseudolegality internally
-            bail!("The move '{mov}' is not pseudolegal in the current position",)
+            bail!(
+                "The move '{}' is not pseudolegal in the current position",
+                mov.compact_formatter(self.board()).to_string().red()
+            )
         }
         let Some(board) = self.board().make_move(mov) else {
             let player_res = GameOver {
@@ -446,7 +450,11 @@ impl<B: Board> Client<B> {
                 player_res,
                 self.active_player().unwrap(),
             ));
-            bail!("Invalid move '{mov}' in position {}", self.board().as_fen(),)
+            let pos = self.board();
+            bail!(
+                "Invalid move '{0}' in position {pos}",
+                mov.compact_formatter(pos).to_string().red()
+            )
         };
 
         *self.board() = board;

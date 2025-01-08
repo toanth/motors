@@ -29,7 +29,7 @@ use gears::arrayvec::ArrayVec;
 use gears::cli::Game;
 use gears::games::{CharType, Color, OutputList, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
-use gears::general::board::{Board, Strictness};
+use gears::general::board::{Board, BoardHelpers, Strictness};
 use gears::general::common::anyhow::anyhow;
 use gears::general::common::{
     parse_duration_ms, parse_int, parse_int_from_str, tokens, Name, NamedEntity, Res, Tokens,
@@ -1134,7 +1134,7 @@ pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool) -> CommandList<B>
         ));
     }
     for mov in pos.legal_moves_slow().iter_moves() {
-        let primary_name = mov.to_string();
+        let primary_name = mov.compact_formatter(&pos).to_string();
         let mut other_names = ArrayVec::default();
         let extended = mov.to_extended_text(&pos, ExtendedFormat::Standard);
         if extended != primary_name {
@@ -1144,7 +1144,10 @@ pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool) -> CommandList<B>
         let cmd = Command {
             primary_name,
             other_names,
-            help_text: format!("Play move '{}'", mov.to_string().bold()),
+            help_text: format!(
+                "Play move '{}'",
+                mov.compact_formatter(&pos).to_string().bold()
+            ),
             standard: All,
             autocomplete_recurse: false,
             func: |_, _, _| Ok(()),

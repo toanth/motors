@@ -1,29 +1,9 @@
+#[deny(unused_results)]
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
 use dyn_clone::clone_box;
 use rand::rngs::StdRng;
-
-use gears::cli::{ArgIter, Game};
-#[cfg(feature = "ataxx")]
-use gears::games::ataxx::AtaxxBoard;
-#[cfg(feature = "chess")]
-use gears::games::chess::Chessboard;
-#[cfg(feature = "mnk")]
-use gears::games::mnk::MNKBoard;
-#[cfg(feature = "uttt")]
-use gears::games::uttt::UtttBoard;
-use gears::games::OutputList;
-use gears::general::board::{Board, BoardHelpers};
-use gears::general::common::anyhow::anyhow;
-use gears::general::common::Description::WithDescription;
-use gears::general::common::{select_name_dyn, Res};
-use gears::general::perft::perft;
-use gears::output::normal_outputs;
-use gears::search::{Depth, SearchLimit};
-use gears::Quitting::*;
-use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs, Quitting};
-use std::fmt::{Display, Formatter};
 
 #[cfg(feature = "ataxx")]
 use crate::eval::ataxx::bate::Bate;
@@ -55,6 +35,29 @@ use crate::search::{
     SearcherBuilder, SearcherList,
 };
 use crate::Mode::{Bench, Perft};
+use gears::cli::{ArgIter, Game};
+#[cfg(feature = "ataxx")]
+use gears::games::ataxx::AtaxxBoard;
+#[cfg(feature = "chess")]
+use gears::games::chess::Chessboard;
+use gears::games::fairy::FairyBoard;
+#[cfg(feature = "mnk")]
+use gears::games::mnk::MNKBoard;
+#[cfg(feature = "uttt")]
+use gears::games::uttt::UtttBoard;
+use gears::games::OutputList;
+use gears::general::board::Strictness::Relaxed;
+use gears::general::board::{Board, BoardHelpers};
+use gears::general::common::anyhow::anyhow;
+use gears::general::common::Description::WithDescription;
+use gears::general::common::{select_name_dyn, Res};
+use gears::general::perft::{perft, split_perft};
+use gears::output::normal_outputs;
+use gears::search::{Depth, SearchLimit};
+use gears::ugi::load_ugi_pos_simple;
+use gears::Quitting::*;
+use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs, Quitting};
+use std::fmt::{Display, Formatter};
 
 pub mod eval;
 pub mod io;
@@ -65,7 +68,7 @@ pub enum Mode {
     #[default]
     Engine,
     Bench(Option<Depth>, bool),
-    Perft(Option<Depth>),
+    Perft(Option<Depth>, bool),
 }
 
 impl Display for Mode {
@@ -73,7 +76,8 @@ impl Display for Mode {
         match self {
             Mode::Engine => write!(f, "engine"),
             Bench(_, _) => write!(f, "bench"),
-            Perft(_) => write!(f, "perft"),
+            Perft(_, false) => write!(f, "perft"),
+            Perft(_, true) => write!(f, "splitperft"),
         }
     }
 }
@@ -126,13 +130,17 @@ impl<B: Board> AbstractRun for BenchRun<B> {
 #[derive(Debug, Default)]
 struct PerftRun<B: Board> {
     depth: Option<Depth>,
+    split: bool,
+    pos_name: Option<String>,
     phantom_data: PhantomData<B>,
 }
 
 impl<B: Board> PerftRun<B> {
-    pub fn create(depth: Option<Depth>) -> Self {
+    pub fn create(depth: Option<Depth>, split: bool, pos_name: Option<String>) -> Self {
         Self {
             depth,
+            split,
+            pos_name,
             ..Self::default()
         }
     }
@@ -140,10 +148,25 @@ impl<B: Board> PerftRun<B> {
 
 impl<B: Board> AbstractRun for PerftRun<B> {
     fn run(&mut self) -> Quitting {
-        let pos = B::default();
+        let pos = if let Some(name) = &self.pos_name {
+            match load_ugi_pos_simple(name, Relaxed, &B::default()) {
+                Ok(pos) => pos,
+                Err(e) => {
+                    eprintln!("Couldn't parse position to run perft: {e}");
+                    return QuitProgram;
+                }
+            }
+        } else {
+            B::default()
+        };
         let depth = self.depth.unwrap_or(pos.default_perft_depth());
-        let res = perft(depth, pos);
-        println!("{res}");
+        if self.split {
+            let res = split_perft(depth, pos);
+            println!("{res}");
+        } else {
+            let res = perft(depth, pos);
+            println!("{res}");
+        }
         QuitProgram
     }
 }
@@ -233,7 +256,11 @@ pub fn create_match_for_game<B: Board>(
                 evals,
             )?))
         }
-        Perft(depth) => Ok(Box::new(PerftRun::<B>::create(depth))),
+        Perft(depth, split) => Ok(Box::new(PerftRun::<B>::create(
+            depth,
+            split,
+            args.pos_name.clone(),
+        ))),
     }
 }
 
@@ -259,6 +286,12 @@ pub fn list_uttt_outputs() -> OutputList<UtttBoard> {
 #[must_use]
 pub fn list_mnk_outputs() -> OutputList<MNKBoard> {
     normal_outputs::<MNKBoard>(true)
+}
+
+#[cfg(feature = "fairy")]
+#[must_use]
+pub fn list_fairy_outputs() -> OutputList<FairyBoard> {
+    normal_outputs::<FairyBoard>(true)
 }
 
 #[must_use]
@@ -303,6 +336,14 @@ pub fn list_mnk_evals() -> EvalList<MNKBoard> {
     res
 }
 
+#[cfg(feature = "fairy")]
+#[must_use]
+pub fn list_fairy_evals() -> EvalList<FairyBoard> {
+    let res = generic_evals::<FairyBoard>();
+    // TODO: Add special eval functions
+    res
+}
+
 #[must_use]
 pub fn generic_searchers<B: Board>() -> SearcherList<B> {
     vec![
@@ -343,6 +384,12 @@ pub fn list_mnk_searchers() -> SearcherList<MNKBoard> {
     generic_searchers()
 }
 
+#[cfg(feature = "fairy")]
+#[must_use]
+pub fn list_fairy_searchers() -> SearcherList<FairyBoard> {
+    generic_searchers()
+}
+
 pub fn create_match(args: EngineOpts) -> Res<AnyRunnable> {
     match args.game {
         #[cfg(feature = "chess")]
@@ -372,6 +419,13 @@ pub fn create_match(args: EngineOpts) -> Res<AnyRunnable> {
             list_mnk_searchers(),
             list_mnk_evals(),
             list_mnk_outputs(),
+        ),
+        #[cfg(feature = "fairy")]
+        Game::Fairy => create_match_for_game(
+            args,
+            list_fairy_searchers(),
+            list_fairy_evals(),
+            list_fairy_outputs(),
         ),
     }
 }

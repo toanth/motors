@@ -44,6 +44,8 @@ pub enum Game {
     /// up to 128 squares.
     #[cfg(feature = "mnk")]
     Mnk,
+    #[cfg(feature = "fairy")]
+    Fairy,
 }
 
 impl Default for Game {
@@ -72,6 +74,8 @@ impl NamedEntity for Game {
                 only supports boards up to 128 squares.",
             #[cfg(feature = "uttt")]
             Game::Uttt => "Ultimate Tic-Tac-Toe is a challenging version of Tic-Tac-Toe where every square is itself a Tic-Tac-Toe board.",
+            #[cfg(feature = "fairy")]
+            Game::Fairy => "Fairy Chess and many other games.",
             #[expect(unreachable_patterns)]
             _ => return None,
         }.to_string())

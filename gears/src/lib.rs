@@ -2,10 +2,12 @@
 //! It is designed to be easily extensible to new games. [`gears`](crate) forms the foundation of the `motors`, `monitors`
 //! and `pliers` crates, which deal with engines, UI, and tuning, respectively.
 
+#[deny(unused_results)]
 use crate::games::{BoardHistory, Color, ZobristHistory};
 use crate::general::board::{Board, BoardHelpers, Strictness};
 use crate::general::common::Description::WithDescription;
 use crate::general::common::{select_name_dyn, Res, Tokens};
+use crate::general::moves::Move;
 use crate::output::OutputBuilder;
 use crate::search::TimeControl;
 use crate::ugi::parse_ugi_position_and_moves;
@@ -382,15 +384,16 @@ impl<B: Board> MatchState<B> {
         debug_assert!(self.board.is_move_pseudolegal(mov));
         if let Run(Over(result)) = &self.status {
             bail!(
-                "Cannot play move '{mov}' because the game is already over: {0} ({1}). The position is '{2}'",
-                result.result, result.reason, self.board
+                "Cannot play move '{3}' because the game is already over: {0} ({1}). The position is '{2}'",
+                result.result, result.reason, self.board,mov.compact_formatter(&self.board).to_string().red()
             )
         }
         self.board_hist.push(&self.board);
         self.mov_hist.push(mov);
         self.board = self.board.make_move(mov).ok_or_else(|| {
             anyhow!(
-                "Illegal move {mov} (pseudolegal but not legal) in position {}",
+                "Illegal move {0} (pseudolegal but not legal) in position {1}",
+                mov.compact_formatter(&self.board).to_string().red(),
                 self.board
             )
         })?;
@@ -429,6 +432,15 @@ impl<B: Board> MatchState<B> {
             |state| &mut state.board,
         )?;
         self.last_played_color = self.board.active_player();
+        Ok(())
+    }
+
+    pub fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()> {
+        self.board.set_variant(first, words)?;
+        self.pos_before_moves = self.board;
+        self.mov_hist.clear();
+        self.board_hist.clear();
+        self.status = Run(NotStarted);
         Ok(())
     }
 }

@@ -1,20 +1,20 @@
 use crate::games::ataxx::common::AtaxxMove;
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
-use crate::games::ataxx::{AtaxxBitboard, AtaxxBoard, AtaxxColor, AtaxxMoveList, AtaxxSquare};
+use crate::games::ataxx::{
+    AtaxxBitboard, AtaxxBoard, AtaxxColor, AtaxxMoveList, AtaxxSquare, UnverifiedAtaxxBoard,
+};
 use crate::games::{Board, Color, PosHash};
 use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, KINGS};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
-use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    ply_counter_from_fullmove_nr, read_common_fen_part, BoardHelpers, Strictness, UnverifiedBoard,
+    read_simple_fen_part, BitboardBoard, BoardHelpers, Strictness, UnverifiedBoard,
 };
 use crate::general::common::{Res, Tokens};
 use crate::general::move_list::MoveList;
 use crate::general::squares::sup_distance;
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::num::NonZeroUsize;
 
 impl AtaxxBoard {
     pub fn create(blocked: AtaxxBitboard, x_bb: AtaxxBitboard, o_bb: AtaxxBitboard) -> Res<Self> {
@@ -80,7 +80,7 @@ impl AtaxxBoard {
             }
         }
         if moves.num_moves() == 0 && pieces.has_set_bit() {
-            let other_bb = self.color_bb(self.inactive_player());
+            let other_bb = self.inactive_player_bb();
             // if the other player doesn't have any legal moves, the game is over.
             // return an empty move list in that case so that the user can pick up on this
             // otherwise, the only legal move is the passing move
@@ -88,6 +88,24 @@ impl AtaxxBoard {
                 moves.add_move(AtaxxMove::default());
             }
         }
+    }
+
+    pub(super) fn num_moves(&self) -> usize {
+        let pieces = self.active_bb();
+        let empty = self.empty_bb();
+        let mut res = (pieces.moore_neighbors() & empty).num_ones();
+        for source in pieces.ones() {
+            let leaps = AtaxxBitboard::new(ATAXX_LEAPERS[source.bb_idx()].raw()) & empty;
+            res += leaps.num_ones();
+        }
+        if res == 0 && pieces.has_set_bit() {
+            // if the other player doesn't have any legal moves, the game is over.
+            // otherwise, the only legal move is the passing move
+            if (self.inactive_player_bb().extended_moore_neighbors(2) & empty).has_set_bit() {
+                return 1;
+            }
+        }
+        res
     }
 
     pub fn legal_moves(&self) -> AtaxxMoveList {
@@ -159,27 +177,8 @@ impl AtaxxBoard {
     }
 
     pub fn read_fen_impl(words: &mut Tokens, strictness: Strictness) -> Res<Self> {
-        let empty = AtaxxBoard::empty();
-        let mut board = read_common_fen_part::<AtaxxBoard>(words, empty.into())?;
-        let color = board.0.active_player();
-        if let Some(halfmove_clock) = words.next() {
-            board.0.ply_100_ctr = halfmove_clock
-                .parse::<usize>()
-                .map_err(|err| anyhow!("Couldn't parse halfmove clock: {err}"))?;
-            let fullmove_number = words.next().unwrap_or("1");
-            let fullmove_number = fullmove_number
-                .parse::<NonZeroUsize>()
-                .map_err(|err| anyhow!("Couldn't parse fullmove counter: {err}"))?;
-            board.0.ply = ply_counter_from_fullmove_nr::<AtaxxBoard>(
-                fullmove_number,
-                board.0.active_player(),
-            );
-        } else if strictness == Strict {
-            bail!("In strict mode, FENs must contain a move counter and halfmove clock")
-        } else {
-            board.0.ply = usize::from(color == AtaxxColor::second());
-            board.0.ply_100_ctr = 0;
-        }
+        let empty = UnverifiedAtaxxBoard::new(AtaxxBoard::empty());
+        let board = read_simple_fen_part::<AtaxxBoard>(words, empty, strictness)?;
         board.verify_with_level(CheckFen, strictness)
     }
 }
