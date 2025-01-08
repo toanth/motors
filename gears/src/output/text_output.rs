@@ -8,7 +8,7 @@ use crate::general::squares::RectangularCoordinates;
 use crate::general::squares::SquareColor::Black;
 use crate::output::pgn::match_to_pgn_string;
 use crate::output::text_output::DisplayType::*;
-use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder};
+use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder, OutputOpts};
 use crate::GameState;
 use crate::MatchStatus::*;
 use anyhow::{anyhow, bail, ensure};
@@ -205,7 +205,7 @@ impl BoardToText {
         }
     }
 
-    pub fn as_string<B: Board>(&self, m: &dyn GameState<B>) -> String {
+    pub fn as_string<B: Board>(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
         let mut time_below = String::default();
         let mut time_above = String::default();
         if m.match_status() == Ongoing {
@@ -224,18 +224,18 @@ impl BoardToText {
         }
         match self.typ {
             Pretty => {
-                let mut formatter = m
-                    .get_board()
-                    .pretty_formatter(Some(CharType::Unicode), m.last_move());
+                let mut formatter =
+                    m.get_board()
+                        .pretty_formatter(Some(CharType::Unicode), m.last_move(), opts);
                 format!(
                     "{time_above}{}{time_below}",
                     m.get_board().display_pretty(formatter.as_mut())
                 )
             }
             PrettyAscii => {
-                let mut formatter = m
-                    .get_board()
-                    .pretty_formatter(Some(CharType::Ascii), m.last_move());
+                let mut formatter =
+                    m.get_board()
+                        .pretty_formatter(Some(CharType::Ascii), m.last_move(), opts);
                 format!(
                     "{time_above}{}{time_below}",
                     m.get_board().display_pretty(formatter.as_mut())
@@ -304,8 +304,8 @@ impl AbstractOutput for TextOutput {
 }
 
 impl<B: Board> Output<B> for TextOutput {
-    fn as_string(&self, m: &dyn GameState<B>) -> String {
-        self.to_text.as_string(m)
+    fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
+        self.to_text.as_string(m, opts)
     }
 }
 
@@ -696,9 +696,14 @@ pub struct DefaultBoardFormatter<B: RectangularBoard> {
 }
 
 impl<B: RectangularBoard> DefaultBoardFormatter<B> {
-    pub fn new(pos: B, piece_to_char: Option<CharType>, last_move: Option<B::Move>) -> Self {
+    pub fn new(
+        pos: B,
+        piece_to_char: Option<CharType>,
+        last_move: Option<B::Move>,
+        opts: OutputOpts,
+    ) -> Self {
         let piece_to_char = piece_to_char.unwrap_or(CharType::Ascii);
-        let flip = pos.active_player() == B::Color::second();
+        let flip = (pos.active_player() == B::Color::second()) && !opts.disable_flipping;
         Self {
             piece_to_char,
             pos,
@@ -730,7 +735,9 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
         let Some(color) = piece.color() else {
             return c.dimmed().to_string();
         };
-        c.color(display_color(color)).bold().to_string()
+        // some (but not all) terminals have trouble with colored bold symbols, and using `bold` would remove the color in some cases.
+        // For some reason, only using the ansi colore codes (.green(), .red(), etc) creates these problems, but true colors work fine
+        c.color(display_color(color)).to_string()
     }
 
     fn frame_color(&self, square: B::Coordinates) -> Option<colored::Color> {

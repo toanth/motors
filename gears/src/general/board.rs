@@ -31,6 +31,7 @@ use crate::general::moves::Legality::{Legal, PseudoLegal};
 use crate::general::moves::Move;
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
 use crate::output::text_output::BoardFormatter;
+use crate::output::OutputOpts;
 use crate::search::Depth;
 use crate::PlayerResult::Lose;
 use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
@@ -271,6 +272,10 @@ pub trait Board:
         );
     }
 
+    fn list_variants() -> Option<Vec<String>> {
+        None
+    }
+
     /// The player who can now move.
     fn active_player(&self) -> Self::Color;
 
@@ -466,6 +471,7 @@ pub trait Board:
         &self,
         piece: Option<CharType>,
         last_move: Option<Self::Move>,
+        opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>>;
 
     /// The background color of the given coordinates, e.g. the color of the square of a chessboard.

@@ -21,7 +21,7 @@ pub const MAX_DEPTH: Depth = Depth(10_000);
 #[must_use]
 pub struct SearchResult<B: Board> {
     pub chosen_move: B::Move,
-    pub score: Option<Score>,
+    pub score: Score,
     // TODO: NodeType to represent UCI upper bound and lower bound scores
     pub ponder_move: Option<B::Move>,
     pub pos: B,
@@ -53,7 +53,7 @@ impl<B: Board> SearchResult<B> {
         }
         Self {
             chosen_move,
-            score: Some(score),
+            score,
             ponder_move,
             pos,
         }

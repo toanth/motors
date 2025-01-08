@@ -6,7 +6,7 @@
 use crate::eval::Direction::{Down, Up};
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
-    cp_eval_for_weights, cp_to_wr, sample_loss, Batch, Datapoint, DefaultOptimizer, Float,
+    cp_eval_for_weights, cp_to_wr, default_sample_loss, Batch, Datapoint, DefaultOptimizer, Float,
     LossGradient, Optimizer, Outcome, ScalingFactor, Weight, Weights,
 };
 use crate::load_data::Filter;
@@ -396,7 +396,7 @@ fn grad_for_eval_scale<D: Datapoint>(
                 * cp_eval.0
                 * data.sampling_weight();
         scaled_grad += sample_grad;
-        loss += sample_loss(prediction, data.outcome()) * data.sampling_weight();
+        loss += default_sample_loss(prediction, data.outcome()) * data.sampling_weight();
     }
     loss /= batch.weight_sum as Float;
     // the gradient tells us how we need to change 1/eval_scale to maximize the loss, which is the same direction

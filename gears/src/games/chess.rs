@@ -44,6 +44,7 @@ use crate::output::text_output::{
     DefaultBoardFormatter,
 };
 use crate::search::Depth;
+use crate::output::OutputOpts;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 
@@ -467,11 +468,7 @@ impl Board for Chessboard {
     }
 
     fn no_moves_result(&self) -> PlayerResult {
-        if self.is_in_check() {
-            Lose
-        } else {
-            Draw
-        }
+        self.no_moves_result_if(self.is_in_check())
     }
 
     /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
@@ -566,6 +563,7 @@ impl Board for Chessboard {
         &self,
         piece_to_char: Option<CharType>,
         last_move: Option<ChessMove>,
+        opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;
         let king_square = self.king_square(self.active_player);
@@ -577,7 +575,12 @@ impl Board for Chessboard {
             }
         });
         Box::new(AdaptFormatter {
-            underlying: Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move)),
+            underlying: Box::new(DefaultBoardFormatter::new(
+                *self,
+                piece_to_char,
+                last_move,
+                opts,
+            )),
             color_frame,
             display_piece: Box::new(move |square, width, _default| {
                 let piece = pos.colored_piece_on(square);
@@ -744,6 +747,14 @@ impl Chessboard {
             return false;
         }
         true
+    }
+
+    pub fn no_moves_result_if(&self, in_check: bool) -> PlayerResult {
+        if in_check {
+            Lose
+        } else {
+            Draw
+        }
     }
 
     pub fn ep_square(&self) -> Option<ChessSquare> {
@@ -1198,7 +1209,7 @@ pub const CORNER_SQUARES: ChessBitboard = ChessBitboard::new(0x8100_0000_0000_00
 
 #[cfg(test)]
 mod tests {
-    use rand::thread_rng;
+    use rand::rng;
     use std::collections::HashSet;
 
     use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
@@ -1538,7 +1549,7 @@ mod tests {
         assert!(Chessboard::from_fen(fen, Strict).is_err());
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 3);
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let mov = board.random_legal_move(&mut rng).unwrap();
         let board = board.make_move(mov).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 2);

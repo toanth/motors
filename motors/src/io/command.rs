@@ -15,7 +15,6 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-
 use crate::io::command::Standard::*;
 use crate::io::Protocol::Interactive;
 use crate::io::SearchType::{Bench, Normal, Perft, Ponder, SplitPerft};
@@ -30,14 +29,14 @@ use gears::cli::Game;
 use gears::games::{CharType, Color, OutputList, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, BoardHelpers, Strictness};
-use gears::general::common::anyhow::anyhow;
+use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
     parse_duration_ms, parse_int, parse_int_from_str, tokens, Name, NamedEntity, Res, Tokens,
 };
 use gears::general::move_list::MoveList;
 use gears::general::moves::{ExtendedFormat, Move};
 use gears::output::Message::Warning;
-use gears::output::OutputBuilder;
+use gears::output::{OutputBuilder, OutputOpts};
 use gears::search::{Depth, NodesLimit, SearchLimit};
 use gears::ugi::{load_ugi_position, parse_ugi_position_part, EngineOptionName};
 use gears::GameResult;
@@ -48,7 +47,8 @@ use inquire::autocompletion::Replacement;
 use inquire::{Autocomplete, CustomUserError};
 use itertools::Itertools;
 use rand::prelude::IndexedRandom;
-use rand::{thread_rng, Rng};
+use rand::{rng, Rng};
+use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
 use std::rc::Rc;
@@ -141,7 +141,7 @@ impl<B: Board> Default for AutoCompleteFunc<B> {
     }
 }
 
-pub struct SubCommandsFn<B: Board>(Box<dyn Fn(ACState<B>) -> SubCommandList<B>>);
+pub struct SubCommandsFn<B: Board>(Option<Box<dyn Fn(ACState<B>) -> SubCommandList<B>>>);
 
 impl<B: Board> Debug for SubCommandsFn<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -151,7 +151,7 @@ impl<B: Board> Debug for SubCommandsFn<B> {
 
 impl<B: Board> Default for SubCommandsFn<B> {
     fn default() -> Self {
-        Self(Box::new(|_state| vec![]))
+        Self(None)
     }
 }
 
@@ -163,12 +163,19 @@ impl<B: Board> SubCommandsFn<B> {
     >(
         cmd: F,
     ) -> Self {
-        Self(Box::new(move |state: ACState<B>| {
+        Self(Some(Box::new(move |state: ACState<B>| {
             cmd(state)
                 .into_iter()
                 .map(|state| state.upcast_box())
                 .collect_vec()
-        }))
+        })))
+    }
+
+    fn call(&self, state: ACState<B>) -> SubCommandList<B> {
+        match &self.0 {
+            None => vec![],
+            Some(f) => f(state),
+        }
     }
 }
 
@@ -180,8 +187,8 @@ pub struct Command<State: CommandState> {
     pub standard: Standard,
     pub autocomplete_recurse: bool,
     pub func: fn(&mut State, remaining_input: &mut Tokens, _cmd: &str) -> Res<()>,
-    change_ac_state: AutoCompleteFunc<State::B>,
     sub_commands: SubCommandsFn<State::B>,
+    change_ac_state: AutoCompleteFunc<State::B>,
 }
 
 impl<State: CommandState> NamedEntity for Command<State> {
@@ -205,14 +212,14 @@ impl<State: CommandState> NamedEntity for Command<State> {
                 .any(|n| n.eq_ignore_ascii_case(name))
     }
 
-    fn autocomplete_badness(&self, input: &str, matcher: fn(&str, &str) -> usize) -> usize {
+    fn autocomplete_badness(&self, input: &str, matcher: fn(&str, &str) -> isize) -> isize {
         matcher(input, &self.primary_name).min(
             self.other_names
                 .iter()
                 // prefer primary matches
                 .map(|name| 1 + matcher(input, name))
                 .min()
-                .unwrap_or(usize::MAX),
+                .unwrap_or(isize::MAX),
         )
     }
 }
@@ -229,7 +236,7 @@ impl<State: CommandState + 'static> AbstractCommand<State::B> for Command<State>
     }
 
     fn sub_commands(&self, state: ACState<State::B>) -> SubCommandList<State::B> {
-        self.sub_commands.0(state)
+        self.sub_commands.call(state)
     }
 
     fn change_autocomplete_state(&self, state: ACState<State::B>) -> ACState<State::B> {
@@ -272,13 +279,13 @@ macro_rules! command {
             #[allow(unused_mut, unused_assignments)]
             let mut sub_commands = SubCommandsFn::default();
             $(
-                sub_commands.0 = Box::new(|this| ($subcmd)(this)
+                sub_commands.0 = Some(Box::new(|this| ($subcmd)(this)
                     .into_iter()
                     .map(|x| x.upcast_box())
-                    .collect());
+                    .collect()));
             )?
             $(
-                sub_commands.0 = Box::new(|this| ($abstract_subcmd)(this));
+                sub_commands.0 = Some(Box::new(|this| ($abstract_subcmd)(this)));
             )?
 
             #[allow(unused_mut, unused_assignments)]
@@ -412,7 +419,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
                     "Could not flip the side to move (board: '{}'",
                     ugi.state.board.as_fen().bold()
                 ))?;
-                ugi.print_board();
+                ugi.print_board(OutputOpts::default());
                 Ok(())
             }
         ),
@@ -478,15 +485,15 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
                         description: Some("Add an output without changing existing outputs".to_string()),
                     }
                     ).upcast_box()]),
-            recurse=true
+            recurse = true
         ),
         ugi_command!(
             print | show | s | display,
             Custom,
             "Display the specified / current position with specified / enabled outputs or 'prettyascii' if no output is set",
-            |ugi, words, _| ugi.handle_print(words),
+            |ugi, words, _| ugi.handle_print(words, OutputOpts::default()),
             -> |state: ACState<B>| add(select_command::<B, dyn OutputBuilder<B>>(state.outputs.as_slice()), position_options::<B>(true, Some(state.pos))),
-            recurse=true
+            recurse = true
         ),
         ugi_command!(
             log,
@@ -549,7 +556,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             "Internal movegen test on current / bench positions",
             |ugi, words, _| ugi.handle_go(Perft, words),
             -> |_state: ACState<B>| go_options(Some(Perft)),
-            recurse=true
+            recurse = true
         ),
         ugi_command!(
             splitperft | sp,
@@ -557,7 +564,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             "Internal movegen test on current / bench positions",
             |ugi, words, _| ugi.handle_go(SplitPerft, words),
             -> |_| go_options(Some(SplitPerft)),
-            recurse=true
+            recurse = true
         ),
         ugi_command!(
             bench,
@@ -565,7 +572,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             "Internal search test on current / bench positions. Same arguments as `go`",
             |ugi, words, _| ugi.handle_go(Bench, words),
             -> |_| go_options::<B>(Some(Bench)),
-            recurse=true
+            recurse = true
         ),
         ugi_command!(
             eval | e | static_eval,
@@ -573,7 +580,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             "Print the static eval (i.e., no search) of a position",
             |ugi, words, _| ugi.handle_eval_or_tt(true, words),
             -> |state: ACState<B>| position_options::<B>(true, Some(state.pos)),
-            recurse=true
+            recurse = true
         ),
         ugi_command!(
             tt | tt_entry,
@@ -581,7 +588,7 @@ pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
             "Print the TT entry for a position",
             |ugi, words, _| ugi.handle_eval_or_tt(false, words),
             -> |state: ACState<B>| position_options::<B>(true, Some(state.pos)),
-            recurse=true
+            recurse = true
         ),
         ugi_command!(help | h, Custom, "Prints a help message", |ugi, _, _| {
             ugi.print_help(); // TODO: allow help <command> to print a help message for a command
@@ -597,8 +604,6 @@ pub struct GoState<B: Board> {
     pub multi_pv: usize,
     pub threads: Option<usize>,
     pub search_moves: Option<Vec<B::Move>>,
-    pub cont: bool,
-    pub reading_moves: bool,
     pub search_type: SearchType,
     pub complete: bool,
     pub strictness: Strictness,
@@ -625,8 +630,6 @@ impl<B: Board> GoState<B> {
             multi_pv: ugi.multi_pv,
             threads: None,
             search_moves: None,
-            cont: false,
-            reading_moves: false,
             search_type,
             complete: false,
             strictness: ugi.strictness,
@@ -647,26 +650,22 @@ pub fn accept_depth(limit: &mut SearchLimit, words: &mut Tokens) -> Res<()> {
     Ok(())
 }
 
-macro_rules! go_command {
-    ($primary:ident $( | $other:ident)*, $std:expr, $help:expr, $fun:expr $(, ->$subcmd:expr)? $(, -->$abstract_subcmd:expr)? $(, [] $autocomplete_fn:expr)?) => {
-        command!(GoState<B>, $primary $(| $other)*, $std, $help, $fun $(, ->$subcmd)? $(, -->$abstract_subcmd)? $(, []$autocomplete_fn)?)
-    }
-}
-
 pub fn depth_cmd<B: Board>() -> Box<dyn CommandTrait<GoState<B>>> {
-    go_command!(
+    command!(GoState<B>,
         depth | d,
         All,
         "Maximum search depth in plies (a.k.a. half-moves)",
         |opts, words, _| {
             opts.limit.depth = Depth::try_new(parse_int(words, "depth number")?)?;
             Ok(())
-        }
+        },
+        -> |_| int_option::<B>("depth", All)
     )
 }
 
 fn complete_option<B: Board>() -> Box<dyn CommandTrait<GoState<B>>> {
-    go_command!(
+    command!(
+        GoState<B>,
         complete | all,
         Custom,
         "Run bench / perft on all bench positions",
@@ -701,7 +700,7 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
                     Ok(())
                 },
                 change_ac_state: AutoCompleteFunc::default(),
-                sub_commands: SubCommandsFn::default(),
+                sub_commands: SubCommandsFn::new(|_| int_option::<B>("time in ms", All)),
             }),
             Box::new(Command::<GoState<B>> {
                 primary_name: format!("{}time", B::Color::second().color_char(CharType::Ascii)),
@@ -723,7 +722,7 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
                 },
 
                 change_ac_state: AutoCompleteFunc::default(),
-                sub_commands: SubCommandsFn::default(),
+                sub_commands: SubCommandsFn::new(|_| int_option::<B>("time in ms", All)),
             }),
             Box::new(Command::<GoState<B>> {
                 primary_name: format!("{}inc", B::Color::first().color_char(CharType::Ascii)),
@@ -744,7 +743,7 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
                 },
 
                 change_ac_state: AutoCompleteFunc::default(),
-                sub_commands: SubCommandsFn::default(),
+                sub_commands: SubCommandsFn::new(|_| int_option::<B>("increment in ms", All)),
             }),
             Box::new(Command::<GoState<B>> {
                 primary_name: format!("{}inc", B::Color::second().color_char(CharType::Ascii)),
@@ -764,18 +763,19 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
                     Ok(())
                 },
                 change_ac_state: AutoCompleteFunc::default(),
-                sub_commands: SubCommandsFn::default(),
+                sub_commands: SubCommandsFn::new(|_| int_option::<B>("increment in ms", All)),
             }),
-            go_command!(
+            command!(GoState<B>,
                 movestogo | mtg,
                 All,
                 "Moves until the time control is reset",
                 |opts, words, _| {
                     opts.limit.tc.moves_to_go = Some(parse_int(words, "'movestogo' number")?);
                     Ok(())
-                }
+                },
+                -> |_| int_option::<B>("number of moves until TC reset", All)
             ),
-            go_command!(
+            command!(GoState<B>,
                 nodes | n,
                 All,
                 "Maximum number of nodes to search",
@@ -783,9 +783,10 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
                     opts.limit.nodes = NodesLimit::new(parse_int(words, "node count")?)
                         .ok_or_else(|| anyhow!("node count can't be zero"))?;
                     Ok(())
-                }
+                },
+                -> |_| int_option::<B>("number of nodes", All)
             ),
-            go_command!(
+            command!(GoState<B>,
                 mate | m,
                 All,
                 "Maximum depth in moves until a mate has to be found",
@@ -793,9 +794,10 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
                     let depth: isize = parse_int(words, "mate move count")?;
                     opts.limit.mate = Depth::try_new(depth * 2)?; // 'mate' is given in moves instead of plies
                     Ok(())
-                }
+                },
+                -> |_| int_option::<B>("depth in moves until mate", All)
             ),
-            go_command!(
+            command!(GoState<B>,
                 movetime | mt | time,
                 All,
                 "Maximum time in ms",
@@ -807,9 +809,11 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
                         .saturating_sub(opts.move_overhead)
                         .max(Duration::from_millis(1));
                     Ok(())
-                }
+                },
+                -> |_| int_option::<B>("time in milliseconds", All)
             ),
-            go_command!(
+            command!(
+                GoState<B>,
                 infinite | inf,
                 All,
                 "Search until receiving `stop`, the default mode",
@@ -818,36 +822,47 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
                     Ok(())
                 }
             ),
-            go_command!(
+            command!(GoState<B>,
                 searchmoves | sm,
                 All,
                 "Only consider the specified moves",
-                |opts, _, _| {
-                    opts.reading_moves = true;
-                    opts.search_moves = Some(vec![]);
-                    opts.cont = true;
+                |opts, words, _| {
+                    let mut search_moves = vec![];
+                    while let Some(mov) = words.peek().and_then(|m| B::Move::from_text(m, &opts.board).ok()) {
+                        words.next().unwrap();
+                        search_moves.push(mov);
+                    }
+                    if search_moves.is_empty() {
+                        bail!("No valid moves after 'searchmoves' command");
+                    }
+                    opts.search_moves = Some(search_moves);
                     Ok(())
-                }
+                },
+                -> |state: ACState<B>| moves_options(state.pos, false, false),
+                recurse = true
             ),
-            go_command!(
+            command!(GoState<B>,
                 multipv | mpv,
                 Custom,
                 "Find the n best moves, temporarily overwriting the 'multipv' engine option",
                 |opts, words, _| {
                     opts.multi_pv = parse_int(words, "multipv")?;
                     Ok(())
-                }
+                },
+                -> |_| int_option::<B>("number of lines", Custom)
             ),
-            go_command!(
+            command!(GoState<B>,
                 threads | t,
                 Custom,
                 "Search with n threads in parallel, temporarily overwriting the 'threads' engine option",
                 |opts, words, _| {
                     opts.threads = Some(parse_int(words, "threads")?);
                     Ok(())
-                }
+                },
+                -> |_| int_option::<B>("number of threads", Custom)
             ),
-            go_command!(
+            command!(
+                GoState<B>,
                 ponder,
                 All,
                 "Search on the opponent's time",
@@ -856,7 +871,7 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
                     Ok(())
                 }
             ),
-            go_command!(
+            command!(GoState<B>,
                 perft | pt,
                 Custom,
                 "Movegen test: Make all legal moves up to a depth",
@@ -870,7 +885,7 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
                     state
                 }
             ),
-            go_command!(
+            command!(GoState<B>,
                 splitperft | sp,
                 Custom,
                 "Movegen test: Print perft number for each legal move",
@@ -884,7 +899,7 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
                     state
                 }
             ),
-            go_command!(
+            command!(GoState<B>,
                 bench | b,
                 Custom,
                 "Search test: Print info about nodes, nps, and hash of search",
@@ -898,25 +913,6 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
                     state
                 }
             ),
-            // TODO: Handle moves for searchmoves. Maybe not as command
-            // Box::new(GenericCommand::<GoState<B>> {
-            //     primary_name: Box::new(|_| "move".to_string()),
-            //     other_names: vec![],
-            //     help_text: Box::new(|_| "Input a whitespace-separated list of moves".to_string()),
-            //     standard: Box::new(|_| Custom),
-            //     func: Box::new(|_| {
-            //         |go, _, word| {
-            //             debug_assert!(go.reading_moves);
-            //             let mov = B::Move::from_compact_text(word, &go.board).map_err(|err| {
-            //                 anyhow!("{err}. '{}' is not a valid 'go' option.", word.important())
-            //             })?;
-            //             go.search_moves.as_mut().unwrap().push(mov);
-            //             go.cont = true;
-            //             Ok(())
-            //         }
-            //     }),
-            //     matches: None, /*Some(Box::new(|_, go, _word| go.reading_moves))*/
-            // }),
         ];
         res.append(&mut additional);
     }
@@ -943,9 +939,9 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList<GoState<B>>
             change_ac_state: AutoCompleteFunc(Box::new(move |state: ACState<B>| {
                 cmd.change_autocomplete_state(state)
             })),
-            sub_commands: SubCommandsFn(Box::new(move |state: ACState<B>| {
+            sub_commands: SubCommandsFn(Some(Box::new(move |state: ACState<B>| {
                 cmd_cpy.sub_commands(state)
-            })),
+            }))),
         };
         res.push(Box::new(cmd));
     }
@@ -1045,8 +1041,8 @@ macro_rules! misc_command {
 }
 
 macro_rules! pos_command {
-    ($primary:ident $( | $other:ident)*, $std:expr, $help:expr $(, = $pos:expr)?, $func:expr $(, ->$subcmd:expr)? $(, [] $autocomplete_fn:expr)?) => {
-        command!(B, $primary $(| $other)*, $std, $help $(, = $pos)?, $func $(, ->$subcmd)? $(, [] $autocomplete_fn)?)
+    ($primary:ident $( | $other:ident)*, $std:expr, $help:expr $(, = $pos:expr)?, $func:expr $(, ->$subcmd:expr)? $(, [] $autocomplete_fn:expr)? $(, recurse=$recurse:expr)?) => {
+        command!(B, $primary $(| $other)*, $std, $help $(, = $pos)?, $func $(, ->$subcmd)? $(, [] $autocomplete_fn)? $(, recurse=$recurse)?)
     }
 }
 
@@ -1060,7 +1056,8 @@ pub fn position_options<B: Board>(accept_pos_word: bool, pos: Option<B>) -> Comm
                 *pos = parse_ugi_position_part("fen", words, false, pos, Relaxed)?;
                 Ok(())
             },
-            -> |state: ACState<B>| moves_options(state.pos, true)
+            -> |state: ACState<B>| moves_options(state.pos, true, true),
+            recurse = true
         ),
         pos_command!(
             startpos | s,
@@ -1070,7 +1067,7 @@ pub fn position_options<B: Board>(accept_pos_word: bool, pos: Option<B>) -> Comm
                 *pos = B::startpos();
                 Ok(())
             },
-            -> |state: ACState<B>| moves_options(state.pos, true),
+            -> |state: ACState<B>| moves_options(state.pos, true, true),
             [] |mut state: ACState<B>| {
                 state.pos = B::default();
                 state
@@ -1081,7 +1078,7 @@ pub fn position_options<B: Board>(accept_pos_word: bool, pos: Option<B>) -> Comm
             Custom,
             "Current position, useful in combination with 'moves'",
             |_, _, _| Ok(()),
-            -> |state: ACState<B>| moves_options(state.pos, true)
+            -> |state: ACState<B>| moves_options(state.pos, true, true)
         ),
     ];
     if accept_pos_word {
@@ -1112,17 +1109,19 @@ pub fn position_options<B: Board>(accept_pos_word: bool, pos: Option<B>) -> Comm
                 state.pos = func();
                 state
             })),
-            sub_commands: SubCommandsFn::new(|state: ACState<B>| moves_options(state.pos, true)),
+            sub_commands: SubCommandsFn::new(|state: ACState<B>| {
+                moves_options(state.pos, true, true)
+            }),
         });
         res.push(c);
     }
     if let Some(pos) = pos {
-        res.append(&mut moves_options(pos, true))
+        res.append(&mut moves_options(pos, true, true))
     }
     res
 }
 
-pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool) -> CommandList<B> {
+pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool, recurse: bool) -> CommandList<B> {
     let mut res: CommandList<B> = vec![];
     if allow_moves_word {
         res.push(pos_command!(
@@ -1130,7 +1129,7 @@ pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool) -> CommandList<B>
             All,
             "Apply moves to the specified position",
             |_, _, _| Ok(()),
-            -> |state: ACState<B>| moves_options(state.pos, false)
+            -> |state: ACState<B>| moves_options(state.pos, false, true)
         ));
     }
     for mov in pos.legal_moves_slow().iter_moves() {
@@ -1152,12 +1151,17 @@ pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool) -> CommandList<B>
             autocomplete_recurse: false,
             func: |_, _, _| Ok(()),
             change_ac_state: AutoCompleteFunc(Box::new(move |mut state: ACState<B>| {
-                state.pos = state.pos.make_move(the_move).unwrap_or(state.pos);
+                if recurse {
+                    state.pos = state.pos.make_move(the_move).unwrap_or(state.pos);
+                }
                 state
             })),
             sub_commands: SubCommandsFn::new(move |state: ACState<B>| {
-                // let pos = state.pos.make_move(the_move).unwrap_or(state.pos);
-                moves_options(state.pos, false)
+                if recurse {
+                    moves_options(state.pos, false, true)
+                } else {
+                    vec![]
+                }
             }),
         };
         res.push(Box::new(cmd));
@@ -1212,14 +1216,15 @@ pub fn options_options<B: Board, const VALUE: bool>(
     }
     if VALUE {
         for opt in &mut res {
-            let completion = SubCommandsFn(Box::new(|_| {
+            let name = opt.short_name();
+            let completion = SubCommandsFn(Some(Box::new(move |_| {
                 let name = Name {
                     short: "value".to_string(),
                     long: "value".to_string(),
-                    description: Some("Set the value".to_string()),
+                    description: Some(format!("Set the value of '{name}'")),
                 };
                 vec![named_entity_to_command::<B, Name>(&name).upcast_box()]
-            }));
+            })));
             opt.set_autocompletions(completion);
         }
     }
@@ -1235,6 +1240,117 @@ pub fn options_options<B: Board, const VALUE: bool>(
         res.insert(0, cmd);
     }
     res
+}
+
+pub fn custom_option<B: Board>(
+    name: &str,
+    standard: Standard,
+    matches: Box<dyn Fn(&str) -> bool>,
+) -> CommandList<B> {
+    let name = name.to_string();
+    let res = CustomCommand {
+        name: name.clone(),
+        standard,
+        matches,
+    };
+    vec![Box::new(res)]
+}
+
+pub fn int_option<B: Board>(name: &'static str, standard: Standard) -> CommandList<B> {
+    custom_option::<B>(
+        name,
+        standard,
+        Box::new(|string| string.is_empty() || parse_int_from_str::<isize>(string, name).is_ok()),
+    )
+}
+
+pub struct CustomCommand {
+    name: String,
+    standard: Standard,
+    matches: Box<dyn Fn(&str) -> bool>,
+}
+
+impl Debug for CustomCommand {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "Custom Command for {}", self.name)
+    }
+}
+
+impl NamedEntity for CustomCommand {
+    fn short_name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn long_name(&self) -> String {
+        self.short_name()
+    }
+
+    fn description(&self) -> Option<String> {
+        Some(format!("Enter the {}", self.name))
+    }
+
+    fn matches(&self, name: &str) -> bool {
+        (self.matches)(name)
+    }
+
+    fn autocomplete_badness(&self, input: &str, _matcher: fn(&str, &str) -> isize) -> isize {
+        if self.matches(input) {
+            1
+        } else {
+            1000
+        }
+    }
+}
+
+impl Display for CustomCommand {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{0}: {1}.",
+            self.name.bold(),
+            self.description().unwrap()
+        )
+    }
+}
+
+impl<B: Board> AbstractCommand<B> for CustomCommand {
+    fn standard(&self) -> Standard {
+        self.standard
+    }
+
+    fn sub_commands(&self, _state: ACState<B>) -> SubCommandList<B> {
+        vec![]
+    }
+
+    fn change_autocomplete_state(&self, state: ACState<B>) -> ACState<B> {
+        state
+    }
+
+    fn autocomplete_recurse(&self) -> bool {
+        false
+    }
+
+    fn set_autocompletions(&mut self, _func: SubCommandsFn<B>) {
+        // do nothing
+    }
+
+    fn secondary_names(&self) -> Vec<String> {
+        vec![]
+    }
+}
+
+impl<B: Board> CommandTrait<B> for CustomCommand {
+    fn func(&self) -> fn(&mut B, &mut Tokens, &str) -> Res<()> {
+        |_, _, _| Ok(())
+    }
+
+    fn upcast_box(self: Box<Self>) -> Box<dyn AbstractCommand<B>> {
+        self
+    }
+
+    fn upcast_ref(&self) -> &dyn AbstractCommand<B> {
+        self
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1270,19 +1386,21 @@ impl<B: Board> CommandAutocomplete<B> {
     }
 }
 
-fn distance(input: &str, name: &str) -> usize {
+fn distance(input: &str, name: &str) -> isize {
     if input.eq_ignore_ascii_case(name) {
         0
     } else {
+        // bonus if the case matches exactly for a prefix, so `B` is more likely to be `Bb4` than `b4`.
+        let bonus = if input.starts_with(name) { 1 } else { 0 };
         let lowercase_name = name.to_lowercase();
         let input = input.to_lowercase();
         let prefix = &lowercase_name.as_bytes()[..input.len().min(lowercase_name.len())];
-        2 + edit_distance(&input, from_utf8(prefix).unwrap_or(name))
+        2 + edit_distance(&input, from_utf8(prefix).unwrap_or(name)) as isize - bonus
     }
 }
 
 fn push<B: Board, T: AbstractCommand<B> + ?Sized>(
-    completions: &mut Vec<(usize, Completion)>,
+    completions: &mut Vec<(isize, Completion)>,
     word: &str,
     node: &T,
 ) {
@@ -1295,29 +1413,49 @@ fn push<B: Board, T: AbstractCommand<B> + ?Sized>(
     ));
 }
 
+/// Recursively go through all commands that have been typed so far and add completions.
+/// `node` is the command we're currently looking at, `rest` are the tokens after that,
+/// and `to_complete` is the last typed token or `""`, which is the one that should be completed
 fn completions<B: Board>(
     node: &dyn AbstractCommand<B>,
-    state: ACState<B>,
-    mut rest: Tokens,
+    state: &mut ACState<B>,
+    rest: &mut Tokens,
     to_complete: &str,
-) -> Vec<(usize, Completion)> {
-    let mut res = vec![];
-    let next = rest.peek().copied();
-    for child in node.sub_commands(state.clone()) {
-        // TODO: Use is_none_or in Rust 1.82
-        if next.is_none() || next.is_some_and(|n| n == to_complete) || node.autocomplete_recurse() {
-            push(&mut res, to_complete, child.as_ref());
+) -> Vec<(isize, Completion)> {
+    let mut res: Vec<(isize, Completion)> = vec![];
+    let mut next_token = rest.peek().copied();
+    // ignore all other suggestions if the last complete token requires a subcommand
+    // compute this before `next_token` might be changed in the loop
+    let add_subcommands =
+        next_token.is_none_or(|n| n == to_complete) || node.autocomplete_recurse();
+    loop {
+        let mut found_subcommand = false;
+        for child in node.sub_commands(state.clone()) {
+            // If this command is the last complete token or can recurse, add all subcommands to completions
+            if add_subcommands {
+                push(&mut res, to_complete, child.as_ref());
+                // if prefer_current_completions {
+                //     res.last_mut().unwrap().0 -= 10;
+                // }
+            }
+            // if the next token is a subcommand of this command, add suggestions for it.
+            // This consumes tokens, so check all remaining subcommands again for the remaining input
+            if next_token.is_some_and(|name| child.matches(name)) {
+                found_subcommand = true;
+                _ = rest.next(); // eat the token for the subcommand
+                *state = child.change_autocomplete_state(state.clone());
+                let mut new_completions = completions(child.as_ref(), state, rest, to_complete);
+                // if prefer_current_completions {
+                // for (badness, _c) in &mut new_completions {
+                //     *badness -= 10;
+                // }
+                // }
+                next_token = rest.peek().copied();
+                res.append(&mut new_completions);
+            }
         }
-        if next.is_some_and(|name| child.matches(name)) {
-            let mut rest = rest.clone();
-            _ = rest.next();
-            let new_state = child.change_autocomplete_state(state.clone());
-            res.append(&mut completions(
-                child.as_ref(),
-                new_state,
-                rest,
-                to_complete,
-            ));
+        if !found_subcommand {
+            break;
         }
     }
     res
@@ -1351,10 +1489,8 @@ struct Completion {
     text: String,
 }
 
-fn suggestions<B: Board>(
-    autocomplete: &mut CommandAutocomplete<B>,
-    input: &str,
-) -> Vec<Completion> {
+/// top-level function for completion suggestions, calls the recursive completions() function
+fn suggestions<B: Board>(autocomplete: &CommandAutocomplete<B>, input: &str) -> Vec<Completion> {
     let mut words = tokens(input);
     let Some(cmd_name) = words.next() else {
         return vec![];
@@ -1364,35 +1500,35 @@ fn suggestions<B: Board>(
     } else {
         input.split_whitespace().last().unwrap()
     };
-    let should_complete_this = words.peek().is_none() && !to_complete.is_empty();
+    let complete_first_token = words.peek().is_none() && !to_complete.is_empty();
 
     let mut res = vec![];
-    if !(should_complete_this && to_complete == "?") {
+    if !(complete_first_token && to_complete == "?") {
         for cmd in autocomplete.list.iter() {
-            if should_complete_this {
+            if complete_first_token {
                 push(&mut res, to_complete, cmd.as_ref());
             } else if cmd.matches(cmd_name) {
                 let mut new = completions(
                     cmd.upcast_ref(),
-                    autocomplete.state.clone(),
-                    words.clone(),
+                    &mut autocomplete.state.clone(),
+                    &mut words,
                     to_complete,
                 );
                 res.append(&mut new);
             }
         }
     }
-    if should_complete_this {
-        let moves = moves_options(autocomplete.state.pos, false);
+    if complete_first_token {
+        let moves = moves_options(autocomplete.state.pos, false, false);
         for mov in moves {
             push(&mut res, to_complete, mov.upcast_box().as_ref());
         }
     }
-    res.sort_by_key(|(val, _name)| *val);
+    res.sort_by_key(|(val, name)| (*val, name.name.clone()));
     if let Some(min) = res.first().map(|(val, _name)| *val) {
         res.into_iter()
             .dedup()
-            .take_while(|(val, _text)| *val == min)
+            .take_while(|(val, _text)| *val <= min)
             .map(|(_val, text)| text)
             .collect()
     } else {
@@ -1450,9 +1586,9 @@ pub fn random_command<B: Board>(
     for i in 0..depth {
         res.push(' ');
         let s = suggestions(ac, &res);
-        let s = s.choose(&mut thread_rng());
-        if thread_rng().gen_range(0..7) == 0 {
-            res += &thread_rng().gen_range(-42..10_000).to_string();
+        let s = s.choose(&mut rng());
+        if rng().random_range(0..7) == 0 {
+            res += &rng().random_range(-42..10_000).to_string();
         } else if depth == 0 || s.is_none() {
             return res;
         } else {

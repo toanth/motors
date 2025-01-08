@@ -25,7 +25,7 @@ use gears::general::common::anyhow::bail;
 use gears::general::common::Res;
 use gears::general::moves::Move;
 use gears::output::Message::*;
-use gears::output::{Message, OutputBox, OutputBuilder};
+use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
 use gears::search::{SearchInfo, TimeControl};
 use gears::MatchStatus::*;
 use gears::Quitting::*;
@@ -492,7 +492,7 @@ impl<B: Board> Client<B> {
 
     pub fn show(&mut self) {
         for output in &mut self.outputs {
-            output.show(&self.state);
+            output.show(&self.state, OutputOpts::default());
         }
     }
 
@@ -547,7 +547,12 @@ impl<B: Board> Client<B> {
     }
 
     fn send_position(&mut self, color: B::Color) {
-        self.send_ugi_message(color, &self.ugi_output.as_string(&self.state));
+        self.send_ugi_message(
+            color,
+            &self
+                .ugi_output
+                .as_string(&self.state, OutputOpts::default()),
+        );
     }
 
     /// This function does no validation at all. This allows for greater flexibility when the user knows that

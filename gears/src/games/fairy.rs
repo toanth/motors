@@ -50,6 +50,7 @@ use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates,
 use crate::output::text_output::{
     board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter,
 };
+use crate::output::OutputOpts;
 use crate::search::Depth;
 use crate::PlayerResult;
 use anyhow::bail;
@@ -584,6 +585,15 @@ impl Board for FairyBoard {
         ]
     }
 
+    fn list_variants() -> Option<Vec<String>> {
+        Some(
+            Self::variants()
+                .iter()
+                .map(|v| v.name.to_string())
+                .collect_vec(),
+        )
+    }
+
     fn bench_positions() -> Vec<Self> {
         // TODO: More positions covering a wide variety of rules
         vec![Self::startpos()]
@@ -830,8 +840,9 @@ impl Board for FairyBoard {
         &self,
         piece: Option<CharType>,
         last_move: Option<Self::Move>,
+        opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
-        Box::new(DefaultBoardFormatter::new(*self, piece, last_move))
+        Box::new(DefaultBoardFormatter::new(*self, piece, last_move, opts))
     }
 
     fn background_color(&self, square: FairySquare) -> SquareColor {

@@ -56,8 +56,35 @@ impl<B: Board> Engine<B> for Gaps<B> {
     type SearchStackEntry = EmptySearchStackEntry;
     type CustomInfo = NoCustomInfo;
 
+    fn with_eval(eval: Box<dyn Eval<B>>) -> Self {
+        Self {
+            state: SearchState::new(MAX_DEPTH),
+            eval,
+        }
+    }
+
+    fn static_eval(&mut self, pos: B, ply: usize) -> Score {
+        self.eval.eval(&pos, ply)
+    }
+
     fn max_bench_depth(&self) -> Depth {
         MAX_DEPTH
+    }
+
+    fn search_state_dyn(&self) -> &dyn AbstractSearchState<B> {
+        &self.state
+    }
+
+    fn search_state_mut_dyn(&mut self) -> &mut dyn AbstractSearchState<B> {
+        &mut self.state
+    }
+
+    fn search_state(&self) -> &SearchStateFor<B, Self> {
+        &self.state
+    }
+
+    fn search_state_mut(&mut self) -> &mut SearchStateFor<B, Self> {
+        &mut self.state
     }
 
     fn engine_info(&self) -> EngineInfo {
@@ -70,6 +97,11 @@ impl<B: Board> Engine<B> for Gaps<B> {
             None,
             vec![],
         )
+    }
+
+    fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
+        let elapsed = start_time.elapsed();
+        elapsed >= hard_limit.min(tc.remaining / 32 + tc.increment / 2)
     }
 
     fn set_eval(&mut self, eval: Box<dyn Eval<B>>) {
@@ -103,7 +135,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
                 }
                 self.state.current_pv_data_mut().bound = Some(Exact);
                 // only set now so that incomplete iterations are discarded
-                let best_mpv_move = self.state.current_pv_data().pv[0];
+                let best_mpv_move = self.state.current_pv_data().pv.get(0).unwrap_or_default();
                 if pv_num == 0 {
                     self.state.atomic().set_score(iteration_score);
                     self.state.atomic().set_best_move(best_mpv_move);
@@ -122,38 +154,6 @@ impl<B: Board> Engine<B> for Gaps<B> {
             self.state.atomic().score(),
             pos,
         )
-    }
-
-    fn search_state(&self) -> &SearchStateFor<B, Self> {
-        &self.state
-    }
-
-    fn search_state_mut(&mut self) -> &mut SearchStateFor<B, Self> {
-        &mut self.state
-    }
-
-    fn static_eval(&mut self, pos: B, ply: usize) -> Score {
-        self.eval.eval(&pos, ply)
-    }
-
-    fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
-        let elapsed = start_time.elapsed();
-        elapsed >= hard_limit.min(tc.remaining / 32 + tc.increment / 2)
-    }
-
-    fn with_eval(eval: Box<dyn Eval<B>>) -> Self {
-        Self {
-            state: SearchState::new(MAX_DEPTH),
-            eval,
-        }
-    }
-
-    fn search_state_dyn(&self) -> &dyn AbstractSearchState<B> {
-        &self.state
-    }
-
-    fn search_state_mut_dyn(&mut self) -> &mut dyn AbstractSearchState<B> {
-        &mut self.state
     }
 }
 

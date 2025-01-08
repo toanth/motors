@@ -150,6 +150,7 @@ impl ChessMove {
         board.piece_type_on(self.dest_square())
     }
 
+    #[inline]
     pub fn is_capture(self, board: &Chessboard) -> bool {
         self.is_ep() || self.is_non_ep_capture(board)
     }
@@ -210,6 +211,7 @@ impl ChessMove {
     }
 }
 
+
 impl Display for ChessMove {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         if self.is_null() {
@@ -231,6 +233,7 @@ impl Display for ChessMove {
     }
 }
 
+
 impl Move<Chessboard> for ChessMove {
     type Underlying = u16;
 
@@ -249,70 +252,14 @@ impl Move<Chessboard> for ChessMove {
         self.dest_square()
     }
 
+    #[inline]
     fn is_tactical(self, board: &Chessboard) -> bool {
         self.is_capture(board) || self.flags() == PromoQueen || self.flags() == PromoKnight
     }
 
+    #[inline]
     fn format_compact(self, f: &mut Formatter<'_>, _board: &Chessboard) -> fmt::Result {
         write!(f, "{self}")
-    }
-
-    fn parse_compact_text<'a>(s: &'a str, board: &Chessboard) -> Res<(&'a str, ChessMove)> {
-        let s = s.trim_start(); // TODO: Remove?
-        if s.is_empty() {
-            bail!("Empty input");
-        }
-        if s.len() < 4 {
-            bail!("Move too short: '{s}'. Must be <from square><to square>, e.g. e2e4, and possibly a promotion piece.");
-        }
-        // Need to check this before creating slices because splitting unicode character panics.
-        if !s.get(..4).is_some_and(|s| s.is_ascii()) {
-            bail!(
-                "The first 4 bytes of '{}' contain a non-ASCII character",
-                s.red()
-            );
-        }
-        let from = ChessSquare::from_str(&s[..2])?;
-        let mut to = ChessSquare::from_str(&s[2..4])?;
-        let piece = board.colored_piece_on(from);
-        let mut flags = ChessMoveFlags::normal_move(piece.uncolored());
-        let mut end_idx = 4;
-        if let Some((promo_flags, idx)) = parse_short_promo_piece(s) {
-            flags = promo_flags;
-            end_idx = idx;
-        } else if piece.uncolored() == King {
-            let rook_capture = board.colored_piece_on(to).symbol
-                == ColoredChessPieceType::new(piece.color().unwrap(), Rook);
-            if rook_capture || to.file().abs_diff(from.file()) > 1 {
-                let color = if from.rank() == 0 { White } else { Black };
-                if !rook_capture {
-                    // convert normal chess king-to castling notation to rook capture notation (necessary for chess960/DFRC)
-                    let to_file = match to.file() {
-                        C_FILE_NO => board.castling.rook_start_file(color, Queenside),
-                        G_FILE_NO => board.castling.rook_start_file(color, Kingside),
-                        _ => bail!("Invalid king move to square {to}, which is neither a normal king move nor a castling move")
-                    };
-                    to = ChessSquare::from_rank_file(to.rank(), to_file);
-                }
-                // handle KxR notation (e.g. e1h1 for kingside castling)
-                flags = if to.file() == board.castling.rook_start_file(color, Queenside) {
-                    CastleQueenside
-                } else {
-                    CastleKingside
-                }
-            }
-        } else if piece.uncolored() == Pawn && board.is_empty(to) && from.file() != to.file() {
-            flags = EnPassant;
-        }
-        let res = from.bb_idx() + (to.bb_idx() << 6) + ((flags as usize) << 12);
-        let res = ChessMove(res as u16);
-        if !board.is_move_pseudolegal(res) {
-            bail!(
-                "The move '{0}' is not (pseudo)legal in position '{board}'",
-                s.red()
-            )
-        }
-        Ok((&s[end_idx..], res))
     }
 
     fn format_extended(
@@ -413,16 +360,74 @@ impl Move<Chessboard> for ChessMove {
         write!(f, "{res}")
     }
 
+    fn parse_compact_text<'a>(s: &'a str, board: &Chessboard) -> Res<(&'a str, ChessMove)> {
+        let s = s.trim_start(); // TODO: Remove?
+        if s.is_empty() {
+            bail!("Empty input");
+        }
+        if s.len() < 4 {
+            bail!("Move too short: '{s}'. Must be <from square><to square>, e.g. e2e4, and possibly a promotion piece.");
+        }
+        // Need to check this before creating slices because splitting unicode character panics.
+        if !s.get(..4).is_some_and(|s| s.is_ascii()) {
+            bail!(
+                "The first 4 bytes of '{}' contain a non-ASCII character",
+                s.red()
+            );
+        }
+        let from = ChessSquare::from_str(&s[..2])?;
+        let mut to = ChessSquare::from_str(&s[2..4])?;
+        let piece = board.colored_piece_on(from);
+        let mut flags = ChessMoveFlags::normal_move(piece.uncolored());
+        let mut end_idx = 4;
+        if let Some((promo_flags, idx)) = parse_short_promo_piece(s) {
+            flags = promo_flags;
+            end_idx = idx;
+        } else if piece.uncolored() == King {
+            let rook_capture = board.colored_piece_on(to).symbol
+                == ColoredChessPieceType::new(piece.color().unwrap(), Rook);
+            if rook_capture || to.file().abs_diff(from.file()) > 1 {
+                let color = if from.rank() == 0 { White } else { Black };
+                if !rook_capture {
+                    // convert normal chess king-to castling notation to rook capture notation (necessary for chess960/DFRC)
+                    let to_file = match to.file() {
+                        C_FILE_NO => board.castling.rook_start_file(color, Queenside),
+                        G_FILE_NO => board.castling.rook_start_file(color, Kingside),
+                        _ => bail!("Invalid king move to square {to}, which is neither a normal king move nor a castling move")
+                    };
+                    to = ChessSquare::from_rank_file(to.rank(), to_file);
+                }
+                // handle KxR notation (e.g. e1h1 for kingside castling)
+                flags = if to.file() == board.castling.rook_start_file(color, Queenside) {
+                    CastleQueenside
+                } else {
+                    CastleKingside
+                }
+            }
+        } else if piece.uncolored() == Pawn && board.is_empty(to) && from.file() != to.file() {
+            flags = EnPassant;
+        }
+        let res = from.bb_idx() + (to.bb_idx() << 6) + ((flags as usize) << 12);
+        let res = ChessMove(res as u16);
+        if !board.is_move_pseudolegal(res) {
+            bail!(
+                "The move '{0}' is not (pseudo)legal in position '{board}'",
+                s.red()
+            )
+        }
+        Ok((&s[end_idx..], res))
+    }
+
+    fn parse_extended_text<'a>(s: &'a str, board: &Chessboard) -> Res<(&'a str, ChessMove)> {
+        MoveParser::parse(s, board)
+    }
+
     fn from_u64_unchecked(val: u64) -> UntrustedMove<Chessboard> {
         UntrustedMove::from_move(Self(val as u16))
     }
 
     fn to_underlying(self) -> Self::Underlying {
         self.0
-    }
-
-    fn parse_extended_text<'a>(s: &'a str, board: &Chessboard) -> Res<(&'a str, ChessMove)> {
-        MoveParser::parse(s, board)
     }
 }
 

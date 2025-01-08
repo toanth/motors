@@ -141,10 +141,6 @@ impl LiteValues for KingGambotValues {
         Lite::defended(protecting, target)
     }
 
-    fn num_defended(num: usize) -> PhasedScore {
-        Lite::num_defended(num)
-    }
-
     fn king_zone_attack(attacking: ChessPieceType) -> PhasedScore {
         Lite::king_zone_attack(attacking)
     }

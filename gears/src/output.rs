@@ -80,10 +80,23 @@ pub trait AbstractOutput: NamedEntity + Debug + Send + 'static {
     fn display_message(&mut self, typ: Message, message: &str);
 }
 
+#[derive(Debug, Default, Copy, Clone)]
+pub struct OutputOpts {
+    pub disable_flipping: bool,
+}
+
+impl OutputOpts {
+    pub fn dont_flip() -> Self {
+        Self {
+            disable_flipping: true,
+        }
+    }
+}
+
 /// An Output prints the board and shows messages.
 pub trait Output<B: Board>: AbstractOutput {
-    fn show(&mut self, m: &dyn GameState<B>) {
-        println!("{}", self.as_string(m));
+    fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts) {
+        println!("{}", self.as_string(m, opts));
     }
 
     fn inform_game_over(&mut self, m: &dyn GameState<B>) {
@@ -93,7 +106,7 @@ pub trait Output<B: Board>: AbstractOutput {
         }
     }
 
-    fn as_string(&self, m: &dyn GameState<B>) -> String;
+    fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String;
 
     fn display_message_with_state(&mut self, _: &dyn GameState<B>, typ: Message, message: &str) {
         self.display_message(typ, message);

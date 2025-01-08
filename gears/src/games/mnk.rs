@@ -30,6 +30,7 @@ use crate::output::text_output::{
     board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter,
 };
 use crate::search::Depth;
+use crate::output::OutputOpts;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 #[must_use]
@@ -657,7 +658,7 @@ impl Board for MNKBoard {
         if num_empty == 0 {
             return None;
         }
-        let idx = rng.gen_range(0..num_empty);
+        let idx = rng.random_range(0..num_empty);
         let target = ith_one_u128(idx, empty.raw());
 
         Some(FillSquare {
@@ -755,8 +756,14 @@ impl Board for MNKBoard {
         &self,
         piece_to_char: Option<CharType>,
         last_move: Option<Self::Move>,
+        opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
-        Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move))
+        Box::new(DefaultBoardFormatter::new(
+            *self,
+            piece_to_char,
+            last_move,
+            opts,
+        ))
     }
 
     fn background_color(&self, square: GridCoordinates) -> SquareColor {

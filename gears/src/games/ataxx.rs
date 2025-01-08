@@ -25,6 +25,7 @@ use crate::output::text_output::{
     board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter,
 };
 use crate::search::Depth;
+use crate::output::OutputOpts;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose, Win};
 use anyhow::{bail, ensure};
@@ -367,8 +368,14 @@ impl Board for AtaxxBoard {
         &self,
         piece_to_char: Option<CharType>,
         last_move: Option<Self::Move>,
+        opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
-        Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move))
+        Box::new(DefaultBoardFormatter::new(
+            *self,
+            piece_to_char,
+            last_move,
+            opts,
+        ))
     }
 
     fn background_color(&self, _coords: Self::Coordinates) -> SquareColor {

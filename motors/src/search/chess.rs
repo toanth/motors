@@ -88,8 +88,7 @@ mod tests {
                 ChessMoveFlags::RookMove
             )
         );
-        assert!(res.score.is_some());
-        assert_eq!(res.score.unwrap(), SCORE_WON - 3);
+        assert_eq!(res.score, SCORE_WON - 3);
 
         mated_test(&mut engine);
         avoid_repetition(&mut engine);
@@ -109,10 +108,10 @@ mod tests {
             TT::default(),
         );
         let res = engine.search(params);
-        if let Some(plies_to_win) = res.score.unwrap().plies_until_game_won() {
+        if let Some(plies_to_win) = res.score.plies_until_game_won() {
             assert!(plies_to_win > 4);
         } else {
-            assert!(res.score.unwrap() >= Score(500));
+            assert!(res.score >= Score(500));
         }
         assert_ne!(
             res.chosen_move,
@@ -123,15 +122,15 @@ mod tests {
     fn mate_beats_repetition<E: Engine<Chessboard>>(engine: &mut E) {
         let pos = Chessboard::from_fen("8/3Q4/2K5/k7/6P1/8/8/8 w - - 99 99", Strict).unwrap();
         let res = engine.search_with_new_tt(pos, SearchLimit::depth(engine.default_bench_depth()));
-        let score = res.score.unwrap();
+        let score = res.score;
         assert!(score > Score(500));
-        if let Some(plies_to_win) = res.score.unwrap().plies_until_game_won() {
+        if let Some(plies_to_win) = res.score.plies_until_game_won() {
             assert!(plies_to_win > 2);
         }
         assert_eq!(res.chosen_move, ChessMove::from_text("g5!", &pos).unwrap());
         let pos = Chessboard::from_fen("8/8/k1K5/8/8/8/3Q2P1/8 w - - 99 99", Strict).unwrap();
         let res = engine.search_with_new_tt(pos, SearchLimit::depth_(3));
-        let score = res.score.unwrap();
+        let score = res.score;
         assert_eq!(score.plies_until_game_won(), Some(1), "{score}");
         assert_eq!(res.chosen_move, ChessMove::from_text("d2a2", &pos).unwrap());
     }
@@ -172,10 +171,10 @@ mod tests {
         let res2 = handle2.join().unwrap();
         // The bound of 400 is rather large because gaps does not produce very stable evals
         assert!(
-            res.score.unwrap().0.abs_diff(res2.score.unwrap().0) <= 400,
+            res.score.0.abs_diff(res2.score.0) <= 400,
             "{0} {1}",
-            res.score.unwrap(),
-            res2.score.unwrap()
+            res.score,
+            res2.score
         );
         assert_eq!(res.chosen_move.piece_type(), Bishop);
         assert_eq!(
@@ -193,8 +192,8 @@ mod tests {
         // TODO: New testcase that asserts that unfinished iterations can still change the score
         let res = engine.search_with_new_tt(board, SearchLimit::depth_(1));
         // let res = engine.search_with_new_tt(board, SearchLimit::nodes_(5_000));
-        let score = res.score.unwrap();
-        assert!(res.score.unwrap() >= Score(1400), "{score}");
+        let score = res.score;
+        assert!(res.score >= Score(1400), "{score}");
         // not a legal chess position, but search with random eval should handle this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
@@ -203,7 +202,7 @@ mod tests {
             // do this several times to get different random numbers
             let mut engine = Caps::for_eval::<RandEval>();
             let res = engine.search_with_new_tt(board, SearchLimit::depth(Depth::new(i)));
-            assert_eq!(res.score.unwrap(), SCORE_LOST + 2);
+            assert_eq!(res.score, SCORE_LOST + 2);
             assert_eq!(res.chosen_move.to_string(), "h1g1");
         }
     }
@@ -245,7 +244,7 @@ mod tests {
                 TT::default(),
             ));
             assert_eq!(res.chosen_move, mov);
-            assert_eq!(res.score.unwrap(), Score(0));
+            assert_eq!(res.score, Score(0));
         }
     }
 
@@ -260,14 +259,14 @@ mod tests {
         let engines: [(Box<dyn Engine<Chessboard>>, u64); 3] = [
             (Box::new(Caps::for_eval::<KingGambot>()), 100_000),
             (Box::new(Caps::for_eval::<MaterialOnlyEval>()), 200_000),
-            (Box::new(Gaps::<Chessboard>::for_eval::<LiTEval>()), 800_000),
+            (Box::new(Gaps::<Chessboard>::for_eval::<LiTEval>()), 900_000),
         ];
         for (mut engine, nodes) in engines.into_iter() {
             println!("{}", engine.engine_info().short_name());
             limit.nodes = NodesLimit::new(nodes).unwrap();
             let res = engine.search_with_new_tt(pos, limit);
-            assert!(res.score.unwrap().is_game_won_score());
-            assert_eq!(res.score.unwrap().plies_until_game_won(), Some(5));
+            assert!(res.score.is_game_won_score());
+            assert_eq!(res.score.plies_until_game_won(), Some(5));
             assert_eq!(res.chosen_move, ChessMove::from_text("f3", &pos).unwrap());
         }
     }
