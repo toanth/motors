@@ -24,36 +24,60 @@ use gears::colorgrad::{BasisGradient, Gradient, LinearGradient};
 use gears::games::Color;
 use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::{sigmoid, Tokens};
-use gears::general::move_list::MoveList;
 use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::Move;
-use gears::output::{Message, OutputBox, OutputOpts};
+use gears::output::{AbstractOutput, Message, OutputBox, OutputOpts};
 use gears::score::{Score, SCORE_LOST, SCORE_WON};
 use gears::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
 use gears::search::NodeType::*;
-use gears::search::{MpvType, NodeType, SearchInfo, SearchResult};
+use gears::search::{Depth, MpvType, NodeType, NodesLimit, SearchInfo, SearchResult};
 use gears::{colorgrad, GameState};
 use indicatif::{ProgressBar, ProgressStyle};
-use std::fmt;
 use std::io::stdout;
+use std::time::Duration;
+use std::{fmt, mem};
 
 #[derive(Debug)]
-/// All UGI communication is done through stdout, but there can be additional outputs,
-/// such as a logger, or human-readable printing to stderr
-pub struct UgiOutput<B: Board> {
-    pub(super) additional_outputs: Vec<OutputBox<B>>,
-    pub(super) pretty: bool,
-    previous_exact_info: Option<SearchInfo<B>>,
+struct TypeErasedSearchInfo {
+    depth: Depth,
+    seldepth: Depth,
+    time: Duration,
+    nodes: NodesLimit,
+    pv_num: usize,
+    score: Score,
+    hashfull: usize,
+    bound: Option<NodeType>,
+}
+
+impl TypeErasedSearchInfo {
+    fn new<B: Board>(info: SearchInfo<B>) -> Self {
+        Self {
+            depth: info.depth,
+            seldepth: info.seldepth,
+            time: info.time,
+            nodes: info.nodes,
+            pv_num: info.pv_num,
+            score: info.score,
+            hashfull: info.hashfull,
+            bound: info.bound,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct TypeErasedUgiOutput {
+    outputs: Vec<Box<dyn AbstractOutput>>,
+    pretty: bool,
     gradient: LinearGradient,
     alt_grad: BasisGradient,
     progress_bar: Option<ProgressBar>,
-    pub(super) show_currline: bool,
+    previous_exact_info: Option<TypeErasedSearchInfo>,
 }
 
-impl<B: Board> Default for UgiOutput<B> {
+impl Default for TypeErasedUgiOutput {
     fn default() -> Self {
         Self {
-            additional_outputs: vec![],
+            outputs: vec![],
             pretty: false,
             previous_exact_info: None,
             gradient: score_gradient(),
@@ -64,69 +88,15 @@ impl<B: Board> Default for UgiOutput<B> {
                 .build::<BasisGradient>()
                 .unwrap(),
             progress_bar: None,
-            show_currline: true,
         }
     }
 }
 
-impl<B: Board> UgiOutput<B> {
-    pub fn new(pretty: bool) -> Self {
-        Self {
-            pretty,
-            ..Default::default()
-        }
-    }
-}
-
-impl<B: Board> UgiOutput<B> {
-    /// Part of the UGI specification, but not the UCI specification
-    pub(super) fn write_response(&mut self, response: &str) {
-        self.write_ugi(&format!("response {response}"));
-    }
-
-    pub fn write_ugi(&mut self, message: &str) {
-        use std::io::Stdout;
-        use std::io::Write;
-        // UGI is always done through stdin and stdout, no matter what the UI is.
-        // TODO: Keep stdout mutex? Might make printing slightly faster and prevents everyone else from
-        // accessing stdout, which is probably a good thing because it prevents sending invalid UCI commands
-        println!("{message}");
-        // Currently, `println` always flushes, but this behaviour should not be relied upon.
-        _ = Stdout::flush(&mut stdout());
-        for output in &mut self.additional_outputs {
-            output.write_ugi_output(message, None);
-        }
-    }
-
-    pub fn write_search_res(&mut self, res: SearchResult<B>) {
-        self.clear_progress_bar();
-        if !self.pretty {
-            self.write_ugi(&res.to_string());
-            return;
-        }
-        let mut move_text = res.chosen_move.to_extended_text(&res.pos, Standard).bold();
-        move_text = move_text.color(color_for_score(res.score, &self.gradient));
-        let mut msg = format!("Chosen move: {move_text}",);
-        if let Some(ponder) = res.ponder_move() {
-            let new_pos = res
-                .pos
-                .make_move(res.chosen_move)
-                .expect("Search returned illegal move");
-            msg += &format!(
-                " (expected response: {})",
-                ponder.to_extended_text(&new_pos, Standard)
-            )
-            .dimmed()
-            .to_string();
-        }
-        self.write_ugi(&msg)
-    }
-
+impl TypeErasedUgiOutput {
     pub fn show_bar(
         &mut self,
         num_moves: usize,
-        variation: &[B::Move],
-        pos: B,
+        pretty_variation: &str,
         eval: Score,
         alpha: Score,
         beta: Score,
@@ -137,13 +107,12 @@ impl<B: Board> UgiOutput<B> {
                 .with_style(ProgressStyle::with_template(template).unwrap())
         });
         let elapsed = bar.elapsed().as_millis();
-        let variation = pretty_variation(variation, pos, None, None, Exact);
         let eval = pretty_score(eval, None, None, &self.gradient, true, false);
         let alpha = pretty_score(alpha, None, None, &self.gradient, true, false);
         let beta = pretty_score(beta, None, None, &self.gradient, true, false);
         let score_string = format!("{eval} with bounds ({alpha}, {beta})");
         let msg = format!(
-            "{0}{elapsed:>5}{1} {variation} [{score_string}]",
+            "{0}{elapsed:>5}{1} {pretty_variation} [{score_string}]",
             "[".dimmed(),
             "ms in this AW] Searching".dimmed()
         );
@@ -151,76 +120,17 @@ impl<B: Board> UgiOutput<B> {
         bar
     }
 
-    pub fn write_currmove(
+    // this is a pretty large function, and instantiating it for each game would make it the 5th largest function in terms of generated llvm lines.
+    fn format_pretty_search_info_non_generic(
         &mut self,
-        pos: &B,
-        mov: B::Move,
-        move_nr: usize,
-        score: Score,
-        alpha: Score,
-        beta: Score,
-    ) {
-        if !self.show_currline || !pos.is_move_legal(mov) {
-            return;
-        }
-        // UGI wants 1-indexed output, but we've already counted the move, so move_nr is 1-indexed
-        let num_moves = pos.legal_moves_slow().num_moves();
-        if !self.pretty {
-            self.write_ugi(&format!(
-                "info currmove {0} currmovenumber {move_nr}",
-                mov.compact_formatter(pos)
-            ));
-            return;
-        }
-        // TODO: Faster implementation for number of legal moves in Board trait?
-        let bar = self.show_bar(num_moves, &[mov], *pos, score, alpha, beta);
-        bar.set_position(move_nr as u64);
-    }
-
-    pub fn write_currline(
-        &mut self,
-        pos: B,
-        variation: &[B::Move],
-        eval: Score,
-        alpha: Score,
-        beta: Score,
-    ) {
-        use std::fmt::Write;
-        if !self.show_currline {
-            return;
-        }
-        if !self.pretty {
-            let mut line = String::new();
-            for mov in variation {
-                write!(line, " {}", mov.compact_formatter(&pos)).unwrap();
-            }
-            // We only send search results from the main thread, no matter how many threads are searching.
-            // And we're also not inspecting other threads' PVs from the main thread.
-            self.write_ugi(&format!("info cpu 1 currline {line}"));
-            return;
-        }
-        self.show_bar(
-            pos.legal_moves_slow().num_moves(),
-            variation,
-            pos,
-            eval,
-            alpha,
-            beta,
-        );
-    }
-
-    pub fn write_search_info(&mut self, info: SearchInfo<B>) {
-        self.clear_progress_bar();
+        info: &TypeErasedSearchInfo,
+        pv: &str,
+        mpv_type: MpvType,
+    ) -> String {
+        assert!(self.pretty);
         let exact = info.bound == Some(Exact);
-        if !self.pretty {
-            self.write_ugi(&info.to_string());
-            if exact {
-                self.previous_exact_info = Some(info);
-            }
-            return;
-        }
 
-        if info.mpv_type() != SecondaryLine
+        if mpv_type != SecondaryLine
             && self
                 .previous_exact_info
                 .as_ref()
@@ -243,7 +153,7 @@ impl<B: Board> UgiOutput<B> {
         let diff_string = if let Some(prev) = &self.previous_exact_info {
             write_with_suffix(
                 info.nodes.get() - prev.nodes.get(),
-                info.mpv_type() == SecondaryLine,
+                mpv_type == SecondaryLine,
             )
         } else {
             " ".repeat(8)
@@ -262,25 +172,19 @@ impl<B: Board> UgiOutput<B> {
         let time = format!("{time:5.1}").color(TrueColor { r, g, b });
         let nodes = format!("{nodes:6.1}");
 
-        let pv = pretty_variation(
-            &info.pv,
-            info.pos,
-            self.previous_exact_info.as_ref().map(|i| i.pv.as_ref()),
-            Some(info.mpv_type()),
-            info.bound.unwrap_or(Exact),
-        );
-        let mut multipv = if info.mpv_type() == OnlyLine {
+        let mut multipv = if mpv_type == OnlyLine {
             "    ".to_string()
         } else {
             format!("{:>4}", format!("({})", info.pv_num + 1))
         };
-        if info.mpv_type() == SecondaryLine {
+        if mpv_type == SecondaryLine {
             multipv = multipv.dimmed().to_string();
         }
 
         let mut iter = format!("{:>3}", info.depth);
         if !exact {
             iter = iter.dimmed().to_string();
+            // use color_for_score instead of `.green()` etc because some terminals struggle with non-true colors and dimmed/bold text.
             if let Some(FailLow) = info.bound {
                 iter = iter
                     .color(color_for_score(SCORE_LOST, &self.gradient))
@@ -290,7 +194,7 @@ impl<B: Board> UgiOutput<B> {
                     .color(color_for_score(SCORE_WON, &self.gradient))
                     .to_string();
             }
-        } else if info.mpv_type() != SecondaryLine {
+        } else if mpv_type != SecondaryLine {
             iter = iter.bold().to_string();
         }
         let complete = if info.bound.is_some() {
@@ -308,19 +212,12 @@ impl<B: Board> UgiOutput<B> {
             .to_string()
             .color(TrueColor { r, g, b })
             .dimmed();
-        let text = format!(
+        format!(
             " {iter}{complete} {seldepth:>3} {multipv} {score:>8}  {time}{s}  {nodes}{M}{diff_string}  {nps}{M}  {tt}{p}  {pv}",
             s = if in_seconds { "s" } else { "m" }.dimmed(),
             M = "M".dimmed(),
             p = "%".dimmed(),
-        );
-        self.write_ugi(&text);
-        if info.bound.is_none() {
-            self.write_ugi(&"[(*) Iteration did not complete]".dimmed().to_string());
-        }
-        if info.mpv_type() != SecondaryLine && info.bound == Some(Exact) {
-            self.previous_exact_info = Some(info);
-        }
+        )
     }
 
     fn clear_progress_bar(&mut self) {
@@ -331,15 +228,190 @@ impl<B: Board> UgiOutput<B> {
     }
 
     pub(super) fn write_ugi_input(&mut self, msg: Tokens) {
-        for output in &mut self.additional_outputs {
+        for output in &mut self.outputs {
             output.write_ugi_input(msg.clone(), None);
         }
     }
 
     pub fn write_message(&mut self, typ: Message, msg: &str) {
-        for output in &mut self.additional_outputs {
+        for output in &mut self.outputs {
             output.display_message(typ, msg);
         }
+    }
+}
+
+#[derive(Debug)]
+/// All UGI communication is done through stdout, but there can be additional outputs,
+/// such as a logger, or human-readable printing to stderr
+pub struct UgiOutput<B: Board> {
+    type_erased: TypeErasedUgiOutput,
+    pub(super) additional_outputs: Vec<OutputBox<B>>,
+    previous_exact_pv: Option<Vec<B::Move>>,
+    pub show_currline: bool,
+}
+
+impl<B: Board> Default for UgiOutput<B> {
+    fn default() -> Self {
+        Self {
+            additional_outputs: vec![],
+            previous_exact_pv: None,
+            type_erased: TypeErasedUgiOutput::default(),
+            show_currline: true,
+        }
+    }
+}
+
+impl<B: Board> UgiOutput<B> {
+    pub fn new(pretty: bool) -> Self {
+        let mut res = Self::default();
+        res.type_erased.pretty = pretty;
+        res
+    }
+
+    pub fn set_pretty(&mut self, pretty: bool) {
+        self.type_erased.pretty = pretty;
+    }
+
+    pub fn write_ugi(&mut self, message: &str) {
+        use std::io::Stdout;
+        use std::io::Write;
+        // UGI is always done through stdin and stdout, no matter what the UI is.
+        // TODO: Keep stdout mutex? Might make printing slightly faster and prevents everyone else from
+        // accessing stdout, which is probably a good thing because it prevents sending invalid UCI commands
+        println!("{message}");
+        // Currently, `println` always flushes, but this behaviour should not be relied upon.
+        _ = Stdout::flush(&mut stdout());
+        for output in &mut self.additional_outputs {
+            output.write_ugi_output(message, None);
+        }
+    }
+
+    /// Part of the UGI specification, but not the UCI specification
+    pub(super) fn write_response(&mut self, response: &str) {
+        self.write_ugi(&format!("response {response}"));
+    }
+
+    pub fn write_search_res(&mut self, res: SearchResult<B>) {
+        self.type_erased.clear_progress_bar();
+        if !self.type_erased.pretty {
+            self.write_ugi(&res.to_string());
+            return;
+        }
+        let mut move_text = res.chosen_move.to_extended_text(&res.pos, Standard).bold();
+        move_text = move_text.color(color_for_score(res.score, &self.type_erased.gradient));
+        let mut msg = format!("Chosen move: {move_text}",);
+        if let Some(ponder) = res.ponder_move() {
+            let new_pos = res
+                .pos
+                .make_move(res.chosen_move)
+                .expect("Search returned illegal move");
+            msg += &format!(
+                " (expected response: {})",
+                ponder.to_extended_text(&new_pos, Standard)
+            )
+            .dimmed()
+            .to_string();
+        }
+        self.write_ugi(&msg)
+    }
+
+    pub fn write_currmove(
+        &mut self,
+        pos: &B,
+        mov: B::Move,
+        move_nr: usize,
+        score: Score,
+        alpha: Score,
+        beta: Score,
+    ) {
+        if !self.show_currline || !pos.is_move_legal(mov) {
+            return;
+        }
+        // UGI wants 1-indexed output, but we've already counted the move, so move_nr is 1-indexed
+        let num_moves = pos.num_legal_moves();
+        if !self.type_erased.pretty {
+            self.write_ugi(&format!(
+                "info currmove {0} currmovenumber {move_nr}",
+                mov.compact_formatter(pos)
+            ));
+            return;
+        }
+        let variation = pretty_variation(&[mov], *pos, None, None, Exact);
+        let bar = self
+            .type_erased
+            .show_bar(num_moves, &variation, score, alpha, beta);
+        bar.set_position(move_nr as u64);
+    }
+
+    pub fn write_currline(
+        &mut self,
+        pos: B,
+        variation: &[B::Move],
+        eval: Score,
+        alpha: Score,
+        beta: Score,
+    ) {
+        use std::fmt::Write;
+        if !self.show_currline {
+            return;
+        }
+        if !self.type_erased.pretty {
+            let mut line = String::new();
+            for mov in variation {
+                write!(line, " {}", mov.compact_formatter(&pos)).unwrap();
+            }
+            // We only send search results from the main thread, no matter how many threads are searching.
+            // And we're also not inspecting other threads' PVs from the main thread.
+            self.write_ugi(&format!("info cpu 1 currline {line}"));
+            return;
+        }
+        let variation = pretty_variation(variation, pos, None, None, Exact);
+        self.type_erased
+            .show_bar(pos.num_legal_moves(), &variation, eval, alpha, beta);
+    }
+
+    pub fn write_search_info(&mut self, mut info: SearchInfo<B>) {
+        self.type_erased.clear_progress_bar();
+        let exact = info.bound == Some(Exact);
+        let mpv_type = info.mpv_type();
+        let pv = mem::take(&mut info.pv);
+        if !self.type_erased.pretty {
+            self.write_ugi(&info.to_string());
+            let info = TypeErasedSearchInfo::new(info);
+            if exact {
+                self.type_erased.previous_exact_info = Some(info);
+                self.previous_exact_pv = Some(pv);
+            }
+            return;
+        }
+        let pv_string = pretty_variation(
+            &pv,
+            info.pos,
+            self.previous_exact_pv.as_ref().map(|i| i.as_ref()),
+            Some(mpv_type),
+            info.bound.unwrap_or(Exact),
+        );
+        let info = TypeErasedSearchInfo::new(info);
+        let text = self
+            .type_erased
+            .format_pretty_search_info_non_generic(&info, &pv_string, mpv_type);
+        self.write_ugi(&text);
+        if info.bound.is_none() {
+            self.write_ugi(&"[(*) Iteration did not complete]".dimmed().to_string());
+        }
+
+        if mpv_type != SecondaryLine && info.bound == Some(Exact) {
+            self.type_erased.previous_exact_info = Some(info);
+            self.previous_exact_pv = Some(pv);
+        }
+    }
+
+    pub(super) fn write_ugi_input(&mut self, msg: Tokens) {
+        self.type_erased.write_ugi_input(msg)
+    }
+
+    pub fn write_message(&mut self, typ: Message, msg: &str) {
+        self.type_erased.write_message(typ, msg)
     }
 
     pub fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts) -> bool {
@@ -350,15 +422,15 @@ impl<B: Board> UgiOutput<B> {
             .iter()
             .any(|o| !o.is_logger() && o.prints_board())
     }
-
-    pub fn format(&mut self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
-        use std::fmt::Write;
-        let mut res = String::new();
-        for output in &mut self.additional_outputs {
-            write!(&mut res, "{}", output.as_string(m, opts)).unwrap();
-        }
-        res
-    }
+    //
+    // pub fn format(&mut self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
+    //     use std::fmt::Write;
+    //     let mut res = String::new();
+    //     for output in &mut self.additional_outputs {
+    //         write!(&mut res, "{}", output.as_string(m, opts)).unwrap();
+    //     }
+    //     res
+    // }
 }
 
 pub fn suffix_for(val: isize, start: Option<usize>) -> (isize, &'static str) {

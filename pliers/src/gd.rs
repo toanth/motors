@@ -5,7 +5,7 @@ use crate::trace::TraceTrait;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
 use gears::colored::Colorize;
 use rand::prelude::SliceRandom;
-use rand::thread_rng;
+use rand::rng;
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
@@ -575,7 +575,7 @@ impl<D: Datapoint> Dataset<D> {
 
     /// Shuffle the dataset, which is useful when not tuning on the entire dataset.
     pub fn shuffle(&mut self) {
-        self.data_points.shuffle(&mut thread_rng());
+        self.data_points.shuffle(&mut rng());
     }
 
     /// Converts the entire dataset into a single batch.
@@ -1106,8 +1106,8 @@ impl<D: Datapoint, G: LossGradient> Optimizer<D> for AdamW<G> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::distributions::{Distribution, Uniform};
-    use rand::thread_rng;
+    use rand::distr::Distribution;
+    use rand::distr::Uniform;
     use std::cmp::Ordering;
     use std::cmp::Ordering::Equal;
 
@@ -1316,8 +1316,8 @@ mod tests {
             num_weights: 2,
             weight_sum: 2.0,
         };
-        let weights_dist = Uniform::new(-100.0, 100.0);
-        let mut rng = thread_rng();
+        let weights_dist = Uniform::new(-100.0, 100.0).unwrap();
+        let mut rng = rng();
         for _ in 0..100 {
             let mut weights = Weights(vec![
                 Weight(weights_dist.sample(&mut rng)),

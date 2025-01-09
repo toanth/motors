@@ -115,6 +115,12 @@ pub trait Output<B: Board>: AbstractOutput {
     fn update_engine_info(&mut self, engine_name: &str, info: &SearchInfo<B>) {
         self.display_message(Info, &format!("{engine_name}: {info}"));
     }
+    fn upcast_box(self: Box<Self>) -> Box<dyn AbstractOutput>
+    where
+        Self: Sized,
+    {
+        self
+    }
 }
 
 pub trait OutputBuilderOption<B: Board> {

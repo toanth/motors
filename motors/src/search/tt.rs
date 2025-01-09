@@ -204,7 +204,7 @@ impl TT {
 
     fn index_of(&self, hash: PosHash) -> usize {
         // Uses the multiplication trick from here: <https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/>
-        ((hash.0 as u128 * self.size_in_entries() as u128) >> usize::BITS as usize) as usize
+        ((hash.0 as u128 * self.size_in_entries() as u128) >> 64) as usize
     }
 
     pub(super) fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {

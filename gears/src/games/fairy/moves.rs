@@ -200,7 +200,7 @@ fn format_move_compact(
 ) -> Option<fmt::Result> {
     // don't check if coordinates are valid or similar because this function isn't supposed to panic
     // -- it might be called to print invalid moves from user input.
-    let size = rules().size;
+    let size = pos.size();
     let from = mov.from.square(size);
     let to = mov.to.square(size);
     Some(match mov.kind() {

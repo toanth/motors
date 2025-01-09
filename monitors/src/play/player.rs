@@ -13,9 +13,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{sleep, Builder};
 use std::time::{Duration, Instant};
 
-use lazy_static::lazy_static;
-use whoami::fallible::realname;
-
 use gears::games::chess::Chessboard;
 use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::anyhow::bail;
@@ -23,6 +20,8 @@ use gears::general::common::Res;
 use gears::output::Message::*;
 use gears::search::{Depth, NodesLimit, SearchLimit, TimeControl, MAX_DEPTH};
 use gears::ugi::EngineOption;
+use lazy_static::lazy_static;
+use whoami::realname;
 
 use crate::cli::{ClientEngineCliArgs, PlayerArgs};
 use crate::play::player::EngineStatus::*;

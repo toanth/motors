@@ -187,19 +187,18 @@ impl BoardToText {
 
     fn match_to_ugi<B: Board>(m: &dyn GameState<B>) -> String {
         use std::fmt::Write;
-        let pos = m.initial_pos().as_fen();
+        let mut pos = m.initial_pos();
         if m.move_history().is_empty() {
             format!("position fen {pos}")
         } else {
-            let mut res = format!("position fen {} moves ", m.initial_pos().as_fen());
-            let mut board = m.get_board();
+            let mut res = format!("position fen {pos} moves ");
             for &mov in m.move_history() {
-                write!(&mut res, "{} ", mov.compact_formatter(&board)).unwrap();
-                let Some(new) = board.make_move(mov) else {
+                write!(&mut res, "{} ", mov.compact_formatter(&pos)).unwrap();
+                let Some(new) = pos.make_move(mov) else {
                     write!(&mut res, "{}", "(invalid move)".red()).unwrap();
                     return res;
                 };
-                board = new;
+                pos = new;
             }
             res
         }

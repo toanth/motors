@@ -184,19 +184,17 @@ pub type BoardSize<B: Board> = <B::Coordinates as Coordinates>::Size;
 /// However, a `Board` is assumed to be markovian and needs to satisfy `Copy` and `'static`.
 /// When this is not desired, the `GameState` should be used instead, it contains a copy of the current board
 /// and additional non-markovian information, such as the history of zobrist hashes for games that need this.
-// TODO: Some methods are not meant to be overwritten, they are only trait methods because of the convenient calling syntax.
-// Move those methods into a separate trait that extends `Board` and has a blanket impl for Boards.
 pub trait Board:
-    Eq
-    + PartialEq
-    + Sized
-    + Default
-    + Debug
+    Debug
     + Display
-    + Copy
-    + Clone
     + Send
     + Sync
+    + Sized
+    + Default
+    + Copy
+    + Clone
+    + Eq
+    + PartialEq
     + StaticallyNamedEntity
     + for<'a> Arbitrary<'a>
     + 'static
@@ -231,7 +229,7 @@ pub trait Board:
     fn startpos_for_settings(settings: Self::Settings) -> Self;
 
     /// The starting position for the current board's settings.
-    fn startpos_with_current_settings(self) -> Self {
+    fn startpos_with_current_settings(&self) -> Self {
         Self::startpos_for_settings(self.settings())
     }
 
@@ -269,7 +267,7 @@ pub trait Board:
             "The game {0} does not support any variants, including '{1}'",
             Self::game_name(),
             name.red()
-        );
+        )
     }
 
     fn list_variants() -> Option<Vec<String>> {
@@ -371,16 +369,15 @@ pub trait Board:
 
     /// Makes a nullmove, i.e. flips the active player. While this action isn't strictly legal in most games,
     /// it's still very useful and necessary for null move pruning.
-    /// `make_move`
     fn make_nullmove(self) -> Option<Self>;
 
     /// Returns true iff the move is pseudolegal, that is, it can be played with `make_move` without
-    /// causing a panic. When it is not certain that a move is definitely (pseudo)legal, `Untrusted<Move>`
-    /// should be used.
+    /// causing a panic. When it is not certain that a move is definitely (pseudo)legal for the current position,
+    /// `Untrusted<Move>` should be used.
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool;
 
     /// Returns true iff the move is legal, that is, if it is pseudolegal and playing it with `make_move`
-    /// would return Some result. `is_move_pseudolegal` can be much faster.
+    /// would return `Some` new board. `is_move_pseudolegal` can be much faster.
     fn is_move_legal(&self, mov: Self::Move) -> bool {
         // the call to `is_pseudolegal_move_legal` should get inlined, after which it should evaluate to `true` for
         // boards with legal movegen

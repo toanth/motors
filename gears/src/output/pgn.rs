@@ -233,25 +233,16 @@ pub struct PgnData<B: Board> {
     pub game: MatchState<B>,
 }
 
-struct PgnParser<'a, B: Board> {
+/// Moved out of PgnParser to save generics instantiations (the `parse_pgn` method would otherwise be the 6th largest function
+/// in terms of combined LLVM lines)
+struct PgnParserState<'a> {
     first_in_line: bool,
     byte_idx: usize,
     original_input: &'a str,
     unread: Peekable<Chars<'a>>,
-    res: PgnData<B>,
 }
 
-impl<'a, B: Board> PgnParser<'a, B> {
-    fn new(input: &'a str) -> Self {
-        Self {
-            first_in_line: true,
-            byte_idx: 0,
-            original_input: input,
-            unread: input.chars().peekable(),
-            res: PgnData::default(),
-        }
-    }
-
+impl PgnParserState<'_> {
     fn eat(&mut self) -> Option<char> {
         self.first_in_line = self.unread.peek().is_some_and(|&c| c == '\n');
         let res = self.unread.next();
@@ -346,41 +337,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
         TagPair::parse(name, value)
     }
 
-    fn parse_all_tag_pairs(&mut self) -> Res<()> {
-        self.ignore_whitespace()?;
-        while let Some(&c) = self.unread.peek() {
-            if c == '[' {
-                let tag_pair = self.parse_tag_pair()?;
-                if let TagPair::Fen(fen) = &tag_pair {
-                    self.res.game.board = B::from_fen(fen, Relaxed)?;
-                }
-                self.res.tag_pairs.push(tag_pair);
-                self.ignore_whitespace()?;
-            } else {
-                break;
-            }
-        }
-        Ok(())
-    }
-
-    // TODO: Support for Variations with (moves)
-    fn parse_move(&mut self) -> Res<()> {
-        self.ignore_whitespace()?;
-        if self.unread.peek().is_none() {
-            return Ok(());
-        }
-        let string = &self.original_input[self.byte_idx..];
-        let next_word = string.split_ascii_whitespace().next().unwrap_or_default();
-        if let Ok(result) = GameResult::from_str(next_word) {
-            self.res.game.status = Run(Over(MatchResult {
-                result,
-                reason: GameOverReason::Normal,
-            }));
-            for _ in 0..next_word.len() {
-                self.eat().unwrap();
-            }
-            return Ok(());
-        }
+    fn eat_move_number(&mut self) -> Res<()> {
         if self.unread.peek().is_some_and(|c| c.is_ascii_digit()) {
             self.eat();
             while self.unread.peek().is_some_and(|c| c.is_ascii_digit()) {
@@ -392,7 +349,70 @@ impl<'a, B: Board> PgnParser<'a, B> {
             }
             self.ignore_whitespace()?;
         }
-        let string = &self.original_input[self.byte_idx..];
+        Ok(())
+    }
+
+    fn unread(&mut self) -> &str {
+        &self.original_input[self.byte_idx..]
+    }
+}
+
+struct PgnParser<'a, B: Board> {
+    state: PgnParserState<'a>,
+    res: PgnData<B>,
+}
+
+impl<'a, B: Board> PgnParser<'a, B> {
+    fn new(input: &'a str) -> Self {
+        let state = PgnParserState {
+            first_in_line: true,
+            byte_idx: 0,
+            original_input: input,
+            unread: input.chars().peekable(),
+        };
+        Self {
+            state,
+            res: PgnData::default(),
+        }
+    }
+
+    fn parse_all_tag_pairs(&mut self) -> Res<()> {
+        self.state.ignore_whitespace()?;
+        while let Some(&c) = self.state.unread.peek() {
+            if c == '[' {
+                let tag_pair = self.state.parse_tag_pair()?;
+                if let TagPair::Fen(fen) = &tag_pair {
+                    self.res.game.board = B::from_fen(fen, Relaxed)?;
+                }
+                self.res.tag_pairs.push(tag_pair);
+                self.state.ignore_whitespace()?;
+            } else {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    // TODO: Support for Variations with (moves)
+    fn parse_move(&mut self) -> Res<()> {
+        self.state.ignore_whitespace()?;
+        if self.state.unread.peek().is_none() {
+            return Ok(());
+        }
+        let string = self.state.unread();
+        let next_word = string.split_ascii_whitespace().next().unwrap_or_default();
+        if let Ok(result) = GameResult::from_str(next_word) {
+            self.res.game.status = Run(Over(MatchResult {
+                result,
+                reason: GameOverReason::Normal,
+            }));
+            for _ in 0..next_word.len() {
+                self.state.eat().unwrap();
+            }
+            return Ok(());
+        }
+        self.state.eat_move_number()?;
+        let string = self.state.unread();
         if let Run(Over(_)) = self.res.game.status {
             bail!(
                 "The game has already ended, cannot parse additional moves at start of '{}'",
@@ -421,13 +441,13 @@ impl<'a, B: Board> PgnParser<'a, B> {
             }
         }
         for _ in 0..string.len() - remaining.len() {
-            self.eat().unwrap();
+            self.state.eat().unwrap();
         }
         Ok(())
     }
 
     fn parse_all_moves(&mut self) -> Res<()> {
-        while self.unread.peek().is_some() {
+        while self.state.unread.peek().is_some() {
             self.parse_move()?;
         }
         Ok(())
@@ -442,12 +462,9 @@ impl<'a, B: Board> PgnParser<'a, B> {
 
 pub fn parse_pgn<B: Board>(pgn: &str) -> Res<PgnData<B>> {
     let mut parser: PgnParser<'_, B> = PgnParser::new(pgn);
-    parser.parse().map_err(|err| {
-        anyhow!(
-            "{err}. Unconsumed input: '{}'",
-            &parser.original_input[parser.byte_idx..].to_string().red()
-        )
-    })
+    parser
+        .parse()
+        .map_err(|err| anyhow!("{err}. Unconsumed input: '{}'", parser.state.unread().red()))
 }
 
 #[cfg(test)]

@@ -552,7 +552,7 @@ impl Board for FairyBoard {
         Self::startpos()
     }
 
-    fn startpos_with_current_settings(self) -> Self {
+    fn startpos_with_current_settings(&self) -> Self {
         Self::startpos()
     }
 
@@ -585,15 +585,6 @@ impl Board for FairyBoard {
         ]
     }
 
-    fn list_variants() -> Option<Vec<String>> {
-        Some(
-            Self::variants()
-                .iter()
-                .map(|v| v.name.to_string())
-                .collect_vec(),
-        )
-    }
-
     fn bench_positions() -> Vec<Self> {
         // TODO: More positions covering a wide variety of rules
         vec![Self::startpos()]
@@ -607,6 +598,15 @@ impl Board for FairyBoard {
         Self::set_variant(first, rest)?;
         *self = Self::startpos();
         Ok(())
+    }
+
+    fn list_variants() -> Option<Vec<String>> {
+        Some(
+            Self::variants()
+                .iter()
+                .map(|v| v.name.to_string())
+                .collect_vec(),
+        )
     }
 
     fn active_player(&self) -> FairyColor {

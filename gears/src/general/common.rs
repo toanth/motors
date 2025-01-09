@@ -158,9 +158,19 @@ pub fn parse_duration_ms(words: &mut Tokens, name: &str) -> Res<Duration> {
     Ok(Duration::from_millis(num_ms.max(0) as u64))
 }
 
+/// Apparently, this will soon be unnecessary. Remove once stable Rust implements trait upcasting
+pub trait AsNamedEntity {
+    fn upcast(&self) -> &dyn NamedEntity;
+}
+impl<T: NamedEntity> AsNamedEntity for T {
+    fn upcast(&self) -> &dyn NamedEntity {
+        self
+    }
+}
+
 /// The name is used to identify the entity throughout all UIs and command line arguments.
 /// Examples are games ('chess', 'mnk', etc), engines ('caps', 'random', etc), and UIs ('fen', 'pretty', etc)
-pub trait NamedEntity: Debug {
+pub trait NamedEntity: Debug + AsNamedEntity {
     /// The short name must consist of a single word in lowercase letters and is usually used for text-based UIs
     fn short_name(&self) -> String;
 

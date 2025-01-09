@@ -406,10 +406,6 @@ impl<B: Board> EngineUGI<B> {
         QuitProgram
     }
 
-    fn write_ugi(&mut self, message: &str) {
-        self.output().write_ugi(message);
-    }
-
     fn write_message(&mut self, typ: Message, msg: &str) {
         self.output().write_message(typ, msg);
     }
@@ -440,7 +436,10 @@ impl<B: Board> EngineUGI<B> {
             } else if first_word.eq_ignore_ascii_case("barbecue") {
                 self.write_message(Error, "lol");
             }
-            self.invalid_command(first_word, words);
+            self.write_message(
+                Warning,
+                &invalid_command_msg(self.is_interactive(), first_word, words),
+            );
             return Ok(());
         };
 
@@ -467,45 +466,6 @@ impl<B: Board> EngineUGI<B> {
             );
         }
         Ok(())
-    }
-
-    fn invalid_command(&mut self, first_word: &str, rest: &mut Tokens) {
-        // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
-        // expositor UCI spec demands that an invalid token should cause the entire message to be ignored.
-        let suggest_help = if self.is_interactive() {
-            format!("Type '{}' for a list of recognized commands", "help".bold())
-        } else {
-            format!(
-                "If you are a human, consider typing '{}' to see a list of recognized commands.",
-                "help".bold()
-            )
-        };
-        let input = format!("{first_word} {}", rest.clone().join(" "));
-        let first_len = first_word.chars().count();
-        let error_msg = if input.len() > 200 || first_len > 25 {
-            let first_word = if first_len > 50 {
-                format!(
-                    "{0}{1}",
-                    first_word.chars().take(50).collect::<String>().red(),
-                    "...(rest omitted for brevity)".dimmed()
-                )
-            } else {
-                first_word.red().to_string()
-            };
-            format!("Invalid first word '{first_word}' of a long UGI command")
-        } else if rest.peek().is_none() {
-            format!("Invalid single-word UGI command '{}'", first_word.red())
-        } else {
-            format!(
-                "Invalid first word '{0}' of UGI command '{1}'",
-                first_word.red(),
-                input.trim().bold()
-            )
-        };
-        self.write_message(
-            Warning,
-            &format!("{error_msg}, ignoring the entire command.\n{suggest_help}"),
-        );
     }
 
     fn print_game_over(&mut self, flip: bool) -> bool {
@@ -580,7 +540,7 @@ impl<B: Board> EngineUGI<B> {
         self.write_ugi(self.write_ugi_options().as_str());
         self.write_ugi(&format!("{proto}ok"));
         self.state.protocol = Protocol::from_str(proto).unwrap();
-        self.output().pretty = self.state.protocol == Interactive;
+        self.output().set_pretty(self.state.protocol == Interactive);
         self.output().show_currline = false; // set here so that interactive mode shows it by default
         Ok(())
     }
@@ -909,7 +869,7 @@ impl<B: Board> EngineUGI<B> {
                 cmd.func()(self, words, query)
             }
             Err(err) => {
-                if let Ok(opt) = self.write_option(words) {
+                if let Ok(opt) = self.write_options(words) {
                     self.write_ugi(&opt);
                     Ok(())
                 } else {
@@ -1186,58 +1146,6 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn write_single_option(option: &EngineOption, res: &mut String) {
-        writeln!(
-            res,
-            "{name}: {value}",
-            name = option.name.to_string().bold(),
-            value = option.value.value_to_str().bold()
-        )
-        .unwrap();
-    }
-
-    fn write_option(&self, words: &mut Tokens) -> Res<String> {
-        let options = self.get_options();
-        if words
-            .peek()
-            .is_some_and(|next| next.eq_ignore_ascii_case("name"))
-        {
-            _ = words.next();
-        }
-        Ok(match words.join(" ").to_ascii_lowercase().as_str() {
-            "" => {
-                let mut res = format!(
-                    "{0} playing {1}\n",
-                    self.state.engine.get_engine_info().short_name(),
-                    self.state.game_name()
-                );
-                for o in options {
-                    Self::write_single_option(&o, &mut res);
-                }
-                res
-            }
-            x => {
-                match options
-                    .iter()
-                    .find(|o| o.name.to_string().eq_ignore_ascii_case(x))
-                {
-                    Some(opt) => {
-                        let mut res = String::new();
-                        Self::write_single_option(opt, &mut res);
-                        res
-                    }
-                    None => {
-                        bail!(
-                            "No option named '{0}' exists. Type '{1}' for a list of options.",
-                            x.red(),
-                            "ugi".bold()
-                        )
-                    }
-                }
-            }
-        })
-    }
-
     fn write_ugi_options(&self) -> String {
         self.get_options()
             .iter()
@@ -1398,6 +1306,116 @@ impl<B: Board> EngineUGI<B> {
             self.write_ugi(&text);
         }
     }
+}
+
+/// This trait exists to allow erasing the type of the board where possible in order to reduce code bloat.
+pub trait AbstractEngineUgi {
+    fn write_options(&self, words: &mut Tokens) -> Res<String>;
+
+    fn write_ugi(&mut self, message: &str);
+}
+
+impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
+    fn write_options(&self, words: &mut Tokens) -> Res<String> {
+        write_options_impl(
+            self.get_options(),
+            &self.state.engine.get_engine_info().short_name(),
+            &B::game_name(),
+            words,
+        )
+    }
+
+    fn write_ugi(&mut self, message: &str) {
+        self.output().write_ugi(message);
+    }
+}
+
+fn write_single_option(option: &EngineOption, res: &mut String) {
+    writeln!(
+        res,
+        "{name}: {value}",
+        name = option.name.to_string().bold(),
+        value = option.value.value_to_str().bold()
+    )
+    .unwrap();
+}
+
+fn write_options_impl(
+    options: Vec<EngineOption>,
+    engine_name: &str,
+    game_name: &str,
+    words: &mut Tokens,
+) -> Res<String> {
+    if words
+        .peek()
+        .is_some_and(|next| next.eq_ignore_ascii_case("name"))
+    {
+        _ = words.next();
+    }
+    Ok(match words.join(" ").to_ascii_lowercase().as_str() {
+        "" => {
+            let mut res = format!("{engine_name} playing {game_name}\n");
+            for o in options {
+                write_single_option(&o, &mut res);
+            }
+            res
+        }
+        x => {
+            match options
+                .iter()
+                .find(|o| o.name.to_string().eq_ignore_ascii_case(x))
+            {
+                Some(opt) => {
+                    let mut res = String::new();
+                    write_single_option(opt, &mut res);
+                    res
+                }
+                None => {
+                    bail!(
+                        "No option named '{0}' exists. Type '{1}' for a list of options.",
+                        x.red(),
+                        "ugi".bold()
+                    )
+                }
+            }
+        }
+    })
+}
+
+fn invalid_command_msg(interactive: bool, first_word: &str, rest: &mut Tokens) -> String {
+    // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
+    // expositor UCI spec demands that an invalid token should cause the entire message to be ignored.
+    let suggest_help = if interactive {
+        format!("Type '{}' for a list of recognized commands", "help".bold())
+    } else {
+        format!(
+            "If you are a human, consider typing '{}' to see a list of recognized commands.",
+            "help".bold()
+        )
+    };
+    let input = format!("{first_word} {}", rest.clone().join(" "));
+    let first_len = first_word.chars().count();
+    let error_msg = if input.len() > 200 || first_len > 25 {
+        let first_word = if first_len > 50 {
+            format!(
+                "{0}{1}",
+                first_word.chars().take(50).collect::<String>().red(),
+                "...(rest omitted for brevity)".dimmed()
+            )
+        } else {
+            first_word.red().to_string()
+        };
+        format!("Invalid first word '{first_word}' of a long UGI command")
+    } else if rest.peek().is_none() {
+        format!("Invalid single-word UGI command '{}'", first_word.red())
+    } else {
+        format!(
+            "Invalid first word '{0}' of UGI command '{1}'",
+            first_word.red(),
+            input.trim().bold()
+        )
+    };
+    format!("{error_msg}, ignoring the entire command.\n{suggest_help}")
 }
 
 // take a BoardGameState instead of a board to correctly handle displaying the last move
