@@ -325,14 +325,16 @@ mod tests {
         "n1n5/PPPk4/8/8/8/8/4Kppp/5N1N b - - 0 1 ;D1 24 ;D2 496 ;D3 9483 ;D4 182838 ;D5 3605103 ;D6 71179139",
         "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1 ;D4 43238 ;D5 674624 ;D6 11030083",
         "rnbqkb1r/ppppp1pp/7n/4Pp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3 ;D5 11139762",
-            // positions from https://analog-hors.github.io/webperft/
+        // positions from https://analog-hors.github.io/webperft/
         "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1 ;D1 6 ;D2 264 ;D3 9467 ;D4 422333 ;D5 15833292 ;D6 706045033",
         "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8 ;D1 44 ;D2 1486 ;D3 62379 ;D4 2103487 ;D5 89941194 ;D6 3048196529", // can take a while
         "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10 ;D1 46 ;D2 2079 ;D3 89890 ;D4 3894594 ;D5 164075551",
-            // pinned en passant pawn (probably already in fen list, but better safe than sorry
+        // pinned en passant pawn (probably already in fen list, but better safe than sorry
         "1nbqkbnr/ppp1pppp/8/r2pP2K/8/8/PPPP1PPP/RNBQ1BNR w k d6 0 2 ;D1 31;D2 927 ;D3 26832 ;D4 813632 ;D5 23977743",
-            // another pinned pawns test (this time without en passant)
+        // another pinned pawns test (this time without en passant)
         "4Q3/5p2/6k1/8/4p3/8/2B3K1/8 b - - 0 1 ;D1 7 ;D2 203 ;D3 1250 ;D4 37962 ;D5 227787 ;D6 7036323 ;D7 41501304",
+        // yet another pinned pawn test
+        "5Q2/8/8/2p5/1k3p1Q/6P1/6K1/8 b - - 1 42 ;D1 6 ;D2 266 ;D3 2018 ;D4 74544 ;D5 504298; D6 19353971",
         // maximum number of legal moves (and mate in one)
         "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1 ;D1 218 ;D2 99 ;D3 19073 ;D4 85043 ;D5 13853661", // D6 115892741",
         // the same position with flipped side to move has no legal moves

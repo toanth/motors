@@ -258,7 +258,7 @@ impl BoardToText {
 }
 
 #[derive(Debug)]
-struct TextOutput {
+pub(super) struct TextOutput {
     writer: TextWriter,
     to_text: BoardToText,
     name: Option<String>,

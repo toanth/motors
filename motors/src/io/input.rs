@@ -15,7 +15,7 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::io::command::{ugi_commands, CommandAutocomplete};
+use crate::io::command::CommandAutocomplete;
 use crate::io::input::InputEnum::{Interactive, NonInteractive};
 use crate::io::{AbstractEngineUgi, EngineUGI};
 use colored::Colorize;
@@ -43,7 +43,7 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
         // Since Inquire doesn't seem to have an option to do anything about this (like re-drawing the prompt after each line of output),
         // we just disable it while a `go` command is running?
 
-        self.autocompletion.state.pos = ugi.state.board;
+        self.autocompletion.state.go_state.pos = ugi.state.board;
         if ugi
             .state
             .engine
@@ -82,7 +82,7 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
 impl<B: Board> InteractiveInput<B> {
     fn new(ugi: &mut EngineUGI<B>) -> Self {
         let res = Self {
-            autocompletion: CommandAutocomplete::new(ugi_commands(), ugi),
+            autocompletion: CommandAutocomplete::new(ugi),
         };
         // technically, we could also use an inquire formatter, but that doesn't seem to handle multi-line messages well
         ugi.print_board(OutputOpts::default());

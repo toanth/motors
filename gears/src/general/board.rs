@@ -487,6 +487,21 @@ pub trait BoardHelpers: Board {
         Self::static_short_name().to_string()
     }
 
+    /// For each color, returns a single ASCII char decribing it, e.g. `w` and `b` for black.
+    fn color_chars() -> [char; 2] {
+        [
+            Self::Color::first().color_char(CharType::Ascii),
+            Self::Color::second().color_char(CharType::Ascii),
+        ]
+    }
+
+    fn color_names() -> [String; 2] {
+        [
+            Self::Color::first().to_string(),
+            Self::Color::second().to_string(),
+        ]
+    }
+
     /// The player who cannot currently move.
     fn inactive_player(&self) -> Self::Color {
         self.active_player().other()

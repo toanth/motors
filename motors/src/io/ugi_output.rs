@@ -66,6 +66,7 @@ impl TypeErasedSearchInfo {
 
 #[derive(Debug)]
 struct TypeErasedUgiOutput {
+    // TODO: Never filled?! Probably best to just remove
     outputs: Vec<Box<dyn AbstractOutput>>,
     pretty: bool,
     gradient: LinearGradient,
@@ -93,7 +94,7 @@ impl Default for TypeErasedUgiOutput {
 }
 
 impl TypeErasedUgiOutput {
-    pub fn show_bar(
+    fn show_bar(
         &mut self,
         num_moves: usize,
         pretty_variation: &str,
@@ -240,6 +241,26 @@ impl TypeErasedUgiOutput {
     }
 }
 
+pub trait AbstractUgiOutput {
+    fn write_ugi(&mut self, msg: &str);
+}
+
+impl<B: Board> AbstractUgiOutput for UgiOutput<B> {
+    fn write_ugi(&mut self, message: &str) {
+        use std::io::Stdout;
+        use std::io::Write;
+        // UGI is always done through stdin and stdout, no matter what the UI is.
+        // TODO: Keep stdout mutex? Might make printing slightly faster and prevents everyone else from
+        // accessing stdout, which is probably a good thing because it prevents sending invalid UCI commands
+        println!("{message}");
+        // Currently, `println` always flushes, but this behaviour should not be relied upon.
+        _ = Stdout::flush(&mut stdout());
+        for output in &mut self.additional_outputs {
+            output.write_ugi_output(message, None);
+        }
+    }
+}
+
 #[derive(Debug)]
 /// All UGI communication is done through stdout, but there can be additional outputs,
 /// such as a logger, or human-readable printing to stderr
@@ -270,25 +291,6 @@ impl<B: Board> UgiOutput<B> {
 
     pub fn set_pretty(&mut self, pretty: bool) {
         self.type_erased.pretty = pretty;
-    }
-
-    pub fn write_ugi(&mut self, message: &str) {
-        use std::io::Stdout;
-        use std::io::Write;
-        // UGI is always done through stdin and stdout, no matter what the UI is.
-        // TODO: Keep stdout mutex? Might make printing slightly faster and prevents everyone else from
-        // accessing stdout, which is probably a good thing because it prevents sending invalid UCI commands
-        println!("{message}");
-        // Currently, `println` always flushes, but this behaviour should not be relied upon.
-        _ = Stdout::flush(&mut stdout());
-        for output in &mut self.additional_outputs {
-            output.write_ugi_output(message, None);
-        }
-    }
-
-    /// Part of the UGI specification, but not the UCI specification
-    pub(super) fn write_response(&mut self, response: &str) {
-        self.write_ugi(&format!("response {response}"));
     }
 
     pub fn write_search_res(&mut self, res: SearchResult<B>) {
@@ -579,7 +581,7 @@ fn pretty_variation<B: Board>(
     let mut res = String::new();
     let pv = pv.iter();
     for (idx, mov) in pv.enumerate() {
-        if !pos.is_move_legal(*mov) && (!mov.is_null() || !mpv_type.is_some()) {
+        if !pos.is_move_legal(*mov) && !mov.is_null() {
             debug_assert!(false);
             let name = if mpv_type.is_some() { "PV " } else { "" };
             return format!(
