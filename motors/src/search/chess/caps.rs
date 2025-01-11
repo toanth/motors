@@ -761,9 +761,9 @@ impl Caps {
                 // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
                 // simply return it.
                 if !is_pv_node && tt_entry.depth as isize >= depth {
-                    if ((tt_entry.score >= beta && tt_bound == NodeType::lower_bound())
+                    if (tt_entry.score >= beta && tt_bound == NodeType::lower_bound())
                         || (tt_entry.score <= alpha && tt_bound == NodeType::upper_bound())
-                        || tt_bound == Exact)
+                        || tt_bound == Exact
                     {
                         self.state.statistics.tt_cutoff(MainSearch, tt_bound);
                         // Idea from stormphrax
@@ -913,6 +913,11 @@ impl Caps {
                     }
                 }
             }
+            // Reverse Futility Reductions (RFR): At higher depths, if the static eval is far above beta, reduce
+            let margin = Score(100);
+            if depth > 8 && eval - beta > margin {
+                depth -= 1;
+            }
         }
 
         if self.state.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0
@@ -1027,7 +1032,7 @@ impl Caps {
                         reduction += 1;
                     }
                 }
-                // Futility Reduction: If this move is not a TT move, good SEE capture or killer, and our eval is significantly
+                // Futility Reduction (FR): If this move is not a TT move, good SEE capture or killer, and our eval is significantly
                 // less than alpha, reduce.
                 if !in_check
                     && depth >= cc::min_fr_depth()
