@@ -879,8 +879,10 @@ impl Caps {
                 self.state.search_stack[ply]
                     .tried_moves
                     .push(ChessMove::default());
-                let reduction =
-                    cc::nmp_base() + depth / cc::nmp_depth_div() + isize::from(they_blundered);
+                let reduction = cc::nmp_base()
+                    + depth / cc::nmp_depth_div()
+                    + isize::from(they_blundered)
+                    + ((eval - nmp_threshold).0 / 64).min(2) as isize;
                 let nmp_res = self.negamax(
                     new_pos,
                     ply + 1,
