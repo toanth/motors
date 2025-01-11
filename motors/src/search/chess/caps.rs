@@ -760,21 +760,24 @@ impl Caps {
                 // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
                 // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
                 // simply return it.
-                if !is_pv_node
-                    && tt_entry.depth as isize >= depth
-                    && ((tt_entry.score >= beta && tt_bound == NodeType::lower_bound())
+                if !is_pv_node && tt_entry.depth as isize >= depth {
+                    if ((tt_entry.score >= beta && tt_bound == NodeType::lower_bound())
                         || (tt_entry.score <= alpha && tt_bound == NodeType::upper_bound())
                         || tt_bound == Exact)
-                {
-                    self.state.statistics.tt_cutoff(MainSearch, tt_bound);
-                    // Idea from stormphrax
-                    if tt_entry.score >= beta
-                        && !best_move.is_null()
-                        && !best_move.is_tactical(&pos)
                     {
-                        self.update_histories_and_killer(&pos, best_move, depth, ply);
+                        self.state.statistics.tt_cutoff(MainSearch, tt_bound);
+                        // Idea from stormphrax
+                        if tt_entry.score >= beta
+                            && !best_move.is_null()
+                            && !best_move.is_tactical(&pos)
+                        {
+                            self.update_histories_and_killer(&pos, best_move, depth, ply);
+                        }
+                        return Some(tt_entry.score);
+                    } else if depth <= 6 {
+                        // also from stormphrax
+                        depth += 1;
                     }
-                    return Some(tt_entry.score);
                 }
                 // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
                 // at what the type of this node is going to be.
