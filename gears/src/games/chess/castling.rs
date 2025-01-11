@@ -1,6 +1,5 @@
 use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
-use itertools::Itertools;
 use strum_macros::EnumIter;
 
 use crate::games::chess::castling::CastleRight::*;
@@ -111,11 +110,7 @@ impl CastlingFlags {
         } else if rights.is_empty() {
             bail!("Empty castling rights string");
         } else if rights.len() > 4 {
-            // XFEN support isn't a priority
             bail!("Invalid castling rights string: '{rights}' is more than 4 characters long");
-        }
-        if !rights.chars().all_unique() {
-            bail!("Duplicate castling right letter in '{rights}'");
         }
 
         for c in rights.chars() {
@@ -134,7 +129,7 @@ impl CastlingFlags {
             let king_square = board.king_square(color);
             let king_file = king_square.file();
             if king_square != ChessSquare::from_rank_file(rank, king_file) {
-                bail!("Incorrect starting position for king, must be on the back rank, not on square {king_square}");
+                bail!("Incorrect starting position for king. The king must be on the back rank, not on square {king_square}");
             }
 
             let side = |file: DimT| {
@@ -144,12 +139,13 @@ impl CastlingFlags {
                     Kingside
                 }
             };
-            // Unless in strict mode, support normal chess style castling fens for chess960 and hope it's unambiguous
+            // Unless in strict mode, support normal chess style (aka X-FEN) castling fens for chess960 and disambiguate by using
+            // the outermost rook as demanded by <https://en.wikipedia.org/wiki/X-FEN#Encoding_castling_rights>
             // (`verify_position_legal` will return an error if there is no such rook).
             let mut find_rook = |side: CastleRight| {
-                let (start, end, strict_file) = match side {
-                    Queenside => (A_FILE_NO, king_file, A_FILE_NO),
-                    Kingside => (king_file, H_FILE_NO, H_FILE_NO),
+                let strict_file = match side {
+                    Queenside => A_FILE_NO,
+                    Kingside => H_FILE_NO,
                 };
                 if strictness == Strict
                     && !board.is_piece_on(
@@ -159,13 +155,26 @@ impl CastlingFlags {
                 {
                     bail!("In strict mode, normal chess ('q' and 'k') castle rights can only be used for rooks on the a and h file")
                 }
-                for file in start..end {
-                    if board.is_piece_on(
-                        ChessSquare::from_rank_file(rank, file),
-                        ColoredChessPieceType::new(color, Rook),
-                    ) {
-                        self.set_castle_right(color, side, file)?;
-                        return Ok(());
+                match side {
+                    Queenside => {
+                        for file in A_FILE_NO..king_file {
+                            if board.is_piece_on(
+                                ChessSquare::from_rank_file(rank, file),
+                                ColoredChessPieceType::new(color, Rook),
+                            ) {
+                                return self.set_castle_right(color, side, file);
+                            }
+                        }
+                    }
+                    Kingside => {
+                        for file in (king_file..=H_FILE_NO).rev() {
+                            if board.is_piece_on(
+                                ChessSquare::from_rank_file(rank, file),
+                                ColoredChessPieceType::new(color, Rook),
+                            ) {
+                                return self.set_castle_right(color, side, file);
+                            }
+                        }
                     }
                 }
                 Err(anyhow!(
@@ -174,18 +183,7 @@ impl CastlingFlags {
             };
             match c.to_ascii_lowercase() {
                 'q' => find_rook(Queenside)?,
-                'k' => {
-                    // the `if` isn't just a small performance improvement, it's also necessary if there is a rook on the
-                    // g file, for example (for chess960, this is ambiguous, but just picking one is fine).
-                    if board.is_piece_on(
-                        ChessSquare::from_rank_file(rank, H_FILE_NO),
-                        ColoredChessPieceType::new(color, Rook),
-                    ) {
-                        self.set_castle_right(color, Kingside, H_FILE_NO)?;
-                    } else {
-                        find_rook(Kingside)?;
-                    }
-                }
+                'k' => find_rook(Kingside)?,
                 x @ 'a'..='h' => {
                     let file = char_to_file(x);
                     self.set_castle_right(color, side(file), file)?;

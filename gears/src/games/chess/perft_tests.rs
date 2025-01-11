@@ -342,7 +342,7 @@ mod tests {
 
     /// This perft test suite is also taken from Ethereal: <https://github.com/AndyGrant/Ethereal/blob/master/src/perft/fischer.epd>.
     /// I have no idea why it is this massive, running it takes forever.
-    const CHESS_960_FENS: [&str; 960] = [
+    const CHESS_960_FENS: [&str; 960 + 2] = [
 "bqnb1rkr/pp3ppp/3ppn2/2p5/5P2/P2P4/NPP1P1PP/BQ1BNRKR w HFhf - 2 9 ;D1 21 ;D2 528 ;D3 12189 ;D4 326672 ;D5 8146062 ;D6 227689589",
 "2nnrbkr/p1qppppp/8/1ppb4/6PP/3PP3/PPP2P2/BQNNRBKR w HEhe - 1 9 ;D1 21 ;D2 807 ;D3 18002 ;D4 667366 ;D5 16253601 ;D6 590751109",
 "b1q1rrkb/pppppppp/3nn3/8/P7/1PPP4/4PPPP/BQNNRKRB w GE - 1 9 ;D1 20 ;D2 479 ;D3 10471 ;D4 273318 ;D5 6417013 ;D6 177654692",
@@ -1303,5 +1303,9 @@ mod tests {
 "rkr1nbbq/2ppp1pp/1pn5/p4p2/P6P/3P4/1PP1PPPB/RKRNNB1Q w CAca - 1 9 ;D1 24 ;D2 645 ;D3 15689 ;D4 446423 ;D5 11484012 ;D6 341262639",
 "rkrnnqbb/p1ppp2p/Qp6/4Pp2/5p2/8/PPPP2PP/RKRNN1BB w CAca - 0 9 ;D1 35 ;D2 929 ;D3 32020 ;D4 896130 ;D5 31272517 ;D6 915268405",
 "bbq1nr1r/pppppk1p/2n2p2/6p1/P4P2/4P1P1/1PPP3P/BBQNNRKR w HF - 1 9 ;D1 23 ;D2 589 ;D3 14744 ;D4 387556 ;D5 10316716 ;D6 280056112",
+// tricky to parse X-FEN
+"r1rkrqnb/1b6/2n5/ppppppp1/PPPPPP2/B1NQ4/6PP/1K1RR1NB w Kkq - 8 14 ;D1 42 ;D2 1620 ;D3 67391 ;D4 2592441 ;D5 107181922",
+// another tricky X-FEN
+"rrkrn1r1/2P2P2/8/p3pP2/8/8/4R2p/1RR1KR1R w KCdq e6 90 99 ;D1 53 ;D2 1349 ;D3 63522 ;D4 1754940 ;D5 80364051"
 ];
 }

@@ -626,7 +626,7 @@ impl Caps {
                             // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
                             // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
                             self.state.multi_pv() > 1
-                                || pv.len() + pv.len() / 4
+                                || pv.len() + pv.len() / 4 + 1
                                     >= self.state.custom.depth_hard_limit.min(depth as usize)
                                 || pv_score.is_won_lost_or_draw_score(),
                             "{depth} {0} {pv_score} {1}",
@@ -754,17 +754,30 @@ impl Caps {
                 let tt_bound = tt_entry.bound();
                 debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
 
+                if let Some(tt_move) = tt_entry.mov.check_pseudolegal(&pos) {
+                    best_move = tt_move;
+                }
                 // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
                 // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
                 // simply return it.
-                if !is_pv_node
-                    && tt_entry.depth as isize >= depth
-                    && ((tt_entry.score >= beta && tt_bound == NodeType::lower_bound())
+                if !is_pv_node && tt_entry.depth as isize >= depth {
+                    if (tt_entry.score >= beta && tt_bound == NodeType::lower_bound())
                         || (tt_entry.score <= alpha && tt_bound == NodeType::upper_bound())
-                        || tt_bound == Exact)
-                {
-                    self.state.statistics.tt_cutoff(MainSearch, tt_bound);
-                    return Some(tt_entry.score);
+                        || tt_bound == Exact
+                    {
+                        self.state.statistics.tt_cutoff(MainSearch, tt_bound);
+                        // Idea from stormphrax
+                        if tt_entry.score >= beta
+                            && !best_move.is_null()
+                            && !best_move.is_tactical(&pos)
+                        {
+                            self.update_histories_and_killer(&pos, best_move, depth, ply);
+                        }
+                        return Some(tt_entry.score);
+                    } else if depth <= 6 {
+                        // also from stormphrax
+                        depth += 1;
+                    }
                 }
                 // Even though we didn't get a cutoff from the TT, we can still use the score and bound to update our guess
                 // at what the type of this node is going to be.
@@ -779,9 +792,6 @@ impl Caps {
                     }
                 }
 
-                if let Some(tt_move) = tt_entry.mov.check_pseudolegal(&pos) {
-                    best_move = tt_move;
-                }
                 eval = self.eval(pos, ply);
                 // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
                 // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
@@ -1024,7 +1034,7 @@ impl Caps {
                     && move_score < KILLER_SCORE
                     && eval + cc::fr_base() + cc::fr_scale() * (depth as ScoreT) < alpha
                 {
-                    reduction += (depth + 5) / 8;
+                    reduction += ((depth + 4) / 4).ilog2() as isize;
                 }
                 // if the TT move is a capture and we didn't already fail high, it's likely that later moves are worse
                 if !in_check && is_noisy {
@@ -1125,7 +1135,7 @@ impl Caps {
             }
             // Beta cutoff. Update history and killer for quiet moves, then break out of the move loop.
             bound_so_far = FailHigh;
-            self.update_histories_and_killer(&pos, mov, depth, ply, pos.active_player());
+            self.update_histories_and_killer(&pos, mov, depth, ply);
             break;
         }
 
@@ -1187,8 +1197,8 @@ impl Caps {
         mov: ChessMove,
         depth: isize,
         ply: usize,
-        color: ChessColor,
     ) {
+        let color = pos.active_player();
         let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else {
             unreachable!()
         };
