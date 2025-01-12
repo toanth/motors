@@ -442,7 +442,7 @@ impl<B: Board> EngineUGI<B> {
             if self.handle_move_input(first_word, words)? {
                 return Ok(());
             } else if first_word.eq_ignore_ascii_case("barbecue") {
-                self.write_message(Error, "lol");
+                self.write_ugi(&print_as_ascii_art("lol", 2));
             }
             self.write_message(
                 Warning,
@@ -1300,6 +1300,8 @@ trait AbstractEngineUgi: Debug {
 
     fn go_state_mut(&mut self) -> &mut dyn AbstractGoState;
 
+    fn load_go_state_pos(&mut self, name: &str, words: &mut Tokens) -> Res<()>;
+
     fn handle_ugi(&mut self, proto: &str) -> Res<()>;
 
     fn handle_uginewgame(&mut self) -> Res<()>;
@@ -1381,6 +1383,10 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
 
     fn go_state_mut(&mut self) -> &mut dyn AbstractGoState {
         &mut self.state.go_state
+    }
+
+    fn load_go_state_pos(&mut self, name: &str, words: &mut Tokens) -> Res<()> {
+        self.go_state_mut().load_pos(name, words, false)
     }
 
     fn handle_ugi(&mut self, proto: &str) -> Res<()> {

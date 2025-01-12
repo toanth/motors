@@ -26,7 +26,6 @@ use edit_distance::edit_distance;
 use gears::arrayvec::ArrayVec;
 use gears::cli::Game;
 use gears::games::{Color, OutputList};
-use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, BoardHelpers, Strictness};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
@@ -35,13 +34,13 @@ use gears::general::common::{
 use gears::general::move_list::MoveList;
 use gears::general::moves::{ExtendedFormat, Move};
 use gears::output::Message::Warning;
-use gears::output::{OutputBuilder, OutputOpts};
+use gears::output::{Message, OutputBuilder, OutputOpts};
 use gears::search::{Depth, NodesLimit, SearchLimit};
-use gears::ugi::{parse_ugi_position_part, EngineOptionName};
-use gears::GameResult;
+use gears::ugi::{load_ugi_position, EngineOptionName};
 use gears::MatchStatus::{Ongoing, Over};
 use gears::ProgramStatus::Run;
 use gears::Quitting::{QuitMatch, QuitProgram};
+use gears::{GameResult, ProgramStatus, Quitting};
 use inquire::autocompletion::Replacement;
 use inquire::{Autocomplete, CustomUserError};
 use itertools::Itertools;
@@ -68,15 +67,20 @@ pub enum Standard {
     Custom,
 }
 
-trait CommandState: Debug {}
+#[derive(Debug, Clone)]
+pub struct ACState<B: Board> {
+    pub go_state: GoState<B>,
+    outputs: Rc<OutputList<B>>,
+    searchers: Rc<SearcherList<B>>,
+    evals: Rc<EvalList<B>>,
+    info: Arc<Mutex<EngineInfo>>,
+}
 
-impl CommandState for dyn AbstractEngineUgi {}
-
-impl CommandState for dyn AbstractGoState {}
-
-// impl<B: Board> CommandState for B {}
-
-impl CommandState for () {}
+impl<B: Board> ACState<B> {
+    fn pos(&self) -> B {
+        self.go_state.pos
+    }
+}
 
 /// The point of this Visitor-like pattern is to minimize the amount of generic code to improve compile times:
 /// It means that all commands are completely independent of the generic `Board` parameter; everything board-specific
@@ -93,9 +97,7 @@ trait AutoCompleteState: Debug {
     fn print_subcmds(&self) -> CommandList;
     fn engine_subcmds(&self) -> CommandList;
     fn set_eval_subcmds(&self) -> CommandList;
-
-    fn set_position_to_default(&mut self);
-    fn set_search_type(&mut self, search_type: SearchType);
+    fn make_move(&mut self, mov: &str);
 }
 
 impl<B: Board> AutoCompleteState for ACState<B> {
@@ -107,6 +109,13 @@ impl<B: Board> AutoCompleteState for ACState<B> {
     }
     fn option_subcmds(&self, allow_value: bool) -> CommandList {
         options_options(self.info.clone(), true, allow_value)
+    }
+    fn moves_subcmds(&self, allow_moves_word: bool, recurse: bool) -> CommandList {
+        let mut res = moves_options(self.pos(), recurse);
+        if allow_moves_word {
+            res.push(move_command(recurse));
+        }
+        res
     }
     fn query_subcmds(&self) -> CommandList {
         query_options::<B>()
@@ -151,23 +160,120 @@ impl<B: Board> AutoCompleteState for ACState<B> {
         select_command::<dyn AbstractEvalBuilder<B>>(self.evals.as_slice(), false)
     }
 
-    fn moves_subcmds(&self, allow_moves_word: bool, recurse: bool) -> CommandList {
-        moves_options(self.pos(), allow_moves_word, recurse)
-    }
-
-    fn set_search_type(&mut self, search_type: SearchType) {
-        self.go_state.generic.search_type = search_type;
-    }
-
-    fn set_position_to_default(&mut self) {
-        self.go_state.pos = B::default();
+    fn make_move(&mut self, mov: &str) {
+        let Ok(mov) = B::Move::from_text(mov, &self.pos()) else {
+            return;
+        };
+        if let Some(new) = self.pos().make_move(mov) {
+            self.go_state.pos = new;
+        }
     }
 }
 
-// TODO: Store commands inplace, not wrapped in a Box (requries removing CustomCommand, which is unnecessary anyway)
+impl<B: Board> AbstractEngineUgi for ACState<B> {
+    fn write_options(&self, _words: &mut Tokens) -> Res<String> {
+        Ok(String::new())
+    }
+    fn write_ugi(&mut self, _message: &str) {
+        /*do nothing*/
+    }
+    fn write_message(&mut self, _message: Message, _msg: &str) {
+        /*do nothing*/
+    }
+    fn write_response(&mut self, _msg: &str) -> Res<()> {
+        Ok(())
+    }
+    fn status(&self) -> &ProgramStatus {
+        &Run(Ongoing)
+    }
+    fn go_state_mut(&mut self) -> &mut dyn AbstractGoState {
+        &mut self.go_state
+    }
+
+    fn load_go_state_pos(&mut self, name: &str, words: &mut Tokens) -> Res<()> {
+        self.go_state.load_pos(name, words, true)
+    }
+
+    fn handle_ugi(&mut self, _proto: &str) -> Res<()> {
+        Ok(())
+    }
+    fn handle_uginewgame(&mut self) -> Res<()> {
+        Ok(())
+    }
+    fn handle_pos(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+    fn handle_go(&mut self, _initial_search_type: SearchType, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+    fn handle_stop(&mut self, _suppress_best_move: bool) -> Res<()> {
+        Ok(())
+    }
+    fn handle_ponderhit(&mut self) -> Res<()> {
+        Ok(())
+    }
+    fn handle_setoption(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+    fn handle_interactive(&mut self) -> Res<()> {
+        Ok(())
+    }
+    fn handle_debug(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+    fn handle_log(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+    fn handle_output(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+    fn handle_print(&mut self, _words: &mut Tokens, _opts: OutputOpts) -> Res<()> {
+        Ok(())
+    }
+    fn handle_engine_print(&mut self) -> Res<()> {
+        Ok(())
+    }
+    fn handle_eval_or_tt(&mut self, _eval: bool, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+    fn handle_engine(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+    fn handle_set_eval(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+    fn load_pgn(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+    fn handle_flip(&mut self) -> Res<()> {
+        self.go_state.pos = self.go_state.pos.make_nullmove().ok_or(anyhow!(""))?;
+        Ok(())
+    }
+    fn handle_query(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+    fn handle_play(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+    fn print_help(&mut self) -> Res<()> {
+        Ok(())
+    }
+    fn write_is_player(&mut self, _is_first: bool) -> Res<()> {
+        Ok(())
+    }
+    fn respond_game(&mut self) -> Res<()> {
+        Ok(())
+    }
+    fn respond_engine(&mut self) -> Res<()> {
+        Ok(())
+    }
+    fn handle_quit(&mut self, _typ: Quitting) -> Res<()> {
+        Ok(())
+    }
+}
+
 #[allow(type_alias_bounds)]
 pub type CommandList = Vec<Command>;
-// pub type CommandList<S: CommandState + ?Sized> = Vec<Box<dyn CommandTrait<S>>>;
 
 fn display_cmd(f: &mut Formatter<'_>, cmd: &Command) -> fmt::Result {
     if let Some(desc) = cmd.description() {
@@ -177,24 +283,7 @@ fn display_cmd(f: &mut Formatter<'_>, cmd: &Command) -> fmt::Result {
     }
 }
 
-// type ChangeACStateFnT = fn(&mut dyn AutoCompleteState);
-
-// TODO: Don't use a box, just a `fn`
-struct ChangeACStateFn(pub Box<dyn Fn(&mut dyn AutoCompleteState)>);
-
-impl Debug for ChangeACStateFn {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "<autocomplete>")
-    }
-}
-
-impl Default for ChangeACStateFn {
-    fn default() -> Self {
-        Self(Box::new(|_| ()))
-    }
-}
-
-pub struct SubCommandsFn(Option<Box<dyn Fn(&dyn AutoCompleteState) -> CommandList>>);
+struct SubCommandsFn(Option<Box<dyn Fn(&mut dyn AutoCompleteState) -> CommandList>>);
 
 impl Debug for SubCommandsFn {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -209,11 +298,11 @@ impl Default for SubCommandsFn {
 }
 
 impl SubCommandsFn {
-    pub fn new(cmd: fn(&dyn AutoCompleteState) -> CommandList) -> Self {
+    pub fn new(cmd: fn(&mut dyn AutoCompleteState) -> CommandList) -> Self {
         Self(Some(Box::new(cmd)))
     }
 
-    fn call(&self, state: &dyn AutoCompleteState) -> CommandList {
+    fn call(&self, state: &mut dyn AutoCompleteState) -> CommandList {
         match &self.0 {
             None => vec![],
             Some(f) => f(state),
@@ -230,7 +319,6 @@ pub struct Command {
     pub autocomplete_recurse: bool,
     pub func: fn(&mut dyn AbstractEngineUgi, remaining_input: &mut Tokens, _cmd: &str) -> Res<()>,
     sub_commands: SubCommandsFn,
-    change_ac_state: ChangeACStateFn,
 }
 
 impl Command {
@@ -242,12 +330,8 @@ impl Command {
         self.func
     }
 
-    fn sub_commands(&self, state: &dyn AutoCompleteState) -> CommandList {
+    fn sub_commands(&self, state: &mut dyn AutoCompleteState) -> CommandList {
         self.sub_commands.call(state)
-    }
-
-    fn change_autocomplete_state(&self, state: &mut dyn AutoCompleteState) {
-        self.change_ac_state.0(state)
     }
 
     fn autocomplete_recurse(&self) -> bool {
@@ -304,18 +388,12 @@ impl Display for Command {
 
 macro_rules! command {
     ($primary:ident $(| $other:ident)*, $std:expr, $help:expr, $fun:expr
-    $(, -->$subcmd:expr)? $(, [] $autocomplete_fn:expr)? $(, recurse=$recurse:expr)?) => {
+    $(, -->$subcmd:expr)? $(, recurse=$recurse:expr)?) => {
         {
             #[allow(unused_mut, unused_assignments)]
             let mut sub_commands = SubCommandsFn::default();
             $(
                 sub_commands.0 = Some(Box::new($subcmd));
-            )?
-
-            #[allow(unused_mut, unused_assignments)]
-            let mut autocomplete_func = ChangeACStateFn::default();
-            $(
-                autocomplete_func = ChangeACStateFn(Box::new($autocomplete_fn));
             )?
 
             #[allow(unused_mut, unused_assignments)]
@@ -331,7 +409,6 @@ macro_rules! command {
                 func: $fun,
                 help_text: $help.to_string(),
                 sub_commands,
-                change_ac_state:autocomplete_func,
                 autocomplete_recurse,
             }
         }
@@ -340,9 +417,8 @@ macro_rules! command {
 
 // TODO: Remove, use command!
 macro_rules! ugi_command {
-    ($primary:ident $(| $other:ident)*, $std:expr, $help:expr, $fun:expr $(, -->$subcmd:expr)?
-    $(, [] $autocomplete_fn:expr)? $(, recurse=$recurse:expr)?) => {
-        command!($primary $(| $other)*, $std, $help, $fun $(, -->$subcmd)? $(, [] $autocomplete_fn)? $(, recurse=$recurse)?)
+    ($primary:ident $(| $other:ident)*, $std:expr, $help:expr, $fun:expr $(, -->$subcmd:expr)? $(, recurse=$recurse:expr)?) => {
+        command!($primary $(| $other)*, $std, $help, $fun $(, -->$subcmd)? $(, recurse=$recurse)?)
     }
 }
 
@@ -358,7 +434,7 @@ pub fn ugi_commands() -> CommandList {
             All,
             "Start the search. Optionally takes a position and a mode such as `perft`",
             |ugi: &mut dyn AbstractEngineUgi, words, _| { ugi.handle_go(Normal, words) },
-            --> |state: &dyn AutoCompleteState| state.go_subcmds(Normal),
+            --> |state: &mut dyn AutoCompleteState| state.go_subcmds(Normal),
             recurse = true
         ),
         ugi_command!(
@@ -372,7 +448,7 @@ pub fn ugi_commands() -> CommandList {
             All,
             "Set the current position",
             |ugi, words, _| ugi.handle_pos(words),
-            --> |state: &dyn AutoCompleteState| state.pos_subcmds(false)
+            --> |state| state.pos_subcmds(false)
         ),
         ugi_command!(
             ugi | uci | uai,
@@ -400,7 +476,7 @@ pub fn ugi_commands() -> CommandList {
             All,
             "Sets an engine option",
             |ugi, words, _| ugi.handle_setoption(words),
-            --> |state: &dyn AutoCompleteState| state.option_subcmds(true)
+            --> |state| state.option_subcmds(true)
         ),
         ugi_command!(
             uginewgame | ucinewgame | uainewgame | clear,
@@ -460,7 +536,7 @@ pub fn ugi_commands() -> CommandList {
                 ugi.write_ugi(&ugi.write_options(words)?);
                 Ok(())
             },
-            --> |state: &dyn AutoCompleteState| state.option_subcmds(false)
+            --> |state| state.option_subcmds(false)
         ),
         ugi_command!(
             engine_state,
@@ -473,7 +549,7 @@ pub fn ugi_commands() -> CommandList {
             Custom,
             "Sets outputs, which are used to print the game state. Permanent version of 'show'",
             |ugi, words, _| ugi.handle_output(words),
-            --> |state: &dyn AutoCompleteState| state.output_subcmds(),
+            --> |state| state.output_subcmds(),
             recurse = true
         ),
         ugi_command!(
@@ -481,7 +557,7 @@ pub fn ugi_commands() -> CommandList {
             Custom,
             "Display the specified / current position with specified / enabled outputs or 'prettyascii' if no output is set",
             |ugi, words, _| ugi.handle_print(words, OutputOpts::default()),
-            --> |state: &dyn AutoCompleteState| state.print_subcmds(),
+            --> |state| state.print_subcmds(),
             recurse = true
         ),
         ugi_command!(
@@ -507,14 +583,14 @@ pub fn ugi_commands() -> CommandList {
             Custom,
             "Sets the current engine, e.g. `caps-piston`, `gaps`, and optionally the game",
             |ugi, words, _| ugi.handle_engine(words),
-            --> |state: &dyn AutoCompleteState| state.engine_subcmds()
+            --> |state| state.engine_subcmds()
         ),
         ugi_command!(
             set_eval | se,
             Custom,
             "Sets the eval for the current engine. Doesn't reset the internal engine state",
             |ugi, words, _| ugi.handle_set_eval(words),
-            --> |state: &dyn AutoCompleteState| state.set_eval_subcmds()
+            --> |state| state.set_eval_subcmds()
         ),
         ugi_command!(
             load_pgn | pgn,
@@ -540,7 +616,7 @@ pub fn ugi_commands() -> CommandList {
             Custom,
             "Internal movegen test on current / bench positions",
             |ugi, words, _| ugi.handle_go(Perft, words),
-            --> |state: &dyn AutoCompleteState| state.go_subcmds(Perft),
+            --> |state| state.go_subcmds(Perft),
             recurse = true
         ),
         ugi_command!(
@@ -548,7 +624,7 @@ pub fn ugi_commands() -> CommandList {
             Custom,
             "Internal movegen test on current / bench positions",
             |ugi, words, _| ugi.handle_go(SplitPerft, words),
-            --> |state: &dyn AutoCompleteState| state.go_subcmds(SplitPerft),
+            --> |state| state.go_subcmds(SplitPerft),
             recurse = true
         ),
         ugi_command!(
@@ -556,7 +632,7 @@ pub fn ugi_commands() -> CommandList {
             Custom,
             "Internal search test on current / bench positions. Same arguments as `go`",
             |ugi, words, _| ugi.handle_go(Bench, words),
-            --> |state: &dyn AutoCompleteState| state.go_subcmds(Bench),
+            --> |state| state.go_subcmds(Bench),
             recurse = true
         ),
         ugi_command!(
@@ -564,7 +640,7 @@ pub fn ugi_commands() -> CommandList {
             Custom,
             "Print the static eval (i.e., no search) of a position",
             |ugi, words, _| ugi.handle_eval_or_tt(true, words),
-            --> |state: &dyn AutoCompleteState| state.pos_subcmds(true),
+            --> |state| state.pos_subcmds(true),
             recurse = true
         ),
         ugi_command!(
@@ -572,7 +648,7 @@ pub fn ugi_commands() -> CommandList {
             Custom,
             "Print the TT entry for a position",
             |ugi, words, _| ugi.handle_eval_or_tt(false, words),
-            --> |state: &dyn AutoCompleteState| state.pos_subcmds(true),
+            --> |state| state.pos_subcmds(true),
             recurse = true
         ),
         ugi_command!(help | h, Custom, "Prints a help message", |ugi, _, _| {
@@ -586,9 +662,7 @@ pub trait AbstractGoState: Debug {
     fn set_time(&mut self, words: &mut Tokens, first: bool, inc: bool, name: &str) -> Res<()>;
     fn limit_mut(&mut self) -> &mut SearchLimit;
     fn get_mut(&mut self) -> &mut GenericGoState;
-    fn parse_fen(&mut self, words: &mut Tokens) -> Res<()>;
-    fn set_pos_to_startpos(&mut self);
-    fn set_pos_to_name(&mut self, name: &str) -> Res<()>;
+    fn load_pos(&mut self, name: &str, words: &mut Tokens, allow_partial: bool) -> Res<()>;
     fn set_search_type(
         &mut self,
         search_type: SearchType,
@@ -634,17 +708,15 @@ impl<B: Board> AbstractGoState for GoState<B> {
         &mut self.generic
     }
 
-    fn parse_fen(&mut self, words: &mut Tokens) -> Res<()> {
-        self.pos = parse_ugi_position_part("fen", words, false, &self.pos, Relaxed)?;
-        Ok(())
-    }
-
-    fn set_pos_to_startpos(&mut self) {
-        self.pos = B::startpos();
-    }
-
-    fn set_pos_to_name(&mut self, name: &str) -> Res<()> {
-        self.pos = B::from_name(name)?;
+    fn load_pos(&mut self, name: &str, words: &mut Tokens, allow_partial: bool) -> Res<()> {
+        self.pos = load_ugi_position(
+            name,
+            words,
+            true,
+            self.generic.strictness,
+            &self.pos,
+            allow_partial,
+        )?;
         Ok(())
     }
 
@@ -676,8 +748,8 @@ pub struct GenericGoState {
     pub threads: Option<usize>,
     pub search_type: SearchType,
     pub complete: bool,
-    pub strictness: Strictness,
     pub move_overhead: Duration,
+    pub strictness: Strictness,
 }
 
 impl<B: Board> GoState<B> {
@@ -701,12 +773,12 @@ impl<B: Board> GoState<B> {
             generic: GenericGoState {
                 limit,
                 is_first: pos.active_player().is_first(),
-                multi_pv: 0,
+                multi_pv: 1,
                 threads: None,
                 search_type: Normal,
                 complete: false,
-                strictness,
                 move_overhead,
+                strictness,
             },
             search_moves: None,
             pos,
@@ -731,10 +803,10 @@ pub fn depth_cmd() -> Command {
         All,
         "Maximum search depth in plies (a.k.a. half-moves)",
         |state, words, _| {
-            state.go_state_mut().limit_mut().depth = Depth::try_new(parse_int(words, "depth number")?)?;
+            state.go_state_mut().limit_mut().depth =
+                Depth::try_new(parse_int(words, "depth number")?)?;
             Ok(())
-        },
-        --> |_| int_option("depth", All)
+        }
     )
 }
 
@@ -744,28 +816,14 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList {
     // We don't want to allow `go e4` or `go moves e4` for two reasons: Because that's a bit confusing, and because it would make the number of
     // `go` commands depend on the position, which means that we couldn't precompute the commands in`UgiGui`.
     // Instead, it needs to be spelled as `g c e4`, `go position current moves e4`, etc
-    // TODO: Remove the zip by merging SubCommandsFn and AutoCompleteFunc
-    // for (mut cmd, cmd_cpy) in position_options(None, true)
-    //     .into_iter()
-    //     .zip(position_options(true, false))
-    // {
-    //     // TODO: When a command list stores commands instead of absract commands, we can just overwrite the `func` member instead of wrapping
-    //     // the command
-    //     let cmd = Command {
-    //         primary_name: cmd.short_name(),
-    //         other_names: cmd.secondary_names().into_iter().collect(),
-    //         help_text: cmd.description().unwrap(),
-    //         standard: Custom,
-    //         autocomplete_recurse: false,
-    //         func: |opts, words, first_word| {
-    //             state.go_state_mut().pos = load_ugi_position(first_word, words, true, state.go_state_mut().strictness, &state.go_state_mut().pos)?;
-    //             Ok(())
-    //         },
-    //         change_ac_state: ChangeACStateFn(Box::new(|state| cmd.change_autocomplete_state(state))),
-    //         sub_commands: SubCommandsFn(Some(Box::new(|state| cmd_cpy.sub_commands(state)))),
-    //     };
-    //     res.push(Box::new(cmd).upcast_box());
+    res.append(&mut position_options::<B>(None, true));
+    // for mut pos_cmd in position_options::<B>(None, true) {
+    //     pos_cmd.func = |state, words, name| state.go_state_mut().set_pos_to_name() ;
+    //     res.push(pos_cmd);
     // }
+    //
+    //             opts.board =
+    //                 load_ugi_position(first_word, words, true, opts.strictness, &opts.board)?;
     res
 }
 
@@ -789,8 +847,7 @@ pub fn go_options_impl(
                 standard: All,
                 autocomplete_recurse: false,
                 func: |state, words, _| state.go_state_mut().set_time(words, true, false, "p1time"),
-                change_ac_state: ChangeACStateFn::default(),
-                sub_commands: SubCommandsFn::new(|_| int_option("time in ms", All)),
+                sub_commands: SubCommandsFn::default(),
             },
             Command {
                 primary_name: format!("{}time", color_chars[1]),
@@ -805,8 +862,7 @@ pub fn go_options_impl(
                 func: |state, words, _| {
                     state.go_state_mut().set_time(words, false, false, "p2time")
                 },
-                change_ac_state: ChangeACStateFn::default(),
-                sub_commands: SubCommandsFn::new(|_| int_option("time in ms", All)),
+                sub_commands: SubCommandsFn::default(),
             },
             Command {
                 primary_name: format!("{}inc", color_chars[0]),
@@ -818,8 +874,7 @@ pub fn go_options_impl(
                 standard: All,
                 autocomplete_recurse: false,
                 func: |state, words, _| state.go_state_mut().set_time(words, true, true, "p1inc"),
-                change_ac_state: ChangeACStateFn::default(),
-                sub_commands: SubCommandsFn::new(|_| int_option("increment in ms", All)),
+                sub_commands: SubCommandsFn::default(),
             },
             Command {
                 primary_name: format!("{}inc", color_chars[1]),
@@ -831,18 +886,16 @@ pub fn go_options_impl(
                 standard: All,
                 autocomplete_recurse: false,
                 func: |state, words, _| state.go_state_mut().set_time(words, false, true, "p2inc"),
-                change_ac_state: ChangeACStateFn::default(),
-                sub_commands: SubCommandsFn::new(|_| int_option("increment in ms", All)),
+                sub_commands: SubCommandsFn::default(),
             },
             ugi_command!(
                 movestogo | mtg,
                 All,
-                "Moves until the time control is reset",
+                "Full moves until the time control is reset",
                 |state, words, _| {
                     state.go_state_mut().limit_mut().tc.moves_to_go = Some(parse_int(words, "'movestogo' number")?);
                     Ok(())
-                },
-                --> |_| int_option("number of moves until TC reset", All)
+                }
             ),
             ugi_command!(
                 nodes | n,
@@ -852,8 +905,7 @@ pub fn go_options_impl(
                     state.go_state_mut().limit_mut().nodes = NodesLimit::new(parse_int(words, "node count")?)
                         .ok_or_else(|| anyhow!("node count can't be zero"))?;
                     Ok(())
-                },
-                --> |_| int_option("number of nodes", All)
+                }
             ),
             ugi_command!(
                 mate | m,
@@ -863,8 +915,7 @@ pub fn go_options_impl(
                     let depth: isize = parse_int(words, "mate move count")?;
                     state.go_state_mut().limit_mut().mate = Depth::try_new(depth * 2)?; // 'mate' is given in moves instead of plies
                     Ok(())
-                },
-                --> |_| int_option("depth in moves until mate", All)
+                }
             ),
             ugi_command!(
                 movetime | mt | time,
@@ -879,8 +930,7 @@ pub fn go_options_impl(
                         .saturating_sub(generic.move_overhead)
                         .max(Duration::from_millis(1));
                     Ok(())
-                },
-                --> |_| int_option("time in milliseconds", All)
+                }
             ),
             ugi_command!(
                 infinite | inf,
@@ -906,8 +956,7 @@ pub fn go_options_impl(
                 |state, words, _| {
                     state.go_state_mut().get_mut().multi_pv = parse_int(words, "multipv")?;
                     Ok(())
-                },
-                --> |_| int_option("number of lines", Custom)
+                }
             ),
             ugi_command!(
                 threads | t,
@@ -916,8 +965,7 @@ pub fn go_options_impl(
                 |state, words, _| {
                     state.go_state_mut().get_mut().threads = Some(parse_int(words, "threads")?);
                     Ok(())
-                },
-                --> |_| int_option("number of threads", Custom)
+                }
             ),
             command!(
                 ponder,
@@ -929,10 +977,7 @@ pub fn go_options_impl(
                 perft | pt,
                 Custom,
                 "Movegen test: Make all legal moves up to a depth",
-                |state, words, _| state.go_state_mut().set_search_type(Perft, Some(words)),
-                [] | state | {
-                    state.set_search_type(Perft);
-                }
+                |state, words, _| state.go_state_mut().set_search_type(Perft, Some(words))
             ),
             ugi_command!(
                 splitperft | sp,
@@ -940,15 +985,13 @@ pub fn go_options_impl(
                 "Movegen test: Print perft number for each legal move",
                 |state, words, _| state
                     .go_state_mut()
-                    .set_search_type(SplitPerft, Some(words)),
-                [] | state | state.set_search_type(SplitPerft)
+                    .set_search_type(SplitPerft, Some(words))
             ),
             ugi_command!(
                 bench | b,
                 Custom,
                 "Search test: Print info about nodes, nps, and hash of search",
-                |state, words, _| state.go_state_mut().set_search_type(Bench, Some(words)),
-                [] | state | { state.set_search_type(Bench) }
+                |state, words, _| state.go_state_mut().set_search_type(Bench, Some(words))
             ),
         ];
         res.append(&mut additional);
@@ -984,7 +1027,6 @@ pub fn query_options_impl(color_chars: [char; 2]) -> CommandList {
             standard: UgiNotUci,
             autocomplete_recurse: false,
             func: |ugi, _, _| ugi.write_is_player(true),
-            change_ac_state: ChangeACStateFn::default(),
             sub_commands: SubCommandsFn::default(),
         },
         Command {
@@ -994,7 +1036,6 @@ pub fn query_options_impl(color_chars: [char; 2]) -> CommandList {
             standard: UgiNotUci,
             autocomplete_recurse: false,
             func: |ugi, _, _| ugi.write_is_player(false),
-            change_ac_state: ChangeACStateFn::default(),
             sub_commands: SubCommandsFn::default(),
         },
         ugi_command!(
@@ -1038,7 +1079,7 @@ pub fn position_options<B: Board>(pos: Option<B>, accept_pos_word: bool) -> Comm
             fen | f,
             All,
             "Load a positions from a FEN",
-            |state, words, _| state.go_state_mut().parse_fen(words),
+            |state, words, _| state.load_go_state_pos("fen", words),
             --> |state| state.moves_subcmds(true, true),
             // TODO: Set position based on the FEN
             recurse = true
@@ -1047,20 +1088,16 @@ pub fn position_options<B: Board>(pos: Option<B>, accept_pos_word: bool) -> Comm
             startpos | s,
             All,
             "Load the starting position",
-            |state, _, _| {
-                state.go_state_mut().set_pos_to_startpos();
-                Ok(())
+            |state, words, _| {
+                state.load_go_state_pos("startpos", words)
             },
-            --> |state| state.moves_subcmds(true, true),
-            [] |state| {
-                state.set_position_to_default()
-            }
+            --> |state| state.moves_subcmds(true, true)
         ),
         pos_command!(
             current | c,
             Custom,
             "Current position, useful in combination with 'moves'",
-            |_, _, _| Ok(()),
+            |state, words, _| state.load_go_state_pos("current", words),
             --> |state| state.moves_subcmds(true, true)
         ),
     ];
@@ -1070,7 +1107,7 @@ pub fn position_options<B: Board>(pos: Option<B>, accept_pos_word: bool) -> Comm
             Custom,
             "Followed by `fen <fen>`, a position name or a move",
             |_, _, _| Ok(()),
-            --> |state| state.pos_subcmds(false) // position_options(state, false, false) (TODO: Don't pass Some(pos)?)
+            --> |state| state.pos_subcmds(false)
         ))
     }
     for p in B::name_to_pos_map() {
@@ -1083,32 +1120,30 @@ pub fn position_options<B: Board>(pos: Option<B>, accept_pos_word: bool) -> Comm
             )),
             standard: Custom,
             autocomplete_recurse: false,
-            func: |state, _, name| state.go_state_mut().set_pos_to_name(name),
-            change_ac_state: ChangeACStateFn::default(), /*TODO*/
-            /*ChangeACStateFn(Box::new(|state: &mut dyn AbstractGoState| {
-                state.pos = func();
-            })),*/
+            func: |state, words, name| state.load_go_state_pos(name, words),
             sub_commands: SubCommandsFn::new(|state| state.moves_subcmds(true, true)),
         };
         res.push(c);
     }
+    res.push(move_command(false));
     if let Some(pos) = pos {
-        res.append(&mut moves_options(pos, true, true))
+        res.append(&mut moves_options(pos, false))
     }
     res
 }
 
-pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool, recurse: bool) -> CommandList {
+pub fn move_command(recurse: bool) -> Command {
+    pos_command!(
+        moves | mv,
+        All,
+        "Apply moves to the specified position",
+        |_, _, _| Ok(()),
+        --> move |state| state.moves_subcmds(false, recurse)
+    )
+}
+
+pub fn moves_options<B: Board>(pos: B, recurse: bool) -> CommandList {
     let mut res: CommandList = vec![];
-    if allow_moves_word {
-        res.push(pos_command!(
-            moves | m,
-            All,
-            "Apply moves to the specified position",
-            |_, _, _| Ok(()),
-            --> |state| state.moves_subcmds(false, true)
-        ));
-    }
     for mov in pos.legal_moves_slow().iter_moves() {
         let primary_name = mov.compact_formatter(&pos).to_string();
         let mut other_names = ArrayVec::default();
@@ -1117,7 +1152,7 @@ pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool, recurse: bool) ->
             other_names.push(extended);
         }
         let cmd = Command {
-            primary_name,
+            primary_name: primary_name.clone(),
             other_names,
             help_text: format!(
                 "Play move '{}'",
@@ -1126,14 +1161,9 @@ pub fn moves_options<B: Board>(pos: B, allow_moves_word: bool, recurse: bool) ->
             standard: All,
             autocomplete_recurse: false,
             func: |_, _, _| Ok(()),
-            change_ac_state: ChangeACStateFn::default(), /*TODO*/
-            /*ChangeACStateFn(Box::new(|state: &mut dyn AbstractGoState| {
-                if recurse {
-                    state.pos = state.pos.make_move(the_move).unwrap_or(state.pos);
-                }
-            }))*/
             sub_commands: SubCommandsFn(Some(Box::new(move |state| {
                 if recurse {
+                    state.make_move(&primary_name);
                     state.moves_subcmds(false, true)
                 } else {
                     vec![]
@@ -1172,7 +1202,6 @@ pub fn named_entity_to_command(entity: &dyn NamedEntity, value_autocomplete: boo
         standard: Custom,
         autocomplete_recurse: false,
         func: |_, _, _| Ok(()),
-        change_ac_state: ChangeACStateFn::default(),
         sub_commands,
     }
 }
@@ -1213,47 +1242,6 @@ pub fn options_options(
     res
 }
 
-pub fn custom_option(
-    name: &str,
-    standard: Standard,
-    matches: Box<dyn Fn(&str) -> bool>,
-) -> Command {
-    // TODO: Use `matches`
-    Command {
-        primary_name: name.to_string(),
-        other_names: Default::default(),
-        help_text: "".to_string(),
-        standard,
-        autocomplete_recurse: false,
-        func: |_, _, _| Ok(()),
-        sub_commands: Default::default(),
-        change_ac_state: Default::default(),
-    }
-}
-
-pub fn int_option(name: &'static str, standard: Standard) -> CommandList {
-    vec![custom_option(
-        name,
-        standard,
-        Box::new(|string| string.is_empty() || parse_int_from_str::<isize>(string, name).is_ok()),
-    )]
-}
-
-#[derive(Debug, Clone)]
-pub struct ACState<B: Board> {
-    pub go_state: GoState<B>,
-    outputs: Rc<OutputList<B>>,
-    searchers: Rc<SearcherList<B>>,
-    evals: Rc<EvalList<B>>,
-    info: Arc<Mutex<EngineInfo>>,
-}
-
-impl<B: Board> ACState<B> {
-    fn pos(&self) -> B {
-        self.go_state.pos
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct CommandAutocomplete<B: Board> {
     // Rc because the Autocomplete trait requires DynClone and invokes `clone` on every prompt call
@@ -1286,7 +1274,7 @@ fn distance(input: &str, name: &str) -> isize {
         let lowercase_name = name.to_lowercase();
         let input = input.to_lowercase();
         let prefix = &lowercase_name.as_bytes()[..input.len().min(lowercase_name.len())];
-        2 + edit_distance(&input, from_utf8(prefix).unwrap_or(name)) as isize - bonus
+        2 * (2 + edit_distance(&input, from_utf8(prefix).unwrap_or(name)) as isize - bonus)
     }
 }
 
@@ -1305,7 +1293,7 @@ fn push(completions: &mut Vec<(isize, Completion)>, word: &str, node: &Command) 
 /// and `to_complete` is the last typed token or `""`, which is the one that should be completed
 fn completions<B: Board>(
     node: &Command,
-    state: &ACState<B>,
+    state: &mut ACState<B>,
     rest: &mut Tokens,
     to_complete: &str,
 ) -> Vec<(isize, Completion)> {
@@ -1330,9 +1318,9 @@ fn completions<B: Board>(
             if next_token.is_some_and(|name| child.matches(name)) {
                 found_subcommand = true;
                 _ = rest.next(); // eat the token for the subcommand
-                                 // TODO: Remove, no longer necessary since the child stores the state. Can just update when generating children
                 let mut state = state.clone();
-                child.change_autocomplete_state(&mut state);
+                // possibly change the autocomplete state
+                _ = child.func()(&mut state, rest, next_token.unwrap());
                 let mut new_completions = completions(child, &mut state, rest, to_complete);
                 // if prefer_current_completions {
                 // for (badness, _c) in &mut new_completions {
@@ -1408,7 +1396,7 @@ fn suggestions<B: Board>(autocomplete: &CommandAutocomplete<B>, input: &str) -> 
         }
     }
     if complete_first_token {
-        let moves = moves_options(autocomplete.state.pos(), false, false);
+        let moves = moves_options(autocomplete.state.pos(), false);
         for mov in &moves {
             push(&mut res, to_complete, mov);
         }

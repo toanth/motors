@@ -26,7 +26,7 @@ use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::{sigmoid, Tokens};
 use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::Move;
-use gears::output::{AbstractOutput, Message, OutputBox, OutputOpts};
+use gears::output::{Message, OutputBox, OutputOpts};
 use gears::score::{Score, SCORE_LOST, SCORE_WON};
 use gears::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
 use gears::search::NodeType::*;
@@ -66,8 +66,6 @@ impl TypeErasedSearchInfo {
 
 #[derive(Debug)]
 struct TypeErasedUgiOutput {
-    // TODO: Never filled?! Probably best to just remove
-    outputs: Vec<Box<dyn AbstractOutput>>,
     pretty: bool,
     gradient: LinearGradient,
     alt_grad: BasisGradient,
@@ -78,7 +76,6 @@ struct TypeErasedUgiOutput {
 impl Default for TypeErasedUgiOutput {
     fn default() -> Self {
         Self {
-            outputs: vec![],
             pretty: false,
             previous_exact_info: None,
             gradient: score_gradient(),
@@ -226,18 +223,6 @@ impl TypeErasedUgiOutput {
             bar.finish_and_clear();
         }
         self.progress_bar = None;
-    }
-
-    pub(super) fn write_ugi_input(&mut self, msg: Tokens) {
-        for output in &mut self.outputs {
-            output.write_ugi_input(msg.clone(), None);
-        }
-    }
-
-    pub fn write_message(&mut self, typ: Message, msg: &str) {
-        for output in &mut self.outputs {
-            output.display_message(typ, msg);
-        }
     }
 }
 
@@ -409,11 +394,15 @@ impl<B: Board> UgiOutput<B> {
     }
 
     pub(super) fn write_ugi_input(&mut self, msg: Tokens) {
-        self.type_erased.write_ugi_input(msg)
+        for output in &mut self.additional_outputs {
+            output.write_ugi_input(msg.clone(), None);
+        }
     }
 
     pub fn write_message(&mut self, typ: Message, msg: &str) {
-        self.type_erased.write_message(typ, msg)
+        for output in &mut self.additional_outputs {
+            output.display_message(typ, msg);
+        }
     }
 
     pub fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts) -> bool {

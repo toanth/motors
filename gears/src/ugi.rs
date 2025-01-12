@@ -336,7 +336,7 @@ pub fn parse_ugi_position_and_moves<
         }
     }
     let mut parsed_move = false;
-    if first_move_word.eq_ignore_ascii_case("moves") || first_move_word.eq_ignore_ascii_case("m") {
+    if first_move_word.eq_ignore_ascii_case("moves") || first_move_word.eq_ignore_ascii_case("mv") {
         if pos.is_ok() {
             _ = rest.next();
         }
@@ -403,9 +403,10 @@ pub fn load_ugi_position<B: Board>(
     accept_pos_word: bool,
     strictness: Strictness,
     old_board: &B,
+    allow_partial: bool,
 ) -> Res<B> {
     let mut board = *old_board;
-    parse_ugi_position_and_moves(
+    match parse_ugi_position_and_moves(
         first_word,
         rest,
         accept_pos_word,
@@ -424,12 +425,20 @@ pub fn load_ugi_position<B: Board>(
         },
         |_| (),
         |board| board,
-    )?;
-    Ok(board)
+    ) {
+        Ok(()) => Ok(board),
+        Err(err) => {
+            if allow_partial {
+                Ok(board)
+            } else {
+                Err(err)
+            }
+        }
+    }
 }
 
 pub fn load_ugi_pos_simple<B: Board>(pos: &str, strictness: Strictness, old_board: &B) -> Res<B> {
     let mut tokens = tokens(pos);
     let first = tokens.next().unwrap_or_default();
-    load_ugi_position(first, &mut tokens, false, strictness, old_board)
+    load_ugi_position(first, &mut tokens, false, strictness, old_board, false)
 }

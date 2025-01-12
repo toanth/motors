@@ -63,6 +63,7 @@ mod tests {
             true,
             Strict,
             &Chessboard::default(),
+            false,
         )
         .unwrap();
         assert!(game_over_pos.is_game_lost_slow());

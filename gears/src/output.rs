@@ -9,9 +9,9 @@ use crate::games::OutputList;
 use crate::general::board::{Board, RectangularBoard};
 use crate::general::common::{NamedEntity, Res, Tokens};
 use crate::output::chess::ChessOutputBuilder;
-use crate::output::engine_state::{EngineStateOutput, EngineStateOutputBuilder};
-use crate::output::logger::{Logger, LoggerBuilder};
-use crate::output::text_output::{DisplayType, TextOutput, TextOutputBuilder};
+use crate::output::engine_state::EngineStateOutputBuilder;
+use crate::output::logger::LoggerBuilder;
+use crate::output::text_output::{DisplayType, TextOutputBuilder};
 use crate::output::Message::*;
 use crate::search::SearchInfo;
 use crate::{GameOverReason, GameState, MatchResult, MatchStatus};
@@ -92,15 +92,6 @@ impl OutputOpts {
         }
     }
 }
-
-// #[derive(Debug)]
-// pub enum Output {
-//     EngineState(EngineStateOutput),
-//     Logger(Logger),
-//     TextOutput(TextOutput),
-// }
-//
-// impl Output {}
 
 /// An Output prints the board and shows messages.
 pub trait Output<B: Board>: AbstractOutput {

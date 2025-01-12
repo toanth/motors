@@ -43,7 +43,8 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
         // Since Inquire doesn't seem to have an option to do anything about this (like re-drawing the prompt after each line of output),
         // we just disable it while a `go` command is running?
 
-        self.autocompletion.state.go_state.pos = ugi.state.board;
+        ugi.state.go_state.pos = ugi.state.board;
+        self.autocompletion.state.go_state = ugi.state.go_state.clone();
         if ugi
             .state
             .engine

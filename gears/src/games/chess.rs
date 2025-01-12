@@ -43,8 +43,8 @@ use crate::output::text_output::{
     board_to_string, display_board_pretty, display_color, AdaptFormatter, BoardFormatter,
     DefaultBoardFormatter,
 };
-use crate::search::Depth;
 use crate::output::OutputOpts;
+use crate::search::Depth;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 
@@ -203,7 +203,7 @@ impl Board for Chessboard {
                 name: "kiwipete",
                 val: || {
                     Self::from_fen(
-                        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+                        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 10 11",
                         Strict,
                     )
                     .unwrap()

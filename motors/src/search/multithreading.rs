@@ -420,7 +420,7 @@ impl<B: Board> EngineWrapper<B> {
             history.clone(),
             self.tt_for_next_search.clone(),
             search_moves.clone(),
-            multi_pv - 1,
+            multi_pv.saturating_sub(1),
             thread_data.atomic_search_data[0].clone(),
             Main(thread_data),
         );
