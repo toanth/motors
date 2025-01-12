@@ -545,6 +545,7 @@ impl Caps {
         max_depth: isize,
     ) -> bool {
         let mut soft_limit_scale = 1.0;
+        let mut aw_depth = depth;
         loop {
             let soft_limit = unscaled_soft_limit.mul_f64(soft_limit_scale);
             soft_limit_scale = 1.0;
@@ -555,9 +556,7 @@ impl Caps {
             self.state.atomic().set_depth(depth); // set depth now so that an immediate stop doesn't increment the depth
             self.state.atomic().count_node();
             let asp_start_time = Instant::now();
-            let Some(pv_score) =
-                self.negamax(pos, 0, self.state.depth().isize(), *alpha, *beta, Exact)
-            else {
+            let Some(pv_score) = self.negamax(pos, 0, aw_depth, *alpha, *beta, Exact) else {
                 return false;
             };
 
@@ -569,8 +568,7 @@ impl Caps {
                     window_radius.0,
                     alpha.0,
                     beta.0,
-                    self.state.uci_nodes(),
-                    depth = self.state.depth().get()
+                    self.state.uci_nodes()
                 ),
             );
 
@@ -615,6 +613,11 @@ impl Caps {
                 // In a fail low node, we didn't get any new information, and it's possible that we just discovered
                 // a problem with our chosen move. So increase the soft limit such that we can gather more information.
                 soft_limit_scale = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
+                aw_depth = depth;
+            } else if node_type == FailHigh && depth >= 8 {
+                // If the search discovers an unexpectedly good move, it can take a long while to search it because the TT isn't filled
+                // and because even with fail soft, scores tend to fall close to the aspiration window. So reduce the depth to speed this up.
+                aw_depth = (aw_depth - 1).max(depth - 2);
             }
             if cfg!(debug_assertions) {
                 if pos.player_result_slow(&self.state.params.history).is_some() {
@@ -627,9 +630,9 @@ impl Caps {
                             // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
                             self.state.multi_pv() > 1
                                 || pv.len() + pv.len() / 4 + 1
-                                    >= self.state.custom.depth_hard_limit.min(depth as usize)
+                                    >= self.state.custom.depth_hard_limit.min(aw_depth as usize)
                                 || pv_score.is_won_lost_or_draw_score(),
-                            "{depth} {0} {pv_score} {1}",
+                            "{aw_depth} {depth} {0} {pv_score} {1}",
                             pv.len(),
                             self.state.uci_nodes()
                         ),
@@ -761,9 +764,9 @@ impl Caps {
                 // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
                 // simply return it.
                 if !is_pv_node && tt_entry.depth as isize >= depth {
-                    if ((tt_entry.score >= beta && tt_bound == NodeType::lower_bound())
+                    if (tt_entry.score >= beta && tt_bound == NodeType::lower_bound())
                         || (tt_entry.score <= alpha && tt_bound == NodeType::upper_bound())
-                        || tt_bound == Exact)
+                        || tt_bound == Exact
                     {
                         self.state.statistics.tt_cutoff(MainSearch, tt_bound);
                         // Idea from stormphrax
