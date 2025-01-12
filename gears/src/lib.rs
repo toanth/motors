@@ -313,8 +313,8 @@ pub type AnyRunnable = Box<dyn AbstractRun>;
 
 /// The current state of the match.
 pub trait GameState<B: Board> {
-    fn initial_pos(&self) -> B;
-    fn get_board(&self) -> B;
+    fn initial_pos(&self) -> &B;
+    fn get_board(&self) -> &B;
     fn game_name(&self) -> &str;
     fn move_history(&self) -> &[B::Move];
     fn active_player(&self) -> B::Color {
@@ -390,18 +390,18 @@ impl<B: Board> MatchState<B> {
         }
         self.board_hist.push(&self.board);
         self.mov_hist.push(mov);
-        self.board = self.board.make_move(mov).ok_or_else(|| {
+        self.board = self.board.clone().make_move(mov).ok_or_else(|| {
             anyhow!(
                 "Illegal move {0} (pseudolegal but not legal) in position {1}",
                 mov.compact_formatter(&self.board).to_string().red(),
                 self.board
             )
         })?;
-        Ok(self.board)
+        Ok(self.board.clone())
     }
 
     pub fn clear_state(&mut self) {
-        self.board = self.pos_before_moves;
+        self.board = self.pos_before_moves.clone();
         self.mov_hist.clear();
         self.board_hist.clear();
         self.status = Run(NotStarted);
@@ -413,7 +413,7 @@ impl<B: Board> MatchState<B> {
         allow_pos_word: bool,
         strictness: Strictness,
     ) -> Res<()> {
-        let pos = self.board;
+        let pos = self.board.clone();
         let Some(next_word) = words.next() else {
             bail!("Missing position after '{}' command", "position".bold())
         };
@@ -426,7 +426,7 @@ impl<B: Board> MatchState<B> {
             self,
             |this, mov| this.make_move(mov).map(|_| ()),
             |this| {
-                this.pos_before_moves = this.board;
+                this.pos_before_moves = this.board.clone();
                 this.clear_state()
             },
             |state| &mut state.board,
@@ -437,7 +437,7 @@ impl<B: Board> MatchState<B> {
 
     pub fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()> {
         self.board.set_variant(first, words)?;
-        self.pos_before_moves = self.board;
+        self.pos_before_moves = self.board.clone();
         self.mov_hist.clear();
         self.board_hist.clear();
         self.status = Run(NotStarted);

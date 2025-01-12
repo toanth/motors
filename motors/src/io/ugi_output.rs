@@ -278,7 +278,7 @@ impl<B: Board> UgiOutput<B> {
         self.type_erased.pretty = pretty;
     }
 
-    pub fn write_search_res(&mut self, res: SearchResult<B>) {
+    pub fn write_search_res(&mut self, res: &SearchResult<B>) {
         self.type_erased.clear_progress_bar();
         if !self.type_erased.pretty {
             self.write_ugi(&res.to_string());
@@ -290,6 +290,7 @@ impl<B: Board> UgiOutput<B> {
         if let Some(ponder) = res.ponder_move() {
             let new_pos = res
                 .pos
+                .clone()
                 .make_move(res.chosen_move)
                 .expect("Search returned illegal move");
             msg += &format!(
@@ -323,7 +324,7 @@ impl<B: Board> UgiOutput<B> {
             ));
             return;
         }
-        let variation = pretty_variation(&[mov], *pos, None, None, Exact);
+        let variation = pretty_variation(&[mov], pos.clone(), None, None, Exact);
         let bar = self
             .type_erased
             .show_bar(num_moves, &variation, score, alpha, beta);
@@ -332,7 +333,7 @@ impl<B: Board> UgiOutput<B> {
 
     pub fn write_currline(
         &mut self,
-        pos: B,
+        pos: &B,
         variation: &[B::Move],
         eval: Score,
         alpha: Score,
@@ -345,16 +346,17 @@ impl<B: Board> UgiOutput<B> {
         if !self.type_erased.pretty {
             let mut line = String::new();
             for mov in variation {
-                write!(line, " {}", mov.compact_formatter(&pos)).unwrap();
+                write!(line, " {}", mov.compact_formatter(pos)).unwrap();
             }
             // We only send search results from the main thread, no matter how many threads are searching.
             // And we're also not inspecting other threads' PVs from the main thread.
             self.write_ugi(&format!("info cpu 1 currline {line}"));
             return;
         }
-        let variation = pretty_variation(variation, pos, None, None, Exact);
+        let num_legal = pos.num_legal_moves();
+        let variation = pretty_variation(variation, pos.clone(), None, None, Exact);
         self.type_erased
-            .show_bar(pos.num_legal_moves(), &variation, eval, alpha, beta);
+            .show_bar(num_legal, &variation, eval, alpha, beta);
     }
 
     pub fn write_search_info(&mut self, mut info: SearchInfo<B>) {
@@ -373,7 +375,7 @@ impl<B: Board> UgiOutput<B> {
         }
         let pv_string = pretty_variation(
             &pv,
-            info.pos,
+            info.pos.clone(),
             self.previous_exact_pv.as_ref().map(|i| i.as_ref()),
             Some(mpv_type),
             info.bound.unwrap_or(Exact),

@@ -85,9 +85,9 @@ pub fn match_to_pgn_string<B: Board>(m: &dyn GameState<B>) -> String {
         p1_name = B::Color::first(),
         p2_name = B::Color::second(),
     );
-    let mut board = m.initial_pos();
+    let mut board = m.initial_pos().clone();
     for (ply, mov) in m.move_history().iter().enumerate() {
-        let mov_str = mov.extended_formatter(board, Standard);
+        let mov_str = mov.extended_formatter(&board, Standard);
         if ply % 2 == 0 {
             res += &format!("\n{}. {mov_str}", (ply + 1) / 2 + 1);
         } else {
@@ -421,7 +421,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
         }
         let prev_board = &self.res.game.board;
         let (remaining, mov) = B::Move::parse_extended_text(string, prev_board)?;
-        let Some(new_board) = prev_board.make_move(mov) else {
+        let Some(new_board) = prev_board.clone().make_move(mov) else {
             bail!(
                 "Illegal psuedolegal move '{}'",
                 mov.compact_formatter(&prev_board).to_string().red()

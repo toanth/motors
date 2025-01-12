@@ -401,7 +401,7 @@ impl<B: Board> BoardHistory<B> for BoardCopyHistory<B> {
     }
 
     fn push(&mut self, board: &B) {
-        self.0.push(*board);
+        self.0.push(board.clone());
     }
 
     fn pop(&mut self) {

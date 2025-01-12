@@ -273,7 +273,7 @@ pub fn parse_ugi_position_part<B: Board>(
     Ok(match first_word.to_ascii_lowercase().as_str() {
         "fen" | "f" => B::read_fen_and_advance_input(rest, strictness)?,
         "startpos" | "s" => B::startpos_for_settings(old_board.settings()),
-        "current" | "c" => *old_board,
+        "current" | "c" => old_board.clone(),
         name => match B::from_name(name) {
             Ok(res) => res,
             Err(err) => {
@@ -323,8 +323,8 @@ pub fn parse_ugi_position_and_moves<
     get_board: H,
 ) -> Res<()> {
     let pos = parse_ugi_position_part(first_word, rest, accept_pos_word, old_board, strictness);
-    if let Ok(pos) = pos {
-        *(get_board(state)) = pos;
+    if let Ok(pos) = &pos {
+        *(get_board(state)) = pos.clone();
         // don't reset the position if all we get was moves
         finish_pos(state);
     }
@@ -405,7 +405,7 @@ pub fn load_ugi_position<B: Board>(
     old_board: &B,
     allow_partial: bool,
 ) -> Res<B> {
-    let mut board = *old_board;
+    let mut board = old_board.clone();
     match parse_ugi_position_and_moves(
         first_word,
         rest,
@@ -415,7 +415,7 @@ pub fn load_ugi_position<B: Board>(
         &mut board,
         |pos, next_move| {
             debug_assert!(pos.is_move_legal(next_move));
-            *pos = pos.make_move(next_move).ok_or_else(|| {
+            *pos = pos.clone().make_move(next_move).ok_or_else(|| {
                 anyhow!(
                     "Move '{}' is not legal in position '{pos}' (but it is pseudolegal)",
                     next_move.compact_formatter(pos).to_string().red()

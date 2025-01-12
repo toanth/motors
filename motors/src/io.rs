@@ -196,12 +196,12 @@ impl<B: Board> AbstractRun for EngineUGI<B> {
 }
 
 impl<B: Board> GameState<B> for EngineGameState<B> {
-    fn initial_pos(&self) -> B {
-        self.pos_before_moves
+    fn initial_pos(&self) -> &B {
+        &self.pos_before_moves
     }
 
-    fn get_board(&self) -> B {
-        self.board
+    fn get_board(&self) -> &B {
+        &self.board
     }
 
     fn game_name(&self) -> &str {
@@ -292,7 +292,7 @@ impl<B: Board> EngineUGI<B> {
         )?;
         let display_name = engine.get_engine_info().short_name();
         let board_state = MatchState {
-            board,
+            board: board.clone(),
             status: Run(NotStarted),
             mov_hist: vec![],
             board_hist: ZobristHistory::default(),
@@ -519,7 +519,7 @@ impl<B: Board> EngineUGI<B> {
             create_engine_box_from_str(&engine, &self.searcher_factories, &self.eval_factories)?;
         let limit = SearchLimit::per_move(Duration::from_millis(1_000));
         let params = SearchParams::new_unshared(
-            self.state.board,
+            self.state.board.clone(),
             limit,
             self.state.board_hist.clone(),
             TT::default(),
@@ -704,12 +704,13 @@ impl<B: Board> EngineUGI<B> {
 
         let opts = &self.state.go_state.generic;
         let limit = self.state.go_state.generic.limit;
+        let board = self.state.board.clone();
         match opts.search_type {
             Bench => {
                 let bench_positions: Vec<B> = if opts.complete {
                     B::bench_positions()
                 } else {
-                    vec![self.state.board]
+                    vec![board]
                 };
                 return self.bench(limit, &bench_positions);
             }
@@ -717,7 +718,7 @@ impl<B: Board> EngineUGI<B> {
                 let positions = if opts.complete {
                     B::bench_positions()
                 } else {
-                    vec![self.state.board]
+                    vec![board]
                 };
                 for i in 1..=limit.depth.get() {
                     self.output()
@@ -728,7 +729,7 @@ impl<B: Board> EngineUGI<B> {
                 if limit.depth.get() == 0 {
                     bail!("{} requires a depth of at least 1", "splitperft".bold())
                 }
-                self.write_ugi(&split_perft(limit.depth, self.state.board).to_string());
+                self.write_ugi(&split_perft(limit.depth, board).to_string());
             }
             _ => return self.start_search(self.state.board_hist.clone()),
         }
@@ -744,7 +745,7 @@ impl<B: Board> EngineUGI<B> {
                 opts.search_type, opts.limit
             ),
         );
-        let pos = self.state.go_state.pos;
+        let pos = self.state.go_state.pos.clone();
         if let Some(res) = pos.match_result_slow(&self.state.board_hist) {
             self.write_message(Warning, &format!("Starting a {3} search in position '{2}', but the game is already over. {0}, reason: {1}.",
                                                  res.result, res.reason, pos.as_fen().bold(), opts.search_type));
@@ -818,7 +819,7 @@ impl<B: Board> EngineUGI<B> {
                 let mut eval =
                     create_eval_from_str(&eval_name.short_name(), &self.eval_factories)?.build();
                 let eval_score = eval.eval(&state.board, 0);
-                let diagram = show_eval_pos(state.board, state.last_move(), eval);
+                let diagram = show_eval_pos(&state.board, state.last_move(), eval);
                 diagram
                     + &format!(
                         "Eval Score: {}\n",
@@ -1392,8 +1393,9 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
     fn handle_ugi(&mut self, proto: &str) -> Res<()> {
         let id_msg = self.id();
         self.write_ugi(&format!(
-            "Starting {proto} mode. Type '{0}' for interactive mode.",
-            "interactive".bold()
+            "Starting {proto} mode. Type '{0}' or '{1}' for interactive mode.\n",
+            "interactive".bold(),
+            "i".bold()
         ));
         self.write_ugi(id_msg.as_str());
         self.write_ugi(self.write_ugi_options().as_str());
@@ -1490,7 +1492,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
 
     fn handle_flip(&mut self) -> Res<()> {
         // TODO: Update move history by calling a proper method of ugi
-        self.state.board = self.state.board.make_nullmove().ok_or(anyhow!(
+        self.state.board = self.state.board.clone().make_nullmove().ok_or(anyhow!(
             "Could not flip the side to move (board: '{}'",
             self.state.board.as_fen().bold()
         ))?;
@@ -1516,7 +1518,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
     }
 
     fn respond_game(&mut self) -> Res<()> {
-        let board = self.state.board;
+        let board = &self.state.board;
         self.write_ugi(&format!(
             "{0}\n{1}",
             &board.long_name(),
@@ -1633,7 +1635,8 @@ fn invalid_command_msg(interactive: bool, first_word: &str, rest: &mut Tokens) -
 
 // take a BoardGameState instead of a board to correctly handle displaying the last move
 fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String {
-    let pos = state.board;
+    let pos = state.board.clone();
+    let pos2 = pos.clone();
     let formatter = pos.pretty_formatter(None, state.last_move(), OutputOpts::default());
     let mov = entry.mov.check_legal(&pos);
     let mut formatter = AdaptFormatter {
@@ -1648,9 +1651,9 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
         }),
         display_piece: Box::new(move |coords, _, default| {
             if let Some(mov) = mov {
-                if mov.src_square_in(&pos) == Some(coords) {
+                if mov.src_square_in(&pos2) == Some(coords) {
                     return default.dimmed().to_string();
-                } else if mov.dest_square_in(&pos) == coords {
+                } else if mov.dest_square_in(&pos2) == coords {
                     return default.bold().to_string();
                 }
             }
@@ -1660,9 +1663,10 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
         vertical_spacer_interval: None,
         square_width: None,
     };
+    let pos = &state.board;
     let mut res = pos.display_pretty(&mut formatter);
     let move_string = if let Some(mov) = mov {
-        mov.to_extended_text(&pos, Standard).bold().to_string()
+        mov.to_extended_text(pos, Standard).bold().to_string()
     } else {
         "<none>".to_string()
     };
@@ -1679,15 +1683,16 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
     res
 }
 
-fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>) -> String {
+fn show_eval_pos<B: Board>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>>) -> String {
     let eval = RefCell::new(eval);
     let formatter = pos.pretty_formatter(None, last, OutputOpts::default());
-    let eval_pos = eval.borrow_mut().eval(&pos, 0);
+    let eval_pos = eval.borrow_mut().eval(pos, 0);
+    let p = pos.clone();
     let mut formatter = AdaptFormatter {
         underlying: formatter,
         color_frame: Box::new(|_, col| col),
         display_piece: Box::new(move |coords, _, default| {
-            let piece = pos.colored_piece_on(coords);
+            let piece = p.colored_piece_on(coords);
             let Some(color) = piece.color() else {
                 return default;
             };
@@ -1698,7 +1703,7 @@ fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>
                     .to_string()
                     .color(display_color(color))
             );
-            let score = match pos.remove_piece(coords).unwrap().verify(Relaxed) {
+            let score = match p.clone().remove_piece(coords).unwrap().verify(Relaxed) {
                 Ok(pos) => {
                     let diff = eval_pos - eval.borrow_mut().eval(&pos, 0);
                     let (val, suffix) = suffix_for(diff.0 as isize, Some(10_000));

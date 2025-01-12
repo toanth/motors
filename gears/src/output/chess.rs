@@ -59,7 +59,10 @@ impl<B: RectangularBoard> Output<B> for ChessOutput {
         if last_move.is_none() {
             writeln!(res, "Starting new game!").unwrap();
         }
-        pretty_as_chessboard(&pos, pos.pretty_formatter(Some(CharType::Ascii), last_move, opts))
+        pretty_as_chessboard(
+            pos,
+            pos.pretty_formatter(Some(CharType::Ascii), last_move, opts),
+        )
     }
 }
 
@@ -92,13 +95,13 @@ fn pretty_as_chessboard<B: RectangularBoard>(
     pos: &B,
     formatter: Box<dyn BoardFormatter<B>>,
 ) -> String {
-    let pos = *pos;
+    let p = pos.clone();
     let flip = formatter.flip_board();
     let formatter = AdaptFormatter {
         underlying: formatter,
         color_frame: Box::new(|_, color| color),
         display_piece: Box::new(move |square, width, _| {
-            let piece = pos.colored_piece_on(square);
+            let piece = p.colored_piece_on(square);
             if let Some(color) = piece.color() {
                 format!("{0:^1$}", piece.to_char(CharType::Ascii), width)
                     .color(display_color(color))

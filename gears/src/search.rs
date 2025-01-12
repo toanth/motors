@@ -46,7 +46,7 @@ impl<B: Board> SearchResult<B> {
         debug_assert!(chosen_move.is_null() || pos.is_move_legal(chosen_move));
         #[cfg(debug_assertions)]
         if !chosen_move.is_null() {
-            let new_pos = pos.make_move(chosen_move).unwrap();
+            let new_pos = pos.clone().make_move(chosen_move).unwrap();
             if let Some(ponder) = ponder_move {
                 debug_assert!(new_pos.is_move_legal(ponder));
             }
@@ -223,7 +223,7 @@ impl<B: Board> Display for SearchInfo<B> {
                nps = self.nps(),
                hashfull = self.hashfull,
         )?;
-        let mut pos = self.pos;
+        let mut pos = self.pos.clone();
         for &mov in &self.pv {
             write!(f, " {}", mov.compact_formatter(&pos))?;
             pos = pos.make_move(mov).unwrap();

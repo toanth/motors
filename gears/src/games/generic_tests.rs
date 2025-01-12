@@ -21,7 +21,7 @@ impl<B: Board> GenericTests<B> {
         assert_eq!(size.valid_coordinates().count(), size.num_squares());
         let coords = size.valid_coordinates();
         let mut found_center = false;
-        let mut p = B::Unverified::new(pos);
+        let mut p = B::Unverified::new(pos.clone());
         for coords in coords {
             assert!(size.coordinates_valid(coords));
             assert!(size.check_coordinates(coords).is_ok());
@@ -88,12 +88,12 @@ impl<B: Board> GenericTests<B> {
         };
         while queue.len() <= max_queue_len && !queue.is_empty() {
             assert!(!queue.is_empty());
-            let pos = queue.front().copied().unwrap();
+            let pos = queue.front().cloned().unwrap();
             let moves = pos.legal_moves_slow();
             queue.pop_front();
             hashes.push(pos.hash_pos());
             for mov in moves {
-                queue.push_back(pos.make_move(mov).unwrap());
+                queue.push_back(pos.clone().make_move(mov).unwrap());
             }
         }
         for entry in queue {
@@ -124,8 +124,7 @@ impl<B: Board> GenericTests<B> {
             let ply = pos.halfmove_ctr_since_start();
             // use a new hash set per position because bench positions can be only one ply away from each other
             let mut hashes = HashSet::new();
-            let _ = pos.debug_verify_invariants(Strict).unwrap();
-            assert!(pos.debug_verify_invariants(Strict).is_ok());
+            let pos = pos.debug_verify_invariants(Strict).unwrap();
             assert_eq!(
                 B::from_fen(&pos.as_fen(), Strict).unwrap(),
                 pos,
@@ -147,16 +146,15 @@ impl<B: Board> GenericTests<B> {
             }
             for mov in pos.pseudolegal_moves() {
                 assert!(pos.is_move_pseudolegal(mov));
-                let new_pos = pos.make_move(mov);
+                let new_pos = pos.clone().make_move(mov);
                 assert_eq!(new_pos.is_some(), pos.is_pseudolegal_move_legal(mov));
                 let Some(new_pos) = new_pos else { continue };
-                let legal = new_pos.debug_verify_invariants(Strict);
-                assert!(legal.is_ok());
+                let new_pos = new_pos.debug_verify_invariants(Strict).unwrap();
                 assert_eq!(new_pos.active_player().other(), pos.active_player());
                 assert_ne!(new_pos.as_fen(), pos.as_fen());
 
                 let roundtrip = B::from_fen(&new_pos.as_fen(), Strict).unwrap();
-                assert!(roundtrip.debug_verify_invariants(Strict).is_ok());
+                let roundtrip = roundtrip.debug_verify_invariants(Strict).unwrap();
                 assert_eq!(roundtrip.as_fen(), new_pos.as_fen());
                 assert_eq!(
                     roundtrip.legal_moves_slow().into_iter().collect_vec(),

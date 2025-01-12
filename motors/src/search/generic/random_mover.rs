@@ -101,7 +101,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
 
     fn do_search(&mut self) -> SearchResult<B> {
         self.state.statistics.next_id_iteration();
-        let pos = self.state.params.pos;
+        let pos = &self.state.params.pos;
 
         let moves = pos
             .legal_moves_slow()
@@ -114,7 +114,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
             moves[self.rng.random_range(0..moves.len())]
         };
         self.state.atomic().set_best_move(best_move);
-        SearchResult::move_only(best_move, pos)
+        SearchResult::move_only(best_move, pos.clone())
     }
 
     fn search_state(&self) -> &SearchStateFor<B, Self> {
@@ -145,7 +145,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
             pv: vec![self.state.best_move()],
             score: Score(0),
             hashfull: 0,
-            pos: self.search_state().params.pos,
+            pos: self.search_state().params.pos.clone(),
             bound: Some(Exact),
             additional: None,
         }

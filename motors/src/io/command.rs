@@ -77,8 +77,8 @@ pub struct ACState<B: Board> {
 }
 
 impl<B: Board> ACState<B> {
-    fn pos(&self) -> B {
-        self.go_state.pos
+    fn pos(&self) -> &B {
+        &self.go_state.pos
     }
 }
 
@@ -164,7 +164,7 @@ impl<B: Board> AutoCompleteState for ACState<B> {
         let Ok(mov) = B::Move::from_text(mov, &self.pos()) else {
             return;
         };
-        if let Some(new) = self.pos().make_move(mov) {
+        if let Some(new) = self.pos().clone().make_move(mov) {
             self.go_state.pos = new;
         }
     }
@@ -246,7 +246,12 @@ impl<B: Board> AbstractEngineUgi for ACState<B> {
         Ok(())
     }
     fn handle_flip(&mut self) -> Res<()> {
-        self.go_state.pos = self.go_state.pos.make_nullmove().ok_or(anyhow!(""))?;
+        self.go_state.pos = self
+            .go_state
+            .pos
+            .clone()
+            .make_nullmove()
+            .ok_or(anyhow!(""))?;
         Ok(())
     }
     fn handle_query(&mut self, _words: &mut Tokens) -> Res<()> {
@@ -760,7 +765,12 @@ impl<B: Board> GoState<B> {
             // "infinite" is the identity element of the bounded semilattice of `go` options
             _ => SearchLimit::infinite(),
         };
-        Self::new_for_pos(ugi.state.board, limit, ugi.strictness, ugi.move_overhead)
+        Self::new_for_pos(
+            ugi.state.board.clone(),
+            limit,
+            ugi.strictness,
+            ugi.move_overhead,
+        )
     }
 
     pub fn new_for_pos(
@@ -1072,7 +1082,7 @@ macro_rules! pos_command {
     }
 }
 
-pub fn position_options<B: Board>(pos: Option<B>, accept_pos_word: bool) -> CommandList {
+pub fn position_options<B: Board>(pos: Option<&B>, accept_pos_word: bool) -> CommandList {
     // TODO: The first couple of options don't depend on B, move in new function?
     let mut res: CommandList = vec![
         pos_command!(
@@ -1142,7 +1152,7 @@ pub fn move_command(recurse: bool) -> Command {
     )
 }
 
-pub fn moves_options<B: Board>(pos: B, recurse: bool) -> CommandList {
+pub fn moves_options<B: Board>(pos: &B, recurse: bool) -> CommandList {
     let mut res: CommandList = vec![];
     for mov in pos.legal_moves_slow().iter_moves() {
         let primary_name = mov.compact_formatter(&pos).to_string();

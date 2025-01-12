@@ -66,7 +66,7 @@ impl<B: Board> UgiMatchState<B> {
     fn new(initial_pos: B, event: String, site: String) -> Self {
         Self {
             status: NotStarted,
-            board: initial_pos,
+            board: initial_pos.clone(),
             board_history: ZobristHistory::default(),
             move_history: vec![],
             initial_pos,
@@ -78,7 +78,7 @@ impl<B: Board> UgiMatchState<B> {
     }
 
     fn reset(&mut self) {
-        self.board = self.initial_pos;
+        self.board = self.initial_pos.clone();
         self.move_history.clear();
         self.board_history.clear();
         self.board_history.push(&self.board);
@@ -174,12 +174,12 @@ impl<B: Board> ClientState<B> {
 }
 
 impl<B: Board> GameState<B> for ClientState<B> {
-    fn initial_pos(&self) -> B {
-        self.the_match.initial_pos
+    fn initial_pos(&self) -> &B {
+        &self.the_match.initial_pos
     }
 
-    fn get_board(&self) -> B {
-        self.the_match.board
+    fn get_board(&self) -> &B {
+        &self.the_match.board
     }
 
     fn game_name(&self) -> &str {
@@ -441,7 +441,7 @@ impl<B: Board> Client<B> {
                 mov.compact_formatter(self.board()).to_string().red()
             )
         }
-        let Some(board) = self.board().make_move(mov) else {
+        let Some(board) = self.board().clone().make_move(mov) else {
             let player_res = GameOver {
                 result: PlayerResult::Lose,
                 reason: GameOverReason::Adjudication(AdjudicationReason::InvalidMove),
@@ -457,7 +457,7 @@ impl<B: Board> Client<B> {
             )
         };
 
-        *self.board() = board;
+        *self.board() = board.clone();
         self.match_state().board_history.push(&board);
         self.match_state().move_history.push(mov);
         Ok(())
@@ -639,7 +639,7 @@ impl<B: Board> Client<B> {
         debug_assert!(
             self.match_state().board_history.len() == self.match_state().move_history.len() + 1
         );
-        let initial_pos = self.match_state().initial_pos;
+        let initial_pos = self.match_state().initial_pos.clone();
         let mut moves = self.match_state().move_history.clone();
         moves.truncate(ply);
         self.change_position_to(initial_pos, &moves)?;

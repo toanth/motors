@@ -534,7 +534,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
     fn search(&mut self, search_params: SearchParams<B>) -> SearchResult<B> {
         self.search_state_mut_dyn().new_search(search_params);
         let res = self.do_search();
-        self.search_state_mut_dyn().end_search(res);
+        self.search_state_mut_dyn().end_search(&res);
         res
     }
 
@@ -643,7 +643,7 @@ impl<B: Board> SearchParams<B> {
         // allow calling this on an auxiliary thread as well
         //assert!(matches!(self.thread_type, Main(_)));
         Self {
-            pos: self.pos,
+            pos: self.pos.clone(),
             limit: self.limit,
             atomic,
             history: self.history.clone(),
@@ -720,7 +720,7 @@ impl<B: Board> Default for PVData<B> {
 pub trait AbstractSearchState<B: Board> {
     fn forget(&mut self, hard: bool);
     fn new_search(&mut self, params: SearchParams<B>);
-    fn end_search(&mut self, res: SearchResult<B>);
+    fn end_search(&mut self, res: &SearchResult<B>);
     fn search_params(&self) -> &SearchParams<B>;
     fn to_bench_res(&self) -> BenchResult;
     fn to_search_info(&self) -> SearchInfo<B>;
@@ -800,7 +800,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
         // can already be set
     }
 
-    fn end_search(&mut self, res: SearchResult<B>) {
+    fn end_search(&mut self, res: &SearchResult<B>) {
         self.statistics_mut().end_search();
         self.send_statistics();
         self.aggregate_match_statistics();
@@ -850,7 +850,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
             pv: self.current_mpv_pv().into(),
             score: self.current_pv_data().score,
             hashfull: self.estimate_hashfull(),
-            pos: self.params.pos,
+            pos: self.params.pos.clone(),
             bound: self.current_pv_data().bound,
             additional: Self::additional(),
         }
@@ -907,7 +907,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             self.best_move(),
             self.best_score(),
             self.ponder_move(),
-            self.params.pos,
+            self.params.pos.clone(),
         )
     }
 
@@ -963,7 +963,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             for i in 0..ply {
                 line.push(self.search_stack[i].last_played_move().unwrap());
             }
-            output.write_currline(self.params.pos, line.as_ref(), eval, alpha, beta);
+            output.write_currline(&self.params.pos, line.as_ref(), eval, alpha, beta);
             self.last_msg_time = Instant::now();
         }
     }
@@ -974,7 +974,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     /// c) the search hasn't been cancelled yet. It will wait until the search has been cancelled.
     /// Auxiliary threads and ponder searches both return instantly from this function, without printing anything.
     /// If the search result has chosen a null move, this instead outputs a warning and a random legal move.
-    fn send_search_res(&mut self, res: SearchResult<B>) {
+    fn send_search_res(&mut self, res: &SearchResult<B>) {
         let search_params = self.search_params();
         let Main(data) = &search_params.thread_type else {
             return;
@@ -987,7 +987,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
                 spin_loop();
             }
         }
-        let pos = self.search_params().pos;
+        let pos = &self.search_params().pos;
         let mut output = data.output.lock().unwrap();
         if res.chosen_move == B::Move::default() {
             let mut rng = StdRng::seed_from_u64(42); // keep everything deterministic
@@ -995,7 +995,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             if chosen_move != B::Move::default() {
                 debug_assert!(pos.is_move_legal(chosen_move));
                 output.write_message(Warning, "Not even a single iteration finished");
-                output.write_search_res(SearchResult::<B>::move_only(chosen_move, pos));
+                output.write_search_res(&SearchResult::<B>::move_only(chosen_move, pos.clone()));
                 return;
             }
             output.write_message(Warning, "search() called in a position with no legal moves");
@@ -1151,7 +1151,7 @@ fn single_bench<B: Board>(
         limit.fixed_time = limit.fixed_time.min(Duration::from_millis(20));
         limit
     };
-    let res = engine.bench(*pos, limit, tt);
+    let res = engine.bench(pos.clone(), limit, tt);
     total.nodes += res.nodes;
     total.time += res.time;
     total.max_depth = total.max_depth.max(res.max_depth);
@@ -1168,12 +1168,12 @@ mod tests {
     pub fn generic_engine_test<B: Board, E: Engine<B>>(mut engine: E) {
         let tt = TT::default();
         for p in B::bench_positions() {
-            let res = engine.bench(p, SearchLimit::nodes_(1), tt.clone());
+            let res = engine.bench(p.clone(), SearchLimit::nodes_(1), tt.clone());
             assert!(res.depth.is_none());
             assert!(res.max_depth.get() <= 1);
             assert!(res.nodes <= 100); // TODO: Assert exactly 1
             let params = SearchParams::new_unshared(
-                p,
+                p.clone(),
                 SearchLimit::depth_(1),
                 ZobristHistory::default(),
                 tt.clone(),
@@ -1187,7 +1187,7 @@ mod tests {
             }
             // empty search moves, which is something the engine should handle
             let params = SearchParams::new_unshared(
-                p,
+                p.clone(),
                 SearchLimit::depth_(2),
                 ZobristHistory::default(),
                 tt.clone(),

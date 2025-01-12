@@ -102,7 +102,7 @@ where
 
     /// Returns a formatter object that implements `Display` such that it prints the result of `to_extended_text`.
     /// Like [`self.format_extended`], an implementation *may* choose to not require pseudolegality.
-    fn extended_formatter(self, pos: B, format: ExtendedFormat) -> ExtendedFormatter<B> {
+    fn extended_formatter(self, pos: &B, format: ExtendedFormat) -> ExtendedFormatter<B> {
         ExtendedFormatter {
             pos,
             mov: self,
@@ -112,7 +112,7 @@ where
 
     /// A convenience method based on `format_extended` that returns a `String`.
     fn to_extended_text(self, board: &B, format: ExtendedFormat) -> String {
-        self.extended_formatter(*board, format).to_string()
+        self.extended_formatter(board, format).to_string()
     }
 
     /// Parse a compact text representation emitted by `to_compact_text`, such as the one used by UCI.
@@ -199,13 +199,13 @@ impl<'a, B: Board> Display for CompactFormatter<'a, B> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct ExtendedFormatter<B: Board> {
-    pos: B,
+pub struct ExtendedFormatter<'a, B: Board> {
+    pos: &'a B,
     mov: B::Move,
     format: ExtendedFormat,
 }
 
-impl<B: Board> Display for ExtendedFormatter<B> {
+impl<B: Board> Display for ExtendedFormatter<'_, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         if self.mov == B::Move::default() {
             write!(f, "0000")
@@ -246,7 +246,7 @@ impl<B: Board> UntrustedMove<B> {
         }
     }
 
-    pub fn check_legal(self, pos: &B) -> Option<B::Move> {
+    pub fn check_legal(&self, pos: &B) -> Option<B::Move> {
         if pos.is_move_legal(self.0) {
             Some(self.0)
         } else {

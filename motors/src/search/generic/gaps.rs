@@ -111,7 +111,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
     fn do_search(&mut self) -> SearchResult<B> {
         let mut limit = self.state.params.limit;
         let max_depth = MAX_DEPTH.min(limit.depth).isize();
-        let pos = self.state.params.pos;
+        let pos = self.state.params.pos.clone();
         limit.fixed_time = limit.fixed_time.min(limit.tc.remaining);
 
         self.state.statistics.next_id_iteration();
@@ -127,7 +127,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
                 self.state.atomic().set_depth(depth);
                 self.state.atomic().update_seldepth(depth as usize);
                 self.state.atomic().count_node();
-                let iteration_score = self.negamax(pos, 0, depth, SCORE_LOST, SCORE_WON);
+                let iteration_score = self.negamax(pos.clone(), 0, depth, SCORE_LOST, SCORE_WON);
                 self.state.current_pv_data_mut().score = iteration_score;
                 if self.state.stop_flag() {
                     self.state.current_pv_data_mut().bound = None;
@@ -183,7 +183,7 @@ impl<B: Board> Gaps<B> {
         let mut num_children = 0;
 
         for mov in pos.pseudolegal_moves() {
-            let new_pos = pos.make_move(mov);
+            let new_pos = pos.clone().make_move(mov);
             if new_pos.is_none() {
                 continue; // illegal pseudolegal move
             }

@@ -181,9 +181,9 @@ pub type BoardSize<B: Board> = <B::Coordinates as Coordinates>::Size;
 
 /// Currently, a game is completely determined by the `Board` type:
 /// The type implementing `Board` contains all the necessary information about the rules of the game.
-/// However, a `Board` is assumed to be markovian and needs to satisfy `Copy` and `'static`.
-/// When this is not desired, the `GameState` should be used instead, it contains a copy of the current board
-/// and additional non-markovian information, such as the history of zobrist hashes for games that need this.
+/// However, a `Board` is assumed to be markovian and needs to be `'static`.
+/// Despite not requiring [`Copy`], a board should be cheap to clone.
+/// In fact, currently all boards except [`FairyBoard`] implement [`Copy`]
 pub trait Board:
     Debug
     + Display
@@ -191,7 +191,6 @@ pub trait Board:
     + Sync
     + Sized
     + Default
-    + Copy
     + Clone
     + Eq
     + PartialEq
@@ -387,7 +386,7 @@ pub trait Board:
     /// Expects a pseudolegal move and returns if this move is also legal, which means that playing it with
     /// `make_move` returns `Some(new_board)`
     fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {
-        Self::Move::legality() == Legal || self.make_move(mov).is_some()
+        Self::Move::legality() == Legal || self.clone().make_move(mov).is_some()
     }
 
     /// Returns the result (win/draw/loss), if any, but doesn't necessarily catch all game-ending conditions.
@@ -422,7 +421,8 @@ pub trait Board:
     /// This move has to be pseudolegal. If the move will likely be played anyway, it can be faster
     /// to play it and use [`Self::player_result()`] or [`Self::player_result_no_movegen()`] and [`Self::no_moves_result`] instead.
     fn is_game_won_after_slow(&self, mov: Self::Move) -> bool {
-        self.make_move(mov)
+        self.clone()
+            .make_move(mov)
             .map_or(false, |new_pos| new_pos.is_game_lost_slow())
     }
 
@@ -548,11 +548,11 @@ pub trait BoardHelpers: Board {
 
     /// Returns an iterator over all the positions after making a legal move.
     /// Not very useful for search because it doesn't allow changing the order of generated positions,
-    /// but convenient for some use cases.
-    fn children(self) -> impl Iterator<Item = Self> {
+    /// but convenient for some use cases like [`perft`](crate::general::perft::perft).
+    fn children(&self) -> impl Iterator<Item = Self> {
         self.pseudolegal_moves()
             .into_iter()
-            .filter_map(move |m| self.make_move(m))
+            .filter_map(move |m| self.clone().make_move(m))
     }
 
     /// Returns an optional [`MatchResult`]. Unlike a [`PlayerResult`], a [`MatchResult`] doesn't contain `Win` or `Lose` variants,

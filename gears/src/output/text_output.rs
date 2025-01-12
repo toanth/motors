@@ -187,7 +187,7 @@ impl BoardToText {
 
     fn match_to_ugi<B: Board>(m: &dyn GameState<B>) -> String {
         use std::fmt::Write;
-        let mut pos = m.initial_pos();
+        let mut pos = m.initial_pos().clone();
         if m.move_history().is_empty() {
             format!("position fen {pos}")
         } else {
@@ -704,12 +704,12 @@ impl<B: RectangularBoard> DefaultBoardFormatter<B> {
         let piece_to_char = piece_to_char.unwrap_or(CharType::Ascii);
         let flip = (pos.active_player() == B::Color::second()) && !opts.disable_flipping;
         Self {
+            vertical_spacer_interval: pos.get_height(),
+            horizontal_spacer_interval: pos.get_width(),
             piece_to_char,
             pos,
             last_move,
             flip,
-            vertical_spacer_interval: pos.get_height(),
-            horizontal_spacer_interval: pos.get_width(),
         }
     }
 }
