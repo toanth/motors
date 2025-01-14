@@ -45,15 +45,23 @@ impl CastleRight {
 
 #[derive(Eq, PartialEq, Default, Debug, Ord, PartialOrd, Copy, Clone, Hash, Arbitrary)]
 #[must_use]
-/// Stores the queen/kingside castling files for white/black in 3 bits each and uses the upper 4 bits to store
-/// if castling is legal. More compact representations are possible because e.e. queenside castling to the h file
-/// is impossible, but don't really seem worth it.
-pub struct CastlingFlags(u16);
+/// Stores the queen/kingside castling files for white/black in 3 bits each and uses the bits [12,16) to store
+/// if castling is legal. The bit at index 16 is not set iff the castling rights should be printed in X-FEN format
+/// (which is backwards compatible to standard FEN, unlike Shredder FEN). This is set to be the format
+/// in which the FEN is received (startpos and all non-chess960 FENs are X-FENs for maximum GUI support).
+/// X-FENs are disambiguated as described on wikipedia.
+/// More compact representations (fitting into 8 bits) are possible because e.g. queenside castling to the h file
+/// is impossible, but don't really seem worth it because the size of the [`Chessboard`] doesn't change anyway.
+pub struct CastlingFlags(u32);
 
 impl CastlingFlags {
     #[must_use]
     pub fn allowed_castling_directions(self) -> usize {
         (self.0 >> 12) as usize
+    }
+
+    pub fn is_shredder_fen(&self) -> bool {
+        self.0 >> 16 & 1 == 1
     }
 
     fn shift(color: ChessColor, castle_right: CastleRight) -> usize {
@@ -70,8 +78,7 @@ impl CastlingFlags {
     /// i.e. checks or pieces blocking the castling move aren't handled here.
     #[must_use]
     pub fn can_castle(self, color: ChessColor, castle_right: CastleRight) -> bool {
-        1 == 1
-            & (self.allowed_castling_directions() >> (color as usize * 2 + castle_right as usize))
+        1 == 1 & (self.0 >> (12 + color as usize * 2 + castle_right as usize))
     }
 
     pub fn set_castle_right(
@@ -84,7 +91,7 @@ impl CastlingFlags {
         if self.can_castle(color, castle_right) {
             bail!("Trying to set the {color} {castle_right} twice");
         }
-        self.0 |= u16::from(file) << Self::shift(color, castle_right);
+        self.0 |= u32::from(file) << Self::shift(color, castle_right);
         self.0 |= 1 << (12 + color as usize * 2 + castle_right as usize);
         Ok(())
     }

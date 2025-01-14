@@ -85,8 +85,6 @@ impl<B: Board> ACState<B> {
 /// The point of this Visitor-like pattern is to minimize the amount of generic code to improve compile times:
 /// It means that all commands are completely independent of the generic `Board` parameter; everything board-specific
 /// is handled in this trait.
-// TODO: Also use CommandState for this and just implement the functions differently, such that each command only has a single function instead
-// of one for autocompletion and one for actually doing the command
 trait AutoCompleteState: Debug {
     fn go_subcmds(&self, search_type: SearchType) -> CommandList;
     fn pos_subcmds(&self, accept_pos: bool) -> CommandList;
@@ -347,10 +345,6 @@ impl Command {
     fn autocomplete_recurse(&self) -> bool {
         self.autocomplete_recurse
     }
-    //
-    // fn set_autocompletions(&mut self, func: SubCommandsFn<>) {
-    //     self.sub_commands = func;
-    // }
 
     fn secondary_names(&self) -> Vec<String> {
         self.other_names.iter().cloned().collect_vec()
@@ -425,21 +419,12 @@ macro_rules! command {
     };
 }
 
-// TODO: Remove, use command!
-macro_rules! ugi_command {
-    ($primary:ident $(| $other:ident)*, $std:expr, $help:expr, $fun:expr $(, -->$subcmd:expr)? $(, recurse=$recurse:expr)?) => {
-        command!($primary $(| $other)*, $std, $help, $fun $(, -->$subcmd)? $(, recurse=$recurse)?)
-    }
-}
-
-// TODO: Make all of this independent of B by using &mut AbstractEngineUgi instead of &mut Engineuge<B>,
-// and use a dyn trait object for subcommand autocompletion
 /// All commands type erase the board type in order to speed up compilation
 #[expect(clippy::too_many_lines)]
 pub fn ugi_commands() -> CommandList {
     vec![
         // put time-critical commands at the top
-        ugi_command!(
+        command!(
             go | g | search,
             All,
             "Start the search. Optionally takes a position and a mode such as `perft`",
@@ -447,32 +432,32 @@ pub fn ugi_commands() -> CommandList {
             --> |state: &mut dyn AutoCompleteState| state.go_subcmds(Normal),
             recurse = true
         ),
-        ugi_command!(
+        command!(
             stop,
             All,
             "Stop the current search. No effect if not searching",
             |ugi, _, _| ugi.handle_stop(false)
         ),
-        ugi_command!(
+        command!(
             position | pos | p,
             All,
             "Set the current position",
             |ugi, words, _| ugi.handle_pos(words),
             --> |state| state.pos_subcmds(false)
         ),
-        ugi_command!(
+        command!(
             ugi | uci | uai,
             All,
             "Starts UGI mode, ends interactive mode (can be re-enabled with `interactive`)",
             |ugi, _, proto| ugi.handle_ugi(proto)
         ),
-        ugi_command!(
+        command!(
             ponderhit,
             All,
             "Stop pondering and start a normal search",
             |ugi, _, _| ugi.handle_ponderhit()
         ),
-        ugi_command!(
+        command!(
             isready,
             All,
             "Queries if the engine is ready. The engine responds with 'readyok'",
@@ -481,20 +466,20 @@ pub fn ugi_commands() -> CommandList {
                 Ok(())
             }
         ),
-        ugi_command!(
+        command!(
             setoption | so,
             All,
             "Sets an engine option",
             |ugi, words, _| ugi.handle_setoption(words),
             --> |state| state.option_subcmds(true)
         ),
-        ugi_command!(
+        command!(
             uginewgame | ucinewgame | uainewgame | clear,
             All,
             "Resets the internal engine state (doesn't reset engine options)",
             |ugi, _, _| ugi.handle_uginewgame()
         ),
-        ugi_command!(
+        command!(
             register,
             All,
             "UCI command for copy-protected engines, doesn't apply here",
@@ -506,20 +491,20 @@ pub fn ugi_commands() -> CommandList {
                 Ok(())
             }
         ),
-        ugi_command!(
+        command!(
             flip,
             Custom,
             "Flips the side to move, unless this results in an illegal position",
             |ugi, _, _| ugi.handle_flip()
         ),
-        ugi_command!(quit, All, "Exits the program immediately", |ugi, _, _| {
+        command!(quit, All, "Exits the program immediately", |ugi, _, _| {
             if cfg!(feature = "fuzzing") {
                 eprintln!("Fuzzing is enabled, ignoring 'quit' command");
                 return Ok(());
             }
             ugi.handle_quit(QuitProgram)
         }),
-        ugi_command!(
+        command!(
             quit_match | end_game | qm,
             Custom,
             "Quits the current match and, if `play` has been used, returns to the previous match",
@@ -531,14 +516,14 @@ pub fn ugi_commands() -> CommandList {
                 ugi.handle_quit(QuitMatch)
             }
         ),
-        ugi_command!(
+        command!(
             query | q,
             UgiNotUci,
             "Answer a query about the current match state",
             |ugi, words, _| ugi.handle_query(words),
             --> |state| state.query_subcmds()
         ),
-        ugi_command!(
+        command!(
             option | info,
             Custom,
             "Prints information about the current options. Optionally takes an option name",
@@ -548,13 +533,13 @@ pub fn ugi_commands() -> CommandList {
             },
             --> |state| state.option_subcmds(false)
         ),
-        ugi_command!(
+        command!(
             engine_state,
             Custom,
             "Prints information about the internal engine state, if supported",
             |ugi, _, _| ugi.handle_engine_print()
         ),
-        ugi_command!(
+        command!(
             output | o,
             Custom,
             "Sets outputs, which are used to print the game state. Permanent version of 'show'",
@@ -562,7 +547,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.output_subcmds(),
             recurse = true
         ),
-        ugi_command!(
+        command!(
             print | show | s | display,
             Custom,
             "Display the specified / current position with specified / enabled outputs or 'prettyascii' if no output is set",
@@ -570,45 +555,45 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.print_subcmds(),
             recurse = true
         ),
-        ugi_command!(
+        command!(
             log,
             Custom,
             "Enables logging. Can optionally specify a file name, `stdout` / `stderr` or `off`",
             |ugi, words, _| ugi.handle_log(words)
         ),
-        ugi_command!(
+        command!(
             debug | d,
             Custom,
             "Turns on logging, continue-on-error mode, and additional output. Use `off` to disable",
             |ugi, words, _| ugi.handle_debug(words)
         ),
-        ugi_command!(
+        command!(
             interactive | i | human,
             Custom,
             "Starts interactive mode, undoes `ugi`. In this mode, errors aren't fatal",
             |ugi, _, _| ugi.handle_interactive()
         ),
-        ugi_command!(
+        command!(
             engine,
             Custom,
             "Sets the current engine, e.g. `caps-piston`, `gaps`, and optionally the game",
             |ugi, words, _| ugi.handle_engine(words),
             --> |state| state.engine_subcmds()
         ),
-        ugi_command!(
+        command!(
             set_eval | se,
             Custom,
             "Sets the eval for the current engine. Doesn't reset the internal engine state",
             |ugi, words, _| ugi.handle_set_eval(words),
             --> |state| state.set_eval_subcmds()
         ),
-        ugi_command!(
+        command!(
             load_pgn | pgn,
             Custom,
             "Loads a PGN from a given file, or opens a text editor",
             |ugi, words, _| { ugi.load_pgn(words) }
         ),
-        ugi_command!(
+        command!(
             play | game,
             Custom,
             "Starts a new match, possibly of a new game, optionally setting a new engine and position",
@@ -621,13 +606,13 @@ pub fn ugi_commands() -> CommandList {
             },
             --> |_| select_command::<Game>(&Game::iter().map(Box::new).collect_vec(), false)
         ),
-        ugi_command!(
+        command!(
             idk | assist | respond,
             Custom,
             "Lets the engine play a move, or use 'on'/'off' to enable/disable automatic response",
             |ugi, words, _| ugi.handle_assist(words)
         ),
-        ugi_command!(
+        command!(
             perft,
             Custom,
             "Internal movegen test on current / bench positions",
@@ -635,7 +620,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.go_subcmds(Perft),
             recurse = true
         ),
-        ugi_command!(
+        command!(
             splitperft | sp,
             Custom,
             "Internal movegen test on current / bench positions",
@@ -643,7 +628,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.go_subcmds(SplitPerft),
             recurse = true
         ),
-        ugi_command!(
+        command!(
             bench,
             Custom,
             "Internal search test on current / bench positions. Same arguments as `go`",
@@ -651,7 +636,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.go_subcmds(Bench),
             recurse = true
         ),
-        ugi_command!(
+        command!(
             eval | e | static_eval,
             Custom,
             "Print the static eval (i.e., no search) of a position",
@@ -659,7 +644,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.pos_subcmds(true),
             recurse = true
         ),
-        ugi_command!(
+        command!(
             tt | tt_entry,
             Custom,
             "Print the TT entry for a position",
@@ -667,7 +652,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.pos_subcmds(true),
             recurse = true
         ),
-        ugi_command!(help | h, Custom, "Prints a help message", |ugi, _, _| {
+        command!(help | h, Custom, "Prints a help message", |ugi, _, _| {
             ugi.print_help() // TODO: allow help <command> to print a help message for a command
         }),
     ]
@@ -819,9 +804,8 @@ pub fn accept_depth(limit: &mut SearchLimit, words: &mut Tokens) -> Res<()> {
     Ok(())
 }
 
-// TODO: Type erase the Go state so this doens't have to be generic?
 pub fn depth_cmd() -> Command {
-    ugi_command!(
+    command!(
         depth | d,
         All,
         "Maximum search depth in plies (a.k.a. half-moves)",
@@ -843,13 +827,6 @@ pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList {
     // `go` commands depend on the position, which means that we couldn't precompute the commands in`UgiGui`.
     // Instead, it needs to be spelled as `g c e4`, `go position current moves e4`, etc
     res.append(&mut position_options::<B>(None, true));
-    // for mut pos_cmd in position_options::<B>(None, true) {
-    //     pos_cmd.func = |state, words, name| state.go_state_mut().set_pos_to_name() ;
-    //     res.push(pos_cmd);
-    // }
-    //
-    //             opts.board =
-    //                 load_ugi_position(first_word, words, true, opts.strictness, &opts.board)?;
     res
 }
 
@@ -914,7 +891,7 @@ pub fn go_options_impl(
                 func: |state, words, _| state.go_state_mut().set_time(words, false, true, "p2inc"),
                 sub_commands: SubCommandsFn::default(),
             },
-            ugi_command!(
+            command!(
                 movestogo | mtg,
                 All,
                 "Full moves until the time control is reset",
@@ -923,7 +900,7 @@ pub fn go_options_impl(
                     Ok(())
                 }
             ),
-            ugi_command!(
+            command!(
                 nodes | n,
                 All,
                 "Maximum number of nodes to search",
@@ -933,7 +910,7 @@ pub fn go_options_impl(
                     Ok(())
                 }
             ),
-            ugi_command!(
+            command!(
                 mate | m,
                 All,
                 "Maximum depth in moves until a mate has to be found",
@@ -943,7 +920,7 @@ pub fn go_options_impl(
                     Ok(())
                 }
             ),
-            ugi_command!(
+            command!(
                 movetime | mt | time,
                 All,
                 "Maximum time in ms",
@@ -958,7 +935,7 @@ pub fn go_options_impl(
                     Ok(())
                 }
             ),
-            ugi_command!(
+            command!(
                 infinite | inf,
                 All,
                 "Search until receiving `stop`, the default mode",
@@ -967,7 +944,7 @@ pub fn go_options_impl(
                     Ok(())
                 }
             ),
-            ugi_command!(
+            command!(
                 searchmoves | sm,
                 All,
                 "Only consider the specified moves",
@@ -975,7 +952,7 @@ pub fn go_options_impl(
                 --> |state| state.moves_subcmds(false, false),
                 recurse = true
             ),
-            ugi_command!(
+            command!(
                 multipv | mpv,
                 Custom,
                 "Find the n best moves, temporarily overwriting the 'multipv' engine option",
@@ -984,7 +961,7 @@ pub fn go_options_impl(
                     Ok(())
                 }
             ),
-            ugi_command!(
+            command!(
                 threads | t,
                 Custom,
                 "Search with n threads in parallel, temporarily overwriting the 'threads' engine option",
@@ -999,13 +976,13 @@ pub fn go_options_impl(
                 "Search on the opponent's time",
                 |state, _, _| state.go_state_mut().set_search_type(Ponder, None)
             ),
-            ugi_command!(
+            command!(
                 perft | pt,
                 Custom,
                 "Movegen test: Make all legal moves up to a depth",
                 |state, words, _| state.go_state_mut().set_search_type(Perft, Some(words))
             ),
-            ugi_command!(
+            command!(
                 splitperft | sp,
                 Custom,
                 "Movegen test: Print perft number for each legal move",
@@ -1013,7 +990,7 @@ pub fn go_options_impl(
                     .go_state_mut()
                     .set_search_type(SplitPerft, Some(words))
             ),
-            ugi_command!(
+            command!(
                 bench | b,
                 Custom,
                 "Search test: Print info about nodes, nps, and hash of search",
@@ -1023,7 +1000,7 @@ pub fn go_options_impl(
         res.append(&mut additional);
     }
     if matches!(mode.unwrap_or(Bench), Bench | Perft) {
-        let complete_option = ugi_command!(
+        let complete_option = command!(
             complete | all,
             Custom,
             "Run bench / perft on all bench positions",
@@ -1044,7 +1021,7 @@ pub fn query_options<B: Board>() -> CommandList {
 
 pub fn query_options_impl(color_chars: [char; 2]) -> CommandList {
     vec![
-        ugi_command!(gameover, UgiNotUci, "Is the game over?", |ugi, _, _| {
+        command!(gameover, UgiNotUci, "Is the game over?", |ugi, _, _| {
             ugi.write_response(&matches!(ugi.status(), Run(Ongoing)).to_string())
         }),
         Command {
@@ -1065,7 +1042,7 @@ pub fn query_options_impl(color_chars: [char; 2]) -> CommandList {
             func: |ugi, _, _| ugi.write_is_player(false),
             sub_commands: SubCommandsFn::default(),
         },
-        ugi_command!(
+        command!(
             result | res,
             UgiNotUci,
             "The result of the current match",
@@ -1082,9 +1059,9 @@ pub fn query_options_impl(color_chars: [char; 2]) -> CommandList {
                 ugi.write_response(response)
             }
         ),
-        ugi_command!(game | g, Custom, "The current game", |ugi, _, _| ugi
+        command!(game | g, Custom, "The current game", |ugi, _, _| ugi
             .respond_game()),
-        ugi_command!(
+        command!(
             engine | e | name,
             Custom,
             "The name of the engine",
@@ -1095,13 +1072,13 @@ pub fn query_options_impl(color_chars: [char; 2]) -> CommandList {
 
 macro_rules! pos_command {
     ($primary:ident $( | $other:ident)*, $std:expr, $help:expr $(, = $pos:expr)?, $func:expr  $(, ($ACState:ty) $state:expr)? $(, -->$subcmd:expr)? $(, [] $autocomplete_fn:expr)? $(, recurse=$recurse:expr)?) => {
-        ugi_command!($primary $(| $other)*, $std, $help $(, = $pos)?, $func $(, ($ACState) $state)? $(, -->$subcmd)? $(, [] $autocomplete_fn)? $(, recurse=$recurse)?)
+        command!($primary $(| $other)*, $std, $help $(, = $pos)?, $func $(, ($ACState) $state)? $(, -->$subcmd)? $(, [] $autocomplete_fn)? $(, recurse=$recurse)?)
     }
 }
 
-pub fn position_options<B: Board>(pos: Option<&B>, accept_pos_word: bool) -> CommandList {
+fn generic_go_options(accept_pos_word: bool) -> CommandList {
     // TODO: The first couple of options don't depend on B, move in new function?
-    let mut res: CommandList = vec![
+    let mut res = vec![
         pos_command!(
             fen | f,
             All,
@@ -1137,6 +1114,11 @@ pub fn position_options<B: Board>(pos: Option<&B>, accept_pos_word: bool) -> Com
             --> |state| state.pos_subcmds(false)
         ))
     }
+    res
+}
+
+pub fn position_options<B: Board>(pos: Option<&B>, accept_pos_word: bool) -> CommandList {
+    let mut res = generic_go_options(accept_pos_word);
     for p in B::name_to_pos_map() {
         let c = Command {
             primary_name: p.short_name(),
@@ -1318,7 +1300,7 @@ fn push(completions: &mut Vec<(isize, Completion)>, word: &str, node: &Command) 
 /// Recursively go through all commands that have been typed so far and add completions.
 /// `node` is the command we're currently looking at, `rest` are the tokens after that,
 /// and `to_complete` is the last typed token or `""`, which is the one that should be completed
-fn completions<B: Board>(
+fn completions_for<B: Board>(
     node: &Command,
     state: &mut ACState<B>,
     rest: &mut Tokens,
@@ -1336,9 +1318,6 @@ fn completions<B: Board>(
             // If this command is the last complete token or can recurse, add all subcommands to completions
             if add_subcommands {
                 push(&mut res, to_complete, child);
-                // if prefer_current_completions {
-                //     res.last_mut().unwrap().0 -= 10;
-                // }
             }
             // if the next token is a subcommand of this command, add suggestions for it.
             // This consumes tokens, so check all remaining subcommands again for the remaining input
@@ -1348,12 +1327,7 @@ fn completions<B: Board>(
                 let mut state = state.clone();
                 // possibly change the autocomplete state
                 _ = child.func()(&mut state, rest, next_token.unwrap());
-                let mut new_completions = completions(child, &mut state, rest, to_complete);
-                // if prefer_current_completions {
-                // for (badness, _c) in &mut new_completions {
-                //     *badness -= 10;
-                // }
-                // }
+                let mut new_completions = completions_for(child, &mut state, rest, to_complete);
                 next_token = rest.peek().copied();
                 res.append(&mut new_completions);
             }
@@ -1412,7 +1386,7 @@ fn suggestions<B: Board>(autocomplete: &CommandAutocomplete<B>, input: &str) -> 
             if complete_first_token {
                 push(&mut res, to_complete, cmd);
             } else if cmd.matches(cmd_name) {
-                let mut new = completions(
+                let mut new = completions_for(
                     cmd,
                     &mut autocomplete.state.clone(),
                     &mut words,

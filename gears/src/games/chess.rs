@@ -130,6 +130,8 @@ pub struct Chessboard {
     hash: PosHash,
 }
 
+const _: () = assert!(size_of::<Chessboard>() == 8 * 12);
+
 impl Default for Chessboard {
     fn default() -> Self {
         Self::startpos()
