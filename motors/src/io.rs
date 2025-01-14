@@ -77,13 +77,13 @@ use gears::{
 use itertools::Itertools;
 use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter, Write};
-use std::fs;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use std::{fmt, fs};
 use strum::IntoEnumIterator;
 
 const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
@@ -364,9 +364,9 @@ impl<B: Board> EngineUGI<B> {
         );
         let text = format!("Motors: {}", self.state.game_name());
         let text = print_as_ascii_art(&text, 2);
-        self.write_ugi(&text.dimmed().to_string());
+        self.write_ugi(&format_args!("{}", text.dimmed()));
         self.write_engine_ascii_art();
-        self.write_ugi(&format!(
+        self.write_ugi(&format_args!(
             "[Type '{}' to change how the game state is displayed{}]",
             "output".bold(),
             ", e.g., 'output pretty' or 'output chess'".dimmed()
@@ -394,7 +394,7 @@ impl<B: Board> EngineUGI<B> {
                 Err(err) => {
                     self.write_message(Error, &err.to_string());
                     if !self.continue_on_error() {
-                        self.write_ugi(&format!("info error {err}"));
+                        self.write_ugi(&format_args!("info error {err}"));
                     }
                     // explicitly check this here so that continuing on error doesn't prevent us from quitting.
                     if let Quit(quitting) = self.state.status {
@@ -431,8 +431,10 @@ impl<B: Board> EngineUGI<B> {
     pub fn handle_ugi_input(&mut self, mut words: Tokens) -> Res<()> {
         self.output().write_ugi_input(words.clone());
         if self.fuzzing_mode() {
-            self.output()
-                .write_ugi(&format!("Fuzzing input: [{}]", words.clone().join(" ")));
+            self.output().write_ugi(&format_args!(
+                "Fuzzing input: [{}]",
+                words.clone().join(" ")
+            ));
         }
         let words = &mut words;
         let Some(first_word) = words.next() else {
@@ -448,7 +450,7 @@ impl<B: Board> EngineUGI<B> {
             if self.handle_move_input(first_word, words)? {
                 return Ok(());
             } else if first_word.eq_ignore_ascii_case("barbecue") {
-                self.write_ugi(&print_as_ascii_art("lol", 2));
+                self.write_ugi_msg(&print_as_ascii_art("lol", 2));
             }
             self.write_message(
                 Warning,
@@ -501,7 +503,7 @@ impl<B: Board> EngineUGI<B> {
             PlayerResult::Lose => text.red(),
             PlayerResult::Draw => text.into(),
         };
-        self.write_ugi(&text.to_string());
+        self.write_ugi(&format_args!("{text}"));
         true
     }
 
@@ -519,7 +521,7 @@ impl<B: Board> EngineUGI<B> {
         if self.print_game_over(true) {
             return Ok(true);
         }
-        self.write_ugi("Searching...");
+        self.write_ugi_msg("Searching...");
         let engine = self.state.engine.get_engine_info().short_name();
         let mut engine =
             create_engine_box_from_str(&engine, &self.searcher_factories, &self.eval_factories)?;
@@ -531,7 +533,7 @@ impl<B: Board> EngineUGI<B> {
             TT::default(),
         );
         let res = engine.search(params);
-        self.write_ugi(
+        self.write_ugi_msg(
             &res.chosen_move
                 .to_extended_text(&self.state.board, Alternative),
         );
@@ -564,7 +566,7 @@ impl<B: Board> EngineUGI<B> {
                 .internal_state_description
                 .take();
             if let Some(description) = description {
-                self.write_ugi(description.as_str());
+                self.write_ugi(&format_args!("{description}"));
                 return Ok(());
             }
             sleep(Duration::from_millis(10));
@@ -727,15 +729,17 @@ impl<B: Board> EngineUGI<B> {
                     vec![board]
                 };
                 for i in 1..=limit.depth.get() {
-                    self.output()
-                        .write_ugi(&parallel_perft_for(Depth::new(i), &positions).to_string())
+                    self.output().write_ugi(&format_args!(
+                        "{}",
+                        parallel_perft_for(Depth::new(i), &positions)
+                    ))
                 }
             }
             SplitPerft => {
                 if limit.depth.get() == 0 {
                     bail!("{} requires a depth of at least 1", "splitperft".bold())
                 }
-                self.write_ugi(&split_perft(limit.depth, board, true).to_string());
+                self.write_ugi(&format_args!("{}", split_perft(limit.depth, board, true)));
             }
             _ => return self.start_search(self.state.board_hist.clone()),
         }
@@ -810,7 +814,7 @@ impl<B: Board> EngineUGI<B> {
             Some(limit)
         };
         let res = run_bench_with(engine.as_mut(), limit, second_limit, positions);
-        self.output().write_ugi(&res.to_string());
+        self.output().write_ugi(&format_args!("{res}"));
         Ok(())
     }
 
@@ -842,7 +846,7 @@ impl<B: Board> EngineUGI<B> {
         } else {
             "There is no TT entry for this position".bold().to_string()
         };
-        self.write_ugi(&text);
+        self.write_ugi_msg(&text);
         Ok(())
     }
 
@@ -862,8 +866,8 @@ impl<B: Board> EngineUGI<B> {
                 cmd.func()(self, words, query)
             }
             Err(err) => {
-                if let Ok(opt) = self.write_options(words) {
-                    self.write_ugi(&opt);
+                if let Ok(opt) = self.options_text(words) {
+                    self.write_ugi(&format_args!("{opt}"));
                     Ok(())
                 } else {
                     bail!("{err}\nOr the name of an option.")
@@ -1055,7 +1059,7 @@ impl<B: Board> EngineUGI<B> {
             let long = info.long_name();
             let description = info.description().unwrap_or_default();
             drop(info);
-            self.write_ugi(&format!(
+            self.write_ugi(&format_args!(
                 "\n{alias}: {short}\n{engine}: {long}\n{descr}: {description}",
                 alias = "Alias".bold(),
                 engine = "Engine".bold(),
@@ -1096,7 +1100,7 @@ impl<B: Board> EngineUGI<B> {
                 .eval()
                 .clone()
                 .map_or_else(|| "<eval unused>".to_string(), |e| e.short_name());
-            self.write_ugi(&format!("Current eval: {name}"));
+            self.write_ugi(&format_args!("Current eval: {name}"));
             return Ok(());
         };
         let eval = create_eval_from_str(name, &self.eval_factories)?.build();
@@ -1287,17 +1291,21 @@ impl<B: Board> EngineUGI<B> {
     fn write_engine_ascii_art(&mut self) {
         if self.is_interactive() {
             let text = self.state.engine.get_engine_info().short_name();
-            let text = print_as_ascii_art(&text, 2).cyan().to_string();
-            self.write_ugi(&text);
+            let text = print_as_ascii_art(&text, 2).cyan();
+            self.write_ugi(&format_args!("{text}"));
         }
     }
 }
 
 /// This trait exists to allow erasing the type of the board where possible in order to reduce code bloat.
 trait AbstractEngineUgi: Debug {
-    fn write_options(&self, words: &mut Tokens) -> Res<String>;
+    fn options_text(&self, words: &mut Tokens) -> Res<String>;
 
-    fn write_ugi(&mut self, message: &str);
+    fn write_ugi_msg(&mut self, msg: &str) {
+        self.write_ugi(&format_args!("{msg}"))
+    }
+
+    fn write_ugi(&mut self, message: &fmt::Arguments);
 
     fn write_message(&mut self, message: Message, msg: &str);
 
@@ -1361,7 +1369,7 @@ trait AbstractEngineUgi: Debug {
 }
 
 impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
-    fn write_options(&self, words: &mut Tokens) -> Res<String> {
+    fn options_text(&self, words: &mut Tokens) -> Res<String> {
         write_options_impl(
             self.get_options(),
             &self.state.engine.get_engine_info().short_name(),
@@ -1370,7 +1378,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         )
     }
 
-    fn write_ugi(&mut self, message: &str) {
+    fn write_ugi(&mut self, message: &fmt::Arguments) {
         self.output().write_ugi(message);
     }
 
@@ -1380,7 +1388,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
 
     fn write_response(&mut self, msg: &str) -> Res<()> {
         // Part of the UGI specification, but not the UCI specification
-        self.write_ugi(&format!("response {msg}"));
+        self.write_ugi(&format_args!("response {msg}"));
         Ok(())
     }
 
@@ -1398,14 +1406,14 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
 
     fn handle_ugi(&mut self, proto: &str) -> Res<()> {
         let id_msg = self.id();
-        self.write_ugi(&format!(
+        self.write_ugi(&format_args!(
             "Starting {proto} mode. Type '{0}' or '{1}' for interactive mode.\n",
             "interactive".bold(),
             "i".bold()
         ));
-        self.write_ugi(id_msg.as_str());
-        self.write_ugi(self.write_ugi_options().as_str());
-        self.write_ugi(&format!("{proto}ok"));
+        self.write_ugi_msg(&id_msg);
+        self.write_ugi(&format_args!("{}", self.write_ugi_options().as_str()));
+        self.write_ugi(&format_args!("{proto}ok"));
         self.state.protocol = Protocol::from_str(proto).unwrap();
         self.output().set_pretty(self.state.protocol == Interactive);
         self.output().show_currline = false; // set here so that interactive mode shows it by default
@@ -1525,7 +1533,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
 
     fn respond_game(&mut self) -> Res<()> {
         let board = &self.state.board;
-        self.write_ugi(&format!(
+        self.write_ugi(&format_args!(
             "{0}\n{1}",
             &board.long_name(),
             board.description().unwrap_or_default()
@@ -1538,7 +1546,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         let name = info.long_name();
         let description = info.description().unwrap_or_default();
         drop(info);
-        self.write_ugi(&format!("{name}\n{description}",));
+        self.write_ugi(&format_args!("{name}\n{description}",));
         Ok(())
     }
 

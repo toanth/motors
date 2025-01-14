@@ -51,7 +51,7 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
             .main_atomic_search_data()
             .currently_searching()
         {
-            ugi.write_ugi(&format!(
+            ugi.write_ugi(&format_args!(
                 " [{0} Type '{1}' to cancel]",
                 "Searching...".bold(),
                 "stop".bold()
@@ -62,12 +62,11 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
                 "    "
             };
             ugi.write_ugi(
-                &format!(
-                    "\nIter    Seldepth    Score      Time    Nodes   (New)     NPS      TT     {pv_spacer}PV"
+                &format_args!("{}",
+                    format!("\nIter    Seldepth    Score      Time    Nodes   (New)     NPS      TT     {pv_spacer}PV"
                 )
-                .bold()
-                .to_string(),
-            );
+                .bold(),
+            ));
             NonInteractiveInput::default().get_line(ugi)
         } else {
             let help = "Type 'help' for a list of commands, '?' for a list of moves";

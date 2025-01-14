@@ -171,10 +171,10 @@ impl<B: Board> AutoCompleteState for ACState<B> {
 }
 
 impl<B: Board> AbstractEngineUgi for ACState<B> {
-    fn write_options(&self, _words: &mut Tokens) -> Res<String> {
+    fn options_text(&self, _words: &mut Tokens) -> Res<String> {
         Ok(String::new())
     }
-    fn write_ugi(&mut self, _message: &str) {
+    fn write_ugi(&mut self, _message: &fmt::Arguments) {
         /*do nothing*/
     }
     fn write_message(&mut self, _message: Message, _msg: &str) {
@@ -472,7 +472,7 @@ pub fn ugi_commands() -> CommandList {
             All,
             "Queries if the engine is ready. The engine responds with 'readyok'",
             |ugi, _, _| {
-                ugi.write_ugi("readyok");
+                ugi.write_ugi(&format_args!("readyok"));
                 Ok(())
             }
         ),
@@ -538,7 +538,7 @@ pub fn ugi_commands() -> CommandList {
             Custom,
             "Prints information about the current options. Optionally takes an option name",
             |ugi, words, _| {
-                ugi.write_ugi(&ugi.write_options(words)?);
+                ugi.write_ugi(&format_args!("{}", ugi.options_text(words)?));
                 Ok(())
             },
             --> |state| state.option_subcmds(false)

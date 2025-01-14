@@ -227,11 +227,11 @@ impl TypeErasedUgiOutput {
 }
 
 pub trait AbstractUgiOutput {
-    fn write_ugi(&mut self, msg: &str);
+    fn write_ugi(&mut self, msg: &fmt::Arguments);
 }
 
 impl<B: Board> AbstractUgiOutput for UgiOutput<B> {
-    fn write_ugi(&mut self, message: &str) {
+    fn write_ugi(&mut self, message: &fmt::Arguments) {
         use std::io::Stdout;
         use std::io::Write;
         // UGI is always done through stdin and stdout, no matter what the UI is.
@@ -241,7 +241,7 @@ impl<B: Board> AbstractUgiOutput for UgiOutput<B> {
         // Currently, `println` always flushes, but this behaviour should not be relied upon.
         _ = Stdout::flush(&mut stdout());
         for output in &mut self.additional_outputs {
-            output.write_ugi_output(message, None);
+            output.write_ugi_output(&message.to_string(), None);
         }
     }
 }
@@ -281,7 +281,7 @@ impl<B: Board> UgiOutput<B> {
     pub fn write_search_res(&mut self, res: &SearchResult<B>) {
         self.type_erased.clear_progress_bar();
         if !self.type_erased.pretty {
-            self.write_ugi(&res.to_string());
+            self.write_ugi(&format_args!("{res}"));
             return;
         }
         let mut move_text = res.chosen_move.to_extended_text(&res.pos, Standard).bold();
@@ -300,7 +300,7 @@ impl<B: Board> UgiOutput<B> {
             .dimmed()
             .to_string();
         }
-        self.write_ugi(&msg)
+        self.write_ugi(&format_args!("{msg}"))
     }
 
     pub fn write_currmove(
@@ -318,7 +318,7 @@ impl<B: Board> UgiOutput<B> {
         // UGI wants 1-indexed output, but we've already counted the move, so move_nr is 1-indexed
         let num_moves = pos.num_legal_moves();
         if !self.type_erased.pretty {
-            self.write_ugi(&format!(
+            self.write_ugi(&format_args!(
                 "info currmove {0} currmovenumber {move_nr}",
                 mov.compact_formatter(pos)
             ));
@@ -350,7 +350,7 @@ impl<B: Board> UgiOutput<B> {
             }
             // We only send search results from the main thread, no matter how many threads are searching.
             // And we're also not inspecting other threads' PVs from the main thread.
-            self.write_ugi(&format!("info cpu 1 currline {line}"));
+            self.write_ugi(&format_args!("info cpu 1 currline {line}"));
             return;
         }
         let num_legal = pos.num_legal_moves();
@@ -365,7 +365,7 @@ impl<B: Board> UgiOutput<B> {
         let mpv_type = info.mpv_type();
         let pv = mem::take(&mut info.pv);
         if !self.type_erased.pretty {
-            self.write_ugi(&info.to_string());
+            self.write_ugi(&format_args!("{info}"));
             let info = TypeErasedSearchInfo::new(info);
             if exact {
                 self.type_erased.previous_exact_info = Some(info);
@@ -384,9 +384,12 @@ impl<B: Board> UgiOutput<B> {
         let text = self
             .type_erased
             .format_pretty_search_info_non_generic(&info, &pv_string, mpv_type);
-        self.write_ugi(&text);
+        self.write_ugi(&format_args!("{text}"));
         if info.bound.is_none() {
-            self.write_ugi(&"[(*) Iteration did not complete]".dimmed().to_string());
+            self.write_ugi(&format_args!(
+                "{}",
+                "[(*) Iteration did not complete]".dimmed()
+            ));
         }
 
         if mpv_type != SecondaryLine && info.bound == Some(Exact) {
