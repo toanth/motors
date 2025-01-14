@@ -261,7 +261,7 @@ impl<B: Board> AbstractEngineUgi for ACState<B> {
         Ok(())
     }
 
-    fn handle_assist(&mut self) -> Res<()> {
+    fn handle_assist(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
 
@@ -622,10 +622,10 @@ pub fn ugi_commands() -> CommandList {
             --> |_| select_command::<Game>(&Game::iter().map(Box::new).collect_vec(), false)
         ),
         ugi_command!(
-            idk | assist,
+            idk | assist | respond,
             Custom,
-            "Lets the engine play a move",
-            |ugi, _, _| ugi.handle_assist()
+            "Lets the engine play a move, or use 'on'/'off' to enable/disable automatic response",
+            |ugi, words, _| ugi.handle_assist(words)
         ),
         ugi_command!(
             perft,

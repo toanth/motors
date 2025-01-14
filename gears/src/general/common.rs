@@ -151,9 +151,12 @@ pub fn parse_int_from_stdin<T: PrimInt + FromStr>() -> Res<T> {
 }
 
 pub fn parse_bool_from_str(input: &str, name: &str) -> Res<bool> {
-    if input.eq_ignore_ascii_case("true") || input == "1" {
+    if input.eq_ignore_ascii_case("true") || input.eq_ignore_ascii_case("on") || input == "1" {
         Ok(true)
-    } else if input.eq_ignore_ascii_case("false") || input == "0" {
+    } else if input.eq_ignore_ascii_case("false")
+        || input.eq_ignore_ascii_case("off")
+        || input == "0"
+    {
         Ok(false)
     } else {
         Err(anyhow::anyhow!(

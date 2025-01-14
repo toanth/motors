@@ -11,7 +11,7 @@ use crate::general::common::{select_name_dyn, Res, Tokens};
 use crate::general::moves::Move;
 use crate::output::OutputBuilder;
 use crate::search::TimeControl;
-use crate::ugi::parse_ugi_or_pgn_pos;
+use crate::ugi::parse_ugi_position_and_moves;
 use crate::AdjudicationReason::*;
 use crate::GameResult::Aborted;
 use crate::MatchStatus::{NotStarted, Over};
@@ -424,7 +424,7 @@ impl<B: Board> MatchState<B> {
         let Some(next_word) = words.next() else {
             bail!("Missing position after '{}' command", "position".bold())
         };
-        parse_ugi_or_pgn_pos(
+        parse_ugi_position_and_moves(
             next_word,
             words,
             allow_pos_word,

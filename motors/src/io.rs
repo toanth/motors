@@ -529,6 +529,10 @@ impl<B: Board> EngineUGI<B> {
         if let Ok(pgn_data) = parse_pgn::<B>(&text, self.strictness, Some(self.state.board.clone()))
         {
             self.state.position_state = pgn_data.game;
+            self.write_ugi(&format_args!(
+                "{}",
+                "Interpreting input as PGN (Not a valid command or variation)...".bold()
+            ));
             self.print_board(OutputOpts::default());
             return Ok(true);
         } else if self.handle_pos(&mut tokens).is_ok() {
@@ -625,30 +629,7 @@ impl<B: Board> EngineUGI<B> {
         }
     }
 
-    fn handle_setoption_impl(&mut self, words: &mut Tokens) -> Res<()> {
-        if words
-            .peek()
-            .is_some_and(|w| w.eq_ignore_ascii_case("name") || w.eq_ignore_ascii_case("n"))
-        {
-            _ = words.next();
-        }
-        let mut name = String::default();
-        loop {
-            let next_word = words.next().unwrap_or_default();
-            if next_word.eq_ignore_ascii_case("value") || next_word.is_empty() {
-                break;
-            }
-            name = name + " " + next_word;
-        }
-        let mut value = words.next().unwrap_or_default().to_string();
-        loop {
-            let next_word = words.next().unwrap_or_default();
-            if next_word.is_empty() {
-                break;
-            }
-            value = value + " " + next_word;
-        }
-        let name = EngineOptionName::from_str(name.trim()).unwrap();
+    fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()> {
         match name {
             EngineOptionName::Ponder => {
                 self.allow_ponder = parse_bool_from_str(&value, "ponder")?;
@@ -710,6 +691,33 @@ impl<B: Board> EngineUGI<B> {
             }
         }
         Ok(())
+    }
+
+    fn handle_setoption_impl(&mut self, words: &mut Tokens) -> Res<()> {
+        if words
+            .peek()
+            .is_some_and(|w| w.eq_ignore_ascii_case("name") || w.eq_ignore_ascii_case("n"))
+        {
+            _ = words.next();
+        }
+        let mut name = String::default();
+        loop {
+            let next_word = words.next().unwrap_or_default();
+            if next_word.eq_ignore_ascii_case("value") || next_word.is_empty() {
+                break;
+            }
+            name = name + " " + next_word;
+        }
+        let mut value = words.next().unwrap_or_default().to_string();
+        loop {
+            let next_word = words.next().unwrap_or_default();
+            if next_word.is_empty() {
+                break;
+            }
+            value = value + " " + next_word;
+        }
+        let name = EngineOptionName::from_str(name.trim()).unwrap();
+        self.set_option(name, value)
     }
 
     fn print_board(&mut self, opts: OutputOpts) {
@@ -1413,7 +1421,7 @@ trait AbstractEngineUgi: Debug {
 
     fn handle_play(&mut self, words: &mut Tokens) -> Res<()>;
 
-    fn handle_assist(&mut self) -> Res<()>;
+    fn handle_assist(&mut self, words: &mut Tokens) -> Res<()>;
 
     fn print_help(&mut self) -> Res<()>;
 
@@ -1489,6 +1497,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         self.state
             .handle_position(words, false, self.strictness, check_game_over)?;
         if self.is_interactive() {
+            //additional
             self.print_board(OutputOpts::default());
         }
         Ok(())
@@ -1588,8 +1597,12 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         self.handle_play_impl(words)
     }
 
-    fn handle_assist(&mut self) -> Res<()> {
-        self.play_engine_move()
+    fn handle_assist(&mut self, words: &mut Tokens) -> Res<()> {
+        if let Some(next) = words.next() {
+            self.set_option(RespondToMove, next.to_string())
+        } else {
+            self.play_engine_move()
+        }
     }
 
     fn print_help(&mut self) -> Res<()> {

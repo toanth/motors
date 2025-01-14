@@ -1,7 +1,6 @@
 use crate::general::board::{Board, BoardHelpers, Strictness};
 use crate::general::common::{tokens, tokens_to_string, NamedEntity, Res, Tokens};
 use crate::general::moves::Move;
-use crate::output::pgn::parse_pgn;
 use anyhow::{anyhow, bail};
 use colored::Colorize;
 use std::fmt::{Display, Formatter};
@@ -323,7 +322,7 @@ pub fn parse_ugi_position_part<B: Board>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn parse_ugi_position_and_moves<
+pub fn parse_ugi_position_and_moves<
     B: Board,
     S,
     F: Fn(&mut S, B::Move) -> Res<()>,
@@ -415,54 +414,6 @@ fn parse_ugi_position_and_moves<
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn parse_ugi_or_pgn_pos<
-    B: Board,
-    S,
-    F: Fn(&mut S, B::Move) -> Res<()>,
-    G: Fn(&mut S),
-    H: Fn(&mut S) -> &mut B,
->(
-    first_word: &str,
-    rest: &mut Tokens,
-    accept_pos_word: bool,
-    strictness: Strictness,
-    old_board: &B,
-    state: &mut S,
-    make_move: F,
-    finish_pos: G,
-    get_board: H,
-) -> Res<()> {
-    let Err(err) = parse_ugi_position_and_moves(
-        first_word,
-        rest,
-        accept_pos_word,
-        strictness,
-        old_board,
-        state,
-        &make_move,
-        &finish_pos,
-        &get_board,
-    ) else {
-        return Ok(());
-    };
-    // If parsing the position as UGI failed, try to parse it as PGN instead.
-    let text = tokens_to_string(first_word, rest.clone());
-    let pgn = parse_pgn(&text, strictness, None).map_err(|_| err)?;
-    *get_board(state) = pgn.game.pos_before_moves;
-    finish_pos(state);
-    for mov in pgn.game.mov_hist {
-        make_move(state, mov)?;
-    }
-    // parsing the PGN was successful, so consume the entire input
-    loop {
-        if let None = rest.next() {
-            break;
-        }
-    }
-    Ok(())
-}
-
 pub fn load_ugi_position<B: Board>(
     first_word: &str,
     rest: &mut Tokens,
@@ -472,7 +423,7 @@ pub fn load_ugi_position<B: Board>(
     allow_partial: bool,
 ) -> Res<B> {
     let mut board = old_board.clone();
-    match parse_ugi_or_pgn_pos(
+    match parse_ugi_position_and_moves(
         first_word,
         rest,
         accept_pos_word,
