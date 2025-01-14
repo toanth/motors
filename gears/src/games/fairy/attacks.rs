@@ -23,15 +23,16 @@ use crate::games::fairy::attacks::GenAttacksCondition::Always;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::ColoredPieceId;
 use crate::games::fairy::rules::CheckRules;
-use crate::games::fairy::FairyColor::{First, Second};
 use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::{
-    rules, CastlingMoveInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairyPiece,
+    CastlingMoveInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairyPiece,
     FairySize, FairySquare, RawFairyBitboard, Side, UnverifiedFairyBoard,
 };
 use crate::games::{char_to_file, Color, ColoredPiece, ColoredPieceType, DimT, Size};
 use crate::general::bitboards::{Bitboard, RawBitboard, RayDirections};
-use crate::general::board::{BitboardBoard, Board, BoardHelpers, Strictness};
+use crate::general::board::{
+    BitboardBoard, Board, BoardHelpers, PieceTypeOf, Strictness, UnverifiedBoard,
+};
 use crate::general::common::{Res, Tokens};
 use crate::general::move_list::MoveList;
 use crate::general::squares::{CompactSquare, RectangularCoordinates, RectangularSize};
@@ -46,7 +47,7 @@ use strum::IntoEnumIterator;
 ///
 /// The general organization of movegen is that of a pipeline, where a stage communicates with the next through enums,
 /// which usually need the global `rules()` to be interpreted correctly
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Arbitrary)]
 pub enum SliderDirections {
     Vertical,
     Rook,
@@ -79,6 +80,7 @@ pub fn leaper_attack_range<Iter1: Iterator<Item = isize>, Iter2: Iterator<Item =
     res
 }
 
+#[derive(Debug, Arbitrary)]
 pub struct LeapingBitboards(Box<[RawFairyBitboard]>);
 
 fn leaper(n: usize, m: usize, rider: bool, size: FairySize) -> Box<[RawFairyBitboard]> {
@@ -132,7 +134,7 @@ impl LeapingBitboards {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
 pub enum AttackMode {
     All,
     Captures,
@@ -146,6 +148,7 @@ impl AttackMode {
 }
 
 #[must_use]
+#[derive(Debug, Arbitrary)]
 pub enum AttackTypes {
     // Leaping pieces, like knights and kings, only care about blockers on the square they're leaping to
     Leaping(LeapingBitboards),
@@ -170,7 +173,7 @@ impl AttackTypes {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
 #[must_use]
 pub enum AttackKind {
     #[default]
@@ -191,7 +194,7 @@ impl AttackKind {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Arbitrary)]
 #[must_use]
 pub enum RequiredForAttack {
     PieceOnBoard,
@@ -203,6 +206,7 @@ pub enum RequiredForAttack {
 /// Attacks are about bitboards for performance reasons, but there are also moves that aren't fully represented with bitboards.
 /// This struct is only about attacks, so there are move types that are generated separately
 #[must_use]
+#[derive(Debug, Arbitrary)]
 pub struct GenPieceAttackKind {
     // first, we distinguish between moving attacks (e.g. chess moves) and drops (e.g. mnk games)
     pub required: RequiredForAttack,
@@ -347,12 +351,12 @@ impl GenPieceAttackKind {
         }
         match self.condition {
             Always => true,
-            GenAttacksCondition::Player(color) => piece.color() == Some(color),
+            GenAttacksCondition::Player(color) => piece.color().is_some_and(|c| c == color),
             GenAttacksCondition::CanCastle(side) => {
                 pos.0.castling_info.can_castle(pos.active_player(), side)
             }
             GenAttacksCondition::OnRank(rank, color) => {
-                piece.color() == Some(color) && piece.coordinates.rank() == rank
+                piece.color().is_some_and(|c| c == color) && piece.coordinates.rank() == rank
             }
         }
     }
@@ -373,7 +377,7 @@ impl GenPieceAttackKind {
 }
 
 /// When is a given move a capture?
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
 pub enum CaptureCondition {
     DestOccupied,
     Always,
@@ -427,7 +431,7 @@ impl PieceAttackBB {
 // no pont in making this a trait as I don't want it to be extensible like at compile time
 // restriction: don't use traits or Box<dyn Fn> for "extensibility", just use enums.
 /// Bitand the generated attack bitboard with a bitboard given by this enum
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Arbitrary)]
 #[must_use]
 pub enum AttackBitboardFilter {
     EmptySquares,
@@ -465,6 +469,7 @@ impl AttackBitboardFilter {
 }
 
 #[must_use]
+#[derive(Debug, Arbitrary)]
 pub enum GenAttacksCondition {
     Always,
     Player(FairyColor),
@@ -496,8 +501,7 @@ impl MoveKind {
         target: FairySquare,
         pos: &FairyBoard,
     ) {
-        // TODO: Checking `rules()` for every attack is unnecessarily slow
-        let promos = &rules().pieces[attack.piece.uncolor().val()].promotions;
+        let promos = &pos.get_rules().pieces[attack.piece.uncolor().val()].promotions;
         if !promos
             .squares
             .is_bit_set_at(pos.size().internal_key(target))
@@ -513,7 +517,7 @@ impl MoveKind {
 }
 
 /// Effect rules are stored in the rules and are used to determine the effect of each move.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Arbitrary)]
 pub struct EffectRules {
     pub reset_draw_counter_on_capture: bool,
     pub conversion_radius: usize,
@@ -527,6 +531,53 @@ impl Default for EffectRules {
             conversion_radius: 0,
             // explosion_radius: 0,
         }
+    }
+}
+
+impl UnverifiedFairyBoard {
+    pub(super) fn zero_bitboard(&self) -> FairyBitboard {
+        FairyBitboard::new(RawFairyBitboard::default(), self.size)
+    }
+
+    pub(super) fn blocker_bb(&self) -> FairyBitboard {
+        // TODO: Some games and piece types can modify this
+        self.occupied_bb()
+    }
+
+    pub(super) fn piece_bb(&self, piece: PieceTypeOf<FairyBoard>) -> FairyBitboard {
+        FairyBitboard::new(self.piece_bitboards[piece.val()], self.size)
+    }
+
+    pub(super) fn player_bb(&self, color: FairyColor) -> FairyBitboard {
+        FairyBitboard::new(self.color_bitboards[color.idx()], self.size())
+    }
+
+    pub(super) fn mask_bb(&self) -> FairyBitboard {
+        FairyBitboard::new(self.mask_bb, self.size())
+    }
+
+    pub fn royal_bb(&self) -> FairyBitboard {
+        let mut res = self.zero_bitboard();
+        for piece in self.get_rules().royals() {
+            res |= self.piece_bb(piece)
+        }
+        res
+    }
+
+    pub fn royal_bb_for(&self, color: FairyColor) -> FairyBitboard {
+        self.royal_bb() & self.player_bb(color)
+    }
+
+    /// In normal chess, this is the king bitboard, but not the rook bitboard
+    pub fn castling_bb(&self) -> FairyBitboard {
+        let mut res = self.zero_bitboard();
+        for piece in self.get_rules().castling() {
+            res |= self.piece_bb(piece)
+        }
+        res
+    }
+    pub fn castling_bb_for(&self, color: FairyColor) -> FairyBitboard {
+        self.castling_bb() & self.player_bb(color)
     }
 }
 
@@ -552,7 +603,7 @@ impl FairyBoard {
         color: FairyColor,
         mode: AttackMode,
     ) {
-        for (id, piece_type) in rules().pieces() {
+        for (id, piece_type) in self.get_rules().pieces() {
             for attack_kind in &piece_type.attacks {
                 match attack_kind.required {
                     RequiredForAttack::PieceOnBoard => {
@@ -583,39 +634,6 @@ impl FairyBoard {
         }
     }
 
-    fn zero_bitboard(&self) -> FairyBitboard {
-        FairyBitboard::new(RawFairyBitboard::default(), self.size())
-    }
-
-    fn blocker_bb(&self) -> FairyBitboard {
-        // TODO: Some games and piece types can modify this
-        self.occupied_bb()
-    }
-
-    pub fn royal_bb(&self) -> FairyBitboard {
-        let mut res = self.zero_bitboard();
-        for piece in rules().royals() {
-            res |= self.piece_bb(piece)
-        }
-        res
-    }
-
-    pub fn royal_bb_for(&self, color: FairyColor) -> FairyBitboard {
-        self.royal_bb() & self.player_bb(color)
-    }
-
-    /// In normal chess, this is the king bitboard, but not the rook bitboard
-    pub fn castling_bb(&self) -> FairyBitboard {
-        let mut res = self.zero_bitboard();
-        for piece in rules().castling() {
-            res |= self.piece_bb(piece)
-        }
-        res
-    }
-    pub fn castling_bb_for(&self, color: FairyColor) -> FairyBitboard {
-        self.castling_bb() & self.player_bb(color)
-    }
-
     // Returns a bitboard of all royal pieces that are in check.
     // Technically, we should generate all moves and see if one of them removes a royal piece from the board.
     // However, games where attack bitboards aren't sufficient, like atomic chess, generally don't have forced check-evasion rules
@@ -629,7 +647,7 @@ impl FairyBoard {
     }
 
     pub fn is_player_in_check(&self, color: FairyColor) -> bool {
-        let rule = rules().check_rules;
+        let rule = self.get_rules().check_rules;
         let in_check = self.in_check_bb(color);
         match rule {
             CheckRules::AllRoyals => in_check == self.royal_bb_for(color),
@@ -676,13 +694,14 @@ impl UnverifiedFairyBoard {
             );
 
             let color = if c.is_ascii_uppercase() {
-                First
+                FairyColor::first()
             } else {
-                Second
+                FairyColor::second()
             };
-            let king_bb = FairyBoard(*self).castling_bb_for(color);
+            let king_bb = self.castling_bb_for(color);
             ensure!(king_bb.is_single_piece(),
-                "Castling is only legal when there is a single royal piece, but the {color} player has {}", king_bb.num_ones());
+                "Castling is only legal when there is a single royal piece, but the {0} player has {1}",
+                self.get_rules().colors[color.idx()].name, king_bb.num_ones());
 
             let lowercase_c = c.to_ascii_lowercase();
             let file = if (lowercase_c == 'k' || lowercase_c == 'q') && size.width.val() == 8 {
@@ -716,7 +735,7 @@ impl UnverifiedFairyBoard {
                 rook_dest_file,
                 fen_char: c as u8,
             };
-            info.players[color as usize].sides[side as usize] = Some(move_info);
+            info.players[color.idx()].sides[side as usize] = Some(move_info);
         }
         Ok(info)
     }
@@ -726,13 +745,13 @@ impl UnverifiedFairyBoard {
         words: &mut Tokens,
         _strictness: Strictness,
     ) -> Res<Self> {
-        if rules().has_castling {
+        if self.get_rules().has_castling {
             let Some(castling_word) = words.next() else {
                 bail!("FEN ends after color to move, missing castling rights")
             };
             self.castling_info = self.parse_castling_info(castling_word)?;
         }
-        if rules().has_ep {
+        if self.get_rules().has_ep {
             let Some(ep_square) = words.next() else {
                 bail!("FEN ends before en passant square")
             };

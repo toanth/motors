@@ -49,8 +49,8 @@ use crate::output::text_output::{
     board_to_string, display_board_pretty, p1_color, p2_color, AdaptFormatter, BoardFormatter,
     DefaultBoardFormatter,
 };
-use crate::search::Depth;
 use crate::output::OutputOpts;
+use crate::search::Depth;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 use anyhow::bail;
@@ -64,7 +64,6 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::num::NonZeroUsize;
 use std::ops::Not;
 use std::str::FromStr;
-use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, FromRepr};
 
 /// `Bitboard`s have the  semantic constraint of storing squares in a row-major fashion.
@@ -83,9 +82,7 @@ pub struct UtttSettings {}
 
 impl Settings for UtttSettings {}
 
-#[derive(
-    Debug, Default, Copy, Clone, Eq, PartialEq, Hash, derive_more::Display, EnumIter, Arbitrary,
-)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, derive_more::Display, Arbitrary)]
 #[must_use]
 pub enum UtttColor {
     #[default]
@@ -102,18 +99,21 @@ impl Not for UtttColor {
 }
 
 impl Color for UtttColor {
-    fn other(self) -> Self {
-        match self {
-            X => O,
-            O => X,
-        }
+    type Board = UtttBoard;
+
+    fn second() -> Self {
+        O
     }
 
-    fn color_char(self, _typ: CharType) -> char {
+    fn to_char(self, _settings: &UtttSettings) -> char {
         match self {
             X => 'x',
             O => 'o',
         }
+    }
+
+    fn name(self, settings: &<Self::Board as Board>::Settings) -> impl Display {
+        self.to_char(settings)
     }
 }
 
@@ -127,23 +127,27 @@ pub enum UtttPieceType {
 
 impl Display for UtttPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Ascii))
+        write!(
+            f,
+            "{}",
+            self.to_char(CharType::Ascii, &UtttSettings::default())
+        )
     }
 }
 
-impl AbstractPieceType for UtttPieceType {
+impl AbstractPieceType<UtttBoard> for UtttPieceType {
     fn empty() -> Self {
         Empty
     }
 
-    fn to_char(self, _typ: CharType) -> char {
+    fn to_char(self, _typ: CharType, _settings: &UtttSettings) -> char {
         match self {
             Empty => '.',
             Occupied => 'x',
         }
     }
 
-    fn from_char(c: char) -> Option<Self> {
+    fn from_char(c: char, _settings: &UtttSettings) -> Option<Self> {
         match c {
             '.' => Some(Empty),
             'o' | 'x' => Some(Occupied),
@@ -175,19 +179,23 @@ pub enum ColoredUtttPieceType {
 
 impl Display for ColoredUtttPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Ascii))
+        write!(
+            f,
+            "{}",
+            self.to_char(CharType::Ascii, &UtttSettings::default())
+        )
     }
 }
 
 const UNICODE_X: char = '⨉'; // '⨉',
 const UNICODE_O: char = '◯'; // '○'
 
-impl AbstractPieceType for ColoredUtttPieceType {
+impl AbstractPieceType<UtttBoard> for ColoredUtttPieceType {
     fn empty() -> Self {
         Self::Empty
     }
 
-    fn to_char(self, typ: CharType) -> char {
+    fn to_char(self, typ: CharType, _settings: &UtttSettings) -> char {
         match typ {
             CharType::Ascii => match self {
                 ColoredUtttPieceType::Empty => '.',
@@ -202,7 +210,7 @@ impl AbstractPieceType for ColoredUtttPieceType {
         }
     }
 
-    fn from_char(c: char) -> Option<Self> {
+    fn from_char(c: char, _settings: &UtttSettings) -> Option<Self> {
         match c {
             '.' => Some(ColoredUtttPieceType::Empty),
             'x' | 'X' | UNICODE_X => Some(XStone),
@@ -545,12 +553,14 @@ impl UtttBoard {
             if c == ' ' {
                 continue;
             }
-            let symbol = ColoredUtttPieceType::from_char(c).unwrap();
+            let symbol = ColoredUtttPieceType::from_char(c, &board.settings()).unwrap();
             let square = UtttSquare::from_bb_idx(idx);
             debug_assert!(board.check_coordinates(square).is_ok());
-            board = board.place_piece(square, symbol);
+            board.place_piece(square, symbol);
             if c.is_uppercase() {
-                board.0.active = UtttColor::from_char(c).unwrap().other();
+                board.0.active = UtttColor::from_char(c, &UtttSettings::default())
+                    .unwrap()
+                    .other();
                 let mov = board.last_move_mut();
                 if *mov != UtttMove::NULL {
                     bail!("Upper case pieces are used for the last move, but there is more than one upper case letter in '{}'", fen.red());
@@ -565,7 +575,9 @@ impl UtttBoard {
         let mut res = String::with_capacity(Self::NUM_SQUARES);
         for i in 0..Self::NUM_SQUARES {
             let square = UtttSquare::from_bb_idx(i);
-            let mut c = self.colored_piece_on(square).to_char(CharType::Ascii);
+            let mut c = self
+                .colored_piece_on(square)
+                .to_char(CharType::Ascii, &self.settings());
             if c == '.' {
                 c = ' ';
             }
@@ -580,7 +592,11 @@ impl UtttBoard {
     #[must_use]
     pub fn yet_another_fen_format(&self) -> String {
         let mut res = String::new();
-        res.push(self.active.color_char(CharType::Ascii).to_ascii_uppercase());
+        res.push(
+            self.active
+                .to_char(&UtttSettings::default())
+                .to_ascii_uppercase(),
+        );
         res.push(';');
         for sub_board in UtttSubSquare::iter() {
             let c = if sub_board == self.last_move.dest_square().sub_square()
@@ -603,7 +619,7 @@ impl UtttBoard {
                 let c = self
                     .colored_piece_on(sq)
                     .symbol
-                    .to_char(CharType::Ascii)
+                    .to_char(CharType::Ascii, &self.settings())
                     .to_ascii_uppercase();
                 res.push(c);
             }
@@ -1029,24 +1045,26 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
         Ok(this)
     }
 
+    fn settings(&self) -> UtttSettings {
+        self.0.settings()
+    }
+
     fn size(&self) -> UtttSize {
         self.0.size()
     }
 
-    fn place_piece(mut self, square: UtttSquare, piece: ColoredUtttPieceType) -> Self {
+    fn place_piece(&mut self, square: UtttSquare, piece: ColoredUtttPieceType) {
         let color = piece.color().unwrap();
         let bb = ExtendedRawBitboard::single_piece_at(square.bb_idx());
         self.0.colors_internal[color as usize] |= bb;
-        self
     }
 
-    fn remove_piece(mut self, square: UtttSquare) -> Self {
+    fn remove_piece(&mut self, square: UtttSquare) {
         let bb = ExtendedRawBitboard::single_piece_at(square.bb_idx());
         self.0.colors_internal[0] &= !bb;
         self.0.colors_internal[1] &= !bb;
         self.0.last_move = UtttMove::NULL;
         self.0.ply_since_start = 0;
-        self
     }
 
     fn piece_on(&self, coords: UtttSquare) -> UtttPiece {
@@ -1061,19 +1079,18 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
         self.0.active
     }
 
-    fn set_active_player(mut self, player: UtttColor) -> Self {
+    fn set_active_player(&mut self, player: UtttColor) {
         self.0.active = player;
-        self
     }
 
-    fn set_ply_since_start(mut self, ply: usize) -> Res<Self> {
+    fn set_ply_since_start(&mut self, ply: usize) -> Res<()> {
         self.0.ply_since_start = ply;
-        Ok(self)
+        Ok(())
     }
 
-    fn set_halfmove_repetition_clock(self, _ply: usize) -> Res<Self> {
+    fn set_halfmove_repetition_clock(&mut self, _ply: usize) -> Res<()> {
         // ignored
-        Ok(self)
+        Ok(())
     }
 }
 

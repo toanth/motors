@@ -1,10 +1,8 @@
-use strum::IntoEnumIterator;
-
 use crate::games::chess::pieces::ChessPieceType;
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
 use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard};
-use crate::games::PosHash;
+use crate::games::{Color, PosHash};
 use crate::general::bitboards::Bitboard;
 use crate::general::board::BitboardBoard;
 use crate::general::squares::RectangularCoordinates;

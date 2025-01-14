@@ -18,7 +18,7 @@
 use crate::games::uttt::uttt_square::UtttSquare;
 use crate::games::uttt::ColoredUtttPieceType::{OStone, XStone};
 use crate::games::uttt::UtttColor::*;
-use crate::games::uttt::{UtttBoard, UtttMove, UtttPiece, UtttSubSquare};
+use crate::games::uttt::{UnverifiedUtttBoard, UtttBoard, UtttMove, UtttSubSquare};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{Board, BoardHelpers, UnverifiedBoard};
 use crate::general::perft::perft;
@@ -55,29 +55,27 @@ fn alternative_fen_test() {
 
 #[test]
 fn sub_board_won_test() {
-    let pos = UtttBoard::default();
+    let mut pos = UnverifiedUtttBoard::new(UtttBoard::default());
     let sub_board = UtttSubSquare::from_bb_index(0);
-    let pos = pos
-        .place_piece(UtttPiece::new(
-            XStone,
-            UtttSquare::new(sub_board, UtttSubSquare::unchecked(0)),
-        ))
-        .unwrap();
-    let pos = pos.place_piece(
+    pos.place_piece(
+        UtttSquare::new(sub_board, UtttSubSquare::unchecked(0)),
+        XStone,
+    );
+    pos.place_piece(
         UtttSquare::new(sub_board, UtttSubSquare::unchecked(1)),
         OStone,
     );
-    let pos = pos.place_piece(
+    pos.place_piece(
         UtttSquare::new(sub_board, UtttSubSquare::unchecked(3)),
         XStone,
     );
-    let pos = pos.place_piece(
+    pos.place_piece(
         UtttSquare::new(sub_board, UtttSubSquare::unchecked(2)),
         OStone,
     );
     assert!(!pos.verify(Strict).unwrap().is_sub_board_won(X, sub_board));
     assert!(!pos.verify(Strict).unwrap().is_sub_board_won(O, sub_board));
-    let pos = pos.place_piece(
+    pos.place_piece(
         UtttSquare::new(sub_board, UtttSubSquare::unchecked(6)),
         XStone,
     );

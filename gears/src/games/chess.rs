@@ -10,7 +10,6 @@ use std::fmt::{Display, Formatter};
 use std::ops::Not;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
 
 use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::castling::{CastleRight, CastlingFlags};
@@ -70,7 +69,7 @@ pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, MAX_CHESS_MOVES_IN_PO
 impl Settings for ChessSettings {}
 
 /// White is always the first player, Black is always the second
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Hash, EnumIter, Arbitrary)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Hash, Arbitrary)]
 #[must_use]
 pub enum ChessColor {
     #[default]
@@ -97,26 +96,23 @@ impl Not for ChessColor {
 }
 
 impl Color for ChessColor {
-    #[must_use]
-    fn other(self) -> Self {
-        match self {
-            White => Black,
-            Black => White,
-        }
-    }
-
-    fn first() -> Self {
-        White
-    }
+    type Board = Chessboard;
 
     fn second() -> Self {
         Black
     }
 
-    fn color_char(self, _typ: CharType) -> char {
+    fn to_char(self, _settings: &ChessSettings) -> char {
         match self {
             White => 'w',
             Black => 'b',
+        }
+    }
+
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl Display {
+        match self {
+            White => "White",
+            Black => "Black",
         }
     }
 }
@@ -593,10 +589,12 @@ impl Board for Chessboard {
                     }
                 } else {
                     let c = if piece_to_char.unwrap_or(CharType::Ascii) == CharType::Ascii {
-                        piece.to_char(CharType::Ascii)
+                        piece.to_char(CharType::Ascii, &pos.settings())
                     } else {
                         // uncolored because some fonts have trouble with black pawns, and some make white pieces hard to see
-                        piece.uncolored().to_char(CharType::Unicode)
+                        piece
+                            .uncolored()
+                            .to_char(CharType::Unicode, &pos.settings())
                     };
                     let s = format!("{c:^0$}", width);
                     s.color(display_color(piece.color().unwrap())).to_string()
@@ -800,7 +798,7 @@ impl Chessboard {
         };
         let mut place_piece = |i: usize, typ: ChessPieceType| {
             let bit = ith_zero(i, board.0.occupied_bb());
-            board = board.place_piece(
+            board.place_piece(
                 ChessSquare::from_bb_index(bit),
                 ColoredChessPieceType::new(White, typ),
             );
@@ -1091,24 +1089,26 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         Ok(this)
     }
 
+    fn settings(&self) -> ChessSettings {
+        self.0.settings()
+    }
+
     fn size(&self) -> ChessboardSize {
         self.0.size()
     }
 
-    fn place_piece(self, square: ChessSquare, piece: ColoredChessPieceType) -> Self {
-        let mut this = self.0;
-        debug_assert!(self.0.is_empty(square));
+    fn place_piece(&mut self, square: ChessSquare, piece: ColoredChessPieceType) {
+        let this = &mut self.0;
+        debug_assert!(this.is_empty(square));
         let bb = square.bb();
         this.piece_bbs[piece.uncolor() as usize] ^= bb;
         this.color_bbs[piece.color().unwrap() as usize] ^= bb;
-        this.into()
     }
 
-    fn remove_piece(mut self, sq: ChessSquare) -> Self {
+    fn remove_piece(&mut self, sq: ChessSquare) {
         let piece = self.0.colored_piece_on(sq);
         self.0
             .remove_piece_unchecked(sq, piece.symbol.uncolor(), piece.color().unwrap());
-        self
     }
 
     fn piece_on(&self, coords: ChessSquare) -> ChessPiece {
@@ -1123,19 +1123,18 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         self.0.active_player
     }
 
-    fn set_active_player(mut self, player: ChessColor) -> Self {
+    fn set_active_player(&mut self, player: ChessColor) {
         self.0.active_player = player;
-        self
     }
 
-    fn set_ply_since_start(mut self, ply: usize) -> Res<Self> {
+    fn set_ply_since_start(&mut self, ply: usize) -> Res<()> {
         self.0.ply = ply;
-        Ok(self)
+        Ok(())
     }
 
-    fn set_halfmove_repetition_clock(mut self, ply: usize) -> Res<Self> {
+    fn set_halfmove_repetition_clock(&mut self, ply: usize) -> Res<()> {
         self.0.ply_100_ctr = ply;
-        Ok(self)
+        Ok(())
     }
 }
 

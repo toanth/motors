@@ -393,7 +393,7 @@ impl<B: Board> OutputBuilder<B> for TextOutputBuilder {
     }
 }
 
-pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece, CharType) -> char>(
+pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece, CharType, &B::Settings) -> char>(
     pos: &B,
     piece_to_char: F,
     typ: CharType,
@@ -413,6 +413,7 @@ pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece, CharType) -> char>(
             let c = piece_to_char(
                 pos.colored_piece_on(B::Coordinates::from_rank_file(yc, xc)),
                 typ,
+                &pos.settings(),
             );
             write!(&mut res, " {c}").unwrap();
         }
@@ -725,9 +726,11 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
             }
         } else if self.piece_to_char == CharType::Ascii {
             // for most games, it makes sense to always upper case letters. Chess overwrites this behavior
-            piece.to_char(CharType::Ascii).to_ascii_uppercase()
+            piece
+                .to_char(CharType::Ascii, &self.pos.settings())
+                .to_ascii_uppercase()
         } else {
-            piece.to_char(CharType::Unicode)
+            piece.to_char(CharType::Unicode, &self.pos.settings())
         };
         let c = format!("{c:^0$}", width);
 

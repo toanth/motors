@@ -59,6 +59,7 @@ pub fn match_to_pgn_string<B: Board>(m: &dyn GameState<B>) -> String {
             },
         },
     };
+    let mut board = m.initial_pos().clone();
     let mut res = format!(
         "[Event \"{event}\"]\n\
         [Site \"{site}\"]\n\
@@ -82,10 +83,9 @@ pub fn match_to_pgn_string<B: Board>(m: &dyn GameState<B>) -> String {
         p2 = m
             .player_name(B::Color::second())
             .unwrap_or("??".to_string()),
-        p1_name = B::Color::first(),
-        p2_name = B::Color::second(),
+        p1_name = B::Color::first().name(&board.settings()),
+        p2_name = B::Color::second().name(&board.settings()),
     );
-    let mut board = m.initial_pos().clone();
     for (ply, mov) in m.move_history().iter().enumerate() {
         let mov_str = mov.extended_formatter(&board, Standard);
         if ply % 2 == 0 {

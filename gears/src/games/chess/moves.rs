@@ -211,7 +211,6 @@ impl ChessMove {
     }
 }
 
-
 impl Display for ChessMove {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         if self.is_null() {
@@ -232,7 +231,6 @@ impl Display for ChessMove {
         )
     }
 }
-
 
 impl Move<Chessboard> for ChessMove {
     type Underlying = u16;
@@ -279,9 +277,13 @@ impl Move<Chessboard> for ChessMove {
             Pawn => String::default(),
             uncolored => {
                 if format == Standard {
-                    uncolored.to_char(CharType::Ascii).to_string()
+                    uncolored
+                        .to_char(CharType::Ascii, &board.settings())
+                        .to_string()
                 } else {
-                    piece.to_char(CharType::Unicode).to_string()
+                    piece
+                        .to_char(CharType::Unicode, &board.settings())
+                        .to_string()
                 }
             }
         };
@@ -346,9 +348,17 @@ impl Move<Chessboard> for ChessMove {
         if self.is_promotion() {
             res.push('=');
             if format == Standard {
-                res.push(self.flags().promo_piece().to_char(CharType::Ascii));
+                res.push(
+                    self.flags()
+                        .promo_piece()
+                        .to_char(CharType::Ascii, &board.settings()),
+                );
             } else {
-                res.push(self.flags().promo_piece().to_char(CharType::Unicode));
+                res.push(
+                    self.flags()
+                        .promo_piece()
+                        .to_char(CharType::Unicode, &board.settings()),
+                );
             }
         }
         let board = board.make_move(self).unwrap();
@@ -435,8 +445,8 @@ fn parse_short_promo_piece(s: &str) -> Option<(ChessMoveFlags, usize)> {
     if s.len() > 4 {
         let promo = s.chars().nth(4).unwrap().to_ascii_uppercase();
         let num_bytes = promo.len_utf8() + 4;
-        let promo =
-            ChessPieceType::from_char(promo).or_else(|| ChessPieceType::from_char(promo))?;
+        let promo = ChessPieceType::parse_from_char(promo)
+            .or_else(|| ChessPieceType::parse_from_char(promo))?;
         return Some((
             match promo {
                 Knight => PromoKnight,
@@ -774,9 +784,9 @@ impl<'a> MoveParser<'a> {
             'a'..='h' | 'A' | 'C' | 'E'..='H' | 'x' | ':' | '×' => (),
             _ => {
                 self.piece =
-                    ColoredChessPieceType::from_char(current)
+                    ColoredChessPieceType::parse_from_char(current)
                         .map(ColoredChessPieceType::uncolor)
-                        .or_else(|| ChessPieceType::from_char(current))
+                        .or_else(|| ChessPieceType::parse_from_char(current))
                         .ok_or_else(|| {
                             anyhow!(
                             "The move '{}' starts with '{current}', which is not a piece or file",
@@ -885,9 +895,9 @@ impl<'a> MoveParser<'a> {
             allow_fail = false;
         }
         let piece = self.current_char().and_then(|c| {
-            ColoredChessPieceType::from_char(c)
+            ColoredChessPieceType::parse_from_char(c)
                 .map(ColoredChessPieceType::uncolor)
-                .or_else(|| ChessPieceType::from_char(c))
+                .or_else(|| ChessPieceType::parse_from_char(c))
         });
         if piece.is_some() {
             self.promotion = piece.unwrap();

@@ -8,11 +8,11 @@ use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::ChessColor::White;
 use gears::games::chess::{ChessColor, Chessboard};
+use gears::games::Color;
 use gears::general::bitboards::{Bitboard, RawBitboard};
 use gears::general::board::BitboardBoard;
 use motors::eval::chess::CHESS_PHASE_VALUES;
 use std::fmt::Formatter;
-use strum::IntoEnumIterator;
 
 pub mod lite;
 pub mod material_only_eval;

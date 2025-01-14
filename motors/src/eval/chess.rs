@@ -95,11 +95,10 @@ mod tests {
     use gears::games::chess::pieces::ChessPieceType::Pawn;
     use gears::games::chess::ChessColor::White;
     use gears::games::chess::{ChessColor, Chessboard};
-    use gears::games::DimT;
+    use gears::games::{Color, DimT};
     use gears::general::bitboards::RawBitboard;
     use gears::general::board::{BitboardBoard, Board};
     use gears::score::Score;
-    use strum::IntoEnumIterator;
 
     #[test]
     fn pawn_shield_startpos_test() {

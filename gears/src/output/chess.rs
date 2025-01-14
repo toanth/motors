@@ -103,9 +103,13 @@ fn pretty_as_chessboard<B: RectangularBoard>(
         display_piece: Box::new(move |square, width, _| {
             let piece = p.colored_piece_on(square);
             if let Some(color) = piece.color() {
-                format!("{0:^1$}", piece.to_char(CharType::Ascii), width)
-                    .color(display_color(color))
-                    .to_string()
+                format!(
+                    "{0:^1$}",
+                    piece.to_char(CharType::Ascii, &p.settings()),
+                    width
+                )
+                .color(display_color(color))
+                .to_string()
             } else {
                 " ".repeat(width)
             }

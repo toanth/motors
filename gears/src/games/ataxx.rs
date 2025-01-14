@@ -24,8 +24,8 @@ use crate::general::squares::{SmallGridSize, SmallGridSquare, SquareColor};
 use crate::output::text_output::{
     board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter,
 };
-use crate::search::Depth;
 use crate::output::OutputOpts;
+use crate::search::Depth;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose, Win};
 use anyhow::{bail, ensure};
@@ -36,8 +36,6 @@ use rand::Rng;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::ops::Not;
-use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
 
 type AtaxxBitboard = SmallGridBitboard<7, 7>;
 
@@ -52,9 +50,7 @@ pub type AtaxxSize = SmallGridSize<7, 7>;
 
 pub type AtaxxSquare = SmallGridSquare<7, 7, 8>;
 
-#[derive(
-    Debug, Default, Copy, Clone, Eq, PartialEq, Hash, derive_more::Display, EnumIter, Arbitrary,
-)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, derive_more::Display, Arbitrary)]
 #[must_use]
 pub enum AtaxxColor {
     #[default]
@@ -71,18 +67,21 @@ impl Not for AtaxxColor {
 }
 
 impl Color for AtaxxColor {
-    fn other(self) -> Self {
-        match self {
-            X => O,
-            O => X,
-        }
+    type Board = AtaxxBoard;
+
+    fn second() -> Self {
+        O
     }
 
-    fn color_char(self, _typ: CharType) -> char {
+    fn to_char(self, _settings: &AtaxxSettings) -> char {
         match self {
             X => 'x',
             O => 'o',
         }
+    }
+
+    fn name(self, settings: &<Self::Board as Board>::Settings) -> impl Display {
+        self.to_char(settings)
     }
 }
 
@@ -455,11 +454,15 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
         Ok(this)
     }
 
+    fn settings(&self) -> AtaxxSettings {
+        self.0.settings()
+    }
+
     fn size(&self) -> AtaxxSize {
         self.0.size()
     }
 
-    fn place_piece(mut self, square: AtaxxSquare, piece: ColoredAtaxxPieceType) -> Self {
+    fn place_piece(&mut self, square: AtaxxSquare, piece: ColoredAtaxxPieceType) {
         let bb = AtaxxBitboard::single_piece(square);
         self.0.colors[0] &= !bb;
         self.0.colors[1] &= !bb;
@@ -470,15 +473,13 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
             XPiece => self.0.colors[X as usize] |= bb,
             OPiece => self.0.colors[O as usize] |= bb,
         }
-        self
     }
 
-    fn remove_piece(mut self, square: AtaxxSquare) -> Self {
+    fn remove_piece(&mut self, square: AtaxxSquare) {
         let bb = AtaxxBitboard::single_piece(square);
         self.0.colors[0] &= !bb;
         self.0.colors[1] &= !bb;
         self.0.empty |= bb;
-        self
     }
 
     fn piece_on(&self, coords: AtaxxSquare) -> AtaxxPiece {
@@ -493,19 +494,18 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
         self.0.active_player
     }
 
-    fn set_active_player(mut self, player: AtaxxColor) -> Self {
+    fn set_active_player(&mut self, player: AtaxxColor) {
         self.0.active_player = player;
-        self
     }
 
-    fn set_ply_since_start(mut self, ply: usize) -> Res<Self> {
+    fn set_ply_since_start(&mut self, ply: usize) -> Res<()> {
         self.0.ply = ply;
-        Ok(self)
+        Ok(())
     }
 
-    fn set_halfmove_repetition_clock(mut self, ply: usize) -> Res<Self> {
+    fn set_halfmove_repetition_clock(&mut self, ply: usize) -> Res<()> {
         self.0.ply_100_ctr = ply;
-        Ok(self)
+        Ok(())
     }
 }
 

@@ -36,7 +36,6 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
-
 // TODO: Only a single generic trace type
 
 type FeatureIndex = usize;

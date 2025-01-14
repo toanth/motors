@@ -66,7 +66,7 @@ pub enum Strictness {
 }
 
 /// An [`UnverifiedBoard`] is a [`Board`] where invariants can be violated.
-pub trait UnverifiedBoard<B: Board>: Debug + Copy + Clone + From<B>
+pub trait UnverifiedBoard<B: Board>: Debug + Clone + From<B>
 where
     B: Board<Unverified = Self>,
 {
@@ -99,6 +99,8 @@ where
     // TODO: Refactor such that debug_verify_invariants actually checks invariants that should not be broken in a Board
     // but are getting corrected in the verify method of an UnverifiedBoard
 
+    fn settings(&self) -> B::Settings;
+
     /// Returns the size of the board.
     fn size(&self) -> BoardSize<B>;
 
@@ -113,29 +115,29 @@ where
     /// If there is a piece already on the square, it is implementation-defined what will happen; possible options include
     /// replacing the piece, returning an `Err`, or silently going into a bad state that will return an `Err` on [`Self::verify`].
     /// Not intended to do any expensive checks.
-    fn try_place_piece(self, piece: B::Piece) -> Res<Self> {
+    fn try_place_piece(&mut self, piece: B::Piece) -> Res<()> {
         let square = self.check_coordinates(piece.coordinates())?;
         // TODO: PieceType should not include the empty square; use a different, generic, struct for that
-        Ok(self.place_piece(square, piece.colored_piece_type()))
+        self.place_piece(square, piece.colored_piece_type());
+        Ok(())
     }
 
     /// Like [`Self::try_place_piece`], but does not check that the coordinates are valid.
-    fn place_piece(self, coords: B::Coordinates, piece: ColPieceType<B>) -> Self;
+    fn place_piece(&mut self, coords: B::Coordinates, piece: ColPieceType<B>);
 
     /// Remove the piece at the given coordinates. If there is no piece there, nothing happens.
     /// If the coordinates are invalid, an `Err` is returned.
     /// Some [`UnverifiedBoard`]s can represent multiple pieces at the same coordinates; it is implementation-defined
     /// what this method does in that case.
-    fn try_remove_piece(self, coords: B::Coordinates) -> Res<Self> {
-        if self.try_get_piece_on(coords)?.is_empty() {
-            Ok(self)
-        } else {
-            Ok(self.remove_piece(coords))
+    fn try_remove_piece(&mut self, coords: B::Coordinates) -> Res<()> {
+        if !self.try_get_piece_on(coords)?.is_empty() {
+            self.remove_piece(coords)
         }
+        Ok(())
     }
 
     /// Like [`Self::try_remove_piece`], but does not check that the coordinates are valid.
-    fn remove_piece(self, coords: B::Coordinates) -> Self;
+    fn remove_piece(&mut self, coords: B::Coordinates);
 
     /// Returns the piece on the given coordinates, or `None` if the coordinates aren't valid.
     /// Some [`UnverifiedBoard`]s can represent multiple pieces at the same coordinates; it is implementation-defined
@@ -156,14 +158,14 @@ where
 
     /// Set the active player. Like all of these functions, it does not guarantee or check that the resulting position
     /// is legal. For example, in chess, the side not to move might be in check, so that it would be possible to capture the king.
-    fn set_active_player(self, player: B::Color) -> Self;
+    fn set_active_player(&mut self, player: B::Color);
 
     /// Set the ply counter since the start of the game. Does not check that the resulting positions is legal, e.g. if
     /// the ply counter is larger than the number of placed pieces in games like m,n,k games or Ultimate Tic-Tac-Toe.
     /// Can fail if the ply number is not representable in the internal representation.
-    fn set_ply_since_start(self, ply: usize) -> Res<Self>;
+    fn set_ply_since_start(&mut self, ply: usize) -> Res<()>;
 
-    fn set_halfmove_repetition_clock(self, ply: usize) -> Res<Self>;
+    fn set_halfmove_repetition_clock(&mut self, ply: usize) -> Res<()>;
 
     // TODO: Also put more methods, like `as_fen`, in this trait?
     // Might be useful to print such boards, but the implementation might be annoying
@@ -202,7 +204,7 @@ pub trait Board:
     type EmptyRes: Into<Self::Unverified>;
     type Settings: Settings;
     type Coordinates: Coordinates;
-    type Color: Color;
+    type Color: Color<Board = Self>;
     type Piece: ColoredPiece<Self>;
     type Move: Move<Self>;
     type MoveList: MoveList<Self> + Default;
@@ -260,8 +262,9 @@ pub trait Board:
 
     fn settings(&self) -> Self::Settings;
 
-    /// Sets the variant based on the input and changes this board to the startpos for this variant
-    fn set_variant(&mut self, name: &str, _additional: &mut Tokens) -> Res<()> {
+    /// Returns a board in the startpos of the variant corresponding to the `name`.
+    /// `_additional` can be used to modify the variant, e.g. to set the board size in mnk games.
+    fn variant(name: &str, _additional: &mut Tokens) -> Res<Self> {
         bail!(
             "The game {0} does not support any variants, including '{1}'",
             Self::game_name(),
@@ -488,17 +491,17 @@ pub trait BoardHelpers: Board {
     }
 
     /// For each color, returns a single ASCII char decribing it, e.g. `w` and `b` for black.
-    fn color_chars() -> [char; 2] {
+    fn color_chars(&self) -> [char; 2] {
         [
-            Self::Color::first().color_char(CharType::Ascii),
-            Self::Color::second().color_char(CharType::Ascii),
+            Self::Color::first().to_char(&self.settings()),
+            Self::Color::second().to_char(&self.settings()),
         ]
     }
 
-    fn color_names() -> [String; 2] {
+    fn color_names(&self) -> [String; 2] {
         [
-            Self::Color::first().to_string(),
-            Self::Color::second().to_string(),
+            Self::Color::first().name(&self.settings()).to_string(),
+            Self::Color::second().name(&self.settings()).to_string(),
         ]
     }
 
@@ -601,22 +604,30 @@ pub trait BoardHelpers: Board {
     /// legal (hence the `Unverified` return type), but can still fail if the piece can't be placed because e.g. there
     /// is already a piece on that square. See [`UnverifiedBoard::try_place_piece`].
     fn place_piece(self, piece: Self::Piece) -> Res<Self::Unverified> {
-        Self::Unverified::new(self).try_place_piece(piece)
+        let mut res = Self::Unverified::new(self);
+        res.try_place_piece(piece)?;
+        Ok(res)
     }
 
     /// Remove a piece from the given square. See [`UnverifiedBoard::try_remove_piece`].
     fn remove_piece(self, square: Self::Coordinates) -> Res<Self::Unverified> {
-        Self::Unverified::new(self).try_remove_piece(square)
+        let mut res = Self::Unverified::new(self);
+        res.try_remove_piece(square)?;
+        Ok(res)
     }
 
     /// Set the active player. See [`UnverifiedBoard::set_active_player`].
     fn set_active_player(self, new_active: Self::Color) -> Self::Unverified {
-        Self::Unverified::new(self).set_active_player(new_active)
+        let mut res = Self::Unverified::new(self);
+        res.set_active_player(new_active);
+        res
     }
 
     /// Set the ply counter since the start of the game. See [`UnverifiedBoard::set_ply_since_start`]
     fn set_ply_since_start(self, ply: usize) -> Res<Self::Unverified> {
-        Self::Unverified::new(self).set_ply_since_start(ply)
+        let mut res = Self::Unverified::new(self);
+        res.set_ply_since_start(ply)?;
+        Ok(res)
     }
 }
 
@@ -748,7 +759,7 @@ pub fn position_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) ->
                     write!(f, "{empty_ctr}")?;
                 }
                 empty_ctr = 0;
-                write!(f, "{}", piece.to_char(CharType::Ascii))?;
+                write!(f, "{}", piece.to_char(CharType::Ascii, &pos.settings()))?;
             }
         }
         if empty_ctr > 0 {
@@ -763,7 +774,7 @@ pub fn position_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) ->
 
 pub fn common_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) -> fmt::Result {
     position_fen_part(f, pos)?;
-    write!(f, " {}", pos.active_player())
+    write!(f, " {}", pos.active_player().to_char(&pos.settings()))
 }
 
 pub fn simple_fen<T: RectangularBoard>(
@@ -789,7 +800,11 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
     let lines = position.split('/');
     debug_assert!(lines.clone().count() > 0);
     let num_lines = lines.clone().count();
-    if num_lines != board.size().height().val() {
+    let height = board.size().height().val();
+    if num_lines != height {
+        if num_lines == 1 {
+            bail!("Expected a FEN position description of {height} lines separated by '{0}', but found '{1}'", "/".bold(), position.red())
+        }
         bail!(
             "The {0} board has a height of {1}, but the FEN contains {2} rows",
             B::game_name(),
@@ -821,7 +836,7 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
                 skipped_digits += 1;
                 continue;
             }
-            let Some(symbol) = ColPieceType::<B>::from_char(c) else {
+            let Some(symbol) = ColPieceType::<B>::from_char(c, &board.settings()) else {
                 bail!(
                     "Invalid character in {0} FEN position description (not a piece): {1}",
                     B::game_name(),
@@ -834,7 +849,7 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
                 bail!("FEN position contains more than {square} squares, but the board only has {0} squares", board.size().num_squares());
             }
 
-            board = board.place_piece(
+            board.place_piece(
                 board
                     .size()
                     .idx_to_coordinates(square as DimT)
@@ -872,8 +887,8 @@ pub(crate) fn read_common_fen_part<B: RectangularBoard>(
         )
     };
     let correct_chars = [
-        B::Color::first().color_char(CharType::Ascii),
-        B::Color::second().color_char(CharType::Ascii),
+        B::Color::first().to_char(&board.settings()),
+        B::Color::second().to_char(&board.settings()),
     ];
     if active.chars().count() != 1 {
         bail!(
@@ -883,7 +898,8 @@ pub(crate) fn read_common_fen_part<B: RectangularBoard>(
             active.red()
         );
     }
-    let Some(active) = B::Color::from_char(active.chars().next().unwrap()) else {
+    let Some(active) = B::Color::from_char(active.chars().next().unwrap(), &board.settings())
+    else {
         bail!(
             "Expected '{0}' or '{1}' for the color, not '{2}'",
             correct_chars[0].to_string().bold(),
@@ -891,7 +907,7 @@ pub(crate) fn read_common_fen_part<B: RectangularBoard>(
             active.red()
         )
     };
-    board = board.set_active_player(active);
+    board.set_active_player(active);
     Ok(board)
 }
 
@@ -904,7 +920,7 @@ pub(crate) fn read_two_move_numbers<B: RectangularBoard>(
     // Some FENs don't contain the halfmove clock and fullmove number, so assume that's the case if parsing
     // the halfmove clock fails -- but don't do this for the fullmove number.
     if let Ok(halfmove_clock) = halfmove_clock.parse::<usize>() {
-        board = board.set_halfmove_repetition_clock(halfmove_clock)?;
+        board.set_halfmove_repetition_clock(halfmove_clock)?;
         let Some(fullmove_number) = words.next() else {
             bail!(
                     "The FEN contains a valid halfmove clock ('{halfmove_clock}') but no fullmove counter",
@@ -916,22 +932,22 @@ pub(crate) fn read_two_move_numbers<B: RectangularBoard>(
                 fullmove_number.red()
             )
         })?;
-        board = board.set_ply_since_start(ply_counter_from_fullmove_nr(
+        board.set_ply_since_start(ply_counter_from_fullmove_nr(
             fullmove_number,
             board.active_player().is_first(),
         ))?;
     } else if strictness == Strict {
         bail!("FEN doesn't contain a halfmove clock and fullmove counter, but they are required in strict mode")
     } else {
-        board = board.set_halfmove_repetition_clock(0)?;
-        board = board.set_ply_since_start(usize::from(!board.active_player().is_first()))?;
+        board.set_halfmove_repetition_clock(0)?;
+        board.set_ply_since_start(usize::from(!board.active_player().is_first()))?;
     }
     Ok(board)
 }
 
 pub(crate) fn read_single_move_number<B: RectangularBoard>(
     words: &mut Tokens,
-    board: B::Unverified,
+    mut board: B::Unverified,
     strictness: Strictness,
 ) -> Res<B::Unverified> {
     let fullmove_nr = words.next().unwrap_or("");
@@ -939,7 +955,8 @@ pub(crate) fn read_single_move_number<B: RectangularBoard>(
         board.set_ply_since_start(ply_counter_from_fullmove_nr(
             fullmove_nr,
             board.active_player().is_first(),
-        ))
+        ))?;
+        Ok(board)
     } else if strictness != Strict {
         Ok(board)
     } else {

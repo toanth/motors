@@ -1,5 +1,4 @@
 use std::fmt::Display;
-use strum::IntoEnumIterator;
 
 use crate::eval::chess::lite_values::*;
 use crate::eval::chess::{pawn_shield_idx, DiagonalOpenness, FileOpenness};

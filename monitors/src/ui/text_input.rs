@@ -311,7 +311,10 @@ impl<B: Board> TextInputThread<B> {
     fn handle_stop(mut client: MutexGuard<Client<B>>, words: &mut Tokens) -> Res<()> {
         let side = Self::get_side(&client, words, Active)?;
         if !client.state.get_player(side).is_engine() {
-            bail!("The {side} player is a human and not an engine, so they can't be stopped")
+            bail!(
+                "The {} player is a human and not an engine, so they can't be stopped",
+                side.name(&client.match_state().board.settings())
+            )
         }
         match client.active_player() {
             None => bail!("The match isn't running"),
@@ -320,7 +323,10 @@ impl<B: Board> TextInputThread<B> {
                     client.stop_thinking(side, Play);
                     Ok(())
                 } else {
-                    bail!("The {p} player is not currently thinking")
+                    bail!(
+                        "The {} player is not currently thinking",
+                        p.name(&client.match_state().board.settings())
+                    )
                 }
             }
         }
@@ -509,7 +515,10 @@ impl<B: Board> TextInputThread<B> {
     fn handle_send_ugi(mut client: MutexGuard<Client<B>>, words: &mut Tokens) -> Res<()> {
         let player = Self::get_side(&client, words, Active)?;
         if !client.state.get_player_mut(player).is_engine() {
-            bail!("The {player} player is not an engine and can't receive UGI commands")
+            bail!(
+                "The {} player is not an engine and can't receive UGI commands",
+                player.name(&client.match_state().board.settings())
+            )
         }
         client.send_ugi_message(player, words.join(" ").as_str().trim());
         Ok(())

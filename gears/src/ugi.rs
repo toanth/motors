@@ -3,6 +3,7 @@ use crate::general::common::{tokens, NamedEntity, Res, Tokens};
 use crate::general::moves::Move;
 use anyhow::{anyhow, bail};
 use colored::Colorize;
+use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
@@ -253,6 +254,30 @@ impl NamedEntity for EngineOption {
     }
 }
 
+pub fn parse_ugi_position_part_impl<B: Board>(
+    first_word: &str,
+    rest: &mut Tokens,
+    old_board: &B,
+    strictness: Strictness,
+) -> Res<B> {
+    Ok(match first_word.to_ascii_lowercase().as_str() {
+        "fen" | "f" => B::read_fen_and_advance_input(rest, strictness)?,
+        "startpos" | "s" => B::startpos_for_settings(old_board.settings()),
+        "current" | "c" => old_board.clone(),
+        name => match B::from_name(name) {
+            Ok(res) => res,
+            Err(err) => {
+                bail!(
+                    "{err} Additionally, '{0}', '{1}' and '{2}' are also always recognized.",
+                    "startpos".bold(),
+                    "fen <fen>".bold(),
+                    "current".bold()
+                )
+            }
+        },
+    })
+}
+
 pub fn parse_ugi_position_part<B: Board>(
     first_word: &str,
     rest: &mut Tokens,
@@ -260,6 +285,7 @@ pub fn parse_ugi_position_part<B: Board>(
     old_board: &B,
     strictness: Strictness,
 ) -> Res<B> {
+    let mut first = first_word;
     if allow_position_part
         && (first_word.eq_ignore_ascii_case("position")
             || first_word.eq_ignore_ascii_case("pos")
@@ -268,40 +294,27 @@ pub fn parse_ugi_position_part<B: Board>(
         let Some(pos_word) = rest.next() else {
             bail!("Missing position after '{}' option", "position".bold())
         };
-        return parse_ugi_position_part(pos_word, rest, false, old_board, strictness);
+        first = pos_word;
     }
-    Ok(match first_word.to_ascii_lowercase().as_str() {
-        "fen" | "f" => B::read_fen_and_advance_input(rest, strictness)?,
-        "startpos" | "s" => B::startpos_for_settings(old_board.settings()),
-        "current" | "c" => old_board.clone(),
-        name => match B::from_name(name) {
-            Ok(res) => res,
-            Err(err) => {
-                let mut pos = B::default();
-                if let Ok(()) = pos.set_variant(name, rest) {
-                    let first = rest.next().unwrap_or("startpos");
-                    return match parse_ugi_position_part(first, rest, false, &pos, strictness) {
-                        Ok(pos) => Ok(pos),
-                        Err(err) => {
-                            // we already changed the rules, so don't return an error now
-                            eprintln!(
-                                "{}: {err}",
-                                "Warning: Changed settings, but could not parse position".red()
-                            );
-                            Ok(B::default())
-                        }
-                    };
-                } else {
-                    bail!(
-                        "{err} Additionally, '{0}', '{1}' and '{2}' are also always recognized.",
-                        "startpos".bold(),
-                        "fen <fen>".bold(),
-                        "current".bold()
-                    )
-                }
-            }
-        },
-    })
+    let remaining = rest.clone();
+    let mut copy = rest.clone();
+    let res = parse_ugi_position_part_impl(first, rest, old_board, strictness);
+    let Err(err) = res else { return res };
+    // If parsing the position failed, we try to insert 'fen' at the beginning and parse it again.
+    let words = first.to_string() + " " + &copy.join(" ");
+    let mut tokens = tokens(&words);
+    let res = B::read_fen_and_advance_input(&mut tokens, strictness);
+    let advance_by = rest.clone().count() - tokens.count();
+    for _ in 0..advance_by {
+        _ = rest.next().unwrap();
+    }
+    let Err(_) = res else { return res };
+    // If that fails as well, we try to parse it as a variant, then parse the rest as a position description.
+    // (So 'shatranj startpos' is valid)
+    *rest = remaining;
+    let pos = B::variant(first, rest).map_err(|_| err)?;
+    let first = rest.next().unwrap_or("startpos");
+    parse_ugi_position_part_impl(first, rest, &pos, strictness).or(Ok(pos))
 }
 
 #[allow(clippy::too_many_arguments)]

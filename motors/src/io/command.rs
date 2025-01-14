@@ -821,7 +821,10 @@ pub fn depth_cmd() -> Command {
 }
 
 pub fn go_options<B: Board>(mode: Option<SearchType>) -> CommandList {
-    let mut res = go_options_impl(mode, B::color_chars(), B::color_names());
+    // TODO: This doesn't update the colors when they are changed at runtime in the Fairy board,
+    // so even though the FEN will parse e.g. x/o it'll still be wtime/btime.
+    let pos = B::default();
+    let mut res = go_options_impl(mode, pos.color_chars(), pos.color_names());
 
     // We don't want to allow `go e4` or `go moves e4` for two reasons: Because that's a bit confusing, and because it would make the number of
     // `go` commands depend on the position, which means that we couldn't precompute the commands in`UgiGui`.
@@ -1022,7 +1025,8 @@ pub fn go_options_impl(
 }
 
 pub fn query_options<B: Board>() -> CommandList {
-    query_options_impl(B::color_chars())
+    // TODO: See go_options, doesn't update the chars
+    query_options_impl(B::default().color_chars())
 }
 
 pub fn query_options_impl(color_chars: [char; 2]) -> CommandList {

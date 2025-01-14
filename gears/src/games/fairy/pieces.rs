@@ -29,20 +29,18 @@ use crate::games::fairy::attacks::{
     AttackBitboardFilter, AttackMode, AttackTypes, CaptureCondition, GenPieceAttackKind,
     LeapingBitboards, RequiredForAttack, SliderDirections,
 };
+use crate::games::fairy::rules::RulesRef;
 use crate::games::fairy::Side::*;
-use crate::games::fairy::{
-    rules, FairyBitboard, FairyBoard, FairyColor, FairySize, RawFairyBitboard, MAX_NUM_PIECE_TYPES,
+use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySize, RawFairyBitboard};
+use crate::games::{
+    AbstractPieceType, CharType, Color, ColoredPieceType, Height, PieceType, Width,
 };
-use crate::games::{AbstractPieceType, CharType, ColoredPieceType, Height, PieceType, Width};
 use crate::general::bitboards::Bitboard;
 use crate::general::squares::RectangularSize;
 use arbitrary::Arbitrary;
-use arrayvec::ArrayVec;
 use itertools::Itertools;
 use std::cmp::max;
 use std::collections::HashMap;
-use std::fmt;
-use std::fmt::{Display, Formatter};
 use std::iter::once;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Arbitrary)]
@@ -61,23 +59,18 @@ impl PieceId {
     }
 }
 
-impl Display for PieceId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Ascii))
-    }
-}
-
-impl AbstractPieceType for PieceId {
+impl AbstractPieceType<FairyBoard> for PieceId {
     fn empty() -> Self {
         Self(u8::MAX)
     }
 
-    fn to_char(self, typ: CharType) -> char {
-        rules().pieces[self.val()].uncolored_symbol[typ as usize]
+    fn to_char(self, typ: CharType, rules: &RulesRef) -> char {
+        rules.0.pieces[self.val()].uncolored_symbol[typ as usize]
     }
 
-    fn from_char(c: char) -> Option<Self> {
-        rules()
+    fn from_char(c: char, rules: &RulesRef) -> Option<Self> {
+        rules
+            .0
             .matching_piece_ids(|p| p.uncolored_symbol.contains(&c))
             .next()
     }
@@ -104,7 +97,7 @@ pub struct ColoredPieceId {
 
 impl ColoredPieceId {
     pub fn as_u8(&self) -> u8 {
-        self.id.0 * 3 + self.color.map_or(0, |c| c as u8 + 1)
+        self.id.0 * 3 + self.color.map_or(0, |c| c.idx() as u8 + 1)
     }
     pub fn val(self) -> usize {
         self.as_u8() as usize
@@ -113,7 +106,7 @@ impl ColoredPieceId {
         let id = PieceId(val / 3);
         let color = match val % 3 {
             0 => None,
-            c => Some(FairyColor::from_repr(c as usize - 1).unwrap()),
+            c => Some(FairyColor::from_idx(c as usize - 1)),
         };
         ColoredPieceId { id, color }
     }
@@ -121,22 +114,22 @@ impl ColoredPieceId {
         ColoredPieceId { id: piece, color }
     }
 }
+//
+// impl Display for ColoredPieceId {
+//     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+//         let color = self
+//             .color
+//             .map(|c| rules().colors[c.idx()].name.clone())
+//             .unwrap_or_default();
+//         write!(
+//             f,
+//             "{color} {0}",
+//             rules().pieces[self.id.val()].uncolored_symbol[CharType::Ascii as usize],
+//         )
+//     }
+// }
 
-impl Display for ColoredPieceId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let color = self
-            .color
-            .map(|c| rules().colors[c as usize].name.clone())
-            .unwrap_or_default();
-        write!(
-            f,
-            "{color} {0}",
-            rules().pieces[self.id.val()].uncolored_symbol[CharType::Ascii as usize],
-        )
-    }
-}
-
-impl AbstractPieceType for ColoredPieceId {
+impl AbstractPieceType<FairyBoard> for ColoredPieceId {
     fn empty() -> Self {
         Self {
             id: PieceId::empty(),
@@ -144,31 +137,33 @@ impl AbstractPieceType for ColoredPieceId {
         }
     }
 
-    fn to_char(self, typ: CharType) -> char {
+    fn to_char(self, typ: CharType, rules: &RulesRef) -> char {
         if let Some(color) = self.color {
-            rules().pieces[self.id.val()].player_symbol[color as usize][typ as usize]
+            rules.0.pieces[self.id.val()].player_symbol[color.idx()][typ as usize]
         } else {
-            rules().pieces[self.id.val()].uncolored_symbol[typ as usize]
+            rules.0.pieces[self.id.val()].uncolored_symbol[typ as usize]
         }
     }
 
-    fn from_char(c: char) -> Option<Self> {
-        if let Some((id, p)) = rules()
+    fn from_char(c: char, rules: &RulesRef) -> Option<Self> {
+        if let Some((id, p)) = rules
+            .0
             .pieces()
             .find(|(_id, p)| p.player_symbol.iter().any(|s| s.contains(&c)))
         {
             if p.player_symbol[0].contains(&c) {
                 Some(Self {
                     id,
-                    color: Some(FairyColor::First),
+                    color: Some(FairyColor::first()),
                 })
             } else {
                 Some(Self {
                     id,
-                    color: Some(FairyColor::Second),
+                    color: Some(FairyColor::second()),
                 })
             }
-        } else if let Some(id) = rules()
+        } else if let Some(id) = rules
+            .0
             .matching_piece_ids(|p| p.uncolored_symbol.contains(&c))
             .next()
         {
@@ -206,7 +201,7 @@ impl ColoredPieceType<FairyBoard> for ColoredPieceId {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Arbitrary)]
 #[must_use]
 pub(super) struct Promo {
     pub pieces: Vec<PieceId>,
@@ -220,6 +215,7 @@ impl Promo {
 }
 
 /// This struct defines the rules for a single piece.
+#[derive(Debug, Arbitrary)]
 pub struct Piece {
     pub(super) name: String,
     pub(super) uncolored_symbol: [char; 2],
@@ -404,27 +400,27 @@ impl Piece {
             {
                 let normal_white = GenPieceAttackKind::pawn_noncapture(
                     Leaping(LeapingBitboards::range(once(0), once(1), size)),
-                    Player(FairyColor::First),
+                    Player(FairyColor::first()),
                 );
                 let normal_black = GenPieceAttackKind::pawn_noncapture(
                     Leaping(LeapingBitboards::range(once(0), once(-1), size)),
-                    Player(FairyColor::Second),
+                    Player(FairyColor::second()),
                 );
                 let white_capture = GenPieceAttackKind::pawn_capture(
                     Leaping(LeapingBitboards::range([-1, 1].into_iter(), once(1), size)),
-                    Player(FairyColor::First),
+                    Player(FairyColor::first()),
                     AttackBitboardFilter::PawnCapture,
                 );
                 let black_capture = GenPieceAttackKind::pawn_capture(
                     Leaping(LeapingBitboards::range([-1, 1].into_iter(), once(-1), size)),
-                    Player(FairyColor::Second),
+                    Player(FairyColor::second()),
                     AttackBitboardFilter::PawnCapture,
                 );
                 // promotions are handled as effects instead of duplicating all normal and capture moves
                 let white_double = GenPieceAttackKind {
                     required: RequiredForAttack::PieceOnBoard,
                     typ: Rider(SliderDirections::Vertical),
-                    condition: OnRank(1, FairyColor::First),
+                    condition: OnRank(1, FairyColor::first()),
                     bitboard_filter: vec![
                         AttackBitboardFilter::EmptySquares,
                         AttackBitboardFilter::Rank(3),
@@ -436,7 +432,7 @@ impl Piece {
                 let black_double = GenPieceAttackKind {
                     required: RequiredForAttack::PieceOnBoard,
                     typ: Rider(SliderDirections::Vertical),
-                    condition: OnRank(size.height().get().saturating_sub(2), FairyColor::Second),
+                    condition: OnRank(size.height().get().saturating_sub(2), FairyColor::second()),
                     bitboard_filter: vec![
                         AttackBitboardFilter::EmptySquares,
                         AttackBitboardFilter::Rank(size.height().get().saturating_sub(4)),
@@ -486,20 +482,20 @@ impl Piece {
             {
                 let normal_white = GenPieceAttackKind::pawn_noncapture(
                     Leaping(LeapingBitboards::range(once(0), once(1), size)),
-                    Player(FairyColor::First),
+                    Player(FairyColor::first()),
                 );
                 let normal_black = GenPieceAttackKind::pawn_noncapture(
                     Leaping(LeapingBitboards::range(once(0), once(-1), size)),
-                    Player(FairyColor::Second),
+                    Player(FairyColor::second()),
                 );
                 let white_capture = GenPieceAttackKind::pawn_capture(
                     Leaping(LeapingBitboards::range([-1, 1].into_iter(), once(1), size)),
-                    Player(FairyColor::First),
+                    Player(FairyColor::first()),
                     AttackBitboardFilter::Them,
                 );
                 let black_capture = GenPieceAttackKind::pawn_capture(
                     Leaping(LeapingBitboards::range([-1, 1].into_iter(), once(-1), size)),
-                    Player(FairyColor::Second),
+                    Player(FairyColor::second()),
                     AttackBitboardFilter::Them,
                 );
                 Self {
@@ -662,10 +658,10 @@ impl Piece {
         rest
     }
 
-    pub fn chess_pieces() -> ArrayVec<Piece, MAX_NUM_PIECE_TYPES> {
+    pub fn chess_pieces() -> Vec<Piece> {
         let size = FairySize::new(Height::new(8), Width::new(8));
         let mut pieces = Self::complete_piece_map(size);
-        let mut res = ArrayVec::new();
+        let mut res = Vec::new();
         res.push(pieces.remove("pawn").unwrap());
         res.push(pieces.remove("knight").unwrap());
         res.push(pieces.remove("bishop").unwrap());
@@ -678,10 +674,10 @@ impl Piece {
         res
     }
 
-    pub fn shatranj_pieces() -> ArrayVec<Piece, MAX_NUM_PIECE_TYPES> {
+    pub fn shatranj_pieces() -> Vec<Piece> {
         let size = FairySize::new(Height::new(8), Width::new(8));
         let mut pieces = Self::complete_piece_map(size);
-        let mut res = ArrayVec::new();
+        let mut res = Vec::new();
         res.push(pieces.remove("pawn (shatranj)").unwrap());
         res.push(pieces.remove("knight").unwrap());
         res.push(pieces.remove("alfil").unwrap());

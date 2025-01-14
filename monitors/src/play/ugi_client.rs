@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crossbeam_utils::sync::{Parker, Unparker};
-use strum::IntoEnumIterator;
 
 use crate::cli::CommandLineArgs;
 use crate::play::adjudication::{Adjudication, Adjudicator};
@@ -377,7 +376,8 @@ impl<B: Board> Client<B> {
         self.show_message(
             Warning,
             &format!(
-                "The {color} player ran out of time (the time control was {start}ms + {inc}ms)",
+                "The {} player ran out of time (the time control was {start}ms + {inc}ms)",
+                color.name(&self.state.the_match.board.settings()),
                 start = time.remaining.as_millis(),
                 inc = time.increment.as_millis()
             ),

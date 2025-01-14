@@ -1699,7 +1699,7 @@ fn show_eval_pos<B: Board>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>
             let piece = format!(
                 "{}:",
                 piece
-                    .to_char(CharType::Ascii)
+                    .to_char(CharType::Ascii, &p.settings())
                     .to_string()
                     .color(display_color(color))
             );

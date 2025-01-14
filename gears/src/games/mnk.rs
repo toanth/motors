@@ -29,8 +29,8 @@ use crate::general::squares::{GridCoordinates, GridSize};
 use crate::output::text_output::{
     board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter,
 };
-use crate::search::Depth;
 use crate::output::OutputOpts;
+use crate::search::Depth;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 #[must_use]
@@ -76,36 +76,33 @@ impl Not for MnkColor {
 }
 
 impl Color for MnkColor {
-    fn other(self) -> Self {
+    type Board = MNKBoard;
+
+    fn second() -> Self {
+        MnkColor::O
+    }
+
+    fn to_char(self, _settings: &<Self::Board as Board>::Settings) -> char {
         match self {
-            MnkColor::X => MnkColor::O,
-            MnkColor::O => MnkColor::X,
+            MnkColor::X => 'x',
+            MnkColor::O => 'o',
         }
     }
 
-    fn color_char(self, typ: CharType) -> char {
-        match typ {
-            CharType::Ascii => match self {
-                MnkColor::X => 'x',
-                MnkColor::O => 'o',
-            },
-            CharType::Unicode => match self {
-                MnkColor::X => UNICODE_X,
-                MnkColor::O => UNICODE_O,
-            },
-        }
+    fn name(self, settings: &<Self::Board as Board>::Settings) -> impl Display {
+        self.to_char(settings)
     }
 }
 
 const UNICODE_X: char = '⨉'; // '⨉',
 const UNICODE_O: char = '◯'; // '○'
 
-impl AbstractPieceType for Symbol {
+impl AbstractPieceType<MNKBoard> for Symbol {
     fn empty() -> Symbol {
         Symbol::Empty
     }
 
-    fn to_char(self, typ: CharType) -> char {
+    fn to_char(self, typ: CharType, _settings: &MnkSettings) -> char {
         match typ {
             CharType::Ascii => match self {
                 X => 'X',
@@ -120,7 +117,7 @@ impl AbstractPieceType for Symbol {
         }
     }
 
-    fn from_char(c: char) -> Option<Self> {
+    fn from_char(c: char, _settings: &MnkSettings) -> Option<Self> {
         match c {
             ' ' => Some(Empty),
             'X' | UNICODE_X => Some(X),
@@ -170,7 +167,11 @@ impl ColoredPieceType<MNKBoard> for Symbol {
 
 impl Display for Symbol {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Unicode))
+        write!(
+            f,
+            "{}",
+            self.to_char(CharType::Unicode, &MnkSettings::default())
+        )
     }
 }
 
@@ -463,9 +464,9 @@ impl MNKBoard {
 
     fn make_move_for_player(mut self, mov: <Self as Board>::Move, player: MnkColor) -> Self {
         debug_assert!(self.is_move_pseudolegal(mov));
-        self = UnverifiedMnkBoard::new(self)
-            .place_piece(mov.target, player.into())
-            .0;
+        let mut p = UnverifiedMnkBoard::new(self);
+        p.place_piece(mov.target, player.into());
+        self = p.0;
         self.ply += 1;
         self.last_move = Some(mov);
         self.active_player = player.other();
@@ -580,10 +581,9 @@ impl Board for MNKBoard {
         self.settings
     }
 
-    fn set_variant(&mut self, first: &str, rest: &mut Tokens) -> Res<()> {
+    fn variant(first: &str, rest: &mut Tokens) -> Res<MNKBoard> {
         let settings = MnkSettings::from_input(first, rest)?;
-        *self = Self::startpos_for_settings(settings);
-        Ok(())
+        Ok(Self::startpos_for_settings(settings))
     }
 
     fn active_player(&self) -> MnkColor {
@@ -732,7 +732,7 @@ impl Board for MNKBoard {
         let board = MNKBoard::empty_for_settings(settings);
         let mut board = read_common_fen_part::<MNKBoard>(words, UnverifiedMnkBoard::new(board))?;
 
-        board = board.set_ply_since_start(board.0.occupied_bb().num_ones())?;
+        board.set_ply_since_start(board.0.occupied_bb().num_ones())?;
         board = read_single_move_number::<MNKBoard>(words, board, strictness)?;
 
         board.0.last_move = None;
@@ -863,11 +863,15 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
         Ok(this)
     }
 
+    fn settings(&self) -> MnkSettings {
+        self.0.settings()
+    }
+
     fn size(&self) -> GridSize {
         self.0.size()
     }
 
-    fn place_piece(mut self, sq: GridCoordinates, piece: Symbol) -> Self {
+    fn place_piece(&mut self, sq: GridCoordinates, piece: Symbol) {
         let placed_bb = ExtendedRawBitboard::single_piece_at(self.size().internal_key(sq));
         let bb = match piece {
             X => &mut self.0.x_bb,
@@ -877,18 +881,15 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
             }
         };
         *bb |= placed_bb;
-
-        self
     }
 
-    fn remove_piece(self, sq: GridCoordinates) -> Self {
-        let mut this = self.0;
+    fn remove_piece(&mut self, sq: GridCoordinates) {
         let mask = !ExtendedRawBitboard::single_piece_at(self.size().internal_key(sq));
+        let this = &mut self.0;
         this.x_bb &= mask;
         this.o_bb &= mask;
         this.last_move = None;
         this.ply = 0;
-        UnverifiedMnkBoard(this)
     }
 
     fn piece_on(&self, coords: GridCoordinates) -> Square {
@@ -903,20 +904,19 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
         self.0.active_player
     }
 
-    fn set_active_player(mut self, player: MnkColor) -> Self {
+    fn set_active_player(&mut self, player: MnkColor) {
         self.0.active_player = player;
-        self
     }
 
-    fn set_ply_since_start(mut self, ply: usize) -> Res<Self> {
+    fn set_ply_since_start(&mut self, ply: usize) -> Res<()> {
         let ply = u32::try_from(ply).map_err(|err| anyhow!("Invalid ply number: {err}"))?;
         self.0.ply = ply;
-        Ok(self)
+        Ok(())
     }
 
-    fn set_halfmove_repetition_clock(self, _ply: usize) -> Res<Self> {
+    fn set_halfmove_repetition_clock(&mut self, _ply: usize) -> Res<()> {
         // ignored
-        Ok(self)
+        Ok(())
     }
 }
 

@@ -21,7 +21,6 @@ use crate::games::fairy::moves::MoveEffect::{
     ResetEp, SetColorTo, SetEp,
 };
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
-use crate::games::fairy::rules::rules;
 use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::{
     FairyBitboard, FairyBoard, FairyColor, FairySize, FairySquare, RawFairyBitboard, Side,
@@ -30,8 +29,9 @@ use crate::games::{AbstractPieceType, Color, ColoredPieceType, DimT, Size};
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::Verify;
 use crate::general::board::Strictness::Relaxed;
-use crate::general::board::{BitboardBoard, Board, BoardHelpers, UnverifiedBoard};
+use crate::general::board::{BitboardBoard, Board, UnverifiedBoard};
 use crate::general::common::{tokens, Res};
+use crate::general::moves::Legality::PseudoLegal;
 use crate::general::moves::{ExtendedFormat, Legality, Move, UntrustedMove};
 use crate::general::squares::{CompactSquare, RectangularCoordinates};
 use anyhow::bail;
@@ -119,7 +119,8 @@ impl Move<FairyBoard> for FairyMove {
     type Underlying = u32;
 
     fn legality() -> Legality {
-        rules().legality
+        // TODO: Lots of games have legal movegen, so look into returning Legal for those
+        PseudoLegal
     }
 
     fn src_square_in(self, pos: &FairyBoard) -> Option<FairySquare> {
@@ -212,7 +213,7 @@ fn format_move_compact(
             write!(
                 f,
                 "{from}{to}{}",
-                rules().pieces.get(piece)?.uncolored_symbol[0].to_ascii_lowercase()
+                pos.get_rules().pieces.get(piece)?.uncolored_symbol[0].to_ascii_lowercase()
             )
         }
         MoveKind::Castle(side) => {
@@ -224,13 +225,14 @@ fn format_move_compact(
             write!(f, "{from}{rook_sq}")
         }
         MoveKind::Drop(piece) => {
-            if rules().pieces.len() == 1 {
+            if pos.get_rules().pieces.len() == 1 {
                 write!(f, "{to}")
             } else {
                 write!(
                     f,
                     "{to}{}",
-                    rules().pieces.get(piece as usize)?.uncolored_symbol[0].to_ascii_lowercase()
+                    pos.get_rules().pieces.get(piece as usize)?.uncolored_symbol[0]
+                        .to_ascii_lowercase()
                 )
             }
         }
@@ -262,10 +264,10 @@ impl MoveEffect {
             MoveEffect::ResetDrawCtr => pos.draw_counter = 0,
             PlaceSinglePiece(square, piece) => {
                 debug_assert!(pos.is_empty(square));
-                *pos = pos.place_piece(square, piece);
+                pos.place_piece(square, piece);
             }
             RemoveSinglePiece(square) => {
-                *pos = pos.remove_piece(square);
+                pos.remove_piece(square);
             }
             // ClearSquares(to_remove) => {
             //     // TODO: Maybe some kind of death callback would make sense? That's definitely not in the first version though
@@ -278,9 +280,9 @@ impl MoveEffect {
             //     }
             // }
             SetColorTo(to_flip, color) => {
-                let flipped = pos.color_bitboards[color.other() as usize] & to_flip;
-                pos.color_bitboards[!color as usize] ^= flipped;
-                pos.color_bitboards[color as usize] ^= flipped;
+                let flipped = pos.color_bitboards[color.other().idx()] & to_flip;
+                pos.color_bitboards[color.other().idx()] ^= flipped;
+                pos.color_bitboards[color.idx()] ^= flipped;
             }
             SetEp(sq) => {
                 pos.ep = Some(sq);
@@ -302,7 +304,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
     let from = mov.from.square(pos.size());
     let to = mov.dest(pos.size());
     let piece = mov.piece(pos);
-    let piece_rules = &rules().pieces[piece.uncolor().val()];
+    let piece_rules = &pos.get_rules().pieces[piece.uncolor().val()];
     let mut set_ep = None;
     if mov.is_capture() {
         let is_ep = piece_rules.can_ep_capture && Some(to) == pos.0.ep;
@@ -347,7 +349,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
         }
         MoveKind::Castle(side) => {
             debug_assert!(pos.0.castling_info.can_castle(pos.active_player(), side));
-            let castling_info = pos.0.castling_info.players[pos.active_player() as usize];
+            let castling_info = pos.0.castling_info.players[pos.active_player().idx()];
             debug_assert_eq!(castling_info.king_dest_sq(side), Some(to));
             let rook_sq = castling_info.rook_sq(side).unwrap();
             let rook = pos.colored_piece_on(rook_sq).symbol;
@@ -370,7 +372,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
     } else {
         ResetEp.apply(pos);
     }
-    if rules().has_castling {
+    if pos.get_rules().has_castling {
         for color in FairyColor::iter() {
             let castling_bb = pos.castling_bb() & pos.player_bb(color);
             if castling_bb.is_bit_set_at(pos.size().internal_key(from))
@@ -394,7 +396,8 @@ impl FairyBoard {
         let MoveKind::Castle(side) = mov.kind() else {
             return true;
         };
-        let castling = self.0.castling_info.player(self.active_player());
+        let us = self.active_player();
+        let castling = self.0.castling_info.player(us);
         let from = mov.source(self.size());
         let to = mov.dest(self.size());
         debug_assert!(self
@@ -403,7 +406,7 @@ impl FairyBoard {
         debug_assert_eq!(castling.king_dest_sq(side).unwrap(), to);
         debug_assert_eq!(to.rank(), from.rank());
         debug_assert_eq!(to.rank(), from.rank());
-        let their_attacks = self.capturing_attack_bb_of(self.inactive_player());
+        let their_attacks = self.capturing_attack_bb_of(!us);
         if their_attacks.is_bit_set_at(mov.from.0 as usize) {
             return false; // in check
         }
@@ -430,7 +433,7 @@ impl FairyBoard {
         if !self.can_make_move(mov) {
             return None;
         }
-        let rules = rules();
+        let rules = self.get_rules();
         self.0.draw_counter += 1; // do this before an effect could reset it to zero
         effects_for(mov, &mut self, rules.effect_rules);
         if rules.store_last_move {
@@ -439,7 +442,7 @@ impl FairyBoard {
         self.end_move()
     }
 
-    pub(super) fn end_move(&mut self) -> Option<Self> {
+    pub(super) fn end_move(mut self) -> Option<Self> {
         self.0.ply_since_start += 1;
         self.flip_side_to_move()
     }
@@ -450,7 +453,7 @@ impl FairyBoard {
             return None;
         }
         self.0.active = !self.0.active;
-        debug_assert!(self.0.verify_with_level(Verify, Relaxed).is_ok());
+        debug_assert!(self.0.clone().verify_with_level(Verify, Relaxed).is_ok());
         Some(self)
     }
 }

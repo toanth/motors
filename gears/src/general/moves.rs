@@ -31,7 +31,7 @@ use std::hash::Hash;
 /// for the given position, which is why such a move is represented as a `Untrusted<Move>`.
 /// Note that legality depends on the position and can't be statically enforced; incorrectly assuming (pseudo)legality
 /// usually results in a panic when playing the move, although *there is no guarantee given; the behavior is unspecified*.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
 pub enum Legality {
     PseudoLegal,
     Legal,

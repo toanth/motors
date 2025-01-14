@@ -17,24 +17,28 @@
  */
 use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::fairy::attacks::EffectRules;
+use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{Piece, PieceId};
 use crate::games::fairy::rules::GameLoss::InRowAtLeast;
-use crate::games::fairy::{ColorInfo, FairySize, MAX_NUM_PIECE_TYPES};
+use crate::games::fairy::{
+    ColorInfo, FairyBitboard, FairyCastleInfo, FairyColor, FairySize, RawFairyBitboard,
+    UnverifiedFairyBoard, MAX_NUM_PIECE_TYPES,
+};
 use crate::games::mnk::{MNKBoard, MnkSettings};
-use crate::games::{chess, DimT};
+use crate::games::{chess, DimT, Settings};
+use crate::general::bitboards::Bitboard;
 use crate::general::board::{Board, BoardHelpers};
 use crate::general::common::{Res, Tokens};
-use crate::general::moves::Legality;
-use crate::general::moves::Legality::PseudoLegal;
 use crate::general::squares::GridSize;
-use arrayvec::ArrayVec;
-use std::cell::{Ref, RefCell, RefMut};
+use arbitrary::Arbitrary;
 use std::fmt;
-use std::fmt::Formatter;
-use thread_local::ThreadLocal;
+use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
+use std::ops::Deref;
+use std::sync::{Arc, LazyLock};
 
 /// Whether any or all royal pieces have to be attacked for the player to be considered in check
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, Arbitrary)]
 pub enum CheckRules {
     #[default]
     AnyRoyal,
@@ -42,7 +46,7 @@ pub enum CheckRules {
     AllRoyals,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
 #[must_use]
 #[allow(dead_code)]
 pub enum GameLoss {
@@ -55,7 +59,7 @@ pub enum GameLoss {
     InRowAtLeast(usize),
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
 #[must_use]
 pub enum Draw {
     NoMoves,
@@ -63,25 +67,62 @@ pub enum Draw {
     Repetition(usize),
 }
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Arbitrary)]
 pub enum RulesFenPart {
     #[default]
     None,
     Mnk(MnkSettings),
 }
 
+#[must_use]
+pub(super) struct EmptyBoard(Box<dyn Fn(&RulesRef) -> UnverifiedFairyBoard + Send + Sync>);
+
+impl Debug for EmptyBoard {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "EmptyBoardFn")
+    }
+}
+
+impl Arbitrary<'_> for EmptyBoard {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let board = UnverifiedFairyBoard {
+            piece_bitboards: [RawFairyBitboard::arbitrary(u)?; MAX_NUM_PIECE_TYPES],
+            color_bitboards: [RawFairyBitboard::arbitrary(u)?; NUM_COLORS],
+            mask_bb: RawFairyBitboard::arbitrary(u)?,
+            in_hand: [u8::arbitrary(u)?; MAX_NUM_PIECE_TYPES],
+            ply_since_start: usize::arbitrary(u)?,
+            num_piece_bitboards: usize::arbitrary(u)?,
+            draw_counter: usize::arbitrary(u)?,
+            active: FairyColor::arbitrary(u)?,
+            castling_info: FairyCastleInfo::arbitrary(u)?,
+            size: GridSize::arbitrary(u)?,
+            ep: Option::arbitrary(u)?,
+            last_move: FairyMove::arbitrary(u)?,
+            rules: Default::default(),
+        };
+        let func = move |rules: &RulesRef| {
+            let mut b = board.clone();
+            b.rules = rules.clone();
+            b
+        };
+        Ok(EmptyBoard(Box::new(func)))
+    }
+}
+
 /// This struct defined the rules for the game.
 /// Since the rules don't change during a game, but are expensive to copy and the board uses copy-make,
 /// they are created once and stored globally.
 #[must_use]
+#[derive(Debug, Arbitrary)]
 pub(super) struct Rules {
-    pub pieces: ArrayVec<Piece, MAX_NUM_PIECE_TYPES>,
+    pub pieces: Vec<Piece>,
     pub colors: [ColorInfo; NUM_COLORS],
     pub starting_pieces_in_hand: [u8; MAX_NUM_PIECE_TYPES],
     pub game_loss: Vec<GameLoss>,
     pub draw: Vec<Draw>,
     pub startpos_fen: String,
-    pub legality: Legality,
+    pub empty_board: EmptyBoard,
+    // pub legality: Legality,
     pub size: GridSize,
     pub has_ep: bool,
     pub has_castling: bool,
@@ -94,7 +135,8 @@ pub(super) struct Rules {
 
 impl Rules {
     pub(super) fn rules_fen_part(&self, f: &mut Formatter) -> fmt::Result {
-        match rules().fen_part {
+        write!(f, "{} ", self.name)?;
+        match self.fen_part {
             RulesFenPart::None => Ok(()),
             RulesFenPart::Mnk(settings) => {
                 write!(f, "{settings} ")
@@ -102,15 +144,19 @@ impl Rules {
         }
     }
 
-    pub(super) fn read_rules_fen_part(input: &mut Tokens) -> Res<()> {
-        let fen_part = rules().fen_part;
+    pub(super) fn read_rules_fen_part(&self, input: &mut Tokens) -> Res<Option<RulesRef>> {
+        let fen_part = self.fen_part;
         match fen_part {
-            RulesFenPart::None => Ok(()),
-            RulesFenPart::Mnk(_) => {
+            RulesFenPart::None => Ok(None),
+            RulesFenPart::Mnk(old) => {
                 let first = input.next().unwrap_or_default();
                 let settings = MnkSettings::from_input(first, input)?;
-                set_rules(Rules::mnk(settings.size(), settings.k() as DimT));
-                Ok(())
+                if settings != old {
+                    let rules = Rules::mnk(settings.size(), settings.k() as DimT);
+                    Ok(Some(RulesRef(Arc::new(rules))))
+                } else {
+                    Ok(None)
+                }
             }
         }
     }
@@ -139,6 +185,25 @@ impl Rules {
 
     pub fn has_halfmove_repetition_clock(&self) -> bool {
         self.draw.iter().any(|d| matches!(d, &Draw::Repetition(_)))
+    }
+
+    fn generic_empty_board(rules: &RulesRef) -> UnverifiedFairyBoard {
+        let size = rules.0.size;
+        UnverifiedFairyBoard {
+            piece_bitboards: Default::default(),
+            color_bitboards: Default::default(),
+            mask_bb: FairyBitboard::valid_squares_for_size(size).raw(),
+            in_hand: rules.0.starting_pieces_in_hand,
+            ply_since_start: 0,
+            num_piece_bitboards: rules.0.pieces.len(),
+            draw_counter: 0,
+            active: Default::default(),
+            castling_info: FairyCastleInfo::new(size),
+            size,
+            ep: None,
+            last_move: Default::default(),
+            rules: rules.clone(),
+        }
     }
 
     // Used for mnk games and many other variants
@@ -175,8 +240,9 @@ impl Rules {
         let game_loss = vec![GameLoss::Checkmate];
         let draw = vec![Draw::NoMoves, Draw::Counter(100), Draw::Repetition(3)];
         let startpos_fen = chess::START_FEN.to_string();
-        let legality = PseudoLegal;
+        // let legality = PseudoLegal;
         let effect_rules = EffectRules::default();
+        let empty_func = Self::generic_empty_board;
         Self {
             pieces,
             colors,
@@ -184,14 +250,15 @@ impl Rules {
             game_loss,
             draw,
             startpos_fen,
-            legality,
+            // legality,
+            empty_board: EmptyBoard(Box::new(empty_func)),
             size: FairySize::chess(),
             has_ep: true,
             has_castling: true,
             store_last_move: false,
             effect_rules,
             check_rules: CheckRules::AnyRoyal,
-            name: "Chess".to_string(),
+            name: "chess".to_string(),
             fen_part: RulesFenPart::None,
         }
     }
@@ -205,10 +272,9 @@ impl Rules {
             GameLoss::NoNonRoyalsExceptRecapture,
         ];
         let draw = vec![Draw::NoMoves, Draw::Counter(100), Draw::Repetition(3)];
-        let startpos_fen = "rnakfanr/pppppppp/8/8/8/8/PPPPPPPP/RNAKFANR w 0 1".to_string();
-        let legality = PseudoLegal;
+        let startpos_fen = "shatranj rnakfanr/pppppppp/8/8/8/8/PPPPPPPP/RNAKFANR w 0 1".to_string();
+        // let legality = PseudoLegal;
         let effect_rules = EffectRules::default();
-
         Self {
             pieces,
             colors,
@@ -216,14 +282,15 @@ impl Rules {
             game_loss,
             draw,
             startpos_fen,
-            legality,
+            // legality,
+            empty_board: EmptyBoard(Box::new(Self::generic_empty_board)),
             size: FairySize::chess(),
             has_ep: false,
             has_castling: false,
             store_last_move: false,
             effect_rules,
             check_rules: CheckRules::AnyRoyal,
-            name: "Chess".to_string(),
+            name: "shatranj".to_string(),
             fen_part: RulesFenPart::None,
         }
     }
@@ -234,10 +301,10 @@ impl Rules {
 
     pub fn mnk(size: FairySize, k: DimT) -> Self {
         let piece = Piece::complete_piece_map(size).remove("mnk").unwrap();
-        let mut pieces = ArrayVec::new();
+        let mut pieces = Vec::new();
         pieces.push(piece);
         let settings = MnkSettings::new(size.height, size.width, k);
-        let startpos_fen = MNKBoard::startpos_for_settings(settings).as_fen();
+        let startpos_fen = "mnk ".to_string() + &MNKBoard::startpos_for_settings(settings).as_fen();
         Self {
             pieces,
             colors: Self::mnk_colors(),
@@ -245,7 +312,8 @@ impl Rules {
             game_loss: vec![InRowAtLeast(k as usize)],
             draw: vec![Draw::NoMoves],
             startpos_fen,
-            legality: Legality::Legal,
+            // legality: Legality::Legal,
+            empty_board: EmptyBoard(Box::new(Self::generic_empty_board)),
             size,
             has_ep: false,
             has_castling: false,
@@ -258,25 +326,51 @@ impl Rules {
     }
 }
 
-pub fn set_rules(rules: Rules) {
-    *rules_mut() = rules;
+#[must_use]
+#[derive(Clone, Arbitrary)]
+pub struct RulesRef(pub(super) Arc<Rules>);
+
+impl RulesRef {
+    pub(super) fn new(rules: Rules) -> Self {
+        Self(Arc::new(rules))
+    }
+
+    pub fn empty_pos(&self) -> UnverifiedFairyBoard {
+        (self.0.empty_board.0)(self)
+    }
 }
 
-/// The least bad option to implement rules.
-/// In the future, it might make sense to explore an implementation where each piece, move, etc, contains
-/// a reference / Rc to the rules.
-/// Also, a lot of this should go into a position struct, which wraps a board and rules and isn't copy.
-static FAIRY_RULES: ThreadLocal<RefCell<Rules>> = ThreadLocal::new();
-
-// this function is a lot slower than just reading a variable, but speed isn't the largest concern for fairy chess anyway.
-// TODO: Still, it might be worth to test if caching the rules improves elo. The major drawback would be the possibility of panics
-// if a cached entry still exists when the rules are getting changed
-pub(super) fn rules() -> Ref<'static, Rules> {
-    FAIRY_RULES.get_or(|| RefCell::new(Rules::chess())).borrow()
+impl Debug for RulesRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "rules ref")
+    }
 }
 
-pub(super) fn rules_mut() -> RefMut<'static, Rules> {
-    FAIRY_RULES
-        .get_or(|| RefCell::new(Rules::chess()))
-        .borrow_mut()
+impl Default for RulesRef {
+    fn default() -> Self {
+        RulesRef(DEFAULT_FAIRY_RULES.clone())
+    }
 }
+
+impl PartialEq for RulesRef {
+    fn eq(&self, other: &Self) -> bool {
+        // if the fen prefix describing the rules is identical, so are the rules
+        self.0.name == other.0.name && self.0.fen_part == other.0.fen_part
+    }
+}
+
+impl Eq for RulesRef {}
+
+impl Hash for RulesRef {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::ptr::hash(self.0.deref(), state);
+    }
+}
+
+impl Settings for RulesRef {
+    fn text(&self) -> Option<String> {
+        Some(format!("Variant: {}", self.0.name))
+    }
+}
+
+static DEFAULT_FAIRY_RULES: LazyLock<Arc<Rules>> = LazyLock::new(|| Arc::new(Rules::chess()));

@@ -7,8 +7,8 @@ use strum_macros::{EnumIter, FromRepr};
 use crate::games::chess::pieces::ChessPieceType::*;
 
 use crate::games::chess::ChessColor::*;
-use crate::games::chess::{ChessColor, Chessboard};
-use crate::games::{AbstractPieceType, CharType, ColoredPieceType, GenericPiece, PieceType};
+use crate::games::chess::{ChessColor, ChessSettings, Chessboard};
+use crate::games::{AbstractPieceType, CharType, Color, ColoredPieceType, GenericPiece, PieceType};
 
 pub const NUM_CHESS_PIECES: usize = 6;
 pub const NUM_COLORS: usize = 2;
@@ -76,20 +76,46 @@ impl ChessPieceType {
             Empty => "empty",
         }
     }
+    pub fn parse_from_char(c: char) -> Option<Self> {
+        match c.to_ascii_lowercase() {
+            ' ' => Some(Empty),
+            // it's normal to use white symbols as colorless symbols, so also support that
+            // And since we output the black pieces, we should definitely parse them, too
+            'p' | UNICODE_NEUTRAL_PAWN | UNICODE_WHITE_PAWN | UNICODE_BLACK_PAWN => Some(Pawn),
+            'n' | 's' | UNICODE_NEUTRAL_KNIGHT | UNICODE_WHITE_KNIGHT | UNICODE_BLACK_KNIGHT => {
+                Some(Knight)
+            }
+            'b' | 'l' | UNICODE_NEUTRAL_BISHOP | UNICODE_WHITE_BISHOP | UNICODE_BLACK_BISHOP => {
+                Some(Bishop)
+            }
+            'r' | 't' | UNICODE_NEUTRAL_ROOK | UNICODE_WHITE_ROOK | UNICODE_BLACK_ROOK => {
+                Some(Rook)
+            }
+            'q' | 'd' | UNICODE_NEUTRAL_QUEEN | UNICODE_WHITE_QUEEN | UNICODE_BLACK_QUEEN => {
+                Some(Queen)
+            }
+            'k' | UNICODE_NEUTRAL_KING | UNICODE_WHITE_KING | UNICODE_BLACK_KING => Some(King),
+            _ => None,
+        }
+    }
 }
 
 impl Display for ChessPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Unicode))
+        write!(
+            f,
+            "{}",
+            self.to_char(CharType::Unicode, &ChessSettings::default())
+        )
     }
 }
 
-impl AbstractPieceType for ChessPieceType {
+impl AbstractPieceType<Chessboard> for ChessPieceType {
     fn empty() -> Self {
         Empty
     }
 
-    fn to_char(self, typ: CharType) -> char {
+    fn to_char(self, typ: CharType, _settings: &ChessSettings) -> char {
         match typ {
             CharType::Ascii => match self {
                 Empty => '.',
@@ -114,32 +140,13 @@ impl AbstractPieceType for ChessPieceType {
         }
     }
 
-    fn to_default_utf8_char(self) -> char {
-        ColoredChessPieceType::new(Black, self).to_default_utf8_char()
+    fn to_default_utf8_char(self, settings: &ChessSettings) -> char {
+        ColoredChessPieceType::new(Black, self).to_default_utf8_char(settings)
     }
 
     /// Also parses German notation.
-    fn from_char(c: char) -> Option<Self> {
-        match c.to_ascii_lowercase() {
-            ' ' => Some(Empty),
-            // it's normal to use white symbols as colorless symbols, so also support that
-            // And since we output the black pieces, we should definitely parse them, too
-            'p' | UNICODE_NEUTRAL_PAWN | UNICODE_WHITE_PAWN | UNICODE_BLACK_PAWN => Some(Pawn),
-            'n' | 's' | UNICODE_NEUTRAL_KNIGHT | UNICODE_WHITE_KNIGHT | UNICODE_BLACK_KNIGHT => {
-                Some(Knight)
-            }
-            'b' | 'l' | UNICODE_NEUTRAL_BISHOP | UNICODE_WHITE_BISHOP | UNICODE_BLACK_BISHOP => {
-                Some(Bishop)
-            }
-            'r' | 't' | UNICODE_NEUTRAL_ROOK | UNICODE_WHITE_ROOK | UNICODE_BLACK_ROOK => {
-                Some(Rook)
-            }
-            'q' | 'd' | UNICODE_NEUTRAL_QUEEN | UNICODE_WHITE_QUEEN | UNICODE_BLACK_QUEEN => {
-                Some(Queen)
-            }
-            'k' | UNICODE_NEUTRAL_KING | UNICODE_WHITE_KING | UNICODE_BLACK_KING => Some(King),
-            _ => None,
-        }
+    fn from_char(c: char, _settings: &ChessSettings) -> Option<Self> {
+        Self::parse_from_char(c)
     }
 
     fn to_uncolored_idx(self) -> usize {
@@ -193,20 +200,43 @@ impl ColoredChessPieceType {
             self.uncolor().name()
         )
     }
+
+    pub fn parse_from_char(c: char) -> Option<Self> {
+        match c {
+            ' ' => Some(ColoredChessPieceType::Empty),
+            'P' | UNICODE_WHITE_PAWN => Some(ColoredChessPieceType::WhitePawn),
+            'N' | 'S' | UNICODE_WHITE_KNIGHT => Some(ColoredChessPieceType::WhiteKnight),
+            'B' | 'L' | UNICODE_WHITE_BISHOP => Some(ColoredChessPieceType::WhiteBishop),
+            'R' | 'T' | UNICODE_WHITE_ROOK => Some(ColoredChessPieceType::WhiteRook),
+            'Q' | 'D' | UNICODE_WHITE_QUEEN => Some(ColoredChessPieceType::WhiteQueen),
+            'K' | UNICODE_WHITE_KING => Some(ColoredChessPieceType::WhiteKing),
+            'p' | UNICODE_BLACK_PAWN => Some(ColoredChessPieceType::BlackPawn),
+            'n' | 's' | UNICODE_BLACK_KNIGHT => Some(ColoredChessPieceType::BlackKnight),
+            'b' | 'l' | UNICODE_BLACK_BISHOP => Some(ColoredChessPieceType::BlackBishop),
+            'r' | 't' | UNICODE_BLACK_ROOK => Some(ColoredChessPieceType::BlackRook),
+            'q' | 'd' | UNICODE_BLACK_QUEEN => Some(ColoredChessPieceType::BlackQueen),
+            'k' | UNICODE_BLACK_KING => Some(ColoredChessPieceType::BlackKing),
+            _ => None,
+        }
+    }
 }
 
 impl Display for ColoredChessPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Unicode))
+        write!(
+            f,
+            "{}",
+            self.to_char(CharType::Unicode, &ChessSettings::default())
+        )
     }
 }
 
-impl AbstractPieceType for ColoredChessPieceType {
+impl AbstractPieceType<Chessboard> for ColoredChessPieceType {
     fn empty() -> Self {
         Self::Empty
     }
 
-    fn to_char(self, typ: CharType) -> char {
+    fn to_char(self, typ: CharType, _settings: &ChessSettings) -> char {
         match typ {
             CharType::Ascii => match self {
                 ColoredChessPieceType::Empty => '.',
@@ -241,32 +271,17 @@ impl AbstractPieceType for ColoredChessPieceType {
         }
     }
 
-    fn to_default_utf8_char(self) -> char {
+    fn to_default_utf8_char(self, settings: &ChessSettings) -> char {
         if self == ColoredChessPieceType::Empty {
-            self.to_char(CharType::Unicode)
+            self.to_char(CharType::Unicode, settings)
         } else {
-            ColoredChessPieceType::new(Black, self.uncolor()).to_char(CharType::Unicode)
+            ColoredChessPieceType::new(Black, self.uncolor()).to_char(CharType::Unicode, settings)
         }
     }
 
     /// Also parses German notation (pawns are still represented as 'p' to avoid ambiguity with bishops).
-    fn from_char(c: char) -> Option<Self> {
-        match c {
-            ' ' => Some(ColoredChessPieceType::Empty),
-            'P' | UNICODE_WHITE_PAWN => Some(ColoredChessPieceType::WhitePawn),
-            'N' | 'S' | UNICODE_WHITE_KNIGHT => Some(ColoredChessPieceType::WhiteKnight),
-            'B' | 'L' | UNICODE_WHITE_BISHOP => Some(ColoredChessPieceType::WhiteBishop),
-            'R' | 'T' | UNICODE_WHITE_ROOK => Some(ColoredChessPieceType::WhiteRook),
-            'Q' | 'D' | UNICODE_WHITE_QUEEN => Some(ColoredChessPieceType::WhiteQueen),
-            'K' | UNICODE_WHITE_KING => Some(ColoredChessPieceType::WhiteKing),
-            'p' | UNICODE_BLACK_PAWN => Some(ColoredChessPieceType::BlackPawn),
-            'n' | 's' | UNICODE_BLACK_KNIGHT => Some(ColoredChessPieceType::BlackKnight),
-            'b' | 'l' | UNICODE_BLACK_BISHOP => Some(ColoredChessPieceType::BlackBishop),
-            'r' | 't' | UNICODE_BLACK_ROOK => Some(ColoredChessPieceType::BlackRook),
-            'q' | 'd' | UNICODE_BLACK_QUEEN => Some(ColoredChessPieceType::BlackQueen),
-            'k' | UNICODE_BLACK_KING => Some(ColoredChessPieceType::BlackKing),
-            _ => None,
-        }
+    fn from_char(c: char, _settings: &ChessSettings) -> Option<Self> {
+        Self::parse_from_char(c)
     }
 
     fn to_uncolored_idx(self) -> usize {

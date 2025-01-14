@@ -17,7 +17,6 @@ use crate::output::OutputBuilder;
 use crate::PlayerResult;
 use derive_more::{BitXor, BitXorAssign};
 use rand::Rng;
-use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 #[cfg(feature = "ataxx")]
@@ -40,63 +39,79 @@ pub enum CharType {
     Unicode,
 }
 
-/// Abstracts game-specific conventions about the names of the platers.
-pub trait Color:
-    Debug + Display + Default + Copy + Clone + PartialEq + Eq + Send + Hash + Not + IntoEnumIterator
-{
+pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash + Not {
+    type Board: Board<Color = Self>;
+
     #[must_use]
-    fn other(self) -> Self;
+    fn other(self) -> Self {
+        if self.is_first() {
+            Self::second()
+        } else {
+            Self::first()
+        }
+    }
+
     fn first() -> Self {
         Self::default()
     }
-    fn second() -> Self {
-        Self::first().other()
-    }
+
+    fn second() -> Self;
+
     fn is_first(self) -> bool {
         self == Self::first()
     }
 
-    fn color_char(self, _typ: CharType) -> char;
-
-    // ASCII cases are ignored, but unicode in general can be weird as usual, so cases matter
-    fn from_char(color: char) -> Option<Self> {
-        for char_type in CharType::iter() {
-            for col in Self::iter() {
-                if color.eq_ignore_ascii_case(&col.color_char(char_type)) {
-                    return Some(col);
-                }
-            }
-        }
-        None
+    fn iter() -> impl Iterator<Item = Self> {
+        [Self::first(), Self::second()].into_iter()
     }
+
+    /// Takes a board parameter because the `FairyBoard` color can change based on the rules
+    fn from_char(color: char, settings: &<Self::Board as Board>::Settings) -> Option<Self> {
+        if Self::first().to_char(settings).eq_ignore_ascii_case(&color) {
+            Some(Self::first())
+        } else if Self::second()
+            .to_char(settings)
+            .eq_ignore_ascii_case(&color)
+        {
+            Some(Self::second())
+        } else {
+            None
+        }
+    }
+
+    fn to_char(self, _settings: &<Self::Board as Board>::Settings) -> char;
+
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl Display;
 }
 
 /// Common parts of colored and uncolored piece types
-pub trait AbstractPieceType: Eq + Copy + Debug + Default + Display {
+// TODO: Remove default?
+pub trait AbstractPieceType<B: Board>: Eq + Copy + Debug + Default {
     fn empty() -> Self;
 
-    fn to_char(self, typ: CharType) -> char;
+    fn to_char(self, typ: CharType, _settings: &B::Settings) -> char;
 
     /// For chess, uncolored piece symbols are different from both white and black piece symbols, but
     /// used very rarely (and kind of ugly). So this maps to the much more common black piece version,
     /// which is useful for text-based outputs that color the pieces themselves.
-    fn to_default_utf8_char(self) -> char {
-        self.to_char(CharType::Unicode)
+    fn to_default_utf8_char(self, settings: &B::Settings) -> char {
+        self.to_char(CharType::Unicode, settings)
     }
 
-    // when parsing chars, we don't distinguish between ascii and unicode symbols
-    fn from_char(c: char) -> Option<Self>;
+    /// When parsing chars, we don't distinguish between ascii and unicode symbols.
+    /// Takes a board parameter because the `FairyBoard` pieces can change based on the rules
+    fn from_char(c: char, _pos: &B::Settings) -> Option<Self>;
 
     fn to_uncolored_idx(self) -> usize;
 }
 
-pub trait PieceType<B: Board>: AbstractPieceType {
+pub trait PieceType<B: Board>: AbstractPieceType<B> {
     type Colored: ColoredPieceType<B>;
 
     fn from_idx(idx: usize) -> Self;
 }
 
-pub trait ColoredPieceType<B: Board>: AbstractPieceType {
+pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
     type Uncolored: PieceType<B>;
 
     fn color(self) -> Option<B::Color>;
@@ -122,8 +137,8 @@ where
         self.colored_piece_type().uncolor()
     }
 
-    fn to_char(self, typ: CharType) -> char {
-        self.colored_piece_type().to_char(typ)
+    fn to_char(self, typ: CharType, settings: &B::Settings) -> char {
+        self.colored_piece_type().to_char(typ, settings)
     }
 
     fn is_empty(self) -> bool {
@@ -160,7 +175,7 @@ impl<B: Board<Piece = Self>, ColType: ColoredPieceType<B>> ColoredPiece<B>
     }
 }
 
-impl<B: Board, ColType: ColoredPieceType<B>> Display for GenericPiece<B, ColType> {
+impl<B: Board, ColType: ColoredPieceType<B> + Display> Display for GenericPiece<B, ColType> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.symbol, f)
     }

@@ -2,8 +2,9 @@
 //! It is designed to be easily extensible to new games. [`gears`](crate) forms the foundation of the `motors`, `monitors`
 //! and `pliers` crates, which deal with engines, UI, and tuning, respectively.
 
+use crate::games::Color;
 #[deny(unused_results)]
-use crate::games::{BoardHistory, Color, ZobristHistory};
+use crate::games::{BoardHistory, ZobristHistory};
 use crate::general::board::{Board, BoardHelpers, Strictness};
 use crate::general::common::Description::WithDescription;
 use crate::general::common::{select_name_dyn, Res, Tokens};
@@ -246,7 +247,7 @@ pub fn player_res_to_match_res<C: Color>(game_over: GameOver, color: C) -> Match
     let result = match game_over.result {
         PlayerResult::Draw => GameResult::Draw,
         res => {
-            if (color == C::first()) == (res == Win) {
+            if color.is_first() == (res == Win) {
                 GameResult::P1Win
             } else {
                 GameResult::P2Win
@@ -436,7 +437,7 @@ impl<B: Board> MatchState<B> {
     }
 
     pub fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()> {
-        self.board.set_variant(first, words)?;
+        self.board = B::variant(first, words)?;
         self.pos_before_moves = self.board.clone();
         self.mov_hist.clear();
         self.board_hist.clear();
