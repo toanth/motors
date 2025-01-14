@@ -600,7 +600,7 @@ pub fn ugi_commands() -> CommandList {
         ugi_command!(
             load_pgn | pgn,
             Custom,
-            "Loads the given file, which must contain a PGN",
+            "Loads a PGN from a given file, or opens a text editor",
             |ugi, words, _| { ugi.load_pgn(words) }
         ),
         ugi_command!(

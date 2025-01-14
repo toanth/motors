@@ -1,9 +1,9 @@
 use crate::general::board::{Board, BoardHelpers, Strictness};
-use crate::general::common::{tokens, NamedEntity, Res, Tokens};
+use crate::general::common::{tokens, tokens_to_string, NamedEntity, Res, Tokens};
 use crate::general::moves::Move;
+use crate::output::pgn::parse_pgn;
 use anyhow::{anyhow, bail};
 use colored::Colorize;
-use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
@@ -297,19 +297,22 @@ pub fn parse_ugi_position_part<B: Board>(
         first = pos_word;
     }
     let remaining = rest.clone();
-    let mut copy = rest.clone();
+    let copy = rest.clone();
     let res = parse_ugi_position_part_impl(first, rest, old_board, strictness);
     let Err(err) = res else { return res };
     // If parsing the position failed, we try to insert 'fen' at the beginning and parse it again.
-    let words = first.to_string() + " " + &copy.join(" ");
-    let mut tokens = tokens(&words);
-    let res = B::read_fen_and_advance_input(&mut tokens, strictness);
-    let advance_by = rest.clone().count() - tokens.count();
+    // (So 'mnk 3 3 3 3/3/3 x 1' is valid)
+    let original_string = tokens_to_string(first, copy.clone());
+    let mut original_tokens = tokens(&original_string);
+    let res = B::read_fen_and_advance_input(&mut original_tokens, strictness);
+    // assert!(unconsumed_rest.ends_with(&unconsumed_tokens));
+    *rest = copy;
+    let advance_by = rest.clone().count() + 1 - original_tokens.count();
     for _ in 0..advance_by {
-        _ = rest.next().unwrap();
+        _ = rest.next();
     }
     let Err(_) = res else { return res };
-    // If that fails as well, we try to parse it as a variant, then parse the rest as a position description.
+    // If that failed as well, we try to parse it as a variant, then parse the rest as a position description.
     // (So 'shatranj startpos' is valid)
     *rest = remaining;
     let pos = B::variant(first, rest).map_err(|_| err)?;
@@ -318,7 +321,7 @@ pub fn parse_ugi_position_part<B: Board>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn parse_ugi_position_and_moves<
+fn parse_ugi_position_and_moves_impl<
     B: Board,
     S,
     F: Fn(&mut S, B::Move) -> Res<()>,
@@ -406,6 +409,54 @@ pub fn parse_ugi_position_and_moves<
     }
     if !parsed_move {
         bail!("Missing move after '{}'", "moves".bold())
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn parse_ugi_position_and_moves<
+    B: Board,
+    S,
+    F: Fn(&mut S, B::Move) -> Res<()>,
+    G: Fn(&mut S),
+    H: Fn(&mut S) -> &mut B,
+>(
+    first_word: &str,
+    rest: &mut Tokens,
+    accept_pos_word: bool,
+    strictness: Strictness,
+    old_board: &B,
+    state: &mut S,
+    make_move: F,
+    finish_pos: G,
+    get_board: H,
+) -> Res<()> {
+    let Err(err) = parse_ugi_position_and_moves_impl(
+        first_word,
+        rest,
+        accept_pos_word,
+        strictness,
+        old_board,
+        state,
+        &make_move,
+        &finish_pos,
+        &get_board,
+    ) else {
+        return Ok(());
+    };
+    // If parsing the position as UGI failed, try to parse it as PGN instead.
+    let text = tokens_to_string(first_word, rest.clone());
+    let pgn = parse_pgn(&text, strictness, None).map_err(|_| err)?;
+    *get_board(state) = pgn.game.pos_before_moves;
+    finish_pos(state);
+    for mov in pgn.game.mov_hist {
+        make_move(state, mov)?;
+    }
+    // parsing the PGN was successful, so consume the entire input
+    loop {
+        if let None = rest.next() {
+            break;
+        }
     }
     Ok(())
 }

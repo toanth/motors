@@ -2,13 +2,10 @@
 
 use std::fmt::{Display, Formatter};
 use std::io::{BufRead, BufReader};
-use std::ops::Add;
 use std::process::ChildStdout;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Instant;
-
-use itertools::Itertools;
 
 use crate::play::player::Protocol::{Uci, Ugi};
 use crate::play::player::{EnginePlayer, Protocol};
@@ -18,7 +15,9 @@ use crate::play::ugi_input::HandleBestMove::{Ignore, Play};
 use gears::colored::Colorize;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{parse_duration_ms, parse_int_from_str, tokens, Res, Tokens};
+use gears::general::common::{
+    parse_duration_ms, parse_int_from_str, tokens, tokens_to_string, Res, Tokens, TokensToString,
+};
 use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::score::{ScoreT, SCORE_LOST, SCORE_WON};
@@ -279,7 +278,7 @@ impl<B: Board> InputThread<B> {
                 ),
             } {
                 bail!("Invalid UGI message ('{ugi_str}') from engine '{engine_name}' while in state {status}: {err}",
-                                   ugi_str = command.to_string().add(" ").add(&words.join(" ")).red())
+                                   ugi_str = tokens_to_string(command, words).red())
             }
         }
         // Empty uci commands should be ignored, according to the spec
@@ -411,7 +410,7 @@ impl<B: Board> InputThread<B> {
             .next()
             .ok_or_else(|| anyhow!("Line ends after 'id'"))?
             .trim();
-        let rest = id.join(" ").trim().to_string();
+        let rest = id.string();
         let engine = client.state.get_engine_from_id_mut(engine);
         match first {
             "name" => engine.ugi_name = rest,
@@ -491,14 +490,17 @@ impl<B: Board> InputThread<B> {
         Ok(())
     }
 
-    fn handle_info(words: Tokens, client: &mut MutexGuard<Client<B>>, engine: PlayerId) -> Res<()> {
+    fn handle_info(
+        mut words: Tokens,
+        client: &mut MutexGuard<Client<B>>,
+        engine: PlayerId,
+    ) -> Res<()> {
         let mut res = SearchInfo::default();
         let mut pv_moves = vec![];
         let board = client.board().clone();
-        let mut words = words.peekable();
         if words.peek().is_some_and(|opt| *opt == "string") {
             words.next();
-            let msg = words.join(" ");
+            let msg = words.string();
             client.show_ugi_info_string(engine, &msg);
             return Ok(());
         }
@@ -569,11 +571,11 @@ impl<B: Board> InputThread<B> {
                 },
                 "nps" => _ = parse_int_from_str::<usize>(value, "nps")?,
                 "string" => {
-                    let msg = value.to_string().add(" ").add(&words.join(" "));
+                    let msg = tokens_to_string(value, words.clone());
                     client.show_ugi_info_string(engine, &msg);
                 }
                 "error" => {
-                    let message = value.to_string().add(" ").add(&words.join(" "));
+                    let message = tokens_to_string(value, words.clone());
                     bail!("The engine sent a UGI error: '{message}'")
                 }
                 // TODO: Handle multipv and some other info

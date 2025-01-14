@@ -241,7 +241,7 @@ impl<B: Board> AbstractUgiOutput for UgiOutput<B> {
         // Currently, `println` always flushes, but this behaviour should not be relied upon.
         _ = Stdout::flush(&mut stdout());
         for output in &mut self.additional_outputs {
-            output.write_ugi_output(&message.to_string(), None);
+            output.write_ugi_output(message, None);
         }
     }
 }

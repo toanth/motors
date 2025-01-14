@@ -1,10 +1,9 @@
+use std::fmt;
 use std::fmt::Display;
 use std::str::SplitWhitespace;
 
-use itertools::Itertools;
-
 use crate::general::board::Board;
-use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity, Tokens};
+use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity, Tokens, TokensToString};
 use crate::output::text_output::DisplayType::Fen;
 use crate::output::text_output::{BoardToText, TextStream};
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder, OutputOpts};
@@ -63,7 +62,7 @@ impl AbstractOutput for Logger {
         self.stream.name()
     }
 
-    fn write_ugi_output(&mut self, message: &str, player: Option<&str>) {
+    fn write_ugi_output(&mut self, message: &fmt::Arguments, player: Option<&str>) {
         match player {
             None => self.stream.write("<", message),
             Some(name) => self.stream.write(&format!("<({name})"), message),
@@ -72,20 +71,25 @@ impl AbstractOutput for Logger {
 
     fn write_ugi_input(&mut self, mut message: Tokens, player: Option<&str>) {
         match player {
-            None => self.stream.write(">", &message.join(" ")),
-            Some(name) => self.stream.write(&format!("({name})>"), &message.join(" ")),
+            None => self
+                .stream
+                .write(">", &format_args!("{}", message.string())),
+            Some(name) => self
+                .stream
+                .write(&format!("({name})>"), &format_args!("{}", message.string())),
         }
     }
 
     fn display_message(&mut self, typ: Message, message: &str) {
-        self.stream.write(typ.message_prefix(), message);
+        self.stream
+            .write(typ.message_prefix(), &format_args!("{message}"));
     }
 }
 
 impl<B: Board> Output<B> for Logger {
     fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts) {
         let msg = self.as_string(m, opts);
-        self.stream.write("Board:\n", &msg);
+        self.stream.write("Board:\n", &format_args!("{msg}"));
     }
 
     fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
@@ -93,10 +97,11 @@ impl<B: Board> Output<B> for Logger {
     }
 
     fn display_message_with_state(&mut self, m: &dyn GameState<B>, typ: Message, message: &str) {
-        self.display_message(typ, message);
+        self.display_message(typ, &message);
         if typ != Message::Info {
             let str = self.as_string(m, OutputOpts::default());
-            self.stream.write(typ.message_prefix(), &str);
+            self.stream
+                .write(typ.message_prefix(), &format_args!("{str}"));
         }
     }
 }
@@ -117,7 +122,7 @@ impl LoggerBuilder {
     }
 
     pub fn from_words(words: &mut Tokens) -> Self {
-        Self::new(&words.join(" "))
+        Self::new(&words.string())
     }
 
     pub fn build<B: Board>(&self, name: &str) -> Res<OutputBox<B>> {

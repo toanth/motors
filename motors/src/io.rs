@@ -50,7 +50,7 @@ use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
     parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_static, tokens,
-    NamedEntity,
+    tokens_to_string, NamedEntity,
 };
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
@@ -447,7 +447,7 @@ impl<B: Board> EngineUGI<B> {
             self.state.game_name(),
             NoDescription,
         ) else {
-            if self.handle_move_input(first_word, words)? {
+            if self.handle_move_or_pgn(first_word, words)? {
                 return Ok(());
             } else if first_word.eq_ignore_ascii_case("barbecue") {
                 self.write_ugi_msg(&print_as_ascii_art("lol", 2));
@@ -507,15 +507,32 @@ impl<B: Board> EngineUGI<B> {
         true
     }
 
+    fn handle_move_or_pgn(&mut self, first_word: &str, rest: &mut Tokens) -> Res<bool> {
+        let original = rest.clone();
+        let res = self.handle_move_input(first_word, rest);
+        if let Ok(true) = res {
+            return res;
+        }
+        let pgn_text = tokens_to_string(first_word, original);
+        if let Ok(pgn_data) =
+            parse_pgn::<B>(&pgn_text, self.strictness, Some(self.state.board.clone()))
+        {
+            self.state.position_state = pgn_data.game;
+            self.print_board(OutputOpts::default());
+            return Ok(true);
+        }
+        res
+    }
+
     fn handle_move_input(&mut self, first_word: &str, rest: &mut Tokens) -> Res<bool> {
         let Ok(mov) = B::Move::from_text(first_word, &self.state.board) else {
             return Ok(false);
         };
         let mut state = self.state.clone();
-        state.make_move(mov)?;
+        state.make_move(mov, true)?;
         for word in rest {
             let mov = B::Move::from_text(word, &state.board)?;
-            state.make_move(mov)?;
+            state.make_move(mov, true)?;
         }
         self.state.position_state = state;
         if self.print_game_over(true) {
@@ -537,7 +554,7 @@ impl<B: Board> EngineUGI<B> {
             &res.chosen_move
                 .to_extended_text(&self.state.board, Alternative),
         );
-        self.state.make_move(res.chosen_move)?;
+        self.state.make_move(res.chosen_move, true)?;
         _ = self.print_game_over(false);
         Ok(true)
     }
@@ -821,7 +838,7 @@ impl<B: Board> EngineUGI<B> {
     fn handle_eval_or_tt_impl(&mut self, eval: bool, words: &mut Tokens) -> Res<()> {
         let mut state = self.state.clone();
         if words.peek().is_some() {
-            state.handle_position(words, true, Relaxed)?;
+            state.handle_position(words, true, Relaxed, true)?;
         }
         let text = if eval {
             let info = self.state.engine.get_engine_info();
@@ -913,7 +930,10 @@ impl<B: Board> EngineUGI<B> {
         };
         if words.peek().is_some() {
             let old_state = self.state.position_state.clone();
-            if let Err(err) = self.state.handle_position(words, true, self.strictness) {
+            if let Err(err) = self
+                .state
+                .handle_position(words, true, self.strictness, true)
+            {
                 self.state.position_state = old_state;
                 return Err(err);
             }
@@ -1427,7 +1447,9 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
     }
 
     fn handle_pos(&mut self, words: &mut Tokens) -> Res<()> {
-        self.state.handle_position(words, false, self.strictness)?;
+        let check_game_over = self.state.debug_mode || self.is_interactive();
+        self.state
+            .handle_position(words, false, self.strictness, check_game_over)?;
         if self.is_interactive() {
             self.print_board(OutputOpts::default());
         }
@@ -1497,8 +1519,14 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
     }
 
     fn load_pgn(&mut self, words: &mut Tokens) -> Res<()> {
-        let file_text = fs::read_to_string(words.join(" "))?;
-        let pgn_data = parse_pgn::<B>(&file_text)?;
+        let pgn_text;
+        if words.peek().is_some() {
+            pgn_text = fs::read_to_string(words.join(" "))?;
+        } else {
+            pgn_text = inquire::Editor::new("Open the editor to enter a PGN, then press enter")
+                .prompt()?;
+        }
+        let pgn_data = parse_pgn::<B>(&pgn_text, self.strictness, None)?;
         self.state.position_state = pgn_data.game;
         self.print_board(OutputOpts::default());
         Ok(())
@@ -1618,8 +1646,10 @@ fn invalid_command_msg(interactive: bool, first_word: &str, rest: &mut Tokens) -
         format!("Type '{}' for a list of recognized commands", "help".bold())
     } else {
         format!(
-            "If you are a human, consider typing '{}' to see a list of recognized commands.",
-            "help".bold()
+            "If you are a human, consider typing '{0}' to see a list of recognized commands.\n\
+            In that case, also consider typing '{1}' to enable the interactive interface.",
+            "help".bold(),
+            "interactive".bold()
         )
     };
     let input = format!("{first_word} {}", rest.clone().join(" "));

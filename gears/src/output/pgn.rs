@@ -20,7 +20,7 @@
 
 use crate::games::{BoardHistory, Color};
 use crate::general::board::Strictness::Relaxed;
-use crate::general::board::{Board, BoardHelpers};
+use crate::general::board::{Board, BoardHelpers, Strictness};
 use crate::general::common::{parse_bool_from_str, parse_int_from_str, Res};
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Move;
@@ -31,7 +31,9 @@ use crate::output::pgn::TagPair::{
 };
 use crate::MatchStatus::*;
 use crate::ProgramStatus::Run;
-use crate::{AdjudicationReason, GameOverReason, GameResult, GameState, MatchResult, MatchState};
+use crate::{
+    AdjudicationReason, GameOverReason, GameResult, GameState, MatchResult, MatchState, MatchStatus,
+};
 use anyhow::{anyhow, bail};
 use colored::Colorize;
 use std::fmt::Display;
@@ -376,7 +378,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
         }
     }
 
-    fn parse_all_tag_pairs(&mut self) -> Res<()> {
+    fn parse_all_tag_pairs(&mut self, strictness: Strictness) -> Res<()> {
         self.state.ignore_whitespace()?;
         while let Some(&c) = self.state.unread.peek() {
             if c == '[' {
@@ -388,6 +390,23 @@ impl<'a, B: Board> PgnParser<'a, B> {
                 self.state.ignore_whitespace()?;
             } else {
                 break;
+            }
+        }
+        for p in &self.res.tag_pairs {
+            match p {
+                TagPair::Fen(fen) => {
+                    self.res.game.pos_before_moves = B::from_fen(fen, strictness)?;
+                    self.res.game.board = self.res.game.pos_before_moves.clone();
+                }
+                Result(res) => {
+                    if res.check_finished().is_some() {
+                        self.res.game.status = Run(MatchStatus::Over(MatchResult {
+                            result: *res,
+                            reason: GameOverReason::Normal,
+                        }))
+                    }
+                }
+                _ => { /*do nothing*/ }
             }
         }
         Ok(())
@@ -447,23 +466,27 @@ impl<'a, B: Board> PgnParser<'a, B> {
     }
 
     fn parse_all_moves(&mut self) -> Res<()> {
+        self.res.game.status = Run(Ongoing);
         while self.state.unread.peek().is_some() {
             self.parse_move()?;
         }
         Ok(())
     }
 
-    fn parse(&mut self) -> Res<PgnData<B>> {
-        self.parse_all_tag_pairs()?;
+    fn parse(&mut self, strictness: Strictness) -> Res<PgnData<B>> {
+        self.parse_all_tag_pairs(strictness)?;
         self.parse_all_moves()?;
         Ok(take(&mut self.res))
     }
 }
 
-pub fn parse_pgn<B: Board>(pgn: &str) -> Res<PgnData<B>> {
+pub fn parse_pgn<B: Board>(pgn: &str, strictness: Strictness, pos: Option<B>) -> Res<PgnData<B>> {
     let mut parser: PgnParser<'_, B> = PgnParser::new(pgn);
+    if let Some(pos) = pos {
+        parser.res.tag_pairs.push(Fen(pos.as_fen()));
+    }
     parser
-        .parse()
+        .parse(strictness)
         .map_err(|err| anyhow!("{err}. Unconsumed input: '{}'", parser.state.unread().red()))
 }
 
@@ -479,7 +502,7 @@ mod tests {
     fn parse_one_ply_pgn() {
         let pgn = "1. e4";
         let mut parser: PgnParser<'_, Chessboard> = PgnParser::new(pgn);
-        let data = parser.parse().unwrap();
+        let data = parser.parse(Relaxed).unwrap();
         let pos = Chessboard::default();
         let pos = pos
             .make_move(ChessMove::from_text("e4", &pos).unwrap())
@@ -499,7 +522,7 @@ mod tests {
         let pgn = "{this}1e4{is} \n%a\nd5 {test}";
         let mut parser: PgnParser<'_, Chessboard> = PgnParser::new(pgn);
 
-        let data = parser.parse().unwrap();
+        let data = parser.parse(Relaxed).unwrap();
         let pos = Chessboard::default();
         let pos = pos
             .make_move(ChessMove::from_text("e4", &pos).unwrap())
@@ -541,7 +564,7 @@ hxg5 29.b3 Ke6 30.a3 Kd6 31.axb4 cxb4 32.Ra5 Nd5 33.f3 Bc8 34.Kf2 Bf5
 35.Ra7 g6 36.Ra6+ Kc5 37.Ke1{}Nf4 38.g3 Nxh3 39.Kd2 Kb5 40.Rd6 Kc5 41.Ra6
 Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
         let mut parser: PgnParser<'_, Chessboard> = PgnParser::new(pgn);
-        let data = parser.parse().unwrap();
+        let data = parser.parse(Relaxed).unwrap();
         assert_eq!(data.tag_pairs.len(), 7);
         assert!(matches!(data.tag_pairs[0], Event(_)));
         assert_eq!(data.tag_pairs[0], Event("F/S Return Match".to_string()));
@@ -560,4 +583,58 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
         );
         assert_eq!(data.game.mov_hist[42].piece_type(), Bishop);
     }
+
+    #[test]
+    fn parse_pgn_fen() {
+        // modified from <https://de.wikipedia.org/wiki/Portable_Game_Notation>
+        let pgn = r#"
+        [Event "IBM Kasparov vs. Deep Blue Rematch"]
+        [Site "New York, NY USA"]
+        [Date "1997.05.11"]
+        [Round "6"]
+        [White "Deep Blue"]
+        [Black "Kasparov, Garry"]
+        [SetUp "1"]
+        [Opening "Caro-Kann: 4...Nd7"]
+        [FEN "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"]
+        [ECO "B17"]
+        [Result "1-0"]
+%̷̹̈́̓ ̹̓ ͉̽̈́ ͉̼̰̻̽͂ ̰̓c̹̹ ̴͇̈́̈́|
+        1...c6 2. d4 d5 3. Nc3 dxe4 4. Nxe4 Nd7 5. Ng5 Ngf6 6. Bd3 e6 7. N1f3 h6 8. Nxe6 Qe7 9. O-O fxe6 10. Bg6+ Kd8 {Kasparov schüttelt kurz den Kopf} 11. Bf4 b5 12. a4 Bb7 13. Re1 Nd5 14. Bg3 Kc8 15. axb5 cxb5 16. Qd3 Bc6 17. Bf5 exf5 18. Rxe7 Bxe7 19. c4 1-0
+        "#;
+        let info = parse_pgn::<Chessboard>(pgn, Relaxed, None).unwrap();
+        assert_eq!(info.tag_pairs.len(), 11);
+        assert_ne!(info.game.pos_before_moves, Chessboard::default());
+        assert_eq!(
+            info.game.pos_before_moves,
+            Chessboard::default()
+                .make_move(ChessMove::from_text("e4", &Chessboard::default()).unwrap())
+                .unwrap()
+        );
+        assert_eq!(info.game.mov_hist.len(), 19 * 2 - 1 - 1);
+        assert_eq!(
+            info.game.status,
+            Run(Over(MatchResult {
+                result: GameResult::P1Win,
+                reason: GameOverReason::Normal
+            }))
+        );
+        assert_eq!(
+            info.game.board.as_fen(),
+            "r1k4r/p2nb1p1/2b4p/1p1n1p2/2PP4/3Q1NB1/1P3PPP/R5K1 b - - 0 19"
+        );
+    }
+
+    #[test]
+    fn invalid_pgn_test() {
+        let pgn = r#"1.e4 e5 2.Qh5 a6 3. Bc4 b6 4. Qxf7 d6"#;
+        let info = parse_pgn::<Chessboard>(pgn, Relaxed, None);
+        assert!(info.is_err());
+        assert!(info
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("The game has already ended"));
+    }
+    // TODO: Pgn test for another game than chess
 }

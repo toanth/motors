@@ -512,7 +512,7 @@ impl<B: Board> Client<B> {
         let engine = self.state.get_engine_from_id_mut(engine);
         let name = engine.display_name.clone();
         for output in &mut self.outputs {
-            output.write_ugi_output(message, Some(&name));
+            output.write_ugi_output(&format_args!("{message}"), Some(&name));
         }
 
         if let Err(err) = engine.write_ugi_impl(message) {

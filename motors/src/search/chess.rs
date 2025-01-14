@@ -101,7 +101,7 @@ mod tests {
     fn avoid_repetition<E: Engine<Chessboard>>(engine: &mut E) {
         let pgn = r#"[Variant "From Position"][FEN "8/3Q4/2K5/k7/6P1/8/8/8 w - - 0 1"]
                         1. Qd4 Ka6 2. Qd6 Ka5 3. Qd4 Ka6 4. Qd7 Ka5"#;
-        let game = parse_pgn::<Chessboard>(pgn).unwrap().game;
+        let game = parse_pgn::<Chessboard>(pgn, Strict, None).unwrap().game;
         let params = SearchParams::new_unshared(
             game.board,
             SearchLimit::depth(engine.default_bench_depth()),

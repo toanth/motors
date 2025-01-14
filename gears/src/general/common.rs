@@ -94,10 +94,24 @@ pub fn ith_one_u128(idx: usize, val: u128) -> usize {
     }
 }
 
+pub trait TokensToString {
+    fn string(&mut self) -> String;
+}
+
+impl TokensToString for Tokens<'_> {
+    fn string(&mut self) -> String {
+        self.join(" ")
+    }
+}
+
 pub type Tokens<'a> = Peekable<SplitWhitespace<'a>>;
 
 pub fn tokens(input: &str) -> Tokens {
     input.split_whitespace().peekable()
+}
+
+pub fn tokens_to_string(first: &str, mut rest: Tokens) -> String {
+    first.to_string() + " " + &rest.join(" ")
 }
 
 pub type Res<T> = anyhow::Result<T>;
@@ -137,9 +151,9 @@ pub fn parse_int_from_stdin<T: PrimInt + FromStr>() -> Res<T> {
 }
 
 pub fn parse_bool_from_str(input: &str, name: &str) -> Res<bool> {
-    if input.eq_ignore_ascii_case("true") {
+    if input.eq_ignore_ascii_case("true") || input == "1" {
         Ok(true)
-    } else if input.eq_ignore_ascii_case("false") {
+    } else if input.eq_ignore_ascii_case("false") || input == "0" {
         Ok(false)
     } else {
         Err(anyhow::anyhow!(

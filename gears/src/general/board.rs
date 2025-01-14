@@ -25,6 +25,7 @@ use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
     select_name_static, tokens, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
+    TokensToString,
 };
 use crate::general::move_list::MoveList;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
@@ -38,7 +39,6 @@ use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, Play
 use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
 use colored::Colorize;
-use itertools::Itertools;
 use rand::Rng;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -732,7 +732,7 @@ pub fn board_from_name<B: Board>(name: &str) -> Res<B> {
     let mut tokens = tokens(name);
     let first_token = tokens.next().unwrap_or_default();
     if first_token.eq_ignore_ascii_case("fen") {
-        return B::from_fen(&tokens.join(" "), Relaxed);
+        return B::from_fen(&tokens.string(), Relaxed);
     } else if first_token.eq_ignore_ascii_case("startpos") {
         return Ok(B::startpos());
     }

@@ -282,7 +282,7 @@ pub enum Quitting {
 }
 
 /// The program can either be running, or be about to quit
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 #[must_use]
 pub enum ProgramStatus {
     Run(MatchStatus),
@@ -381,7 +381,7 @@ impl<B: Board> MatchState<B> {
         self.mov_hist.last().copied()
     }
 
-    pub fn make_move(&mut self, mov: B::Move) -> Res<B> {
+    pub fn make_move(&mut self, mov: B::Move, check_game_over: bool) -> Res<B> {
         debug_assert!(self.board.is_move_pseudolegal(mov));
         if let Run(Over(result)) = &self.status {
             bail!(
@@ -398,6 +398,11 @@ impl<B: Board> MatchState<B> {
                 self.board
             )
         })?;
+        if check_game_over {
+            if let Some(res) = self.board.match_result_slow(&self.board_hist) {
+                self.status = Run(Over(res));
+            }
+        }
         Ok(self.board.clone())
     }
 
@@ -413,6 +418,7 @@ impl<B: Board> MatchState<B> {
         words: &mut Tokens,
         allow_pos_word: bool,
         strictness: Strictness,
+        check_game_over: bool,
     ) -> Res<()> {
         let pos = self.board.clone();
         let Some(next_word) = words.next() else {
@@ -425,7 +431,7 @@ impl<B: Board> MatchState<B> {
             strictness,
             &pos,
             self,
-            |this, mov| this.make_move(mov).map(|_| ()),
+            |this, mov| this.make_move(mov, check_game_over).map(|_| ()),
             |this| {
                 this.pos_before_moves = this.board.clone();
                 this.clear_state()

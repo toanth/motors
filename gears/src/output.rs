@@ -1,3 +1,4 @@
+use std::fmt;
 use std::fmt::Debug;
 
 use dyn_clone::DynClone;
@@ -69,7 +70,7 @@ pub trait AbstractOutput: NamedEntity + Debug + Send + 'static {
 
     fn output_name(&self) -> String;
 
-    fn write_ugi_output(&mut self, _message: &str, _player: Option<&str>) {
+    fn write_ugi_output(&mut self, _message: &fmt::Arguments, _player: Option<&str>) {
         // do nothing (most UIs don't log all UGI commands)
     }
 

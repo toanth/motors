@@ -29,7 +29,7 @@ pub enum TextStream {
 }
 
 impl TextStream {
-    pub fn write(&mut self, prefix: &str, msg: &str) {
+    pub fn write(&mut self, prefix: &str, msg: &fmt::Arguments) {
         _ = writeln!(self.stream(), "{prefix} {msg}");
     }
 
@@ -91,7 +91,8 @@ pub struct TextWriter {
 impl TextWriter {
     pub fn display_message(&mut self, typ: Message, message: &str) {
         if self.accepted.contains(&typ) {
-            self.stream.write(typ.message_prefix(), message);
+            self.stream
+                .write(typ.message_prefix(), &format_args!("{message}"));
         }
     }
 
@@ -217,6 +218,12 @@ impl BoardToText {
                 .map(|tc| tc.remaining_to_string(m.thinking_since(B::Color::second())))
                 .unwrap_or_default();
         }
+        let game_result = match m.match_status() {
+            NotStarted | Ongoing => "".to_string(),
+            Over(res) => {
+                format!("\n{}", res.result)
+            }
+        };
         let flipped = m.active_player() == B::Color::second();
         if flipped {
             swap(&mut time_below, &mut time_above);
@@ -227,7 +234,7 @@ impl BoardToText {
                     m.get_board()
                         .pretty_formatter(Some(CharType::Unicode), m.last_move(), opts);
                 format!(
-                    "{time_above}{}{time_below}",
+                    "{time_above}{}{time_below}{game_result}",
                     m.get_board().display_pretty(formatter.as_mut())
                 )
             }
@@ -236,16 +243,16 @@ impl BoardToText {
                     m.get_board()
                         .pretty_formatter(Some(CharType::Ascii), m.last_move(), opts);
                 format!(
-                    "{time_above}{}{time_below}",
+                    "{time_above}{}{time_below}{game_result}",
                     m.get_board().display_pretty(formatter.as_mut())
                 )
             }
             Ascii => format!(
-                "{time_above}{}{time_below}",
+                "{time_above}{}{time_below}{game_result}",
                 m.get_board().as_diagram(CharType::Ascii, flipped)
             ),
             Unicode => format!(
-                "{time_above}{}{time_below}",
+                "{time_above}{}{time_below}{game_result}",
                 m.get_board().as_diagram(CharType::Unicode, flipped)
             ),
             Fen => m.get_board().as_fen(),
