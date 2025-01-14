@@ -180,6 +180,7 @@ pub struct EngineUGI<B: Board> {
     strictness: Strictness,
     multi_pv: usize,
     allow_ponder: bool,
+    respond_to_move: bool,
     failed_cmd: Option<String>,
 }
 
@@ -343,6 +344,7 @@ impl<B: Board> EngineUGI<B> {
             strictness: Relaxed,
             multi_pv: 1,
             allow_ponder: false,
+            respond_to_move: true,
             failed_cmd: None,
         })
     }
@@ -362,7 +364,7 @@ impl<B: Board> EngineUGI<B> {
     fn ugi_loop(&mut self) -> Quitting {
         self.write_message(
             Debug,
-            &format!("Starting UGI loop (playing {})", B::game_name()),
+            &format_args!("Starting UGI loop (playing {})", B::game_name()),
         );
         let text = format!("Motors: {}", self.state.game_name());
         let text = print_as_ascii_art(&text, 2);
@@ -374,7 +376,7 @@ impl<B: Board> EngineUGI<B> {
             ", e.g., 'output pretty' or 'output chess'".dimmed()
         ));
         if self.fuzzing_mode() {
-            self.write_message(Warning, &"Fuzzing Mode Enabled!".bold().to_string());
+            self.write_message(Warning, &format_args!("{}", "Fuzzing Mode Enabled!".bold()));
         }
 
         let (mut input, interactive) = Input::new(self.state.protocol == Interactive, self);
@@ -386,7 +388,7 @@ impl<B: Board> EngineUGI<B> {
             let input = match input.get_line(self) {
                 Ok(input) => input,
                 Err(err) => {
-                    self.write_message(Error, &err.to_string());
+                    self.write_message(Error, &format_args!("{err}"));
                     break;
                 }
             };
@@ -394,7 +396,7 @@ impl<B: Board> EngineUGI<B> {
             let res = self.handle_ugi_input(tokens(&input));
             match res {
                 Err(err) => {
-                    self.write_message(Error, &err.to_string());
+                    self.write_message(Error, &format_args!("{err}"));
                     if !self.continue_on_error() {
                         self.write_ugi(&format_args!("info error {err}"));
                     }
@@ -407,7 +409,7 @@ impl<B: Board> EngineUGI<B> {
                         let interactive = if self.is_interactive() { "on" } else { "off" };
                         self.write_message(
                             Debug,
-                            &format!("Continuing... (interactive mode is {interactive})"),
+                            &format_args!("Continuing... (interactive mode is {interactive})"),
                         );
                         continue;
                     }
@@ -423,8 +425,8 @@ impl<B: Board> EngineUGI<B> {
         QuitProgram
     }
 
-    fn write_message(&mut self, typ: Message, msg: &str) {
-        self.output().write_message(typ, msg);
+    fn write_message(&mut self, typ: Message, msg: &fmt::Arguments) {
+        self.output().write_message(typ, &msg.to_string());
     }
 
     fn continue_on_error(&self) -> bool {
@@ -451,14 +453,19 @@ impl<B: Board> EngineUGI<B> {
             NoDescription,
         ) else {
             let words_copy = words.clone();
-            if self.handle_move_or_pgn(first_word, words)? {
+            // These input options are not autocompleted (except for moves, which is done separately) and not selected using commands.
+            // This allows precomputing commands, resolves potential conflicts with commands, and speeds up autocompletion
+            if self.handle_move_fen_or_pgn(first_word, words)? {
                 return Ok(());
             } else if first_word.eq_ignore_ascii_case("barbecue") {
                 self.write_ugi_msg(&print_as_ascii_art("lol", 2));
             }
             self.write_message(
                 Warning,
-                &invalid_command_msg(self.is_interactive(), first_word, words),
+                &format_args!(
+                    "{}",
+                    invalid_command_msg(self.is_interactive(), first_word, words)
+                ),
             );
             self.failed_cmd = Some(tokens_to_string(first_word, words_copy));
             return Ok(());
@@ -478,12 +485,11 @@ impl<B: Board> EngineUGI<B> {
             )?;
             self.write_message(
                 Warning,
-                &format!(
+                &format_args!(
                     "Ignoring trailing input starting with '{0}' after a valid '{1}' command",
                     remaining.bold().red(),
                     cmd.short_name().bold()
-                )
-                .to_string(),
+                ),
             );
         }
         Ok(())
@@ -512,18 +518,29 @@ impl<B: Board> EngineUGI<B> {
         true
     }
 
-    fn handle_move_or_pgn(&mut self, first_word: &str, rest: &mut Tokens) -> Res<bool> {
+    fn handle_move_fen_or_pgn(&mut self, first_word: &str, rest: &mut Tokens) -> Res<bool> {
         let original = rest.clone();
         let res = self.handle_move_input(first_word, rest);
         if let Ok(true) = res {
             return res;
         }
-        let pgn_text = tokens_to_string(first_word, original);
-        if let Ok(pgn_data) =
-            parse_pgn::<B>(&pgn_text, self.strictness, Some(self.state.board.clone()))
+        let text = tokens_to_string(first_word, original);
+        let mut tokens = tokens(&text);
+        if let Ok(pgn_data) = parse_pgn::<B>(&text, self.strictness, Some(self.state.board.clone()))
         {
             self.state.position_state = pgn_data.game;
             self.print_board(OutputOpts::default());
+            return Ok(true);
+        } else if self.handle_pos(&mut tokens).is_ok() {
+            if let Some(next) = tokens.peek() {
+                self.write_message(
+                    Warning,
+                    &format_args!(
+                        "Ignoring trailing input starting with '{}' after a valid position",
+                        next.red()
+                    ),
+                );
+            }
             return Ok(true);
         }
         res
@@ -535,6 +552,7 @@ impl<B: Board> EngineUGI<B> {
         };
         let mut state = self.state.clone();
         state.make_move(mov, true)?;
+        let single_move = rest.peek().is_none();
         for word in rest {
             let mov = B::Move::from_text(word, &state.board)?;
             state.make_move(mov, true)?;
@@ -543,6 +561,13 @@ impl<B: Board> EngineUGI<B> {
         if self.print_game_over(true) {
             return Ok(true);
         }
+        if single_move && self.respond_to_move {
+            self.play_engine_move()?;
+        }
+        Ok(true)
+    }
+
+    fn play_engine_move(&mut self) -> Res<()> {
         self.write_ugi_msg("Searching...");
         let engine = self.state.engine.get_engine_info().short_name();
         let mut engine =
@@ -555,13 +580,15 @@ impl<B: Board> EngineUGI<B> {
             TT::default(),
         );
         let res = engine.search(params);
-        self.write_ugi_msg(
+        self.write_ugi(&format_args!(
+            "Chosen move: {}",
             &res.chosen_move
-                .to_extended_text(&self.state.board, Alternative),
-        );
+                .to_extended_text(&self.state.board, Alternative)
+                .bold()
+        ));
         self.state.make_move(res.chosen_move, true)?;
         _ = self.print_game_over(false);
-        Ok(true)
+        Ok(())
     }
 
     fn id(&self) -> String {
@@ -660,6 +687,7 @@ impl<B: Board> EngineUGI<B> {
                     Relaxed
                 };
             }
+            RespondToMove => self.respond_to_move = parse_bool_from_str(&value, "respond to move")?,
             SetEngine => {
                 self.handle_engine(&mut tokens(&value))?;
             }
@@ -772,14 +800,14 @@ impl<B: Board> EngineUGI<B> {
         let opts = self.state.go_state.generic.clone();
         self.write_message(
             Debug,
-            &format!(
+            &format_args!(
                 "Starting {0} search with limit {1}",
                 opts.search_type, opts.limit
             ),
         );
         let pos = self.state.go_state.pos.clone();
         if let Some(res) = pos.match_result_slow(&self.state.board_hist) {
-            self.write_message(Warning, &format!("Starting a {3} search in position '{2}', but the game is already over. {0}, reason: {1}.",
+            self.write_message(Warning, &format_args!("Starting a {3} search in position '{2}', but the game is already over. {0}, reason: {1}.",
                                                  res.result, res.reason, pos.as_fen().bold(), opts.search_type));
         }
         self.state.status = Run(Ongoing);
@@ -1002,7 +1030,7 @@ impl<B: Board> EngineUGI<B> {
                 self.handle_output(&mut tokens("error"))?;
                 self.handle_output(&mut tokens("debug"))?;
                 self.handle_output(&mut tokens("info"))?;
-                self.write_message(Debug, "Debug mode enabled");
+                self.write_message(Debug, &format_args!("Debug mode enabled"));
                 // don't change the log stream if it's already set
                 if self
                     .output()
@@ -1022,7 +1050,7 @@ impl<B: Board> EngineUGI<B> {
                 self.state.debug_mode = false;
                 _ = self.handle_output(&mut tokens("remove debug"));
                 _ = self.handle_output(&mut tokens("remove info"));
-                self.write_message(Debug, "Debug mode disabled");
+                self.write_message(Debug, &format_args!("Debug mode disabled"));
                 // don't remove the error output, as there is basically no reason to do so
                 self.handle_log(&mut tokens("none"))
             }
@@ -1041,17 +1069,13 @@ impl<B: Board> EngineUGI<B> {
             self.output().additional_outputs.push(logger);
         }
         // write the debug message after setting the logger so that it also gets logged.
-        self.write_message(
-            Debug,
-            &format!(
-                "Set the debug logfile to '{}'",
-                self.output()
-                    .additional_outputs
-                    .last()
-                    .unwrap()
-                    .output_name()
-            ),
-        );
+        let name = self
+            .output()
+            .additional_outputs
+            .last()
+            .unwrap()
+            .output_name();
+        self.write_message(Debug, &format_args!("Set the debug logfile to '{name}'",));
         Ok(())
     }
 
@@ -1264,8 +1288,15 @@ impl<B: Board> EngineUGI<B> {
                         default: Some(false),
                     }),
                 },
+                RespondToMove => EngineOption {
+                    name: RespondToMove,
+                    value: Check(UgiCheck {
+                        val: self.respond_to_move,
+                        default: Some(true),
+                    }),
+                },
                 SetEngine =>
-                // We would like to send long names, but unfortunately GUIs strugglw with that
+                // We would like to send long names, but unfortunately GUIs struggle with that
                 {
                     EngineOption {
                         name: SetEngine,
@@ -1381,6 +1412,8 @@ trait AbstractEngineUgi: Debug {
     fn handle_query(&mut self, words: &mut Tokens) -> Res<()>;
 
     fn handle_play(&mut self, words: &mut Tokens) -> Res<()>;
+
+    fn handle_assist(&mut self) -> Res<()>;
 
     fn print_help(&mut self) -> Res<()>;
 
@@ -1555,6 +1588,10 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         self.handle_play_impl(words)
     }
 
+    fn handle_assist(&mut self) -> Res<()> {
+        self.play_engine_move()
+    }
+
     fn print_help(&mut self) -> Res<()> {
         self.print_help_impl();
         Ok(())
@@ -1659,8 +1696,8 @@ fn invalid_command_msg(interactive: bool, first_word: &str, rest: &mut Tokens) -
     };
     let input = format!("{first_word} {}", rest.clone().join(" "));
     let first_len = first_word.chars().count();
-    let error_msg = if input.len() > 200 || first_len > 25 {
-        let first_word = if first_len > 50 {
+    let error_msg = if input.len() > 200 || first_len > 50 {
+        let first_word = if first_len > 75 {
             format!(
                 "{0}{1}",
                 first_word.chars().take(50).collect::<String>().red(),

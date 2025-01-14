@@ -916,12 +916,13 @@ pub(crate) fn read_two_move_numbers<B: RectangularBoard>(
     mut board: B::Unverified,
     strictness: Strictness,
 ) -> Res<B::Unverified> {
-    let halfmove_clock = words.next().unwrap_or("");
+    let halfmove_clock = words.peek().copied().unwrap_or("");
     // Some FENs don't contain the halfmove clock and fullmove number, so assume that's the case if parsing
     // the halfmove clock fails -- but don't do this for the fullmove number.
     if let Ok(halfmove_clock) = halfmove_clock.parse::<usize>() {
+        _ = words.next();
         board.set_halfmove_repetition_clock(halfmove_clock)?;
-        let Some(fullmove_number) = words.next() else {
+        let Some(fullmove_number) = words.peek().copied() else {
             bail!(
                     "The FEN contains a valid halfmove clock ('{halfmove_clock}') but no fullmove counter",
                 )
@@ -932,6 +933,7 @@ pub(crate) fn read_two_move_numbers<B: RectangularBoard>(
                 fullmove_number.red()
             )
         })?;
+        _ = words.next();
         board.set_ply_since_start(ply_counter_from_fullmove_nr(
             fullmove_number,
             board.active_player().is_first(),

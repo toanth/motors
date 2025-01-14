@@ -260,6 +260,11 @@ impl<B: Board> AbstractEngineUgi for ACState<B> {
     fn handle_play(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
+
+    fn handle_assist(&mut self) -> Res<()> {
+        Ok(())
+    }
+
     fn print_help(&mut self) -> Res<()> {
         Ok(())
     }
@@ -615,6 +620,12 @@ pub fn ugi_commands() -> CommandList {
                 ugi.handle_play(words)
             },
             --> |_| select_command::<Game>(&Game::iter().map(Box::new).collect_vec(), false)
+        ),
+        ugi_command!(
+            idk | assist,
+            Custom,
+            "Lets the engine play a move",
+            |ugi, _, _| ugi.handle_assist()
         ),
         ugi_command!(
             perft,
@@ -1143,7 +1154,7 @@ pub fn position_options<B: Board>(pos: Option<&B>, accept_pos_word: bool) -> Com
     }
     res.push(move_command(false));
     if let Some(pos) = pos {
-        res.append(&mut moves_options(pos, false))
+        res.append(&mut moves_options(pos, true))
     }
     res
 }

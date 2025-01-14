@@ -137,6 +137,7 @@ pub enum EngineOptionName {
     UCIShowCurrLine,
     MoveOverhead,
     Strictness,
+    RespondToMove,
     SetEngine,
     SetEval,
     Variant,
@@ -164,6 +165,7 @@ impl NamedEntity for EngineOptionName {
             EngineOptionName::UCIShowCurrLine => "Every now and then, print the line currently being searched",
             EngineOptionName::MoveOverhead => "Subtract this from the remaining time each move to account for overhead of sending the move",
             EngineOptionName::Strictness => "Be more restrictive about the positions to accept. By default, many non-standard positions are accepted",
+            EngineOptionName::RespondToMove => "When the input is a single move, let the engine play one move in response",
             EngineOptionName::SetEngine => "Change the current searcher, and optionally the eval. Similar effect to `uginewgame`",
             EngineOptionName::SetEval => "Change the current evaluation function without resetting the engine state, such as clearing the TT",
             EngineOptionName::Variant => "Changes the current variant for 'fairy', e.g. 'chess' or 'shatranj'",
@@ -186,6 +188,7 @@ impl EngineOptionName {
             EngineOptionName::UCIShowCurrLine => "UCI_ShowCurrLine",
             EngineOptionName::MoveOverhead => "MoveOverhead",
             EngineOptionName::Strictness => "Strict",
+            EngineOptionName::RespondToMove => "RespondToMove",
             EngineOptionName::SetEngine => "Engine",
             EngineOptionName::SetEval => "SetEval",
             EngineOptionName::Variant => "Variant",
@@ -305,11 +308,10 @@ pub fn parse_ugi_position_part<B: Board>(
     let original_string = tokens_to_string(first, copy.clone());
     let mut original_tokens = tokens(&original_string);
     let res = B::read_fen_and_advance_input(&mut original_tokens, strictness);
-    // assert!(unconsumed_rest.ends_with(&unconsumed_tokens));
     *rest = copy;
-    let advance_by = rest.clone().count() + 1 - original_tokens.count();
+    let advance_by = rest.clone().count() - original_tokens.count();
     for _ in 0..advance_by {
-        _ = rest.next();
+        _ = rest.next().unwrap();
     }
     let Err(_) = res else { return res };
     // If that failed as well, we try to parse it as a variant, then parse the rest as a position description.
@@ -321,7 +323,7 @@ pub fn parse_ugi_position_part<B: Board>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn parse_ugi_position_and_moves_impl<
+fn parse_ugi_position_and_moves<
     B: Board,
     S,
     F: Fn(&mut S, B::Move) -> Res<()>,
@@ -414,7 +416,7 @@ fn parse_ugi_position_and_moves_impl<
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn parse_ugi_position_and_moves<
+pub fn parse_ugi_or_pgn_pos<
     B: Board,
     S,
     F: Fn(&mut S, B::Move) -> Res<()>,
@@ -431,7 +433,7 @@ pub fn parse_ugi_position_and_moves<
     finish_pos: G,
     get_board: H,
 ) -> Res<()> {
-    let Err(err) = parse_ugi_position_and_moves_impl(
+    let Err(err) = parse_ugi_position_and_moves(
         first_word,
         rest,
         accept_pos_word,
@@ -470,7 +472,7 @@ pub fn load_ugi_position<B: Board>(
     allow_partial: bool,
 ) -> Res<B> {
     let mut board = old_board.clone();
-    match parse_ugi_position_and_moves(
+    match parse_ugi_or_pgn_pos(
         first_word,
         rest,
         accept_pos_word,
