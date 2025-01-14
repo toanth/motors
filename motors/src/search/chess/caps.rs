@@ -907,7 +907,7 @@ impl Caps {
         }
 
         if self.state.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0
-            && self.state.last_msg_time.elapsed().as_millis() >= 1000
+            && self.state.last_msg_time.elapsed().as_millis() >= 1500
         {
             let score = self.qsearch(pos, alpha, beta, ply);
             self.state.search_stack[ply].forget();

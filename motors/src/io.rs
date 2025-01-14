@@ -712,7 +712,7 @@ impl<B: Board> EngineUGI<B> {
 
         let opts = &self.state.go_state.generic;
         let limit = self.state.go_state.generic.limit;
-        let board = self.state.board.clone();
+        let board = self.state.go_state.pos.clone();
         match opts.search_type {
             Bench => {
                 let bench_positions: Vec<B> = if opts.complete {

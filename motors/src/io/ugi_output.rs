@@ -344,9 +344,11 @@ impl<B: Board> UgiOutput<B> {
             return;
         }
         if !self.type_erased.pretty {
+            let mut pos = pos.clone();
             let mut line = String::new();
-            for mov in variation {
-                write!(line, " {}", mov.compact_formatter(pos)).unwrap();
+            for &mov in variation {
+                write!(line, " {}", mov.compact_formatter(&pos)).unwrap();
+                pos = pos.make_move(mov).unwrap();
             }
             // We only send search results from the main thread, no matter how many threads are searching.
             // And we're also not inspecting other threads' PVs from the main thread.
