@@ -180,6 +180,7 @@ pub struct EngineUGI<B: Board> {
     strictness: Strictness,
     multi_pv: usize,
     allow_ponder: bool,
+    failed_cmd: Option<String>,
 }
 
 impl<B: Board> AbstractRun for EngineUGI<B> {
@@ -342,6 +343,7 @@ impl<B: Board> EngineUGI<B> {
             strictness: Relaxed,
             multi_pv: 1,
             allow_ponder: false,
+            failed_cmd: None,
         })
     }
 
@@ -388,7 +390,7 @@ impl<B: Board> EngineUGI<B> {
                     break;
                 }
             };
-
+            self.failed_cmd = None;
             let res = self.handle_ugi_input(tokens(&input));
             match res {
                 Err(err) => {
@@ -396,6 +398,7 @@ impl<B: Board> EngineUGI<B> {
                     if !self.continue_on_error() {
                         self.write_ugi(&format_args!("info error {err}"));
                     }
+                    self.failed_cmd = Some(input);
                     // explicitly check this here so that continuing on error doesn't prevent us from quitting.
                     if let Quit(quitting) = self.state.status {
                         return quitting;
@@ -447,6 +450,7 @@ impl<B: Board> EngineUGI<B> {
             self.state.game_name(),
             NoDescription,
         ) else {
+            let words_copy = words.clone();
             if self.handle_move_or_pgn(first_word, words)? {
                 return Ok(());
             } else if first_word.eq_ignore_ascii_case("barbecue") {
@@ -456,6 +460,7 @@ impl<B: Board> EngineUGI<B> {
                 Warning,
                 &invalid_command_msg(self.is_interactive(), first_word, words),
             );
+            self.failed_cmd = Some(tokens_to_string(first_word, words_copy));
             return Ok(());
         };
 

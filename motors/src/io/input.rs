@@ -70,10 +70,14 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
             NonInteractiveInput::default().get_line(ugi)
         } else {
             let help = "Type 'help' for a list of commands, '?' for a list of moves";
-            let string = Text::new(&"Enter a command, move or PGN:".bold().to_string())
+            let prompt = "Enter a command, move or PGN:".bold().to_string();
+            let mut prompt = Text::new(&prompt)
                 .with_help_message(help)
-                .with_autocomplete(self.autocompletion.clone())
-                .prompt()?;
+                .with_autocomplete(self.autocompletion.clone());
+            if let Some(failed) = &ugi.failed_cmd {
+                prompt = prompt.with_initial_value(&failed);
+            }
+            let string = prompt.prompt()?;
             Ok(string)
         }
     }
