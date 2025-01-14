@@ -1372,16 +1372,16 @@ mod tests {
     fn simple_perft_test() {
         let endgame_fen = "6k1/8/6K1/8/3B1N2/8/8/7R w - - 0 1";
         let board = Chessboard::from_fen(endgame_fen, Relaxed).unwrap();
-        let perft_res = perft(Depth::new(1), board);
+        let perft_res = perft(Depth::new(1), board, false);
         assert_eq!(perft_res.depth, Depth::new(1));
         assert_eq!(perft_res.nodes, 5 + 7 + 13 + 14);
         assert!(perft_res.time.as_millis() <= 1);
         let board = Chessboard::default();
-        let perft_res = perft(Depth::new(1), board);
+        let perft_res = perft(Depth::new(1), board, true);
         assert_eq!(perft_res.depth, Depth::new(1));
         assert_eq!(perft_res.nodes, 20);
         assert!(perft_res.time.as_millis() <= 2);
-        let perft_res = perft(Depth::new(2), board);
+        let perft_res = perft(Depth::new(2), board, false);
         assert_eq!(perft_res.depth, Depth::new(2));
         assert_eq!(perft_res.nodes, 20 * 20);
         assert!(perft_res.time.as_millis() <= 20);
@@ -1391,16 +1391,16 @@ mod tests {
             Strict,
         )
         .unwrap();
-        let perft_res = perft(Depth::new(1), board);
+        let perft_res = perft(Depth::new(1), board, true);
         assert_eq!(perft_res.nodes, 26);
-        assert_eq!(perft(Depth::new(3), board).nodes, 16790);
+        assert_eq!(perft(Depth::new(3), board, true).nodes, 16790);
 
         let board = Chessboard::from_fen(
             "rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9",
             Strict,
         )
         .unwrap();
-        let perft_res = perft(Depth::new(4), board);
+        let perft_res = perft(Depth::new(4), board, false);
         assert_eq!(perft_res.nodes, 890_435);
 
         // DFRC
@@ -1409,7 +1409,7 @@ mod tests {
             Strict,
         )
         .unwrap();
-        assert_eq!(perft(Depth::new(4), board).nodes, 1_187_103);
+        assert_eq!(perft(Depth::new(4), board, false).nodes, 1_187_103);
     }
 
     #[test]
@@ -1542,7 +1542,7 @@ mod tests {
         let fen = "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1";
         let board = Chessboard::from_fen(fen, Strict).unwrap();
         assert_eq!(board.active_player, White);
-        assert_eq!(perft(Depth::new(3), board).nodes, 568_299);
+        assert_eq!(perft(Depth::new(3), board, true).nodes, 568_299);
         // not a legal chess position, but the board should support this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
         assert!(Chessboard::from_fen(fen, Strict).is_err());

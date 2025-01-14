@@ -1,6 +1,9 @@
 use crate::general::board::{Board, BoardHelpers};
 use crate::general::moves::Move;
 use crate::search::Depth;
+use itertools::Itertools;
+use rayon::iter::ParallelIterator;
+use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
@@ -69,11 +72,17 @@ fn do_perft<B: Board>(depth: usize, pos: B) -> u64 {
     nodes
 }
 
-pub fn perft<B: Board>(depth: Depth, pos: B) -> PerftRes {
+pub fn perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> PerftRes {
     let depth = depth.min(B::max_perft_depth());
     let start = Instant::now();
     let nodes = if depth.get() == 0 {
         1
+    } else if depth.get() > 2 && parallelize {
+        pos.children()
+            .collect_vec()
+            .par_iter()
+            .map(|pos| do_perft(depth.get() - 1, pos.clone()))
+            .sum()
     } else {
         do_perft(depth.get(), pos)
     };
@@ -82,23 +91,36 @@ pub fn perft<B: Board>(depth: Depth, pos: B) -> PerftRes {
     PerftRes { time, nodes, depth }
 }
 
-pub fn split_perft<B: Board>(depth: Depth, pos: B) -> SplitPerftRes<B> {
+pub fn split_perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> SplitPerftRes<B> {
     assert!(depth.get() > 0);
     let depth = depth.min(B::max_perft_depth());
     let mut nodes = 0;
     let start = Instant::now();
-    let mut children = vec![];
-    for mov in pos.pseudolegal_moves() {
-        let Some(new_pos) = pos.clone().make_move(mov) else {
-            continue;
-        };
-        let child_nodes = if depth.get() == 1 {
-            1
-        } else {
-            do_perft(depth.get() - 1, new_pos)
-        };
-        children.push((mov, child_nodes));
-        nodes += child_nodes;
+    let mut children: Vec<(B::Move, u64)> = vec![];
+    if depth.get() > 2 && parallelize {
+        pos.legal_moves_slow()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .par_iter()
+            .map(|&mov| {
+                let child_nodes = do_perft(depth.get() - 1, pos.clone().make_move(mov).unwrap());
+                (mov, child_nodes)
+            })
+            .collect_into_vec(&mut children);
+        nodes = children.iter().map(|(_, num)| num).sum();
+    } else {
+        for mov in pos.pseudolegal_moves() {
+            let Some(new_pos) = pos.clone().make_move(mov) else {
+                continue;
+            };
+            let child_nodes = if depth.get() == 1 {
+                1
+            } else {
+                do_perft(depth.get() - 1, new_pos)
+            };
+            children.push((mov, child_nodes));
+            nodes += child_nodes;
+        }
     }
     let time = start.elapsed();
     children.sort_by(|a, b| {
@@ -114,7 +136,7 @@ pub fn split_perft<B: Board>(depth: Depth, pos: B) -> SplitPerftRes<B> {
     }
 }
 
-pub fn perft_for<B: Board>(depth: Depth, positions: &[B]) -> PerftRes {
+pub fn parallel_perft_for<B: Board>(depth: Depth, positions: &[B]) -> PerftRes {
     let mut res = PerftRes {
         time: Duration::default(),
         nodes: 0,
@@ -126,7 +148,7 @@ pub fn perft_for<B: Board>(depth: Depth, positions: &[B]) -> PerftRes {
         } else {
             depth
         };
-        let this_res = perft(depth, pos.clone());
+        let this_res = perft(depth, pos.clone(), true);
         res.time += this_res.time;
         res.nodes += this_res.nodes;
         res.depth = res.depth.max(this_res.depth);

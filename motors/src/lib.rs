@@ -161,10 +161,10 @@ impl<B: Board> AbstractRun for PerftRun<B> {
         };
         let depth = self.depth.unwrap_or(pos.default_perft_depth());
         if self.split {
-            let res = split_perft(depth, pos);
+            let res = split_perft(depth, pos, true);
             println!("{res}");
         } else {
-            let res = perft(depth, pos);
+            let res = perft(depth, pos, true);
             println!("{res}");
         }
         QuitProgram

@@ -48,7 +48,7 @@ pub enum ExtendedFormat {
 /// All `Move` functions that take a `Board` parameter assume that the move is pseudolegal for the given board
 /// unless otherwise noted. [`UntrustedMove`] should be used when it's not clear that a move is pseudolegal.
 pub trait Move<B: Board>:
-    Eq + Copy + Clone + Debug + Default + Hash + Send + for<'a> Arbitrary<'a>
+    Eq + Copy + Clone + Debug + Default + Hash + Send + Sync + for<'a> Arbitrary<'a>
 where
     B: Board<Move = Self>,
 {

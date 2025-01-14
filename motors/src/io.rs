@@ -55,7 +55,7 @@ use gears::general::common::{
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
-use gears::general::perft::{perft_for, split_perft};
+use gears::general::perft::{parallel_perft_for, split_perft};
 use gears::output::logger::LoggerBuilder;
 use gears::output::pgn::parse_pgn;
 use gears::output::text_output::{display_color, AdaptFormatter};
@@ -303,7 +303,13 @@ impl<B: Board> EngineUGI<B> {
         let move_overhead = Duration::from_millis(DEFAULT_MOVE_OVERHEAD_MS);
         let state = EngineGameState {
             position_state: board_state,
-            go_state: GoState::new_for_pos(board, SearchLimit::infinite(), Relaxed, move_overhead),
+            go_state: GoState::new_for_pos(
+                board,
+                SearchLimit::infinite(),
+                Relaxed,
+                move_overhead,
+                Normal,
+            ),
             game_name: B::game_name(),
             protocol,
             debug_mode: opts.debug,
@@ -722,14 +728,14 @@ impl<B: Board> EngineUGI<B> {
                 };
                 for i in 1..=limit.depth.get() {
                     self.output()
-                        .write_ugi(&perft_for(Depth::new(i), &positions).to_string())
+                        .write_ugi(&parallel_perft_for(Depth::new(i), &positions).to_string())
                 }
             }
             SplitPerft => {
                 if limit.depth.get() == 0 {
                     bail!("{} requires a depth of at least 1", "splitperft".bold())
                 }
-                self.write_ugi(&split_perft(limit.depth, board).to_string());
+                self.write_ugi(&split_perft(limit.depth, board, true).to_string());
             }
             _ => return self.start_search(self.state.board_hist.clone()),
         }

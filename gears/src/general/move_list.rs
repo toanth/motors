@@ -13,7 +13,7 @@ pub trait MoveList<B: Board>: IntoIterator<Item = B::Move> + Debug {
     fn swap_remove_move(&mut self, idx: usize) -> B::Move;
 
     /// Doesn't guarantee any particular iteration order
-    fn iter_moves(&self) -> impl Iterator<Item = &B::Move>;
+    fn iter_moves(&self) -> impl Iterator<Item = &B::Move> + Send;
 
     fn remove(&mut self, to_remove: B::Move);
 

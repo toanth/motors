@@ -997,8 +997,8 @@ mod tests {
             let max = if cfg!(debug_assertions) { 3 } else { 5 };
             for i in 1..max {
                 let depth = Depth::new(i);
-                let chess_perft = perft(depth, chess_pos);
-                let fairy_perft = perft(depth, fairy_pos.clone());
+                let chess_perft = perft(depth, chess_pos, false);
+                let fairy_perft = perft(depth, fairy_pos.clone(), false);
                 assert_eq!(chess_perft.depth, fairy_perft.depth);
                 assert_eq!(chess_perft.nodes, fairy_perft.nodes);
                 assert!(chess_perft.time.as_millis() * 100 + 1000 > fairy_perft.time.as_millis());
@@ -1075,8 +1075,8 @@ mod tests {
             let max = if cfg!(debug_assertions) { 4 } else { 6 };
             for i in 1..max {
                 let depth = Depth::new(i);
-                let chess_perft = perft(depth, mnk_pos);
-                let fairy_perft = perft(depth, fairy_pos.clone());
+                let chess_perft = perft(depth, mnk_pos, false);
+                let fairy_perft = perft(depth, fairy_pos.clone(), false);
                 assert_eq!(chess_perft.depth, fairy_perft.depth);
                 assert_eq!(chess_perft.nodes, fairy_perft.nodes);
                 let chess_time = chess_perft.time.as_millis();

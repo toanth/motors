@@ -79,7 +79,7 @@ mod tests {
             let max = if cfg!(debug_assertions) { 3 } else { 100 };
             for (i, &expected) in res.iter().take(max).enumerate() {
                 let depth = Depth::new(i + 1);
-                let res = perft(depth, pos.clone());
+                let res = perft(depth, pos.clone(), true);
                 assert_eq!(res.depth, depth);
                 assert_eq!(res.nodes, expected, "{i} {testcase} ({pos})");
             }

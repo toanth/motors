@@ -453,11 +453,11 @@ dependencies = [
  "itertools 0.14.0",
  "num",
  "rand 0.9.0-beta.1",
+ "rayon",
  "static_assertions",
  "strum",
  "strum_macros",
  "thiserror",
- "thread_local",
 ]
 
 [[package]]

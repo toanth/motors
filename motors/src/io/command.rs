@@ -770,6 +770,7 @@ impl<B: Board> GoState<B> {
             limit,
             ugi.strictness,
             ugi.move_overhead,
+            search_type,
         )
     }
 
@@ -778,6 +779,7 @@ impl<B: Board> GoState<B> {
         limit: SearchLimit,
         strictness: Strictness,
         move_overhead: Duration,
+        search_type: SearchType,
     ) -> Self {
         Self {
             generic: GenericGoState {
@@ -785,7 +787,7 @@ impl<B: Board> GoState<B> {
                 is_first: pos.active_player().is_first(),
                 multi_pv: 1,
                 threads: None,
-                search_type: Normal,
+                search_type,
                 complete: false,
                 move_overhead,
                 strictness,
