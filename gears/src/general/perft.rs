@@ -1,6 +1,7 @@
 use crate::general::board::{Board, BoardHelpers};
 use crate::general::moves::Move;
 use crate::search::Depth;
+use colored::Colorize;
 use itertools::Itertools;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator};
@@ -21,7 +22,7 @@ impl Display for PerftRes {
             f,
             "info depth {depth} nodes {nodes} time {time} nps {nps}",
             depth = self.depth.get(),
-            nodes = self.nodes,
+            nodes = self.nodes.to_string().bold(),
             time = self.time.as_millis(),
             nps = self.nodes * 1_000_000 / self.time.as_micros().max(1) as u64
         )

@@ -23,9 +23,12 @@ use crate::general::board::Strictness::Strict;
 use crate::general::board::{Board, BoardHelpers, UnverifiedBoard};
 use crate::general::perft::perft;
 use crate::search::Depth;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 #[test]
 fn perft_tests() {
+    let seed = 42;
     for (fen, perft_res) in UtttBoard::perft_test_positions() {
         let pos = UtttBoard::from_alternative_fen(fen, Strict).unwrap();
         println!("{pos}");
@@ -37,6 +40,13 @@ fn perft_tests() {
                 "{fen}, depth {depth}: {0} should be {1}",
                 res.nodes, *nodes
             );
+        }
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mov = pos.random_legal_move(&mut rng);
+        if mov.is_none() {
+            assert_eq!(perft_res[1], 0);
+        } else {
+            assert!(pos.is_move_legal(mov.unwrap()), "{pos} {}", mov.unwrap());
         }
     }
 }

@@ -35,10 +35,13 @@ use crate::general::bitboards::{
 use crate::general::board::SelfChecks::*;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    ply_counter_from_fullmove_nr, read_common_fen_part, simple_fen, Board, BoardHelpers,
+    ply_counter_from_fullmove_nr, read_common_fen_part, simple_fen, Board, BoardHelpers, NameToPos,
     SelfChecks, Strictness, UnverifiedBoard,
 };
-use crate::general::common::{ith_one_u128, parse_int, Res, StaticallyNamedEntity, Tokens};
+use crate::general::common::{
+    ith_one_u128, ith_one_u64, parse_int, EntityList, GenericSelect, Res, StaticallyNamedEntity,
+    Tokens,
+};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
@@ -689,6 +692,27 @@ impl Board for UtttBoard {
         Self::default()
     }
 
+    fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
+        vec![
+            NameToPos {
+                name: "midgame",
+                val: || {
+                    Self::from_fen(
+                        "o1o4x1/9/xox4x1/x2x5/4o4/o2x1o3/o2x1o3/1x1xo1ox1/oxx1o1ox1 o 14 h9",
+                        Strict,
+                    )
+                    .unwrap()
+                },
+            },
+            GenericSelect {
+                name: "mate_in_6",
+                val: || {
+                    Self::from_fen("oxoooxoxx/x2o2o1x/xox1x2x1/xxox2x1o/xox1oxo1o/o2x1o3/o2xoo3/1x1xo1ox1/oxx1o1ox1 o 25 g6", Strict).unwrap()
+                },
+            },
+        ]
+    }
+
     fn bench_positions() -> Vec<Self> {
         Self::perft_test_positions()
             .iter()
@@ -783,15 +807,28 @@ impl Board for UtttBoard {
         self.open_bb().num_ones()
     }
 
-    // TODO: Incorrect? Add testcase!
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
-        let open = self.open_bb();
-        if open.is_zero() {
+        // don't assume that the board is empty in startpos to support different starting positions
+        if self.player_result_no_movegen(&NoHistory::default()) == Some(Lose) {
             return None;
         }
-        let idx = rng.random_range(0..open.num_ones());
-        let idx = ith_one_u128(idx, open);
-        Some(UtttMove(UtttSquare::from_bb_idx(idx)))
+        if self.last_move != UtttMove::NULL {
+            let sub_board = self.last_move.dest_square().sub_square();
+            if self.is_sub_board_open(sub_board) {
+                debug_assert!(
+                    !self.is_sub_board_won(X, sub_board) && !self.is_sub_board_won(O, sub_board)
+                );
+                let bb = self.open_sub_board(sub_board);
+                let idx = rng.random_range(0..bb.num_ones());
+                let idx = ith_one_u64(idx, bb.raw());
+                let sq = UtttSquare::new(sub_board, UtttSubSquare::from_bb_index(idx));
+                return Some(UtttMove::new(sq));
+            }
+        }
+        let bb = self.open_bb();
+        let idx = rng.random_range(..bb.num_ones());
+        let idx = ith_one_u128(idx, bb);
+        Some(UtttMove::new(UtttSquare::from_bb_idx(idx)))
     }
 
     fn random_pseudolegal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {

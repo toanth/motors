@@ -17,6 +17,7 @@ use gears::general::board::Board;
 use gears::general::common::anyhow::bail;
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
 use gears::general::move_list::MoveList;
+use gears::general::moves::Move;
 use gears::output::Message;
 use gears::output::Message::Warning;
 use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON};
@@ -993,7 +994,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             let mut rng = StdRng::seed_from_u64(42); // keep everything deterministic
             let chosen_move = pos.random_legal_move(&mut rng).unwrap_or_default();
             if chosen_move != B::Move::default() {
-                debug_assert!(pos.is_move_legal(chosen_move));
+                debug_assert!(
+                    pos.is_move_legal(chosen_move),
+                    "{} {pos}",
+                    chosen_move.compact_formatter(&pos)
+                );
                 output.write_message(Warning, "Not even a single iteration finished");
                 output.write_search_res(&SearchResult::<B>::move_only(chosen_move, pos.clone()));
                 return;
