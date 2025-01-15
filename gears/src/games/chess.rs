@@ -22,8 +22,8 @@ use crate::games::chess::squares::{ChessSquare, ChessboardSize};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::chess::ChessColor::{Black, White};
 use crate::games::{
-    file_to_char, n_fold_repetition, AbstractPieceType, Board, BoardHistory, CharType, Color,
-    ColoredPiece, ColoredPieceType, DimT, PieceType, PosHash, Settings,
+    n_fold_repetition, AbstractPieceType, Board, BoardHistory, CharType, Color, ColoredPiece,
+    ColoredPieceType, DimT, PieceType, PosHash, Settings,
 };
 use crate::general::bitboards::chessboard::{black_squares, white_squares, ChessBitboard};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard};
@@ -56,7 +56,7 @@ pub mod see;
 pub mod squares;
 pub mod zobrist;
 
-pub const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w HAha - 0 1";
+pub const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct ChessSettings {}
@@ -126,7 +126,7 @@ pub struct Chessboard {
     ply_100_ctr: usize,
     active_player: ChessColor,
     castling: CastlingFlags,
-    ep_square: Option<ChessSquare>, // eventually, see if using Optional and Noned instead of Option improves nps
+    ep_square: Option<ChessSquare>,
     hash: PosHash,
 }
 
@@ -895,24 +895,7 @@ impl Display for Chessboard {
         } else {
             write!(f, " b ")?;
         }
-        let mut has_castling_righs = false;
-        // Always output chess960 castling rights. FEN output isn't necessary for UCI
-        // and almost all tools support chess960 FEN notation.
-        for color in ChessColor::iter() {
-            for side in CastleRight::iter().rev() {
-                if self.castling.can_castle(color, side) {
-                    has_castling_righs = true;
-                    let mut file = file_to_char(self.castling.rook_start_file(color, side));
-                    if color == White {
-                        file = file.to_ascii_uppercase();
-                    }
-                    write!(f, "{file}")?;
-                }
-            }
-        }
-        if !has_castling_righs {
-            write!(f, "-")?;
-        }
+        self.castling.write_castle_rights(f, self)?;
         let mut ep_square = None;
         if let Some(square) = self.ep_square() {
             // Internally, the ep square is set whenever a pseudolegal ep move is possible, but the FEN standard requires
@@ -1607,6 +1590,7 @@ mod tests {
             assert_eq!(board.piece_bb(Queen).num_ones(), 2);
             startpos_found |= board == Chessboard::default();
         }
+        // castling flags are compared for equality by ignoring the bit that specifies the format
         assert!(startpos_found);
     }
 

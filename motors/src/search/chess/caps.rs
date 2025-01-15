@@ -762,9 +762,9 @@ impl Caps {
                 // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
                 // simply return it.
                 if !is_pv_node && tt_entry.depth as isize >= depth {
-                    if ((tt_entry.score >= beta && tt_bound == NodeType::lower_bound())
+                    if (tt_entry.score >= beta && tt_bound == NodeType::lower_bound())
                         || (tt_entry.score <= alpha && tt_bound == NodeType::upper_bound())
-                        || tt_bound == Exact)
+                        || tt_bound == Exact
                     {
                         self.state.statistics.tt_cutoff(MainSearch, tt_bound);
                         // Idea from stormphrax
@@ -1675,7 +1675,7 @@ mod tests {
             let score = res.score;
             println!(
                 "chosen move {0}, fen {1}, depth {2}, time {3}ms",
-                res.chosen_move.extended_formatter(pos, Standard),
+                res.chosen_move.extended_formatter(&pos, Standard),
                 pos.as_fen(),
                 engine.state.depth(),
                 engine.state.start_time.elapsed().as_millis()

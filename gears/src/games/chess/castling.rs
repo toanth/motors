@@ -1,5 +1,8 @@
 use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
+use std::fmt;
+use std::fmt::Formatter;
+use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 use crate::games::chess::castling::CastleRight::*;
@@ -10,7 +13,7 @@ use crate::games::chess::squares::{
 };
 use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard};
-use crate::games::{char_to_file, Board, ColoredPieceType, DimT};
+use crate::games::{char_to_file, file_to_char, Board, Color, ColoredPieceType, DimT};
 use crate::general::bitboards::RawBitboard;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{BitboardBoard, Strictness};
@@ -42,9 +45,9 @@ impl CastleRight {
     }
 }
 
-#[derive(Eq, PartialEq, Default, Debug, Ord, PartialOrd, Copy, Clone, Hash, Arbitrary)]
+#[derive(Default, Debug, Copy, Clone, Hash, Arbitrary)]
 #[must_use]
-/// Stores the queen/kingside castling files for white/black in 3 bits each and uses the bits [12,16) to store
+/// Stores the queen/kingside castling files for white/black in 3 bits each and uses the upper 4 bits to store
 /// if castling is legal. The bit at index 16 is not set iff the castling rights should be printed in X-FEN format
 /// (which is backwards compatible to standard FEN, unlike Shredder FEN). This is set to be the format
 /// in which the FEN is received (startpos and all non-chess960 FENs are X-FENs for maximum GUI support).
@@ -53,14 +56,27 @@ impl CastleRight {
 /// is impossible, but don't really seem worth it because the size of the [`Chessboard`] doesn't change anyway.
 pub struct CastlingFlags(u32);
 
+impl PartialEq for CastlingFlags {
+    fn eq(&self, other: &Self) -> bool {
+        let ignore_format = 1 << FORMAT_SHIFT;
+        self.0 | ignore_format == other.0 | ignore_format
+    }
+}
+
+impl Eq for CastlingFlags {}
+
+const CASTLE_RIGHTS_SHIFT: usize = 32 - 4;
+const FORMAT_SHIFT: usize = 16;
+
 impl CastlingFlags {
     #[must_use]
     pub fn allowed_castling_directions(self) -> usize {
-        (self.0 >> 12) as usize
+        (self.0 >> CASTLE_RIGHTS_SHIFT) as usize
     }
 
-    pub fn is_shredder_fen(&self) -> bool {
-        self.0 >> 16 & 1 == 1
+    /// This is set on finding the letter `q` or `k` in the FEN castling description
+    pub fn is_x_fen(&self) -> bool {
+        (self.0 >> FORMAT_SHIFT) & 1 == 1
     }
 
     fn shift(color: ChessColor, castle_right: CastleRight) -> usize {
@@ -77,7 +93,7 @@ impl CastlingFlags {
     /// i.e. checks or pieces blocking the castling move aren't handled here.
     #[must_use]
     pub fn can_castle(self, color: ChessColor, castle_right: CastleRight) -> bool {
-        1 == 1 & (self.0 >> (12 + color as usize * 2 + castle_right as usize))
+        1 == 1 & (self.0 >> (CASTLE_RIGHTS_SHIFT + color as usize * 2 + castle_right as usize))
     }
 
     pub fn set_castle_right(
@@ -91,17 +107,17 @@ impl CastlingFlags {
             bail!("Trying to set the {color} {castle_right} twice");
         }
         self.0 |= u32::from(file) << Self::shift(color, castle_right);
-        self.0 |= 1 << (12 + color as usize * 2 + castle_right as usize);
+        self.0 |= 1 << (CASTLE_RIGHTS_SHIFT + color as usize * 2 + castle_right as usize);
         Ok(())
     }
 
     pub fn unset_castle_right(&mut self, color: ChessColor, castle_right: CastleRight) {
-        self.0 &= !(0x1 << ((color as usize * 2 + castle_right as usize) + 12));
+        self.0 &= !(0x1 << ((color as usize * 2 + castle_right as usize) + CASTLE_RIGHTS_SHIFT));
         self.0 &= !(0x7 << Self::shift(color, castle_right));
     }
 
     pub fn clear_castle_rights(&mut self, color: ChessColor) {
-        self.0 &= !(0x3 << (color as usize * 2 + 12));
+        self.0 &= !(0x3 << (color as usize * 2 + CASTLE_RIGHTS_SHIFT));
         self.0 &= !(0x3f << (color as usize * 6));
     }
 
@@ -162,6 +178,7 @@ impl CastlingFlags {
                 {
                     bail!("In strict mode, normal chess ('q' and 'k') castle rights can only be used for rooks on the a and h file")
                 }
+                self.0 |= 1 << FORMAT_SHIFT; // this sets the x fen flag
                 match side {
                     Queenside => {
                         for file in A_FILE_NO..king_file {
@@ -199,5 +216,55 @@ impl CastlingFlags {
             }
         }
         Ok(self)
+    }
+
+    pub(super) fn write_castle_rights(self, f: &mut Formatter, pos: &Chessboard) -> fmt::Result {
+        let mut has_castling_righs = false;
+        // Always output chess960 castling rights. FEN output isn't necessary for UCI
+        // and almost all tools support chess960 FEN notation.
+        for color in ChessColor::iter() {
+            for side in CastleRight::iter().rev() {
+                if self.can_castle(color, side) {
+                    has_castling_righs = true;
+                    let file = self.rook_start_file(color, side);
+                    let found_rook = |file: DimT| {
+                        pos.is_piece_on(
+                            ChessSquare::from_rank_file(color as DimT * 7, file),
+                            ColoredChessPieceType::new(color, Rook),
+                        )
+                    };
+                    let mut file_char;
+                    if self.is_x_fen() {
+                        file_char = if side == Kingside { 'k' } else { 'q' };
+                        match side {
+                            Queenside => {
+                                for file in A_FILE_NO..file {
+                                    if found_rook(file) {
+                                        file_char = file_to_char(file)
+                                    }
+                                }
+                            }
+                            Kingside => {
+                                for file in (H_FILE_NO..file).rev() {
+                                    if found_rook(file) {
+                                        file_char = file_to_char(file)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        file_char = file_to_char(file)
+                    };
+                    if color == White {
+                        file_char = file_char.to_ascii_uppercase();
+                    }
+                    write!(f, "{file_char}")?;
+                }
+            }
+        }
+        if !has_castling_righs {
+            write!(f, "-")?;
+        }
+        Ok(())
     }
 }
