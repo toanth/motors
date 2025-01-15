@@ -9,7 +9,8 @@ use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::pieces::ChessPieceType::{King, Rook};
 use crate::games::chess::pieces::ColoredChessPieceType;
 use crate::games::chess::squares::{
-    ChessSquare, A_FILE_NO, C_FILE_NO, D_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
+    ChessSquare, A_FILE_NO, C_FILE_NO, D_FILE_NO, E_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO,
+    NUM_COLUMNS,
 };
 use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard};
@@ -58,7 +59,7 @@ pub struct CastlingFlags(u32);
 
 impl PartialEq for CastlingFlags {
     fn eq(&self, other: &Self) -> bool {
-        let ignore_format = 1 << FORMAT_SHIFT;
+        let ignore_format = (1 << X_FEN_FLAG_SHIFT) | (1 << COMPACT_CASTLING_MOVE_SHIFT);
         self.0 | ignore_format == other.0 | ignore_format
     }
 }
@@ -66,7 +67,8 @@ impl PartialEq for CastlingFlags {
 impl Eq for CastlingFlags {}
 
 const CASTLE_RIGHTS_SHIFT: usize = 32 - 4;
-const FORMAT_SHIFT: usize = 16;
+const X_FEN_FLAG_SHIFT: usize = 16;
+const COMPACT_CASTLING_MOVE_SHIFT: usize = 17;
 
 impl CastlingFlags {
     #[must_use]
@@ -76,7 +78,13 @@ impl CastlingFlags {
 
     /// This is set on finding the letter `q` or `k` in the FEN castling description
     pub fn is_x_fen(&self) -> bool {
-        (self.0 >> FORMAT_SHIFT) & 1 == 1
+        (self.0 >> X_FEN_FLAG_SHIFT) & 1 == 1
+    }
+
+    /// This is set alongside is_x_fen, but additionally requires that the castling rights look like normal chess:
+    /// All castling rooks must be on the a and h files, and the king must be on the e file.
+    pub fn default_uci_castling_move_fmt(&self) -> bool {
+        (self.0 >> COMPACT_CASTLING_MOVE_SHIFT) & 1 == 1
     }
 
     fn shift(color: ChessColor, castle_right: CastleRight) -> usize {
@@ -108,6 +116,9 @@ impl CastlingFlags {
         }
         self.0 |= u32::from(file) << Self::shift(color, castle_right);
         self.0 |= 1 << (CASTLE_RIGHTS_SHIFT + color as usize * 2 + castle_right as usize);
+        if file != 0 && file != 7 {
+            self.0 &= !(1 << COMPACT_CASTLING_MOVE_SHIFT);
+        }
         Ok(())
     }
 
@@ -135,6 +146,9 @@ impl CastlingFlags {
         } else if rights.len() > 4 {
             bail!("Invalid castling rights string: '{rights}' is more than 4 characters long");
         }
+
+        // output compact castling moves as `<king square><dest square>`. Can get overridden below
+        self.0 |= 1 << COMPACT_CASTLING_MOVE_SHIFT;
 
         for c in rights.chars() {
             let color = if c.is_ascii_uppercase() { White } else { Black };
@@ -171,14 +185,14 @@ impl CastlingFlags {
                     Kingside => H_FILE_NO,
                 };
                 if strictness == Strict
-                    && !board.is_piece_on(
+                    && (!board.is_piece_on(
                         ChessSquare::from_rank_file(rank, strict_file),
                         ColoredChessPieceType::new(color, Rook),
-                    )
+                    ) || board.king_square(color).file() != E_FILE_NO)
                 {
-                    bail!("In strict mode, normal chess ('q' and 'k') castle rights can only be used for rooks on the a and h file")
+                    bail!("In strict mode, normal chess ('q' and 'k') castle rights can only be used for rooks on the a or h files and a king on the e file")
                 }
-                self.0 |= 1 << FORMAT_SHIFT; // this sets the x fen flag
+                self.0 |= 1 << X_FEN_FLAG_SHIFT; // this sets the x fen flag
                 match side {
                     Queenside => {
                         for file in A_FILE_NO..king_file {
@@ -213,6 +227,16 @@ impl CastlingFlags {
                     self.set_castle_right(color, side(file), file)?;
                 }
                 x => bail!("invalid character in castling rights: '{x}'"),
+            }
+        }
+        if !self.is_x_fen() {
+            self.0 &= !(1 << COMPACT_CASTLING_MOVE_SHIFT);
+        }
+        for color in ChessColor::iter() {
+            if (self.can_castle(color, Kingside) || self.can_castle(color, Queenside))
+                && board.king_square(color).file() != E_FILE_NO
+            {
+                self.0 &= !(1 << COMPACT_CASTLING_MOVE_SHIFT);
             }
         }
         Ok(self)

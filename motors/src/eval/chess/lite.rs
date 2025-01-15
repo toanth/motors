@@ -15,6 +15,7 @@ use gears::general::bitboards::RawBitboard;
 use gears::general::bitboards::{Bitboard, KnownSizeBitboard};
 use gears::general::board::{BitboardBoard, Board, BoardHelpers};
 use gears::general::common::StaticallyNamedEntity;
+use gears::general::moves::Move;
 use gears::general::squares::RectangularCoordinates;
 use gears::score::{PhaseType, PhasedScore, Score, ScoreT};
 
@@ -395,9 +396,10 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             debug_assert_eq!(
                 self.psqt(old_pos),
                 state.psqt_score,
-                "{0} {1} {old_pos} {new_pos} {mov}",
+                "{0} {1} {old_pos} {new_pos} {2}",
                 self.psqt(old_pos),
-                state.psqt_score
+                state.psqt_score,
+                mov.compact_formatter(&old_pos)
             );
             debug_assert_eq!(&old_pos.make_move(mov).unwrap(), new_pos);
             let captured = mov.captured(old_pos);
@@ -407,10 +409,11 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             debug_assert_eq!(
                 state.psqt_score,
                 self.psqt(new_pos),
-                "{0} {1} {2} {old_pos} {new_pos} {mov}",
+                "{0} {1} {2} {old_pos} {new_pos} {3}",
                 state.psqt_score,
                 self.psqt(new_pos),
                 self.psqt_delta(old_pos, mov, captured, new_pos).0,
+                mov.compact_formatter(old_pos)
             );
             // TODO: Test if this is actually faster -- getting the captured piece is quite expensive
             // (but this could be remedied by reusing that info from `psqt_delta`, or by using a redundant mailbox)

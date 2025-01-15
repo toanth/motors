@@ -204,7 +204,10 @@ mod tests {
             let mut engine = Caps::for_eval::<RandEval>();
             let res = engine.search_with_new_tt(board, SearchLimit::depth(Depth::new(i)));
             assert_eq!(res.score, SCORE_LOST + 2);
-            assert_eq!(res.chosen_move.to_string(), "h1g1");
+            assert_eq!(
+                res.chosen_move.compact_formatter(&board).to_string(),
+                "h1g1"
+            );
         }
     }
 

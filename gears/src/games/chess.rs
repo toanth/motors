@@ -1590,7 +1590,7 @@ mod tests {
             assert_eq!(board.piece_bb(Queen).num_ones(), 2);
             startpos_found |= board == Chessboard::default();
         }
-        // castling flags are compared for equality by ignoring the bit that specifies the format
+        // castling flags are compared for equality by ignoring the bits that specifie the format
         assert!(startpos_found);
     }
 

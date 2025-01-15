@@ -132,6 +132,7 @@ mod tests {
     use crate::games::chess::squares::{D_FILE_NO, E_FILE_NO};
     use crate::general::board::Strictness::Strict;
     use crate::general::board::{Board, BoardHelpers};
+    use crate::general::moves::Move;
     use std::collections::HashMap;
 
     #[test]
@@ -231,7 +232,11 @@ mod tests {
                 let Some(new_pos) = pos.make_move(m) else {
                     continue;
                 };
-                assert!(new_pos.debug_verify_invariants(Strict).is_ok(), "{pos} {m}");
+                assert!(
+                    new_pos.debug_verify_invariants(Strict).is_ok(),
+                    "{pos} {}",
+                    m.compact_formatter(&pos)
+                );
                 if !(m.is_double_pawn_push()
                     || m.is_capture(&pos)
                     || m.is_promotion()
@@ -247,7 +252,8 @@ mod tests {
                             m.dest_square()
                         ),
                         new_pos.hash,
-                        "{pos} {m}"
+                        "{pos} {}",
+                        m.compact_formatter(&pos)
                     );
                 }
             }

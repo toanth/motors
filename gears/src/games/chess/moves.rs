@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail};
 use std::fmt;
-use std::fmt::{Display, Formatter};
+use std::fmt::Formatter;
 use std::str::FromStr;
 
 use arbitrary::Arbitrary;
@@ -103,6 +103,7 @@ impl ChessMove {
     }
 
     #[inline]
+    /// For a castle move, this always returns the rook square, which allows disambiguating Chess960 castling moves.
     pub fn dest_square(self) -> ChessSquare {
         ChessSquare::from_bb_index(((self.0 >> 6) & 0x3f) as usize)
     }
@@ -210,27 +211,6 @@ impl ChessMove {
     }
 }
 
-impl Display for ChessMove {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        if self.is_null() {
-            return write!(f, "0000");
-        }
-        let flag = match self.flags() {
-            PromoKnight => "n",
-            PromoBishop => "b",
-            PromoRook => "r",
-            PromoQueen => "q",
-            _ => "",
-        };
-        write!(
-            f,
-            "{from}{to}{flag}",
-            from = self.src_square(),
-            to = self.dest_square()
-        )
-    }
-}
-
 impl Move<Chessboard> for ChessMove {
     type Underlying = u16;
 
@@ -255,8 +235,27 @@ impl Move<Chessboard> for ChessMove {
     }
 
     #[inline]
-    fn format_compact(self, f: &mut Formatter<'_>, _board: &Chessboard) -> fmt::Result {
-        write!(f, "{self}")
+    fn format_compact(self, f: &mut Formatter<'_>, board: &Chessboard) -> fmt::Result {
+        if self.is_null() {
+            return write!(f, "0000");
+        }
+        let mut to = self.dest_square();
+        if self.is_castle() && board.castling.default_uci_castling_move_fmt() {
+            let rank = board.active_player as DimT * 7;
+            if self.flags() == CastleKingside {
+                to = ChessSquare::from_rank_file(rank, G_FILE_NO);
+            } else {
+                to = ChessSquare::from_rank_file(rank, C_FILE_NO);
+            };
+        }
+        let flag = match self.flags() {
+            PromoKnight => "n",
+            PromoBishop => "b",
+            PromoRook => "r",
+            PromoQueen => "q",
+            _ => "",
+        };
+        write!(f, "{from}{to}{flag}", from = self.src_square())
     }
 
     fn format_extended(
@@ -283,7 +282,7 @@ impl Move<Chessboard> for ChessMove {
             })
             .collect_vec();
         if moves.is_empty() {
-            return write!(f, "<Illegal move {}>", self);
+            return write!(f, "<Illegal move {}>", self.compact_formatter(board));
         }
 
         match piece.uncolored() {
@@ -347,7 +346,6 @@ impl Move<Chessboard> for ChessMove {
     }
 
     fn parse_compact_text<'a>(s: &'a str, board: &Chessboard) -> Res<(&'a str, ChessMove)> {
-        let s = s.trim_start(); // TODO: Remove?
         if s.is_empty() {
             bail!("Empty input");
         }
@@ -648,8 +646,8 @@ impl<'a> MoveParser<'a> {
             if !board.is_move_pseudolegal(mov) {
                 // can't use `to_extended_text` because that requires pseudolegal moves.
                 bail!(
-                    "Castling move '{}' is not pseudolegal in the current position",
-                    mov.to_string().red()
+                    "Castling move '{}' is not pseudolegal in the current position ('{board}')",
+                    mov.compact_formatter(board).to_string().red()
                 );
             }
             parser.check_check_checkmate_captures_and_ep(mov, board)?; // check this once the move is known to be pseudolegal
@@ -1082,7 +1080,7 @@ impl<'a> MoveParser<'a> {
             bail!(
                 "The move notation '{0}' claims that it {typ}, but the move {1} actually doesn't",
                 self.consumed().red(),
-                mov.to_string().bold() // can't use to_extended_text() here, as that requires pseudolegal moves
+                mov.compact_formatter(board).to_string().bold() // can't use to_extended_text() here, as that requires pseudolegal moves
             );
         }
         Ok(())
@@ -1092,6 +1090,7 @@ impl<'a> MoveParser<'a> {
 #[cfg(test)]
 mod tests {
     use crate::games::chess::moves::ChessMove;
+    use crate::games::chess::pieces::ChessPieceType;
     use crate::games::chess::pieces::ChessPieceType::Bishop;
     use crate::games::chess::squares::ChessSquare;
     use crate::games::chess::ChessColor::White;
@@ -1099,9 +1098,10 @@ mod tests {
     use crate::games::generic_tests;
     use crate::games::Board;
     use crate::general::board::BoardHelpers;
-    use crate::general::board::Strictness::Strict;
+    use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::moves::ExtendedFormat::{Alternative, Standard};
     use crate::general::moves::Move;
+    use itertools::Itertools;
 
     type GenericTests = generic_tests::GenericTests<Chessboard>;
 
@@ -1187,7 +1187,8 @@ mod tests {
                     // check that the move representation is unique
                     assert!(
                         pos.pseudolegal_moves().contains(&mov),
-                        "{pos} -- {mov} {}",
+                        "{pos} -- {0} {1}",
+                        mov.compact_formatter(&pos),
                         mov.flags() as usize
                     );
                 }
@@ -1204,6 +1205,7 @@ mod tests {
     fn castle_test() {
         let mut p = Chessboard::chess_960_startpos(42).unwrap();
         p.remove_piece_unchecked(ChessSquare::from_chars('f', '1').unwrap(), Bishop, White);
+        assert!(!p.castling.is_x_fen());
         let tests: &[(Chessboard, &[&str])] = &[
             (
                 Chessboard::from_name("kiwipete").unwrap(),
@@ -1216,9 +1218,52 @@ mod tests {
                 let mov = ChessMove::from_text(mov, pos).unwrap();
                 assert!(mov.is_castle());
                 assert!(!mov.is_capture(pos));
+                assert_eq!(pos.piece_type_on(mov.dest_square()), ChessPieceType::Rook);
+                assert_eq!(
+                    pos.castling.is_x_fen(),
+                    pos.castling.default_uci_castling_move_fmt()
+                );
             }
         }
+        let castling = |pos: Chessboard| {
+            pos.legal_moves_slow()
+                .iter()
+                .filter_map(|m| {
+                    if m.is_castle() {
+                        Some(m.compact_formatter(&pos).to_string())
+                    } else {
+                        None
+                    }
+                })
+                .sorted()
+                .collect_vec()
+        };
+        let pos = Chessboard::from_name("kiwipete").unwrap();
+        assert!(pos.castling.default_uci_castling_move_fmt());
+        let moves = castling(pos);
+        assert_eq!(moves.len(), 2);
+        assert_eq!(moves[0], "e1c1");
+        assert_eq!(moves[1], "e1g1");
+        // same as kiwipete, but in  shredder FEN notation
+        let pos = Chessboard::from_fen(
+            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w HAha - 0 1",
+            Strict,
+        )
+        .unwrap();
+        assert!(!pos.castling.default_uci_castling_move_fmt());
+        let moves = castling(pos);
+        assert_eq!(moves.len(), 2);
+        assert_eq!(moves[0], "e1a1");
+        assert_eq!(moves[1], "e1h1");
+        // same as kiwipete, but the king is moved one file to the right
+        let fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R4K1R w KQkq - 1 2";
+        assert!(Chessboard::from_fen(fen, Strict).is_err());
+        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        assert!(pos.castling.is_x_fen());
+        assert!(!pos.castling.default_uci_castling_move_fmt());
+        let moves = castling(pos);
+        assert_eq!(moves.len(), 2);
+        assert_eq!(moves[0], "f1a1");
+        assert_eq!(moves[1], "f1h1");
     }
 }
-
-// TODO: PGN import test (not here though)

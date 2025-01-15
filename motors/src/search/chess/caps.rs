@@ -1533,7 +1533,7 @@ mod tests {
             ]
             .contains(&res.chosen_move),
             "{}",
-            res.chosen_move
+            res.chosen_move.compact_formatter(&pos)
         );
     }
 

@@ -430,9 +430,11 @@ mod test {
         let res1 = handle.join().unwrap();
         let res2 = handle2.join().unwrap();
         assert_ne!(
-            res1.chosen_move, res2.chosen_move,
+            res1.chosen_move,
+            res2.chosen_move,
             "{} {}",
-            res1.chosen_move, res2.chosen_move
+            res1.chosen_move.compact_formatter(&pos),
+            res2.chosen_move.compact_formatter(&pos)
         );
         let hashfull = tt.estimate_hashfull::<Chessboard>();
         assert!(hashfull > 0, "{hashfull}");
