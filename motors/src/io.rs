@@ -234,7 +234,7 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
     }
 
     fn player_name(&self, color: B::Color) -> Option<String> {
-        if color == self.last_played_color {
+        if color == self.board.inactive_player() {
             Some(self.name().to_string())
         } else {
             self.opponent_name.clone()
@@ -299,7 +299,6 @@ impl<B: Board> EngineUGI<B> {
             mov_hist: vec![],
             board_hist: ZobristHistory::default(),
             pos_before_moves: B::default(),
-            last_played_color: B::Color::default(),
         };
         let protocol = if opts.interactive { Interactive } else { UGI };
         let move_overhead = Duration::from_millis(DEFAULT_MOVE_OVERHEAD_MS);
@@ -1423,6 +1422,8 @@ trait AbstractEngineUgi: Debug {
 
     fn handle_assist(&mut self, words: &mut Tokens) -> Res<()>;
 
+    fn handle_undo(&mut self, words: &mut Tokens) -> Res<()>;
+
     fn print_help(&mut self) -> Res<()>;
 
     fn write_is_player(&mut self, is_first: bool) -> Res<()>;
@@ -1603,6 +1604,14 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         } else {
             self.play_engine_move()
         }
+    }
+
+    fn handle_undo(&mut self, words: &mut Tokens) -> Res<()> {
+        let count = words.next().unwrap_or("1");
+        let count = parse_int_from_str(count, "count")?;
+        self.state.undo_last_moves(count)?;
+        self.print_board(OutputOpts::default());
+        Ok(())
     }
 
     fn print_help(&mut self) -> Res<()> {

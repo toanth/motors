@@ -263,6 +263,10 @@ impl<B: Board> AbstractEngineUgi for ACState<B> {
         Ok(())
     }
 
+    fn handle_undo(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+
     fn print_help(&mut self) -> Res<()> {
         Ok(())
     }
@@ -607,6 +611,12 @@ pub fn ugi_commands() -> CommandList {
             Custom,
             "Lets the engine play a move, or use 'on'/'off' to enable/disable automatic response",
             |ugi, words, _| ugi.handle_assist(words)
+        ),
+        command!(
+            undo | take_back | u,
+            Custom,
+            "Undoes 1 or a given number of halfmoves",
+            |ugi, words, _| { ugi.handle_undo(words) }
         ),
         command!(
             perft,

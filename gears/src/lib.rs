@@ -14,7 +14,7 @@ use crate::search::TimeControl;
 use crate::ugi::parse_ugi_position_and_moves;
 use crate::AdjudicationReason::*;
 use crate::GameResult::Aborted;
-use crate::MatchStatus::{NotStarted, Over};
+use crate::MatchStatus::{NotStarted, Ongoing, Over};
 use crate::PlayerResult::{Draw, Lose, Win};
 use crate::ProgramStatus::Run;
 use anyhow::{anyhow, bail};
@@ -23,6 +23,7 @@ pub use colored;
 use colored::Colorize;
 pub use colorgrad;
 pub use crossterm;
+use itertools::Itertools;
 pub use rand;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
@@ -373,7 +374,6 @@ pub struct MatchState<B: Board> {
     pub mov_hist: Vec<B::Move>,
     pub board_hist: ZobristHistory<B>,
     pub pos_before_moves: B,
-    pub last_played_color: B::Color,
 }
 
 impl<B: Board> MatchState<B> {
@@ -404,6 +404,27 @@ impl<B: Board> MatchState<B> {
             }
         }
         Ok(self.board.clone())
+    }
+
+    pub fn undo_last_moves(&mut self, count: usize) -> Res<()> {
+        let mut pos = self.pos_before_moves.clone();
+        assert_eq!(self.mov_hist.len(), self.board_hist.len());
+        if self.mov_hist.is_empty() && count > 0 {
+            bail!("There are no moves to undo. The current position is '{pos}'")
+        }
+        let count = count.min(self.mov_hist.len());
+        for &mov in self.mov_hist.iter().dropping_back(count) {
+            pos = pos.make_move(mov).unwrap();
+        }
+        for _ in 0..count {
+            self.mov_hist.pop();
+            self.board_hist.pop();
+        }
+        if count > 0 {
+            self.status = Run(Ongoing);
+        }
+        self.board = pos;
+        Ok(())
     }
 
     pub fn clear_state(&mut self) {
@@ -438,7 +459,6 @@ impl<B: Board> MatchState<B> {
             },
             |state| &mut state.board,
         )?;
-        self.last_played_color = self.board.active_player();
         Ok(())
     }
 
