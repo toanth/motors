@@ -72,6 +72,7 @@ struct TypeErasedUgiOutput {
     alt_grad: BasisGradient,
     progress_bar: Option<ProgressBar>,
     previous_exact_info: Option<TypeErasedSearchInfo>,
+    previous_exact_pv_end_pos: Option<String>,
 }
 
 impl Default for TypeErasedUgiOutput {
@@ -87,6 +88,7 @@ impl Default for TypeErasedUgiOutput {
                 .build::<BasisGradient>()
                 .unwrap(),
             progress_bar: None,
+            previous_exact_pv_end_pos: None,
         }
     }
 }
@@ -100,6 +102,7 @@ impl TypeErasedUgiOutput {
         alpha: Score,
         beta: Score,
     ) -> &ProgressBar {
+        use fmt::Write;
         let bar = self.progress_bar.get_or_insert_with(|| {
             let template = "{prefix}\n{bar:68.cyan/blue} {pos:>3}/{len:3}";
             ProgressBar::new(num_moves as u64)
@@ -110,12 +113,22 @@ impl TypeErasedUgiOutput {
         let alpha = pretty_score(alpha, None, None, &self.gradient, true, false);
         let beta = pretty_score(beta, None, None, &self.gradient, true, false);
         let score_string = format!("{eval} with bounds ({alpha}, {beta})");
-        let msg = format!(
+        let mut message = String::new();
+        if let Some(fen) = &self.previous_exact_pv_end_pos {
+            message = format!(
+                "{0}{fen}{1}\n",
+                "Position at the end of the PV: '".dimmed(),
+                "'".dimmed()
+            );
+        };
+        write!(
+            message,
             "{0}{elapsed:>5}{1} {pretty_variation} [{score_string}]",
             "[".dimmed(),
-            "ms in this AW] Searching".dimmed()
-        );
-        bar.set_prefix(msg);
+            "ms in this AW] Searching".dimmed(),
+        )
+        .unwrap();
+        bar.set_prefix(message);
         bar
     }
 
@@ -325,7 +338,7 @@ impl<B: Board> UgiOutput<B> {
             ));
             return;
         }
-        let variation = pretty_variation(&[mov], pos.clone(), None, None, Exact);
+        let (variation, _) = pretty_variation(&[mov], pos.clone(), None, None, Exact);
         let bar = self
             .type_erased
             .show_bar(num_moves, &variation, score, alpha, beta);
@@ -358,7 +371,7 @@ impl<B: Board> UgiOutput<B> {
         }
         let num_legal = pos.num_legal_moves();
         let variation = variation.collect_vec();
-        let variation = pretty_variation(&variation, pos.clone(), None, None, Exact);
+        let (variation, _) = pretty_variation(&variation, pos.clone(), None, None, Exact);
         self.type_erased
             .show_bar(num_legal, &variation, eval, alpha, beta);
     }
@@ -371,7 +384,7 @@ impl<B: Board> UgiOutput<B> {
         self.type_erased.clear_progress_bar();
         let mpv_type = info.mpv_type();
         let pv = mem::take(&mut info.pv);
-        let pv_string = pretty_variation(
+        let (pv_string, end_pos) = pretty_variation(
             &pv,
             info.pos.clone(),
             self.previous_exact_pv.as_ref().map(|i| i.as_ref()),
@@ -393,6 +406,7 @@ impl<B: Board> UgiOutput<B> {
         if mpv_type != SecondaryLine && info.bound == Some(Exact) {
             self.type_erased.previous_exact_info = Some(info);
             self.previous_exact_pv = Some(pv.into());
+            self.type_erased.previous_exact_pv_end_pos = Some(end_pos.as_fen());
         }
     }
 
@@ -563,7 +577,7 @@ fn pretty_variation<B: Board>(
     previous: Option<&[B::Move]>,
     mpv_type: Option<MpvType>,
     node_type: NodeType,
-) -> String {
+) -> (String, B) {
     use fmt::Write;
     let mut same_so_far = true;
     let mut res = String::new();
@@ -572,9 +586,12 @@ fn pretty_variation<B: Board>(
         if !pos.is_move_legal(*mov) && !mov.is_null() {
             debug_assert!(false);
             let name = if mpv_type.is_some() { "PV " } else { "" };
-            return format!(
-                "{res} [Invalid {name}move '{}']",
-                mov.compact_formatter(&pos).to_string().red()
+            return (
+                format!(
+                    "{res} [Invalid {name}move '{}']",
+                    mov.compact_formatter(&pos).to_string().red()
+                ),
+                pos,
             );
         }
         // 'Alternative' would be cooler, but unfortunately most fonts struggle with unicode chess pieces,
@@ -609,5 +626,5 @@ fn pretty_variation<B: Board>(
             pos = pos.make_move(*mov).unwrap();
         }
     }
-    res
+    (res, pos)
 }
