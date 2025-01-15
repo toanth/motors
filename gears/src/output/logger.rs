@@ -26,7 +26,7 @@ impl Logger {
         };
         res.display_message(
             Message::Info,
-            &format!(
+            &format_args!(
                 "[Starting logging at {}]",
                 chrono::offset::Utc::now().to_rfc2822()
             ),
@@ -80,9 +80,8 @@ impl AbstractOutput for Logger {
         }
     }
 
-    fn display_message(&mut self, typ: Message, message: &str) {
-        self.stream
-            .write(typ.message_prefix(), &format_args!("{message}"));
+    fn display_message(&mut self, typ: Message, message: &fmt::Arguments) {
+        self.stream.write(typ.message_prefix(), &message);
     }
 }
 
@@ -96,7 +95,12 @@ impl<B: Board> Output<B> for Logger {
         self.board_to_text.as_string(m, opts)
     }
 
-    fn display_message_with_state(&mut self, m: &dyn GameState<B>, typ: Message, message: &str) {
+    fn display_message_with_state(
+        &mut self,
+        m: &dyn GameState<B>,
+        typ: Message,
+        message: &fmt::Arguments,
+    ) {
         self.display_message(typ, &message);
         if typ != Message::Info {
             let str = self.as_string(m, OutputOpts::default());

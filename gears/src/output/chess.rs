@@ -11,6 +11,7 @@ use crate::GameState;
 use anyhow::bail;
 use colored::Color::{TrueColor, White};
 use colored::Colorize;
+use std::fmt;
 use std::fmt::{Display, Write};
 use std::io::stdout;
 
@@ -46,7 +47,7 @@ impl AbstractOutput for ChessOutput {
         self.writer.stream.name()
     }
 
-    fn display_message(&mut self, typ: Message, message: &str) {
+    fn display_message(&mut self, typ: Message, message: &fmt::Arguments) {
         self.writer.display_message(typ, message);
     }
 }

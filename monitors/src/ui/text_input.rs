@@ -139,7 +139,7 @@ impl<B: Board> TextInputThread<B> {
                     ugi_client
                         .lock()
                         .unwrap()
-                        .show_error(&format!("Couldn't get input: {err}"));
+                        .show_error(&format_args!("Couldn't get input: {err}"));
                 };
                 break;
             }
@@ -159,7 +159,7 @@ impl<B: Board> TextInputThread<B> {
                         client
                             .lock()
                             .unwrap()
-                            .show_message(Warning, &format!("Ignoring input. {e}"));
+                            .show_message(Warning, &format_args!("Ignoring input. {e}"));
                     });
                 }
             }
@@ -209,7 +209,9 @@ impl<B: Board> TextInputThread<B> {
         if let Some(w) = words.next() {
             ugi_client.lock().unwrap().show_message(
                 Warning,
-                &format!("Ignoring extra input starting with '{w}' after the '{command}' command"),
+                &format_args!(
+                    "Ignoring extra input starting with '{w}' after the '{command}' command"
+                ),
             );
         }
         if ugi_client.lock().unwrap().will_quit() {
@@ -427,7 +429,7 @@ impl<B: Board> TextInputThread<B> {
                     .iter()
                     .map(|o| to_name_and_optional_description(o.as_ref(), WithDescription))
                     .join(",");
-                client.show_message(Info, &infos);
+                client.show_message(Info, &format_args!("{}", infos));
             }
             Some(mut name) => {
                 let mut replace = true;

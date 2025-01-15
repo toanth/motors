@@ -426,7 +426,7 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn write_message(&mut self, typ: Message, msg: &fmt::Arguments) {
-        self.output().write_message(typ, &msg.to_string());
+        self.output().write_message(typ, msg);
     }
 
     fn continue_on_error(&self) -> bool {
@@ -1371,7 +1371,7 @@ trait AbstractEngineUgi: Debug {
 
     fn write_ugi(&mut self, message: &fmt::Arguments);
 
-    fn write_message(&mut self, message: Message, msg: &str);
+    fn write_message(&mut self, message: Message, msg: &fmt::Arguments);
 
     fn write_response(&mut self, msg: &str) -> Res<()>;
 
@@ -1448,7 +1448,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         self.output().write_ugi(message);
     }
 
-    fn write_message(&mut self, message: Message, msg: &str) {
+    fn write_message(&mut self, message: Message, msg: &fmt::Arguments) {
         self.output().write_message(message, msg);
     }
 

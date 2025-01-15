@@ -29,6 +29,7 @@ use itertools::Itertools;
 use rand::prelude::StdRng;
 use rand::SeedableRng;
 use std::collections::HashMap;
+use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::spin_loop;
@@ -787,9 +788,9 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
         // this can set num_multi_pv to 0
         parameters.num_multi_pv = parameters.num_multi_pv.min(num_moves);
         // it's possible that there are no legal moves to search; such as when the game is over or if restrict_moves
-        // contains only invalid moves. Search must be able to deal with this
+        // contains only invalid moves. Search must be able to deal with this, but we set still add an empty multipv entry
         self.multi_pvs
-            .resize_with(parameters.num_multi_pv, PVData::default);
+            .resize_with(parameters.num_multi_pv.max(1), PVData::default);
         // If only one move can be played, immediately return it without doing a real search to make the engine appear
         // smarter, and perform better on lichess when it's up against an opponent with pondering enabled.
         // However, don't do this if the engine is used for analysis.
@@ -848,7 +849,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
             nodes: NodesLimit::new(self.uci_nodes()).unwrap(),
             pv_num: self.current_pv_num,
             max_num_pvs: self.params.num_multi_pv,
-            pv: self.current_mpv_pv().into(),
+            pv: self.current_mpv_pv(),
             score: self.current_pv_data().score,
             hashfull: self.estimate_hashfull(),
             pos: self.params.pos.clone(),
@@ -935,7 +936,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         self.search_params().num_multi_pv
     }
 
-    fn send_non_ugi(&mut self, typ: Message, message: &str) {
+    fn send_non_ugi(&mut self, typ: Message, message: &fmt::Arguments) {
         if let Some(mut output) = self.search_params().thread_type.output() {
             output.write_message(typ, message);
         }
@@ -960,11 +961,12 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             if self.search_stack[0].last_played_move().is_none() {
                 return;
             }
-            let mut line = vec![];
-            for i in 0..ply {
-                line.push(self.search_stack[i].last_played_move().unwrap());
-            }
-            output.write_currline(&self.params.pos, line.as_ref(), eval, alpha, beta);
+            let line = self
+                .search_stack
+                .iter()
+                .take(ply)
+                .map(|entry| entry.last_played_move().unwrap());
+            output.write_currline(&self.params.pos, line, eval, alpha, beta);
             self.last_msg_time = Instant::now();
         }
     }
@@ -999,11 +1001,17 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
                     "{} {pos}",
                     chosen_move.compact_formatter(&pos)
                 );
-                output.write_message(Warning, "Not even a single iteration finished");
+                output.write_message(
+                    Warning,
+                    &format_args!("Not even a single iteration finished"),
+                );
                 output.write_search_res(&SearchResult::<B>::move_only(chosen_move, pos.clone()));
                 return;
             }
-            output.write_message(Warning, "search() called in a position with no legal moves");
+            output.write_message(
+                Warning,
+                &format_args!("search() called in a position with no legal moves"),
+            );
         }
         debug_assert!(res.chosen_move == B::Move::default() || pos.is_move_legal(res.chosen_move));
 
@@ -1086,7 +1094,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         // don't pay the performance penalty of aggregating statistics unless they are shown,
         // especially since the "statistics" feature is likely turned off
         if cfg!(feature = "statistics") {
-            self.send_non_ugi(Message::Debug, &Summary::new(self.statistics()).to_string());
+            self.send_non_ugi(
+                Message::Debug,
+                &format_args!("{}", Summary::new(self.statistics())),
+            );
         }
     }
 

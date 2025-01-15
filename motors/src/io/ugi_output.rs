@@ -33,6 +33,7 @@ use gears::search::NodeType::*;
 use gears::search::{Depth, MpvType, NodeType, NodesLimit, SearchInfo, SearchResult};
 use gears::{colorgrad, GameState};
 use indicatif::{ProgressBar, ProgressStyle};
+use itertools::Itertools;
 use std::io::stdout;
 use std::time::Duration;
 use std::{fmt, mem};
@@ -334,7 +335,7 @@ impl<B: Board> UgiOutput<B> {
     pub fn write_currline(
         &mut self,
         pos: &B,
-        variation: &[B::Move],
+        variation: impl Iterator<Item = B::Move>,
         eval: Score,
         alpha: Score,
         beta: Score,
@@ -346,7 +347,7 @@ impl<B: Board> UgiOutput<B> {
         if !self.type_erased.pretty {
             let mut pos = pos.clone();
             let mut line = String::new();
-            for &mov in variation {
+            for mov in variation {
                 write!(line, " {}", mov.compact_formatter(&pos)).unwrap();
                 pos = pos.make_move(mov).unwrap();
             }
@@ -356,25 +357,20 @@ impl<B: Board> UgiOutput<B> {
             return;
         }
         let num_legal = pos.num_legal_moves();
-        let variation = pretty_variation(variation, pos.clone(), None, None, Exact);
+        let variation = variation.collect_vec();
+        let variation = pretty_variation(&variation, pos.clone(), None, None, Exact);
         self.type_erased
             .show_bar(num_legal, &variation, eval, alpha, beta);
     }
 
     pub fn write_search_info(&mut self, mut info: SearchInfo<B>) {
-        self.type_erased.clear_progress_bar();
-        let exact = info.bound == Some(Exact);
-        let mpv_type = info.mpv_type();
-        let pv = mem::take(&mut info.pv);
         if !self.type_erased.pretty {
             self.write_ugi(&format_args!("{info}"));
-            let info = TypeErasedSearchInfo::new(info);
-            if exact {
-                self.type_erased.previous_exact_info = Some(info);
-                self.previous_exact_pv = Some(pv);
-            }
             return;
         }
+        self.type_erased.clear_progress_bar();
+        let mpv_type = info.mpv_type();
+        let pv = mem::take(&mut info.pv);
         let pv_string = pretty_variation(
             &pv,
             info.pos.clone(),
@@ -396,7 +392,7 @@ impl<B: Board> UgiOutput<B> {
 
         if mpv_type != SecondaryLine && info.bound == Some(Exact) {
             self.type_erased.previous_exact_info = Some(info);
-            self.previous_exact_pv = Some(pv);
+            self.previous_exact_pv = Some(pv.into());
         }
     }
 
@@ -406,7 +402,7 @@ impl<B: Board> UgiOutput<B> {
         }
     }
 
-    pub fn write_message(&mut self, typ: Message, msg: &str) {
+    pub fn write_message(&mut self, typ: Message, msg: &fmt::Arguments) {
         for output in &mut self.additional_outputs {
             output.display_message(typ, msg);
         }
@@ -420,15 +416,6 @@ impl<B: Board> UgiOutput<B> {
             .iter()
             .any(|o| !o.is_logger() && o.prints_board())
     }
-    //
-    // pub fn format(&mut self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
-    //     use std::fmt::Write;
-    //     let mut res = String::new();
-    //     for output in &mut self.additional_outputs {
-    //         write!(&mut res, "{}", output.as_string(m, opts)).unwrap();
-    //     }
-    //     res
-    // }
 }
 
 pub fn suffix_for(val: isize, start: Option<usize>) -> (isize, &'static str) {
@@ -481,16 +468,19 @@ pub fn pretty_score(
     main_line: bool,
     min_width: bool,
 ) -> String {
-    let mut res = format!("{:>5}", score.0);
-    if let Some(mate) = score.moves_until_game_won() {
-        res = format!("#{mate}");
+    use std::fmt::Write;
+    let res = if let Some(mate) = score.moves_until_game_won() {
         if min_width {
             // 2 spaces because we don't print `cp`
-            res = format!("  {:>5}", format!("#{mate}"))
+            format!("  {:>5}", format!("#{mate}"))
+        } else {
+            format!("#{mate}")
         }
-    } else if !min_width {
-        res = score.0.to_string();
-    }
+    } else if min_width {
+        format!("{:>5}", score.0)
+    } else {
+        score.0.to_string()
+    };
     let mut res = res.color(color_for_score(score, gradient));
     if !main_line {
         res = res.dimmed();
@@ -502,15 +492,14 @@ pub fn pretty_score(
         Exact => (if min_width { " " } else { "" }).into(),
         FailLow => "≤".color(color_for_score(SCORE_LOST, gradient)).bold(),
     };
-    let res = if score.is_won_or_lost() {
+    let mut res = if score.is_won_or_lost() {
         format!("{bound_string}{}", res.bold())
     } else {
         format!("{bound_string}{res}{}", "cp".dimmed())
     };
-    // res = format!("{bound}{res}");
     if let Some(previous) = previous {
         if !main_line || bound != Some(Exact) {
-            return res.to_string() + "  ";
+            return res + "  ";
         }
         // use both `sigmoid - sigmoid` and `sigmoid(diff)` to weight changes close to 0 stronger
         let x = ((0.5 + 2.0 * (sigmoid(score, 100.0) as f32 - sigmoid(previous, 100.0) as f32))
@@ -530,10 +519,13 @@ pub fn pretty_score(
         } else {
             '🡪'
         };
-        format!(
-            "{res} {}",
+        write!(
+            &mut res,
+            " {}",
             c.to_string().bold().color(TrueColor { r, g, b })
         )
+        .unwrap();
+        res
     } else if min_width {
         res + "  "
     } else {

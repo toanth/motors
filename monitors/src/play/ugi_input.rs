@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader};
 use std::process::ChildStdout;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::play::player::Protocol::{Uci, Ugi};
 use crate::play::player::{EnginePlayer, Protocol};
@@ -20,8 +20,8 @@ use gears::general::common::{
 };
 use gears::general::moves::Move;
 use gears::output::Message::*;
-use gears::score::{ScoreT, SCORE_LOST, SCORE_WON};
-use gears::search::{Depth, NodesLimit, SearchInfo, SearchLimit};
+use gears::score::{Score, ScoreT, SCORE_LOST, SCORE_WON};
+use gears::search::{Depth, NodeType, NodesLimit, SearchInfo, SearchLimit};
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
 use gears::MatchStatus::Over;
@@ -96,10 +96,75 @@ impl EngineStatus {
     }
 }
 
+// Uses a `Vec` to store the PV, unlike the `SearchInfo`
+#[derive(Debug, Clone)]
+#[must_use]
+pub struct OwnedSearchInfo<B: Board> {
+    pub best_move_of_all_pvs: B::Move,
+    pub depth: Depth,
+    pub seldepth: Depth,
+    pub time: Duration,
+    pub nodes: NodesLimit,
+    pub pv_num: usize,
+    pub max_num_pvs: usize,
+    pub pv: Vec<B::Move>,
+    pub score: Score,
+    pub hashfull: usize,
+    pub pos: B,
+    pub bound: Option<NodeType>,
+    pub additional: Option<String>,
+}
+
+impl<B: Board> Default for OwnedSearchInfo<B> {
+    fn default() -> Self {
+        Self {
+            best_move_of_all_pvs: B::Move::default(),
+            depth: Depth::default(),
+            seldepth: Depth::default(),
+            time: Duration::default(),
+            nodes: NodesLimit::MAX,
+            pv_num: 1,
+            max_num_pvs: 1,
+            pv: vec![],
+            score: Score::default(),
+            hashfull: 0,
+            pos: B::default(),
+            bound: None,
+            additional: None,
+        }
+    }
+}
+
+impl<B: Board> Display for OwnedSearchInfo<B> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.to_search_info().fmt(f)
+    }
+}
+
+impl<B: Board> OwnedSearchInfo<B> {
+    pub fn to_search_info(&self) -> SearchInfo<B> {
+        SearchInfo {
+            best_move_of_all_pvs: self.best_move_of_all_pvs,
+            depth: self.depth,
+            seldepth: self.seldepth,
+            time: self.time,
+            nodes: self.nodes,
+            pv_num: self.pv_num,
+            max_num_pvs: self.max_num_pvs,
+            pv: &self.pv,
+            score: self.score,
+            hashfull: self.hashfull,
+            pos: self.pos.clone(),
+            bound: self.bound,
+            additional: self.additional.clone(),
+        }
+    }
+}
+
 #[derive(Debug)]
 #[must_use]
 pub struct CurrentMatch<B: Board> {
-    pub search_info: Option<SearchInfo<B>>,
+    pub search_info: Option<OwnedSearchInfo<B>>,
     pub limit: SearchLimit,
     pub original_limit: SearchLimit,
     // TODO: Maybe only store color as part of ThinkingSince? Ugi doesn't care if the color changes.
@@ -162,7 +227,7 @@ impl<B: Board> InputThread<B> {
                 {
                     let mut client = client.lock().unwrap();
                     name = client.state.get_engine_from_id_mut(id).display_name.clone();
-                    client.show_error(&format!(
+                    client.show_error(&format_args!(
                         "The engine '{name}' encountered an error: {error}"
                     ));
                     if !client.state.recover {
@@ -171,7 +236,7 @@ impl<B: Board> InputThread<B> {
                     }
                 }
                 if let Err(err) = Client::hard_reset_player(client.clone(), self.id) {
-                    client.lock().unwrap().show_error(&format!("Error: Could not restart engine '{name}' after it encountered an error: {err}"));
+                    client.lock().unwrap().show_error(&format_args!("Error: Could not restart engine '{name}' after it encountered an error: {err}"));
                     return false; // All hope is lost.
                 }
                 let mut client = client.lock().unwrap();
@@ -400,7 +465,7 @@ impl<B: Board> InputThread<B> {
         }
         client.show_message(
             Debug,
-            &format!("protocol version of engine '{name}': '{version}'"),
+            &format_args!("protocol version of engine '{name}': '{version}'"),
         );
         Ok(())
     }
@@ -495,7 +560,7 @@ impl<B: Board> InputThread<B> {
         client: &mut MutexGuard<Client<B>>,
         engine: PlayerId,
     ) -> Res<()> {
-        let mut res = SearchInfo::default();
+        let mut res = OwnedSearchInfo::default();
         let mut pv_moves = vec![];
         let board = client.board().clone();
         if words.peek().is_some_and(|opt| *opt == "string") {

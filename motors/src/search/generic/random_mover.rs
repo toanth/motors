@@ -114,6 +114,8 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
             moves[self.rng.random_range(0..moves.len())]
         };
         self.state.atomic().set_best_move(best_move);
+        let info = &mut self.state.multi_pvs[self.state.current_pv_num];
+        info.pv.reset_to_move(best_move);
         SearchResult::move_only(best_move, pos.clone())
     }
 
@@ -142,7 +144,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
             nodes: NodesLimit::new(1).unwrap(),
             pv_num: 1,
             max_num_pvs: self.state.search_params().num_multi_pv,
-            pv: vec![self.state.best_move()],
+            pv: self.state.current_mpv_pv(),
             score: Score(0),
             hashfull: 0,
             pos: self.search_state().params.pos.clone(),

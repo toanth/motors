@@ -1,3 +1,4 @@
+use std::fmt;
 use std::fmt::Debug;
 use std::mem::swap;
 use std::num::NonZeroUsize;
@@ -12,9 +13,9 @@ use crate::play::player::Player::{Engine, Human};
 use crate::play::player::{
     limit_to_ugi, EnginePlayer, HumanPlayerStatus, Player, PlayerBuilder, Protocol,
 };
-use crate::play::ugi_input::BestMoveAction;
 use crate::play::ugi_input::BestMoveAction::Ignore;
 use crate::play::ugi_input::EngineStatus::*;
+use crate::play::ugi_input::{BestMoveAction, OwnedSearchInfo};
 use crate::ui::Input;
 use gears::colored::Colorize;
 use gears::games::{BoardHistory, Color, ZobristHistory};
@@ -25,7 +26,7 @@ use gears::general::common::Res;
 use gears::general::moves::Move;
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
-use gears::search::{SearchInfo, TimeControl};
+use gears::search::TimeControl;
 use gears::MatchStatus::*;
 use gears::Quitting::*;
 use gears::{
@@ -375,7 +376,7 @@ impl<B: Board> Client<B> {
         let time = self.state.get_player_mut(color).get_original_tc();
         self.show_message(
             Warning,
-            &format!(
+            &format_args!(
                 "The {} player ran out of time (the time control was {start}ms + {inc}ms)",
                 color.name(&self.state.the_match.board.settings()),
                 start = time.remaining.as_millis(),
@@ -408,10 +409,10 @@ impl<B: Board> Client<B> {
         }
     }
 
-    pub fn update_info(&mut self, id: PlayerId, info: SearchInfo<B>) -> Res<()> {
+    pub fn update_info(&mut self, id: PlayerId, info: OwnedSearchInfo<B>) -> Res<()> {
         let engine = self.state.get_engine_from_id_mut(id);
         for output in &mut self.outputs {
-            output.update_engine_info(&engine.display_name, &info);
+            output.update_engine_info(&engine.display_name, &info.to_search_info());
         }
         let Some(current_match) = engine.current_match.as_mut() else {
             bail!("The engine sent info ('{info}') while it wasn't playing in match")
@@ -421,13 +422,8 @@ impl<B: Board> Client<B> {
     }
 
     pub fn show_ugi_info_string(&mut self, id: PlayerId, info: &str) {
-        self.show_message(
-            Info,
-            &format!(
-                "Engine {}: '{info}'",
-                self.state.get_engine_from_id(id).display_name
-            ),
-        );
+        let name = self.state.get_engine_from_id(id).display_name.clone();
+        self.show_message(Info, &format_args!("Engine {name}: '{info}'",));
     }
 
     /// Plays a move without assuming that it comes from the current player, so this can be used to set up a position.
@@ -496,11 +492,11 @@ impl<B: Board> Client<B> {
         }
     }
 
-    pub fn show_error(&mut self, message: &str) {
+    pub fn show_error(&mut self, message: &fmt::Arguments) {
         self.show_message(Error, message);
     }
 
-    pub fn show_message(&mut self, typ: Message, message: &str) {
+    pub fn show_message(&mut self, typ: Message, message: &fmt::Arguments) {
         for output in &mut self.outputs {
             output.display_message_with_state(&self.state, typ, message);
         }
@@ -516,7 +512,7 @@ impl<B: Board> Client<B> {
         }
 
         if let Err(err) = engine.write_ugi_impl(message) {
-            self.show_error(&format!(
+            self.show_error(&format_args!(
                 "Couldn't send message '{message}' to engine '{name}': {err}"
             ));
         }

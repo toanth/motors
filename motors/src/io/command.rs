@@ -175,7 +175,7 @@ impl<B: Board> AbstractEngineUgi for ACState<B> {
     fn write_ugi(&mut self, _message: &fmt::Arguments) {
         /*do nothing*/
     }
-    fn write_message(&mut self, _message: Message, _msg: &str) {
+    fn write_message(&mut self, _message: Message, _msg: &fmt::Arguments) {
         /*do nothing*/
     }
     fn write_response(&mut self, _msg: &str) -> Res<()> {
@@ -345,10 +345,6 @@ impl Command {
     fn autocomplete_recurse(&self) -> bool {
         self.autocomplete_recurse
     }
-
-    fn secondary_names(&self) -> Vec<String> {
-        self.other_names.iter().cloned().collect_vec()
-    }
 }
 
 impl NamedEntity for Command {
@@ -486,7 +482,7 @@ pub fn ugi_commands() -> CommandList {
             |ugi, _, _| {
                 ugi.write_message(
                     Warning,
-                    &format!("{} isn't supported and will be ignored", "register".red()),
+                    &format_args!("{} isn't supported and will be ignored", "register".red()),
                 );
                 Ok(())
             }
@@ -1349,16 +1345,13 @@ fn underline_match(name: &str, word: &str) -> String {
 
 fn completion_text(n: &Command, word: &str) -> String {
     use std::fmt::Write;
-    let name = n.short_name();
-    let mut res = format!("{}", underline_match(&name, word).bold());
-    for name in n.secondary_names() {
+    let name = &n.primary_name;
+    let mut res = format!("{}", underline_match(name, word).bold());
+    for name in &n.other_names {
         write!(&mut res, " | {}", underline_match(&name, word)).unwrap();
     }
-    if let Some(desc) = n.description() {
-        format!("{res}:  {}", desc)
-    } else {
-        res
-    }
+    write!(&mut res, ":  {}", n.help_text).unwrap();
+    res
 }
 
 #[derive(Eq, PartialEq)]

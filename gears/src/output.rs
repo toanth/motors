@@ -78,7 +78,7 @@ pub trait AbstractOutput: NamedEntity + Debug + Send + 'static {
         // do nothing (most UIs don't log all UGI commands)
     }
 
-    fn display_message(&mut self, typ: Message, message: &str);
+    fn display_message(&mut self, typ: Message, message: &fmt::Arguments);
 }
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -102,19 +102,26 @@ pub trait Output<B: Board>: AbstractOutput {
 
     fn inform_game_over(&mut self, m: &dyn GameState<B>) {
         match m.match_status() {
-            MatchStatus::Over(res) => self.display_message(Info, &game_over_message(res)),
+            MatchStatus::Over(res) => {
+                self.display_message(Info, &format_args!("{}", game_over_message(res)))
+            }
             _ => panic!("Internal error: the match isn't over"),
         }
     }
 
     fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String;
 
-    fn display_message_with_state(&mut self, _: &dyn GameState<B>, typ: Message, message: &str) {
+    fn display_message_with_state(
+        &mut self,
+        _: &dyn GameState<B>,
+        typ: Message,
+        message: &fmt::Arguments,
+    ) {
         self.display_message(typ, message);
     }
 
     fn update_engine_info(&mut self, engine_name: &str, info: &SearchInfo<B>) {
-        self.display_message(Info, &format!("{engine_name}: {info}"));
+        self.display_message(Info, &format_args!("{engine_name}: {info}"));
     }
     fn upcast_box(self: Box<Self>) -> Box<dyn AbstractOutput>
     where

@@ -148,7 +148,7 @@ impl NodeType {
 
 #[derive(Debug)]
 #[must_use]
-pub struct SearchInfo<B: Board> {
+pub struct SearchInfo<'a, B: Board> {
     pub best_move_of_all_pvs: B::Move,
     pub depth: Depth,
     pub seldepth: Depth,
@@ -156,7 +156,7 @@ pub struct SearchInfo<B: Board> {
     pub nodes: NodesLimit,
     pub pv_num: usize,
     pub max_num_pvs: usize,
-    pub pv: Vec<B::Move>,
+    pub pv: &'a [B::Move],
     pub score: Score,
     pub hashfull: usize,
     pub pos: B,
@@ -164,7 +164,7 @@ pub struct SearchInfo<B: Board> {
     pub additional: Option<String>,
 }
 
-impl<B: Board> Default for SearchInfo<B> {
+impl<'a, B: Board> Default for SearchInfo<'a, B> {
     fn default() -> Self {
         Self {
             best_move_of_all_pvs: B::Move::default(),
@@ -174,7 +174,7 @@ impl<B: Board> Default for SearchInfo<B> {
             nodes: NodesLimit::MAX,
             pv_num: 1,
             max_num_pvs: 1,
-            pv: vec![],
+            pv: &[],
             score: Score::default(),
             hashfull: 0,
             pos: B::default(),
@@ -184,7 +184,7 @@ impl<B: Board> Default for SearchInfo<B> {
     }
 }
 
-impl<B: Board> SearchInfo<B> {
+impl<B: Board> SearchInfo<'_, B> {
     pub fn nps(&self) -> usize {
         let micros = self.time.as_micros() as f64;
         if micros == 0.0 {
@@ -205,7 +205,7 @@ impl<B: Board> SearchInfo<B> {
     }
 }
 
-impl<B: Board> Display for SearchInfo<B> {
+impl<B: Board> Display for SearchInfo<'_, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let bound = match self.bound.unwrap_or(Exact) {
             FailHigh => " lowerbound",
@@ -224,7 +224,7 @@ impl<B: Board> Display for SearchInfo<B> {
                hashfull = self.hashfull,
         )?;
         let mut pos = self.pos.clone();
-        for &mov in &self.pv {
+        for &mov in self.pv {
             write!(f, " {}", mov.compact_formatter(&pos))?;
             pos = pos.make_move(mov).unwrap();
         }

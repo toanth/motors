@@ -272,30 +272,6 @@ impl Move<Chessboard> for ChessMove {
             };
         }
         let piece = self.piece(board);
-        let mut res = match piece.uncolored() {
-            Pawn => String::default(),
-            uncolored => {
-                if format == Standard {
-                    uncolored
-                        .to_char(CharType::Ascii, &board.settings())
-                        .to_string()
-                } else {
-                    piece
-                        .to_char(CharType::Unicode, &board.settings())
-                        .to_string()
-                }
-            }
-        };
-        let mut from_str = if piece.uncolored() == Pawn && self.is_capture(board) {
-            self.src_square()
-                .to_string()
-                .chars()
-                .nth(0)
-                .unwrap()
-                .to_string()
-        } else {
-            String::default()
-        };
         let moves = board
             // we have to use .pseudolegal instead of legal moves here because that's what the rules demand.
             .pseudolegal_moves()
@@ -310,63 +286,64 @@ impl Move<Chessboard> for ChessMove {
             return write!(f, "<Illegal move {}>", self);
         }
 
+        match piece.uncolored() {
+            Pawn => {}
+            uncolored => {
+                let piece_char = if format == Standard {
+                    uncolored.to_char(CharType::Ascii, &board.settings())
+                } else {
+                    piece.to_char(CharType::Unicode, &board.settings())
+                };
+                write!(f, "{piece_char}")?;
+            }
+        };
+
         if moves.len() > 1 {
-            from_str = if moves
+            if moves
                 .iter()
                 .filter(|mov| mov.src_square().file() == self.src_square().file())
                 .count()
                 <= 1
             {
-                self.src_square()
-                    .to_string()
-                    .chars()
-                    .nth(0)
-                    .unwrap()
-                    .to_string()
+                write!(f, "{}", file_to_char(self.src_square().file()))?;
             } else if moves
                 .iter()
                 .filter(|mov| mov.src_square().rank() == self.src_square().rank())
                 .count()
                 <= 1
             {
-                self.src_square()
-                    .to_string()
-                    .chars()
-                    .nth(1)
-                    .unwrap()
-                    .to_string()
+                write!(f, "{}", self.src_square().rank() + 1)?;
             } else {
-                self.src_square().to_string()
+                write!(f, "{}", self.src_square())?;
             }
-        };
-        res += &from_str;
-        if self.is_capture(board) {
-            res.push('x');
+        } else if piece.uncolored() == Pawn && self.is_capture(board) {
+            write!(f, "{}", file_to_char(self.src_square().file()))?;
         }
-        res += &self.dest_square().to_string();
+
+        if self.is_capture(board) {
+            write!(f, "x")?;
+        }
+        write!(f, "{}", self.dest_square())?;
         if self.is_promotion() {
-            res.push('=');
-            if format == Standard {
-                res.push(
-                    self.flags()
-                        .promo_piece()
-                        .to_char(CharType::Ascii, &board.settings()),
-                );
+            write!(f, "=")?;
+            let promo_char = if format == Standard {
+                self.flags()
+                    .promo_piece()
+                    .to_char(CharType::Ascii, &board.settings())
             } else {
-                res.push(
-                    self.flags()
-                        .promo_piece()
-                        .to_char(CharType::Unicode, &board.settings()),
-                );
-            }
+                self.flags()
+                    .promo_piece()
+                    .to_char(CharType::Unicode, &board.settings())
+            };
+            write!(f, "{promo_char}")?;
         }
         let board = board.make_move(self).unwrap();
         if board.is_game_lost_slow() {
-            res.push('#');
+            write!(f, "#")?;
         } else if board.is_in_check() {
-            res.push('+');
+            write!(f, "+")?;
         }
-        write!(f, "{res}")
+        Ok(())
     }
 
     fn parse_compact_text<'a>(s: &'a str, board: &Chessboard) -> Res<(&'a str, ChessMove)> {

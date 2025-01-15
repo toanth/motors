@@ -21,6 +21,7 @@ use gears::search::{Depth, SearchLimit};
 use gears::ugi::EngineOptionName;
 use gears::ugi::EngineOptionName::{Hash, Threads};
 use portable_atomic::AtomicUsize;
+use std::fmt;
 use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
@@ -258,7 +259,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         let _ = self.engine.search(params); // the engine takes care of sending the search result
     }
 
-    fn write_error(&mut self, msg: &str) {
+    fn write_error(&mut self, msg: &fmt::Arguments) {
         self.engine.search_state_mut().send_non_ugi(Error, msg);
         eprintln!("Engine thread encountered an error: '{msg}'");
     }
@@ -313,7 +314,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
         loop {
             match self.try_handle_input() {
                 Err(msg) => {
-                    self.write_error(&msg.to_string());
+                    self.write_error(&format_args!("{msg}"));
                     // continue as normal
                 }
                 Ok(should_quit) => {

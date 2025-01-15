@@ -429,8 +429,9 @@ impl Engine<Chessboard> for Caps {
         self.state.params.limit = limit;
 
         // Ideally, this would only evaluate the String argument if debug is on, but that's annoying to implement
-        // and would still require synchronization because debug mode might be turned on while the engine is searching
-        self.state.send_non_ugi(Debug, &format!(
+        // and would still require synchronization because debug mode might be turned on while the engine is searching.
+        // Fortunately, `format_arg!` avoid heap allocating
+        self.state.send_non_ugi(Debug, &format_args!(
             "Starting search with limit {time}ms, {incr}ms increment, max {fixed}ms, mate in {mate} plies, max depth {depth}, \
             max {nodes} nodes, soft limit {soft}ms, {ignored} ignored moves",
             time = limit.tc.remaining.as_millis(),
@@ -564,7 +565,7 @@ impl Caps {
 
             self.state.send_non_ugi(
                 Debug,
-                &format!(
+                &format_args!(
                     "depth {depth}, score {0}, radius {1}, interval ({2}, {3}) nodes {4}",
                     pv_score.0,
                     window_radius.0,

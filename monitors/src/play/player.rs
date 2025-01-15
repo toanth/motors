@@ -399,7 +399,7 @@ impl PlayerBuilder {
 
         client.lock().unwrap().show_message(
             Debug,
-            &format!(
+            &format_args!(
                 "Initializing engine '{display_name}' with command '{cmd}' and options {:?}",
                 args.engine_args,
                 cmd = path.to_str().unwrap_or("<unknown>")

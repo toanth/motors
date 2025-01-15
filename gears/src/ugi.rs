@@ -371,6 +371,7 @@ pub fn parse_ugi_position_and_moves<
         if pos.is_ok() {
             _ = rest.next();
         }
+        debug_assert!(get_board(state).is_move_pseudolegal(first_move));
         make_move(state, first_move).map_err(|err| {
             anyhow!(
                 "move '{0}' is pseudolegal but not legal in position '{1}': {err}",
@@ -399,6 +400,7 @@ pub fn parse_ugi_position_and_moves<
             }
         };
         _ = rest.next();
+        debug_assert!(get_board(state).is_move_pseudolegal(mov));
         make_move(state, mov).map_err(|err| {
             anyhow!(
                 "move '{0}' is not legal in position '{1}': {err}",

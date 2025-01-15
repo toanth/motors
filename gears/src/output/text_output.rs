@@ -89,10 +89,9 @@ pub struct TextWriter {
 }
 
 impl TextWriter {
-    pub fn display_message(&mut self, typ: Message, message: &str) {
+    pub fn display_message(&mut self, typ: Message, message: &fmt::Arguments) {
         if self.accepted.contains(&typ) {
-            self.stream
-                .write(typ.message_prefix(), &format_args!("{message}"));
+            self.stream.write(typ.message_prefix(), message);
         }
     }
 
@@ -304,7 +303,7 @@ impl AbstractOutput for TextOutput {
         self.writer.stream.name()
     }
 
-    fn display_message(&mut self, typ: Message, message: &str) {
+    fn display_message(&mut self, typ: Message, message: &fmt::Arguments) {
         self.writer.display_message(typ, message);
     }
 }
