@@ -47,7 +47,8 @@ use std::num::NonZeroUsize;
 pub type NameToPos<B> = GenericSelect<fn() -> B>;
 
 /// How many checks to execute.
-/// Enum variants are listed in order; later checks include earlier checks.
+/// Enum variants are listed in order; later checks generally include earlier checks.
+/// (Except that the chessboard currently allows illegal pseudolegal ep squares internally but not when parsing FENs in strict mode)
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[must_use]
 pub enum SelfChecks {

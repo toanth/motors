@@ -180,8 +180,9 @@ mod tests {
                         let fen = board.as_fen();
                         let board2 = Chessboard::from_fen(&fen, strictness).unwrap();
                         if board != board2 {
-                            eprintln!("boards differ: {board} vs {board2}");
+                            eprintln!("boards differ: {board} vs {board2}, fen was {}", expected.fen);
                             // it's fine for relaxed FENs to contain illegal pseudolegal ep moves
+                            assert_eq!(strictness, Relaxed);
                             assert!(Chessboard::from_fen(expected.fen, Strict).is_err());
                             assert!(board.pseudolegal_moves().iter().any(|m| m.is_ep()));
                             assert!(!board.legal_moves_slow().iter().any(|m| m.is_ep()));
@@ -194,7 +195,7 @@ mod tests {
                         {
                             let res = perft(Depth::new(depth), board, false);
                             assert_eq!(res.depth.get(), depth);
-                            assert_eq!(res.nodes, *expected_count, "{depth}");
+                            assert_eq!(res.nodes, *expected_count, "{depth} {board}");
                             println!(
                                 "Thread {3:?}: Perft depth {0} took {1} ms, total time so far: {2}ms",
                                 res.depth.get(),
@@ -221,12 +222,14 @@ mod tests {
         });
     }
 
-    // tricky to parse X-FENs
     const CUSTOM_FENS: &[&str] = &[
+        // tricky to parse X-FENs
         "r1rkrqnb/1b6/2n5/ppppppp1/PPPPPP2/B1NQ4/6PP/1K1RR1NB w Kkq - 8 14 ;D1 42 ;D2 1620 ;D3 67391 ;D4 2592441 ;D5 107181922",
         "rrkrn1r1/2P2P2/8/p3pP2/8/8/4R2p/1RR1KR1R w KCdq e6 90 99 ;D1 53 ;D2 1349 ;D3 63522 ;D4 1754940 ;D5 80364051",
-        "rr2k1r1/p1p4P/1p3P2/8/1P6/3p4/7P/2RK1R1R w Kk - 0 1 ;D1 29 ;D2 520 ;D3 14879 ;D4 276844 ;D5 8083091",
+        "rr2k1r1/p1p4P/1p3P2/8/1P6/3p4/7P/2RK1R1R w Kk - 0 1 ;D1 29 ;D2 522 ;D3 14924 ;D4 277597 ;D5 8098755",
+        "8/2k5/8/8/8/8/8/RR1K1R1R w KB - 0 1 ;D1 38 ;D2 174 ;D3 7530 ;D4 35038 ;D5 1620380 ;D6 7173240",
         // pins
+        "1nbqkbnr/ppp1pppp/8/r2pP2K/8/8/PPPP1PPP/RNBQ1BNR w k d6 0 2 ;D1 31;D2 927 ;D3 26832 ;D4 813632 ;D5 23977743",
         "2k5/3q4/8/8/3B4/3K1B1r/8/8 w - - 0 1 ;D1 7 ;D2 211; D3 4246 ;D4 138376 ;D5 2611571 ;D6 85530145",
     ];
 
@@ -366,12 +369,10 @@ mod tests {
         "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1 ;D1 6 ;D2 264 ;D3 9467 ;D4 422333 ;D5 15833292 ;D6 706045033",
         "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8 ;D1 44 ;D2 1486 ;D3 62379 ;D4 2103487 ;D5 89941194 ;D6 3048196529", // can take a while
         "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10 ;D1 46 ;D2 2079 ;D3 89890 ;D4 3894594 ;D5 164075551",
-        // pinned en passant pawn (probably already in fen list, but better safe than sorry
-        "1nbqkbnr/ppp1pppp/8/r2pP2K/8/8/PPPP1PPP/RNBQ1BNR w k d6 0 2 ;D1 31;D2 927 ;D3 26832 ;D4 813632 ;D5 23977743",
         // another pinned pawns test (this time without en passant)
         "4Q3/5p2/6k1/8/4p3/8/2B3K1/8 b - - 0 1 ;D1 7 ;D2 203 ;D3 1250 ;D4 37962 ;D5 227787 ;D6 7036323 ;D7 41501304",
         // yet another pinned pawn test
-        "5Q2/8/8/2p5/1k3p1Q/6P1/6K1/8 b - - 1 42 ;D1 6 ;D2 266 ;D3 2018 ;D4 74544 ;D5 504298; D6 19353971",
+        "5Q2/8/8/2p5/1k3p1Q/6P1/6K1/8 b - - 1 42 ;D1 7 ;D2 266 ;D3 2018 ;D4 74544 ;D5 504298; D6 19353971",
         // maximum number of legal moves (and mate in one)
         "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1 ;D1 218 ;D2 99 ;D3 19073 ;D4 85043 ;D5 13853661", // D6 115892741",
         // the same position with flipped side to move has no legal moves

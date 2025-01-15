@@ -46,8 +46,6 @@ impl CastleRight {
     }
 }
 
-#[derive(Default, Debug, Copy, Clone, Hash, Arbitrary)]
-#[must_use]
 /// Stores the queen/kingside castling files for white/black in 3 bits each and uses the upper 4 bits to store
 /// if castling is legal. The bit at index 16 is not set iff the castling rights should be printed in X-FEN format
 /// (which is backwards compatible to standard FEN, unlike Shredder FEN). This is set to be the format
@@ -55,6 +53,8 @@ impl CastleRight {
 /// X-FENs are disambiguated as described on wikipedia.
 /// More compact representations (fitting into 8 bits) are possible because e.g. queenside castling to the h file
 /// is impossible, but don't really seem worth it because the size of the [`Chessboard`] doesn't change anyway.
+#[derive(Default, Debug, Copy, Clone, Arbitrary)]
+#[must_use]
 pub struct CastlingFlags(u32);
 
 impl PartialEq for CastlingFlags {
@@ -112,7 +112,7 @@ impl CastlingFlags {
     ) -> Res<()> {
         debug_assert!((file as usize) < NUM_COLUMNS);
         if self.can_castle(color, castle_right) {
-            bail!("Trying to set the {color} {castle_right} twice");
+            bail!("Trying to set the {color} {castle_right} castle right twice");
         }
         self.0 |= u32::from(file) << Self::shift(color, castle_right);
         self.0 |= 1 << (CASTLE_RIGHTS_SHIFT + color as usize * 2 + castle_right as usize);
@@ -192,7 +192,7 @@ impl CastlingFlags {
                 {
                     bail!("In strict mode, normal chess ('q' and 'k') castle rights can only be used for rooks on the a or h files and a king on the e file")
                 }
-                self.0 |= 1 << X_FEN_FLAG_SHIFT; // this sets the x fen flag
+                self.0 |= 1 << X_FEN_FLAG_SHIFT;
                 match side {
                     Queenside => {
                         for file in A_FILE_NO..king_file {
@@ -250,7 +250,7 @@ impl CastlingFlags {
             for side in CastleRight::iter().rev() {
                 if self.can_castle(color, side) {
                     has_castling_righs = true;
-                    let file = self.rook_start_file(color, side);
+                    let rook_file = self.rook_start_file(color, side);
                     let found_rook = |file: DimT| {
                         pos.is_piece_on(
                             ChessSquare::from_rank_file(color as DimT * 7, file),
@@ -262,22 +262,22 @@ impl CastlingFlags {
                         file_char = if side == Kingside { 'k' } else { 'q' };
                         match side {
                             Queenside => {
-                                for file in A_FILE_NO..file {
-                                    if found_rook(file) {
-                                        file_char = file_to_char(file)
+                                for test_file in A_FILE_NO..rook_file {
+                                    if found_rook(test_file) {
+                                        file_char = file_to_char(rook_file)
                                     }
                                 }
                             }
                             Kingside => {
-                                for file in (H_FILE_NO..file).rev() {
-                                    if found_rook(file) {
-                                        file_char = file_to_char(file)
+                                for test_file in ((rook_file + 1)..=H_FILE_NO).rev() {
+                                    if found_rook(test_file) {
+                                        file_char = file_to_char(rook_file)
                                     }
                                 }
                             }
                         }
                     } else {
-                        file_char = file_to_char(file)
+                        file_char = file_to_char(rook_file)
                     };
                     if color == White {
                         file_char = file_char.to_ascii_uppercase();

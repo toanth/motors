@@ -1682,7 +1682,10 @@ mod tests {
                 engine.state.start_time.elapsed().as_millis()
             );
             assert!(score.is_game_won_score());
-            assert_eq!(res.chosen_move.to_string(), best_move);
+            assert_eq!(
+                res.chosen_move.compact_formatter(&pos).to_string(),
+                best_move
+            );
         }
     }
 }

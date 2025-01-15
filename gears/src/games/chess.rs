@@ -526,8 +526,9 @@ impl Board for Chessboard {
             let ep_capturing = square.bb().pawn_advance(!color);
             let ep_capturing = ep_capturing.west() | ep_capturing.east();
             // The current FEN standard disallows giving an ep square unless a pawn can legally capture.
-            // This library instead uses pseudolegal ep captures, but some existing programs give fens that contain an
-            // ep square after every double pawn push, so we silently ignore those invalid ep squares unless in strict mode.
+            // This library instead uses pseudolegal ep captures internally and checks legality when creating FENs,
+            // but some existing programs give invalid fens that in some cases contain an ep square after every double pawn push,
+            // so we silently ignore those invalid ep squares unless in strict mode.
             if (board.0.colored_piece_bb(color, Pawn) & ep_capturing).is_zero() {
                 if strictness == Strict {
                     bail!("The ep square is set to {ep_square} even though no pawn can recapture. In strict mode, this is not allowed")
@@ -959,38 +960,6 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         }
         let inactive_player = this.active_player.other();
 
-        if let Some(ep_square) = this.ep_square {
-            ensure!(
-                [2, 5].contains(&ep_square.rank()),
-                "FEN specifies invalid ep square (not on the third or sixth rank): '{ep_square}'"
-            );
-            let remove_pawn_square = ep_square.pawn_advance_unchecked(inactive_player);
-            let pawn_origin_square = ep_square.pawn_advance_unchecked(this.active_player);
-            if this.colored_piece_on(remove_pawn_square).symbol
-                != ColoredChessPieceType::new(inactive_player, Pawn)
-            {
-                bail!("FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}");
-            } else if !this.is_empty(ep_square) {
-                bail!(
-                    "The en passant square ({ep_square}) must be empty, but it's occupied by a {}",
-                    this.piece_type_on(ep_square).name()
-                )
-            } else if !this.is_empty(pawn_origin_square) {
-                bail!("The en passant square is set to {ep_square}, so the pawn must have come from {pawn_origin_square}. But this square isn't empty")
-            }
-            let active = this.active_player();
-            // In the current version of the FEN standard, the ep square should only be set if a pawn can capture.
-            // This implementation follows that rule, but many other implementations give the ep square after every double pawn push.
-            // To achieve consistent results, such an incorrect ep square is removed when parsing the FEN in Relaxed mode; it should
-            // no longer exist at this point.
-            if checks != CheckFen || strictness == Strict {
-                let possible_ep_pawns =
-                    remove_pawn_square.bb().west() | remove_pawn_square.bb().east();
-                ensure!((possible_ep_pawns & this.colored_piece_bb(active, Pawn)).has_set_bit(),
-                    "The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square");
-            }
-        }
-
         if this.is_in_check_on_square(inactive_player, this.king_square(inactive_player)) {
             bail!("Player {inactive_player} is in check, but it's not their turn to move");
         } else if strictness == Strict {
@@ -1071,6 +1040,47 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             }
         }
         this.hash = this.compute_zobrist();
+
+        // We check the ep square last because this can require doing movegen, which needs most invariants to hold.
+        if let Some(ep_square) = this.ep_square {
+            ensure!(
+                [2, 5].contains(&ep_square.rank()),
+                "FEN specifies invalid ep square (not on the third or sixth rank): '{ep_square}'"
+            );
+            let remove_pawn_square = ep_square.pawn_advance_unchecked(inactive_player);
+            let pawn_origin_square = ep_square.pawn_advance_unchecked(this.active_player);
+            if this.colored_piece_on(remove_pawn_square).symbol
+                != ColoredChessPieceType::new(inactive_player, Pawn)
+            {
+                bail!("FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}");
+            } else if !this.is_empty(ep_square) {
+                bail!(
+                    "The en passant square ({ep_square}) must be empty, but it's occupied by a {}",
+                    this.piece_type_on(ep_square).name()
+                )
+            } else if !this.is_empty(pawn_origin_square) {
+                bail!("The en passant square is set to {ep_square}, so the pawn must have come from {pawn_origin_square}. But this square isn't empty")
+            }
+            let active = this.active_player();
+            // In the current version of the FEN standard, the ep square should only be set if a pawn can capture.
+            // This implementation follows that rule, but many other implementations give the ep square after every double pawn push.
+            // To achieve consistent results, such an incorrect ep square is removed when parsing the FEN in Relaxed mode; it should
+            // no longer exist at this point. However, illegal pseudolegal ep squares are detected here if in strict mode.
+            if strictness == Strict {
+                let possible_ep_pawns =
+                    remove_pawn_square.bb().west() | remove_pawn_square.bb().east();
+                ensure!((possible_ep_pawns & this.colored_piece_bb(active, Pawn)).has_set_bit(),
+                    "The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square");
+                if checks == CheckFen {
+                    let legal_ep = this.legal_moves_slow().iter().any(|m| m.is_ep());
+                    // this doesn't necessarily mean that the ep pawn capturing is pinned, the king could also be in check.
+                    ensure!(legal_ep,"The en passant square is set, but even though there is a pseudolegal ep capture move, it is not legal \
+                    (either all pawns that could capture en passant are pinned, or the king is in check). \
+                    This is not allowed when parsing FENs in strict mode");
+                }
+            }
+        }
+
         Ok(this)
     }
 
@@ -1196,7 +1206,7 @@ mod tests {
     use rand::rng;
     use std::collections::HashSet;
 
-    use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
+    use crate::games::chess::squares::{B_FILE_NO, E_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO};
     use crate::games::{
         char_to_file, Coordinates, NoHistory, RectangularCoordinates, ZobristHistory,
     };
@@ -1353,6 +1363,29 @@ mod tests {
         }
         let mov = ChessMove::from_text("sB3x", &pos);
         assert!(mov.is_err());
+    }
+
+    #[test]
+    fn weird_fen_test() {
+        // invalid ep square set
+        let fen = "1nbqkbnr/ppp1pppp/8/r2pP3/6K1/8/PPPP1PPP/RNBQ1BNR w k d6 0 2";
+        assert!(Chessboard::from_fen(fen, Strict).is_err());
+        let board = Chessboard::from_fen(fen, Relaxed).unwrap();
+        assert_eq!(
+            board.as_fen(),
+            "1nbqkbnr/ppp1pppp/8/r2pP3/6K1/8/PPPP1PPP/RNBQ1BNR w k - 0 2"
+        );
+        let fen = "1nbqkbnr/ppppppp1/6r1/6Pp/6K1/8/PPPP1PPP/RNBQ1BNR w k h6 0 2";
+        assert!(Chessboard::from_fen(fen, Strict).is_err());
+        let board = Chessboard::from_fen(fen, Relaxed).unwrap();
+        assert_eq!(
+            board.as_fen(),
+            "1nbqkbnr/ppppppp1/6r1/6Pp/6K1/8/PPPP1PPP/RNBQ1BNR w k - 0 2"
+        );
+        let fen = "1nbqkbnr/pppppppp/8/r5Pp/6K1/8/PPPP1PPP/RNBQ1BNR w k h6 0 2";
+        assert!(Chessboard::from_fen(fen, Relaxed).is_err());
+        let fen = "1nbqkbnr/ppppppp1/8/r5Pp/6K1/8/PPPP1PPP/RNBQ1BNR w k - 0 2";
+        assert!(Chessboard::from_fen(fen, Strict).is_ok());
     }
 
     #[test]
@@ -1556,9 +1589,8 @@ mod tests {
         let fen = "1rbq1krb/ppp1pppp/1n1n4/3p4/3P4/2PN4/PP2PPPP/NRBQ1KRB w KQkq - 3 4";
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
         assert!(board.debug_verify_invariants(Strict).is_ok());
-        let moves = board.legal_moves_slow();
-        assert_eq!(moves.into_iter().count(), 32); // TODO: Use .num_legal_moves() after that has been merged
-                                                   // Another X-FEN, which is often misinterpreted by engines
+        assert_eq!(board.num_legal_moves(), 32);
+        // Another X-FEN, which is often misinterpreted by engines
         let fen = " rk2rqnb/1b6/2n5/pppppppp/PPPPPP2/B1NQ4/6PP/1K1RR1NB w Kk - 8 14";
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
         assert_eq!(board.legal_moves_slow().len(), 42);
@@ -1566,6 +1598,18 @@ mod tests {
             board.castling.rook_start_file(White, Kingside),
             char_to_file('e')
         );
+        // this is a valid disambiguated X-FEN, but it will still be parsed as Shredder FEN
+        let fen = "8/2k5/8/8/8/8/8/RR1K1R1R w KB - 0 1";
+        assert!(Chessboard::from_fen(fen, Strict).is_err());
+        let board = Chessboard::from_fen(fen, Relaxed).unwrap();
+        assert_eq!(board.castling.rook_start_file(White, Kingside), H_FILE_NO);
+        assert_eq!(board.castling.rook_start_file(White, Queenside), B_FILE_NO);
+        assert_eq!(board.as_fen(), "8/2k5/8/8/8/8/8/RR1K1R1R w KB - 0 1");
+        // An ep capture is pseudolegal but not legal
+        let fen = "1nbqkbnr/ppp1pppp/8/r2pP2K/8/8/PPPP1PPP/RNBQ1BNR w k d6 0 2";
+        assert!(Chessboard::from_fen(fen, Strict).is_err());
+        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        assert_ne!(fen, pos.as_fen());
     }
 
     #[test]
@@ -1590,7 +1634,7 @@ mod tests {
             assert_eq!(board.piece_bb(Queen).num_ones(), 2);
             startpos_found |= board == Chessboard::default();
         }
-        // castling flags are compared for equality by ignoring the bits that specifie the format
+        // castling flags are compared for equality by ignoring the bits that specify the format
         assert!(startpos_found);
     }
 
