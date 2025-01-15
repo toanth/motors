@@ -1214,7 +1214,9 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
-    use crate::games::{Coordinates, NoHistory, RectangularCoordinates, ZobristHistory};
+    use crate::games::{
+        char_to_file, Coordinates, NoHistory, RectangularCoordinates, ZobristHistory,
+    };
     use crate::general::board::RectangularBoard;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::Move;
@@ -1567,6 +1569,20 @@ mod tests {
         let board = board.flip_side_to_move().unwrap();
         assert!(board.legal_moves_slow().is_empty());
         assert_eq!(board.player_result_slow(&NoHistory::default()), Some(Draw));
+        // chess960 castling rights encoded using X-FEN
+        let fen = "1rbq1krb/ppp1pppp/1n1n4/3p4/3P4/2PN4/PP2PPPP/NRBQ1KRB w KQkq - 3 4";
+        let board = Chessboard::from_fen(fen, Relaxed).unwrap();
+        assert!(board.debug_verify_invariants(Strict).is_ok());
+        let moves = board.legal_moves_slow();
+        assert_eq!(moves.into_iter().count(), 32); // TODO: Use .num_legal_moves() after that has been merged
+                                                   // Another X-FEN, which is often misinterpreted by engines
+        let fen = " rk2rqnb/1b6/2n5/pppppppp/PPPPPP2/B1NQ4/6PP/1K1RR1NB w Kk - 8 14";
+        let board = Chessboard::from_fen(fen, Relaxed).unwrap();
+        assert_eq!(board.legal_moves_slow().len(), 42);
+        assert_eq!(
+            board.castling.rook_start_file(White, Kingside),
+            char_to_file('e')
+        );
     }
 
     #[test]
