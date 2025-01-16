@@ -742,6 +742,7 @@ dependencies = [
  "itertools 0.14.0",
  "portable-atomic",
  "rand 0.9.0-beta.1",
+ "rayon",
  "static_assertions",
  "strum",
  "strum_macros",

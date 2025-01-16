@@ -8,6 +8,8 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 
 use portable_atomic::AtomicU128;
+use rayon::prelude::IntoParallelRefMutIterator;
+use rayon::prelude::ParallelIterator;
 use static_assertions::const_assert_eq;
 use strum_macros::FromRepr;
 
@@ -141,8 +143,7 @@ const_assert_eq!(size_of::<TTEntry<Chessboard>>(), size_of::<AtomicTTEntry>());
 
 pub const DEFAULT_HASH_SIZE_MB: usize = 16;
 
-/// Note that resizing the TT during search will wait until the search is finished
-/// (all threads will receive a new arc)
+/// Resizing the TT during search will wait until the search is finished (all threads will receive a new arc)
 // TODO: TT handle
 #[derive(Clone, Debug)]
 pub struct TT(pub Arc<[AtomicTTEntry]>);
@@ -160,10 +161,18 @@ impl TT {
 
     pub fn new_with_bytes(size_in_bytes: usize) -> Self {
         let new_size = 1.max(size_in_bytes / size_of::<AtomicTTEntry>());
-        let mut arr = Vec::with_capacity(new_size);
-        arr.resize_with(new_size, AtomicU128::default);
-        let tt = arr.into_boxed_slice().into();
-        Self(tt)
+        let tt = if cfg!(feature = "unsafe") && size_in_bytes > 1024 * 1024 * 16 && false {
+            let mut arr = Box::new_uninit_slice(new_size);
+            arr.par_iter_mut().for_each(|elem| {
+                elem.write(AtomicU128::default());
+            });
+            unsafe { arr.assume_init() }
+        } else {
+            let mut arr = Vec::with_capacity(new_size);
+            arr.resize_with(new_size, AtomicU128::default);
+            arr.into_boxed_slice()
+        };
+        Self(tt.into())
     }
 
     pub fn size_in_entries(&self) -> usize {

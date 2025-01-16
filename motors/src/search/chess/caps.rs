@@ -428,9 +428,9 @@ impl Engine<Chessboard> for Caps {
             .min(limit.tc.remaining / cc::soft_limit_div_clamp());
         self.state.params.limit = limit;
 
-        // Ideally, this would only evaluate the String argument if debug is on, but that's annoying to implement
+        // Ideally, this would only evaluate the arguments if debug is on, but that's annoying to implement
         // and would still require synchronization because debug mode might be turned on while the engine is searching.
-        // Fortunately, `format_arg!` avoid heap allocating
+        // Fortunately, `format_args!` avoids heap allocations.
         self.state.send_non_ugi(Debug, &format_args!(
             "Starting search with limit {time}ms, {incr}ms increment, max {fixed}ms, mate in {mate} plies, max depth {depth}, \
             max {nodes} nodes, soft limit {soft}ms, {ignored} ignored moves",
