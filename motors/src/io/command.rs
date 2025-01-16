@@ -34,7 +34,7 @@ use gears::general::moves::{ExtendedFormat, Move};
 use gears::output::Message::Warning;
 use gears::output::{Message, OutputBuilder, OutputOpts};
 use gears::search::{Depth, NodesLimit, SearchLimit};
-use gears::ugi::{load_ugi_position, EngineOptionName};
+use gears::ugi::{only_load_ugi_position, EngineOptionName};
 use gears::MatchStatus::{Ongoing, Over};
 use gears::ProgramStatus::Run;
 use gears::Quitting::{QuitMatch, QuitProgram};
@@ -253,6 +253,10 @@ impl<B: Board> AbstractEngineUgi for ACState<B> {
     }
 
     fn handle_undo(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+
+    fn handle_prev(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
 
@@ -567,6 +571,12 @@ pub fn ugi_commands() -> CommandList {
             ugi.handle_undo(words)
         }),
         command!(
+            go_back | gb,
+            Custom,
+            "Set the position to the previous 'position' command, like 'p old', and removes later positions",
+            |ugi, words, _| ugi.handle_prev(words)
+        ),
+        command!(
             perft,
             Custom,
             "Internal movegen test on current / bench positions",
@@ -663,7 +673,7 @@ impl<B: Board> AbstractGoState for GoState<B> {
     }
 
     fn load_pos(&mut self, name: &str, words: &mut Tokens, allow_partial: bool) -> Res<()> {
-        self.pos = load_ugi_position(name, words, true, self.generic.strictness, &self.pos, allow_partial)?;
+        self.pos = only_load_ugi_position(name, words, &self.pos, self.generic.strictness, true, allow_partial)?;
         Ok(())
     }
 
@@ -974,6 +984,13 @@ fn generic_go_options(accept_pos_word: bool) -> CommandList {
             Custom,
             "Current position, useful in combination with 'moves'",
             |state, words, _| state.load_go_state_pos("current", words),
+            --> |state| state.moves_subcmds(true, true)
+        ),
+        command!(
+            old | o | previous,
+            Custom,
+            "Previous 'position' command, could be from a different match (not the same as undoing a move, see 'undo')",
+            |state, words, _| state.load_go_state_pos("old", words),
             --> |state| state.moves_subcmds(true, true)
         ),
     ];

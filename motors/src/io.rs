@@ -274,13 +274,7 @@ impl<B: Board> EngineUGI<B> {
         };
         let engine = create_engine_from_str(&opts.engine, &all_searchers, &all_evals, output.clone(), TT::default())?;
         let display_name = engine.get_engine_info().short_name();
-        let board_state = MatchState {
-            board: board.clone(),
-            status: Run(NotStarted),
-            mov_hist: vec![],
-            board_hist: ZobristHistory::default(),
-            pos_before_moves: B::default(),
-        };
+        let board_state = MatchState::new(board.clone());
         let protocol = if opts.interactive { Interactive } else { UGI };
         let move_overhead = Duration::from_millis(DEFAULT_MOVE_OVERHEAD_MS);
         let state = EngineGameState {
@@ -1254,6 +1248,8 @@ trait AbstractEngineUgi: Debug {
 
     fn handle_undo(&mut self, words: &mut Tokens) -> Res<()>;
 
+    fn handle_prev(&mut self, words: &mut Tokens) -> Res<()>;
+
     fn print_help(&mut self) -> Res<()>;
 
     fn write_is_player(&mut self, is_first: bool) -> Res<()>;
@@ -1435,8 +1431,28 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
 
     fn handle_undo(&mut self, words: &mut Tokens) -> Res<()> {
         let count = words.next().unwrap_or("1");
-        let count = parse_int_from_str(count, "count")?;
-        self.state.undo_last_moves(count)?;
+        let count = parse_int_from_str(count, "number of halfmoves to undo")?;
+        let undone = self.state.undo_moves(count)?;
+        self.print_board(OutputOpts::default());
+        if undone < count {
+            self.write_message(
+                Warning,
+                &format_args!("Reached initial position after undoing {undone} out of {count} halfmoves"),
+            )
+        }
+        Ok(())
+    }
+
+    fn handle_prev(&mut self, words: &mut Tokens) -> Res<()> {
+        let count = words.next().unwrap_or("1");
+        let count = parse_int_from_str(count, "number of positions to go back")?;
+        let undone = self.state.go_back(count)?;
+        if undone < count {
+            self.write_message(
+                Warning,
+                &format_args!("There were only {undone} previous position commands, went back to the initial position"),
+            );
+        }
         self.print_board(OutputOpts::default());
         Ok(())
     }

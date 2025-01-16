@@ -354,6 +354,12 @@ impl<B: Board> BoardHistory<B> for NoHistory {
 #[must_use]
 pub struct ZobristHistory<B: Board>(pub Vec<PosHash>, PhantomData<B>);
 
+impl<B: Board> ZobristHistory<B> {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self(Vec::with_capacity(capacity), PhantomData)
+    }
+}
+
 impl<B: Board> BoardHistory<B> for ZobristHistory<B> {
     fn len(&self) -> usize {
         self.0.len()

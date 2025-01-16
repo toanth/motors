@@ -27,6 +27,7 @@ use crate::general::common::{
     select_name_static, tokens, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, TokensToString,
 };
 use crate::general::move_list::MoveList;
+use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
 use crate::general::moves::Move;
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
@@ -580,6 +581,17 @@ pub trait BoardHelpers: Board {
     /// For checking invariants that might be violated, use a `Board::Unverified` and call `verify_with_level`.
     fn debug_verify_invariants(self, strictness: Strictness) -> Res<Self> {
         Self::Unverified::new(self).verify_with_level(Assertion, strictness)
+    }
+
+    /// Parses a move using [`Move::from_text`], then applies it on this board and returns the result.
+    fn make_move_from_str(self, text: &str) -> Res<Self> {
+        let mov = Self::Move::from_text(text, &self)?;
+        self.clone().make_move(mov).ok_or_else(|| {
+            anyhow!(
+                "Move '{}' is pseudolegal but not legal in position '{self}'",
+                mov.extended_formatter(&self, Standard).to_string().red()
+            )
+        })
     }
 
     /// Place a piece of the given type and color on the given square. Doesn't check that the resulting position is

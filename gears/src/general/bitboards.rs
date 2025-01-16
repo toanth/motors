@@ -579,23 +579,22 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
 
     #[inline]
     fn north_east(self) -> Self {
-        self.north().east()
+        self.east().north()
     }
 
-    // TODO: Optimize?
     #[inline]
     fn south_east(self) -> Self {
-        self.south().east()
+        self.east().south()
     }
 
     #[inline]
     fn south_west(self) -> Self {
-        self.south().west()
+        self.west().south()
     }
 
     #[inline]
     fn north_west(self) -> Self {
-        self.north().west()
+        self.west().north()
     }
 
     /// Includes the bitboard itself

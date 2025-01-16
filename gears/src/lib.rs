@@ -12,7 +12,7 @@ use crate::general::common::{select_name_dyn, Res, Tokens};
 use crate::general::moves::Move;
 use crate::output::OutputBuilder;
 use crate::search::TimeControl;
-use crate::ugi::parse_ugi_position_and_moves;
+use crate::ugi::{parse_ugi_position_and_moves, ParseUgiPosState};
 use crate::AdjudicationReason::*;
 use crate::GameResult::Aborted;
 use crate::MatchStatus::{NotStarted, Ongoing, Over};
@@ -358,9 +358,22 @@ pub struct MatchState<B: Board> {
     pub mov_hist: Vec<B::Move>,
     pub board_hist: ZobristHistory<B>,
     pub pos_before_moves: B,
+    state_pos_hist: Vec<B>,
 }
 
 impl<B: Board> MatchState<B> {
+    pub fn new(pos: B) -> Self {
+        let mut state_pos_hist = Vec::with_capacity(256);
+        state_pos_hist.push(pos.clone());
+        Self {
+            board: pos.clone(),
+            status: Run(NotStarted),
+            mov_hist: Vec::with_capacity(256),
+            board_hist: ZobristHistory::with_capacity(256),
+            pos_before_moves: pos,
+            state_pos_hist,
+        }
+    }
     pub fn last_move(&self) -> Option<B::Move> {
         self.mov_hist.last().copied()
     }
@@ -393,11 +406,14 @@ impl<B: Board> MatchState<B> {
         Ok(())
     }
 
-    pub fn undo_last_moves(&mut self, count: usize) -> Res<()> {
+    pub fn undo_moves(&mut self, count: usize) -> Res<usize> {
         let mut pos = self.pos_before_moves.clone();
         assert_eq!(self.mov_hist.len(), self.board_hist.len());
         if self.mov_hist.is_empty() && count > 0 {
-            bail!("There are no moves to undo. The current position is '{pos}'")
+            bail!(
+                "There are no moves to undo. The current position is '{pos}'.\n\
+            (Try 'prev' to go to the previous 'position' command)"
+            );
         }
         let count = count.min(self.mov_hist.len());
         for &mov in self.mov_hist.iter().dropping_back(count) {
@@ -411,10 +427,22 @@ impl<B: Board> MatchState<B> {
             self.status = Run(Ongoing);
         }
         self.board = pos;
-        Ok(())
+        Ok(count)
     }
 
-    pub fn clear_state(&mut self) {
+    pub fn go_back(&mut self, n: usize) -> Res<usize> {
+        if self.state_pos_hist.is_empty() {
+            bail!("There is no position to go back to; this is the initial position of the match")
+        }
+        self.clear_current_state();
+        let count = n.min(self.state_pos_hist.len());
+        let idx = self.state_pos_hist.len() - count;
+        self.board = self.state_pos_hist[idx].clone();
+        self.state_pos_hist.truncate(idx);
+        Ok(count)
+    }
+
+    fn clear_current_state(&mut self) {
         self.board = self.pos_before_moves.clone();
         self.mov_hist.clear();
         self.board_hist.clear();
@@ -428,22 +456,9 @@ impl<B: Board> MatchState<B> {
         strictness: Strictness,
         check_game_over: bool,
     ) -> Res<()> {
-        let pos = self.board.clone();
         let Some(next_word) = words.next() else { bail!("Missing position after '{}' command", "position".bold()) };
-        parse_ugi_position_and_moves(
-            next_word,
-            words,
-            allow_pos_word,
-            strictness,
-            &pos,
-            self,
-            |this, mov| this.make_move(mov, check_game_over),
-            |this| {
-                this.pos_before_moves = this.board.clone();
-                this.clear_state()
-            },
-            |state| &mut state.board,
-        )?;
+        let mut parse_state = ParseUgiMatchState { match_state: self, check_game_over };
+        parse_ugi_position_and_moves(next_word, words, allow_pos_word, strictness, &mut parse_state)?;
         Ok(())
     }
 
@@ -454,5 +469,34 @@ impl<B: Board> MatchState<B> {
         self.board_hist.clear();
         self.status = Run(NotStarted);
         Ok(())
+    }
+}
+
+struct ParseUgiMatchState<'a, B: Board> {
+    match_state: &'a mut MatchState<B>,
+    check_game_over: bool,
+}
+
+impl<'a, B: Board> ParseUgiPosState<B> for ParseUgiMatchState<'a, B> {
+    fn pos(&mut self) -> &mut B {
+        &mut self.match_state.board
+    }
+
+    fn initial(&self) -> &B {
+        &self.match_state.pos_before_moves
+    }
+
+    fn previous(&self) -> Option<&B> {
+        self.match_state.state_pos_hist.last()
+    }
+
+    fn finish_pos_part(&mut self, pos: &B) {
+        self.match_state.state_pos_hist.push(self.match_state.board.clone());
+        self.match_state.pos_before_moves = pos.clone();
+        self.match_state.clear_current_state()
+    }
+
+    fn make_move(&mut self, mov: B::Move) -> Res<()> {
+        self.match_state.make_move(mov, self.check_game_over)
     }
 }

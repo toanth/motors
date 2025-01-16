@@ -305,28 +305,18 @@ pub fn parse_ugi_position_part<B: Board>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn parse_ugi_position_and_moves<
-    B: Board,
-    S,
-    F: Fn(&mut S, B::Move) -> Res<()>,
-    G: Fn(&mut S),
-    H: Fn(&mut S) -> &mut B,
->(
+pub fn parse_ugi_position_and_moves<B: Board>(
     first_word: &str,
     rest: &mut Tokens,
     accept_pos_word: bool,
     strictness: Strictness,
-    old_board: &B,
-    state: &mut S,
-    make_move: F,
-    finish_pos: G,
-    get_board: H,
+    state: &mut dyn ParseUgiPosState<B>,
 ) -> Res<()> {
-    let pos = parse_ugi_position_part(first_word, rest, accept_pos_word, old_board, strictness);
+    let pos = parse_ugi_position_part(first_word, rest, accept_pos_word, state.initial(), strictness);
+    // don't reset the position if all we got was moves
+    // (i.e. 'p mv e4' allows going back to a position before the current position, unlike `p c mv e4`)
     if let Ok(pos) = &pos {
-        *(get_board(state)) = pos.clone();
-        // don't reset the position if all we get was moves
-        finish_pos(state);
+        state.finish_pos_part(pos);
     }
     let mut first_move_word = first_word;
     if pos.is_ok() {
@@ -341,7 +331,7 @@ pub fn parse_ugi_position_and_moves<
             _ = rest.next();
         }
     } else {
-        let Ok(first_move) = B::Move::from_text(first_move_word, get_board(state)) else {
+        let Ok(first_move) = B::Move::from_text(first_move_word, state.pos()) else {
             match pos {
                 Ok(_) => return Ok(()),
                 Err(err) => bail!("'{}' is not a valid position or move: {err}", first_word.red()),
@@ -351,18 +341,18 @@ pub fn parse_ugi_position_and_moves<
         if pos.is_ok() {
             _ = rest.next();
         }
-        debug_assert!(get_board(state).is_move_pseudolegal(first_move));
-        make_move(state, first_move).map_err(|err| {
+        debug_assert!(state.pos().is_move_pseudolegal(first_move));
+        state.make_move(first_move).map_err(|err| {
             anyhow!(
                 "move '{0}' is pseudolegal but not legal in position '{1}': {err}",
-                first_move.compact_formatter(get_board(state)).to_string().red(),
-                *get_board(state)
+                first_move.compact_formatter(state.pos()).to_string().red(),
+                *state.pos()
             )
         })?;
     }
     // TODO: Handle flip / nullmove?
     while let Some(next_word) = rest.peek().copied() {
-        let mov = match B::Move::from_text(next_word, get_board(state)) {
+        let mov = match B::Move::from_text(next_word, state.pos()) {
             Ok(mov) => mov,
             Err(err) => {
                 if !parsed_move {
@@ -377,55 +367,37 @@ pub fn parse_ugi_position_and_moves<
             }
         };
         _ = rest.next();
-        debug_assert!(get_board(state).is_move_pseudolegal(mov));
-        make_move(state, mov).map_err(|err| {
+        debug_assert!(state.pos().is_move_pseudolegal(mov));
+        state.make_move(mov).map_err(|err| {
             anyhow!(
                 "move '{0}' is not legal in position '{1}': {err}",
-                mov.compact_formatter(get_board(state)).to_string().red(),
-                *get_board(state)
+                mov.compact_formatter(state.pos()).to_string().red(),
+                *state.pos()
             )
         })?;
         parsed_move = true;
     }
     if !parsed_move {
-        bail!("Missing move after '{}'", "moves".bold())
+        bail!("Missing {0} move after '{1}'", B::game_name(), "moves".bold())
     }
     Ok(())
 }
 
-pub fn load_ugi_position<B: Board>(
+pub fn only_load_ugi_position<B: Board>(
     first_word: &str,
     rest: &mut Tokens,
-    accept_pos_word: bool,
+    current_pos: &B,
     strictness: Strictness,
-    old_board: &B,
+    allow_pos_word: bool,
     allow_partial: bool,
 ) -> Res<B> {
-    let mut board = old_board.clone();
-    match parse_ugi_position_and_moves(
-        first_word,
-        rest,
-        accept_pos_word,
-        strictness,
-        old_board,
-        &mut board,
-        |pos, next_move| {
-            debug_assert!(pos.is_move_legal(next_move));
-            *pos = pos.clone().make_move(next_move).ok_or_else(|| {
-                anyhow!(
-                    "Move '{}' is not legal in position '{pos}' (but it is pseudolegal)",
-                    next_move.compact_formatter(pos).to_string().red()
-                )
-            })?;
-            Ok(())
-        },
-        |_| (),
-        |board| board,
-    ) {
-        Ok(()) => Ok(board),
+    let mut state =
+        SimpleParseUgiPosState { pos: current_pos.clone(), initial_pos: current_pos.clone(), previous_pos: None };
+    match parse_ugi_position_and_moves(first_word, rest, allow_pos_word, strictness, &mut state) {
+        Ok(()) => Ok(state.pos.clone()),
         Err(err) => {
             if allow_partial {
-                Ok(board)
+                Ok(state.pos.clone())
             } else {
                 Err(err)
             }
@@ -433,8 +405,97 @@ pub fn load_ugi_position<B: Board>(
     }
 }
 
+pub trait ParseUgiPosState<B: Board> {
+    fn pos(&mut self) -> &mut B;
+    fn initial(&self) -> &B;
+    fn previous(&self) -> Option<&B>;
+    fn finish_pos_part(&mut self, pos: &B);
+    fn make_move(&mut self, mov: B::Move) -> Res<()>;
+}
+
+struct SimpleParseUgiPosState<B: Board> {
+    pos: B,
+    initial_pos: B,
+    previous_pos: Option<B>,
+}
+
+impl<B: Board> ParseUgiPosState<B> for SimpleParseUgiPosState<B> {
+    fn pos(&mut self) -> &mut B {
+        &mut self.pos
+    }
+    fn initial(&self) -> &B {
+        &self.initial_pos
+    }
+    fn previous(&self) -> Option<&B> {
+        self.previous_pos.as_ref()
+    }
+    fn finish_pos_part(&mut self, pos: &B) {
+        self.pos = pos.clone();
+    }
+
+    fn make_move(&mut self, mov: B::Move) -> Res<()> {
+        debug_assert!(self.pos.is_move_legal(mov));
+        self.pos = self.pos.clone().make_move(mov).ok_or_else(|| {
+            anyhow!(
+                "Move '{0}' is not legal in position '{1}' (but it is pseudolegal)",
+                mov.compact_formatter(&self.pos).to_string().red(),
+                self.pos
+            )
+        })?;
+        Ok(())
+    }
+}
+
 pub fn load_ugi_pos_simple<B: Board>(pos: &str, strictness: Strictness, old_board: &B) -> Res<B> {
     let mut tokens = tokens(pos);
     let first = tokens.next().unwrap_or_default();
-    load_ugi_position(first, &mut tokens, false, strictness, old_board, false)
+    let res = only_load_ugi_position(first, &mut tokens, old_board, strictness, false, false)?;
+    if let Some(next) = tokens.next() {
+        bail!("Unconsumed input after loading a position: {}", next.red())
+    }
+    Ok(res)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::games::chess::Chessboard;
+    use crate::general::board::Strictness::{Relaxed, Strict};
+
+    #[cfg(feature = "chess")]
+    #[test]
+    fn test_chess_parsing() {
+        let input = "startpos moves e2e4 e7e5 yolo";
+        let mut pos = Chessboard::startpos();
+        assert!(load_ugi_pos_simple(input, Relaxed, &pos).is_err());
+        assert!(only_load_ugi_position("position", &mut tokens(input), &pos, Strict, false, false).is_err());
+        assert!(only_load_ugi_position("lol", &mut tokens(input), &pos, Strict, true, false).is_err());
+        let mut input_tokens = tokens(input);
+        let res = only_load_ugi_position("position", &mut input_tokens, &pos, Strict, true, false).unwrap();
+        pos = pos.make_move_from_str("e2e4").unwrap();
+        pos = pos.make_move_from_str("e7e5").unwrap();
+        assert_eq!(res, pos);
+        assert_eq!(input_tokens.next(), Some("yolo"));
+
+        let mut pos = Chessboard::from_name("kiwipete").unwrap();
+        let moves = " 0-0 e8h8 a2a3";
+        let input = pos.as_fen() + moves;
+        assert!(only_load_ugi_position("position", &mut tokens(moves), &Chessboard::default(), Relaxed, true, false)
+            .is_err());
+        assert!(only_load_ugi_position("position", &mut tokens(&input), &Chessboard::default(), Relaxed, true, false)
+            .is_ok());
+        let res = load_ugi_pos_simple(&input, Strict, &pos).unwrap();
+        pos = pos.make_move_from_str("O-O").unwrap();
+        pos = pos.make_move_from_str("0-0 ?").unwrap();
+        pos = pos.make_move_from_str("a3!!").unwrap();
+        assert_eq!(res, pos);
+
+        let pos = Chessboard::from_name("lucena").unwrap();
+        let input = "lucena moves";
+        assert!(only_load_ugi_position("position", &mut tokens(input), &Chessboard::default(), Relaxed, true, false)
+            .is_err());
+        let res = only_load_ugi_position("position", &mut tokens(input), &Chessboard::default(), Relaxed, true, true)
+            .unwrap();
+        assert_eq!(pos, res);
+    }
 }

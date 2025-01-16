@@ -143,17 +143,9 @@ where
     /// This is supposed to be used whenever the move format is unknown, such as when the user enters a move, and therefore
     /// should handle as many different cases as possible, but always needs to handle the compact text representation.
     /// Like all move parsing functions, this function needs to ensure that the move is pseudolegal in the current position.
-    // Try `from_compact_text` first because that's usually cheaper and will be used by the GUI, i.e., when performance matters
     fn from_text(s: &str, board: &B) -> Res<B::Move> {
-        match B::Move::from_compact_text(s, board) {
-            Ok(m) => Ok(m),
-            Err(e) => {
-                if let Ok(m) = B::Move::from_extended_text(s, board) {
-                    return Ok(m);
-                }
-                Err(e)
-            }
-        }
+        // Try `from_compact_text` first because that's usually cheaper and will be used by the GUI, i.e., when performance matters
+        B::Move::from_compact_text(s, board).or_else(|_| B::Move::from_extended_text(s, board))
     }
 
     /// Load the move from its raw underlying integer representation, the inverse of `to_underlying`.

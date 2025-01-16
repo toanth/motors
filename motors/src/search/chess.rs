@@ -19,12 +19,12 @@ mod tests {
     use gears::games::{n_fold_repetition, BoardHistory, ZobristHistory};
     use gears::general::board::Strictness::{Relaxed, Strict};
     use gears::general::board::{Board, BoardHelpers};
-    use gears::general::common::{tokens, NamedEntity};
+    use gears::general::common::NamedEntity;
     use gears::general::moves::Move;
     use gears::output::pgn::parse_pgn;
     use gears::score::{Score, SCORE_LOST, SCORE_WON};
     use gears::search::{Depth, NodesLimit, SearchLimit};
-    use gears::ugi::load_ugi_position;
+    use gears::ugi::load_ugi_pos_simple;
     use gears::PlayerResult::Draw;
 
     use crate::eval::chess::lite::{KingGambot, LiTEval};
@@ -57,15 +57,7 @@ mod tests {
     }
 
     fn mated_test<E: Engine<Chessboard>>(engine: &mut E) {
-        let game_over_pos = load_ugi_position(
-            "position",
-            &mut tokens("mate_in_1 moves h7a7"),
-            true,
-            Strict,
-            &Chessboard::default(),
-            false,
-        )
-        .unwrap();
+        let game_over_pos = load_ugi_pos_simple("mate_in_1 moves h7a7", Strict, &Chessboard::default()).unwrap();
         assert!(game_over_pos.is_game_lost_slow());
         for i in (1..123).step_by(11) {
             let res = engine.search_with_new_tt(game_over_pos, SearchLimit::depth(Depth::new(i)));
