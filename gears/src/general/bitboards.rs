@@ -90,11 +90,10 @@ macro_rules! anti_diagonal_bb_for {
             while i < $size {
                 let anti_diag = i / width + i % width;
                 res[width][i] = remove_ones_above!($steps[width - 1] << anti_diag, anti_diag * width, $typ, $size);
-                res[width][i] = remove_ones_below!(
-                    res[width][i],
-                    if anti_diag >= width { (anti_diag - width + 2) * width - 1 } else { 0 },
-                    $typ
-                );
+                #[allow(clippy::assign_op_pattern)]
+                if anti_diag >= width {
+                    res[width][i] = remove_ones_below!(res[width][i], (anti_diag - width + 2) * width - 1, $typ);
+                }
                 i += 1;
             }
             width += 1;
@@ -135,11 +134,13 @@ const DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = diagonal_bb_for!(u64, 64, STEPS_U6
 
 const ANTI_DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = anti_diagonal_bb_for!(u64, 64, STEPS_U64);
 
-const STEPS_U128: [u128; MAX_STEP_SIZE] = step_bb_for!(u128, 128);
+// These arrays are `static` instead of `const` because they are pretty large
 
-const DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = diagonal_bb_for!(u128, 128, STEPS_U128);
+static STEPS_U128: [u128; MAX_STEP_SIZE] = step_bb_for!(u128, 128);
 
-const ANTI_DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = anti_diagonal_bb_for!(u128, 128, STEPS_U128);
+static DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = diagonal_bb_for!(u128, 128, STEPS_U128);
+
+static ANTI_DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = anti_diagonal_bb_for!(u128, 128, STEPS_U128);
 
 /// A [`RawBitboard`] is something like a `u64` or `u128` (but there's nothing that would prevent implementing it for a custom
 /// 256 bit struct). Unlike a `[Bitboard]`, it has no notion of size, and therefore no notion of rows, columns, etc.
@@ -395,7 +396,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
         let rank_0 = Self::rank_0_for(size);
         let mut ranks = rank_0;
         for n in 1..size.height().val() {
-            ranks |= rank_0 << size.internal_width() * n;
+            ranks |= rank_0 << (size.internal_width() * n);
         }
         ranks
     }
@@ -847,7 +848,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> Display for DynamicallySizedBitb
     }
 }
 
-/// Unfortunately, we can't simply `#derive` the implementations for all the operators
+// Unfortunately, we can't simply `#derive` the implementations for all the operators
 
 impl<R: RawBitboard, C: RectangularCoordinates> Deref for DynamicallySizedBitboard<R, C> {
     type Target = R;
@@ -1201,7 +1202,7 @@ pub mod chessboard {
         res
     };
 
-    pub const RAYS_INCLUSIVE: [[RawStandardBitboard; 64]; 64] = {
+    pub static RAYS_INCLUSIVE: [[RawStandardBitboard; 64]; 64] = {
         let mut res = [[0; 64]; 64];
         let mut start = 0;
         while start < 64 {
@@ -1232,7 +1233,7 @@ pub mod chessboard {
         res
     };
 
-    pub const RAYS_EXCLUSIVE: [[RawStandardBitboard; 64]; 64] = {
+    pub static RAYS_EXCLUSIVE: [[RawStandardBitboard; 64]; 64] = {
         let mut res = [[0; 64]; 64];
         let mut a = 0;
         while a < 64 {

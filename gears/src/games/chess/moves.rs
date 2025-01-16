@@ -1105,7 +1105,7 @@ mod tests {
             let mov = ChessMove::from_u64_unchecked(mov);
             for pos in Chessboard::bench_positions() {
                 if let Some(mov) = mov.check_pseudolegal(&pos) {
-                    pos.make_move(mov);
+                    _ = pos.make_move(mov);
                     // check that the move representation is unique
                     assert!(
                         pos.pseudolegal_moves().contains(&mov),

@@ -489,7 +489,7 @@ impl Board for FairyBoard {
         let res = variant.0.read_rules_fen_part(rest);
         if let Ok(Some(new)) = res {
             variant = new;
-        } else if let Err(_) = res {
+        } else if res.is_err() {
             *rest = rest_copy;
         }
         Ok(Self::startpos_for_settings(variant))
@@ -619,9 +619,9 @@ impl Board for FairyBoard {
             }
         }
         for rule in &self.get_rules().draw {
-            if match rule {
-                &Draw::Counter(max) => self.0.draw_counter >= max,
-                &Draw::Repetition(max) => n_fold_repetition(max, history, self, usize::MAX),
+            if match *rule {
+                Draw::Counter(max) => self.0.draw_counter >= max,
+                Draw::Repetition(max) => n_fold_repetition(max, history, self, usize::MAX),
                 _ => false,
             } {
                 return Some(PlayerResult::Draw);
@@ -689,7 +689,7 @@ impl Board for FairyBoard {
         {
             let rules = (v.val)();
             board = Self::empty_for_settings(rules);
-            input.next();
+            _ = input.next();
         } else {
             // TODO: This always constructs a chess board, which means you can't leave out the variant name in the fen.
             board = Self::empty();
@@ -781,7 +781,7 @@ impl FairyBoard {
         if fen.starts_with(variant) {
             Self::from_fen(fen, strictness)
         } else {
-            Self::from_fen(&(variant.to_string() + " " + &fen), strictness)
+            Self::from_fen(&(variant.to_string() + " " + fen), strictness)
         }
     }
 
@@ -792,7 +792,7 @@ impl FairyBoard {
 
 pub struct NoRulesFenFormatter<'a>(&'a FairyBoard);
 
-impl<'a> Display for NoRulesFenFormatter<'a> {
+impl Display for NoRulesFenFormatter<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let pos = self.0;
         position_fen_part(f, pos)?;
@@ -911,7 +911,7 @@ mod tests {
         let fen = "1rqbkrbn/1ppppp1p/1n6/2N3p1/p7/2P4P/PP1PPPPB/1RQBKR1N w FBfb - 0 10";
         let pos = FairyBoard::from_fen(fen, Strict).unwrap();
         let chess_pos = Chessboard::from_fen(fen, Strict).unwrap();
-        assert_eq!(pos.as_fen(), "chess ".to_string() + &fen);
+        assert_eq!(pos.as_fen(), "chess ".to_string() + fen);
         let moves = pos.legal_moves_slow();
         let mov = FairyMove::from_compact_text("e1f1", &pos).unwrap();
         assert!(moves.contains(&mov));

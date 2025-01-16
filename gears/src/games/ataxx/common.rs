@@ -222,7 +222,7 @@ impl Move<AtaxxBoard> for AtaxxMove {
         if !board.is_move_pseudolegal(res) {
             if board.is_occupied(to_square) {
                 bail!("The square {} is not empty", to_square.to_string().bold())
-            } else if let Some(from_square) = res.src_square_in(&board) {
+            } else if let Some(from_square) = res.src_square_in(board) {
                 bail!("There is no legal move from {from_square} to {to_square}");
             }
             bail!("No piece can create a clone of itself on {}", to_square.to_string().red())

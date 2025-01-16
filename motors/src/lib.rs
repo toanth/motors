@@ -1,4 +1,5 @@
-#[deny(unused_results)]
+#![deny(unused_results)]
+
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
@@ -289,9 +290,8 @@ pub fn list_mnk_evals() -> EvalList<MNKBoard> {
 #[cfg(feature = "fairy")]
 #[must_use]
 pub fn list_fairy_evals() -> EvalList<FairyBoard> {
-    let res = generic_evals::<FairyBoard>();
+    generic_evals::<FairyBoard>()
     // TODO: Add special eval functions
-    res
 }
 
 #[must_use]
@@ -365,6 +365,6 @@ pub fn run_program_with_args(args: ArgIter) -> Res<()> {
 
 pub fn run_program() -> Res<()> {
     let mut args = std::env::args().peekable();
-    args.next(); // remove the program name
+    _ = args.next(); // remove the program name
     run_program_with_args(args)
 }

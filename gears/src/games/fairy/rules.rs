@@ -277,8 +277,7 @@ impl Rules {
 
     pub fn mnk(size: FairySize, k: DimT) -> Self {
         let piece = Piece::complete_piece_map(size).remove("mnk").unwrap();
-        let mut pieces = Vec::new();
-        pieces.push(piece);
+        let pieces = vec![piece];
         let settings = MnkSettings::new(size.height, size.width, k);
         let startpos_fen = "mnk ".to_string() + &MNKBoard::startpos_for_settings(settings).as_fen();
         Self {

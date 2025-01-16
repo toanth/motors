@@ -2,8 +2,9 @@
 //! It is designed to be easily extensible to new games. [`gears`](crate) forms the foundation of the `motors`, `monitors`
 //! and `pliers` crates, which deal with engines, UI, and tuning, respectively.
 
+#![deny(unused_results)]
+
 use crate::games::Color;
-#[deny(unused_results)]
 use crate::games::{BoardHistory, ZobristHistory};
 use crate::general::board::{Board, BoardHelpers, Strictness};
 use crate::general::common::Description::WithDescription;
@@ -364,7 +365,7 @@ impl<B: Board> MatchState<B> {
         self.mov_hist.last().copied()
     }
 
-    pub fn make_move(&mut self, mov: B::Move, check_game_over: bool) -> Res<B> {
+    pub fn make_move(&mut self, mov: B::Move, check_game_over: bool) -> Res<()> {
         debug_assert!(self.board.is_move_pseudolegal(mov));
         if let Run(Over(result)) = &self.status {
             bail!(
@@ -389,7 +390,7 @@ impl<B: Board> MatchState<B> {
                 self.status = Run(Over(res));
             }
         }
-        Ok(self.board.clone())
+        Ok(())
     }
 
     pub fn undo_last_moves(&mut self, count: usize) -> Res<()> {
@@ -403,7 +404,7 @@ impl<B: Board> MatchState<B> {
             pos = pos.make_move(mov).unwrap();
         }
         for _ in 0..count {
-            self.mov_hist.pop();
+            _ = self.mov_hist.pop();
             self.board_hist.pop();
         }
         if count > 0 {
@@ -436,7 +437,7 @@ impl<B: Board> MatchState<B> {
             strictness,
             &pos,
             self,
-            |this, mov| this.make_move(mov, check_game_over).map(|_| ()),
+            |this, mov| this.make_move(mov, check_game_over),
             |this| {
                 this.pos_before_moves = this.board.clone();
                 this.clear_state()

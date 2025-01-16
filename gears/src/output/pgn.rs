@@ -248,7 +248,7 @@ impl PgnParserState<'_> {
     fn ignore_percent_comment(&mut self) -> bool {
         if self.first_in_line && self.unread.peek().is_some_and(|&c| c == '%') {
             loop {
-                self.eat();
+                _ = self.eat();
                 if self.first_in_line {
                     return true;
                 }
@@ -269,19 +269,19 @@ impl PgnParserState<'_> {
             if !c.is_whitespace() {
                 return Ok(());
             }
-            self.eat();
+            _ = self.eat();
         }
         Ok(())
     }
 
     fn parse_brace_comment(&mut self) -> Res<()> {
         assert!(self.unread.peek().is_some_and(|&c| c == '{'));
-        self.eat();
+        _ = self.eat();
         while let Some(&c) = self.unread.peek() {
             if self.ignore_percent_comment() {
                 continue;
             }
-            self.eat();
+            _ = self.eat();
             if c == '}' {
                 return Ok(());
             }
@@ -291,13 +291,13 @@ impl PgnParserState<'_> {
 
     fn parse_tag_pair(&mut self) -> Res<TagPair> {
         debug_assert!(self.unread.peek().is_some_and(|&c| c == '['));
-        self.eat();
+        _ = self.eat();
         self.ignore_whitespace()?;
         let mut name = String::new();
         while let Some(&c) = self.unread.peek() {
             if c.is_alphanumeric() || c == '_' {
                 name.push(c);
-                self.eat().unwrap();
+                _ = self.eat();
             } else {
                 break;
             }
@@ -306,10 +306,10 @@ impl PgnParserState<'_> {
             bail!("Empty tag after starting a tag pair with '['")
         }
         self.ignore_whitespace()?;
-        if self.unread.peek().is_none_or(|&c| c != '"') {
+        if self.unread.peek() != Some(&'"') {
             bail!("Expected the tag value to start with a quote ('\"')")
         }
-        self.eat();
+        _ = self.eat();
         let mut value = String::new();
         while let Some(c) = self.eat() {
             if c == '\\' {
@@ -323,22 +323,22 @@ impl PgnParserState<'_> {
             value.push(c);
         }
         self.ignore_whitespace()?;
-        if self.unread.peek().is_none_or(|&c| c != ']') {
+        if self.unread.peek() != Some(&']') {
             bail!("Expected the tag pair to end with a closing bracket (']')")
         }
-        self.eat();
+        _ = self.eat();
         TagPair::parse(name, value)
     }
 
     fn eat_move_number(&mut self) -> Res<()> {
         if self.unread.peek().is_some_and(|c| c.is_ascii_digit()) {
-            self.eat();
+            _ = self.eat();
             while self.unread.peek().is_some_and(|c| c.is_ascii_digit()) {
-                self.eat();
+                _ = self.eat();
             }
             self.ignore_whitespace()?;
             while self.unread.peek().is_some_and(|&c| c == '.') {
-                self.eat();
+                _ = self.eat();
             }
             self.ignore_whitespace()?;
         }
@@ -409,7 +409,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
         if let Ok(result) = GameResult::from_str(next_word) {
             self.res.game.status = Run(Over(MatchResult { result, reason: GameOverReason::Normal }));
             for _ in 0..next_word.len() {
-                self.state.eat().unwrap();
+                _ = self.state.eat().unwrap();
             }
             return Ok(());
         }
@@ -421,7 +421,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
         let prev_board = &self.res.game.board;
         let (remaining, mov) = B::Move::parse_extended_text(string, prev_board)?;
         let Some(new_board) = prev_board.clone().make_move(mov) else {
-            bail!("Illegal psuedolegal move '{}'", mov.compact_formatter(&prev_board).to_string().red());
+            bail!("Illegal psuedolegal move '{}'", mov.compact_formatter(prev_board).to_string().red());
         };
         self.res.game.board_hist.push(prev_board);
         self.res.game.mov_hist.push(mov);
@@ -432,7 +432,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
             }
         }
         for _ in 0..string.len() - remaining.len() {
-            self.state.eat().unwrap();
+            _ = self.state.eat().unwrap();
         }
         Ok(())
     }

@@ -146,7 +146,7 @@ pub struct SearchInfo<'a, B: Board> {
     pub additional: Option<String>,
 }
 
-impl<'a, B: Board> Default for SearchInfo<'a, B> {
+impl<B: Board> Default for SearchInfo<'_, B> {
     fn default() -> Self {
         Self {
             best_move_of_all_pvs: B::Move::default(),

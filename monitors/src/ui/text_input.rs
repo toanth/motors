@@ -250,10 +250,7 @@ impl<B: Board> TextInputThread<B> {
 
     fn list_moves(mut client: MutexGuard<Client<B>>) {
         let board = &client.match_state().board;
-        println!(
-            "{}",
-            board.legal_moves_slow().into_iter().map(|m| m.to_extended_text(&board, Alternative)).join(", ")
-        );
+        println!("{}", board.legal_moves_slow().into_iter().map(|m| m.to_extended_text(board, Alternative)).join(", "));
     }
 
     fn random_move(mut client: MutexGuard<Client<B>>) -> Res<()> {

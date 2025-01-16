@@ -4,7 +4,7 @@ use crate::search::statistics::SearchCounter::*;
 use crate::search::statistics::SearchType::*;
 use derive_more::Display;
 use gears::search::NodeType;
-#[expect(unused_imports)]
+#[allow(unused_imports)]
 use itertools::Itertools;
 use std::fmt::Formatter;
 use strum::IntoEnumIterator;

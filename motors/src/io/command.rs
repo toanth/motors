@@ -153,7 +153,7 @@ impl<B: Board> AutoCompleteState for ACState<B> {
     }
 
     fn make_move(&mut self, mov: &str) {
-        let Ok(mov) = B::Move::from_text(mov, &self.pos()) else {
+        let Ok(mov) = B::Move::from_text(mov, self.pos()) else {
             return;
         };
         if let Some(new) = self.pos().clone().make_move(mov) {
@@ -284,17 +284,13 @@ fn display_cmd(f: &mut Formatter<'_>, cmd: &Command) -> fmt::Result {
     }
 }
 
-struct SubCommandsFn(Option<Box<dyn Fn(&mut dyn AutoCompleteState) -> CommandList>>);
+type SubCommandFnT = Box<dyn Fn(&mut dyn AutoCompleteState) -> CommandList>;
+#[derive(Default)]
+struct SubCommandsFn(Option<SubCommandFnT>);
 
 impl Debug for SubCommandsFn {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "<subcommands>")
-    }
-}
-
-impl Default for SubCommandsFn {
-    fn default() -> Self {
-        Self(None)
     }
 }
 
@@ -630,7 +626,7 @@ impl<B: Board> AbstractGoState for GoState<B> {
     fn set_searchmoves(&mut self, words: &mut Tokens) -> Res<()> {
         let mut search_moves = vec![];
         while let Some(mov) = words.peek().and_then(|m| B::Move::from_text(m, &self.pos).ok()) {
-            words.next().unwrap();
+            _ = words.next().unwrap();
             search_moves.push(mov);
         }
         if search_moves.is_empty() {
@@ -1027,16 +1023,16 @@ pub fn move_command(recurse: bool) -> Command {
 pub fn moves_options<B: Board>(pos: &B, recurse: bool) -> CommandList {
     let mut res: CommandList = vec![];
     for mov in pos.legal_moves_slow().iter_moves() {
-        let primary_name = mov.compact_formatter(&pos).to_string();
+        let primary_name = mov.compact_formatter(pos).to_string();
         let mut other_names = ArrayVec::default();
-        let extended = mov.to_extended_text(&pos, ExtendedFormat::Standard);
+        let extended = mov.to_extended_text(pos, ExtendedFormat::Standard);
         if extended != primary_name {
             other_names.push(extended);
         }
         let cmd = Command {
             primary_name: primary_name.clone(),
             other_names,
-            help_text: format!("Play move '{}'", mov.compact_formatter(&pos).to_string().bold()),
+            help_text: format!("Play move '{}'", mov.compact_formatter(pos).to_string().bold()),
             standard: All,
             autocomplete_recurse: false,
             func: |_, _, _| Ok(()),
@@ -1200,7 +1196,7 @@ fn completion_text(n: &Command, word: &str) -> String {
     let name = &n.primary_name;
     let mut res = format!("{}", underline_match(name, word).bold());
     for name in &n.other_names {
-        write!(&mut res, " | {}", underline_match(&name, word)).unwrap();
+        write!(&mut res, " | {}", underline_match(name, word)).unwrap();
     }
     write!(&mut res, ":  {}", n.help_text).unwrap();
     res

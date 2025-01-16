@@ -110,7 +110,7 @@ pub fn parse_output(args: &mut ArgIter, outputs: &mut Vec<OutputArgs>) -> Res<()
             break;
         }
         outputs.last_mut().unwrap().opts.push(opt.clone());
-        args.next();
+        _ = args.next();
     }
     Ok(())
 }

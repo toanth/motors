@@ -137,16 +137,15 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
     }
 
     fn from_char(c: char, rules: &RulesRef) -> Option<Self> {
-        if let Some((id, p)) = rules.0.pieces().find(|(_id, p)| p.player_symbol.iter().any(|s| s.contains(&c))) {
+        let found = rules.0.pieces().find(|(_id, p)| p.player_symbol.iter().any(|s| s.contains(&c)));
+        if let Some((id, p)) = found {
             if p.player_symbol[0].contains(&c) {
                 Some(Self { id, color: Some(FairyColor::first()) })
             } else {
                 Some(Self { id, color: Some(FairyColor::second()) })
             }
-        } else if let Some(id) = rules.0.matching_piece_ids(|p| p.uncolored_symbol.contains(&c)).next() {
-            Some(Self { id, color: None })
         } else {
-            None
+            rules.0.matching_piece_ids(|p| p.uncolored_symbol.contains(&c)).next().map(|id| Self { id, color: None })
         }
     }
 
@@ -216,7 +215,7 @@ impl Piece {
         } else {
             [uppercase_ascii, lowercase_ascii, uppercase_ascii]
         };
-        let attacks = attacks.into_iter().map(|a| GenPieceAttackKind::simple(a)).collect_vec();
+        let attacks = attacks.into_iter().map(GenPieceAttackKind::simple).collect_vec();
         Self {
             name: name.to_string(),
             uncolored_symbol: [uppercase_ascii, u_uncolored],
@@ -532,13 +531,14 @@ impl Piece {
     pub fn chess_pieces() -> Vec<Piece> {
         let size = FairySize::new(Height::new(8), Width::new(8));
         let mut pieces = Self::complete_piece_map(size);
-        let mut res = Vec::new();
-        res.push(pieces.remove("pawn").unwrap());
-        res.push(pieces.remove("knight").unwrap());
-        res.push(pieces.remove("bishop").unwrap());
-        res.push(pieces.remove("rook").unwrap());
-        res.push(pieces.remove("queen").unwrap());
-        res.push(pieces.remove("king").unwrap());
+        let mut res = vec![
+            pieces.remove("pawn").unwrap(),
+            pieces.remove("knight").unwrap(),
+            pieces.remove("bishop").unwrap(),
+            pieces.remove("rook").unwrap(),
+            pieces.remove("queen").unwrap(),
+            pieces.remove("king").unwrap(),
+        ];
         for p in 1..5 {
             res[0].promotions.pieces.push(PieceId::new(p));
         }
@@ -548,13 +548,14 @@ impl Piece {
     pub fn shatranj_pieces() -> Vec<Piece> {
         let size = FairySize::new(Height::new(8), Width::new(8));
         let mut pieces = Self::complete_piece_map(size);
-        let mut res = Vec::new();
-        res.push(pieces.remove("pawn (shatranj)").unwrap());
-        res.push(pieces.remove("knight").unwrap());
-        res.push(pieces.remove("alfil").unwrap());
-        res.push(pieces.remove("rook").unwrap());
-        res.push(pieces.remove("ferz").unwrap());
-        res.push(pieces.remove("king (shatranj)").unwrap());
+        let mut res = vec![
+            pieces.remove("pawn (shatranj)").unwrap(),
+            pieces.remove("knight").unwrap(),
+            pieces.remove("alfil").unwrap(),
+            pieces.remove("rook").unwrap(),
+            pieces.remove("ferz").unwrap(),
+            pieces.remove("king (shatranj)").unwrap(),
+        ];
         res[0].promotions.pieces.push(PieceId::new(4));
         res
     }

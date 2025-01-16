@@ -108,7 +108,7 @@ mod tests {
     #[test]
     #[ignore]
     fn standard_perft_test() {
-        perft_test(&STANDARD_FENS, Strict);
+        perft_test(STANDARD_FENS, Strict);
     }
 
     #[test]
@@ -120,7 +120,7 @@ mod tests {
     #[test]
     #[ignore]
     fn custom_perft_test() {
-        perft_test(&CUSTOM_FENS, Relaxed);
+        perft_test(CUSTOM_FENS, Relaxed);
     }
 
     #[test]
@@ -194,7 +194,7 @@ mod tests {
                                 current().id()
                             );
                         }
-                        solved_tests.fetch_add(1, Ordering::Relaxed);
+                        _ = solved_tests.fetch_add(1, Ordering::Relaxed);
                         println!("Finished {0} / {1} positions", solved_tests.load(Ordering::Relaxed), num_fens);
                     }
                 });

@@ -396,7 +396,7 @@ impl<B: Board> BoardHistory<B> for BoardCopyHistory<B> {
     }
 
     fn pop(&mut self) {
-        self.0.pop();
+        _ = self.0.pop();
     }
 
     fn clear(&mut self) {

@@ -150,8 +150,8 @@ impl CapsCustomInfo {
 
 impl CustomInfo<Chessboard> for CapsCustomInfo {
     fn new_search(&mut self) {
-        debug_assert_eq!(self.nmp_disabled[0], false);
-        debug_assert_eq!(self.nmp_disabled[1], false);
+        debug_assert!(!self.nmp_disabled[0]);
+        debug_assert!(!self.nmp_disabled[1]);
         // don't update history values, malus and gravity already take care of that
     }
 
@@ -536,7 +536,7 @@ impl Caps {
             self.state.multi_pvs[self.state.current_pv_num].score = pv_score;
             // adding ` && node_type != FailLow` gains elo, which is weird because this only prevents incomplete search iterations that have
             // already changed the PV from affecting the chosen move.
-            if pv.len() > 0 && node_type != FailLow {
+            if !pv.is_empty() && node_type != FailLow {
                 if self.state.current_pv_num == 0 {
                     let chosen_move = pv.get(0).unwrap();
                     let ponder_move = pv.get(1);
@@ -808,7 +808,7 @@ impl Caps {
                 let reduction = cc::nmp_base() + depth / cc::nmp_depth_div() + isize::from(they_blundered);
                 // the child node is expected to fail low, leading to a fail high in this node
                 let nmp_res = self.negamax(new_pos, ply + 1, depth - 1 - reduction, -beta, -beta + 1, FailLow);
-                self.state.search_stack[ply].tried_moves.pop();
+                _ = self.state.search_stack[ply].tried_moves.pop();
                 self.state.params.history.pop();
                 let score = -nmp_res?;
                 if score >= beta {

@@ -419,7 +419,7 @@ pub trait Board:
     /// This move has to be pseudolegal. If the move will likely be played anyway, it can be faster
     /// to play it and use [`Self::player_result()`] or [`Self::player_result_no_movegen()`] and [`Self::no_moves_result`] instead.
     fn is_game_won_after_slow(&self, mov: Self::Move) -> bool {
-        self.clone().make_move(mov).map_or(false, |new_pos| new_pos.is_game_lost_slow())
+        self.clone().make_move(mov).map(|new_pos| new_pos.is_game_lost_slow()).unwrap_or_default()
     }
 
     /// Returns `false` if it detects that `player` can not win the game except if the opponent runs out of time
@@ -721,7 +721,6 @@ pub fn board_from_name<B: Board>(name: &str) -> Res<B> {
     select_name_static(name, B::name_to_pos_map().iter(), "position", &B::game_name(), NoDescription).map(|f| (f.val)())
 }
 
-#[must_use]
 pub fn position_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) -> fmt::Result {
     for y in (0..pos.height()).rev() {
         let mut empty_ctr = 0;

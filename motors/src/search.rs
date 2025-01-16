@@ -192,6 +192,10 @@ impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
         self.list.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
+
     pub fn clear(&mut self) {
         self.list.clear();
     }
@@ -303,7 +307,7 @@ impl<B: Board, E: Engine<B>> AbstractSearcherBuilder<B> for SearcherBuilder<B, E
         let info = engine.engine_info();
         let (sender, receiver) = unbounded();
         let mut thread = EngineThread::new(engine, receiver);
-        spawn(move || thread.main_loop());
+        _ = spawn(move || thread.main_loop());
         (sender, info)
     }
 
@@ -893,7 +897,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             let mut rng = StdRng::seed_from_u64(42); // keep everything deterministic
             let chosen_move = pos.random_legal_move(&mut rng).unwrap_or_default();
             if chosen_move != B::Move::default() {
-                debug_assert!(pos.is_move_legal(chosen_move), "{} {pos}", chosen_move.compact_formatter(&pos));
+                debug_assert!(pos.is_move_legal(chosen_move), "{} {pos}", chosen_move.compact_formatter(pos));
                 output.write_message(Warning, &format_args!("Not even a single iteration finished"));
                 output.write_search_res(&SearchResult::<B>::move_only(chosen_move, pos.clone()));
                 return;

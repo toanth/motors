@@ -175,7 +175,7 @@ impl BoardToText {
         let mut res = String::default();
         let pos = m.get_board();
         for mov in pos.legal_moves_slow().iter_moves() {
-            write!(&mut res, "{} ", mov.to_extended_text(&pos, Alternative)).unwrap();
+            write!(&mut res, "{} ", mov.to_extended_text(pos, Alternative)).unwrap();
         }
         res
     }

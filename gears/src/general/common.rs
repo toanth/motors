@@ -137,7 +137,7 @@ pub fn parse_int<T: PrimInt + FromStr + Display>(words: &mut Tokens, name: &str)
 
 pub fn parse_int_from_stdin<T: PrimInt + FromStr>() -> Res<T> {
     let mut s = String::default();
-    stdin().read_line(&mut s)?;
+    _ = stdin().read_line(&mut s)?;
     parse_int_from_str(s.trim(), "integer")
 }
 

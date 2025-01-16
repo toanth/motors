@@ -589,7 +589,7 @@ impl UtttBoard {
             }
             res.push('/');
         }
-        res.pop();
+        _ = res.pop();
         res
     }
 

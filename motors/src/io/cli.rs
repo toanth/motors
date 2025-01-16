@@ -63,12 +63,12 @@ impl EngineOpts {
 fn parse_depth(args: &mut ArgIter) -> Res<Option<Depth>> {
     if let Some(next) = args.peek() {
         if next == "-d" || next == "--depth" {
-            args.next();
+            _ = args.next();
             if args.peek().is_some_and(|a| a != "default") {
                 return Ok(Some(Depth::try_new(get_next_int(args, "depth")?)?));
             }
         } else if let Ok(val) = parse_int_from_str(next, "bench depth") {
-            args.next();
+            _ = args.next();
             return Ok(Some(Depth::try_new(val)?));
         }
     }
@@ -85,7 +85,7 @@ fn parse_perft(args: &mut ArgIter) -> Res<Option<Depth>> {
 
 fn parse_pos(args: &mut ArgIter) -> String {
     let mut res = String::default();
-    while args.peek().is_some_and(|token| !token.strip_prefix("-").is_some_and(|r| !r.is_empty())) {
+    while args.peek().is_some_and(|token| token.strip_prefix("-").is_none_or(|r| r.is_empty())) {
         res += &args.next().unwrap();
         res += " ";
     }
@@ -97,7 +97,7 @@ fn parse_option(args: &mut ArgIter, opts: &mut EngineOpts) -> Res<()> {
     // since we already accept -<long> in monitors for cutechess compatibility,
     // we might as well also accept it in motors.
     if key.starts_with("--") {
-        key.remove(0);
+        _ = key.remove(0);
     }
     match key.as_str() {
         "bench" | "-bench" | "-b" | "b" => opts.mode = Bench(parse_bench(args)?, true),

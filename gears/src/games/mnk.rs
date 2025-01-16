@@ -990,9 +990,9 @@ mod test {
 
         let board = MNKBoard::empty_for_settings(MnkSettings::new(Height(6), Width(7), 4));
         let expected = [1, 42, 42 * 41, 42 * 41 * 40];
-        for i in 0..4 {
+        for (i, e) in expected.into_iter().enumerate() {
             let r = perft(Depth::new(i), board, false);
-            assert_eq!(r.nodes, expected[i]);
+            assert_eq!(r.nodes, e);
             assert_eq!(r.depth, Depth::new(i));
         }
     }
@@ -1099,11 +1099,10 @@ mod test {
         assert!(MNKBoard::from_fen("4 3 2 3/3/3/3 wx", Relaxed).is_err());
         assert!(MNKBoard::from_fen("4 3 2 3/4/3/3 o", Relaxed)
             .is_err_and(|e| e.to_string().contains("Line '4' has incorrect width")));
-        MNKBoard::from_fen("4 3 2 3//3/3 o", Relaxed).expect_err("Empty position in mnk fen");
+        _ = MNKBoard::from_fen("4 3 2 3//3/3 o", Relaxed).unwrap_err();
         assert!(MNKBoard::from_fen("4 3 2 x", Relaxed).is_err());
         assert!(MNKBoard::from_fen("4 0 2 /// x", Relaxed).is_err());
-        MNKBoard::from_fen("0 3 2 x", Relaxed)
-            .expect_err("mnk invariants violated (at least one value is too large or too small)");
+        _ = MNKBoard::from_fen("0 3 2 x", Relaxed).unwrap_err();
         assert!(MNKBoard::from_fen("4 3 2 4/4/4 o", Relaxed).is_err());
         assert!(MNKBoard::from_fen("4 3 3/3/3/3 x", Relaxed).is_err());
         assert!(MNKBoard::from_fen("3 13 2 13/12X/13/O12 x", Relaxed).is_err());

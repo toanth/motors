@@ -742,29 +742,29 @@ impl Chessboard {
         if wsq_bishop >= bsq_bishop {
             wsq_bishop -= 1;
         }
-        place_piece(bsq_bishop, Bishop);
-        place_piece(wsq_bishop, Bishop);
+        _ = place_piece(bsq_bishop, Bishop);
+        _ = place_piece(wsq_bishop, Bishop);
         let queen = extract_factor(6);
-        place_piece(queen, Queen);
+        _ = place_piece(queen, Queen);
         assert!(num < 10);
         if num < 4 {
-            place_piece(0, Knight);
-            place_piece(num, Knight);
+            _ = place_piece(0, Knight);
+            _ = place_piece(num, Knight);
         } else if num < 7 {
-            place_piece(1, Knight);
-            place_piece(num - 4 + 1, Knight);
+            _ = place_piece(1, Knight);
+            _ = place_piece(num - 4 + 1, Knight);
         } else if num < 9 {
-            place_piece(2, Knight);
-            place_piece(num - 7 + 2, Knight);
+            _ = place_piece(2, Knight);
+            _ = place_piece(num - 7 + 2, Knight);
         } else {
-            place_piece(3, Knight);
-            place_piece(3, Knight);
+            _ = place_piece(3, Knight);
+            _ = place_piece(3, Knight);
         }
         let q_rook = place_piece(0, Rook);
-        place_piece(0, King);
+        _ = place_piece(0, King);
         let k_rook = place_piece(0, Rook);
         for _ in 0..8 {
-            place_piece(0, Pawn);
+            _ = place_piece(0, Pawn);
         }
 
         board.castling_rights_mut().set_castle_right(color, Queenside, q_rook as DimT).unwrap();

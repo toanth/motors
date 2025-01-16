@@ -321,7 +321,7 @@ impl<B: Board> UgiOutput<B> {
         let num_legal = pos.num_legal_moves();
         let variation = variation.collect_vec();
         let (variation, _) = pretty_variation(&variation, pos.clone(), None, None, Exact);
-        self.type_erased.show_bar(num_legal, &variation, eval, alpha, beta);
+        _ = self.type_erased.show_bar(num_legal, &variation, eval, alpha, beta);
     }
 
     pub fn write_search_info(&mut self, mut info: SearchInfo<B>) {
@@ -333,7 +333,7 @@ impl<B: Board> UgiOutput<B> {
         let mpv_type = info.mpv_type();
         let pv = mem::take(&mut info.pv);
         let (pv_string, end_pos) = pretty_variation(
-            &pv,
+            pv,
             info.pos.clone(),
             self.previous_exact_pv.as_ref().map(|i| i.as_ref()),
             Some(mpv_type),
@@ -365,11 +365,10 @@ impl<B: Board> UgiOutput<B> {
         }
     }
 
-    pub fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts) -> bool {
+    pub fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts) {
         for output in &mut self.additional_outputs {
             output.show(m, opts);
         }
-        self.additional_outputs.iter().any(|o| !o.is_logger() && o.prints_board())
     }
 }
 

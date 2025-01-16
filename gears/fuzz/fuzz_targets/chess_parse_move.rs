@@ -2,7 +2,7 @@
 
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::Chessboard;
-use gears::general::board::Board;
+use gears::general::board::{Board, BoardHelpers};
 use gears::general::moves::Move;
 use libfuzzer_sys::fuzz_target;
 use std::str::from_utf8;

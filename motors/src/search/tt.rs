@@ -71,16 +71,16 @@ impl<B: Board> TTEntry<B> {
     }
 
     #[cfg(feature = "unsafe")]
-    fn to_packed(self) -> u128 {
+    fn pack(self) -> u128 {
         if size_of::<Self>() == 128 / 8 {
             // `transmute_copy` is needed because otherwise the compiler complains that the sizes might not match.
             unsafe { transmute_copy::<Self, u128>(&self) }
         } else {
-            self.to_packed_fallback()
+            self.pack_fallback()
         }
     }
 
-    fn to_packed_fallback(self) -> u128 {
+    fn pack_fallback(self) -> u128 {
         let score = self.score.0 as u32; // don't sign extend negative scores
         ((self.hash.0 as u128) << 64)
             | ((score as u128) << (64 - 32))
@@ -90,25 +90,25 @@ impl<B: Board> TTEntry<B> {
     }
 
     #[cfg(not(feature = "unsafe"))]
-    fn to_packed(self) -> u128 {
-        self.to_packed_fallback()
+    fn pack(self) -> u128 {
+        self.pack_fallback()
     }
 
     #[cfg(feature = "unsafe")]
-    fn from_packed(packed: u128) -> Self {
+    fn unpack(packed: u128) -> Self {
         if size_of::<Self>() == 128 / 8 {
             unsafe { transmute_copy::<u128, Self>(&packed) }
         } else {
-            Self::from_packed_fallback(packed)
+            Self::unpack_fallback(packed)
         }
     }
 
     #[cfg(not(feature = "unsafe"))]
-    fn from_packed(val: u128) -> Self {
-        Self::from_packed_fallback(val)
+    fn unpack(val: u128) -> Self {
+        Self::unpack_fallback(val)
     }
 
-    fn from_packed_fallback(val: u128) -> Self {
+    fn unpack_fallback(val: u128) -> Self {
         let hash = PosHash((val >> 64) as u64);
         let score = Score(((val >> (64 - 32)) & 0xffff_ffff) as ScoreT);
         let mov = B::Move::from_u64_unchecked(((val >> 16) & 0xffff) as u64);
@@ -148,10 +148,10 @@ impl TT {
 
     fn new_with_bytes(size_in_bytes: usize) -> Self {
         let new_size = 1.max(size_in_bytes / size_of::<AtomicTTEntry>());
-        let tt = if cfg!(feature = "unsafe") && size_in_bytes > 1024 * 1024 * 16 && false {
+        let tt = if cfg!(feature = "unsafe") && size_in_bytes > 1024 * 1024 * 16 {
             let mut arr = Box::new_uninit_slice(new_size);
             arr.par_iter_mut().for_each(|elem| {
-                elem.write(AtomicU128::default());
+                _ = elem.write(AtomicU128::default());
             });
             unsafe { arr.assume_init() }
         } else {
@@ -189,7 +189,7 @@ impl TT {
             .0
             .iter()
             .take(len)
-            .filter(|e: &&AtomicTTEntry| TTEntry::<B>::from_packed(e.load(Relaxed)).bound != Empty)
+            .filter(|e: &&AtomicTTEntry| TTEntry::<B>::unpack(e.load(Relaxed)).bound != Empty)
             .count();
         if len < 1000 {
             (num_used as f64 * 1000.0 / len as f64).round() as usize
@@ -227,12 +227,12 @@ impl TT {
             entry.score.0,
             won = entry.score.plies_until_game_won().unwrap_or(-1),
         );
-        self.0[idx].store(entry.to_packed(), Relaxed);
+        self.0[idx].store(entry.pack(), Relaxed);
     }
 
     pub(super) fn load<B: Board>(&self, hash: PosHash, ply: usize) -> Option<TTEntry<B>> {
         let idx = self.index_of(hash);
-        let mut entry = TTEntry::from_packed(self.0[idx].load(Relaxed));
+        let mut entry = TTEntry::unpack(self.0[idx].load(Relaxed));
         // Mate score adjustments, see `store`
         if let Some(plies) = entry.score.plies_until_game_won() {
             if plies < 0 {
@@ -290,8 +290,8 @@ mod test {
                 i as isize,
                 NodeType::from_repr(i as u8 % 3 + 1).unwrap(),
             );
-            let converted = entry.to_packed();
-            assert_eq!(TTEntry::from_packed(converted), entry);
+            let converted = entry.pack();
+            assert_eq!(TTEntry::unpack(converted), entry);
             i += 1;
         }
     }
@@ -310,8 +310,8 @@ mod test {
                 let bound = OptionalNodeType::from_repr(rng().sample(Uniform::new(0, 3).unwrap()) + 1).unwrap();
                 let entry: TTEntry<Chessboard> =
                     TTEntry { hash: pos.hash_pos(), score, mov: UntrustedMove::from_move(mov), depth, bound };
-                let packed = entry.to_packed();
-                let val = TTEntry::from_packed(packed);
+                let packed = entry.pack();
+                let val = TTEntry::unpack(packed);
                 assert_eq!(val, entry);
                 let ply = rng().sample(Uniform::new(0, 100).unwrap());
                 tt.store(entry, ply);

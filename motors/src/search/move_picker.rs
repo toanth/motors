@@ -41,8 +41,8 @@ impl<B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> Int
     }
 }
 
-impl<'a, B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> MoveList<B>
-    for MoveListScorer<'a, B, E, MAX_LEN, Scorer>
+impl<B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> MoveList<B>
+    for MoveListScorer<'_, B, E, MAX_LEN, Scorer>
 {
     fn add_move(&mut self, mov: B::Move) {
         if self.excluded != mov {
@@ -65,7 +65,7 @@ impl<'a, B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>>
 
     fn remove(&mut self, to_remove: B::Move) {
         if let Some((idx, _)) = self.list.iter().find_position(|(mov, _)| *mov == to_remove) {
-            self.swap_remove_move(idx);
+            _ = self.swap_remove_move(idx);
         }
     }
 

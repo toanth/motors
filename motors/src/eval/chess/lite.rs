@@ -366,7 +366,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 "{0} {1} {old_pos} {new_pos} {2}",
                 self.psqt(old_pos),
                 state.psqt_score,
-                mov.compact_formatter(&old_pos)
+                mov.compact_formatter(old_pos)
             );
             debug_assert_eq!(&old_pos.make_move(mov).unwrap(), new_pos);
             let captured = mov.captured(old_pos);

@@ -173,7 +173,7 @@ pub struct CompactFormatter<'a, B: Board> {
     mov: B::Move,
 }
 
-impl<'a, B: Board> Display for CompactFormatter<'a, B> {
+impl<B: Board> Display for CompactFormatter<'_, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.mov.format_compact(f, self.pos)
     }
@@ -191,7 +191,7 @@ impl<B: Board> Display for ExtendedFormatter<'_, B> {
         if self.mov == B::Move::default() {
             write!(f, "0000")
         } else {
-            self.mov.format_extended(f, &self.pos, self.format)
+            self.mov.format_extended(f, self.pos, self.format)
         }
     }
 }

@@ -61,7 +61,7 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
                 Text::new(&"Please retry (press Ctrl+C to discard input)".bold().to_string())
                     .with_help_message(help)
                     .with_autocomplete(self.autocompletion.clone())
-                    .with_initial_value(&failed)
+                    .with_initial_value(failed)
                     .prompt()?
             } else {
                 Text::new(&prompt).with_help_message(help).with_autocomplete(self.autocompletion.clone()).prompt()?

@@ -165,7 +165,7 @@ mod tests {
                     );
                     // There's one ep move after one ply from the current position, which creates the only transposition reachable within 2 plies
                     if old_board != new_board {
-                        collisions.insert(new_board.hash.0, [old_board, new_board]);
+                        _ = collisions.insert(new_board.hash.0, [old_board, new_board]);
                     }
                 }
                 let different_bits = (new_board.hash.0 ^ hash.0).count_ones();

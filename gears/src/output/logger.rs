@@ -68,7 +68,7 @@ impl AbstractOutput for Logger {
     }
 
     fn display_message(&mut self, typ: Message, message: &fmt::Arguments) {
-        self.stream.write(typ.message_prefix(), &message);
+        self.stream.write(typ.message_prefix(), message);
     }
 }
 
@@ -83,7 +83,7 @@ impl<B: Board> Output<B> for Logger {
     }
 
     fn display_message_with_state(&mut self, m: &dyn GameState<B>, typ: Message, message: &fmt::Arguments) {
-        self.display_message(typ, &message);
+        self.display_message(typ, message);
         if typ != Message::Info {
             let str = self.as_string(m, OutputOpts::default());
             self.stream.write(typ.message_prefix(), &format_args!("{str}"));

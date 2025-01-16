@@ -43,7 +43,7 @@ impl<B: Board, const N: usize> MoveList<B> for EagerNonAllocMoveList<B, N> {
 
     fn remove(&mut self, to_remove: B::Move) {
         if let Some(idx) = self.iter().position(|m| *m == to_remove) {
-            self.swap_remove(idx);
+            _ = self.swap_remove(idx);
         }
     }
 

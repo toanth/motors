@@ -74,7 +74,7 @@ impl<B: Board> GenericTests<B> {
             assert!(!queue.is_empty());
             let pos = queue.front().cloned().unwrap();
             let moves = pos.legal_moves_slow();
-            queue.pop_front();
+            _ = queue.pop_front();
             hashes.push(pos.hash_pos());
             for mov in moves {
                 queue.push_back(pos.clone().make_move(mov).unwrap());
@@ -111,7 +111,7 @@ impl<B: Board> GenericTests<B> {
             let pos = pos.debug_verify_invariants(Strict).unwrap();
             assert_eq!(B::from_fen(&pos.as_fen(), Strict).unwrap(), pos, "{:?}\n{}", pos, pos.as_fen());
             let hash = pos.hash_pos().0;
-            hashes.insert(hash);
+            _ = hashes.insert(hash);
             assert_ne!(hash, 0);
             if B::Move::legality() == Legal {
                 assert_eq!(pos.legal_moves_slow().into_iter().count(), pos.pseudolegal_moves().into_iter().count());
@@ -141,7 +141,7 @@ impl<B: Board> GenericTests<B> {
                 assert_ne!(new_pos.hash_pos().0, hash); // Even for null moves, the side to move has changed
                 assert_eq!(new_pos.halfmove_ctr_since_start() - ply, 1);
                 assert!(!hashes.contains(&new_pos.hash_pos().0));
-                hashes.insert(new_pos.hash_pos().0);
+                _ = hashes.insert(new_pos.hash_pos().0);
             }
         }
     }

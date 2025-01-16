@@ -705,7 +705,7 @@ impl<B: Board> EngineUGI<B> {
 
     fn start_search(&mut self, hist: ZobristHistory<B>) -> Res<()> {
         let opts = self.state.go_state.generic.clone();
-        let tt = opts.override_hash_size.map(|n| TT::new_with_mib(n));
+        let tt = opts.override_hash_size.map(TT::new_with_mib);
         self.write_message(Debug, &format_args!("Starting {0} search with limit {1}", opts.search_type, opts.limit));
         let pos = self.state.go_state.pos.clone();
         if let Some(res) = pos.match_result_slow(&self.state.board_hist) {
@@ -775,7 +775,7 @@ impl<B: Board> EngineUGI<B> {
             limit.nodes = self.state.engine.get_engine_info().default_bench_nodes();
             Some(limit)
         };
-        let tt = self.state.go_state.generic.override_hash_size.map(|n| TT::new_with_mib(n));
+        let tt = self.state.go_state.generic.override_hash_size.map(TT::new_with_mib);
         let res = run_bench_with(engine.as_mut(), limit, second_limit, positions, tt);
         self.output().write_ugi(&format_args!("{res}"));
         Ok(())
@@ -1394,12 +1394,11 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
     }
 
     fn load_pgn(&mut self, words: &mut Tokens) -> Res<()> {
-        let pgn_text;
-        if words.peek().is_some() {
-            pgn_text = fs::read_to_string(words.join(" "))?;
+        let pgn_text = if words.peek().is_some() {
+            fs::read_to_string(words.join(" "))?
         } else {
-            pgn_text = inquire::Editor::new("Open the editor to enter a PGN, then press enter").prompt()?;
-        }
+            inquire::Editor::new("Open the editor to enter a PGN, then press enter").prompt()?
+        };
         let pgn_data = parse_pgn::<B>(&pgn_text, self.strictness, None)?;
         self.state.position_state = pgn_data.game;
         self.print_board(OutputOpts::default());
