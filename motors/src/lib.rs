@@ -121,6 +121,7 @@ impl<B: Board> AbstractRun for BenchRun<B> {
             SearchLimit::depth(depth),
             nodes,
             &B::bench_positions(),
+            None,
         );
         println!("{res}");
         QuitProgram

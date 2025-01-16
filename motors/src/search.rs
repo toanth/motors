@@ -1121,7 +1121,7 @@ pub fn run_bench<B: Board>(
         None
     };
     let depth = SearchLimit::depth(engine.default_bench_depth());
-    run_bench_with(engine, depth, nodes, positions)
+    run_bench_with(engine, depth, nodes, positions, None)
 }
 
 pub fn run_bench_with<B: Board>(
@@ -1129,10 +1129,11 @@ pub fn run_bench_with<B: Board>(
     limit: SearchLimit,
     second_limit: Option<SearchLimit>,
     bench_positions: &[B],
+    tt: Option<TT>,
 ) -> BenchResult {
     let mut hasher = DefaultHasher::new();
     let mut total = BenchResult::default();
-    let tt = TT::default();
+    let tt = tt.unwrap_or_default();
     for position in bench_positions {
         // engine.forget();
         single_bench(position, engine, limit, tt.clone(), &mut total, &mut hasher);

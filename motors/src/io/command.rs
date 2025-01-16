@@ -667,6 +667,7 @@ pub fn ugi_commands() -> CommandList {
 pub trait AbstractGoState: Debug {
     fn set_searchmoves(&mut self, words: &mut Tokens) -> Res<()>;
     fn set_time(&mut self, words: &mut Tokens, first: bool, inc: bool, name: &str) -> Res<()>;
+    fn override_hash(&mut self, words: &mut Tokens) -> Res<()>;
     fn limit_mut(&mut self) -> &mut SearchLimit;
     fn get_mut(&mut self) -> &mut GenericGoState;
     fn load_pos(&mut self, name: &str, words: &mut Tokens, allow_partial: bool) -> Res<()>;
@@ -704,6 +705,11 @@ impl<B: Board> AbstractGoState for GoState<B> {
                 self.generic.limit.tc.remaining = time;
             }
         }
+        Ok(())
+    }
+
+    fn override_hash(&mut self, words: &mut Tokens) -> Res<()> {
+        self.generic.override_hash_size = Some(parse_int(words, "TT size in MB")?);
         Ok(())
     }
 
@@ -757,6 +763,7 @@ pub struct GenericGoState {
     pub complete: bool,
     pub move_overhead: Duration,
     pub strictness: Strictness,
+    pub override_hash_size: Option<usize>,
 }
 
 impl<B: Board> GoState<B> {
@@ -793,6 +800,7 @@ impl<B: Board> GoState<B> {
                 complete: false,
                 move_overhead,
                 strictness,
+                override_hash_size: None,
             },
             search_moves: None,
             pos,
@@ -975,6 +983,12 @@ pub fn go_options_impl(
                     state.go_state_mut().get_mut().threads = Some(parse_int(words, "threads")?);
                     Ok(())
                 }
+            ),
+            command!(
+                hash | h | tt,
+                Custom,
+                "Search with a temporary TT of n MiB",
+                |state, words, _| {state.go_state_mut().override_hash(words)}
             ),
             command!(
                 ponder,
@@ -1251,7 +1265,7 @@ pub fn options_options(
     if accept_name_word {
         let info_clone = info.clone();
         // insert now so that the autocompletion won't be changed
-        let cmd = command!(name | n, All, "Select an option name", |_, _, _| Ok(()), --> move |_| options_options(info_clone.clone(), false, false));
+        let cmd = command!(name | n, All, "Select an option name", |_, _, _| Ok(()), --> move |_| options_options(info_clone.clone(), false, allow_value));
         res.insert(0, cmd);
     }
     res

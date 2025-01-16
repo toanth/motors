@@ -805,6 +805,7 @@ impl<B: Board> EngineUGI<B> {
 
     fn start_search(&mut self, hist: ZobristHistory<B>) -> Res<()> {
         let opts = self.state.go_state.generic.clone();
+        let tt = opts.override_hash_size.map(|n| TT::new_with_mib(n));
         self.write_message(
             Debug,
             &format_args!(
@@ -837,6 +838,7 @@ impl<B: Board> EngineUGI<B> {
                     opts.multi_pv,
                     false,
                     opts.threads,
+                    tt,
                 )?;
             }
             SearchType::Ponder => {
@@ -849,6 +851,7 @@ impl<B: Board> EngineUGI<B> {
                     opts.multi_pv, // don't ignore multi_pv in pondering mode
                     true,
                     opts.threads,
+                    tt,
                 )?;
             }
             _ => unreachable!("Bench and (Split)Perft should have already been handled"),
@@ -870,7 +873,13 @@ impl<B: Board> EngineUGI<B> {
             limit.nodes = self.state.engine.get_engine_info().default_bench_nodes();
             Some(limit)
         };
-        let res = run_bench_with(engine.as_mut(), limit, second_limit, positions);
+        let tt = self
+            .state
+            .go_state
+            .generic
+            .override_hash_size
+            .map(|n| TT::new_with_mib(n));
+        let res = run_bench_with(engine.as_mut(), limit, second_limit, positions, tt);
         self.output().write_ugi(&format_args!("{res}"));
         Ok(())
     }
@@ -1132,9 +1141,9 @@ impl<B: Board> EngineUGI<B> {
             &self.searcher_factories,
             &self.eval_factories,
             self.output.clone(),
-            TT::new_with_bytes(self.state.engine.next_tt().size_in_bytes()),
+            TT::new_with_mib(self.state.engine.next_tt().size_in_mib()),
         )?;
-        let hash = self.state.engine.next_tt().size_in_mb();
+        let hash = self.state.engine.next_tt().size_in_mib();
         let threads = self.state.engine.num_threads();
         self.state.engine.send_quit()?;
         // This resets some engine options, but that's probably for the better since the new engine might not support those.
@@ -1221,7 +1230,7 @@ impl<B: Board> EngineUGI<B> {
                 Hash => EngineOption {
                     name: Hash,
                     value: Spin(UgiSpin {
-                        val: self.state.engine.next_tt().size_in_mb() as i64,
+                        val: self.state.engine.next_tt().size_in_mib() as i64,
                         default: Some(DEFAULT_HASH_SIZE_MB as i64),
                         min: Some(0),
                         max: Some(10_000_000), // use at most 10 terabytes (should be enough for anybody™)

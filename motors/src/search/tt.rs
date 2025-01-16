@@ -159,7 +159,13 @@ impl TT {
         Self::new_with_bytes(0)
     }
 
-    pub fn new_with_bytes(size_in_bytes: usize) -> Self {
+    /// Technically, the UCI document specifies MB instead of MiB, but almost every engine uses MiB and
+    /// the upcoming expositor UCI spec will use MiB as well
+    pub fn new_with_mib(size_in_mib: usize) -> Self {
+        Self::new_with_bytes(size_in_mib * (1 << 20))
+    }
+
+    fn new_with_bytes(size_in_bytes: usize) -> Self {
         let new_size = 1.max(size_in_bytes / size_of::<AtomicTTEntry>());
         let tt = if cfg!(feature = "unsafe") && size_in_bytes > 1024 * 1024 * 16 && false {
             let mut arr = Box::new_uninit_slice(new_size);
@@ -183,8 +189,8 @@ impl TT {
         self.size_in_entries() * size_of::<AtomicTTEntry>()
     }
 
-    pub fn size_in_mb(&self) -> usize {
-        (self.size_in_bytes() + 500_000) / 1_000_000
+    pub fn size_in_mib(&self) -> usize {
+        (self.size_in_bytes() + 500_000) / (1 << 20)
     }
 
     pub fn forget(&mut self) {

@@ -393,6 +393,7 @@ impl<B: Board> EngineWrapper<B> {
         multi_pv: usize,
         ponder: bool,
         threads: Option<usize>,
+        tt: Option<TT>,
     ) -> Res<()> {
         self.resize_threads(self.num_threads());
         self.overwrite_num_threads = None;
@@ -415,11 +416,12 @@ impl<B: Board> EngineWrapper<B> {
         };
         self.main_thread_data.new_search(ponder, &limit)?; // resets the atomic search state
         let thread_data = self.main_thread_data.clone();
+        let tt = tt.unwrap_or(self.tt_for_next_search.clone());
         let params = SearchParams::create(
             pos,
             limit,
             history.clone(),
-            self.tt_for_next_search.clone(),
+            tt,
             search_moves.clone(),
             multi_pv.saturating_sub(1),
             thread_data.atomic_search_data[0].clone(),
@@ -488,11 +490,10 @@ impl<B: Board> EngineWrapper<B> {
             self.resize_threads(count);
             Ok(())
         } else if name == Hash {
-            let value: usize = parse_int_from_str(&value, "hash size in mb")?;
-            let size = value * 1_000_000;
+            let size: usize = parse_int_from_str(&value, "hash size in MiB")?;
             // first, give back the memory of the old TT to avoid spikes in memory usage
             self.set_tt(TT::minimal());
-            self.set_tt(TT::new_with_bytes(size));
+            self.set_tt(TT::new_with_mib(size));
             Ok(())
         } else {
             for aux in &mut self.auxiliary {
