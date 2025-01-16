@@ -9,8 +9,7 @@ use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::pieces::ChessPieceType::{King, Rook};
 use crate::games::chess::pieces::ColoredChessPieceType;
 use crate::games::chess::squares::{
-    ChessSquare, A_FILE_NO, C_FILE_NO, D_FILE_NO, E_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO,
-    NUM_COLUMNS,
+    ChessSquare, A_FILE_NO, C_FILE_NO, D_FILE_NO, E_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
 };
 use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard};
@@ -104,12 +103,7 @@ impl CastlingFlags {
         1 == 1 & (self.0 >> (CASTLE_RIGHTS_SHIFT + color as usize * 2 + castle_right as usize))
     }
 
-    pub fn set_castle_right(
-        &mut self,
-        color: ChessColor,
-        castle_right: CastleRight,
-        file: DimT,
-    ) -> Res<()> {
+    pub fn set_castle_right(&mut self, color: ChessColor, castle_right: CastleRight, file: DimT) -> Res<()> {
         debug_assert!((file as usize) < NUM_COLUMNS);
         if self.can_castle(color, castle_right) {
             bail!("Trying to set the {color} {castle_right} castle right twice");
@@ -132,12 +126,7 @@ impl CastlingFlags {
         self.0 &= !(0x3f << (color as usize * 6));
     }
 
-    pub fn parse_castling_rights(
-        mut self,
-        rights: &str,
-        board: &Chessboard,
-        strictness: Strictness,
-    ) -> Res<Self> {
+    pub fn parse_castling_rights(mut self, rights: &str, board: &Chessboard, strictness: Strictness) -> Res<Self> {
         self.0 = 0;
         if rights == "-" {
             return Ok(self);
@@ -159,9 +148,7 @@ impl CastlingFlags {
             // This is a precondition to calling `king_square` below
             let num_kings = board.colored_piece_bb(color, King).num_ones();
             if num_kings != 1 {
-                bail!(
-                    "the FEN must contain exactly one {color} king, but instead it contains {num_kings}"
-                );
+                bail!("the FEN must contain exactly one {color} king, but instead it contains {num_kings}");
             }
             let king_square = board.king_square(color);
             let king_file = king_square.file();
@@ -215,9 +202,7 @@ impl CastlingFlags {
                         }
                     }
                 }
-                Err(anyhow!(
-                    "There is no {side} rook to castle with for the {color} player"
-                ))
+                Err(anyhow!("There is no {side} rook to castle with for the {color} player"))
             };
             match c.to_ascii_lowercase() {
                 'q' => find_rook(Queenside)?,

@@ -49,25 +49,12 @@ where
     B::Move: Display,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "move {0} score {1} bound {2} depth {3}",
-            self.mov,
-            self.score,
-            self.bound(),
-            self.depth
-        )
+        write!(f, "move {0} score {1} bound {2} depth {3}", self.mov, self.score, self.bound(), self.depth)
     }
 }
 
 impl<B: Board> TTEntry<B> {
-    pub fn new(
-        hash: PosHash,
-        score: Score,
-        mov: B::Move,
-        depth: isize,
-        bound: NodeType,
-    ) -> TTEntry<B> {
+    pub fn new(hash: PosHash, score: Score, mov: B::Move, depth: isize, bound: NodeType) -> TTEntry<B> {
         let depth = depth.clamp(0, u8::MAX as isize) as u8;
         Self {
             score,
@@ -127,13 +114,7 @@ impl<B: Board> TTEntry<B> {
         let mov = B::Move::from_u64_unchecked(((val >> 16) & 0xffff) as u64);
         let depth = ((val >> 8) & 0xff) as u8;
         let bound = OptionalNodeType::from_repr((val & 0xff) as u8).unwrap();
-        Self {
-            hash,
-            score,
-            mov,
-            depth,
-            bound,
-        }
+        Self { hash, score, mov, depth, bound }
     }
 }
 #[cfg(feature = "chess")]
@@ -320,24 +301,15 @@ mod test {
     fn test_load_store() {
         for pos in Chessboard::bench_positions() {
             let num_bytes_in_size = rng().sample(Uniform::new(4, 25).unwrap());
-            let size_in_bytes = (1 << num_bytes_in_size)
-                + rng().sample(Uniform::new(0, 1 << num_bytes_in_size).unwrap());
+            let size_in_bytes =
+                (1 << num_bytes_in_size) + rng().sample(Uniform::new(0, 1 << num_bytes_in_size).unwrap());
             let mut tt = TT::new_with_bytes(size_in_bytes);
             for mov in pos.pseudolegal_moves() {
-                let score = Score(
-                    rng().sample(Uniform::new(MIN_NORMAL_SCORE.0, MAX_NORMAL_SCORE.0).unwrap()),
-                );
+                let score = Score(rng().sample(Uniform::new(MIN_NORMAL_SCORE.0, MAX_NORMAL_SCORE.0).unwrap()));
                 let depth = rng().sample(Uniform::new(1, 100).unwrap());
-                let bound =
-                    OptionalNodeType::from_repr(rng().sample(Uniform::new(0, 3).unwrap()) + 1)
-                        .unwrap();
-                let entry: TTEntry<Chessboard> = TTEntry {
-                    hash: pos.hash_pos(),
-                    score,
-                    mov: UntrustedMove::from_move(mov),
-                    depth,
-                    bound,
-                };
+                let bound = OptionalNodeType::from_repr(rng().sample(Uniform::new(0, 3).unwrap()) + 1).unwrap();
+                let entry: TTEntry<Chessboard> =
+                    TTEntry { hash: pos.hash_pos(), score, mov: UntrustedMove::from_move(mov), depth, bound };
                 let packed = entry.to_packed();
                 let val = TTEntry::from_packed(packed);
                 assert_eq!(val, entry);
@@ -351,9 +323,7 @@ mod test {
 
     #[test]
     fn test_size() {
-        let sizes = [
-            1, 2, 3, 4, 8, 15, 16, 17, 79, 80, 81, 100, 12345, 0x1ff_ffff, 0x200_0000,
-        ];
+        let sizes = [1, 2, 3, 4, 8, 15, 16, 17, 79, 80, 81, 100, 12345, 0x1ff_ffff, 0x200_0000];
         for num_bytes in sizes {
             let tt = TT::new_with_bytes(num_bytes);
             let size = tt.size_in_entries();
@@ -368,21 +338,11 @@ mod test {
             let expected = num_samples as f64 / size as f64;
             let min = occurrences.iter().min().copied().unwrap_or_default();
             let max = occurrences.iter().max().copied().unwrap_or_default();
-            let std_dev = (occurrences.iter().map(|x| x * x).sum::<u64>() as f64 / size as f64
-                - expected * expected)
-                .sqrt();
-            assert!(
-                std_dev <= num_samples as f64 / 128.0,
-                "{std_dev} {expected} {size} {num_bytes}"
-            );
-            assert!(
-                expected - min as f64 <= num_samples as f64 / 128.0,
-                "{expected} {min} {size} {num_bytes}"
-            );
-            assert!(
-                max as f64 - expected <= num_samples as f64 / 128.0,
-                "{expected} {max} {size} {num_bytes}"
-            );
+            let std_dev =
+                (occurrences.iter().map(|x| x * x).sum::<u64>() as f64 / size as f64 - expected * expected).sqrt();
+            assert!(std_dev <= num_samples as f64 / 128.0, "{std_dev} {expected} {size} {num_bytes}");
+            assert!(expected - min as f64 <= num_samples as f64 / 128.0, "{expected} {min} {size} {num_bytes}");
+            assert!(max as f64 - expected <= num_samples as f64 / 128.0, "{expected} {max} {size} {num_bytes}");
         }
     }
 
@@ -393,21 +353,13 @@ mod test {
         let pos = Chessboard::default();
         let mut engine = Caps::default();
         let bad_move = ChessMove::from_compact_text("a2a3", &pos).unwrap();
-        let entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.hash_pos(), MAX_NORMAL_SCORE, bad_move, 123, Exact);
+        let entry: TTEntry<Chessboard> = TTEntry::new(pos.hash_pos(), MAX_NORMAL_SCORE, bad_move, 123, Exact);
         tt.store(entry, 0);
         let next_pos = pos.make_move(bad_move).unwrap();
-        let next_entry: TTEntry<Chessboard> = TTEntry::new(
-            next_pos.hash_pos(),
-            MIN_NORMAL_SCORE,
-            ChessMove::NULL,
-            122,
-            Exact,
-        );
+        let next_entry: TTEntry<Chessboard> =
+            TTEntry::new(next_pos.hash_pos(), MIN_NORMAL_SCORE, ChessMove::NULL, 122, Exact);
         tt.store(next_entry, 1);
-        let mov = engine
-            .search_with_tt(pos, SearchLimit::depth(Depth::new(1)), tt.clone())
-            .chosen_move;
+        let mov = engine.search_with_tt(pos, SearchLimit::depth(Depth::new(1)), tt.clone()).chosen_move;
         assert_eq!(mov, bad_move);
         let limit = SearchLimit::depth(Depth::new(3));
         let mut engine2 = Caps::default();
@@ -436,9 +388,8 @@ mod test {
         let pos2 = Chessboard::from_name("kiwipete").unwrap();
         params2.pos = pos2;
         let handle = spawn(move || engine.search(params));
-        let handle2 = spawn(
-            move || engine2.search(params2), /*SearchResult::<Chessboard>::move_only(ChessMove::NULL)*/
-        );
+        let handle2 =
+            spawn(move || engine2.search(params2) /*SearchResult::<Chessboard>::move_only(ChessMove::NULL)*/);
         sleep(Duration::from_millis(1000));
         atomic.set_stop(true);
         atomic2.set_stop(true);

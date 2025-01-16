@@ -33,9 +33,7 @@ pub(super) struct EngineStateOutput {
 
 impl Default for EngineStateOutput {
     fn default() -> Self {
-        Self {
-            writer: TextWriter::new_for(TextStream::Stdout(stdout()), vec![Info]),
-        }
+        Self { writer: TextWriter::new_for(TextStream::Stdout(stdout()), vec![Info]) }
     }
 }
 

@@ -35,11 +35,7 @@ fn perft_tests() {
         let n = if cfg!(debug_assertions) { 7 } else { 100 };
         for (depth, nodes) in perft_res.iter().enumerate().take(n) {
             let res = perft(Depth::new(depth), pos, false);
-            assert_eq!(
-                res.nodes, *nodes,
-                "{fen}, depth {depth}: {0} should be {1}",
-                res.nodes, *nodes
-            );
+            assert_eq!(res.nodes, *nodes, "{fen}, depth {depth}: {0} should be {1}", res.nodes, *nodes);
         }
         let mut rng = StdRng::seed_from_u64(seed);
         let mov = pos.random_legal_move(&mut rng);
@@ -67,28 +63,13 @@ fn alternative_fen_test() {
 fn sub_board_won_test() {
     let mut pos = UnverifiedUtttBoard::new(UtttBoard::default());
     let sub_board = UtttSubSquare::from_bb_index(0);
-    pos.place_piece(
-        UtttSquare::new(sub_board, UtttSubSquare::unchecked(0)),
-        XStone,
-    );
-    pos.place_piece(
-        UtttSquare::new(sub_board, UtttSubSquare::unchecked(1)),
-        OStone,
-    );
-    pos.place_piece(
-        UtttSquare::new(sub_board, UtttSubSquare::unchecked(3)),
-        XStone,
-    );
-    pos.place_piece(
-        UtttSquare::new(sub_board, UtttSubSquare::unchecked(2)),
-        OStone,
-    );
+    pos.place_piece(UtttSquare::new(sub_board, UtttSubSquare::unchecked(0)), XStone);
+    pos.place_piece(UtttSquare::new(sub_board, UtttSubSquare::unchecked(1)), OStone);
+    pos.place_piece(UtttSquare::new(sub_board, UtttSubSquare::unchecked(3)), XStone);
+    pos.place_piece(UtttSquare::new(sub_board, UtttSubSquare::unchecked(2)), OStone);
     assert!(!pos.verify(Strict).unwrap().is_sub_board_won(X, sub_board));
     assert!(!pos.verify(Strict).unwrap().is_sub_board_won(O, sub_board));
-    pos.place_piece(
-        UtttSquare::new(sub_board, UtttSubSquare::unchecked(6)),
-        XStone,
-    );
+    pos.place_piece(UtttSquare::new(sub_board, UtttSubSquare::unchecked(6)), XStone);
     let pos = pos.verify(Strict).unwrap();
     assert!(pos.is_sub_board_won(X, sub_board));
     assert!(!pos.is_sub_board_won(O, sub_board));
@@ -97,11 +78,8 @@ fn sub_board_won_test() {
     assert!(!pos.is_game_lost_slow());
     assert_eq!(pos.active, X); // the active player doesn't get updated through place_piece
     assert_eq!(pos.last_move, UtttMove::NULL);
-    let pos = pos
-        .remove_piece(UtttSquare::new(sub_board, UtttSubSquare::unchecked(3)))
-        .unwrap()
-        .verify(Strict)
-        .unwrap();
+    let pos =
+        pos.remove_piece(UtttSquare::new(sub_board, UtttSubSquare::unchecked(3))).unwrap().verify(Strict).unwrap();
     assert!(!pos.is_sub_board_won(X, sub_board));
     assert!(pos.is_sub_board_open(sub_board));
 }

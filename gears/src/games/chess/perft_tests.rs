@@ -27,19 +27,15 @@ mod tests {
         // Disabled in debug mode because that would take too long. TODO: Optimize movegen, especially in debug mode.
         if !cfg!(debug_assertions) {
             // kiwipete after white castles (cheaper to run than increasing the depth of kiwipete, and failed perft once)
-            let board = Chessboard::from_fen(
-                "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R4RK1 b kq - 1 1",
-                Strict,
-            )
-            .unwrap();
+            let board =
+                Chessboard::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R4RK1 b kq - 1 1", Strict)
+                    .unwrap();
             let res = perft(Depth::new(4), board, true);
             assert_eq!(res.nodes, 4_119_629);
             // kiwipete after white plays a2a3
-            let board = Chessboard::from_fen(
-                "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q1p/1PPBBPPP/R3K2R b KQkq - 0 1",
-                Strict,
-            )
-            .unwrap();
+            let board =
+                Chessboard::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q1p/1PPBBPPP/R3K2R b KQkq - 0 1", Strict)
+                    .unwrap();
             let res = perft(Depth::new(4), board, false);
             assert_eq!(res.nodes, 4_627_439);
         }
@@ -47,11 +43,8 @@ mod tests {
 
     #[test]
     fn leonids_position_test() {
-        let board = Chessboard::from_fen(
-            "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1",
-            Strict,
-        )
-        .unwrap();
+        let board = Chessboard::from_fen("q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1", Strict)
+            .unwrap();
         let res = perft(Depth::new(1), board, true);
         assert_eq!(res.nodes, 99);
         assert!(res.time.as_millis() <= 2);
@@ -187,11 +180,8 @@ mod tests {
                             assert!(board.pseudolegal_moves().iter().any(|m| m.is_ep()));
                             assert!(!board.legal_moves_slow().iter().any(|m| m.is_ep()));
                         }
-                        for (depth, expected_count) in expected
-                            .res
-                            .iter()
-                            .enumerate()
-                            .filter(|(_depth, x)| **x != INVALID)
+                        for (depth, expected_count) in
+                            expected.res.iter().enumerate().filter(|(_depth, x)| **x != INVALID)
                         {
                             let res = perft(Depth::new(depth), board, false);
                             assert_eq!(res.depth.get(), depth);
@@ -205,11 +195,7 @@ mod tests {
                             );
                         }
                         solved_tests.fetch_add(1, Ordering::Relaxed);
-                        println!(
-                            "Finished {0} / {1} positions",
-                            solved_tests.load(Ordering::Relaxed),
-                            num_fens
-                        );
+                        println!("Finished {0} / {1} positions", solved_tests.load(Ordering::Relaxed), num_fens);
                     }
                 });
                 handles.push(handle);

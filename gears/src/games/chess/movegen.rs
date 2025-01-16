@@ -62,10 +62,7 @@ impl Chessboard {
         let piece = flags.piece_type();
         let src = mov.src_square();
         let color = self.active_player;
-        if !self
-            .colored_piece_bb(color, piece)
-            .is_bit_set_at(src.bb_idx())
-        {
+        if !self.colored_piece_bb(color, piece).is_bit_set_at(src.bb_idx()) {
             return false;
         }
         if mov.is_castle() {
@@ -79,15 +76,13 @@ impl Chessboard {
             let mut incorrect = false;
             incorrect |= mov.is_ep() && self.ep_square() != Some(mov.dest_square());
             incorrect |= mov.is_promotion() && !mov.dest_square().is_backrank();
-            let capturable = self.player_bb(color.other())
-                | self.ep_square.map(ChessSquare::bb).unwrap_or_default();
+            let capturable = self.player_bb(color.other()) | self.ep_square.map(ChessSquare::bb).unwrap_or_default();
             !incorrect
                 && Self::single_pawn_moves(color, src, capturable, self.empty_bb())
                     .is_bit_set_at(mov.dest_square().bb_idx())
         } else {
-            (self.attacks_no_castle_or_pawn_push(src, mov.piece_type(), color)
-                & !self.active_player_bb())
-            .is_bit_set_at(mov.dest_square().bb_idx())
+            (self.attacks_no_castle_or_pawn_push(src, mov.piece_type(), color) & !self.active_player_bb())
+                .is_bit_set_at(mov.dest_square().bb_idx())
         }
     }
 
@@ -123,27 +118,16 @@ impl Chessboard {
         let capturable = opponent | self.ep_square.map(ChessSquare::bb).unwrap_or_default();
         if color == White {
             regular_pawn_moves = (pawns.north() & free, 8);
-            double_pawn_moves = (
-                ((pawns & ChessBitboard::rank(1)) << 16) & free.north() & free,
-                16,
-            );
+            double_pawn_moves = (((pawns & ChessBitboard::rank(1)) << 16) & free.north() & free, 16);
             right_pawn_captures = (pawns.north_east() & capturable, 9);
             left_pawn_captures = (pawns.north_west() & capturable, 7);
         } else {
             regular_pawn_moves = (pawns.south() & free, -8);
-            double_pawn_moves = (
-                ((pawns & ChessBitboard::rank(6)) >> 16) & free.south() & free,
-                -16,
-            );
+            double_pawn_moves = (((pawns & ChessBitboard::rank(6)) >> 16) & free.south() & free, -16);
             right_pawn_captures = (pawns.south_west() & capturable, -9);
             left_pawn_captures = (pawns.south_east() & capturable, -7);
         }
-        for move_type in [
-            right_pawn_captures,
-            left_pawn_captures,
-            regular_pawn_moves,
-            double_pawn_moves,
-        ] {
+        for move_type in [right_pawn_captures, left_pawn_captures, regular_pawn_moves, double_pawn_moves] {
             let bb = move_type.0;
             for to in bb.ones() {
                 let from = ChessSquare::from_bb_index((to.to_u8() as isize - move_type.1) as usize);
@@ -217,13 +201,11 @@ impl Chessboard {
         ];
         let (rook_free_bb, king_free_bb) = match side {
             Queenside => (
-                ROOK_QUEENSIDE_BB[self.castling.rook_start_file(color, Queenside) as usize]
-                    << (color as usize * 7 * 8),
+                ROOK_QUEENSIDE_BB[self.castling.rook_start_file(color, Queenside) as usize] << (color as usize * 7 * 8),
                 KING_QUEENSIDE_BB[king_file] << (color as usize * 7 * 8),
             ),
             Kingside => (
-                ROOK_KINGSIDE_BB[self.castling.rook_start_file(color, Kingside) as usize]
-                    << (color as usize * 7 * 8),
+                ROOK_KINGSIDE_BB[self.castling.rook_start_file(color, Kingside) as usize] << (color as usize * 7 * 8),
                 KING_KINGSIDE_BB[king_file] << (color as usize * 7 * 8),
             ),
         };
@@ -232,33 +214,21 @@ impl Chessboard {
             if ((self.occupied_bb() ^ rook.bb()) & king_free_bb).is_zero()
                 && ((self.occupied_bb() ^ king) & rook_free_bb).is_zero()
             {
-                debug_assert_eq!(
-                    self.colored_piece_on(rook).symbol,
-                    ColoredChessPieceType::new(color, Rook)
-                );
+                debug_assert_eq!(self.colored_piece_on(rook).symbol, ColoredChessPieceType::new(color, Rook));
                 return true;
             }
         }
         false
     }
 
-    fn gen_king_moves<T: MoveList<Self>>(
-        &self,
-        moves: &mut T,
-        filter: ChessBitboard,
-        only_captures: bool,
-    ) {
+    fn gen_king_moves<T: MoveList<Self>>(&self, moves: &mut T, filter: ChessBitboard, only_captures: bool) {
         let color = self.active_player;
         let king = self.colored_piece_bb(color, King);
         let king_square = ChessSquare::from_bb_index(king.num_trailing_zeros());
         let mut attacks = Self::normal_king_attacks_from(king_square) & filter;
         while attacks.has_set_bit() {
             let target = attacks.pop_lsb();
-            moves.add_move(ChessMove::new(
-                king_square,
-                ChessSquare::from_bb_index(target),
-                NormalKingMove,
-            ));
+            moves.add_move(ChessMove::new(king_square, ChessSquare::from_bb_index(target), NormalKingMove));
         }
         if only_captures {
             return;
@@ -284,12 +254,7 @@ impl Chessboard {
         }
     }
 
-    fn gen_slider_moves<T: MoveList<Self>>(
-        &self,
-        slider_move: SliderMove,
-        moves: &mut T,
-        filter: ChessBitboard,
-    ) {
+    fn gen_slider_moves<T: MoveList<Self>>(&self, slider_move: SliderMove, moves: &mut T, filter: ChessBitboard) {
         let color = self.active_player;
         let slider_type = match slider_move {
             SliderMove::Bishop => Bishop,
@@ -334,12 +299,8 @@ impl Chessboard {
     ) -> ChessBitboard {
         let blockers = self.occupied_bb();
         match slider_move {
-            SliderMove::Bishop => {
-                ChessBitboard::bishop_attacks(square, blockers ^ square_bb_if_occupied)
-            }
-            SliderMove::Rook => {
-                ChessBitboard::rook_attacks(square, blockers ^ square_bb_if_occupied)
-            }
+            SliderMove::Bishop => ChessBitboard::bishop_attacks(square, blockers ^ square_bb_if_occupied),
+            SliderMove::Rook => ChessBitboard::rook_attacks(square, blockers ^ square_bb_if_occupied),
         }
     }
 
@@ -347,37 +308,24 @@ impl Chessboard {
         let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
         let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
         let square_bb = square.bb();
-        let square_bb_if_occupied = if self.is_occupied(square) {
-            square_bb
-        } else {
-            ChessBitboard::default()
-        };
+        let square_bb_if_occupied = if self.is_occupied(square) { square_bb } else { ChessBitboard::default() };
         (rook_sliders & self.slider_attacks_from(square, SliderMove::Rook, square_bb_if_occupied))
-            | (bishop_sliders
-                & self.slider_attacks_from(square, SliderMove::Bishop, square_bb_if_occupied))
+            | (bishop_sliders & self.slider_attacks_from(square, SliderMove::Bishop, square_bb_if_occupied))
             | (Self::knight_attacks_from(square) & self.piece_bb(Knight))
             | (Self::normal_king_attacks_from(square) & self.piece_bb(King))
             | Self::single_pawn_captures(Black, square) & self.colored_piece_bb(White, Pawn)
             | Self::single_pawn_captures(White, square) & self.colored_piece_bb(Black, Pawn)
     }
 
-    pub fn ray_attacks(
-        &self,
-        target: ChessSquare,
-        ray_square: ChessSquare,
-        blockers: ChessBitboard,
-    ) -> ChessBitboard {
+    pub fn ray_attacks(&self, target: ChessSquare, ray_square: ChessSquare, blockers: ChessBitboard) -> ChessBitboard {
         let file_diff = target.file().wrapping_sub(ray_square.file());
         let rank_diff = target.rank().wrapping_sub(ray_square.rank());
         if file_diff == 0 {
-            ChessBitboard::slider_attacks(target, blockers, Vertical)
-                & (self.piece_bb(Rook) | self.piece_bb(Queen))
+            ChessBitboard::slider_attacks(target, blockers, Vertical) & (self.piece_bb(Rook) | self.piece_bb(Queen))
         } else if rank_diff == 0 {
-            ChessBitboard::slider_attacks(target, blockers, Horizontal)
-                & (self.piece_bb(Rook) | self.piece_bb(Queen))
+            ChessBitboard::slider_attacks(target, blockers, Horizontal) & (self.piece_bb(Rook) | self.piece_bb(Queen))
         } else if file_diff == rank_diff {
-            ChessBitboard::slider_attacks(target, blockers, Diagonal)
-                & (self.piece_bb(Bishop) | self.piece_bb(Queen))
+            ChessBitboard::slider_attacks(target, blockers, Diagonal) & (self.piece_bb(Bishop) | self.piece_bb(Queen))
         } else if file_diff == 0_u8.wrapping_sub(rank_diff) {
             ChessBitboard::slider_attacks(target, blockers, AntiDiagonal)
                 & (self.piece_bb(Bishop) | self.piece_bb(Queen))

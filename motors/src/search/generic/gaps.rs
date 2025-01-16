@@ -8,8 +8,7 @@ use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
 use crate::search::statistics::SearchType::MainSearch;
 use crate::search::{
-    AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchState,
-    SearchStateFor,
+    AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchState, SearchStateFor,
 };
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE_WON};
@@ -57,10 +56,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
     type CustomInfo = NoCustomInfo;
 
     fn with_eval(eval: Box<dyn Eval<B>>) -> Self {
-        Self {
-            state: SearchState::new(MAX_DEPTH),
-            eval,
-        }
+        Self { state: SearchState::new(MAX_DEPTH), eval }
     }
 
     fn static_eval(&mut self, pos: B, ply: usize) -> Score {
@@ -143,30 +139,17 @@ impl<B: Board> Engine<B> for Gaps<B> {
                 self.search_state().send_search_info();
                 self.state.excluded_moves.push(best_mpv_move);
             }
-            self.state
-                .excluded_moves
-                .truncate(self.state.excluded_moves.len() - self.state.multi_pv());
+            self.state.excluded_moves.truncate(self.state.excluded_moves.len() - self.state.multi_pv());
             self.state.statistics.next_id_iteration();
         }
 
-        SearchResult::move_and_score(
-            self.state.atomic().best_move(),
-            self.state.atomic().score(),
-            pos,
-        )
+        SearchResult::move_and_score(self.state.atomic().best_move(), self.state.atomic().score(), pos)
     }
 }
 
 impl<B: Board> Gaps<B> {
     #[allow(clippy::too_many_arguments)]
-    fn negamax(
-        &mut self,
-        pos: B,
-        ply: usize,
-        depth: isize,
-        mut alpha: Score,
-        beta: Score,
-    ) -> Score {
+    fn negamax(&mut self, pos: B, ply: usize, depth: isize, mut alpha: Score, beta: Score) -> Score {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= MAX_DEPTH.get() * 2);
         debug_assert!(depth <= MAX_DEPTH.isize());
@@ -227,9 +210,7 @@ impl<B: Board> Gaps<B> {
         } else {
             Exact
         };
-        self.state
-            .statistics
-            .count_complete_node(MainSearch, node_type, depth, ply, num_children);
+        self.state.statistics.count_complete_node(MainSearch, node_type, depth, ply, num_children);
         if num_children == 0 {
             game_result_to_score(pos.no_moves_result(), ply)
         } else {

@@ -8,8 +8,7 @@ use rand::{rng, Rng, RngCore, SeedableRng};
 use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
 use crate::search::{
-    AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchState,
-    SearchStateFor,
+    AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchState, SearchStateFor,
 };
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::Score;
@@ -33,10 +32,7 @@ impl<B: Board, R: SeedRng> Debug for RandomMover<B, R> {
 
 impl<B: Board, R: SeedRng> Default for RandomMover<B, R> {
     fn default() -> Self {
-        Self {
-            rng: R::seed_from_u64(rng().next_u64()),
-            state: SearchState::new(Depth::new(1)),
-        }
+        Self { rng: R::seed_from_u64(rng().next_u64()), state: SearchState::new(Depth::new(1)) }
     }
 }
 
@@ -103,11 +99,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         self.state.statistics.next_id_iteration();
         let pos = &self.state.params.pos;
 
-        let moves = pos
-            .legal_moves_slow()
-            .into_iter()
-            .filter(|m| self.state.excluded_moves.contains(m))
-            .collect_vec();
+        let moves = pos.legal_moves_slow().into_iter().filter(|m| self.state.excluded_moves.contains(m)).collect_vec();
         let best_move = if moves.is_empty() {
             pos.random_legal_move(&mut self.rng).unwrap_or_default()
         } else {

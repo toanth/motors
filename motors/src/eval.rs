@@ -82,13 +82,7 @@ impl ScoreType for PhasedScore {
     type Finalized = Score;
     type SingleFeatureScore = Self;
 
-    fn finalize<C: Color>(
-        self,
-        phase: PhaseType,
-        max_phase: PhaseType,
-        color: C,
-        tempo: Self::Finalized,
-    ) -> Score {
+    fn finalize<C: Color>(self, phase: PhaseType, max_phase: PhaseType, color: C, tempo: Self::Finalized) -> Score {
         let score = self.taper(phase, max_phase);
         tempo + if color.is_first() { score } else { -score }
     }

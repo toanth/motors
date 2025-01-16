@@ -93,20 +93,13 @@ impl Display for EngineOptionType {
                 }
             }
             EngineOptionType::Spin(s) => {
-                let default = s
-                    .default
-                    .map(|x| format!(" default {x}"))
-                    .unwrap_or_default();
+                let default = s.default.map(|x| format!(" default {x}")).unwrap_or_default();
                 let min = s.min.map(|x| format!(" min {x}")).unwrap_or_default();
                 let max = s.max.map(|x| format!(" max {x}")).unwrap_or_default();
                 write!(f, "{default}{min}{max}")?;
             }
             EngineOptionType::Combo(c) => {
-                let default = c
-                    .default
-                    .clone()
-                    .map(|x| format!(" default {x}"))
-                    .unwrap_or_default();
+                let default = c.default.clone().map(|x| format!(" default {x}")).unwrap_or_default();
                 for o in &c.options {
                     write!(f, " var {o}")?;
                 }
@@ -224,21 +217,13 @@ pub struct EngineOption {
 
 impl Default for EngineOption {
     fn default() -> Self {
-        EngineOption {
-            name: EngineOptionName::Other(String::default()),
-            value: EngineOptionType::Button,
-        }
+        EngineOption { name: EngineOptionName::Other(String::default()), value: EngineOptionType::Button }
     }
 }
 
 impl Display for EngineOption {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "name {name} {value}",
-            name = self.name,
-            value = self.value
-        )
+        write!(f, "name {name} {value}", name = self.name, value = self.value)
     }
 }
 
@@ -293,9 +278,7 @@ pub fn parse_ugi_position_part<B: Board>(
             || first_word.eq_ignore_ascii_case("pos")
             || first_word.eq_ignore_ascii_case("p"))
     {
-        let Some(pos_word) = rest.next() else {
-            bail!("Missing position after '{}' option", "position".bold())
-        };
+        let Some(pos_word) = rest.next() else { bail!("Missing position after '{}' option", "position".bold()) };
         first = pos_word;
     }
     let remaining = rest.clone();
@@ -361,10 +344,7 @@ pub fn parse_ugi_position_and_moves<
         let Ok(first_move) = B::Move::from_text(first_move_word, get_board(state)) else {
             match pos {
                 Ok(_) => return Ok(()),
-                Err(err) => bail!(
-                    "'{}' is not a valid position or move: {err}",
-                    first_word.red()
-                ),
+                Err(err) => bail!("'{}' is not a valid position or move: {err}", first_word.red()),
             }
         };
         parsed_move = true;
@@ -375,10 +355,7 @@ pub fn parse_ugi_position_and_moves<
         make_move(state, first_move).map_err(|err| {
             anyhow!(
                 "move '{0}' is pseudolegal but not legal in position '{1}': {err}",
-                first_move
-                    .compact_formatter(get_board(state))
-                    .to_string()
-                    .red(),
+                first_move.compact_formatter(get_board(state)).to_string().red(),
                 *get_board(state)
             )
         })?;

@@ -17,24 +17,21 @@
  */
 use crate::games::chess::pieces::{
     NUM_COLORS, UNICODE_BLACK_BISHOP, UNICODE_BLACK_KING, UNICODE_BLACK_KNIGHT, UNICODE_BLACK_PAWN,
-    UNICODE_BLACK_QUEEN, UNICODE_BLACK_ROOK, UNICODE_NEUTRAL_BISHOP, UNICODE_NEUTRAL_KING,
-    UNICODE_NEUTRAL_KNIGHT, UNICODE_NEUTRAL_PAWN, UNICODE_NEUTRAL_QUEEN, UNICODE_NEUTRAL_ROOK,
-    UNICODE_WHITE_BISHOP, UNICODE_WHITE_KING, UNICODE_WHITE_KNIGHT, UNICODE_WHITE_PAWN,
-    UNICODE_WHITE_QUEEN, UNICODE_WHITE_ROOK,
+    UNICODE_BLACK_QUEEN, UNICODE_BLACK_ROOK, UNICODE_NEUTRAL_BISHOP, UNICODE_NEUTRAL_KING, UNICODE_NEUTRAL_KNIGHT,
+    UNICODE_NEUTRAL_PAWN, UNICODE_NEUTRAL_QUEEN, UNICODE_NEUTRAL_ROOK, UNICODE_WHITE_BISHOP, UNICODE_WHITE_KING,
+    UNICODE_WHITE_KNIGHT, UNICODE_WHITE_PAWN, UNICODE_WHITE_QUEEN, UNICODE_WHITE_ROOK,
 };
 use crate::games::fairy::attacks::AttackKind::*;
 use crate::games::fairy::attacks::AttackTypes::*;
 use crate::games::fairy::attacks::GenAttacksCondition::*;
 use crate::games::fairy::attacks::{
-    AttackBitboardFilter, AttackMode, AttackTypes, CaptureCondition, GenPieceAttackKind,
-    LeapingBitboards, RequiredForAttack, SliderDirections,
+    AttackBitboardFilter, AttackMode, AttackTypes, CaptureCondition, GenPieceAttackKind, LeapingBitboards,
+    RequiredForAttack, SliderDirections,
 };
 use crate::games::fairy::rules::RulesRef;
 use crate::games::fairy::Side::*;
 use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySize, RawFairyBitboard};
-use crate::games::{
-    AbstractPieceType, CharType, Color, ColoredPieceType, Height, PieceType, Width,
-};
+use crate::games::{AbstractPieceType, CharType, Color, ColoredPieceType, Height, PieceType, Width};
 use crate::general::bitboards::Bitboard;
 use crate::general::squares::RectangularSize;
 use arbitrary::Arbitrary;
@@ -69,10 +66,7 @@ impl AbstractPieceType<FairyBoard> for PieceId {
     }
 
     fn from_char(c: char, rules: &RulesRef) -> Option<Self> {
-        rules
-            .0
-            .matching_piece_ids(|p| p.uncolored_symbol.contains(&c))
-            .next()
+        rules.0.matching_piece_ids(|p| p.uncolored_symbol.contains(&c)).next()
     }
 
     fn to_uncolored_idx(self) -> usize {
@@ -131,10 +125,7 @@ impl ColoredPieceId {
 
 impl AbstractPieceType<FairyBoard> for ColoredPieceId {
     fn empty() -> Self {
-        Self {
-            id: PieceId::empty(),
-            color: None,
-        }
+        Self { id: PieceId::empty(), color: None }
     }
 
     fn to_char(self, typ: CharType, rules: &RulesRef) -> char {
@@ -146,27 +137,13 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
     }
 
     fn from_char(c: char, rules: &RulesRef) -> Option<Self> {
-        if let Some((id, p)) = rules
-            .0
-            .pieces()
-            .find(|(_id, p)| p.player_symbol.iter().any(|s| s.contains(&c)))
-        {
+        if let Some((id, p)) = rules.0.pieces().find(|(_id, p)| p.player_symbol.iter().any(|s| s.contains(&c))) {
             if p.player_symbol[0].contains(&c) {
-                Some(Self {
-                    id,
-                    color: Some(FairyColor::first()),
-                })
+                Some(Self { id, color: Some(FairyColor::first()) })
             } else {
-                Some(Self {
-                    id,
-                    color: Some(FairyColor::second()),
-                })
+                Some(Self { id, color: Some(FairyColor::second()) })
             }
-        } else if let Some(id) = rules
-            .0
-            .matching_piece_ids(|p| p.uncolored_symbol.contains(&c))
-            .next()
-        {
+        } else if let Some(id) = rules.0.matching_piece_ids(|p| p.uncolored_symbol.contains(&c)).next() {
             Some(Self { id, color: None })
         } else {
             None
@@ -194,10 +171,7 @@ impl ColoredPieceType<FairyBoard> for ColoredPieceId {
     }
 
     fn new(color: FairyColor, uncolored: Self::Uncolored) -> Self {
-        Self {
-            id: uncolored,
-            color: Some(color),
-        }
+        Self { id: uncolored, color: Some(color) }
     }
 }
 
@@ -234,12 +208,7 @@ pub struct Piece {
 }
 
 impl Piece {
-    pub fn new(
-        name: &str,
-        attacks: Vec<AttackTypes>,
-        ascii_char: char,
-        unicode_chars: Option<[char; 3]>,
-    ) -> Self {
+    pub fn new(name: &str, attacks: Vec<AttackTypes>, ascii_char: char, unicode_chars: Option<[char; 3]>) -> Self {
         let lowercase_ascii = ascii_char.to_ascii_lowercase();
         let uppercase_ascii = ascii_char.to_ascii_uppercase();
         let [u_white, u_black, u_uncolored] = if let Some(unicode) = unicode_chars {
@@ -247,10 +216,7 @@ impl Piece {
         } else {
             [uppercase_ascii, lowercase_ascii, uppercase_ascii]
         };
-        let attacks = attacks
-            .into_iter()
-            .map(|a| GenPieceAttackKind::simple(a))
-            .collect_vec();
+        let attacks = attacks.into_iter().map(|a| GenPieceAttackKind::simple(a)).collect_vec();
         Self {
             name: name.to_string(),
             uncolored_symbol: [uppercase_ascii, u_uncolored],
@@ -279,14 +245,7 @@ impl Piece {
         // order of leapers matters
         let mut leapers = vec![
             Self::leaper("wazir", 0, 1, size, None, Some(['🨠', '🨦', '🨬'])),
-            Self::leaper(
-                "ferz",
-                1,
-                1,
-                size,
-                None,
-                Some(['\u{1FA54}', '\u{1FA56}', '\u{1FA55}']),
-            ),
+            Self::leaper("ferz", 1, 1, size, None, Some(['\u{1FA54}', '\u{1FA56}', '\u{1FA55}'])),
             Self::leaper("dabbaba", 0, 2, size, None, None),
             Self::leaper(
                 "knight",
@@ -294,20 +253,9 @@ impl Piece {
                 2,
                 size,
                 Some('n'),
-                Some([
-                    UNICODE_WHITE_KNIGHT,
-                    UNICODE_BLACK_KNIGHT,
-                    UNICODE_NEUTRAL_KNIGHT,
-                ]),
+                Some([UNICODE_WHITE_KNIGHT, UNICODE_BLACK_KNIGHT, UNICODE_NEUTRAL_KNIGHT]),
             ),
-            Self::leaper(
-                "alfil",
-                2,
-                2,
-                size,
-                None,
-                Some(['\u{1FA55}', '\u{1FA57}', '\u{1FA55}']),
-            ),
+            Self::leaper("alfil", 2, 2, size, None, Some(['\u{1FA55}', '\u{1FA57}', '\u{1FA55}'])),
             Self::leaper("threeleaper", 0, 3, size, Some('h'), None),
             Self::leaper("camel", 1, 3, size, None, Some(['🨢', '🨨', '🨮'])),
             Self::leaper("zebra", 2, 3, size, None, None),
@@ -358,8 +306,7 @@ impl Piece {
                     player_symbol: [['K', UNICODE_WHITE_KING], ['k', UNICODE_BLACK_KING]],
                     attacks: vec![
                         GenPieceAttackKind::simple(Leaping(
-                            LeapingBitboards::fixed(1, 1, size)
-                                .combine(LeapingBitboards::fixed(1, 0, size)),
+                            LeapingBitboards::fixed(1, 1, size).combine(LeapingBitboards::fixed(1, 0, size)),
                         )),
                         castle_king_side,
                         castle_queen_side,
@@ -375,11 +322,7 @@ impl Piece {
                 "queen",
                 vec![Rider(SliderDirections::Queen)],
                 'q',
-                Some([
-                    UNICODE_WHITE_QUEEN,
-                    UNICODE_BLACK_QUEEN,
-                    UNICODE_NEUTRAL_QUEEN,
-                ]),
+                Some([UNICODE_WHITE_QUEEN, UNICODE_BLACK_QUEEN, UNICODE_NEUTRAL_QUEEN]),
             ),
             Self::new(
                 "rook",
@@ -391,11 +334,7 @@ impl Piece {
                 "bishop",
                 vec![Rider(SliderDirections::Bishop)],
                 'b',
-                Some([
-                    UNICODE_WHITE_BISHOP,
-                    UNICODE_BLACK_BISHOP,
-                    UNICODE_NEUTRAL_BISHOP,
-                ]),
+                Some([UNICODE_WHITE_BISHOP, UNICODE_BLACK_BISHOP, UNICODE_NEUTRAL_BISHOP]),
             ),
             {
                 let normal_white = GenPieceAttackKind::pawn_noncapture(
@@ -421,10 +360,7 @@ impl Piece {
                     required: RequiredForAttack::PieceOnBoard,
                     typ: Rider(SliderDirections::Vertical),
                     condition: OnRank(1, FairyColor::first()),
-                    bitboard_filter: vec![
-                        AttackBitboardFilter::EmptySquares,
-                        AttackBitboardFilter::Rank(3),
-                    ],
+                    bitboard_filter: vec![AttackBitboardFilter::EmptySquares, AttackBitboardFilter::Rank(3)],
                     kind: DoublePawnPush,
                     attack_mode: AttackMode::NoCaptures,
                     capture_condition: CaptureCondition::Never,
@@ -446,19 +382,9 @@ impl Piece {
                     uncolored_symbol: ['p', UNICODE_NEUTRAL_PAWN],
                     player_symbol: [['P', UNICODE_WHITE_PAWN], ['p', UNICODE_BLACK_PAWN]],
 
-                    attacks: vec![
-                        normal_white,
-                        normal_black,
-                        white_double,
-                        black_double,
-                        white_capture,
-                        black_capture,
-                    ],
+                    attacks: vec![normal_white, normal_black, white_double, black_double, white_capture, black_capture],
                     // the promotion pieces are set later, once it's known which pieces are available
-                    promotions: Promo {
-                        pieces: vec![],
-                        squares: FairyBitboard::backranks_for(size).raw(),
-                    },
+                    promotions: Promo { pieces: vec![], squares: FairyBitboard::backranks_for(size).raw() },
                     can_ep_capture: true,
                     reset_draw_counter: true,
                     royal: false,
@@ -468,10 +394,7 @@ impl Piece {
             {
                 let mut res = Self::new(
                     "king (shatranj)",
-                    vec![Leaping(
-                        LeapingBitboards::fixed(1, 1, size)
-                            .combine(LeapingBitboards::fixed(0, 1, size)),
-                    )],
+                    vec![Leaping(LeapingBitboards::fixed(1, 1, size).combine(LeapingBitboards::fixed(0, 1, size)))],
                     'k',
                     Some([UNICODE_WHITE_KING, UNICODE_BLACK_KING, UNICODE_NEUTRAL_KING]),
                 );
@@ -505,10 +428,7 @@ impl Piece {
 
                     attacks: vec![normal_white, normal_black, white_capture, black_capture],
                     // the promotion pieces are set later, once it's known which pieces are available
-                    promotions: Promo {
-                        pieces: vec![],
-                        squares: FairyBitboard::backranks_for(size).raw(),
-                    },
+                    promotions: Promo { pieces: vec![], squares: FairyBitboard::backranks_for(size).raw() },
                     can_ep_capture: false,
                     reset_draw_counter: true,
                     royal: false,
@@ -533,10 +453,11 @@ impl Piece {
             ),
             Self::new(
                 "silver general",
-                vec![Leaping(
-                    LeapingBitboards::range(once(1), -1..=1, size)
-                        .combine(LeapingBitboards::range(once(-1), [-1, 1].into_iter(), size)),
-                )],
+                vec![Leaping(LeapingBitboards::range(once(1), -1..=1, size).combine(LeapingBitboards::range(
+                    once(-1),
+                    [-1, 1].into_iter(),
+                    size,
+                )))],
                 's',
                 Some(['銀', '銀', '銀']),
             ),
@@ -546,95 +467,47 @@ impl Piece {
                 'n',
                 Some(['桂', '桂', '桂']),
             ),
-            Self::new(
-                "lance",
-                vec![Rider(SliderDirections::Vertical)],
-                'l',
-                Some(['香', '香', '香']),
-            ),
+            Self::new("lance", vec![Rider(SliderDirections::Vertical)], 'l', Some(['香', '香', '香'])),
             Self::new(
                 "dragon king",
-                vec![
-                    Rider(SliderDirections::Rook),
-                    Leaping(LeapingBitboards::fixed(1, 1, size)),
-                ],
+                vec![Rider(SliderDirections::Rook), Leaping(LeapingBitboards::fixed(1, 1, size))],
                 'd',
                 Some(['龍', '龍', '龍']),
             ),
             Self::new(
                 "dragon horse",
-                vec![
-                    Rider(SliderDirections::Bishop),
-                    Leaping(LeapingBitboards::fixed(0, 1, size)),
-                ],
+                vec![Rider(SliderDirections::Bishop), Leaping(LeapingBitboards::fixed(0, 1, size))],
                 'h',
                 Some(['馬', '馬', '馬']),
             ),
             Self::new(
                 "go-between",
-                vec![Leaping(LeapingBitboards::range(
-                    once(0),
-                    [-1, 1].into_iter(),
-                    size,
-                ))],
+                vec![Leaping(LeapingBitboards::range(once(0), [-1, 1].into_iter(), size))],
                 'g',
                 None,
             ),
             // compound pieces
             Self::new(
                 "archbishop",
-                vec![
-                    AttackTypes::leaping(1, 2, size),
-                    Rider(SliderDirections::Bishop),
-                ],
+                vec![AttackTypes::leaping(1, 2, size), Rider(SliderDirections::Bishop)],
                 'a',
                 Some(['🩐', '🩓', '🩐']),
             ),
             Self::new(
                 "chancellor",
-                vec![
-                    AttackTypes::leaping(1, 2, size),
-                    Rider(SliderDirections::Rook),
-                ],
+                vec![AttackTypes::leaping(1, 2, size), Rider(SliderDirections::Rook)],
                 'c',
                 Some(['🩏', '🩒', '🩏']),
             ),
             Self::new(
                 "amazon",
-                vec![
-                    AttackTypes::leaping(1, 2, size),
-                    Rider(SliderDirections::Queen),
-                ],
+                vec![AttackTypes::leaping(1, 2, size), Rider(SliderDirections::Queen)],
                 'a',
                 Some(['🩎', '🩑', '🩎']),
             ),
-            Self::new(
-                "kirin",
-                vec![
-                    AttackTypes::leaping(1, 1, size),
-                    AttackTypes::leaping(0, 2, size),
-                ],
-                'f',
-                None,
-            ),
-            Self::new(
-                "frog",
-                vec![
-                    AttackTypes::leaping(1, 1, size),
-                    AttackTypes::leaping(0, 3, size),
-                ],
-                'f',
-                None,
-            ),
-            Self::new(
-                "gnu",
-                vec![
-                    AttackTypes::leaping(1, 2, size),
-                    AttackTypes::leaping(1, 3, size),
-                ],
-                'f',
-                None,
-            ),
+            Self::new("kirin", vec![AttackTypes::leaping(1, 1, size), AttackTypes::leaping(0, 2, size)], 'f', None),
+            Self::new("frog", vec![AttackTypes::leaping(1, 1, size), AttackTypes::leaping(0, 3, size)], 'f', None),
+            Self::new("gnu", vec![AttackTypes::leaping(1, 2, size), AttackTypes::leaping(1, 3, size)], 'f', None),
             {
                 const UNICODE_X: char = '⨉'; // '⨉',
                 const UNICODE_O: char = '◯'; // '○'
@@ -642,9 +515,7 @@ impl Piece {
                     name: "mnk".to_string(),
                     uncolored_symbol: ['x', UNICODE_X],
                     player_symbol: [['X', UNICODE_X], ['O', UNICODE_O]],
-                    attacks: vec![GenPieceAttackKind::piece_drop(
-                        AttackBitboardFilter::EmptySquares,
-                    )],
+                    attacks: vec![GenPieceAttackKind::piece_drop(AttackBitboardFilter::EmptySquares)],
                     promotions: Default::default(),
                     can_ep_capture: false,
                     reset_draw_counter: false,

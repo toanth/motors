@@ -25,32 +25,27 @@ use crate::games::uttt::ColoredUtttPieceType::{OStone, XStone};
 use crate::games::uttt::UtttColor::{O, X};
 use crate::games::uttt::UtttPieceType::{Empty, Occupied};
 use crate::games::{
-    AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, GenericPiece,
-    NoHistory, PieceType, PosHash, Settings,
+    AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, GenericPiece, NoHistory,
+    PieceType, PosHash, Settings,
 };
 use crate::general::bitboards::{
-    Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, KnownSizeBitboard, RawBitboard,
-    RawStandardBitboard,
+    Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard,
 };
 use crate::general::board::SelfChecks::*;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    ply_counter_from_fullmove_nr, read_common_fen_part, simple_fen, Board, BoardHelpers, NameToPos,
-    SelfChecks, Strictness, UnverifiedBoard,
+    ply_counter_from_fullmove_nr, read_common_fen_part, simple_fen, Board, BoardHelpers, NameToPos, SelfChecks,
+    Strictness, UnverifiedBoard,
 };
 use crate::general::common::{
-    ith_one_u128, ith_one_u64, parse_int, EntityList, GenericSelect, Res, StaticallyNamedEntity,
-    Tokens,
+    ith_one_u128, ith_one_u64, parse_int, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
 };
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
-use crate::general::squares::{
-    RectangularCoordinates, SmallGridSize, SmallGridSquare, SquareColor,
-};
+use crate::general::squares::{RectangularCoordinates, SmallGridSize, SmallGridSquare, SquareColor};
 use crate::output::text_output::{
-    board_to_string, display_board_pretty, p1_color, p2_color, AdaptFormatter, BoardFormatter,
-    DefaultBoardFormatter,
+    board_to_string, display_board_pretty, p1_color, p2_color, AdaptFormatter, BoardFormatter, DefaultBoardFormatter,
 };
 use crate::output::OutputOpts;
 use crate::search::Depth;
@@ -130,11 +125,7 @@ pub enum UtttPieceType {
 
 impl Display for UtttPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.to_char(CharType::Ascii, &UtttSettings::default())
-        )
+        write!(f, "{}", self.to_char(CharType::Ascii, &UtttSettings::default()))
     }
 }
 
@@ -182,11 +173,7 @@ pub enum ColoredUtttPieceType {
 
 impl Display for ColoredUtttPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.to_char(CharType::Ascii, &UtttSettings::default())
-        )
+        write!(f, "{}", self.to_char(CharType::Ascii, &UtttSettings::default()))
     }
 }
 
@@ -320,10 +307,7 @@ impl Move<UtttBoard> for UtttMove {
             return Ok((rest, Self::NULL));
         }
         let Some(square_str) = s.get(..2) else {
-            bail!(
-                "UTTT move '{}' doesn't start with a square consisting of two ASCII characters",
-                s.red()
-            )
+            bail!("UTTT move '{}' doesn't start with a square consisting of two ASCII characters", s.red())
         };
         let square = UtttSquare::from_str(square_str)?;
         if !board.is_open(square) {
@@ -392,7 +376,8 @@ impl StaticallyNamedEntity for UtttBoard {
     where
         Self: Sized,
     {
-        "Ultimate Tic-Tac-Toe is a challenging variant of Tic-Tac-Toe, where every square is itself a Tic-Tac-Toe board".to_string()
+        "Ultimate Tic-Tac-Toe is a challenging variant of Tic-Tac-Toe, where every square is itself a Tic-Tac-Toe board"
+            .to_string()
     }
 }
 
@@ -470,20 +455,11 @@ impl UtttBoard {
     }
 
     fn mark_as_won(&mut self, sub_board: UtttSubSquare, color: UtttColor) {
-        debug_assert!(Self::calculate_sub_board_won(
-            self.sub_board(color, sub_board)
-        ));
+        debug_assert!(Self::calculate_sub_board_won(self.sub_board(color, sub_board)));
         debug_assert!(
-            Self::is_sub_board_won_at(
-                self.sub_board(color, sub_board),
-                UtttSubSquare::unchecked(0)
-            ) || Self::is_sub_board_won_at(
-                self.sub_board(color, sub_board),
-                UtttSubSquare::unchecked(4)
-            ) || Self::is_sub_board_won_at(
-                self.sub_board(color, sub_board),
-                UtttSubSquare::unchecked(8)
-            )
+            Self::is_sub_board_won_at(self.sub_board(color, sub_board), UtttSubSquare::unchecked(0))
+                || Self::is_sub_board_won_at(self.sub_board(color, sub_board), UtttSubSquare::unchecked(4))
+                || Self::is_sub_board_won_at(self.sub_board(color, sub_board), UtttSubSquare::unchecked(8))
         );
         self.colors_internal[color as usize] |=
             RawUtttBitboard::single_piece_at(Self::NUM_SQUARES + sub_board.bb_idx());
@@ -544,9 +520,7 @@ impl UtttBoard {
     }
 
     pub fn from_alternative_fen(fen: &str, strictness: Strictness) -> Res<Self> {
-        if fen.len() != Self::NUM_SQUARES
-            || fen.contains(|c: char| ![' ', 'x', 'o', 'X', 'O'].contains(&c))
-        {
+        if fen.len() != Self::NUM_SQUARES || fen.contains(|c: char| ![' ', 'x', 'o', 'X', 'O'].contains(&c)) {
             bail!(
                 "Incorrect alternative UTTT FEN '{}', must consist of exactly 81 chars, all of which must be ' ', 'x', 'o', 'X', or 'O'", fen.red()
             );
@@ -561,9 +535,7 @@ impl UtttBoard {
             debug_assert!(board.check_coordinates(square).is_ok());
             board.place_piece(square, symbol);
             if c.is_uppercase() {
-                board.0.active = UtttColor::from_char(c, &UtttSettings::default())
-                    .unwrap()
-                    .other();
+                board.0.active = UtttColor::from_char(c, &UtttSettings::default()).unwrap().other();
                 let mov = board.last_move_mut();
                 if *mov != UtttMove::NULL {
                     bail!("Upper case pieces are used for the last move, but there is more than one upper case letter in '{}'", fen.red());
@@ -578,9 +550,7 @@ impl UtttBoard {
         let mut res = String::with_capacity(Self::NUM_SQUARES);
         for i in 0..Self::NUM_SQUARES {
             let square = UtttSquare::from_bb_idx(i);
-            let mut c = self
-                .colored_piece_on(square)
-                .to_char(CharType::Ascii, &self.settings());
+            let mut c = self.colored_piece_on(square).to_char(CharType::Ascii, &self.settings());
             if c == '.' {
                 c = ' ';
             }
@@ -595,16 +565,10 @@ impl UtttBoard {
     #[must_use]
     pub fn yet_another_fen_format(&self) -> String {
         let mut res = String::new();
-        res.push(
-            self.active
-                .to_char(&UtttSettings::default())
-                .to_ascii_uppercase(),
-        );
+        res.push(self.active.to_char(&UtttSettings::default()).to_ascii_uppercase());
         res.push(';');
         for sub_board in UtttSubSquare::iter() {
-            let c = if sub_board == self.last_move.dest_square().sub_square()
-                && self.is_sub_board_open(sub_board)
-            {
+            let c = if sub_board == self.last_move.dest_square().sub_square() && self.is_sub_board_open(sub_board) {
                 '@'
             } else if self.is_sub_board_won(X, sub_board) {
                 'X'
@@ -619,11 +583,8 @@ impl UtttBoard {
         for sub_board in UtttSubSquare::iter() {
             for sub_square in UtttSubSquare::iter() {
                 let sq = UtttSquare::new(sub_board, sub_square);
-                let c = self
-                    .colored_piece_on(sq)
-                    .symbol
-                    .to_char(CharType::Ascii, &self.settings())
-                    .to_ascii_uppercase();
+                let c =
+                    self.colored_piece_on(sq).symbol.to_char(CharType::Ascii, &self.settings()).to_ascii_uppercase();
                 res.push(c);
             }
             res.push('/');
@@ -697,17 +658,18 @@ impl Board for UtttBoard {
             NameToPos {
                 name: "midgame",
                 val: || {
-                    Self::from_fen(
-                        "o1o4x1/9/xox4x1/x2x5/4o4/o2x1o3/o2x1o3/1x1xo1ox1/oxx1o1ox1 o 14 h9",
-                        Strict,
-                    )
-                    .unwrap()
+                    Self::from_fen("o1o4x1/9/xox4x1/x2x5/4o4/o2x1o3/o2x1o3/1x1xo1ox1/oxx1o1ox1 o 14 h9", Strict)
+                        .unwrap()
                 },
             },
             GenericSelect {
                 name: "mate_in_6",
                 val: || {
-                    Self::from_fen("oxoooxoxx/x2o2o1x/xox1x2x1/xxox2x1o/xox1oxo1o/o2x1o3/o2xoo3/1x1xo1ox1/oxx1o1ox1 o 25 g6", Strict).unwrap()
+                    Self::from_fen(
+                        "oxoooxoxx/x2o2o1x/xox1x2x1/xxox2x1o/xox1oxo1o/o2x1o3/o2xoo3/1x1xo1ox1/oxx1o1ox1 o 25 g6",
+                        Strict,
+                    )
+                    .unwrap()
                 },
             },
         ]
@@ -768,9 +730,7 @@ impl Board for UtttBoard {
         if self.last_move != UtttMove::NULL {
             let sub_board = self.last_move.dest_square().sub_square();
             if self.is_sub_board_open(sub_board) {
-                debug_assert!(
-                    !self.is_sub_board_won(X, sub_board) && !self.is_sub_board_won(O, sub_board)
-                );
+                debug_assert!(!self.is_sub_board_won(X, sub_board) && !self.is_sub_board_won(O, sub_board));
                 let sub_bitboard = self.open_sub_board(sub_board);
                 for idx in sub_bitboard.one_indices() {
                     let square = UtttSquare::new(sub_board, UtttSubSquare::from_bb_index(idx));
@@ -798,9 +758,7 @@ impl Board for UtttBoard {
         if self.last_move != UtttMove::NULL {
             let sub_board = self.last_move.dest_square().sub_square();
             if self.is_sub_board_open(sub_board) {
-                debug_assert!(
-                    !self.is_sub_board_won(X, sub_board) && !self.is_sub_board_won(O, sub_board)
-                );
+                debug_assert!(!self.is_sub_board_won(X, sub_board) && !self.is_sub_board_won(O, sub_board));
                 return self.open_sub_board(sub_board).num_ones();
             }
         }
@@ -815,9 +773,7 @@ impl Board for UtttBoard {
         if self.last_move != UtttMove::NULL {
             let sub_board = self.last_move.dest_square().sub_square();
             if self.is_sub_board_open(sub_board) {
-                debug_assert!(
-                    !self.is_sub_board_won(X, sub_board) && !self.is_sub_board_won(O, sub_board)
-                );
+                debug_assert!(!self.is_sub_board_won(X, sub_board) && !self.is_sub_board_won(O, sub_board));
                 let bb = self.open_sub_board(sub_board);
                 let idx = rng.random_range(0..bb.num_ones());
                 let idx = ith_one_u64(idx, bb.raw());
@@ -865,10 +821,7 @@ impl Board for UtttBoard {
         self.is_open(mov.dest_square())
     }
 
-    fn player_result_no_movegen<H: BoardHistory<Self>>(
-        &self,
-        _history: &H,
-    ) -> Option<PlayerResult> {
+    fn player_result_no_movegen<H: BoardHistory<Self>>(&self, _history: &H) -> Option<PlayerResult> {
         if self.last_move == UtttMove::NULL {
             return None;
         }
@@ -920,8 +873,7 @@ impl Board for UtttBoard {
             }
         }
         let fullmoves = NonZeroUsize::new(fullmove_counter).unwrap();
-        pos.0.ply_since_start =
-            ply_counter_from_fullmove_nr(fullmoves, pos.0.active_player().is_first());
+        pos.0.ply_since_start = ply_counter_from_fullmove_nr(fullmoves, pos.0.active_player().is_first());
         let Some(last_move) = input.next() else {
             bail!("Ultimate Tic-Tac-Toe FEN ends after ply counter, missing the last move")
         };
@@ -953,12 +905,7 @@ impl Board for UtttBoard {
     ) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;
         let formatter = AdaptFormatter {
-            underlying: Box::new(DefaultBoardFormatter::new(
-                *self,
-                piece_to_char,
-                last_move,
-                opts,
-            )),
+            underlying: Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move, opts)),
             color_frame: Box::new(move |sq, col| {
                 if col.is_some() {
                     return col;
@@ -1005,7 +952,11 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
                 }
             }
             if (this.colors_internal[0] & this.colors_internal[1]).has_set_bit() {
-                bail!("At least one square is occupied by both players, the bitboards are {0} and {1}", this.colors_internal[0], this.colors_internal[1]);
+                bail!(
+                    "At least one square is occupied by both players, the bitboards are {0} and {1}",
+                    this.colors_internal[0],
+                    this.colors_internal[1]
+                );
             }
         }
         if this.last_move != UtttMove::NULL {
@@ -1016,8 +967,11 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
                 }
                 Some(col) => {
                     if col == this.active {
-                        bail!("The square '{sq}', on which the last move has been played, is occupied by the {} player, \
-                        which is not the player active in the previous ply", this.active);
+                        bail!(
+                            "The square '{sq}', on which the last move has been played, is occupied by the {} player, \
+                        which is not the player active in the previous ply",
+                            this.active
+                        );
                     }
                 }
             }
@@ -1038,8 +992,7 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
             // reset the metadata because it's out of date
             this.colors_internal[color as usize] &= UtttBoard::BOARD_BB;
             for sub_board in UtttSubSquare::iter() {
-                let won_sub_board =
-                    UtttBoard::calculate_sub_board_won(this.sub_board(color, sub_board));
+                let won_sub_board = UtttBoard::calculate_sub_board_won(this.sub_board(color, sub_board));
                 if won_sub_board {
                     this.mark_as_won(sub_board, color);
                 }
@@ -1047,20 +1000,14 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
         }
         let mut won_by_both = this.won_sub_boards(O) & this.won_sub_boards(X);
         if won_by_both.has_set_bit() {
-            bail!(
-                "Sub board {0} has been won by both players",
-                UtttSubSquare::from_bb_index(won_by_both.pop_lsb())
-            );
+            bail!("Sub board {0} has been won by both players", UtttSubSquare::from_bb_index(won_by_both.pop_lsb()));
         }
         for color in UtttColor::iter() {
             let won_sub_boards = this.won_sub_boards(color);
             if UtttBoard::calculate_sub_board_won(won_sub_boards) {
                 let sq = this.last_move.dest_square();
                 if !won_sub_boards.is_bit_set_at(sq.sub_board().bb_idx())
-                    || !UtttBoard::is_sub_board_won_at(
-                        this.sub_board(color, sq.sub_board()),
-                        sq.sub_square(),
-                    )
+                    || !UtttBoard::is_sub_board_won_at(this.sub_board(color, sq.sub_board()), sq.sub_square())
                 {
                     bail!("The game is won for player {color}, but their last move (at {sq}) didn't win the game");
                 }
@@ -1069,8 +1016,7 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
         if checks == Assertion {
             assert!((this.open & !this.all_empty_squares_bb()).is_zero());
             for sub_board in UtttSubSquare::iter() {
-                let won =
-                    this.is_sub_board_won(X, sub_board) || this.is_sub_board_won(O, sub_board);
+                let won = this.is_sub_board_won(X, sub_board) || this.is_sub_board_won(O, sub_board);
                 let bb = UtttBoard::get_sub_board(this.occupied_bb(), sub_board);
                 if bb.raw() == UtttBoard::SUB_BOARD_MASK {
                     assert!(!this.is_sub_board_open(sub_board));

@@ -25,10 +25,7 @@ impl<B: Board> GenericTests<B> {
         for coords in coords {
             assert!(size.coordinates_valid(coords));
             assert!(size.check_coordinates(coords).is_ok());
-            assert_eq!(
-                size.to_coordinates_unchecked(size.internal_key(coords)),
-                coords
-            );
+            assert_eq!(size.to_coordinates_unchecked(size.internal_key(coords)), coords);
             let flipped = coords.flip_up_down(size);
             assert_eq!(flipped.flip_up_down(size), coords);
             let flipped = coords.flip_left_right(size);
@@ -37,16 +34,10 @@ impl<B: Board> GenericTests<B> {
                 assert!(!found_center);
                 found_center = true;
             }
-            assert_eq!(
-                pos.is_empty(coords),
-                pos.colored_piece_on(coords).color().is_none()
-            );
+            assert_eq!(pos.is_empty(coords), pos.colored_piece_on(coords).color().is_none());
             p.try_remove_piece(coords).unwrap();
         }
-        assert_eq!(
-            p.verify(Strict).map_err(|_| ()),
-            B::empty().into().verify(Strict).map_err(|_| ())
-        );
+        assert_eq!(p.verify(Strict).map_err(|_| ()), B::empty().into().verify(Strict).map_err(|_| ()));
     }
 
     pub fn long_notation_roundtrip_test() {
@@ -70,10 +61,7 @@ impl<B: Board> GenericTests<B> {
             assert_eq!(pos, B::from_fen(&pos.as_fen(), Strict).unwrap());
             // FENs might be different after one fen->position->fen roundtrip because the parser can accept more than
             // what's produced as output, but writing a FEN two times should produce the same result.
-            assert_eq!(
-                pos.as_fen(),
-                B::from_fen(&pos.as_fen(), Strict).unwrap().as_fen()
-            );
+            assert_eq!(pos.as_fen(), B::from_fen(&pos.as_fen(), Strict).unwrap().as_fen());
         }
     }
 
@@ -81,11 +69,7 @@ impl<B: Board> GenericTests<B> {
         let mut hashes = Vec::new();
         let mut queue = VecDeque::new();
         queue.push_back(position);
-        let max_queue_len = if cfg!(debug_assertions) {
-            500_000
-        } else {
-            5_000_000
-        };
+        let max_queue_len = if cfg!(debug_assertions) { 500_000 } else { 5_000_000 };
         while queue.len() <= max_queue_len && !queue.is_empty() {
             assert!(!queue.is_empty());
             let pos = queue.front().cloned().unwrap();
@@ -125,21 +109,12 @@ impl<B: Board> GenericTests<B> {
             // use a new hash set per position because bench positions can be only one ply away from each other
             let mut hashes = HashSet::new();
             let pos = pos.debug_verify_invariants(Strict).unwrap();
-            assert_eq!(
-                B::from_fen(&pos.as_fen(), Strict).unwrap(),
-                pos,
-                "{:?}\n{}",
-                pos,
-                pos.as_fen()
-            );
+            assert_eq!(B::from_fen(&pos.as_fen(), Strict).unwrap(), pos, "{:?}\n{}", pos, pos.as_fen());
             let hash = pos.hash_pos().0;
             hashes.insert(hash);
             assert_ne!(hash, 0);
             if B::Move::legality() == Legal {
-                assert_eq!(
-                    pos.legal_moves_slow().into_iter().count(),
-                    pos.pseudolegal_moves().into_iter().count()
-                );
+                assert_eq!(pos.legal_moves_slow().into_iter().count(), pos.pseudolegal_moves().into_iter().count());
             }
             for mov in pos.legal_moves_slow() {
                 assert!(pos.is_move_legal(mov));

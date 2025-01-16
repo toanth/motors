@@ -46,22 +46,12 @@ impl StaticallyNamedEntity for Lute {
     where
         Self: Sized,
     {
-        "A simple, classical eval function for Ultimate Tic-Tac-Toe, which uses Piece Square Tables"
-            .to_string()
+        "A simple, classical eval function for Ultimate Tic-Tac-Toe, which uses Piece Square Tables".to_string()
     }
 }
 
-const PSQT: [Score; 9] = [
-    Score(20),
-    Score(10),
-    Score(20),
-    Score(10),
-    Score(30),
-    Score(10),
-    Score(20),
-    Score(10),
-    Score(20),
-];
+const PSQT: [Score; 9] =
+    [Score(20), Score(10), Score(20), Score(10), Score(30), Score(10), Score(20), Score(10), Score(20)];
 
 impl Eval<UtttBoard> for Lute {
     fn eval(&mut self, pos: &UtttBoard, _ply: usize) -> Score {

@@ -22,18 +22,13 @@ use gears::games::{n_fold_repetition, BoardHistory, PosHash, ZobristHistory};
 use gears::general::bitboards::RawBitboard;
 use gears::general::board::BitboardBoard;
 use gears::general::common::Description::NoDescription;
-use gears::general::common::{
-    parse_bool_from_str, parse_int_from_str, select_name_static, Res, StaticallyNamedEntity,
-};
+use gears::general::common::{parse_bool_from_str, parse_int_from_str, select_name_static, Res, StaticallyNamedEntity};
 use gears::general::move_list::EagerNonAllocMoveList;
 use gears::general::moves::Move;
 use gears::output::text_output::AdaptFormatter;
 use gears::output::Message::Debug;
 use gears::output::OutputOpts;
-use gears::score::{
-    game_result_to_score, ScoreT, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA,
-    NO_SCORE_YET,
-};
+use gears::score::{game_result_to_score, ScoreT, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, NO_SCORE_YET};
 use gears::search::NodeType::*;
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
@@ -88,8 +83,7 @@ struct CaptHist([[[i32; 64]; 6]; 2]);
 
 impl CaptHist {
     fn update(&mut self, mov: ChessMove, color: ChessColor, bonus: i32) {
-        let entry =
-            &mut self[color as usize][mov.piece_type() as usize][mov.dest_square().bb_idx()];
+        let entry = &mut self[color as usize][mov.piece_type() as usize][mov.dest_square().bb_idx()];
         update_history_score(entry, bonus);
     }
     fn get(&self, mov: ChessMove, color: ChessColor) -> MoveScore {
@@ -177,11 +171,7 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
     }
 
     fn write_internal_info(&self) -> Option<String> {
-        Some(
-            write_single_hist_table(&self.history, false)
-                + "\n"
-                + &write_single_hist_table(&self.history, true),
-        )
+        Some(write_single_hist_table(&self.history, false) + "\n" + &write_single_hist_table(&self.history, true))
     }
 }
 
@@ -202,10 +192,7 @@ fn write_single_hist_table(table: &HistoryHeuristic, flip: bool) -> String {
     let as_nums = ChessSquare::iter()
         .map(|sq| {
             let score = show_square(sq);
-            format!("{score:^7.1}").color(color_for_score(
-                Score((score * 4.0) as ScoreT),
-                &score_gradient(),
-            ))
+            format!("{score:^7.1}").color(color_for_score(Score((score * 4.0) as ScoreT), &score_gradient()))
         })
         .collect_vec();
 
@@ -218,13 +205,8 @@ fn write_single_hist_table(table: &HistoryHeuristic, flip: bool) -> String {
         vertical_spacer_interval: None,
         square_width: Some(7),
     };
-    let text = if flip {
-        "Main History Destination Square:\n"
-    } else {
-        "Main History Source Square:\n"
-    }
-    .bold()
-    .to_string();
+    let text =
+        if flip { "Main History Destination Square:\n" } else { "Main History Source Square:\n" }.bold().to_string();
     text + &Chessboard::default().display_pretty(&mut formatter)
 }
 
@@ -303,10 +285,7 @@ impl Engine<Chessboard> for Caps {
     type CustomInfo = CapsCustomInfo;
 
     fn with_eval(eval: Box<dyn Eval<Chessboard>>) -> Self {
-        Self {
-            state: SearchState::new(Depth::new(SEARCH_STACK_LEN)),
-            eval,
-        }
+        Self { state: SearchState::new(Depth::new(SEARCH_STACK_LEN)), eval }
     }
 
     fn static_eval(&mut self, pos: Chessboard, ply: usize) -> Score {
@@ -336,10 +315,7 @@ impl Engine<Chessboard> for Caps {
     fn engine_info(&self) -> EngineInfo {
         let mut options = vec![EngineOption {
             name: Other("UCI_Chess960".to_string()),
-            value: Check(UgiCheck {
-                val: true,
-                default: Some(true),
-            }),
+            value: Check(UgiCheck { val: true, default: Some(true) }),
         }];
         options.append(&mut cc::ugi_options());
         EngineInfo::new(
@@ -359,27 +335,17 @@ impl Engine<Chessboard> for Caps {
         // divide by 4 unless moves to go is very small, but don't divide by 1 (or zero) to avoid timeouts
         // TODO: Compute at the start of the search instead of every time:
         // Instead of storing a SearchLimit, store a different struct that contains soft and hard bounds
-        let divisor = tc
-            .moves_to_go
-            .unwrap_or(usize::MAX)
-            .clamp(2, cc::hard_limit_div()) as u32;
+        let divisor = tc.moves_to_go.unwrap_or(usize::MAX).clamp(2, cc::hard_limit_div()) as u32;
         // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
         // (assuming the move overhead is set correctly)
         elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment)
     }
 
-    fn set_option(
-        &mut self,
-        option: EngineOptionName,
-        old_value: &mut EngineOptionType,
-        value: String,
-    ) -> Res<()> {
+    fn set_option(&mut self, option: EngineOptionName, old_value: &mut EngineOptionType, value: String) -> Res<()> {
         let name = option.name().to_string();
         if let Other(name) = &option {
             if name.eq_ignore_ascii_case("uci_chess960") {
-                let Check(check) = old_value else {
-                    unreachable!()
-                };
+                let Check(check) = old_value else { unreachable!() };
                 let value = parse_bool_from_str(&value, "UCI_Chess960")?;
                 check.val = value;
                 return Ok(());
@@ -390,14 +356,8 @@ impl Engine<Chessboard> for Caps {
                 }
             }
         }
-        select_name_static(
-            &name,
-            self.engine_info().additional_options().iter(),
-            "uci option",
-            "chess",
-            NoDescription,
-        )
-        .map(|_| {}) // only called to produce an error message
+        select_name_static(&name, self.engine_info().additional_options().iter(), "uci option", "chess", NoDescription)
+            .map(|_| {}) // only called to produce an error message
     }
 
     fn print_spsa_params(&self) {
@@ -414,17 +374,11 @@ impl Engine<Chessboard> for Caps {
         let mut limit = self.state.params.limit;
         let pos = self.state.params.pos;
         limit.fixed_time = min(limit.fixed_time, limit.tc.remaining);
-        self.state.custom.depth_hard_limit = if limit.mate.get() == 0 {
-            DEPTH_HARD_LIMIT.get()
-        } else {
-            limit.mate.get()
-        };
+        self.state.custom.depth_hard_limit =
+            if limit.mate.get() == 0 { DEPTH_HARD_LIMIT.get() } else { limit.mate.get() };
         let soft_limit = limit
             .fixed_time
-            .min(
-                (limit.tc.remaining.saturating_sub(limit.tc.increment)) / cc::soft_limit_div()
-                    + limit.tc.increment,
-            )
+            .min((limit.tc.remaining.saturating_sub(limit.tc.increment)) / cc::soft_limit_div() + limit.tc.increment)
             .min(limit.tc.remaining / cc::soft_limit_div_clamp());
         self.state.params.limit = limit;
 
@@ -461,18 +415,13 @@ impl Caps {
     /// This has two advantages: It allows the search to be stopped at any time, and it actually improves strength:
     /// The low-depth searches fill the TT and various heuristics, which improves move ordering and therefore results in
     /// better moves within the same time or nodes budget because the lower-depth searches are comparatively cheap.
-    fn iterative_deepening(
-        &mut self,
-        pos: Chessboard,
-        soft_limit: Duration,
-    ) -> SearchResult<Chessboard> {
+    fn iterative_deepening(&mut self, pos: Chessboard, soft_limit: Duration) -> SearchResult<Chessboard> {
         let max_depth = DEPTH_SOFT_LIMIT.min(self.limit().depth).isize();
         let multi_pv = self.state.multi_pv();
         let mut soft_limit_scale = 1.0;
 
         self.state.multi_pvs.resize(multi_pv, PVData::default());
-        let mut chosen_at_depth =
-            EagerNonAllocMoveList::<Chessboard, { DEPTH_SOFT_LIMIT.get() }>::default();
+        let mut chosen_at_depth = EagerNonAllocMoveList::<Chessboard, { DEPTH_SOFT_LIMIT.get() }>::default();
 
         for depth in 1..=max_depth {
             self.state.statistics.next_id_iteration();
@@ -509,9 +458,7 @@ impl Caps {
                     return self.state.search_result();
                 }
             }
-            self.state
-                .excluded_moves
-                .truncate(self.state.excluded_moves.len() - multi_pv);
+            self.state.excluded_moves.truncate(self.state.excluded_moves.len() - multi_pv);
             let chosen = self.state.best_move();
             chosen_at_depth.push(chosen);
             if depth >= cc::move_stability_min_depth()
@@ -557,9 +504,7 @@ impl Caps {
             self.state.atomic().set_depth(depth); // set depth now so that an immediate stop doesn't increment the depth
             self.state.atomic().count_node();
             let asp_start_time = Instant::now();
-            let Some(pv_score) =
-                self.negamax(pos, 0, self.state.depth().isize(), *alpha, *beta, Exact)
-            else {
+            let Some(pv_score) = self.negamax(pos, 0, self.state.depth().isize(), *alpha, *beta, Exact) else {
                 return false;
             };
 
@@ -598,9 +543,7 @@ impl Caps {
                     atomic.set_best_move(chosen_move);
                     atomic.set_ponder_move(ponder_move);
                 }
-                self.state.multi_pvs[self.state.current_pv_num]
-                    .pv
-                    .assign_from(pv);
+                self.state.multi_pvs[self.state.current_pv_num].pv.assign_from(pv);
                 // We can't really trust FailHigh scores. Even though we should still prefer a fail high move, we don't
                 // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
                 if self.state.current_pv_num == 0 {
@@ -644,10 +587,7 @@ impl Caps {
             }
 
             // assert this now because this doesn't hold for incomplete iterations
-            debug_assert!(
-                !pv_score.is_won_or_lost() || pv_score.plies_until_game_over().unwrap() <= 256,
-                "{pv_score}"
-            );
+            debug_assert!(!pv_score.is_won_or_lost() || pv_score.plies_until_game_over().unwrap() <= 256, "{pv_score}");
 
             self.state.statistics.aw_node_type(node_type);
             if node_type == Exact {
@@ -656,9 +596,7 @@ impl Caps {
                 let delta = pv_score.0.abs_diff(alpha.0);
                 let delta = delta.min(pv_score.0.abs_diff(beta.0));
                 let delta = delta.min(cc::aw_delta_max()) as i32;
-                window_radius.0 = SCORE_WON
-                    .0
-                    .min(window_radius.0 * cc::aw_widening_factor() + delta);
+                window_radius.0 = SCORE_WON.0.min(window_radius.0 * cc::aw_widening_factor() + delta);
             }
             *alpha = (pv_score - *window_radius).max(MIN_ALPHA);
             *beta = (pv_score + *window_radius).min(MAX_BETA);
@@ -719,12 +657,7 @@ impl Caps {
             && (pos.is_50mr_draw()
                 || pos.has_insufficient_material()
                 || n_fold_repetition(2, &self.state.params.history, &pos, ply_100_ctr)
-                || n_fold_repetition(
-                    3,
-                    &self.state.custom.original_board_hist,
-                    &pos,
-                    ply_100_ctr.saturating_sub(ply),
-                ))
+                || n_fold_repetition(3, &self.state.custom.original_board_hist, &pos, ply_100_ctr.saturating_sub(ply)))
         {
             return Some(Score(0));
         }
@@ -769,10 +702,7 @@ impl Caps {
                     {
                         self.state.statistics.tt_cutoff(MainSearch, tt_bound);
                         // Idea from stormphrax
-                        if tt_entry.score >= beta
-                            && !best_move.is_null()
-                            && !best_move.is_tactical(&pos)
-                        {
+                        if tt_entry.score >= beta && !best_move.is_null() && !best_move.is_tactical(&pos) {
                             self.update_histories_and_killer(&pos, best_move, depth, ply);
                         }
                         return Some(tt_entry.score);
@@ -818,16 +748,15 @@ impl Caps {
         // However, captures and promos are generally good moves, so if our eval is the static eval instead of adjusted from the TT,
         // a noisy condition would mean we're doing even better than expected. // TODO: Apply noisy for RFP etc only if eval is TT eval?
         // If it's from the TT, however, and the first move didn't produce a beta cutoff, we're probably worse than expected
-        let is_noisy =
-            in_check || (best_move != ChessMove::default() && best_move.is_tactical(&pos));
+        let is_noisy = in_check || (best_move != ChessMove::default() && best_move.is_tactical(&pos));
 
         // Like the commonly used `improving` and `regressing`, these variables compare the current static eval with
         // the static eval 2 plies ago to recognize blunders. Conceptually, `improving` and `regressing` can be seen as
         // a prediction for how the eval is going to evolve, while these variables are more about cutting early after bad moves.
-        let they_blundered = ply >= 2
-            && eval - self.state.search_stack[ply - 2].eval > Score(cc::they_blundered_threshold());
-        let we_blundered = ply >= 2
-            && eval - self.state.search_stack[ply - 2].eval < Score(cc::we_blundered_threshold());
+        let they_blundered =
+            ply >= 2 && eval - self.state.search_stack[ply - 2].eval > Score(cc::they_blundered_threshold());
+        let we_blundered =
+            ply >= 2 && eval - self.state.search_stack[ply - 2].eval < Score(cc::we_blundered_threshold());
 
         // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
         // because the move ordering won't be great, so don't spend too much time on it.
@@ -846,8 +775,7 @@ impl Caps {
             // (like imminent threats) so don't prune too aggressively if our opponent hasn't blundered.
             // Be more careful about pruning too aggressively if the node is expected to fail low -- we should not rfp
             // a true fail low node, but our expectation may also be wrong.
-            let mut margin = (cc::rfp_base() - (ScoreT::from(they_blundered) * cc::rfp_blunder()))
-                * depth as ScoreT;
+            let mut margin = (cc::rfp_base() - (ScoreT::from(they_blundered) * cc::rfp_blunder())) * depth as ScoreT;
             if expected_node_type == FailHigh {
                 margin /= cc::rfp_fail_high_div();
             }
@@ -864,10 +792,8 @@ impl Caps {
             // above beta, then it's very likely that the score would have been above beta if we had played a move,
             // so simply return the nmp score. This is based on the null move observation (there are very few zugzwang positions).
             // If we don't have non-pawn, non-king pieces, we're likely to be in zugzwang, so don't even try NMP.
-            let has_nonpawns =
-                (pos.active_player_bb() & !pos.piece_bb(Pawn)).more_than_one_bit_set();
-            let nmp_threshold =
-                beta + ScoreT::from(expected_node_type == FailLow) * cc::nmp_fail_low();
+            let has_nonpawns = (pos.active_player_bb() & !pos.piece_bb(Pawn)).more_than_one_bit_set();
+            let nmp_threshold = beta + ScoreT::from(expected_node_type == FailLow) * cc::nmp_fail_low();
             if depth >= cc::nmp_min_depth()
                 && eval >= nmp_threshold
                 && !*self.state.custom.nmp_disabled_for(pos.active_player())
@@ -878,19 +804,10 @@ impl Caps {
                 self.state.params.history.push(&pos);
                 let new_pos = pos.make_nullmove().unwrap();
                 // necessary to recognize the null move and to make `last_tried_move()` not panic
-                self.state.search_stack[ply]
-                    .tried_moves
-                    .push(ChessMove::default());
-                let reduction =
-                    cc::nmp_base() + depth / cc::nmp_depth_div() + isize::from(they_blundered);
-                let nmp_res = self.negamax(
-                    new_pos,
-                    ply + 1,
-                    depth - 1 - reduction,
-                    -beta,
-                    -beta + 1,
-                    FailLow, // the child node is expected to fail low, leading to a fail high in this node
-                );
+                self.state.search_stack[ply].tried_moves.push(ChessMove::default());
+                let reduction = cc::nmp_base() + depth / cc::nmp_depth_div() + isize::from(they_blundered);
+                // the child node is expected to fail low, leading to a fail high in this node
+                let nmp_res = self.negamax(new_pos, ply + 1, depth - 1 - reduction, -beta, -beta + 1, FailLow);
                 self.state.search_stack[ply].tried_moves.pop();
                 self.state.params.history.pop();
                 let score = -nmp_res?;
@@ -905,8 +822,7 @@ impl Caps {
                     *self.state.custom.nmp_disabled_for(pos.active_player()) = true;
                     // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so technically we
                     // should use `depth - reduction`, but using `depth - 1 - reduction` is less expensive and good enough.
-                    let verification_score =
-                        self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh);
+                    let verification_score = self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh);
                     self.state.search_stack[ply].tried_moves.clear();
                     *self.state.custom.nmp_disabled_for(pos.active_player()) = false;
                     // The verification score is more trustworthy than the nmp score.
@@ -926,8 +842,7 @@ impl Caps {
             let score = score.flip_if(flip);
             let alpha = alpha.flip_if(flip);
             let beta = beta.flip_if(flip);
-            self.state
-                .send_currline(ply - 1, score, alpha.min(beta), beta.max(alpha));
+            self.state.send_currline(ply - 1, score, alpha.min(beta), beta.max(alpha));
             // the current ply doesn't have a move
         }
 
@@ -937,8 +852,7 @@ impl Caps {
         let mut num_uninteresting_visited = 0;
         debug_assert!(self.state.search_stack[ply].tried_moves.is_empty());
 
-        let mut move_picker =
-            MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
+        let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
         let move_scorer = CapsMoveScorer { board: pos, ply };
         while let Some((mov, move_score)) = move_picker.next(&move_scorer, &self.state) {
             if can_prune && best_score > MAX_SCORE_LOST {
@@ -996,14 +910,7 @@ impl Caps {
             // re-search with a full window.
             let mut score;
             if self.state.search_stack[ply].tried_moves.len() == 1 {
-                score = -self.negamax(
-                    new_pos,
-                    ply + 1,
-                    depth - 1,
-                    -beta,
-                    -alpha,
-                    expected_node_type.inverse(),
-                )?;
+                score = -self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha, expected_node_type.inverse())?;
             } else {
                 // LMR (Late Move Reductions): Trust the move ordering (quiet history, continuation history and capture history heuristics)
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
@@ -1045,26 +952,13 @@ impl Caps {
                 // this ensures that check extensions prevent going into qsearch while in check
                 reduction = reduction.min(depth - 1);
 
-                score = -self.negamax(
-                    new_pos,
-                    ply + 1,
-                    depth - 1 - reduction,
-                    -(alpha + 1),
-                    -alpha,
-                    FailHigh,
-                )?;
+                score = -self.negamax(new_pos, ply + 1, depth - 1 - reduction, -(alpha + 1), -alpha, FailHigh)?;
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
                 if alpha < score && reduction > 0 {
                     self.state.statistics.lmr_first_retry();
-                    score = -self.negamax(
-                        new_pos,
-                        ply + 1,
-                        depth - 1,
-                        -(alpha + 1),
-                        -alpha,
-                        FailHigh, // we still expect a fail high here
-                    )?;
+                    // we still expect a fail high here
+                    score = -self.negamax(new_pos, ply + 1, depth - 1, -(alpha + 1), -alpha, FailHigh)?;
                 }
                 // If the full-depth search also performed better than expected, do a full-depth search with the
                 // full window to find the true score.
@@ -1112,18 +1006,13 @@ impl Caps {
             // Update the PV. We only need to do this for PV nodes (we could even only do this for non-fail highs,
             // if we didn't have to worry about aw fail high).
             if is_pv_node {
-                let ([.., current], [child, ..]) = self.state.search_stack.split_at_mut(ply + 1)
-                else {
+                let ([.., current], [child, ..]) = self.state.search_stack.split_at_mut(ply + 1) else {
                     unreachable!()
                 };
                 current.pv.extend(best_move, &child.pv);
                 if depth > 1 && score < beta && !score.is_won_lost_or_draw_score() {
                     debug_assert_eq!(
-                        self.state
-                            .tt()
-                            .load::<Chessboard>(new_pos.hash_pos(), ply + 1)
-                            .unwrap()
-                            .bound(),
+                        self.state.tt().load::<Chessboard>(new_pos.hash_pos(), ply + 1).unwrap().bound(),
                         Exact
                     );
                 }
@@ -1154,8 +1043,7 @@ impl Caps {
             return Some(game_result_to_score(pos.no_moves_result_if(in_check), ply));
         }
 
-        let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.hash_pos(), best_score, best_move, depth, bound_so_far);
+        let tt_entry: TTEntry<Chessboard> = TTEntry::new(pos.hash_pos(), best_score, best_move, depth, bound_so_far);
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
         if !(root && self.state.current_pv_num > 0) {
@@ -1178,74 +1066,36 @@ impl Caps {
             return; // Ignore NMP null moves
         }
         hist.update(mov, prev_move, bonus, color);
-        for disappointing in failed
-            .iter()
-            .dropping_back(1)
-            .filter(|m| !m.is_tactical(pos))
-        {
+        for disappointing in failed.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
             hist.update(*disappointing, prev_move, -bonus, color);
         }
     }
 
-    fn update_histories_and_killer(
-        &mut self,
-        pos: &Chessboard,
-        mov: ChessMove,
-        depth: isize,
-        ply: usize,
-    ) {
+    fn update_histories_and_killer(&mut self, pos: &Chessboard, mov: ChessMove, depth: isize, ply: usize) {
         let color = pos.active_player();
-        let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else {
-            unreachable!()
-        };
+        let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else { unreachable!() };
         let bonus = (depth * cc::hist_depth_bonus()) as i32;
         if mov.is_tactical(pos) {
-            for disappointing in entry
-                .tried_moves
-                .iter()
-                .dropping_back(1)
-                .filter(|m| m.is_tactical(pos))
-            {
-                self.state
-                    .custom
-                    .capt_hist
-                    .update(*disappointing, color, -bonus);
+            for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| m.is_tactical(pos)) {
+                self.state.custom.capt_hist.update(*disappointing, color, -bonus);
             }
             self.state.custom.capt_hist.update(mov, color, bonus);
             return;
         }
         entry.killer = mov;
-        for disappointing in entry
-            .tried_moves
-            .iter()
-            .dropping_back(1)
-            .filter(|m| !m.is_tactical(pos))
-        {
+        for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
             self.state.custom.history.update(*disappointing, -bonus);
         }
         self.state.custom.history.update(mov, bonus);
         if ply > 0 {
             let parent = before.last_mut().unwrap();
-            Self::update_continuation_hist(
-                mov,
-                parent.last_tried_move(),
-                bonus,
-                color,
-                pos,
-                &mut self.state.custom.countermove_hist,
-                &entry.tried_moves,
-            );
+            let cmh = &mut self.state.custom.countermove_hist;
+            Self::update_continuation_hist(mov, parent.last_tried_move(), bonus, color, pos, cmh, &entry.tried_moves);
             if ply > 1 {
                 let grandparent = &mut before[before.len() - 2];
-                Self::update_continuation_hist(
-                    mov,
-                    grandparent.last_tried_move(),
-                    bonus,
-                    color,
-                    pos,
-                    &mut self.state.custom.follow_up_move_hist,
-                    &entry.tried_moves,
-                );
+                let fmh = &mut self.state.custom.follow_up_move_hist;
+                let old_move = grandparent.last_tried_move();
+                Self::update_continuation_hist(mov, old_move, bonus, color, pos, fmh, &entry.tried_moves);
             }
         }
     }
@@ -1317,8 +1167,7 @@ impl Caps {
         }
         self.record_pos(pos, best_score, ply);
 
-        let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
-            MovePicker::new(pos, best_move, true);
+        let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> = MovePicker::new(pos, best_move, true);
         let move_scorer = CapsMoveScorer { board: pos, ply };
         let mut children_visited = 0;
         while let Some((mov, score)) = move_picker.next(&move_scorer, &self.state) {
@@ -1348,12 +1197,9 @@ impl Caps {
                 break;
             }
         }
-        self.state
-            .statistics
-            .count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
+        self.state.statistics.count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
 
-        let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.hash_pos(), best_score, best_move, 0, bound_so_far);
+        let tt_entry: TTEntry<Chessboard> = TTEntry::new(pos.hash_pos(), best_score, best_move, 0, bound_so_far);
         self.state.tt_mut().store(tt_entry, ply);
         best_score
     }
@@ -1366,12 +1212,7 @@ impl Caps {
             let mov = &self.state.search_stack[ply - 1].last_tried_move();
             self.eval.eval_incremental(old_pos, *mov, &pos, ply)
         };
-        debug_assert!(
-            !res.is_won_or_lost(),
-            "{res} {0} {1}, {pos}",
-            res.0,
-            self.eval.eval(&pos, ply)
-        );
+        debug_assert!(!res.is_won_or_lost(), "{res} {0} {1}, {pos}", res.0, self.eval.eval(&pos, ply));
         res
     }
 
@@ -1411,27 +1252,17 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
         } else if !mov.is_tactical(&self.board) {
             let countermove_score = if self.ply > 0 {
                 let prev_move = state.search_stack[self.ply - 1].last_tried_move();
-                state
-                    .custom
-                    .countermove_hist
-                    .score(mov, prev_move, self.board.active_player())
+                state.custom.countermove_hist.score(mov, prev_move, self.board.active_player())
             } else {
                 0
             };
             let follow_up_score = if self.ply > 1 {
                 let prev_move = state.search_stack[self.ply - 2].last_tried_move();
-                state
-                    .custom
-                    .follow_up_move_hist
-                    .score(mov, prev_move, self.board.active_player())
+                state.custom.follow_up_move_hist.score(mov, prev_move, self.board.active_player())
             } else {
                 0
             };
-            MoveScore(
-                state.custom.history[mov.from_to_square()]
-                    + countermove_score
-                    + follow_up_score / 2,
-            )
+            MoveScore(state.custom.history[mov.from_to_square()] + countermove_score + follow_up_score / 2)
         } else {
             let captured = mov.captured(&self.board);
             let base_val = if self.board.see_at_least(mov, SeeScore(0)) {
@@ -1479,22 +1310,13 @@ mod tests {
     #[test]
     fn simple_search_test() {
         let list = [
-            (
-                "r2q1r2/ppp1pkb1/2n1p1pp/2N1P3/2pP2Q1/2P1B2P/PP3PP1/R4RK1 b - - 1 18",
-                -500,
-                -100,
-            ),
-            (
-                "r1bqkbnr/3n2p1/2p1pp1p/pp1p3P/P2P4/1PP1PNP1/1B3P2/RN1QKB1R w KQkq - 0 14",
-                90,
-                300,
-            ),
+            ("r2q1r2/ppp1pkb1/2n1p1pp/2N1P3/2pP2Q1/2P1B2P/PP3PP1/R4RK1 b - - 1 18", -500, -100),
+            ("r1bqkbnr/3n2p1/2p1pp1p/pp1p3P/P2P4/1PP1PNP1/1B3P2/RN1QKB1R w KQkq - 0 14", 90, 300),
         ];
         for (fen, min, max) in list {
             let pos = Chessboard::from_fen(fen, Strict).unwrap();
             let mut engine = Caps::for_eval::<PistonEval>();
-            let res = engine
-                .search_with_new_tt(pos, SearchLimit::nodes(NodesLimit::new(30_000).unwrap()));
+            let res = engine.search_with_new_tt(pos, SearchLimit::nodes(NodesLimit::new(30_000).unwrap()));
             assert!(res.score > Score(min));
             assert!(res.score < Score(max));
         }
@@ -1513,8 +1335,7 @@ mod tests {
     fn philidor_test() {
         let pos = Chessboard::from_name("philidor").unwrap();
         let mut engine = Caps::for_eval::<LiTEval>();
-        let res =
-            engine.search_with_new_tt(pos, SearchLimit::nodes(NodesLimit::new(50_000).unwrap()));
+        let res = engine.search_with_new_tt(pos, SearchLimit::nodes(NodesLimit::new(50_000).unwrap()));
         assert!(res.score.abs() <= Score(200));
     }
 
@@ -1522,16 +1343,12 @@ mod tests {
     fn kiwipete_test() {
         let pos = Chessboard::from_name("kiwipete").unwrap();
         let mut engine = Caps::for_eval::<LiTEval>();
-        let res =
-            engine.search_with_new_tt(pos, SearchLimit::nodes(NodesLimit::new(12_345).unwrap()));
+        let res = engine.search_with_new_tt(pos, SearchLimit::nodes(NodesLimit::new(12_345).unwrap()));
         let score = res.score;
         assert!(score.abs() <= Score(64), "{score}");
         assert!(
-            [
-                ChessMove::from_compact_text("e2a6", &pos).unwrap(),
-                ChessMove::from_compact_text("d5e6", &pos).unwrap()
-            ]
-            .contains(&res.chosen_move),
+            [ChessMove::from_compact_text("e2a6", &pos).unwrap(), ChessMove::from_compact_text("d5e6", &pos).unwrap()]
+                .contains(&res.chosen_move),
             "{}",
             res.chosen_move.compact_formatter(&pos)
         );
@@ -1580,10 +1397,7 @@ mod tests {
         let mut caps = Caps::for_eval::<PistonEval>();
         let limit = SearchLimit::per_move(Duration::from_millis(999_999_999));
         let res = caps.search_with_new_tt(pos, limit);
-        assert_eq!(
-            res.chosen_move,
-            ChessMove::from_compact_text("f3g3", &pos).unwrap()
-        );
+        assert_eq!(res.chosen_move, ChessMove::from_compact_text("f3g3", &pos).unwrap());
         assert_eq!(caps.state.depth().get(), 1);
         assert!(caps.state.uci_nodes() <= 1000); // might be a bit more than 1 because of check extensions
     }
@@ -1601,10 +1415,7 @@ mod tests {
         let second_search = caps.search_with_tt(pos, limit, tt.clone());
         assert!(second_search.score.is_game_won_score());
         let second_search_nodes = caps.search_state().uci_nodes();
-        assert!(
-            second_search_nodes * 2 < nodes,
-            "{second_search_nodes} {nodes}"
-        );
+        assert!(second_search_nodes * 2 < nodes, "{second_search_nodes} {nodes}");
         let d3 = SearchLimit::depth(Depth::new(3));
         let d3_search = caps.search_with_tt(pos, d3, tt.clone());
         assert!(d3_search.score.is_game_won_score(), "{}", d3_search.score.0);
@@ -1612,16 +1423,9 @@ mod tests {
         caps.forget();
         assert_eq!(caps.search_state().uci_nodes(), 0);
         let fresh_d3_search = caps.search_with_new_tt(pos, d3);
-        assert!(
-            !fresh_d3_search.score.is_won_or_lost(),
-            "{}",
-            fresh_d3_search.score.0
-        );
+        assert!(!fresh_d3_search.score.is_won_or_lost(), "{}", fresh_d3_search.score.0);
         let fresh_d3_nodes = caps.search_state().uci_nodes();
-        assert!(
-            fresh_d3_nodes > d3_nodes + d3_nodes / 4,
-            "{fresh_d3_nodes} {d3_nodes}"
-        );
+        assert!(fresh_d3_nodes > d3_nodes + d3_nodes / 4, "{fresh_d3_nodes} {d3_nodes}");
         caps.forget();
         _ = caps.search_with_new_tt(pos, d3);
         assert_eq!(caps.search_state().uci_nodes(), fresh_d3_nodes);
@@ -1633,39 +1437,15 @@ mod tests {
     fn mate_test() {
         let fens = [
             ("8/5K2/4N2k/2B5/5pP1/1np2n2/1p6/r2R4 w - - 0 1", "d1d5", 5),
-            (
-                "5rk1/r5p1/2b2p2/3q1N2/6Q1/3B2P1/5P2/6KR w - - 0 1",
-                "f5h6",
-                5,
-            ),
-            (
-                "2rk2nr/R1pnp3/5b2/5P2/BpPN1Q2/pPq5/P7/1K4R1 w - - 0 1",
-                "f4c7",
-                6,
-            ),
+            ("5rk1/r5p1/2b2p2/3q1N2/6Q1/3B2P1/5P2/6KR w - - 0 1", "f5h6", 5),
+            ("2rk2nr/R1pnp3/5b2/5P2/BpPN1Q2/pPq5/P7/1K4R1 w - - 0 1", "f4c7", 6),
             ("k2r3r/PR6/1K6/3R4/8/5np1/B6p/8 w - - 0 1", "d5d8", 6),
-            (
-                "3n3R/8/3p1pp1/r2bk3/8/4NPP1/p3P1KP/1r1R4 w - - 0 1",
-                "h8e8",
-                6,
-            ),
+            ("3n3R/8/3p1pp1/r2bk3/8/4NPP1/p3P1KP/1r1R4 w - - 0 1", "h8e8", 6),
             ("7K/k7/p1R5/4N1q1/8/6rb/5r2/1R6 w - - 0 1", "c6c7", 4),
-            (
-                "rkr5/3n1p2/1pp1b3/NP4p1/3PPn1p/QN1B1Pq1/2P5/R6K w - - 0 1",
-                "a5c6",
-                7,
-            ),
+            ("rkr5/3n1p2/1pp1b3/NP4p1/3PPn1p/QN1B1Pq1/2P5/R6K w - - 0 1", "a5c6", 7),
             ("1kr5/4R3/pP6/1n2N3/3p4/2p5/1r6/4K2R w K - 0 1", "h1h8", 7),
-            (
-                "1k6/1bpQN3/1p6/p7/6p1/2NP1nP1/5PK1/4q3 w - - 0 1",
-                "d7d8",
-                8,
-            ),
-            (
-                "1k4r1/pb1p4/1p1P4/1P3r1p/1N2Q3/6Pq/4BP1P/4R1K1 w - - 0 1",
-                "b4a6",
-                10,
-            ),
+            ("1k6/1bpQN3/1p6/p7/6p1/2NP1nP1/5PK1/4q3 w - - 0 1", "d7d8", 8),
+            ("1k4r1/pb1p4/1p1P4/1P3r1p/1N2Q3/6Pq/4BP1P/4R1K1 w - - 0 1", "b4a6", 10),
             ("rk6/p1r3p1/P3B1Kp/1p2B3/8/8/8/8 w - - 0 1", "e6d7", 5),
         ];
         for (fen, best_move, num_moves) in fens {
@@ -1682,10 +1462,7 @@ mod tests {
                 engine.state.start_time.elapsed().as_millis()
             );
             assert!(score.is_game_won_score());
-            assert_eq!(
-                res.chosen_move.compact_formatter(&pos).to_string(),
-                best_move
-            );
+            assert_eq!(res.chosen_move.compact_formatter(&pos).to_string(), best_move);
         }
     }
 }

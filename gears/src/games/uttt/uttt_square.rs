@@ -18,9 +18,7 @@
 
 use crate::games::uttt::UtttSubSquare;
 use crate::games::{Coordinates, DimT, Height, Size, Width};
-use crate::general::squares::{
-    RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare,
-};
+use crate::general::squares::{RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare};
 use arbitrary::Arbitrary;
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
@@ -57,8 +55,7 @@ impl Size<UtttSquare> for UtttSize {
 
     fn coordinates_valid(self, coordinates: UtttSquare) -> bool {
         let size = SmallGridSize::<3, 3>::default();
-        size.coordinates_valid(coordinates.sub_board)
-            && size.coordinates_valid(coordinates.sub_square)
+        size.coordinates_valid(coordinates.sub_board) && size.coordinates_valid(coordinates.sub_square)
     }
 }
 
@@ -99,18 +96,12 @@ impl Coordinates for UtttSquare {
 
     fn flip_up_down(self, _size: Self::Size) -> Self {
         let size = SmallGridSize::default();
-        Self {
-            sub_board: self.sub_board.flip_up_down(size),
-            sub_square: self.sub_square.flip_up_down(size),
-        }
+        Self { sub_board: self.sub_board.flip_up_down(size), sub_square: self.sub_square.flip_up_down(size) }
     }
 
     fn flip_left_right(self, _size: Self::Size) -> Self {
         let size = SmallGridSize::default();
-        Self {
-            sub_board: self.sub_board.flip_left_right(size),
-            sub_square: self.sub_square.flip_left_right(size),
-        }
+        Self { sub_board: self.sub_board.flip_left_right(size), sub_square: self.sub_square.flip_left_right(size) }
     }
 }
 
@@ -118,10 +109,7 @@ impl RectangularCoordinates for UtttSquare {
     fn from_rank_file(row: DimT, column: DimT) -> Self {
         let sub_board = SmallGridSquare::from_rank_file(row / 3, column / 3);
         let sub_square = SmallGridSquare::from_rank_file(row % 3, column % 3);
-        Self {
-            sub_board,
-            sub_square,
-        }
+        Self { sub_board, sub_square }
     }
 
     fn row(self) -> DimT {
@@ -135,10 +123,7 @@ impl RectangularCoordinates for UtttSquare {
 
 impl UtttSquare {
     pub fn new(sub_board: UtttSubSquare, sub_square: UtttSubSquare) -> Self {
-        Self {
-            sub_board,
-            sub_square,
-        }
+        Self { sub_board, sub_square }
     }
 
     #[must_use]
@@ -188,9 +173,6 @@ impl UtttSquare {
     }
 
     pub const fn no_coordinates_const() -> Self {
-        Self {
-            sub_board: SmallGridSquare::no_coordinates_const(),
-            sub_square: SmallGridSquare::from_bb_index(0),
-        }
+        Self { sub_board: SmallGridSquare::no_coordinates_const(), sub_square: SmallGridSquare::from_bb_index(0) }
     }
 }

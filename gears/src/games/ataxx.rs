@@ -6,12 +6,8 @@ use crate::games::ataxx::common::ColoredAtaxxPieceType::{Blocked, Empty, OPiece,
 use crate::games::ataxx::common::{AtaxxMove, ColoredAtaxxPieceType, MAX_ATAXX_MOVES_IN_POS};
 use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::chess::pieces::NUM_COLORS;
-use crate::games::{
-    Board, BoardHistory, CharType, Color, ColoredPiece, GenericPiece, NoHistory, PosHash, Settings,
-};
-use crate::general::bitboards::{
-    KnownSizeBitboard, RawBitboard, RawStandardBitboard, SmallGridBitboard,
-};
+use crate::games::{Board, BoardHistory, CharType, Color, ColoredPiece, GenericPiece, NoHistory, PosHash, Settings};
+use crate::general::bitboards::{KnownSizeBitboard, RawBitboard, RawStandardBitboard, SmallGridBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
@@ -21,9 +17,7 @@ use crate::general::common::{Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::SquareColor::White;
 use crate::general::squares::{SmallGridSize, SmallGridSquare, SquareColor};
-use crate::output::text_output::{
-    board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter,
-};
+use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter};
 use crate::output::OutputOpts;
 use crate::search::Depth;
 use crate::PlayerResult;
@@ -211,15 +205,11 @@ impl Board for AtaxxBoard {
             "xx4o/7/7/7/7/6x/oo4x o 0 2",
             "x6/7/4x2/3x3/7/7/o5x o 2 2",
         ];
-        fens.iter()
-            .map(|fen| Self::from_fen(fen, Strict).unwrap())
-            .collect_vec()
+        fens.iter().map(|fen| Self::from_fen(fen, Strict).unwrap()).collect_vec()
     }
 
     fn settings(&self) -> Self::Settings {
-        AtaxxSettings {
-            blocked: self.blocked_bb(),
-        }
+        AtaxxSettings { blocked: self.blocked_bb() }
     }
 
     fn active_player(&self) -> AtaxxColor {
@@ -306,10 +296,7 @@ impl Board for AtaxxBoard {
         self.is_move_legal_impl(mov)
     }
 
-    fn player_result_no_movegen<H: BoardHistory<Self>>(
-        &self,
-        _history: &H,
-    ) -> Option<PlayerResult> {
+    fn player_result_no_movegen<H: BoardHistory<Self>>(&self, _history: &H) -> Option<PlayerResult> {
         let color = self.active_player;
         if self.color_bb(color).is_zero() {
             return Some(Lose);
@@ -369,12 +356,7 @@ impl Board for AtaxxBoard {
         last_move: Option<Self::Move>,
         opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
-        Box::new(DefaultBoardFormatter::new(
-            *self,
-            piece_to_char,
-            last_move,
-            opts,
-        ))
+        Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move, opts))
     }
 
     fn background_color(&self, _coords: Self::Coordinates) -> SquareColor {
@@ -425,11 +407,7 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
             "The halfmove clock is too large: It must be a number between 0 and 100, not {}",
             this.ply_100_ctr
         );
-        ensure!(
-            this.ply <= 10_000,
-            "Ridiculously large ply number ({})",
-            this.ply
-        );
+        ensure!(this.ply <= 10_000, "Ridiculously large ply number ({})", this.ply);
 
         if level == CheckFen {
             return Ok(this);

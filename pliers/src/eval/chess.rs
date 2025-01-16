@@ -106,23 +106,10 @@ fn write_phased_psqt(
     Ok(())
 }
 
-fn write_psqts(
-    f: &mut Formatter<'_>,
-    weights: &[Weight],
-    special_entries: &[bool],
-) -> std::fmt::Result {
-    writeln!(
-        f,
-        "const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = ["
-    )?;
+fn write_psqts(f: &mut Formatter<'_>, weights: &[Weight], special_entries: &[bool]) -> std::fmt::Result {
+    writeln!(f, "const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = [")?;
     for piece in ChessPieceType::pieces() {
-        write_phased_psqt(
-            f,
-            weights,
-            special_entries,
-            Some(piece),
-            64 * piece as usize,
-        )?;
+        write_phased_psqt(f, weights, special_entries, Some(piece), 64 * piece as usize)?;
     }
     writeln!(f, "];")?;
     Ok(())

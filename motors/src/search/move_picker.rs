@@ -96,12 +96,7 @@ impl<B: Board, const MAX_LEN: usize> MovePicker<B, MAX_LEN> {
         } else {
             BeginList
         };
-        Self {
-            state,
-            pos,
-            tactical_only,
-            tt_move: best,
-        }
+        Self { state, pos, tactical_only, tt_move: best }
     }
 
     pub fn next<E: Engine<B>, Scorer: MoveScorer<B, E>>(
@@ -116,12 +111,7 @@ impl<B: Board, const MAX_LEN: usize> MovePicker<B, MAX_LEN> {
             }
             BeginList => {
                 let mut list = ScoredMoveList::<B, MAX_LEN>::default();
-                let mut scorer = MoveListScorer {
-                    list: &mut list,
-                    scorer,
-                    state,
-                    excluded: self.tt_move,
-                };
+                let mut scorer = MoveListScorer { list: &mut list, scorer, state, excluded: self.tt_move };
                 if self.tactical_only {
                     self.pos.gen_tactical_pseudolegal(&mut scorer);
                 } else {

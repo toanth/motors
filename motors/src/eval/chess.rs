@@ -37,11 +37,7 @@ pub const PAWN_SHIELD_SHIFT: [usize; NUM_SQUARES] = {
     let mut res = [0; NUM_SQUARES];
     let mut square = 0;
     while square < 64 {
-        let mut entry = if square % 8 == 0 {
-            square + 8
-        } else {
-            square + 7
-        };
+        let mut entry = if square % 8 == 0 { square + 8 } else { square + 7 };
         if entry > 63 {
             entry = 63;
         }
@@ -51,11 +47,7 @@ pub const PAWN_SHIELD_SHIFT: [usize; NUM_SQUARES] = {
     res
 };
 
-pub fn pawn_shield_idx(
-    mut pawns: ChessBitboard,
-    mut king: ChessSquare,
-    color: ChessColor,
-) -> usize {
+pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: ChessColor) -> usize {
     if color == Black {
         king = king.flip();
         pawns = pawns.flip_up_down();
@@ -137,11 +129,7 @@ mod tests {
         assert_eq!(black, 0b010_101);
     }
 
-    fn expected_pawn_shield_idx(
-        mut pawns: ChessBitboard,
-        mut king: ChessSquare,
-        color: ChessColor,
-    ) -> usize {
+    fn expected_pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: ChessColor) -> usize {
         if color == Black {
             pawns = pawns.flip_up_down();
             king = king.flip();

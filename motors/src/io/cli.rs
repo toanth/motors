@@ -85,10 +85,7 @@ fn parse_perft(args: &mut ArgIter) -> Res<Option<Depth>> {
 
 fn parse_pos(args: &mut ArgIter) -> String {
     let mut res = String::default();
-    while args
-        .peek()
-        .is_some_and(|token| !token.strip_prefix("-").is_some_and(|r| !r.is_empty()))
-    {
+    while args.peek().is_some_and(|token| !token.strip_prefix("-").is_some_and(|r| !r.is_empty())) {
         res += &args.next().unwrap();
         res += " ";
     }

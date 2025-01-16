@@ -69,10 +69,7 @@ pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash +
     fn from_char(color: char, settings: &<Self::Board as Board>::Settings) -> Option<Self> {
         if Self::first().to_char(settings).eq_ignore_ascii_case(&color) {
             Some(Self::first())
-        } else if Self::second()
-            .to_char(settings)
-            .eq_ignore_ascii_case(&color)
-        {
+        } else if Self::second().to_char(settings).eq_ignore_ascii_case(&color) {
             Some(Self::second())
         } else {
             None
@@ -161,9 +158,7 @@ pub struct GenericPiece<B: Board, ColType: ColoredPieceType<B>> {
 
 impl<B: Board, ColType: ColoredPieceType<B>> Copy for GenericPiece<B, ColType> {}
 
-impl<B: Board<Piece = Self>, ColType: ColoredPieceType<B>> ColoredPiece<B>
-    for GenericPiece<B, ColType>
-{
+impl<B: Board<Piece = Self>, ColType: ColoredPieceType<B>> ColoredPiece<B> for GenericPiece<B, ColType> {
     type ColoredPieceType = ColType;
 
     fn coordinates(self) -> B::Coordinates {
@@ -183,10 +178,7 @@ impl<B: Board, ColType: ColoredPieceType<B> + Display> Display for GenericPiece<
 
 impl<B: Board, ColType: ColoredPieceType<B>> GenericPiece<B, ColType> {
     pub fn new(symbol: ColType, coordinates: B::Coordinates) -> Self {
-        Self {
-            symbol,
-            coordinates,
-        }
+        Self { symbol, coordinates }
     }
 }
 
@@ -256,9 +248,7 @@ impl Width {
 }
 
 #[must_use]
-pub trait Size<C: Coordinates>:
-    Eq + PartialEq + Copy + Clone + Display + Debug + for<'a> Arbitrary<'a>
-{
+pub trait Size<C: Coordinates>: Eq + PartialEq + Copy + Clone + Display + Debug + for<'a> Arbitrary<'a> {
     fn num_squares(self) -> usize;
 
     /// Converts coordinates into an internal key. This function is injective, but **no further guarantees** are
@@ -320,18 +310,7 @@ pub trait KnownSize<C: Coordinates>: Size<C> + Default {
 
 pub type OutputList<B> = EntityList<Box<dyn OutputBuilder<B>>>;
 
-#[derive(
-    Copy,
-    Clone,
-    Eq,
-    PartialEq,
-    Default,
-    Debug,
-    derive_more::Display,
-    BitXor,
-    BitXorAssign,
-    Arbitrary,
-)]
+#[derive(Copy, Clone, Eq, PartialEq, Default, Debug, derive_more::Display, BitXor, BitXorAssign, Arbitrary)]
 #[must_use]
 pub struct PosHash(pub u64);
 
@@ -389,10 +368,7 @@ impl<B: Board> BoardHistory<B> for ZobristHistory<B> {
     }
 
     fn pop(&mut self) {
-        _ = self
-            .0
-            .pop()
-            .expect("ZobristHistory::pop() called on empty history");
+        _ = self.0.pop().expect("ZobristHistory::pop() called on empty history");
     }
     fn clear(&mut self) {
         self.0.clear();

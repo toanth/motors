@@ -1,15 +1,11 @@
 use crate::games::ataxx::common::AtaxxMove;
 use crate::games::ataxx::common::AtaxxMoveType::{Cloning, Leaping};
-use crate::games::ataxx::{
-    AtaxxBitboard, AtaxxBoard, AtaxxColor, AtaxxMoveList, AtaxxSquare, UnverifiedAtaxxBoard,
-};
+use crate::games::ataxx::{AtaxxBitboard, AtaxxBoard, AtaxxColor, AtaxxMoveList, AtaxxSquare, UnverifiedAtaxxBoard};
 use crate::games::{Board, Color, PosHash};
 use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, KINGS};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
-use crate::general::board::{
-    read_simple_fen_part, BitboardBoard, BoardHelpers, Strictness, UnverifiedBoard,
-};
+use crate::general::board::{read_simple_fen_part, BitboardBoard, BoardHelpers, Strictness, UnverifiedBoard};
 use crate::general::common::{Res, Tokens};
 use crate::general::move_list::MoveList;
 use crate::general::squares::sup_distance;
@@ -20,16 +16,10 @@ impl AtaxxBoard {
     pub fn create(blocked: AtaxxBitboard, x_bb: AtaxxBitboard, o_bb: AtaxxBitboard) -> Res<Self> {
         let blocked = blocked | AtaxxBitboard::INVALID_EDGE_MASK;
         if (o_bb & x_bb).has_set_bit() {
-            return Err(anyhow!(
-                "Overlapping x and o pieces (bitboard: {})",
-                o_bb & x_bb
-            ));
+            return Err(anyhow!("Overlapping x and o pieces (bitboard: {})", o_bb & x_bb));
         }
         if (blocked & (o_bb | x_bb)).has_set_bit() {
-            return Err(anyhow!(
-                "Pieces on blocked squares (bitboard: {}",
-                blocked & (o_bb | x_bb)
-            ));
+            return Err(anyhow!("Pieces on blocked squares (bitboard: {}", blocked & (o_bb | x_bb)));
         }
         // it's legal for the position to not contain any pieces at all
         Ok(Self {
@@ -120,9 +110,7 @@ impl AtaxxBoard {
             self.ply_100_ctr += 1;
             return self;
         }
-        debug_assert!(
-            mov.typ() == Cloning || self.color_bb(color).is_bit_set_at(mov.source as usize)
-        );
+        debug_assert!(mov.typ() == Cloning || self.color_bb(color).is_bit_set_at(mov.source as usize));
         if mov.typ() == Leaping {
             let source = AtaxxSquare::unchecked(mov.source as usize);
             let source_bb = AtaxxBitboard::single_piece(source);
@@ -147,10 +135,7 @@ impl AtaxxBoard {
     pub(super) fn is_move_legal_impl(&self, mov: AtaxxMove) -> bool {
         if mov == AtaxxMove::default() {
             let moves = self.pseudolegal_moves();
-            return moves
-                .iter()
-                .next()
-                .is_some_and(|m| *m == AtaxxMove::default());
+            return moves.iter().next().is_some_and(|m| *m == AtaxxMove::default());
         }
         let empty = self.empty_bb();
         if !empty.is_bit_set_at(mov.dest_square().bb_idx()) {
@@ -158,13 +143,10 @@ impl AtaxxBoard {
         }
         let pieces = self.active_bb();
         if mov.typ() == Cloning {
-            pieces
-                .moore_neighbors()
-                .is_bit_set_at(mov.dest_square().bb_idx())
+            pieces.moore_neighbors().is_bit_set_at(mov.dest_square().bb_idx())
         } else {
             let source = AtaxxSquare::unchecked(mov.source as usize);
-            pieces.is_bit_set_at(mov.source as usize)
-                && sup_distance(source, mov.dest_square()) == 2
+            pieces.is_bit_set_at(mov.source as usize) && sup_distance(source, mov.dest_square()) == 2
         }
     }
 

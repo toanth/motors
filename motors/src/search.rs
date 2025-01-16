@@ -1,9 +1,7 @@
 use crate::eval::Eval;
 use crate::search::multithreading::SearchThreadType::*;
 use crate::search::multithreading::SearchType::*;
-use crate::search::multithreading::{
-    AtomicSearchState, EngineReceives, EngineThread, SearchThreadType, Sender,
-};
+use crate::search::multithreading::{AtomicSearchState, EngineReceives, EngineThread, SearchThreadType, Sender};
 use crate::search::statistics::{Statistics, Summary};
 use crate::search::tt::TT;
 use colored::Color::Red;
@@ -21,9 +19,7 @@ use gears::general::moves::Move;
 use gears::output::Message;
 use gears::output::Message::Warning;
 use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON};
-use gears::search::{
-    Depth, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl,
-};
+use gears::search::{Depth, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType};
 use itertools::Itertools;
 use rand::prelude::StdRng;
@@ -83,17 +79,9 @@ impl NamedEntity for EngineInfo {
         let eval = self
             .eval
             .clone()
-            .map(|e| {
-                format!(
-                    "\nEval: {}",
-                    e.clone().description.unwrap_or_else(|| e.long_name())
-                )
-            })
+            .map(|e| format!("\nEval: {}", e.clone().description.unwrap_or_else(|| e.long_name())))
             .unwrap_or_default();
-        let desc = format!(
-            "Searcher: {0}{eval}",
-            self.engine.description().unwrap_or(self.engine.long_name()),
-        );
+        let desc = format!("Searcher: {0}{eval}", self.engine.description().unwrap_or(self.engine.long_name()),);
         Some(desc)
     }
 }
@@ -108,8 +96,7 @@ impl EngineInfo {
         max_threads: Option<usize>,
         options: Vec<EngineOption>,
     ) -> Self {
-        let num_cores =
-            std::thread::available_parallelism().unwrap_or(NonZeroUsize::new(1024).unwrap());
+        let num_cores = std::thread::available_parallelism().unwrap_or(NonZeroUsize::new(1024).unwrap());
         let max_threads = max_threads.unwrap_or(usize::MAX).min(num_cores.get());
         let options = HashMap::from_iter(options.into_iter().map(|o| (o.name, o.value)));
         Self {
@@ -149,13 +136,7 @@ impl EngineInfo {
     }
 
     pub fn additional_options(&self) -> Vec<EngineOption> {
-        self.options
-            .iter()
-            .map(|(k, v)| EngineOption {
-                name: k.clone(),
-                value: v.clone(),
-            })
-            .collect()
+        self.options.iter().map(|(k, v)| EngineOption { name: k.clone(), value: v.clone() }).collect()
     }
 }
 
@@ -170,34 +151,21 @@ pub struct BenchResult {
 
 impl Default for BenchResult {
     fn default() -> Self {
-        Self {
-            nodes: 0,
-            time: Duration::default(),
-            depth: None,
-            max_depth: Depth::new(0),
-            pv_score_hash: 0,
-        }
+        Self { nodes: 0, time: Duration::default(), depth: None, max_depth: Depth::new(0), pv_score_hash: 0 }
     }
 }
 
 impl Display for BenchResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         // Uses colored instead of crossterm because that's necessary for OpenBench to parse the output
-        let depth = if let Some(depth) = self.depth {
-            format!("depth {depth}, ")
-        } else {
-            String::new()
-        };
+        let depth = if let Some(depth) = self.depth { format!("depth {depth}, ") } else { String::new() };
         writeln!(
             f,
             "{depth}max depth {0}, time {2} ms, {1} nodes, {3} nps, hash {4:X}",
             self.max_depth.get(),
             Colorize::bold(self.nodes.to_string().as_str()),
             self.time.as_millis().to_string().color(Red),
-            (self.nodes as f64 / self.time.as_millis() as f64 * 1000.0)
-                .round()
-                .to_string()
-                .color(Red),
+            (self.nodes as f64 / self.time.as_millis() as f64 * 1000.0).round().to_string().color(Red),
             self.pv_score_hash,
         )
     }
@@ -210,18 +178,14 @@ pub struct Pv<B: Board, const LIMIT: usize> {
 
 impl<B: Board, const LIMIT: usize> Default for Pv<B, LIMIT> {
     fn default() -> Self {
-        Self {
-            list: ArrayVec::new(),
-        }
+        Self { list: ArrayVec::new() }
     }
 }
 
 impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
     pub fn extend(&mut self, mov: B::Move, child_pv: &Pv<B, LIMIT>) {
         self.reset_to_move(mov);
-        self.list
-            .try_extend_from_slice(child_pv.list.as_slice())
-            .unwrap();
+        self.list.try_extend_from_slice(child_pv.list.as_slice()).unwrap();
     }
 
     pub fn len(&self) -> usize {
@@ -243,9 +207,7 @@ impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
 
     fn assign_from<const OTHER_LIMIT: usize>(&mut self, other: &Pv<B, OTHER_LIMIT>) {
         self.list.clear();
-        self.list
-            .try_extend_from_slice(other.list.as_slice())
-            .unwrap();
+        self.list.try_extend_from_slice(other.list.as_slice()).unwrap();
     }
 
     fn get(&self, idx: usize) -> Option<B::Move> {
@@ -304,10 +266,7 @@ pub type EvalList<B> = EntityList<Box<dyn AbstractEvalBuilder<B>>>;
 /// There are two related concepts: `Engine` and `Searcher`.
 /// A searcher is an algorithm like caps or gaps, an engine is a searcher plus an eval.
 pub trait AbstractSearcherBuilder<B: Board>: NamedEntity + DynClone {
-    fn build_in_new_thread(
-        &self,
-        eval: Box<dyn Eval<B>>,
-    ) -> (Sender<EngineReceives<B>>, EngineInfo);
+    fn build_in_new_thread(&self, eval: Box<dyn Eval<B>>) -> (Sender<EngineReceives<B>>, EngineInfo);
 
     fn build(&self, eval_builder: &dyn AbstractEvalBuilder<B>) -> Box<dyn Engine<B>>;
 }
@@ -322,19 +281,13 @@ pub struct SearcherBuilder<B: Board, E: Engine<B>> {
 
 impl<B: Board, E: Engine<B>> Default for SearcherBuilder<B, E> {
     fn default() -> Self {
-        Self {
-            _phantom_b: PhantomData,
-            _phantom_e: PhantomData,
-        }
+        Self { _phantom_b: PhantomData, _phantom_e: PhantomData }
     }
 }
 
 impl<B: Board, E: Engine<B>> Clone for SearcherBuilder<B, E> {
     fn clone(&self) -> Self {
-        Self {
-            _phantom_b: PhantomData,
-            _phantom_e: PhantomData,
-        }
+        Self { _phantom_b: PhantomData, _phantom_e: PhantomData }
     }
 }
 
@@ -345,10 +298,7 @@ impl<B: Board, E: Engine<B>> SearcherBuilder<B, E> {
 }
 
 impl<B: Board, E: Engine<B>> AbstractSearcherBuilder<B> for SearcherBuilder<B, E> {
-    fn build_in_new_thread(
-        &self,
-        eval: Box<dyn Eval<B>>,
-    ) -> (Sender<EngineReceives<B>>, EngineInfo) {
+    fn build_in_new_thread(&self, eval: Box<dyn Eval<B>>) -> (Sender<EngineReceives<B>>, EngineInfo) {
         let engine = E::with_eval(eval);
         let info = engine.engine_info();
         let (sender, receiver) = unbounded();
@@ -474,12 +424,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
         false
     }
 
-    fn should_not_start_iteration(
-        &self,
-        soft_limit: Duration,
-        max_soft_depth: isize,
-        mate_depth: Depth,
-    ) -> bool
+    fn should_not_start_iteration(&self, soft_limit: Duration, max_soft_depth: isize, mate_depth: Depth) -> bool
     where
         Self: Sized,
     {
@@ -496,12 +441,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
     }
 
     /// Sets an option with the name 'option' to the value 'value'.
-    fn set_option(
-        &mut self,
-        option: EngineOptionName,
-        old_value: &mut EngineOptionType,
-        value: String,
-    ) -> Res<()> {
+    fn set_option(&mut self, option: EngineOptionName, old_value: &mut EngineOptionType, value: String) -> Res<()> {
         bail!(
             "The searcher '{name}' doesn't support setting custom options, including setting '{option}' to '{value}' \
             (Note: Some options, like 'Hash' and 'Threads', may still be supported but aren't handled by the searcher). \
@@ -523,12 +463,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
     }
 
     fn search_with_tt(&mut self, pos: B, limit: SearchLimit, tt: TT) -> SearchResult<B> {
-        self.search(SearchParams::new_unshared(
-            pos,
-            limit,
-            ZobristHistory::default(),
-            tt,
-        ))
+        self.search(SearchParams::new_unshared(pos, limit, ZobristHistory::default(), tt))
     }
 
     /// Start a new search and return the best move and score.
@@ -548,8 +483,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
 const DEFAULT_CHECK_TIME_INTERVAL: u64 = 2048;
 
 #[allow(type_alias_bounds)]
-pub type SearchStateFor<B: Board, E: Engine<B>> =
-    SearchState<B, E::SearchStackEntry, E::CustomInfo>;
+pub type SearchStateFor<B: Board, E: Engine<B>> = SearchState<B, E::SearchStackEntry, E::CustomInfo>;
 
 #[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg)]
 #[must_use]
@@ -584,13 +518,7 @@ impl<B: Board> SearchParams<B> {
     }
 
     pub fn new_unshared(pos: B, limit: SearchLimit, history: ZobristHistory<B>, tt: TT) -> Self {
-        Self::with_atomic_state(
-            pos,
-            limit,
-            history,
-            tt,
-            Arc::new(AtomicSearchState::default()),
-        )
+        Self::with_atomic_state(pos, limit, history, tt, Arc::new(AtomicSearchState::default()))
     }
 
     pub fn with_atomic_state(
@@ -614,16 +542,7 @@ impl<B: Board> SearchParams<B> {
         atomic: Arc<AtomicSearchState<B>>,
         thread_type: SearchThreadType<B>,
     ) -> Self {
-        Self {
-            pos,
-            limit,
-            atomic,
-            history,
-            tt,
-            thread_type,
-            restrict_moves,
-            num_multi_pv: additional_pvs + 1,
-        }
+        Self { pos, limit, atomic, history, tt, thread_type, restrict_moves, num_multi_pv: additional_pvs + 1 }
     }
 
     pub fn restrict_moves(mut self, moves: Vec<B::Move>) -> Self {
@@ -746,9 +665,7 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
 }
 
-impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
-    for SearchState<B, E, C>
-{
+impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> for SearchState<B, E, C> {
     fn forget(&mut self, hard: bool) {
         self.start_time = Instant::now();
         self.last_msg_time = self.start_time;
@@ -777,10 +694,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
         if let Some(search_moves) = &parameters.restrict_moves {
             // remove duplicates and invalid moves from the `restrict_move` parameter and invert the set because the usual case is
             // having no excluded moves
-            self.excluded_moves = moves
-                .into_iter()
-                .filter(|m| !search_moves.contains(m))
-                .collect_vec();
+            self.excluded_moves = moves.into_iter().filter(|m| !search_moves.contains(m)).collect_vec();
         } else {
             self.excluded_moves = vec![];
         }
@@ -789,8 +703,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
         parameters.num_multi_pv = parameters.num_multi_pv.min(num_moves);
         // it's possible that there are no legal moves to search; such as when the game is over or if restrict_moves
         // contains only invalid moves. Search must be able to deal with this, but we set still add an empty multipv entry
-        self.multi_pvs
-            .resize_with(parameters.num_multi_pv.max(1), PVData::default);
+        self.multi_pvs.resize_with(parameters.num_multi_pv.max(1), PVData::default);
         // If only one move can be played, immediately return it without doing a real search to make the engine appear
         // smarter, and perform better on lichess when it's up against an opponent with pondering enabled.
         // However, don't do this if the engine is used for analysis.
@@ -905,12 +818,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     }
 
     fn search_result(&self) -> SearchResult<B> {
-        SearchResult::new(
-            self.best_move(),
-            self.best_score(),
-            self.ponder_move(),
-            self.params.pos.clone(),
-        )
+        SearchResult::new(self.best_move(), self.best_score(), self.ponder_move(), self.params.pos.clone())
     }
 
     fn stop_search(&self) {
@@ -942,14 +850,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         }
     }
 
-    fn send_currmove(
-        &mut self,
-        mov: B::Move,
-        move_nr: usize,
-        score: Score,
-        alpha: Score,
-        beta: Score,
-    ) {
+    fn send_currmove(&mut self, mov: B::Move, move_nr: usize, score: Score, alpha: Score, beta: Score) {
         if let Some(mut output) = self.params.thread_type.output() {
             output.write_currmove(&self.params.pos, mov, move_nr, score, alpha, beta);
             self.last_msg_time = Instant::now();
@@ -961,11 +862,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             if self.search_stack[0].last_played_move().is_none() {
                 return;
             }
-            let line = self
-                .search_stack
-                .iter()
-                .take(ply)
-                .map(|entry| entry.last_played_move().unwrap());
+            let line = self.search_stack.iter().take(ply).map(|entry| entry.last_played_move().unwrap());
             output.write_currline(&self.params.pos, line, eval, alpha, beta);
             self.last_msg_time = Instant::now();
         }
@@ -996,22 +893,12 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             let mut rng = StdRng::seed_from_u64(42); // keep everything deterministic
             let chosen_move = pos.random_legal_move(&mut rng).unwrap_or_default();
             if chosen_move != B::Move::default() {
-                debug_assert!(
-                    pos.is_move_legal(chosen_move),
-                    "{} {pos}",
-                    chosen_move.compact_formatter(&pos)
-                );
-                output.write_message(
-                    Warning,
-                    &format_args!("Not even a single iteration finished"),
-                );
+                debug_assert!(pos.is_move_legal(chosen_move), "{} {pos}", chosen_move.compact_formatter(&pos));
+                output.write_message(Warning, &format_args!("Not even a single iteration finished"));
                 output.write_search_res(&SearchResult::<B>::move_only(chosen_move, pos.clone()));
                 return;
             }
-            output.write_message(
-                Warning,
-                &format_args!("search() called in a position with no legal moves"),
-            );
+            output.write_message(Warning, &format_args!("search() called in a position with no legal moves"));
         }
         debug_assert!(res.chosen_move == B::Move::default() || pos.is_move_legal(res.chosen_move));
 
@@ -1024,12 +911,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
 
     fn new_with(search_stack: Vec<E>, custom: C) -> Self {
         let start_time = Instant::now();
-        let params = SearchParams::new_unshared(
-            B::default(),
-            SearchLimit::infinite(),
-            ZobristHistory::default(),
-            TT::minimal(),
-        );
+        let params =
+            SearchParams::new_unshared(B::default(), SearchLimit::infinite(), ZobristHistory::default(), TT::minimal());
         Self {
             search_stack,
             start_time,
@@ -1086,18 +969,14 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     }
 
     fn aggregate_match_statistics(&mut self) {
-        self.aggregated_statistics
-            .aggregate_searches(&self.statistics);
+        self.aggregated_statistics.aggregate_searches(&self.statistics);
     }
 
     fn send_statistics(&mut self) {
         // don't pay the performance penalty of aggregating statistics unless they are shown,
         // especially since the "statistics" feature is likely turned off
         if cfg!(feature = "statistics") {
-            self.send_non_ugi(
-                Message::Debug,
-                &format_args!("{}", Summary::new(self.statistics())),
-            );
+            self.send_non_ugi(Message::Debug, &format_args!("{}", Summary::new(self.statistics())));
         }
     }
 
@@ -1110,16 +989,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
 }
 
 // TODO: Necessary?
-pub fn run_bench<B: Board>(
-    engine: &mut dyn Engine<B>,
-    with_nodes: bool,
-    positions: &[B],
-) -> BenchResult {
-    let nodes = if with_nodes {
-        Some(SearchLimit::nodes(engine.default_bench_nodes()))
-    } else {
-        None
-    };
+pub fn run_bench<B: Board>(engine: &mut dyn Engine<B>, with_nodes: bool, positions: &[B]) -> BenchResult {
+    let nodes = if with_nodes { Some(SearchLimit::nodes(engine.default_bench_nodes())) } else { None };
     let depth = SearchLimit::depth(engine.default_bench_depth());
     run_bench_with(engine, depth, nodes, positions, None)
 }
@@ -1146,10 +1017,7 @@ pub fn run_bench_with<B: Board>(
     }
     total.pv_score_hash = hasher.finish();
     if cfg!(feature = "statistics") {
-        eprintln!(
-            "{}",
-            Summary::new(engine.search_state_dyn().aggregated_statistics())
-        );
+        eprintln!("{}", Summary::new(engine.search_state_dyn().aggregated_statistics()));
     }
     total
 }
@@ -1189,12 +1057,8 @@ mod tests {
             assert!(res.depth.is_none());
             assert!(res.max_depth.get() <= 1);
             assert!(res.nodes <= 100); // TODO: Assert exactly 1
-            let params = SearchParams::new_unshared(
-                p.clone(),
-                SearchLimit::depth_(1),
-                ZobristHistory::default(),
-                tt.clone(),
-            );
+            let params =
+                SearchParams::new_unshared(p.clone(), SearchLimit::depth_(1), ZobristHistory::default(), tt.clone());
             let res = engine.search(params);
             let legal_moves = p.legal_moves_slow();
             if legal_moves.num_moves() > 0 {
@@ -1203,13 +1067,9 @@ mod tests {
                 assert!(res.chosen_move.is_null());
             }
             // empty search moves, which is something the engine should handle
-            let params = SearchParams::new_unshared(
-                p.clone(),
-                SearchLimit::depth_(2),
-                ZobristHistory::default(),
-                tt.clone(),
-            )
-            .restrict_moves(vec![]);
+            let params =
+                SearchParams::new_unshared(p.clone(), SearchLimit::depth_(2), ZobristHistory::default(), tt.clone())
+                    .restrict_moves(vec![]);
             let res = engine.search(params);
             assert!(res.chosen_move.is_null());
             let mut search_moves = p.pseudolegal_moves().into_iter().collect_vec();
@@ -1217,14 +1077,10 @@ mod tests {
             search_moves.push(search_moves.first().copied().unwrap_or_default());
             search_moves.push(B::Move::default());
             let multi_pv = search_moves.len() + 3;
-            let params = SearchParams::new_unshared(
-                p,
-                SearchLimit::nodes_(1_234),
-                ZobristHistory::default(),
-                tt.clone(),
-            )
-            .additional_pvs(multi_pv - 1)
-            .restrict_moves(search_moves.clone());
+            let params =
+                SearchParams::new_unshared(p, SearchLimit::nodes_(1_234), ZobristHistory::default(), tt.clone())
+                    .additional_pvs(multi_pv - 1)
+                    .restrict_moves(search_moves.clone());
             let res = engine.search(params);
             assert!(search_moves.contains(&res.chosen_move));
             // assert_eq!(engine.search_state().internal_node_count(), 1_234); // TODO: Assert exact match

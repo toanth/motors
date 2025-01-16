@@ -68,24 +68,13 @@ pub struct SingleFeature {
 impl SingleFeature {
     pub(super) fn new<T: FeatureSubSet>(feature_subset: T, idx: FeatureIndex) -> Self {
         let num_subset_features = feature_subset.num_features();
-        assert!(
-            idx < num_subset_features,
-            "incorrect feature index: {idx} must be less than {num_subset_features}"
-        );
+        assert!(idx < num_subset_features, "incorrect feature index: {idx} must be less than {num_subset_features}");
         let idx = idx + feature_subset.start_idx();
-        Self {
-            num_subset_features,
-            idx,
-            count: 1,
-        }
+        Self { num_subset_features, idx, count: 1 }
     }
 
     pub(super) fn no_feature<T: FeatureSubSet>(sub_feature_set: T) -> Self {
-        Self {
-            num_subset_features: sub_feature_set.num_features(),
-            idx: sub_feature_set.start_idx(),
-            count: 0,
-        }
+        Self { num_subset_features: sub_feature_set.num_features(), idx: sub_feature_set.start_idx(), count: 0 }
     }
 }
 
@@ -112,10 +101,7 @@ pub struct SparseTrace {
 
 impl From<SingleFeature> for SparseTrace {
     fn from(value: SingleFeature) -> Self {
-        Self {
-            map: HashMap::from([(value.idx, value.count)]),
-            phase: 0.0,
-        }
+        Self { map: HashMap::from([(value.idx, value.count)]), phase: 0.0 }
     }
 }
 
@@ -141,10 +127,7 @@ impl TraceTrait for SparseTrace {
         for (index, feature) in &self.map {
             let count: FeatureT = (*feature).try_into().unwrap();
             if count != 0 {
-                res.push(Feature::new(
-                    (*feature).try_into().unwrap(),
-                    (index + idx_offset).try_into().unwrap(),
-                ));
+                res.push(Feature::new((*feature).try_into().unwrap(), (index + idx_offset).try_into().unwrap()));
             }
         }
         res.sort_by_key(|f| f.idx());
@@ -332,10 +315,7 @@ pub trait TraceTrait: Debug {
     /// [`as_features`](Self::as_features) is often smaller than this value.
     /// It is usually not necessary to override this method.
     fn max_num_features(&self) -> usize {
-        self.nested_traces()
-            .iter()
-            .map(|trace| trace.max_num_features())
-            .sum()
+        self.nested_traces().iter().map(|trace| trace.max_num_features()).sum()
     }
 }
 
@@ -375,11 +355,7 @@ impl SimpleTrace {
     /// Create a trace of `num_feature` elements, all initialized to zero.
     /// Also sets the `phase` to zero.
     pub fn for_features(num_features: usize) -> Self {
-        Self {
-            p1: vec![0; num_features],
-            p2: vec![0; num_features],
-            phase: 0.0,
-        }
+        Self { p1: vec![0; num_features], p2: vec![0; num_features], phase: 0.0 }
     }
 }
 

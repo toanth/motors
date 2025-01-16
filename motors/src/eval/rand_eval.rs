@@ -13,9 +13,7 @@ pub struct RandEval {
 
 impl Default for RandEval {
     fn default() -> Self {
-        Self {
-            deterministic: true,
-        }
+        Self { deterministic: true }
     }
 }
 
@@ -46,9 +44,7 @@ impl<B: Board> Eval<B> for RandEval {
     fn eval(&mut self, pos: &B, _ply: usize) -> Score {
         if self.deterministic {
             // deterministic and faster than seeding a rng while still being good enough
-            let random = (pos.hash_pos().0
-                % (MAX_NORMAL_SCORE.0 as i64 - MIN_NORMAL_SCORE.0 as i64 + 1) as u64)
-                as i64;
+            let random = (pos.hash_pos().0 % (MAX_NORMAL_SCORE.0 as i64 - MIN_NORMAL_SCORE.0 as i64 + 1) as u64) as i64;
             Score((random + MIN_NORMAL_SCORE.0 as i64) as ScoreT)
             // too slow (there's probably a way to do this faster while using the rng crate, but the above is good enough)
             // StdRng::seed_from_u64(pos.zobrist_hash().0)

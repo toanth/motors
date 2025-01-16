@@ -52,17 +52,11 @@ impl Coordinates for GridCoordinates {
     type Size = GridSize;
 
     fn flip_up_down(self, size: Self::Size) -> Self {
-        GridCoordinates {
-            row: size.height.0 - 1 - self.row,
-            column: self.column,
-        }
+        GridCoordinates { row: size.height.0 - 1 - self.row, column: self.column }
     }
 
     fn flip_left_right(self, size: Self::Size) -> Self {
-        GridCoordinates {
-            row: self.row,
-            column: size.width.0 - 1 - self.column,
-        }
+        GridCoordinates { row: self.row, column: size.width.0 - 1 - self.column }
     }
 }
 
@@ -97,11 +91,7 @@ impl Display for GridCoordinates {
         if *self == Self::no_coordinates() {
             write!(f, "<invalid>")
         } else {
-            let file = if self.column < 26 {
-                file_to_char(self.column)
-            } else {
-                '?'
-            };
+            let file = if self.column < 26 { file_to_char(self.column) } else { '?' };
             write!(
                 f,
                 "{0}{1}",
@@ -115,17 +105,10 @@ impl Display for GridCoordinates {
 
 impl GridCoordinates {
     pub fn algebraic_coordinates(file: char, rank: usize) -> Res<Self> {
-        ensure!(
-            file.is_ascii_alphabetic(),
-            "file (column) '{}' must be a valid ascii letter",
-            file.to_string().red()
-        );
+        ensure!(file.is_ascii_alphabetic(), "file (column) '{}' must be a valid ascii letter", file.to_string().red());
         let column = char_to_file(file.to_ascii_lowercase());
         let rank = DimT::try_from(rank)?;
-        Ok(GridCoordinates {
-            column,
-            row: rank.wrapping_sub(1),
-        })
+        Ok(GridCoordinates { column, row: rank.wrapping_sub(1) })
     }
 
     pub fn pawn_push(mut self, up: bool) -> Self {
@@ -139,10 +122,7 @@ impl GridCoordinates {
 
     // TODO: Ideally, this shouldn't be necessary
     pub fn no_coordinates() -> Self {
-        Self {
-            row: 0,
-            column: DimT::MAX,
-        }
+        Self { row: 0, column: DimT::MAX }
     }
 }
 
@@ -257,8 +237,8 @@ impl<const H: usize, const W: usize> Display for SmallGridSize<H, W> {
     }
 }
 
-impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
-    Size<SmallGridSquare<H, W, INTERNAL_WIDTH>> for SmallGridSize<H, W>
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Size<SmallGridSquare<H, W, INTERNAL_WIDTH>>
+    for SmallGridSize<H, W>
 {
     fn num_squares(self) -> usize {
         H * W
@@ -268,10 +248,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
         coordinates.bb_idx()
     }
 
-    fn to_coordinates_unchecked(
-        self,
-        internal_key: usize,
-    ) -> SmallGridSquare<H, W, INTERNAL_WIDTH> {
+    fn to_coordinates_unchecked(self, internal_key: usize) -> SmallGridSquare<H, W, INTERNAL_WIDTH> {
         SmallGridSquare::unchecked(internal_key)
     }
 
@@ -284,13 +261,13 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
     }
 }
 
-impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
-    KnownSize<SmallGridSquare<H, W, INTERNAL_WIDTH>> for SmallGridSize<H, W>
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> KnownSize<SmallGridSquare<H, W, INTERNAL_WIDTH>>
+    for SmallGridSize<H, W>
 {
 }
 
-impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
-    RectangularSize<SmallGridSquare<H, W, INTERNAL_WIDTH>> for SmallGridSize<H, W>
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> RectangularSize<SmallGridSquare<H, W, INTERNAL_WIDTH>>
+    for SmallGridSize<H, W>
 {
     fn height(self) -> Height {
         Height(H as u8)
@@ -321,9 +298,7 @@ pub struct SmallGridSquare<const H: usize, const W: usize, const INTERNAL_WIDTH:
     idx: u8,
 }
 
-impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> FromStr
-    for SmallGridSquare<H, W, INTERNAL_WIDTH>
-{
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> FromStr for SmallGridSquare<H, W, INTERNAL_WIDTH> {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -333,9 +308,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> FromStr
     }
 }
 
-impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
-    SmallGridSquare<H, W, INTERNAL_WIDTH>
-{
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquare<H, W, INTERNAL_WIDTH> {
     // In the future, it might make sense to relax those constraints
     const MAX_W: usize = 25; // there are 26 letters in the alphabet, so this ensures a simple 1-based textual representation
     const MAX_H: usize = 35; // the maximum radix for from_char is 36, so this ensures valid heights are between 1 and 36
@@ -361,10 +334,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
     }
 
     pub const fn from_rank_file(rank: DimT, file: DimT) -> Self {
-        Self::from_coordinates(GridCoordinates {
-            row: rank,
-            column: file,
-        })
+        Self::from_coordinates(GridCoordinates { row: rank, column: file })
     }
 
     pub fn from_chars(file: char, rank: char) -> Res<Self> {
@@ -374,14 +344,13 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
             rank.to_digit(H as u32 + 1).ok_or_else(|| {
                 anyhow!("the rank is '{rank}', which does not represent a number between 1 and {H} (the height)")
             })? as usize,
-        ).and_then(|c| GridSize::new(Height(H as DimT), Width(W as DimT)).check_coordinates(c)).map(Self::from_coordinates)
+        )
+        .and_then(|c| GridSize::new(Height(H as DimT), Width(W as DimT)).check_coordinates(c))
+        .map(Self::from_coordinates)
     }
 
     pub fn to_grid_coordinates(self) -> GridCoordinates {
-        GridCoordinates {
-            row: self.row(),
-            column: self.column(),
-        }
+        GridCoordinates { row: self.row(), column: self.column() }
     }
 
     pub fn to_u8(self) -> u8 {
@@ -444,9 +413,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize>
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        (0..H)
-            .flat_map(|i| (INTERNAL_WIDTH * i)..(INTERNAL_WIDTH * i + W))
-            .map(Self::from_bb_index)
+        (0..H).flat_map(|i| (INTERNAL_WIDTH * i)..(INTERNAL_WIDTH * i + W)).map(Self::from_bb_index)
     }
 
     // Ideally, no_coordinates shouldn't be necessary, but sadly there's no `NonMaxU8` (except for a crate that xors U8::MAX on every access)
@@ -461,9 +428,7 @@ impl<const H: usize, const W: usize> SmallGridSquare<H, W, 8> {
     }
 }
 
-impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Display
-    for SmallGridSquare<H, W, INTERNAL_WIDTH>
-{
+impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Display for SmallGridSquare<H, W, INTERNAL_WIDTH> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.to_grid_coordinates().fmt(f)
     }
@@ -477,9 +442,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Coordinates
     fn flip_up_down(self, _: Self::Size) -> Self {
         // hopefully, this `if` and the constant will be evaluated at compile time
         if H.is_power_of_two() && INTERNAL_WIDTH.is_power_of_two() {
-            Self {
-                idx: self.idx ^ Self::UP_DOWN_MASK,
-            }
+            Self { idx: self.idx ^ Self::UP_DOWN_MASK }
         } else {
             Self::from_rank_file(H as DimT - 1 - self.rank(), self.file())
         }
@@ -487,9 +450,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Coordinates
 
     fn flip_left_right(self, _: Self::Size) -> Self {
         if W.is_power_of_two() {
-            Self {
-                idx: self.idx ^ Self::LEFT_RIGHT_MASK,
-            }
+            Self { idx: self.idx ^ Self::LEFT_RIGHT_MASK }
         } else {
             Self::from_rank_file(self.rank(), W as DimT - 1 - self.file())
         }

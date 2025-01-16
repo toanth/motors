@@ -47,12 +47,7 @@ impl<B: Board> Display for SplitPerftRes<B> {
             nps = self.perft_res.nodes * 1_000_000 / self.perft_res.time.as_micros().max(1) as u64
         )?;
         for child in &self.children {
-            write!(
-                f,
-                "\n{0}\t{1}",
-                child.0.compact_formatter(&self.pos),
-                child.1
-            )?;
+            write!(f, "\n{0}\t{1}", child.0.compact_formatter(&self.pos), child.1)?;
         }
         Ok(())
     }
@@ -79,11 +74,7 @@ pub fn perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> PerftRes {
     let nodes = if depth.get() == 0 {
         1
     } else if depth.get() > 2 && parallelize {
-        pos.children()
-            .collect_vec()
-            .par_iter()
-            .map(|pos| do_perft(depth.get() - 1, pos.clone()))
-            .sum()
+        pos.children().collect_vec().par_iter().map(|pos| do_perft(depth.get() - 1, pos.clone())).sum()
     } else {
         do_perft(depth.get(), pos)
     };
@@ -114,41 +105,21 @@ pub fn split_perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> SplitPe
             let Some(new_pos) = pos.clone().make_move(mov) else {
                 continue;
             };
-            let child_nodes = if depth.get() == 1 {
-                1
-            } else {
-                do_perft(depth.get() - 1, new_pos)
-            };
+            let child_nodes = if depth.get() == 1 { 1 } else { do_perft(depth.get() - 1, new_pos) };
             children.push((mov, child_nodes));
             nodes += child_nodes;
         }
     }
     let time = start.elapsed();
-    children.sort_by(|a, b| {
-        a.0.compact_formatter(&pos)
-            .to_string()
-            .cmp(&b.0.compact_formatter(&pos).to_string())
-    });
+    children.sort_by(|a, b| a.0.compact_formatter(&pos).to_string().cmp(&b.0.compact_formatter(&pos).to_string()));
     let perft_res = PerftRes { time, nodes, depth };
-    SplitPerftRes {
-        perft_res,
-        children,
-        pos,
-    }
+    SplitPerftRes { perft_res, children, pos }
 }
 
 pub fn parallel_perft_for<B: Board>(depth: Depth, positions: &[B]) -> PerftRes {
-    let mut res = PerftRes {
-        time: Duration::default(),
-        nodes: 0,
-        depth,
-    };
+    let mut res = PerftRes { time: Duration::default(), nodes: 0, depth };
     for pos in positions {
-        let depth = if depth.get() == 0 || depth >= B::max_perft_depth() {
-            pos.default_perft_depth()
-        } else {
-            depth
-        };
+        let depth = if depth.get() == 0 || depth >= B::max_perft_depth() { pos.default_perft_depth() } else { depth };
         let this_res = perft(depth, pos.clone(), true);
         res.time += this_res.time;
         res.nodes += this_res.nodes;

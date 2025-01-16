@@ -30,11 +30,7 @@ pub struct SearchResult<B: Board> {
 impl<B: Board> SearchResult<B> {
     pub fn move_only(chosen_move: B::Move, pos: B) -> Self {
         debug_assert!(chosen_move.is_null() || pos.is_move_legal(chosen_move));
-        Self {
-            chosen_move,
-            pos,
-            ..Default::default()
-        }
+        Self { chosen_move, pos, ..Default::default() }
     }
 
     pub fn move_and_score(chosen_move: B::Move, score: Score, pos: B) -> Self {
@@ -51,23 +47,13 @@ impl<B: Board> SearchResult<B> {
                 debug_assert!(new_pos.is_move_legal(ponder));
             }
         }
-        Self {
-            chosen_move,
-            score,
-            ponder_move,
-            pos,
-        }
+        Self { chosen_move, score, ponder_move, pos }
     }
 
     pub fn new_from_pv(score: Score, pos: B, pv: &[B::Move]) -> Self {
         debug_assert!(score.verify_valid().is_some());
         // the pv may be empty if search is called in a position where the game is over
-        Self::new(
-            pv.first().copied().unwrap_or_default(),
-            score,
-            pv.get(1).copied(),
-            pos,
-        )
+        Self::new(pv.first().copied().unwrap_or_default(), score, pv.get(1).copied(), pos)
     }
 
     pub fn ponder_move(&self) -> Option<B::Move> {
@@ -77,11 +63,7 @@ impl<B: Board> SearchResult<B> {
 
 impl<B: Board> Display for SearchResult<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "bestmove {}",
-            self.chosen_move.compact_formatter(&self.pos)
-        )?;
+        write!(f, "bestmove {}", self.chosen_move.compact_formatter(&self.pos))?;
         if let Some(ponder) = self.ponder_move() {
             write!(f, " ponder {}", ponder.compact_formatter(&self.pos))?;
         }
@@ -254,12 +236,7 @@ impl Display for TimeControl {
         if self.is_infinite() {
             write!(f, "infinite")
         } else {
-            write!(
-                f,
-                "{0}ms + {1}ms",
-                self.remaining.as_millis(),
-                self.increment.as_millis()
-            )
+            write!(f, "{0}ms + {1}ms", self.remaining.as_millis(), self.increment.as_millis())
         }
     }
 }
@@ -280,25 +257,15 @@ impl FromStr for TimeControl {
         let start_time = Duration::from_secs_f64(start_time);
         let mut increment = Duration::default();
         if let Some(inc_str) = parts.next() {
-            increment = Duration::from_secs_f64(
-                parse_fp_from_str::<f64>(inc_str.trim(), "the increment")?.max(0.0),
-            );
+            increment = Duration::from_secs_f64(parse_fp_from_str::<f64>(inc_str.trim(), "the increment")?.max(0.0));
         }
-        Ok(TimeControl {
-            remaining: start_time,
-            increment,
-            moves_to_go: None,
-        })
+        Ok(TimeControl { remaining: start_time, increment, moves_to_go: None })
     }
 }
 
 impl TimeControl {
     pub fn infinite() -> Self {
-        TimeControl {
-            remaining: Duration::MAX,
-            increment: Duration::from_millis(0),
-            moves_to_go: None,
-        }
+        TimeControl { remaining: Duration::MAX, increment: Duration::from_millis(0), moves_to_go: None }
     }
 
     pub fn is_infinite(&self) -> bool {
@@ -328,29 +295,13 @@ impl TimeControl {
             "infinite\n".to_string()
         } else {
             let t = self.remaining(start).as_millis() / 100;
-            format!(
-                "{min:02}:{s:02}.{ds:01}\n",
-                min = t / 600,
-                s = t % 600 / 10,
-                ds = t % 10
-            )
+            format!("{min:02}:{s:02}.{ds:01}\n", min = t / 600, s = t % 600 / 10, ds = t % 10)
         }
     }
 }
 
 #[derive(
-    Debug,
-    Default,
-    Copy,
-    Clone,
-    Ord,
-    PartialOrd,
-    Eq,
-    PartialEq,
-    Add,
-    AddAssign,
-    SubAssign,
-    derive_more::Display,
+    Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Add, AddAssign, SubAssign, derive_more::Display,
 )]
 #[must_use]
 pub struct Depth(usize);
@@ -480,24 +431,15 @@ impl SearchLimit {
     }
 
     pub fn tc(tc: TimeControl) -> Self {
-        Self {
-            tc,
-            ..Self::infinite()
-        }
+        Self { tc, ..Self::infinite() }
     }
 
     pub fn per_move(fixed_time: Duration) -> Self {
-        Self {
-            fixed_time,
-            ..Self::infinite()
-        }
+        Self { fixed_time, ..Self::infinite() }
     }
 
     pub fn depth(depth: Depth) -> Self {
-        Self {
-            depth,
-            ..Self::infinite()
-        }
+        Self { depth, ..Self::infinite() }
     }
 
     pub fn depth_(depth: usize) -> Self {
@@ -505,10 +447,7 @@ impl SearchLimit {
     }
 
     pub fn mate(depth: Depth) -> Self {
-        Self {
-            mate: depth,
-            ..Self::infinite()
-        }
+        Self { mate: depth, ..Self::infinite() }
     }
 
     pub fn mate_in_moves(num_moves: usize) -> Self {
@@ -516,10 +455,7 @@ impl SearchLimit {
     }
 
     pub fn nodes(nodes: NodesLimit) -> Self {
-        Self {
-            nodes,
-            ..Self::infinite()
-        }
+        Self { nodes, ..Self::infinite() }
     }
 
     pub fn nodes_(nodes: u64) -> Self {

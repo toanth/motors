@@ -47,8 +47,7 @@ pub enum ExtendedFormat {
 /// information to reconstruct the move without the position.
 /// All `Move` functions that take a `Board` parameter assume that the move is pseudolegal for the given board
 /// unless otherwise noted. [`UntrustedMove`] should be used when it's not clear that a move is pseudolegal.
-pub trait Move<B: Board>:
-    Eq + Copy + Clone + Debug + Default + Hash + Send + Sync + for<'a> Arbitrary<'a>
+pub trait Move<B: Board>: Eq + Copy + Clone + Debug + Default + Hash + Send + Sync + for<'a> Arbitrary<'a>
 where
     B: Board<Move = Self>,
 {
@@ -86,12 +85,7 @@ where
 
     /// Returns a longer representation of the move that may require the board, such as long algebraic notation
     /// Implementations of this trait *may* choose to ignore the board and to not require pseudolegality.
-    fn format_extended(
-        self,
-        f: &mut Formatter<'_>,
-        board: &B,
-        _format: ExtendedFormat,
-    ) -> fmt::Result {
+    fn format_extended(self, f: &mut Formatter<'_>, board: &B, _format: ExtendedFormat) -> fmt::Result {
         self.format_compact(f, board)
     }
 
@@ -103,11 +97,7 @@ where
     /// Returns a formatter object that implements `Display` such that it prints the result of `to_extended_text`.
     /// Like [`self.format_extended`], an implementation *may* choose to not require pseudolegality.
     fn extended_formatter(self, pos: &B, format: ExtendedFormat) -> ExtendedFormatter<B> {
-        ExtendedFormatter {
-            pos,
-            mov: self,
-            format,
-        }
+        ExtendedFormatter { pos, mov: self, format }
     }
 
     /// A convenience method based on `format_extended` that returns a `String`.
@@ -126,11 +116,7 @@ where
     fn from_compact_text(s: &str, board: &B) -> Res<B::Move> {
         let (remaining, parsed) = Self::parse_compact_text(s, board)?;
         if !remaining.is_empty() {
-            bail!(
-                "Additional input after move {0}: '{1}'",
-                parsed.compact_formatter(board),
-                remaining
-            );
+            bail!("Additional input after move {0}: '{1}'", parsed.compact_formatter(board), remaining);
         }
         Ok(parsed)
     }
@@ -147,11 +133,7 @@ where
     fn from_extended_text(s: &str, board: &B) -> Res<B::Move> {
         let (remaining, parsed) = Self::parse_extended_text(s, board)?;
         if !remaining.is_empty() {
-            bail!(
-                "Additional input after move {0}: '{1}'",
-                parsed.compact_formatter(board),
-                remaining
-            );
+            bail!("Additional input after move {0}: '{1}'", parsed.compact_formatter(board), remaining);
         }
         Ok(parsed)
     }

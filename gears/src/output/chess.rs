@@ -22,9 +22,7 @@ pub(super) struct ChessOutput {
 
 impl Default for ChessOutput {
     fn default() -> Self {
-        Self {
-            writer: TextWriter::new_for(TextStream::Stdout(stdout()), vec![Info]),
-        }
+        Self { writer: TextWriter::new_for(TextStream::Stdout(stdout()), vec![Info]) }
     }
 }
 
@@ -60,10 +58,7 @@ impl<B: RectangularBoard> Output<B> for ChessOutput {
         if last_move.is_none() {
             writeln!(res, "Starting new game!").unwrap();
         }
-        pretty_as_chessboard(
-            pos,
-            pos.pretty_formatter(Some(CharType::Ascii), last_move, opts),
-        )
+        pretty_as_chessboard(pos, pos.pretty_formatter(Some(CharType::Ascii), last_move, opts))
     }
 }
 
@@ -92,10 +87,7 @@ pub fn guess_colorgrad_color(color: colored::Color) -> colorgrad::Color {
     colorgrad::Color::from_html(name).expect("incorrect color name")
 }
 
-fn pretty_as_chessboard<B: RectangularBoard>(
-    pos: &B,
-    formatter: Box<dyn BoardFormatter<B>>,
-) -> String {
+fn pretty_as_chessboard<B: RectangularBoard>(pos: &B, formatter: Box<dyn BoardFormatter<B>>) -> String {
     let p = pos.clone();
     let flip = formatter.flip_board();
     let formatter = AdaptFormatter {
@@ -104,13 +96,9 @@ fn pretty_as_chessboard<B: RectangularBoard>(
         display_piece: Box::new(move |square, width, _| {
             let piece = p.colored_piece_on(square);
             if let Some(color) = piece.color() {
-                format!(
-                    "{0:^1$}",
-                    piece.to_char(CharType::Ascii, &p.settings()),
-                    width
-                )
-                .color(display_color(color))
-                .to_string()
+                format!("{0:^1$}", piece.to_char(CharType::Ascii, &p.settings()), width)
+                    .color(display_color(color))
+                    .to_string()
             } else {
                 " ".repeat(width)
             }
@@ -148,11 +136,7 @@ fn pretty_as_chessboard<B: RectangularBoard>(
             };
             let [r, g, b, _] = bg_color.to_rgba8();
             let bg_color = TrueColor { r, g, b };
-            let piece = formatter
-                .display_piece(square, 3)
-                .color(color)
-                .bold()
-                .on_color(bg_color);
+            let piece = formatter.display_piece(square, 3).color(color).bold().on_color(bg_color);
             write!(&mut line, "{piece}").unwrap();
         }
         let y = if flip { y + 1 } else { pos.height() - y };

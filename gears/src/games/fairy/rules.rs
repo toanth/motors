@@ -21,8 +21,8 @@ use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{Piece, PieceId};
 use crate::games::fairy::rules::GameLoss::InRowAtLeast;
 use crate::games::fairy::{
-    ColorInfo, FairyBitboard, FairyCastleInfo, FairyColor, FairySize, RawFairyBitboard,
-    UnverifiedFairyBoard, MAX_NUM_PIECE_TYPES,
+    ColorInfo, FairyBitboard, FairyCastleInfo, FairyColor, FairySize, RawFairyBitboard, UnverifiedFairyBoard,
+    MAX_NUM_PIECE_TYPES,
 };
 use crate::games::mnk::{MNKBoard, MnkSettings};
 use crate::games::{chess, DimT, Settings};
@@ -162,18 +162,13 @@ impl Rules {
     }
 
     pub fn pieces(&self) -> impl Iterator<Item = (PieceId, &Piece)> {
-        self.pieces
-            .iter()
-            .enumerate()
-            .map(|(id, piece)| (PieceId::new(id), piece))
+        self.pieces.iter().enumerate().map(|(id, piece)| (PieceId::new(id), piece))
     }
     pub fn matching_piece_ids<Pred: Fn(&Piece) -> bool + Copy>(
         &self,
         pred: Pred,
     ) -> impl Iterator<Item = PieceId> + use<'_, Pred> {
-        self.pieces()
-            .filter(move |(_id, p)| pred(p))
-            .map(|(id, _)| id)
+        self.pieces().filter(move |(_id, p)| pred(p)).map(|(id, _)| id)
     }
     pub fn royals(&self) -> impl Iterator<Item = PieceId> + use<'_> {
         self.matching_piece_ids(|p| p.royal)
@@ -208,29 +203,14 @@ impl Rules {
 
     // Used for mnk games and many other variants
     fn mnk_colors() -> [ColorInfo; NUM_COLORS] {
-        [
-            ColorInfo {
-                ascii_char: 'x',
-                name: "X".to_string(),
-            },
-            ColorInfo {
-                ascii_char: 'o',
-                name: "O".to_string(),
-            },
-        ]
+        [ColorInfo { ascii_char: 'x', name: "X".to_string() }, ColorInfo { ascii_char: 'o', name: "O".to_string() }]
     }
 
     // Used for chess and many other variants
     fn chess_colors() -> [ColorInfo; NUM_COLORS] {
         [
-            ColorInfo {
-                ascii_char: 'w',
-                name: "white".to_string(),
-            },
-            ColorInfo {
-                ascii_char: 'b',
-                name: "black".to_string(),
-            },
+            ColorInfo { ascii_char: 'w', name: "white".to_string() },
+            ColorInfo { ascii_char: 'b', name: "black".to_string() },
         ]
     }
 
@@ -266,11 +246,7 @@ impl Rules {
     pub fn shatranj() -> Self {
         let pieces = Piece::shatranj_pieces();
         let colors = Self::chess_colors();
-        let game_loss = vec![
-            GameLoss::Checkmate,
-            GameLoss::NoMoves,
-            GameLoss::NoNonRoyalsExceptRecapture,
-        ];
+        let game_loss = vec![GameLoss::Checkmate, GameLoss::NoMoves, GameLoss::NoNonRoyalsExceptRecapture];
         let draw = vec![Draw::NoMoves, Draw::Counter(100), Draw::Repetition(3)];
         let startpos_fen = "shatranj rnakfanr/pppppppp/8/8/8/8/PPPPPPPP/RNAKFANR w 0 1".to_string();
         // let legality = PseudoLegal;

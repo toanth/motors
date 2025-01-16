@@ -18,12 +18,7 @@ pub struct PrecomputedZobristKeys {
 }
 
 impl PrecomputedZobristKeys {
-    pub fn piece_key(
-        &self,
-        piece: ChessPieceType,
-        color: ChessColor,
-        square: ChessSquare,
-    ) -> PosHash {
+    pub fn piece_key(&self, piece: ChessPieceType, color: ChessColor, square: ChessSquare) -> PosHash {
         self.piece_square_keys[square.bb_idx() * 12 + piece as usize * 2 + color as usize]
     }
 }
@@ -38,11 +33,7 @@ const INCREMENT: u128 = (6_364_136_223_846_793_005 << 64) + 1_442_695_040_888_96
 // the pcg xsl rr 128 64 oneseq generator, aka pcg64_oneseq (most other pcg generators have additional problems)
 impl PcgXslRr128_64Oneseq {
     const fn new(seed: u128) -> Self {
-        Self(
-            seed.wrapping_add(INCREMENT)
-                .wrapping_mul(MUTLIPLIER)
-                .wrapping_add(INCREMENT),
-        )
+        Self(seed.wrapping_add(INCREMENT).wrapping_mul(MUTLIPLIER).wrapping_add(INCREMENT))
     }
 
     // const mut refs aren't stable yet, so returning the new state is a workaround
@@ -51,10 +42,7 @@ impl PcgXslRr128_64Oneseq {
         self.0 = self.0.wrapping_add(INCREMENT);
         let upper = (self.0 >> 64) as u64;
         let xored = upper ^ ((self.0 & u64::MAX as u128) as u64);
-        (
-            self,
-            PosHash(xored.rotate_right((upper >> (122 - 64)) as u32)),
-        )
+        (self, PosHash(xored.rotate_right((upper >> (122 - 64)) as u32)))
     }
 }
 
@@ -100,9 +88,8 @@ impl Chessboard {
                 }
             }
         }
-        res ^= self.ep_square.map_or(PosHash(0), |square| {
-            PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize]
-        });
+        res ^=
+            self.ep_square.map_or(PosHash(0), |square| PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize]);
         res ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         if self.active_player == Black {
             res ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
@@ -150,18 +137,10 @@ mod tests {
 
     #[test]
     fn simple_test() {
-        let a1 = PRECOMPUTED_ZOBRIST_KEYS
-            .piece_key(Bishop, White, ChessSquare::from_chars('f', '4').unwrap())
-            .0;
-        let b1 = PRECOMPUTED_ZOBRIST_KEYS
-            .piece_key(Bishop, White, ChessSquare::from_chars('g', '5').unwrap())
-            .0;
-        let a2 = PRECOMPUTED_ZOBRIST_KEYS
-            .piece_key(Knight, Black, ChessSquare::from_chars('h', '5').unwrap())
-            .0;
-        let b2 = PRECOMPUTED_ZOBRIST_KEYS
-            .piece_key(Knight, Black, ChessSquare::from_chars('g', '4').unwrap())
-            .0;
+        let a1 = PRECOMPUTED_ZOBRIST_KEYS.piece_key(Bishop, White, ChessSquare::from_chars('f', '4').unwrap()).0;
+        let b1 = PRECOMPUTED_ZOBRIST_KEYS.piece_key(Bishop, White, ChessSquare::from_chars('g', '5').unwrap()).0;
+        let a2 = PRECOMPUTED_ZOBRIST_KEYS.piece_key(Knight, Black, ChessSquare::from_chars('h', '5').unwrap()).0;
+        let b2 = PRECOMPUTED_ZOBRIST_KEYS.piece_key(Knight, Black, ChessSquare::from_chars('g', '4').unwrap()).0;
         assert_ne!(a1 ^ a2, b1 ^ b2); // used to be bugged
         let position = Chessboard::from_name("kiwipete").unwrap();
         let hash = position.hash;
@@ -193,21 +172,12 @@ mod tests {
                 assert!((12..52).contains(&different_bits));
             }
         }
-        assert!(
-            collisions.is_empty(),
-            "num collisions: {0} out of {1}",
-            collisions.len(),
-            hashes.len()
-        );
+        assert!(collisions.is_empty(), "num collisions: {0} out of {1}", collisions.len(), hashes.len());
     }
 
     #[test]
     fn ep_test() {
-        let position = Chessboard::from_fen(
-            "4r1k1/p4pp1/6bp/2p5/r2p4/P4PPP/1P2P3/2RRB1K1 w - - 1 15",
-            Strict,
-        )
-        .unwrap();
+        let position = Chessboard::from_fen("4r1k1/p4pp1/6bp/2p5/r2p4/P4PPP/1P2P3/2RRB1K1 w - - 1 15", Strict).unwrap();
         assert_eq!(position.hash_pos(), position.compute_zobrist());
         let mov = ChessMove::new(
             ChessSquare::from_rank_file(1, E_FILE_NO),
@@ -232,11 +202,7 @@ mod tests {
                 let Some(new_pos) = pos.make_move(m) else {
                     continue;
                 };
-                assert!(
-                    new_pos.debug_verify_invariants(Strict).is_ok(),
-                    "{pos} {}",
-                    m.compact_formatter(&pos)
-                );
+                assert!(new_pos.debug_verify_invariants(Strict).is_ok(), "{pos} {}", m.compact_formatter(&pos));
                 if !(m.is_double_pawn_push()
                     || m.is_capture(&pos)
                     || m.is_promotion()

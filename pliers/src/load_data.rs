@@ -94,10 +94,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         // This would be a great time to use the `.remainder()` method, but that isn't stable :/
         let wdl = input.next().ok_or_else(|| anyhow!("Missing wdl"))?;
         let wdl = wdl.trim_matches(IGNORED);
-        if let Some(result) = GameResult::from_str(wdl)
-            .ok()
-            .and_then(|val| val.check_finished())
-        {
+        if let Some(result) = GameResult::from_str(wdl).ok().and_then(|val| val.check_finished()) {
             return Ok(Outcome::new(result.into()));
         }
         if let Ok(parsed) = parse_fp_from_str(wdl, "wdl") {
@@ -106,24 +103,15 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         bail!("'{}' is not a valid wdl", wdl.red())
     }
 
-    fn read_annotated_fen(
-        input: &str,
-        perspective: Perspective,
-        weight: Float,
-    ) -> Res<ParseResult<B>> {
+    fn read_annotated_fen(input: &str, perspective: Perspective, weight: Float) -> Res<ParseResult<B>> {
         let mut input = tokens(input);
         let pos = B::read_fen_and_advance_input(&mut input, Relaxed)?;
         // skip up to one token between the end of the fen and the wdl
-        let mut outcome =
-            Self::parse_wdl(&mut input).or_else(|err| Self::parse_wdl(&mut input).or(Err(err)))?;
+        let mut outcome = Self::parse_wdl(&mut input).or_else(|err| Self::parse_wdl(&mut input).or(Err(err)))?;
         if perspective == SideToMove && pos.active_player() == B::Color::second() {
             outcome.0 = 1.0 - outcome.0;
         }
-        Ok(ParseResult {
-            pos,
-            outcome,
-            weight,
-        })
+        Ok(ParseResult { pos, outcome, weight })
     }
 
     fn load_datapoint_from_annotated_fen(
@@ -133,19 +121,10 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         weight: Float,
         dataset: &mut Dataset<E::D>,
     ) -> Res<()> {
-        let parse_res = Self::read_annotated_fen(input, perspective, weight).map_err(|err| {
-            anyhow!(
-                "Error in line {0}: Couldn't parse FEN '{1}': {err}",
-                line_num + 1,
-                input.bold()
-            )
-        })?;
+        let parse_res = Self::read_annotated_fen(input, perspective, weight)
+            .map_err(|err| anyhow!("Error in line {0}: Couldn't parse FEN '{1}': {err}", line_num + 1, input.bold()))?;
         for datapoint in E::Filter::filter(parse_res) {
-            dataset.push(E::extract_features(
-                &datapoint.pos,
-                datapoint.outcome,
-                datapoint.weight,
-            ));
+            dataset.push(E::extract_features(&datapoint.pos, datapoint.outcome, datapoint.weight));
         }
         Ok(())
     }
@@ -183,13 +162,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
             .par_bridge()
             .try_fold(id, |(mut dataset, num_lines_so_far), (line_num, line)| {
                 let line = line.map_err(|err| anyhow!("Failed to read line {line_num}: {err}"))?;
-                Self::load_datapoint_from_annotated_fen(
-                    &line,
-                    line_num,
-                    perspective,
-                    weight,
-                    &mut dataset,
-                )?;
+                Self::load_datapoint_from_annotated_fen(&line, line_num, perspective, weight, &mut dataset)?;
                 if line_num % 100_000 == 0 {
                     println!("Loading...  Read {line_num} lines so far");
                 }
@@ -200,10 +173,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
                 let res: Res<(Dataset<E::D>, i32)> = Ok((a, a_lines + b_lines));
                 res
             })?;
-        println!(
-            "Read {num_lines} fens in total, after filtering there are {} positions",
-            dataset.data().len()
-        );
+        println!("Read {num_lines} fens in total, after filtering there are {} positions", dataset.data().len());
         Ok(dataset)
     }
 }

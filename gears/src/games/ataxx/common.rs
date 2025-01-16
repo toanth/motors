@@ -45,11 +45,7 @@ pub enum AtaxxPieceType {
 
 impl Display for AtaxxPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.to_char(CharType::Unicode, &AtaxxSettings::default())
-        )
+        write!(f, "{}", self.to_char(CharType::Unicode, &AtaxxSettings::default()))
     }
 }
 
@@ -99,11 +95,7 @@ pub enum ColoredAtaxxPieceType {
 
 impl Display for ColoredAtaxxPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.to_char(CharType::Unicode, &AtaxxSettings::default())
-        )
+        write!(f, "{}", self.to_char(CharType::Unicode, &AtaxxSettings::default()))
     }
 }
 
@@ -226,20 +218,14 @@ impl Move<AtaxxBoard> for AtaxxMove {
             (&s[2..], u8::MAX, first_square)
         };
 
-        let res = Self {
-            source: from,
-            target: to_square,
-        };
+        let res = Self { source: from, target: to_square };
         if !board.is_move_pseudolegal(res) {
             if board.is_occupied(to_square) {
                 bail!("The square {} is not empty", to_square.to_string().bold())
             } else if let Some(from_square) = res.src_square_in(&board) {
                 bail!("There is no legal move from {from_square} to {to_square}");
             }
-            bail!(
-                "No piece can create a clone of itself on {}",
-                to_square.to_string().red()
-            )
+            bail!("No piece can create a clone of itself on {}", to_square.to_string().red())
         }
 
         Ok((remaining, res))
@@ -272,17 +258,11 @@ impl AtaxxMove {
     }
 
     pub fn cloning(square: AtaxxSquare) -> Self {
-        Self {
-            target: square,
-            source: u8::MAX,
-        }
+        Self { target: square, source: u8::MAX }
     }
 
     pub fn leaping(source: AtaxxSquare, target: AtaxxSquare) -> Self {
-        Self {
-            source: source.to_u8(),
-            target,
-        }
+        Self { source: source.to_u8(), target }
     }
 
     pub fn typ(self) -> AtaxxMoveType {

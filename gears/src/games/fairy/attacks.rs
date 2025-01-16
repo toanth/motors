@@ -25,14 +25,12 @@ use crate::games::fairy::pieces::ColoredPieceId;
 use crate::games::fairy::rules::CheckRules;
 use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::{
-    CastlingMoveInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairyPiece,
-    FairySize, FairySquare, RawFairyBitboard, Side, UnverifiedFairyBoard,
+    CastlingMoveInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairyPiece, FairySize, FairySquare,
+    RawFairyBitboard, Side, UnverifiedFairyBoard,
 };
 use crate::games::{char_to_file, Color, ColoredPiece, ColoredPieceType, DimT, Size};
 use crate::general::bitboards::{Bitboard, RawBitboard, RayDirections};
-use crate::general::board::{
-    BitboardBoard, Board, BoardHelpers, PieceTypeOf, Strictness, UnverifiedBoard,
-};
+use crate::general::board::{BitboardBoard, Board, BoardHelpers, PieceTypeOf, Strictness, UnverifiedBoard};
 use crate::general::common::{Res, Tokens};
 use crate::general::move_list::MoveList;
 use crate::general::squares::{CompactSquare, RectangularCoordinates, RectangularSize};
@@ -53,9 +51,7 @@ pub enum SliderDirections {
     Rook,
     Bishop,
     Queen,
-    Rider {
-        precomputed: Box<[RawFairyBitboard]>,
-    },
+    Rider { precomputed: Box<[RawFairyBitboard]> },
 }
 
 // not const, which allows using ranges and for loops
@@ -98,10 +94,7 @@ impl LeapingBitboards {
         Self(leaper(n, m, false, size))
     }
 
-    pub(super) fn range<
-        Iter1: Iterator<Item = isize> + Clone,
-        Iter2: Iterator<Item = isize> + Clone,
-    >(
+    pub(super) fn range<Iter1: Iterator<Item = isize> + Clone, Iter2: Iterator<Item = isize> + Clone>(
         horizontal_range: Iter1,
         vertical_range: Iter2,
         size: FairySize,
@@ -109,8 +102,7 @@ impl LeapingBitboards {
         let mut res = vec![RawFairyBitboard::default(); size.num_squares()].into_boxed_slice();
         for idx in 0..size.num_squares() {
             let sq = size.idx_to_coordinates(idx as DimT);
-            let bb =
-                leaper_attack_range(horizontal_range.clone(), vertical_range.clone(), sq, size);
+            let bb = leaper_attack_range(horizontal_range.clone(), vertical_range.clone(), sq, size);
             res[idx] = bb;
         }
         LeapingBitboards(res)
@@ -118,18 +110,12 @@ impl LeapingBitboards {
 
     pub(super) fn combine(mut self, other: LeapingBitboards) -> Self {
         assert_eq!(self.0.len(), other.0.len());
-        self.0
-            .iter_mut()
-            .zip(other.0.iter())
-            .for_each(|(a, b)| *a |= b);
+        self.0.iter_mut().zip(other.0.iter()).for_each(|(a, b)| *a |= b);
         self
     }
     pub(super) fn remove(mut self, other: LeapingBitboards) -> Self {
         assert_eq!(self.0.len(), other.0.len());
-        self.0
-            .iter_mut()
-            .zip(other.0.iter())
-            .for_each(|(a, b)| *a &= !b);
+        self.0.iter_mut().zip(other.0.iter()).for_each(|(a, b)| *a &= !b);
         self
     }
 }
@@ -249,11 +235,7 @@ impl GenPieceAttackKind {
             capture_condition: CaptureCondition::Never,
         }
     }
-    pub fn pawn_capture(
-        typ: AttackTypes,
-        condition: GenAttacksCondition,
-        bb_filter: AttackBitboardFilter,
-    ) -> Self {
+    pub fn pawn_capture(typ: AttackTypes, condition: GenAttacksCondition, bb_filter: AttackBitboardFilter) -> Self {
         Self {
             required: RequiredForAttack::PieceOnBoard,
             typ,
@@ -323,12 +305,7 @@ impl GenPieceAttackKind {
             //     }
             // }
             &AttackTypes::Castling(side) => {
-                if let Some(sq) = pos
-                    .0
-                    .castling_info
-                    .player(piece_id.color().unwrap())
-                    .king_dest_sq(side)
-                {
+                if let Some(sq) = pos.0.castling_info.player(piece_id.color().unwrap()).king_dest_sq(side) {
                     FairyBitboard::single_piece_for(sq, size).raw()
                 } else {
                     RawFairyBitboard::default()
@@ -352,21 +329,14 @@ impl GenPieceAttackKind {
         match self.condition {
             Always => true,
             GenAttacksCondition::Player(color) => piece.color().is_some_and(|c| c == color),
-            GenAttacksCondition::CanCastle(side) => {
-                pos.0.castling_info.can_castle(pos.active_player(), side)
-            }
+            GenAttacksCondition::CanCastle(side) => pos.0.castling_info.can_castle(pos.active_player(), side),
             GenAttacksCondition::OnRank(rank, color) => {
                 piece.color().is_some_and(|c| c == color) && piece.coordinates.rank() == rank
             }
         }
     }
 
-    pub fn attacks(
-        &self,
-        piece: FairyPiece,
-        pos: &FairyBoard,
-        mode: AttackMode,
-    ) -> Option<PieceAttackBB> {
+    pub fn attacks(&self, piece: FairyPiece, pos: &FairyBoard, mode: AttackMode) -> Option<PieceAttackBB> {
         if !self.check_conditions(piece, pos, mode) {
             return None;
         }
@@ -404,12 +374,7 @@ impl PieceAttackBB {
             CaptureCondition::Never => false,
         }
     }
-    pub fn insert_moves<L: MoveList<FairyBoard>>(
-        &self,
-        list: &mut L,
-        pos: &FairyBoard,
-        piece: FairyPiece,
-    ) {
+    pub fn insert_moves<L: MoveList<FairyBoard>>(&self, list: &mut L, pos: &FairyBoard, piece: FairyPiece) {
         let bb = FairyBitboard::new(self.bb(), pos.size());
         let from = piece.coordinates;
         for to in bb.ones() {
@@ -456,11 +421,8 @@ impl AttackBitboardFilter {
             AttackBitboardFilter::Rank(rank) => FairyBitboard::rank_for(rank, pos.size()),
             // AttackBitboardFilter::File(file) => FairyBitboard::file_for(file, pos.size()),
             AttackBitboardFilter::PawnCapture => {
-                let ep_bb = pos
-                    .0
-                    .ep
-                    .map(|sq| FairyBitboard::single_piece_for(sq, pos.size()).raw())
-                    .unwrap_or_default();
+                let ep_bb =
+                    pos.0.ep.map(|sq| FairyBitboard::single_piece_for(sq, pos.size()).raw()).unwrap_or_default();
                 return ep_bb | pos.player_bb(!us).raw();
             } // AttackBitboardFilter::Custom(bb) => return bb,
         };
@@ -502,10 +464,7 @@ impl MoveKind {
         pos: &FairyBoard,
     ) {
         let promos = &pos.get_rules().pieces[attack.piece.uncolor().val()].promotions;
-        if !promos
-            .squares
-            .is_bit_set_at(pos.size().internal_key(target))
-        {
+        if !promos.squares.is_bit_set_at(pos.size().internal_key(target)) {
             list.push(attack.kind.to_move_kind(attack.piece));
         } else {
             for &piece in &promos.pieces {
@@ -597,22 +556,14 @@ impl FairyBoard {
         self.gen_attacks_impl(f, self.active_player(), AttackMode::All);
     }
 
-    fn gen_attacks_impl<F: FnMut(FairyPiece, &PieceAttackBB)>(
-        &self,
-        mut f: F,
-        color: FairyColor,
-        mode: AttackMode,
-    ) {
+    fn gen_attacks_impl<F: FnMut(FairyPiece, &PieceAttackBB)>(&self, mut f: F, color: FairyColor, mode: AttackMode) {
         for (id, piece_type) in self.get_rules().pieces() {
             for attack_kind in &piece_type.attacks {
                 match attack_kind.required {
                     RequiredForAttack::PieceOnBoard => {
                         let bb = self.colored_piece_bb(color, id);
                         for start in bb.ones() {
-                            let piece = FairyPiece {
-                                symbol: ColoredPieceId::new(color, id),
-                                coordinates: start,
-                            };
+                            let piece = FairyPiece { symbol: ColoredPieceId::new(color, id), coordinates: start };
                             if let Some(bb) = attack_kind.attacks(piece, self, mode) {
                                 f(piece, &bb);
                             }
@@ -661,14 +612,10 @@ impl FairyBoard {
 
     pub(super) fn k_in_row_at(&self, k: usize, sq: FairySquare, color: FairyColor) -> bool {
         let blockers = !self.player_bb(color);
-        debug_assert!((blockers.raw()
-            & RawFairyBitboard::single_piece_at(self.size().internal_key(sq)))
-        .is_zero());
+        debug_assert!((blockers.raw() & RawFairyBitboard::single_piece_at(self.size().internal_key(sq))).is_zero());
 
         for dir in RayDirections::iter() {
-            if (FairyBitboard::slider_attacks(sq, blockers, dir) & self.player_bb(color)).num_ones()
-                >= k - 1
-            {
+            if (FairyBitboard::slider_attacks(sq, blockers, dir) & self.player_bb(color)).num_ones() >= k - 1 {
                 return true;
             }
         }
@@ -693,15 +640,14 @@ impl UnverifiedFairyBoard {
                 castling_word.red()
             );
 
-            let color = if c.is_ascii_uppercase() {
-                FairyColor::first()
-            } else {
-                FairyColor::second()
-            };
+            let color = if c.is_ascii_uppercase() { FairyColor::first() } else { FairyColor::second() };
             let king_bb = self.castling_bb_for(color);
-            ensure!(king_bb.is_single_piece(),
+            ensure!(
+                king_bb.is_single_piece(),
                 "Castling is only legal when there is a single royal piece, but the {0} player has {1}",
-                self.get_rules().colors[color.idx()].name, king_bb.num_ones());
+                self.get_rules().colors[color.idx()].name,
+                king_bb.num_ones()
+            );
 
             let lowercase_c = c.to_ascii_lowercase();
             let file = if (lowercase_c == 'k' || lowercase_c == 'q') && size.width.val() == 8 {
@@ -714,37 +660,16 @@ impl UnverifiedFairyBoard {
                 char_to_file(lowercase_c)
             };
             let king_sq = king_bb.ones().next().unwrap();
-            let side = if file > king_sq.file() {
-                Kingside
-            } else {
-                Queenside
-            };
-            let king_dest_file = if side == Kingside {
-                b'g' - b'a'
-            } else {
-                b'c' - b'a'
-            };
-            let rook_dest_file = if side == Kingside {
-                king_dest_file - 1
-            } else {
-                king_dest_file + 1
-            };
-            let move_info = CastlingMoveInfo {
-                rook_file: file,
-                king_dest_file,
-                rook_dest_file,
-                fen_char: c as u8,
-            };
+            let side = if file > king_sq.file() { Kingside } else { Queenside };
+            let king_dest_file = if side == Kingside { b'g' - b'a' } else { b'c' - b'a' };
+            let rook_dest_file = if side == Kingside { king_dest_file - 1 } else { king_dest_file + 1 };
+            let move_info = CastlingMoveInfo { rook_file: file, king_dest_file, rook_dest_file, fen_char: c as u8 };
             info.players[color.idx()].sides[side as usize] = Some(move_info);
         }
         Ok(info)
     }
 
-    pub(super) fn read_castling_and_ep_fen_parts(
-        mut self,
-        words: &mut Tokens,
-        _strictness: Strictness,
-    ) -> Res<Self> {
+    pub(super) fn read_castling_and_ep_fen_parts(mut self, words: &mut Tokens, _strictness: Strictness) -> Res<Self> {
         if self.get_rules().has_castling {
             let Some(castling_word) = words.next() else {
                 bail!("FEN ends after color to move, missing castling rights")
@@ -752,14 +677,8 @@ impl UnverifiedFairyBoard {
             self.castling_info = self.parse_castling_info(castling_word)?;
         }
         if self.get_rules().has_ep {
-            let Some(ep_square) = words.next() else {
-                bail!("FEN ends before en passant square")
-            };
-            self.ep = if ep_square == "-" {
-                None
-            } else {
-                Some(FairySquare::from_str(ep_square)?)
-            };
+            let Some(ep_square) = words.next() else { bail!("FEN ends before en passant square") };
+            self.ep = if ep_square == "-" { None } else { Some(FairySquare::from_str(ep_square)?) };
         }
         Ok(self)
     }

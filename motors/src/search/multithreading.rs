@@ -5,8 +5,7 @@ use crate::search::multithreading::SearchThreadType::{Auxiliary, Main};
 use crate::search::multithreading::SearchType::{Infinite, Normal, Ponder};
 use crate::search::tt::{TTEntry, TT};
 use crate::search::{
-    AbstractEvalBuilder, AbstractSearchState, AbstractSearcherBuilder, Engine, EngineInfo,
-    SearchParams,
+    AbstractEvalBuilder, AbstractSearchState, AbstractSearcherBuilder, Engine, EngineInfo, SearchParams,
 };
 use colored::Colorize;
 use dyn_clone::clone_box;
@@ -236,10 +235,7 @@ impl<B: Board> AtomicSearchState<B> {
     }
 
     pub(super) fn set_ponder_move(&self, ponder_move: Option<B::Move>) {
-        self.ponder_move.store(
-            ponder_move.unwrap_or_default().to_underlying().into(),
-            Relaxed,
-        );
+        self.ponder_move.store(ponder_move.unwrap_or_default().to_underlying().into(), Relaxed);
     }
 }
 
@@ -277,8 +273,12 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                 _ => {
                     let mut guard = info.lock().unwrap();
                     let Some(val) = guard.options.get_mut(&name) else {
-                        bail!("The engine '{0}' doesn't provide the option '{1}', so it can't be set to value '{2}'",
-                            guard.engine.short_name().bold(), name.to_string().red(), value.bold());
+                        bail!(
+                            "The engine '{0}' doesn't provide the option '{1}', so it can't be set to value '{2}'",
+                            guard.engine.short_name().bold(),
+                            name.to_string().red(),
+                            value.bold()
+                        );
                     };
                     self.engine.set_option(name, val, value)?
                 }
@@ -433,27 +433,16 @@ impl<B: Board> EngineWrapper<B> {
     }
 
     fn start_search_with(&mut self, params: SearchParams<B>, threads: usize) -> Res<()> {
-        assert_eq!(
-            self.main_thread_data.atomic_search_data.len(),
-            self.auxiliary.len() + 1
-        );
+        assert_eq!(self.main_thread_data.atomic_search_data.len(), self.auxiliary.len() + 1);
         for (i, o) in &mut self.auxiliary.iter_mut().enumerate().take(threads - 1) {
-            Self::send_start_search(
-                o,
-                params.auxiliary(self.main_thread_data.atomic_search_data[i + 1].clone()),
-            )?;
+            Self::send_start_search(o, params.auxiliary(self.main_thread_data.atomic_search_data[i + 1].clone()))?;
         }
         Self::send_start_search(&mut self.main, params)
     }
 
-    fn send_start_search(
-        sender: &mut Sender<EngineReceives<B>>,
-        params: SearchParams<B>,
-    ) -> Res<()> {
+    fn send_start_search(sender: &mut Sender<EngineReceives<B>>, params: SearchParams<B>) -> Res<()> {
         debug_assert!(Arc::strong_count(&params.atomic) >= 2);
-        sender
-            .send(Search(params))
-            .map_err(|err| anyhow!(err.to_string()))
+        sender.send(Search(params)).map_err(|err| anyhow!(err.to_string()))
     }
 
     pub fn set_tt(&mut self, tt: TT) {
@@ -467,14 +456,9 @@ impl<B: Board> EngineWrapper<B> {
     }
 
     pub fn resize_threads(&mut self, count: usize) {
-        self.auxiliary.resize_with(count - 1, || {
-            self.searcher_builder
-                .build_in_new_thread(self.eval_builder.build())
-                .0
-        });
-        self.main_thread_data
-            .atomic_search_data
-            .resize_with(count, || Arc::new(AtomicSearchState::default()));
+        self.auxiliary
+            .resize_with(count - 1, || self.searcher_builder.build_in_new_thread(self.eval_builder.build()).0);
+        self.main_thread_data.atomic_search_data.resize_with(count, || Arc::new(AtomicSearchState::default()));
     }
 
     pub fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()> {
@@ -497,19 +481,11 @@ impl<B: Board> EngineWrapper<B> {
             Ok(())
         } else {
             for aux in &mut self.auxiliary {
-                aux.send(SetOption(
-                    name.clone(),
-                    value.clone(),
-                    self.main_thread_data.engine_info.clone(),
-                ))
-                .map_err(|err| anyhow!(err.to_string()))?;
+                aux.send(SetOption(name.clone(), value.clone(), self.main_thread_data.engine_info.clone()))
+                    .map_err(|err| anyhow!(err.to_string()))?;
             }
             self.main
-                .send(SetOption(
-                    name,
-                    value,
-                    self.main_thread_data.engine_info.clone(),
-                ))
+                .send(SetOption(name, value, self.main_thread_data.engine_info.clone()))
                 .map_err(|err| anyhow!(err.to_string()))
         }
     }
@@ -520,26 +496,19 @@ impl<B: Board> EngineWrapper<B> {
 
     pub fn set_eval(&mut self, eval: Box<dyn Eval<B>>) -> Res<()> {
         for aux in &self.auxiliary {
-            aux.send(SetEval(clone_box(eval.as_ref())))
-                .map_err(|err| anyhow!(err.to_string()))?;
+            aux.send(SetEval(clone_box(eval.as_ref()))).map_err(|err| anyhow!(err.to_string()))?;
         }
         self.get_engine_info().eval = Some(Name::new(eval.as_ref()));
-        self.main
-            .send(SetEval(eval))
-            .map_err(|err| anyhow!(err.to_string()))
+        self.main.send(SetEval(eval)).map_err(|err| anyhow!(err.to_string()))
     }
 
     pub fn send_print(&self) -> Res<()> {
-        self.main
-            .send(Print(self.get_engine_info_arc()))
-            .map_err(|err| anyhow!(err.to_string()))
+        self.main.send(Print(self.get_engine_info_arc())).map_err(|err| anyhow!(err.to_string()))
     }
 
     pub fn send_stop(&mut self, suppress_best_move: bool) {
         if suppress_best_move {
-            self.main_thread_data.atomic_search_data[0]
-                .suppress_best_move
-                .store(true, Release);
+            self.main_thread_data.atomic_search_data[0].suppress_best_move.store(true, Release);
         }
         for atomic in &self.main_thread_data.atomic_search_data {
             atomic.set_stop(true);
@@ -550,9 +519,7 @@ impl<B: Board> EngineWrapper<B> {
             }
         }
         if suppress_best_move {
-            self.main_thread_data.atomic_search_data[0]
-                .suppress_best_move
-                .store(false, Release);
+            self.main_thread_data.atomic_search_data[0].suppress_best_move.store(false, Release);
         }
         // it's possible that the current search had been done with a different number of threads, so remove superfluous entries
         self.resize_threads(self.num_threads());
@@ -573,9 +540,7 @@ impl<B: Board> EngineWrapper<B> {
         }
         // tt_for_next_search references the same TT as the TT used during search unless it has been changed with `setoption`
         self.tt_for_next_search.forget();
-        self.main
-            .send(Forget)
-            .map_err(|err| anyhow!(err.to_string()))
+        self.main.send(Forget).map_err(|err| anyhow!(err.to_string()))
     }
 
     pub fn get_engine_info(&self) -> MutexGuard<EngineInfo> {

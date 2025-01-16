@@ -4,8 +4,7 @@ use crate::eval::chess::lite::LiteFeatureSubset::*;
 use crate::eval::chess::{write_phased_psqt, write_psqts, SkipChecks};
 use crate::eval::EvalScale::Scale;
 use crate::eval::{
-    changed_at_least, write_2d_range_phased, write_phased, write_range_phased, Eval, EvalScale,
-    WeightsInterpretation,
+    changed_at_least, write_2d_range_phased, write_phased, write_range_phased, Eval, EvalScale, WeightsInterpretation,
 };
 use crate::gd::{Float, TaperedDatapoint, Weight, Weights};
 use crate::trace::{FeatureSubSet, SingleFeature, SparseTrace, TraceTrait};
@@ -77,10 +76,7 @@ impl FeatureSubSet for LiteFeatureSubset {
     }
 
     fn start_idx(self) -> usize {
-        Self::iter()
-            .take_while(|x| *x != self)
-            .map(|x| x.num_features())
-            .sum()
+        Self::iter().take_while(|x| *x != self).map(|x| x.num_features()).sum()
     }
 
     fn write(self, f: &mut Formatter, weights: &Weights, special: &[bool]) -> fmt::Result {
@@ -115,23 +111,13 @@ impl FeatureSubSet for LiteFeatureSubset {
                 writeln!(f, "const BISHOP_OPENNESS: [[PhasedScore; 8]; 4] = [")?;
                 for openness in FileOpenness::iter() {
                     write!(f, "    // {openness}\n    [")?;
-                    write_range_phased(
-                        f,
-                        weights,
-                        self.start_idx() + 8 * openness as usize,
-                        8,
-                        special,
-                        false,
-                    )?;
+                    write_range_phased(f, weights, self.start_idx() + 8 * openness as usize, 8, special, false)?;
                     writeln!(f, "],")?;
                 }
                 return writeln!(f, "];");
             }
             PawnShield => {
-                writeln!(
-                    f,
-                    "const PAWN_SHIELDS: [PhasedScore; NUM_PAWN_SHIELD_CONFIGURATIONS] = ["
-                )?;
+                writeln!(f, "const PAWN_SHIELDS: [PhasedScore; NUM_PAWN_SHIELD_CONFIGURATIONS] = [")?;
                 for i in 0..NUM_PAWN_SHIELD_CONFIGURATIONS {
                     let config = if i < 1 << 6 {
                         format!("{i:#06b}")
@@ -157,20 +143,14 @@ impl FeatureSubSet for LiteFeatureSubset {
                 write!(f, "const DOUBLED_PAWN: PhasedScore = ")?;
             }
             PawnProtection => {
-                write!(
-                    f,
-                    "const PAWN_PROTECTION: [PhasedScore; NUM_CHESS_PIECES] = "
-                )?;
+                write!(f, "const PAWN_PROTECTION: [PhasedScore; NUM_CHESS_PIECES] = ")?;
             }
             PawnAttacks => {
                 write!(f, "const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = ")?;
             }
             Mobility => {
                 writeln!(f, "\npub const MAX_MOBILITY: usize = 7 + 7 + 7 + 6;")?;
-                writeln!(
-                    f,
-                    "const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = ["
-                )?;
+                writeln!(f, "const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = [")?;
                 for _piece in ChessPieceType::non_pawn_pieces() {
                     write_range_phased(
                         f,
@@ -185,10 +165,7 @@ impl FeatureSubSet for LiteFeatureSubset {
                 return writeln!(f, "];");
             }
             Threat => {
-                writeln!(
-                    f,
-                    "const THREATS: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = "
-                )?;
+                writeln!(f, "const THREATS: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = ")?;
                 return write_2d_range_phased(
                     f,
                     weights,
@@ -199,10 +176,7 @@ impl FeatureSubSet for LiteFeatureSubset {
                 );
             }
             Defense => {
-                writeln!(
-                    f,
-                    "const DEFENDED: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = "
-                )?;
+                writeln!(f, "const DEFENDED: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = ")?;
                 return write_2d_range_phased(
                     f,
                     weights,
@@ -219,14 +193,7 @@ impl FeatureSubSet for LiteFeatureSubset {
                 write!(f, "const CAN_GIVE_CHECK: [PhasedScore; 5] = ")?;
             }
         }
-        write_range_phased(
-            f,
-            weights,
-            self.start_idx(),
-            self.num_features(),
-            special,
-            true,
-        )?;
+        write_range_phased(f, weights, self.start_idx(), self.num_features(), special, true)?;
         writeln!(f, ";")
     }
 }

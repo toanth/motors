@@ -82,18 +82,10 @@ impl ChessPieceType {
             // it's normal to use white symbols as colorless symbols, so also support that
             // And since we output the black pieces, we should definitely parse them, too
             'p' | UNICODE_NEUTRAL_PAWN | UNICODE_WHITE_PAWN | UNICODE_BLACK_PAWN => Some(Pawn),
-            'n' | 's' | UNICODE_NEUTRAL_KNIGHT | UNICODE_WHITE_KNIGHT | UNICODE_BLACK_KNIGHT => {
-                Some(Knight)
-            }
-            'b' | 'l' | UNICODE_NEUTRAL_BISHOP | UNICODE_WHITE_BISHOP | UNICODE_BLACK_BISHOP => {
-                Some(Bishop)
-            }
-            'r' | 't' | UNICODE_NEUTRAL_ROOK | UNICODE_WHITE_ROOK | UNICODE_BLACK_ROOK => {
-                Some(Rook)
-            }
-            'q' | 'd' | UNICODE_NEUTRAL_QUEEN | UNICODE_WHITE_QUEEN | UNICODE_BLACK_QUEEN => {
-                Some(Queen)
-            }
+            'n' | 's' | UNICODE_NEUTRAL_KNIGHT | UNICODE_WHITE_KNIGHT | UNICODE_BLACK_KNIGHT => Some(Knight),
+            'b' | 'l' | UNICODE_NEUTRAL_BISHOP | UNICODE_WHITE_BISHOP | UNICODE_BLACK_BISHOP => Some(Bishop),
+            'r' | 't' | UNICODE_NEUTRAL_ROOK | UNICODE_WHITE_ROOK | UNICODE_BLACK_ROOK => Some(Rook),
+            'q' | 'd' | UNICODE_NEUTRAL_QUEEN | UNICODE_WHITE_QUEEN | UNICODE_BLACK_QUEEN => Some(Queen),
             'k' | UNICODE_NEUTRAL_KING | UNICODE_WHITE_KING | UNICODE_BLACK_KING => Some(King),
             _ => None,
         }
@@ -102,11 +94,7 @@ impl ChessPieceType {
 
 impl Display for ChessPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.to_char(CharType::Unicode, &ChessSettings::default())
-        )
+        write!(f, "{}", self.to_char(CharType::Unicode, &ChessSettings::default()))
     }
 }
 
@@ -223,11 +211,7 @@ impl ColoredChessPieceType {
 
 impl Display for ColoredChessPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.to_char(CharType::Unicode, &ChessSettings::default())
-        )
+        write!(f, "{}", self.to_char(CharType::Unicode, &ChessSettings::default()))
     }
 }
 

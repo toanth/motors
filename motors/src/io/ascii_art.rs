@@ -56,15 +56,13 @@ fn letters() -> [Letter; 32] {
         Letter::new("     ██╗\n     ██║\n     ██║\n██   ██║\n╚█████╔╝\n ╚════╝ \n"), // J
         Letter::new("██╗  ██╗\n██║ ██╔╝\n█████╔╝ \n██╔═██╗ \n██║  ██╗\n╚═╝  ╚═╝\n"), // K
         Letter::new("██╗     \n██║     \n██║     \n██║     \n███████╗\n╚══════╝\n"), // L
-        Letter::new(
-            "███╗   ███╗\n████╗ ████║\n██╔████╔██║\n██║╚██╔╝██║\n██║ ╚═╝ ██║\n╚═╝     ╚═╝\n",
-        ), // M
+        Letter::new("███╗   ███╗\n████╗ ████║\n██╔████╔██║\n██║╚██╔╝██║\n██║ ╚═╝ ██║\n╚═╝     ╚═╝\n"), // M
         Letter::new("███╗   ██╗\n████╗  ██║\n██╔██╗ ██║\n██║╚██╗██║\n██║ ╚████║\n╚═╝  ╚═══╝\n"), // N
         Letter::new(" ██████╗ \n██╔═══██╗\n██║   ██║\n██║   ██║\n╚██████╔╝\n ╚═════╝ \n"), // O
-        Letter::new("██████╗ \n██╔══██╗\n██████╔╝\n██╔═══╝ \n██║     \n╚═╝     \n"),       // P
+        Letter::new("██████╗ \n██╔══██╗\n██████╔╝\n██╔═══╝ \n██║     \n╚═╝     \n"), // P
         Letter::new(" ██████╗ \n██╔═══██╗\n██║   ██║\n██║▄▄ ██║\n╚██████╔╝\n ╚══▀▀═╝ \n"), // Q
-        Letter::new("██████╗ \n██╔══██╗\n██████╔╝\n██╔══██╗\n██║  ██║\n╚═╝  ╚═╝\n"),       // R
-        Letter::new("███████╗\n██╔════╝\n███████╗\n╚════██║\n███████║\n╚══════╝\n"),       // S
+        Letter::new("██████╗ \n██╔══██╗\n██████╔╝\n██╔══██╗\n██║  ██║\n╚═╝  ╚═╝\n"), // R
+        Letter::new("███████╗\n██╔════╝\n███████╗\n╚════██║\n███████║\n╚══════╝\n"), // S
         Letter::new("████████╗\n╚══██╔══╝\n   ██║   \n   ██║   \n   ██║   \n   ╚═╝   \n"), // T
         Letter::new("██╗   ██╗\n██║   ██║\n██║   ██║\n██║   ██║\n╚██████╔╝\n ╚═════╝ \n"), // U
         Letter::new("██╗   ██╗\n██║   ██║\n██║   ██║\n╚██╗ ██╔╝\n ╚████╔╝ \n  ╚═══╝  \n"), // V
@@ -116,6 +114,5 @@ pub fn try_print_as_ascii_art(text: &str, indent: usize) -> Option<String> {
 }
 
 pub fn print_as_ascii_art(text: &str, indent: usize) -> String {
-    try_print_as_ascii_art(text, indent)
-        .unwrap_or(text.chars().map(|c| c.to_ascii_uppercase()).join(" "))
+    try_print_as_ascii_art(text, indent).unwrap_or(text.chars().map(|c| c.to_ascii_uppercase()).join(" "))
 }

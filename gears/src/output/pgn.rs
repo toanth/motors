@@ -26,14 +26,12 @@ use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Move;
 use crate::output::pgn::RoundNumber::{Custom, Number, Unimportant, Unknown};
 use crate::output::pgn::TagPair::{
-    Black, BlackElo, BlackTitle, BlackType, Date, Event, Fen, Other, Result, Round, SetUp, Site,
-    White, WhiteElo, WhiteTitle, WhiteType,
+    Black, BlackElo, BlackTitle, BlackType, Date, Event, Fen, Other, Result, Round, SetUp, Site, White, WhiteElo,
+    WhiteTitle, WhiteType,
 };
 use crate::MatchStatus::*;
 use crate::ProgramStatus::Run;
-use crate::{
-    AdjudicationReason, GameOverReason, GameResult, GameState, MatchResult, MatchState, MatchStatus,
-};
+use crate::{AdjudicationReason, GameOverReason, GameResult, GameState, MatchResult, MatchState, MatchStatus};
 use anyhow::{anyhow, bail};
 use colored::Colorize;
 use std::fmt::Display;
@@ -82,9 +80,7 @@ pub fn match_to_pgn_string<B: Board>(m: &dyn GameState<B>) -> String {
         date = chrono::offset::Utc::now().to_rfc2822(),
         fen = m.initial_pos().as_fen(),
         p1 = m.player_name(B::Color::first()).unwrap_or("??".to_string()),
-        p2 = m
-            .player_name(B::Color::second())
-            .unwrap_or("??".to_string()),
+        p2 = m.player_name(B::Color::second()).unwrap_or("??".to_string()),
         p1_name = B::Color::first().name(&board.settings()),
         p2_name = B::Color::second().name(&board.settings()),
     );
@@ -144,12 +140,7 @@ impl FromStr for PlayerType {
         match s {
             "human" => Ok(PlayerType::Human),
             "program" => Ok(PlayerType::Program),
-            _ => bail!(
-                "unknown player type '{0}', must be '{1}' or '{2}'",
-                s.red(),
-                "human".bold(),
-                "program".bold()
-            ),
+            _ => bail!("unknown player type '{0}', must be '{1}' or '{2}'", s.red(), "human".bold(), "program".bold()),
         }
     }
 }
@@ -372,10 +363,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
             original_input: input,
             unread: input.chars().peekable(),
         };
-        Self {
-            state,
-            res: PgnData::default(),
-        }
+        Self { state, res: PgnData::default() }
     }
 
     fn parse_all_tag_pairs(&mut self, strictness: Strictness) -> Res<()> {
@@ -400,10 +388,8 @@ impl<'a, B: Board> PgnParser<'a, B> {
                 }
                 Result(res) => {
                     if res.check_finished().is_some() {
-                        self.res.game.status = Run(MatchStatus::Over(MatchResult {
-                            result: *res,
-                            reason: GameOverReason::Normal,
-                        }))
+                        self.res.game.status =
+                            Run(MatchStatus::Over(MatchResult { result: *res, reason: GameOverReason::Normal }))
                     }
                 }
                 _ => { /*do nothing*/ }
@@ -421,10 +407,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
         let string = self.state.unread();
         let next_word = string.split_ascii_whitespace().next().unwrap_or_default();
         if let Ok(result) = GameResult::from_str(next_word) {
-            self.res.game.status = Run(Over(MatchResult {
-                result,
-                reason: GameOverReason::Normal,
-            }));
+            self.res.game.status = Run(Over(MatchResult { result, reason: GameOverReason::Normal }));
             for _ in 0..next_word.len() {
                 self.state.eat().unwrap();
             }
@@ -433,28 +416,17 @@ impl<'a, B: Board> PgnParser<'a, B> {
         self.state.eat_move_number()?;
         let string = self.state.unread();
         if let Run(Over(_)) = self.res.game.status {
-            bail!(
-                "The game has already ended, cannot parse additional moves at start of '{}'",
-                string.bold()
-            )
+            bail!("The game has already ended, cannot parse additional moves at start of '{}'", string.bold())
         }
         let prev_board = &self.res.game.board;
         let (remaining, mov) = B::Move::parse_extended_text(string, prev_board)?;
         let Some(new_board) = prev_board.clone().make_move(mov) else {
-            bail!(
-                "Illegal psuedolegal move '{}'",
-                mov.compact_formatter(&prev_board).to_string().red()
-            );
+            bail!("Illegal psuedolegal move '{}'", mov.compact_formatter(&prev_board).to_string().red());
         };
         self.res.game.board_hist.push(prev_board);
         self.res.game.mov_hist.push(mov);
         self.res.game.board = new_board;
-        if let Some(res) = self
-            .res
-            .game
-            .board
-            .match_result_slow(&self.res.game.board_hist)
-        {
+        if let Some(res) = self.res.game.board.match_result_slow(&self.res.game.board_hist) {
             if let Run(st) = &mut self.res.game.status {
                 *st = Over(res);
             }
@@ -485,9 +457,7 @@ pub fn parse_pgn<B: Board>(pgn: &str, strictness: Strictness, pos: Option<B>) ->
     if let Some(pos) = pos {
         parser.res.tag_pairs.push(Fen(pos.as_fen()));
     }
-    parser
-        .parse(strictness)
-        .map_err(|err| anyhow!("{err}. Unconsumed input: '{}'", parser.state.unread().red()))
+    parser.parse(strictness).map_err(|err| anyhow!("{err}. Unconsumed input: '{}'", parser.state.unread().red()))
 }
 
 #[cfg(test)]
@@ -504,16 +474,11 @@ mod tests {
         let mut parser: PgnParser<'_, Chessboard> = PgnParser::new(pgn);
         let data = parser.parse(Relaxed).unwrap();
         let pos = Chessboard::default();
-        let pos = pos
-            .make_move(ChessMove::from_text("e4", &pos).unwrap())
-            .unwrap();
+        let pos = pos.make_move(ChessMove::from_text("e4", &pos).unwrap()).unwrap();
         assert_eq!(data.game.pos_before_moves, Chessboard::default());
         assert_eq!(data.game.mov_hist.len(), 1);
         assert_eq!(data.game.board, pos);
-        assert_eq!(
-            data.game.mov_hist[0],
-            ChessMove::from_text("e4", &Chessboard::default()).unwrap()
-        );
+        assert_eq!(data.game.mov_hist[0], ChessMove::from_text("e4", &Chessboard::default()).unwrap());
         assert_eq!(data.game.board_hist.0[0], Chessboard::default().hash_pos());
     }
 
@@ -524,12 +489,8 @@ mod tests {
 
         let data = parser.parse(Relaxed).unwrap();
         let pos = Chessboard::default();
-        let pos = pos
-            .make_move(ChessMove::from_text("e4", &pos).unwrap())
-            .unwrap();
-        let pos = pos
-            .make_move(ChessMove::from_text("d5", &pos).unwrap())
-            .unwrap();
+        let pos = pos.make_move(ChessMove::from_text("e4", &pos).unwrap()).unwrap();
+        let pos = pos.make_move(ChessMove::from_text("d5", &pos).unwrap()).unwrap();
         assert_eq!(data.game.mov_hist.len(), 2);
         assert_eq!(data.game.pos_before_moves, Chessboard::default());
         assert_eq!(data.game.board, pos);
@@ -577,10 +538,7 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
         assert_eq!(data.game.pos_before_moves, Chessboard::default());
         assert_eq!(data.game.mov_hist.len(), 42 * 2 + 1);
         assert_eq!(data.game.board_hist.len(), data.game.mov_hist.len());
-        assert_eq!(
-            data.game.mov_hist[42].dest_square(),
-            ChessSquare::from_chars('c', '4').unwrap()
-        );
+        assert_eq!(data.game.mov_hist[42].dest_square(), ChessSquare::from_chars('c', '4').unwrap());
         assert_eq!(data.game.mov_hist[42].piece_type(), Bishop);
     }
 
@@ -607,22 +565,14 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
         assert_ne!(info.game.pos_before_moves, Chessboard::default());
         assert_eq!(
             info.game.pos_before_moves,
-            Chessboard::default()
-                .make_move(ChessMove::from_text("e4", &Chessboard::default()).unwrap())
-                .unwrap()
+            Chessboard::default().make_move(ChessMove::from_text("e4", &Chessboard::default()).unwrap()).unwrap()
         );
         assert_eq!(info.game.mov_hist.len(), 19 * 2 - 1 - 1);
         assert_eq!(
             info.game.status,
-            Run(Over(MatchResult {
-                result: GameResult::P1Win,
-                reason: GameOverReason::Normal
-            }))
+            Run(Over(MatchResult { result: GameResult::P1Win, reason: GameOverReason::Normal }))
         );
-        assert_eq!(
-            info.game.board.as_fen(),
-            "r1k4r/p2nb1p1/2b4p/1p1n1p2/2PP4/3Q1NB1/1P3PPP/R5K1 b - - 0 19"
-        );
+        assert_eq!(info.game.board.as_fen(), "r1k4r/p2nb1p1/2b4p/1p1n1p2/2PP4/3Q1NB1/1P3PPP/R5K1 b - - 0 19");
     }
 
     #[test]
@@ -630,11 +580,7 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
         let pgn = r#"1.e4 e5 2.Qh5 a6 3. Bc4 b6 4. Qxf7 d6"#;
         let info = parse_pgn::<Chessboard>(pgn, Relaxed, None);
         assert!(info.is_err());
-        assert!(info
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("The game has already ended"));
+        assert!(info.err().unwrap().to_string().contains("The game has already ended"));
     }
     // TODO: Pgn test for another game than chess
 }

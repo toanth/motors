@@ -4,9 +4,7 @@ use std::iter::Peekable;
 use std::num::NonZeroUsize;
 
 use crate::general::common::Description::NoDescription;
-use crate::general::common::{
-    nonzero_usize, parse_int_from_str, select_name_static, NamedEntity, Res,
-};
+use crate::general::common::{nonzero_usize, parse_int_from_str, select_name_static, NamedEntity, Res};
 use crate::OutputArgs;
 use anyhow::anyhow;
 use arbitrary::Arbitrary;
@@ -17,19 +15,7 @@ use std::str::FromStr;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-#[derive(
-    Copy,
-    Clone,
-    Eq,
-    PartialEq,
-    Ord,
-    PartialOrd,
-    Debug,
-    Display,
-    derive_more::FromStr,
-    EnumIter,
-    Arbitrary,
-)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Display, derive_more::FromStr, EnumIter, Arbitrary)]
 pub enum Game {
     /// Normal Chess, Chess960 or Double Fisher Random Chess.
     #[cfg(feature = "chess")]

@@ -17,14 +17,12 @@
  */
 use crate::games::fairy::attacks::{EffectRules, MoveKind};
 use crate::games::fairy::moves::MoveEffect::{
-    PlaceSinglePiece, RemoveCastlingRight, RemovePieceFromHand, RemoveSinglePiece, ResetDrawCtr,
-    ResetEp, SetColorTo, SetEp,
+    PlaceSinglePiece, RemoveCastlingRight, RemovePieceFromHand, RemoveSinglePiece, ResetDrawCtr, ResetEp, SetColorTo,
+    SetEp,
 };
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
 use crate::games::fairy::Side::{Kingside, Queenside};
-use crate::games::fairy::{
-    FairyBitboard, FairyBoard, FairyColor, FairySize, FairySquare, RawFairyBitboard, Side,
-};
+use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySize, FairySquare, RawFairyBitboard, Side};
 use crate::games::{AbstractPieceType, Color, ColoredPieceType, DimT, Size};
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::Verify;
@@ -51,11 +49,7 @@ pub struct FairyMove {
 
 impl FairyMove {
     pub fn new(from: CompactSquare, to: CompactSquare, kind: MoveKind, is_capture: bool) -> Self {
-        Self {
-            from,
-            to,
-            packed: Self::pack(kind, is_capture),
-        }
+        Self { from, to, packed: Self::pack(kind, is_capture) }
     }
     pub fn drop_move(piece: PieceId, to: FairySquare, size: FairySize) -> Self {
         Self::new(
@@ -85,10 +79,7 @@ impl FairyMove {
             0 => (MoveKind::Normal, is_capture),
             1 => (MoveKind::Drop(val), is_capture),
             2 => (MoveKind::ChangePiece(val), is_capture),
-            3 => (
-                MoveKind::Castle(Side::from_repr(val as usize).unwrap()),
-                is_capture,
-            ),
+            3 => (MoveKind::Castle(Side::from_repr(val as usize).unwrap()), is_capture),
             4 => (MoveKind::Conversion, is_capture),
             5 => (MoveKind::DoublePawnPush, is_capture),
             _ => unreachable!(),
@@ -141,16 +132,10 @@ impl Move<FairyBoard> for FairyMove {
     }
 
     fn format_compact(self, f: &mut Formatter<'_>, board: &FairyBoard) -> fmt::Result {
-        format_move_compact(f, self, board)
-            .unwrap_or_else(|| write!(f, "<Invalid Fairy Move '{self:?}'>"))
+        format_move_compact(f, self, board).unwrap_or_else(|| write!(f, "<Invalid Fairy Move '{self:?}'>"))
     }
 
-    fn format_extended(
-        self,
-        f: &mut Formatter<'_>,
-        board: &FairyBoard,
-        _format: ExtendedFormat,
-    ) -> fmt::Result {
+    fn format_extended(self, f: &mut Formatter<'_>, board: &FairyBoard, _format: ExtendedFormat) -> fmt::Result {
         // TODO: Actual implementation
         self.format_compact(f, board)
     }
@@ -169,10 +154,7 @@ impl Move<FairyBoard> for FairyMove {
                 return Ok((remaining, m));
             }
         }
-        bail!(
-            "No legal move matches '{}'",
-            tokens(s).next().unwrap_or_default().red()
-        )
+        bail!("No legal move matches '{}'", tokens(s).next().unwrap_or_default().red())
     }
 
     fn parse_extended_text<'a>(s: &'a str, board: &FairyBoard) -> Res<(&'a str, FairyMove)> {
@@ -188,17 +170,11 @@ impl Move<FairyBoard> for FairyMove {
     }
 
     fn to_underlying(self) -> Self::Underlying {
-        (self.from.underlying() as u32)
-            + ((self.to.underlying() as u32) << 8)
-            + ((self.packed as u32) << 16)
+        (self.from.underlying() as u32) + ((self.to.underlying() as u32) << 8) + ((self.packed as u32) << 16)
     }
 }
 
-fn format_move_compact(
-    f: &mut Formatter<'_>,
-    mov: FairyMove,
-    pos: &FairyBoard,
-) -> Option<fmt::Result> {
+fn format_move_compact(f: &mut Formatter<'_>, mov: FairyMove, pos: &FairyBoard) -> Option<fmt::Result> {
     // don't check if coordinates are valid or similar because this function isn't supposed to panic
     // -- it might be called to print invalid moves from user input.
     let size = pos.size();
@@ -210,18 +186,10 @@ fn format_move_compact(
         }
         MoveKind::ChangePiece(new_piece) => {
             let piece = ColoredPieceId::from_u8(new_piece).to_uncolored_idx();
-            write!(
-                f,
-                "{from}{to}{}",
-                pos.get_rules().pieces.get(piece)?.uncolored_symbol[0].to_ascii_lowercase()
-            )
+            write!(f, "{from}{to}{}", pos.get_rules().pieces.get(piece)?.uncolored_symbol[0].to_ascii_lowercase())
         }
         MoveKind::Castle(side) => {
-            let rook_sq = pos
-                .0
-                .castling_info
-                .player(pos.active_player())
-                .rook_sq(side)?;
+            let rook_sq = pos.0.castling_info.player(pos.active_player()).rook_sq(side)?;
             write!(f, "{from}{rook_sq}")
         }
         MoveKind::Drop(piece) => {
@@ -231,8 +199,7 @@ fn format_move_compact(
                 write!(
                     f,
                     "{to}{}",
-                    pos.get_rules().pieces.get(piece as usize)?.uncolored_symbol[0]
-                        .to_ascii_lowercase()
+                    pos.get_rules().pieces.get(piece as usize)?.uncolored_symbol[0].to_ascii_lowercase()
                 )
             }
         }
@@ -309,13 +276,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
     if mov.is_capture() {
         let is_ep = piece_rules.can_ep_capture && Some(to) == pos.0.ep;
         if is_ep {
-            RemoveSinglePiece(
-                pos.0
-                    .ep
-                    .unwrap()
-                    .pawn_push(!piece.color().unwrap().is_first()),
-            )
-            .apply(pos);
+            RemoveSinglePiece(pos.0.ep.unwrap().pawn_push(!piece.color().unwrap().is_first())).apply(pos);
         } else {
             RemoveSinglePiece(to).apply(pos);
         }
@@ -330,10 +291,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
             PlaceSinglePiece(to, piece).apply(pos);
             let ep_capture_bb = FairyBitboard::single_piece_for(to, pos.size());
             let ep_capture_bb = ep_capture_bb.west() | ep_capture_bb.east();
-            if (pos.colored_piece_bb(piece.color().unwrap().other(), piece.uncolor())
-                & ep_capture_bb)
-                .has_set_bit()
-            {
+            if (pos.colored_piece_bb(piece.color().unwrap().other(), piece.uncolor()) & ep_capture_bb).has_set_bit() {
                 set_ep = Some(to.pawn_push(!piece.color().unwrap().is_first()));
             }
         }
@@ -359,8 +317,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
             PlaceSinglePiece(castling_info.rook_dest_sq(side).unwrap(), rook).apply(pos);
         }
         MoveKind::Conversion => {
-            let bb = FairyBitboard::single_piece_for(to, pos.size())
-                .extended_moore_neighbors(r.conversion_radius);
+            let bb = FairyBitboard::single_piece_for(to, pos.size()).extended_moore_neighbors(r.conversion_radius);
             SetColorTo(bb.raw(), pos.active_player()).apply(pos);
         }
     }
@@ -382,8 +339,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
                 RemoveCastlingRight(color, Queenside).apply(pos);
             }
             for side in Side::iter() {
-                if [Some(from), Some(to)].contains(&pos.0.castling_info.player(color).rook_sq(side))
-                {
+                if [Some(from), Some(to)].contains(&pos.0.castling_info.player(color).rook_sq(side)) {
                     RemoveCastlingRight(color, side).apply(pos)
                 }
             }
@@ -400,9 +356,7 @@ impl FairyBoard {
         let castling = self.0.castling_info.player(us);
         let from = mov.source(self.size());
         let to = mov.dest(self.size());
-        debug_assert!(self
-            .castling_bb()
-            .is_bit_set_at(self.size().internal_key(from)));
+        debug_assert!(self.castling_bb().is_bit_set_at(self.size().internal_key(from)));
         debug_assert_eq!(castling.king_dest_sq(side).unwrap(), to);
         debug_assert_eq!(to.rank(), from.rank());
         debug_assert_eq!(to.rank(), from.rank());

@@ -122,26 +122,17 @@ pub fn sigmoid(score: Score, scale: f64) -> f64 {
 }
 
 pub fn parse_fp_from_str<T: Float + FromStr>(as_str: &str, name: &str) -> Res<T> {
-    as_str
-        .parse::<T>()
-        .map_err(|_err| anyhow::anyhow!("Couldn't parse {name} ('{as_str}')"))
+    as_str.parse::<T>().map_err(|_err| anyhow::anyhow!("Couldn't parse {name} ('{as_str}')"))
 }
 
 pub fn parse_int_from_str<T: PrimInt + FromStr>(as_str: &str, name: &str) -> Res<T> {
     // for some weird Rust reason, parse::<T>() returns a completely unbounded Err on failure,
     // so we just write the error message ourselves
-    as_str
-        .parse::<T>()
-        .map_err(|_err| anyhow::anyhow!("Couldn't parse {name} ('{as_str}')"))
+    as_str.parse::<T>().map_err(|_err| anyhow::anyhow!("Couldn't parse {name} ('{as_str}')"))
 }
 
 pub fn parse_int<T: PrimInt + FromStr + Display>(words: &mut Tokens, name: &str) -> Res<T> {
-    parse_int_from_str(
-        words
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("Missing {name}"))?,
-        name,
-    )
+    parse_int_from_str(words.next().ok_or_else(|| anyhow::anyhow!("Missing {name}"))?, name)
 }
 
 pub fn parse_int_from_stdin<T: PrimInt + FromStr>() -> Res<T> {
@@ -153,10 +144,7 @@ pub fn parse_int_from_stdin<T: PrimInt + FromStr>() -> Res<T> {
 pub fn parse_bool_from_str(input: &str, name: &str) -> Res<bool> {
     if input.eq_ignore_ascii_case("true") || input.eq_ignore_ascii_case("on") || input == "1" {
         Ok(true)
-    } else if input.eq_ignore_ascii_case("false")
-        || input.eq_ignore_ascii_case("off")
-        || input == "0"
-    {
+    } else if input.eq_ignore_ascii_case("false") || input.eq_ignore_ascii_case("off") || input == "0" {
         Ok(false)
     } else {
         Err(anyhow::anyhow!(
@@ -263,11 +251,7 @@ impl NamedEntity for Name {
 
 impl Name {
     pub fn new<T: NamedEntity + ?Sized>(t: &T) -> Self {
-        Self {
-            short: t.short_name(),
-            long: t.long_name(),
-            description: t.description(),
-        }
+        Self { short: t.short_name(), long: t.long_name(), description: t.description() }
     }
 }
 
@@ -302,18 +286,11 @@ pub enum Description {
     NoDescription,
 }
 
-fn list_to_string<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String>(
-    iter: I,
-    to_name: F,
-) -> String {
+fn list_to_string<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String>(iter: I, to_name: F) -> String {
     iter.map(|x| to_name(&x)).join(", ")
 }
 
-fn select_name_impl<
-    I: ExactSizeIterator + Clone,
-    F: Fn(&I::Item) -> String,
-    G: Fn(&I::Item, &str) -> bool,
->(
+fn select_name_impl<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String, G: Fn(&I::Item, &str) -> bool>(
     name: Option<&str>,
     mut list: I,
     typ: &str,
@@ -350,7 +327,8 @@ fn select_name_impl<
             if let Some(name) = name {
                 let name = name.red();
                 Err(anyhow::anyhow!(
-                    "Couldn't find {typ} '{name}' for the current game ({game_name}). {list_as_string}."))
+                    "Couldn't find {typ} '{name}' for the current game ({game_name}). {list_as_string}."
+                ))
             } else {
                 Err(anyhow::anyhow!(list_as_string))
             }
@@ -359,17 +337,12 @@ fn select_name_impl<
     }
 }
 
-pub fn to_name_and_optional_description<T: NamedEntity + ?Sized>(
-    x: &T,
-    description: Description,
-) -> String {
+pub fn to_name_and_optional_description<T: NamedEntity + ?Sized>(x: &T, description: Description) -> String {
     if description == WithDescription {
         format!(
             "\n{name:<18} {descr}",
             name = format!("'{}':", x.short_name().bold()),
-            descr = x
-                .description()
-                .unwrap_or_else(|| "<No description>".to_string())
+            descr = x.description().unwrap_or_else(|| "<No description>".to_string())
         )
     } else {
         format!("'{}'", x.short_name().bold())

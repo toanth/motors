@@ -78,13 +78,7 @@ pub fn create_input_from_str<B: Board>(
     opts: &str,
     list: &[Box<dyn InputBuilder<B>>],
 ) -> Res<Box<dyn InputBuilder<B>>> {
-    let mut ui_builder = dyn_clone::clone_box(select_name_dyn(
-        name,
-        list,
-        "input",
-        &B::game_name(),
-        WithDescription,
-    )?);
+    let mut ui_builder = dyn_clone::clone_box(select_name_dyn(name, list, "input", &B::game_name(), WithDescription)?);
     ui_builder.set_option(opts)?;
     Ok(ui_builder)
 }
@@ -146,8 +140,7 @@ pub fn create_client_match_for_game<B: Board>(
 pub fn run_program() -> Res<()> {
     let args = parse_cli().map_err(|err| anyhow!("Error parsing command line arguments: {err}"))?;
 
-    let mut the_match =
-        create_match(args).map_err(|err| anyhow!("Couldn't start the client: {err}"))?;
+    let mut the_match = create_match(args).map_err(|err| anyhow!("Couldn't start the client: {err}"))?;
     _ = the_match.run();
     Ok(())
 }

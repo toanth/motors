@@ -97,10 +97,7 @@ pub enum MatchStatus {
 
 impl MatchStatus {
     pub fn aborted() -> Self {
-        Over(MatchResult {
-            result: Aborted,
-            reason: GameOverReason::Adjudication(AbortedByUser),
-        })
+        Over(MatchResult { result: Aborted, reason: GameOverReason::Adjudication(AbortedByUser) })
     }
 }
 
@@ -143,9 +140,7 @@ impl FromStr for GameResult {
                 let s = s.replace("O", "0").replace(char::is_whitespace, "");
                 match s.as_str() {
                     "1" | "1.0" | "1,0" | "1-0" | "1.0-0.0" | "1,0-0,0" => Ok(GameResult::P1Win),
-                    "0" | "0.0" | "0,0" | "0-1" | "0.0-1.0" | "0,0-1,0" | "2" => {
-                        Ok(GameResult::P2Win)
-                    }
+                    "0" | "0.0" | "0,0" | "0-1" | "0.0-1.0" | "0,0-1,0" | "2" => Ok(GameResult::P2Win),
                     "0.5" | "0,5" | "0.5-0.5" | "0,5-0,5" | "1/2-1/2" => Ok(GameResult::Draw),
                     _ => bail!("Unrecognized game result '{}'", s.red()),
                 }
@@ -255,10 +250,7 @@ pub fn player_res_to_match_res<C: Color>(game_over: GameOver, color: C) -> Match
             }
         }
     };
-    MatchResult {
-        result,
-        reason: game_over.reason,
-    }
+    MatchResult { result, reason: game_over.reason }
 }
 
 #[derive(Debug, Clone)]
@@ -345,23 +337,14 @@ pub fn output_builder_from_str<B: Board>(
     name: &str,
     list: &[Box<dyn OutputBuilder<B>>],
 ) -> Res<Box<dyn OutputBuilder<B>>> {
-    Ok(dyn_clone::clone_box(select_name_dyn(
-        name,
-        list,
-        "output",
-        &B::game_name(),
-        WithDescription,
-    )?))
+    Ok(dyn_clone::clone_box(select_name_dyn(name, list, "output", &B::game_name(), WithDescription)?))
 }
 
 pub fn create_selected_output_builders<B: Board>(
     outputs: &[OutputArgs],
     list: &[Box<dyn OutputBuilder<B>>],
 ) -> Res<Vec<Box<dyn OutputBuilder<B>>>> {
-    outputs
-        .iter()
-        .map(|o| output_builder_from_str(&o.name, list))
-        .collect()
+    outputs.iter().map(|o| output_builder_from_str(&o.name, list)).collect()
 }
 
 /// Everything that's necessary to reconstruct the match without match-specific info like timers.
@@ -386,7 +369,10 @@ impl<B: Board> MatchState<B> {
         if let Run(Over(result)) = &self.status {
             bail!(
                 "Cannot play move '{3}' because the game is already over: {0} ({1}). The position is '{2}'",
-                result.result, result.reason, self.board,mov.compact_formatter(&self.board).to_string().red()
+                result.result,
+                result.reason,
+                self.board,
+                mov.compact_formatter(&self.board).to_string().red()
             )
         }
         self.board_hist.push(&self.board);
@@ -442,9 +428,7 @@ impl<B: Board> MatchState<B> {
         check_game_over: bool,
     ) -> Res<()> {
         let pos = self.board.clone();
-        let Some(next_word) = words.next() else {
-            bail!("Missing position after '{}' command", "position".bold())
-        };
+        let Some(next_word) = words.next() else { bail!("Missing position after '{}' command", "position".bold()) };
         parse_ugi_position_and_moves(
             next_word,
             words,

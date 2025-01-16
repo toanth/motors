@@ -45,49 +45,26 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
 
         ugi.state.go_state.pos = ugi.state.board.clone();
         self.autocompletion.state.go_state = ugi.state.go_state.clone();
-        if ugi
-            .state
-            .engine
-            .main_atomic_search_data()
-            .currently_searching()
-        {
+        if ugi.state.engine.main_atomic_search_data().currently_searching() {
+            ugi.write_ugi(&format_args!(" [{0} Type '{1}' to cancel]", "Searching...".bold(), "stop".bold()));
+            let pv_spacer = if ugi.state.board.active_player().is_first() { "" } else { "    " };
             ugi.write_ugi(&format_args!(
-                " [{0} Type '{1}' to cancel]",
-                "Searching...".bold(),
-                "stop".bold()
-            ));
-            let pv_spacer = if ugi.state.board.active_player().is_first() {
-                ""
-            } else {
-                "    "
-            };
-            ugi.write_ugi(
-                &format_args!("{}",
-                    format!("\nIter    Seldepth    Score      Time    Nodes   (New)     NPS      TT     {pv_spacer}PV"
-                )
-                .bold(),
+                "{}",
+                format!("\nIter    Seldepth    Score      Time    Nodes   (New)     NPS      TT     {pv_spacer}PV")
+                    .bold(),
             ));
             NonInteractiveInput::default().get_line(ugi)
         } else {
             let help = "Type 'help' for a list of commands, '?' for a list of moves";
-            let prompt = "Enter a command, move, variation, FEN or PGN:"
-                .bold()
-                .to_string();
+            let prompt = "Enter a command, move, variation, FEN or PGN:".bold().to_string();
             Ok(if let Some(failed) = &ugi.failed_cmd {
-                Text::new(
-                    &"Please retry (press Ctrl+C to discard input)"
-                        .bold()
-                        .to_string(),
-                )
-                .with_help_message(help)
-                .with_autocomplete(self.autocompletion.clone())
-                .with_initial_value(&failed)
-                .prompt()?
-            } else {
-                Text::new(&prompt)
+                Text::new(&"Please retry (press Ctrl+C to discard input)".bold().to_string())
                     .with_help_message(help)
                     .with_autocomplete(self.autocompletion.clone())
+                    .with_initial_value(&failed)
                     .prompt()?
+            } else {
+                Text::new(&prompt).with_help_message(help).with_autocomplete(self.autocompletion.clone()).prompt()?
             })
         }
     }
@@ -95,9 +72,7 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
 
 impl<B: Board> InteractiveInput<B> {
     fn new(ugi: &mut EngineUGI<B>) -> Self {
-        let res = Self {
-            autocompletion: CommandAutocomplete::new(ugi),
-        };
+        let res = Self { autocompletion: CommandAutocomplete::new(ugi) };
         // technically, we could also use an inquire formatter, but that doesn't seem to handle multi-line messages well
         ugi.print_board(OutputOpts::default());
         res
@@ -159,13 +134,12 @@ impl<B: Board> Input<B> {
                 Ok(res) => Ok(res),
                 Err(err) => {
                     self.set_interactive(false, ugi);
-                    self.get_line(ugi)
-                        .map_err(|err2| anyhow!("{err}. After falling back to non-interactive backend, another error occurred: {err2}"))
+                    self.get_line(ugi).map_err(|err2| {
+                        anyhow!("{err}. After falling back to non-interactive backend, another error occurred: {err2}")
+                    })
                 }
             },
-            NonInteractive(n) => n
-                .get_line(ugi)
-                .map_err(|err| anyhow!("Couldn't read input: {err}")),
+            NonInteractive(n) => n.get_line(ugi).map_err(|err| anyhow!("Couldn't read input: {err}")),
         }
     }
 }

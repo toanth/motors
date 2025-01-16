@@ -7,8 +7,7 @@ use std::iter::FusedIterator;
 use std::ops::{Deref, DerefMut};
 
 use derive_more::{
-    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, ShlAssign, Shr,
-    ShrAssign, Sub,
+    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, ShlAssign, Shr, ShrAssign, Sub,
 };
 use num::traits::WrappingSub;
 use num::{PrimInt, Unsigned};
@@ -16,9 +15,7 @@ use strum_macros::EnumIter;
 
 use crate::games::{DimT, KnownSize, Size};
 use crate::general::bitboards::chessboard::{RAYS_EXCLUSIVE, RAYS_INCLUSIVE};
-use crate::general::squares::{
-    RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare,
-};
+use crate::general::squares::{RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare};
 
 /// Remove all `1` bits in `bb` strictly above the given `idx`, where `bb` is the type, like `u64`,
 /// and `len` is the number of bits in the type, like `64`.
@@ -42,11 +39,7 @@ const MAX_STEP_SIZE: usize = 30;
 
 macro_rules! step_bb_for {
     ($typ: ty, $num_bits:expr) => {{
-        const LEN: usize = if $num_bits < MAX_STEP_SIZE {
-            $num_bits
-        } else {
-            MAX_STEP_SIZE
-        };
+        const LEN: usize = if $num_bits < MAX_STEP_SIZE { $num_bits } else { MAX_STEP_SIZE };
         let mut res: [$typ; LEN] = [0; LEN];
         res[0] = 1;
         let mut step = 1;
@@ -74,13 +67,11 @@ macro_rules! diagonal_bb_for {
                 if diag > 0 {
                     let diag = diag as usize;
                     res[width][i] = $steps[width + 1] << (diag * width);
-                    res[width][i] =
-                        remove_ones_above!(res[width][i], (width + diag + 1) * width, $typ, $size);
+                    res[width][i] = remove_ones_above!(res[width][i], (width + diag + 1) * width, $typ, $size);
                 } else {
                     let diag = -diag as usize;
                     res[width][i] = remove_ones_below!($steps[width + 1] << diag, diag, $typ);
-                    res[width][i] =
-                        remove_ones_above!(res[width][i], (width - diag) * width, $typ, $size);
+                    res[width][i] = remove_ones_above!(res[width][i], (width - diag) * width, $typ, $size);
                 }
                 i += 1;
             }
@@ -98,19 +89,10 @@ macro_rules! anti_diagonal_bb_for {
             let mut i = 0;
             while i < $size {
                 let anti_diag = i / width + i % width;
-                res[width][i] = remove_ones_above!(
-                    $steps[width - 1] << anti_diag,
-                    anti_diag * width,
-                    $typ,
-                    $size
-                );
+                res[width][i] = remove_ones_above!($steps[width - 1] << anti_diag, anti_diag * width, $typ, $size);
                 res[width][i] = remove_ones_below!(
                     res[width][i],
-                    if anti_diag >= width {
-                        (anti_diag - width + 2) * width - 1
-                    } else {
-                        0
-                    },
+                    if anti_diag >= width { (anti_diag - width + 2) * width - 1 } else { 0 },
                     $typ
                 );
                 i += 1;
@@ -399,19 +381,13 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     #[inline]
     fn diag_for_sq(sq: C, size: C::Size) -> Self {
         debug_assert!(size.coordinates_valid(sq));
-        Self::new(
-            R::diagonal_bb(size.internal_width(), size.internal_key(sq)),
-            size,
-        )
+        Self::new(R::diagonal_bb(size.internal_width(), size.internal_key(sq)), size)
     }
 
     #[inline]
     fn anti_diag_for_sq(sq: C, size: C::Size) -> Self {
         debug_assert!(size.coordinates_valid(sq));
-        Self::new(
-            R::anti_diagonal_bb(size.internal_width(), size.internal_key(sq)),
-            size,
-        )
+        Self::new(R::anti_diagonal_bb(size.internal_width(), size.internal_key(sq)), size)
     }
 
     /// Not especially fast; meant to be called once to precompute this bitboard
@@ -519,12 +495,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     #[inline]
     fn hyperbola_quintessence_non_horizontal(square: C, blockers: Self, ray: Self) -> Self {
         debug_assert_eq!(blockers.size(), ray.size());
-        Self::hyperbola_quintessence(
-            ray.size().internal_key(square),
-            blockers,
-            Self::flip_up_down,
-            ray,
-        )
+        Self::hyperbola_quintessence(ray.size().internal_key(square), blockers, Self::flip_up_down, ray)
     }
 
     #[inline]
@@ -534,12 +505,8 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
         let row = square.row() as usize;
         let square = C::from_rank_file(0, square.column());
         let blockers = blockers >> (blockers.internal_width() * row);
-        let lowest_row = Self::hyperbola_quintessence(
-            size.internal_key(square),
-            blockers,
-            |x| x.flip_lowest_row(),
-            rank_bb,
-        );
+        let lowest_row =
+            Self::hyperbola_quintessence(size.internal_key(square), blockers, |x| x.flip_lowest_row(), rank_bb);
         lowest_row << (lowest_row.internal_width() * row)
     }
 
@@ -551,20 +518,12 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
 
     #[inline]
     fn diagonal_attacks(square: C, blockers: Self) -> Self {
-        Self::hyperbola_quintessence_non_horizontal(
-            square,
-            blockers,
-            Self::diag_for_sq(square, blockers.size()),
-        )
+        Self::hyperbola_quintessence_non_horizontal(square, blockers, Self::diag_for_sq(square, blockers.size()))
     }
 
     #[inline]
     fn anti_diagonal_attacks(square: C, blockers: Self) -> Self {
-        Self::hyperbola_quintessence_non_horizontal(
-            square,
-            blockers,
-            Self::anti_diag_for_sq(square, blockers.size()),
-        )
+        Self::hyperbola_quintessence_non_horizontal(square, blockers, Self::anti_diag_for_sq(square, blockers.size()))
     }
 
     /// All slider attack functions, including `rook_attacks` and `bishop_attacks`, assume that the source square
@@ -657,19 +616,13 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
 
     #[inline]
     fn ones(self) -> impl Iterator<Item = C> {
-        self.one_indices()
-            .map(move |i| self.size().to_coordinates_unchecked(i))
+        self.one_indices().map(move |i| self.size().to_coordinates_unchecked(i))
     }
 
     #[inline]
     fn to_square(self) -> Option<C> {
         if self.is_single_piece() {
-            self.size()
-                .check_coordinates(
-                    self.size()
-                        .to_coordinates_unchecked(self.num_trailing_zeros()),
-                )
-                .ok()
+            self.size().check_coordinates(self.size().to_coordinates_unchecked(self.num_trailing_zeros())).ok()
         } else {
             None
         }
@@ -686,9 +639,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     }
 }
 
-pub trait KnownSizeBitboard<R: RawBitboard, C: RectangularCoordinates<Size: KnownSize<C>>>:
-    Bitboard<R, C>
-{
+pub trait KnownSizeBitboard<R: RawBitboard, C: RectangularCoordinates<Size: KnownSize<C>>>: Bitboard<R, C> {
     #[inline]
     fn from_raw(raw: R) -> Self {
         Bitboard::new(raw, C::Size::default())
@@ -744,9 +695,7 @@ pub trait KnownSizeBitboard<R: RawBitboard, C: RectangularCoordinates<Size: Know
 }
 
 fn flip_lowest_byte(bb: u64) -> u64 {
-    const LOOKUP: [u8; 16] = [
-        0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe, 0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf,
-    ];
+    const LOOKUP: [u8; 16] = [0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe, 0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf];
     (LOOKUP[((bb >> 4) & 0xf) as usize] | (LOOKUP[(bb & 0xf) as usize] << 4)) as u64
 }
 
@@ -833,19 +782,11 @@ impl<const H: usize, const W: usize> Bitboard<RawStandardBitboard, SmallGridSqua
         Self(raw)
     }
 
-    fn ray_exclusive(
-        a: SmallGridSquare<H, W, 8>,
-        b: SmallGridSquare<H, W, 8>,
-        _size: SmallGridSize<H, W>,
-    ) -> Self {
+    fn ray_exclusive(a: SmallGridSquare<H, W, 8>, b: SmallGridSquare<H, W, 8>, _size: SmallGridSize<H, W>) -> Self {
         Self::new(RAYS_EXCLUSIVE[a.bb_idx()][b.bb_idx()])
     }
 
-    fn ray_inclusive(
-        a: SmallGridSquare<H, W, 8>,
-        b: SmallGridSquare<H, W, 8>,
-        _size: SmallGridSize<H, W>,
-    ) -> Self {
+    fn ray_inclusive(a: SmallGridSquare<H, W, 8>, b: SmallGridSquare<H, W, 8>, _size: SmallGridSize<H, W>) -> Self {
         Self::new(RAYS_INCLUSIVE[a.bb_idx()][b.bb_idx()])
     }
 
@@ -875,8 +816,8 @@ impl<const H: usize, const W: usize> Bitboard<RawStandardBitboard, SmallGridSqua
     }
 }
 
-impl<const H: usize, const W: usize>
-    KnownSizeBitboard<RawStandardBitboard, SmallGridSquare<H, W, 8>> for SmallGridBitboard<H, W>
+impl<const H: usize, const W: usize> KnownSizeBitboard<RawStandardBitboard, SmallGridSquare<H, W, 8>>
+    for SmallGridBitboard<H, W>
 {
 }
 
@@ -892,9 +833,7 @@ pub struct DynamicallySizedBitboard<R: RawBitboard, C: RectangularCoordinates> {
 }
 
 // for some reason, automatically deriving `Arbitrary` doesn't work here
-impl<'a, R: RawBitboard, C: RectangularCoordinates> Arbitrary<'a>
-    for DynamicallySizedBitboard<R, C>
-{
+impl<'a, R: RawBitboard, C: RectangularCoordinates> Arbitrary<'a> for DynamicallySizedBitboard<R, C> {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         let (raw, size) = u.arbitrary::<(R, C::Size)>()?;
         Ok(Self { raw, size })
@@ -1017,9 +956,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> Shl<usize> for DynamicallySizedB
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> ShlAssign<usize>
-    for DynamicallySizedBitboard<R, C>
-{
+impl<R: RawBitboard, C: RectangularCoordinates> ShlAssign<usize> for DynamicallySizedBitboard<R, C> {
     #[inline]
     fn shl_assign(&mut self, rhs: usize) {
         self.raw <<= rhs;
@@ -1035,9 +972,7 @@ impl<R: RawBitboard, C: RectangularCoordinates> Shr<usize> for DynamicallySizedB
     }
 }
 
-impl<R: RawBitboard, C: RectangularCoordinates> ShrAssign<usize>
-    for DynamicallySizedBitboard<R, C>
-{
+impl<R: RawBitboard, C: RectangularCoordinates> ShrAssign<usize> for DynamicallySizedBitboard<R, C> {
     #[inline]
     fn shr_assign(&mut self, rhs: usize) {
         self.raw >>= rhs;
@@ -1052,15 +987,13 @@ impl<R: RawBitboard, C: RectangularCoordinates> Bitboard<R, C> for DynamicallySi
 
     fn ray_exclusive(a: C, b: C, size: C::Size) -> Self {
         let ray = Self::ray(a, b, size).raw;
-        let underlying =
-            ray_between_exclusive!(size.internal_key(a), size.internal_key(b), ray, R::one(), R);
+        let underlying = ray_between_exclusive!(size.internal_key(a), size.internal_key(b), ray, R::one(), R);
         Self::new(underlying, size)
     }
 
     fn ray_inclusive(a: C, b: C, size: C::Size) -> Self {
         let ray = Self::ray(a, b, size).raw;
-        let underlying =
-            ray_between_inclusive!(size.internal_key(a), size.internal_key(b), ray, R::one(), R);
+        let underlying = ray_between_inclusive!(size.internal_key(a), size.internal_key(b), ray, R::one(), R);
         Self::new(underlying, size)
     }
 
@@ -1246,8 +1179,8 @@ pub mod chessboard {
         let mut res = [ChessBitboard::new(0); 64];
         let mut i = 0;
         while i < 64 {
-            let bb = precompute_leaper_attacks!(i, 1, 1, false, 8, u64)
-                | precompute_leaper_attacks!(i, 0, 1, false, 8, u64);
+            let bb =
+                precompute_leaper_attacks!(i, 1, 1, false, 8, u64) | precompute_leaper_attacks!(i, 0, 1, false, 8, u64);
             res[i] = ChessBitboard::new(bb);
             i += 1;
         }
@@ -1279,22 +1212,19 @@ pub mod chessboard {
                 let sq = rank * 8 + i;
                 res[start][sq] = ray_between_inclusive!(start, sq, 0xff << (8 * rank), 1_u64, u64);
                 let sq = 8 * i + file;
-                res[start][sq] =
-                    ray_between_inclusive!(start, sq, ChessBitboard::A_FILE.0 << file, 1_u64, u64);
+                res[start][sq] = ray_between_inclusive!(start, sq, ChessBitboard::A_FILE.0 << file, 1_u64, u64);
                 i += 1;
             }
             let mut diag = DIAGONALS_U64[8][start];
             while diag != 0 {
                 let sq = diag.trailing_zeros() as usize;
-                res[start][sq] =
-                    ray_between_inclusive!(start, sq, DIAGONALS_U64[8][start], 1_u64, u64);
+                res[start][sq] = ray_between_inclusive!(start, sq, DIAGONALS_U64[8][start], 1_u64, u64);
                 diag &= diag - 1;
             }
             let mut anti_diag = DIAGONALS_U64[8][start];
             while anti_diag != 0 {
                 let sq = anti_diag.trailing_zeros() as usize;
-                res[start][sq] =
-                    ray_between_inclusive!(start, sq, ANTI_DIAGONALS_U64[8][start], 1_u64, u64);
+                res[start][sq] = ray_between_inclusive!(start, sq, ANTI_DIAGONALS_U64[8][start], 1_u64, u64);
                 anti_diag &= anti_diag - 1;
             }
             start += 1;
@@ -1323,10 +1253,8 @@ pub mod chessboard {
         COLORED_SQUARES[Black as usize]
     }
 
-    pub const COLORED_SQUARES: [ChessBitboard; 2] = [
-        ChessBitboard::new(0x55aa_55aa_55aa_55aa),
-        ChessBitboard::new(0xaa55_aa55_aa55_aa55),
-    ];
+    pub const COLORED_SQUARES: [ChessBitboard; 2] =
+        [ChessBitboard::new(0x55aa_55aa_55aa_55aa), ChessBitboard::new(0xaa55_aa55_aa55_aa55)];
 }
 
 #[cfg(test)]

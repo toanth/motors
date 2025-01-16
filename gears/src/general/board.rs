@@ -16,16 +16,15 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::games::{
-    AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates,
-    DimT, NoHistory, PosHash, Settings, Size,
+    AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, NoHistory,
+    PosHash, Settings, Size,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::{Assertion, Verify};
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    select_name_static, tokens, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
-    TokensToString,
+    select_name_static, tokens, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, TokensToString,
 };
 use crate::general::move_list::MoveList;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
@@ -266,11 +265,7 @@ pub trait Board:
     /// Returns a board in the startpos of the variant corresponding to the `name`.
     /// `_additional` can be used to modify the variant, e.g. to set the board size in mnk games.
     fn variant(name: &str, _additional: &mut Tokens) -> Res<Self> {
-        bail!(
-            "The game {0} does not support any variants, including '{1}'",
-            Self::game_name(),
-            name.red()
-        )
+        bail!("The game {0} does not support any variants, including '{1}'", Self::game_name(), name.red())
     }
 
     fn list_variants() -> Option<Vec<String>> {
@@ -417,17 +412,14 @@ pub trait Board:
     /// Returns true iff the game is lost for the player who can now move, like being checkmated in chess.
     /// Using [`Self::player_result_no_movegen()`] and [`Self::no_moves_result()`] is often the faster option if movegen is needed anyway
     fn is_game_lost_slow(&self) -> bool {
-        self.player_result_slow(&NoHistory::default())
-            .is_some_and(|x| x == Lose)
+        self.player_result_slow(&NoHistory::default()).is_some_and(|x| x == Lose)
     }
 
     /// Returns true iff the game is won for the current player after making the given move.
     /// This move has to be pseudolegal. If the move will likely be played anyway, it can be faster
     /// to play it and use [`Self::player_result()`] or [`Self::player_result_no_movegen()`] and [`Self::no_moves_result`] instead.
     fn is_game_won_after_slow(&self, mov: Self::Move) -> bool {
-        self.clone()
-            .make_move(mov)
-            .map_or(false, |new_pos| new_pos.is_game_lost_slow())
+        self.clone().make_move(mov).map_or(false, |new_pos| new_pos.is_game_lost_slow())
     }
 
     /// Returns `false` if it detects that `player` can not win the game except if the opponent runs out of time
@@ -493,10 +485,7 @@ pub trait BoardHelpers: Board {
 
     /// For each color, returns a single ASCII char decribing it, e.g. `w` and `b` for black.
     fn color_chars(&self) -> [char; 2] {
-        [
-            Self::Color::first().to_char(&self.settings()),
-            Self::Color::second().to_char(&self.settings()),
-        ]
+        [Self::Color::first().to_char(&self.settings()), Self::Color::second().to_char(&self.settings())]
     }
 
     fn color_names(&self) -> [String; 2] {
@@ -513,10 +502,7 @@ pub trait BoardHelpers: Board {
 
     /// The 0-based number of moves (turns) since the start of the game.
     fn fullmove_ctr_0_based(&self) -> usize {
-        (self
-            .halfmove_ctr_since_start()
-            .saturating_sub(usize::from(!self.active_player().is_first())))
-            / 2
+        (self.halfmove_ctr_since_start().saturating_sub(usize::from(!self.active_player().is_first()))) / 2
     }
 
     /// The 1-based number of moves(turns) since the start of the game.
@@ -554,19 +540,14 @@ pub trait BoardHelpers: Board {
     /// Not very useful for search because it doesn't allow changing the order of generated positions,
     /// but convenient for some use cases like [`perft`](crate::general::perft::perft).
     fn children(&self) -> impl Iterator<Item = Self> {
-        self.pseudolegal_moves()
-            .into_iter()
-            .filter_map(move |m| self.clone().make_move(m))
+        self.pseudolegal_moves().into_iter().filter_map(move |m| self.clone().make_move(m))
     }
 
     /// Returns an optional [`MatchResult`]. Unlike a [`PlayerResult`], a [`MatchResult`] doesn't contain `Win` or `Lose` variants,
     /// but instead `P1Win` and `P1Lose`. Also, it contains a [`GameOverReason`].
     fn match_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<MatchResult> {
         let player_res = self.player_result_slow(history)?;
-        let game_over = GameOver {
-            result: player_res,
-            reason: GameOverReason::Normal,
-        };
+        let game_over = GameOver { result: player_res, reason: GameOverReason::Normal };
         Some(player_res_to_match_res(game_over, self.active_player()))
     }
 
@@ -737,14 +718,7 @@ pub fn board_from_name<B: Board>(name: &str) -> Res<B> {
     } else if first_token.eq_ignore_ascii_case("startpos") {
         return Ok(B::startpos());
     }
-    select_name_static(
-        name,
-        B::name_to_pos_map().iter(),
-        "position",
-        &B::game_name(),
-        NoDescription,
-    )
-    .map(|f| (f.val)())
+    select_name_static(name, B::name_to_pos_map().iter(), "position", &B::game_name(), NoDescription).map(|f| (f.val)())
 }
 
 #[must_use]
@@ -778,12 +752,7 @@ pub fn common_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) -> f
     write!(f, " {}", pos.active_player().to_char(&pos.settings()))
 }
 
-pub fn simple_fen<T: RectangularBoard>(
-    f: &mut Formatter<'_>,
-    pos: &T,
-    halfmove: bool,
-    fullmove: bool,
-) -> fmt::Result {
+pub fn simple_fen<T: RectangularBoard>(f: &mut Formatter<'_>, pos: &T, halfmove: bool, fullmove: bool) -> fmt::Result {
     common_fen_part(f, pos)?;
     if halfmove {
         write!(f, " {}", pos.halfmove_repetition_clock())?;
@@ -794,17 +763,18 @@ pub fn simple_fen<T: RectangularBoard>(
     Ok(())
 }
 
-pub(crate) fn read_position_fen<B: RectangularBoard>(
-    position: &str,
-    mut board: B::Unverified,
-) -> Res<B::Unverified> {
+pub(crate) fn read_position_fen<B: RectangularBoard>(position: &str, mut board: B::Unverified) -> Res<B::Unverified> {
     let lines = position.split('/');
     debug_assert!(lines.clone().count() > 0);
     let num_lines = lines.clone().count();
     let height = board.size().height().val();
     if num_lines != height {
         if num_lines == 1 {
-            bail!("Expected a FEN position description of {height} lines separated by '{0}', but found '{1}'", "/".bold(), position.red())
+            bail!(
+                "Expected a FEN position description of {height} lines separated by '{0}', but found '{1}'",
+                "/".bold(),
+                position.red()
+            )
         }
         bail!(
             "The {0} board has a height of {1}, but the FEN contains {2} rows",
@@ -822,8 +792,7 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
 
         let handle_skipped = |digit_in_line, skipped_digits, idx: &mut usize| {
             if skipped_digits > 0 {
-                let num_skipped =
-                    line[digit_in_line - skipped_digits..digit_in_line].parse::<usize>()?;
+                let num_skipped = line[digit_in_line - skipped_digits..digit_in_line].parse::<usize>()?;
                 if num_skipped == 0 {
                     bail!("FEN position can't contain the number 0".to_string())
                 }
@@ -847,25 +816,19 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(
             handle_skipped(i, skipped_digits, &mut square)?;
             skipped_digits = 0;
             if square >= board.size().num_squares() {
-                bail!("FEN position contains more than {square} squares, but the board only has {0} squares", board.size().num_squares());
+                bail!(
+                    "FEN position contains more than {square} squares, but the board only has {0} squares",
+                    board.size().num_squares()
+                );
             }
 
-            board.place_piece(
-                board
-                    .size()
-                    .idx_to_coordinates(square as DimT)
-                    .flip_up_down(board.size()),
-                symbol,
-            );
+            board.place_piece(board.size().idx_to_coordinates(square as DimT).flip_up_down(board.size()), symbol);
             square += 1;
         }
         handle_skipped(line.len(), skipped_digits, &mut square)?;
         let line_len = square - square_before_line;
         if line_len != board.size().width().val() {
-            bail!(
-                "Line '{line}' has incorrect width: {line_len}, should be {0}",
-                board.size().width().val()
-            );
+            bail!("Line '{line}' has incorrect width: {line_len}, should be {0}", board.size().width().val());
         }
     }
     Ok(board)
@@ -876,21 +839,13 @@ pub(crate) fn read_common_fen_part<B: RectangularBoard>(
     words: &mut Tokens,
     board: B::Unverified,
 ) -> Res<B::Unverified> {
-    let Some(position_part) = words.next() else {
-        bail!("Empty {0} FEN string", B::game_name())
-    };
+    let Some(position_part) = words.next() else { bail!("Empty {0} FEN string", B::game_name()) };
     let mut board = read_position_fen::<B>(position_part, board)?;
 
     let Some(active) = words.next() else {
-        bail!(
-            "{0} FEN ends after the position description and doesn't include the active player",
-            B::game_name()
-        )
+        bail!("{0} FEN ends after the position description and doesn't include the active player", B::game_name())
     };
-    let correct_chars = [
-        B::Color::first().to_char(&board.settings()),
-        B::Color::second().to_char(&board.settings()),
-    ];
+    let correct_chars = [B::Color::first().to_char(&board.settings()), B::Color::second().to_char(&board.settings())];
     if active.chars().count() != 1 {
         bail!(
             "Expected a single char to describe the active player ('{0}' or '{1}'), got '{2}'",
@@ -899,8 +854,7 @@ pub(crate) fn read_common_fen_part<B: RectangularBoard>(
             active.red()
         );
     }
-    let Some(active) = B::Color::from_char(active.chars().next().unwrap(), &board.settings())
-    else {
+    let Some(active) = B::Color::from_char(active.chars().next().unwrap(), &board.settings()) else {
         bail!(
             "Expected '{0}' or '{1}' for the color, not '{2}'",
             correct_chars[0].to_string().bold(),
@@ -924,21 +878,13 @@ pub(crate) fn read_two_move_numbers<B: RectangularBoard>(
         _ = words.next();
         board.set_halfmove_repetition_clock(halfmove_clock)?;
         let Some(fullmove_number) = words.peek().copied() else {
-            bail!(
-                    "The FEN contains a valid halfmove clock ('{halfmove_clock}') but no fullmove counter",
-                )
+            bail!("The FEN contains a valid halfmove clock ('{halfmove_clock}') but no fullmove counter",)
         };
-        let fullmove_number = fullmove_number.parse::<NonZeroUsize>().map_err(|err| {
-            anyhow!(
-                "Couldn't parse fullmove counter '{}': {err}",
-                fullmove_number.red()
-            )
-        })?;
+        let fullmove_number = fullmove_number
+            .parse::<NonZeroUsize>()
+            .map_err(|err| anyhow!("Couldn't parse fullmove counter '{}': {err}", fullmove_number.red()))?;
         _ = words.next();
-        board.set_ply_since_start(ply_counter_from_fullmove_nr(
-            fullmove_number,
-            board.active_player().is_first(),
-        ))?;
+        board.set_ply_since_start(ply_counter_from_fullmove_nr(fullmove_number, board.active_player().is_first()))?;
     } else if strictness == Strict {
         bail!("FEN doesn't contain a halfmove clock and fullmove counter, but they are required in strict mode")
     } else {
@@ -955,10 +901,7 @@ pub(crate) fn read_single_move_number<B: RectangularBoard>(
 ) -> Res<B::Unverified> {
     let fullmove_nr = words.next().unwrap_or("");
     if let Ok(fullmove_nr) = fullmove_nr.parse::<NonZeroUsize>() {
-        board.set_ply_since_start(ply_counter_from_fullmove_nr(
-            fullmove_nr,
-            board.active_player().is_first(),
-        ))?;
+        board.set_ply_since_start(ply_counter_from_fullmove_nr(fullmove_nr, board.active_player().is_first()))?;
         Ok(board)
     } else if strictness != Strict {
         Ok(board)

@@ -26,18 +26,15 @@ use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
 use crate::games::fairy::rules::{Draw, GameLoss, Rules, RulesRef};
 use crate::games::{
-    n_fold_repetition, AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece,
-    ColoredPieceType, Coordinates, DimT, GenericPiece, NoHistory, PosHash, Size,
+    n_fold_repetition, AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates,
+    DimT, GenericPiece, NoHistory, PosHash, Size,
 };
-use crate::general::bitboards::{
-    Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboard,
-};
+use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers,
-    BitboardBoard, Board, BoardHelpers, BoardSize, ColPieceType, NameToPos, PieceTypeOf,
-    SelfChecks, Strictness, UnverifiedBoard,
+    position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers, BitboardBoard, Board,
+    BoardHelpers, BoardSize, ColPieceType, NameToPos, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
@@ -46,9 +43,7 @@ use crate::general::common::{
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::moves::Move;
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
-use crate::output::text_output::{
-    board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter,
-};
+use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter};
 use crate::output::OutputOpts;
 use crate::search::Depth;
 use crate::PlayerResult;
@@ -125,9 +120,7 @@ struct ColorInfo {
     name: String,
 }
 
-#[derive(
-    Debug, Copy, Clone, Eq, PartialEq, Hash, EnumIter, derive_more::Display, FromRepr, Arbitrary,
-)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, EnumIter, derive_more::Display, FromRepr, Arbitrary)]
 #[must_use]
 pub enum Side {
     Kingside,
@@ -145,12 +138,10 @@ struct CastlingMoveInfo {
 
 impl ColoredFairyCastleInfo {
     fn king_dest_sq(self, side: Side) -> Option<FairySquare> {
-        self.sides[side as usize]
-            .map(|info| FairySquare::from_rank_file(self.rank, info.king_dest_file))
+        self.sides[side as usize].map(|info| FairySquare::from_rank_file(self.rank, info.king_dest_file))
     }
     fn rook_dest_sq(self, side: Side) -> Option<FairySquare> {
-        self.sides[side as usize]
-            .map(|info| FairySquare::from_rank_file(self.rank, info.rook_dest_file))
+        self.sides[side as usize].map(|info| FairySquare::from_rank_file(self.rank, info.rook_dest_file))
     }
     fn rook_sq(self, side: Side) -> Option<FairySquare> {
         self.sides[side as usize].map(|info| FairySquare::from_rank_file(self.rank, info.rook_file))
@@ -173,12 +164,7 @@ struct FairyCastleInfo {
 
 impl Default for FairyCastleInfo {
     fn default() -> Self {
-        Self {
-            players: [ColoredFairyCastleInfo {
-                sides: [None, None],
-                rank: 0,
-            }; 2],
-        }
+        Self { players: [ColoredFairyCastleInfo { sides: [None, None], rank: 0 }; 2] }
     }
 }
 
@@ -249,10 +235,7 @@ impl Default for UnverifiedFairyBoard {
 
 impl UnverifiedFairyBoard {
     fn occupied_bb(&self) -> FairyBitboard {
-        FairyBitboard::new(
-            self.color_bitboards[0] | self.color_bitboards[1],
-            self.size(),
-        )
+        FairyBitboard::new(self.color_bitboards[0] | self.color_bitboards[1], self.size())
     }
 
     // TODO: Rename to `rules()` and remove free `rules()`, also don't clone the arc each time
@@ -293,19 +276,10 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
             let draw = rules
                 .draw
                 .iter()
-                .find_map(|d| {
-                    if let Draw::Counter(val) = d {
-                        Some(*val)
-                    } else {
-                        None
-                    }
-                })
+                .find_map(|d| if let Draw::Counter(val) = d { Some(*val) } else { None })
                 .unwrap_or_default();
             if self.draw_counter > draw {
-                bail!(
-                    "Progress counter too large: {0} is larger than {draw}",
-                    self.draw_counter
-                );
+                bail!("Progress counter too large: {0} is larger than {draw}", self.draw_counter);
             }
         }
         if self.ply_since_start >= usize::MAX / 2 {
@@ -322,11 +296,7 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
                         bail!(
                             "Color {0} can castle {side}, but there is no piece to castle with{1}",
                             self.get_rules().colors[color.idx()].name,
-                            if level == CheckFen {
-                                " (invalid castling flag in FEN?)"
-                            } else {
-                                ""
-                            }
+                            if level == CheckFen { " (invalid castling flag in FEN?)" } else { "" }
                         );
                     }
                 }
@@ -366,18 +336,10 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
     fn remove_piece(&mut self, coords: FairySquare) {
         let idx = self.idx(coords);
         let bb = self.single_piece(coords).raw();
-        if let Some(col_bb) = self
-            .color_bitboards
-            .iter_mut()
-            .find(|bb| bb.is_bit_set_at(idx))
-        {
+        if let Some(col_bb) = self.color_bitboards.iter_mut().find(|bb| bb.is_bit_set_at(idx)) {
             *col_bb ^= bb;
         }
-        if let Some(piece_bb) = self
-            .piece_bitboards
-            .iter_mut()
-            .find(|bb| bb.is_bit_set_at(idx))
-        {
+        if let Some(piece_bb) = self.piece_bitboards.iter_mut().find(|bb| bb.is_bit_set_at(idx)) {
             *piece_bb ^= bb;
         }
     }
@@ -427,10 +389,7 @@ impl UnverifiedFairyBoard {
         self.size().internal_key(square)
     }
     fn single_piece(&self, square: FairySquare) -> FairyBitboard {
-        FairyBitboard::new(
-            RawFairyBitboard::single_piece_at(self.idx(square)),
-            self.size(),
-        )
+        FairyBitboard::new(RawFairyBitboard::single_piece_at(self.idx(square)), self.size())
     }
 }
 
@@ -500,19 +459,13 @@ impl Board for FairyBoard {
             GenericSelect {
                 name: "kiwipete",
                 val: || {
-                    Self::from_fen(
-                    "chess r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
-                    Strict,
-                )
-                .unwrap()
+                    Self::from_fen("chess r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", Strict)
+                        .unwrap()
                 },
             },
             GenericSelect {
                 name: "large_mnk",
-                val: || {
-                    Self::from_fen("mnk 11 11 4 11/11/11/11/11/11/11/11/11/11/11 x 1", Strict)
-                        .unwrap()
-                },
+                val: || Self::from_fen("mnk 11 11 4 11/11/11/11/11/11/11/11/11/11/11 x 1", Strict).unwrap(),
             },
         ]
     }
@@ -530,14 +483,8 @@ impl Board for FairyBoard {
         if first.is_empty() {
             bail!("Missing name for fairy variant");
         };
-        let mut variant = (select_name_static(
-            first,
-            Self::variants().iter(),
-            "variant",
-            "fairy",
-            NoDescription,
-        )?
-        .val)();
+        let mut variant =
+            (select_name_static(first, Self::variants().iter(), "variant", "fairy", NoDescription)?.val)();
         let rest_copy = rest.clone();
         let res = variant.0.read_rules_fen_part(rest);
         if let Ok(Some(new)) = res {
@@ -549,12 +496,7 @@ impl Board for FairyBoard {
     }
 
     fn list_variants() -> Option<Vec<String>> {
-        Some(
-            Self::variants()
-                .iter()
-                .map(|v| v.name.to_string())
-                .collect_vec(),
-        )
+        Some(Self::variants().iter().map(|v| v.name.to_string()).collect_vec())
     }
 
     fn active_player(&self) -> FairyColor {
@@ -580,8 +522,7 @@ impl Board for FairyBoard {
     fn is_piece_on(&self, coords: Self::Coordinates, piece: ColPieceType<Self>) -> bool {
         let idx = self.0.idx(coords);
         if let Some(color) = piece.color() {
-            self.colored_piece_bb(color, piece.uncolor())
-                .is_bit_set_at(idx)
+            self.colored_piece_bb(color, piece.uncolor()).is_bit_set_at(idx)
         } else {
             self.piece_bb(piece.uncolor()).is_bit_set_at(idx)
         }
@@ -593,12 +534,7 @@ impl Board for FairyBoard {
 
     fn piece_type_on(&self, coords: Self::Coordinates) -> PieceTypeOf<Self> {
         let idx = self.0.idx(coords);
-        if let Some((idx, _piece)) = self
-            .0
-            .piece_bitboards
-            .iter()
-            .find_position(|p| p.is_bit_set_at(idx))
-        {
+        if let Some((idx, _piece)) = self.0.piece_bitboards.iter().find_position(|p| p.is_bit_set_at(idx)) {
             PieceId::new(idx)
         } else {
             PieceId::empty()
@@ -705,12 +641,7 @@ impl Board for FairyBoard {
     }
 
     fn no_moves_result(&self) -> PlayerResult {
-        if self
-            .get_rules()
-            .game_loss
-            .iter()
-            .any(|rule| [GameLoss::Checkmate, GameLoss::NoMoves].contains(rule))
-        {
+        if self.get_rules().game_loss.iter().any(|rule| [GameLoss::Checkmate, GameLoss::NoMoves].contains(rule)) {
             return PlayerResult::Lose;
         }
         if self.get_rules().draw.contains(&Draw::NoMoves) {
@@ -727,9 +658,7 @@ impl Board for FairyBoard {
                 GameLoss::NoRoyals => self.royal_bb_for(us).is_zero(),
                 GameLoss::NoPieces => self.player_bb(us).is_zero(),
                 GameLoss::NoMoves => self.legal_moves_slow().is_empty(), // TODO: Special function?
-                GameLoss::NoNonRoyals
-                | GameLoss::NoNonRoyalsExceptRecapture
-                | GameLoss::InRowAtLeast(_) => {
+                GameLoss::NoNonRoyals | GameLoss::NoNonRoyalsExceptRecapture | GameLoss::InRowAtLeast(_) => {
                     self.player_result_no_movegen(&NoHistory::default()) == Some(PlayerResult::Lose)
                 }
             };
@@ -755,10 +684,9 @@ impl Board for FairyBoard {
     fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self> {
         let variants = Self::variants();
         let mut board;
-        if let Some(v) = variants.iter().find(|v| {
-            v.name
-                .eq_ignore_ascii_case(input.peek().copied().unwrap_or_default())
-        }) {
+        if let Some(v) =
+            variants.iter().find(|v| v.name.eq_ignore_ascii_case(input.peek().copied().unwrap_or_default()))
+        {
             let rules = (v.val)();
             board = Self::empty_for_settings(rules);
             input.next();
@@ -797,12 +725,7 @@ impl Board for FairyBoard {
         last_move: Option<Self::Move>,
         opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
-        Box::new(DefaultBoardFormatter::new(
-            self.clone(),
-            piece,
-            last_move,
-            opts,
-        ))
+        Box::new(DefaultBoardFormatter::new(self.clone(), piece, last_move, opts))
     }
 
     fn background_color(&self, square: FairySquare) -> SquareColor {
@@ -843,22 +766,10 @@ impl FairyBoard {
     }
     fn variants() -> EntityList<NameToVariant> {
         vec![
-            GenericSelect {
-                name: "chess",
-                val: || RulesRef::new(Rules::chess()),
-            },
-            GenericSelect {
-                name: "shatranj",
-                val: || RulesRef::new(Rules::shatranj()),
-            },
-            GenericSelect {
-                name: "tictactoe",
-                val: || RulesRef::new(Rules::tictactoe()),
-            },
-            GenericSelect {
-                name: "mnk",
-                val: || RulesRef::new(Rules::mnk(GridSize::connect4(), 4)),
-            },
+            GenericSelect { name: "chess", val: || RulesRef::new(Rules::chess()) },
+            GenericSelect { name: "shatranj", val: || RulesRef::new(Rules::shatranj()) },
+            GenericSelect { name: "tictactoe", val: || RulesRef::new(Rules::tictactoe()) },
+            GenericSelect { name: "mnk", val: || RulesRef::new(Rules::mnk(GridSize::connect4(), 4)) },
         ]
     }
 
@@ -931,10 +842,7 @@ mod tests {
         let capture_bb = pos.capturing_attack_bb_of(FairyColor::first());
         assert_eq!(capture_bb.raw(), 0xff_ff_ff - 0x81);
         assert_eq!(22, capture_bb.num_ones());
-        assert_eq!(
-            22,
-            pos.capturing_attack_bb_of(FairyColor::second()).num_ones()
-        );
+        assert_eq!(22, pos.capturing_attack_bb_of(FairyColor::second()).num_ones());
         assert_eq!(pos.legal_moves_slow().len(), 20);
     }
 
@@ -946,10 +854,7 @@ mod tests {
         assert_eq!(pos.as_fen(), "chess ".to_string() + &fen);
         let moves = pos.legal_moves_slow();
         let chessmoves = chesspos.legal_moves_slow().into_iter().collect_vec();
-        let num_castling = moves
-            .iter()
-            .filter(|m| matches!(m.kind(), MoveKind::Castle(_)))
-            .count();
+        let num_castling = moves.iter().filter(|m| matches!(m.kind(), MoveKind::Castle(_))).count();
         assert_eq!(num_castling, 2);
         assert_eq!(moves.len(), chessmoves.len());
         for mov in moves {
@@ -960,10 +865,7 @@ mod tests {
                 .map(|&m| chesspos.make_move(m).unwrap())
                 .find(|p| p.as_fen() == new_pos.fen_no_rules())
                 .unwrap();
-            assert_eq!(
-                new_pos,
-                FairyBoard::from_fen(&new_pos.as_fen(), Strict).unwrap()
-            );
+            assert_eq!(new_pos, FairyBoard::from_fen(&new_pos.as_fen(), Strict).unwrap());
             // for m in new_pos.legal_moves_slow() {
             //     println!("{m} 1");
             // }
@@ -973,11 +875,9 @@ mod tests {
 
     #[test]
     fn simple_ep_test() {
-        let pos = FairyBoard::from_fen(
-            "r3k2r/p2pqpb1/bn2pnp1/2pPN3/1pB1P3/2N2Q1p/PPPB1PPP/R3K2R w HAha c6 0 2",
-            Strict,
-        )
-        .unwrap();
+        let pos =
+            FairyBoard::from_fen("r3k2r/p2pqpb1/bn2pnp1/2pPN3/1pB1P3/2N2Q1p/PPPB1PPP/R3K2R w HAha c6 0 2", Strict)
+                .unwrap();
         let moves = pos.legal_moves_slow();
         let mov = FairyMove::from_compact_text("d5c6", &pos).unwrap();
         assert!(moves.into_iter().contains(&mov));
@@ -1038,10 +938,7 @@ mod tests {
         let capture_bb = pos.capturing_attack_bb_of(FairyColor::first());
         assert_eq!(capture_bb.raw(), 16760150);
         assert_eq!(18, capture_bb.num_ones());
-        assert_eq!(
-            18,
-            pos.capturing_attack_bb_of(FairyColor::second()).num_ones()
-        );
+        assert_eq!(18, pos.capturing_attack_bb_of(FairyColor::second()).num_ones());
         assert_eq!(pos.legal_moves_slow().len(), 8 + 2 * 2 + 2 * 2);
     }
 
@@ -1049,10 +946,7 @@ mod tests {
     fn simple_mnk_test() {
         let pos = FairyBoard::from_fen("tictactoe 3 3 3 3/3/3 x 1", Strict).unwrap();
         assert_eq!(pos.size(), GridSize::tictactoe());
-        assert_eq!(
-            pos.active_player(),
-            FairyColor::from_char('x', &pos.settings()).unwrap()
-        );
+        assert_eq!(pos.active_player(), FairyColor::from_char('x', &pos.settings()).unwrap());
         assert!(pos.royal_bb().is_zero());
         assert_eq!(pos.empty_bb().num_ones(), 9);
         assert_eq!(pos.num_legal_moves(), 9);
@@ -1081,10 +975,7 @@ mod tests {
                 assert_eq!(chess_perft.nodes, fairy_perft.nodes);
                 let chess_time = chess_perft.time.as_millis();
                 let fairy_time = fairy_perft.time.as_millis();
-                assert!(
-                    chess_time * 100 + 1000 > fairy_time,
-                    "{chess_time} {fairy_time} {i} {fairy_pos}"
-                );
+                assert!(chess_time * 100 + 1000 > fairy_time, "{chess_time} {fairy_time} {i} {fairy_pos}");
             }
         }
     }

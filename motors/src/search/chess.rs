@@ -114,10 +114,7 @@ mod tests {
         } else {
             assert!(res.score >= Score(500));
         }
-        assert_ne!(
-            res.chosen_move,
-            ChessMove::from_text("Qd4", &game.board).unwrap()
-        );
+        assert_ne!(res.chosen_move, ChessMove::from_text("Qd4", &game.board).unwrap());
     }
 
     fn mate_beats_repetition<E: Engine<Chessboard>>(engine: &mut E) {
@@ -171,17 +168,9 @@ mod tests {
         atomic2.set_stop(true);
         let res2 = handle2.join().unwrap();
         // The bound of 400 is rather large because gaps does not produce very stable evals
-        assert!(
-            res.score.0.abs_diff(res2.score.0) <= 400,
-            "{0} {1}",
-            res.score,
-            res2.score
-        );
+        assert!(res.score.0.abs_diff(res2.score.0) <= 400, "{0} {1}", res.score, res2.score);
         assert_eq!(res.chosen_move.piece_type(), Bishop);
-        assert_eq!(
-            res2.chosen_move.src_square(),
-            ChessSquare::from_str("a4").unwrap()
-        );
+        assert_eq!(res2.chosen_move.src_square(), ChessSquare::from_str("a4").unwrap());
     }
 
     #[test]
@@ -204,10 +193,7 @@ mod tests {
             let mut engine = Caps::for_eval::<RandEval>();
             let res = engine.search_with_new_tt(board, SearchLimit::depth(Depth::new(i)));
             assert_eq!(res.score, SCORE_LOST + 2);
-            assert_eq!(
-                res.chosen_move.compact_formatter(&board).to_string(),
-                "h1g1"
-            );
+            assert_eq!(res.chosen_move.compact_formatter(&board).to_string(), "h1g1");
         }
     }
 
@@ -229,15 +215,8 @@ mod tests {
         let new_board = board.make_move(mov).unwrap();
         assert!(new_board.is_in_check());
         assert!(new_board.is_3fold_repetition(&hist));
-        assert!(new_board
-            .player_result_slow(&hist)
-            .is_some_and(|r| r == Draw));
-        assert!(n_fold_repetition(
-            2,
-            &hist,
-            &new_board,
-            new_board.halfmove_repetition_clock(),
-        ));
+        assert!(new_board.player_result_slow(&hist).is_some_and(|r| r == Draw));
+        assert!(n_fold_repetition(2, &hist, &new_board, new_board.halfmove_repetition_clock(),));
         hist.pop();
         let mut engine = Caps::for_eval::<MaterialOnlyEval>();
         for depth in 1..10 {
@@ -254,11 +233,8 @@ mod tests {
 
     #[test]
     fn mate_in_three() {
-        let pos = Chessboard::from_fen(
-            "r4r1k/7p/pp1pP2b/2p1p2P/2P2p2/3B3q/PP1BNP2/R1QR2K1 b - - 4 27",
-            Strict,
-        )
-        .unwrap();
+        let pos =
+            Chessboard::from_fen("r4r1k/7p/pp1pP2b/2p1p2P/2P2p2/3B3q/PP1BNP2/R1QR2K1 b - - 4 27", Strict).unwrap();
         let mut limit = SearchLimit::mate_in_moves(3);
         let engines: [(Box<dyn Engine<Chessboard>>, u64); 3] = [
             (Box::new(Caps::for_eval::<KingGambot>()), 100_000),
