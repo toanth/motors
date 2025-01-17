@@ -445,7 +445,16 @@ impl Engine<Chessboard> for Caps {
         self.state.custom.original_board_hist = take(&mut self.state.search_params_mut().history);
         self.state.custom.original_board_hist.push(&pos);
 
-        self.iterative_deepening(pos, soft_limit)
+        let depth = self.iterative_deepening(pos, soft_limit);
+        if let Some(depth) = depth {
+            // send one final search info, but don't send empty PVs or PVs from a fail high
+            // that would consist of only one move
+            let pv = self.state.current_mpv_pv();
+            if !pv.is_empty() && (depth == 1 || pv.len() > 1) {
+                self.search_state().send_search_info();
+            }
+        }
+        self.state.search_result()
     }
 }
 
@@ -459,11 +468,7 @@ impl Caps {
     /// This has two advantages: It allows the search to be stopped at any time, and it actually improves strength:
     /// The low-depth searches fill the TT and various heuristics, which improves move ordering and therefore results in
     /// better moves within the same time or nodes budget because the lower-depth searches are comparatively cheap.
-    fn iterative_deepening(
-        &mut self,
-        pos: Chessboard,
-        soft_limit: Duration,
-    ) -> SearchResult<Chessboard> {
+    fn iterative_deepening(&mut self, pos: Chessboard, soft_limit: Duration) -> Option<isize> {
         let max_depth = DEPTH_SOFT_LIMIT.min(self.limit().depth).isize();
         let multi_pv = self.state.multi_pv();
         let mut soft_limit_scale = 1.0;
@@ -476,35 +481,18 @@ impl Caps {
             self.state.statistics.next_id_iteration();
             for pv_num in 0..multi_pv {
                 self.state.current_pv_num = pv_num;
-                self.state.current_pv_data_mut().bound = None;
-                let mut pv_data = self.state.multi_pvs[pv_num].clone();
-                let keep_searching = self.aspiration(
-                    pos,
-                    soft_limit.mul_f64(soft_limit_scale),
-                    depth,
-                    &mut pv_data.alpha,
-                    &mut pv_data.beta,
-                    &mut pv_data.radius,
-                    max_depth,
-                );
-                // TODO: Rework this, set the searchinfo in `aspiration()`
+                self.state.cur_pv_data_mut().bound = None;
+                let scaled_soft_limit = soft_limit.mul_f64(soft_limit_scale);
+                if self.should_not_start_negamax(scaled_soft_limit, max_depth, self.limit().mate) {
+                    return None;
+                }
+                let (keep_searching, depth) =
+                    self.aspiration(pos, scaled_soft_limit, depth, max_depth);
+                if !keep_searching {
+                    return depth;
+                }
                 if let Some(chosen_move) = self.state.search_stack[0].pv.get(0) {
                     self.state.excluded_moves.push(chosen_move);
-                }
-                self.state.multi_pvs[pv_num].alpha = pv_data.alpha;
-                self.state.multi_pvs[pv_num].beta = pv_data.beta;
-                self.state.multi_pvs[pv_num].radius = pv_data.radius;
-                if keep_searching {
-                    self.search_state().send_search_info();
-                } else {
-                    // send one final search info, but don't send empty PVs or PVs from a fail high
-                    // that would consist of only one move, and don't send a PV if it's
-                    let pv = self.state.current_mpv_pv();
-                    let immediately_aborted = self.state.depth().get() < depth as usize;
-                    if !pv.is_empty() && (depth == 1 || pv.len() > 1) && !immediately_aborted {
-                        self.search_state().send_search_info();
-                    }
-                    return self.state.search_result();
                 }
             }
             self.state
@@ -524,8 +512,7 @@ impl Caps {
                 soft_limit_scale = 1.0;
             }
         }
-
-        self.state.search_result()
+        None
     }
 
     /// Aspiration Windows (AW): Assume that the score will be close to the score from the previous iteration
@@ -539,26 +526,26 @@ impl Caps {
         pos: Chessboard,
         unscaled_soft_limit: Duration,
         depth: isize,
-        alpha: &mut Score,
-        beta: &mut Score,
-        window_radius: &mut Score,
         max_depth: isize,
-    ) -> bool {
+    ) -> (bool, Option<isize>) {
         let mut soft_limit_scale = 1.0;
         loop {
+            let alpha = self.state.cur_pv_data().alpha;
+            let beta = self.state.cur_pv_data().beta;
+            let mut window_radius = self.state.cur_pv_data().radius;
             let soft_limit = unscaled_soft_limit.mul_f64(soft_limit_scale);
             soft_limit_scale = 1.0;
-            if self.should_not_start_iteration(soft_limit, max_depth, self.limit().mate) {
+            if self.should_not_start_negamax(soft_limit, max_depth, self.limit().mate) {
                 self.state.statistics.soft_limit_stop();
-                return false;
+                return (false, None);
             }
             self.state.atomic().set_depth(depth); // set depth now so that an immediate stop doesn't increment the depth
             self.state.atomic().count_node();
             let asp_start_time = Instant::now();
             let Some(pv_score) =
-                self.negamax(pos, 0, self.state.depth().isize(), *alpha, *beta, Exact)
+                self.negamax(pos, 0, self.state.depth().isize(), alpha, beta, Exact)
             else {
-                return false;
+                return (false, Some(depth));
             };
 
             self.state.send_non_ugi(
@@ -574,22 +561,22 @@ impl Caps {
                 ),
             );
 
-            let node_type = if pv_score <= *alpha {
-                FailLow
-            } else if pv_score >= *beta {
-                FailHigh
-            } else {
-                Exact
-            };
-            self.state.current_pv_data_mut().bound = Some(node_type);
+            let node_type = pv_score.node_type(alpha, beta);
+
+            // we don't trust the best move in fail low nodes, but we still want to display an updated score
+            self.state.cur_pv_data_mut().score = pv_score;
+            self.state.cur_pv_data_mut().bound = Some(node_type);
 
             let atomic = &self.state.params.atomic;
             let pv = &self.state.search_stack[0].pv;
-            // we don't trust the best move in fail low nodes, but we still want to display an updated score
-            self.state.multi_pvs[self.state.current_pv_num].score = pv_score;
-            // adding ` && node_type != FailLow` gains elo, which is weird because this only prevents incomplete search iterations that have
-            // already changed the PV from affecting the chosen move.
-            if pv.len() > 0 && node_type != FailLow {
+
+            if node_type == FailLow {
+                // In a fail low node, we didn't get any new information, and it's possible that we just discovered
+                // a problem with our chosen move. So increase the soft limit such that we can gather more information.
+                soft_limit_scale = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
+            } else if pv.len() > 0 && node_type != FailLow {
+                // adding ` && node_type != FailLow` gained elo, which is weird because this only prevents incomplete search
+                // iterations that have already changed the PV from affecting the chosen move.
                 if self.state.current_pv_num == 0 {
                     let chosen_move = pv.get(0).unwrap();
                     let ponder_move = pv.get(1);
@@ -611,11 +598,6 @@ impl Caps {
                 }
             }
 
-            if node_type == FailLow {
-                // In a fail low node, we didn't get any new information, and it's possible that we just discovered
-                // a problem with our chosen move. So increase the soft limit such that we can gather more information.
-                soft_limit_scale = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
-            }
             if cfg!(debug_assertions) {
                 if pos.player_result_slow(&self.state.params.history).is_some() {
                     assert_eq!(pv.len(), 0);
@@ -639,17 +621,16 @@ impl Caps {
                         }
                     }
                 }
+                // assert this now because this doesn't hold for incomplete iterations
+                debug_assert!(
+                    !pv_score.is_won_or_lost() || pv_score.plies_until_game_over().unwrap() <= 256,
+                    "{pv_score}"
+                );
             }
-
-            // assert this now because this doesn't hold for incomplete iterations
-            debug_assert!(
-                !pv_score.is_won_or_lost() || pv_score.plies_until_game_over().unwrap() <= 256,
-                "{pv_score}"
-            );
 
             self.state.statistics.aw_node_type(node_type);
             if node_type == Exact {
-                *window_radius = Score((window_radius.0 + cc::aw_exact_add()) / cc::aw_exact_div());
+                window_radius = Score((window_radius.0 + cc::aw_exact_add()) / cc::aw_exact_div());
             } else {
                 let delta = pv_score.0.abs_diff(alpha.0);
                 let delta = delta.min(pv_score.0.abs_diff(beta.0));
@@ -658,11 +639,12 @@ impl Caps {
                     .0
                     .min(window_radius.0 * cc::aw_widening_factor() + delta);
             }
-            *alpha = (pv_score - *window_radius).max(MIN_ALPHA);
-            *beta = (pv_score + *window_radius).min(MAX_BETA);
+            self.state.cur_pv_data_mut().radius = window_radius;
+            self.state.cur_pv_data_mut().alpha = (pv_score - window_radius).max(MIN_ALPHA);
+            self.state.cur_pv_data_mut().beta = (pv_score + window_radius).min(MAX_BETA);
 
             if node_type == Exact {
-                return true;
+                return (true, Some(depth));
             } else if asp_start_time.elapsed().as_millis() >= 1000 {
                 self.state.send_search_info();
             }
@@ -761,9 +743,9 @@ impl Caps {
                 // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
                 // simply return it.
                 if !is_pv_node && tt_entry.depth as isize >= depth {
-                    if ((tt_entry.score >= beta && tt_bound == NodeType::lower_bound())
+                    if (tt_entry.score >= beta && tt_bound == NodeType::lower_bound())
                         || (tt_entry.score <= alpha && tt_bound == NodeType::upper_bound())
-                        || tt_bound == Exact)
+                        || tt_bound == Exact
                     {
                         self.state.statistics.tt_cutoff(MainSearch, tt_bound);
                         // Idea from stormphrax

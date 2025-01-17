@@ -19,6 +19,8 @@
 //! Anything related to search that is also used by `monitors`, and therefore doesn't belong in `motors`.
 
 use crate::general::common::Res;
+use crate::search::NodeType;
+use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use crate::PlayerResult;
 use anyhow::anyhow;
 use derive_more::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
@@ -158,6 +160,16 @@ impl Score {
             -self
         } else {
             self
+        }
+    }
+
+    pub fn node_type(self, alpha: Score, beta: Score) -> NodeType {
+        if self <= alpha {
+            FailLow
+        } else if self >= beta {
+            FailHigh
+        } else {
+            Exact
         }
     }
 }
