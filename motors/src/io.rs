@@ -66,6 +66,7 @@ use gears::ProgramStatus::{Quit, Run};
 use gears::Quitting::QuitProgram;
 use gears::{
     output_builder_from_str, AbstractRun, GameState, MatchState, MatchStatus, PlayerResult, ProgramStatus, Quitting,
+    UgiPosState,
 };
 use itertools::Itertools;
 use std::cell::RefCell;
@@ -120,7 +121,7 @@ pub enum Protocol {
 
 #[derive(Debug)]
 struct EngineGameState<B: Board> {
-    position_state: MatchState<B>,
+    match_state: MatchState<B>,
     go_state: GoState<B>,
     game_name: String,
     protocol: Protocol,
@@ -138,13 +139,13 @@ impl<B: Board> Deref for EngineGameState<B> {
     type Target = MatchState<B>;
 
     fn deref(&self) -> &Self::Target {
-        &self.position_state
+        &self.match_state
     }
 }
 
 impl<B: Board> DerefMut for EngineGameState<B> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.position_state
+        &mut self.match_state
     }
 }
 
@@ -190,7 +191,7 @@ impl<B: Board> AbstractRun for EngineUGI<B> {
 
 impl<B: Board> GameState<B> for EngineGameState<B> {
     fn initial_pos(&self) -> &B {
-        &self.pos_before_moves
+        &self.match_state.pos_before_moves
     }
 
     fn get_board(&self) -> &B {
@@ -278,7 +279,7 @@ impl<B: Board> EngineUGI<B> {
         let protocol = if opts.interactive { Interactive } else { UGI };
         let move_overhead = Duration::from_millis(DEFAULT_MOVE_OVERHEAD_MS);
         let state = EngineGameState {
-            position_state: board_state,
+            match_state: board_state,
             go_state: GoState::new_for_pos(board, SearchLimit::infinite(), Relaxed, move_overhead, Normal),
             game_name: B::game_name(),
             protocol,
@@ -469,7 +470,8 @@ impl<B: Board> EngineUGI<B> {
         let text = tokens_to_string(first_word, original);
         let mut tokens = tokens(&text);
         if let Ok(pgn_data) = parse_pgn::<B>(&text, self.strictness, Some(self.state.board.clone())) {
-            self.state.position_state = pgn_data.game;
+            let keep_hist = self.is_interactive() || self.state.debug_mode;
+            self.state.match_state.set_new_pos_state(pgn_data.game, keep_hist);
             self.write_ugi(&format_args!(
                 "{}",
                 "Interpreting input as PGN (Not a valid command or variation)...".bold()
@@ -499,7 +501,7 @@ impl<B: Board> EngineUGI<B> {
             let mov = B::Move::from_text(word, &state.board)?;
             state.make_move(mov, true)?;
         }
-        self.state.position_state = state;
+        self.state.match_state = state;
         if self.print_game_over(true) {
             return Ok(true);
         }
@@ -714,7 +716,7 @@ impl<B: Board> EngineUGI<B> {
                 ),
             );
         }
-        self.state.status = Run(Ongoing);
+        self.state.set_status(Run(Ongoing));
         let search_moves = self.state.go_state.search_moves.take();
         match opts.search_type {
             // this keeps the current history even if we're searching a different position, but that's probably not a problem
@@ -778,7 +780,7 @@ impl<B: Board> EngineUGI<B> {
     fn handle_eval_or_tt_impl(&mut self, eval: bool, words: &mut Tokens) -> Res<()> {
         let mut state = self.state.clone();
         if words.peek().is_some() {
-            state.handle_position(words, true, Relaxed, true)?;
+            state.handle_position(words, true, Relaxed, true, false)?;
         }
         let text = if eval {
             let info = self.state.engine.get_engine_info();
@@ -855,13 +857,13 @@ impl<B: Board> EngineUGI<B> {
             }
         };
         if words.peek().is_some() {
-            let old_state = self.state.position_state.clone();
-            if let Err(err) = self.state.handle_position(words, true, self.strictness, true) {
-                self.state.position_state = old_state;
+            let old_state = self.state.match_state.clone();
+            if let Err(err) = self.state.handle_position(words, true, self.strictness, true, false) {
+                self.state.match_state = old_state;
                 return Err(err);
             }
             print(self, output, &self.state);
-            self.state.position_state = old_state;
+            self.state.match_state = old_state;
         } else {
             print(self, output, &self.state);
         }
@@ -1028,7 +1030,7 @@ impl<B: Board> EngineUGI<B> {
 
     fn handle_variant(&mut self, words: &mut Tokens) -> Res<()> {
         let first = words.next().unwrap_or_default();
-        self.state.position_state.handle_variant(first, words)
+        self.state.match_state.handle_variant(first, words)
     }
 
     fn handle_play_impl(&mut self, words: &mut Tokens) -> Res<()> {
@@ -1315,13 +1317,14 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
 
     fn handle_uginewgame(&mut self) -> Res<()> {
         self.state.engine.send_forget()?;
-        self.state.status = Run(NotStarted);
+        self.state.set_status(Run(NotStarted));
         Ok(())
     }
 
     fn handle_pos(&mut self, words: &mut Tokens) -> Res<()> {
         let check_game_over = self.state.debug_mode || self.is_interactive();
-        self.state.handle_position(words, false, self.strictness, check_game_over)?;
+        let keep_hist = check_game_over;
+        self.state.handle_position(words, false, self.strictness, check_game_over, keep_hist)?;
         if self.is_interactive() {
             //additional
             self.print_board(OutputOpts::default());
@@ -1396,19 +1399,21 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
             inquire::Editor::new("Open the editor to enter a PGN, then press enter").prompt()?
         };
         let pgn_data = parse_pgn::<B>(&pgn_text, self.strictness, None)?;
-        self.state.position_state = pgn_data.game;
+        let keep_hist = self.is_interactive() || self.state.debug_mode;
+        self.state.match_state.set_new_pos_state(pgn_data.game, keep_hist);
         self.print_board(OutputOpts::default());
         Ok(())
     }
 
     fn handle_flip(&mut self) -> Res<()> {
-        // TODO: Update move history by calling a proper method of ugi
-        self.state.board = self
+        let new_board = self
             .state
-            .board
+            .pos()
             .clone()
             .make_nullmove()
             .ok_or(anyhow!("Could not flip the side to move (board: '{}'", self.state.board.as_fen().bold()))?;
+        let state = UgiPosState::new(new_board);
+        self.state.set_new_pos_state(state, true);
         self.print_board(OutputOpts::default());
         Ok(())
     }
@@ -1484,7 +1489,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
     fn handle_quit(&mut self, typ: Quitting) -> Res<()> {
         // Do this before sending `quit`: If that fails, we can still recognize that we wanted to quit,
         // so that continuing on errors won't prevent us from quitting the program.
-        self.state.status = Quit(typ);
+        self.state.set_status(Quit(typ));
         self.state.engine.send_quit()?;
         Ok(())
     }

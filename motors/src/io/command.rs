@@ -453,8 +453,12 @@ pub fn ugi_commands() -> CommandList {
             ugi.write_message(Warning, &format_args!("{} isn't supported and will be ignored", "register".red()));
             Ok(())
         }),
-        command!(flip, Custom, "Flips the side to move, unless this results in an illegal position", |ugi, _, _| ugi
-            .handle_flip()),
+        command!(
+            flip | null,
+            Custom,
+            "Flips the side to move, unless this results in an illegal position",
+            |ugi, _, _| ugi.handle_flip()
+        ),
         command!(quit, All, "Exits the program immediately", |ugi, _, _| {
             if cfg!(feature = "fuzzing") {
                 eprintln!("Fuzzing is enabled, ignoring 'quit' command");
@@ -710,11 +714,11 @@ impl<B: Board> GoState<B> {
     pub fn new(ugi: &EngineUGI<B>, search_type: SearchType) -> Self {
         let limit = match search_type {
             Bench => SearchLimit::depth(ugi.state.engine.get_engine_info().default_bench_depth()),
-            Perft | SplitPerft => SearchLimit::depth(ugi.state.board.default_perft_depth()),
+            Perft | SplitPerft => SearchLimit::depth(ugi.state.pos().default_perft_depth()),
             // "infinite" is the identity element of the bounded semilattice of `go` options
             _ => SearchLimit::infinite(),
         };
-        Self::new_for_pos(ugi.state.board.clone(), limit, ugi.strictness, ugi.move_overhead, search_type)
+        Self::new_for_pos(ugi.state.pos().clone(), limit, ugi.strictness, ugi.move_overhead, search_type)
     }
 
     pub fn new_for_pos(

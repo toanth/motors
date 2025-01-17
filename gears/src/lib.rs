@@ -27,6 +27,7 @@ pub use crossterm;
 use itertools::Itertools;
 pub use rand;
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::Deref;
 use std::str::FromStr;
 use std::time::Instant;
 pub use strum;
@@ -353,32 +354,40 @@ pub fn create_selected_output_builders<B: Board>(
 #[derive(Debug, Default, Clone)]
 #[must_use]
 pub struct MatchState<B: Board> {
+    state_hist: Vec<UgiPosState<B>>,
+    current: UgiPosState<B>,
+}
+
+impl<B: Board> Deref for MatchState<B> {
+    type Target = UgiPosState<B>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.current
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+#[must_use]
+pub struct UgiPosState<B: Board> {
     pub board: B,
     pub status: ProgramStatus,
     pub mov_hist: Vec<B::Move>,
     pub board_hist: ZobristHistory<B>,
     pub pos_before_moves: B,
-    state_pos_hist: Vec<B>,
 }
 
-impl<B: Board> MatchState<B> {
+impl<B: Board> UgiPosState<B> {
     pub fn new(pos: B) -> Self {
-        let mut state_pos_hist = Vec::with_capacity(256);
-        state_pos_hist.push(pos.clone());
-        Self {
+        UgiPosState {
             board: pos.clone(),
             status: Run(NotStarted),
             mov_hist: Vec::with_capacity(256),
             board_hist: ZobristHistory::with_capacity(256),
             pos_before_moves: pos,
-            state_pos_hist,
         }
     }
-    pub fn last_move(&self) -> Option<B::Move> {
-        self.mov_hist.last().copied()
-    }
 
-    pub fn make_move(&mut self, mov: B::Move, check_game_over: bool) -> Res<()> {
+    fn make_move(&mut self, mov: B::Move, check_game_over: bool) -> Res<()> {
         debug_assert!(self.board.is_move_pseudolegal(mov));
         if let Run(Over(result)) = &self.status {
             bail!(
@@ -412,7 +421,7 @@ impl<B: Board> MatchState<B> {
         if self.mov_hist.is_empty() && count > 0 {
             bail!(
                 "There are no moves to undo. The current position is '{pos}'.\n\
-            (Try 'prev' to go to the previous 'position' command)"
+            (Try 'go_back' to go to the previous 'position' command)"
             );
         }
         let count = count.min(self.mov_hist.len());
@@ -430,18 +439,6 @@ impl<B: Board> MatchState<B> {
         Ok(count)
     }
 
-    pub fn go_back(&mut self, n: usize) -> Res<usize> {
-        if self.state_pos_hist.is_empty() {
-            bail!("There is no position to go back to; this is the initial position of the match")
-        }
-        self.clear_current_state();
-        let count = n.min(self.state_pos_hist.len());
-        let idx = self.state_pos_hist.len() - count;
-        self.board = self.state_pos_hist[idx].clone();
-        self.state_pos_hist.truncate(idx);
-        Ok(count)
-    }
-
     fn clear_current_state(&mut self) {
         self.board = self.pos_before_moves.clone();
         self.mov_hist.clear();
@@ -449,20 +446,7 @@ impl<B: Board> MatchState<B> {
         self.status = Run(NotStarted);
     }
 
-    pub fn handle_position(
-        &mut self,
-        words: &mut Tokens,
-        allow_pos_word: bool,
-        strictness: Strictness,
-        check_game_over: bool,
-    ) -> Res<()> {
-        let Some(next_word) = words.next() else { bail!("Missing position after '{}' command", "position".bold()) };
-        let mut parse_state = ParseUgiMatchState { match_state: self, check_game_over };
-        parse_ugi_position_and_moves(next_word, words, allow_pos_word, strictness, &mut parse_state)?;
-        Ok(())
-    }
-
-    pub fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()> {
+    fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()> {
         self.board = B::variant(first, words)?;
         self.pos_before_moves = self.board.clone();
         self.mov_hist.clear();
@@ -472,28 +456,112 @@ impl<B: Board> MatchState<B> {
     }
 }
 
+impl<B: Board> MatchState<B> {
+    pub fn new(pos: B) -> Self {
+        let state_hist = Vec::with_capacity(256);
+        let pos_state = UgiPosState::new(pos);
+        Self { state_hist, current: pos_state }
+    }
+
+    pub fn pos(&self) -> &B {
+        &self.current.board
+    }
+
+    pub fn set_status(&mut self, status: ProgramStatus) {
+        self.current.status = status;
+    }
+
+    pub fn last_move(&self) -> Option<B::Move> {
+        self.current.mov_hist.last().copied()
+    }
+
+    pub fn make_move(&mut self, mov: B::Move, check_game_over: bool) -> Res<()> {
+        self.current.make_move(mov, check_game_over)
+    }
+
+    pub fn undo_moves(&mut self, count: usize) -> Res<usize> {
+        self.current.undo_moves(count)
+    }
+
+    pub fn go_back(&mut self, n: usize) -> Res<usize> {
+        if self.state_hist.is_empty() {
+            bail!("There is no position to go back to; this is the initial position of the match")
+        }
+        self.clear_current_state();
+        let count = n.min(self.state_hist.len());
+        let idx = self.state_hist.len() - count;
+        let old = self.state_hist[idx].clone();
+        self.state_hist.truncate(idx);
+        self.current = old;
+        Ok(count)
+    }
+
+    fn new_pos(&mut self, keep_hist: bool) {
+        let pos_state = if keep_hist {
+            self.current.clone()
+        } else {
+            UgiPosState {
+                board: self.current.board.clone(),
+                status: self.current.status.clone(),
+                mov_hist: vec![],
+                board_hist: ZobristHistory::default(),
+                pos_before_moves: self.current.board.clone(),
+            }
+        };
+        self.state_hist.push(pos_state);
+    }
+
+    pub fn set_new_pos_state(&mut self, state: UgiPosState<B>, keep_hist: bool) {
+        self.new_pos(keep_hist);
+        self.current = state;
+    }
+
+    fn clear_current_state(&mut self) {
+        self.current.clear_current_state()
+    }
+
+    pub fn handle_position(
+        &mut self,
+        words: &mut Tokens,
+        allow_pos_word: bool,
+        strictness: Strictness,
+        check_game_over: bool,
+        keep_hist: bool,
+    ) -> Res<()> {
+        let Some(next_word) = words.next() else { bail!("Missing position after '{}' command", "position".bold()) };
+        let mut parse_state = ParseUgiMatchState { match_state: self, check_game_over, keep_hist };
+        parse_ugi_position_and_moves(next_word, words, allow_pos_word, strictness, &mut parse_state)?;
+        Ok(())
+    }
+
+    pub fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()> {
+        self.current.handle_variant(first, words)
+    }
+}
+
 struct ParseUgiMatchState<'a, B: Board> {
     match_state: &'a mut MatchState<B>,
     check_game_over: bool,
+    keep_hist: bool,
 }
 
-impl<'a, B: Board> ParseUgiPosState<B> for ParseUgiMatchState<'a, B> {
+impl<B: Board> ParseUgiPosState<B> for ParseUgiMatchState<'_, B> {
     fn pos(&mut self) -> &mut B {
-        &mut self.match_state.board
+        &mut self.match_state.current.board
     }
 
     fn initial(&self) -> &B {
-        &self.match_state.pos_before_moves
+        &self.match_state.current.pos_before_moves
     }
 
     fn previous(&self) -> Option<&B> {
-        self.match_state.state_pos_hist.last()
+        self.match_state.state_hist.last().map(|s| &s.board)
     }
 
     fn finish_pos_part(&mut self, pos: &B) {
-        self.match_state.state_pos_hist.push(self.match_state.board.clone());
-        self.match_state.pos_before_moves = pos.clone();
-        self.match_state.clear_current_state()
+        self.match_state.new_pos(self.keep_hist);
+        self.match_state.current.pos_before_moves = pos.clone();
+        self.match_state.clear_current_state();
     }
 
     fn make_move(&mut self, mov: B::Move) -> Res<()> {

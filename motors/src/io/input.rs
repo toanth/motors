@@ -43,11 +43,11 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
         // Since Inquire doesn't seem to have an option to do anything about this (like re-drawing the prompt after each line of output),
         // we just disable it while a `go` command is running
 
-        ugi.state.go_state.pos = ugi.state.board.clone();
+        ugi.state.go_state.pos = ugi.state.pos().clone();
         self.autocompletion.state.go_state = ugi.state.go_state.clone();
         if ugi.state.engine.main_atomic_search_data().currently_searching() {
             ugi.write_ugi(&format_args!(" [{0} Type '{1}' to cancel]", "Searching...".bold(), "stop".bold()));
-            let pv_spacer = if ugi.state.board.active_player().is_first() { "" } else { "    " };
+            let pv_spacer = if ugi.state.pos().active_player().is_first() { "" } else { "    " };
             ugi.write_ugi(&format_args!(
                 "{}",
                 format!("\nIter    Seldepth    Score      Time    Nodes   (New)     NPS      TT     {pv_spacer}PV")

@@ -31,7 +31,7 @@ use crate::output::pgn::TagPair::{
 };
 use crate::MatchStatus::*;
 use crate::ProgramStatus::Run;
-use crate::{AdjudicationReason, GameOverReason, GameResult, GameState, MatchResult, MatchState, MatchStatus};
+use crate::{AdjudicationReason, GameOverReason, GameResult, GameState, MatchResult, MatchStatus, UgiPosState};
 use anyhow::{anyhow, bail};
 use colored::Colorize;
 use std::fmt::Display;
@@ -223,7 +223,7 @@ impl TagPair {
 #[derive(Debug, Default, Clone)]
 pub struct PgnData<B: Board> {
     pub tag_pairs: Vec<TagPair>,
-    pub game: MatchState<B>,
+    pub game: UgiPosState<B>,
 }
 
 /// Moved out of PgnParser to save generics instantiations (the `parse_pgn` method would otherwise be the 6th largest function
