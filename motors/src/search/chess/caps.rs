@@ -646,6 +646,7 @@ impl Caps {
             self.state.cur_pv_data_mut().beta = (pv_score + window_radius).min(MAX_BETA);
 
             if node_type == Exact {
+                self.state.send_search_info();
                 return (true, Some(depth), Some(pv_score));
             } else if asp_start_time.elapsed().as_millis() >= 1000 {
                 self.state.send_search_info();
