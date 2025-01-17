@@ -1,5 +1,6 @@
 use std::cmp::min;
 use std::mem::take;
+use std::sync::atomic::Ordering::Relaxed;
 use std::time::{Duration, Instant};
 
 use crate::eval::chess::lite::LiTEval;
@@ -30,8 +31,7 @@ use gears::output::text_output::AdaptFormatter;
 use gears::output::Message::Debug;
 use gears::output::OutputOpts;
 use gears::score::{
-    game_result_to_score, ScoreT, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA,
-    NO_SCORE_YET,
+    game_result_to_score, ScoreT, MAX_BETA, MAX_SCORE_LOST, MIN_ALPHA, NO_SCORE_YET,
 };
 use gears::search::NodeType::*;
 use gears::search::*;
@@ -486,8 +486,35 @@ impl Caps {
                 if self.should_not_start_negamax(scaled_soft_limit, max_depth, self.limit().mate) {
                     return None;
                 }
-                let (keep_searching, depth) =
+                let (keep_searching, depth, score) =
                     self.aspiration(pos, scaled_soft_limit, depth, max_depth);
+
+                let atomic = &self.state.params.atomic;
+                let pv = &self.state.search_stack[0].pv;
+
+                if pv.len() > 0 {
+                    if self.state.current_pv_num == 0 {
+                        let chosen_move = pv.get(0).unwrap();
+                        let ponder_move = pv.get(1);
+                        atomic.set_best_move(chosen_move);
+                        atomic.set_ponder_move(ponder_move);
+                    }
+                    self.state.multi_pvs[self.state.current_pv_num]
+                        .pv
+                        .assign_from(pv);
+                    // We can't really trust FailHigh scores. Even though we should still prefer a fail high move, we don't
+                    // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
+                    if let Some(score) = score {
+                        debug_assert!(score.is_valid());
+                        atomic.set_score(score);
+                        if pv_num == 0 {
+                            atomic.set_score(score);
+                        } else {
+                            atomic.get_score_t().fetch_max(score.0, Relaxed);
+                        }
+                    }
+                }
+
                 if !keep_searching {
                     return depth;
                 }
@@ -527,7 +554,7 @@ impl Caps {
         unscaled_soft_limit: Duration,
         depth: isize,
         max_depth: isize,
-    ) -> (bool, Option<isize>) {
+    ) -> (bool, Option<isize>, Option<Score>) {
         let mut soft_limit_scale = 1.0;
         loop {
             let alpha = self.state.cur_pv_data().alpha;
@@ -537,7 +564,7 @@ impl Caps {
             soft_limit_scale = 1.0;
             if self.should_not_start_negamax(soft_limit, max_depth, self.limit().mate) {
                 self.state.statistics.soft_limit_stop();
-                return (false, None);
+                return (false, None, None);
             }
             self.state.atomic().set_depth(depth); // set depth now so that an immediate stop doesn't increment the depth
             self.state.atomic().count_node();
@@ -545,7 +572,7 @@ impl Caps {
             let Some(pv_score) =
                 self.negamax(pos, 0, self.state.depth().isize(), alpha, beta, Exact)
             else {
-                return (false, Some(depth));
+                return (false, Some(depth), None);
             };
 
             self.state.send_non_ugi(
@@ -566,39 +593,14 @@ impl Caps {
             // we don't trust the best move in fail low nodes, but we still want to display an updated score
             self.state.cur_pv_data_mut().score = pv_score;
             self.state.cur_pv_data_mut().bound = Some(node_type);
-
-            let atomic = &self.state.params.atomic;
-            let pv = &self.state.search_stack[0].pv;
-
             if node_type == FailLow {
                 // In a fail low node, we didn't get any new information, and it's possible that we just discovered
                 // a problem with our chosen move. So increase the soft limit such that we can gather more information.
                 soft_limit_scale = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
-            } else if pv.len() > 0 && node_type != FailLow {
-                // adding ` && node_type != FailLow` gained elo, which is weird because this only prevents incomplete search
-                // iterations that have already changed the PV from affecting the chosen move.
-                if self.state.current_pv_num == 0 {
-                    let chosen_move = pv.get(0).unwrap();
-                    let ponder_move = pv.get(1);
-                    atomic.set_best_move(chosen_move);
-                    atomic.set_ponder_move(ponder_move);
-                }
-                self.state.multi_pvs[self.state.current_pv_num]
-                    .pv
-                    .assign_from(pv);
-                // We can't really trust FailHigh scores. Even though we should still prefer a fail high move, we don't
-                // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
-                if self.state.current_pv_num == 0 {
-                    if node_type == Exact {
-                        atomic.set_score(pv_score); // can't be SCORE_TIME_UP or similar because that wouldn't be exact
-                    } else if node_type == FailHigh && !self.state.stop_flag() {
-                        // todo: stop flag condition necessary?
-                        atomic.set_score(pv_score.min(MAX_NORMAL_SCORE));
-                    }
-                }
             }
 
             if cfg!(debug_assertions) {
+                let pv = &self.state.search_stack[0].pv;
                 if pos.player_result_slow(&self.state.params.history).is_some() {
                     assert_eq!(pv.len(), 0);
                 } else {
@@ -644,7 +646,7 @@ impl Caps {
             self.state.cur_pv_data_mut().beta = (pv_score + window_radius).min(MAX_BETA);
 
             if node_type == Exact {
-                return (true, Some(depth));
+                return (true, Some(depth), Some(pv_score));
             } else if asp_start_time.elapsed().as_millis() >= 1000 {
                 self.state.send_search_info();
             }

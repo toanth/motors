@@ -155,6 +155,11 @@ impl Score {
             None
         }
     }
+
+    pub fn is_valid(self) -> bool {
+        self.verify_valid().is_some()
+    }
+
     pub fn flip_if(self, flip: bool) -> Self {
         if flip {
             -self
