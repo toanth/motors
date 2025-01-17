@@ -186,21 +186,17 @@ fn format_move_compact(f: &mut Formatter<'_>, mov: FairyMove, pos: &FairyBoard) 
         }
         MoveKind::ChangePiece(new_piece) => {
             let piece = ColoredPieceId::from_u8(new_piece).to_uncolored_idx();
-            write!(f, "{from}{to}{}", pos.get_rules().pieces.get(piece)?.uncolored_symbol[0].to_ascii_lowercase())
+            write!(f, "{from}{to}{}", pos.rules().pieces.get(piece)?.uncolored_symbol[0].to_ascii_lowercase())
         }
         MoveKind::Castle(side) => {
             let rook_sq = pos.0.castling_info.player(pos.active_player()).rook_sq(side)?;
             write!(f, "{from}{rook_sq}")
         }
         MoveKind::Drop(piece) => {
-            if pos.get_rules().pieces.len() == 1 {
+            if pos.rules().pieces.len() == 1 {
                 write!(f, "{to}")
             } else {
-                write!(
-                    f,
-                    "{to}{}",
-                    pos.get_rules().pieces.get(piece as usize)?.uncolored_symbol[0].to_ascii_lowercase()
-                )
+                write!(f, "{to}{}", pos.rules().pieces.get(piece as usize)?.uncolored_symbol[0].to_ascii_lowercase())
             }
         }
     })
@@ -234,7 +230,7 @@ impl MoveEffect {
                 pos.place_piece(square, piece);
             }
             RemoveSinglePiece(square) => {
-                pos.remove_piece(square);
+                pos.remove_piece_impl(square);
             }
             // ClearSquares(to_remove) => {
             //     // TODO: Maybe some kind of death callback would make sense? That's definitely not in the first version though
@@ -271,7 +267,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
     let from = mov.from.square(pos.size());
     let to = mov.dest(pos.size());
     let piece = mov.piece(pos);
-    let piece_rules = &pos.get_rules().pieces[piece.uncolor().val()];
+    let piece_rules = &pos.rules().clone().pieces[piece.uncolor().val()];
     let mut set_ep = None;
     if mov.is_capture() {
         let is_ep = piece_rules.can_ep_capture && Some(to) == pos.0.ep;
@@ -329,7 +325,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
     } else {
         ResetEp.apply(pos);
     }
-    if pos.get_rules().has_castling {
+    if pos.rules().has_castling {
         for color in FairyColor::iter() {
             let castling_bb = pos.castling_bb() & pos.player_bb(color);
             if castling_bb.is_bit_set_at(pos.size().internal_key(from))
@@ -387,7 +383,7 @@ impl FairyBoard {
         if !self.can_make_move(mov) {
             return None;
         }
-        let rules = self.get_rules();
+        let rules = self.rules().clone();
         self.0.draw_counter += 1; // do this before an effect could reset it to zero
         effects_for(mov, &mut self, rules.effect_rules);
         if rules.store_last_move {
@@ -407,6 +403,7 @@ impl FairyBoard {
             return None;
         }
         self.0.active = !self.0.active;
+        self.0.hash = self.compute_hash();
         debug_assert!(self.0.clone().verify_with_level(Verify, Relaxed).is_ok());
         Some(self)
     }

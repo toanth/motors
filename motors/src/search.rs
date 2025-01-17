@@ -508,7 +508,7 @@ pub struct SearchParams<B: Board> {
     pub pos: B,
     pub limit: SearchLimit,
     pub atomic: Arc<AtomicSearchState<B>>,
-    pub history: ZobristHistory<B>,
+    pub history: ZobristHistory,
     pub tt: TT,
     pub thread_type: SearchThreadType<B>,
     pub restrict_moves: Option<Vec<B::Move>>,
@@ -521,14 +521,14 @@ impl<B: Board> SearchParams<B> {
         Self::new_unshared(pos, limit, ZobristHistory::default(), TT::default())
     }
 
-    pub fn new_unshared(pos: B, limit: SearchLimit, history: ZobristHistory<B>, tt: TT) -> Self {
+    pub fn new_unshared(pos: B, limit: SearchLimit, history: ZobristHistory, tt: TT) -> Self {
         Self::with_atomic_state(pos, limit, history, tt, Arc::new(AtomicSearchState::default()))
     }
 
     pub fn with_atomic_state(
         pos: B,
         limit: SearchLimit,
-        history: ZobristHistory<B>,
+        history: ZobristHistory,
         tt: TT,
         atomic: Arc<AtomicSearchState<B>>,
     ) -> Self {
@@ -539,7 +539,7 @@ impl<B: Board> SearchParams<B> {
     pub fn create(
         pos: B,
         limit: SearchLimit,
-        history: ZobristHistory<B>,
+        history: ZobristHistory,
         tt: TT,
         restrict_moves: Option<Vec<B::Move>>,
         additional_pvs: usize,

@@ -204,7 +204,7 @@ impl FairyCastleInfo {
 }
 
 /// A FairyBoard is a rectangular board for a chess-like variant.
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Arbitrary)]
+#[derive(Debug, Clone, Eq, PartialEq, Arbitrary)]
 #[must_use]
 pub struct UnverifiedFairyBoard {
     // unfortunately, ArrayVec isn't `Copy`
@@ -224,6 +224,7 @@ pub struct UnverifiedFairyBoard {
     ep: Option<FairySquare>,
     last_move: FairyMove,
     rules: RulesRef,
+    hash: PosHash,
 }
 
 impl Default for UnverifiedFairyBoard {
@@ -238,9 +239,12 @@ impl UnverifiedFairyBoard {
         FairyBitboard::new(self.color_bitboards[0] | self.color_bitboards[1], self.size())
     }
 
-    // TODO: Rename to `rules()` and remove free `rules()`, also don't clone the arc each time
-    fn get_rules(&self) -> Arc<Rules> {
-        self.rules.0.clone()
+    fn rules(&self) -> &Arc<Rules> {
+        &self.rules.0
+    }
+
+    fn color_name(&self, color: FairyColor) -> &str {
+        &self.rules.0.colors[color.idx()].name
     }
 }
 
@@ -253,7 +257,7 @@ impl From<FairyBoard> for UnverifiedFairyBoard {
 impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
     fn verify_with_level(self, level: SelfChecks, strictness: Strictness) -> Res<FairyBoard> {
         let size = self.size();
-        let rules = self.get_rules();
+        let rules = self.rules();
         if size != rules.size {
             bail!("Incorrect size: Is {size} and should be {}", rules.size)
         }
@@ -291,11 +295,12 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
                 if !self.castling_info.can_castle(color, side) {
                     continue;
                 }
-                if let Some(rook_sq) = self.castling_info.player(color).rook_sq(side) {
+                let castling = self.castling_info.player(color);
+                if let Some(rook_sq) = castling.rook_sq(side) {
                     if self.is_empty(rook_sq) {
                         bail!(
                             "Color {0} can castle {side}, but there is no piece to castle with{1}",
-                            self.get_rules().colors[color.idx()].name,
+                            self.color_name(color),
                             if level == CheckFen { " (invalid castling flag in FEN?)" } else { "" }
                         );
                     }
@@ -305,12 +310,25 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         if self.ep.is_some() && !rules.has_ep {
             bail!("The ep square is set even though the rules don't mention en passant")
         }
+        for color in FairyColor::iter() {
+            for loss in &self.rules.0.game_loss {
+                if loss == &GameLoss::Checkmate {
+                    if self.royal_bb_for(color).is_zero() {
+                        bail!(
+                            "The {} player has no royal pieces, but the variant counts checkmate as a loss",
+                            self.color_name(color)
+                        );
+                    }
+                }
+            }
+        }
 
-        let res = FairyBoard(self);
+        let mut res = FairyBoard(self);
+        res.0.hash = res.compute_hash();
         if res.is_player_in_check(res.inactive_player()) {
             bail!(
                 "Player {} is in check, but it's not their turn to move",
-                res.get_rules().colors[res.inactive_player().idx()].name
+                res.rules().colors[res.inactive_player().idx()].name
             );
         }
 
@@ -318,7 +336,7 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
     }
 
     fn settings(&self) -> RulesRef {
-        RulesRef(self.get_rules())
+        RulesRef(self.rules().clone())
     }
 
     fn size(&self) -> BoardSize<FairyBoard> {
@@ -334,14 +352,10 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
     }
 
     fn remove_piece(&mut self, coords: FairySquare) {
-        let idx = self.idx(coords);
-        let bb = self.single_piece(coords).raw();
-        if let Some(col_bb) = self.color_bitboards.iter_mut().find(|bb| bb.is_bit_set_at(idx)) {
-            *col_bb ^= bb;
-        }
-        if let Some(piece_bb) = self.piece_bitboards.iter_mut().find(|bb| bb.is_bit_set_at(idx)) {
-            *piece_bb ^= bb;
-        }
+        self.remove_piece_impl(coords);
+        // just give up when it comes to flags
+        self.castling_info = FairyCastleInfo::default();
+        self.ep = None;
     }
 
     fn piece_on(&self, coords: FairySquare) -> <FairyBoard as Board>::Piece {
@@ -391,6 +405,35 @@ impl UnverifiedFairyBoard {
     fn single_piece(&self, square: FairySquare) -> FairyBitboard {
         FairyBitboard::new(RawFairyBitboard::single_piece_at(self.idx(square)), self.size())
     }
+    fn remove_piece_impl(&mut self, coords: FairySquare) {
+        let idx = self.idx(coords);
+        let bb = self.single_piece(coords).raw();
+        if let Some(col_bb) = self.color_bitboards.iter_mut().find(|bb| bb.is_bit_set_at(idx)) {
+            *col_bb ^= bb;
+        }
+        if let Some(piece_bb) = self.piece_bitboards.iter_mut().find(|bb| bb.is_bit_set_at(idx)) {
+            *piece_bb ^= bb;
+        }
+    }
+    fn compute_hash(&self) -> PosHash {
+        let mut hasher = DefaultHasher::default();
+        // unfortunately, this has the potential to get out of date when new fields are added
+        let tuple = (
+            &self.piece_bitboards,
+            &self.color_bitboards,
+            self.mask_bb,
+            self.in_hand,
+            self.num_piece_bitboards,
+            self.active,
+            self.castling_info,
+            self.ep,
+        );
+        tuple.hash(&mut hasher);
+        if self.rules().store_last_move {
+            self.last_move.hash(&mut hasher);
+        }
+        PosHash(hasher.finish())
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Arbitrary)]
@@ -405,7 +448,7 @@ impl Default for FairyBoard {
 
 impl Display for FairyBoard {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.get_rules().rules_fen_part(f)?;
+        self.rules().rules_fen_part(f)?;
         write!(f, "{}", NoRulesFenFormatter(self))
     }
 }
@@ -578,9 +621,9 @@ impl Board for FairyBoard {
         self.clone().make_move(mov).is_some()
     }
 
-    fn player_result_no_movegen<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult> {
+    fn player_result_no_movegen<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         let us = self.active_player();
-        for condition in &self.get_rules().game_loss {
+        for condition in &self.rules().game_loss {
             let loss = match condition {
                 GameLoss::NoRoyals => self.royal_bb_for(us).is_zero(),
                 GameLoss::NoPieces => self.active_player_bb().is_zero(),
@@ -618,10 +661,10 @@ impl Board for FairyBoard {
                 return Some(PlayerResult::Lose);
             }
         }
-        for rule in &self.get_rules().draw {
+        for rule in &self.rules().draw {
             if match *rule {
                 Draw::Counter(max) => self.0.draw_counter >= max,
-                Draw::Repetition(max) => n_fold_repetition(max, history, self, usize::MAX),
+                Draw::Repetition(max) => n_fold_repetition(max, history, self.hash, usize::MAX),
                 _ => false,
             } {
                 return Some(PlayerResult::Draw);
@@ -630,7 +673,7 @@ impl Board for FairyBoard {
         None
     }
 
-    fn player_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult> {
+    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         if let Some(res) = self.player_result_no_movegen(history) {
             return Some(res);
         }
@@ -641,18 +684,25 @@ impl Board for FairyBoard {
     }
 
     fn no_moves_result(&self) -> PlayerResult {
-        if self.get_rules().game_loss.iter().any(|rule| [GameLoss::Checkmate, GameLoss::NoMoves].contains(rule)) {
-            return PlayerResult::Lose;
+        for rule in &self.rules().game_loss {
+            if rule == &GameLoss::NoMoves {
+                return PlayerResult::Lose;
+            }
+            if rule == &GameLoss::Checkmate && self.is_in_check() {
+                return PlayerResult::Lose;
+            }
         }
-        if self.get_rules().draw.contains(&Draw::NoMoves) {
-            return PlayerResult::Draw;
+        for rule in &self.rules().draw {
+            if rule == &Draw::NoMoves {
+                return PlayerResult::Draw;
+            }
         }
         unreachable!("The game rules must specify what happens when there are no legal moves")
     }
 
     fn is_game_lost_slow(&self) -> bool {
         let us = self.active_player();
-        for rule in &self.get_rules().game_loss {
+        for rule in &self.rules().game_loss {
             let res = match rule {
                 GameLoss::Checkmate => self.is_in_check() && self.legal_moves_slow().is_empty(),
                 GameLoss::NoRoyals => self.royal_bb_for(us).is_zero(),
@@ -674,9 +724,7 @@ impl Board for FairyBoard {
     }
 
     fn hash_pos(&self) -> PosHash {
-        let mut hasher = DefaultHasher::default();
-        self.0.hash(&mut hasher);
-        PosHash(hasher.finish())
+        self.hash
     }
 
     // Eventually, FEN parsing should work like this: If the first token of the FEN is a recognized game name, like `chess`,
@@ -699,7 +747,7 @@ impl Board for FairyBoard {
         }
         board = read_common_fen_part::<Self>(input, board)?;
         board = board.read_castling_and_ep_fen_parts(input, strictness)?;
-        if board.get_rules().has_halfmove_repetition_clock() {
+        if board.rules().has_halfmove_repetition_clock() {
             board = read_two_move_numbers::<Self>(input, board, strictness)?;
         } else {
             board = read_single_move_number::<Self>(input, board, strictness)?;
@@ -761,9 +809,6 @@ impl Deref for FairyBoard {
 }
 
 impl FairyBoard {
-    fn get_rules(&self) -> Arc<Rules> {
-        self.0.get_rules()
-    }
     fn variants() -> EntityList<NameToVariant> {
         vec![
             GenericSelect { name: "chess", val: || RulesRef::new(Rules::chess()) },
@@ -797,17 +842,17 @@ impl Display for NoRulesFenFormatter<'_> {
         let pos = self.0;
         position_fen_part(f, pos)?;
         write!(f, " {} ", pos.active_player().to_char(&pos.settings()))?;
-        if pos.get_rules().has_castling {
+        if pos.rules().has_castling {
             pos.0.castling_info.write_fen_part(f)?;
         }
-        if pos.get_rules().has_ep {
+        if pos.rules().has_ep {
             if let Some(sq) = pos.0.ep {
                 write!(f, "{sq} ")?;
             } else {
                 write!(f, "- ")?;
             }
         }
-        if pos.get_rules().has_halfmove_repetition_clock() {
+        if pos.rules().has_halfmove_repetition_clock() {
             write!(f, "{} ", pos.halfmove_repetition_clock())?;
         }
         write!(f, "{}", pos.fullmove_ctr_1_based())
@@ -821,9 +866,13 @@ mod tests {
     use crate::games::fairy::attacks::MoveKind;
     use crate::games::fairy::moves::FairyMove;
     use crate::games::mnk::MNKBoard;
-    use crate::games::{chess, Height, Width};
+    use crate::games::{chess, Height, Width, ZobristHistory};
     use crate::general::board::Strictness::Strict;
     use crate::general::perft::perft;
+    use crate::PlayerResult::Draw;
+    use crate::{GameOverReason, GameResult, MatchResult};
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
     use std::str::FromStr;
 
     #[test]
@@ -865,10 +914,9 @@ mod tests {
                 .map(|&m| chesspos.make_move(m).unwrap())
                 .find(|p| p.as_fen() == new_pos.fen_no_rules())
                 .unwrap();
-            assert_eq!(new_pos, FairyBoard::from_fen(&new_pos.as_fen(), Strict).unwrap());
-            // for m in new_pos.legal_moves_slow() {
-            //     println!("{m} 1");
-            // }
+            let roundtrip = FairyBoard::from_fen(&new_pos.as_fen(), Strict).unwrap();
+            assert_eq!(roundtrip.compute_hash(), new_pos.compute_hash());
+            assert_eq!(new_pos, roundtrip);
             assert_eq!(chess_pos.num_legal_moves(), new_pos.num_legal_moves());
         }
     }
@@ -924,10 +972,55 @@ mod tests {
     }
 
     #[test]
+    fn chess_game_over_test() {
+        let pos = "chess rnbqkbnr/2pp1ppp/pp6/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w - - 0 4";
+        let pos = FairyBoard::from_fen(pos, Strict).unwrap();
+        assert!(pos.match_result_slow(&ZobristHistory::default()).is_none());
+        let pos = pos.make_move_from_str("h5f7").unwrap();
+        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(PlayerResult::Lose));
+        let mut pos = FairyBoard::from_name("kiwipete").unwrap();
+        let original = pos.clone();
+        let mut hist = ZobristHistory::default();
+        for _ in 0..2 {
+            for mov in ["e1f1", "e8f8", "f1e1", "f8e8"] {
+                hist.push(pos.hash_pos());
+                let mov = FairyMove::from_compact_text(mov, &pos).unwrap();
+                pos = pos.make_move(mov).unwrap();
+                assert!(pos.player_result_slow(&hist).is_none());
+            }
+        }
+        pos = pos.make_move_from_str("e1f1").unwrap();
+        assert_ne!(pos.castling_info, original.castling_info);
+        assert_ne!(pos.hash_pos(), original.hash_pos());
+        assert!(pos.player_result_slow(&hist).is_none());
+        pos = pos.make_move_from_str("e8f8").unwrap();
+        assert_eq!(pos.player_result_slow(&hist), Some(Draw));
+        let fen = "chess 8/3k4/7p/2p3pP/1pPp1pP1/pP1PpP2/P3P3/2K5 w - - 57 1";
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut pos = FairyBoard::from_fen(fen, Strict).unwrap();
+        for i in 0..42 {
+            assert_eq!(pos.draw_counter, 57 + i);
+            let mov = pos.random_legal_move(&mut rng).unwrap();
+            pos = pos.make_move(mov).unwrap();
+            assert!(pos.player_result_slow(&ZobristHistory::default()).is_none());
+        }
+        let mov = pos.random_legal_move(&mut rng).unwrap();
+        pos = pos.make_move(mov).unwrap();
+        assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(Draw));
+        let fen = "5B1k/5B2/7K/8/8/8/3K4/8 b - - 0 1";
+        let pos = FairyBoard::from_fen_for("chess", fen, Strict).unwrap();
+        assert_eq!(pos.num_legal_moves(), 0);
+        assert_eq!(
+            pos.match_result_slow(&ZobristHistory::default()),
+            Some(MatchResult { result: GameResult::Draw, reason: GameOverReason::Normal })
+        );
+    }
+
+    #[test]
     fn simple_shatranj_startpos_test() {
         let pos = FairyBoard::variant_simple("shatranj").unwrap();
         let as_fen = pos.as_fen();
-        assert_eq!(as_fen, pos.get_rules().startpos_fen);
+        assert_eq!(as_fen, pos.rules().startpos_fen);
         let size = pos.size();
         assert_eq!(size, GridSize::new(Height(8), Width(8)));
         assert_eq!(pos.royal_bb().num_ones(), 2);

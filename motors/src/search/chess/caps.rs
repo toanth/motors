@@ -137,7 +137,7 @@ pub struct CapsCustomInfo {
     /// our previous move instead of the opponent's previous move, i.e. the move 2 plies ago instead of 1 ply ago.
     follow_up_move_hist: ContHist,
     capt_hist: CaptHist,
-    original_board_hist: ZobristHistory<Chessboard>,
+    original_board_hist: ZobristHistory,
     nmp_disabled: [bool; 2],
     depth_hard_limit: usize,
 }
@@ -399,7 +399,7 @@ impl Engine<Chessboard> for Caps {
         ));
         // Use 3fold repetition detection for positions before and including the root node and 2fold for positions during search.
         self.state.custom.original_board_hist = take(&mut self.state.search_params_mut().history);
-        self.state.custom.original_board_hist.push(&pos);
+        self.state.custom.original_board_hist.push(pos.hash_pos());
 
         self.iterative_deepening(pos, soft_limit)
     }
@@ -656,8 +656,13 @@ impl Caps {
         if !root
             && (pos.is_50mr_draw()
                 || pos.has_insufficient_material()
-                || n_fold_repetition(2, &self.state.params.history, &pos, ply_100_ctr)
-                || n_fold_repetition(3, &self.state.custom.original_board_hist, &pos, ply_100_ctr.saturating_sub(ply)))
+                || n_fold_repetition(2, &self.state.params.history, pos.hash_pos(), ply_100_ctr)
+                || n_fold_repetition(
+                    3,
+                    &self.state.custom.original_board_hist,
+                    pos.hash_pos(),
+                    ply_100_ctr.saturating_sub(ply),
+                ))
         {
             return Some(Score(0));
         }
@@ -801,7 +806,7 @@ impl Caps {
             {
                 // `make_nullmove` resets the 50mr counter, so we don't consider positions after a nullmove as repetitions,
                 // but we can still get TT cutoffs
-                self.state.params.history.push(&pos);
+                self.state.params.history.push(pos.hash_pos());
                 let new_pos = pos.make_nullmove().unwrap();
                 // necessary to recognize the null move and to make `last_tried_move()` not panic
                 self.state.search_stack[ply].tried_moves.push(ChessMove::default());
@@ -927,6 +932,8 @@ impl Caps {
                     } else if move_score > MoveScore(cc::lmr_good_hist()) {
                         // Since the TT and killer move and good captures are not lmr'ed,
                         // this only applies to quiet moves with a good combined history score.
+                        // Note that this can cause LMR to *extend* instead of reduce, so in the future
+                        // it might make sense to clamp the extension.
                         reduction -= 1;
                     }
                     if !is_pv_node {
@@ -1224,7 +1231,7 @@ impl Caps {
 
     fn record_move(&mut self, mov: ChessMove, old_pos: Chessboard, ply: usize, typ: SearchType) {
         self.state.atomic().count_node();
-        self.state.params.history.push(&old_pos);
+        self.state.params.history.push(old_pos.hash_pos());
         self.state.search_stack[ply].tried_moves.push(mov);
         self.state.statistics.count_legal_make_move(typ);
     }

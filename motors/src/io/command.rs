@@ -536,7 +536,7 @@ pub fn ugi_commands() -> CommandList {
             |ugi, _, _| ugi.handle_interactive()
         ),
         command!(
-            engine,
+            engine | eng | searcher,
             Custom,
             "Sets the current engine, e.g. `caps-piston`, `gaps`, and optionally the game",
             |ugi, words, _| ugi.handle_engine(words),

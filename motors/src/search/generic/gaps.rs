@@ -178,7 +178,7 @@ impl<B: Board> Gaps<B> {
             self.state.statistics.count_legal_make_move(MainSearch);
             self.state.atomic().count_node();
 
-            self.state.params.history.push(&pos);
+            self.state.params.history.push(pos.hash_pos());
 
             let score = -self.negamax(new_pos.unwrap(), ply + 1, depth - 1, -beta, -alpha);
 

@@ -410,14 +410,14 @@ impl Board for Chessboard {
         self.is_move_pseudolegal_impl(mov)
     }
 
-    fn player_result_no_movegen<H: BoardHistory<Chessboard>>(&self, history: &H) -> Option<PlayerResult> {
+    fn player_result_no_movegen<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         if self.is_50mr_draw() || self.has_insufficient_material() || self.is_3fold_repetition(history) {
             return Some(Draw);
         }
         None
     }
 
-    fn player_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult> {
+    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         if let Some(res) = self.player_result_no_movegen(history) {
             return Some(res);
         }
@@ -638,11 +638,10 @@ impl Chessboard {
     /// Note that this function isn't entire correct according to the FIDE rules because it doesn't check for legality,
     /// so a position with a possible pseudolegal but illegal en passant move would be considered different from
     /// its repetition, where the en passant move wouldn't be possible
-    /// TODO: Should there be a `ZobristRepetition3FoldPedanticChess` that actually does movegen?
-    /// TODO: Only set the ep square if there are pseudolegal en passants possible
-    pub fn is_3fold_repetition<H: BoardHistory<Self>>(&self, history: &H) -> bool {
+    /// TODO: Only set the ep square if there are legal en passants possible
+    pub fn is_3fold_repetition<H: BoardHistory>(&self, history: &H) -> bool {
         // There's no need to test if the repetition is a checkmate, because checkmate positions can't repeat
-        n_fold_repetition(3, history, self, self.ply_100_ctr)
+        n_fold_repetition(3, history, self.hash_pos(), self.ply_100_ctr)
     }
 
     /// Check if the current position is a checkmate.
@@ -1344,13 +1343,17 @@ mod tests {
         let mut hist = ZobristHistory::default();
         assert_ne!(new_hash, board.hash_pos());
         for (i, mov) in moves.iter().enumerate() {
-            assert_eq!(i > 3, n_fold_repetition(2, &hist, &board, board.ply_100_ctr));
-            assert_eq!(i > 7, n_fold_repetition(3, &hist, &board, board.ply_100_ctr));
+            let hash = board.hash_pos();
+            assert_eq!(i > 3, n_fold_repetition(2, &hist, hash, board.ply_100_ctr));
+            assert_eq!(i > 7, n_fold_repetition(3, &hist, hash, board.ply_100_ctr));
             assert_eq!(i == 8, board.player_result_no_movegen(&hist).is_some_and(|r| r == Draw));
-            hist.push(&board);
+            hist.push(hash);
             let mov = ChessMove::from_compact_text(mov, &board).unwrap();
             board = board.make_move(mov).unwrap();
-            assert_eq!(n_fold_repetition(3, &hist, &board, board.ply_100_ctr), board.is_3fold_repetition(&hist));
+            assert_eq!(
+                n_fold_repetition(3, &hist, board.hash_pos(), board.ply_100_ctr),
+                board.is_3fold_repetition(&hist)
+            );
             assert_eq!(board.is_3fold_repetition(&hist), board.player_result_no_movegen(&hist).is_some());
         }
         board = Chessboard::from_name("lucena").unwrap();
@@ -1360,7 +1363,7 @@ mod tests {
         for mov in moves {
             board = board.make_move(ChessMove::from_compact_text(mov, &board).unwrap()).unwrap();
             assert_ne!(board.hash_pos(), hash);
-            assert!(!n_fold_repetition(2, &hist, &board, 12345));
+            assert!(!n_fold_repetition(2, &hist, board.hash, 12345));
         }
         assert_eq!(board.active_player, Black);
     }

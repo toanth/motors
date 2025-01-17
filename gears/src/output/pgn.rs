@@ -423,7 +423,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
         let Some(new_board) = prev_board.clone().make_move(mov) else {
             bail!("Illegal psuedolegal move '{}'", mov.compact_formatter(prev_board).to_string().red());
         };
-        self.res.game.board_hist.push(prev_board);
+        self.res.game.board_hist.push(prev_board.hash_pos());
         self.res.game.mov_hist.push(mov);
         self.res.game.board = new_board;
         if let Some(res) = self.res.game.board.match_result_slow(&self.res.game.board_hist) {

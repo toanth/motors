@@ -296,7 +296,7 @@ impl Board for AtaxxBoard {
         self.is_move_legal_impl(mov)
     }
 
-    fn player_result_no_movegen<H: BoardHistory<Self>>(&self, _history: &H) -> Option<PlayerResult> {
+    fn player_result_no_movegen<H: BoardHistory>(&self, _history: &H) -> Option<PlayerResult> {
         let color = self.active_player;
         if self.color_bb(color).is_zero() {
             return Some(Lose);
@@ -316,7 +316,7 @@ impl Board for AtaxxBoard {
         })
     }
 
-    fn player_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult> {
+    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         self.player_result_no_movegen(history)
     }
 

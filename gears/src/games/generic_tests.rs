@@ -1,12 +1,14 @@
 //! This module contains generic test functions that are completely independent of the actual game.
 //! Since those generics aren't instantiated here, there are no actual tests here.
 use crate::games::{Color, ColoredPiece, Coordinates, PosHash, Size};
-use crate::general::board::Strictness::Strict;
+use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{Board, BoardHelpers, UnverifiedBoard};
 use crate::general::moves::ExtendedFormat::{Alternative, Standard};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::Move;
 use itertools::Itertools;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use std::collections::{HashSet, VecDeque};
 use std::marker::PhantomData;
 
@@ -146,11 +148,41 @@ impl<B: Board> GenericTests<B> {
         }
     }
 
+    fn unverified_tests() {
+        let mut rng = StdRng::seed_from_u64(123);
+        for pos in B::bench_positions() {
+            let ply = pos.halfmove_ctr_since_start();
+            if let Ok(p2) = pos
+                .clone()
+                .set_ply_since_start(ply.wrapping_add(1))
+                .and_then(|p| p.verify(Relaxed))
+                .or_else(|_| pos.clone().set_ply_since_start(ply.wrapping_sub(1)).and_then(|p| p.verify(Relaxed)))
+            {
+                assert_ne!(pos, p2);
+                assert_eq!(pos.hash_pos(), p2.hash_pos());
+                if let Ok(p2) = p2.set_active_player(pos.active_player().other()).verify(Relaxed) {
+                    assert_ne!(pos, p2);
+                    assert_ne!(pos.hash_pos(), p2.hash_pos());
+                }
+            }
+            if let Ok(p2) = pos.clone().set_active_player(pos.active_player().other()).verify(Relaxed) {
+                assert_ne!(pos, p2);
+                assert_ne!(pos.hash_pos(), p2.hash_pos());
+            }
+            if let Some(m) = pos.random_legal_move(&mut rng) {
+                let p2 = pos.clone().make_move(m).unwrap();
+                assert_ne!(p2, pos);
+                assert_ne!(p2.hash_pos(), pos.hash_pos());
+            }
+        }
+    }
+
     pub fn all_tests() {
         Self::basic_test();
         Self::coordinates_test();
         Self::long_notation_roundtrip_test();
         Self::fen_roundtrip_test();
         Self::statistical_hash_test(B::default());
+        Self::unverified_tests();
     }
 }

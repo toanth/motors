@@ -821,7 +821,7 @@ impl Board for UtttBoard {
         self.is_open(mov.dest_square())
     }
 
-    fn player_result_no_movegen<H: BoardHistory<Self>>(&self, _history: &H) -> Option<PlayerResult> {
+    fn player_result_no_movegen<H: BoardHistory>(&self, _history: &H) -> Option<PlayerResult> {
         if self.last_move == UtttMove::NULL {
             return None;
         }
@@ -836,7 +836,7 @@ impl Board for UtttBoard {
         }
     }
 
-    fn player_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult> {
+    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         self.player_result_no_movegen(history)
     }
 
@@ -852,8 +852,9 @@ impl Board for UtttBoard {
     fn hash_pos(&self) -> PosHash {
         // TODO: Test using a better hash
         let mut hasher = DefaultHasher::default();
-        // the bitboards and the last move must be part of the hash
-        self.hash(&mut hasher);
+        // the bitboards and the last move must be part of the hash, but not the ply
+        let members = (&self.colors_internal, self.open, self.active, self.last_move);
+        members.hash(&mut hasher);
         PosHash(hasher.finish())
     }
 

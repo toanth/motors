@@ -372,7 +372,7 @@ pub struct UgiPosState<B: Board> {
     pub board: B,
     pub status: ProgramStatus,
     pub mov_hist: Vec<B::Move>,
-    pub board_hist: ZobristHistory<B>,
+    pub board_hist: ZobristHistory,
     pub pos_before_moves: B,
 }
 
@@ -398,7 +398,7 @@ impl<B: Board> UgiPosState<B> {
                 mov.compact_formatter(&self.board).to_string().red()
             )
         }
-        self.board_hist.push(&self.board);
+        self.board_hist.push(self.board.hash_pos());
         self.mov_hist.push(mov);
         self.board = self.board.clone().make_move(mov).ok_or_else(|| {
             anyhow!(

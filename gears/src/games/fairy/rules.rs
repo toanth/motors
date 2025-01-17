@@ -25,7 +25,7 @@ use crate::games::fairy::{
     MAX_NUM_PIECE_TYPES,
 };
 use crate::games::mnk::{MNKBoard, MnkSettings};
-use crate::games::{chess, DimT, Settings};
+use crate::games::{chess, DimT, PosHash, Settings};
 use crate::general::bitboards::Bitboard;
 use crate::general::board::{Board, BoardHelpers};
 use crate::general::common::{Res, Tokens};
@@ -99,6 +99,7 @@ impl Arbitrary<'_> for EmptyBoard {
             ep: Option::arbitrary(u)?,
             last_move: FairyMove::arbitrary(u)?,
             rules: Default::default(),
+            hash: PosHash::arbitrary(u)?,
         };
         let func = move |rules: &RulesRef| {
             let mut b = board.clone();
@@ -198,6 +199,7 @@ impl Rules {
             ep: None,
             last_move: Default::default(),
             rules: rules.clone(),
+            hash: PosHash::default(),
         }
     }
 

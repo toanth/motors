@@ -4,7 +4,6 @@ use std::cmp::min;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
-use std::marker::PhantomData;
 use std::ops::Not;
 use std::str::FromStr;
 
@@ -320,13 +319,13 @@ pub trait Settings: Eq + Debug + Default {
     }
 }
 
-pub trait BoardHistory<B: Board>: Default + Debug + Clone + 'static {
+pub trait BoardHistory: Default + Debug + Clone + 'static {
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
-    fn is_repetition(&self, board: &B, plies_ago: usize) -> bool;
-    fn push(&mut self, board: &B);
+    fn is_repetition(&self, hash: PosHash, plies_ago: usize) -> bool;
+    fn push(&mut self, hash: PosHash);
     fn pop(&mut self);
     fn clear(&mut self);
 }
@@ -334,16 +333,16 @@ pub trait BoardHistory<B: Board>: Default + Debug + Clone + 'static {
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
 pub struct NoHistory {}
 
-impl<B: Board> BoardHistory<B> for NoHistory {
+impl BoardHistory for NoHistory {
     fn len(&self) -> usize {
         0
     }
 
-    fn is_repetition(&self, _board: &B, _plies_ago: usize) -> bool {
+    fn is_repetition(&self, _hash: PosHash, _plies_ago: usize) -> bool {
         false
     }
 
-    fn push(&mut self, _board: &B) {}
+    fn push(&mut self, _hash: PosHash) {}
 
     fn pop(&mut self) {}
 
@@ -352,25 +351,25 @@ impl<B: Board> BoardHistory<B> for NoHistory {
 
 #[derive(Clone, Eq, PartialEq, Default, Debug)]
 #[must_use]
-pub struct ZobristHistory<B: Board>(pub Vec<PosHash>, PhantomData<B>);
+pub struct ZobristHistory(pub Vec<PosHash>);
 
-impl<B: Board> ZobristHistory<B> {
+impl ZobristHistory {
     pub fn with_capacity(capacity: usize) -> Self {
-        Self(Vec::with_capacity(capacity), PhantomData)
+        Self(Vec::with_capacity(capacity))
     }
 }
 
-impl<B: Board> BoardHistory<B> for ZobristHistory<B> {
+impl BoardHistory for ZobristHistory {
     fn len(&self) -> usize {
         self.0.len()
     }
 
-    fn is_repetition(&self, pos: &B, plies_ago: usize) -> bool {
-        pos.hash_pos() == self.0[self.0.len() - plies_ago]
+    fn is_repetition(&self, hash: PosHash, plies_ago: usize) -> bool {
+        hash == self.0[self.0.len() - plies_ago]
     }
 
-    fn push(&mut self, pos: &B) {
-        self.0.push(pos.hash_pos());
+    fn push(&mut self, hash: PosHash) {
+        self.0.push(hash);
     }
 
     fn pop(&mut self) {
@@ -381,48 +380,14 @@ impl<B: Board> BoardHistory<B> for ZobristHistory<B> {
     }
 }
 
-/// Compares the actual board states as opposed to only comparing the hashes. This still isn't always entirely correct --
-/// For example, the FIDE rule state that the set of legal moves must be identical, which is not the case
-/// if the ep square is set but the pawn is pinned and can't actually take.
-#[derive(Debug, Default, Clone)]
-#[must_use]
-pub struct BoardCopyHistory<B: Board>(Vec<B>);
-
-impl<B: Board> BoardHistory<B> for BoardCopyHistory<B> {
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    fn is_repetition(&self, board: &B, plies_ago: usize) -> bool {
-        self.0[self.len() - plies_ago] == *board
-    }
-
-    fn push(&mut self, board: &B) {
-        self.0.push(board.clone());
-    }
-
-    fn pop(&mut self) {
-        _ = self.0.pop();
-    }
-
-    fn clear(&mut self) {
-        self.0.clear();
-    }
-}
-
-pub fn n_fold_repetition<B: Board, H: BoardHistory<B>>(
-    mut count: usize,
-    history: &H,
-    pos: &B,
-    max_lookback: usize,
-) -> bool {
+pub fn n_fold_repetition<H: BoardHistory>(mut count: usize, history: &H, hash: PosHash, max_lookback: usize) -> bool {
     let stop = min(history.len(), max_lookback);
     if stop < 2 {
         // in many, but not all, games, we could increase this to 4
         return false;
     }
     for i in (2..=stop).step_by(2) {
-        if history.is_repetition(pos, i) {
+        if history.is_repetition(hash, i) {
             count -= 1;
             if count <= 1 {
                 return true;
@@ -461,6 +426,12 @@ mod tests {
     #[cfg(feature = "uttt")]
     #[test]
     fn generic_uttt_test() {
+        GenericTests::<UtttBoard>::all_tests();
+    }
+
+    #[cfg(feature = "fairy")]
+    #[test]
+    fn generic_fairy_test() {
         GenericTests::<UtttBoard>::all_tests();
     }
 }

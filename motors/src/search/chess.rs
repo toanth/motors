@@ -200,7 +200,7 @@ mod tests {
                 let mov = ChessMove::from_extended_text(mov, &board).unwrap();
                 board = board.make_move(mov).unwrap();
                 assert!(board.player_result_slow(&hist).is_none());
-                hist.push(&board);
+                hist.push(board.hash_pos());
             }
         }
         let mov = ChessMove::from_extended_text(movelist[0], &board).unwrap();
@@ -208,7 +208,7 @@ mod tests {
         assert!(new_board.is_in_check());
         assert!(new_board.is_3fold_repetition(&hist));
         assert!(new_board.player_result_slow(&hist).is_some_and(|r| r == Draw));
-        assert!(n_fold_repetition(2, &hist, &new_board, new_board.halfmove_repetition_clock(),));
+        assert!(n_fold_repetition(2, &hist, new_board.hash_pos(), new_board.halfmove_repetition_clock(),));
         hist.pop();
         let mut engine = Caps::for_eval::<MaterialOnlyEval>();
         for depth in 1..10 {

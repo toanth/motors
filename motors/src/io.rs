@@ -699,7 +699,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn start_search(&mut self, hist: ZobristHistory<B>) -> Res<()> {
+    fn start_search(&mut self, hist: ZobristHistory) -> Res<()> {
         let opts = self.state.go_state.generic.clone();
         let tt = opts.override_hash_size.map(TT::new_with_mib);
         self.write_message(Debug, &format_args!("Starting {0} search with limit {1}", opts.search_type, opts.limit));

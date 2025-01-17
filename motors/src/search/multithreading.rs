@@ -388,7 +388,7 @@ impl<B: Board> EngineWrapper<B> {
         &mut self,
         pos: B,
         limit: SearchLimit,
-        history: ZobristHistory<B>,
+        history: ZobristHistory,
         search_moves: Option<Vec<B::Move>>,
         multi_pv: usize,
         ponder: bool,

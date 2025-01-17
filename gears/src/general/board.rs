@@ -391,7 +391,7 @@ pub trait Board:
 
     /// Returns the result (win/draw/loss), if any, but doesn't necessarily catch all game-ending conditions.
     /// That is, this function might return `None` if the game has actually ended,
-    fn player_result_no_movegen<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult>;
+    fn player_result_no_movegen<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult>;
 
     /// Returns the result (win/draw/loss), if any. Can be potentially slow because it can require movegen.
     /// If movegen is used anyway (such as in an ab search), it is usually better to call [`Self::player_result_no_movegen`]
@@ -401,7 +401,7 @@ pub trait Board:
     /// Note that many implementations never return [`PlayerResult::Win`] because the active player can't win the game,
     /// which is the case because the current player is flipped after the winning move.
     /// For example, being checkmated in chess is a loss for the current player.
-    fn player_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult>;
+    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult>;
 
     /// Only called when there are no legal moves.
     /// In that case, the function returns the game state from the current player's perspective.
@@ -546,7 +546,7 @@ pub trait BoardHelpers: Board {
 
     /// Returns an optional [`MatchResult`]. Unlike a [`PlayerResult`], a [`MatchResult`] doesn't contain `Win` or `Lose` variants,
     /// but instead `P1Win` and `P1Lose`. Also, it contains a [`GameOverReason`].
-    fn match_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<MatchResult> {
+    fn match_result_slow<H: BoardHistory>(&self, history: &H) -> Option<MatchResult> {
         let player_res = self.player_result_slow(history)?;
         let game_over = GameOver { result: player_res, reason: GameOverReason::Normal };
         Some(player_res_to_match_res(game_over, self.active_player()))

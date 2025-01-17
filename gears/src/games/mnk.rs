@@ -364,7 +364,10 @@ pub struct MNKBoard {
 
 impl PartialEq<Self> for MNKBoard {
     fn eq(&self, other: &Self) -> bool {
-        self.x_bb == other.x_bb && self.active_player == other.active_player && self.settings == other.settings
+        self.x_bb == other.x_bb
+            && self.active_player == other.active_player
+            && self.settings == other.settings
+            && self.ply == other.ply
     }
 }
 
@@ -632,7 +635,7 @@ impl Board for MNKBoard {
         self.size().coordinates_valid(mov.target) && self.colored_piece_on(mov.target).symbol == Empty
     }
 
-    fn player_result_no_movegen<H: BoardHistory<Self>>(&self, _history: &H) -> Option<PlayerResult> {
+    fn player_result_no_movegen<H: BoardHistory>(&self, _history: &H) -> Option<PlayerResult> {
         // check for win before checking full board
         if self.is_game_lost() {
             Some(Lose)
@@ -643,7 +646,7 @@ impl Board for MNKBoard {
         }
     }
 
-    fn player_result_slow<H: BoardHistory<Self>>(&self, history: &H) -> Option<PlayerResult> {
+    fn player_result_slow<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
         self.player_result_no_movegen(history)
     }
 
@@ -660,7 +663,8 @@ impl Board for MNKBoard {
         let mut hasher = DefaultHasher::new();
         self.x_bb.hash(&mut hasher);
         self.o_bb.hash(&mut hasher);
-        // Don't need to hash the side to move because that is given by the parity of the number of nonempty squares
+        // we need to hash the side to move because search can play null moves
+        self.active_player.hash(&mut hasher);
         PosHash(hasher.finish())
     }
 
@@ -672,7 +676,13 @@ impl Board for MNKBoard {
         let board = MNKBoard::empty_for_settings(settings);
         let mut board = read_common_fen_part::<MNKBoard>(words, UnverifiedMnkBoard::new(board))?;
 
-        board.set_ply_since_start(board.0.occupied_bb().num_ones())?;
+        let mut ply = board.0.occupied_bb().num_ones();
+        if (ply % 2 == 0) != board.active_player().is_first() {
+            // This can't have happened in a normal game from startpos. Adjust ply so that converting to FEN and back
+            // doesn't change the board.
+            ply += 1;
+        }
+        board.set_ply_since_start(ply)?;
         board = read_single_move_number::<MNKBoard>(words, board, strictness)?;
 
         board.0.last_move = None;
@@ -750,14 +760,15 @@ impl UnverifiedBoard<MNKBoard> for UnverifiedMnkBoard {
     fn verify_with_level(self, level: SelfChecks, strictness: Strictness) -> Res<MNKBoard> {
         let mut this = self.0;
         let non_empty = this.occupied_bb().count_ones();
-        // support custom starting positions where pieces have already been placed
-        if this.ply > non_empty {
+        // support custom starting positions where pieces have already been placed, as well as
+        // adjustments of the ply based on the active player
+        if this.ply > non_empty + 1 {
             bail!("Ply is {0}, but {non_empty} moves have been played", this.ply);
         } else if strictness == Strict {
             let diff = this.x_bb().num_ones() as isize - this.o_bb.num_ones() as isize;
             if this.ply != non_empty {
                 bail!(
-                    "In strict mode, the number of plies ({0}) has to be the number of placed pieces ({non_empty})",
+                    "In strict mode, the number of plies ({0}) has to be exactly the number of placed pieces ({non_empty})",
                     this.ply
                 )
             } else if diff != isize::from(this.active_player == MnkColor::O) {
@@ -1081,12 +1092,13 @@ mod test {
             MNKBoard {
                 x_bb: white_bb,
                 o_bb: black_bb,
-                ply: 7,
+                ply: 8,
                 settings: MnkSettings::new(Height(4), Width(12), 3),
                 active_player: MnkColor::first(),
                 last_move: None,
             }
         );
+        println!("{board}");
         assert_eq!(board, MNKBoard::from_fen(&board.as_fen(), Relaxed).unwrap());
     }
 

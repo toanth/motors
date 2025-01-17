@@ -45,7 +45,7 @@ pub struct UgiMatchState<B: Board> {
     /// Current board state (does not include history), should be cheap to copy
     pub board: B,
     /// Needed for repetition detection
-    pub board_history: ZobristHistory<B>,
+    pub board_history: ZobristHistory,
     /// Needed to reconstruct the match, such as for the PGN export.
     pub move_history: Vec<B::Move>,
     /// useful for gui matches to allow a "restart" option
@@ -79,7 +79,7 @@ impl<B: Board> UgiMatchState<B> {
         self.board = self.initial_pos.clone();
         self.move_history.clear();
         self.board_history.clear();
-        self.board_history.push(&self.board);
+        self.board_history.push(self.board.hash_pos());
         self.status = NotStarted;
     }
 
@@ -435,7 +435,7 @@ impl<B: Board> Client<B> {
         };
 
         *self.board() = board.clone();
-        self.match_state().board_history.push(&board);
+        self.match_state().board_history.push(board.hash_pos());
         self.match_state().move_history.push(mov);
         Ok(())
     }

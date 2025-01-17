@@ -19,7 +19,7 @@ pub struct PrecomputedZobristKeys {
 
 impl PrecomputedZobristKeys {
     pub fn piece_key(&self, piece: ChessPieceType, color: ChessColor, square: ChessSquare) -> PosHash {
-        self.piece_square_keys[square.bb_idx() * 12 + piece as usize * 2 + color as usize]
+        self.piece_square_keys[square.bb_idx() + piece as usize * 64 + color as usize * 64 * 6]
     }
 }
 
@@ -97,7 +97,7 @@ impl Chessboard {
         res
     }
 
-    pub fn approximate_zobrist_after_move(
+    pub(super) fn approximate_zobrist_after_move(
         mut old_hash: PosHash,
         color: ChessColor,
         piece: ChessPieceType,

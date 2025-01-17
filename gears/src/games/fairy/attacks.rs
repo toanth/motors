@@ -463,7 +463,7 @@ impl MoveKind {
         target: FairySquare,
         pos: &FairyBoard,
     ) {
-        let promos = &pos.get_rules().pieces[attack.piece.uncolor().val()].promotions;
+        let promos = &pos.rules().pieces[attack.piece.uncolor().val()].promotions;
         if !promos.squares.is_bit_set_at(pos.size().internal_key(target)) {
             list.push(attack.kind.to_move_kind(attack.piece));
         } else {
@@ -517,7 +517,7 @@ impl UnverifiedFairyBoard {
 
     pub fn royal_bb(&self) -> FairyBitboard {
         let mut res = self.zero_bitboard();
-        for piece in self.get_rules().royals() {
+        for piece in self.rules().royals() {
             res |= self.piece_bb(piece)
         }
         res
@@ -530,7 +530,7 @@ impl UnverifiedFairyBoard {
     /// In normal chess, this is the king bitboard, but not the rook bitboard
     pub fn castling_bb(&self) -> FairyBitboard {
         let mut res = self.zero_bitboard();
-        for piece in self.get_rules().castling() {
+        for piece in self.rules().castling() {
             res |= self.piece_bb(piece)
         }
         res
@@ -557,7 +557,7 @@ impl FairyBoard {
     }
 
     fn gen_attacks_impl<F: FnMut(FairyPiece, &PieceAttackBB)>(&self, mut f: F, color: FairyColor, mode: AttackMode) {
-        for (id, piece_type) in self.get_rules().pieces() {
+        for (id, piece_type) in self.rules().pieces() {
             for attack_kind in &piece_type.attacks {
                 match attack_kind.required {
                     RequiredForAttack::PieceOnBoard => {
@@ -598,7 +598,7 @@ impl FairyBoard {
     }
 
     pub fn is_player_in_check(&self, color: FairyColor) -> bool {
-        let rule = self.get_rules().check_rules;
+        let rule = self.rules().check_rules;
         let in_check = self.in_check_bb(color);
         match rule {
             CheckRules::AllRoyals => in_check == self.royal_bb_for(color),
@@ -645,7 +645,7 @@ impl UnverifiedFairyBoard {
             ensure!(
                 king_bb.is_single_piece(),
                 "Castling is only legal when there is a single royal piece, but the {0} player has {1}",
-                self.get_rules().colors[color.idx()].name,
+                self.rules().colors[color.idx()].name,
                 king_bb.num_ones()
             );
 
@@ -670,13 +670,13 @@ impl UnverifiedFairyBoard {
     }
 
     pub(super) fn read_castling_and_ep_fen_parts(mut self, words: &mut Tokens, _strictness: Strictness) -> Res<Self> {
-        if self.get_rules().has_castling {
+        if self.rules().has_castling {
             let Some(castling_word) = words.next() else {
                 bail!("FEN ends after color to move, missing castling rights")
             };
             self.castling_info = self.parse_castling_info(castling_word)?;
         }
-        if self.get_rules().has_ep {
+        if self.rules().has_ep {
             let Some(ep_square) = words.next() else { bail!("FEN ends before en passant square") };
             self.ep = if ep_square == "-" { None } else { Some(FairySquare::from_str(ep_square)?) };
         }
