@@ -119,7 +119,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
 
         'id: for depth in 1..=max_depth {
             for pv_num in 0..self.state.multi_pv() {
-                if self.should_not_start_iteration(limit.fixed_time, max_depth, limit.mate) {
+                if self.should_not_start_negamax(limit.fixed_time, max_depth, limit.mate) {
                     break 'id;
                 }
 
@@ -128,14 +128,14 @@ impl<B: Board> Engine<B> for Gaps<B> {
                 self.state.atomic().update_seldepth(depth as usize);
                 self.state.atomic().count_node();
                 let iteration_score = self.negamax(pos, 0, depth, SCORE_LOST, SCORE_WON);
-                self.state.current_pv_data_mut().score = iteration_score;
+                self.state.cur_pv_data_mut().score = iteration_score;
                 if self.state.stop_flag() {
-                    self.state.current_pv_data_mut().bound = None;
+                    self.state.cur_pv_data_mut().bound = None;
                     break 'id;
                 }
-                self.state.current_pv_data_mut().bound = Some(Exact);
+                self.state.cur_pv_data_mut().bound = Some(Exact);
                 // only set now so that incomplete iterations are discarded
-                let best_mpv_move = self.state.current_pv_data().pv.get(0).unwrap_or_default();
+                let best_mpv_move = self.state.cur_pv_data().pv.get(0).unwrap_or_default();
                 if pv_num == 0 {
                     self.state.atomic().set_score(iteration_score);
                     self.state.atomic().set_best_move(best_mpv_move);
@@ -213,20 +213,14 @@ impl<B: Board> Gaps<B> {
             if ply == 0 {
                 // don't set score here because it's set in `do_search`, which handles situations like the position
                 // being checkmate
-                self.state.current_pv_data_mut().pv.reset_to_move(mov);
+                self.state.cur_pv_data_mut().pv.reset_to_move(mov);
             }
             if score < beta {
                 continue;
             }
             break;
         }
-        let node_type = if best_score >= beta {
-            FailHigh
-        } else if best_score <= alpha {
-            FailLow
-        } else {
-            Exact
-        };
+        let node_type = best_score.node_type(alpha, beta);
         self.state
             .statistics
             .count_complete_node(MainSearch, node_type, depth, ply, num_children);
