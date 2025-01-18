@@ -1250,7 +1250,7 @@ trait AbstractEngineUgi: Debug {
 
     fn handle_undo(&mut self, words: &mut Tokens) -> Res<()>;
 
-    fn handle_prev(&mut self, words: &mut Tokens) -> Res<()>;
+    fn handle_gb(&mut self, words: &mut Tokens) -> Res<()>;
 
     fn print_help(&mut self) -> Res<()>;
 
@@ -1448,7 +1448,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_prev(&mut self, words: &mut Tokens) -> Res<()> {
+    fn handle_gb(&mut self, words: &mut Tokens) -> Res<()> {
         let count = words.next().unwrap_or("1");
         let count = parse_int_from_str(count, "number of positions to go back")?;
         let undone = self.state.go_back(count)?;

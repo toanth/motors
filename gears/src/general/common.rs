@@ -253,6 +253,9 @@ impl Name {
     pub fn new<T: NamedEntity + ?Sized>(t: &T) -> Self {
         Self { short: t.short_name(), long: t.long_name(), description: t.description() }
     }
+    pub fn from_str(string: &str) -> Self {
+        Self { short: string.to_string(), long: string.to_string(), description: None }
+    }
 }
 
 pub type EntityList<T> = Vec<T>;

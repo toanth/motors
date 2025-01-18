@@ -147,9 +147,9 @@ impl NamedEntity for EngineOptionName {
 
     fn description(&self) -> Option<String> {
         let res = match self {
-            EngineOptionName::Hash => "Size of the Transposition Table in MB",
+            EngineOptionName::Hash => "Size of the Transposition Table in MiB",
             EngineOptionName::Threads => "Number of search threads",
-            EngineOptionName::Ponder => "Pondering mode. Currently, pondering is supported even without this option, so it has no effect",
+            EngineOptionName::Ponder => "Pondering mode. Pondering is supported even without this option, so it has no effect",
             EngineOptionName::MultiPv => "The number of Principal Variation (PV) lines to output",
             EngineOptionName::UciElo => "Limit strength to this elo. Currently not supported",
             EngineOptionName::UCIOpponent => "The opponent. Currently only used to output the name in PGNs",

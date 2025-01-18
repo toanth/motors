@@ -26,6 +26,7 @@ use gears::general::common::Res;
 use gears::output::OutputOpts;
 use inquire::Text;
 use std::io::{stdin, stdout, IsTerminal};
+use std::rc::Rc;
 
 trait GetLine<B: Board> {
     fn get_line(&mut self, ugi: &mut EngineUGI<B>) -> Res<String>;
@@ -55,6 +56,9 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
             ));
             NonInteractiveInput::default().get_line(ugi)
         } else {
+            // not very efficient, but that doesn't really matter here
+            let options = ugi.get_options();
+            self.autocompletion.state.options = Rc::new(options);
             let help = "Type 'help' for a list of commands, '?' for a list of moves";
             let prompt = "Enter a command, move, variation, FEN or PGN:".bold().to_string();
             Ok(if let Some(failed) = &ugi.failed_cmd {

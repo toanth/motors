@@ -1366,6 +1366,12 @@ mod tests {
             assert!(!n_fold_repetition(2, &hist, board.hash, 12345));
         }
         assert_eq!(board.active_player, Black);
+        let board = Chessboard::from_name("kiwipete").unwrap();
+        let mut new_pos = board;
+        for mov in ["e1d1", "h8h7", "d1e1", "h7h8"] {
+            new_pos = new_pos.make_move_from_str(mov).unwrap();
+        }
+        assert_ne!(new_pos.hash_pos(), board.hash_pos());
     }
 
     #[test]

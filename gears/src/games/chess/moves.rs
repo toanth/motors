@@ -234,7 +234,7 @@ impl Move<Chessboard> for ChessMove {
         }
         let mut to = self.dest_square();
         if self.is_castle() && board.castling.default_uci_castling_move_fmt() {
-            let rank = board.active_player as DimT * 7;
+            let rank = self.src_square().rank();
             if self.flags() == CastleKingside {
                 to = ChessSquare::from_rank_file(rank, G_FILE_NO);
             } else {

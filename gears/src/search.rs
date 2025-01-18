@@ -65,7 +65,10 @@ impl<B: Board> Display for SearchResult<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "bestmove {}", self.chosen_move.compact_formatter(&self.pos))?;
         if let Some(ponder) = self.ponder_move() {
-            write!(f, " ponder {}", ponder.compact_formatter(&self.pos))?;
+            // currently, this is unnecessary, but this might change in the future, and in any case
+            // using a board to format a move that's not legal in that position would be *extremely* strange
+            let new_pos = self.pos.clone().make_move(self.chosen_move).unwrap();
+            write!(f, " ponder {}", ponder.compact_formatter(&new_pos))?;
         }
         Ok(())
     }
