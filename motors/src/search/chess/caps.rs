@@ -867,7 +867,7 @@ impl Caps {
                 let reduction = cc::nmp_base()
                     + depth / cc::nmp_depth_div()
                     + isize::from(they_blundered)
-                    + ((eval - nmp_threshold).0 / 64).min(2) as isize;
+                    + ((eval - nmp_threshold).0 / 256).min(2) as isize;
                 let nmp_res = self.negamax(
                     new_pos,
                     ply + 1,
