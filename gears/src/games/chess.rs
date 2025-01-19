@@ -104,7 +104,7 @@ impl Color for ChessColor {
         }
     }
 
-    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl Display {
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl AsRef<str> {
         match self {
             White => "White",
             Black => "Black",
@@ -971,7 +971,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             } else if !this.is_empty(ep_square) {
                 bail!(
                     "The en passant square ({ep_square}) must be empty, but it's occupied by a {}",
-                    this.piece_type_on(ep_square).name()
+                    this.piece_type_on(ep_square).to_name()
                 )
             } else if !this.is_empty(pawn_origin_square) {
                 bail!("The en passant square is set to {ep_square}, so the pawn must have come from {pawn_origin_square}. But this square isn't empty")

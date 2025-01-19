@@ -646,11 +646,8 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
             } else {
                 ' '
             }
-        } else if self.piece_to_char == CharType::Ascii {
-            // for most games, it makes sense to always upper case letters. Chess overwrites this behavior
-            piece.to_char(CharType::Ascii, &self.pos.settings()).to_ascii_uppercase()
         } else {
-            piece.to_char(CharType::Unicode, &self.pos.settings())
+            piece.to_display_char(self.piece_to_char, &self.pos.settings())
         };
         let c = format!("{c:^0$}", width);
 

@@ -20,6 +20,7 @@ use crate::games::fairy::attacks::EffectRules;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{Piece, PieceId};
 use crate::games::fairy::rules::GameLoss::InRowAtLeast;
+use crate::games::fairy::rules::NumRoyals::Exactly;
 use crate::games::fairy::{
     ColorInfo, FairyBitboard, FairyCastleInfo, FairyColor, FairySize, RawFairyBitboard, UnverifiedFairyBoard,
     MAX_NUM_PIECE_TYPES,
@@ -110,6 +111,12 @@ impl Arbitrary<'_> for EmptyBoard {
     }
 }
 
+#[derive(Debug, Copy, Clone, Arbitrary)]
+pub enum NumRoyals {
+    Exactly(usize),
+    AtLeast(usize),
+}
+
 /// This struct defined the rules for the game.
 /// Since the rules don't change during a game, but are expensive to copy and the board uses copy-make,
 /// they are created once and stored globally.
@@ -132,6 +139,7 @@ pub(super) struct Rules {
     pub check_rules: CheckRules,
     pub name: String,
     pub fen_part: RulesFenPart,
+    pub num_royals: NumRoyals,
 }
 
 impl Rules {
@@ -242,6 +250,7 @@ impl Rules {
             check_rules: CheckRules::AnyRoyal,
             name: "chess".to_string(),
             fen_part: RulesFenPart::None,
+            num_royals: Exactly(1),
         }
     }
 
@@ -270,6 +279,7 @@ impl Rules {
             check_rules: CheckRules::AnyRoyal,
             name: "shatranj".to_string(),
             fen_part: RulesFenPart::None,
+            num_royals: Exactly(1),
         }
     }
 
@@ -299,6 +309,7 @@ impl Rules {
             check_rules: CheckRules::default(),
             name: "mnk".to_string(),
             fen_part: RulesFenPart::Mnk(settings),
+            num_royals: Exactly(0),
         }
     }
 }

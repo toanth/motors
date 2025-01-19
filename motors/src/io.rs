@@ -39,9 +39,9 @@ use crate::{create_engine_box_from_str, create_engine_from_str, create_eval_from
 use colored::Color::Red;
 use colored::Colorize;
 use gears::cli::select_game;
-use gears::games::{CharType, Color, ColoredPiece, OutputList, ZobristHistory};
+use gears::games::{CharType, Color, ColoredPiece, ColoredPieceType, OutputList, ZobristHistory};
 use gears::general::board::Strictness::{Relaxed, Strict};
-use gears::general::board::{Board, BoardHelpers, Strictness, UnverifiedBoard};
+use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, UnverifiedBoard};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::{
@@ -1252,6 +1252,12 @@ trait AbstractEngineUgi: Debug {
 
     fn handle_gb(&mut self, words: &mut Tokens) -> Res<()>;
 
+    fn handle_place_piece(&mut self, words: &mut Tokens) -> Res<()>;
+
+    fn handle_remove_piece(&mut self, words: &mut Tokens) -> Res<()>;
+
+    fn handle_move_piece(&mut self, words: &mut Tokens) -> Res<()>;
+
     fn print_help(&mut self) -> Res<()>;
 
     fn write_is_player(&mut self, is_first: bool) -> Res<()>;
@@ -1458,6 +1464,46 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
                 &format_args!("There were only {undone} previous position commands, went back to the initial position"),
             );
         }
+        self.print_board(OutputOpts::default());
+        Ok(())
+    }
+
+    fn handle_place_piece(&mut self, words: &mut Tokens) -> Res<()> {
+        let pos = self.state.pos();
+        let settings = pos.settings();
+        let piece = ColPieceTypeOf::<B>::from_words(words, &settings)?;
+        let Some(coords) = words.next() else { bail!("Missing square from which to remove a piece") };
+        let coords = B::Coordinates::from_str(coords)?;
+        let piece = B::Piece::new(piece, coords);
+        let pos = self.state.pos().clone().place_piece(piece)?;
+        let pos = pos.verify(self.strictness)?;
+        self.state.set_new_pos_state(UgiPosState::new(pos), true);
+        self.print_board(OutputOpts::default());
+        Ok(())
+    }
+
+    fn handle_remove_piece(&mut self, words: &mut Tokens) -> Res<()> {
+        let Some(coords) = words.next() else { bail!("Missing square from which to remove a piece") };
+        let square = B::Coordinates::from_str(coords)?;
+        let pos = self.state.pos().clone().remove_piece(square)?;
+        let pos = pos.verify(self.strictness)?;
+        self.state.set_new_pos_state(UgiPosState::new(pos), true);
+        self.print_board(OutputOpts::default());
+        Ok(())
+    }
+
+    fn handle_move_piece(&mut self, words: &mut Tokens) -> Res<()> {
+        let Some(src) = words.next() else { bail!("Missing square from which to remove the piece") };
+        let src = B::Coordinates::from_str(src)?;
+        let Some(dest) = words.next() else { bail!("Missing square on which to place the piece") };
+        let dest = B::Coordinates::from_str(dest)?;
+        let pos = self.state.pos().clone();
+        let mut new_pos = pos.clone().remove_piece(src)?;
+        let piece = pos.colored_piece_on(src); // call after `remove_piece` because that ensures coordinates are valid
+        let piece = B::Piece::new(piece.colored_piece_type(), dest);
+        new_pos.try_place_piece(piece)?;
+        let pos = new_pos.verify(self.strictness)?;
+        self.state.set_new_pos_state(UgiPosState::new(pos), true);
         self.print_board(OutputOpts::default());
         Ok(())
     }

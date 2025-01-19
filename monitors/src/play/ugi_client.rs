@@ -368,7 +368,7 @@ impl<B: Board> Client<B> {
             Warning,
             &format_args!(
                 "The {} player ran out of time (the time control was {start}ms + {inc}ms)",
-                color.name(&self.state.the_match.board.settings()),
+                color.name(&self.state.the_match.board.settings()).as_ref(),
                 start = time.remaining.as_millis(),
                 inc = time.increment.as_millis()
             ),

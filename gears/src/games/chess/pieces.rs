@@ -65,7 +65,7 @@ impl ChessPieceType {
         Self::pieces().dropping(1)
     }
 
-    pub fn name(self) -> &'static str {
+    pub fn to_name(self) -> &'static str {
         match self {
             Pawn => "pawn",
             Knight => "knight",
@@ -103,6 +103,10 @@ impl AbstractPieceType<Chessboard> for ChessPieceType {
         Empty
     }
 
+    fn non_empty(_settings: &ChessSettings) -> impl Iterator<Item = Self> {
+        Self::pieces()
+    }
+
     fn to_char(self, typ: CharType, _settings: &ChessSettings) -> char {
         match typ {
             CharType::Ascii => match self {
@@ -128,13 +132,25 @@ impl AbstractPieceType<Chessboard> for ChessPieceType {
         }
     }
 
-    fn to_default_utf8_char(self, settings: &ChessSettings) -> char {
-        ColoredChessPieceType::new(Black, self).to_default_utf8_char(settings)
+    fn to_display_char(self, typ: CharType, settings: &ChessSettings) -> char {
+        ColoredChessPieceType::new(White, self).to_display_char(typ, settings)
     }
 
     /// Also parses German notation.
     fn from_char(c: char, _settings: &ChessSettings) -> Option<Self> {
         Self::parse_from_char(c)
+    }
+
+    fn name(&self, _settings: &ChessSettings) -> impl AsRef<str> {
+        match self {
+            Pawn => "pawn",
+            Knight => "knight",
+            Bishop => "bishop",
+            Rook => "rook",
+            Queen => "queen",
+            King => "king",
+            Empty => "empty",
+        }
     }
 
     fn to_uncolored_idx(self) -> usize {
@@ -185,7 +201,7 @@ impl ColoredChessPieceType {
                     s
                 })
                 .unwrap_or_default(),
-            self.uncolor().name()
+            self.uncolor().to_name()
         )
     }
 
@@ -218,6 +234,10 @@ impl Display for ColoredChessPieceType {
 impl AbstractPieceType<Chessboard> for ColoredChessPieceType {
     fn empty() -> Self {
         Self::Empty
+    }
+
+    fn non_empty(_settings: &ChessSettings) -> impl Iterator<Item = Self> {
+        Self::pieces()
     }
 
     fn to_char(self, typ: CharType, _settings: &ChessSettings) -> char {
@@ -255,17 +275,37 @@ impl AbstractPieceType<Chessboard> for ColoredChessPieceType {
         }
     }
 
-    fn to_default_utf8_char(self, settings: &ChessSettings) -> char {
+    fn to_display_char(self, typ: CharType, settings: &ChessSettings) -> char {
         if self == ColoredChessPieceType::Empty {
-            self.to_char(CharType::Unicode, settings)
+            self.to_char(typ, settings)
+        } else if typ == CharType::Unicode {
+            ColoredChessPieceType::new(White, self.uncolor()).to_char(typ, settings)
         } else {
-            ColoredChessPieceType::new(Black, self.uncolor()).to_char(CharType::Unicode, settings)
+            self.to_char(typ, settings)
         }
     }
 
     /// Also parses German notation (pawns are still represented as 'p' to avoid ambiguity with bishops).
     fn from_char(c: char, _settings: &ChessSettings) -> Option<Self> {
         Self::parse_from_char(c)
+    }
+
+    fn name(&self, _settings: &ChessSettings) -> impl AsRef<str> {
+        match self {
+            ColoredChessPieceType::WhitePawn => "white pawn",
+            ColoredChessPieceType::WhiteKnight => "white knight",
+            ColoredChessPieceType::WhiteBishop => "white bishop",
+            ColoredChessPieceType::WhiteRook => "white rook",
+            ColoredChessPieceType::WhiteQueen => "white queen",
+            ColoredChessPieceType::WhiteKing => "white king",
+            ColoredChessPieceType::Empty => "empty",
+            ColoredChessPieceType::BlackPawn => "black pawn",
+            ColoredChessPieceType::BlackKnight => "black knight",
+            ColoredChessPieceType::BlackBishop => "black bishop",
+            ColoredChessPieceType::BlackRook => "black rook",
+            ColoredChessPieceType::BlackQueen => "black queen",
+            ColoredChessPieceType::BlackKing => "black king",
+        }
     }
 
     fn to_uncolored_idx(self) -> usize {

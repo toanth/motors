@@ -54,6 +54,9 @@ impl PieceId {
     pub fn as_u8(self) -> u8 {
         self.0
     }
+    pub fn get(self, rules: &RulesRef) -> &Piece {
+        &rules.0.pieces[self.val()]
+    }
 }
 
 impl AbstractPieceType<FairyBoard> for PieceId {
@@ -61,12 +64,21 @@ impl AbstractPieceType<FairyBoard> for PieceId {
         Self(u8::MAX)
     }
 
+    fn non_empty(settings: &RulesRef) -> impl Iterator<Item = Self> {
+        (0..settings.0.pieces.len()).map(Self::new)
+    }
+
     fn to_char(self, typ: CharType, rules: &RulesRef) -> char {
-        rules.0.pieces[self.val()].uncolored_symbol[typ as usize]
+        self.get(rules).uncolored_symbol[typ as usize]
     }
 
     fn from_char(c: char, rules: &RulesRef) -> Option<Self> {
         rules.0.matching_piece_ids(|p| p.uncolored_symbol.contains(&c)).next()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn name(&self, settings: &RulesRef) -> String {
+        self.get(settings).name.clone()
     }
 
     fn to_uncolored_idx(self) -> usize {
@@ -108,31 +120,38 @@ impl ColoredPieceId {
         ColoredPieceId { id: piece, color }
     }
 }
-//
-// impl Display for ColoredPieceId {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-//         let color = self
-//             .color
-//             .map(|c| rules().colors[c.idx()].name.clone())
-//             .unwrap_or_default();
-//         write!(
-//             f,
-//             "{color} {0}",
-//             rules().pieces[self.id.val()].uncolored_symbol[CharType::Ascii as usize],
-//         )
-//     }
-// }
 
 impl AbstractPieceType<FairyBoard> for ColoredPieceId {
     fn empty() -> Self {
         Self { id: PieceId::empty(), color: None }
     }
 
+    fn non_empty(settings: &RulesRef) -> impl Iterator<Item = Self> {
+        settings
+            .0
+            .pieces
+            .iter()
+            .enumerate()
+            .flat_map(|(idx, p)| {
+                // Mapping to options is ugly but makes the compiler happy
+                if p.uncolored {
+                    [Some(Self { id: PieceId::new(idx), color: None }), None].into_iter()
+                } else {
+                    [
+                        Some(Self { id: PieceId::new(idx), color: Some(FairyColor::first()) }),
+                        Some(Self { id: PieceId::new(idx), color: Some(FairyColor::second()) }),
+                    ]
+                    .into_iter()
+                }
+            })
+            .flatten()
+    }
+
     fn to_char(self, typ: CharType, rules: &RulesRef) -> char {
         if let Some(color) = self.color {
-            rules.0.pieces[self.id.val()].player_symbol[color.idx()][typ as usize]
+            self.id.get(rules).player_symbol[color.idx()][typ as usize]
         } else {
-            rules.0.pieces[self.id.val()].uncolored_symbol[typ as usize]
+            self.id.get(rules).uncolored_symbol[typ as usize]
         }
     }
 
@@ -146,6 +165,14 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
             }
         } else {
             rules.0.matching_piece_ids(|p| p.uncolored_symbol.contains(&c)).next().map(|id| Self { id, color: None })
+        }
+    }
+
+    fn name(&self, settings: &RulesRef) -> impl AsRef<str> {
+        if let Some(color) = self.color {
+            format!("{0} {1}", color.name(settings), self.id.name(settings))
+        } else {
+            self.id.name(settings)
         }
     }
 
@@ -191,6 +218,10 @@ impl Promo {
 #[derive(Debug, Arbitrary)]
 pub struct Piece {
     pub(super) name: String,
+    // Some "pieces" don't belong to a player, such as gaps/blocked squares, environmental effects, or
+    // (not currently used) actual neutral pieces. If a piece can be both colored and neutral, this currently has to be simulated
+    // using two different pieces.
+    pub(super) uncolored: bool,
     pub(super) uncolored_symbol: [char; 2],
     pub(super) player_symbol: [[char; 2]; NUM_COLORS],
     // Most of the attack data is represented with a bitboard.
@@ -218,6 +249,7 @@ impl Piece {
         let attacks = attacks.into_iter().map(GenPieceAttackKind::simple).collect_vec();
         Self {
             name: name.to_string(),
+            uncolored: false,
             uncolored_symbol: [uppercase_ascii, u_uncolored],
             player_symbol: [[uppercase_ascii, u_white], [lowercase_ascii, u_black]],
             attacks,
@@ -301,6 +333,7 @@ impl Piece {
                 };
                 Self {
                     name: "king".to_string(),
+                    uncolored: false,
                     uncolored_symbol: ['K', UNICODE_NEUTRAL_KING],
                     player_symbol: [['K', UNICODE_WHITE_KING], ['k', UNICODE_BLACK_KING]],
                     attacks: vec![
@@ -378,6 +411,7 @@ impl Piece {
                 };
                 Self {
                     name: "pawn".to_string(),
+                    uncolored: false,
                     uncolored_symbol: ['p', UNICODE_NEUTRAL_PAWN],
                     player_symbol: [['P', UNICODE_WHITE_PAWN], ['p', UNICODE_BLACK_PAWN]],
 
@@ -422,6 +456,7 @@ impl Piece {
                 );
                 Self {
                     name: "pawn (shatranj)".to_string(),
+                    uncolored: false,
                     uncolored_symbol: ['p', UNICODE_NEUTRAL_PAWN],
                     player_symbol: [['P', UNICODE_WHITE_PAWN], ['p', UNICODE_BLACK_PAWN]],
 
@@ -512,6 +547,7 @@ impl Piece {
                 const UNICODE_O: char = '◯'; // '○'
                 Self {
                     name: "mnk".to_string(),
+                    uncolored: false,
                     uncolored_symbol: ['x', UNICODE_X],
                     player_symbol: [['X', UNICODE_X], ['O', UNICODE_O]],
                     attacks: vec![GenPieceAttackKind::piece_drop(AttackBitboardFilter::EmptySquares)],

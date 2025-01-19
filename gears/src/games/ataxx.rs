@@ -74,8 +74,11 @@ impl Color for AtaxxColor {
         }
     }
 
-    fn name(self, settings: &<Self::Board as Board>::Settings) -> impl Display {
-        self.to_char(settings)
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl AsRef<str> {
+        match self {
+            X => "X",
+            O => "O",
+        }
     }
 }
 
@@ -204,6 +207,7 @@ impl Board for AtaxxBoard {
             "x5o/1x4o/7/7/7/7/o3x2 o 0 2",
             "xx4o/7/7/7/7/6x/oo4x o 0 2",
             "x6/7/4x2/3x3/7/7/o5x o 2 2",
+            "oxx3o/xxx4/xxx4/5x1/7/7/x5x x 0 1",
         ];
         fens.iter().map(|fen| Self::from_fen(fen, Strict).unwrap()).collect_vec()
     }

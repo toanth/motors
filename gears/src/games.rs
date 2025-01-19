@@ -1,21 +1,22 @@
+use crate::games::CharType::{Ascii, Unicode};
+use crate::games::PlayerResult::Lose;
+use crate::general::board::Board;
+use crate::general::common::{parse_int, EntityList, Res, StaticallyNamedEntity, Tokens};
+use crate::general::move_list::MoveList;
+use crate::general::squares::{RectangularCoordinates, SquareColor};
+use crate::output::OutputBuilder;
+use crate::PlayerResult;
 use anyhow::bail;
 use arbitrary::Arbitrary;
+use colored::Colorize;
+use derive_more::{BitXor, BitXorAssign};
+use rand::Rng;
 use std::cmp::min;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::ops::Not;
 use std::str::FromStr;
-
-use crate::games::PlayerResult::Lose;
-use crate::general::board::Board;
-use crate::general::common::{parse_int, EntityList, Res, StaticallyNamedEntity};
-use crate::general::move_list::MoveList;
-use crate::general::squares::{RectangularCoordinates, SquareColor};
-use crate::output::OutputBuilder;
-use crate::PlayerResult;
-use derive_more::{BitXor, BitXorAssign};
-use rand::Rng;
 use strum_macros::EnumIter;
 
 #[cfg(feature = "ataxx")]
@@ -75,9 +76,29 @@ pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash +
         }
     }
 
+    fn from_name(name: &str, settings: &<Self::Board as Board>::Settings) -> Option<Self> {
+        if Self::first().name(settings).as_ref().eq_ignore_ascii_case(name) {
+            Some(Self::first())
+        } else if Self::second().name(settings).as_ref().eq_ignore_ascii_case(name) {
+            Some(Self::second())
+        } else {
+            let mut chars = name.chars();
+            if let Some(c) = chars.next() {
+                if chars.next().is_none() {
+                    if c.eq_ignore_ascii_case(&Self::first().to_char(settings)) {
+                        return Some(Self::first());
+                    } else if c.eq_ignore_ascii_case(&Self::second().to_char(settings)) {
+                        return Some(Self::second());
+                    }
+                }
+            }
+            None
+        }
+    }
+
     fn to_char(self, _settings: &<Self::Board as Board>::Settings) -> char;
 
-    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl Display;
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl AsRef<str>;
 }
 
 /// Common parts of colored and uncolored piece types
@@ -85,18 +106,45 @@ pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash +
 pub trait AbstractPieceType<B: Board>: Eq + Copy + Debug + Default {
     fn empty() -> Self;
 
+    fn non_empty(_settings: &B::Settings) -> impl Iterator<Item = Self>;
+
     fn to_char(self, typ: CharType, _settings: &B::Settings) -> char;
 
+    /// For asymmetrical games, we don't need uppercase/lowercase to distinguish between both players,
+    /// so we always use uppercase letters for board diagrams. FENs continue to use lowercase letters.
     /// For chess, uncolored piece symbols are different from both white and black piece symbols, but
-    /// used very rarely (and kind of ugly). So this maps to the much more common black piece version,
-    /// which is useful for text-based outputs that color the pieces themselves.
-    fn to_default_utf8_char(self, settings: &B::Settings) -> char {
-        self.to_char(CharType::Unicode, settings)
+    /// used very rarely (and kind of ugly). So this maps to the much more common white piece version instead.
+    fn to_display_char(self, typ: CharType, settings: &B::Settings) -> char {
+        self.to_char(typ, settings)
     }
 
     /// When parsing chars, we don't distinguish between ascii and unicode symbols.
     /// Takes a board parameter because the `FairyBoard` pieces can change based on the rules
-    fn from_char(c: char, _pos: &B::Settings) -> Option<Self>;
+    fn from_char(c: char, _settings: &B::Settings) -> Option<Self>;
+
+    /// Names for colored pieces don't have to (but can) include the color, i.e. `x` and `o` could be named `"x"` and `"o"` but
+    /// white and black pawn could both be named `"pawn"`, but also `"white pawn"` and `"black pawn"`.
+    fn name(&self, _settings: &B::Settings) -> impl AsRef<str>;
+
+    fn from_name(name: &str, settings: &B::Settings) -> Option<Self> {
+        for piece in Self::non_empty(&settings) {
+            if piece.name(&settings).as_ref().eq_ignore_ascii_case(name) {
+                return Some(piece);
+            }
+        }
+        let mut chars = name.chars();
+        if let Some(c) = chars.next() {
+            if chars.next().is_none() {
+                for piece in Self::non_empty(&settings) {
+                    // don't ignore case because that's often used to distinguish between colors
+                    if piece.to_char(Ascii, &settings) == c || piece.to_char(Unicode, &settings) == c {
+                        return Some(piece);
+                    }
+                }
+            }
+        }
+        None
+    }
 
     fn to_uncolored_idx(self) -> usize;
 }
@@ -110,6 +158,37 @@ pub trait PieceType<B: Board>: AbstractPieceType<B> {
 pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
     type Uncolored: PieceType<B>;
 
+    fn new(color: B::Color, uncolored: Self::Uncolored) -> Self;
+
+    fn from_words(words: &mut Tokens, settings: &B::Settings) -> Res<Self> {
+        let Some(piece) = words.next() else { bail!("Missing piece") };
+
+        if let Some(piece) = Self::from_name(piece, &settings) {
+            return Ok(piece);
+        }
+        let copied = words.clone();
+        let second_word = words.next().unwrap_or_default();
+
+        if let Some(color) = B::Color::from_name(piece, &settings) {
+            if let Some(piece) = Self::Uncolored::from_name(second_word, &settings) {
+                return Ok(Self::new(color, piece));
+            }
+        }
+        // There are no pieces with more than 2 words
+        let full_name = format!("{second_word} {}", words.peek().copied().unwrap_or_default());
+        if let Some(res) = Self::from_name(&full_name, settings) {
+            return Ok(res);
+        }
+
+        *words = copied;
+        let pieces = itertools::intersperse(
+            Self::non_empty(&settings).map(|piece| piece.name(&settings).as_ref().to_string()),
+            ", ".to_string(),
+        )
+        .fold(String::new(), |a, b| a + &b);
+        bail!("Unrecognized piece: '{0}', valid piece names are {pieces}", piece.red())
+    }
+
     fn color(self) -> Option<B::Color>;
 
     fn uncolor(self) -> Self::Uncolored {
@@ -117,8 +196,6 @@ pub trait ColoredPieceType<B: Board>: AbstractPieceType<B> {
     }
 
     fn to_colored_idx(self) -> usize;
-
-    fn new(color: B::Color, uncolored: Self::Uncolored) -> Self;
 }
 
 // TODO: Don't save coordinates in colored piece
@@ -127,6 +204,9 @@ where
     B: Board<Piece = Self>,
 {
     type ColoredPieceType: ColoredPieceType<B>;
+
+    fn new(typ: Self::ColoredPieceType, square: B::Coordinates) -> Self;
+
     fn coordinates(self) -> B::Coordinates;
 
     fn uncolored(self) -> <Self::ColoredPieceType as ColoredPieceType<B>>::Uncolored {
@@ -135,6 +215,10 @@ where
 
     fn to_char(self, typ: CharType, settings: &B::Settings) -> char {
         self.colored_piece_type().to_char(typ, settings)
+    }
+
+    fn to_display_char(self, typ: CharType, settings: &B::Settings) -> char {
+        self.colored_piece_type().to_display_char(typ, settings)
     }
 
     fn is_empty(self) -> bool {
@@ -159,6 +243,10 @@ impl<B: Board, ColType: ColoredPieceType<B>> Copy for GenericPiece<B, ColType> {
 
 impl<B: Board<Piece = Self>, ColType: ColoredPieceType<B>> ColoredPiece<B> for GenericPiece<B, ColType> {
     type ColoredPieceType = ColType;
+
+    fn new(typ: ColType, coordinates: B::Coordinates) -> Self {
+        Self { symbol: typ, coordinates }
+    }
 
     fn coordinates(self) -> B::Coordinates {
         self.coordinates
@@ -194,7 +282,7 @@ pub fn char_to_file(file: char) -> DimT {
     file as DimT - b'a'
 }
 
-/// On a rectangular board, coordinates are called 'squares'.
+/// On a rectangular board, coordinates are called `squares`.
 #[must_use]
 pub trait Coordinates:
     Eq + Copy + Debug + Default + FromStr<Err = anyhow::Error> + Display + for<'a> Arbitrary<'a>

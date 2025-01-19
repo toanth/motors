@@ -87,8 +87,11 @@ impl Color for MnkColor {
         }
     }
 
-    fn name(self, settings: &<Self::Board as Board>::Settings) -> impl Display {
-        self.to_char(settings)
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl AsRef<str> {
+        match self {
+            MnkColor::X => "X",
+            MnkColor::O => "O",
+        }
     }
 }
 
@@ -100,19 +103,27 @@ impl AbstractPieceType<MNKBoard> for Symbol {
         Symbol::Empty
     }
 
+    fn non_empty(_settings: &MnkSettings) -> impl Iterator<Item = Self> {
+        [X, O].into_iter()
+    }
+
     fn to_char(self, typ: CharType, _settings: &MnkSettings) -> char {
         match typ {
-            CharType::Ascii => match self {
+            Ascii => match self {
                 X => 'X',
                 O => 'O',
                 Empty => '.',
             },
-            CharType::Unicode => match self {
+            Unicode => match self {
                 X => UNICODE_X,
                 O => UNICODE_O,
                 Empty => '.',
             },
         }
+    }
+
+    fn to_display_char(self, typ: CharType, settings: &MnkSettings) -> char {
+        self.to_char(typ, settings).to_ascii_uppercase()
     }
 
     fn from_char(c: char, _settings: &MnkSettings) -> Option<Self> {
@@ -121,6 +132,14 @@ impl AbstractPieceType<MNKBoard> for Symbol {
             'X' | UNICODE_X => Some(X),
             'O' | UNICODE_O => Some(O),
             _ => None,
+        }
+    }
+
+    fn name(&self, _settings: &MnkSettings) -> impl AsRef<str> {
+        match self {
+            X => "x",
+            O => "o",
+            Empty => "empty",
         }
     }
 

@@ -77,7 +77,7 @@ fn write_phased_psqt(
 ) -> std::fmt::Result {
     const TAB: &str = "    "; // Use 4 spaces for a tab.
     if let Some(piece) = piece {
-        writeln!(f, "{TAB}// {}", piece.name())?;
+        writeln!(f, "{TAB}// {}", piece.to_name())?;
         write!(f, "{TAB}[")?;
     } else {
         write!(f, "[")?;

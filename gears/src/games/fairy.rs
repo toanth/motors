@@ -24,7 +24,7 @@ mod rules;
 use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
-use crate::games::fairy::rules::{Draw, GameLoss, Rules, RulesRef};
+use crate::games::fairy::rules::{Draw, GameLoss, NumRoyals, Rules, RulesRef};
 use crate::games::{
     n_fold_repetition, AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates,
     DimT, GenericPiece, NoHistory, PosHash, Size,
@@ -34,7 +34,7 @@ use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
     position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers, BitboardBoard, Board,
-    BoardHelpers, BoardSize, ColPieceType, NameToPos, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard,
+    BoardHelpers, BoardSize, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
@@ -47,7 +47,7 @@ use crate::output::text_output::{board_to_string, display_board_pretty, BoardFor
 use crate::output::OutputOpts;
 use crate::search::Depth;
 use crate::PlayerResult;
-use anyhow::bail;
+use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use itertools::Itertools;
 use rand::prelude::IndexedRandom;
@@ -101,7 +101,8 @@ impl Color for FairyColor {
         settings.0.colors[self.idx()].ascii_char
     }
 
-    fn name(self, settings: &<Self::Board as Board>::Settings) -> impl Display {
+    #[allow(refining_impl_trait)]
+    fn name(self, settings: &<Self::Board as Board>::Settings) -> String {
         settings.0.colors[self.idx()].name.clone()
     }
 }
@@ -311,6 +312,26 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
             bail!("The ep square is set even though the rules don't mention en passant")
         }
         for color in FairyColor::iter() {
+            let royals = self.royal_bb_for(color);
+            let num = royals.num_ones();
+            match rules.num_royals {
+                NumRoyals::Exactly(n) => {
+                    ensure!(
+                        num == n,
+                        "The {0} player must have exactly {n} royal pieces, but has {num}",
+                        self.color_name(color)
+                    )
+                }
+                NumRoyals::AtLeast(n) => {
+                    ensure!(
+                        num >= n,
+                        "The {0} must have at least {n} royal pieces, but has {num}",
+                        self.color_name(color)
+                    )
+                }
+            }
+        }
+        for color in FairyColor::iter() {
             for loss in &self.rules.0.game_loss {
                 if loss == &GameLoss::Checkmate {
                     if self.royal_bb_for(color).is_zero() {
@@ -343,7 +364,7 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         self.size
     }
 
-    fn place_piece(&mut self, coords: FairySquare, piece: ColPieceType<FairyBoard>) {
+    fn place_piece(&mut self, coords: FairySquare, piece: ColPieceTypeOf<FairyBoard>) {
         let bb = self.single_piece(coords).raw();
         self.piece_bitboards[piece.to_uncolored_idx()] |= bb;
         if let Some(color) = piece.color() {
@@ -562,7 +583,7 @@ impl Board for FairyBoard {
         self.0.is_empty(coords)
     }
 
-    fn is_piece_on(&self, coords: Self::Coordinates, piece: ColPieceType<Self>) -> bool {
+    fn is_piece_on(&self, coords: Self::Coordinates, piece: ColPieceTypeOf<Self>) -> bool {
         let idx = self.0.idx(coords);
         if let Some(color) = piece.color() {
             self.colored_piece_bb(color, piece.uncolor()).is_bit_set_at(idx)
@@ -867,7 +888,7 @@ mod tests {
     use crate::games::fairy::moves::FairyMove;
     use crate::games::mnk::MNKBoard;
     use crate::games::{chess, Height, Width, ZobristHistory};
-    use crate::general::board::Strictness::Strict;
+    use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::perft::perft;
     use crate::PlayerResult::Draw;
     use crate::{GameOverReason, GameResult, MatchResult};
@@ -1008,6 +1029,8 @@ mod tests {
         pos = pos.make_move(mov).unwrap();
         assert_eq!(pos.player_result_slow(&ZobristHistory::default()), Some(Draw));
         let fen = "5B1k/5B2/7K/8/8/8/3K4/8 b - - 0 1";
+        assert!(FairyBoard::from_fen_for("chess", fen, Relaxed).is_err());
+        let fen = "5B1k/5B2/7K/8/8/8/8/8 b - - 0 1";
         let pos = FairyBoard::from_fen_for("chess", fen, Strict).unwrap();
         assert_eq!(pos.num_legal_moves(), 0);
         assert_eq!(

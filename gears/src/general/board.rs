@@ -115,16 +115,30 @@ where
     /// However, this function can still fail if the piece can't be placed because the coordinates.
     /// If there is a piece already on the square, it is implementation-defined what will happen; possible options include
     /// replacing the piece, returning an `Err`, or silently going into a bad state that will return an `Err` on [`Self::verify`].
-    /// Not intended to do any expensive checks.
+    /// May perform expensive checks.
     fn try_place_piece(&mut self, piece: B::Piece) -> Res<()> {
         let square = self.check_coordinates(piece.coordinates())?;
+        let piece = piece.colored_piece_type();
+        if piece == ColPieceTypeOf::<B>::empty() {
+            bail!("Trying to place an empty piece on {square}")
+        }
         // TODO: PieceType should not include the empty square; use a different, generic, struct for that
-        self.place_piece(square, piece.colored_piece_type());
+        if !self.is_empty(square) {
+            bail!(
+                "Can't place a {0} on {1} because there is already a {2} there",
+                piece.name(&self.settings()).as_ref().red(),
+                square.to_string().red(),
+                self.piece_on(square).colored_piece_type().name(&self.settings()).as_ref().bold()
+            )
+        }
+        self.place_piece(square, piece);
         Ok(())
     }
 
-    /// Like [`Self::try_place_piece`], but does not check that the coordinates are valid.
-    fn place_piece(&mut self, coords: B::Coordinates, piece: ColPieceType<B>);
+    /// Like [`Self::try_place_piece`], but does not check preconditions, such as that the coordinates are valid.
+    /// Unlike `try_place_piece`, this function can panic if the coordinates are not empty.
+    /// Not intended to do any expensive checks.
+    fn place_piece(&mut self, coords: B::Coordinates, piece: ColPieceTypeOf<B>);
 
     /// Remove the piece at the given coordinates. If there is no piece there, nothing happens.
     /// If the coordinates are invalid, an `Err` is returned.
@@ -174,10 +188,10 @@ where
 
 // Rustc warns that the `Board` bounds are not enforced but removing them makes the program fail to compile
 #[expect(type_alias_bounds)]
-pub type ColPieceType<B: Board> = <B::Piece as ColoredPiece<B>>::ColoredPieceType;
+pub type ColPieceTypeOf<B: Board> = <B::Piece as ColoredPiece<B>>::ColoredPieceType;
 
 #[expect(type_alias_bounds)]
-pub type PieceTypeOf<B: Board> = <ColPieceType<B> as ColoredPieceType<B>>::Uncolored;
+pub type PieceTypeOf<B: Board> = <ColPieceTypeOf<B> as ColoredPieceType<B>>::Uncolored;
 
 #[expect(type_alias_bounds)]
 pub type BoardSize<B: Board> = <B::Coordinates as Coordinates>::Size;
@@ -291,7 +305,7 @@ pub trait Board:
 
     /// Returns `true` iff a piece of the given type and color exists on the given coordinates.
     /// Can sometimes be implemented more efficiently than by comparing `colored_piece_on`.
-    fn is_piece_on(&self, coords: Self::Coordinates, piece: ColPieceType<Self>) -> bool {
+    fn is_piece_on(&self, coords: Self::Coordinates, piece: ColPieceTypeOf<Self>) -> bool {
         self.colored_piece_on(coords).colored_piece_type() == piece
     }
 
@@ -491,8 +505,8 @@ pub trait BoardHelpers: Board {
 
     fn color_names(&self) -> [String; 2] {
         [
-            Self::Color::first().name(&self.settings()).to_string(),
-            Self::Color::second().name(&self.settings()).to_string(),
+            Self::Color::first().name(&self.settings()).as_ref().to_string(),
+            Self::Color::second().name(&self.settings()).as_ref().to_string(),
         ]
     }
 
@@ -817,7 +831,7 @@ pub(crate) fn read_position_fen<B: RectangularBoard>(position: &str, mut board: 
                 skipped_digits += 1;
                 continue;
             }
-            let Some(symbol) = ColPieceType::<B>::from_char(c, &board.settings()) else {
+            let Some(symbol) = ColPieceTypeOf::<B>::from_char(c, &board.settings()) else {
                 bail!(
                     "Invalid character in {0} FEN position description (not a piece): {1}",
                     B::game_name(),

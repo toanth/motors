@@ -953,7 +953,7 @@ impl<'a> MoveParser<'a> {
                     bail!(
                         "There is no {0} {1} on {from}, so the move '{2}' is invalid{3}",
                         board.active_player,
-                        self.piece.name(),
+                        self.piece.to_name(),
                         self.consumed().bold(),
                         additional
                     )
@@ -961,7 +961,7 @@ impl<'a> MoveParser<'a> {
                     bail!(
                         "There is no legal {0} {1} move from {from} to {to}, so the move '{2}' is invalid{3}",
                         board.active_player,
-                        self.piece.name(),
+                        self.piece.to_name(),
                         self.consumed().bold(),
                         additional
                     );

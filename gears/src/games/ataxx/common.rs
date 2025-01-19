@@ -54,6 +54,10 @@ impl AbstractPieceType<AtaxxBoard> for AtaxxPieceType {
         Empty
     }
 
+    fn non_empty(_settings: &AtaxxSettings) -> impl Iterator<Item = Self> {
+        [Blocked, Occupied].into_iter()
+    }
+
     fn to_char(self, _typ: CharType, _setting: &AtaxxSettings) -> char {
         match self {
             Empty => '.',
@@ -68,6 +72,14 @@ impl AbstractPieceType<AtaxxBoard> for AtaxxPieceType {
             '-' => Some(Blocked),
             'o' | 'x' => Some(Occupied),
             _ => None,
+        }
+    }
+
+    fn name(&self, _settings: &AtaxxSettings) -> impl AsRef<str> {
+        match self {
+            Empty => "empty",
+            Blocked => "gap",
+            Occupied => "stone",
         }
     }
 
@@ -104,6 +116,10 @@ impl AbstractPieceType<AtaxxBoard> for ColoredAtaxxPieceType {
         Self::Empty
     }
 
+    fn non_empty(_settings: &AtaxxSettings) -> impl Iterator<Item = Self> {
+        [Self::Blocked, XPiece, OPiece].into_iter()
+    }
+
     fn to_char(self, _typ: CharType, _settings: &AtaxxSettings) -> char {
         match self {
             ColoredAtaxxPieceType::Empty => '.',
@@ -113,6 +129,10 @@ impl AbstractPieceType<AtaxxBoard> for ColoredAtaxxPieceType {
         }
     }
 
+    fn to_display_char(self, typ: CharType, settings: &AtaxxSettings) -> char {
+        self.to_char(typ, settings).to_ascii_uppercase()
+    }
+
     fn from_char(c: char, _settings: &AtaxxSettings) -> Option<Self> {
         match c {
             '.' => Some(Self::Empty),
@@ -120,6 +140,15 @@ impl AbstractPieceType<AtaxxBoard> for ColoredAtaxxPieceType {
             'x' => Some(XPiece),
             'o' => Some(OPiece),
             _ => None,
+        }
+    }
+
+    fn name(&self, _settings: &AtaxxSettings) -> impl AsRef<str> {
+        match self {
+            ColoredAtaxxPieceType::Empty => "empty",
+            ColoredAtaxxPieceType::Blocked => "gap",
+            XPiece => "x",
+            OPiece => "o",
         }
     }
 

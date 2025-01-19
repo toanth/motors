@@ -56,12 +56,12 @@ use arbitrary::Arbitrary;
 use colored::Colorize;
 use itertools::Itertools;
 use rand::Rng;
-use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::num::NonZeroUsize;
 use std::ops::Not;
 use std::str::FromStr;
+use std::{fmt, iter};
 use strum_macros::{EnumIter, FromRepr};
 
 /// `Bitboard`s have the  semantic constraint of storing squares in a row-major fashion.
@@ -110,8 +110,11 @@ impl Color for UtttColor {
         }
     }
 
-    fn name(self, settings: &<Self::Board as Board>::Settings) -> impl Display {
-        self.to_char(settings)
+    fn name(self, _settings: &<Self::Board as Board>::Settings) -> impl AsRef<str> {
+        match self {
+            X => "X",
+            O => "O",
+        }
     }
 }
 
@@ -134,6 +137,10 @@ impl AbstractPieceType<UtttBoard> for UtttPieceType {
         Empty
     }
 
+    fn non_empty(_settings: &UtttSettings) -> impl Iterator<Item = Self> {
+        iter::once(Occupied)
+    }
+
     fn to_char(self, _typ: CharType, _settings: &UtttSettings) -> char {
         match self {
             Empty => '.',
@@ -146,6 +153,13 @@ impl AbstractPieceType<UtttBoard> for UtttPieceType {
             '.' => Some(Empty),
             'o' | 'x' => Some(Occupied),
             _ => None,
+        }
+    }
+
+    fn name(&self, _settings: &UtttSettings) -> impl AsRef<str> {
+        match self {
+            Empty => "empty",
+            Occupied => "occupied",
         }
     }
 
@@ -185,6 +199,10 @@ impl AbstractPieceType<UtttBoard> for ColoredUtttPieceType {
         Self::Empty
     }
 
+    fn non_empty(_settings: &UtttSettings) -> impl Iterator<Item = Self> {
+        [XStone, OStone].into_iter()
+    }
+
     fn to_char(self, typ: CharType, _settings: &UtttSettings) -> char {
         match typ {
             CharType::Ascii => match self {
@@ -200,12 +218,24 @@ impl AbstractPieceType<UtttBoard> for ColoredUtttPieceType {
         }
     }
 
+    fn to_display_char(self, typ: CharType, settings: &UtttSettings) -> char {
+        self.to_char(typ, settings).to_ascii_uppercase()
+    }
+
     fn from_char(c: char, _settings: &UtttSettings) -> Option<Self> {
         match c {
             '.' => Some(ColoredUtttPieceType::Empty),
             'x' | 'X' | UNICODE_X => Some(XStone),
             'o' | 'O' | UNICODE_O => Some(OStone),
             _ => None,
+        }
+    }
+
+    fn name(&self, _settings: &UtttSettings) -> impl AsRef<str> {
+        match self {
+            XStone => "x",
+            OStone => "o",
+            ColoredUtttPieceType::Empty => "empty",
         }
     }
 

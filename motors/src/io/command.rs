@@ -23,8 +23,9 @@ use colored::Colorize;
 use edit_distance::edit_distance;
 use gears::arrayvec::ArrayVec;
 use gears::cli::Game;
-use gears::games::{Color, OutputList};
-use gears::general::board::{Board, BoardHelpers, Strictness};
+use gears::games::CharType::{Ascii, Unicode};
+use gears::games::{AbstractPieceType, Color, ColoredPiece, OutputList, Size};
+use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
     parse_duration_ms, parse_int, parse_int_from_str, tokens, Name, NamedEntity, Res, Tokens,
@@ -92,6 +93,8 @@ trait AutoCompleteState: Debug {
     fn print_subcmds(&self) -> CommandList;
     fn engine_subcmds(&self) -> CommandList;
     fn set_eval_subcmds(&self) -> CommandList;
+    fn coords_subcmds(&self, ac_coords: bool, only_occupied: bool) -> CommandList;
+    fn piece_subcmds(&self) -> CommandList;
     fn make_move(&mut self, mov: &str);
     fn options(&self) -> &[EngineOption];
 }
@@ -141,6 +144,14 @@ impl<B: Board> AutoCompleteState for ACState<B> {
     }
     fn set_eval_subcmds(&self) -> CommandList {
         select_command::<dyn AbstractEvalBuilder<B>>(self.evals.as_slice())
+    }
+
+    fn coords_subcmds(&self, ac_coords: bool, only_occupied: bool) -> CommandList {
+        coords_options(&self.go_state.pos, ac_coords, only_occupied)
+    }
+
+    fn piece_subcmds(&self) -> CommandList {
+        piece_options(&self.go_state.pos)
     }
 
     fn make_move(&mut self, mov: &str) {
@@ -255,6 +266,18 @@ impl<B: Board> AbstractEngineUgi for ACState<B> {
         Ok(())
     }
 
+    fn handle_place_piece(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+
+    fn handle_remove_piece(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+
+    fn handle_move_piece(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
+
     fn print_help(&mut self) -> Res<()> {
         Ok(())
     }
@@ -310,7 +333,7 @@ impl SubCommandsFn {
 pub struct Command {
     pub primary_name: String,
     pub other_names: ArrayVec<String, 4>,
-    pub help_text: String,
+    pub help_text: Option<String>,
     pub standard: Standard,
     pub autocomplete_recurse: bool,
     pub func: fn(&mut dyn AbstractEngineUgi, remaining_input: &mut Tokens, _cmd: &str) -> Res<()>,
@@ -345,7 +368,7 @@ impl NamedEntity for Command {
     }
 
     fn description(&self) -> Option<String> {
-        Some(self.help_text.clone())
+        self.help_text.clone()
     }
 
     fn matches(&self, name: &str) -> bool {
@@ -395,7 +418,7 @@ macro_rules! command {
                 other_names: ArrayVec::from_iter([$($other.to_string(),)*]),
                 standard: $std,
                 func: $fun,
-                help_text: $help.to_string(),
+                help_text: Some($help.to_string()),
                 sub_commands,
                 autocomplete_recurse,
             }
@@ -579,18 +602,27 @@ pub fn ugi_commands() -> CommandList {
             "Set the position to the previous 'position' command, like 'p old', and removes later positions",
             |ugi, words, _| ugi.handle_gb(words)
         ),
-        // command!(
-        //     place | place_piece,
-        //     Custom,
-        //     "Places a piece of the given color on the given square, e.g. 'place white pawn e4",
-        //     |ugi, words, _| ugi.handle_place(words)
-        // ),
-        // command!(
-        //     remove | remove_piece,
-        //     Custom,
-        //     "Removes the piece at the given square, e.g. 'remove e2'",
-        //     |ugi, words, _| ugi.handle_remove(words)
-        // ),
+        command!(
+            place | place_piece | put,
+            Custom,
+            "Places a piece of the given color on the given square, e.g. 'place white pawn e4",
+            |ugi, words, _| ugi.handle_place_piece(words),
+            --> |state| state.piece_subcmds()
+        ),
+        command!(
+            remove | remove_piece | rm,
+            Custom,
+            "Removes the piece at the given square, e.g. 'remove e2'",
+            |ugi, words, _| ugi.handle_remove_piece(words),
+            --> |state| state.coords_subcmds(false, true)
+        ),
+        command!(
+            move_piece,
+            Custom,
+            "Moves the piece on the first given square to the second given square, e.g. 'move a1 a2'",
+            |ugi, words, _| ugi.handle_move_piece(words),
+            --> |state| state.coords_subcmds(true, true)
+        ),
         command!(
             perft,
             Custom,
@@ -799,7 +831,7 @@ pub fn go_options_impl(mode: Option<SearchType>, color_chars: [char; 2], color_n
                     "p1time".to_string(),
                     "p1t".to_string(),
                 ]),
-                help_text: format!("Remaining time in ms for {}", color_names[0]),
+                help_text: Some(format!("Remaining time in ms for {}", color_names[0])),
                 standard: All,
                 autocomplete_recurse: false,
                 func: |state, words, _| state.go_state_mut().set_time(words, true, false, "p1time"),
@@ -812,7 +844,7 @@ pub fn go_options_impl(mode: Option<SearchType>, color_chars: [char; 2], color_n
                     "p2time".to_string(),
                     "p2t".to_string(),
                 ]),
-                help_text: format!("Remaining time in ms for {}", color_names[1]),
+                help_text: Some(format!("Remaining time in ms for {}", color_names[1])),
                 standard: All,
                 autocomplete_recurse: false,
                 func: |state, words, _| state.go_state_mut().set_time(words, false, false, "p2time"),
@@ -821,7 +853,7 @@ pub fn go_options_impl(mode: Option<SearchType>, color_chars: [char; 2], color_n
             Command {
                 primary_name: format!("{}inc", color_chars[0]),
                 other_names: ArrayVec::from_iter([format!("{}i", color_chars[0]), "p1inc".to_string()]),
-                help_text: format!("Increment in ms for {}", color_names[0]),
+                help_text: Some(format!("Increment in ms for {}", color_names[0])),
                 standard: All,
                 autocomplete_recurse: false,
                 func: |state, words, _| state.go_state_mut().set_time(words, true, true, "p1inc"),
@@ -830,7 +862,7 @@ pub fn go_options_impl(mode: Option<SearchType>, color_chars: [char; 2], color_n
             Command {
                 primary_name: format!("{}inc", color_chars[1]),
                 other_names: ArrayVec::from_iter([format!("{}i", color_chars[1]), "p2inc".to_string()]),
-                help_text: format!("Increment in ms for {}", color_names[1]),
+                help_text: Some(format!("Increment in ms for {}", color_names[1])),
                 standard: All,
                 autocomplete_recurse: false,
                 func: |state, words, _| state.go_state_mut().set_time(words, false, true, "p2inc"),
@@ -935,7 +967,7 @@ pub fn query_options_impl(color_chars: [char; 2]) -> CommandList {
         Command {
             primary_name: "p1turn".to_string(),
             other_names: ArrayVec::from_iter([format!("{}turn", color_chars[0])]),
-            help_text: "Is it the first player's turn?".to_string(),
+            help_text: Some("Is it the first player's turn?".to_string()),
             standard: UgiNotUci,
             autocomplete_recurse: false,
             func: |ugi, _, _| ugi.write_is_player(true),
@@ -944,7 +976,7 @@ pub fn query_options_impl(color_chars: [char; 2]) -> CommandList {
         Command {
             primary_name: "p2turn".to_string(),
             other_names: ArrayVec::from_iter([format!("{}turn", color_chars[1])]),
-            help_text: "Is it the second player's turn?".to_string(),
+            help_text: Some("Is it the second player's turn?".to_string()),
             standard: UgiNotUci,
             autocomplete_recurse: false,
             func: |ugi, _, _| ugi.write_is_player(false),
@@ -1035,7 +1067,7 @@ pub fn position_options<B: Board>(pos: Option<&B>, accept_pos_word: bool) -> Com
         let c = Command {
             primary_name: p.short_name(),
             other_names: Default::default(),
-            help_text: p.description().unwrap_or(format!("Load a custom position called '{}'", p.short_name())),
+            help_text: Some(p.description().unwrap_or(format!("Load a custom position called '{}'", p.short_name()))),
             standard: Custom,
             autocomplete_recurse: false,
             func: |state, words, name| state.load_go_state_pos(name, words),
@@ -1072,7 +1104,7 @@ pub fn moves_options<B: Board>(pos: &B, recurse: bool) -> CommandList {
         let cmd = Command {
             primary_name: primary_name.clone(),
             other_names,
-            help_text: format!("Play move '{}'", mov.compact_formatter(pos).to_string().bold()),
+            help_text: Some(format!("Play move '{}'", mov.compact_formatter(pos).to_string().bold())),
             standard: All,
             autocomplete_recurse: false,
             func: |_, _, _| Ok(()),
@@ -1090,6 +1122,45 @@ pub fn moves_options<B: Board>(pos: &B, recurse: bool) -> CommandList {
     res
 }
 
+fn coords_options<B: Board>(pos: &B, ac_coords: bool, only_occupied: bool) -> CommandList {
+    let mut res = vec![];
+    for c in pos.size().valid_coordinates() {
+        if only_occupied && pos.is_empty(c) {
+            continue;
+        }
+        let n = Name { short: c.to_string(), long: c.to_string(), description: None };
+        let mut cmd = named_entity_to_command(&n);
+        let piece = pos.colored_piece_on(c).colored_piece_type();
+        if pos.is_empty(c) {
+            cmd.help_text = Some("Currently empty".to_string());
+        } else {
+            cmd.help_text = Some(format!("Currently occupied by: {}", piece.name(&pos.settings()).as_ref()));
+        }
+        if ac_coords {
+            cmd.sub_commands = SubCommandsFn(Some(Box::new(|state| state.coords_subcmds(false, false))))
+        }
+        res.push(cmd);
+    }
+    res
+}
+
+fn piece_options<B: Board>(pos: &B) -> CommandList {
+    let mut res = vec![];
+    let settings = pos.settings();
+    for p in ColPieceTypeOf::<B>::non_empty(&settings) {
+        let name = p.name(&settings).as_ref().to_string();
+        let n = Name { short: name.clone(), long: name.clone(), description: None };
+        let mut cmd = named_entity_to_command(&n);
+        let list = [p.to_char(Ascii, &settings), p.to_char(Unicode, &settings)];
+        for c in list.iter().sorted().dedup() {
+            cmd.other_names.push(c.to_string());
+        }
+        cmd.sub_commands = SubCommandsFn(Some(Box::new(|state| state.coords_subcmds(false, false))));
+        res.push(cmd);
+    }
+    res
+}
+
 pub fn named_entity_to_command(entity: &dyn NamedEntity) -> Command {
     let primary_name = entity.short_name();
     let mut other_names = ArrayVec::default();
@@ -1099,7 +1170,7 @@ pub fn named_entity_to_command(entity: &dyn NamedEntity) -> Command {
     Command {
         primary_name,
         other_names,
-        help_text: entity.description().unwrap_or_else(|| "<No Description>".to_string()),
+        help_text: entity.description(),
         standard: Custom,
         autocomplete_recurse: false,
         func: |_, _, _| Ok(()),
@@ -1136,13 +1207,15 @@ fn option_to_cmd(option: EngineOption, only_name: bool) -> Command {
     use fmt::Write;
     let val = option.value;
     let mut cmd = named_entity_to_command(&option.name);
-    write!(&mut cmd.help_text, ". {0}{1}", "Current value: ".dimmed(), val.value_to_str()).unwrap();
+    let mut text = cmd.help_text.unwrap_or_default();
+    write!(&mut text, ". {0}{1}", "Current value: ".dimmed(), val.value_to_str()).unwrap();
+    cmd.help_text = Some(text);
     let values: SubCommandFnT = Box::new(move |_| {
         let mut res = option_values(&val);
         let val2 = val.clone();
         let mut value = command!(value, Custom, "", |_,_,_| Ok(()), --> move |_| option_values(&val2));
         let name = option.name.clone();
-        value.help_text = format!("Set the value of the option '{name}'");
+        value.help_text = Some(format!("Set the value of the option '{name}'"));
         res.push(value);
         res
     });
@@ -1258,7 +1331,9 @@ fn completion_text(n: &Command, word: &str) -> String {
     for name in &n.other_names {
         write!(&mut res, " | {}", underline_match(name, word)).unwrap();
     }
-    write!(&mut res, ":  {}", n.help_text).unwrap();
+    if let Some(text) = &n.help_text {
+        write!(&mut res, ":  {text}").unwrap();
+    }
     res
 }
 

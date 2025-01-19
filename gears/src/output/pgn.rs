@@ -81,8 +81,8 @@ pub fn match_to_pgn_string<B: Board>(m: &dyn GameState<B>) -> String {
         fen = m.initial_pos().as_fen(),
         p1 = m.player_name(B::Color::first()).unwrap_or("??".to_string()),
         p2 = m.player_name(B::Color::second()).unwrap_or("??".to_string()),
-        p1_name = B::Color::first().name(&board.settings()),
-        p2_name = B::Color::second().name(&board.settings()),
+        p1_name = B::Color::first().name(&board.settings()).as_ref(),
+        p2_name = B::Color::second().name(&board.settings()).as_ref(),
     );
     for (ply, mov) in m.move_history().iter().enumerate() {
         let mov_str = mov.extended_formatter(&board, Standard);
