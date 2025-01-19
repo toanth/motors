@@ -373,7 +373,13 @@ pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece, CharType, &B::Settin
         write!(&mut res, "{:>2} ", yc + 1).unwrap();
         for x in 0..pos.width() {
             let xc = if flip { pos.width() - 1 - x } else { x };
-            let c = piece_to_char(pos.colored_piece_on(B::Coordinates::from_rank_file(yc, xc)), typ, &pos.settings());
+            let piece = pos.colored_piece_on(B::Coordinates::from_rank_file(yc, xc));
+            let c = piece_to_char(piece, typ, &pos.settings());
+            let c = if let Some(color) = piece.color() {
+                c.to_string().color(display_color(color)).to_string()
+            } else {
+                c.to_string()
+            };
             write!(&mut res, " {c}").unwrap();
         }
         res += "\n";

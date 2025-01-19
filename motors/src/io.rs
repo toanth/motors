@@ -16,6 +16,7 @@
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
 mod ascii_art;
+mod autocomplete;
 pub mod cli;
 mod command;
 mod input;

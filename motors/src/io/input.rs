@@ -15,7 +15,7 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::io::command::CommandAutocomplete;
+use crate::io::autocomplete::CommandAutocomplete;
 use crate::io::input::InputEnum::{Interactive, NonInteractive};
 use crate::io::{AbstractEngineUgi, EngineUGI};
 use colored::Colorize;

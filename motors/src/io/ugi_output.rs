@@ -21,6 +21,7 @@
 use colored::Color::TrueColor;
 use colored::Colorize;
 use gears::colorgrad::{BasisGradient, Gradient, LinearGradient};
+use gears::games::CharType::Unicode;
 use gears::games::Color;
 use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::{sigmoid, Tokens};
@@ -72,7 +73,7 @@ struct TypeErasedUgiOutput {
     alt_grad: BasisGradient,
     progress_bar: Option<ProgressBar>,
     previous_exact_info: Option<TypeErasedSearchInfo>,
-    previous_exact_pv_end_pos: Option<String>,
+    previous_exact_pv_end_pos: Option<(String, String)>,
 }
 
 impl Default for TypeErasedUgiOutput {
@@ -101,6 +102,7 @@ impl TypeErasedUgiOutput {
         eval: Score,
         alpha: Score,
         beta: Score,
+        curr_pos: Option<&str>,
     ) -> &ProgressBar {
         use fmt::Write;
         let bar = self.progress_bar.get_or_insert_with(|| {
@@ -113,9 +115,6 @@ impl TypeErasedUgiOutput {
         let beta = pretty_score(beta, None, None, &self.gradient, true, false);
         let score_string = format!("{eval} with bounds ({alpha}, {beta})");
         let mut message = String::new();
-        if let Some(fen) = &self.previous_exact_pv_end_pos {
-            message = format!("{0}{fen}{1}\n", "Position at the end of the PV: '".dimmed(), "'".dimmed());
-        };
         write!(
             message,
             "{0}{elapsed:>5}{1} {pretty_variation} [{score_string}]",
@@ -123,6 +122,21 @@ impl TypeErasedUgiOutput {
             "ms in this AW] Searching".dimmed(),
         )
         .unwrap();
+        let mut board_string = String::new();
+        if let Some((diagram, fen)) = &self.previous_exact_pv_end_pos {
+            let pv_prefix = format!("Position at the end of the PV: '{}'", fen.dimmed());
+            writeln!(board_string, "\n{pv_prefix}\n{diagram}").unwrap();
+        };
+        if let Some(curr_pos) =
+            curr_pos.map(|s| s.to_string()).or(self.previous_exact_pv_end_pos.as_ref().map(|s| format!("\n\n{}", s.0)))
+        {
+            let mut res = String::new();
+            for (first, second) in board_string.lines().zip(curr_pos.lines()) {
+                writeln!(res, "{first}{}{second}", " ".repeat(15)).unwrap();
+            }
+            board_string = res;
+        }
+        write!(message, "{board_string}").unwrap();
         bar.set_prefix(message);
         bar
     }
@@ -290,7 +304,7 @@ impl<B: Board> UgiOutput<B> {
             return;
         }
         let (variation, _) = pretty_variation(&[mov], pos.clone(), None, None, Exact);
-        let bar = self.type_erased.show_bar(num_moves, &variation, score, alpha, beta);
+        let bar = self.type_erased.show_bar(num_moves, &variation, score, alpha, beta, None);
         bar.set_position(move_nr as u64);
     }
 
@@ -320,8 +334,9 @@ impl<B: Board> UgiOutput<B> {
         }
         let num_legal = pos.num_legal_moves();
         let variation = variation.collect_vec();
-        let (variation, _) = pretty_variation(&variation, pos.clone(), None, None, Exact);
-        _ = self.type_erased.show_bar(num_legal, &variation, eval, alpha, beta);
+        let (variation, pos) = pretty_variation(&variation, pos.clone(), None, None, Exact);
+        let pos = "\n\n".to_string() + &pos.as_diagram(Unicode, false);
+        _ = self.type_erased.show_bar(num_legal, &variation, eval, alpha, beta, Some(&pos));
     }
 
     pub fn write_search_info(&mut self, mut info: SearchInfo<B>) {
@@ -349,7 +364,7 @@ impl<B: Board> UgiOutput<B> {
         if mpv_type != SecondaryLine && info.bound == Some(Exact) {
             self.type_erased.previous_exact_info = Some(info);
             self.previous_exact_pv = Some(pv.into());
-            self.type_erased.previous_exact_pv_end_pos = Some(end_pos.as_fen());
+            self.type_erased.previous_exact_pv_end_pos = Some((end_pos.as_diagram(Unicode, false), end_pos.as_fen()));
         }
     }
 
