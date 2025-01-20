@@ -205,10 +205,6 @@ impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
         self.list.push(mov);
     }
 
-    fn as_slice(&self) -> &[B::Move] {
-        self.list.as_slice()
-    }
-
     fn assign_from<const OTHER_LIMIT: usize>(&mut self, other: &Pv<B, OTHER_LIMIT>) {
         self.list.clear();
         self.list.try_extend_from_slice(other.list.as_slice()).unwrap();
@@ -985,10 +981,12 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     }
 
     fn current_mpv_pv(&self) -> &[B::Move] {
-        // note that self.search_stack[0].pv doesn't have to be the same, because it gets cleared when visiting the root,
+        // self.search_stack[0].pv doesn't have to be the same as `self.multi_pvs[self.current_pv_num].pv`
+        // because it gets cleared when visiting the root,
         // and if the root never updates its PV (because it fails low or because the search is stopped), it will remain
-        // empty. On the other hand, it can get updated during search; this only updates after each aw.
-        self.multi_pvs[self.current_pv_num].pv.as_slice()
+        // empty. On the other hand, it can get updated during search; the other one only updates after each aw.
+
+        self.search_stack.get(0).and_then(|e| e.pv()).unwrap_or_default()
     }
 }
 

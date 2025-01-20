@@ -4,8 +4,8 @@ use crate::general::common::{NamedEntity, Res};
 use crate::general::move_list::MoveList;
 use crate::general::moves::ExtendedFormat::Alternative;
 use crate::general::moves::Move;
+use crate::general::squares::RectangularCoordinates;
 use crate::general::squares::SquareColor::Black;
-use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::pgn::match_to_pgn_string;
 use crate::output::text_output::DisplayType::*;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder, OutputOpts};
@@ -378,7 +378,7 @@ pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece, CharType, &B::Settin
             let c = piece_to_char(piece, typ, &pos.settings());
             let c = if let Some(color) = piece.color() {
                 c.to_string().color(display_color(color)).to_string()
-            } else if piece.is_empty() && square.square_color() == SquareColor::Black {
+            } else if piece.is_empty() && square.square_color() == Black {
                 c.to_string().dimmed().to_string()
             } else {
                 c.to_string()
