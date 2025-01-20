@@ -20,8 +20,8 @@ use crate::spsa_params;
 
 spsa_params! [
     soft_limit_div: u32 = 30; 5..=60; step=1;
-    soft_limit_div_clamp: u32 = 4; 2..=10; step=1;
-    hard_limit_div: usize = 2; 2..=10; step=1;
+    inv_soft_limit_div_clamp: u32 = 256; 1..=750; step=10;
+    inv_hard_limit_div: usize = 512; 1..=750; step=10;
     move_stability_min_depth: isize=14; 1..=25; step=2;
     move_stability_start_div: usize = 3; 1..=10; step=1;
     move_stability_factor: usize = 806; 250..=1000; step=50;

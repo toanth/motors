@@ -355,16 +355,14 @@ impl Engine<Chessboard> for Caps {
     fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
         debug_assert!(self.state.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0);
         let elapsed = start_time.elapsed();
-        // divide by 4 unless moves to go is very small, but don't divide by 1 (or zero) to avoid timeouts
         // TODO: Compute at the start of the search instead of every time:
         // Instead of storing a SearchLimit, store a different struct that contains soft and hard bounds
-        let divisor = tc
-            .moves_to_go
-            .unwrap_or(usize::MAX)
-            .clamp(2, cc::hard_limit_div()) as u32;
+        let hard = (tc.remaining.saturating_sub(tc.increment)) * cc::inv_hard_limit_div() as u32
+            / 1024
+            + tc.increment;
         // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
         // (assuming the move overhead is set correctly)
-        elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment)
+        elapsed >= fixed_time.min(hard)
     }
 
     fn set_option(
@@ -418,13 +416,9 @@ impl Engine<Chessboard> for Caps {
         } else {
             limit.mate.get()
         };
-        let soft_limit = limit
-            .fixed_time
-            .min(
-                (limit.tc.remaining.saturating_sub(limit.tc.increment)) / cc::soft_limit_div()
-                    + limit.tc.increment,
-            )
-            .min(limit.tc.remaining / cc::soft_limit_div_clamp());
+        let soft_limit = limit.tc.remaining.saturating_sub(limit.tc.increment)
+            / cc::soft_limit_div()
+            + limit.tc.increment;
         self.state.params.limit = limit;
 
         // Ideally, this would only evaluate the String argument if debug is on, but that's annoying to implement
@@ -483,9 +477,6 @@ impl Caps {
                 self.state.current_pv_num = pv_num;
                 self.state.cur_pv_data_mut().bound = None;
                 let scaled_soft_limit = soft_limit.mul_f64(soft_limit_scale);
-                if self.should_not_start_negamax(scaled_soft_limit, max_depth, self.limit().mate) {
-                    return None;
-                }
                 let (keep_searching, depth, score) =
                     self.aspiration(pos, scaled_soft_limit, depth, max_depth);
 
@@ -555,13 +546,18 @@ impl Caps {
         depth: isize,
         max_depth: isize,
     ) -> (bool, Option<isize>, Option<Score>) {
-        let mut soft_limit_scale = 1.0;
+        let mut soft_limit_fail_low_extension = 1.0;
         loop {
             let alpha = self.state.cur_pv_data().alpha;
             let beta = self.state.cur_pv_data().beta;
             let mut window_radius = self.state.cur_pv_data().radius;
-            let soft_limit = unscaled_soft_limit.mul_f64(soft_limit_scale);
-            soft_limit_scale = 1.0;
+            let soft_limit = unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension);
+            soft_limit_fail_low_extension = 1.0;
+            let limit = self.state.params.limit.tc;
+            let soft_limit = soft_limit.min(
+                (limit.remaining - limit.increment) * cc::inv_soft_limit_div_clamp() / 1024
+                    + limit.increment,
+            );
             if self.should_not_start_negamax(soft_limit, max_depth, self.limit().mate) {
                 self.state.statistics.soft_limit_stop();
                 return (false, None, None);
@@ -596,7 +592,7 @@ impl Caps {
             if node_type == FailLow {
                 // In a fail low node, we didn't get any new information, and it's possible that we just discovered
                 // a problem with our chosen move. So increase the soft limit such that we can gather more information.
-                soft_limit_scale = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
+                soft_limit_fail_low_extension = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
             }
 
             if cfg!(debug_assertions) {
@@ -962,6 +958,7 @@ impl Caps {
             let Some(new_pos) = pos.make_move_and_prefetch_tt(mov, self.prefetch()) else {
                 continue; // illegal pseudolegal move
             };
+            #[cfg(debug_assertions)]
             let debug_history_len = self.state.params.history.len();
             self.record_move(mov, pos, ply, MainSearch);
             if root && depth >= 8 && self.state.start_time.elapsed().as_millis() >= 3000 {
@@ -1062,6 +1059,7 @@ impl Caps {
 
             self.undo_move();
 
+            #[cfg(debug_assertions)]
             debug_assert_eq!(
                 self.state.params.history.len(),
                 debug_history_len,
@@ -1076,7 +1074,7 @@ impl Caps {
             if self.should_stop() {
                 // The current child's score is not trustworthy, but all already seen children are.
                 // This only matters for the root; all other nodes get their return value ignored.
-                // This should really be used in aspiration() by inspecting the PV, but somehow that loses elo
+                // However, it might make sense to store to the TT entry here? (I.e., `break` instead of `return`)
                 return None;
             }
             debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);
