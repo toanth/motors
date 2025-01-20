@@ -64,6 +64,17 @@ impl TypeErasedSearchInfo {
             bound: info.bound,
         }
     }
+
+    fn effective_branching_factor(&self) -> f64 {
+        // this method of computing the effective branching factor is somewhat flawed, but it's what most engines do,
+        // so for the sake of comparability we do this as well
+        let depth = self.depth.get() as u64;
+        if depth == 0 {
+            return 0.0; // I hate NaNs.
+        }
+        // subtract the depth to not count the root node, which means the branching factor for depth 1 is the number of legal moves
+        ((self.nodes.get() - depth) as f64).powf(1.0 / depth as f64)
+    }
 }
 
 #[derive(Debug)]
@@ -208,8 +219,9 @@ impl TypeErasedUgiOutput {
 
         let [r, g, b, _] = self.alt_grad.at(0.5 - info.hashfull as f32 / 1000.0).to_rgba8();
         let tt = format!("{:5.1}", info.hashfull as f64 / 10.0).to_string().color(TrueColor { r, g, b }).dimmed();
+        let branching = format!("{:>6.2}", info.effective_branching_factor()).dimmed();
         format!(
-            " {iter}{complete} {seldepth:>3} {multipv} {score:>8}  {time}{s}  {nodes}{M}{diff_string}  {nps}{M}  {tt}{p}  {pv}",
+            " {iter}{complete} {seldepth:>3} {multipv} {score:>8}  {time}{s}  {nodes}{M}{diff_string}  {nps}{M}  {branching} {tt}{p}  {pv}",
             s = if in_seconds { "s" } else { "m" }.dimmed(),
             M = "M".dimmed(),
             p = "%".dimmed(),

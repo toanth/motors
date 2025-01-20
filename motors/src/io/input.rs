@@ -51,8 +51,10 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
             let pv_spacer = if ugi.state.pos().active_player().is_first() { "" } else { "    " };
             ugi.write_ugi(&format_args!(
                 "{}",
-                format!("\nIter    Seldepth    Score      Time    Nodes   (New)     NPS      TT     {pv_spacer}PV")
-                    .bold(),
+                format!(
+                    "\nIter    Seldepth    Score      Time    Nodes   (New)     NPS  Branch     TT     {pv_spacer}PV"
+                )
+                .bold(),
             ));
             NonInteractiveInput::default().get_line(ugi)
         } else {
