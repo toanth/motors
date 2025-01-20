@@ -555,7 +555,8 @@ impl Caps {
             soft_limit_fail_low_extension = 1.0;
             let limit = self.state.params.limit.tc;
             let soft_limit = soft_limit.min(
-                (limit.remaining - limit.increment) * cc::inv_soft_limit_div_clamp() / 1024
+                (limit.remaining.saturating_sub(limit.increment)) * cc::inv_soft_limit_div_clamp()
+                    / 1024
                     + limit.increment,
             );
             if self.should_not_start_negamax(soft_limit, max_depth, self.limit().mate) {
