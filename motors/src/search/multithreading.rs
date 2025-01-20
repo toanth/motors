@@ -194,6 +194,10 @@ impl<B: Board> AtomicSearchState<B> {
         Score(self.score.load(Relaxed))
     }
 
+    pub(super) fn get_score_t(&self) -> &AtomicI32 {
+        &self.score
+    }
+
     pub fn best_move(&self) -> B::Move {
         B::Move::from_u64_unchecked(self.best_move.load(Relaxed)).trust_unchecked()
     }
@@ -226,7 +230,7 @@ impl<B: Board> AtomicSearchState<B> {
     }
 
     pub fn set_score(&self, score: Score) {
-        debug_assert!(score.verify_valid().is_some());
+        debug_assert!(score.is_valid());
         self.score.store(score.0, Relaxed);
     }
 

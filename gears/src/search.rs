@@ -38,7 +38,7 @@ impl<B: Board> SearchResult<B> {
     }
 
     pub fn new(chosen_move: B::Move, score: Score, ponder_move: Option<B::Move>, pos: B) -> Self {
-        debug_assert!(score.verify_valid().is_some());
+        debug_assert!(score.is_valid());
         debug_assert!(chosen_move.is_null() || pos.is_move_legal(chosen_move));
         #[cfg(debug_assertions)]
         if !chosen_move.is_null() {
@@ -51,7 +51,7 @@ impl<B: Board> SearchResult<B> {
     }
 
     pub fn new_from_pv(score: Score, pos: B, pv: &[B::Move]) -> Self {
-        debug_assert!(score.verify_valid().is_some());
+        debug_assert!(score.is_valid());
         // the pv may be empty if search is called in a position where the game is over
         Self::new(pv.first().copied().unwrap_or_default(), score, pv.get(1).copied(), pos)
     }

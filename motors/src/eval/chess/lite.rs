@@ -31,6 +31,7 @@ struct EvalState<Tuned: LiteValues> {
     psqt_score: Tuned::Score,
     pawn_shield_score: Tuned::Score,
     pawn_score: Tuned::Score,
+    total_score: Tuned::Score,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -319,7 +320,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         )
     }
 
-    fn eval_from_scratch(&self, pos: &Chessboard) -> (EvalState<Tuned>, Tuned::Score) {
+    fn eval_from_scratch(&self, pos: &Chessboard) -> EvalState<Tuned> {
         let mut state = EvalState::default();
 
         let mut phase = 0;
@@ -335,13 +336,18 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let pawn_score = Self::pawns(pos);
         state.pawn_score = pawn_score.clone();
         state.hash = pos.hash_pos();
-        let score: Tuned::Score = Self::recomputed_every_time(pos) + psqt_score + pawn_shield_score + pawn_score;
-        (state, score)
+        state.total_score = Self::recomputed_every_time(pos) + psqt_score + pawn_shield_score + pawn_score;
+        state
     }
 
     pub fn do_eval(&self, pos: &Chessboard) -> <Tuned::Score as ScoreType>::Finalized {
-        let (state, score) = self.eval_from_scratch(pos);
-        score.finalize(state.phase, 24, pos.active_player(), <Tuned::Score as ScoreType>::Finalized::default())
+        let state = self.eval_from_scratch(pos);
+        state.total_score.finalize(
+            state.phase,
+            24,
+            pos.active_player(),
+            <Tuned::Score as ScoreType>::Finalized::default(),
+        )
     }
 
     fn incremental(
@@ -350,62 +356,62 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         old_pos: &Chessboard,
         mov: ChessMove,
         new_pos: &Chessboard,
-    ) -> (EvalState<Tuned>, Tuned::Score)
+    ) -> EvalState<Tuned>
     where
         Tuned::Score: Display,
     {
         if old_pos.hash_pos() != state.hash {
             return self.eval_from_scratch(new_pos);
+        } else if mov == ChessMove::default() {
+            debug_assert_eq!(&old_pos.make_nullmove().unwrap(), new_pos);
+            return state;
         }
-        // search may have made a null move in NMP
-        if mov != ChessMove::default() {
-            // null moves are encoded as a1a1, but it's possible that there's a "captured" piece on a1
-            debug_assert_eq!(
-                self.psqt(old_pos),
-                state.psqt_score,
-                "{0} {1} {old_pos} {new_pos} {2}",
-                self.psqt(old_pos),
-                state.psqt_score,
-                mov.compact_formatter(old_pos)
-            );
-            debug_assert_eq!(&old_pos.make_move(mov).unwrap(), new_pos);
-            let captured = mov.captured(old_pos);
-            let (psqt_delta, phase_delta) = self.psqt_delta(old_pos, mov, captured, new_pos);
-            state.psqt_score += psqt_delta;
-            state.phase += phase_delta;
-            debug_assert_eq!(
-                state.psqt_score,
-                self.psqt(new_pos),
-                "{0} {1} {2} {old_pos} {new_pos} {3}",
-                state.psqt_score,
-                self.psqt(new_pos),
-                self.psqt_delta(old_pos, mov, captured, new_pos).0,
-                mov.compact_formatter(old_pos)
-            );
-            // TODO: Test if this is actually faster -- getting the captured piece is quite expensive
-            // (but this could be remedied by reusing that info from `psqt_delta`, or by using a redundant mailbox)
-            // In the long run, move pawn protection / attacks to another function and cache `Self::pawns` as well
-            if matches!(mov.piece_type(), Pawn | King) || captured == Pawn {
-                state.pawn_shield_score = Self::pawn_shield(new_pos);
-            }
-            if mov.piece_type() == Pawn || captured == Pawn {
-                state.pawn_score = Self::pawns(new_pos);
-            }
+        debug_assert_eq!(
+            self.psqt(old_pos),
+            state.psqt_score,
+            "{0} {1} {old_pos} {new_pos} {2}",
+            self.psqt(old_pos),
+            state.psqt_score,
+            mov.compact_formatter(old_pos)
+        );
+        debug_assert_eq!(&old_pos.make_move(mov).unwrap(), new_pos);
+        let captured = mov.captured(old_pos);
+        let (psqt_delta, phase_delta) = self.psqt_delta(old_pos, mov, captured, new_pos);
+        state.psqt_score += psqt_delta;
+        state.phase += phase_delta;
+        debug_assert_eq!(
+            state.psqt_score,
+            self.psqt(new_pos),
+            "{0} {1} {2} {old_pos} {new_pos} {3}",
+            state.psqt_score,
+            self.psqt(new_pos),
+            self.psqt_delta(old_pos, mov, captured, new_pos).0,
+            mov.compact_formatter(old_pos)
+        );
+        // TODO: Test if this is actually faster -- getting the captured piece is quite expensive
+        // (but this could be remedied by reusing that info from `psqt_delta`, or by using a redundant mailbox)
+        // In the long run, move pawn protection / attacks to another function and cache `Self::pawns` as well
+        if matches!(mov.piece_type(), Pawn | King) || captured == Pawn {
+            state.pawn_shield_score = Self::pawn_shield(new_pos);
+        }
+        if mov.piece_type() == Pawn || captured == Pawn {
+            state.pawn_score = Self::pawns(new_pos);
         }
         state.hash = new_pos.hash_pos();
         let score = Self::recomputed_every_time(new_pos)
             + state.psqt_score.clone()
             + state.pawn_shield_score.clone()
             + state.pawn_score.clone();
-        (state, score)
+        state.total_score = score;
+        state
     }
 }
 
 fn eval_lite<Tuned: LiteValues<Score = PhasedScore>>(this: &mut GenericLiTEval<Tuned>, pos: &Chessboard) -> Score {
     this.stack.clear();
-    let (state, score) = this.eval_from_scratch(pos);
+    let state = this.eval_from_scratch(pos);
     this.stack.push(state);
-    score.finalize(state.phase, 24, pos.active_player(), TEMPO)
+    state.total_score.finalize(state.phase, 24, pos.active_player(), TEMPO)
 }
 
 fn eval_lite_incremental<Tuned: LiteValues<Score = PhasedScore>>(
@@ -418,9 +424,17 @@ fn eval_lite_incremental<Tuned: LiteValues<Score = PhasedScore>>(
     debug_assert!(this.stack.len() >= ply);
     debug_assert!(ply > 0);
     let entry = this.stack[ply - 1];
-    let (entry, score) = this.incremental(entry, old_pos, mov, new_pos);
-    this.stack.resize(ply + 1, entry);
-    score.finalize(entry.phase, 24, new_pos.active_player(), TEMPO)
+    let entry = if this.stack.get(ply).is_some_and(|e| e.hash == new_pos.hash_pos()) {
+        this.stack[ply]
+    } else {
+        this.incremental(entry, old_pos, mov, new_pos)
+    };
+    if this.stack.len() == ply {
+        this.stack.push(entry);
+    } else {
+        this.stack[ply] = entry;
+    }
+    entry.total_score.finalize(entry.phase, 24, new_pos.active_player(), TEMPO)
 }
 
 impl Eval<Chessboard> for LiTEval {
