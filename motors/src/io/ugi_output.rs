@@ -64,7 +64,7 @@ impl<B: Board> Default for UgiOutput<B> {
                 .build::<BasisGradient>()
                 .unwrap(),
             progress_bar: None,
-            show_currline: true,
+            show_currline: false,
         }
     }
 }
@@ -162,7 +162,7 @@ impl<B: Board> UgiOutput<B> {
         alpha: Score,
         beta: Score,
     ) {
-        if !self.show_currline || !pos.is_move_legal(mov) {
+        if (!self.show_currline || !pos.is_move_legal(mov)) && !self.pretty {
             return;
         }
         // UGI wants 1-indexed output, but we've already counted the move, so move_nr is 1-indexed
@@ -185,7 +185,7 @@ impl<B: Board> UgiOutput<B> {
         beta: Score,
     ) {
         use std::fmt::Write;
-        if !self.show_currline {
+        if !self.show_currline && !self.pretty {
             return;
         }
         if !self.pretty {
