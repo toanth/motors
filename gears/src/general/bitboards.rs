@@ -15,6 +15,10 @@ use strum_macros::EnumIter;
 
 use crate::games::{DimT, KnownSize, Size};
 use crate::general::bitboards::chessboard::{RAYS_EXCLUSIVE, RAYS_INCLUSIVE};
+use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
+use crate::general::hq::{
+    hq_u64_non_horizontal, slider_attacks_u64_horizontal, slider_attacks_u64_non_horizontal, WithRev,
+};
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare};
 
 /// Remove all `1` bits in `bb` strictly above the given `idx`, where `bb` is the type, like `u64`,
@@ -128,11 +132,11 @@ macro_rules! ray_between_inclusive {
 // with one extra to make some boundary conditions go away
 pub const MAX_WIDTH: usize = 27;
 
-const STEPS_U64: [u64; MAX_STEP_SIZE] = step_bb_for!(u64, 64);
+pub(super) const STEPS_U64: [u64; MAX_STEP_SIZE] = step_bb_for!(u64, 64);
 
-const DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = diagonal_bb_for!(u64, 64, STEPS_U64);
+pub(super) const DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = diagonal_bb_for!(u64, 64, STEPS_U64);
 
-const ANTI_DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = anti_diagonal_bb_for!(u64, 64, STEPS_U64);
+pub(super) const ANTI_DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = anti_diagonal_bb_for!(u64, 64, STEPS_U64);
 
 // These arrays are `static` instead of `const` because they are pretty large
 
@@ -142,9 +146,9 @@ static DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = diagonal_bb_for!(u128, 128, ST
 
 static ANTI_DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = anti_diagonal_bb_for!(u128, 128, STEPS_U128);
 
-/// A [`RawBitboard`] is something like a `u64` or `u128` (but there's nothing that would prevent implementing it for a custom
+/// An [`RawBitboard`] is something like a `u64` or `u128` (but there's nothing that would prevent implementing it for a custom
 /// 256 bit struct). Unlike a `[Bitboard]`, it has no notion of size, and therefore no notion of rows, columns, etc.
-/// It's also not generally a unique type, so e.g. a `RawStandardBitboard` does not offer any type safety over using a `u64`.
+/// It's also not generally a unique type, so e.g. a [`RawStandardBitboard`] does not offer any type safety over using a `u64`.
 #[must_use]
 pub trait RawBitboard:
     for<'a> Arbitrary<'a>
@@ -479,7 +483,9 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     }
 
     #[inline]
-    fn hyperbola_quintessence<F>(idx: usize, blockers: Self, reverse: F, ray: Self) -> Self
+    /// This function is very general and can deal with arbitrary rays (e.g. riders in fairy chess),
+    /// but at the cost of calling `reverse` multiple times.
+    fn hyperbola_quintessence_fallback<F>(idx: usize, blockers: Self, reverse: F, ray: Self) -> Self
     where
         F: Fn(Self) -> Self,
     {
@@ -496,7 +502,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     #[inline]
     fn hyperbola_quintessence_non_horizontal(square: C, blockers: Self, ray: Self) -> Self {
         debug_assert_eq!(blockers.size(), ray.size());
-        Self::hyperbola_quintessence(ray.size().internal_key(square), blockers, Self::flip_up_down, ray)
+        Self::hyperbola_quintessence_fallback(ray.size().internal_key(square), blockers, Self::flip_up_down, ray)
     }
 
     #[inline]
@@ -506,8 +512,12 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
         let row = square.row() as usize;
         let square = C::from_rank_file(0, square.column());
         let blockers = blockers >> (blockers.internal_width() * row);
-        let lowest_row =
-            Self::hyperbola_quintessence(size.internal_key(square), blockers, |x| x.flip_lowest_row(), rank_bb);
+        let lowest_row = Self::hyperbola_quintessence_fallback(
+            size.internal_key(square),
+            blockers,
+            |x| x.flip_lowest_row(),
+            rank_bb,
+        );
         lowest_row << (lowest_row.internal_width() * row)
     }
 
@@ -541,6 +551,8 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
             RayDirections::AntiDiagonal => Self::anti_diagonal_attacks(square, blockers),
         }
     }
+
+    fn slider_attacks_for<const DIR: usize>(square_idx: usize, blockers: WithRev<R>) -> Self;
 
     #[inline]
     fn rook_attacks(square: C, blockers: Self) -> Self {
@@ -694,7 +706,7 @@ pub trait KnownSizeBitboard<R: RawBitboard, C: RectangularCoordinates<Size: Know
     }
 }
 
-fn flip_lowest_byte(bb: u64) -> u64 {
+pub(super) fn flip_lowest_byte(bb: u64) -> u64 {
     const LOOKUP: [u8; 16] = [0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe, 0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf];
     (LOOKUP[((bb >> 4) & 0xf) as usize] | (LOOKUP[(bb & 0xf) as usize] << 4)) as u64
 }
@@ -800,6 +812,8 @@ impl<const H: usize, const W: usize> Bitboard<RawStandardBitboard, SmallGridSqua
         SmallGridSize::default()
     }
 
+    // todo: only used in bitboards and tests, but for hq we don't need handling the bounds, so in_bounds and shift is
+    // entirely unnecessary. same for flip_up_down
     #[inline]
     fn flip_lowest_row(self) -> Self {
         let in_bounds = !SmallGridBitboard::files_too_high();
@@ -813,6 +827,33 @@ impl<const H: usize, const W: usize> Bitboard<RawStandardBitboard, SmallGridSqua
         let in_bounds: Self = !Self::ranks_too_high();
         let shift: usize = 8 * (8 - H);
         Self::new((self.raw() << shift).swap_bytes()) & in_bounds
+    }
+
+    // TODO: Remove those functions eventually
+    #[inline]
+    fn horizontal_attacks(square: SmallGridSquare<H, W, 8>, blockers: Self) -> Self {
+        Self::new(slider_attacks_u64_horizontal(square.bb_idx(), blockers.raw()))
+    }
+    #[inline]
+    fn vertical_attacks(square: SmallGridSquare<H, W, 8>, blockers: Self) -> Self {
+        Self::new(slider_attacks_u64_non_horizontal::<{ Vertical as usize }>(square.bb_idx(), blockers.raw()))
+    }
+    #[inline]
+    fn diagonal_attacks(square: SmallGridSquare<H, W, 8>, blockers: Self) -> Self {
+        Self::new(slider_attacks_u64_non_horizontal::<{ Diagonal as usize }>(square.bb_idx(), blockers.raw()))
+    }
+    #[inline]
+    fn anti_diagonal_attacks(square: SmallGridSquare<H, W, 8>, blockers: Self) -> Self {
+        Self::new(slider_attacks_u64_non_horizontal::<{ AntiDiagonal as usize }>(square.bb_idx(), blockers.raw()))
+    }
+
+    #[inline]
+    fn slider_attacks_for<const DIR: usize>(square_idx: usize, blockers: WithRev<RawStandardBitboard>) -> Self {
+        if DIR == Horizontal as usize {
+            Self::new(slider_attacks_u64_horizontal(square_idx, blockers.bb()))
+        } else {
+            Self::new(hq_u64_non_horizontal::<DIR>(square_idx, blockers))
+        }
     }
 }
 
@@ -1006,6 +1047,10 @@ impl<R: RawBitboard, C: RectangularCoordinates> Bitboard<R, C> for DynamicallySi
     fn size(self) -> C::Size {
         self.size
     }
+
+    fn slider_attacks_for<const DIR: usize>(_square_idx: usize, _blockers: WithRev<R>) -> Self {
+        todo!()
+    }
 }
 
 impl<R: RawBitboard, C: RectangularCoordinates> DynamicallySizedBitboard<R, C> {
@@ -1112,47 +1157,6 @@ macro_rules! precompute_leaper_attacks {
         attacks
     }};
 }
-
-// // can be called at compile time or when constructing fairy chess rules
-// // width is the internal width, so boards with a width less than 8, but height <= 8 can simply use 8 as the width
-// pub const fn precompute_leaper_attacks(
-//     square_idx: usize,
-//     diff_1: usize,
-//     diff_2: usize,
-//     rider: bool,
-//     width: usize,
-// ) -> u64 {
-//     let diff_1 = diff_1 as isize;
-//     let diff_2 = diff_2 as isize;
-//     let width = width as isize;
-//     assert!(diff_1 <= diff_2); // an (a, b) leaper is the same as an (b, a) leaper
-//     let this_piece: u64 = 1 << square_idx;
-//     let file = square_idx as isize % width;
-//     let mut attacks: u64 = 0;
-//     let mut i = 0;
-//     while i < 4 {
-//         // for horizontal_dir in [-1, 1], for vertical_dir in [-1, 1]
-//         let horizontal_dir = i / 2 * 2 - 1;
-//         let vertical_dir = i % 2 * 2 - 1;
-//         attacks |= do_shift!(
-//             diff_2 * horizontal_dir,
-//             diff_1 * vertical_dir,
-//             width,
-//             file,
-//             this_piece
-//         );
-//         attacks |= do_shift!(
-//             diff_1 * horizontal_dir,
-//             diff_2 * vertical_dir,
-//             width,
-//             file,
-//             this_piece
-//         );
-//         i += 1;
-//     }
-//
-//     attacks
-// }
 
 /// 8x8 bitboards. Not necessarily only for chess, e.g. checkers would use the same bitboard.
 /// Treated specially because some operations are much simpler and faster for 8x8 boards and boards
@@ -1307,7 +1311,7 @@ mod tests {
             let row = i / 8;
             let expected = (0xff_u128 - (1 << (i % 8))) << (row * 8);
             assert_eq!(
-                MnkBitboard::hyperbola_quintessence(
+                MnkBitboard::hyperbola_quintessence_fallback(
                     i,
                     MnkBitboard::new(0, size),
                     |x| MnkBitboard::new(x.reverse_bits(), size),
@@ -1319,7 +1323,7 @@ mod tests {
         }
 
         assert_eq!(
-            MnkBitboard::hyperbola_quintessence(
+            MnkBitboard::hyperbola_quintessence_fallback(
                 3,
                 MnkBitboard::new(0b_0100_0001, size),
                 |x| MnkBitboard::new(x.reverse_bits(), size),
@@ -1329,7 +1333,7 @@ mod tests {
         );
 
         assert_eq!(
-            MnkBitboard::hyperbola_quintessence(
+            MnkBitboard::hyperbola_quintessence_fallback(
                 28,
                 MnkBitboard::new(0x1234_4000_0fed, size),
                 |x| MnkBitboard::new(x.reverse_bits(), size),
@@ -1339,7 +1343,7 @@ mod tests {
         );
 
         assert_eq!(
-            MnkBitboard::hyperbola_quintessence(
+            MnkBitboard::hyperbola_quintessence_fallback(
                 28,
                 MnkBitboard::new(0x0110_0200_0001_1111, size),
                 |x| MnkBitboard::new(x.reverse_bits(), size),
@@ -1349,7 +1353,7 @@ mod tests {
         );
 
         assert_eq!(
-            MnkBitboard::hyperbola_quintessence(
+            MnkBitboard::hyperbola_quintessence_fallback(
                 16,
                 MnkBitboard::new(0xfffe_d002_a912, size),
                 |x| MnkBitboard::new(x.swap_bytes(), size),
@@ -1359,7 +1363,7 @@ mod tests {
         );
 
         assert_eq!(
-            MnkBitboard::hyperbola_quintessence(
+            MnkBitboard::hyperbola_quintessence_fallback(
                 20,
                 MnkBitboard::new(0xffff_ffef_ffff, size),
                 |x| MnkBitboard::new(x.swap_bytes(), size),
