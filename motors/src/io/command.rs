@@ -47,7 +47,7 @@ use inquire::autocompletion::Replacement;
 use inquire::{Autocomplete, CustomUserError};
 use itertools::Itertools;
 use rand::prelude::IndexedRandom;
-use rand::{thread_rng, Rng};
+use rand::{rng, Rng};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
@@ -90,8 +90,6 @@ pub trait AbstractCommand<B: Board>: NamedEntity + Display {
     fn standard(&self) -> Standard;
 
     fn sub_commands(&self, state: ACState<B>) -> SubCommandList<B>;
-
-    fn subcmd_required(&self) -> bool;
 
     fn change_autocomplete_state(&self, state: ACState<B>) -> ACState<B>;
 
@@ -179,10 +177,6 @@ impl<B: Board> SubCommandsFn<B> {
             Some(f) => f(state),
         }
     }
-
-    fn is_empty(&self) -> bool {
-        self.0.is_none()
-    }
 }
 
 #[derive(Debug)]
@@ -243,10 +237,6 @@ impl<State: CommandState + 'static> AbstractCommand<State::B> for Command<State>
 
     fn sub_commands(&self, state: ACState<State::B>) -> SubCommandList<State::B> {
         self.sub_commands.call(state)
-    }
-
-    fn subcmd_required(&self) -> bool {
-        !self.sub_commands.is_empty()
     }
 
     fn change_autocomplete_state(&self, state: ACState<State::B>) -> ACState<State::B> {
@@ -1223,11 +1213,12 @@ pub fn options_options<B: Board, const VALUE: bool>(
     }
     if VALUE {
         for opt in &mut res {
-            let completion = SubCommandsFn(Some(Box::new(|_| {
+            let name = opt.short_name();
+            let completion = SubCommandsFn(Some(Box::new(move |_| {
                 let name = Name {
                     short: "value".to_string(),
                     long: "value".to_string(),
-                    description: Some("Set the value".to_string()),
+                    description: Some(format!("Set the value of '{name}'")),
                 };
                 vec![named_entity_to_command::<B, Name>(&name).upcast_box()]
             })));
@@ -1326,10 +1317,6 @@ impl<B: Board> AbstractCommand<B> for CustomCommand {
 
     fn sub_commands(&self, _state: ACState<B>) -> SubCommandList<B> {
         vec![]
-    }
-
-    fn subcmd_required(&self) -> bool {
-        false
     }
 
     fn change_autocomplete_state(&self, state: ACState<B>) -> ACState<B> {
@@ -1435,8 +1422,6 @@ fn completions<B: Board>(
     let mut res: Vec<(isize, Completion)> = vec![];
     let mut next_token = rest.peek().copied();
     // ignore all other suggestions if the last complete token requires a subcommand
-    let prefer_current_completions =
-        next_token.is_none_or(|n| n == to_complete) && node.subcmd_required();
     // compute this before `next_token` might be changed in the loop
     let add_subcommands =
         next_token.is_none_or(|n| n == to_complete) || node.autocomplete_recurse();
@@ -1598,9 +1583,9 @@ pub fn random_command<B: Board>(
     for i in 0..depth {
         res.push(' ');
         let s = suggestions(ac, &res);
-        let s = s.choose(&mut thread_rng());
-        if thread_rng().gen_range(0..7) == 0 {
-            res += &thread_rng().gen_range(-42..10_000).to_string();
+        let s = s.choose(&mut rng());
+        if rng().random_range(0..7) == 0 {
+            res += &rng().random_range(-42..10_000).to_string();
         } else if depth == 0 || s.is_none() {
             return res;
         } else {

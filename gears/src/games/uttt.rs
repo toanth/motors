@@ -751,7 +751,7 @@ impl Board for UtttBoard {
         if open.is_zero() {
             return None;
         }
-        let idx = rng.gen_range(0..open.num_ones());
+        let idx = rng.random_range(0..open.num_ones());
         let idx = ith_one_u128(idx, open.0);
         Some(UtttMove(UtttSquare::from_bb_idx(idx)))
     }

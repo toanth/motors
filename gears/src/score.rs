@@ -19,6 +19,8 @@
 //! Anything related to search that is also used by `monitors`, and therefore doesn't belong in `motors`.
 
 use crate::general::common::Res;
+use crate::search::NodeType;
+use crate::search::NodeType::{Exact, FailHigh, FailLow};
 use crate::PlayerResult;
 use anyhow::anyhow;
 use derive_more::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
@@ -153,6 +155,28 @@ impl Score {
             None
         }
     }
+
+    pub fn is_valid(self) -> bool {
+        self.verify_valid().is_some()
+    }
+
+    pub fn flip_if(self, flip: bool) -> Self {
+        if flip {
+            -self
+        } else {
+            self
+        }
+    }
+
+    pub fn node_type(self, alpha: Score, beta: Score) -> NodeType {
+        if self <= alpha {
+            FailLow
+        } else if self >= beta {
+            FailHigh
+        } else {
+            Exact
+        }
+    }
 }
 
 /// `SCORE_WON` and `SCORE_LOST` need to fit into 16 bits for the tapered score to work,
@@ -285,7 +309,7 @@ mod tests {
     use super::*;
     use itertools::Itertools;
     use rand::prelude::SliceRandom;
-    use rand::thread_rng;
+    use rand::rng;
 
     #[test]
     fn tapered_test() {
@@ -314,7 +338,7 @@ mod tests {
                 );
             }
         }
-        v.shuffle(&mut thread_rng());
+        v.shuffle(&mut rng());
         for ((mg_a, eg_a), (mg_b, eg_b)) in v.iter().copied().tuple_windows() {
             let taper_a = p(mg_a, eg_a);
             let taper_b = p(mg_b, eg_b);

@@ -11,6 +11,7 @@ use colored::Colorize;
 use crossbeam_channel::unbounded;
 use derive_more::{Add, Neg, Sub};
 use dyn_clone::DynClone;
+use gears::arrayvec::ArrayVec;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::bail;
@@ -32,7 +33,6 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
-use std::ops::{Index, IndexMut};
 use std::sync::atomic::Ordering::Acquire;
 use std::sync::Arc;
 use std::thread::spawn;
@@ -201,73 +201,53 @@ impl Display for BenchResult {
     }
 }
 
-// TODO: Use ArrayVec
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Pv<B: Board, const LIMIT: usize> {
-    list: [B::Move; LIMIT],
-    length: usize,
+    list: ArrayVec<B::Move, LIMIT>,
 }
 
 impl<B: Board, const LIMIT: usize> Default for Pv<B, LIMIT> {
     fn default() -> Self {
         Self {
-            list: [B::Move::default(); LIMIT],
-            length: 0,
+            list: ArrayVec::new(),
         }
-    }
-}
-
-impl<B: Board, const LIMIT: usize> Index<usize> for Pv<B, LIMIT> {
-    type Output = B::Move;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        // assert!(index < self.length);
-        &self.list[index]
-    }
-}
-
-impl<B: Board, const LIMIT: usize> IndexMut<usize> for Pv<B, LIMIT> {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        // assert!(index < self.length);
-        &mut self.list[index]
     }
 }
 
 impl<B: Board, const LIMIT: usize> Pv<B, LIMIT> {
-    pub fn extend(&mut self, ply: usize, mov: B::Move, child_pv: &Pv<B, LIMIT>) {
-        self.list[ply] = mov;
-        for i in ply + 1..child_pv.length {
-            self.list[i] = child_pv.list[i];
-        }
-        self.length = (ply + 1).max(child_pv.length);
+    pub fn extend(&mut self, mov: B::Move, child_pv: &Pv<B, LIMIT>) {
+        self.reset_to_move(mov);
+        self.list
+            .try_extend_from_slice(child_pv.list.as_slice())
+            .unwrap();
+    }
+
+    pub fn len(&self) -> usize {
+        self.list.len()
     }
 
     pub fn clear(&mut self) {
-        self.length = 0;
+        self.list.clear();
     }
 
     pub fn reset_to_move(&mut self, mov: B::Move) {
-        self.list[0] = mov;
-        self.length = 1;
+        self.list.clear();
+        self.list.push(mov);
     }
 
     fn as_slice(&self) -> &[B::Move] {
-        &self.list[..self.length]
+        self.list.as_slice()
     }
 
     fn assign_from<const OTHER_LIMIT: usize>(&mut self, other: &Pv<B, OTHER_LIMIT>) {
-        self.length = LIMIT.min(other.length);
-        for i in 0..self.length {
-            self.list[i] = other.list[i];
-        }
+        self.list.clear();
+        self.list
+            .try_extend_from_slice(other.list.as_slice())
+            .unwrap();
     }
 
     fn get(&self, idx: usize) -> Option<B::Move> {
-        if idx < self.length {
-            Some(self.list[idx])
-        } else {
-            None
-        }
+        self.list.get(idx).copied()
     }
 }
 
@@ -492,7 +472,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
         false
     }
 
-    fn should_not_start_iteration(
+    fn should_not_start_negamax(
         &self,
         soft_limit: Duration,
         max_soft_depth: isize,
@@ -678,6 +658,7 @@ pub trait SearchStackEntry<B: Board>: Default + Clone + Debug {
         *self = Self::default();
     }
     fn pv(&self) -> Option<&[B::Move]>;
+    fn last_played_move(&self) -> Option<B::Move>;
 }
 
 #[derive(Copy, Clone, Default, Debug)]
@@ -685,6 +666,10 @@ pub struct EmptySearchStackEntry {}
 
 impl<B: Board> SearchStackEntry<B> for EmptySearchStackEntry {
     fn pv(&self) -> Option<&[B::Move]> {
+        None
+    }
+
+    fn last_played_move(&self) -> Option<B::Move> {
         None
     }
 }
@@ -707,7 +692,7 @@ impl<B: Board> CustomInfo<B> for NoCustomInfo {
     fn hard_forget_except_tt(&mut self) {}
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 struct PVData<B: Board> {
     alpha: Score,
     beta: Score,
@@ -752,6 +737,7 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     multi_pvs: Vec<PVData<B>>,
     current_pv_num: usize,
     start_time: Instant,
+    last_msg_time: Instant,
     statistics: Statistics,
     aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
 }
@@ -761,6 +747,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
 {
     fn forget(&mut self, hard: bool) {
         self.start_time = Instant::now();
+        self.last_msg_time = self.start_time;
         for e in &mut self.search_stack {
             e.forget();
         }
@@ -859,10 +846,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
             pv_num: self.current_pv_num,
             max_num_pvs: self.params.num_multi_pv,
             pv: self.current_mpv_pv().into(),
-            score: self.current_pv_data().score,
+            score: self.cur_pv_data().score,
             hashfull: self.estimate_hashfull(),
             pos: self.params.pos,
-            bound: self.current_pv_data().bound,
+            bound: self.cur_pv_data().bound,
             additional: Self::additional(),
         }
     }
@@ -951,6 +938,34 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         }
     }
 
+    fn send_currmove(
+        &mut self,
+        mov: B::Move,
+        move_nr: usize,
+        score: Score,
+        alpha: Score,
+        beta: Score,
+    ) {
+        if let Some(mut output) = self.params.thread_type.output() {
+            output.write_currmove(&self.params.pos, mov, move_nr, score, alpha, beta);
+            self.last_msg_time = Instant::now();
+        }
+    }
+
+    fn send_currline(&mut self, ply: usize, eval: Score, alpha: Score, beta: Score) {
+        if let Some(mut output) = self.params.thread_type.output() {
+            if self.search_stack[0].last_played_move().is_none() {
+                return;
+            }
+            let mut line = vec![];
+            for i in 0..ply {
+                line.push(self.search_stack[i].last_played_move().unwrap());
+            }
+            output.write_currline(self.params.pos, line.as_ref(), eval, alpha, beta);
+            self.last_msg_time = Instant::now();
+        }
+    }
+
     /// this will block if
     /// a) this is a main thread (i.e., it actually outputs), and
     /// b) the search is an infinite search from `go infinite` but not `ponder`, and
@@ -1010,14 +1025,15 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             params,
             excluded_moves: vec![],
             current_pv_num: 0,
+            last_msg_time: start_time,
         }
     }
 
-    fn current_pv_data(&self) -> &PVData<B> {
+    fn cur_pv_data(&self) -> &PVData<B> {
         &self.multi_pvs[self.current_pv_num]
     }
 
-    fn current_pv_data_mut(&mut self) -> &mut PVData<B> {
+    fn cur_pv_data_mut(&mut self) -> &mut PVData<B> {
         &mut self.multi_pvs[self.current_pv_num]
     }
 

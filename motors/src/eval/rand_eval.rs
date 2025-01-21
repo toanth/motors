@@ -1,5 +1,5 @@
 use gears::general::board::Board;
-use rand::{thread_rng, Rng};
+use rand::{rng, Rng};
 use std::fmt::Display;
 
 use crate::eval::Eval;
@@ -52,9 +52,9 @@ impl<B: Board> Eval<B> for RandEval {
             Score((random + MIN_NORMAL_SCORE.0 as i64) as ScoreT)
             // too slow (there's probably a way to do this faster while using the rng crate, but the above is good enough)
             // StdRng::seed_from_u64(pos.zobrist_hash().0)
-            //     .gen_range(MIN_NORMAL_SCORE.0..=MAX_NORMAL_SCORE.0),
+            //     .random_range(MIN_NORMAL_SCORE.0..=MAX_NORMAL_SCORE.0),
         } else {
-            Score(thread_rng().gen_range(MIN_NORMAL_SCORE.0..=MAX_NORMAL_SCORE.0))
+            Score(rng().random_range(MIN_NORMAL_SCORE.0..=MAX_NORMAL_SCORE.0))
         }
     }
 }

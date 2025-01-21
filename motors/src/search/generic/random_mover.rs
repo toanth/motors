@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::time::{Duration, Instant};
 
 use gears::general::board::Board;
-use rand::{thread_rng, Rng, RngCore, SeedableRng};
+use rand::{rng, Rng, RngCore, SeedableRng};
 
 use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
@@ -34,7 +34,7 @@ impl<B: Board, R: SeedRng> Debug for RandomMover<B, R> {
 impl<B: Board, R: SeedRng> Default for RandomMover<B, R> {
     fn default() -> Self {
         Self {
-            rng: R::seed_from_u64(thread_rng().next_u64()),
+            rng: R::seed_from_u64(rng().next_u64()),
             state: SearchState::new(Depth::new_unchecked(1)),
         }
     }
@@ -111,7 +111,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         let best_move = if moves.is_empty() {
             pos.random_legal_move(&mut self.rng).unwrap_or_default()
         } else {
-            moves[self.rng.gen_range(0..moves.len())]
+            moves[self.rng.random_range(0..moves.len())]
         };
         self.state.atomic().set_best_move(best_move);
         SearchResult::move_only(best_move, pos)

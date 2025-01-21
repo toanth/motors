@@ -455,11 +455,7 @@ impl Board for Chessboard {
     }
 
     fn no_moves_result(&self) -> PlayerResult {
-        if self.is_in_check() {
-            Lose
-        } else {
-            Draw
-        }
+        self.no_moves_result_if(self.is_in_check())
     }
 
     /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
@@ -817,6 +813,14 @@ impl Chessboard {
         true
     }
 
+    pub fn no_moves_result_if(&self, in_check: bool) -> PlayerResult {
+        if in_check {
+            Lose
+        } else {
+            Draw
+        }
+    }
+
     pub fn ep_square(&self) -> Option<ChessSquare> {
         self.ep_square
     }
@@ -1161,11 +1165,13 @@ pub enum SliderMove {
 
 #[cfg(test)]
 mod tests {
-    use rand::thread_rng;
+    use rand::rng;
     use std::collections::HashSet;
 
     use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
-    use crate::games::{Coordinates, NoHistory, RectangularCoordinates, ZobristHistory};
+    use crate::games::{
+        char_to_file, Coordinates, NoHistory, RectangularCoordinates, ZobristHistory,
+    };
     use crate::general::board::RectangularBoard;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::Move;
@@ -1501,7 +1507,7 @@ mod tests {
         assert!(Chessboard::from_fen(fen, Strict).is_err());
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 3);
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let mov = board.random_legal_move(&mut rng).unwrap();
         let board = board.make_move(mov).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 2);
@@ -1518,6 +1524,20 @@ mod tests {
         let board = board.flip_side_to_move().unwrap();
         assert!(board.legal_moves_slow().is_empty());
         assert_eq!(board.player_result_slow(&NoHistory::default()), Some(Draw));
+        // chess960 castling rights encoded using X-FEN
+        let fen = "1rbq1krb/ppp1pppp/1n1n4/3p4/3P4/2PN4/PP2PPPP/NRBQ1KRB w KQkq - 3 4";
+        let board = Chessboard::from_fen(fen, Relaxed).unwrap();
+        assert!(board.debug_verify_invariants(Strict).is_ok());
+        let moves = board.legal_moves_slow();
+        assert_eq!(moves.into_iter().count(), 32); // TODO: Use .num_legal_moves() after that has been merged
+                                                   // Another X-FEN, which is often misinterpreted by engines
+        let fen = " rk2rqnb/1b6/2n5/pppppppp/PPPPPP2/B1NQ4/6PP/1K1RR1NB w Kk - 8 14";
+        let board = Chessboard::from_fen(fen, Relaxed).unwrap();
+        assert_eq!(board.legal_moves_slow().len(), 42);
+        assert_eq!(
+            board.castling.rook_start_file(White, Kingside),
+            char_to_file('e')
+        );
     }
 
     #[test]
