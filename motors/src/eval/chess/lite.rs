@@ -7,7 +7,7 @@ use gears::games::chess::pieces::ChessPieceType::*;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, ChessboardSize};
 use gears::games::chess::ChessColor::{Black, White};
-use gears::games::chess::{ChessBitboardTrait, ChessColor, Chessboard, SliderMove};
+use gears::games::chess::{ChessBitboardTrait, ChessColor, Chessboard};
 use gears::games::Color;
 use gears::games::{DimT, PosHash};
 use gears::general::bitboards::chessboard::{ChessBitboard, COLORED_SQUARES};
@@ -210,10 +210,11 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     fn checking(pos: &Chessboard, color: ChessColor) -> [ChessBitboard; 5] {
         let mut result = [ChessBitboard::default(); 5];
         let square = pos.king_square(color);
+        let blockers = pos.occupied_bb();
         result[Pawn as usize] = Chessboard::single_pawn_captures(!color, square);
         result[Knight as usize] = Chessboard::knight_attacks_from(square);
-        result[Bishop as usize] = pos.slider_attacks_from(square, SliderMove::Bishop, square.bb());
-        result[Rook as usize] = pos.slider_attacks_from(square, SliderMove::Rook, square.bb());
+        result[Bishop as usize] = ChessBitboard::bishop_attacks(square, blockers);
+        result[Rook as usize] = ChessBitboard::rook_attacks(square, blockers);
         result[Queen as usize] = result[Rook as usize] | result[Bishop as usize];
         result
     }

@@ -281,6 +281,7 @@ impl GenPieceAttackKind {
             Leaping(precomputed) => precomputed.0[size.internal_key(piece)],
             Rider(sliding) => {
                 let blockers = FairyBitboard::new(
+                    // TODO: Remove the &! after switching to `WithRev` impl
                     blockers.raw() & !RawFairyBitboard::single_piece_at(size.internal_key(piece)),
                     size,
                 );

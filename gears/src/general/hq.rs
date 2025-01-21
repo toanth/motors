@@ -66,6 +66,11 @@ impl<B: RawBitboard> WithRev<B> {
     }
 }
 
+// const, unlike the bitxor operator
+const fn xor(a: WithRev<u64>, b: WithRev<u64>) -> WithRev<u64> {
+    WithRev([a.0[0] ^ b.0[0], a.0[1] ^ b.0[1]])
+}
+
 pub fn byte_swapped<B: RawBitboard>(bb: B) -> WithRev<B> {
     WithRev::new(bb, bb.swap_bytes())
 }
@@ -88,7 +93,7 @@ impl<B: RawBitboard> BitXor for WithRev<B> {
     type Output = Self;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        Self([self.0[0] ^ rhs.0[0], self.0[1] ^ rhs.0[1]])
+        WithRev([self.0[0] ^ rhs.0[0], self.0[1] ^ rhs.0[1]])
     }
 }
 
@@ -118,10 +123,11 @@ static PRECOMPUTED_HQ_DATA: [SliderData<u64>; 64] = {
     }
     let mut i = 0;
     while i < 64 {
-        res[i].square = byteswapped(1_u64 << i);
-        res[i].rays[Vertical as usize - 1] = byteswapped(STEPS_U64[8] << (i % 8));
-        res[i].rays[Diagonal as usize - 1] = byteswapped(DIAGONALS_U64[8][i]);
-        res[i].rays[AntiDiagonal as usize - 1] = byteswapped(ANTI_DIAGONALS_U64[8][i]);
+        let sq = byteswapped(1_u64 << i);
+        res[i].square = sq;
+        res[i].rays[Vertical as usize - 1] = xor(byteswapped(STEPS_U64[8] << (i % 8)), sq);
+        res[i].rays[Diagonal as usize - 1] = xor(byteswapped(DIAGONALS_U64[8][i]), sq);
+        res[i].rays[AntiDiagonal as usize - 1] = xor(byteswapped(ANTI_DIAGONALS_U64[8][i]), sq);
         i += 1;
     }
     res
@@ -151,12 +157,12 @@ pub(super) fn hq_u64_non_horizontal<const DIR: usize>(
 #[inline]
 pub(super) fn slider_attacks_u64_horizontal(square_idx: usize, blockers: RawStandardBitboard) -> RawStandardBitboard {
     let sq = square_idx % 8;
-    let blockers = blockers >> (square_idx / 8 * 8);
+    let blockers = (blockers >> (square_idx / 8 * 8)) & !(1 << sq);
     let flip = |bb| flip_lowest_byte(bb);
     let blockers = WithRev::new(blockers, flip(blockers));
     let ray = WithRev::unreversed(0xff);
     let sq = PRECOMPUTED_HQ_DATA[sq].square.0[0];
-    let sq = WithRev::new(sq, flip(sq));
+    let sq = WithRev::new(sq, flip(sq)); // TODO: flip(sq) can be precomputed
     hq_horizontal(sq, blockers, ray, flip) << (square_idx / 8 * 8)
 }
 
