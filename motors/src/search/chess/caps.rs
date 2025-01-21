@@ -1017,6 +1017,9 @@ impl Caps {
                     if we_blundered {
                         reduction += 1;
                     }
+                    if new_pos.is_in_check() {
+                        reduction -= 1;
+                    }
                 }
                 // Futility Reduction: If this move is not a TT move, good SEE capture or killer, and our eval is significantly
                 // less than alpha, reduce.
