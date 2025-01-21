@@ -856,7 +856,7 @@ impl Caps {
                 && !eval.is_game_lost_score()
             {
                 let qsearch_score = self.qsearch(pos, alpha, beta, ply);
-                if qsearch_score < alpha {
+                if qsearch_score <= alpha {
                     return Some(qsearch_score);
                 }
                 self.state.search_stack[ply].tried_moves.clear();
