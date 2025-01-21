@@ -848,6 +848,27 @@ impl Caps {
                 return Some(eval);
             }
 
+            // Razoring. If the position appears hopeless, drop into qsearch immediately.
+            // This obviously has the potential to miss quite a few tactics, so only do this at low depths and when the
+            // difference between the static eval and alpha is really large, and also not when we could miss a mate from the TT.
+            if depth <= 2
+                && eval + Score(512 * depth as ScoreT) < alpha
+                && !eval.is_game_lost_score()
+            {
+                let qsearch_score = self.qsearch(pos, alpha, beta, ply);
+                if qsearch_score < alpha {
+                    return Some(qsearch_score);
+                }
+                self.state.search_stack[ply].tried_moves.clear();
+
+                // Since we're in a non-pv node, qsearch must have failed high. So assume that a normal search also fails high.
+                expected_node_type = FailHigh;
+                // Now that we have a qsearch score, use that instead of static eval if the eval isn't from the TT
+                if old_entry.is_none() {
+                    eval = qsearch_score;
+                }
+            }
+
             // NMP (Null Move Pruning). If static eval of our position is above beta, this node probably isn't that interesting.
             // To test this hypothesis, do a null move and perform a search with reduced depth; if the result is still
             // above beta, then it's very likely that the score would have been above beta if we had played a move,
