@@ -472,7 +472,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
         false
     }
 
-    fn should_not_start_iteration(
+    fn should_not_start_negamax(
         &self,
         soft_limit: Duration,
         max_soft_depth: isize,
@@ -846,10 +846,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
             pv_num: self.current_pv_num,
             max_num_pvs: self.params.num_multi_pv,
             pv: self.current_mpv_pv().into(),
-            score: self.current_pv_data().score,
+            score: self.cur_pv_data().score,
             hashfull: self.estimate_hashfull(),
             pos: self.params.pos,
-            bound: self.current_pv_data().bound,
+            bound: self.cur_pv_data().bound,
             additional: Self::additional(),
         }
     }
@@ -1029,11 +1029,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         }
     }
 
-    fn current_pv_data(&self) -> &PVData<B> {
+    fn cur_pv_data(&self) -> &PVData<B> {
         &self.multi_pvs[self.current_pv_num]
     }
 
-    fn current_pv_data_mut(&mut self) -> &mut PVData<B> {
+    fn cur_pv_data_mut(&mut self) -> &mut PVData<B> {
         &mut self.multi_pvs[self.current_pv_num]
     }
 
