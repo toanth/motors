@@ -1220,7 +1220,7 @@ impl Caps {
         }
         self.record_pos(pos, best_score, ply);
 
-        // check nodes in qsearch to allow `go nodes n` to go exactly `n` nodes,
+        // check nodes in qsearch to allow `go nodes n` to go exactly `n` nodes
         if self.should_stop() {
             return best_score;
         }
@@ -1234,6 +1234,9 @@ impl Caps {
             debug_assert!(mov.is_tactical(&pos));
             if score < MoveScore(0) {
                 // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
+                break;
+            } else if children_visited >= 4 {
+                // qsearch late move pruning: Only look at the best moves according to our move ordering
                 break;
             }
             let Some(new_pos) = pos.make_move(mov) else {
