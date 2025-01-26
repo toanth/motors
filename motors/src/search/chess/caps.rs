@@ -1044,7 +1044,7 @@ impl Caps {
                         depth - 1,
                         -(alpha + 1),
                         -alpha,
-                        FailHigh, // we still expect a fail high here
+                        FailHigh, // we still expect the child to fail high here
                     )?;
                 }
                 // If the full-depth search also performed better than expected, do a full-depth search with the
@@ -1220,7 +1220,7 @@ impl Caps {
         }
         self.record_pos(pos, best_score, ply);
 
-        // check nodes in qsearch to allow `go nodes n` to go exactly `n` nodes,
+        // check nodes in qsearch to allow `go nodes n` to go exactly `n` nodes
         if self.should_stop() {
             return best_score;
         }
@@ -1464,10 +1464,12 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
 
 #[cfg(test)]
 mod tests {
+    use gears::games::chess::ChessColor::White;
     use gears::games::chess::Chessboard;
     use gears::general::board::Strictness::{Relaxed, Strict};
     #[cfg(not(debug_assertions))]
     use gears::general::moves::ExtendedFormat::Standard;
+    use gears::general::moves::UntrustedMove;
     use gears::search::NodesLimit;
 
     use crate::eval::chess::lite::{KingGambot, LiTEval};
@@ -1646,6 +1648,55 @@ mod tests {
         caps.forget();
         _ = caps.search_with_new_tt(pos, d3);
         assert_eq!(caps.search_state().uci_nodes(), fresh_d3_nodes);
+    }
+
+    #[test]
+    fn move_order_test() {
+        let fen = "7k/8/8/8/p7/1p6/1R1r4/K7 w - - 4 3";
+        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        let tt_move = ChessMove::from_text("a1b1", &pos).unwrap();
+        let mut tt = TT::default();
+        let entry = TTEntry::new(pos.zobrist_hash(), Score(0), tt_move, 123, Exact);
+        tt.store::<Chessboard>(entry, 0);
+        let mut caps = Caps::default();
+        let killer = ChessMove::from_text("b2c2", &pos).unwrap();
+        caps.state.search_stack[0].killer = killer;
+        let hist_move = ChessMove::from_text("b2b1", &pos).unwrap();
+        caps.state.custom.history.update(hist_move, 1000);
+        let bad_quiet = ChessMove::from_text("b2a2", &pos).unwrap();
+        caps.state.custom.history.update(bad_quiet, -1);
+        let bad_capture = ChessMove::from_text("b2b3", &pos).unwrap();
+        caps.state.custom.capt_hist.update(bad_capture, White, 100);
+
+        let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
+            MovePicker::new(pos, tt_move, false);
+        let move_scorer = CapsMoveScorer { board: pos, ply: 0 };
+        let mut moves = vec![];
+        let mut scores = vec![];
+        while let Some((mov, score)) = move_picker.next(&move_scorer, &caps.state) {
+            moves.push(mov);
+            scores.push(score);
+        }
+        assert_eq!(moves.len(), 7);
+        assert!(scores.is_sorted_by(|a, b| a > b));
+        assert_eq!(scores[0], MoveScore::MAX);
+        assert_eq!(moves[0], tt_move);
+        // assert_eq!(scores[1], )
+        let good_capture = ChessMove::from_text("b2d2", &pos).unwrap();
+        assert_eq!(moves[1], good_capture);
+        assert_eq!(moves[2], killer);
+        assert_eq!(moves[3], hist_move);
+        let illegal = ChessMove::from_text("a1a2", &pos).unwrap();
+        assert_eq!(moves[4], illegal);
+        assert!(!pos.is_pseudolegal_move_legal(illegal));
+        assert_eq!(moves[5], bad_quiet);
+        assert_eq!(moves[6], bad_capture);
+        let search_res = caps.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
+        assert_eq!(search_res.chosen_move, good_capture);
+        assert!(search_res.score.unwrap() > Score(0));
+        let tt_entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0).unwrap();
+        assert_eq!(tt_entry.score, search_res.score.unwrap());
+        assert_eq!(tt_entry.mov, UntrustedMove::from_move(good_capture));
     }
 
     #[test]
