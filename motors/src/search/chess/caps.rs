@@ -1235,6 +1235,12 @@ impl Caps {
             if score < MoveScore(0) {
                 // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
                 break;
+            } else if best_score + Score(700) < alpha
+                && !best_score.is_game_lost_score()
+                && children_visited > 0
+            {
+                // qsearch futility pruning, somewhat similar to delta pruning
+                break;
             }
             let Some(new_pos) = pos.make_move(mov) else {
                 continue;
