@@ -122,7 +122,8 @@ pub struct Chessboard {
     active_player: ChessColor,
     castling: CastlingFlags,
     ep_square: Option<ChessSquare>, // eventually, see if using Optional and Noned instead of Option improves nps
-    hash: ZobristHash,
+    nonpawn_hash: ZobristHash,
+    pawn_hash: ZobristHash,
 }
 
 impl Default for Chessboard {
@@ -173,7 +174,8 @@ impl Board for Chessboard {
             active_player: White,
             castling: CastlingFlags::default(),
             ep_square: None,
-            hash: ZobristHash(0),
+            nonpawn_hash: ZobristHash(0),
+            pawn_hash: ZobristHash(0),
         })
     }
 
@@ -418,10 +420,10 @@ impl Board for Chessboard {
         // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove
         self.ply_100_ctr = 0;
         if let Some(sq) = self.ep_square {
-            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[sq.file() as usize];
+            self.nonpawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[sq.file() as usize];
             self.ep_square = None;
         }
-        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+        self.nonpawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         self.flip_side_to_move()
     }
 
@@ -492,7 +494,7 @@ impl Board for Chessboard {
     }
 
     fn zobrist_hash(&self) -> ZobristHash {
-        self.hash
+        self.nonpawn_hash ^ self.pawn_hash
     }
 
     fn as_fen(&self) -> String {
@@ -1102,7 +1104,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 bail!("Incorrect piece distribution for {color}")
             }
         }
-        this.hash = this.compute_zobrist();
+        (this.nonpawn_hash, this.pawn_hash) = this.compute_zobrist();
         Ok(this)
     }
 
