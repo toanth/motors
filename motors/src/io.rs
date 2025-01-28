@@ -579,7 +579,6 @@ impl<B: Board> EngineUGI<B> {
         self.write_ugi(&format!("{proto}ok"));
         self.state.protocol = Protocol::from_str(proto).unwrap();
         self.output().pretty = self.state.protocol == Interactive;
-        self.output().show_currline = false; // set here so that interactive mode shows it by default
         Ok(())
     }
 

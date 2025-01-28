@@ -952,6 +952,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         }
     }
 
+    /// Marked as cold since it's turned off by default in non-interactive mode, and will be called very rarely even if enabled.
+    #[cold]
     fn send_currline(&mut self, ply: usize, eval: Score, alpha: Score, beta: Score) {
         if let Some(mut output) = self.params.thread_type.output() {
             if self.search_stack[0].last_played_move().is_none() {

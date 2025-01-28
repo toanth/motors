@@ -292,14 +292,15 @@ impl FromStr for TimeControl {
 impl TimeControl {
     pub fn infinite() -> Self {
         TimeControl {
-            remaining: Duration::MAX,
+            // allows doing arithmetic with infinite TCs without fear of overflows
+            remaining: Duration::MAX / (1 << 16),
             increment: Duration::from_millis(0),
             moves_to_go: None,
         }
     }
 
     pub fn is_infinite(&self) -> bool {
-        self.remaining >= Duration::MAX / 2
+        self.remaining > Duration::MAX / (1 << 31)
     }
 
     pub fn update(&mut self, elapsed: Duration) {

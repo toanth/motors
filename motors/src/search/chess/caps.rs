@@ -355,16 +355,14 @@ impl Engine<Chessboard> for Caps {
     fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
         debug_assert!(self.state.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0);
         let elapsed = start_time.elapsed();
-        // divide by 4 unless moves to go is very small, but don't divide by 1 (or zero) to avoid timeouts
         // TODO: Compute at the start of the search instead of every time:
         // Instead of storing a SearchLimit, store a different struct that contains soft and hard bounds
-        let divisor = tc
-            .moves_to_go
-            .unwrap_or(usize::MAX)
-            .clamp(2, cc::hard_limit_div()) as u32;
+        let hard = (tc.remaining.saturating_sub(tc.increment)) * cc::inv_hard_limit_div() as u32
+            / 1024
+            + tc.increment;
         // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
         // (assuming the move overhead is set correctly)
-        elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment)
+        elapsed >= fixed_time.min(hard)
     }
 
     fn set_option(
@@ -418,13 +416,9 @@ impl Engine<Chessboard> for Caps {
         } else {
             limit.mate.get()
         };
-        let soft_limit = limit
-            .fixed_time
-            .min(
-                (limit.tc.remaining.saturating_sub(limit.tc.increment)) / cc::soft_limit_div()
-                    + limit.tc.increment,
-            )
-            .min(limit.tc.remaining / cc::soft_limit_div_clamp());
+        let soft_limit = limit.tc.remaining.saturating_sub(limit.tc.increment)
+            / cc::soft_limit_div()
+            + limit.tc.increment;
         self.state.params.limit = limit;
 
         // Ideally, this would only evaluate the String argument if debug is on, but that's annoying to implement
@@ -483,9 +477,6 @@ impl Caps {
                 self.state.current_pv_num = pv_num;
                 self.state.cur_pv_data_mut().bound = None;
                 let scaled_soft_limit = soft_limit.mul_f64(soft_limit_scale);
-                if self.should_not_start_negamax(scaled_soft_limit, max_depth, self.limit().mate) {
-                    return None;
-                }
                 let (keep_searching, depth, score) =
                     self.aspiration(pos, scaled_soft_limit, depth, max_depth);
 
@@ -555,13 +546,20 @@ impl Caps {
         depth: isize,
         max_depth: isize,
     ) -> (bool, Option<isize>, Option<Score>) {
-        let mut soft_limit_scale = 1.0;
+        let mut soft_limit_fail_low_extension = 1.0;
+        let mut aw_depth = depth;
         loop {
             let alpha = self.state.cur_pv_data().alpha;
             let beta = self.state.cur_pv_data().beta;
             let mut window_radius = self.state.cur_pv_data().radius;
-            let soft_limit = unscaled_soft_limit.mul_f64(soft_limit_scale);
-            soft_limit_scale = 1.0;
+            let soft_limit = unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension);
+            soft_limit_fail_low_extension = 1.0;
+            let limit = self.state.params.limit.tc;
+            let soft_limit = soft_limit.min(
+                (limit.remaining.saturating_sub(limit.increment)) * cc::inv_soft_limit_div_clamp()
+                    / 1024
+                    + limit.increment,
+            );
             if self.should_not_start_negamax(soft_limit, max_depth, self.limit().mate) {
                 self.state.statistics.soft_limit_stop();
                 return (false, None, None);
@@ -569,9 +567,7 @@ impl Caps {
             self.state.atomic().set_depth(depth); // set depth now so that an immediate stop doesn't increment the depth
             self.state.atomic().count_node();
             let asp_start_time = Instant::now();
-            let Some(pv_score) =
-                self.negamax(pos, 0, self.state.depth().isize(), alpha, beta, Exact)
-            else {
+            let Some(pv_score) = self.negamax(pos, 0, aw_depth, alpha, beta, Exact) else {
                 return (false, Some(depth), None);
             };
 
@@ -583,8 +579,7 @@ impl Caps {
                     window_radius.0,
                     alpha.0,
                     beta.0,
-                    self.state.uci_nodes(),
-                    depth = self.state.depth().get()
+                    self.state.uci_nodes()
                 ),
             );
 
@@ -596,7 +591,12 @@ impl Caps {
             if node_type == FailLow {
                 // In a fail low node, we didn't get any new information, and it's possible that we just discovered
                 // a problem with our chosen move. So increase the soft limit such that we can gather more information.
-                soft_limit_scale = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
+                soft_limit_fail_low_extension = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
+                aw_depth = depth;
+            } else if node_type == FailHigh && depth >= 8 {
+                // If the search discovers an unexpectedly good move, it can take a long while to search it because the TT isn't filled
+                // and because even with fail soft, scores tend to fall close to the aspiration window. So reduce the depth to speed this up.
+                aw_depth = (aw_depth - 1).max(depth - 2);
             }
 
             if cfg!(debug_assertions) {
@@ -611,9 +611,9 @@ impl Caps {
                             // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
                             self.state.multi_pv() > 1
                                 || pv.len() + pv.len() / 4 + 1
-                                    >= self.state.custom.depth_hard_limit.min(depth as usize)
+                                    >= self.state.custom.depth_hard_limit.min(aw_depth as usize)
                                 || pv_score.is_won_lost_or_draw_score(),
-                            "{depth} {0} {pv_score} {1}",
+                            "{aw_depth} {depth} {0} {pv_score} {1}",
                             pv.len(),
                             self.state.uci_nodes()
                         ),
@@ -927,19 +927,7 @@ impl Caps {
             }
         }
 
-        if self.state.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0
-            && self.state.last_msg_time.elapsed().as_millis() >= 1000
-        {
-            let score = self.qsearch(pos, alpha, beta, ply);
-            self.state.search_stack[ply].forget();
-            let flip = pos.active_player() != self.state.params.pos.active_player();
-            let score = score.flip_if(flip);
-            let alpha = alpha.flip_if(flip);
-            let beta = beta.flip_if(flip);
-            self.state
-                .send_currline(ply - 1, score, alpha.min(beta), beta.max(alpha));
-            // the current ply doesn't have a move
-        }
+        self.maybe_send_currline(&pos, alpha, beta, ply, None);
 
         // An uninteresting move is a quiet move or bad capture unless it's the TT or killer move
         // (i.e. it's every move that gets ordered after the killer). The name is a bit dramatic, the first few of those
@@ -989,6 +977,7 @@ impl Caps {
             let Some(new_pos) = pos.make_move_and_prefetch_tt(mov, self.prefetch()) else {
                 continue; // illegal pseudolegal move
             };
+            #[cfg(debug_assertions)]
             let debug_history_len = self.state.params.history.len();
             self.record_move(mov, pos, ply, MainSearch);
             if root && depth >= 8 && self.state.start_time.elapsed().as_millis() >= 3000 {
@@ -1038,6 +1027,9 @@ impl Caps {
                     if we_blundered {
                         reduction += 1;
                     }
+                    if new_pos.is_in_check() {
+                        reduction -= 1;
+                    }
                 }
                 // Futility Reduction: If this move is not a TT move, good SEE capture or killer, and our eval is significantly
                 // less than alpha, reduce.
@@ -1073,7 +1065,7 @@ impl Caps {
                         depth - 1,
                         -(alpha + 1),
                         -alpha,
-                        FailHigh, // we still expect a fail high here
+                        FailHigh, // we still expect the child to fail high here
                     )?;
                 }
                 // If the full-depth search also performed better than expected, do a full-depth search with the
@@ -1089,6 +1081,7 @@ impl Caps {
 
             self.undo_move();
 
+            #[cfg(debug_assertions)]
             debug_assert_eq!(
                 self.state.params.history.len(),
                 debug_history_len,
@@ -1103,7 +1096,7 @@ impl Caps {
             if self.should_stop() {
                 // The current child's score is not trustworthy, but all already seen children are.
                 // This only matters for the root; all other nodes get their return value ignored.
-                // This should really be used in aspiration() by inspecting the PV, but somehow that loses elo
+                // However, it might make sense to store to the TT entry here? (I.e., `break` instead of `return`)
                 return None;
             }
             debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);
@@ -1179,6 +1172,137 @@ impl Caps {
         }
 
         Some(best_score)
+    }
+
+    /// Search only "tactical" moves to quieten down the position before calling eval
+    fn qsearch(&mut self, pos: Chessboard, mut alpha: Score, beta: Score, ply: usize) -> Score {
+        self.state.statistics.count_node_started(Qsearch);
+        // updating seldepth only in qsearch meaningfully increased performance and was even measurable in a [0, 10] SPRT.
+        self.state.atomic().update_seldepth(ply);
+        // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
+        // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
+        let mut best_score;
+        let mut bound_so_far = FailLow;
+
+        // see main search, store an invalid null move in the TT entry if all moves failed low.
+        let mut best_move = ChessMove::default();
+
+        // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
+        // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
+        if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
+            debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
+            let bound = tt_entry.bound();
+            // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
+            // However, if we've already done qsearch on this position, we can just re-use the result,
+            // so there is no point in checking the depth at all
+            if (bound == NodeType::lower_bound() && tt_entry.score >= beta)
+                || (bound == NodeType::upper_bound() && tt_entry.score <= alpha)
+                || bound == Exact
+            {
+                self.state.statistics.tt_cutoff(Qsearch, bound);
+                return tt_entry.score;
+            }
+            best_score = self.eval(pos, ply);
+            // If the TT score is an upper bound, it can't be worse than the stand pat score unless it's from a regular
+            // search entry, i.e. depth is greater than 0.
+            if bound == FailLow && tt_entry.score < best_score {
+                debug_assert!(tt_entry.depth > 0);
+            }
+            // even though qsearch never checks for game over conditions, it's still possible for it to load a checkmate score
+            // and propagate that up to a qsearch parent node, where it gets saved with a depth of 0, so game over scores
+            // with a depth of 0 in the TT are possible
+            // exact scores should have already caused a cutoff
+            // TODO: Removing the `&& !tt_entry.score.is_game_over_score()` condition here and in `negamax` *failed* a
+            // nonregression SPRT with `[-7, 0]` bounds even though I don't know why, and those conditions make it fail
+            // the re-search test case. So the conditions are still disabled for now,
+            // test reintroducing them at some point in the future after I have TT aging!
+            if (bound == NodeType::lower_bound() && tt_entry.score >= best_score)
+                || (bound == NodeType::upper_bound() && tt_entry.score <= best_score)
+            {
+                best_score = tt_entry.score;
+            };
+            if let Some(mov) = tt_entry.mov.check_pseudolegal(&pos) {
+                best_move = mov;
+            }
+        } else {
+            best_score = self.eval(pos, ply);
+        }
+        // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
+        // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
+        // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
+        // only after aging
+        if best_score >= beta {
+            return best_score;
+        }
+        // TODO: Set stand pat to SCORE_LOST when in check, generate evasions?
+        if best_score > alpha {
+            bound_so_far = Exact;
+            alpha = best_score;
+        }
+        self.record_pos(pos, best_score, ply);
+
+        // check nodes in qsearch to allow `go nodes n` to go exactly `n` nodes
+        if self.should_stop() {
+            return best_score;
+        }
+        self.maybe_send_currline(&pos, alpha, beta, ply, Some(best_score));
+
+        let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
+            MovePicker::new(pos, best_move, true);
+        let move_scorer = CapsMoveScorer { board: pos, ply };
+        let mut children_visited = 0;
+        while let Some((mov, score)) = move_picker.next(&move_scorer, &self.state) {
+            debug_assert!(mov.is_tactical(&pos));
+            if score < MoveScore(0) {
+                // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
+                break;
+            }
+            let Some(new_pos) = pos.make_move(mov) else {
+                continue;
+            };
+            self.record_move(mov, pos, ply, Qsearch);
+            children_visited += 1;
+            let score = -self.qsearch(new_pos, -beta, -alpha, ply + 1);
+            self.undo_move();
+            best_score = best_score.max(score);
+            if score <= alpha {
+                continue;
+            }
+            bound_so_far = Exact;
+            alpha = score;
+            best_move = mov;
+            // even if the child score came from a TT entry with depth > 0, we don't trust this node any more than now
+            // because we haven't looked at all nodes
+            if score >= beta {
+                bound_so_far = FailHigh;
+                break;
+            }
+        }
+        self.state
+            .statistics
+            .count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
+
+        let tt_entry: TTEntry<Chessboard> =
+            TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
+        self.state.tt_mut().store(tt_entry, ply);
+        best_score
+    }
+
+    fn eval(&mut self, pos: Chessboard, ply: usize) -> Score {
+        let res = if ply == 0 {
+            self.eval.eval(&pos, 0)
+        } else {
+            let old_pos = &self.state.search_stack[ply - 1].pos;
+            let mov = &self.state.search_stack[ply - 1].last_tried_move();
+            self.eval.eval_incremental(old_pos, *mov, &pos, ply)
+        };
+        debug_assert!(
+            !res.is_won_or_lost(),
+            "{res} {0} {1}, {pos}",
+            res.0,
+            self.eval.eval(&pos, ply)
+        );
+        res
     }
 
     fn update_continuation_hist(
@@ -1266,131 +1390,6 @@ impl Caps {
         }
     }
 
-    /// Search only "tactical" moves to quieten down the position before calling eval
-    fn qsearch(&mut self, pos: Chessboard, mut alpha: Score, beta: Score, ply: usize) -> Score {
-        self.state.statistics.count_node_started(Qsearch);
-        // updating seldepth only in qsearch meaningfully increased performance and was even measurable in a [0, 10] SPRT.
-        self.state.atomic().update_seldepth(ply);
-        // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
-        // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
-        let mut best_score;
-        let mut bound_so_far = FailLow;
-
-        // see main search, store an invalid null move in the TT entry if all moves failed low.
-        let mut best_move = ChessMove::default();
-
-        // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
-        // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        if let Some(tt_entry) = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
-            debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
-            let bound = tt_entry.bound();
-            // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
-            // However, if we've already done qsearch on this position, we can just re-use the result,
-            // so there is no point in checking the depth at all
-            if (bound == NodeType::lower_bound() && tt_entry.score >= beta)
-                || (bound == NodeType::upper_bound() && tt_entry.score <= alpha)
-                || bound == Exact
-            {
-                self.state.statistics.tt_cutoff(Qsearch, bound);
-                return tt_entry.score;
-            }
-            best_score = self.eval(pos, ply);
-            // If the TT score is an upper bound, it can't be worse than the stand pat score unless it's from a regular
-            // search entry, i.e. depth is greater than 0.
-            if bound == FailLow && tt_entry.score < best_score {
-                debug_assert!(tt_entry.depth > 0);
-            }
-            // even though qsearch never checks for game over conditions, it's still possible for it to load a checkmate score
-            // and propagate that up to a qsearch parent node, where it gets saved with a depth of 0, so game over scores
-            // with a depth of 0 in the TT are possible
-            // exact scores should have already caused a cutoff
-            // TODO: Removing the `&& !tt_entry.score.is_game_over_score()` condition here and in `negamax` *failed* a
-            // nonregression SPRT with `[-7, 0]` bounds even though I don't know why, and those conditions make it fail
-            // the re-search test case. So the conditions are still disabled for now,
-            // test reintroducing them at some point in the future after I have TT aging!
-            if (bound == NodeType::lower_bound() && tt_entry.score >= best_score)
-                || (bound == NodeType::upper_bound() && tt_entry.score <= best_score)
-            {
-                best_score = tt_entry.score;
-            };
-            if let Some(mov) = tt_entry.mov.check_pseudolegal(&pos) {
-                best_move = mov;
-            }
-        } else {
-            best_score = self.eval(pos, ply);
-        }
-        // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
-        // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
-        // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
-        // only after aging
-        if best_score >= beta {
-            return best_score;
-        }
-        // TODO: Set stand pat to SCORE_LOST when in check, generate evasions?
-        if best_score > alpha {
-            bound_so_far = Exact;
-            alpha = best_score;
-        }
-        self.record_pos(pos, best_score, ply);
-
-        let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
-            MovePicker::new(pos, best_move, true);
-        let move_scorer = CapsMoveScorer { board: pos, ply };
-        let mut children_visited = 0;
-        while let Some((mov, score)) = move_picker.next(&move_scorer, &self.state) {
-            debug_assert!(mov.is_tactical(&pos));
-            if score < MoveScore(0) {
-                // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
-                break;
-            }
-            let Some(new_pos) = pos.make_move(mov) else {
-                continue;
-            };
-            self.record_move(mov, pos, ply, Qsearch);
-            children_visited += 1;
-            let score = -self.qsearch(new_pos, -beta, -alpha, ply + 1);
-            self.undo_move();
-            best_score = best_score.max(score);
-            if score <= alpha {
-                continue;
-            }
-            bound_so_far = Exact;
-            alpha = score;
-            best_move = mov;
-            // even if the child score came from a TT entry with depth > 0, we don't trust this node any more than now
-            // because we haven't looked at all nodes
-            if score >= beta {
-                bound_so_far = FailHigh;
-                break;
-            }
-        }
-        self.state
-            .statistics
-            .count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
-
-        let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
-        self.state.tt_mut().store(tt_entry, ply);
-        best_score
-    }
-
-    fn eval(&mut self, pos: Chessboard, ply: usize) -> Score {
-        let res = if ply == 0 {
-            self.eval.eval(&pos, 0)
-        } else {
-            let old_pos = &self.state.search_stack[ply - 1].pos;
-            let mov = &self.state.search_stack[ply - 1].last_tried_move();
-            self.eval.eval_incremental(old_pos, *mov, &pos, ply)
-        };
-        debug_assert!(
-            !res.is_won_or_lost(),
-            "{res} {0} {1}, {pos}",
-            res.0,
-            self.eval.eval(&pos, ply)
-        );
-        res
-    }
-
     fn record_pos(&mut self, pos: Chessboard, eval: Score, ply: usize) {
         self.state.search_stack[ply].pos = pos;
         self.state.search_stack[ply].eval = eval;
@@ -1406,6 +1405,29 @@ impl Caps {
 
     fn undo_move(&mut self) {
         self.state.params.history.pop();
+    }
+
+    #[inline]
+    fn maybe_send_currline(
+        &mut self,
+        pos: &Chessboard,
+        alpha: Score,
+        beta: Score,
+        ply: usize,
+        score: Option<Score>,
+    ) {
+        if self.state.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0
+            && self.state.last_msg_time.elapsed().as_millis() >= 1000
+        {
+            let score = score.unwrap_or_else(|| self.qsearch(*pos, alpha, beta, ply));
+            self.state.search_stack[ply].forget();
+            let flip = pos.active_player() != self.state.params.pos.active_player();
+            let score = score.flip_if(flip);
+            let alpha = alpha.flip_if(flip);
+            let beta = beta.flip_if(flip);
+            self.state
+                .send_currline(ply - 1, score, alpha.min(beta), beta.max(alpha));
+        }
     }
 }
 
@@ -1463,10 +1485,12 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
 
 #[cfg(test)]
 mod tests {
+    use gears::games::chess::ChessColor::White;
     use gears::games::chess::Chessboard;
     use gears::general::board::Strictness::{Relaxed, Strict};
     #[cfg(not(debug_assertions))]
     use gears::general::moves::ExtendedFormat::Standard;
+    use gears::general::moves::UntrustedMove;
     use gears::search::NodesLimit;
 
     use crate::eval::chess::lite::{KingGambot, LiTEval};
@@ -1645,6 +1669,55 @@ mod tests {
         caps.forget();
         _ = caps.search_with_new_tt(pos, d3);
         assert_eq!(caps.search_state().uci_nodes(), fresh_d3_nodes);
+    }
+
+    #[test]
+    fn move_order_test() {
+        let fen = "7k/8/8/8/p7/1p6/1R1r4/K7 w - - 4 3";
+        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        let tt_move = ChessMove::from_text("a1b1", &pos).unwrap();
+        let mut tt = TT::default();
+        let entry = TTEntry::new(pos.zobrist_hash(), Score(0), tt_move, 123, Exact);
+        tt.store::<Chessboard>(entry, 0);
+        let mut caps = Caps::default();
+        let killer = ChessMove::from_text("b2c2", &pos).unwrap();
+        caps.state.search_stack[0].killer = killer;
+        let hist_move = ChessMove::from_text("b2b1", &pos).unwrap();
+        caps.state.custom.history.update(hist_move, 1000);
+        let bad_quiet = ChessMove::from_text("b2a2", &pos).unwrap();
+        caps.state.custom.history.update(bad_quiet, -1);
+        let bad_capture = ChessMove::from_text("b2b3", &pos).unwrap();
+        caps.state.custom.capt_hist.update(bad_capture, White, 100);
+
+        let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
+            MovePicker::new(pos, tt_move, false);
+        let move_scorer = CapsMoveScorer { board: pos, ply: 0 };
+        let mut moves = vec![];
+        let mut scores = vec![];
+        while let Some((mov, score)) = move_picker.next(&move_scorer, &caps.state) {
+            moves.push(mov);
+            scores.push(score);
+        }
+        assert_eq!(moves.len(), 7);
+        assert!(scores.is_sorted_by(|a, b| a > b));
+        assert_eq!(scores[0], MoveScore::MAX);
+        assert_eq!(moves[0], tt_move);
+        // assert_eq!(scores[1], )
+        let good_capture = ChessMove::from_text("b2d2", &pos).unwrap();
+        assert_eq!(moves[1], good_capture);
+        assert_eq!(moves[2], killer);
+        assert_eq!(moves[3], hist_move);
+        let illegal = ChessMove::from_text("a1a2", &pos).unwrap();
+        assert_eq!(moves[4], illegal);
+        assert!(!pos.is_pseudolegal_move_legal(illegal));
+        assert_eq!(moves[5], bad_quiet);
+        assert_eq!(moves[6], bad_capture);
+        let search_res = caps.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
+        assert_eq!(search_res.chosen_move, good_capture);
+        assert!(search_res.score.unwrap() > Score(0));
+        let tt_entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0).unwrap();
+        assert_eq!(tt_entry.score, search_res.score.unwrap());
+        assert_eq!(tt_entry.mov, UntrustedMove::from_move(good_capture));
     }
 
     #[test]
