@@ -31,7 +31,8 @@ use gears::output::text_output::AdaptFormatter;
 use gears::output::Message::Debug;
 use gears::output::OutputOpts;
 use gears::score::{
-    game_result_to_score, ScoreT, MAX_BETA, MAX_SCORE_LOST, MIN_ALPHA, NO_SCORE_YET,
+    game_result_to_score, ScoreT, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA,
+    MIN_NORMAL_SCORE, NO_SCORE_YET,
 };
 use gears::search::NodeType::*;
 use gears::search::*;
@@ -130,6 +131,37 @@ impl Default for ContHist {
     }
 }
 
+// See <https://www.chessprogramming.org/Static_Evaluation_Correction_History>
+
+const CORRHIST_SIZE: usize = 1 << 16;
+
+const MAX_CORRHIST_UPDATE: isize = MAX_NORMAL_SCORE.0 as isize / 16;
+
+#[derive(Debug, Clone)]
+struct CorrHist([ScoreT; CORRHIST_SIZE]);
+
+impl Default for CorrHist {
+    fn default() -> Self {
+        CorrHist([0; CORRHIST_SIZE])
+    }
+}
+
+impl CorrHist {
+    fn update(&mut self, hash: ZobristHash, depth: isize, raw: Score, score: Score) {
+        let idx = hash.0 as usize % CORRHIST_SIZE;
+        let bonus =
+            ((score - raw).0 as isize * depth / 8).clamp(-MAX_CORRHIST_UPDATE, MAX_CORRHIST_UPDATE);
+        update_history_score(&mut self.0[idx], bonus as ScoreT)
+    }
+
+    fn correct(&mut self, hash: ZobristHash, raw: Score) -> Score {
+        let idx = hash.0 as usize % CORRHIST_SIZE;
+        let entry = self.0[idx] as isize;
+        let score = raw.0 as isize + entry * 128 / 1024;
+        Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct CapsCustomInfo {
     history: HistoryHeuristic,
@@ -142,6 +174,7 @@ pub struct CapsCustomInfo {
     /// our previous move instead of the opponent's previous move, i.e. the move 2 plies ago instead of 1 ply ago.
     follow_up_move_hist: ContHist,
     capt_hist: CaptHist,
+    corr_hist: CorrHist,
     original_board_hist: ZobristHistory<Chessboard>,
     nmp_disabled: [bool; 2],
     depth_hard_limit: usize,
@@ -171,6 +204,9 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
             *value = 0;
         }
         for value in self.follow_up_move_hist.iter_mut() {
+            *value = 0;
+        }
+        for value in self.corr_hist.0.iter_mut() {
             *value = 0;
         }
     }
@@ -731,12 +767,14 @@ impl Caps {
         // store a null move in the TT. This helps IIR.
         let mut best_move = ChessMove::default();
         // Don't initialize eval just yet to save work in case we get a TT cutoff
-        let mut eval;
+        let mut raw_eval;
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.state.multi_pvs.len() > 1;
         let old_entry = self.state.tt().load::<Chessboard>(pos.zobrist_hash(), ply);
         if let Some(tt_entry) = old_entry {
-            if !ignore_tt_entry {
+            if ignore_tt_entry {
+                raw_eval = self.eval(pos, ply);
+            } else {
                 let tt_bound = tt_entry.bound();
                 debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
 
@@ -778,23 +816,27 @@ impl Caps {
                     }
                 }
 
-                eval = self.eval(pos, ply);
+                // Only call `eval` after it's certain we won't get a TT cutoff
+                raw_eval = self.eval(pos, ply);
                 // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
                 // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
                 // create any problems, but should be kept in mind.
                 if tt_bound == Exact
-                    || (tt_bound == NodeType::lower_bound() && tt_entry.score >= eval)
-                    || (tt_bound == NodeType::upper_bound() && tt_entry.score <= eval)
+                    || (tt_bound == NodeType::lower_bound() && tt_entry.score >= raw_eval)
+                    || (tt_bound == NodeType::upper_bound() && tt_entry.score <= raw_eval)
                 {
-                    eval = tt_entry.score;
+                    raw_eval = tt_entry.score;
                 }
-            } else {
-                eval = self.eval(pos, ply);
             }
         } else {
             self.state.statistics.tt_miss(MainSearch);
-            eval = self.eval(pos, ply);
+            raw_eval = self.eval(pos, ply);
         };
+        let eval = self
+            .state
+            .custom
+            .corr_hist
+            .correct(pos.pawn_key(), raw_eval);
 
         self.record_pos(pos, eval, ply);
 
@@ -1148,6 +1190,18 @@ impl Caps {
         // if this node was an exact or fail high node or if there was a collision.
         if !(root && self.state.current_pv_num > 0) {
             self.state.tt_mut().store(tt_entry, ply);
+        }
+
+        // Corrhist updates
+        if !in_check
+            && (best_move.is_null() || !best_move.is_tactical(&pos))
+            && !(best_score <= raw_eval && bound_so_far == NodeType::lower_bound())
+            && !(best_score >= raw_eval && bound_so_far == NodeType::upper_bound())
+        {
+            self.state
+                .custom
+                .corr_hist
+                .update(pos.pawn_key(), depth, raw_eval, best_score);
         }
 
         Some(best_score)

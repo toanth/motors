@@ -765,6 +765,14 @@ impl Chessboard {
         self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
     }
 
+    pub fn pawn_key(&self) -> ZobristHash {
+        self.pawn_hash
+    }
+
+    pub fn nonpawn_key(&self) -> ZobristHash {
+        self.nonpawn_hash
+    }
+
     /// A mate that happens on the 100 move rule counter reaching 100 takes precedence.
     /// This barely every happens, which is why we can afford the slow operation of checking for a checkmate in that case.
     pub fn is_50mr_draw(&self) -> bool {
