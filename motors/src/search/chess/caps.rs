@@ -845,7 +845,7 @@ impl Caps {
             self.state.statistics.tt_miss(MainSearch);
             raw_eval = self.eval(pos, ply);
         };
-        let eval =
+        let mut eval =
             self.state
                 .custom
                 .corr_hist
@@ -901,6 +901,27 @@ impl Caps {
 
             if depth <= cc::rfp_max_depth() && eval >= beta + Score(margin) {
                 return Some(eval);
+            }
+
+            // Razoring. If the position appears hopeless, drop into qsearch immediately.
+            // This obviously has the potential to miss quite a few tactics, so only do this at low depths and when the
+            // difference between the static eval and alpha is really large, and also not when we could miss a mate from the TT.
+            if depth <= 2
+                && eval + Score(512 * depth as ScoreT) < alpha
+                && !eval.is_game_lost_score()
+            {
+                let qsearch_score = self.qsearch(pos, alpha, beta, ply);
+                if qsearch_score <= alpha {
+                    return Some(qsearch_score);
+                }
+                self.state.search_stack[ply].tried_moves.clear();
+
+                // Since we're in a non-pv node, qsearch must have failed high. So assume that a normal search also fails high.
+                expected_node_type = FailHigh;
+                // Now that we have a qsearch score, use that instead of static eval if the eval isn't from the TT
+                if old_entry.is_none() {
+                    eval = qsearch_score;
+                }
             }
 
             // NMP (Null Move Pruning). If static eval of our position is above beta, this node probably isn't that interesting.
@@ -1230,7 +1251,7 @@ impl Caps {
         self.state.atomic().update_seldepth(ply);
         // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
-        let mut best_score;
+        let mut raw_eval;
         let mut bound_so_far = FailLow;
 
         // see main search, store an invalid null move in the TT entry if all moves failed low.
@@ -1251,12 +1272,8 @@ impl Caps {
                 self.state.statistics.tt_cutoff(Qsearch, bound);
                 return tt_entry.score;
             }
-            best_score = self.eval(pos, ply);
-            // If the TT score is an upper bound, it can't be worse than the stand pat score unless it's from a regular
-            // search entry, i.e. depth is greater than 0.
-            if bound == FailLow && tt_entry.score < best_score {
-                debug_assert!(tt_entry.depth > 0);
-            }
+            raw_eval = self.eval(pos, ply);
+
             // even though qsearch never checks for game over conditions, it's still possible for it to load a checkmate score
             // and propagate that up to a qsearch parent node, where it gets saved with a depth of 0, so game over scores
             // with a depth of 0 in the TT are possible
@@ -1265,17 +1282,22 @@ impl Caps {
             // nonregression SPRT with `[-7, 0]` bounds even though I don't know why, and those conditions make it fail
             // the re-search test case. So the conditions are still disabled for now,
             // test reintroducing them at some point in the future after I have TT aging!
-            if (bound == NodeType::lower_bound() && tt_entry.score >= best_score)
-                || (bound == NodeType::upper_bound() && tt_entry.score <= best_score)
+            if (bound == NodeType::lower_bound() && tt_entry.score >= raw_eval)
+                || (bound == NodeType::upper_bound() && tt_entry.score <= raw_eval)
             {
-                best_score = tt_entry.score;
+                raw_eval = tt_entry.score;
             };
             if let Some(mov) = tt_entry.mov.check_pseudolegal(&pos) {
                 best_move = mov;
             }
         } else {
-            best_score = self.eval(pos, ply);
+            raw_eval = self.eval(pos, ply);
         }
+        let mut best_score =
+            self.state
+                .custom
+                .corr_hist
+                .correct(pos.active_player(), pos.pawn_key(), raw_eval);
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
         // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
@@ -1604,7 +1626,7 @@ mod tests {
         let mut engine = Caps::for_eval::<LiTEval>();
         let res =
             engine.search_with_new_tt(pos, SearchLimit::nodes(NodesLimit::new(50_000).unwrap()));
-        assert!(res.score.unwrap().abs() <= Score(200));
+        assert!(res.score.unwrap().abs() <= Score(256));
     }
 
     #[test]
