@@ -16,6 +16,7 @@ use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::arrayvec::ArrayVec;
 use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
 use gears::games::chess::pieces::ChessPieceType::Pawn;
+use gears::games::chess::pieces::NUM_COLORS;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::ChessSquare;
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
@@ -84,22 +85,21 @@ impl Default for HistoryHeuristic {
 
 /// Capture History Heuristic: Same as quiet history heuristic, but for captures.
 #[derive(Debug, Clone, Index, IndexMut)]
-struct CaptHist([[[i32; 64]; 6]; 2]);
+struct CaptHist([[[i32; 64]; 6]; NUM_COLORS]);
 
 impl CaptHist {
     fn update(&mut self, mov: ChessMove, color: ChessColor, bonus: i32) {
-        let entry =
-            &mut self[color as usize][mov.piece_type() as usize][mov.dest_square().bb_idx()];
+        let entry = &mut self[color][mov.piece_type() as usize][mov.dest_square().bb_idx()];
         update_history_score(entry, bonus);
     }
     fn get(&self, mov: ChessMove, color: ChessColor) -> MoveScore {
-        MoveScore(self[color as usize][mov.piece_type() as usize][mov.dest_square().bb_idx()])
+        MoveScore(self[color][mov.piece_type() as usize][mov.dest_square().bb_idx()])
     }
 }
 
 impl Default for CaptHist {
     fn default() -> Self {
-        Self([[[0; 64]; 6]; 2])
+        Self([[[0; 64]; 6]; NUM_COLORS])
     }
 }
 
@@ -133,31 +133,44 @@ impl Default for ContHist {
 
 // See <https://www.chessprogramming.org/Static_Evaluation_Correction_History>
 
-const CORRHIST_SIZE: usize = 1 << 16;
+// Code adapted from Sirius
+const CORRHIST_SIZE: usize = 1 << 14;
 
-const MAX_CORRHIST_UPDATE: isize = MAX_NORMAL_SCORE.0 as isize / 16;
+const MAX_CORRHIST_VAL: isize = i16::MAX as isize;
+
+const CORRHIST_SCALE: isize = 256;
 
 #[derive(Debug, Clone)]
-struct CorrHist([ScoreT; CORRHIST_SIZE]);
+struct CorrHist([[ScoreT; CORRHIST_SIZE]; NUM_COLORS]);
 
 impl Default for CorrHist {
     fn default() -> Self {
-        CorrHist([0; CORRHIST_SIZE])
+        CorrHist([[0; CORRHIST_SIZE]; 2])
     }
 }
 
 impl CorrHist {
-    fn update(&mut self, hash: ZobristHash, depth: isize, raw: Score, score: Score) {
+    fn update(
+        &mut self,
+        color: ChessColor,
+        hash: ZobristHash,
+        depth: isize,
+        raw: Score,
+        score: Score,
+    ) {
         let idx = hash.0 as usize % CORRHIST_SIZE;
-        let bonus =
-            ((score - raw).0 as isize * depth / 8).clamp(-MAX_CORRHIST_UPDATE, MAX_CORRHIST_UPDATE);
-        update_history_score(&mut self.0[idx], bonus as ScoreT)
+        let weight = (1 + depth).min(16);
+        let bonus = (score - raw).0 as isize * CORRHIST_SCALE;
+        let val = self.0[color][idx] as isize;
+        let new_val = ((val * (CORRHIST_SCALE - weight) + bonus * weight) / CORRHIST_SCALE)
+            .clamp(-MAX_CORRHIST_VAL, MAX_CORRHIST_VAL);
+        self.0[color][idx] = new_val as ScoreT;
     }
 
-    fn correct(&mut self, hash: ZobristHash, raw: Score) -> Score {
+    fn correct(&mut self, color: ChessColor, hash: ZobristHash, raw: Score) -> Score {
         let idx = hash.0 as usize % CORRHIST_SIZE;
-        let entry = self.0[idx] as isize;
-        let score = raw.0 as isize + entry * 128 / 1024;
+        let entry = self.0[color][idx] as isize;
+        let score = raw.0 as isize + entry / CORRHIST_SCALE;
         Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
     }
 }
@@ -182,7 +195,7 @@ pub struct CapsCustomInfo {
 
 impl CapsCustomInfo {
     fn nmp_disabled_for(&mut self, color: ChessColor) -> &mut bool {
-        &mut self.nmp_disabled[color as usize]
+        &mut self.nmp_disabled[color]
     }
 }
 
@@ -206,7 +219,7 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
         for value in self.follow_up_move_hist.iter_mut() {
             *value = 0;
         }
-        for value in self.corr_hist.0.iter_mut() {
+        for value in self.corr_hist.0.iter_mut().flatten() {
             *value = 0;
         }
     }
@@ -832,11 +845,11 @@ impl Caps {
             self.state.statistics.tt_miss(MainSearch);
             raw_eval = self.eval(pos, ply);
         };
-        let eval = self
-            .state
-            .custom
-            .corr_hist
-            .correct(pos.pawn_key(), raw_eval);
+        let eval =
+            self.state
+                .custom
+                .corr_hist
+                .correct(pos.active_player(), pos.pawn_key(), raw_eval);
 
         self.record_pos(pos, eval, ply);
 
@@ -1198,10 +1211,13 @@ impl Caps {
             && !(best_score <= raw_eval && bound_so_far == NodeType::lower_bound())
             && !(best_score >= raw_eval && bound_so_far == NodeType::upper_bound())
         {
-            self.state
-                .custom
-                .corr_hist
-                .update(pos.pawn_key(), depth, raw_eval, best_score);
+            self.state.custom.corr_hist.update(
+                pos.active_player(),
+                pos.pawn_key(),
+                depth,
+                raw_eval,
+                best_score,
+            );
         }
 
         Some(best_score)

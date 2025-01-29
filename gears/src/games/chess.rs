@@ -7,7 +7,7 @@ use rand::prelude::IteratorRandom;
 use rand::Rng;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroUsize;
-use std::ops::Not;
+use std::ops::{Index, IndexMut, Not};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -78,6 +78,19 @@ pub enum ChessColor {
     #[default]
     White = 0,
     Black = 1,
+}
+
+impl<T> Index<ChessColor> for [T; 2] {
+    type Output = T;
+    fn index(&self, index: ChessColor) -> &Self::Output {
+        &self[index as usize]
+    }
+}
+
+impl<T> IndexMut<ChessColor> for [T; 2] {
+    fn index_mut(&mut self, index: ChessColor) -> &mut Self::Output {
+        &mut self[index as usize]
+    }
 }
 
 impl Not for ChessColor {
