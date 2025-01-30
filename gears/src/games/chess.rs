@@ -126,6 +126,13 @@ impl Color for ChessColor {
     }
 }
 
+#[derive(Debug, Default, Eq, PartialEq, Copy, Clone, Arbitrary)]
+struct Hashes {
+    pawns: ZobristHash,
+    nonpawns: [ZobristHash; NUM_COLORS],
+    total: ZobristHash,
+}
+
 #[derive(Eq, PartialEq, Debug, Copy, Clone, Arbitrary)]
 pub struct Chessboard {
     piece_bbs: [RawStandardBitboard; NUM_CHESS_PIECES],
@@ -135,8 +142,7 @@ pub struct Chessboard {
     active_player: ChessColor,
     castling: CastlingFlags,
     ep_square: Option<ChessSquare>, // eventually, see if using Optional and Noned instead of Option improves nps
-    nonpawn_hash: ZobristHash,
-    pawn_hash: ZobristHash,
+    hashes: Hashes,
 }
 
 impl Default for Chessboard {
@@ -187,8 +193,7 @@ impl Board for Chessboard {
             active_player: White,
             castling: CastlingFlags::default(),
             ep_square: None,
-            nonpawn_hash: ZobristHash(0),
-            pawn_hash: ZobristHash(0),
+            hashes: Hashes::default(),
         })
     }
 
@@ -433,10 +438,10 @@ impl Board for Chessboard {
         // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove
         self.ply_100_ctr = 0;
         if let Some(sq) = self.ep_square {
-            self.nonpawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[sq.file() as usize];
+            self.hashes.total ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[sq.file() as usize];
             self.ep_square = None;
         }
-        self.nonpawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+        self.hashes.total ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         self.flip_side_to_move()
     }
 
@@ -507,7 +512,7 @@ impl Board for Chessboard {
     }
 
     fn zobrist_hash(&self) -> ZobristHash {
-        self.nonpawn_hash ^ self.pawn_hash
+        self.hashes.total
     }
 
     fn as_fen(&self) -> String {
@@ -688,7 +693,7 @@ impl Chessboard {
     }
 
     pub fn colored_bb(&self, color: ChessColor) -> ChessBitboard {
-        ChessBitboard::new(self.color_bbs[color as usize])
+        ChessBitboard::new(self.color_bbs[color])
     }
 
     pub fn active_player_bb(&self) -> ChessBitboard {
@@ -727,8 +732,8 @@ impl Chessboard {
             ChessPiece::new(ColoredChessPieceType::new(color, piece), square)
         );
         let bb = square.bb().raw();
-        self.piece_bbs[piece as usize] ^= bb;
-        self.color_bbs[color as usize] ^= bb;
+        self.piece_bbs[piece] ^= bb;
+        self.color_bbs[color] ^= bb;
         // It's not really clear how to so handle these flags when removing pieces, so we just unset them on a best effort basis
         if piece == Rook {
             for side in CastleRight::iter() {
@@ -774,16 +779,16 @@ impl Chessboard {
         // it is possible that from == to or that there's another piece on the target square
         let bb = (from.bb() ^ to.bb()).raw();
         let color = self.active_player;
-        self.color_bbs[color as usize] ^= bb;
+        self.color_bbs[color] ^= bb;
         self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
     }
 
     pub fn pawn_key(&self) -> ZobristHash {
-        self.pawn_hash
+        self.hashes.pawns
     }
 
-    pub fn nonpawn_key(&self) -> ZobristHash {
-        self.nonpawn_hash
+    pub fn nonpawn_key(&self, color: ChessColor) -> ZobristHash {
+        self.hashes.nonpawns[color]
     }
 
     /// A mate that happens on the 100 move rule counter reaching 100 takes precedence.
@@ -947,8 +952,8 @@ impl Chessboard {
         for bb in &mut res.0.piece_bbs {
             *bb = ChessBitboard::new(*bb).flip_up_down().raw();
         }
-        res.0.color_bbs[Black as usize] = res.0.colored_bb(White).flip_up_down().raw();
-        res.0.color_bbs[White as usize] = RawStandardBitboard::default();
+        res.0.color_bbs[Black] = res.0.colored_bb(White).flip_up_down().raw();
+        res.0.color_bbs[White] = RawStandardBitboard::default();
         res = Self::chess960_startpos_white(white_num, White, res)?;
         // the hash is computed in the verify method
         Ok(res.verify_with_level(Assertion, Strict).expect("Internal error: Setting up a Chess960 starting position resulted in an invalid position"))
@@ -1101,8 +1106,8 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                     bb.num_ones()
                 );
             } else if strictness == Strict {
-                num_promoted_pawns[color as usize] +=
-                    0.max(bb.num_ones() as isize - startpos_piece_count[piece.uncolor() as usize]);
+                num_promoted_pawns[color] +=
+                    0.max(bb.num_ones() as isize - startpos_piece_count[piece.uncolor()]);
             }
             if checks != CheckFen {
                 for other_piece in ColoredChessPieceType::pieces() {
@@ -1121,11 +1126,11 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         }
         for color in ChessColor::iter() {
             let num_pawns = this.colored_piece_bb(color, Pawn).num_ones() as isize;
-            if strictness == Strict && num_promoted_pawns[color as usize] + num_pawns > 8 {
+            if strictness == Strict && num_promoted_pawns[color] + num_pawns > 8 {
                 bail!("Incorrect piece distribution for {color}")
             }
         }
-        (this.nonpawn_hash, this.pawn_hash) = this.compute_zobrist();
+        this.hashes = this.compute_zobrist();
         Ok(this)
     }
 
@@ -1137,8 +1142,8 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         let mut this = self.0;
         debug_assert!(self.0.is_empty(square));
         let bb = square.bb().raw();
-        this.piece_bbs[piece.uncolor() as usize] ^= bb;
-        this.color_bbs[piece.color().unwrap() as usize] ^= bb;
+        this.piece_bbs[piece.uncolor()] ^= bb;
+        this.color_bbs[piece.color().unwrap()] ^= bb;
         this.into()
     }
 
