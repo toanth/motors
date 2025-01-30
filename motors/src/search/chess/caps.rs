@@ -171,7 +171,7 @@ impl CorrHist {
         let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
         Self::update_entry(&mut self.pawns[color][pawn_idx], weight, bonus);
         for c in ChessColor::iter() {
-            let nonpawn_idx = pos.nonpawn_key(color).0 as usize % CORRHIST_SIZE;
+            let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             Self::update_entry(&mut self.nonpawns[c][color][nonpawn_idx], weight, bonus);
         }
     }
