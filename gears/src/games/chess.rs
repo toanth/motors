@@ -1549,7 +1549,7 @@ mod tests {
         let board = Chessboard::from_fen(fen, Strict).unwrap();
         assert_eq!(board.legal_moves_slow().len(), 218);
         assert!(board.debug_verify_invariants(Strict).is_ok());
-        let board = board.flip_side_to_move().unwrap();
+        let board = board.make_nullmove().unwrap();
         assert!(board.legal_moves_slow().is_empty());
         assert_eq!(board.player_result_slow(&NoHistory::default()), Some(Draw));
         // chess960 castling rights encoded using X-FEN

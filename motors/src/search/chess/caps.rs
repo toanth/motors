@@ -144,14 +144,15 @@ const CORRHIST_SCALE: isize = 256;
 #[derive(Debug, Clone)]
 struct CorrHist {
     pawns: [[ScoreT; CORRHIST_SIZE]; NUM_COLORS],
-    nonpawns: [[[ScoreT; CORRHIST_SIZE]; NUM_COLORS]; NUM_COLORS],
+    // the outer color index is the active player, the inner color is the color we're looking at
+    nonpawns: [[[ScoreT; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS],
 }
 
 impl Default for CorrHist {
     fn default() -> Self {
         CorrHist {
             pawns: [[0; CORRHIST_SIZE]; NUM_COLORS],
-            nonpawns: [[[0; CORRHIST_SIZE]; NUM_COLORS]; NUM_COLORS],
+            nonpawns: [[[0; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS],
         }
     }
 }
@@ -172,7 +173,7 @@ impl CorrHist {
         Self::update_entry(&mut self.pawns[color][pawn_idx], weight, bonus);
         for c in ChessColor::iter() {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
-            Self::update_entry(&mut self.nonpawns[c][color][nonpawn_idx], weight, bonus);
+            Self::update_entry(&mut self.nonpawns[color][nonpawn_idx][c], weight, bonus);
         }
     }
 
@@ -181,8 +182,8 @@ impl CorrHist {
         let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
         let mut correction = self.pawns[color][pawn_idx] as isize;
         for c in ChessColor::iter() {
-            let idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
-            correction += self.nonpawns[c][color][idx] as isize;
+            let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
+            correction += self.nonpawns[color][nonpawn_idx][c] as isize / 2;
         }
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
         Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
