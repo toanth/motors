@@ -248,7 +248,7 @@ mod tests {
         // TODO: Fail soft? It doesn't make sense to clamp to the window.
         assert_eq!(see_score, SeeScore(200));
 
-        let board = board.flip_side_to_move().unwrap();
+        let board = board.make_nullmove().unwrap();
         let see_score = board.see(
             ChessMove::from_compact_text("e5d4", &board).unwrap(),
             SeeScore(-999),

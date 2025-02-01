@@ -42,6 +42,7 @@ use gears::ugi::EngineOptionType::Check;
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
 use gears::PlayerResult::{Lose, Win};
 use itertools::Itertools;
+use strum::IntoEnumIterator;
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
 const DEPTH_SOFT_LIMIT: Depth = Depth::new_unchecked(225);
@@ -141,36 +142,50 @@ const MAX_CORRHIST_VAL: isize = i16::MAX as isize;
 const CORRHIST_SCALE: isize = 256;
 
 #[derive(Debug, Clone)]
-struct CorrHist([[ScoreT; CORRHIST_SIZE]; NUM_COLORS]);
+struct CorrHist {
+    pawns: [[ScoreT; CORRHIST_SIZE]; NUM_COLORS],
+    // the outer color index is the active player, the inner color is the color we're looking at
+    nonpawns: [[[ScoreT; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS],
+}
 
 impl Default for CorrHist {
     fn default() -> Self {
-        CorrHist([[0; CORRHIST_SIZE]; 2])
+        CorrHist {
+            pawns: [[0; CORRHIST_SIZE]; NUM_COLORS],
+            nonpawns: [[[0; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS],
+        }
     }
 }
 
 impl CorrHist {
-    fn update(
-        &mut self,
-        color: ChessColor,
-        hash: ZobristHash,
-        depth: isize,
-        raw: Score,
-        score: Score,
-    ) {
-        let idx = hash.0 as usize % CORRHIST_SIZE;
-        let weight = (1 + depth).min(16);
-        let bonus = (score - raw).0 as isize * CORRHIST_SCALE;
-        let val = self.0[color][idx] as isize;
+    fn update_entry(entry: &mut ScoreT, weight: isize, bonus: isize) {
+        let val = *entry as isize;
         let new_val = ((val * (CORRHIST_SCALE - weight) + bonus * weight) / CORRHIST_SCALE)
             .clamp(-MAX_CORRHIST_VAL, MAX_CORRHIST_VAL);
-        self.0[color][idx] = new_val as ScoreT;
+        *entry = new_val as ScoreT;
     }
 
-    fn correct(&mut self, color: ChessColor, hash: ZobristHash, raw: Score) -> Score {
-        let idx = hash.0 as usize % CORRHIST_SIZE;
-        let entry = self.0[color][idx] as isize;
-        let score = raw.0 as isize + entry / CORRHIST_SCALE;
+    fn update(&mut self, pos: &Chessboard, depth: isize, raw: Score, score: Score) {
+        let color = pos.active_player();
+        let weight = (1 + depth).min(16);
+        let bonus = (score - raw).0 as isize * CORRHIST_SCALE;
+        let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
+        Self::update_entry(&mut self.pawns[color][pawn_idx], weight, bonus);
+        for c in ChessColor::iter() {
+            let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
+            Self::update_entry(&mut self.nonpawns[color][nonpawn_idx][c], weight, bonus);
+        }
+    }
+
+    fn correct(&mut self, pos: &Chessboard, raw: Score) -> Score {
+        let color = pos.active_player();
+        let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
+        let mut correction = self.pawns[color][pawn_idx] as isize;
+        for c in ChessColor::iter() {
+            let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
+            correction += self.nonpawns[color][nonpawn_idx][c] as isize / 2;
+        }
+        let score = raw.0 as isize + correction / CORRHIST_SCALE;
         Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
     }
 }
@@ -219,7 +234,10 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
         for value in self.follow_up_move_hist.iter_mut() {
             *value = 0;
         }
-        for value in self.corr_hist.0.iter_mut().flatten() {
+        for value in self.corr_hist.pawns.iter_mut().flatten() {
+            *value = 0;
+        }
+        for value in self.corr_hist.nonpawns.iter_mut().flatten().flatten() {
             *value = 0;
         }
     }
@@ -845,11 +863,7 @@ impl Caps {
             self.state.statistics.tt_miss(MainSearch);
             raw_eval = self.eval(pos, ply);
         };
-        let mut eval =
-            self.state
-                .custom
-                .corr_hist
-                .correct(pos.active_player(), pos.pawn_key(), raw_eval);
+        let mut eval = self.state.custom.corr_hist.correct(&pos, raw_eval);
 
         self.record_pos(pos, eval, ply);
 
@@ -1232,13 +1246,10 @@ impl Caps {
             && !(best_score <= raw_eval && bound_so_far == NodeType::lower_bound())
             && !(best_score >= raw_eval && bound_so_far == NodeType::upper_bound())
         {
-            self.state.custom.corr_hist.update(
-                pos.active_player(),
-                pos.pawn_key(),
-                depth,
-                raw_eval,
-                best_score,
-            );
+            self.state
+                .custom
+                .corr_hist
+                .update(&pos, depth, raw_eval, best_score);
         }
 
         Some(best_score)
@@ -1293,11 +1304,7 @@ impl Caps {
         } else {
             raw_eval = self.eval(pos, ply);
         }
-        let mut best_score =
-            self.state
-                .custom
-                .corr_hist
-                .correct(pos.active_player(), pos.pawn_key(), raw_eval);
+        let mut best_score = self.state.custom.corr_hist.correct(&pos, raw_eval);
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
         // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably

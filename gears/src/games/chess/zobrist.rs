@@ -1,10 +1,10 @@
 use strum::IntoEnumIterator;
 
-use crate::games::chess::pieces::ChessPieceType;
 use crate::games::chess::pieces::ChessPieceType::Pawn;
+use crate::games::chess::pieces::{ChessPieceType, NUM_COLORS};
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
 use crate::games::chess::ChessColor::*;
-use crate::games::chess::{ChessColor, Chessboard};
+use crate::games::chess::{ChessColor, Chessboard, Hashes};
 use crate::games::ZobristHash;
 use crate::general::squares::RectangularCoordinates;
 
@@ -91,42 +91,44 @@ pub const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
 };
 
 impl Chessboard {
-    pub fn compute_zobrist(&self) -> (ZobristHash, ZobristHash) {
-        let mut pawn_hash = ZobristHash(0);
-        let mut nonpawn_hash = ZobristHash(0);
+    pub(super) fn compute_zobrist(&self) -> Hashes {
+        let mut pawns = ZobristHash(0);
+        let mut nonpawns = [ZobristHash(0); NUM_COLORS];
+        let mut special = ZobristHash(0);
         for color in ChessColor::iter() {
             for piece in ChessPieceType::non_pawn_pieces() {
                 let pieces = self.colored_piece_bb(color, piece);
                 for square in pieces.ones() {
-                    nonpawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, square);
+                    nonpawns[color] ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, square);
                 }
             }
             for square in self.colored_piece_bb(color, Pawn).ones() {
-                pawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, color, square);
+                pawns ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, color, square);
             }
         }
-        nonpawn_hash ^= self.ep_square.map_or(ZobristHash(0), |square| {
+        special ^= self.ep_square.map_or(ZobristHash(0), |square| {
             PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize]
         });
-        nonpawn_hash ^=
+        special ^=
             PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         if self.active_player == Black {
-            nonpawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+            special ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         }
-        (nonpawn_hash, pawn_hash)
+        Hashes {
+            pawns,
+            nonpawns,
+            total: pawns ^ nonpawns[0] ^ nonpawns[1] ^ special,
+        }
     }
 
-    pub fn approximate_zobrist_after_move(
-        mut old_hash: ZobristHash,
+    pub(super) fn update_zobrist(
         color: ChessColor,
         piece: ChessPieceType,
         from: ChessSquare,
         to: ChessSquare,
     ) -> ZobristHash {
-        old_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, to);
-        old_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, from);
-        old_hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
-        old_hash
+        PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, to)
+            ^ PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, from)
     }
 }
 
@@ -214,30 +216,21 @@ mod tests {
             Strict,
         )
         .unwrap();
-        assert_eq!(
-            (position.nonpawn_hash, position.pawn_hash),
-            position.compute_zobrist()
-        );
+        assert_eq!(position.hashes, position.compute_zobrist());
         let mov = ChessMove::new(
             ChessSquare::from_rank_file(1, E_FILE_NO),
             ChessSquare::from_rank_file(3, E_FILE_NO),
             ChessMoveFlags::NormalPawnMove,
         );
         let new_pos = position.make_move(mov).unwrap();
-        assert_eq!(
-            (new_pos.nonpawn_hash, new_pos.pawn_hash),
-            new_pos.compute_zobrist()
-        );
+        assert_eq!(new_pos.hashes, new_pos.compute_zobrist());
         let ep_move = ChessMove::new(
             ChessSquare::from_rank_file(3, D_FILE_NO),
             ChessSquare::from_rank_file(2, E_FILE_NO),
             ChessMoveFlags::EnPassant,
         );
         let after_ep = new_pos.make_move(ep_move).unwrap();
-        assert_eq!(
-            (after_ep.nonpawn_hash, after_ep.pawn_hash),
-            after_ep.compute_zobrist()
-        );
+        assert_eq!(after_ep.hashes, after_ep.compute_zobrist());
     }
 
     #[test]
@@ -255,13 +248,14 @@ mod tests {
                     || pos.castling != new_pos.castling)
                 {
                     assert_eq!(
-                        Chessboard::approximate_zobrist_after_move(
-                            pos.zobrist_hash(),
-                            pos.active_player,
-                            m.piece_type(),
-                            m.src_square(),
-                            m.dest_square()
-                        ),
+                        pos.zobrist_hash()
+                            ^ Chessboard::update_zobrist(
+                                pos.active_player,
+                                m.piece_type(),
+                                m.src_square(),
+                                m.dest_square()
+                            )
+                            ^ PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key,
                         new_pos.zobrist_hash(),
                         "{pos} {m}"
                     );

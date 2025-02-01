@@ -468,87 +468,31 @@ impl Chessboard {
         prefetch: F,
     ) -> Option<Self> {
         let piece = mov.piece_type();
-        let new_hash = Self::approximate_zobrist_after_move(
-            self.zobrist_hash(),
-            self.active_player,
-            piece,
-            mov.src_square(),
-            mov.dest_square(),
-        );
-        // this is only an approximation of the new hash, but that is good enough
-        prefetch(new_hash ^ PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key);
-        prefetch(new_hash);
         debug_assert_eq!(piece, self.piece_type_on(mov.src_square()));
         let color = self.active_player;
         let other = color.other();
         let from = mov.src_square();
         let mut to = mov.dest_square();
+        let hash_delta = Self::update_zobrist(color, piece, from, to);
+        let new_hash = self.zobrist_hash() ^ hash_delta ^ PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+        // this is only an approximation of the new hash, but that is good enough
+        prefetch(new_hash ^ PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key); // TODO: Remove?
+        prefetch(new_hash);
         debug_assert_eq!(color, mov.piece(&self).color().unwrap());
         self.ply_100_ctr += 1;
-        let (mut nonpawn_hash, mut pawn_hash) = if piece == Pawn {
-            (
-                self.nonpawn_hash ^ PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key,
-                Self::approximate_zobrist_after_move(self.pawn_hash, color, Pawn, from, to)
-                    ^ PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key,
-            )
+        if piece == Pawn {
+            self.hashes.pawns ^= hash_delta;
         } else {
-            (new_hash ^ self.pawn_hash, self.pawn_hash)
-        };
-        // remove old castling flags, they'll later be set again
-        nonpawn_hash ^=
-            PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
-        if let Some(square) = self.ep_square {
-            nonpawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize];
+            self.hashes.nonpawns[color] ^= hash_delta;
+        }
+        // remove old castling flags and ep square, they'll later be set again
+        let mut special_hash = ZobristHash(0);
+        if color == White {
+            special_hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         }
         self.ep_square = None;
         if mov.is_castle() {
-            let from_file = from.file() as isize;
-            let rook_file = to.file() as isize;
-            let (side, to_file, rook_to_file) = if mov.flags() == CastleKingside {
-                (Kingside, G_FILE_NO, F_FILE_NO)
-            } else {
-                (Queenside, C_FILE_NO, D_FILE_NO)
-            };
-            debug_assert_eq!(
-                side == Kingside,
-                self.castling.can_castle(color, Kingside)
-                    && rook_file == self.castling.rook_start_file(color, Kingside) as isize
-            );
-            debug_assert_eq!(
-                side == Queenside,
-                self.castling.can_castle(color, Queenside)
-                    && rook_file == self.castling.rook_start_file(color, Queenside) as isize
-            );
-
-            // Explicitly test if the current square is in check in case the following for loop is empty
-            // because the king doesn't move -- in that case, testing for check after the castle might obscure the
-            // check with the rook, e.g. black in 'rbbqQ1kr/1p2p1pp/p5n1/2pp1p2/2P4P/P7/BP1PPPP1/R1B1NNKR b HAha - 0 10'
-            if self.is_in_check() {
-                return None;
-            }
-            // This works even for DFRC castling because the king is always placed between the rooks
-            let step = if side == Kingside { 1 } else { -1 };
-            // no need to test for check on the target square as that will be done at the end of this function after
-            // the rook has moved
-            for file in iter::range_step(from_file + step, to_file as isize, step) {
-                if self.is_in_check_on_square(
-                    color,
-                    ChessSquare::from_rank_file(from.rank(), file as DimT),
-                ) {
-                    return None;
-                }
-            }
-            let rook_from = self.rook_start_square(color, side);
-            let rook_to = ChessSquare::from_rank_file(from.rank(), rook_to_file);
-            debug_assert!(
-                self.colored_piece_on(rook_from).symbol == ColoredChessPieceType::new(color, Rook)
-            );
-            self.move_piece(rook_from, rook_to, Rook);
-            nonpawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Rook, color, rook_to);
-            nonpawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Rook, color, rook_from);
-            nonpawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(King, color, to);
-            to = ChessSquare::from_rank_file(from.rank(), to_file);
-            nonpawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(King, color, to);
+            self.do_castle(mov, from, &mut to)?;
         } else if mov.is_ep() {
             let taken_pawn = mov.square_of_pawn_taken_by_ep().unwrap();
             debug_assert_eq!(
@@ -556,7 +500,7 @@ impl Chessboard {
                 ColoredChessPieceType::new(other, Pawn)
             );
             self.remove_piece_unchecked(taken_pawn, Pawn, other);
-            pawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, other, taken_pawn);
+            self.hashes.pawns ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, other, taken_pawn);
             self.ply_100_ctr = 0;
         } else if mov.is_non_ep_capture(&self) {
             let captured = self.piece_type_on(to);
@@ -564,9 +508,10 @@ impl Chessboard {
             debug_assert_ne!(captured, King);
             self.remove_piece_unchecked(to, captured, other);
             if captured == Pawn {
-                pawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(captured, other, to);
+                self.hashes.pawns ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(captured, other, to);
             } else {
-                nonpawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(captured, other, to);
+                self.hashes.nonpawns[!color] ^=
+                    PRECOMPUTED_ZOBRIST_KEYS.piece_key(captured, other, to);
             }
             self.ply_100_ctr = 0;
         } else if piece == Pawn {
@@ -578,7 +523,7 @@ impl Chessboard {
                     (to.rank() + from.rank()) / 2,
                     to.file(),
                 ));
-                nonpawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[to.file() as usize];
+                special_hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[to.file() as usize];
             }
         }
         if piece == King {
@@ -593,32 +538,88 @@ impl Chessboard {
         } else if to == self.rook_start_square(other, Kingside) {
             self.castling.unset_castle_right(other, Kingside);
         }
-        nonpawn_hash ^=
+        special_hash ^=
             PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         self.move_piece(from, to, piece);
         if mov.is_promotion() {
             let bb = to.bb().raw();
-            self.piece_bbs[Pawn as usize] ^= bb;
-            self.piece_bbs[mov.flags().promo_piece() as usize] ^= bb;
-            pawn_hash ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, color, to);
-            nonpawn_hash ^=
+            self.piece_bbs[Pawn] ^= bb;
+            self.piece_bbs[mov.flags().promo_piece()] ^= bb;
+            self.hashes.pawns ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, color, to);
+            self.hashes.nonpawns[color] ^=
                 PRECOMPUTED_ZOBRIST_KEYS.piece_key(mov.flags().promo_piece(), color, to);
         }
         self.ply += 1;
-        self.nonpawn_hash = nonpawn_hash;
-        self.pawn_hash = pawn_hash;
+        self.hashes.total =
+            special_hash ^ self.hashes.pawns ^ self.hashes.nonpawns[0] ^ self.hashes.nonpawns[1];
         self.flip_side_to_move()
     }
 
-    /// Called at the end of `make_nullmove` and `make_move`.
+    /// Called at the end of [`Self::make_nullmove`] and [`Self::make_move`].
     #[must_use]
-    pub fn flip_side_to_move(mut self) -> Option<Self> {
+    pub(super) fn flip_side_to_move(mut self) -> Option<Self> {
         if self.is_in_check() {
             None
         } else {
             self.active_player = self.active_player.other();
+            debug_assert_eq!(self.hashes, self.compute_zobrist());
             Some(self)
         }
+    }
+
+    fn do_castle(&mut self, mov: ChessMove, from: ChessSquare, to: &mut ChessSquare) -> Option<()> {
+        let color = self.active_player;
+        let from_file = from.file() as isize;
+        let rook_file = to.file() as isize;
+        let (side, to_file, rook_to_file) = if mov.flags() == CastleKingside {
+            (Kingside, G_FILE_NO, F_FILE_NO)
+        } else {
+            (Queenside, C_FILE_NO, D_FILE_NO)
+        };
+        debug_assert_eq!(self.king_square(self.active_player), from);
+        debug_assert_eq!(
+            side == Kingside,
+            self.castling.can_castle(color, Kingside)
+                && rook_file == self.castling.rook_start_file(color, Kingside) as isize
+        );
+        debug_assert_eq!(
+            side == Queenside,
+            self.castling.can_castle(color, Queenside)
+                && rook_file == self.castling.rook_start_file(color, Queenside) as isize
+        );
+
+        // Explicitly test if the current square is in check in case the following for loop is empty
+        // because the king doesn't move -- in that case, testing for check after the castle might obscure the
+        // check with the rook, e.g. black in 'rbbqQ1kr/1p2p1pp/p5n1/2pp1p2/2P4P/P7/BP1PPPP1/R1B1NNKR b HAha - 0 10'
+        if self.is_in_check() {
+            return None;
+        }
+        // This works even for DFRC castling because the king is always placed between the rooks
+        let step = if side == Kingside { 1 } else { -1 };
+        // no need to test for check on the target square as that will be done at the end of this function after
+        // the rook has moved
+        for file in iter::range_step(from_file + step, to_file as isize, step) {
+            if self.is_in_check_on_square(
+                color,
+                ChessSquare::from_rank_file(from.rank(), file as DimT),
+            ) {
+                return None;
+            }
+        }
+        let rook_from = self.rook_start_square(color, side);
+        let rook_to = ChessSquare::from_rank_file(from.rank(), rook_to_file);
+        debug_assert!(
+            self.colored_piece_on(rook_from).symbol == ColoredChessPieceType::new(color, Rook)
+        );
+        self.move_piece(rook_from, rook_to, Rook);
+        let mut delta = ZobristHash(0);
+        delta ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Rook, color, rook_to);
+        delta ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Rook, color, rook_from);
+        delta ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(King, color, *to);
+        *to = ChessSquare::from_rank_file(from.rank(), to_file);
+        delta ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(King, color, *to);
+        self.hashes.nonpawns[color] ^= delta;
+        Some(())
     }
 }
 
@@ -1108,15 +1109,16 @@ impl<'a> MoveParser<'a> {
 #[cfg(test)]
 mod tests {
     use crate::games::chess::moves::ChessMove;
-    use crate::games::chess::pieces::ChessPieceType::Bishop;
     use crate::games::chess::squares::ChessSquare;
-    use crate::games::chess::ChessColor::White;
     use crate::games::chess::Chessboard;
     use crate::games::generic_tests;
     use crate::games::Board;
-    use crate::general::board::Strictness::Strict;
+    use crate::general::board::Strictness::{Relaxed, Strict};
+    use crate::general::board::UnverifiedBoard;
     use crate::general::moves::ExtendedFormat::{Alternative, Standard};
     use crate::general::moves::Move;
+    use crate::general::perft::perft;
+    use crate::search::Depth;
 
     type GenericTests = generic_tests::GenericTests<Chessboard>;
 
@@ -1217,23 +1219,40 @@ mod tests {
 
     #[test]
     fn castle_test() {
-        let mut p = Chessboard::chess_960_startpos(42).unwrap();
-        p.remove_piece_unchecked(ChessSquare::from_chars('f', '1').unwrap(), Bishop, White);
-        let tests: &[(Chessboard, &[&str])] = &[
+        let p = Chessboard::chess_960_startpos(42).unwrap();
+        let p = p
+            .remove_piece(ChessSquare::from_chars('f', '1').unwrap())
+            .unwrap()
+            .verify(Strict)
+            .unwrap();
+        assert!(p.debug_verify_invariants(Strict).is_ok());
+        let p2 = Chessboard::from_fen(
+            "bb1r2kr/p1ppppp1/1n2qn2/8/8/8/PPPPPPP1/BB1RQNKR b KQkq - 0 1",
+            Relaxed,
+        )
+        .unwrap();
+        let tests: &[(Chessboard, &[&str], u64)] = &[
             (
                 Chessboard::from_name("kiwipete").unwrap(),
                 &["0-0", "0-0-0", "e1g1", "e1h1", "e1a1", "e1c1"],
+                97862,
             ),
-            (p, &["0-0", "g1h1"]),
+            (p, &["0-0", "g1h1"], 8953),
+            (p2, &["0-0", "0-0-0", "g8h8", "g8c8", "g8d8"], 57107), // TODO: Allow `g8g8` for castling?
         ];
-        for (pos, moves) in tests {
+        for (pos, moves, perft_nodes) in tests {
             for mov in *moves {
                 let mov = ChessMove::from_text(mov, pos).unwrap();
                 assert!(mov.is_castle());
                 assert!(!mov.is_capture(pos));
+                assert!(pos
+                    .make_move(mov)
+                    .unwrap()
+                    .debug_verify_invariants(Strict)
+                    .is_ok());
             }
+            let perft_res = perft(Depth::new_unchecked(3), *pos);
+            assert_eq!(perft_res.nodes, *perft_nodes);
         }
     }
 }
-
-// TODO: PGN import test (not here though)
