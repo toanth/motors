@@ -28,6 +28,7 @@ use gears::general::common::{
 };
 use gears::general::move_list::EagerNonAllocMoveList;
 use gears::general::moves::Move;
+use gears::itertools::Itertools;
 use gears::output::text_output::AdaptFormatter;
 use gears::output::Message::Debug;
 use gears::output::OutputOpts;
@@ -41,7 +42,6 @@ use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::Check;
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
 use gears::PlayerResult::{Lose, Win};
-use itertools::Itertools;
 use strum::IntoEnumIterator;
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.

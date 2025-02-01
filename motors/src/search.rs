@@ -6,17 +6,18 @@ use crate::search::multithreading::{
 };
 use crate::search::statistics::{Statistics, Summary};
 use crate::search::tt::TT;
-use colored::Color::Red;
-use colored::Colorize;
 use crossbeam_channel::unbounded;
 use derive_more::{Add, Neg, Sub};
 use dyn_clone::DynClone;
 use gears::arrayvec::ArrayVec;
+use gears::colored::Color::Red;
+use gears::colored::Colorize;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::bail;
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
 use gears::general::move_list::MoveList;
+use gears::itertools::Itertools;
 use gears::output::Message;
 use gears::output::Message::Warning;
 use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON};
@@ -24,7 +25,6 @@ use gears::search::{
     Depth, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl,
 };
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType};
-use itertools::Itertools;
 use rand::prelude::StdRng;
 use rand::SeedableRng;
 use std::collections::HashMap;

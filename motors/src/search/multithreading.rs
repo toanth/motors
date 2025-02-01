@@ -8,8 +8,8 @@ use crate::search::{
     AbstractEvalBuilder, AbstractSearchState, AbstractSearcherBuilder, Engine, EngineInfo,
     SearchParams,
 };
-use colored::Colorize;
 use dyn_clone::clone_box;
+use gears::colored::Colorize;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};

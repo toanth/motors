@@ -1,4 +1,4 @@
-use itertools::Itertools;
+use gears::itertools::Itertools;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::{Duration, Instant};
 

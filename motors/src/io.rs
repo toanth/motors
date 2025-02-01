@@ -38,9 +38,9 @@ use crate::search::{run_bench_with, EvalList, SearchParams, SearcherList};
 use crate::{
     create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match,
 };
-use colored::Color::Red;
-use colored::Colorize;
 use gears::cli::select_game;
+use gears::colored::Color::Red;
+use gears::colored::Colorize;
 use gears::games::{ColoredPiece, OutputList, ZobristHistory};
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, Strictness, UnverifiedBoard};
@@ -54,6 +54,7 @@ use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
 use gears::general::perft::{perft_for, split_perft};
+use gears::itertools::Itertools;
 use gears::output::logger::LoggerBuilder;
 use gears::output::pgn::parse_pgn;
 use gears::output::text_output::{display_color, AdaptFormatter};
@@ -70,7 +71,6 @@ use gears::{
     output_builder_from_str, AbstractRun, GameState, MatchState, MatchStatus, PlayerResult,
     Quitting,
 };
-use itertools::Itertools;
 use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::fs;

@@ -22,10 +22,10 @@ use crate::io::{EngineUGI, SearchType};
 use crate::search::{
     AbstractEvalBuilder, AbstractSearcherBuilder, EngineInfo, EvalList, SearcherList,
 };
-use colored::Colorize;
 use edit_distance::edit_distance;
 use gears::arrayvec::ArrayVec;
 use gears::cli::Game;
+use gears::colored::Colorize;
 use gears::games::{Color, OutputList, ZobristHistory};
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, Strictness};
@@ -35,6 +35,7 @@ use gears::general::common::{
 };
 use gears::general::move_list::MoveList;
 use gears::general::moves::{ExtendedFormat, Move};
+use gears::itertools::Itertools;
 use gears::output::Message::Warning;
 use gears::output::{OutputBuilder, OutputOpts};
 use gears::search::{Depth, NodesLimit, SearchLimit};
@@ -45,7 +46,6 @@ use gears::ProgramStatus::Run;
 use gears::Quitting::{QuitMatch, QuitProgram};
 use inquire::autocompletion::Replacement;
 use inquire::{Autocomplete, CustomUserError};
-use itertools::Itertools;
 use rand::prelude::IndexedRandom;
 use rand::{rng, Rng};
 use std::fmt;

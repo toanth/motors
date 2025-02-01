@@ -18,8 +18,8 @@
 
 // TODO: Keep this is a global object instead? Would make it easier to print warnings from anywhere, simplify search sender design
 
-use colored::Color::TrueColor;
-use colored::Colorize;
+use gears::colored::Color::TrueColor;
+use gears::colored::Colorize;
 use gears::colorgrad::{BasisGradient, Gradient, LinearGradient};
 use gears::games::Color;
 use gears::general::board::Board;
@@ -32,7 +32,7 @@ use gears::score::{Score, SCORE_LOST, SCORE_WON};
 use gears::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
 use gears::search::NodeType::*;
 use gears::search::{MpvType, NodeType, SearchInfo, SearchResult};
-use gears::{colorgrad, GameState};
+use gears::{colored, colorgrad, GameState};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fmt;
 use std::io::stdout;

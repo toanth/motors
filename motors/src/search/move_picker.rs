@@ -4,7 +4,7 @@ use gears::arrayvec::{ArrayVec, IntoIter};
 use gears::general::board::Board;
 use gears::general::move_list::MoveList;
 use gears::general::moves::Move;
-use itertools::Itertools;
+use gears::itertools::Itertools;
 
 #[expect(type_alias_bounds)]
 pub type ScoredMove<B: Board> = (B::Move, MoveScore);
