@@ -31,7 +31,7 @@ use crate::general::bitboards::chess::{
 };
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
-use crate::general::board::Strictness::Strict;
+use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
     board_from_name, ply_counter_from_fullmove_nr, position_fen_part, read_common_fen_part,
     NameToPos, SelfChecks, Strictness, UnverifiedBoard,
@@ -227,6 +227,18 @@ impl Board for Chessboard {
             GenericSelect {
                 name: "philidor",
                 val: || Self::from_fen("3k4/R7/7r/2KP4/8/8/8/8 w - - 0 1", Strict).unwrap(),
+            },
+            GenericSelect {
+                name: "lasker-reichhelm",
+                val: || Self::from_fen("8/k7/3p4/p2P1p2/P2P1P2/8/8/K7 w - -", Relaxed).unwrap(),
+            },
+            GenericSelect {
+                name: "behting",
+                val: || Self::from_fen("8/8/7p/3KNN1k/2p4p/8/3P2p1/8 w - -", Relaxed).unwrap(),
+            },
+            GenericSelect {
+                name: "saavedra",
+                val: || Self::from_fen("8/8/1KP5/3r4/8/8/8/k7 w - - 0 1", Strict).unwrap(),
             },
             GenericSelect {
                 name: "mate_in_1",
