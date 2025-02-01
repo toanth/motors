@@ -860,8 +860,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
 
     fn send_search_info(&self) {
         if let Some(mut output) = self.search_params().thread_type.output() {
-            let info = self.to_search_info();
-            output.write_search_info(info);
+            output.write_search_info(self.to_search_info());
         }
     }
 
@@ -1086,10 +1085,12 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     }
 
     fn current_mpv_pv(&self) -> &[B::Move] {
-        // note that self.search_stack[0].pv doesn't have to be the same, because it gets cleared when visiting the root,
+        // self.search_stack[0].pv doesn't have to be the same as `self.multi_pvs[...].pv` because it gets cleared when visiting the root,
         // and if the root never updates its PV (because it fails low or because the search is stopped), it will remain
         // empty. On the other hand, it can get updated during search; this only updates after each aw.
-        self.multi_pvs[self.current_pv_num].pv.as_slice()
+        self.search_stack[0]
+            .pv()
+            .unwrap_or_else(|| &self.multi_pvs[self.current_pv_num].pv.as_slice())
     }
 }
 
