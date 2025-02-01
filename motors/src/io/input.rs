@@ -18,7 +18,7 @@
 use crate::io::command::{ugi_commands, CommandAutocomplete};
 use crate::io::input::InputEnum::{Interactive, NonInteractive};
 use crate::io::EngineUGI;
-use colored::Colorize;
+use gears::colored::Colorize;
 use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};

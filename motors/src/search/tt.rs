@@ -269,11 +269,11 @@ mod test {
     use crate::search::{Engine, SearchParams};
     use gears::games::chess::moves::ChessMove;
     use gears::games::ZobristHistory;
+    use gears::rand::distr::Uniform;
+    use gears::rand::{rng, Rng, RngCore};
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
     use gears::search::NodeType::Exact;
     use gears::search::{Depth, SearchLimit};
-    use rand::distr::Uniform;
-    use rand::{rng, Rng, RngCore};
     use std::thread::{sleep, spawn};
     use std::time::Duration;
 

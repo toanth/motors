@@ -28,6 +28,7 @@ use gears::general::common::{
 };
 use gears::general::move_list::EagerNonAllocMoveList;
 use gears::general::moves::Move;
+use gears::itertools::Itertools;
 use gears::output::text_output::AdaptFormatter;
 use gears::output::Message::Debug;
 use gears::output::OutputOpts;
@@ -41,7 +42,6 @@ use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::Check;
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
 use gears::PlayerResult::{Lose, Win};
-use itertools::Itertools;
 use strum::IntoEnumIterator;
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
@@ -70,7 +70,7 @@ fn update_history_score(entry: &mut i32, bonus: i32) {
 /// but didn't cause a beta cutoff. Order all non-TT non-killer moves based on that (as well as based on the continuation
 /// history)
 #[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
-struct HistoryHeuristic([i32; 64 * 64]);
+struct HistoryHeuristic(Box<[i32; 64 * 64]>);
 
 impl HistoryHeuristic {
     fn update(&mut self, mov: ChessMove, bonus: i32) {
@@ -80,27 +80,27 @@ impl HistoryHeuristic {
 
 impl Default for HistoryHeuristic {
     fn default() -> Self {
-        HistoryHeuristic([0; 64 * 64])
+        HistoryHeuristic(Box::new([0; 64 * 64]))
     }
 }
 
 /// Capture History Heuristic: Same as quiet history heuristic, but for captures.
-#[derive(Debug, Clone, Index, IndexMut)]
-struct CaptHist([[[i32; 64]; 6]; NUM_COLORS]);
+#[derive(Debug, Clone)]
+struct CaptHist(Box<[[[i32; 64]; 6]; NUM_COLORS]>);
 
 impl CaptHist {
     fn update(&mut self, mov: ChessMove, color: ChessColor, bonus: i32) {
-        let entry = &mut self[color][mov.piece_type() as usize][mov.dest_square().bb_idx()];
+        let entry = &mut self.0[color][mov.piece_type() as usize][mov.dest_square().bb_idx()];
         update_history_score(entry, bonus);
     }
     fn get(&self, mov: ChessMove, color: ChessColor) -> MoveScore {
-        MoveScore(self[color][mov.piece_type() as usize][mov.dest_square().bb_idx()])
+        MoveScore(self.0[color][mov.piece_type() as usize][mov.dest_square().bb_idx()])
     }
 }
 
 impl Default for CaptHist {
     fn default() -> Self {
-        Self([[[0; 64]; 6]; NUM_COLORS])
+        Self(Box::new([[[0; 64]; 6]; NUM_COLORS]))
     }
 }
 
@@ -143,16 +143,16 @@ const CORRHIST_SCALE: isize = 256;
 
 #[derive(Debug, Clone)]
 struct CorrHist {
-    pawns: [[ScoreT; CORRHIST_SIZE]; NUM_COLORS],
+    pawns: Box<[[ScoreT; CORRHIST_SIZE]; NUM_COLORS]>,
     // the outer color index is the active player, the inner color is the color we're looking at
-    nonpawns: [[[ScoreT; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS],
+    nonpawns: Box<[[[ScoreT; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]>,
 }
 
 impl Default for CorrHist {
     fn default() -> Self {
         CorrHist {
-            pawns: [[0; CORRHIST_SIZE]; NUM_COLORS],
-            nonpawns: [[[0; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS],
+            pawns: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]),
+            nonpawns: Box::new([[[0; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]),
         }
     }
 }

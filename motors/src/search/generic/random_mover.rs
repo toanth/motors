@@ -1,9 +1,9 @@
-use itertools::Itertools;
+use gears::itertools::Itertools;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::{Duration, Instant};
 
 use gears::general::board::Board;
-use rand::{rng, Rng, RngCore, SeedableRng};
+use gears::rand::{rng, Rng, RngCore, SeedableRng};
 
 use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;

@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
-use dyn_clone::clone_box;
-use rand::rngs::StdRng;
+use gears::dyn_clone::clone_box;
+use gears::rand::rngs::StdRng;
 
 use gears::cli::{ArgIter, Game};
 #[cfg(feature = "ataxx")]

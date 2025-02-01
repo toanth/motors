@@ -20,6 +20,8 @@ pub use colored;
 use colored::Colorize;
 pub use colorgrad;
 pub use crossterm;
+pub use dyn_clone;
+pub use itertools;
 pub use rand;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
