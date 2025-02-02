@@ -18,20 +18,22 @@
 
 // TODO: Keep this is a global object instead? Would make it easier to print warnings from anywhere, simplify search sender design
 
-use colored::Color::TrueColor;
-use colored::Colorize;
+use gears::colored::Color::TrueColor;
+use gears::colored::Colorize;
 use gears::colorgrad::{BasisGradient, Gradient, LinearGradient};
 use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::common::{sigmoid, Tokens};
+use gears::general::move_list::MoveList;
 use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::Move;
-use gears::output::{Message, OutputBox};
-use gears::score::Score;
+use gears::output::{Message, OutputBox, OutputOpts};
+use gears::score::{Score, SCORE_LOST, SCORE_WON};
 use gears::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
 use gears::search::NodeType::*;
 use gears::search::{MpvType, NodeType, SearchInfo, SearchResult};
-use gears::{colorgrad, GameState};
+use gears::{colored, colorgrad, GameState};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::fmt;
 use std::io::stdout;
 
@@ -44,6 +46,8 @@ pub struct UgiOutput<B: Board> {
     previous_exact_info: Option<SearchInfo<B>>,
     gradient: LinearGradient,
     alt_grad: BasisGradient,
+    progress_bar: Option<ProgressBar>,
+    pub(super) show_currline: bool,
 }
 
 impl<B: Board> Default for UgiOutput<B> {
@@ -59,6 +63,8 @@ impl<B: Board> Default for UgiOutput<B> {
                 .domain(&[0.0, 1.0])
                 .build::<BasisGradient>()
                 .unwrap(),
+            progress_bar: None,
+            show_currline: false,
         }
     }
 }
@@ -93,31 +99,117 @@ impl<B: Board> UgiOutput<B> {
     }
 
     pub fn write_search_res(&mut self, res: SearchResult<B>) {
-        if self.pretty {
-            let mut move_text = res.chosen_move.to_extended_text(&res.pos, Standard).bold();
-            if let Some(score) = res.score {
-                move_text = move_text.color(color_for_score(score, &self.gradient));
-            }
-            let mut msg = format!("Chosen move: {move_text}",);
-            if let Some(ponder) = res.ponder_move() {
-                let new_pos = res
-                    .pos
-                    .make_move(res.chosen_move)
-                    .expect("Search returned illegal move");
-                msg += &format!(
-                    " (expected response: {})",
-                    ponder.to_extended_text(&new_pos, Standard)
-                )
-                .dimmed()
-                .to_string();
-            }
-            self.write_ugi(&msg)
-        } else {
+        self.clear_progress_bar();
+        if !self.pretty {
             self.write_ugi(&res.to_string());
+            return;
         }
+        let mut move_text = res.chosen_move.to_extended_text(&res.pos, Standard).bold();
+        if let Some(score) = res.score {
+            move_text = move_text.color(color_for_score(score, &self.gradient));
+        }
+        let mut msg = format!("Chosen move: {move_text}",);
+        if let Some(ponder) = res.ponder_move() {
+            let new_pos = res
+                .pos
+                .make_move(res.chosen_move)
+                .expect("Search returned illegal move");
+            msg += &format!(
+                " (expected response: {})",
+                ponder.to_extended_text(&new_pos, Standard)
+            )
+            .dimmed()
+            .to_string();
+        }
+        self.write_ugi(&msg)
+    }
+
+    pub fn show_bar(
+        &mut self,
+        num_moves: usize,
+        variation: &[B::Move],
+        pos: B,
+        eval: Score,
+        alpha: Score,
+        beta: Score,
+    ) -> &ProgressBar {
+        let bar = self.progress_bar.get_or_insert_with(|| {
+            let template = "{prefix}\n{bar:68.cyan/blue} {pos:>3}/{len:3}";
+            ProgressBar::new(num_moves as u64)
+                .with_style(ProgressStyle::with_template(template).unwrap())
+        });
+        let elapsed = bar.elapsed().as_millis();
+        let variation = pretty_variation(variation, pos, None, None, Exact);
+        let eval = pretty_score(eval, None, None, &self.gradient, true, false);
+        let alpha = pretty_score(alpha, None, None, &self.gradient, true, false);
+        let beta = pretty_score(beta, None, None, &self.gradient, true, false);
+        let score_string = format!("{eval} with bounds ({alpha}, {beta})");
+        let msg = format!(
+            "{0}{elapsed:>5}{1} {variation} [{score_string}]",
+            "[".dimmed(),
+            "ms in this AW] Searching".dimmed()
+        );
+        bar.set_prefix(msg);
+        bar
+    }
+
+    pub fn write_currmove(
+        &mut self,
+        pos: &B,
+        mov: B::Move,
+        move_nr: usize,
+        score: Score,
+        alpha: Score,
+        beta: Score,
+    ) {
+        if (!self.show_currline || !pos.is_move_legal(mov)) && !self.pretty {
+            return;
+        }
+        // UGI wants 1-indexed output, but we've already counted the move, so move_nr is 1-indexed
+        let num_moves = pos.legal_moves_slow().num_moves();
+        if !self.pretty {
+            self.write_ugi(&format!("info currmove {mov} currmovenumber {move_nr}"));
+            return;
+        }
+        // TODO: Faster implementation for number of legal moves in Board trait?
+        let bar = self.show_bar(num_moves, &[mov], *pos, score, alpha, beta);
+        bar.set_position(move_nr as u64);
+    }
+
+    pub fn write_currline(
+        &mut self,
+        pos: B,
+        variation: &[B::Move],
+        eval: Score,
+        alpha: Score,
+        beta: Score,
+    ) {
+        use std::fmt::Write;
+        if !self.show_currline && !self.pretty {
+            return;
+        }
+        if !self.pretty {
+            let mut line = String::new();
+            for mov in variation {
+                write!(line, " {mov}").unwrap();
+            }
+            // We only send search results from the main thread, no matter how many threads are searching.
+            // And we're also not inspecting other threads' PVs from the main thread.
+            self.write_ugi(&format!("info cpu 1 currline {line}"));
+            return;
+        }
+        self.show_bar(
+            pos.legal_moves_slow().num_moves(),
+            variation,
+            pos,
+            eval,
+            alpha,
+            beta,
+        );
     }
 
     pub fn write_search_info(&mut self, info: SearchInfo<B>) {
+        self.clear_progress_bar();
         let exact = info.bound == Some(Exact);
         if !self.pretty {
             self.write_ugi(&info.to_string());
@@ -169,11 +261,12 @@ impl<B: Board> UgiOutput<B> {
         let time = format!("{time:5.1}").color(TrueColor { r, g, b });
         let nodes = format!("{nodes:6.1}");
 
-        let pv = pretty_pv(
+        let pv = pretty_variation(
             &info.pv,
             info.pos,
             self.previous_exact_info.as_ref().map(|i| i.pv.as_ref()),
-            info.mpv_type(),
+            Some(info.mpv_type()),
+            info.bound.unwrap_or(Exact),
         );
         let mut multipv = if info.mpv_type() == OnlyLine {
             "    ".to_string()
@@ -183,10 +276,19 @@ impl<B: Board> UgiOutput<B> {
         if info.mpv_type() == SecondaryLine {
             multipv = multipv.dimmed().to_string();
         }
-        // bold after formatting because crossterms seems to count the control characters towards the format width
+
         let mut iter = format!("{:>3}", info.depth);
         if !exact {
             iter = iter.dimmed().to_string();
+            if let Some(FailLow) = info.bound {
+                iter = iter
+                    .color(color_for_score(SCORE_LOST, &self.gradient))
+                    .to_string();
+            } else if let Some(FailHigh) = info.bound {
+                iter = iter
+                    .color(color_for_score(SCORE_WON, &self.gradient))
+                    .to_string();
+            }
         } else if info.mpv_type() != SecondaryLine {
             iter = iter.bold().to_string();
         }
@@ -206,11 +308,11 @@ impl<B: Board> UgiOutput<B> {
             .color(TrueColor { r, g, b })
             .dimmed();
         let text = format!(
-                " {iter}{complete} {seldepth:>3} {multipv} {score:>8}  {time}{s}  {nodes}{M}{diff_string}  {nps}{M}  {tt}{p}  {pv}",
-                s = if in_seconds {"s"} else {"m"}.dimmed(),
-                M = "M".dimmed(),
-                p = "%".dimmed(),
-            );
+            " {iter}{complete} {seldepth:>3} {multipv} {score:>8}  {time}{s}  {nodes}{M}{diff_string}  {nps}{M}  {tt}{p}  {pv}",
+            s = if in_seconds { "s" } else { "m" }.dimmed(),
+            M = "M".dimmed(),
+            p = "%".dimmed(),
+        );
         self.write_ugi(&text);
         if info.bound.is_none() {
             self.write_ugi(&"[(*) Iteration did not complete]".dimmed().to_string());
@@ -218,6 +320,13 @@ impl<B: Board> UgiOutput<B> {
         if info.mpv_type() != SecondaryLine && info.bound == Some(Exact) {
             self.previous_exact_info = Some(info);
         }
+    }
+
+    fn clear_progress_bar(&mut self) {
+        if let Some(bar) = &self.progress_bar {
+            bar.finish_and_clear();
+        }
+        self.progress_bar = None;
     }
 
     pub(super) fn write_ugi_input(&mut self, msg: Tokens) {
@@ -232,20 +341,20 @@ impl<B: Board> UgiOutput<B> {
         }
     }
 
-    pub fn show(&mut self, m: &dyn GameState<B>) -> bool {
+    pub fn show(&mut self, m: &dyn GameState<B>, opts: OutputOpts) -> bool {
         for output in &mut self.additional_outputs {
-            output.show(m);
+            output.show(m, opts);
         }
         self.additional_outputs
             .iter()
             .any(|o| !o.is_logger() && o.prints_board())
     }
 
-    pub fn format(&mut self, m: &dyn GameState<B>) -> String {
+    pub fn format(&mut self, m: &dyn GameState<B>, opts: OutputOpts) -> String {
         use std::fmt::Write;
         let mut res = String::new();
         for output in &mut self.additional_outputs {
-            write!(&mut res, "{}", output.as_string(m)).unwrap();
+            write!(&mut res, "{}", output.as_string(m, opts)).unwrap();
         }
         res
     }
@@ -305,6 +414,7 @@ pub fn pretty_score(
     if let Some(mate) = score.moves_until_game_won() {
         res = format!("#{mate}");
         if min_width {
+            // 2 spaces because we don't print `cp`
             res = format!("  {:>5}", format!("#{mate}"))
         }
     } else if !min_width {
@@ -314,9 +424,15 @@ pub fn pretty_score(
     if !main_line {
         res = res.dimmed();
     }
-    let bound_string = bound.unwrap_or(Exact).comparison_str(min_width).to_string();
+    // some (but not all) terminals have trouble with colored bold symbols, and using `bold` would remove the color in some cases.
+    // For some reason, only using the ansi colore codes (.green(), .red(), etc) creates these problems, but true colors work fine
+    let bound_string = match bound.unwrap_or(Exact) {
+        FailHigh => "≥".color(color_for_score(SCORE_WON, gradient)).bold(),
+        Exact => (if min_width { " " } else { "" }).into(),
+        FailLow => "≤".color(color_for_score(SCORE_LOST, gradient)).bold(),
+    };
     let res = if score.is_won_or_lost() {
-        format!("{bound_string} {}", res.bold())
+        format!("{bound_string}{}", res.bold())
     } else {
         format!("{bound_string}{res}{}", "cp".dimmed())
     };
@@ -325,8 +441,10 @@ pub fn pretty_score(
         if !main_line || bound != Some(Exact) {
             return res.to_string() + "  ";
         }
-        // `sigmoid - sigmoid` instead of `sigmoid(diff)` to weight changes close to 0 stronger
-        let x = 0.5 + 2.0 * (sigmoid(score, 100.0) as f32 - sigmoid(previous, 100.0) as f32);
+        // use both `sigmoid - sigmoid` and `sigmoid(diff)` to weight changes close to 0 stronger
+        let x = ((0.5 + 2.0 * (sigmoid(score, 100.0) as f32 - sigmoid(previous, 100.0) as f32))
+            + sigmoid(score - previous, 50.0) as f32)
+            / 2.0;
         let color = gradient.at(x);
         let [r, g, b, _] = color.to_rgba8();
         let diff = score - previous;
@@ -357,11 +475,11 @@ fn write_move_nr(
     move_nr: usize,
     first_move: bool,
     first_player: bool,
-    mpv_type: MpvType,
+    mpv_type: Option<MpvType>,
 ) {
     use fmt::Write;
     let mut write = |move_nr: String| {
-        if mpv_type == MainOfMultiple {
+        if mpv_type == Some(MainOfMultiple) {
             write!(res, "{}", move_nr.bold()).unwrap();
         } else {
             write!(res, "{}", move_nr.dimmed()).unwrap();
@@ -376,19 +494,22 @@ fn write_move_nr(
     }
 }
 
-fn pretty_pv<B: Board>(
+fn pretty_variation<B: Board>(
     pv: &[B::Move],
     mut pos: B,
     previous: Option<&[B::Move]>,
-    mpv_type: MpvType,
+    mpv_type: Option<MpvType>,
+    node_type: NodeType,
 ) -> String {
     use fmt::Write;
     let mut same_so_far = true;
     let mut res = String::new();
     let pv = pv.iter();
     for (idx, mov) in pv.enumerate() {
-        if !pos.is_move_legal(*mov) {
-            return format!("{res} [Invalid PV move '{}'", mov.to_string().red());
+        if !pos.is_move_legal(*mov) && !mov.is_null() {
+            debug_assert!(false);
+            let name = if mpv_type.is_some() { "PV " } else { "" };
+            return format!("{res} [Invalid {name}move '{}']", mov.to_string().red());
         }
         // 'Alternative' would be cooler, but unfortunately most fonts struggle with unicode chess pieces,
         // especially in combination with bold / dim etc
@@ -397,11 +518,16 @@ fn pretty_pv<B: Board>(
             .and_then(|p| p.get(idx))
             .copied()
             .unwrap_or_default();
-        if previous == *mov || mpv_type == SecondaryLine {
+        if previous == *mov || mpv_type == Some(SecondaryLine) {
             new_move = new_move.dimmed().to_string();
-        } else if same_so_far && mpv_type != SecondaryLine {
+        } else if same_so_far && mpv_type != Some(SecondaryLine) {
             new_move = new_move.bold().to_string();
             same_so_far = false;
+        }
+        if node_type == FailLow {
+            new_move = new_move.red().to_string();
+        } else if node_type == FailHigh {
+            new_move = new_move.green().to_string();
         }
         write_move_nr(
             &mut res,
@@ -411,7 +537,11 @@ fn pretty_pv<B: Board>(
             mpv_type,
         );
         write!(&mut res, "{new_move}").unwrap();
-        pos = pos.make_move(*mov).unwrap();
+        if mov.is_null() {
+            pos = pos.make_nullmove().unwrap();
+        } else {
+            pos = pos.make_move(*mov).unwrap();
+        }
     }
     res
 }

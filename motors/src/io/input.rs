@@ -18,11 +18,12 @@
 use crate::io::command::{ugi_commands, CommandAutocomplete};
 use crate::io::input::InputEnum::{Interactive, NonInteractive};
 use crate::io::EngineUGI;
-use colored::Colorize;
+use gears::colored::Colorize;
 use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Res;
+use gears::output::OutputOpts;
 use inquire::Text;
 use std::io::{stdin, stdout, IsTerminal};
 
@@ -61,7 +62,7 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
             };
             ugi.write_ugi(
                 &format!(
-                    "\nIter    Seldepth     Score      Time    Nodes   (New)     NPS      TT     {pv_spacer}PV"
+                    "\nIter    Seldepth    Score      Time    Nodes   (New)     NPS      TT     {pv_spacer}PV"
                 )
                 .bold()
                 .to_string(),
@@ -84,7 +85,7 @@ impl<B: Board> InteractiveInput<B> {
             autocompletion: CommandAutocomplete::new(ugi_commands(), ugi),
         };
         // technically, we could also use an inquire formatter, but that doesn't seem to handle multi-line messages well
-        ugi.print_board();
+        ugi.print_board(OutputOpts::default());
         res
     }
 }

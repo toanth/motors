@@ -8,8 +8,8 @@ use crate::search::{
     AbstractEvalBuilder, AbstractSearchState, AbstractSearcherBuilder, Engine, EngineInfo,
     SearchParams,
 };
-use colored::Colorize;
-use dyn_clone::clone_box;
+use gears::colored::Colorize;
+use gears::dyn_clone::clone_box;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
@@ -155,7 +155,7 @@ impl<B: Board> AtomicSearchState<B> {
         self.set_score(NO_SCORE_YET);
         self.set_ponder_move(None);
         self.set_best_move(B::Move::default());
-        self.update_seldepth(0);
+        self.seldepth.store(0, Relaxed); // don't use `update_seldepth` as that uses `fetch_max`.
         self.set_depth(0);
         self.nodes.store(0, Relaxed);
         self.set_searching(starting_search);
@@ -194,6 +194,10 @@ impl<B: Board> AtomicSearchState<B> {
         Score(self.score.load(Relaxed))
     }
 
+    pub(super) fn get_score_t(&self) -> &AtomicI32 {
+        &self.score
+    }
+
     pub fn best_move(&self) -> B::Move {
         B::Move::from_usize_unchecked(self.best_move.load(Relaxed)).trust_unchecked()
     }
@@ -226,7 +230,7 @@ impl<B: Board> AtomicSearchState<B> {
     }
 
     pub fn set_score(&self, score: Score) {
-        debug_assert!(score.verify_valid().is_some());
+        debug_assert!(score.is_valid());
         self.score.store(score.0, Relaxed);
     }
 
@@ -480,7 +484,7 @@ impl<B: Board> EngineWrapper<B> {
             let max = self.get_engine_info().max_threads;
             if count == 0 || count > max {
                 bail!(
-                    "Trying to set the number of threads to {count}. The maximum number of threads for this engine is {max}."
+                    "Trying to set the number of threads to {count}. The maximum number of threads for this engine on this machine is {max}."
                 );
             }
             self.overwrite_num_threads = None;

@@ -7,7 +7,7 @@ use rand::prelude::IteratorRandom;
 use rand::Rng;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroUsize;
-use std::ops::Not;
+use std::ops::{Index, IndexMut, Not};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -27,11 +27,11 @@ use crate::games::{
     ColoredPieceType, DimT, PieceType, Settings, ZobristHash,
 };
 use crate::general::bitboards::chess::{
-    ChessBitboard, BLACK_SQUARES, CORNER_SQUARES, WHITE_SQUARES,
+    black_squares, white_squares, ChessBitboard, CORNER_SQUARES,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
-use crate::general::board::Strictness::Strict;
+use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
     board_from_name, ply_counter_from_fullmove_nr, position_fen_part, read_common_fen_part,
     NameToPos, SelfChecks, Strictness, UnverifiedBoard,
@@ -45,6 +45,7 @@ use crate::output::text_output::{
     board_to_string, display_board_pretty, display_color, AdaptFormatter, BoardFormatter,
     DefaultBoardFormatter, PieceToChar,
 };
+use crate::output::OutputOpts;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose};
 
@@ -77,6 +78,19 @@ pub enum ChessColor {
     #[default]
     White = 0,
     Black = 1,
+}
+
+impl<T> Index<ChessColor> for [T; 2] {
+    type Output = T;
+    fn index(&self, index: ChessColor) -> &Self::Output {
+        &self[index as usize]
+    }
+}
+
+impl<T> IndexMut<ChessColor> for [T; 2] {
+    fn index_mut(&mut self, index: ChessColor) -> &mut Self::Output {
+        &mut self[index as usize]
+    }
 }
 
 impl Not for ChessColor {
@@ -112,6 +126,13 @@ impl Color for ChessColor {
     }
 }
 
+#[derive(Debug, Default, Eq, PartialEq, Copy, Clone, Arbitrary)]
+struct Hashes {
+    pawns: ZobristHash,
+    nonpawns: [ZobristHash; NUM_COLORS],
+    total: ZobristHash,
+}
+
 #[derive(Eq, PartialEq, Debug, Copy, Clone, Arbitrary)]
 pub struct Chessboard {
     piece_bbs: [RawStandardBitboard; NUM_CHESS_PIECES],
@@ -121,7 +142,7 @@ pub struct Chessboard {
     active_player: ChessColor,
     castling: CastlingFlags,
     ep_square: Option<ChessSquare>, // eventually, see if using Optional and Noned instead of Option improves nps
-    hash: ZobristHash,
+    hashes: Hashes,
 }
 
 impl Default for Chessboard {
@@ -172,7 +193,7 @@ impl Board for Chessboard {
             active_player: White,
             castling: CastlingFlags::default(),
             ep_square: None,
-            hash: ZobristHash(0),
+            hashes: Hashes::default(),
         })
     }
 
@@ -206,6 +227,18 @@ impl Board for Chessboard {
             GenericSelect {
                 name: "philidor",
                 val: || Self::from_fen("3k4/R7/7r/2KP4/8/8/8/8 w - - 0 1", Strict).unwrap(),
+            },
+            GenericSelect {
+                name: "lasker-reichhelm",
+                val: || Self::from_fen("8/k7/3p4/p2P1p2/P2P1P2/8/8/K7 w - -", Relaxed).unwrap(),
+            },
+            GenericSelect {
+                name: "behting",
+                val: || Self::from_fen("8/8/7p/3KNN1k/2p4p/8/3P2p1/8 w - -", Relaxed).unwrap(),
+            },
+            GenericSelect {
+                name: "saavedra",
+                val: || Self::from_fen("8/8/1KP5/3r4/8/8/8/k7 w - - 0 1", Strict).unwrap(),
             },
             GenericSelect {
                 name: "mate_in_1",
@@ -322,6 +355,12 @@ impl Board for Chessboard {
             "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1",
             // the same position with flipped side to move has no legal moves
             "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 b - - 0 1",
+            // caused an assertion failure once and is a chess960 FEN
+            "nrb1nkrq/2pp1ppp/p4b2/1p2p3/P4B2/3P4/1PP1PPPP/NR1BNRKQ w gb - 0 9",
+            // a very weird position (not reachable from startpos, but still somewhat realistic)
+            "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1",
+            // mate in 15 that stronger engines tend to miss(even lichess SF only finds a mate in 17 with max parameters)
+            "5k2/1p5Q/p2r1qp1/P1p1RpN1/2P5/3P3P/5PP1/6K1 b - - 0 56",
         ];
         fens.map(|fen| Self::from_fen(fen, Strict).unwrap())
             .iter()
@@ -411,10 +450,10 @@ impl Board for Chessboard {
         // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove
         self.ply_100_ctr = 0;
         if let Some(sq) = self.ep_square {
-            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[sq.file() as usize];
+            self.hashes.total ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[sq.file() as usize];
             self.ep_square = None;
         }
-        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+        self.hashes.total ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         self.flip_side_to_move()
     }
 
@@ -448,11 +487,7 @@ impl Board for Chessboard {
     }
 
     fn no_moves_result(&self) -> PlayerResult {
-        if self.is_in_check() {
-            Lose
-        } else {
-            Draw
-        }
+        self.no_moves_result_if(self.is_in_check())
     }
 
     /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
@@ -481,7 +516,7 @@ impl Board for Chessboard {
         }
         let bishops = self.colored_piece_bb(player, Bishop);
         if self.colored_piece_bb(player, Knight).is_zero()
-            && ((bishops & WHITE_SQUARES).is_zero() || (bishops & BLACK_SQUARES).is_zero())
+            && ((bishops & white_squares()).is_zero() || (bishops & black_squares()).is_zero())
         {
             return false;
         }
@@ -489,7 +524,7 @@ impl Board for Chessboard {
     }
 
     fn zobrist_hash(&self) -> ZobristHash {
-        self.hash
+        self.hashes.total
     }
 
     fn as_fen(&self) -> String {
@@ -613,6 +648,7 @@ impl Board for Chessboard {
         &self,
         piece_to_char: Option<PieceToChar>,
         last_move: Option<ChessMove>,
+        opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
         let pos = *self;
         let king_square = self.king_square(self.active_player);
@@ -624,7 +660,12 @@ impl Board for Chessboard {
             }
         });
         Box::new(AdaptFormatter {
-            underlying: Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move)),
+            underlying: Box::new(DefaultBoardFormatter::new(
+                *self,
+                piece_to_char,
+                last_move,
+                opts,
+            )),
             color_frame,
             display_piece: Box::new(move |square, width, _default| {
                 let piece = pos.colored_piece_on(square);
@@ -664,7 +705,7 @@ impl Chessboard {
     }
 
     pub fn colored_bb(&self, color: ChessColor) -> ChessBitboard {
-        ChessBitboard::new(self.color_bbs[color as usize])
+        ChessBitboard::new(self.color_bbs[color])
     }
 
     pub fn active_player_bb(&self) -> ChessBitboard {
@@ -703,8 +744,8 @@ impl Chessboard {
             ChessPiece::new(ColoredChessPieceType::new(color, piece), square)
         );
         let bb = square.bb().raw();
-        self.piece_bbs[piece as usize] ^= bb;
-        self.color_bbs[color as usize] ^= bb;
+        self.piece_bbs[piece] ^= bb;
+        self.color_bbs[color] ^= bb;
         // It's not really clear how to so handle these flags when removing pieces, so we just unset them on a best effort basis
         if piece == Rook {
             for side in CastleRight::iter() {
@@ -732,9 +773,13 @@ impl Chessboard {
             "{}",
             self.piece_type_on(from)
         );
-        debug_assert_eq!(
-            self.active_player,
-            self.colored_piece_on(from).color().unwrap()
+        debug_assert!(
+            (self.active_player ==
+            self.colored_piece_on(from).color().unwrap())
+            // in chess960 castling, it's possible that the rook has been sent to the king square,
+            // which means the color bit of the king square is currently not set
+            || (piece == King && self.piece_bb(Rook).is_bit_set_at(from.bb_idx())),
+            "{self}"
         );
         // with chess960 castling, it's possible to move to the source square or a square occupied by a rook
         debug_assert!(
@@ -746,8 +791,16 @@ impl Chessboard {
         // it is possible that from == to or that there's another piece on the target square
         let bb = (from.bb() ^ to.bb()).raw();
         let color = self.active_player;
-        self.color_bbs[color as usize] ^= bb;
+        self.color_bbs[color] ^= bb;
         self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
+    }
+
+    pub fn pawn_key(&self) -> ZobristHash {
+        self.hashes.pawns
+    }
+
+    pub fn nonpawn_key(&self, color: ChessColor) -> ZobristHash {
+        self.hashes.nonpawns[color]
     }
 
     /// A mate that happens on the 100 move rule counter reaching 100 takes precedence.
@@ -787,7 +840,7 @@ impl Chessboard {
             return false;
         }
         let bishops = self.piece_bb(Bishop);
-        if (bishops & BLACK_SQUARES).has_set_bit() && (bishops & WHITE_SQUARES).has_set_bit() {
+        if (bishops & black_squares()).has_set_bit() && (bishops & white_squares()).has_set_bit() {
             return false; // opposite-colored bishops (even if they belong to different players)
         }
         if bishops.has_set_bit() && self.piece_bb(Knight).has_set_bit() {
@@ -798,6 +851,14 @@ impl Chessboard {
             return false;
         }
         true
+    }
+
+    pub fn no_moves_result_if(&self, in_check: bool) -> PlayerResult {
+        if in_check {
+            Lose
+        } else {
+            Draw
+        }
     }
 
     pub fn ep_square(&self) -> Option<ChessSquare> {
@@ -903,8 +964,8 @@ impl Chessboard {
         for bb in &mut res.0.piece_bbs {
             *bb = ChessBitboard::new(*bb).flip_up_down().raw();
         }
-        res.0.color_bbs[Black as usize] = res.0.colored_bb(White).flip_up_down().raw();
-        res.0.color_bbs[White as usize] = RawStandardBitboard::default();
+        res.0.color_bbs[Black] = res.0.colored_bb(White).flip_up_down().raw();
+        res.0.color_bbs[White] = RawStandardBitboard::default();
         res = Self::chess960_startpos_white(white_num, White, res)?;
         // the hash is computed in the verify method
         Ok(res.verify_with_level(Assertion, Strict).expect("Internal error: Setting up a Chess960 starting position resulted in an invalid position"))
@@ -1057,8 +1118,8 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                     bb.num_ones()
                 );
             } else if strictness == Strict {
-                num_promoted_pawns[color as usize] +=
-                    0.max(bb.num_ones() as isize - startpos_piece_count[piece.uncolor() as usize]);
+                num_promoted_pawns[color] +=
+                    0.max(bb.num_ones() as isize - startpos_piece_count[piece.uncolor()]);
             }
             if checks != CheckFen {
                 for other_piece in ColoredChessPieceType::pieces() {
@@ -1077,11 +1138,11 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         }
         for color in ChessColor::iter() {
             let num_pawns = this.colored_piece_bb(color, Pawn).num_ones() as isize;
-            if strictness == Strict && num_promoted_pawns[color as usize] + num_pawns > 8 {
+            if strictness == Strict && num_promoted_pawns[color] + num_pawns > 8 {
                 bail!("Incorrect piece distribution for {color}")
             }
         }
-        this.hash = this.compute_zobrist();
+        this.hashes = this.compute_zobrist();
         Ok(this)
     }
 
@@ -1093,8 +1154,8 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         let mut this = self.0;
         debug_assert!(self.0.is_empty(square));
         let bb = square.bb().raw();
-        this.piece_bbs[piece.uncolor() as usize] ^= bb;
-        this.color_bbs[piece.color().unwrap() as usize] ^= bb;
+        this.piece_bbs[piece.uncolor()] ^= bb;
+        this.color_bbs[piece.color().unwrap()] ^= bb;
         this.into()
     }
 
@@ -1144,11 +1205,13 @@ pub enum SliderMove {
 
 #[cfg(test)]
 mod tests {
-    use rand::thread_rng;
+    use rand::rng;
     use std::collections::HashSet;
 
     use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
-    use crate::games::{Coordinates, NoHistory, RectangularCoordinates, ZobristHistory};
+    use crate::games::{
+        char_to_file, Coordinates, NoHistory, RectangularCoordinates, ZobristHistory,
+    };
     use crate::general::board::RectangularBoard;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::Move;
@@ -1484,7 +1547,7 @@ mod tests {
         assert!(Chessboard::from_fen(fen, Strict).is_err());
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 3);
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let mov = board.random_legal_move(&mut rng).unwrap();
         let board = board.make_move(mov).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 2);
@@ -1498,9 +1561,23 @@ mod tests {
         let board = Chessboard::from_fen(fen, Strict).unwrap();
         assert_eq!(board.legal_moves_slow().len(), 218);
         assert!(board.debug_verify_invariants(Strict).is_ok());
-        let board = board.flip_side_to_move().unwrap();
+        let board = board.make_nullmove().unwrap();
         assert!(board.legal_moves_slow().is_empty());
         assert_eq!(board.player_result_slow(&NoHistory::default()), Some(Draw));
+        // chess960 castling rights encoded using X-FEN
+        let fen = "1rbq1krb/ppp1pppp/1n1n4/3p4/3P4/2PN4/PP2PPPP/NRBQ1KRB w KQkq - 3 4";
+        let board = Chessboard::from_fen(fen, Relaxed).unwrap();
+        assert!(board.debug_verify_invariants(Strict).is_ok());
+        let moves = board.legal_moves_slow();
+        assert_eq!(moves.into_iter().count(), 32); // TODO: Use .num_legal_moves() after that has been merged
+                                                   // Another X-FEN, which is often misinterpreted by engines
+        let fen = " rk2rqnb/1b6/2n5/pppppppp/PPPPPP2/B1NQ4/6PP/1K1RR1NB w Kk - 8 14";
+        let board = Chessboard::from_fen(fen, Relaxed).unwrap();
+        assert_eq!(board.legal_moves_slow().len(), 42);
+        assert_eq!(
+            board.castling.rook_start_file(White, Kingside),
+            char_to_file('e')
+        );
     }
 
     #[test]

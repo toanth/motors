@@ -1,4 +1,4 @@
-use dyn_clone::DynClone;
+use gears::dyn_clone::DynClone;
 use gears::games::Color;
 use gears::general::board::Board;
 use std::fmt::Debug;

@@ -17,6 +17,7 @@
  */
 use crate::eval::chess::lite_values::{Lite, LiteValues};
 use crate::eval::chess::FileOpenness;
+use crate::eval::SingleFeatureScore;
 use gears::games::chess::pieces::ChessPieceType;
 use gears::games::chess::pieces::ChessPieceType::King;
 use gears::games::chess::squares::ChessSquare;
@@ -95,6 +96,10 @@ impl LiteValues for KingGambotValues {
         Lite::bishop_pair()
     }
 
+    fn bad_bishop(num_pawns: usize) -> SingleFeatureScore<Self::Score> {
+        Lite::bad_bishop(num_pawns)
+    }
+
     fn rook_openness(openness: FileOpenness) -> PhasedScore {
         Lite::rook_openness(openness)
     }
@@ -134,10 +139,6 @@ impl LiteValues for KingGambotValues {
 
     fn defended(protecting: ChessPieceType, target: ChessPieceType) -> PhasedScore {
         Lite::defended(protecting, target)
-    }
-
-    fn num_defended(num: usize) -> PhasedScore {
-        Lite::num_defended(num)
     }
 
     fn king_zone_attack(attacking: ChessPieceType) -> PhasedScore {

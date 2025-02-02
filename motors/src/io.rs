@@ -38,9 +38,9 @@ use crate::search::{run_bench_with, EvalList, SearchParams, SearcherList};
 use crate::{
     create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match,
 };
-use colored::Color::Red;
-use colored::Colorize;
 use gears::cli::select_game;
+use gears::colored::Color::Red;
+use gears::colored::Colorize;
 use gears::games::{ColoredPiece, OutputList, ZobristHistory};
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, Strictness, UnverifiedBoard};
@@ -54,11 +54,12 @@ use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
 use gears::general::perft::{perft_for, split_perft};
+use gears::itertools::Itertools;
 use gears::output::logger::LoggerBuilder;
 use gears::output::pgn::parse_pgn;
 use gears::output::text_output::{display_color, AdaptFormatter};
 use gears::output::Message::*;
-use gears::output::{Message, OutputBox, OutputBuilder};
+use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
 use gears::search::{Depth, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
@@ -70,7 +71,6 @@ use gears::{
     output_builder_from_str, AbstractRun, GameState, MatchState, MatchStatus, PlayerResult,
     Quitting,
 };
-use itertools::Itertools;
 use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::fs;
@@ -80,6 +80,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use strum::IntoEnumIterator;
 
 const DEFAULT_MOVE_OVERHEAD_MS: u64 = 50;
 
@@ -506,7 +507,9 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn print_game_over(&mut self, flip: bool) -> bool {
-        self.print_board();
+        self.print_board(OutputOpts {
+            disable_flipping: true,
+        });
         let Some(res) = self.state.board.player_result_slow(&self.state.board_hist) else {
             return false;
         };
@@ -614,7 +617,10 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_setoption(&mut self, words: &mut Tokens) -> Res<()> {
-        if words.peek().is_some_and(|w| w.eq_ignore_ascii_case("name")) {
+        if words
+            .peek()
+            .is_some_and(|w| w.eq_ignore_ascii_case("name") || w.eq_ignore_ascii_case("n"))
+        {
             _ = words.next();
         }
         let mut name = String::default();
@@ -662,6 +668,9 @@ impl<B: Board> EngineUGI<B> {
                     }
                 }
             }
+            UCIShowCurrLine => {
+                self.output().show_currline = parse_bool_from_str(&value, "show current line")?;
+            }
             Strictness => {
                 self.strictness = if parse_bool_from_str(&value, "strictness")? {
                     Strict
@@ -675,7 +684,8 @@ impl<B: Board> EngineUGI<B> {
             SetEval => {
                 self.handle_set_eval(&mut tokens(&value))?;
             }
-            _ => {
+
+            Hash | Threads | UciElo | UCIEngineAbout | Other(_) => {
                 let value = value.trim().to_string();
                 self.state
                     .engine
@@ -692,15 +702,15 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn print_board(&mut self) {
+    fn print_board(&mut self, opts: OutputOpts) {
         // TODO: Rework the output system
-        _ = self.handle_print(&mut tokens(""));
+        _ = self.handle_print(&mut tokens(""), opts);
     }
 
     fn handle_position(&mut self, words: &mut Tokens) -> Res<()> {
         self.state.handle_position(words, false, self.strictness)?;
         if self.is_interactive() {
-            self.print_board();
+            self.print_board(OutputOpts::default());
         }
         Ok(())
     }
@@ -712,32 +722,14 @@ impl<B: Board> EngineUGI<B> {
             accept_depth(&mut opts.limit, words)?;
         }
         while let Some(option) = words.next() {
-            opts.cont = false;
             let cmd = select_name_dyn(
                 option,
                 &self.commands.go,
                 "go option",
                 &self.state.game_name,
                 WithDescription,
-            );
-            match cmd {
-                Ok(cmd) => cmd.func()(&mut opts, words, option)?,
-                // TODO: Handle as command, no need for reading_moves
-                Err(err) => {
-                    if opts.reading_moves {
-                        let mov =
-                            B::Move::from_compact_text(option, &opts.board).map_err(|err| {
-                                anyhow!("{err}. '{}' is not a valid 'go' option.", option.bold())
-                            })?;
-                        opts.search_moves.as_mut().unwrap().push(mov);
-                        continue;
-                    }
-                    bail!(err)
-                }
-            }
-            if !opts.cont {
-                opts.reading_moves = false;
-            }
+            )?;
+            cmd.func()(&mut opts, words, option)?;
         }
         opts.limit.tc.remaining = opts
             .limit
@@ -947,14 +939,14 @@ impl<B: Board> EngineUGI<B> {
         }
     }
 
-    fn handle_print(&mut self, words: &mut Tokens) -> Res<()> {
+    fn handle_print(&mut self, words: &mut Tokens, opts: OutputOpts) -> Res<()> {
         let output = self.select_output(words)?;
         let print = |this: &Self, output: Option<OutputBox<B>>, state| match output {
             None => {
-                this.output().show(state);
+                this.output().show(state, opts);
             }
             Some(mut output) => {
-                output.show(state);
+                output.show(state, opts);
             }
         };
         if words.peek().is_some() {
@@ -1009,7 +1001,7 @@ impl<B: Board> EngineUGI<B> {
             );
             if self.is_interactive() {
                 drop(output);
-                self.print_board();
+                self.print_board(OutputOpts::default());
             }
         }
         Ok(())
@@ -1171,7 +1163,7 @@ impl<B: Board> EngineUGI<B> {
             self.handle_quit(QuitProgram)?;
         } else {
             // print the current board again, now that the match is over
-            self.print_board();
+            self.print_board(OutputOpts::default());
         }
         Ok(())
     }
@@ -1180,7 +1172,7 @@ impl<B: Board> EngineUGI<B> {
         let file_text = fs::read_to_string(words.join(" "))?;
         let pgn_data = parse_pgn::<B>(&file_text)?;
         self.state.position_state = pgn_data.game;
-        self.print_board();
+        self.print_board(OutputOpts::default());
         Ok(())
     }
 
@@ -1259,102 +1251,118 @@ impl<B: Board> EngineUGI<B> {
             .unwrap_or("<none>".to_string());
         let max_threads = engine_info.max_threads();
         drop(engine_info);
-        let mut res = vec![
-            EngineOption {
-                name: MoveOverhead,
-                value: Spin(UgiSpin {
-                    val: self.move_overhead.as_millis() as i64,
-                    default: Some(DEFAULT_MOVE_OVERHEAD_MS as i64),
-                    min: Some(0),
-                    max: Some(10_000),
-                }),
-            },
-            EngineOption {
-                name: EngineOptionName::Ponder,
-                value: Check(UgiCheck {
-                    val: self.allow_ponder,
-                    default: Some(false),
-                }),
-            },
-            EngineOption {
-                name: MultiPv,
-                value: Spin(UgiSpin {
-                    val: 1,
-                    default: Some(1),
-                    min: Some(1),
-                    max: Some(256),
-                }),
-            },
-            EngineOption {
-                name: UCIOpponent,
-                value: UString(UgiString {
-                    default: None,
-                    val: self.state.opponent_name.clone().unwrap_or_default(),
-                }),
-            },
-            EngineOption {
-                name: UCIEngineAbout,
-                value: UString(UgiString {
-                    val: String::new(),
-                    default: Some(format!(
-                        "Motors by ToTheAnd. Game: {2}. Engine: {0}. Eval: {1}  ",
-                        engine.long,
-                        eval_long_name,
-                        B::game_name()
-                    )),
-                }),
-            },
-            EngineOption {
-                name: Threads,
-                value: Spin(UgiSpin {
-                    val: self.state.engine.num_threads() as i64,
-                    default: Some(1),
-                    min: Some(1),
-                    max: Some(max_threads as i64),
-                }),
-            },
-            EngineOption {
-                name: Hash,
-                value: Spin(UgiSpin {
-                    val: self.state.engine.next_tt().size_in_mb() as i64,
-                    default: Some(DEFAULT_HASH_SIZE_MB as i64),
-                    min: Some(0),
-                    max: Some(10_000_000), // use at most 10 terabytes (should be enough for anybody™)
-                }),
-            },
-            EngineOption {
-                name: Strictness,
-                value: Check(UgiCheck {
-                    val: self.strictness == Strict,
-                    default: Some(false),
-                }),
-            },
-            // We would like to send long names, but unfortunately GUIs strugglw with that
-            EngineOption {
-                name: SetEngine,
-                value: Combo(UgiCombo {
-                    val: engine.short_name(),
-                    default: Some(engine.short_name()),
-                    options: self
-                        .searcher_factories
-                        .iter()
-                        .map(|s| s.short_name())
-                        .collect_vec(),
-                }),
-            },
-            EngineOption {
-                name: SetEval,
-                value: Combo(UgiCombo {
-                    val: eval_name.clone(),
-                    default: Some(eval_name),
-                    options: self
-                        .eval_factories
-                        .iter()
-                        .map(|e| e.short_name())
-                        .collect_vec(),
-                }),
-            },
-        ];
+        // use a match to ensure at compile time we're not missing any option
+        let mut res = vec![];
+        for opt in EngineOptionName::iter() {
+            res.push(match opt {
+                Hash => EngineOption {
+                    name: Hash,
+                    value: Spin(UgiSpin {
+                        val: self.state.engine.next_tt().size_in_mb() as i64,
+                        default: Some(DEFAULT_HASH_SIZE_MB as i64),
+                        min: Some(0),
+                        max: Some(10_000_000), // use at most 10 terabytes (should be enough for anybody™)
+                    }),
+                },
+                Threads => EngineOption {
+                    name: Threads,
+                    value: Spin(UgiSpin {
+                        val: self.state.engine.num_threads() as i64,
+                        default: Some(1),
+                        min: Some(1),
+                        max: Some(max_threads as i64),
+                    }),
+                },
+                EngineOptionName::Ponder => EngineOption {
+                    name: EngineOptionName::Ponder,
+                    value: Check(UgiCheck {
+                        val: self.allow_ponder,
+                        default: Some(false),
+                    }),
+                },
+                MultiPv => EngineOption {
+                    name: MultiPv,
+                    value: Spin(UgiSpin {
+                        val: 1,
+                        default: Some(1),
+                        min: Some(1),
+                        max: Some(256),
+                    }),
+                },
+                UciElo => continue, // currently not supported
+                UCIOpponent => EngineOption {
+                    name: UCIOpponent,
+                    value: UString(UgiString {
+                        default: None,
+                        val: self.state.opponent_name.clone().unwrap_or_default(),
+                    }),
+                },
+                UCIEngineAbout => EngineOption {
+                    name: UCIEngineAbout,
+                    value: UString(UgiString {
+                        val: String::new(),
+                        default: Some(format!(
+                            "Motors by ToTheAnd. Game: {2}. Engine: {0}. Eval: {1}  ",
+                            engine.long,
+                            eval_long_name,
+                            B::game_name()
+                        )),
+                    }),
+                },
+                UCIShowCurrLine => EngineOption {
+                    name: UCIShowCurrLine,
+                    value: Check(UgiCheck {
+                        val: self.output().show_currline,
+                        default: Some(false),
+                    }),
+                },
+                MoveOverhead => EngineOption {
+                    name: MoveOverhead,
+                    value: Spin(UgiSpin {
+                        val: self.move_overhead.as_millis() as i64,
+                        default: Some(DEFAULT_MOVE_OVERHEAD_MS as i64),
+                        min: Some(0),
+                        max: Some(10_000),
+                    }),
+                },
+                Strictness => EngineOption {
+                    name: Strictness,
+                    value: Check(UgiCheck {
+                        val: self.strictness == Strict,
+                        default: Some(false),
+                    }),
+                },
+                SetEngine =>
+                // We would like to send long names, but unfortunately GUIs strugglw with that
+                {
+                    EngineOption {
+                        name: SetEngine,
+                        value: Combo(UgiCombo {
+                            val: engine.short_name(),
+                            default: Some(engine.short_name()),
+                            options: self
+                                .searcher_factories
+                                .iter()
+                                .map(|s| s.short_name())
+                                .collect_vec(),
+                        }),
+                    }
+                }
+                SetEval => EngineOption {
+                    name: SetEval,
+                    value: Combo(UgiCombo {
+                        val: eval_name.clone(),
+                        default: Some(eval_name.clone()),
+                        options: self
+                            .eval_factories
+                            .iter()
+                            .map(|e| e.short_name())
+                            .collect_vec(),
+                    }),
+                },
+                Other(_) => continue,
+            });
+        }
         res.extend(self.state.engine.get_engine_info().additional_options());
         res
     }
@@ -1371,7 +1379,7 @@ impl<B: Board> EngineUGI<B> {
 // take a BoardGameState instead of a board to correctly handle displaying the last move
 fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String {
     let pos = state.board;
-    let formatter = pos.pretty_formatter(None, state.last_move());
+    let formatter = pos.pretty_formatter(None, state.last_move(), OutputOpts::default());
     let mov = entry.mov.check_legal(&pos);
     let mut formatter = AdaptFormatter {
         underlying: formatter,
@@ -1418,7 +1426,7 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
 
 fn show_eval_pos<B: Board>(pos: B, last: Option<B::Move>, eval: Box<dyn Eval<B>>) -> String {
     let eval = RefCell::new(eval);
-    let formatter = pos.pretty_formatter(None, last);
+    let formatter = pos.pretty_formatter(None, last, OutputOpts::default());
     let eval_pos = eval.borrow_mut().eval(&pos, 0);
     let mut formatter = AdaptFormatter {
         underlying: formatter,

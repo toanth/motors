@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::thread::{Builder, JoinHandle};
 
 use itertools::Itertools;
-use rand::thread_rng;
+use rand::rng;
 
 use crate::cli::PlayerArgs::{Engine, Human};
 use crate::cli::{parse_engine, parse_human, HumanArgs, PlayerArgs};
@@ -27,6 +27,7 @@ use gears::general::common::{
 use gears::general::moves::ExtendedFormat::Alternative;
 use gears::general::moves::Move;
 use gears::output::Message::{Info, Warning};
+use gears::output::OutputOpts;
 use gears::search::TimeControl;
 use gears::ugi::{parse_ugi_position_part, EngineOption};
 use gears::MatchStatus::{Ongoing, Over};
@@ -293,7 +294,7 @@ impl<B: Board> TextInputThread<B> {
 
     fn random_move(mut client: MutexGuard<Client<B>>) -> Res<()> {
         let board = client.state.the_match.board;
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let over = matches!(client.match_state().status, Over(_));
         let Some(mov) = board.random_legal_move(&mut rng) else {
             bail!(
@@ -460,7 +461,7 @@ impl<B: Board> TextInputThread<B> {
             x => {
                 output_builder_from_str(x, &client.all_outputs)?
                     .for_client(&client.state)?
-                    .show(&client.state);
+                    .show(&client.state, OutputOpts::default());
             }
         }
         Ok(())

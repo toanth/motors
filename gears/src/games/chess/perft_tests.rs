@@ -2,16 +2,18 @@
 
 #[cfg(test)]
 mod tests {
-    use itertools::Itertools;
-    use std::num::NonZeroUsize;
-    use std::thread::{available_parallelism, current, Builder};
-    use std::time::Instant;
-
     use crate::games::chess::Chessboard;
     use crate::games::Board;
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::perft::perft;
     use crate::search::Depth;
+    use itertools::Itertools;
+    use rand::prelude::SliceRandom;
+    use rand::rng;
+    use std::num::NonZeroUsize;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::thread::{available_parallelism, current, scope};
+    use std::time::Instant;
 
     #[test]
     fn kiwipete_test() {
@@ -141,23 +143,26 @@ mod tests {
         let start_time = Instant::now();
         let num_threads = available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap());
         println!("Running perft test with {num_threads} threads in parallel");
-        let testcases_per_thread = (fens.len() + num_threads.get() - 1) / num_threads;
+        let solved_tests = AtomicU64::new(0);
+        let solved_tests = &solved_tests; // lol (necessary to not move the atomic itself, which wouldn't compile)
+        let num_fens = fens.len();
+        let mut fens = fens.iter().collect_vec();
+        // the chess960 perft suite takes so long that it makes sense to just stop the test suite at some point when doing
+        // routine testing. Shuffle to ensure that all positions have a chance of being tested.
+        fens.shuffle(&mut rng());
+        let testcases_per_thread = (num_fens + num_threads.get() - 1) / num_threads;
         let thread_data = fens.iter().chunks(testcases_per_thread);
         let mut thread_fens = vec![];
         for chunk in &thread_data {
             thread_fens.push(chunk.collect_vec());
         }
-        let mut handles = vec![];
-        let mut thread_id = 0; // thead::current().id() is unstable
-        for chunk in thread_fens {
-            thread_id += 1;
-            let thread = Builder::new()
-                .name(format!("{thread_id}"))
-                .spawn(move || {
+        scope(|s| {
+            for chunk in thread_fens {
+                s.spawn(move || {
                     for testcase in chunk {
                         let expected = ExpectedPerftRes::new(testcase);
                         let board = Chessboard::from_fen(expected.fen, Strict).unwrap();
-                        println!("Running test on fen {0}, board\n{board}", expected.fen);
+                        println!("Thread {1:?}: Running test on fen {0}, board\n{board}", expected.fen, current().id());
                         for (depth, expected_count) in expected
                             .res
                             .iter()
@@ -168,24 +173,26 @@ mod tests {
                             assert_eq!(res.depth.get(), depth);
                             assert_eq!(res.nodes, *expected_count);
                             println!(
-                                "Thread {3}: Perft depth {0} took {1} ms, total time so far: {2}ms",
+                                "Thread {3:?}: Perft depth {0} took {1} ms, total time so far: {2}ms",
                                 res.depth.get(),
                                 res.time.as_millis(),
                                 start_time.elapsed().as_millis(),
-                                current().name().unwrap_or("<unknown>")
+                                current().id()
                             );
                         }
+                        solved_tests.fetch_add(1, Ordering::Relaxed);
+                        println!(
+                            "Finished {0} / {1} positions",
+                            solved_tests.load(Ordering::Relaxed),
+                            num_fens
+                        );
                     }
-                })
-                .unwrap();
-            handles.push(thread);
-        }
-        for handle in handles {
-            handle.join().unwrap();
-        }
+                });
+            }
+        });
     }
 
-    const STANDARD_FENS: [&str; 133] = [
+    const STANDARD_FENS: &[&str] = &[
         // positions from https://github.com/AndyGrant/Ethereal/blob/master/src/perft/standard.epd,
         // which are themselves based on <http://www.rocechess.ch/perft.html>,
         // those positions were collected/calculated by Andrew Wagner and published in 2004 on CCC
@@ -324,12 +331,18 @@ mod tests {
             // pinned en passant pawn (probably already in fen list, but better safe than sorry
         "1nbqkbnr/ppp1pppp/8/r2pP2K/8/8/PPPP1PPP/RNBQ1BNR w k d6 0 2 ;D1 31;D2 927 ;D3 26832 ;D4 813632 ;D5 23977743",
             // another pinned pawns test (this time without en passant)
-        "4Q3/5p2/6k1/8/4p3/8/2B3K1/8 b - - 0 1 ;D1 7 ;D2 203 ;D3 1250 ;D4 37962 ;D5 227787 ;D6 7036323 ;D7 41501304"
+        "4Q3/5p2/6k1/8/4p3/8/2B3K1/8 b - - 0 1 ;D1 7 ;D2 203 ;D3 1250 ;D4 37962 ;D5 227787 ;D6 7036323 ;D7 41501304",
+        // maximum number of legal moves (and mate in one)
+        "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1; D1 218; D2 99; D3 19073; D4 85043; D5 13853661", // D6 115892741",
+        // the same position with flipped side to move has no legal moves
+        "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 b - - 0 1; D1 0; D2 0; D3 0; D4 0; D5 0; D6 0; D7 0",
+        // a very weird position (not reachable from startpos, but still somewhat realistic)
+        "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1; D1 4; D2 16; D3 176; D4 1936; D5 22428; D6 255135; D7 3830854",
             ];
 
     /// This perft test suite is also taken from Ethereal: <https://github.com/AndyGrant/Ethereal/blob/master/src/perft/fischer.epd>.
     /// I have no idea why it is this massive, running it takes forever.
-    const CHESS_960_FENS: [&str; 960] = [
+    const CHESS_960_FENS: [&str; 960 + 2] = [
 "bqnb1rkr/pp3ppp/3ppn2/2p5/5P2/P2P4/NPP1P1PP/BQ1BNRKR w HFhf - 2 9 ;D1 21 ;D2 528 ;D3 12189 ;D4 326672 ;D5 8146062 ;D6 227689589",
 "2nnrbkr/p1qppppp/8/1ppb4/6PP/3PP3/PPP2P2/BQNNRBKR w HEhe - 1 9 ;D1 21 ;D2 807 ;D3 18002 ;D4 667366 ;D5 16253601 ;D6 590751109",
 "b1q1rrkb/pppppppp/3nn3/8/P7/1PPP4/4PPPP/BQNNRKRB w GE - 1 9 ;D1 20 ;D2 479 ;D3 10471 ;D4 273318 ;D5 6417013 ;D6 177654692",
@@ -1290,5 +1303,9 @@ mod tests {
 "rkr1nbbq/2ppp1pp/1pn5/p4p2/P6P/3P4/1PP1PPPB/RKRNNB1Q w CAca - 1 9 ;D1 24 ;D2 645 ;D3 15689 ;D4 446423 ;D5 11484012 ;D6 341262639",
 "rkrnnqbb/p1ppp2p/Qp6/4Pp2/5p2/8/PPPP2PP/RKRNN1BB w CAca - 0 9 ;D1 35 ;D2 929 ;D3 32020 ;D4 896130 ;D5 31272517 ;D6 915268405",
 "bbq1nr1r/pppppk1p/2n2p2/6p1/P4P2/4P1P1/1PPP3P/BBQNNRKR w HF - 1 9 ;D1 23 ;D2 589 ;D3 14744 ;D4 387556 ;D5 10316716 ;D6 280056112",
+// tricky to parse X-FEN
+"r1rkrqnb/1b6/2n5/ppppppp1/PPPPPP2/B1NQ4/6PP/1K1RR1NB w Kkq - 8 14 ;D1 42 ;D2 1620 ;D3 67391 ;D4 2592441 ;D5 107181922",
+// another tricky X-FEN
+"rrkrn1r1/2P2P2/8/p3pP2/8/8/4R2p/1RR1KR1R w KCdq e6 90 99 ;D1 53 ;D2 1349 ;D3 63522 ;D4 1754940 ;D5 80364051"
 ];
 }
