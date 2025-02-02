@@ -18,7 +18,7 @@ use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
 use gears::games::chess::pieces::ChessPieceType::Pawn;
 use gears::games::chess::pieces::NUM_COLORS;
 use gears::games::chess::see::SeeScore;
-use gears::games::chess::squares::ChessSquare;
+use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
 use gears::games::{n_fold_repetition, BoardHistory, ZobristHash, ZobristHistory};
 use gears::general::bitboards::RawBitboard;
@@ -190,6 +190,31 @@ impl CorrHist {
     }
 }
 
+#[derive(Debug, Clone)]
+struct RootMoveNodes(Box<[[u64; NUM_SQUARES]; NUM_SQUARES]>);
+
+impl Default for RootMoveNodes {
+    fn default() -> Self {
+        RootMoveNodes(Box::new([[0; NUM_SQUARES]; NUM_SQUARES]))
+    }
+}
+
+impl RootMoveNodes {
+    fn clear(&mut self) {
+        for elem in self.0.iter_mut() {
+            *elem = [0; NUM_SQUARES];
+        }
+    }
+    fn update(&mut self, mov: ChessMove, nodes: u64) {
+        self.0[mov.src_square().bb_idx()][mov.dest_square().bb_idx()] += nodes;
+    }
+
+    fn frac_1024(&self, best_move: ChessMove, total_nodes: u64) -> u64 {
+        self.0[best_move.src_square().bb_idx()][best_move.dest_square().bb_idx()] * 1024
+            / total_nodes
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct CapsCustomInfo {
     history: HistoryHeuristic,
@@ -206,6 +231,7 @@ pub struct CapsCustomInfo {
     original_board_hist: ZobristHistory<Chessboard>,
     nmp_disabled: [bool; 2],
     depth_hard_limit: usize,
+    root_move_nodes: RootMoveNodes,
 }
 
 impl CapsCustomInfo {
@@ -219,6 +245,7 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
         debug_assert_eq!(self.nmp_disabled[0], false);
         debug_assert_eq!(self.nmp_disabled[1], false);
         // don't update history values, malus and gravity already take care of that
+        self.root_move_nodes.clear();
     }
 
     fn hard_forget_except_tt(&mut self) {
@@ -240,6 +267,7 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
         for value in self.corr_hist.nonpawns.iter_mut().flatten().flatten() {
             *value = 0;
         }
+        self.root_move_nodes.clear();
     }
 
     fn write_internal_info(&self) -> Option<String> {
@@ -619,8 +647,19 @@ impl Caps {
             let alpha = self.state.cur_pv_data().alpha;
             let beta = self.state.cur_pv_data().beta;
             let mut window_radius = self.state.cur_pv_data().radius;
-            let soft_limit = unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension);
+            let mut soft_limit = unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension);
             soft_limit_fail_low_extension = 1.0;
+            if depth > 8 && self.state.multi_pvs.len() == 1 {
+                let node_frac = self
+                    .state
+                    .custom
+                    .root_move_nodes
+                    .frac_1024(self.state.cur_pv_data().pv.list[0], self.state.uci_nodes());
+                soft_limit = soft_limit.mul_f64(
+                    ((1024 + 512 - node_frac) * cc::soft_limit_node_scale()) as f64
+                        / (1024.0 * 1024.0),
+                );
+            }
             let limit = self.state.params.limit.tc;
             let soft_limit = soft_limit.min(
                 (limit.remaining.saturating_sub(limit.increment)) * cc::inv_soft_limit_div_clamp()
@@ -1059,6 +1098,7 @@ impl Caps {
                 num_uninteresting_visited += 1;
             }
 
+            let nodes_before_move = self.state.uci_nodes();
             // PVS (Principal Variation Search): Assume that the TT move is the best move, so we only need to prove
             // that the other moves are worse, which we can do with a zero window search. Should this assumption fail,
             // re-search with a full window.
@@ -1158,6 +1198,14 @@ impl Caps {
                 self.state.params.history.len(),
                 self.state.search_stack[ply].tried_moves.len()
             );
+
+            if root {
+                self.state
+                    .custom
+                    .root_move_nodes
+                    .update(mov, self.state.uci_nodes() - nodes_before_move);
+            }
+
             // Check for cancellation right after searching a move to avoid storing incorrect information
             // in the TT or PV.
             // TODO: Since we now abort directly using `?`, we can actually trust the score of all searched children here.

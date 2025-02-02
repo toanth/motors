@@ -26,6 +26,7 @@ spsa_params! [
     move_stability_start_div: usize = 3; 1..=10; step=1;
     move_stability_factor: usize = 806; 250..=1000; step=50;
     soft_limit_fail_low_factor: usize = 1202; 1000..=3000; step=50;
+    soft_limit_node_scale: u64 = 1400; 900..=2000; step = 50;
     aw_exact_add: ScoreT = 11; 0..=42; step=2;
     aw_exact_div: ScoreT = 3; 1..=10; step=1;
     aw_delta_max: u32 = 11; 0..=40; step=4;
