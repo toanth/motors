@@ -33,6 +33,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
+use std::ops::{Deref, DerefMut};
 use std::sync::atomic::Ordering::Acquire;
 use std::sync::Arc;
 use std::thread::spawn;
@@ -740,6 +741,19 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     last_msg_time: Instant,
     statistics: Statistics,
     aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
+}
+
+impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> Deref for SearchState<B, E, C> {
+    type Target = C;
+    fn deref(&self) -> &Self::Target {
+        &self.custom
+    }
+}
+
+impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> DerefMut for SearchState<B, E, C> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.custom
+    }
 }
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B>
