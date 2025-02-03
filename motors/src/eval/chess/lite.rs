@@ -37,10 +37,21 @@ struct EvalState<Tuned: LiteValues> {
     total_score: Tuned::Score,
 }
 
-#[derive(Default, Debug, Clone)]
+const STACK_SIZE: usize = 512;
+
+#[derive(Debug, Clone)]
 pub struct GenericLiTEval<Tuned: LiteValues> {
     stack: Vec<EvalState<Tuned>>,
     tuned: Tuned,
+}
+
+impl<Tuned: LiteValues> Default for GenericLiTEval<Tuned> {
+    fn default() -> Self {
+        Self {
+            stack: vec![EvalState::default(); STACK_SIZE],
+            tuned: Tuned::default(),
+        }
+    }
 }
 
 pub type LiTEval = GenericLiTEval<Lite>;
@@ -438,10 +449,10 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 fn eval_lite<Tuned: LiteValues<Score = PhasedScore>>(
     this: &mut GenericLiTEval<Tuned>,
     pos: &Chessboard,
+    ply: usize,
 ) -> Score {
-    this.stack.clear();
     let state = this.eval_from_scratch(pos);
-    this.stack.push(state);
+    this.stack[ply] = state;
     state
         .total_score
         .finalize(state.phase, 24, pos.active_player(), TEMPO)
@@ -454,31 +465,19 @@ fn eval_lite_incremental<Tuned: LiteValues<Score = PhasedScore>>(
     new_pos: &Chessboard,
     ply: usize,
 ) -> Score {
-    debug_assert!(this.stack.len() >= ply);
     debug_assert!(ply > 0);
-    let entry = this.stack[ply - 1];
-    let entry = if this
-        .stack
-        .get(ply)
-        .is_some_and(|e| e.hash == new_pos.zobrist_hash())
-    {
-        this.stack[ply]
-    } else {
-        this.incremental(entry, old_pos, mov, new_pos)
-    };
-    if this.stack.len() == ply {
-        this.stack.push(entry);
-    } else {
-        this.stack[ply] = entry;
+    let prev = this.stack[ply - 1];
+    if this.stack[ply].hash != new_pos.zobrist_hash() {
+        this.stack[ply] = this.incremental(prev, old_pos, mov, new_pos);
     }
-    entry
+    this.stack[ply]
         .total_score
-        .finalize(entry.phase, 24, new_pos.active_player(), TEMPO)
+        .finalize(this.stack[ply].phase, 24, new_pos.active_player(), TEMPO)
 }
 
 impl Eval<Chessboard> for LiTEval {
-    fn eval(&mut self, pos: &Chessboard, _ply: usize) -> Score {
-        eval_lite(self, pos)
+    fn eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
+        eval_lite(self, pos, ply)
     }
 
     // Zobrist hash collisions should be rare enough not to matter, and even when they occur,
@@ -505,7 +504,7 @@ impl Eval<Chessboard> for KingGambot {
         } else {
             pos.inactive_player()
         };
-        eval_lite(self, pos)
+        eval_lite(self, pos, ply)
     }
 
     fn eval_incremental(

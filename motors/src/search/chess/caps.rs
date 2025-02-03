@@ -856,7 +856,7 @@ impl Caps {
         let old_entry = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply);
         if let Some(tt_entry) = old_entry {
             if ignore_tt_entry {
-                raw_eval = self.eval(pos, ply);
+                raw_eval = tt_entry.raw_eval(); // can still use the saved raw eval
                 eval = raw_eval;
             } else {
                 let tt_bound = tt_entry.bound();
@@ -898,9 +898,7 @@ impl Caps {
                         FailHigh
                     }
                 }
-
-                // Only call `eval` after it's certain we won't get a TT cutoff
-                raw_eval = self.eval(pos, ply);
+                raw_eval = tt_entry.raw_eval();
                 eval = raw_eval;
                 // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
                 // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
@@ -1346,7 +1344,7 @@ impl Caps {
                 self.statistics.tt_cutoff(Qsearch, bound);
                 return tt_score;
             }
-            raw_eval = self.eval(pos, ply);
+            raw_eval = tt_entry.raw_eval();
             eval = raw_eval;
 
             // even though qsearch never checks for game over conditions, it's still possible for it to load a checkmate score
