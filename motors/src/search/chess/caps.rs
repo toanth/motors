@@ -849,13 +849,15 @@ impl Caps {
         // store a null move in the TT. This helps IIR.
         let mut best_move = ChessMove::default();
         // Don't initialize eval just yet to save work in case we get a TT cutoff
-        let mut raw_eval;
+        let raw_eval;
+        let mut eval;
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.multi_pvs.len() > 1;
         let old_entry = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply);
         if let Some(tt_entry) = old_entry {
             if ignore_tt_entry {
                 raw_eval = self.eval(pos, ply);
+                eval = raw_eval;
             } else {
                 let tt_bound = tt_entry.bound();
                 debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
@@ -863,23 +865,22 @@ impl Caps {
                 if let Some(tt_move) = tt_entry.mov.check_pseudolegal(&pos) {
                     best_move = tt_move;
                 }
+                let tt_score = Score::from_compact(tt_entry.score);
                 // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
                 // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
                 // simply return it.
                 if !is_pv_node && tt_entry.depth as isize >= depth {
-                    if (tt_entry.score >= beta && tt_bound == NodeType::lower_bound())
-                        || (tt_entry.score <= alpha && tt_bound == NodeType::upper_bound())
+                    if (tt_score >= beta && tt_bound == NodeType::lower_bound())
+                        || (tt_score <= alpha && tt_bound == NodeType::upper_bound())
                         || tt_bound == Exact
                     {
                         self.statistics.tt_cutoff(MainSearch, tt_bound);
                         // Idea from stormphrax
-                        if tt_entry.score >= beta
-                            && !best_move.is_null()
-                            && !best_move.is_tactical(&pos)
+                        if tt_score >= beta && !best_move.is_null() && !best_move.is_tactical(&pos)
                         {
                             self.update_histories_and_killer(&pos, best_move, depth, ply);
                         }
-                        return Some(tt_entry.score);
+                        return Some(tt_score);
                     } else if depth <= 6 {
                         // also from stormphrax
                         depth += 1;
@@ -890,31 +891,33 @@ impl Caps {
                 if !is_pv_node {
                     expected_node_type = if tt_bound != Exact {
                         tt_bound
-                    } else if tt_entry.score <= alpha {
+                    } else if tt_score <= alpha {
                         FailLow
                     } else {
-                        debug_assert!(tt_entry.score >= beta); // we're using a null window
+                        debug_assert!(tt_score >= beta); // we're using a null window
                         FailHigh
                     }
                 }
 
                 // Only call `eval` after it's certain we won't get a TT cutoff
                 raw_eval = self.eval(pos, ply);
+                eval = raw_eval;
                 // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
                 // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
                 // create any problems, but should be kept in mind.
                 if tt_bound == Exact
-                    || (tt_bound == NodeType::lower_bound() && tt_entry.score >= raw_eval)
-                    || (tt_bound == NodeType::upper_bound() && tt_entry.score <= raw_eval)
+                    || (tt_bound == NodeType::lower_bound() && tt_score >= raw_eval)
+                    || (tt_bound == NodeType::upper_bound() && tt_score <= raw_eval)
                 {
-                    raw_eval = tt_entry.score;
+                    eval = tt_score;
                 }
             }
         } else {
             self.statistics.tt_miss(MainSearch);
             raw_eval = self.eval(pos, ply);
+            eval = raw_eval;
         };
-        let mut eval = self.corr_hist.correct(&pos, raw_eval);
+        eval = self.corr_hist.correct(&pos, eval);
 
         self.record_pos(pos, eval, ply);
 
@@ -956,7 +959,9 @@ impl Caps {
                 margin /= cc::rfp_fail_high_div();
             }
             if let Some(entry) = old_entry {
-                if entry.score <= eval && entry.bound() == NodeType::upper_bound() {
+                if Score::from_compact(entry.score) <= eval
+                    && entry.bound() == NodeType::upper_bound()
+                {
                     margin += margin / 4;
                 }
             }
@@ -1287,6 +1292,7 @@ impl Caps {
         let tt_entry: TTEntry<Chessboard> = TTEntry::new(
             pos.zobrist_hash(),
             best_score,
+            raw_eval,
             best_move,
             depth,
             bound_so_far,
@@ -1304,7 +1310,7 @@ impl Caps {
             && !(best_score <= raw_eval && bound_so_far == NodeType::lower_bound())
             && !(best_score >= raw_eval && bound_so_far == NodeType::upper_bound())
         {
-            self.corr_hist.update(&pos, depth, raw_eval, best_score);
+            self.corr_hist.update(&pos, depth, eval, best_score);
         }
 
         Some(best_score)
@@ -1317,7 +1323,8 @@ impl Caps {
         self.atomic().update_seldepth(ply);
         // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
-        let mut raw_eval;
+        let raw_eval;
+        let mut eval;
         let mut bound_so_far = FailLow;
 
         // see main search, store an invalid null move in the TT entry if all moves failed low.
@@ -1328,17 +1335,19 @@ impl Caps {
         if let Some(tt_entry) = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
             debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
             let bound = tt_entry.bound();
+            let tt_score = Score::from_compact(tt_entry.score);
             // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
             // However, if we've already done qsearch on this position, we can just re-use the result,
             // so there is no point in checking the depth at all
-            if (bound == NodeType::lower_bound() && tt_entry.score >= beta)
-                || (bound == NodeType::upper_bound() && tt_entry.score <= alpha)
+            if (bound == NodeType::lower_bound() && tt_score >= beta)
+                || (bound == NodeType::upper_bound() && tt_score <= alpha)
                 || bound == Exact
             {
                 self.statistics.tt_cutoff(Qsearch, bound);
-                return tt_entry.score;
+                return tt_score;
             }
             raw_eval = self.eval(pos, ply);
+            eval = raw_eval;
 
             // even though qsearch never checks for game over conditions, it's still possible for it to load a checkmate score
             // and propagate that up to a qsearch parent node, where it gets saved with a depth of 0, so game over scores
@@ -1348,18 +1357,19 @@ impl Caps {
             // nonregression SPRT with `[-7, 0]` bounds even though I don't know why, and those conditions make it fail
             // the re-search test case. So the conditions are still disabled for now,
             // test reintroducing them at some point in the future after I have TT aging!
-            if (bound == NodeType::lower_bound() && tt_entry.score >= raw_eval)
-                || (bound == NodeType::upper_bound() && tt_entry.score <= raw_eval)
+            if (bound == NodeType::lower_bound() && tt_score >= raw_eval)
+                || (bound == NodeType::upper_bound() && tt_score <= raw_eval)
             {
-                raw_eval = tt_entry.score;
+                eval = tt_score;
             };
             if let Some(mov) = tt_entry.mov.check_pseudolegal(&pos) {
                 best_move = mov;
             }
         } else {
             raw_eval = self.eval(pos, ply);
+            eval = raw_eval;
         }
-        let mut best_score = self.corr_hist.correct(&pos, raw_eval);
+        let mut best_score = self.corr_hist.correct(&pos, eval);
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
         // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
@@ -1414,8 +1424,14 @@ impl Caps {
         self.statistics
             .count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
 
-        let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.zobrist_hash(), best_score, best_move, 0, bound_so_far);
+        let tt_entry: TTEntry<Chessboard> = TTEntry::new(
+            pos.zobrist_hash(),
+            best_score,
+            raw_eval,
+            best_move,
+            0,
+            bound_so_far,
+        );
         self.tt_mut().store(tt_entry, ply);
         best_score
     }
@@ -1802,7 +1818,14 @@ mod tests {
         let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
         let tt_move = ChessMove::from_text("a1b1", &pos).unwrap();
         let mut tt = TT::default();
-        let entry = TTEntry::new(pos.zobrist_hash(), Score(0), tt_move, 123, Exact);
+        let entry = TTEntry::new(
+            pos.zobrist_hash(),
+            Score(0),
+            Score(-12),
+            tt_move,
+            123,
+            Exact,
+        );
         tt.store::<Chessboard>(entry, 0);
         let mut caps = Caps::default();
         let killer = ChessMove::from_text("b2c2", &pos).unwrap();
@@ -1841,7 +1864,7 @@ mod tests {
         assert_eq!(search_res.chosen_move, good_capture);
         assert!(search_res.score.unwrap() > Score(0));
         let tt_entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0).unwrap();
-        assert_eq!(tt_entry.score, search_res.score.unwrap());
+        assert_eq!(tt_entry.score, search_res.score.unwrap().compact());
         assert_eq!(tt_entry.mov, UntrustedMove::from_move(good_capture));
     }
 

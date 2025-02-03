@@ -60,6 +60,7 @@ use gears::output::pgn::parse_pgn;
 use gears::output::text_output::{display_color, AdaptFormatter};
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
+use gears::score::Score;
 use gears::search::{Depth, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
@@ -1412,10 +1413,11 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
         "<none>".to_string()
     };
     let bound_str = entry.bound().comparison_str(false).bold().to_string();
+    let score = Score::from_compact(entry.score);
     write!(
         &mut res,
         "\nScore: {bound_str}{0} ({1}), Depth: {2}, Best Move: {3}",
-        pretty_score(entry.score, None, None, &score_gradient(), true, false),
+        pretty_score(score, None, None, &score_gradient(), true, false),
         entry.bound(),
         entry.depth.to_string().bold(),
         move_string,
