@@ -718,6 +718,7 @@ impl Board for UtttBoard {
 
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
         // don't assume that the board is empty in startpos to support different starting positions
+        // TODO: This doesn't actually do that?!
         if self.player_result_no_movegen(&NoHistory::default()) == Some(Lose) {
             return;
         }
