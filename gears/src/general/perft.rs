@@ -1,9 +1,10 @@
 use crate::general::board::Board;
+use crate::search::Depth;
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
-
-use crate::search::Depth;
 
 #[derive(Copy, Clone, Debug)]
 pub struct PerftRes {
@@ -122,4 +123,137 @@ pub fn perft_for<B: Board>(depth: Depth, positions: &[B]) -> PerftRes {
         res.depth = res.depth.max(this_res.depth);
     }
     res
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct PerftState<B: Board> {
+    pos: B,
+    moves: Vec<B::Move>,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub struct PosIter<B: Board> {
+    depth: Depth,
+    states: Vec<PerftState<B>>,
+    only_leaves: bool,
+}
+
+impl<B: Board> Iterator for PosIter<B> {
+    type Item = B;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.states.is_empty() {
+            None
+        } else if self.depth.get() == 0 {
+            Some(self.states.pop()?.pos)
+        } else if self.depth.get() == 1 {
+            let s = self.states.last_mut().unwrap();
+            let Some(m) = s.moves.pop() else {
+                self.states.pop();
+                self.depth += 1;
+                return self.next();
+            };
+            let Some(new_pos) = s.pos.make_move(m) else {
+                return self.next();
+            };
+            Some(new_pos)
+        } else {
+            let s = self.states.last_mut().unwrap();
+            let Some(m) = s.moves.pop() else {
+                self.states.pop();
+                self.depth += 1;
+                return self.next();
+            };
+            let Some(new_pos) = s.pos.make_move(m) else {
+                return self.next();
+            };
+            let new_state = PerftState {
+                pos: new_pos,
+                moves: new_pos.pseudolegal_moves().into_iter().collect(),
+            };
+            self.states.push(new_state);
+            self.depth -= 1;
+            if self.only_leaves {
+                self.next()
+            } else {
+                Some(new_pos)
+            }
+        }
+    }
+}
+
+pub fn all_positions_at<B: Board>(depth: Depth, pos: B) -> PosIter<B> {
+    let state = PerftState {
+        pos,
+        moves: pos.pseudolegal_moves().into_iter().collect(),
+    };
+    PosIter {
+        depth,
+        states: vec![state],
+        only_leaves: false,
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct HashWrapper<B: Board>(B);
+
+impl<B: Board> Hash for HashWrapper<B> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.0.zobrist_hash().0);
+        // state.write_u64(0);
+    }
+}
+
+pub fn num_unique_positions_at<B: Board>(depth: Depth, pos: B) -> usize {
+    let mut set = all_positions_at(depth, pos)
+        .map(|b| HashWrapper(b))
+        .collect::<HashSet<_>>();
+    set.insert(HashWrapper(pos));
+    set.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::games::chess::Chessboard;
+    use crate::games::mnk::MNKBoard;
+
+    #[test]
+    fn all_positions_at_mnk_test() {
+        let pos = MNKBoard::from_name("tictactoe").unwrap();
+        let root = all_positions_at(Depth::new_unchecked(0), pos);
+        assert_eq!(root.count(), 1);
+        let children = all_positions_at(Depth::new_unchecked(1), pos);
+        assert_eq!(children.count(), 9);
+        let grand_children = all_positions_at(Depth::new_unchecked(2), pos);
+        assert_eq!(grand_children.count(), 9 * 8 + 9);
+        let depth_3 = all_positions_at(Depth::new_unchecked(3), pos);
+        assert_eq!(depth_3.count(), 9 * 8 * 7 + 9 * 8 + 9);
+        assert_eq!(
+            all_positions_at(Depth::new_unchecked(9), pos).count(),
+            all_positions_at(Depth::new_unchecked(10), pos).count()
+        );
+    }
+
+    #[test]
+    fn num_unique_positions_in_tictactoe_test() {
+        let pos = MNKBoard::default();
+        let res = num_unique_positions_at(Depth::new_unchecked(9), pos);
+        assert_eq!(res, num_unique_positions_at(Depth::new_unchecked(10), pos));
+        assert_eq!(res, num_unique_positions_at(Depth::new_unchecked(11), pos));
+    }
+
+    #[test]
+    fn num_unique_positions_at_chess_test() {
+        let pos = Chessboard::from_name("mate_in_1").unwrap();
+        assert_eq!(num_unique_positions_at(Depth::new_unchecked(0), pos), 1);
+        assert_eq!(
+            num_unique_positions_at(Depth::new_unchecked(1), pos),
+            23 + 1
+        );
+        assert_eq!(
+            num_unique_positions_at(Depth::new_unchecked(2), pos),
+            53 + 23 + 1
+        );
+    }
 }

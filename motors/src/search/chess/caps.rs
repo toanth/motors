@@ -165,10 +165,10 @@ impl CorrHist {
         *entry = new_val as ScoreT;
     }
 
-    fn update(&mut self, pos: &Chessboard, depth: isize, raw: Score, score: Score) {
+    fn update(&mut self, pos: &Chessboard, depth: isize, eval: Score, score: Score) {
         let color = pos.active_player();
         let weight = (1 + depth).min(16);
-        let bonus = (score - raw).0 as isize * CORRHIST_SCALE;
+        let bonus = (score - eval).0 as isize * CORRHIST_SCALE;
         let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
         Self::update_entry(&mut self.pawns[color][pawn_idx], weight, bonus);
         for c in ChessColor::iter() {
@@ -178,6 +178,9 @@ impl CorrHist {
     }
 
     fn correct(&mut self, pos: &Chessboard, raw: Score) -> Score {
+        if raw.is_won_or_lost() {
+            return raw;
+        }
         let color = pos.active_player();
         let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
         let mut correction = self.pawns[color][pawn_idx] as isize;
@@ -1308,7 +1311,9 @@ impl Caps {
             && !(best_score <= raw_eval && bound_so_far == NodeType::lower_bound())
             && !(best_score >= raw_eval && bound_so_far == NodeType::upper_bound())
         {
-            self.corr_hist.update(&pos, depth, eval, best_score);
+            self
+                .corr_hist
+                .update(&pos, depth, eval, best_score);
         }
 
         Some(best_score)

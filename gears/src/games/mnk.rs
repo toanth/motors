@@ -365,6 +365,7 @@ pub struct MNKBoard {
 impl PartialEq<Self> for MNKBoard {
     fn eq(&self, other: &Self) -> bool {
         self.x_bb == other.x_bb
+            && self.o_bb == other.o_bb
             && self.active_player == other.active_player
             && self.settings == other.settings
     }
@@ -591,6 +592,12 @@ impl Board for MNKBoard {
     }
 
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
+        // always set when the game is over, even when loading FENs
+        if let Some(last) = self.last_move {
+            if self.is_game_won_at(last.target) {
+                return;
+            }
+        }
         let mut empty = self.empty_bb();
         while empty.has_set_bit() {
             let idx = empty.pop_lsb();
@@ -788,6 +795,7 @@ impl Board for MNKBoard {
 
 impl MNKBoard {
     fn is_game_lost(&self) -> bool {
+        // verifying a board (e.g. when parsing FENs) sets the last move in case the game is over
         if let Some(last_move) = self.last_move {
             self.is_game_won_at(last_move.target)
         } else {
@@ -1018,17 +1026,19 @@ mod test {
         );
         assert_eq!(board.active_player(), MnkColor::second());
         assert!(!board.is_game_lost());
-
-        let board = MNKBoard::empty_for_settings(MnkSettings::new(Height(3), Width(4), 1));
-        let board = board.make_move(mov).unwrap();
-        assert!(board.is_game_lost());
-        assert_ne!(board.x_bb().to_primitive(), 0);
-        assert_eq!(board.o_bb().to_primitive(), 0);
-        assert!(board.x_bb().is_single_piece());
-        assert_eq!(
-            board.pseudolegal_moves().len() + 1,
-            board.size().num_squares()
-        );
+        for k in [1, 2] {
+            let board = MNKBoard::empty_for_settings(MnkSettings::new(Height(3), Width(4), k));
+            let board = board.make_move(mov).unwrap();
+            assert_eq!(k == 1, board.is_game_lost());
+            assert_ne!(board.x_bb().to_primitive(), 0);
+            assert_eq!(board.o_bb().to_primitive(), 0);
+            assert!(board.x_bb().is_single_piece());
+            if k == 1 {
+                assert!(board.pseudolegal_moves().is_empty());
+            } else {
+                assert_eq!(board.pseudolegal_moves().len() + 1, board.num_squares());
+            }
+        }
     }
 
     #[test]
@@ -1081,6 +1091,9 @@ mod test {
         assert_eq!(r.perft_res.nodes, 2 * 3 * 4);
         assert!(r.children.iter().all(|x| x.1 == 2 * 3));
         assert!(r.perft_res.time.as_millis() <= 10);
+        let r = perft(Depth::new_unchecked(4), board);
+        assert_eq!(r.depth.get(), 4);
+        assert_eq!(r.nodes, 0);
     }
 
     #[test]
