@@ -868,7 +868,7 @@ impl Caps {
                 if let Some(tt_move) = tt_entry.mov.check_pseudolegal(&pos) {
                     best_move = tt_move;
                 }
-                let tt_score = Score::from_compact(tt_entry.score);
+                let tt_score = tt_entry.score();
                 // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
                 // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
                 // simply return it.
@@ -918,6 +918,7 @@ impl Caps {
             raw_eval = self.eval(pos, ply);
             eval = raw_eval;
         };
+        let uncorrected_eval = eval;
         eval = self.corr_hist.correct(&pos, eval);
 
         self.record_pos(pos, eval, ply);
@@ -960,9 +961,7 @@ impl Caps {
                 margin /= cc::rfp_fail_high_div();
             }
             if let Some(entry) = old_entry {
-                if Score::from_compact(entry.score) <= eval
-                    && entry.bound() == NodeType::upper_bound()
-                {
+                if entry.score() <= eval && entry.bound() == NodeType::upper_bound() {
                     margin += margin / 4;
                 }
             }
@@ -1308,12 +1307,10 @@ impl Caps {
         // Corrhist updates
         if !in_check
             && (best_move.is_null() || !best_move.is_tactical(&pos))
-            && !(best_score <= raw_eval && bound_so_far == NodeType::lower_bound())
-            && !(best_score >= raw_eval && bound_so_far == NodeType::upper_bound())
+            && !(best_score <= uncorrected_eval && bound_so_far == NodeType::lower_bound())
+            && !(best_score >= uncorrected_eval && bound_so_far == NodeType::upper_bound())
         {
-            self
-                .corr_hist
-                .update(&pos, depth, eval, best_score);
+            self.corr_hist.update(&pos, depth, eval, best_score);
         }
 
         Some(best_score)
@@ -1338,7 +1335,7 @@ impl Caps {
         if let Some(tt_entry) = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
             debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
             let bound = tt_entry.bound();
-            let tt_score = Score::from_compact(tt_entry.score);
+            let tt_score = tt_entry.score();
             // depth 0 drops immediately to qsearch, so a depth 0 entry always comes from qsearch.
             // However, if we've already done qsearch on this position, we can just re-use the result,
             // so there is no point in checking the depth at all
