@@ -918,7 +918,6 @@ impl Caps {
             raw_eval = self.eval(pos, ply);
             eval = raw_eval;
         };
-        let uncorrected_eval = eval;
         eval = self.corr_hist.correct(&pos, eval);
 
         self.record_pos(pos, eval, ply);
@@ -1307,8 +1306,8 @@ impl Caps {
         // Corrhist updates
         if !in_check
             && (best_move.is_null() || !best_move.is_tactical(&pos))
-            && !(best_score <= uncorrected_eval && bound_so_far == NodeType::lower_bound())
-            && !(best_score >= uncorrected_eval && bound_so_far == NodeType::upper_bound())
+            && !(best_score <= eval && bound_so_far == NodeType::lower_bound())
+            && !(best_score >= eval && bound_so_far == NodeType::upper_bound())
         {
             self.corr_hist.update(&pos, depth, eval, best_score);
         }
