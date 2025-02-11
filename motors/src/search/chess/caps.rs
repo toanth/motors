@@ -1331,7 +1331,8 @@ impl Caps {
 
         // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
         // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        if let Some(tt_entry) = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
+        let old_entry = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply);
+        if let Some(tt_entry) = old_entry {
             debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
             let bound = tt_entry.bound();
             let tt_score = tt_entry.score();
@@ -1431,7 +1432,9 @@ impl Caps {
             0,
             bound_so_far,
         );
-        self.tt_mut().store(tt_entry, ply);
+        if bound_so_far == Exact || old_entry.is_none_or(|e| e.depth == 0) {
+            self.tt_mut().store(tt_entry, ply);
+        }
         best_score
     }
 
