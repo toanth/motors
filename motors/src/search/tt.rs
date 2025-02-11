@@ -1,3 +1,5 @@
+use portable_atomic::AtomicU128;
+use static_assertions::const_assert_eq;
 use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T1};
 use std::fmt::{Display, Formatter};
 use std::mem::size_of;
@@ -7,10 +9,6 @@ use std::ptr::addr_of;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 
-use portable_atomic::AtomicU128;
-use static_assertions::const_assert_eq;
-use strum_macros::FromRepr;
-
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
 use gears::games::ZobristHash;
@@ -18,18 +16,27 @@ use gears::general::board::Board;
 use gears::general::moves::{Move, UntrustedMove};
 use gears::score::{CompactScoreT, Score, ScoreT, SCORE_WON};
 use gears::search::NodeType;
-use OptionalNodeType::*;
 
 type AtomicTTEntry = AtomicU128;
 
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, FromRepr)]
-#[repr(u8)]
-enum OptionalNodeType {
-    #[default]
-    Empty = 0,
-    NodeTypeFailHigh = NodeType::FailHigh as u8,
-    NodeTypeExact = NodeType::Exact as u8,
-    NodeTypeFailLow = NodeType::FailLow as u8,
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, derive_more::Display)]
+pub struct Age(u8);
+
+impl Age {
+    /// Incrementing the age can wrap around sooner than after 256 calls because the TT entry doesn't store the full 8 bits
+    pub fn increment(&mut self) {
+        self.0 = self.0.wrapping_add(1);
+    }
+}
+
+fn pack_age_and_bound(age: Age, bound: NodeType) -> u8 {
+    (age.0 << 2) | (bound as u8)
+}
+
+fn unpack_age_and_bound(val: u8) -> (Age, Option<NodeType>) {
+    let age = Age(val >> 2);
+    let bound = NodeType::from_repr(val & 0b11);
+    (age, bound)
 }
 
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
@@ -40,17 +47,18 @@ pub struct TTEntry<B: Board> {
     pub eval: CompactScoreT,   // 2 bytes
     pub mov: UntrustedMove<B>, // depends, 2 bytes for chess (atm never more)
     pub depth: u8,             // 1 byte
-    bound: OptionalNodeType,   // 1 byte
+    age_and_bound: u8,         // 1 byte
 }
 
 impl<B: Board> Display for TTEntry<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "move {0} score {1} bound {2} depth {3}",
+            "move {0} score {1} bound {2} age {3} depth {4}",
             self.mov,
             self.score,
             self.bound(),
+            self.age(),
             self.depth
         )
     }
@@ -64,21 +72,32 @@ impl<B: Board> TTEntry<B> {
         mov: B::Move,
         depth: isize,
         bound: NodeType,
+        age: Age,
     ) -> TTEntry<B> {
         let depth = depth.clamp(0, u8::MAX as isize) as u8;
+        let age_and_bound = pack_age_and_bound(age, bound);
         Self {
             score: score.compact(),
             eval: eval.compact(),
             mov: UntrustedMove::from_move(mov),
             depth,
-            bound: OptionalNodeType::from_repr(bound as u8).unwrap(),
+            age_and_bound,
             hash,
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        unpack_age_and_bound(self.age_and_bound).1.is_none()
+    }
+
     pub fn bound(&self) -> NodeType {
-        debug_assert!(self.bound != Empty);
-        NodeType::from_repr(self.bound as u8).unwrap()
+        unpack_age_and_bound(self.age_and_bound)
+            .1
+            .expect("Incorrect NodeType in packed value {val}")
+    }
+
+    pub fn age(&self) -> Age {
+        unpack_age_and_bound(self.age_and_bound).0
     }
 
     pub fn score(&self) -> Score {
@@ -107,7 +126,7 @@ impl<B: Board> TTEntry<B> {
             | ((eval as u128) << (64 - 32))
             | ((self.mov.to_underlying().into() as u128) << 16)
             | ((self.depth as u128) << 8)
-            | self.bound as u128
+            | self.age_and_bound as u128
     }
 
     #[cfg(not(feature = "unsafe"))]
@@ -135,14 +154,14 @@ impl<B: Board> TTEntry<B> {
         let eval = ((val >> (64 - 32)) & 0xffff) as CompactScoreT;
         let mov = B::Move::from_usize_unchecked(((val >> 16) & 0xffff) as usize);
         let depth = ((val >> 8) & 0xff) as u8;
-        let bound = OptionalNodeType::from_repr((val & 0xff) as u8).unwrap();
+        let age_and_bound = (val & 0xff) as u8;
         Self {
             hash,
             score,
             eval,
             mov,
             depth,
-            bound,
+            age_and_bound,
         }
     }
 }
@@ -205,7 +224,7 @@ impl TT {
             .0
             .iter()
             .take(len)
-            .filter(|e: &&AtomicTTEntry| TTEntry::<B>::from_packed(e.load(Relaxed)).bound != Empty)
+            .filter(|e: &&AtomicTTEntry| !TTEntry::<B>::from_packed(e.load(Relaxed)).is_empty())
             .count();
         if len < 1000 {
             (num_used as f64 * 1000.0 / len as f64).round() as usize
@@ -258,7 +277,7 @@ impl TT {
             }
         }
         debug_assert!(entry.score().0.abs() <= SCORE_WON.0);
-        if entry.hash != hash || entry.bound == Empty {
+        if entry.hash != hash || entry.is_empty() {
             None
         } else {
             Some(entry)
@@ -305,6 +324,7 @@ mod test {
                 mov,
                 i as isize,
                 NodeType::from_repr(i as u8 % 3 + 1).unwrap(),
+                Age((i * i / 3 - i % 2 * 7) as u8),
             );
             let converted = entry.to_packed();
             assert_eq!(TTEntry::from_packed(converted), entry);
@@ -326,15 +346,16 @@ mod test {
                 );
                 let depth = rng().sample(Uniform::new(1, 100).unwrap());
                 let bound =
-                    OptionalNodeType::from_repr(rng().sample(Uniform::new(0, 3).unwrap()) + 1)
-                        .unwrap();
+                    NodeType::from_repr(rng().sample(Uniform::new(0, 3).unwrap()) + 1).unwrap();
+                let age = rng().sample(Uniform::new(1, 100).unwrap());
+                let age_and_bound = pack_age_and_bound(Age(age), bound);
                 let entry: TTEntry<Chessboard> = TTEntry {
                     hash: pos.zobrist_hash(),
                     score: score.compact(),
                     eval: score.compact() - 1,
                     mov: UntrustedMove::from_move(mov),
                     depth,
-                    bound,
+                    age_and_bound,
                 };
                 let packed = entry.to_packed();
                 let val = TTEntry::from_packed(packed);
@@ -398,6 +419,7 @@ mod test {
             bad_move,
             123,
             Exact,
+            Age(42),
         );
         tt.store(entry, 0);
         let next_pos = pos.make_move(bad_move).unwrap();
@@ -408,6 +430,7 @@ mod test {
             ChessMove::NULL,
             122,
             Exact,
+            Age(42),
         );
         tt.store(next_entry, 1);
         let mov = engine

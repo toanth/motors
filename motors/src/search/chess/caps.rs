@@ -10,7 +10,7 @@ use crate::search::chess::caps_values::cc;
 use crate::search::move_picker::MovePicker;
 use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
-use crate::search::tt::TTEntry;
+use crate::search::tt::{Age, TTEntry};
 use crate::search::*;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::arrayvec::ArrayVec;
@@ -218,6 +218,15 @@ impl RootMoveNodes {
     }
 }
 
+fn should_replace(new_entry: TTEntry<Chessboard>, old_entry: Option<TTEntry<Chessboard>>) -> bool {
+    let Some(ref old_entry) = old_entry else {
+        return true;
+    };
+    new_entry.bound() == Exact
+        || new_entry.age() != old_entry.age()
+        || new_entry.depth + 3 > old_entry.depth
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct CapsCustomInfo {
     history: HistoryHeuristic,
@@ -235,6 +244,7 @@ pub struct CapsCustomInfo {
     nmp_disabled: [bool; 2],
     depth_hard_limit: usize,
     root_move_nodes: RootMoveNodes,
+    age: Age,
 }
 
 impl CapsCustomInfo {
@@ -249,6 +259,7 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
         debug_assert_eq!(self.nmp_disabled[1], false);
         // don't update history values, malus and gravity already take care of that
         self.root_move_nodes.clear();
+        self.age.increment();
     }
 
     fn hard_forget_except_tt(&mut self) {
@@ -271,6 +282,7 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
             *value = 0;
         }
         self.root_move_nodes.clear();
+        self.age = Age::default();
     }
 
     fn write_internal_info(&self) -> Option<String> {
@@ -1296,11 +1308,12 @@ impl Caps {
             best_move,
             depth,
             bound_so_far,
+            self.age,
         );
 
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
-        if !(root && self.current_pv_num > 0) {
+        if !(root && self.current_pv_num > 0) && should_replace(tt_entry, old_entry) {
             self.tt_mut().store(tt_entry, ply);
         }
 
@@ -1332,7 +1345,8 @@ impl Caps {
 
         // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
         // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        if let Some(tt_entry) = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply) {
+        let old_entry = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply);
+        if let Some(tt_entry) = old_entry {
             debug_assert_eq!(tt_entry.hash, pos.zobrist_hash());
             let bound = tt_entry.bound();
             let tt_score = tt_entry.score();
@@ -1431,8 +1445,11 @@ impl Caps {
             best_move,
             0,
             bound_so_far,
+            self.age,
         );
-        self.tt_mut().store(tt_entry, ply);
+        if should_replace(tt_entry, old_entry) {
+            self.tt_mut().store(tt_entry, ply);
+        }
         best_score
     }
 
@@ -1825,6 +1842,7 @@ mod tests {
             tt_move,
             123,
             Exact,
+            Age::default(),
         );
         tt.store::<Chessboard>(entry, 0);
         let mut caps = Caps::default();
