@@ -409,7 +409,7 @@ pub trait Board:
 
     /// Returns the result (win/draw/loss), if any. Can be potentially slow because it can require movegen.
     /// If movegen is used anyway (such as in an ab search), it is usually better to call [`Self::player_result_no_movegen`]
-    /// and [`Self::no_moves_result`] iff there were no legal moves.
+    /// and [`Self::no_moves_result`] iff there were no legal moves, which is done in the [`Self::player_result`] function.
     /// Despite the name, this method is not always slower than `player_result_no_movegen`, for some games both
     /// implementations are identical. But in a generic setting, this shouldn't be relied upon, hence the name.
     /// Note that many implementations never return [`PlayerResult::Win`] because the active player can't win the game,
@@ -564,6 +564,16 @@ pub trait BoardHelpers: Board {
         let player_res = self.player_result_slow(history)?;
         let game_over = GameOver { result: player_res, reason: GameOverReason::Normal };
         Some(player_res_to_match_res(game_over, self.active_player()))
+    }
+
+    /// Convenience function that computes the player result by calling [`Self::no_moves_result()`] if `no_legal_moves` is true,
+    /// else it calls [`Self::player_result_no_movegen()`].
+    fn player_result<H: BoardHistory>(&self, history: &H, no_legal_moves: bool) -> Option<PlayerResult> {
+        if no_legal_moves {
+            Some(self.no_moves_result())
+        } else {
+            self.player_result_no_movegen(history)
+        }
     }
 
     /// Reads in a compact textual description of the board, such that `B::from_fen(board.as_fen()) == b` holds.
