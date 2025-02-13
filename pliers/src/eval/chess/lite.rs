@@ -15,6 +15,7 @@ use gears::games::chess::see::SEE_SCORES;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::ChessColor::White;
 use gears::games::chess::{ChessColor, Chessboard};
+use gears::games::DimT;
 use gears::general::common::StaticallyNamedEntity;
 use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
@@ -44,6 +45,7 @@ pub enum LiteFeatureSubset {
     PassedPawn,
     UnsupportedPawn,
     DoubledPawn,
+    Phalanx,
     PawnProtection,
     PawnAttacks,
     Mobility,
@@ -66,6 +68,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             PassedPawn => NUM_SQUARES,
             UnsupportedPawn => 1,
             DoubledPawn => 1,
+            Phalanx => 7,
             PawnProtection => NUM_CHESS_PIECES,
             PawnAttacks => NUM_CHESS_PIECES,
             Mobility => (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1),
@@ -155,6 +158,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             DoubledPawn => {
                 write!(f, "const DOUBLED_PAWN: PhasedScore = ")?;
+            }
+            Phalanx => {
+                write!(f, "const PHALANX: [PhasedScore; 7] = ")?;
             }
             PawnProtection => {
                 write!(
@@ -276,6 +282,10 @@ impl LiteValues for LiTETrace {
 
     fn doubled_pawn() -> SingleFeature {
         SingleFeature::new(DoubledPawn, 0)
+    }
+
+    fn phalanx(rank: DimT) -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(Phalanx, rank as usize)
     }
 
     fn bishop_pair() -> SingleFeature {

@@ -23,6 +23,7 @@ use gears::games::chess::pieces::ChessPieceType::King;
 use gears::games::chess::squares::ChessSquare;
 use gears::games::chess::ChessColor;
 use gears::games::chess::ChessColor::White;
+use gears::games::DimT;
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{p, PhasedScore};
 use std::fmt::Display;
@@ -90,6 +91,10 @@ impl LiteValues for KingGambotValues {
 
     fn doubled_pawn() -> PhasedScore {
         Lite::doubled_pawn()
+    }
+
+    fn phalanx(rank: DimT) -> SingleFeatureScore<Self::Score> {
+        Lite::phalanx(rank)
     }
 
     fn bishop_pair() -> PhasedScore {

@@ -198,6 +198,9 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             if (supporting & our_pawns).is_zero() {
                 score += Tuned::unsupported_pawn();
             }
+            if (neighbors & our_pawns).has_set_bit() {
+                score += Tuned::phalanx(normalized_square.rank());
+            }
         }
         let num_doubled_pawns = (our_pawns & (our_pawns.north())).num_ones();
         score += Tuned::doubled_pawn() * num_doubled_pawns;
