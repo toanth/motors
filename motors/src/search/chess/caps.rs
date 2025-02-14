@@ -177,7 +177,7 @@ impl CorrHist {
         }
     }
 
-    fn correct(&mut self, pos: &Chessboard, raw: Score) -> Score {
+    fn correct(&mut self, pos: &Chessboard, raw: Score, recent_corrections: ScoreT) -> Score {
         if raw.is_won_or_lost() {
             return raw;
         }
@@ -188,6 +188,7 @@ impl CorrHist {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             correction += self.nonpawns[color][nonpawn_idx][c] as isize / 2;
         }
+        correction += recent_corrections as isize;
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
         Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
     }
@@ -235,6 +236,9 @@ pub struct CapsCustomInfo {
     nmp_disabled: [bool; 2],
     depth_hard_limit: usize,
     root_move_nodes: RootMoveNodes,
+    /// Exponentially moving average of applied corrections, based on the idea that corrections to recent positions are
+    /// likely relevant to the current position as well
+    recent_corrections: ScoreT,
 }
 
 impl CapsCustomInfo {
@@ -918,7 +922,8 @@ impl Caps {
             raw_eval = self.eval(pos, ply);
             eval = raw_eval;
         };
-        eval = self.corr_hist.correct(&pos, eval);
+        let exp_avg = self.recent_corrections;
+        eval = self.corr_hist.correct(&pos, eval, exp_avg);
 
         self.record_pos(pos, eval, ply);
 
@@ -1310,6 +1315,9 @@ impl Caps {
             && !(best_score >= eval && bound_so_far == NodeType::upper_bound())
         {
             self.corr_hist.update(&pos, depth, eval, best_score);
+            self.recent_corrections = (self.recent_corrections + (best_score - eval).0) / 2;
+        } else {
+            self.recent_corrections /= 2;
         }
 
         Some(best_score)
@@ -1368,7 +1376,8 @@ impl Caps {
             raw_eval = self.eval(pos, ply);
             eval = raw_eval;
         }
-        let mut best_score = self.corr_hist.correct(&pos, eval);
+        let exp_avg = self.recent_corrections;
+        let mut best_score = self.corr_hist.correct(&pos, eval, exp_avg);
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
         // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
