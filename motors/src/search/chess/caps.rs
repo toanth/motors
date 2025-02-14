@@ -274,6 +274,7 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
         for value in self.corr_hist.nonpawns.iter_mut().flatten().flatten() {
             *value = 0;
         }
+        self.recent_corrections = 0;
         self.root_move_nodes.clear();
     }
 
@@ -1315,11 +1316,12 @@ impl Caps {
             && !(best_score >= eval && bound_so_far == NodeType::upper_bound())
         {
             self.corr_hist.update(&pos, depth, eval, best_score);
-            self.recent_corrections = (self.recent_corrections + (best_score - eval).0) / 2;
-        } else {
-            self.recent_corrections /= 2;
+            CorrHist::update_entry(
+                &mut self.recent_corrections,
+                1,
+                (best_score - eval).0 as isize * CORRHIST_SCALE,
+            );
         }
-
         Some(best_score)
     }
 
