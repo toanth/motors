@@ -188,7 +188,7 @@ impl CorrHist {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             correction += self.nonpawns[color][nonpawn_idx][c] as isize / 2;
         }
-        correction += recent_corrections as isize;
+        correction += recent_corrections as isize * CORRHIST_SCALE / 2;
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
         Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
     }
@@ -274,6 +274,7 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
         for value in self.corr_hist.nonpawns.iter_mut().flatten().flatten() {
             *value = 0;
         }
+        self.recent_corrections = 0;
         self.root_move_nodes.clear();
     }
 
@@ -1315,9 +1316,9 @@ impl Caps {
             && !(best_score >= eval && bound_so_far == NodeType::upper_bound())
         {
             self.corr_hist.update(&pos, depth, eval, best_score);
-            self.recent_corrections = (self.recent_corrections + (best_score - eval).0) / 2;
+            self.recent_corrections = (self.recent_corrections * 15 + (best_score - eval).0) / 16;
         } else {
-            self.recent_corrections /= 2;
+            self.recent_corrections = self.recent_corrections * 15 / 16;
         }
 
         Some(best_score)
