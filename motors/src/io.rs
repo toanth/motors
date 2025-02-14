@@ -129,11 +129,21 @@ struct EngineGameState<B: Board> {
     debug_mode: bool,
     ponder_limit: Option<SearchLimit>,
     engine: EngineWrapper<B>,
+    /// The `go` command can take an engine option, which starts a search with the given engine without changing the normal engine.
+    /// This temporary engine is largely ignored for most functionality, and at most one engine is allowed to search at the same time.
+    temp_engine: Option<EngineWrapper<B>>,
     /// This doesn't have to be the UGI engine name. It often isn't, especially when two engines with
     /// the same name play against each other, such as in a SPRT. It should be unique, however
     /// (the `monitors` client ensures that, but another GUI might not).
     display_name: String,
     opponent_name: Option<String>,
+}
+
+impl<B: Board> EngineGameState<B> {
+    fn is_currently_searching(&self) -> bool {
+        self.engine.main_atomic_search_data().currently_searching()
+            || self.temp_engine.as_ref().is_some_and(|e| e.main_atomic_search_data().currently_searching())
+    }
 }
 
 impl<B: Board> Deref for EngineGameState<B> {
@@ -287,6 +297,7 @@ impl<B: Board> EngineUGI<B> {
             debug_mode: opts.debug,
             ponder_limit: None,
             engine,
+            temp_engine: None,
             display_name,
             opponent_name: None,
         };
@@ -719,30 +730,39 @@ impl<B: Board> EngineUGI<B> {
         }
         self.state.set_status(Run(Ongoing));
         let search_moves = self.state.go_state.search_moves.take();
+        // Stop the temporary search, if it exists. This could take some time, but that's fine since there won't be a temporary engine
+        // unless the user specifically requested it.
+        self.state.temp_engine = None;
+        let engine = if let Some(name) = &opts.engine_name {
+            let temp_engine = create_engine_from_str(
+                name,
+                &self.searcher_factories,
+                &self.eval_factories,
+                self.output.clone(),
+                tt.clone().unwrap_or_default(), // use default (i.e small) TT size to avoid using too much memory by mistake
+            )?;
+            self.state.temp_engine = Some(temp_engine);
+            self.state.temp_engine.as_mut().unwrap()
+        } else {
+            &mut self.state.engine
+        };
         match opts.search_type {
             // this keeps the current history even if we're searching a different position, but that's probably not a problem
             // and doing a normal search from a custom position isn't even implemented at the moment -- TODO: implement?
             Normal => {
                 // It doesn't matter if we got a ponderhit or a miss, we simply abort the ponder search and start a new search.
-                if self.state.ponder_limit.is_some() {
+                if opts.engine_name.is_none() && self.state.ponder_limit.is_some() {
                     self.state.ponder_limit = None;
                     // TODO: Maybe do this all the time to make sure two `go` commands after another work -- write testcase for that
-                    self.state.engine.send_stop(true); // aborts the pondering without printing a search result
+                    engine.send_stop(true); // aborts the pondering without printing a search result
                 }
-                self.state.engine.start_search(
-                    pos,
-                    opts.limit,
-                    hist,
-                    search_moves,
-                    opts.multi_pv,
-                    false,
-                    opts.threads,
-                    tt,
-                )?;
+                engine.start_search(pos, opts.limit, hist, search_moves, opts.multi_pv, false, opts.threads, tt)?;
             }
             SearchType::Ponder => {
-                self.state.ponder_limit = Some(opts.limit);
-                self.state.engine.start_search(
+                if opts.engine_name.is_none() {
+                    self.state.ponder_limit = Some(opts.limit);
+                }
+                engine.start_search(
                     pos,
                     SearchLimit::infinite(), //always allocate infinite time for pondering
                     hist,
@@ -1345,6 +1365,9 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
 
     fn handle_stop(&mut self, suppress_best_move: bool) -> Res<()> {
         self.state.engine.send_stop(suppress_best_move);
+        if let Some(tmp) = &mut self.state.temp_engine {
+            tmp.send_stop(suppress_best_move);
+        }
         Ok(())
     }
 

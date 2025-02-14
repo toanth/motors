@@ -34,8 +34,9 @@ colored = "3.0.0"
 
 
 [features]
-default = ["unsafe", "chess", "ataxx", "mnk", "uttt", "fairy", "random_mover", "gaps", "caps"]
+default = ["unsafe", "chess", "ataxx", "mnk", "uttt", "fairy", "random_mover", "proof_number", "gaps", "caps"]
 random_mover = []
+proof_number = []
 gaps = []
 caps = ["chess"] # enabling the caps feature also enables the chess feature
 statistics = []

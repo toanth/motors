@@ -274,8 +274,7 @@ impl StaticallyNamedEntity for Caps {
     where
         Self: Sized,
     {
-        "Chess-playing Alpha-beta Pruning Search (CAPS), a chess engine. \
-        Currently early in development, but still around 3k elo with a hand crafted eval. \
+        "Chess-playing Alpha-beta Pruning Search (CAPS), a superhuman chess engine with a hand crafted eval. \
         Much larger than SᴍᴀʟʟCᴀᴘꜱ"
             .to_string()
     }
@@ -305,14 +304,6 @@ impl Engine<Chessboard> for Caps {
         &mut self.state
     }
 
-    fn search_state(&self) -> &SearchStateFor<Chessboard, Self> {
-        &self.state
-    }
-
-    fn search_state_mut(&mut self) -> &mut SearchStateFor<Chessboard, Self> {
-        &mut self.state
-    }
-
     fn engine_info(&self) -> EngineInfo {
         let mut options = vec![EngineOption {
             name: Other("UCI_Chess960".to_string()),
@@ -328,18 +319,6 @@ impl Engine<Chessboard> for Caps {
             None,
             options,
         )
-    }
-
-    fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
-        debug_assert!(self.state.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0);
-        let elapsed = start_time.elapsed();
-        // divide by 4 unless moves to go is very small, but don't divide by 1 (or zero) to avoid timeouts
-        // TODO: Compute at the start of the search instead of every time:
-        // Instead of storing a SearchLimit, store a different struct that contains soft and hard bounds
-        let divisor = tc.moves_to_go.unwrap_or(usize::MAX).clamp(2, cc::hard_limit_div()) as u32;
-        // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
-        // (assuming the move overhead is set correctly)
-        elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment)
     }
 
     fn set_option(&mut self, option: EngineOptionName, old_value: &mut EngineOptionType, value: String) -> Res<()> {
@@ -412,6 +391,28 @@ impl Engine<Chessboard> for Caps {
             }
         }
         self.state.search_result()
+    }
+}
+
+impl NormalEngine<Chessboard> for Caps {
+    fn search_state(&self) -> &SearchStateFor<Chessboard, Self> {
+        &self.state
+    }
+
+    fn search_state_mut(&mut self) -> &mut SearchStateFor<Chessboard, Self> {
+        &mut self.state
+    }
+
+    fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
+        debug_assert!(self.state.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0);
+        let elapsed = start_time.elapsed();
+        // divide by 4 unless moves to go is very small, but don't divide by 1 (or zero) to avoid timeouts
+        // TODO: Compute at the start of the search instead of every time:
+        // Instead of storing a SearchLimit, store a different struct that contains soft and hard bounds
+        let divisor = tc.moves_to_go.unwrap_or(usize::MAX).clamp(2, cc::hard_limit_div()) as u32;
+        // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
+        // (assuming the move overhead is set correctly)
+        elapsed >= fixed_time.min(tc.remaining / divisor + tc.increment)
     }
 }
 
@@ -518,7 +519,7 @@ impl Caps {
                 return (false, None, None);
             }
             self.state.atomic().set_depth(depth); // set depth now so that an immediate stop doesn't increment the depth
-            self.state.atomic().count_node();
+            _ = self.state.atomic().count_node();
             let asp_start_time = Instant::now();
             let Some(pv_score) = self.negamax(pos, 0, self.state.depth().isize(), alpha, beta, Exact) else {
                 return (false, Some(depth), None);
@@ -1222,7 +1223,7 @@ impl Caps {
     }
 
     fn record_move(&mut self, mov: ChessMove, old_pos: Chessboard, ply: usize, typ: SearchType) {
-        self.state.atomic().count_node();
+        _ = self.state.atomic().count_node();
         self.state.params.history.push(old_pos.hash_pos());
         self.state.search_stack[ply].tried_moves.push(mov);
         self.state.statistics.count_legal_make_move(typ);

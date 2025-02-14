@@ -27,6 +27,8 @@ use crate::io::EngineUGI;
 use crate::search::chess::caps::Caps;
 #[cfg(feature = "gaps")]
 use crate::search::generic::gaps::Gaps;
+#[cfg(feature = "proof_number")]
+use crate::search::generic::proof_number::ProofNumberSearcher;
 #[cfg(feature = "random_mover")]
 use crate::search::generic::random_mover::RandomMover;
 use crate::search::multithreading::EngineWrapper;
@@ -301,6 +303,8 @@ pub fn generic_searchers<B: Board>() -> SearcherList<B> {
         Box::new(SearcherBuilder::<B, RandomMover<B, StdRng>>::default()),
         #[cfg(feature = "gaps")]
         Box::new(SearcherBuilder::<B, Gaps<B>>::default()),
+        #[cfg(feature = "proof_number")]
+        Box::new(SearcherBuilder::<B, ProofNumberSearcher<B>>::default()),
     ]
 }
 
