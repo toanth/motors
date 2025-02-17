@@ -419,12 +419,14 @@ mod test {
         _ = engine2.search_with_new_tt(pos, limit);
         let nodes = engine2.search_state().uci_nodes();
         engine2.forget();
+        assert_eq!(engine2.uci_nodes(), 0);
         let _ = engine.search_with_tt(pos, SearchLimit::depth(Depth::new_unchecked(5)), tt.clone());
         let entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0);
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().depth, 5);
         _ = engine2.search_with_tt(pos, limit, tt.clone());
-        assert!(engine2.search_state().uci_nodes() <= nodes);
+        let new_nodes = engine2.search_state().uci_nodes();
+        assert!(new_nodes <= nodes, "{new_nodes} {nodes}");
         tt.forget();
         let atomic = Arc::new(AtomicSearchState::default());
         let params = SearchParams::with_atomic_state(

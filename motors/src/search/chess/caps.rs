@@ -188,7 +188,12 @@ impl CorrHist {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             correction += self.nonpawns[color][nonpawn_idx][c] as isize / 2;
         }
-        correction += recent_corrections as isize * CORRHIST_SCALE / 2;
+        let factor = if pos.active_player().is_first() {
+            1
+        } else {
+            -1
+        };
+        correction += recent_corrections as isize * CORRHIST_SCALE / 2 * factor;
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
         Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
     }
