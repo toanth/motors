@@ -623,12 +623,20 @@ impl<B: Board> EngineUGI<B> {
         let mut name = String::default();
         loop {
             let next_word = words.next().unwrap_or_default();
-            if next_word.eq_ignore_ascii_case("value") || next_word.is_empty() {
+            if next_word.is_empty() {
+                // input didn't contain 'value', so assume the first token is the name and the rest is the value
+                let mut words = tokens(&name);
+                let name = words.next().unwrap_or_default();
+                let value = words.join(" ");
+                let name = EngineOptionName::from_str(name.trim()).unwrap();
+                return self.set_option(name, value);
+            }
+            if next_word.eq_ignore_ascii_case("value") {
                 break;
             }
             name = name + " " + next_word;
         }
-        let mut value = words.next().unwrap_or_default().to_string();
+        let mut value = words.next().unwrap().to_string();
         loop {
             let next_word = words.next().unwrap_or_default();
             if next_word.is_empty() {
@@ -808,9 +816,16 @@ impl<B: Board> EngineUGI<B> {
             if let Some(eval_name) = info.eval() {
                 let mut eval = create_eval_from_str(&eval_name.short_name(), &self.eval_factories)?.build();
                 let eval_score = eval.eval(&state.board, 0);
-                let diagram = show_eval_pos(&state.board, state.last_move(), eval);
-                diagram
-                    + &format!("Eval Score: {}\n", pretty_score(eval_score, None, None, &score_gradient(), true, false))
+                if self.is_interactive() {
+                    let diagram = show_eval_pos(&state.board, state.last_move(), eval);
+                    diagram
+                        + &format!(
+                            "Eval Score: {}\n",
+                            pretty_score(eval_score, None, None, &score_gradient(), true, false)
+                        )
+                } else {
+                    eval_score.0.to_string()
+                }
             } else {
                 format!("The engine '{}' doesn't have an eval function", info.short_name().bold())
             }

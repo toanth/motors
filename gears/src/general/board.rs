@@ -411,7 +411,7 @@ pub trait Board:
     /// If movegen is used anyway (such as in an ab search), it is usually better to call [`Self::player_result_no_movegen`]
     /// and [`Self::no_moves_result`] iff there were no legal moves, which is done in the [`Self::player_result`] function.
     /// Despite the name, this method is not always slower than `player_result_no_movegen`, for some games both
-    /// implementations are identical. But in a generic setting, this shouldn't be relied upon, hence the name.
+    /// implementations are identical.
     /// Note that many implementations never return [`PlayerResult::Win`] because the active player can't win the game,
     /// which is the case because the current player is flipped after the winning move.
     /// For example, being checkmated in chess is a loss for the current player.

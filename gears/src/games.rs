@@ -416,6 +416,9 @@ pub trait BoardHistory: Default + Debug + Clone + 'static {
     fn push(&mut self, hash: PosHash);
     fn pop(&mut self);
     fn clear(&mut self);
+    fn override_repetition_count(&self) -> Option<usize> {
+        None
+    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
@@ -468,8 +471,39 @@ impl BoardHistory for ZobristHistory {
     }
 }
 
+#[derive(Clone, Eq, PartialEq, Default, Debug)]
+#[must_use]
+pub struct ZobristHistory2Fold(pub ZobristHistory);
+
+impl BoardHistory for ZobristHistory2Fold {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn is_repetition(&self, hash: PosHash, plies_ago: usize) -> bool {
+        self.0.is_repetition(hash, plies_ago)
+    }
+
+    fn push(&mut self, hash: PosHash) {
+        self.0.push(hash)
+    }
+
+    fn pop(&mut self) {
+        self.0.pop()
+    }
+
+    fn clear(&mut self) {
+        self.0.clear()
+    }
+
+    fn override_repetition_count(&self) -> Option<usize> {
+        Some(2)
+    }
+}
+
 pub fn n_fold_repetition<H: BoardHistory>(mut count: usize, history: &H, hash: PosHash, max_lookback: usize) -> bool {
     let stop = min(history.len(), max_lookback);
+    count = history.override_repetition_count().unwrap_or(count);
     if stop < 2 {
         // in many, but not all, games, we could increase this to 4
         return false;

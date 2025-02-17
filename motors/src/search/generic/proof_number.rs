@@ -22,34 +22,40 @@ use crate::search::{
     AbstractSearchState, BenchResult, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchParams,
     DEFAULT_CHECK_TIME_INTERVAL,
 };
-use gears::games::{Color, PosHash, ZobristHistory};
+use gears::games::{BoardHistory, Color, PosHash, ZobristHistory2Fold};
 use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::StaticallyNamedEntity;
+use gears::general::move_list::MoveList;
 use gears::score::{Score, SCORE_LOST, SCORE_WON};
+use gears::search::NodeType::Exact;
 use gears::search::{Depth, NodesLimit, SearchInfo, SearchResult};
 use gears::PlayerResult;
 use itertools::Itertools;
 use std::cmp::min;
 use std::fmt::Display;
 use std::time::Instant;
-// See <https://journals.sagepub.com/doi/epdf/10.3233/ICG-2012-35302>
+// See <https://journals.sagepub.com/doi/epdf/10.3233/ICG-2012-35302> and
+// <https://minimax.dev/docs/ultimate/pn-search/dfpn/>
 
 const DEFAULT_NUM_TT_ENTRIES: usize = 1024;
 
 const INFINITY: u64 = u64::MAX / 2;
 
+type WorkT = u64;
+
 #[derive(Debug, Default, Copy, Clone)]
 struct Node {
+    bounds: DeltaPhi,
+    hash: PosHash,
+    work: WorkT,
+    chosen_move_idx: u16,
+}
+
+#[derive(Debug, Default, Copy, Clone)]
+struct DeltaPhi {
     // phi is pn (the proof number) for OR nodes and dn (disproof number) for AND nodes
     phi: u64,
     // delta is dn (the disproof number) for OR nodes and pn (proof number) for AND nodes
-    delta: u64,
-    hash: PosHash,
-    // TODO: store ply, or subtree size, or someting along those lines for a better replacement strategy
-}
-
-struct DeltaPhi {
-    phi: u64,
     delta: u64,
 }
 
@@ -59,6 +65,7 @@ pub struct ProofNumberSearcher<B: Board> {
     root_player: B::Color,
     params: SearchParams<B>,
     start_time: Instant,
+    history: ZobristHistory2Fold,
 }
 
 impl<B: Board> ProofNumberSearcher<B> {
@@ -68,6 +75,8 @@ impl<B: Board> ProofNumberSearcher<B> {
             root_player: B::Color::first(),
             params: SearchParams::default(),
             start_time: Instant::now(),
+            // discard positions encountered before starting the search
+            history: ZobristHistory2Fold::default(),
         }
     }
 }
@@ -76,19 +85,30 @@ impl<B: Board> ProofNumberSearcher<B> {
     pub fn df_pn(&mut self, pos: B) -> Option<bool> {
         self.root_player = pos.active_player();
         self.start_time = Instant::now();
-        _ = self.nega_dfpn(&pos, INFINITY, INFINITY);
-        let dp = self.retrieve_proof_and_disproof_numbers(&pos);
-        if dp.phi == INFINITY {
-            Some(false)
-        } else if dp.delta == INFINITY {
+        let mut root = DeltaPhi { phi: INFINITY, delta: INFINITY };
+        _ = self.multi_id(&pos, &mut root)?;
+        let dp = self.load_from_tt(&pos).bounds;
+        if dp.phi == 0 {
             Some(true)
+        } else if dp.delta == 0 {
+            Some(false)
         } else {
             None
         }
     }
 
+    pub fn try_find_move(&mut self, pos: B) -> Option<(bool, B::Move)> {
+        let win = self.df_pn(pos.clone())?;
+        let node = self.load_from_tt(&pos);
+        let mov = pos.legal_moves_slow().into_iter().nth(node.chosen_move_idx as usize).unwrap();
+        Some((win, mov))
+    }
+
     // df-pn, an improved version of pds. Eventually, this should be expanded to dfpn-pn, similar to how pds-pn works.
-    fn nega_dfpn(&mut self, pos: &B, mut phi: u64, mut delta: u64) -> Option<()> {
+    // performs iterative deepening at each node, hence the name.
+    fn multi_id(&mut self, pos: &B, node: &mut DeltaPhi) -> Option<WorkT> {
+        let mut work = 1;
+        let mut move_idx = usize::MAX;
         // TODO: Collect into arrayvec or similar instead, or better use the smallvec crate, also for some movelists
         let nodes = self.params.atomic.count_node();
         if nodes >= self.limit().nodes.get() {
@@ -99,39 +119,49 @@ impl<B: Board> ProofNumberSearcher<B> {
             }
             // depth and mate limits are meaningless and ignored, as is time management
         }
-        let children = pos.children().collect_vec();
+        let mut children = pos
+            .children()
+            .map(|c| {
+                let dp = self.load_from_tt(&c).bounds;
+                (c, dp)
+            })
+            .collect_vec();
         // TODO: Use History? Handle GHI, infinite searches, etc.
-        if let Some(res) = pos.player_result(&ZobristHistory::default(), children.is_empty()) {
-            let dp = self.player_res_to_deltaphi(res, pos.active_player());
-            self.save_proof_and_disproof_numbers(pos, dp);
-            return Some(());
+        if let Some(res) = pos.player_result(&self.history, children.is_empty()) {
+            *node = self.player_res_to_deltaphi(res, pos.active_player());
+            // don't overwrite already existing entries for this position: They're either already draws or we would
+            // be storing an incorrect 2fold repetition draw
+            if self.get(pos.hash_pos()).is_none() {
+                self.save_to_tt(pos, *node, 1, move_idx);
+            }
+            return Some(1);
         }
         let mut phi_c = 0;
         let mut delta_2 = 0;
         loop {
             let DeltaPhi { phi: phi_sum, delta: delta_min } = self.delta_min_and_phi_sum(&children);
-            if phi <= delta_min || delta <= phi_sum {
+            if node.phi <= delta_min || node.delta <= phi_sum {
                 break;
             }
-            let best_child_idx = self.select_child(&children, &mut phi_c, &mut delta_2);
-            let child = &children[best_child_idx];
-            let child_phi = delta + phi_c - phi_sum;
-            let child_delta = min(phi, delta_2 + 1);
-            self.nega_dfpn(child, child_phi, child_delta)?;
+            move_idx = self.select_child(&children, &mut phi_c, &mut delta_2);
+            let (child, child_node) = &mut children[move_idx];
+            child_node.phi = node.delta + phi_c - phi_sum;
+            child_node.delta = min(node.phi, delta_2 + 1);
+            self.history.push(pos.hash_pos());
+            work += self.multi_id(child, child_node)?;
+            self.history.pop();
         }
-        let DeltaPhi { phi: phi_sum, delta: delta_min } = self.delta_min_and_phi_sum(&children);
-        phi = delta_min;
-        delta = phi_sum;
-        self.save_proof_and_disproof_numbers(pos, DeltaPhi { phi, delta });
-        Some(())
+        let dp = self.delta_min_and_phi_sum(&children); // TODO: Don't recompute
+        *node = DeltaPhi { phi: dp.delta, delta: dp.phi };
+        self.save_to_tt(pos, *node, work, move_idx);
+        Some(work)
     }
 
-    fn select_child(&mut self, children: &Vec<B>, phi_c: &mut u64, delta_2: &mut u64) -> usize {
+    fn select_child(&mut self, children: &Vec<(B, DeltaPhi)>, phi_c: &mut u64, delta_2: &mut u64) -> usize {
         let mut delta_c = INFINITY;
         *phi_c = INFINITY;
         let mut best_child_idx = 0;
-        for (i, c) in children.iter().enumerate() {
-            let dp = self.retrieve_proof_and_disproof_numbers(c);
+        for (i, (_, dp)) in children.iter().enumerate() {
             if dp.delta < delta_c {
                 best_child_idx = i;
                 *delta_2 = delta_c;
@@ -147,40 +177,44 @@ impl<B: Board> ProofNumberSearcher<B> {
         best_child_idx
     }
 
-    fn delta_min_and_phi_sum(&self, children: &Vec<B>) -> DeltaPhi {
+    fn delta_min_and_phi_sum(&self, children: &[(B, DeltaPhi)]) -> DeltaPhi {
         let mut min = INFINITY;
         let mut sum = 0;
-        for c in children {
-            let dp = self.retrieve_proof_and_disproof_numbers(c);
+        for (_, dp) in children {
             min = min.min(dp.delta);
             sum = (sum + dp.phi).min(INFINITY);
         }
         DeltaPhi { delta: min, phi: sum }
     }
 
-    fn retrieve_proof_and_disproof_numbers(&self, pos: &B) -> DeltaPhi {
+    fn load_from_tt(&self, pos: &B) -> Node {
         if let Some(entry) = self.get(pos.hash_pos()) {
-            DeltaPhi { phi: entry.phi, delta: entry.delta }
+            entry
         } else {
             // TODO: This could use game-dependent knowledge, such as from an eval function
-            DeltaPhi { phi: 1, delta: 1 }
+            Node { bounds: DeltaPhi { phi: 1, delta: 1 }, hash: pos.hash_pos(), work: 0, chosen_move_idx: u16::MAX }
         }
     }
 
-    fn save_proof_and_disproof_numbers(&mut self, pos: &B, dp: DeltaPhi) {
+    fn save_to_tt(&mut self, pos: &B, dp: DeltaPhi, new_work: WorkT, move_idx: usize) {
         let hash = pos.hash_pos();
         let len = self.tt.len();
         let entry = &mut self.tt[hash.0 as usize % len];
         // if entry.hash != hash && entry.
         // currently, we're using always replace. TODO: Test better replacement strategy
+        if entry.hash != hash {
+            entry.work = 0;
+        }
+        entry.work += new_work;
         entry.hash = hash;
-        entry.delta = dp.delta;
-        entry.phi = dp.phi;
+        entry.bounds.delta = dp.delta;
+        entry.bounds.phi = dp.phi;
+        entry.chosen_move_idx = move_idx as u16;
     }
 
     fn get(&self, hash: PosHash) -> Option<Node> {
         // TODO: Multiplication trick
-        let entry = self.tt[hash.0 as usize % self.tt.len()];
+        let entry = self.tt[hash.0 as usize % self.tt.len()].clone();
         if entry.hash == hash {
             Some(entry)
         } else {
@@ -199,6 +233,27 @@ impl<B: Board> ProofNumberSearcher<B> {
                 self.player_res_to_deltaphi(res, active)
             }
         }
+    }
+
+    fn reconstruct_pv(&self, root: &B) -> Vec<B::Move> {
+        let mut pos = root.clone();
+        let mut res = vec![];
+        let mut seen = vec![];
+        loop {
+            let node = self.load_from_tt(&pos);
+            let moves = pos.legal_moves_slow();
+            if node.hash != pos.hash_pos()
+                || node.chosen_move_idx as usize >= moves.num_moves()
+                || seen.contains(&pos.hash_pos())
+            {
+                break;
+            }
+            seen.push(pos.hash_pos());
+            let mov = moves.into_iter().nth(node.chosen_move_idx as usize).unwrap();
+            res.push(mov);
+            pos = pos.make_move(mov).unwrap();
+        }
+        res
     }
 }
 
@@ -232,8 +287,9 @@ impl<B: Board> AbstractSearchState<B> for ProofNumberSearcher<B> {
     fn end_search(&mut self, res: &SearchResult<B>) {
         // normal searchers spin until they receive an explicit `stop` when asked to do an infinite search,
         // but this isn't useful for a proof number search.
-        self.params.atomic.set_searching(false);
+        self.params.atomic.set_stop(true);
         self.params.send_search_res(res);
+        self.params.atomic.set_searching(false);
     }
 
     fn search_params(&self) -> &SearchParams<B> {
@@ -299,11 +355,35 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
     }
 
     fn do_search(&mut self) -> SearchResult<B> {
-        let res = self.df_pn(self.params.pos.clone());
+        let root = self.params.pos.clone();
+        // TODO: Replace by having the TT type depend on the engine
+        self.tt.resize(self.params.tt.size_in_bytes() / size_of::<Node>(), Node::default());
+        let res = self.df_pn(root.clone());
         if let Some(res) = res {
             let score = if res { SCORE_WON } else { SCORE_LOST };
+
+            let pv = self.reconstruct_pv(&root);
+            let mov = pv[0];
+            if let Some(mut o) = self.params.thread_type.output() {
+                let info = SearchInfo {
+                    best_move_of_all_pvs: mov,
+                    depth: Depth::new(1),
+                    seldepth: Depth::new(1),
+                    time: self.start_time.elapsed(),
+                    nodes: NodesLimit::new(self.params.atomic.nodes()).unwrap(),
+                    pv_num: 0,
+                    max_num_pvs: 1,
+                    pv: &pv,
+                    score: Default::default(),
+                    hashfull: 0,
+                    pos: root,
+                    bound: Some(Exact),
+                    additional: None,
+                };
+                o.write_search_info(info);
+            }
             self.send_ugi(&format_args!("Position is {}won!", if res { "" } else { "NOT " }));
-            SearchResult::new(B::Move::default(), score, None, self.params.pos.clone())
+            SearchResult::new(mov, score, None, self.params.pos.clone())
         } else {
             self.send_ugi(&format_args!("Failed to prove or disprove win"));
             SearchResult::new(B::Move::default(), Score(0), None, self.params.pos.clone())
@@ -314,42 +394,60 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gears::games::chess::moves::ChessMove;
     use gears::games::chess::Chessboard;
     use gears::general::board::Strictness::Strict;
+    use gears::general::moves::Move;
 
     #[test]
     fn simple_dfpn_chess_test() {
         let pos = Chessboard::from_name("mate_in_1").unwrap();
-        // TODO: Make this work with a smaller TT
         let mut searcher = ProofNumberSearcher::new(1024 * 1024);
-        let res = searcher.df_pn(pos);
-        assert_eq!(res, Some(true));
+        let res = searcher.try_find_move(pos);
+        // Rh6 leads to a variation where every move of the opponent is forced, so it's considered equally expensive as a mate in 1
+        // (Rh4 would too, but that would result in a repeated position)
+        let acceptable = [ChessMove::from_text("Ra7#", &pos).unwrap(), ChessMove::from_text("Rh6", &pos).unwrap()];
+        assert!(matches!(res, Some((true, _))));
+        assert!(acceptable.contains(&res.unwrap().1), "{}", res.unwrap().1.compact_formatter(&pos));
         let pos = pos.make_nullmove().unwrap();
-        let res = searcher.df_pn(pos);
-        assert_eq!(res, Some(false));
+        let res = searcher.try_find_move(pos);
+        assert!(matches!(res, Some((false, _))));
         let pos = Chessboard::from_name("draw_in_1").unwrap();
         let res = searcher.df_pn(pos);
         assert_eq!(res, Some(false));
         let pos = Chessboard::from_fen("8/8/8/1r2p3/8/1k6/8/K7 b - - 0 1", Strict).unwrap();
-        let res = searcher.df_pn(pos);
-        assert_eq!(res, Some(true));
+        let res = searcher.try_find_move(pos);
+        assert!(matches!(res, Some((true, _))));
         let pos = Chessboard::from_fen("8/8/8/1r2p3/8/1k6/8/K7 w - - 0 1", Strict).unwrap();
-        let res = searcher.df_pn(pos);
-        assert_eq!(res, Some(false));
+        let res = searcher.try_find_move(pos);
+        assert_eq!(res, Some((false, ChessMove::from_text("Kb1", &pos).unwrap())));
         let pos = Chessboard::from_fen("8/8/8/8/3p4/1k6/8/K7 b - - 0 1", Strict).unwrap();
-        let res = searcher.df_pn(pos);
-        assert_eq!(res, Some(true));
+        let res = searcher.try_find_move(pos);
+        assert_eq!(res, Some((true, ChessMove::from_text("d3", &pos).unwrap())));
         let pos = Chessboard::from_fen("r2q3r/pppb3p/2n2bp1/8/3P3k/6NP/PP3PP1/R1B1R1K1 w - - 0 20", Strict).unwrap();
-        let res = searcher.df_pn(pos);
-        assert_eq!(res, Some(true));
+        let res = searcher.try_find_move(pos);
+        assert_eq!(res, Some((true, ChessMove::from_text("Re4+", &pos).unwrap())));
         let pos = Chessboard::from_fen("rk6/p1rBK1p1/P6p/4B3/8/8/1p6/8 w - - 0 4", Strict).unwrap();
-        let res = searcher.df_pn(pos);
-        assert_eq!(res, Some(true));
+        let res = searcher.try_find_move(pos);
+        assert_eq!(res, Some((true, ChessMove::from_text("Kd8", &pos).unwrap())));
         let pos = Chessboard::from_fen("rk6/p1rB1Kp1/P6p/4B3/8/1p6/8/8 w - - 0 3", Strict).unwrap();
         let res = searcher.df_pn(pos);
         assert_eq!(res, Some(true));
         let pos = Chessboard::from_name("puzzle").unwrap();
-        let res = searcher.df_pn(pos);
-        assert_eq!(res, Some(true));
+        let res = searcher.try_find_move(pos);
+        assert_eq!(res, Some((true, ChessMove::from_text("Bd7", &pos).unwrap())));
+    }
+
+    #[test]
+    fn tt_size_1_test() {
+        let pos = Chessboard::from_name("mate_in_1").unwrap();
+        let mut searcher = ProofNumberSearcher::new(1);
+        let res = searcher.try_find_move(pos);
+        let acceptable = [ChessMove::from_text("Ra7#", &pos).unwrap(), ChessMove::from_text("Rh6", &pos).unwrap()];
+        assert!(matches!(res, Some((true, _))));
+        assert!(acceptable.contains(&res.unwrap().1), "{}", res.unwrap().1.compact_formatter(&pos));
+        let pos = pos.make_nullmove().unwrap();
+        let res = searcher.try_find_move(pos);
+        assert!(matches!(res, Some((false, _))));
     }
 }

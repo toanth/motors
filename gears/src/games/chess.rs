@@ -630,7 +630,7 @@ impl Chessboard {
     }
 
     /// A mate that happens on the 100 move rule counter reaching 100 takes precedence.
-    /// This barely every happens, which is why we can afford the slow operation of checking for a checkmate in that case.
+    /// This barely ever happens, which is why we can afford the slow operation of checking for a checkmate in that case.
     pub fn is_50mr_draw(&self) -> bool {
         self.ply_100_ctr >= 100 && !self.is_checkmate_slow()
     }
