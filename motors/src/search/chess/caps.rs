@@ -20,7 +20,7 @@ use gears::games::chess::pieces::NUM_COLORS;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
-use gears::games::{n_fold_repetition, BoardHistory, ZobristHash, ZobristHistory};
+use gears::games::{n_fold_repetition, BoardHistory, Color, ZobristHash, ZobristHistory};
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::Description::NoDescription;
 use gears::general::common::{
@@ -1316,7 +1316,13 @@ impl Caps {
             && !(best_score >= eval && bound_so_far == NodeType::upper_bound())
         {
             self.corr_hist.update(&pos, depth, eval, best_score);
-            self.recent_corrections = (self.recent_corrections * 15 + (best_score - eval).0) / 16;
+            let mul = if pos.active_player().is_first() {
+                1
+            } else {
+                -1
+            };
+            self.recent_corrections =
+                (self.recent_corrections * 15 + (best_score - eval).0 * mul) / 16;
         } else {
             self.recent_corrections = self.recent_corrections * 15 / 16;
         }
