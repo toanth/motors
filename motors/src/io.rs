@@ -1280,6 +1280,8 @@ trait AbstractEngineUgi: Debug {
 
     fn handle_query(&mut self, words: &mut Tokens) -> Res<()>;
 
+    fn handle_wait(&mut self, words: &mut Tokens) -> Res<()>;
+
     fn handle_play(&mut self, words: &mut Tokens) -> Res<()>;
 
     fn handle_assist(&mut self, words: &mut Tokens) -> Res<()>;
@@ -1465,6 +1467,21 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
 
     fn handle_query(&mut self, words: &mut Tokens) -> Res<()> {
         self.handle_query_impl(words)
+    }
+
+    fn handle_wait(&mut self, words: &mut Tokens) -> Res<()> {
+        let mut max_duration = Duration::MAX;
+        if let Some(token) = words.next() {
+            max_duration = Duration::from_millis(parse_int_from_str(token, "duration in ms")?);
+        }
+        let start = Instant::now();
+        while self.state.is_currently_searching() {
+            sleep(Duration::from_millis(100));
+            if start.elapsed() >= max_duration {
+                break;
+            }
+        }
+        Ok(())
     }
 
     fn handle_play(&mut self, words: &mut Tokens) -> Res<()> {

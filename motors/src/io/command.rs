@@ -328,6 +328,8 @@ pub fn ugi_commands() -> CommandList {
             |ugi, words, _| ugi.handle_set_eval(words),
             --> |state| state.set_eval_subcmds()
         ),
+        command!(wait, Custom, "Wait until the current search is done before executing commands", |ugi, words, _| ugi
+            .handle_wait(words)),
         command!(load_pgn | pgn, Custom, "Loads a PGN from a given file, or opens a text editor", |ugi, words, _| {
             ugi.load_pgn(words)
         }),
