@@ -239,7 +239,7 @@ pub struct CapsCustomInfo {
     root_move_nodes: RootMoveNodes,
     /// Exponentially moving average of applied corrections, based on the idea that corrections to recent positions are
     /// likely relevant to the current position as well
-    recent_corrections: ScoreT,
+    recent_corrections: Vec<ScoreT>,
 }
 
 impl CapsCustomInfo {
@@ -254,6 +254,7 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
         debug_assert_eq!(self.nmp_disabled[1], false);
         // don't update history values, malus and gravity already take care of that
         self.root_move_nodes.clear();
+        self.recent_corrections.resize(DEPTH_HARD_LIMIT.get(), 0);
     }
 
     fn hard_forget_except_tt(&mut self) {
@@ -275,7 +276,7 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
         for value in self.corr_hist.nonpawns.iter_mut().flatten().flatten() {
             *value = 0;
         }
-        self.recent_corrections = 0;
+        self.recent_corrections = vec![0; DEPTH_HARD_LIMIT.get()];
         self.root_move_nodes.clear();
     }
 
@@ -924,7 +925,7 @@ impl Caps {
             raw_eval = self.eval(pos, ply);
             eval = raw_eval;
         };
-        let exp_avg = self.recent_corrections;
+        let exp_avg = self.recent_corrections[ply];
         eval = self.corr_hist.correct(&pos, eval, exp_avg);
 
         self.record_pos(pos, eval, ply);
@@ -1322,10 +1323,10 @@ impl Caps {
             } else {
                 -16
             };
-            self.recent_corrections =
-                (self.recent_corrections * 15 + (best_score - eval).0 * mul) / 16;
+            self.recent_corrections[ply] =
+                (self.recent_corrections[ply] * 15 + (best_score - eval).0 * mul) / 16;
         } else {
-            self.recent_corrections = self.recent_corrections * 15 / 16;
+            self.recent_corrections[ply] = self.recent_corrections[ply] * 15 / 16;
         }
 
         Some(best_score)
@@ -1384,7 +1385,7 @@ impl Caps {
             raw_eval = self.eval(pos, ply);
             eval = raw_eval;
         }
-        let exp_avg = self.recent_corrections;
+        let exp_avg = self.recent_corrections[ply];
         let mut best_score = self.corr_hist.correct(&pos, eval, exp_avg);
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
