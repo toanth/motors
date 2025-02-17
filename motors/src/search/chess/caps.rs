@@ -189,8 +189,7 @@ impl CorrHist {
             correction += self.nonpawns[color][nonpawn_idx][c] as isize / 2;
         }
         let factor = if color.is_first() { 1 } else { -1 };
-        correction += recent_corrections as isize * CORRHIST_SCALE / 64 * factor;
-        // println!("increasing correction by {0}, correction is {correction}, leading to adjustment of {1}", recent_corrections as isize * CORRHIST_SCALE / 64 * factor, correction / CORRHIST_SCALE);
+        correction += recent_corrections as isize * factor;
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
         Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
     }
