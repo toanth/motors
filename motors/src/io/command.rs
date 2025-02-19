@@ -54,6 +54,7 @@ use std::iter::once;
 use std::rc::Rc;
 use std::str::from_utf8;
 use std::sync::{Arc, Mutex};
+use std::thread::sleep;
 use std::time::Duration;
 use strum::IntoEnumIterator;
 
@@ -326,6 +327,23 @@ macro_rules! ugi_command {
 pub fn ugi_commands<B: Board>() -> CommandList<EngineUGI<B>> {
     vec![
         // put time-critical commands at the top
+        // TODO: Remove, use version based on fairy
+        ugi_command!(
+            wait,
+            Custom,
+            "Wait until the current search finishes",
+            |ugi, _, _| {
+                while ugi
+                    .state
+                    .engine
+                    .main_atomic_search_data()
+                    .currently_searching()
+                {
+                    sleep(Duration::from_millis(100));
+                }
+                Ok(())
+            }
+        ),
         ugi_command!(
             go | g | search,
             All,

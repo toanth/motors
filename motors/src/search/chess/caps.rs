@@ -552,11 +552,14 @@ impl Engine<Chessboard> for Caps {
         self.original_board_hist.push(&pos);
 
         let depth = self.iterative_deepening(pos, soft_limit);
-        if let Some(depth) = depth {
-            // send one final search info, but don't send empty PVs or PVs from a fail high
-            // that would consist of only one move
-            let pv = self.current_mpv_pv();
-            if !pv.is_empty() && (depth == 1 || pv.len() > 1) {
+        if depth.is_some() {
+            // send one final search info, but don't send empty PVs
+            let mut pv = self.current_mpv_pv();
+            if pv.is_empty() {
+                // if we didn't finish looking at the PV, use the PV from the last iteration
+                pv = self.cur_pv_data().pv.as_slice();
+            }
+            if !pv.is_empty() {
                 self.search_state().send_search_info();
             }
         }
@@ -686,7 +689,9 @@ impl Caps {
                 return (false, None, None);
             }
             self.atomic().set_depth(depth); // set depth now so that an immediate stop doesn't increment the depth
-            self.atomic().count_node();
+            if self.atomic().count_node() >= self.limit().nodes.get() {
+                return (false, Some(depth - 1), None);
+            }
             let asp_start_time = Instant::now();
             let Some(pv_score) = self.negamax(pos, 0, aw_depth, alpha, beta, Exact) else {
                 return (false, Some(depth), None);
@@ -806,21 +811,21 @@ impl Caps {
             self.search_stack[ply].pv.clear();
         }
 
-        // Mate Distance Pruning (MDP): If we've already found a mate in n, don't bother looking for longer mates.
-        // This isn't intended to gain elo (since it only works in positions that are already won or lost)
-        // but makes the engine better at finding shorter checkmates. Don't do MDP at the root because that can prevent us
-        // from ever returning exact scores, since for a mate in 1 the score would always be exactly `beta`.
+        // Always search all children at the root, even for draws or if a search limit has been reached
         if !root {
+            // Mate Distance Pruning (MDP): If we've already found a mate in n, don't bother looking for longer mates.
+            // This isn't intended to gain elo (since it only works in positions that are already won or lost)
+            // but makes the engine better at finding shorter checkmates. Don't do MDP at the root because that can prevent us
+            // from ever returning exact scores, since for a mate in 1 the score would always be exactly `beta`.
             alpha = alpha.max(game_result_to_score(Lose, ply));
             beta = beta.min(game_result_to_score(Win, ply + 1));
             if alpha >= beta {
                 return Some(alpha);
             }
-        }
 
-        let ply_100_ctr = pos.halfmove_repetition_clock();
-        if !root
-            && (pos.is_50mr_draw()
+            let ply_100_ctr = pos.halfmove_repetition_clock();
+
+            if pos.is_50mr_draw()
                 || pos.has_insufficient_material()
                 || n_fold_repetition(2, &self.params.history, &pos, ply_100_ctr)
                 || n_fold_repetition(
@@ -828,10 +833,16 @@ impl Caps {
                     &self.original_board_hist,
                     &pos,
                     ply_100_ctr.saturating_sub(ply),
-                ))
-        {
-            return Some(Score(0));
+                )
+            {
+                return Some(Score(0));
+            }
+
+            if self.should_stop() {
+                return None;
+            }
         }
+
         let in_check = pos.is_in_check();
         // Check extensions. Increase the depth by 1 if in check.
         // Do this before deciding whether to drop into qsearch.
@@ -841,7 +852,7 @@ impl Caps {
         }
         // limit.mate() is the min of the original limit.mate and DEPTH_HARD_LIMIT
         if depth <= 0 || ply >= self.depth_hard_limit {
-            return Some(self.qsearch(pos, alpha, beta, ply));
+            return self.qsearch(pos, alpha, beta, ply);
         }
         let can_prune = !is_pv_node && !in_check;
 
@@ -979,7 +990,7 @@ impl Caps {
                 && eval + Score(512 * depth as ScoreT) < alpha
                 && !eval.is_game_lost_score()
             {
-                let qsearch_score = self.qsearch(pos, alpha, beta, ply);
+                let qsearch_score = self.qsearch(pos, alpha, beta, ply)?;
                 if qsearch_score <= alpha {
                     return Some(qsearch_score);
                 }
@@ -1107,7 +1118,7 @@ impl Caps {
             if root && depth >= 8 && self.start_time.elapsed().as_millis() >= 3000 {
                 let move_num = self.search_stack[0].tried_moves.len();
                 // will usually get a TT cutoff immediately
-                let score = -self.qsearch(new_pos, alpha, beta, 1);
+                let score = -self.qsearch(new_pos, alpha, beta, 1).unwrap_or_default();
                 self.send_currmove(mov, move_num, score, alpha, beta);
             }
             if move_score < KILLER_SCORE {
@@ -1221,17 +1232,6 @@ impl Caps {
                     .root_move_nodes
                     .update(mov, self.state.uci_nodes() - nodes_before_move);
             }
-
-            // Check for cancellation right after searching a move to avoid storing incorrect information
-            // in the TT or PV.
-            // TODO: Since we now abort directly using `?`, we can actually trust the score of all searched children here.
-            // So maybe store as an all-node to the TT?
-            if self.should_stop() {
-                // The current child's score is not trustworthy, but all already seen children are.
-                // This only matters for the root; all other nodes get their return value ignored.
-                // However, it might make sense to store to the TT entry here? (I.e., `break` instead of `return`)
-                return None;
-            }
             debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);
 
             best_score = best_score.max(score);
@@ -1316,10 +1316,22 @@ impl Caps {
     }
 
     /// Search only "tactical" moves to quieten down the position before calling eval
-    fn qsearch(&mut self, pos: Chessboard, mut alpha: Score, beta: Score, ply: usize) -> Score {
+    fn qsearch(
+        &mut self,
+        pos: Chessboard,
+        mut alpha: Score,
+        beta: Score,
+        ply: usize,
+    ) -> Option<Score> {
         self.statistics.count_node_started(Qsearch);
         // updating seldepth only in qsearch meaningfully increased performance and was even measurable in a [0, 10] SPRT.
+        // TODO: That's weird, retest
         self.atomic().update_seldepth(ply);
+
+        // check nodes in qsearch to allow `go nodes n` to go exactly `n` nodes
+        if self.should_stop() {
+            return None;
+        }
         // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
         let raw_eval;
@@ -1343,7 +1355,7 @@ impl Caps {
                 || bound == Exact
             {
                 self.statistics.tt_cutoff(Qsearch, bound);
-                return tt_score;
+                return Some(tt_score);
             }
             raw_eval = tt_entry.raw_eval();
             eval = raw_eval;
@@ -1374,7 +1386,7 @@ impl Caps {
         // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
         // only after aging
         if best_score >= beta {
-            return best_score;
+            return Some(best_score);
         }
         // TODO: Set stand pat to SCORE_LOST when in check, generate evasions?
         if best_score > alpha {
@@ -1383,10 +1395,6 @@ impl Caps {
         }
         self.record_pos(pos, best_score, ply);
 
-        // check nodes in qsearch to allow `go nodes n` to go exactly `n` nodes
-        if self.should_stop() {
-            return best_score;
-        }
         self.maybe_send_currline(&pos, alpha, beta, ply, Some(best_score));
 
         let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
@@ -1404,7 +1412,7 @@ impl Caps {
             };
             self.record_move(mov, pos, ply, Qsearch);
             children_visited += 1;
-            let score = -self.qsearch(new_pos, -beta, -alpha, ply + 1);
+            let score = -self.qsearch(new_pos, -beta, -alpha, ply + 1)?;
             self.undo_move();
             best_score = best_score.max(score);
             if score <= alpha {
@@ -1432,7 +1440,7 @@ impl Caps {
             bound_so_far,
         );
         self.tt_mut().store(tt_entry, ply);
-        best_score
+        Some(best_score)
     }
 
     fn eval(&mut self, pos: Chessboard, ply: usize) -> Score {
@@ -1550,6 +1558,7 @@ impl Caps {
         self.statistics.count_legal_make_move(typ);
     }
 
+    // gets skipped when aborting search, but that's fine
     fn undo_move(&mut self) {
         self.params.history.pop();
     }
@@ -1566,7 +1575,9 @@ impl Caps {
         if self.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0
             && self.last_msg_time.elapsed().as_millis() >= 1000
         {
-            let score = score.unwrap_or_else(|| self.qsearch(*pos, alpha, beta, ply));
+            let score = score
+                .or_else(|| self.qsearch(*pos, alpha, beta, ply))
+                .unwrap_or_default();
             self.search_stack[ply].forget();
             let flip = pos.active_player() != self.params.pos.active_player();
             let score = score.flip_if(flip);

@@ -1007,7 +1007,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             let chosen_move = pos.random_legal_move(&mut rng).unwrap_or_default();
             if chosen_move != B::Move::default() {
                 debug_assert!(pos.is_move_legal(chosen_move));
-                output.write_message(Warning, "Not even a single iteration finished");
+                output.write_message(
+                    Warning,
+                    "Engine did not return a best move, playing a random move instead",
+                );
                 output.write_search_res(SearchResult::<B>::move_only(chosen_move, pos));
                 return;
             }
