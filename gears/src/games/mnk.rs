@@ -515,17 +515,17 @@ impl Board for MNKBoard {
         })
     }
 
-    fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
+    fn name_to_pos_map() -> EntityList<NameToPos> {
         vec![
-            GenericSelect {
+            NameToPos {
                 name: "large",
-                val: || {
-                    Self::from_fen("11 11 4 x 11/11/11/11/11/11/11/11/11/11/11", Relaxed).unwrap()
-                },
+                fen: "11 11 4 x 11/11/11/11/11/11/11/11/11/11/11",
+                strictness: Relaxed,
             },
-            GenericSelect {
+            NameToPos {
                 name: "tictactoe",
-                val: Self::default,
+                fen: "3 3 3 x 3/3/3",
+                strictness: Strict,
             },
         ]
     }

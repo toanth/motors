@@ -36,9 +36,7 @@ use crate::general::board::{
     board_from_name, ply_counter_from_fullmove_nr, position_fen_part, read_common_fen_part,
     NameToPos, SelfChecks, Strictness, UnverifiedBoard,
 };
-use crate::general::common::{
-    parse_int_from_str, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
-};
+use crate::general::common::{parse_int_from_str, EntityList, Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::text_output::{
@@ -208,87 +206,42 @@ impl Board for Chessboard {
         })
     }
 
-    fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
+    fn name_to_pos_map() -> EntityList<NameToPos> {
         vec![
-            GenericSelect {
-                name: "kiwipete",
-                val: || {
-                    Self::from_fen(
-                        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
-                        Strict,
-                    )
-                    .unwrap()
-                },
-            },
-            GenericSelect {
-                name: "lucena",
-                val: || Self::from_fen("1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1", Strict).unwrap(),
-            },
-            GenericSelect {
-                name: "philidor",
-                val: || Self::from_fen("3k4/R7/7r/2KP4/8/8/8/8 w - - 0 1", Strict).unwrap(),
-            },
-            GenericSelect {
-                name: "lasker-reichhelm",
-                val: || Self::from_fen("8/k7/3p4/p2P1p2/P2P1P2/8/8/K7 w - -", Relaxed).unwrap(),
-            },
-            GenericSelect {
-                name: "behting",
-                val: || Self::from_fen("8/8/7p/3KNN1k/2p4p/8/3P2p1/8 w - -", Relaxed).unwrap(),
-            },
-            GenericSelect {
-                name: "saavedra",
-                val: || Self::from_fen("8/8/1KP5/3r4/8/8/8/k7 w - - 0 1", Strict).unwrap(),
-            },
-            GenericSelect {
-                name: "mate_in_1",
-                val: || Self::from_fen("8/7r/8/K1k5/8/8/4p3/8 b - - 10 11", Strict).unwrap(),
-            },
-            GenericSelect {
-                name: "draw_in_1",
-                val: || Self::from_fen("2B2k2/8/8/5B2/8/8/8/KR6 w - - 99 123", Strict).unwrap(),
-            },
-            GenericSelect {
-                name: "unusual",
-                val: || {
-                    Self::from_fen(
-                        "2kb1b2/pR2P1P1/P1N1P3/1p2Pp2/P5P1/1N6/4P2B/2qR2K1 w - f6 99 123",
-                        Strict,
-                    )
-                    .unwrap()
-                },
-            },
-            GenericSelect {
-                name: "see_win_pawn",
-                val: || {
-                    Self::from_fen("k6q/3n1n2/3b4/2P1p3/3P1P2/3N1NP1/8/1K6 w - - 0 1", Strict)
-                        .unwrap()
-                },
-            },
-            GenericSelect {
-                name: "see_xray",
-                val: || Self::from_fen("5q1k/8/8/8/RRQ2nrr/8/8/K7 w - - 0 1", Strict).unwrap(),
-            },
-            GenericSelect {
-                name: "zugzwang",
-                val: || Self::from_fen("6Q1/8/8/7k/8/8/3p1pp1/3Kbrrb w - - 26 14", Strict).unwrap(),
-            },
-            GenericSelect {
-                name: "puzzle",
-                val: || {
-                    Self::from_fen("rk6/p1r3p1/P3B1Kp/1p2B3/8/8/8/8 w - - 0 1", Strict).unwrap()
-                },
-            },
+            NameToPos::strict(
+                "kiwipete",
+                "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+            ),
+            NameToPos::strict("lucena", "1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1"),
+            NameToPos::strict("philidor", "3k4/R7/7r/2KP4/8/8/8/8 w - - 0 1"),
+            NameToPos::strict(
+                "lasker-reichhelm",
+                "8/k7/3p4/p2P1p2/P2P1P2/8/8/K7 w - - 0 1",
+            ),
+            NameToPos::strict("behting", "8/8/7p/3KNN1k/2p4p/8/3P2p1/8 w - - 0 1"),
+            NameToPos::strict("saavedra", "8/8/1KP5/3r4/8/8/8/k7 w - - 0 1"),
+            NameToPos::strict("mate_in_1", "8/7r/8/K1k5/8/8/4p3/8 b - - 10 11"),
+            NameToPos::strict("draw_in_1", "2B2k2/8/8/5B2/8/8/8/KR6 w - - 99 123"),
+            NameToPos::strict(
+                "unusual",
+                "2kb1b2/pR2P1P1/P1N1P3/1p2Pp2/P5P1/1N6/4P2B/2qR2K1 w - f6 99 123",
+            ),
+            NameToPos::strict(
+                "see_win_pawn",
+                "k6q/3n1n2/3b4/2P1p3/3P1P2/3N1NP1/8/1K6 w - - 0 1",
+            ),
+            NameToPos::strict("see_xray", "5q1k/8/8/8/RRQ2nrr/8/8/K7 w - - 0 1"),
+            NameToPos::strict("zugzwang", "6Q1/8/8/7k/8/8/3p1pp1/3Kbrrb w - - 26 14"),
+            NameToPos::strict("puzzle", "rk6/p1r3p1/P3B1Kp/1p2B3/8/8/8/8 w - - 0 1"),
             // still very difficult for caps-lite to solve
-            GenericSelect {
-                name: "mate_in_16",
-                val: || {
-                    Self::from_fen(
-                        "1r1q1r2/5pk1/p2p1Np1/2pBp2p/1p2P2P/2PP2P1/1P1Q4/2K2R1b w - - 0 29",
-                        Strict,
-                    )
-                    .unwrap()
-                },
+            NameToPos::strict(
+                "mate_in_16",
+                "1r1q1r2/5pk1/p2p1Np1/2pBp2p/1p2P2P/2PP2P1/1P1Q4/2K2R1b w - - 0 29",
+            ),
+            NameToPos {
+                name: "futile",
+                fen: "1k6/1p1p1p1p/pPpPpPpP/P1P1P1P1/1B1R3B/1R3RR1/1B2R3/1K1R1RB1 w - - 18 10",
+                strictness: Relaxed,
             },
         ]
     }
@@ -362,10 +315,18 @@ impl Board for Chessboard {
             // mate in 15 that stronger engines tend to miss(even lichess SF only finds a mate in 17 with max parameters)
             "5k2/1p5Q/p2r1qp1/P1p1RpN1/2P5/3P3P/5PP1/6K1 b - - 0 56",
         ];
-        fens.map(|fen| Self::from_fen(fen, Strict).unwrap())
+        let mut res = fens
+            .map(|fen| Self::from_fen(fen, Strict).unwrap())
             .iter()
             .copied()
-            .collect_vec()
+            .collect_vec();
+        res.extend(
+            Self::name_to_pos_map()
+                .iter()
+                .filter(|e| e.strictness == Strict)
+                .map(|e| e.create::<Chessboard>()),
+        );
+        res
     }
 
     fn settings(&self) -> Self::Settings {
@@ -1092,7 +1053,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         }
         // we allow loading FENs where more than one piece gives check to the king in a way that could not have been reached
         // from startpos, e.g. "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1"
-        if this.ply_100_ctr >= 100 {
+        if this.ply_100_ctr > 100 {
             bail!(
                 "The 50 move rule has been exceeded (there have already been {0} plies played)",
                 this.ply_100_ctr
