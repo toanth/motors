@@ -871,6 +871,7 @@ impl Caps {
         // Don't initialize eval just yet to save work in case we get a TT cutoff
         let raw_eval;
         let mut eval;
+        let old_recent_correction = self.recent_corrections;
         // the TT entry at the root is useless when doing an actual multipv search
         let ignore_tt_entry = root && self.multi_pvs.len() > 1;
         let old_entry = self.tt().load::<Chessboard>(pos.zobrist_hash(), ply);
@@ -944,7 +945,7 @@ impl Caps {
             raw_eval = self.eval(pos, ply);
             eval = raw_eval;
         };
-        let exp_avg = self.recent_corrections;
+        let exp_avg = old_recent_correction;
         eval = self.corr_hist.correct(&pos, eval, exp_avg);
 
         self.record_pos(pos, eval, ply);
