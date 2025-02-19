@@ -917,6 +917,15 @@ impl Caps {
                     || (tt_bound == NodeType::upper_bound() && tt_score <= raw_eval)
                 {
                     eval = tt_score;
+                    if best_move.is_null() || !best_move.is_tactical(&pos) {
+                        let mul = if pos.active_player().is_first() {
+                            16
+                        } else {
+                            -16
+                        };
+                        self.recent_corrections =
+                            (self.recent_corrections * 7 + (tt_score - raw_eval).0 * mul) / 8;
+                    }
                 }
             }
         } else {
