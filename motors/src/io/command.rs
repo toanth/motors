@@ -1109,7 +1109,7 @@ pub fn position_options<B: Board>(accept_pos_word: bool, pos: Option<B>) -> Comm
         ))
     }
     for p in B::name_to_pos_map() {
-        let func = p.val;
+        let func = move || p.create::<B>();
         let c = Box::new(Command {
             primary_name: p.short_name(),
             other_names: Default::default(),

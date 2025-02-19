@@ -56,7 +56,7 @@ impl<B: Board> GenericTests<B> {
     pub fn long_notation_roundtrip_test() {
         let positions = B::name_to_pos_map();
         for pos in positions {
-            let pos = (pos.val)();
+            let pos = pos.create::<B>();
             for mov in pos.legal_moves_slow() {
                 for format in [Standard, Alternative] {
                     let encoded = mov.to_extended_text(&pos, format);

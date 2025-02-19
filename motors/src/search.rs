@@ -1187,7 +1187,7 @@ mod tests {
         for p in B::bench_positions() {
             let res = engine.bench(p, SearchLimit::nodes_(1), tt.clone());
             assert!(res.depth.is_none());
-            assert!(res.max_depth.get() <= 1);
+            assert!(res.max_depth.get() <= 1 + 1); // possible extensions
             assert!(res.nodes <= 100); // TODO: Assert exactly 1
             let params = SearchParams::new_unshared(
                 p,

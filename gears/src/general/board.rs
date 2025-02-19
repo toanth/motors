@@ -23,7 +23,7 @@ use crate::general::board::SelfChecks::{Assertion, Verify};
 use crate::general::board::Strictness::Relaxed;
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    select_name_static, tokens, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
+    select_name_static, tokens, EntityList, NamedEntity, Res, StaticallyNamedEntity, Tokens,
 };
 use crate::general::move_list::MoveList;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
@@ -43,7 +43,40 @@ use std::fmt;
 use std::fmt::{Debug, Display};
 use std::num::NonZeroUsize;
 
-pub(crate) type NameToPos<B> = GenericSelect<fn() -> B>;
+#[derive(Debug, Copy, Clone)]
+pub struct NameToPos {
+    pub name: &'static str,
+    pub fen: &'static str,
+    pub strictness: Strictness,
+}
+
+impl NameToPos {
+    pub fn strict(name: &'static str, fen: &'static str) -> Self {
+        Self {
+            name,
+            fen,
+            strictness: Strictness::Strict,
+        }
+    }
+
+    pub fn create<B: Board>(&self) -> B {
+        B::from_fen(self.fen, self.strictness).unwrap()
+    }
+}
+
+impl NamedEntity for NameToPos {
+    fn short_name(&self) -> String {
+        self.name.to_string()
+    }
+
+    fn long_name(&self) -> String {
+        self.short_name()
+    }
+
+    fn description(&self) -> Option<String> {
+        None
+    }
+}
 
 /// How many checks to execute.
 /// Enum variants are listed in order; later checks include earlier checks.
@@ -238,7 +271,7 @@ pub trait Board:
     /// GUI know about supported positions.
     /// "startpos" is handled automatically in `from_name` but can be overwritten here.
     #[must_use]
-    fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
+    fn name_to_pos_map() -> EntityList<NameToPos> {
         vec![]
     }
 
@@ -599,7 +632,7 @@ pub fn board_from_name<B: Board>(name: &str) -> Res<B> {
         &B::game_name(),
         NoDescription,
     )
-    .map(|f| (f.val)())
+    .map(|f| f.create())
 }
 
 pub fn position_fen_part<B: RectangularBoard>(pos: &B) -> String {
