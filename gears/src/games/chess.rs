@@ -243,6 +243,12 @@ impl Board for Chessboard {
                 fen: "1k6/1p1p1p1p/pPpPpPpP/P1P1P1P1/1B1R3B/1R3RR1/1B2R3/1K1R1RB1 w - - 18 10",
                 strictness: Relaxed,
             },
+            // Could be strict, but then it would be a bench position, and takes too long for that (TODO: Fix that)
+            NameToPos {
+                name: "captures",
+                fen: "r1n1n1b1/1P1P1P1P/1N1N1N2/2RnQrRq/2pKp3/3BNQbQ/k7/4Bq2 w - - 0 1",
+                strictness: Relaxed,
+            },
         ]
     }
 
