@@ -278,7 +278,7 @@ mod test {
     use super::*;
     use crate::search::chess::caps::Caps;
     use crate::search::multithreading::AtomicSearchState;
-    use crate::search::{Engine, SearchParams};
+    use crate::search::{Engine, NormalEngine, SearchParams};
     use gears::games::chess::moves::ChessMove;
     use gears::games::ZobristHistory;
     use gears::general::board::BoardHelpers;

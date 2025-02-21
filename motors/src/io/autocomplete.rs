@@ -172,7 +172,6 @@ impl<B: Board> AbstractEngineUgi for ACState<B> {
     fn go_state_mut(&mut self) -> &mut dyn AbstractGoState {
         &mut self.go_state
     }
-
     fn load_go_state_pos(&mut self, name: &str, words: &mut Tokens) -> Res<()> {
         self.go_state.load_pos(name, words, true)
     }
@@ -235,30 +234,27 @@ impl<B: Board> AbstractEngineUgi for ACState<B> {
     fn handle_query(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
+    fn handle_wait(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
     fn handle_play(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-
     fn handle_assist(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-
     fn handle_undo(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-
     fn handle_gb(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-
     fn handle_place_piece(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-
     fn handle_remove_piece(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-
     fn handle_move_piece(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }

@@ -46,7 +46,7 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
 
         ugi.state.go_state.pos = ugi.state.pos().clone();
         self.autocompletion.state.go_state = ugi.state.go_state.clone();
-        if ugi.state.engine.main_atomic_search_data().currently_searching() {
+        if ugi.state.is_currently_searching() {
             ugi.write_ugi(&format_args!(" [{0} Type '{1}' to cancel]", "Searching...".bold(), "stop".bold()));
             let pv_spacer = if ugi.state.pos().active_player().is_first() { "" } else { "    " };
             ugi.write_ugi(&format_args!(

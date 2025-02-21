@@ -1,19 +1,17 @@
 use gears::itertools::Itertools;
 use std::fmt::{Debug, Display, Formatter};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use gears::general::board::Board;
 use gears::rand::{rng, Rng, RngCore, SeedableRng};
 
 use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
-use crate::search::{
-    AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchState, SearchStateFor,
-};
+use crate::search::{AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchState};
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::Score;
 use gears::search::NodeType::Exact;
-use gears::search::{Depth, NodesLimit, SearchInfo, SearchResult, TimeControl};
+use gears::search::{Depth, NodesLimit, SearchInfo, SearchResult};
 
 pub trait SeedRng: Rng + SeedableRng {}
 
@@ -111,20 +109,8 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         SearchResult::move_only(best_move, pos.clone())
     }
 
-    fn search_state(&self) -> &SearchStateFor<B, Self> {
-        &self.state
-    }
-
-    fn search_state_mut(&mut self) -> &mut SearchStateFor<B, Self> {
-        &mut self.state
-    }
-
     fn static_eval(&mut self, _pos: B, _ply: usize) -> Score {
         Score(0)
-    }
-
-    fn time_up(&self, _: TimeControl, _: Duration, _: Instant) -> bool {
-        false
     }
 
     fn search_info(&self) -> SearchInfo<B> {
@@ -139,7 +125,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
             pv: self.state.current_mpv_pv(),
             score: Score(0),
             hashfull: 0,
-            pos: self.search_state().params.pos.clone(),
+            pos: self.state.params.pos.clone(),
             bound: Some(Exact),
             additional: None,
         }

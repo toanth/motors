@@ -4,9 +4,7 @@ use crate::search::multithreading::EngineReceives::*;
 use crate::search::multithreading::SearchThreadType::{Auxiliary, Main};
 use crate::search::multithreading::SearchType::{Infinite, Normal, Ponder};
 use crate::search::tt::{TTEntry, TT};
-use crate::search::{
-    AbstractEvalBuilder, AbstractSearchState, AbstractSearcherBuilder, Engine, EngineInfo, SearchParams,
-};
+use crate::search::{AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EngineInfo, SearchParams};
 use gears::colored::Colorize;
 use gears::dyn_clone::clone_box;
 use gears::games::ZobristHistory;
@@ -260,7 +258,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
     }
 
     fn write_error(&mut self, msg: &fmt::Arguments) {
-        self.engine.search_state_mut().send_non_ugi(Error, msg);
+        self.engine.search_state_mut_dyn().send_non_ugi(Error, msg);
         eprintln!("Engine thread encountered an error: '{msg}'");
     }
 
@@ -292,7 +290,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
             }
             SetEval(eval) => self.engine.set_eval(eval),
             Print(engine_info) => {
-                let state_info = self.engine.search_state().write_internal_info();
+                let state_info = self.engine.search_state_dyn().write_internal_info();
                 let info = state_info.unwrap_or_else(|| {
                     format!(
                         "The engine {} doesn't support printing internal engine information.",

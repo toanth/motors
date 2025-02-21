@@ -30,8 +30,9 @@ indicatif = "0.17.11"
 
 
 [features]
-default = ["unsafe", "chess", "ataxx", "mnk", "uttt", "fairy", "random_mover", "gaps", "caps"]
+default = ["unsafe", "chess", "ataxx", "mnk", "uttt", "fairy", "random_mover", "proof_number", "gaps", "caps"]
 random_mover = []
+proof_number = []
 gaps = []
 caps = ["chess"] # enabling the caps feature also enables the chess feature
 statistics = []

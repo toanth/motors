@@ -1,5 +1,4 @@
 use std::fmt::Display;
-use std::time::{Duration, Instant};
 
 use gears::games::BoardHistory;
 use gears::general::board::{Board, BoardHelpers};
@@ -8,12 +7,13 @@ use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
 use crate::search::statistics::SearchType::MainSearch;
 use crate::search::{
-    AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchState, SearchStateFor,
+    AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, NormalEngine, SearchState,
+    SearchStateFor,
 };
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE_WON};
 use gears::search::NodeType::*;
-use gears::search::{Depth, NodesLimit, SearchResult, TimeControl};
+use gears::search::{Depth, NodesLimit, SearchResult};
 
 const MAX_DEPTH: Depth = Depth::new(100);
 
@@ -75,14 +75,6 @@ impl<B: Board> Engine<B> for Gaps<B> {
         &mut self.state
     }
 
-    fn search_state(&self) -> &SearchStateFor<B, Self> {
-        &self.state
-    }
-
-    fn search_state_mut(&mut self) -> &mut SearchStateFor<B, Self> {
-        &mut self.state
-    }
-
     fn engine_info(&self) -> EngineInfo {
         EngineInfo::new(
             self,
@@ -93,11 +85,6 @@ impl<B: Board> Engine<B> for Gaps<B> {
             None,
             vec![],
         )
-    }
-
-    fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
-        let elapsed = start_time.elapsed();
-        elapsed >= hard_limit.min(tc.remaining / 32 + tc.increment / 2)
     }
 
     fn set_eval(&mut self, eval: Box<dyn Eval<B>>) {
@@ -144,6 +131,16 @@ impl<B: Board> Engine<B> for Gaps<B> {
         }
 
         SearchResult::move_and_score(self.state.atomic().best_move(), self.state.atomic().score(), pos)
+    }
+}
+
+impl<B: Board> NormalEngine<B> for Gaps<B> {
+    fn search_state(&self) -> &SearchStateFor<B, Self> {
+        &self.state
+    }
+
+    fn search_state_mut(&mut self) -> &mut SearchStateFor<B, Self> {
+        &mut self.state
     }
 }
 

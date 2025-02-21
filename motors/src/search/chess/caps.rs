@@ -386,8 +386,7 @@ impl StaticallyNamedEntity for Caps {
     where
         Self: Sized,
     {
-        "Chess-playing Alpha-beta Pruning Search (CAPS), a chess engine. \
-        Currently early in development, but still around 3k elo with a hand crafted eval. \
+        "Chess-playing Alpha-beta Pruning Search (CAPS), a superhuman chess engine with a hand crafted eval. \
         Much larger than SᴍᴀʟʟCᴀᴘꜱ"
             .to_string()
     }
@@ -417,14 +416,6 @@ impl Engine<Chessboard> for Caps {
         &mut self.state
     }
 
-    fn search_state(&self) -> &SearchStateFor<Chessboard, Self> {
-        &self.state
-    }
-
-    fn search_state_mut(&mut self) -> &mut SearchStateFor<Chessboard, Self> {
-        &mut self.state
-    }
-
     fn engine_info(&self) -> EngineInfo {
         let mut options = vec![EngineOption {
             name: Other("UCI_Chess960".to_string()),
@@ -442,16 +433,6 @@ impl Engine<Chessboard> for Caps {
         )
     }
 
-    fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
-        debug_assert!(self.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0);
-        let elapsed = start_time.elapsed();
-        // TODO: Compute at the start of the search instead of every time:
-        // Instead of storing a SearchLimit, store a different struct that contains soft and hard bounds
-        let hard = (tc.remaining.saturating_sub(tc.increment)) * cc::inv_hard_limit_div() as u32 / 1024 + tc.increment;
-        // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
-        // (assuming the move overhead is set correctly)
-        elapsed >= fixed_time.min(hard)
-    }
 
     fn set_option(&mut self, option: EngineOptionName, old_value: &mut EngineOptionType, value: String) -> Res<()> {
         let name = option.name().to_string();
@@ -523,6 +504,27 @@ impl Engine<Chessboard> for Caps {
             }
         }
         self.search_result()
+    }
+}
+
+impl NormalEngine<Chessboard> for Caps {
+    fn search_state(&self) -> &SearchStateFor<Chessboard, Self> {
+        &self.state
+    }
+
+    fn search_state_mut(&mut self) -> &mut SearchStateFor<Chessboard, Self> {
+        &mut self.state
+    }
+
+    fn time_up(&self, tc: TimeControl, fixed_time: Duration, start_time: Instant) -> bool {
+        debug_assert!(self.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0);
+        let elapsed = start_time.elapsed();
+        // TODO: Compute at the start of the search instead of every time:
+        // Instead of storing a SearchLimit, store a different struct that contains soft and hard bounds
+        let hard = (tc.remaining.saturating_sub(tc.increment)) * cc::inv_hard_limit_div() as u32 / 1024 + tc.increment;
+        // Because fixed_time has been clamped to at most tc.remaining, this can never lead to timeouts
+        // (assuming the move overhead is set correctly)
+        elapsed >= fixed_time.min(hard)
     }
 }
 
