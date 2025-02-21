@@ -128,6 +128,7 @@ impl Color for ChessColor {
 struct Hashes {
     pawns: ZobristHash,
     nonpawns: [ZobristHash; NUM_COLORS],
+    major: ZobristHash,
     total: ZobristHash,
 }
 
@@ -764,6 +765,10 @@ impl Chessboard {
 
     pub fn pawn_key(&self) -> ZobristHash {
         self.hashes.pawns
+    }
+
+    pub fn major_key(&self) -> ZobristHash {
+        self.hashes.major
     }
 
     pub fn nonpawn_key(&self, color: ChessColor) -> ZobristHash {

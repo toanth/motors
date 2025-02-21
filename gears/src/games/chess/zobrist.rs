@@ -95,11 +95,16 @@ impl Chessboard {
         let mut pawns = ZobristHash(0);
         let mut nonpawns = [ZobristHash(0); NUM_COLORS];
         let mut special = ZobristHash(0);
+        let mut major = ZobristHash(0);
         for color in ChessColor::iter() {
             for piece in ChessPieceType::non_pawn_pieces() {
                 let pieces = self.colored_piece_bb(color, piece);
                 for square in pieces.ones() {
-                    nonpawns[color] ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, square);
+                    let key = PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, square);
+                    nonpawns[color] ^= key;
+                    if piece.is_major() {
+                        major ^= key;
+                    }
                 }
             }
             for square in self.colored_piece_bb(color, Pawn).ones() {
@@ -117,6 +122,7 @@ impl Chessboard {
         Hashes {
             pawns,
             nonpawns,
+            major,
             total: pawns ^ nonpawns[0] ^ nonpawns[1] ^ special,
         }
     }

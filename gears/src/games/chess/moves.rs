@@ -484,6 +484,9 @@ impl Chessboard {
             self.hashes.pawns ^= hash_delta;
         } else {
             self.hashes.nonpawns[color] ^= hash_delta;
+            if piece.is_major() {
+                self.hashes.major ^= hash_delta;
+            }
         }
         // remove old castling flags and ep square, they'll later be set again
         let mut special_hash = ZobristHash(0);
@@ -510,8 +513,11 @@ impl Chessboard {
             if captured == Pawn {
                 self.hashes.pawns ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(captured, other, to);
             } else {
-                self.hashes.nonpawns[!color] ^=
-                    PRECOMPUTED_ZOBRIST_KEYS.piece_key(captured, other, to);
+                let removed = PRECOMPUTED_ZOBRIST_KEYS.piece_key(captured, other, to);
+                self.hashes.nonpawns[!color] ^= removed;
+                if captured.is_major() {
+                    self.hashes.major ^= removed;
+                }
             }
             self.ply_100_ctr = 0;
         } else if piece == Pawn {
@@ -546,8 +552,12 @@ impl Chessboard {
             self.piece_bbs[Pawn] ^= bb;
             self.piece_bbs[mov.flags().promo_piece()] ^= bb;
             self.hashes.pawns ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, color, to);
-            self.hashes.nonpawns[color] ^=
-                PRECOMPUTED_ZOBRIST_KEYS.piece_key(mov.flags().promo_piece(), color, to);
+            let new_piece = mov.flags().promo_piece();
+            let new = PRECOMPUTED_ZOBRIST_KEYS.piece_key(new_piece, color, to);
+            self.hashes.nonpawns[color] ^= new;
+            if new_piece.is_major() {
+                self.hashes.major ^= new;
+            }
         }
         self.ply += 1;
         self.hashes.total =
@@ -619,6 +629,7 @@ impl Chessboard {
         *to = ChessSquare::from_rank_file(from.rank(), to_file);
         delta ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(King, color, *to);
         self.hashes.nonpawns[color] ^= delta;
+        self.hashes.major ^= delta;
         Some(())
     }
 }
