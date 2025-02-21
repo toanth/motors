@@ -16,7 +16,7 @@
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use itertools::Itertools;
+use gears::itertools::Itertools;
 use std::default::Default;
 
 const HEIGHT: usize = 6;

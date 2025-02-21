@@ -384,6 +384,7 @@ pub struct MNKBoard {
 impl PartialEq<Self> for MNKBoard {
     fn eq(&self, other: &Self) -> bool {
         self.x_bb == other.x_bb
+            && self.o_bb == other.o_bb
             && self.active_player == other.active_player
             && self.settings == other.settings
             && self.ply == other.ply
@@ -523,13 +524,10 @@ impl Board for MNKBoard {
         })
     }
 
-    fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
+    fn name_to_pos_map() -> EntityList<NameToPos> {
         vec![
-            GenericSelect {
-                name: "large",
-                val: || Self::from_fen("11 11 4 11/11/11/11/11/11/11/11/11/11/11 x", Relaxed).unwrap(),
-            },
-            GenericSelect { name: "tictactoe", val: || Self::startpos_for_settings(MnkSettings::titactoe()) },
+            NameToPos { name: "large", fen: "11 11 4 11/11/11/11/11/11/11/11/11/11/11 x", strictness: Relaxed },
+            NameToPos { name: "tictactoe", fen: "3 3 3 3/3/3 x 1", strictness: Strict },
         ]
     }
 
@@ -548,6 +546,10 @@ impl Board for MNKBoard {
             "10 12 5 12/9X2/12/3O1O2X3/6OO4/4X2X4/3X8/O2O2X4X/4X4O2/12 o",
         ];
         fens.map(|f| Self::from_fen(f, Relaxed).unwrap()).into_iter().collect()
+    }
+
+    fn cannot_call_movegen(&self) -> bool {
+        self.last_move_won_game()
     }
 
     fn settings(&self) -> Self::Settings {
@@ -616,6 +618,7 @@ impl Board for MNKBoard {
     }
 
     fn num_pseudolegal_moves(&self) -> usize {
+        debug_assert!(!self.last_move_won_game(), "{self}");
         self.empty_bb().num_ones()
     }
 
@@ -626,6 +629,7 @@ impl Board for MNKBoard {
         if num_empty == 0 {
             return None;
         }
+        debug_assert!(!self.last_move_won_game(), "{self}");
         let idx = rng.random_range(0..num_empty);
         let target = ith_one_u128(idx, empty.raw());
 
@@ -656,7 +660,7 @@ impl Board for MNKBoard {
 
     fn player_result_no_movegen<H: BoardHistory>(&self, _history: &H) -> Option<PlayerResult> {
         // check for win before checking full board
-        if self.is_game_lost() {
+        if self.last_move_won_game() {
             Some(Lose)
         } else if self.empty_bb().is_zero() {
             return Some(Draw);
@@ -736,7 +740,8 @@ impl Board for MNKBoard {
 }
 
 impl MNKBoard {
-    fn is_game_lost(&self) -> bool {
+    fn last_move_won_game(&self) -> bool {
+        // verifying a board (e.g. when parsing FENs) sets the last move in case the game is over
         if let Some(last_move) = self.last_move {
             self.is_game_won_at(last_move.target)
         } else {
@@ -965,15 +970,21 @@ mod test {
         assert_eq!(board.ply, 1);
         assert_eq!(board.empty_bb().raw(), !1 & 0x1ff);
         assert_eq!(board.active_player(), MnkColor::second());
-        assert!(!board.is_game_lost());
-
-        let board = MNKBoard::empty_for_settings(MnkSettings::new(Height(3), Width(4), 1));
-        let board = board.make_move(mov).unwrap();
-        assert!(board.is_game_lost());
-        assert_ne!(board.x_bb().raw(), 0);
-        assert_eq!(board.o_bb().raw(), 0);
-        assert!(board.x_bb().is_single_piece());
-        assert_eq!(board.pseudolegal_moves().len() + 1, board.size().num_squares());
+        assert!(!board.last_move_won_game());
+        for k in [1, 2] {
+            let board = MNKBoard::empty_for_settings(MnkSettings::new(Height(3), Width(4), k));
+            let board = board.make_move(mov).unwrap();
+            assert_eq!(k == 1, board.last_move_won_game());
+            assert_ne!(board.x_bb().raw(), 0);
+            assert_eq!(board.o_bb().raw(), 0);
+            assert!(board.x_bb().is_single_piece());
+            if k == 1 {
+                assert!(board.last_move_won_game());
+                assert_eq!(perft(Depth::new(1), board, false).nodes, 0);
+            } else {
+                assert_eq!(board.pseudolegal_moves().len() + 1, board.num_squares());
+            }
+        }
     }
 
     #[test]
@@ -1017,6 +1028,9 @@ mod test {
         assert_eq!(r.perft_res.nodes, 2 * 3 * 4);
         assert!(r.children.iter().all(|x| x.1 == 2 * 3));
         assert!(r.perft_res.time.as_millis() <= 10);
+        let r = perft(Depth::new(4), board, true);
+        assert_eq!(r.depth.get(), 4);
+        assert_eq!(r.nodes, 0);
 
         let board = MNKBoard::empty_for_settings(MnkSettings::new(Height(6), Width(7), 4));
         let expected = [1, 42, 42 * 41, 42 * 41 * 40];
@@ -1168,7 +1182,7 @@ mod test {
         let mov = FillSquare::new(GridCoordinates::from_rank_file(2, 2));
         assert!(pos.is_game_won_after_slow(mov));
         let new_pos = pos.make_move(mov).unwrap();
-        assert!(new_pos.is_game_lost());
+        assert!(new_pos.last_move_won_game());
         assert_eq!(new_pos.last_move, Some(mov));
         assert_eq!(new_pos.player_result_slow(&NoHistory::default()), Some(Lose));
         assert_eq!(new_pos.active_player_bb(), MnkBitboard::new(0, pos.size()));

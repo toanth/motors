@@ -38,6 +38,9 @@ fn perft_tests() {
             assert_eq!(res.nodes, *nodes, "{fen}, depth {depth}: {0} should be {1}", res.nodes, *nodes);
         }
         let mut rng = StdRng::seed_from_u64(seed);
+        if pos.cannot_call_movegen() {
+            continue;
+        }
         let mov = pos.random_legal_move(&mut rng);
         if mov.is_none() {
             assert_eq!(perft_res[1], 0);
@@ -53,7 +56,9 @@ fn alternative_fen_test() {
         // the ply isn't part of the alternative fen description
         let pos = pos.set_ply_since_start(0).unwrap().verify(Strict).unwrap();
         let roundtrip = UtttBoard::from_alternative_fen(&pos.to_alternative_fen(), Strict).unwrap();
-        assert_eq!(roundtrip.legal_moves_slow(), pos.legal_moves_slow());
+        if !pos.cannot_call_movegen() {
+            assert_eq!(roundtrip.legal_moves_slow(), pos.legal_moves_slow());
+        }
         assert_eq!(roundtrip, pos);
         assert_eq!(roundtrip.hash_pos(), pos.hash_pos());
     }

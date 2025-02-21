@@ -1,6 +1,6 @@
-use std::fmt::{Display, Formatter};
-
 use itertools::Itertools;
+use std::fmt::{Display, Formatter};
+use std::ops::{Index, IndexMut};
 use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, FromRepr};
 
@@ -163,6 +163,20 @@ impl PieceType<Chessboard> for ChessPieceType {
 
     fn from_idx(idx: usize) -> Self {
         Self::from_repr(idx).unwrap()
+    }
+}
+
+impl<T> Index<ChessPieceType> for [T; 6] {
+    type Output = T;
+
+    fn index(&self, index: ChessPieceType) -> &Self::Output {
+        &self[index as usize]
+    }
+}
+
+impl<T> IndexMut<ChessPieceType> for [T; 6] {
+    fn index_mut(&mut self, index: ChessPieceType) -> &mut Self::Output {
+        &mut self[index as usize]
     }
 }
 

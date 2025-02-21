@@ -122,7 +122,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
                 self.state.current_pv_num = pv_num;
                 self.state.atomic().set_depth(depth);
                 self.state.atomic().update_seldepth(depth as usize);
-                self.state.atomic().count_node();
+                _ = self.state.atomic().count_node();
                 let iteration_score = self.negamax(pos.clone(), 0, depth, SCORE_LOST, SCORE_WON);
                 self.state.cur_pv_data_mut().score = iteration_score;
                 if self.state.stop_flag() {
@@ -176,7 +176,7 @@ impl<B: Board> Gaps<B> {
                 continue;
             }
             self.state.statistics.count_legal_make_move(MainSearch);
-            self.state.atomic().count_node();
+            _ = self.state.atomic().count_node();
 
             self.state.params.history.push(pos.hash_pos());
 

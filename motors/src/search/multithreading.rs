@@ -7,8 +7,8 @@ use crate::search::tt::{TTEntry, TT};
 use crate::search::{
     AbstractEvalBuilder, AbstractSearchState, AbstractSearcherBuilder, Engine, EngineInfo, SearchParams,
 };
-use colored::Colorize;
-use dyn_clone::clone_box;
+use gears::colored::Colorize;
+use gears::dyn_clone::clone_box;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
@@ -183,11 +183,11 @@ impl<B: Board> AtomicSearchState<B> {
     }
 
     pub fn depth(&self) -> Depth {
-        Depth::new_unchecked(self.depth.load(Relaxed) as usize)
+        Depth::new(self.depth.load(Relaxed) as usize)
     }
 
     pub fn seldepth(&self) -> Depth {
-        Depth::new_unchecked(self.seldepth.load(Relaxed))
+        Depth::new(self.seldepth.load(Relaxed))
     }
 
     pub fn score(&self) -> Score {
@@ -215,10 +215,10 @@ impl<B: Board> AtomicSearchState<B> {
         self.should_stop.store(val, Release)
     }
 
-    pub(super) fn count_node(&self) {
+    pub(super) fn count_node(&self) -> u64 {
         // TODO: Test if using a relaxed load, non-atomic add, and relaxed store is faster
         // (should compile to `add` instead of `lock add` on x86)
-        _ = self.nodes.fetch_add(1, Relaxed);
+        self.nodes.fetch_add(1, Relaxed)
     }
 
     pub(super) fn set_depth(&self, depth: isize) {

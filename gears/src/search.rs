@@ -268,11 +268,16 @@ impl FromStr for TimeControl {
 
 impl TimeControl {
     pub fn infinite() -> Self {
-        TimeControl { remaining: Duration::MAX, increment: Duration::from_millis(0), moves_to_go: None }
+        TimeControl {
+            // allows doing arithmetic with infinite TCs without fear of overflows
+            remaining: Duration::MAX / (1 << 16),
+            increment: Duration::from_millis(0),
+            moves_to_go: None,
+        }
     }
 
     pub fn is_infinite(&self) -> bool {
-        self.remaining >= Duration::MAX / 2
+        self.remaining > Duration::MAX / (1 << 31)
     }
 
     pub fn update(&mut self, elapsed: Duration) {
@@ -323,11 +328,6 @@ impl Depth {
 
     pub const fn new(val: usize) -> Self {
         assert!(val <= Self::MAX.get());
-        Self(val)
-    }
-
-    pub const fn new_unchecked(val: usize) -> Self {
-        debug_assert!(val <= Self::MAX.get());
         Self(val)
     }
 
@@ -394,7 +394,7 @@ impl Default for SearchLimit {
             fixed_time: Duration::MAX,
             depth: MAX_DEPTH,
             nodes: NodesLimit::new(u64::MAX).unwrap(),
-            mate: Depth::new_unchecked(0), // only finding a mate in 0 would stop the search
+            mate: Depth::new(0), // only finding a mate in 0 would stop the search
         }
     }
 }
@@ -446,7 +446,7 @@ impl SearchLimit {
     }
 
     pub fn depth_(depth: usize) -> Self {
-        Self::depth(Depth::new_unchecked(depth))
+        Self::depth(Depth::new(depth))
     }
 
     pub fn mate(depth: Depth) -> Self {

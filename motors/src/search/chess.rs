@@ -4,7 +4,7 @@ mod caps_values;
 
 #[cfg(test)]
 mod tests {
-    use rand::rngs::StdRng;
+    use gears::rand::rngs::StdRng;
     use std::str::FromStr;
     use std::sync::atomic::fence;
     use std::sync::atomic::Ordering::SeqCst;

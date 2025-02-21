@@ -24,7 +24,7 @@ use crate::general::board::SelfChecks::{Assertion, Verify};
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    select_name_static, tokens, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, TokensToString,
+    select_name_static, tokens, EntityList, NamedEntity, Res, StaticallyNamedEntity, Tokens, TokensToString,
 };
 use crate::general::move_list::MoveList;
 use crate::general::moves::ExtendedFormat::Standard;
@@ -44,7 +44,36 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::NonZeroUsize;
 
-pub type NameToPos<B> = GenericSelect<fn() -> B>;
+#[derive(Debug, Copy, Clone)]
+pub struct NameToPos {
+    pub name: &'static str,
+    pub fen: &'static str,
+    pub strictness: Strictness,
+}
+
+impl NameToPos {
+    pub fn strict(name: &'static str, fen: &'static str) -> Self {
+        Self { name, fen, strictness: Strictness::Strict }
+    }
+
+    pub fn create<B: Board>(&self) -> B {
+        B::from_fen(self.fen, self.strictness).unwrap()
+    }
+}
+
+impl NamedEntity for NameToPos {
+    fn short_name(&self) -> String {
+        self.name.to_string()
+    }
+
+    fn long_name(&self) -> String {
+        self.short_name()
+    }
+
+    fn description(&self) -> Option<String> {
+        None
+    }
+}
 
 /// How many checks to execute.
 /// Enum variants are listed in order; later checks generally include earlier checks.
@@ -268,10 +297,12 @@ pub trait Board:
     /// UI know about supported positions.
     /// "startpos" is handled automatically in `from_name` but can be overwritten here.
     #[must_use]
-    fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
+    fn name_to_pos_map() -> EntityList<NameToPos> {
         vec![]
     }
 
+    /// `bench` positions are used in various places, such as for testing the engine, measuring search speed, and in calling `bench`
+    /// on an engine.
     #[must_use]
     fn bench_positions() -> Vec<Self>;
 
@@ -331,6 +362,13 @@ pub trait Board:
         Depth::new(20)
     }
 
+    /// Most games (e.g., chess) don't need any special checks for game-over conditions in perft, but some should explicitly test
+    /// if the game is over (e.g. mnk) because movegen wouldn't do this automatically otherwise.
+    /// If this function returns `true`, `player_result_no_movegen` must return a `Some`.
+    fn cannot_call_movegen(&self) -> bool {
+        false
+    }
+
     /// Generate pseudolegal moves into the supplied move list. Generic over the move list to allow arbitrary code
     /// upon adding moves, such as scoring or filtering the new move.
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T);
@@ -378,6 +416,7 @@ pub trait Board:
     /// like ignoring a check in chess. Not meant to return None on moves that never make sense,
     /// like moving to a square outside the board (in that case, the function should panic).
     /// In other words, this function only gracefully checks legality assuming that the move is pseudolegal.
+    // TODO: make_move_cloned or similar
     fn make_move(self, mov: Self::Move) -> Option<Self>;
 
     /// Makes a nullmove, i.e. flips the active player. While this action isn't strictly legal in most games,
@@ -744,7 +783,8 @@ pub fn board_from_name<B: Board>(name: &str) -> Res<B> {
     } else if first_token.eq_ignore_ascii_case("startpos") {
         return Ok(B::startpos());
     }
-    select_name_static(name, B::name_to_pos_map().iter(), "position", &B::game_name(), NoDescription).map(|f| (f.val)())
+    select_name_static(name, B::name_to_pos_map().iter(), "position", &B::game_name(), NoDescription)
+        .map(|f| f.create())
 }
 
 pub fn position_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) -> fmt::Result {

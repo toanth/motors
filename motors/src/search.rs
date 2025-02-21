@@ -4,26 +4,26 @@ use crate::search::multithreading::SearchType::*;
 use crate::search::multithreading::{AtomicSearchState, EngineReceives, EngineThread, SearchThreadType, Sender};
 use crate::search::statistics::{Statistics, Summary};
 use crate::search::tt::TT;
-use colored::Color::Red;
-use colored::Colorize;
 use crossbeam_channel::unbounded;
 use derive_more::{Add, Neg, Sub};
-use dyn_clone::DynClone;
 use gears::arrayvec::ArrayVec;
+use gears::colored::Color::Red;
+use gears::colored::Colorize;
+use gears::dyn_clone::DynClone;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::bail;
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
 use gears::general::move_list::MoveList;
 use gears::general::moves::Move;
+use gears::itertools::Itertools;
 use gears::output::Message;
 use gears::output::Message::Warning;
+use gears::rand::prelude::StdRng;
+use gears::rand::SeedableRng;
 use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON};
 use gears::search::{Depth, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType};
-use itertools::Itertools;
-use rand::prelude::StdRng;
-use rand::SeedableRng;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -31,6 +31,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
+use std::ops::{Deref, DerefMut};
 use std::sync::atomic::Ordering::Acquire;
 use std::sync::Arc;
 use std::thread::spawn;
@@ -665,6 +666,19 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
 }
 
+impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> Deref for SearchState<B, E, C> {
+    type Target = C;
+    fn deref(&self) -> &Self::Target {
+        &self.custom
+    }
+}
+
+impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> DerefMut for SearchState<B, E, C> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.custom
+    }
+}
+
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> for SearchState<B, E, C> {
     fn forget(&mut self, hard: bool) {
         self.start_time = Instant::now();
@@ -708,7 +722,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         // smarter, and perform better on lichess when it's up against an opponent with pondering enabled.
         // However, don't do this if the engine is used for analysis.
         if num_moves == 1 && parameters.limit.is_only_time_based() {
-            parameters.limit.depth = Depth::new_unchecked(1);
+            parameters.limit.depth = Depth::new(1);
         }
         self.params = parameters;
         // it's possible that a stop command has already been received and handled, which means the stop flag
@@ -777,8 +791,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
 
     fn send_search_info(&self) {
         if let Some(mut output) = self.search_params().thread_type.output() {
-            let info = self.to_search_info();
-            output.write_search_info(info);
+            output.write_search_info(self.to_search_info());
         }
     }
 
@@ -857,6 +870,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         }
     }
 
+    /// Marked as cold since it's turned off by default in non-interactive mode, and will be called very rarely even if enabled.
+    #[cold]
     fn send_currline(&mut self, ply: usize, eval: Score, alpha: Score, beta: Score) {
         if let Some(mut output) = self.params.thread_type.output() {
             if self.search_stack[0].last_played_move().is_none() {
@@ -894,7 +909,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             let chosen_move = pos.random_legal_move(&mut rng).unwrap_or_default();
             if chosen_move != B::Move::default() {
                 debug_assert!(pos.is_move_legal(chosen_move), "{} {pos}", chosen_move.compact_formatter(pos));
-                output.write_message(Warning, &format_args!("Not even a single iteration finished"));
+                output.write_message(
+                    Warning,
+                    &format_args!("Engine did not return a best move, playing a random move instead"),
+                );
                 output.write_search_res(&SearchResult::<B>::move_only(chosen_move, pos.clone()));
                 return;
             }
@@ -984,9 +1002,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         // self.search_stack[0].pv doesn't have to be the same as `self.multi_pvs[self.current_pv_num].pv`
         // because it gets cleared when visiting the root,
         // and if the root never updates its PV (because it fails low or because the search is stopped), it will remain
-        // empty. On the other hand, it can get updated during search; the other one only updates after each aw.
-
-        self.search_stack.get(0).and_then(|e| e.pv()).unwrap_or_default()
+        // empty. On the other hand, it can get updated during search; this only updates after each aw.
+        self.search_stack
+            .get(0)
+            .and_then(|e| e.pv())
+            .unwrap_or_else(|| &self.multi_pvs[self.current_pv_num].pv.list.as_slice())
     }
 }
 
@@ -1057,7 +1077,7 @@ mod tests {
         for p in B::bench_positions() {
             let res = engine.bench(p.clone(), SearchLimit::nodes_(1), tt.clone());
             assert!(res.depth.is_none());
-            assert!(res.max_depth.get() <= 1);
+            assert!(res.max_depth.get() <= 1 + 1); // possible extensions
             assert!(res.nodes <= 100); // TODO: Assert exactly 1
             let params =
                 SearchParams::new_unshared(p.clone(), SearchLimit::depth_(1), ZobristHistory::default(), tt.clone());

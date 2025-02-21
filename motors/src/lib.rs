@@ -3,8 +3,8 @@
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
-use dyn_clone::clone_box;
-use rand::rngs::StdRng;
+use gears::dyn_clone::clone_box;
+use gears::rand::rngs::StdRng;
 
 #[cfg(feature = "ataxx")]
 use crate::eval::ataxx::bate::Bate;

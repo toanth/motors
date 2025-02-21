@@ -17,8 +17,8 @@
  */
 use crate::Mode;
 use crate::Mode::{Bench, Engine, Perft};
-use colored::Colorize;
 use gears::cli::{get_next_arg, get_next_int, parse_output, ArgIter, Game};
+use gears::colored::Colorize;
 use gears::general::common::anyhow::bail;
 use gears::general::common::{parse_int_from_str, Res};
 use gears::search::Depth;

@@ -91,6 +91,9 @@ impl TryFrom<isize> for Score {
 }
 
 impl Score {
+    pub fn from_compact(compact: CompactScoreT) -> Self {
+        Self(compact as ScoreT)
+    }
     pub fn is_game_won_score(self) -> bool {
         self >= MIN_SCORE_WON
     }
@@ -155,6 +158,10 @@ impl Score {
         } else {
             Exact
         }
+    }
+
+    pub fn compact(self) -> CompactScoreT {
+        self.0 as CompactScoreT
     }
 }
 

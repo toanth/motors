@@ -37,9 +37,9 @@ use crate::search::multithreading::EngineWrapper;
 use crate::search::tt::{TTEntry, DEFAULT_HASH_SIZE_MB, TT};
 use crate::search::{run_bench_with, EvalList, SearchParams, SearcherList};
 use crate::{create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match};
-use colored::Color::Red;
-use colored::Colorize;
 use gears::cli::select_game;
+use gears::colored::Color::Red;
+use gears::colored::Colorize;
 use gears::games::{CharType, Color, ColoredPiece, ColoredPieceType, OutputList, ZobristHistory};
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, UnverifiedBoard};
@@ -53,11 +53,13 @@ use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
 use gears::general::perft::{parallel_perft_for, split_perft};
+use gears::itertools::Itertools;
 use gears::output::logger::LoggerBuilder;
 use gears::output::pgn::parse_pgn;
 use gears::output::text_output::{display_color, AdaptFormatter};
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
+use gears::score::Score;
 use gears::search::{Depth, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
@@ -69,7 +71,6 @@ use gears::{
     output_builder_from_str, AbstractRun, GameState, MatchState, MatchStatus, PlayerResult, ProgramStatus, Quitting,
     UgiPosState,
 };
-use itertools::Itertools;
 use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::ops::{Deref, DerefMut};
@@ -1318,7 +1319,6 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         self.write_ugi(&format_args!("{proto}ok"));
         self.state.protocol = Protocol::from_str(proto).unwrap();
         self.output().set_pretty(self.state.protocol == Interactive);
-        self.output().show_currline = false; // set here so that interactive mode shows it by default
         Ok(())
     }
 
@@ -1646,11 +1646,13 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
     let move_string =
         if let Some(mov) = mov { mov.to_extended_text(pos, Standard).bold().to_string() } else { "<none>".to_string() };
     let bound_str = entry.bound().comparison_str(false).bold().to_string();
+    let score = Score::from_compact(entry.score);
     write!(
         &mut res,
-        "\nScore: {bound_str}{0} ({1}), Depth: {2}, Best Move: {3}",
-        pretty_score(entry.score, None, None, &score_gradient(), true, false),
+        "\nScore: {bound_str}{0} ({1}), Raw Eval: {2}, Depth: {3}, Best Move: {4}",
+        pretty_score(score, None, None, &score_gradient(), true, false),
         entry.bound(),
+        pretty_score(entry.raw_eval(), None, None, &score_gradient(), true, false),
         entry.depth.to_string().bold(),
         move_string,
     )

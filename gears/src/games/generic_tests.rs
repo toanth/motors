@@ -45,7 +45,7 @@ impl<B: Board> GenericTests<B> {
     pub fn long_notation_roundtrip_test() {
         let positions = B::name_to_pos_map();
         for pos in positions {
-            let pos = (pos.val)();
+            let pos = pos.create::<B>();
             for mov in pos.legal_moves_slow() {
                 for format in [Standard, Alternative] {
                     let encoded = mov.to_extended_text(&pos, format);
@@ -115,6 +115,10 @@ impl<B: Board> GenericTests<B> {
             let hash = pos.hash_pos().0;
             _ = hashes.insert(hash);
             assert_ne!(hash, 0);
+            if pos.cannot_call_movegen() {
+                // in some bench positions, the game is already won
+                continue;
+            }
             if B::Move::legality() == Legal {
                 assert_eq!(pos.legal_moves_slow().into_iter().count(), pos.pseudolegal_moves().into_iter().count());
             }
@@ -133,10 +137,12 @@ impl<B: Board> GenericTests<B> {
                 let roundtrip = B::from_fen(&new_pos.as_fen(), Strict).unwrap();
                 let roundtrip = roundtrip.debug_verify_invariants(Strict).unwrap();
                 assert_eq!(roundtrip.as_fen(), new_pos.as_fen());
-                assert_eq!(
-                    roundtrip.legal_moves_slow().into_iter().collect_vec(),
-                    new_pos.legal_moves_slow().into_iter().collect_vec()
-                );
+                if !new_pos.cannot_call_movegen() {
+                    assert_eq!(
+                        roundtrip.legal_moves_slow().into_iter().collect_vec(),
+                        new_pos.legal_moves_slow().into_iter().collect_vec()
+                    );
+                }
                 assert_eq!(roundtrip, new_pos);
                 assert_eq!(roundtrip.hash_pos(), new_pos.hash_pos());
 
@@ -168,6 +174,9 @@ impl<B: Board> GenericTests<B> {
             if let Ok(p2) = pos.clone().set_active_player(pos.active_player().other()).verify(Relaxed) {
                 assert_ne!(pos, p2);
                 assert_ne!(pos.hash_pos(), p2.hash_pos());
+            }
+            if pos.cannot_call_movegen() {
+                continue;
             }
             if let Some(m) = pos.random_legal_move(&mut rng) {
                 let p2 = pos.clone().make_move(m).unwrap();
