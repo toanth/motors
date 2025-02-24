@@ -1015,6 +1015,7 @@ impl Caps {
                 beta + ScoreT::from(expected_node_type == FailLow) * cc::nmp_fail_low();
             if depth >= cc::nmp_min_depth()
                 && eval >= nmp_threshold
+                && raw_eval - nmp_threshold >= Score(120 - 32 * depth as ScoreT)
                 && !*self.nmp_disabled_for(pos.active_player())
                 && has_nonpawns
             {
