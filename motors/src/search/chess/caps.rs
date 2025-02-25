@@ -1028,7 +1028,7 @@ impl Caps {
                     .push(ChessMove::default());
                 let mut reduction =
                     cc::nmp_base() + depth / cc::nmp_depth_div() + isize::from(they_blundered);
-                if eval - nmp_threshold >= Score(200) {
+                if eval - nmp_threshold >= Score(500) {
                     reduction += 1;
                 }
                 let nmp_res = self.negamax(
