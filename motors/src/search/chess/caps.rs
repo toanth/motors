@@ -1148,7 +1148,7 @@ impl Caps {
                 // to verify our belief.
                 // I think it's common to have a minimum depth for doing LMR, but not having that gained elo.
                 let mut reduction = 0;
-                if !in_check && num_uninteresting_visited >= cc::lmr_min_uninteresting() {
+                if num_uninteresting_visited >= cc::lmr_min_uninteresting() {
                     reduction = depth / cc::lmr_depth_div()
                         + (num_uninteresting_visited + 1).ilog2() as isize
                         + cc::lmr_const();
@@ -1167,6 +1167,9 @@ impl Caps {
                         reduction += 1;
                     }
                     if new_pos.is_in_check() {
+                        reduction -= 1;
+                    }
+                    if in_check {
                         reduction -= 1;
                     }
                 }
