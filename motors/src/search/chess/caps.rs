@@ -3,8 +3,8 @@ use std::mem::take;
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::{Duration, Instant};
 
-use crate::eval::chess::lite::LiTEval;
 use crate::eval::Eval;
+use crate::eval::chess::lite::LiTEval;
 use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::chess::caps_values::cc;
 use crate::search::move_picker::MovePicker;
@@ -13,6 +13,7 @@ use crate::search::statistics::SearchType::{MainSearch, Qsearch};
 use crate::search::tt::TTEntry;
 use crate::search::*;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
+use gears::PlayerResult::{Lose, Win};
 use gears::arrayvec::ArrayVec;
 use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
 use gears::games::chess::pieces::ChessPieceType::Pawn;
@@ -20,28 +21,27 @@ use gears::games::chess::pieces::NUM_COLORS;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
-use gears::games::{n_fold_repetition, BoardHistory, ZobristHash, ZobristHistory};
+use gears::games::{BoardHistory, ZobristHash, ZobristHistory, n_fold_repetition};
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::Description::NoDescription;
 use gears::general::common::{
-    parse_bool_from_str, parse_int_from_str, select_name_static, Res, StaticallyNamedEntity,
+    Res, StaticallyNamedEntity, parse_bool_from_str, parse_int_from_str, select_name_static,
 };
 use gears::general::move_list::EagerNonAllocMoveList;
 use gears::general::moves::Move;
 use gears::itertools::Itertools;
-use gears::output::text_output::AdaptFormatter;
 use gears::output::Message::Debug;
 use gears::output::OutputOpts;
+use gears::output::text_output::AdaptFormatter;
 use gears::score::{
-    game_result_to_score, ScoreT, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA,
-    MIN_NORMAL_SCORE, NO_SCORE_YET,
+    MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, ScoreT,
+    game_result_to_score,
 };
 use gears::search::NodeType::*;
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::Check;
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
-use gears::PlayerResult::{Lose, Win};
 use strum::IntoEnumIterator;
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
@@ -948,12 +948,14 @@ impl Caps {
         let we_blundered = ply >= 2
             && eval - self.search_stack[ply - 2].eval < Score(cc::we_blundered_threshold());
 
-        // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
+        // IIR (Internal Iterative Reductions): If we don't have a trustworthy TT move, this node will likely take a long time
         // because the move ordering won't be great, so don't spend too much time on it.
         // Instead, search it with reduced depth to fill the TT entry so that we can re-search it faster the next time
         // we see this node. If there was no TT entry because the node failed low, this node probably isn't that interesting,
         // so reducing the depth also makes sense in this case.
-        if depth >= cc::iir_min_depth() && best_move == ChessMove::default() {
+        if depth >= cc::iir_min_depth()
+            && (best_move == ChessMove::default() || old_entry.is_some_and(|e| e.depth <= 3))
+        {
             depth -= 1;
         }
 

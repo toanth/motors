@@ -422,7 +422,7 @@ mod test {
         let _ = engine.search_with_tt(pos, SearchLimit::depth(Depth::new_unchecked(5)), tt.clone());
         let entry = tt.load::<Chessboard>(pos.zobrist_hash(), 0);
         assert!(entry.is_some());
-        assert_eq!(entry.unwrap().depth, 5);
+        assert!(entry.unwrap().depth >= 4);
         _ = engine2.search_with_tt(pos, limit, tt.clone());
         assert!(engine2.search_state().uci_nodes() <= nodes);
         tt.forget();
