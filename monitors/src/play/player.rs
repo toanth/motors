@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::thread::{sleep, Builder};
+use std::thread::{Builder, sleep};
 use std::time::{Duration, Instant};
 
 use lazy_static::lazy_static;
@@ -18,10 +18,10 @@ use whoami::fallible::realname;
 
 use gears::games::chess::Chessboard;
 use gears::general::board::Board;
-use gears::general::common::anyhow::bail;
 use gears::general::common::Res;
+use gears::general::common::anyhow::bail;
 use gears::output::Message::*;
-use gears::search::{Depth, NodesLimit, SearchLimit, TimeControl, MAX_DEPTH};
+use gears::search::{Depth, MAX_DEPTH, NodesLimit, SearchLimit, TimeControl};
 use gears::ugi::EngineOption;
 
 use crate::cli::{ClientEngineCliArgs, PlayerArgs};
@@ -212,7 +212,9 @@ fn send_initial_ugi_impl<B: Board>(
                 .display_name
                 .clone();
             client.lock().unwrap().quit_program();
-            bail!("Couldn't initialize engine '{name}'. Didn't receive 'ugiok' or 'uciok' after the timeout was reached.")
+            bail!(
+                "Couldn't initialize engine '{name}'. Didn't receive 'ugiok' or 'uciok' after the timeout was reached."
+            )
         }
     }
     Ok(())
@@ -356,7 +358,9 @@ impl PlayerBuilder {
                 // the 'motors-' prefix is used to denote an engine that's build in into monitors;
                 // so this becomes 'monitors engine default'
                 if let Some(name) = &args.display_name {
-                    bail!("The engine name is set ('{name}') but the command isn't. Please specify a command (use 'motors-<name>' to use the built-in engine <name>)")
+                    bail!(
+                        "The engine name is set ('{name}') but the command isn't. Please specify a command (use 'motors-<name>' to use the built-in engine <name>)"
+                    )
                 }
                 args.cmd = "motors-default".to_string();
             }
@@ -499,10 +503,10 @@ impl<B: Board> Player<B> {
 
     pub fn assign_to_match(&mut self, color: B::Color) {
         match self {
-            Engine(ref mut engine) => {
+            Engine(engine) => {
                 engine.current_match = Some(CurrentMatch::new(engine.default_limit, color));
             }
-            Human(ref mut human) => human.tc = human.original_tc,
+            Human(human) => human.tc = human.original_tc,
         }
     }
 
@@ -588,14 +592,14 @@ impl<B: Board> Player<B> {
             .elapsed();
         match self {
             // An engine needs to check both the fixed move time and the TimeControl, but a human only has a TimeControl
-            Engine(ref mut engine) => {
+            Engine(engine) => {
                 let limit = engine.current_match.as_ref().unwrap().limit;
                 if elapsed > limit.max_move_time().saturating_add(engine.time_margin.0) {
                     return true;
                 }
                 engine.current_match().limit.tc.update(elapsed);
             }
-            Human(ref mut human) => {
+            Human(human) => {
                 if elapsed > human.tc.remaining {
                     return true;
                 }

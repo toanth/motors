@@ -1,24 +1,24 @@
-use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T1};
+use std::arch::x86_64::{_MM_HINT_T1, _mm_prefetch};
 use std::fmt::{Display, Formatter};
 use std::mem::size_of;
 #[cfg(feature = "unsafe")]
 use std::mem::transmute_copy;
 use std::ptr::addr_of;
-use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
+use std::sync::atomic::Ordering::Relaxed;
 
 use portable_atomic::AtomicU128;
 use static_assertions::const_assert_eq;
 use strum_macros::FromRepr;
 
+use OptionalNodeType::*;
+use gears::games::ZobristHash;
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
-use gears::games::ZobristHash;
 use gears::general::board::Board;
 use gears::general::moves::{Move, UntrustedMove};
-use gears::score::{CompactScoreT, Score, ScoreT, SCORE_WON};
+use gears::score::{CompactScoreT, SCORE_WON, Score, ScoreT};
 use gears::search::NodeType;
-use OptionalNodeType::*;
 
 type AtomicTTEntry = AtomicU128;
 
@@ -282,10 +282,10 @@ mod test {
     use crate::search::chess::caps::Caps;
     use crate::search::multithreading::AtomicSearchState;
     use crate::search::{Engine, SearchParams};
-    use gears::games::chess::moves::ChessMove;
     use gears::games::ZobristHistory;
+    use gears::games::chess::moves::ChessMove;
     use gears::rand::distr::Uniform;
-    use gears::rand::{rng, Rng, RngCore};
+    use gears::rand::{Rng, RngCore, rng};
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
     use gears::search::NodeType::Exact;
     use gears::search::{Depth, SearchLimit};
@@ -357,10 +357,10 @@ mod test {
             let size = tt.size_in_entries();
             assert_eq!(size, 1.max(num_bytes / size_of::<AtomicTTEntry>()));
             let mut occurrences = vec![0_u64; size];
-            let mut gen = rng();
+            let mut rng = rng();
             let num_samples = 200_000;
             for _ in 0..num_samples {
-                let idx = tt.index_of(ZobristHash(gen.next_u64()));
+                let idx = tt.index_of(ZobristHash(rng.next_u64()));
                 occurrences[idx] += 1;
             }
             let expected = num_samples as f64 / size as f64;
