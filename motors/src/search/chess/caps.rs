@@ -3,8 +3,8 @@ use std::mem::take;
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::{Duration, Instant};
 
-use crate::eval::chess::lite::LiTEval;
 use crate::eval::Eval;
+use crate::eval::chess::lite::LiTEval;
 use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::chess::caps_values::cc;
 use crate::search::move_picker::MovePicker;
@@ -13,6 +13,7 @@ use crate::search::statistics::SearchType::{MainSearch, Qsearch};
 use crate::search::tt::TTEntry;
 use crate::search::*;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
+use gears::PlayerResult::{Lose, Win};
 use gears::arrayvec::ArrayVec;
 use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
 use gears::games::chess::pieces::ChessPieceType::Pawn;
@@ -20,28 +21,27 @@ use gears::games::chess::pieces::NUM_COLORS;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
-use gears::games::{n_fold_repetition, BoardHistory, ZobristHash, ZobristHistory};
+use gears::games::{BoardHistory, ZobristHash, ZobristHistory, n_fold_repetition};
 use gears::general::bitboards::RawBitboard;
 use gears::general::common::Description::NoDescription;
 use gears::general::common::{
-    parse_bool_from_str, parse_int_from_str, select_name_static, Res, StaticallyNamedEntity,
+    Res, StaticallyNamedEntity, parse_bool_from_str, parse_int_from_str, select_name_static,
 };
 use gears::general::move_list::EagerNonAllocMoveList;
 use gears::general::moves::Move;
 use gears::itertools::Itertools;
-use gears::output::text_output::AdaptFormatter;
 use gears::output::Message::Debug;
 use gears::output::OutputOpts;
+use gears::output::text_output::AdaptFormatter;
 use gears::score::{
-    game_result_to_score, ScoreT, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA,
-    MIN_NORMAL_SCORE, NO_SCORE_YET,
+    MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, ScoreT,
+    game_result_to_score,
 };
 use gears::search::NodeType::*;
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::Check;
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
-use gears::PlayerResult::{Lose, Win};
 use strum::IntoEnumIterator;
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
@@ -736,7 +736,7 @@ impl Caps {
                             // currently, it's possible to reduce the PV through IIR when the TT entry of a PV node gets overwritten,
                             // but that should be relatively rare. In the future, a better replacement policy might make this actually sound
                             self.multi_pv() > 1
-                                || pv.len() + pv.len() / 4 + 1
+                                || pv.len() + pv.len() / 4 + 5
                                     >= self.depth_hard_limit.min(aw_depth as usize)
                                 || pv_score.is_won_lost_or_draw_score(),
                             "{aw_depth} {depth} {0} {pv_score} {1}",
@@ -883,7 +883,7 @@ impl Caps {
                 // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
                 // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
                 // simply return it.
-                if !is_pv_node && tt_entry.depth as isize >= depth {
+                if tt_entry.depth as isize >= depth {
                     if (tt_score >= beta && tt_bound == NodeType::lower_bound())
                         || (tt_score <= alpha && tt_bound == NodeType::upper_bound())
                         || tt_bound == Exact
@@ -894,8 +894,13 @@ impl Caps {
                         {
                             self.update_histories_and_killer(&pos, best_move, depth, ply);
                         }
-                        return Some(tt_score);
-                    } else if depth <= 6 {
+                        if !is_pv_node {
+                            return Some(tt_score);
+                        } else if depth > 1 {
+                            // idea from calvin
+                            depth -= 1;
+                        }
+                    } else if expected_node_type == FailHigh && depth <= 6 {
                         // also from stormphrax
                         depth += 1;
                     }
