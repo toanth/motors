@@ -919,9 +919,10 @@ impl Caps {
                 // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
                 // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
                 // create any problems, but should be kept in mind.
-                if tt_bound == Exact
+                if (tt_bound == Exact
                     || (tt_bound == NodeType::lower_bound() && tt_score >= raw_eval)
-                    || (tt_bound == NodeType::upper_bound() && tt_score <= raw_eval)
+                    || (tt_bound == NodeType::upper_bound() && tt_score <= raw_eval))
+                    && !tt_entry.score().is_won_or_lost()
                 {
                     eval = tt_score;
                 }
@@ -1369,12 +1370,9 @@ impl Caps {
             // and propagate that up to a qsearch parent node, where it gets saved with a depth of 0, so game over scores
             // with a depth of 0 in the TT are possible
             // exact scores should have already caused a cutoff
-            // TODO: Removing the `&& !tt_entry.score.is_game_over_score()` condition here and in `negamax` *failed* a
-            // nonregression SPRT with `[-7, 0]` bounds even though I don't know why, and those conditions make it fail
-            // the re-search test case. So the conditions are still disabled for now,
-            // test reintroducing them at some point in the future after I have TT aging!
-            if (bound == NodeType::lower_bound() && tt_score >= raw_eval)
-                || (bound == NodeType::upper_bound() && tt_score <= raw_eval)
+            if ((bound == NodeType::lower_bound() && tt_score >= raw_eval)
+                || (bound == NodeType::upper_bound() && tt_score <= raw_eval))
+                && !tt_entry.score().is_won_or_lost()
             {
                 eval = tt_score;
             };
