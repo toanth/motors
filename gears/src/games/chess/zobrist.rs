@@ -27,6 +27,15 @@ impl PrecomputedZobristKeys {
     ) -> ZobristHash {
         self.piece_square_keys[square.bb_idx() * 12 + piece as usize * 2 + color as usize]
     }
+
+    pub fn material_key(
+        &self,
+        piece: ChessPieceType,
+        color: ChessColor,
+        count: usize,
+    ) -> ZobristHash {
+        self.piece_key(piece, color, ChessSquare::from_bb_index(count))
+    }
 }
 
 /// A simple `const` random number generator adapted from my C++ algebra implementation,
@@ -51,7 +60,7 @@ impl PcgXslRr128_64Oneseq {
         self.0 = self.0.wrapping_mul(MUTLIPLIER);
         self.0 = self.0.wrapping_add(INCREMENT);
         let upper = (self.0 >> 64) as u64;
-        let xored = upper ^ ((self.0 & u64::MAX as u128) as u64);
+        let xored = upper ^ (self.0 as u64);
         (
             self,
             ZobristHash(xored.rotate_right((upper >> (122 - 64)) as u32)),
@@ -61,7 +70,7 @@ impl PcgXslRr128_64Oneseq {
 
 // Unfortunately, `const_random!` generates new values each time, so the build isn't deterministic unless
 // the environment variable CONST_RANDOM_SEED is set
-pub const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
+pub const ZOBRIST_KEYS: PrecomputedZobristKeys = {
     let mut res = {
         PrecomputedZobristKeys {
             piece_square_keys: [ZobristHash(0); NUM_COLORED_PIECE_SQUARE_ENTRIES],
@@ -95,28 +104,32 @@ impl Chessboard {
         let mut pawns = ZobristHash(0);
         let mut nonpawns = [ZobristHash(0); NUM_COLORS];
         let mut special = ZobristHash(0);
+        let mut material = ZobristHash(0);
         for color in ChessColor::iter() {
             for piece in ChessPieceType::non_pawn_pieces() {
                 let pieces = self.colored_piece_bb(color, piece);
-                for square in pieces.ones() {
-                    nonpawns[color] ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, square);
+                for (i, square) in pieces.ones().enumerate() {
+                    nonpawns[color] ^= ZOBRIST_KEYS.piece_key(piece, color, square);
+                    material ^= ZOBRIST_KEYS.material_key(piece, color, i + 1);
                 }
             }
-            for square in self.colored_piece_bb(color, Pawn).ones() {
-                pawns ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, color, square);
+            let pawn_bb = self.colored_piece_bb(color, Pawn);
+            for (i, square) in pawn_bb.ones().enumerate() {
+                pawns ^= ZOBRIST_KEYS.piece_key(Pawn, color, square);
+                material ^= ZOBRIST_KEYS.material_key(Pawn, color, i + 1);
             }
         }
         special ^= self.ep_square.map_or(ZobristHash(0), |square| {
-            PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize]
+            ZOBRIST_KEYS.ep_file_keys[square.file() as usize]
         });
-        special ^=
-            PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
+        special ^= ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         if self.active_player == Black {
-            special ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+            special ^= ZOBRIST_KEYS.side_to_move_key;
         }
         Hashes {
             pawns,
             nonpawns,
+            material,
             total: pawns ^ nonpawns[0] ^ nonpawns[1] ^ special,
         }
     }
@@ -127,8 +140,7 @@ impl Chessboard {
         from: ChessSquare,
         to: ChessSquare,
     ) -> ZobristHash {
-        PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, to)
-            ^ PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, from)
+        ZOBRIST_KEYS.piece_key(piece, color, to) ^ ZOBRIST_KEYS.piece_key(piece, color, from)
     }
 }
 
@@ -158,16 +170,16 @@ mod tests {
 
     #[test]
     fn simple_test() {
-        let a1 = PRECOMPUTED_ZOBRIST_KEYS
+        let a1 = ZOBRIST_KEYS
             .piece_key(Bishop, White, ChessSquare::from_chars('f', '4').unwrap())
             .0;
-        let b1 = PRECOMPUTED_ZOBRIST_KEYS
+        let b1 = ZOBRIST_KEYS
             .piece_key(Bishop, White, ChessSquare::from_chars('g', '5').unwrap())
             .0;
-        let a2 = PRECOMPUTED_ZOBRIST_KEYS
+        let a2 = ZOBRIST_KEYS
             .piece_key(Knight, Black, ChessSquare::from_chars('h', '5').unwrap())
             .0;
-        let b2 = PRECOMPUTED_ZOBRIST_KEYS
+        let b2 = ZOBRIST_KEYS
             .piece_key(Knight, Black, ChessSquare::from_chars('g', '4').unwrap())
             .0;
         assert_ne!(a1 ^ a2, b1 ^ b2); // used to be bugged
@@ -255,7 +267,7 @@ mod tests {
                                 m.src_square(),
                                 m.dest_square()
                             )
-                            ^ PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key,
+                            ^ ZOBRIST_KEYS.side_to_move_key,
                         new_pos.zobrist_hash(),
                         "{pos} {m}"
                     );

@@ -148,6 +148,7 @@ struct CorrHist {
     pawns: Box<[[ScoreT; CORRHIST_SIZE]; NUM_COLORS]>,
     // the outer color index is the active player, the inner color is the color we're looking at
     nonpawns: Box<[[[ScoreT; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]>,
+    material: Box<[[ScoreT; CORRHIST_SIZE]; NUM_COLORS]>,
 }
 
 impl Default for CorrHist {
@@ -155,6 +156,7 @@ impl Default for CorrHist {
         CorrHist {
             pawns: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]),
             nonpawns: Box::new([[[0; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]),
+            material: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]),
         }
     }
 }
@@ -171,11 +173,14 @@ impl CorrHist {
         let color = pos.active_player();
         let weight = (1 + depth).min(16);
         let bonus = (score - eval).0 as isize * CORRHIST_SCALE;
-        let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
-        Self::update_entry(&mut self.pawns[color][pawn_idx], weight, bonus);
+        Self::update_entry(&mut self.pawns[color][pos.pawn_key()], weight, bonus);
+        Self::update_entry(&mut self.material[color][pos.material_key()], weight, bonus);
         for c in ChessColor::iter() {
-            let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
-            Self::update_entry(&mut self.nonpawns[color][nonpawn_idx][c], weight, bonus);
+            Self::update_entry(
+                &mut self.nonpawns[color][pos.nonpawn_key(c)][c],
+                weight,
+                bonus,
+            );
         }
     }
 
@@ -184,11 +189,10 @@ impl CorrHist {
             return raw;
         }
         let color = pos.active_player();
-        let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
-        let mut correction = self.pawns[color][pawn_idx] as isize;
+        let mut correction = self.pawns[color][pos.pawn_key()] as isize;
+        correction += self.material[color][pos.material_key()] as isize;
         for c in ChessColor::iter() {
-            let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
-            correction += self.nonpawns[color][nonpawn_idx][c] as isize / 2;
+            correction += self.nonpawns[color][pos.nonpawn_key(c)][c] as isize / 2;
         }
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
         Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)

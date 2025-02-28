@@ -3,8 +3,8 @@ use arbitrary::Arbitrary;
 use colored::Color::Red;
 use colored::Colorize;
 use itertools::Itertools;
-use rand::prelude::IteratorRandom;
 use rand::Rng;
+use rand::prelude::IteratorRandom;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroUsize;
 use std::ops::{Index, IndexMut, Not};
@@ -12,6 +12,9 @@ use std::str::FromStr;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose};
+use crate::games::chess::ChessColor::{Black, White};
 use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::castling::{CastleRight, CastlingFlags};
 use crate::games::chess::moves::ChessMove;
@@ -20,32 +23,29 @@ use crate::games::chess::pieces::{
     ChessPiece, ChessPieceType, ColoredChessPieceType, NUM_CHESS_PIECES, NUM_COLORS,
 };
 use crate::games::chess::squares::{ChessSquare, ChessboardSize};
-use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
-use crate::games::chess::ChessColor::{Black, White};
+use crate::games::chess::zobrist::ZOBRIST_KEYS;
 use crate::games::{
-    file_to_char, n_fold_repetition, AbstractPieceType, Board, BoardHistory, Color, ColoredPiece,
-    ColoredPieceType, DimT, PieceType, Settings, ZobristHash,
+    AbstractPieceType, Board, BoardHistory, Color, ColoredPiece, ColoredPieceType, DimT, PieceType,
+    Settings, ZobristHash, file_to_char, n_fold_repetition,
 };
 use crate::general::bitboards::chess::{
-    black_squares, white_squares, ChessBitboard, CORNER_SQUARES,
+    CORNER_SQUARES, ChessBitboard, black_squares, white_squares,
 };
 use crate::general::bitboards::{Bitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    board_from_name, ply_counter_from_fullmove_nr, position_fen_part, read_common_fen_part,
-    NameToPos, SelfChecks, Strictness, UnverifiedBoard,
+    NameToPos, SelfChecks, Strictness, UnverifiedBoard, board_from_name,
+    ply_counter_from_fullmove_nr, position_fen_part, read_common_fen_part,
 };
-use crate::general::common::{parse_int_from_str, EntityList, Res, StaticallyNamedEntity, Tokens};
+use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, parse_int_from_str};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
-use crate::output::text_output::{
-    board_to_string, display_board_pretty, display_color, AdaptFormatter, BoardFormatter,
-    DefaultBoardFormatter, PieceToChar,
-};
 use crate::output::OutputOpts;
-use crate::PlayerResult;
-use crate::PlayerResult::{Draw, Lose};
+use crate::output::text_output::{
+    AdaptFormatter, BoardFormatter, DefaultBoardFormatter, PieceToChar, board_to_string,
+    display_board_pretty, display_color,
+};
 
 pub mod castling;
 mod movegen;
@@ -128,6 +128,7 @@ impl Color for ChessColor {
 struct Hashes {
     pawns: ZobristHash,
     nonpawns: [ZobristHash; NUM_COLORS],
+    material: ZobristHash,
     total: ZobristHash,
 }
 
@@ -417,10 +418,10 @@ impl Board for Chessboard {
         // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove
         self.ply_100_ctr = 0;
         if let Some(sq) = self.ep_square {
-            self.hashes.total ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[sq.file() as usize];
+            self.hashes.total ^= ZOBRIST_KEYS.ep_file_keys[sq.file() as usize];
             self.ep_square = None;
         }
-        self.hashes.total ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+        self.hashes.total ^= ZOBRIST_KEYS.side_to_move_key;
         self.flip_side_to_move()
     }
 
@@ -558,7 +559,9 @@ impl Board for Chessboard {
             // ep square after every double pawn push, so we silently ignore those invalid ep squares unless in strict mode.
             if (board.0.colored_piece_bb(color, Pawn) & ep_capturing).is_zero() {
                 if strictness == Strict {
-                    bail!("The ep square is set to {ep_square} even though no pawn can recapture. In strict mode, this is not allowed")
+                    bail!(
+                        "The ep square is set to {ep_square} even though no pawn can recapture. In strict mode, this is not allowed"
+                    )
                 }
                 None
             } else {
@@ -584,7 +587,9 @@ impl Board for Chessboard {
             })?;
             board.0.ply = ply_counter_from_fullmove_nr::<Chessboard>(fullmove_number, color);
         } else if strictness == Strict {
-            bail!("FEN doesn't contain a halfmove clock and fullmove counter, but they are required in strict mode")
+            bail!(
+                "FEN doesn't contain a halfmove clock and fullmove counter, but they are required in strict mode"
+            )
         } else {
             board.0.ply_100_ctr = 0;
             board.0.ply = usize::from(color == Black);
@@ -770,6 +775,10 @@ impl Chessboard {
         self.hashes.nonpawns[color]
     }
 
+    pub fn material_key(&self) -> ZobristHash {
+        self.hashes.material
+    }
+
     /// A mate that happens on the 100 move rule counter reaching 100 takes precedence.
     /// This barely every happens, which is why we can afford the slow operation of checking for a checkmate in that case.
     pub fn is_50mr_draw(&self) -> bool {
@@ -821,11 +830,7 @@ impl Chessboard {
     }
 
     pub fn no_moves_result_if(&self, in_check: bool) -> PlayerResult {
-        if in_check {
-            Lose
-        } else {
-            Draw
-        }
+        if in_check { Lose } else { Draw }
     }
 
     pub fn ep_square(&self) -> Option<ChessSquare> {
@@ -850,7 +855,9 @@ impl Chessboard {
         mut board: UnverifiedChessboard,
     ) -> Res<UnverifiedChessboard> {
         if num >= 960 {
-            bail!("There are only 960 starting positions in chess960 (0 to 959), so position {num} doesn't exist");
+            bail!(
+                "There are only 960 starting positions in chess960 (0 to 959), so position {num} doesn't exist"
+            );
         }
         assert!(board.0.colored_bb(color).is_zero());
         assert_eq!((board.0.occupied_bb().raw() & 0xffff), 0);
@@ -955,8 +962,11 @@ impl Chessboard {
                     .and_then(|num: usize| Self::dfrc_startpos_from_single_num(num));
             }
         }
-        bail!("(D)FRC positions must be of the format {0} or {1}, with N < 960 and M < 921600, e.g. frc123",
-            "frc<N>".bold(), "dfrc<M>".bold())
+        bail!(
+            "(D)FRC positions must be of the format {0} or {1}, with N < 960 and M < 921600, e.g. frc123",
+            "frc<N>".bold(),
+            "dfrc<M>".bold()
+        )
     }
 }
 
@@ -1021,14 +1031,18 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             if this.colored_piece_on(remove_pawn_square).symbol
                 != ColoredChessPieceType::new(inactive_player, Pawn)
             {
-                bail!("FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}");
+                bail!(
+                    "FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}"
+                );
             } else if !this.is_empty(ep_square) {
                 bail!(
                     "The en passant square ({ep_square}) must be empty, but it's occupied by a {}",
                     this.piece_type_on(ep_square).name()
                 )
             } else if !this.is_empty(pawn_origin_square) {
-                bail!("The en passant square is set to {ep_square}, so the pawn must have come from {pawn_origin_square}. But this square isn't empty")
+                bail!(
+                    "The en passant square is set to {ep_square}, so the pawn must have come from {pawn_origin_square}. But this square isn't empty"
+                )
             }
             let active = this.active_player();
             // In the current version of the FEN standard, the ep square should only be set if a pawn can capture.
@@ -1039,7 +1053,9 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 let possible_ep_pawns =
                     remove_pawn_square.bb().west() | remove_pawn_square.bb().east();
                 if (possible_ep_pawns & this.colored_piece_bb(active, Pawn)).is_zero() {
-                    bail!("The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square");
+                    bail!(
+                        "The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square"
+                    );
                 }
             }
         }
@@ -1067,8 +1083,12 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         } else if this.ply >= 100_000 {
             bail!("Ridiculously large ply counter: {0}", this.ply);
         } else if strictness == Strict && this.ply_100_ctr > this.ply {
-            bail!("The halfmove repetition clock ({0}) is larger than the number of played half moves ({1}), \
-                which is not allowed in strict mode", this.ply_100_ctr, this.ply)
+            bail!(
+                "The halfmove repetition clock ({0}) is larger than the number of played half moves ({1}), \
+                which is not allowed in strict mode",
+                this.ply_100_ctr,
+                this.ply
+            )
         }
 
         let mut num_promoted_pawns: [isize; 2] = [0, 0];
@@ -1177,7 +1197,7 @@ mod tests {
 
     use crate::games::chess::squares::{E_FILE_NO, F_FILE_NO, G_FILE_NO};
     use crate::games::{
-        char_to_file, Coordinates, NoHistory, RectangularCoordinates, ZobristHistory,
+        Coordinates, NoHistory, RectangularCoordinates, ZobristHistory, char_to_file,
     };
     use crate::general::board::RectangularBoard;
     use crate::general::board::Strictness::Relaxed;
@@ -1246,10 +1266,12 @@ mod tests {
         assert_eq!(moves.len(), 20);
         let legal_moves = board.legal_moves_slow();
         assert_eq!(legal_moves.len(), moves.len());
-        assert!(legal_moves
-            .into_iter()
-            .sorted()
-            .eq(moves.into_iter().sorted()));
+        assert!(
+            legal_moves
+                .into_iter()
+                .sorted()
+                .eq(moves.into_iter().sorted())
+        );
     }
 
     #[test]
@@ -1537,7 +1559,7 @@ mod tests {
         assert!(board.debug_verify_invariants(Strict).is_ok());
         let moves = board.legal_moves_slow();
         assert_eq!(moves.into_iter().count(), 32); // TODO: Use .num_legal_moves() after that has been merged
-                                                   // Another X-FEN, which is often misinterpreted by engines
+        // Another X-FEN, which is often misinterpreted by engines
         let fen = " rk2rqnb/1b6/2n5/pppppppp/PPPPPP2/B1NQ4/6PP/1K1RR1NB w Kk - 8 14";
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
         assert_eq!(board.legal_moves_slow().len(), 42);

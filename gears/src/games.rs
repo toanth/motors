@@ -5,20 +5,20 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::ops::Not;
+use std::ops::{Index, IndexMut, Not};
 use std::str::FromStr;
 
 use derive_more::{BitXor, BitXorAssign};
 use rand::Rng;
 use strum::IntoEnumIterator;
 
+use crate::PlayerResult;
 use crate::games::PlayerResult::Lose;
 use crate::general::board::Board;
-use crate::general::common::{parse_int, EntityList, Res, StaticallyNamedEntity};
+use crate::general::common::{EntityList, Res, StaticallyNamedEntity, parse_int};
 use crate::general::move_list::MoveList;
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
 use crate::output::OutputBuilder;
-use crate::PlayerResult;
 
 #[cfg(feature = "mnk")]
 pub mod mnk;
@@ -294,6 +294,20 @@ pub type OutputList<B> = EntityList<Box<dyn OutputBuilder<B>>>;
 )]
 #[must_use]
 pub struct ZobristHash(pub u64);
+
+impl<T, const N: usize> Index<ZobristHash> for [T; N] {
+    type Output = T;
+
+    fn index(&self, index: ZobristHash) -> &Self::Output {
+        &self[index.0 as usize % N]
+    }
+}
+
+impl<T, const N: usize> IndexMut<ZobristHash> for [T; N] {
+    fn index_mut(&mut self, index: ZobristHash) -> &mut Self::Output {
+        &mut self[index.0 as usize % N]
+    }
+}
 
 pub trait Settings: Eq + Copy + Debug + Default {
     fn text(&self) -> Option<String> {
