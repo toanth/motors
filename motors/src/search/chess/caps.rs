@@ -1107,7 +1107,8 @@ impl Caps {
                     break;
                 }
                 // PVS SEE pruning: Don't play moves with bad SEE score at low depth
-                let see_threshold = -50 * depth as i32;
+                let scale = if mov.is_tactical(&pos) { -100 } else { -50 };
+                let see_threshold = scale * depth as i32;
                 if move_score < KILLER_SCORE
                     && depth < 4
                     && !pos.see_at_least(mov, SeeScore(see_threshold))
