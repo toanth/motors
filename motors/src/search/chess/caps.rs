@@ -1088,17 +1088,18 @@ impl Caps {
                     cc::fp_base() + cc::fp_scale() * depth
                 };
                 let mut lmp_threshold = if we_blundered {
-                    cc::lmp_blunder_base() + cc::lmp_blunder_scale() * depth
+                    cc::lmp_blunder_base() + depth * depth * cc::lmp_blunder_scale()
                 } else {
-                    cc::lmp_base() + cc::lmp_scale() * depth
+                    cc::lmp_base() + depth * depth * cc::lmp_scale()
                 };
                 // LMP faster if we expect to fail low anyway
                 if expected_node_type == FailLow {
                     lmp_threshold -= lmp_threshold / cc::lmp_fail_low_div();
                 }
-                if depth <= cc::max_move_loop_pruning_depth()
-                    && (num_uninteresting_visited >= lmp_threshold
-                        || (eval + Score(fp_margin as ScoreT) < alpha && move_score < KILLER_SCORE))
+                lmp_threshold /= 1024;
+                if num_uninteresting_visited >= lmp_threshold
+                    || (depth <= cc::max_fp_depth()
+                        && (eval + Score(fp_margin as ScoreT) < alpha && move_score < KILLER_SCORE))
                 {
                     break;
                 }
