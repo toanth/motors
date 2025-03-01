@@ -954,7 +954,8 @@ impl Caps {
         // we see this node. If there was no TT entry because the node failed low, this node probably isn't that interesting,
         // so reducing the depth also makes sense in this case.
         if depth >= cc::iir_min_depth()
-            && (best_move == ChessMove::default() || old_entry.is_some_and(|e| e.depth <= 3))
+            && (best_move == ChessMove::default()
+                || old_entry.is_some_and(|e| depth - e.depth as isize >= 7))
         {
             depth -= 1;
         }
