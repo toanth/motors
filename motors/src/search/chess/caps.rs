@@ -20,9 +20,11 @@ use gears::games::chess::pieces::ChessPieceType::Pawn;
 use gears::games::chess::pieces::NUM_COLORS;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
-use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
+use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS, UnverifiedChessboard};
 use gears::games::{BoardHistory, ZobristHash, ZobristHistory, n_fold_repetition};
 use gears::general::bitboards::RawBitboard;
+use gears::general::board::Strictness::Strict;
+use gears::general::board::UnverifiedBoard;
 use gears::general::common::Description::NoDescription;
 use gears::general::common::{
     Res, StaticallyNamedEntity, parse_bool_from_str, parse_int_from_str, select_name_static,
@@ -1107,6 +1109,14 @@ impl Caps {
                 if move_score.0 < cc::lmr_bad_hist() && depth <= 2 {
                     break;
                 }
+                // PVS SEE pruning: Don't play moves with bad SEE score at low depth
+                let see_threshold = -50 * depth as i32;
+                if move_score < KILLER_SCORE
+                    && depth < 4
+                    && !pos.see_at_least(mov, SeeScore(see_threshold))
+                {
+                    continue;
+                }
             }
 
             if root && self.excluded_moves.contains(&mov) {
@@ -1457,13 +1467,14 @@ impl Caps {
             let mov = self.search_stack[ply - 1].last_tried_move();
             self.eval.eval_incremental(old_pos, mov, &pos, ply)
         };
+        // the score must not be in the mate score range unless the position includes too many pieces
         debug_assert!(
-            !res.is_won_or_lost(),
+            !res.is_won_or_lost() || UnverifiedChessboard::new(pos).verify(Strict).is_err(),
             "{res} {0} {1}, {pos}",
             res.0,
             self.eval.eval(&pos, ply)
         );
-        res
+        res.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
 
     fn update_continuation_hist(

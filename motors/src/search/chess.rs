@@ -6,26 +6,26 @@ mod caps_values;
 mod tests {
     use gears::rand::rngs::StdRng;
     use std::str::FromStr;
-    use std::sync::atomic::fence;
-    use std::sync::atomic::Ordering::SeqCst;
     use std::sync::Arc;
+    use std::sync::atomic::Ordering::SeqCst;
+    use std::sync::atomic::fence;
     use std::thread::{sleep, spawn};
     use std::time::Duration;
 
+    use gears::PlayerResult::Draw;
+    use gears::games::chess::Chessboard;
     use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
     use gears::games::chess::pieces::ChessPieceType::Bishop;
     use gears::games::chess::squares::ChessSquare;
-    use gears::games::chess::Chessboard;
-    use gears::games::{n_fold_repetition, BoardHistory, ZobristHistory};
+    use gears::games::{BoardHistory, ZobristHistory, n_fold_repetition};
     use gears::general::board::Board;
     use gears::general::board::Strictness::{Relaxed, Strict};
     use gears::general::common::tokens;
     use gears::general::moves::Move;
     use gears::output::pgn::parse_pgn;
-    use gears::score::{Score, SCORE_LOST, SCORE_WON};
+    use gears::score::{SCORE_LOST, SCORE_WON, Score};
     use gears::search::{Depth, SearchLimit};
     use gears::ugi::load_ugi_position;
-    use gears::PlayerResult::Draw;
 
     use crate::eval::chess::lite::LiTEval;
     use crate::eval::chess::material_only::MaterialOnlyEval;
@@ -196,7 +196,7 @@ mod tests {
         // let res = engine.search_with_new_tt(board, SearchLimit::nodes_(5_000));
         let score = res.score.unwrap();
         assert!(res.score.unwrap() >= Score(1400), "{score}");
-        // not a legal chess position, but search with random eval should handle this
+        // not a legal chess position, but search should still handle this
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
         assert_eq!(board.pseudolegal_moves().len(), 3);
@@ -207,6 +207,10 @@ mod tests {
             assert_eq!(res.score.unwrap(), SCORE_LOST + 2);
             assert_eq!(res.chosen_move.to_string(), "h1g1");
         }
+        let mut engine = Caps::for_eval::<LiTEval>();
+        let res = engine.search_with_new_tt(board, SearchLimit::depth_(10));
+        assert_eq!(res.score.unwrap(), SCORE_LOST + 2);
+        assert_eq!(res.chosen_move.to_string(), "h1g1");
     }
 
     #[test]
@@ -227,9 +231,11 @@ mod tests {
         let new_board = board.make_move(mov).unwrap();
         assert!(new_board.is_in_check());
         assert!(new_board.is_3fold_repetition(&hist));
-        assert!(new_board
-            .player_result_slow(&hist)
-            .is_some_and(|r| r == Draw));
+        assert!(
+            new_board
+                .player_result_slow(&hist)
+                .is_some_and(|r| r == Draw)
+        );
         assert!(n_fold_repetition(
             2,
             &hist,
