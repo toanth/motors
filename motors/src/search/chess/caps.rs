@@ -957,7 +957,7 @@ impl Caps {
         // so reducing the depth also makes sense in this case.
         if depth >= cc::iir_min_depth()
             && (best_move == ChessMove::default()
-                || old_entry.is_some_and(|e| depth - e.depth as isize >= 7))
+                || old_entry.is_some_and(|e| depth - e.depth as isize >= 4))
         {
             depth -= 1;
         }
