@@ -2,7 +2,7 @@
 name = "motors"
 version = "0.1.0"
 authors = ["ToTheAnd"]
-edition = "2021"
+edition = "2024"
 license = "GPL-3"
 description = "A collection of several games and engines"
 

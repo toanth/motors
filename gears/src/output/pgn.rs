@@ -18,10 +18,12 @@
 
 //! <See https://ia902908.us.archive.org/26/items/pgn-standard-1994-03-12/PGN_standard_1994-03-12.txt>
 
+use crate::MatchStatus::*;
+use crate::ProgramStatus::Run;
 use crate::games::{BoardHistory, Color};
 use crate::general::board::Board;
 use crate::general::board::Strictness::Relaxed;
-use crate::general::common::{parse_bool_from_str, parse_int_from_str, Res};
+use crate::general::common::{Res, parse_bool_from_str, parse_int_from_str};
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Move;
 use crate::output::pgn::RoundNumber::{Custom, Number, Unimportant, Unknown};
@@ -29,8 +31,6 @@ use crate::output::pgn::TagPair::{
     Black, BlackElo, BlackTitle, BlackType, Date, Event, Fen, Other, Result, Round, SetUp, Site,
     White, WhiteElo, WhiteTitle, WhiteType,
 };
-use crate::MatchStatus::*;
-use crate::ProgramStatus::Run;
 use crate::{AdjudicationReason, GameOverReason, GameResult, GameState, MatchResult, MatchState};
 use anyhow::{anyhow, bail};
 use colored::Colorize;
@@ -48,14 +48,14 @@ pub fn match_to_pgn_string<B: Board>(m: &dyn GameState<B>) -> String {
     let termination = match &status {
         NotStarted => "not started",
         Ongoing => "unterminated",
-        Over(ref res) => match res.reason {
+        Over(res) => match res.reason {
             GameOverReason::Normal => "normal",
             GameOverReason::Adjudication(ref reason) => match reason {
                 AdjudicationReason::TimeUp => "time forfeit",
                 AdjudicationReason::InvalidMove => "rules infraction",
                 AdjudicationReason::AbortedByUser => "abandoned",
                 AdjudicationReason::EngineError => "emergency",
-                AdjudicationReason::Adjudicator(ref reason) => reason,
+                AdjudicationReason::Adjudicator(reason) => reason,
             },
         },
     };
@@ -450,10 +450,10 @@ pub fn parse_pgn<B: Board>(pgn: &str) -> Res<PgnData<B>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::games::chess::Chessboard;
     use crate::games::chess::moves::ChessMove;
     use crate::games::chess::pieces::ChessPieceType::Bishop;
     use crate::games::chess::squares::ChessSquare;
-    use crate::games::chess::Chessboard;
 
     #[test]
     fn parse_one_ply_pgn() {
