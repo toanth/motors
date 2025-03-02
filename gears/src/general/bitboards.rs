@@ -424,26 +424,6 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
         self.size().height().val()
     }
 
-    // TODO: The following two methods are likely very slow. Find something faster
-    /// Flips the 0th rank of the bitboard horizontally and leaves the other bits in an unspecified state.
-    // TODO: Test PrimInt::reverse_bits()
-    fn flip_lowest_row(self) -> Self {
-        let width = self.size().width().val();
-        let mut bb = self;
-        let file_mask = Self::file_0_for(self.size());
-        // flip files linearly
-        for i in 0..width / 2 {
-            let left_shift = i;
-            let right_shift = width - 1 - i;
-            let left_file = (bb >> left_shift) & file_mask;
-            let right_file = (bb >> right_shift) & file_mask;
-            let xor = left_file ^ right_file;
-            bb ^= xor << left_shift;
-            bb ^= xor << right_shift;
-        }
-        bb
-    }
-
     fn flip_up_down(self) -> Self {
         let size = self.size();
         let mut bb = self;
@@ -632,11 +612,6 @@ pub trait KnownSizeBitboard<R: RawBitboard, C: RectangularCoordinates<Size: Know
     }
 }
 
-pub(super) fn flip_lowest_byte(bb: u64) -> u64 {
-    const LOOKUP: [u8; 16] = [0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe, 0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf];
-    (LOOKUP[((bb >> 4) & 0xf) as usize] | (LOOKUP[(bb & 0xf) as usize] << 4)) as u64
-}
-
 #[derive(
     Debug,
     Default,
@@ -736,15 +711,6 @@ impl<const H: usize, const W: usize> Bitboard<RawStandardBitboard, SmallGridSqua
     #[inline]
     fn size(self) -> SmallGridSize<H, W> {
         SmallGridSize::default()
-    }
-
-    // TODO: Remove, maybe flip_up_down as well
-    #[inline]
-    fn flip_lowest_row(self) -> Self {
-        let in_bounds = !SmallGridBitboard::files_too_high();
-        let shift: usize = 8 - W;
-        // let's hope the compiler evaluates those at compile time (they can't be `const`, unfortunately)
-        Self::new(flip_lowest_byte(self.raw() << shift)) & in_bounds
     }
 
     #[inline]
@@ -1116,7 +1082,7 @@ pub mod chessboard {
                 res[start][sq] = ray_between_exclusive!(start, sq, DIAGONALS_U64[8][start], 1_u64, u64);
                 diag &= diag - 1;
             }
-            let mut anti_diag = DIAGONALS_U64[8][start];
+            let mut anti_diag = ANTI_DIAGONALS_U64[8][start];
             while anti_diag != 0 {
                 let sq = anti_diag.trailing_zeros() as usize;
                 res[start][sq] = ray_between_exclusive!(start, sq, ANTI_DIAGONALS_U64[8][start], 1_u64, u64);

@@ -20,9 +20,9 @@ use gears::general::moves::Move;
 use gears::itertools::Itertools;
 use gears::output::Message;
 use gears::output::Message::Warning;
-use gears::rand::prelude::StdRng;
 use gears::rand::SeedableRng;
-use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON};
+use gears::rand::prelude::StdRng;
+use gears::score::{MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON, Score, ScoreT};
 use gears::search::{Depth, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType};
 use std::collections::HashMap;
@@ -33,8 +33,8 @@ use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::Ordering::Acquire;
 use std::sync::Arc;
+use std::sync::atomic::Ordering::Acquire;
 use std::thread::spawn;
 use std::time::{Duration, Instant};
 
@@ -607,7 +607,10 @@ impl<B: Board> SearchParams<B> {
             let chosen_move = pos.random_legal_move(&mut rng).unwrap_or_default();
             if chosen_move != B::Move::default() {
                 debug_assert!(pos.is_move_legal(chosen_move), "{} {pos}", chosen_move.compact_formatter(pos));
-                output.write_message(Warning, &format_args!("Engine did not return a best move, playing a random move instead"));
+                output.write_message(
+                    Warning,
+                    &format_args!("Engine did not return a best move, playing a random move instead"),
+                );
                 output.write_search_res(&SearchResult::<B>::move_only(chosen_move, pos.clone()));
                 return;
             }
@@ -1112,6 +1115,21 @@ mod tests {
             let res = engine.search(params);
             assert!(search_moves.contains(&res.chosen_move));
             // assert_eq!(engine.search_state().internal_node_count(), 1_234); // TODO: Assert exact match
+        }
+        determinism_test(&mut engine);
+    }
+
+    fn determinism_test<B: Board>(engine: &mut dyn Engine<B>) {
+        engine.forget();
+        let limit = SearchLimit::nodes_(1234);
+        for p in B::bench_positions().into_iter().take(10) {
+            engine.forget();
+            let params = SearchParams::for_pos(p.clone(), limit);
+            let res = engine.search(params);
+            engine.forget();
+            let params = SearchParams::for_pos(p, limit);
+            let res2 = engine.search(params);
+            assert_eq!(res, res2);
         }
     }
 }

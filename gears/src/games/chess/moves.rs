@@ -10,18 +10,18 @@ use num::iter;
 use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, FromRepr};
 
+use crate::games::chess::ChessColor::*;
 use crate::games::chess::castling::CastleRight;
 use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType};
-use crate::games::chess::squares::{ChessSquare, C_FILE_NO, D_FILE_NO, F_FILE_NO, G_FILE_NO};
+use crate::games::chess::squares::{C_FILE_NO, ChessSquare, D_FILE_NO, F_FILE_NO, G_FILE_NO};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
-use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{
-    char_to_file, file_to_char, AbstractPieceType, Board, CharType, Color, ColoredPiece, ColoredPieceType, DimT,
-    PosHash,
+    AbstractPieceType, Board, CharType, Color, ColoredPiece, ColoredPieceType, DimT, PosHash, char_to_file,
+    file_to_char,
 };
 use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
@@ -195,14 +195,10 @@ impl ChessMove {
 
     pub fn castle_side(self) -> CastleRight {
         debug_assert!(self.is_castle());
-        if self.flags() == CastleQueenside {
-            Queenside
-        } else {
-            Kingside
-        }
+        if self.flags() == CastleQueenside { Queenside } else { Kingside }
     }
 
-    fn flags(self) -> ChessMoveFlags {
+    pub(super) fn flags(self) -> ChessMoveFlags {
         ChessMoveFlags::iter().nth((self.0 >> 12) as usize).unwrap()
     }
 
@@ -1042,12 +1038,12 @@ impl<'a> MoveParser<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::games::Board;
+    use crate::games::chess::Chessboard;
     use crate::games::chess::moves::ChessMove;
     use crate::games::chess::pieces::ChessPieceType;
     use crate::games::chess::squares::ChessSquare;
-    use crate::games::chess::Chessboard;
     use crate::games::generic_tests;
-    use crate::games::Board;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::board::UnverifiedBoard;
