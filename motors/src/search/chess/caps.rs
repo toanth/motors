@@ -1416,8 +1416,9 @@ impl Caps {
         let mut children_visited = 0;
         while let Some((mov, score)) = move_picker.next(&move_scorer, &self.state) {
             debug_assert!(mov.is_tactical(&pos));
-            if score < MoveScore(0) {
-                // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
+            if score < MoveScore(0) || children_visited >= 3 {
+                // qsearch see pruning and qsearch late move  pruning (lmp):
+                // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
                 break;
             }
             let Some(new_pos) = pos.make_move(mov) else {
