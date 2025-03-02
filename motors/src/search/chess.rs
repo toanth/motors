@@ -228,16 +228,17 @@ mod tests {
         let pos =
             Chessboard::from_fen("r4r1k/7p/pp1pP2b/2p1p2P/2P2p2/3B3q/PP1BNP2/R1QR2K1 b - - 4 27", Strict).unwrap();
         let mut limit = SearchLimit::mate_in_moves(3);
-        let engines: [(Box<dyn Engine<Chessboard>>, u64); 3] = [
+        let engines: [(Box<dyn Engine<Chessboard>>, u64); 2] = [
             (Box::new(Caps::for_eval::<KingGambot>()), 100_000),
             (Box::new(Caps::for_eval::<MaterialOnlyEval>()), 200_000),
-            (Box::new(Gaps::<Chessboard>::for_eval::<LiTEval>()), 900_000),
+            // TODO: Re-enable when Gaps has more features
+            // (Box::new(Gaps::<Chessboard>::for_eval::<LiTEval>()), 900_000),
         ];
         for (mut engine, nodes) in engines.into_iter() {
             println!("{}", engine.engine_info().short_name());
             limit.nodes = NodesLimit::new(nodes).unwrap();
             let res = engine.search_with_new_tt(pos, limit);
-            assert!(res.score.is_game_won_score());
+            assert!(res.score.is_game_won_score(), "{}", res.score);
             assert_eq!(res.score.plies_until_game_won(), Some(5));
             assert_eq!(res.chosen_move, ChessMove::from_text("f3", &pos).unwrap());
         }

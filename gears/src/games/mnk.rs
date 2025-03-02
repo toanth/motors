@@ -6,15 +6,12 @@ use std::cmp::min;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem::size_of;
-use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 use crate::games::mnk::Symbol::{Empty, O, X};
 use crate::games::PlayerResult::Draw;
 use crate::games::*;
-use crate::general::bitboards::{
-    Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboard, RayDirections, MAX_WIDTH,
-};
+use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboard, MAX_WIDTH};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
@@ -22,6 +19,7 @@ use crate::general::board::{
     RectangularBoard, SelfChecks, Strictness, UnverifiedBoard,
 };
 use crate::general::common::*;
+use crate::general::hq::BitReverseSliderGenerator;
 use crate::general::move_list::EagerNonAllocMoveList;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
@@ -369,6 +367,8 @@ impl Settings for MnkSettings {
 }
 
 pub type MnkBitboard = DynamicallySizedBitboard<ExtendedRawBitboard, GridCoordinates>;
+
+type SliderGen<'a> = BitReverseSliderGenerator<'a, GridCoordinates, MnkBitboard>;
 
 #[derive(Copy, Clone, Default, Debug, Arbitrary)]
 #[must_use]
@@ -755,13 +755,14 @@ impl MNKBoard {
         debug_assert!(
             (blockers.raw() & ExtendedRawBitboard::single_piece_at(self.size().internal_key(square))).is_zero()
         );
+        let gen = SliderGen::new(blockers, None);
 
-        for dir in RayDirections::iter() {
-            if (MnkBitboard::slider_attacks(square, blockers, dir) & player_bb).count_ones() >= self.k() - 1 {
-                return true;
-            }
-        }
-        false
+        let k = self.k() as usize - 1;
+
+        (gen.horizontal_attacks(square) & player_bb).num_ones() >= k
+            || (gen.vertical_attacks(square) & player_bb).num_ones() >= k
+            || (gen.diagonal_attacks(square) & player_bb).num_ones() >= k
+            || (gen.anti_diagonal_attacks(square) & player_bb).num_ones() >= k
     }
 }
 

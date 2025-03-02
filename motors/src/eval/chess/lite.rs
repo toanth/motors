@@ -15,6 +15,7 @@ use gears::general::bitboards::RawBitboard;
 use gears::general::bitboards::{Bitboard, KnownSizeBitboard};
 use gears::general::board::{BitboardBoard, Board, BoardHelpers};
 use gears::general::common::StaticallyNamedEntity;
+use gears::general::hq::ChessSliderGenerator;
 use gears::general::moves::Move;
 use gears::general::squares::RectangularCoordinates;
 use gears::score::{PhaseType, PhasedScore, Score, ScoreT};
@@ -207,22 +208,22 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn checking(pos: &Chessboard, color: ChessColor) -> [ChessBitboard; 5] {
+    fn checking(pos: &Chessboard, color: ChessColor, gen: &ChessSliderGenerator) -> [ChessBitboard; 5] {
         let mut result = [ChessBitboard::default(); 5];
         let square = pos.king_square(color);
-        let blockers = pos.occupied_bb();
         result[Pawn as usize] = Chessboard::single_pawn_captures(!color, square);
         result[Knight as usize] = Chessboard::knight_attacks_from(square);
-        result[Bishop as usize] = ChessBitboard::bishop_attacks(square, blockers);
-        result[Rook as usize] = ChessBitboard::rook_attacks(square, blockers);
+        result[Bishop as usize] = gen.bishop_attacks(square);
+        result[Rook as usize] = gen.rook_attacks(square);
         result[Queen as usize] = result[Rook as usize] | result[Bishop as usize];
         result
     }
 
     fn mobility_and_threats(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
+        let gen = pos.slider_generator();
 
-        let checking_squares = Self::checking(pos, !color);
+        let checking_squares = Self::checking(pos, !color, &gen);
 
         let attacked_by_pawn = pos.colored_piece_bb(color.other(), Pawn).pawn_attacks(color.other());
         let king_zone = Chessboard::normal_king_attacks_from(pos.king_square(color.other()));
@@ -242,7 +243,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         for piece in ChessPieceType::non_pawn_pieces() {
             for square in pos.colored_piece_bb(color, piece).ones() {
-                let attacks = pos.attacks_no_castle_or_pawn_push(square, piece, color);
+                let attacks = pos.attacks_no_castle_or_pawn_push(square, piece, color, &gen);
                 all_attacks |= attacks;
                 let attacks_no_pawn_recapture = attacks & !attacked_by_pawn;
                 let mobility = (attacks_no_pawn_recapture & !pos.player_bb(color)).num_ones();

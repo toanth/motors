@@ -15,10 +15,7 @@ use strum_macros::EnumIter;
 
 use crate::games::{DimT, KnownSize, Size};
 use crate::general::bitboards::chessboard::{RAYS_EXCLUSIVE, RAYS_INCLUSIVE};
-use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
-use crate::general::hq::{
-    hq_u64_non_horizontal, slider_attacks_u64_horizontal, slider_attacks_u64_non_horizontal, WithRev,
-};
+use crate::general::hq::{U128AndRev, U64AndRev, WithRev};
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare};
 
 /// Remove all `1` bits in `bb` strictly above the given `idx`, where `bb` is the type, like `u64`,
@@ -128,6 +125,9 @@ macro_rules! ray_between_inclusive {
 
 // TODO: Store as array of structs? Could be a speed up
 
+// TODO: Remove the (anti)diagonal bitboards as they are more or less stored in the hq rays
+// (except that the square itself doesn't have a set bit) and in the RAY_INCLUSIVE arrays?
+
 // allow width of at most 26 to prevent issues with square notation (26 letters in the alphabet)
 // with one extra to make some boundary conditions go away
 pub const MAX_WIDTH: usize = 27;
@@ -140,13 +140,14 @@ pub(super) const ANTI_DIAGONALS_U64: [[u64; 64]; MAX_WIDTH] = anti_diagonal_bb_f
 
 // These arrays are `static` instead of `const` because they are pretty large
 
-static STEPS_U128: [u128; MAX_STEP_SIZE] = step_bb_for!(u128, 128);
+pub(super) static STEPS_U128: [u128; MAX_STEP_SIZE] = step_bb_for!(u128, 128);
 
-static DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = diagonal_bb_for!(u128, 128, STEPS_U128);
+// TODO: Remove
+pub(super) static DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = diagonal_bb_for!(u128, 128, STEPS_U128);
 
-static ANTI_DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = anti_diagonal_bb_for!(u128, 128, STEPS_U128);
+pub(super) static ANTI_DIAGONALS_U128: [[u128; 128]; MAX_WIDTH] = anti_diagonal_bb_for!(u128, 128, STEPS_U128);
 
-/// An [`RawBitboard`] is something like a `u64` or `u128` (but there's nothing that would prevent implementing it for a custom
+/// A [`RawBitboard`] is something like a `u64` or `u128` (but there's nothing that would prevent implementing it for a custom
 /// 256 bit struct). Unlike a `[Bitboard]`, it has no notion of size, and therefore no notion of rows, columns, etc.
 /// It's also not generally a unique type, so e.g. a [`RawStandardBitboard`] does not offer any type safety over using a `u64`.
 #[must_use]
@@ -164,6 +165,8 @@ pub trait RawBitboard:
     + Display
     + Debug
 {
+    type WithRev: WithRev<RawBitboard = Self>;
+
     /// A `usize` may not be enough to hold all the bits, but sometimes that's fine.
     fn to_usize(self) -> usize;
 
@@ -249,6 +252,8 @@ impl<B: RawBitboard> FusedIterator for BitIterator<B> {}
 pub type RawStandardBitboard = u64;
 
 impl RawBitboard for RawStandardBitboard {
+    type WithRev = U64AndRev;
+
     fn to_usize(self) -> usize {
         self as usize
     }
@@ -280,6 +285,8 @@ impl RawBitboard for RawStandardBitboard {
 pub type ExtendedRawBitboard = u128;
 
 impl RawBitboard for ExtendedRawBitboard {
+    type WithRev = U128AndRev;
+
     fn to_usize(self) -> usize {
         self as usize
     }
@@ -309,7 +316,7 @@ impl RawBitboard for ExtendedRawBitboard {
     }
 }
 
-#[derive(Debug, EnumIter)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, EnumIter)]
 pub enum RayDirections {
     Horizontal,
     Vertical,
@@ -320,6 +327,7 @@ pub enum RayDirections {
 /// A bitboard extends a [`RawBitboard`] (simply a set of 64 / 128 / ... bits) with a size,
 /// which allows talking about concepts like rows.
 // TODO: Redesign: Use two traits: Sized bitboard and unsized bitboard.
+// Bitboards that aren't sized, like Fairy or Mnk bitboards, don't need to be made sized.
 #[must_use]
 pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
     Debug
@@ -497,76 +505,6 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
         let backward = reversed_blockers.wrapping_sub(&reverse(piece));
         let backward = reverse(backward);
         (forward ^ backward) & ray
-    }
-
-    #[inline]
-    fn hyperbola_quintessence_non_horizontal(square: C, blockers: Self, ray: Self) -> Self {
-        debug_assert_eq!(blockers.size(), ray.size());
-        Self::hyperbola_quintessence_fallback(ray.size().internal_key(square), blockers, Self::flip_up_down, ray)
-    }
-
-    #[inline]
-    fn horizontal_attacks(square: C, blockers: Self) -> Self {
-        let size = blockers.size();
-        let rank_bb = Self::rank_0_for(size);
-        let row = square.row() as usize;
-        let square = C::from_rank_file(0, square.column());
-        let blockers = blockers >> (blockers.internal_width() * row);
-        let lowest_row = Self::hyperbola_quintessence_fallback(
-            size.internal_key(square),
-            blockers,
-            |x| x.flip_lowest_row(),
-            rank_bb,
-        );
-        lowest_row << (lowest_row.internal_width() * row)
-    }
-
-    #[inline]
-    fn vertical_attacks(square: C, blockers: Self) -> Self {
-        let file = Self::file_for(square.column(), blockers.size());
-        Self::hyperbola_quintessence_non_horizontal(square, blockers, file)
-    }
-
-    #[inline]
-    fn diagonal_attacks(square: C, blockers: Self) -> Self {
-        Self::hyperbola_quintessence_non_horizontal(square, blockers, Self::diag_for_sq(square, blockers.size()))
-    }
-
-    #[inline]
-    fn anti_diagonal_attacks(square: C, blockers: Self) -> Self {
-        Self::hyperbola_quintessence_non_horizontal(square, blockers, Self::anti_diag_for_sq(square, blockers.size()))
-    }
-
-    /// All slider attack functions, including `rook_attacks` and `bishop_attacks`, assume that the source square
-    /// is empty, so if that's not the case, they should be called with `blockers ^ square_bitboard`.
-    /// Despite the names, they are not only defined for chess bitboard, as the concept of rays is far more general.
-    // TODO: Precompute reversed rays, reverse blockers once (maybe even at a higher level, so it can be used for all movegen) and simply
-    // use the reversed blockers for all attacks
-    #[inline]
-    fn slider_attacks(square: C, blockers: Self, dir: RayDirections) -> Self {
-        match dir {
-            RayDirections::Horizontal => Self::horizontal_attacks(square, blockers),
-            RayDirections::Vertical => Self::vertical_attacks(square, blockers),
-            RayDirections::Diagonal => Self::diagonal_attacks(square, blockers),
-            RayDirections::AntiDiagonal => Self::anti_diagonal_attacks(square, blockers),
-        }
-    }
-
-    fn slider_attacks_for<const DIR: usize>(square_idx: usize, blockers: WithRev<R>) -> Self;
-
-    #[inline]
-    fn rook_attacks(square: C, blockers: Self) -> Self {
-        Self::vertical_attacks(square, blockers) | Self::horizontal_attacks(square, blockers)
-    }
-
-    #[inline]
-    fn bishop_attacks(square: C, blockers: Self) -> Self {
-        Self::diagonal_attacks(square, blockers) | Self::anti_diagonal_attacks(square, blockers)
-    }
-
-    #[inline]
-    fn queen_attacks(square: C, blockers: Self) -> Self {
-        Self::rook_attacks(square, blockers) | Self::bishop_attacks(square, blockers)
     }
 
     #[inline]
@@ -812,8 +750,7 @@ impl<const H: usize, const W: usize> Bitboard<RawStandardBitboard, SmallGridSqua
         SmallGridSize::default()
     }
 
-    // todo: only used in bitboards and tests, but for hq we don't need handling the bounds, so in_bounds and shift is
-    // entirely unnecessary. same for flip_up_down
+    // TODO: Remove, maybe flip_up_down as well
     #[inline]
     fn flip_lowest_row(self) -> Self {
         let in_bounds = !SmallGridBitboard::files_too_high();
@@ -827,33 +764,6 @@ impl<const H: usize, const W: usize> Bitboard<RawStandardBitboard, SmallGridSqua
         let in_bounds: Self = !Self::ranks_too_high();
         let shift: usize = 8 * (8 - H);
         Self::new((self.raw() << shift).swap_bytes()) & in_bounds
-    }
-
-    // TODO: Remove those functions eventually
-    #[inline]
-    fn horizontal_attacks(square: SmallGridSquare<H, W, 8>, blockers: Self) -> Self {
-        Self::new(slider_attacks_u64_horizontal(square.bb_idx(), blockers.raw()))
-    }
-    #[inline]
-    fn vertical_attacks(square: SmallGridSquare<H, W, 8>, blockers: Self) -> Self {
-        Self::new(slider_attacks_u64_non_horizontal::<{ Vertical as usize }>(square.bb_idx(), blockers.raw()))
-    }
-    #[inline]
-    fn diagonal_attacks(square: SmallGridSquare<H, W, 8>, blockers: Self) -> Self {
-        Self::new(slider_attacks_u64_non_horizontal::<{ Diagonal as usize }>(square.bb_idx(), blockers.raw()))
-    }
-    #[inline]
-    fn anti_diagonal_attacks(square: SmallGridSquare<H, W, 8>, blockers: Self) -> Self {
-        Self::new(slider_attacks_u64_non_horizontal::<{ AntiDiagonal as usize }>(square.bb_idx(), blockers.raw()))
-    }
-
-    #[inline]
-    fn slider_attacks_for<const DIR: usize>(square_idx: usize, blockers: WithRev<RawStandardBitboard>) -> Self {
-        if DIR == Horizontal as usize {
-            Self::new(slider_attacks_u64_horizontal(square_idx, blockers.bb()))
-        } else {
-            Self::new(hq_u64_non_horizontal::<DIR>(square_idx, blockers))
-        }
     }
 }
 
@@ -1047,10 +957,6 @@ impl<R: RawBitboard, C: RectangularCoordinates> Bitboard<R, C> for DynamicallySi
     fn size(self) -> C::Size {
         self.size
     }
-
-    fn slider_attacks_for<const DIR: usize>(_square_idx: usize, _blockers: WithRev<R>) -> Self {
-        todo!()
-    }
 }
 
 impl<R: RawBitboard, C: RectangularCoordinates> DynamicallySizedBitboard<R, C> {
@@ -1205,6 +1111,7 @@ pub mod chessboard {
         res
     };
 
+    // `static` instead of `const` because it's pretty large
     pub static RAYS_INCLUSIVE: [[RawStandardBitboard; 64]; 64] = {
         let mut res = [[0; 64]; 64];
         let mut start = 0;

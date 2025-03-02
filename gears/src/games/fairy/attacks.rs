@@ -29,9 +29,10 @@ use crate::games::fairy::{
     RawFairyBitboard, Side, UnverifiedFairyBoard,
 };
 use crate::games::{char_to_file, Color, ColoredPiece, ColoredPieceType, DimT, Size};
-use crate::general::bitboards::{Bitboard, RawBitboard, RayDirections};
+use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, Board, BoardHelpers, PieceTypeOf, Strictness, UnverifiedBoard};
 use crate::general::common::{Res, Tokens};
+use crate::general::hq::BitReverseSliderGenerator;
 use crate::general::move_list::MoveList;
 use crate::general::squares::{CompactSquare, RectangularCoordinates, RectangularSize};
 use crate::{precompute_leaper_attacks, shift_left};
@@ -40,9 +41,9 @@ use arbitrary::Arbitrary;
 use arrayvec::ArrayVec;
 use crossterm::style::Stylize;
 use std::str::FromStr;
-use strum::IntoEnumIterator;
 
-///
+type SliderGen<'a> = BitReverseSliderGenerator<'a, FairySquare, FairyBitboard>;
+
 /// The general organization of movegen is that of a pipeline, where a stage communicates with the next through enums,
 /// which usually need the global `rules()` to be interpreted correctly
 #[derive(Debug, Clone, Arbitrary)]
@@ -280,20 +281,28 @@ impl GenPieceAttackKind {
         let res = match &self.typ {
             Leaping(precomputed) => precomputed.0[size.internal_key(piece)],
             Rider(sliding) => {
-                let blockers = FairyBitboard::new(
-                    // TODO: Remove the &! after switching to `WithRev` impl
-                    blockers.raw() & !RawFairyBitboard::single_piece_at(size.internal_key(piece)),
-                    size,
-                );
+                // let blockers = FairyBitboard::new(
+                //     // TODO: Remove the &! after switching to `WithRev` impl
+                //     blockers.raw() & !RawFairyBitboard::single_piece_at(size.internal_key(piece)),
+                //     size,
+                // );
+                // TODO: Keep `gen` alive across calls by making it a parameter
+                let gen = SliderGen::new(blockers, None);
                 let res = match sliding {
-                    SliderDirections::Vertical => FairyBitboard::vertical_attacks(piece, blockers),
-                    SliderDirections::Rook => FairyBitboard::rook_attacks(piece, blockers),
-                    SliderDirections::Bishop => FairyBitboard::bishop_attacks(piece, blockers),
-                    SliderDirections::Queen => FairyBitboard::queen_attacks(piece, blockers),
+                    SliderDirections::Vertical => gen.vertical_attacks(piece),
+                    SliderDirections::Rook => gen.rook_attacks(piece),
+                    SliderDirections::Bishop => gen.bishop_attacks(piece),
+                    SliderDirections::Queen => gen.queen_attacks(piece),
                     SliderDirections::Rider { precomputed } => {
                         let ray = FairyBitboard::new(precomputed[size.internal_key(piece)], size);
-                        // TODO: Allow horizontal
-                        FairyBitboard::hyperbola_quintessence_non_horizontal(piece, blockers, ray)
+                        // TODO: Also use gen, remove the fallback
+                        FairyBitboard::hyperbola_quintessence_fallback(
+                            size.internal_key(piece),
+                            blockers,
+                            FairyBitboard::flip_up_down,
+                            ray,
+                        )
+                        // FairyBitboard::hyperbola_quintessence_non_horizontal(piece, blockers, ray)
                     }
                 };
                 res.raw()
@@ -611,16 +620,18 @@ impl FairyBoard {
         self.is_player_in_check(self.active_player())
     }
 
+    // precondition: there must be a piece of `color` on `sq`
     pub(super) fn k_in_row_at(&self, k: usize, sq: FairySquare, color: FairyColor) -> bool {
+        debug_assert!(self.player_bb(color).is_bit_set_at(self.size().internal_key(sq)));
         let blockers = !self.player_bb(color);
         debug_assert!((blockers.raw() & RawFairyBitboard::single_piece_at(self.size().internal_key(sq))).is_zero());
 
-        for dir in RayDirections::iter() {
-            if (FairyBitboard::slider_attacks(sq, blockers, dir) & self.player_bb(color)).num_ones() >= k - 1 {
-                return true;
-            }
-        }
-        false
+        let gen = SliderGen::new(blockers, None);
+
+        (gen.horizontal_attacks(sq) & self.player_bb(color)).num_ones() >= k - 1
+            || (gen.vertical_attacks(sq) & self.player_bb(color)).num_ones() >= k - 1
+            || (gen.diagonal_attacks(sq) & self.player_bb(color)).num_ones() >= k - 1
+            || (gen.anti_diagonal_attacks(sq) & self.player_bb(color)).num_ones() >= k - 1
     }
 }
 

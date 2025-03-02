@@ -1,9 +1,9 @@
 use std::fmt::Display;
-use strum::IntoEnumIterator;
 
 use gears::games::mnk::{MNKBoard, MnkBitboard};
-use gears::general::bitboards::{Bitboard, RayDirections};
+use gears::general::bitboards::Bitboard;
 use gears::general::common::StaticallyNamedEntity;
+use gears::general::hq::BitReverseSliderGenerator;
 use gears::score::{Score, ScoreT};
 
 use crate::eval::Eval;
@@ -14,13 +14,17 @@ pub struct BasicMnkEval {}
 
 fn eval_player(bb: MnkBitboard) -> ScoreT {
     let blockers = !bb;
+    let gen = BitReverseSliderGenerator::new(blockers, None);
     let mut res = 0;
     for coords in bb.ones() {
-        for dir in RayDirections::iter() {
-            // TODO: Don't bitand with bb, bitand with !other_bb?
-            let run = (MnkBitboard::slider_attacks(coords, blockers, dir) & bb).count_ones();
-            res += 1 << run;
-        }
+        let run = gen.vertical_attacks(coords).count_ones();
+        res += 1 << run;
+        let run = gen.horizontal_attacks(coords).count_ones();
+        res += 1 << run;
+        let run = gen.diagonal_attacks(coords).count_ones();
+        res += 1 << run;
+        let run = gen.anti_diagonal_attacks(coords).count_ones();
+        res += 1 << run;
     }
     res
 }

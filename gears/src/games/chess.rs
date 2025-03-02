@@ -695,7 +695,8 @@ impl Chessboard {
     }
 
     pub fn is_in_check(&self) -> bool {
-        self.is_in_check_on_square(self.active_player, self.king_square(self.active_player))
+        let gen = self.slider_generator();
+        self.is_in_check_on_square(self.active_player, self.king_square(self.active_player), &gen)
     }
 
     pub fn gives_check(&self, mov: ChessMove) -> bool {
@@ -879,10 +880,11 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         }
         let inactive_player = this.active_player.other();
 
-        if this.is_in_check_on_square(inactive_player, this.king_square(inactive_player)) {
+        let gen = self.0.slider_generator();
+        if this.is_in_check_on_square(inactive_player, this.king_square(inactive_player), &gen) {
             bail!("Player {inactive_player} is in check, but it's not their turn to move");
         } else if strictness == Strict {
-            let checkers = this.all_attacking(this.king_square(this.active_player)) & this.inactive_player_bb();
+            let checkers = this.all_attacking(this.king_square(this.active_player), &gen) & this.inactive_player_bb();
             let num_attacking = checkers.num_ones();
             ensure!(
                 num_attacking <= 2,
@@ -1382,7 +1384,7 @@ mod tests {
         assert_eq!(pos.ply, 4);
         assert!(pos.debug_verify_invariants(Strict).is_ok());
         assert!(pos.is_in_check());
-        assert!(pos.is_in_check_on_square(White, pos.king_square(White)));
+        assert!(pos.is_in_check_on_square(White, pos.king_square(White), &pos.slider_generator()));
         let moves = pos.pseudolegal_moves();
         assert!(!moves.is_empty());
         let moves = pos.legal_moves_slow();
@@ -1492,6 +1494,19 @@ mod tests {
     }
 
     #[test]
+    fn ep_test() {
+        let fen = "5k2/2p5/8/3P4/1pP5/8/P7/1K6 b - c3 0 1";
+        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        assert_eq!(pos.ep_square, Some(ChessSquare::from_str("c3").unwrap()));
+        _ = pos.debug_verify_invariants(Strict).unwrap();
+        let new_pos = pos.make_move_from_str("c5").unwrap();
+        assert_eq!(new_pos.ep_square, Some(ChessSquare::from_str("c6").unwrap()));
+        _ = new_pos.debug_verify_invariants(Strict).unwrap();
+        let perft = perft(Depth::new(4), pos, true);
+        assert_eq!(perft.nodes, 5020);
+    }
+
+    #[test]
     fn castling_attack_test() {
         let fen = "8/8/8/8/8/8/3k4/RK6 b A - 0 1";
         let pos = Chessboard::from_fen(fen, Strict).unwrap();
@@ -1499,7 +1514,7 @@ mod tests {
         // check that castling moves don't count as attacking squares
         assert!(pos.castling.can_castle(White, Queenside));
         assert_eq!(moves.len(), 6);
-        let attacking = pos.all_attacking(ChessSquare::from_str("d1").unwrap());
+        let attacking = pos.all_attacking(ChessSquare::from_str("d1").unwrap(), &pos.slider_generator());
         assert_eq!(attacking.num_ones(), 1);
         let fen = "8/8/8/3k4/8/8/8/1KRn4 w C - 0 1";
         let pos = Chessboard::from_fen(fen, Strict).unwrap();

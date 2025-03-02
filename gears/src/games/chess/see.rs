@@ -6,9 +6,9 @@ use crate::games::chess::squares::ChessSquare;
 use crate::games::chess::{ChessColor, Chessboard, PAWN_CAPTURES};
 use crate::games::{AbstractPieceType, Board, Color};
 use crate::general::bitboards::chessboard::ChessBitboard;
-use crate::general::bitboards::RayDirections::Vertical;
-use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
+use crate::general::bitboards::{KnownSizeBitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, BoardHelpers};
+use crate::general::hq::ChessSliderGenerator;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use std::mem::swap;
 
@@ -71,10 +71,11 @@ impl Chessboard {
         {
             return beta;
         }
-        let mut all_remaining_attackers = self.all_attacking(square);
+        let generator = self.slider_generator();
+        let mut all_remaining_attackers = self.all_attacking(square, &generator);
         let mut removed_attackers = ChessBitboard::default();
         if self.is_occupied(square) {
-            removed_attackers = square.bb(); // hyperbola quintessence expects the source square to be empty
+            removed_attackers = square.bb(); // hyperbola quintessence expects the source square to be empty // TODO: It doesn't any more
         }
         let mut their_victim = original_moving_piece;
         if mov.is_promotion() {
@@ -83,8 +84,8 @@ impl Chessboard {
             our_victim = Pawn;
             let bb = mov.square_of_pawn_taken_by_ep().unwrap().bb();
             debug_assert_eq!(bb & !self.occupied_bb(), ChessBitboard::default());
-            all_remaining_attackers |= ChessBitboard::slider_attacks(square, self.occupied_bb() ^ bb, Vertical)
-                & (self.piece_bb(Rook) | self.piece_bb(Queen));
+            let gen = ChessSliderGenerator::new(self.occupied_bb() ^ bb);
+            all_remaining_attackers |= gen.vertical_attacks(square) & (self.piece_bb(Rook) | self.piece_bb(Queen));
         }
         let mut eval = move_see_value(mov, our_victim);
         // testing if eval - max recapture score was >= beta caused a decently large bench performance regression,
@@ -304,7 +305,7 @@ mod tests {
             let mov = ChessMove::from_extended_text(parts.next().unwrap().trim(), &board).unwrap();
             let expected_score = parse_int_from_str(parts.next().unwrap().trim(), "score").unwrap();
             let result = board.see(mov, SeeScore(-9999), SeeScore(9999));
-            assert_eq!(result, SeeScore(expected_score));
+            assert_eq!(result, SeeScore(expected_score), "{testcase}");
             let expected_good = expected_score >= 0;
             let is_good = board.see_at_least(mov, SeeScore(0));
             assert_eq!(expected_good, is_good);

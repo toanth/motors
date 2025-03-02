@@ -9,13 +9,17 @@ use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessBitboardTrait, ChessColor, Chessboard, PAWN_CAPTURES};
 use crate::games::{Board, Color, ColoredPieceType};
 use crate::general::bitboards::chessboard::{ChessBitboard, KINGS, KNIGHTS};
-use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::BitboardBoard;
+use crate::general::hq::ChessSliderGenerator;
 use crate::general::move_list::MoveList;
 use crate::general::squares::RectangularCoordinates;
 
 impl Chessboard {
+    pub fn slider_generator(&self) -> ChessSliderGenerator {
+        ChessSliderGenerator::new(self.occupied_bb())
+    }
+
     fn single_pawn_moves(
         color: ChessColor,
         square: ChessSquare,
@@ -39,14 +43,14 @@ impl Chessboard {
         square: ChessSquare,
         piece: ChessPieceType,
         color: ChessColor,
+        slider_generator: &ChessSliderGenerator,
     ) -> ChessBitboard {
-        let blockers = self.occupied_bb();
         match piece {
             Pawn => Self::single_pawn_captures(color, square),
             Knight => Self::knight_attacks_from(square),
-            Bishop => ChessBitboard::bishop_attacks(square, blockers),
-            Rook => ChessBitboard::rook_attacks(square, blockers),
-            Queen => ChessBitboard::bishop_attacks(square, blockers) | ChessBitboard::rook_attacks(square, blockers),
+            Bishop => slider_generator.bishop_attacks(square),
+            Rook => slider_generator.rook_attacks(square),
+            Queen => slider_generator.queen_attacks(square),
             King => Self::normal_king_attacks_from(square),
             Empty => ChessBitboard::default(),
         }
@@ -78,15 +82,16 @@ impl Chessboard {
                 && Self::single_pawn_moves(color, src, capturable, self.empty_bb())
                     .is_bit_set_at(mov.dest_square().bb_idx())
         } else {
-            (self.attacks_no_castle_or_pawn_push(src, mov.piece_type(), color) & !self.active_player_bb())
+            let gen = self.slider_generator();
+            (self.attacks_no_castle_or_pawn_push(src, mov.piece_type(), color, &gen) & !self.active_player_bb())
                 .is_bit_set_at(mov.dest_square().bb_idx())
         }
     }
 
     /// Used for castling and to implement `is_in_check`:
     /// Pretend there is a king of color `us` at `square` and test if it is in check.
-    pub fn is_in_check_on_square(&self, us: ChessColor, square: ChessSquare) -> bool {
-        (self.all_attacking(square) & self.player_bb(us.other())).has_set_bit()
+    pub fn is_in_check_on_square(&self, us: ChessColor, square: ChessSquare, gen: &ChessSliderGenerator) -> bool {
+        (self.all_attacking(square, gen) & self.player_bb(us.other())).has_set_bit()
     }
 
     pub(super) fn gen_pseudolegal_moves<T: MoveList<Self>>(
@@ -95,8 +100,12 @@ impl Chessboard {
         filter: ChessBitboard,
         only_tactical: bool,
     ) {
-        self.gen_slider_moves::<T, true>(moves, filter);
-        self.gen_slider_moves::<T, false>(moves, filter);
+        let slider_generator = self.slider_generator();
+        self.gen_slider_moves::<T, { Bishop as usize }>(moves, filter, &slider_generator);
+        self.gen_slider_moves::<T, { Rook as usize }>(moves, filter, &slider_generator);
+        self.gen_slider_moves::<T, { Queen as usize }>(moves, filter, &slider_generator);
+        // self.gen_slider_moves::<T, true>(moves, filter, &slider_generator);
+        // self.gen_slider_moves::<T, false>(moves, filter, &slider_generator);
         self.gen_knight_moves(moves, filter);
         self.gen_king_moves(moves, filter, only_tactical);
         self.gen_pawn_moves(moves, only_tactical);
@@ -251,25 +260,57 @@ impl Chessboard {
         }
     }
 
-    fn gen_slider_moves<T: MoveList<Self>, const IS_BISHOP: bool>(&self, moves: &mut T, filter: ChessBitboard) {
+    // fn gen_slider_moves<T: MoveList<Self>, const IS_BISHOP: bool>(
+    //     &self,
+    //     moves: &mut T,
+    //     filter: ChessBitboard,
+    //     gen: &ChessSliderGenerator,
+    // ) {
+    //     let color = self.active_player;
+    //     let slider_type = if IS_BISHOP { Bishop } else { Rook };
+    //     let non_queens = self.colored_piece_bb(color, slider_type);
+    //     let queens = self.colored_piece_bb(color, Queen);
+    //     let pieces = queens | non_queens;
+    //     let blockers = self.occupied_bb();
+    //     for from in pieces.ones() {
+    //         let attacks = if IS_BISHOP { gen.bishop_attacks(from) & filter } else { gen.rook_attacks(from) & filter };
+    //         for to in attacks.ones() {
+    //             let move_type = if queens.is_bit_set_at(from.bb_idx()) {
+    //                 QueenMove
+    //             } else {
+    //                 ChessMoveFlags::normal_move(slider_type)
+    //             };
+    //             moves.add_move(ChessMove::new(from, to, move_type));
+    //         }
+    //     }
+    // }
+    // TODO: This version should (test!) be faster, but makes a testcase fail, which is *probably* just due to random noise induced by
+    // the different order in which moves are being generated. Investigate!
+    fn gen_slider_moves<T: MoveList<Self>, const SLIDER: usize>(
+        &self,
+        moves: &mut T,
+        filter: ChessBitboard,
+        gen: &ChessSliderGenerator,
+    ) {
+        let piece = if SLIDER == Bishop as usize {
+            Bishop
+        } else if SLIDER == Rook as usize {
+            Rook
+        } else {
+            debug_assert_eq!(SLIDER, Queen as usize);
+            Queen
+        };
         let color = self.active_player;
-        let slider_type = if IS_BISHOP { Bishop } else { Rook };
-        let non_queens = self.colored_piece_bb(color, slider_type);
-        let queens = self.colored_piece_bb(color, Queen);
-        let pieces = queens | non_queens;
-        let blockers = self.occupied_bb();
+        let pieces = self.colored_piece_bb(color, piece);
         for from in pieces.ones() {
-            let attacks = if IS_BISHOP {
-                ChessBitboard::bishop_attacks(from, blockers) & filter
-            } else {
-                ChessBitboard::rook_attacks(from, blockers) & filter
+            let attacks = match piece {
+                Bishop => gen.bishop_attacks(from),
+                Rook => gen.rook_attacks(from),
+                _ => gen.queen_attacks(from),
             };
+            let attacks = attacks & filter;
             for to in attacks.ones() {
-                let move_type = if queens.is_bit_set_at(from.bb_idx()) {
-                    QueenMove
-                } else {
-                    ChessMoveFlags::normal_move(slider_type)
-                };
+                let move_type = ChessMoveFlags::normal_move(piece);
                 moves.add_move(ChessMove::new(from, to, move_type));
             }
         }
@@ -290,30 +331,30 @@ impl Chessboard {
         PAWN_CAPTURES[color as usize][square.bb_idx()]
     }
 
-    pub fn all_attacking(&self, square: ChessSquare) -> ChessBitboard {
+    pub fn all_attacking(&self, square: ChessSquare, slider_gen: &ChessSliderGenerator) -> ChessBitboard {
         let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
         let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
-        let blockers = self.occupied_bb();
-        (rook_sliders & ChessBitboard::rook_attacks(square, blockers))
-            | (bishop_sliders & ChessBitboard::bishop_attacks(square, blockers))
+        rook_sliders & slider_gen.rook_attacks(square)
+            | bishop_sliders & slider_gen.bishop_attacks(square)
             | (Self::knight_attacks_from(square) & self.piece_bb(Knight))
             | (Self::normal_king_attacks_from(square) & self.piece_bb(King))
             | Self::single_pawn_captures(Black, square) & self.colored_piece_bb(White, Pawn)
             | Self::single_pawn_captures(White, square) & self.colored_piece_bb(Black, Pawn)
     }
 
+    // TODO: Use precomputed rays
     pub fn ray_attacks(&self, target: ChessSquare, ray_square: ChessSquare, blockers: ChessBitboard) -> ChessBitboard {
+        let gen = ChessSliderGenerator::new(blockers);
         let file_diff = target.file().wrapping_sub(ray_square.file());
         let rank_diff = target.rank().wrapping_sub(ray_square.rank());
         if file_diff == 0 {
-            ChessBitboard::slider_attacks(target, blockers, Vertical) & (self.piece_bb(Rook) | self.piece_bb(Queen))
+            gen.vertical_attacks(target) & (self.piece_bb(Rook) | self.piece_bb(Queen))
         } else if rank_diff == 0 {
-            ChessBitboard::slider_attacks(target, blockers, Horizontal) & (self.piece_bb(Rook) | self.piece_bb(Queen))
+            gen.horizontal_attacks(target) & (self.piece_bb(Rook) | self.piece_bb(Queen))
         } else if file_diff == rank_diff {
-            ChessBitboard::slider_attacks(target, blockers, Diagonal) & (self.piece_bb(Bishop) | self.piece_bb(Queen))
+            gen.diagonal_attacks(target) & (self.piece_bb(Bishop) | self.piece_bb(Queen))
         } else if file_diff == 0_u8.wrapping_sub(rank_diff) {
-            ChessBitboard::slider_attacks(target, blockers, AntiDiagonal)
-                & (self.piece_bb(Bishop) | self.piece_bb(Queen))
+            gen.anti_diagonal_attacks(target) & (self.piece_bb(Bishop) | self.piece_bb(Queen))
         } else {
             ChessBitboard::default()
         }
