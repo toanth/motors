@@ -15,18 +15,14 @@ use strum_macros::EnumIter;
 
 use crate::games::{DimT, KnownSize, Size};
 use crate::general::bitboards::chessboard::{RAYS_EXCLUSIVE, RAYS_INCLUSIVE};
-use crate::general::hq::{U128AndRev, U64AndRev, WithRev};
+use crate::general::hq::{U64AndRev, U128AndRev, WithRev};
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare};
 
 /// Remove all `1` bits in `bb` strictly above the given `idx`, where `bb` is the type, like `u64`,
 /// and `len` is the number of bits in the type, like `64`.
 macro_rules! remove_ones_above {
     ($bb: expr, $idx: expr, $typ:ty, $len: expr) => {
-        if $idx < $len {
-            $bb & (<$typ>::MAX >> ($len - 1 - $idx))
-        } else {
-            $bb
-        }
+        if $idx < $len { $bb & (<$typ>::MAX >> ($len - 1 - $idx)) } else { $bb }
     };
 }
 
@@ -239,11 +235,7 @@ impl<B: RawBitboard> Iterator for BitIterator<B> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.0.is_zero() {
-            None
-        } else {
-            Some(self.0.pop_lsb())
-        }
+        if self.0.is_zero() { None } else { Some(self.0.pop_lsb()) }
     }
 }
 
@@ -471,11 +463,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
 
     #[inline]
     fn flip_if(self, flip: bool) -> Self {
-        if flip {
-            self.flip_up_down()
-        } else {
-            self
-        }
+        if flip { self.flip_up_down() } else { self }
     }
 
     #[inline]
@@ -983,11 +971,7 @@ impl<R: RawBitboard, C: RectangularCoordinates<Size: KnownSize<C>>> KnownSizeBit
 #[macro_export]
 macro_rules! shift_left {
     ($bb: expr, $amount: expr) => {
-        if $amount >= 0 {
-            $bb << $amount
-        } else {
-            $bb >> -$amount
-        }
+        if $amount >= 0 { $bb << $amount } else { $bb >> -$amount }
     };
 }
 
@@ -1070,8 +1054,8 @@ macro_rules! precompute_leaper_attacks {
 // TODO: Use Raw bitboards
 pub mod chessboard {
     use super::*;
-    use crate::games::chess::squares::NUM_SQUARES;
     use crate::games::chess::ChessColor::*;
+    use crate::games::chess::squares::NUM_SQUARES;
 
     pub type ChessBitboard = SmallGridBitboard<8, 8>;
 
@@ -1112,7 +1096,7 @@ pub mod chessboard {
     };
 
     // `static` instead of `const` because it's pretty large
-    pub static RAYS_INCLUSIVE: [[RawStandardBitboard; 64]; 64] = {
+    pub static RAYS_EXCLUSIVE: [[RawStandardBitboard; 64]; 64] = {
         let mut res = [[0; 64]; 64];
         let mut start = 0;
         while start < 64 {
@@ -1121,21 +1105,21 @@ pub mod chessboard {
             let mut i = 0;
             while i < 8 {
                 let sq = rank * 8 + i;
-                res[start][sq] = ray_between_inclusive!(start, sq, 0xff << (8 * rank), 1_u64, u64);
+                res[start][sq] = ray_between_exclusive!(start, sq, 0xff << (8 * rank), 1_u64, u64);
                 let sq = 8 * i + file;
-                res[start][sq] = ray_between_inclusive!(start, sq, ChessBitboard::A_FILE.0 << file, 1_u64, u64);
+                res[start][sq] = ray_between_exclusive!(start, sq, ChessBitboard::A_FILE.0 << file, 1_u64, u64);
                 i += 1;
             }
             let mut diag = DIAGONALS_U64[8][start];
             while diag != 0 {
                 let sq = diag.trailing_zeros() as usize;
-                res[start][sq] = ray_between_inclusive!(start, sq, DIAGONALS_U64[8][start], 1_u64, u64);
+                res[start][sq] = ray_between_exclusive!(start, sq, DIAGONALS_U64[8][start], 1_u64, u64);
                 diag &= diag - 1;
             }
             let mut anti_diag = DIAGONALS_U64[8][start];
             while anti_diag != 0 {
                 let sq = anti_diag.trailing_zeros() as usize;
-                res[start][sq] = ray_between_inclusive!(start, sq, ANTI_DIAGONALS_U64[8][start], 1_u64, u64);
+                res[start][sq] = ray_between_exclusive!(start, sq, ANTI_DIAGONALS_U64[8][start], 1_u64, u64);
                 anti_diag &= anti_diag - 1;
             }
             start += 1;
@@ -1143,13 +1127,14 @@ pub mod chessboard {
         res
     };
 
-    pub static RAYS_EXCLUSIVE: [[RawStandardBitboard; 64]; 64] = {
+    /// If the squares are not on a ray, this still includes both squares
+    pub static RAYS_INCLUSIVE: [[RawStandardBitboard; 64]; 64] = {
         let mut res = [[0; 64]; 64];
         let mut a = 0;
         while a < 64 {
             let mut b = 0;
             while b < 64 {
-                res[a][b] = RAYS_INCLUSIVE[a][b] & !((1 << a) | (1 << b));
+                res[a][b] = RAYS_EXCLUSIVE[a][b] | (1 << a) | (1 << b);
                 b += 1;
             }
             a += 1;
@@ -1173,7 +1158,7 @@ mod tests {
     use super::*;
     use crate::games::mnk::MnkBitboard;
     use crate::games::{Height, Width};
-    use crate::general::bitboards::chessboard::{ChessBitboard, ATAXX_LEAPERS, KINGS};
+    use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, ChessBitboard, KINGS};
     use crate::general::squares::GridSize;
 
     #[test]

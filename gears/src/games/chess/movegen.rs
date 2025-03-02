@@ -104,8 +104,6 @@ impl Chessboard {
         self.gen_slider_moves::<T, { Bishop as usize }>(moves, filter, &slider_generator);
         self.gen_slider_moves::<T, { Rook as usize }>(moves, filter, &slider_generator);
         self.gen_slider_moves::<T, { Queen as usize }>(moves, filter, &slider_generator);
-        // self.gen_slider_moves::<T, true>(moves, filter, &slider_generator);
-        // self.gen_slider_moves::<T, false>(moves, filter, &slider_generator);
         self.gen_knight_moves(moves, filter);
         self.gen_king_moves(moves, filter, only_tactical);
         self.gen_pawn_moves(moves, only_tactical);
@@ -260,32 +258,6 @@ impl Chessboard {
         }
     }
 
-    // fn gen_slider_moves<T: MoveList<Self>, const IS_BISHOP: bool>(
-    //     &self,
-    //     moves: &mut T,
-    //     filter: ChessBitboard,
-    //     gen: &ChessSliderGenerator,
-    // ) {
-    //     let color = self.active_player;
-    //     let slider_type = if IS_BISHOP { Bishop } else { Rook };
-    //     let non_queens = self.colored_piece_bb(color, slider_type);
-    //     let queens = self.colored_piece_bb(color, Queen);
-    //     let pieces = queens | non_queens;
-    //     let blockers = self.occupied_bb();
-    //     for from in pieces.ones() {
-    //         let attacks = if IS_BISHOP { gen.bishop_attacks(from) & filter } else { gen.rook_attacks(from) & filter };
-    //         for to in attacks.ones() {
-    //             let move_type = if queens.is_bit_set_at(from.bb_idx()) {
-    //                 QueenMove
-    //             } else {
-    //                 ChessMoveFlags::normal_move(slider_type)
-    //             };
-    //             moves.add_move(ChessMove::new(from, to, move_type));
-    //         }
-    //     }
-    // }
-    // TODO: This version should (test!) be faster, but makes a testcase fail, which is *probably* just due to random noise induced by
-    // the different order in which moves are being generated. Investigate!
     fn gen_slider_moves<T: MoveList<Self>, const SLIDER: usize>(
         &self,
         moves: &mut T,

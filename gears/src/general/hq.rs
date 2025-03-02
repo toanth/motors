@@ -15,13 +15,13 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::chess::squares::ChessSquare;
 use crate::games::Size;
-use crate::general::bitboards::chessboard::ChessBitboard;
+use crate::games::chess::squares::ChessSquare;
 use crate::general::bitboards::RayDirections::{AntiDiagonal, Diagonal, Horizontal, Vertical};
+use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::{
-    Bitboard, ExtendedRawBitboard, RawBitboard, RawStandardBitboard, RayDirections, ANTI_DIAGONALS_U128,
-    ANTI_DIAGONALS_U64, DIAGONALS_U128, DIAGONALS_U64, MAX_WIDTH, STEPS_U128, STEPS_U64,
+    ANTI_DIAGONALS_U64, ANTI_DIAGONALS_U128, Bitboard, DIAGONALS_U64, DIAGONALS_U128, ExtendedRawBitboard, MAX_WIDTH,
+    RawBitboard, RawStandardBitboard, RayDirections, STEPS_U64, STEPS_U128,
 };
 use crate::general::squares::RectangularCoordinates;
 use crate::general::squares::RectangularSize;
@@ -61,7 +61,6 @@ impl U128BitReverseHq {
     }
 }
 
-// TODO: It seems this doesn't get autovectorized
 pub struct ChessSliderGenerator {
     blockers: U64AndRev,
 }
@@ -245,8 +244,9 @@ pub trait WithRev: Debug + Copy + Clone + BitAnd<Output = Self> + BitOr<Output =
     }
 }
 
-// TODO: Make sure this gets optimized to SSSE3 instructions or do that manually
+// Sometimes (e.g. bishop attack gen), this gets auto vectorized
 #[derive(Debug, Default, Clone, Copy)]
+#[repr(align(16))]
 pub struct U64AndRev([RawStandardBitboard; 2]);
 
 impl WithRev for U64AndRev {

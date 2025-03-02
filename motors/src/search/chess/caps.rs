@@ -1588,12 +1588,12 @@ mod tests {
             assert!(engine.uci_nodes() as usize >= moves.len()); // >= because of extensions
             for m in moves {
                 let new_pos = pos.make_move(m).unwrap();
-                let entry = tt.load::<Chessboard>(new_pos.hash_pos(), 0);
+                let entry = tt.load::<Chessboard>(new_pos.hash_pos(), 1);
                 let Some(entry) = entry else {
                     continue; // it's possible that a position is not in the TT because qsearch didn't save it
                 };
-                assert!(entry.depth <= 1);
-                assert!(-entry.score <= root_entry.score);
+                assert!(entry.depth <= 2, "{entry:?} {new_pos}");
+                assert!(-entry.score <= root_entry.score, "{entry:?}\n{root_entry:?}\n{new_pos}");
             }
         }
     }

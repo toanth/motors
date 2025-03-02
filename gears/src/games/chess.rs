@@ -56,7 +56,7 @@ pub const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq 
 #[derive(Eq, PartialEq, Copy, Clone, Debug, Default)]
 pub struct ChessSettings {}
 
-pub const MAX_CHESS_MOVES_IN_POS: usize = 256;
+pub const MAX_CHESS_MOVES_IN_POS: usize = 300;
 
 // for some reason, Chessboard::MoveList can be ambiguous? This should fix that
 pub type ChessMoveList = EagerNonAllocMoveList<Chessboard, MAX_CHESS_MOVES_IN_POS>;
@@ -232,10 +232,11 @@ impl Board for Chessboard {
                 fen: "1k6/1p1p1p1p/pPpPpPpP/P1P1P1P1/1B1R3B/1R3RR1/1B2R3/1K1R1RB1 w - - 18 10",
                 strictness: Relaxed,
             },
-            // Could be strict, but then it would be a bench position, and takes too long for that (TODO: Fix that)
+            NameToPos::strict("captures", "r1n1n1b1/1P1P1P1P/1N1N1N2/2RnQrRq/2pKp3/3BNQbQ/k7/4Bq2 w - - 0 1"),
+            NameToPos::strict("check", "3rB2k/2P1P3/1NQ1QN2/2Q1QN2/2Q1Q3/1R3R2/3K1B2/8 w - - 0 1"),
             NameToPos {
-                name: "captures",
-                fen: "r1n1n1b1/1P1P1P1P/1N1N1N2/2RnQrRq/2pKp3/3BNQbQ/k7/4Bq2 w - - 0 1",
+                name: "many_moves",
+                fen: "QQQQQQBk/Q6B/Q6Q/Q6Q/Q6Q/Q6Q/Q6Q/KQQQQQQQ w - - 0 1",
                 strictness: Relaxed,
             },
         ]
@@ -910,16 +911,15 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         for piece in ColoredChessPieceType::pieces() {
             let color = piece.color().unwrap();
             let bb = this.colored_piece_bb(color, piece.uncolor());
-            if bb.num_ones() > 20 {
-                // Catch this now to prevent crashes down the line because the move list is too small for made-up invalid positions.
-                // (This is lax enough to allow many invalid positions that likely won't lead to a crash)
-                bail!(
+            if strictness == Strict {
+                num_promoted_pawns[color] += 0.max(bb.num_ones() as isize - startpos_piece_count[piece.uncolor()]);
+                // Print a better error message than the generic "invalid piece distribution".
+                ensure!(
+                    bb.num_ones() <= 10,
                     "There are {0} {color} {piece}s in this position. There can never be more than 10 pieces \
-                    of the same type in a legal chess position (but this implementation accepts up to 20 in non-strict mode)",
+                    of the same type in a legal chess position (in relaxed mode, this is accepted anyway)",
                     bb.num_ones()
                 );
-            } else if strictness == Strict {
-                num_promoted_pawns[color] += 0.max(bb.num_ones() as isize - startpos_piece_count[piece.uncolor()]);
             }
             if checks != CheckFen {
                 for other_piece in ColoredChessPieceType::pieces() {
@@ -1201,8 +1201,6 @@ mod tests {
             "QQQQKQQQ\nwV0 \n",
             "kQQQQQDDw-W0w",
             "2rr2k1/1p4bp/p1q1pqp1/4Pp1n/2PB4/1PN3P1/P3Q2P/2Rr2K1 w - f6 0 20",
-            // TODO: Allow this? Requires larger move list?
-            "QQQQQQBk/Q6B/Q6Q/Q6Q/Q6Q/Q6Q/Q6Q/KQQQQQQQ w - - 0 1",
         ];
         for fen in fens {
             let pos = Chessboard::from_fen(fen, Relaxed);
@@ -1275,6 +1273,17 @@ mod tests {
         assert!(Chessboard::from_fen(fen, Relaxed).is_err());
         let fen = "1nbqkbnr/ppppppp1/8/r5Pp/6K1/8/PPPP1PPP/RNBQ1BNR w k - 0 2";
         assert!(Chessboard::from_fen(fen, Strict).is_ok());
+    }
+
+    #[test]
+    fn many_moves_test() {
+        let fen = "QQQQQQBk/Q6B/Q6Q/Q6Q/Q6Q/Q6Q/Q6Q/KQQQQQQQ w - - 0 1";
+        assert!(Chessboard::from_fen(fen, Strict).is_err());
+        let board = Chessboard::from_fen(fen, Relaxed).unwrap();
+        let moves = board.pseudolegal_moves();
+        assert_eq!(moves.len(), 265);
+        let perft_res = perft(Depth::new(1), board, false);
+        assert_eq!(perft_res.nodes, 265);
     }
 
     #[test]
