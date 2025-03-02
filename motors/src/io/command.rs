@@ -15,10 +15,14 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::io::SearchType::{Bench, Normal, Perft, Ponder, SplitPerft};
 use crate::io::autocomplete::AutoCompleteState;
 use crate::io::command::Standard::*;
-use crate::io::SearchType::{Bench, Normal, Perft, Ponder, SplitPerft};
 use crate::io::{AbstractEngineUgi, EngineUGI, SearchType};
+use gears::GameResult;
+use gears::MatchStatus::{Ongoing, Over};
+use gears::ProgramStatus::Run;
+use gears::Quitting::{QuitMatch, QuitProgram};
 use gears::arrayvec::ArrayVec;
 use gears::cli::Game;
 use gears::colored::Colorize;
@@ -27,7 +31,7 @@ use gears::games::{AbstractPieceType, Color, ColoredPiece, Size};
 use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
-    parse_duration_ms, parse_int, parse_int_from_str, tokens, Name, NamedEntity, Res, Tokens,
+    Name, NamedEntity, Res, Tokens, parse_duration_ms, parse_int, parse_int_from_str, tokens,
 };
 use gears::general::move_list::MoveList;
 use gears::general::moves::{ExtendedFormat, Move};
@@ -35,11 +39,7 @@ use gears::itertools::Itertools;
 use gears::output::Message::Warning;
 use gears::output::OutputOpts;
 use gears::search::{Depth, NodesLimit, SearchLimit};
-use gears::ugi::{only_load_ugi_position, EngineOption, EngineOptionType};
-use gears::GameResult;
-use gears::MatchStatus::{Ongoing, Over};
-use gears::ProgramStatus::Run;
-use gears::Quitting::{QuitMatch, QuitProgram};
+use gears::ugi::{EngineOption, EngineOptionType, only_load_ugi_position};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Duration;
@@ -486,6 +486,11 @@ impl<B: Board> AbstractGoState for GoState<B> {
 
     fn set_search_type(&mut self, search_type: SearchType, depth_words: Option<&mut Tokens>) -> Res<()> {
         self.generic.search_type = search_type;
+        if search_type == Bench {
+            self.generic.limit.depth = self.generic.default_bench_depth;
+        } else if search_type == Perft || search_type == SplitPerft {
+            self.generic.limit.depth = self.generic.default_perft_depth;
+        }
         if let Some(words) = depth_words {
             accept_depth(&mut self.generic.limit, words)?;
         }
@@ -521,17 +526,32 @@ pub struct GenericGoState {
     pub strictness: Strictness,
     pub override_hash_size: Option<usize>,
     pub engine_name: Option<String>,
+    default_bench_depth: Depth,
+    default_perft_depth: Depth,
 }
 
 impl<B: Board> GoState<B> {
-    pub fn new(ugi: &EngineUGI<B>, search_type: SearchType) -> Self {
-        let limit = match search_type {
-            Bench => SearchLimit::depth(ugi.state.engine.get_engine_info().default_bench_depth()),
-            Perft | SplitPerft => SearchLimit::depth(ugi.state.pos().default_perft_depth()),
+    pub fn default_depth_limit(ugi: &EngineUGI<B>, search_type: SearchType) -> Depth {
+        match search_type {
+            Bench => ugi.state.engine.get_engine_info().default_bench_depth(),
+            Perft | SplitPerft => ugi.state.pos().default_perft_depth(),
             // "infinite" is the identity element of the bounded semilattice of `go` options
-            _ => SearchLimit::infinite(),
-        };
-        Self::new_for_pos(ugi.state.pos().clone(), limit, ugi.strictness, ugi.move_overhead, search_type)
+            _ => SearchLimit::infinite().depth,
+        }
+    }
+    pub fn new(ugi: &EngineUGI<B>, search_type: SearchType) -> Self {
+        let limit = SearchLimit::depth(Self::default_depth_limit(ugi, search_type));
+        let bench_limit = Self::default_depth_limit(ugi, Bench);
+        let perft_limit = Self::default_depth_limit(ugi, Perft);
+        Self::new_for_pos(
+            ugi.state.pos().clone(),
+            limit,
+            ugi.strictness,
+            ugi.move_overhead,
+            search_type,
+            bench_limit,
+            perft_limit,
+        )
     }
 
     pub fn new_for_pos(
@@ -540,6 +560,8 @@ impl<B: Board> GoState<B> {
         strictness: Strictness,
         move_overhead: Duration,
         search_type: SearchType,
+        default_bench_depth: Depth,
+        default_perft_depth: Depth,
     ) -> Self {
         Self {
             generic: GenericGoState {
@@ -553,6 +575,8 @@ impl<B: Board> GoState<B> {
                 strictness,
                 override_hash_size: None,
                 engine_name: None,
+                default_bench_depth,
+                default_perft_depth,
             },
             search_moves: None,
             pos,
@@ -644,7 +668,15 @@ pub(super) fn go_options_impl(
                 sub_commands: SubCommandsFn::default(),
             },
             command!(movestogo | mtg, All, "Full moves until the time control is reset", |state, words, _| {
-                state.go_state_mut().limit_mut().tc.moves_to_go = Some(parse_int(words, "'movestogo' number")?);
+                let moves_to_go: isize = parse_int(words, "'movestogo' number")?;
+                if moves_to_go < 0 {
+                    state.write_message(
+                        Warning,
+                        &format_args!("Negative 'movestogo' number ({moves_to_go}), ignoring this option"),
+                    );
+                } else {
+                    state.go_state_mut().limit_mut().tc.moves_to_go = Some(moves_to_go as usize);
+                }
                 Ok(())
             }),
             command!(nodes | n, All, "Maximum number of nodes to search", |state, words, _| {
@@ -727,16 +759,15 @@ pub(super) fn go_options_impl(
                 "Use the given engine without modifying the current engine's state",
                 |state, words, _| state.go_state_mut().set_engine(words)
             ),
-        ];
-        res.append(&mut additional);
-    }
-    if matches!(mode.unwrap_or(Bench), Bench | Perft) {
-        let complete_option =
             command!(complete | all, Custom, "Run bench / perft on all bench positions", |state, _, _| {
+                if ![Bench, Perft].contains(&state.go_state_mut().get_mut().search_type) {
+                    bail!("The 'all' option can only be used with 'bench' or 'perft' searches")
+                }
                 state.go_state_mut().get_mut().complete = true;
                 Ok(())
-            });
-        res.push(complete_option);
+            }),
+        ];
+        res.append(&mut additional);
     }
     res
 }

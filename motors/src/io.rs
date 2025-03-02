@@ -23,53 +23,53 @@ mod input;
 pub mod ugi_output;
 
 use crate::eval::Eval;
+use crate::io::Protocol::{Interactive, UGI};
+use crate::io::SearchType::*;
 use crate::io::ascii_art::print_as_ascii_art;
 use crate::io::cli::EngineOpts;
 use crate::io::command::Standard::Custom;
 use crate::io::command::{
-    accept_depth, go_options, query_options, ugi_commands, AbstractGoState, CommandList, GoState,
+    AbstractGoState, CommandList, GoState, accept_depth, go_options, query_options, ugi_commands,
 };
 use crate::io::input::Input;
-use crate::io::ugi_output::{color_for_score, pretty_score, score_gradient, suffix_for, AbstractUgiOutput, UgiOutput};
-use crate::io::Protocol::{Interactive, UGI};
-use crate::io::SearchType::*;
+use crate::io::ugi_output::{AbstractUgiOutput, UgiOutput, color_for_score, pretty_score, score_gradient, suffix_for};
 use crate::search::multithreading::EngineWrapper;
-use crate::search::tt::{TTEntry, DEFAULT_HASH_SIZE_MB, TT};
-use crate::search::{run_bench_with, EvalList, SearchParams, SearcherList};
+use crate::search::tt::{DEFAULT_HASH_SIZE_MB, TT, TTEntry};
+use crate::search::{EvalList, SearchParams, SearcherList, run_bench_with};
 use crate::{create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match};
+use gears::MatchStatus::*;
+use gears::ProgramStatus::{Quit, Run};
+use gears::Quitting::QuitProgram;
 use gears::cli::select_game;
 use gears::colored::Color::Red;
 use gears::colored::Colorize;
 use gears::games::{CharType, Color, ColoredPiece, ColoredPieceType, OutputList, ZobristHistory};
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, UnverifiedBoard};
-use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
+use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
-    parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_static, tokens, tokens_to_string,
-    NamedEntity,
+    NamedEntity, parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_static, tokens,
+    tokens_to_string,
 };
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
 use gears::general::perft::{parallel_perft_for, split_perft};
 use gears::itertools::Itertools;
+use gears::output::Message::*;
 use gears::output::logger::LoggerBuilder;
 use gears::output::pgn::parse_pgn;
-use gears::output::text_output::{display_color, AdaptFormatter};
-use gears::output::Message::*;
+use gears::output::text_output::{AdaptFormatter, display_color};
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
 use gears::score::Score;
 use gears::search::{Depth, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
-use gears::ugi::{load_ugi_pos_simple, EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
-use gears::MatchStatus::*;
-use gears::ProgramStatus::{Quit, Run};
-use gears::Quitting::QuitProgram;
+use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString, load_ugi_pos_simple};
 use gears::{
-    output_builder_from_str, AbstractRun, GameState, MatchState, MatchStatus, PlayerResult, ProgramStatus, Quitting,
-    UgiPosState,
+    AbstractRun, GameState, MatchState, MatchStatus, PlayerResult, ProgramStatus, Quitting, UgiPosState,
+    output_builder_from_str,
 };
 use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter, Write};
@@ -238,11 +238,7 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
     }
 
     fn player_name(&self, color: B::Color) -> Option<String> {
-        if color == self.board.inactive_player() {
-            Some(self.name().to_string())
-        } else {
-            self.opponent_name.clone()
-        }
+        if color == self.board.inactive_player() { Some(self.name().to_string()) } else { self.opponent_name.clone() }
     }
 
     fn time(&self, _color: B::Color) -> Option<TimeControl> {
@@ -292,7 +288,15 @@ impl<B: Board> EngineUGI<B> {
         let move_overhead = Duration::from_millis(DEFAULT_MOVE_OVERHEAD_MS);
         let state = EngineGameState {
             match_state: board_state,
-            go_state: GoState::new_for_pos(board, SearchLimit::infinite(), Relaxed, move_overhead, Normal),
+            go_state: GoState::new_for_pos(
+                board,
+                SearchLimit::infinite(),
+                Relaxed,
+                move_overhead,
+                Normal,
+                Depth::new(1),
+                Depth::new(1),
+            ),
             game_name: B::game_name(),
             protocol,
             debug_mode: opts.debug,
@@ -605,13 +609,10 @@ impl<B: Board> EngineUGI<B> {
             Variant => self.handle_variant(&mut tokens(&value))?,
             Hash | Threads | UciElo | UCIEngineAbout | Other(_) => {
                 let value = value.trim().to_string();
-                self.state.engine.set_option(name.clone(), value.clone()).or_else(|err| {
-                    if name == Threads && value == "1" {
-                        Ok(())
-                    } else {
-                        Err(err)
-                    }
-                })?;
+                self.state
+                    .engine
+                    .set_option(name.clone(), value.clone())
+                    .or_else(|err| if name == Threads && value == "1" { Ok(()) } else { Err(err) })?;
             }
         }
         Ok(())
@@ -994,10 +995,13 @@ impl<B: Board> EngineUGI<B> {
         );
         let motors = "motors".bold();
         let game_name = B::game_name().bold();
-        let mut text = format!("{motors}: A work-in-progress collection of engines for various games, \
+        let mut text = format!(
+            "{motors}: A work-in-progress collection of engines for various games, \
             currently playing {game_name}, using the engine {engine_name}.\
             \nSeveral commands are supported (see https://backscattering.de/chess/uci/ for a description of the UCI interface):\n\
-            \n{}:\n", "UGI Commands".bold());
+            \n{}:\n",
+            "UGI Commands".bold()
+        );
         for cmd in self.commands.ugi.iter().filter(|c| c.standard() != Custom) {
             writeln!(&mut text, " {}", *cmd).unwrap();
         }
