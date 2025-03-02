@@ -1399,7 +1399,7 @@ impl Caps {
         // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
         // only after aging
         if best_score >= beta {
-            return Some(best_score);
+            return Some((best_score + beta) / 2);
         }
         // TODO: Set stand pat to SCORE_LOST when in check, generate evasions?
         if best_score > alpha {
