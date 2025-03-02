@@ -5,7 +5,7 @@ use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
 use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
-use crate::games::chess::squares::ChessSquare;
+use crate::games::chess::squares::{ChessSquare, ChessboardSize};
 use crate::games::chess::{ChessBitboardTrait, ChessColor, Chessboard, PAWN_CAPTURES};
 use crate::games::{Board, Color, ColoredPieceType};
 use crate::general::bitboards::chessboard::{ChessBitboard, KINGS, KNIGHTS};
@@ -56,6 +56,16 @@ impl Chessboard {
         }
     }
 
+    fn check_castling_move_pseudolegal(&self, mov: ChessMove, color: ChessColor) -> bool {
+        self.king_square(color) == mov.src_square()
+            && (self.rook_start_square(color, Kingside) == mov.dest_square()
+                && mov.castle_side() == Kingside
+                && self.is_castling_pseudolegal(Kingside))
+            || (self.rook_start_square(color, Queenside) == mov.dest_square()
+                && mov.castle_side() == Queenside
+                && self.is_castling_pseudolegal(Queenside))
+    }
+
     pub fn is_move_pseudolegal_impl(&self, mov: ChessMove) -> bool {
         let Ok(flags) = mov.untrusted_flags() else {
             return false;
@@ -67,12 +77,7 @@ impl Chessboard {
             return false;
         }
         if mov.is_castle() {
-            (self.rook_start_square(color, Kingside) == mov.dest_square()
-                && mov.castle_side() == Kingside
-                && self.is_castling_pseudolegal(Kingside))
-                || (self.rook_start_square(color, Queenside) == mov.dest_square()
-                    && mov.castle_side() == Queenside
-                    && self.is_castling_pseudolegal(Queenside))
+            self.check_castling_move_pseudolegal(mov, color)
         } else if mov.piece_type() == Pawn {
             let mut incorrect = false;
             incorrect |= mov.is_ep() && self.ep_square() != Some(mov.dest_square());
@@ -85,6 +90,33 @@ impl Chessboard {
             let generator = self.slider_generator();
             (self.attacks_no_castle_or_pawn_push(src, mov.piece_type(), color, &generator) & !self.active_player_bb())
                 .is_bit_set_at(mov.dest_square().bb_idx())
+        }
+    }
+
+    /// Unlike [`Self::is_move_pseudolegal`], this assumes that `mov` used to be pseudolegal in *some* arbitrary position.
+    /// This means that checking pseudolegality is less expensive
+    pub fn is_generated_move_pseudolegal_impl(&self, mov: ChessMove) -> bool {
+        let us = self.active_player;
+        let src = mov.src_square();
+        let piece = mov.flags().piece_type();
+        if !self.colored_piece_bb(us, piece).is_bit_set_at(src.bb_idx()) {
+            // this check is still necessary because otherwise we could e.g. accept a move with piece 'bishop' from a queen.
+            return false;
+        }
+        if mov.is_castle() {
+            // we can't assume that the position was from the same game, so we still have to check that rook and king positions match
+            self.check_castling_move_pseudolegal(mov, us)
+        } else if mov.piece_type() == Pawn {
+            let bad_ep = mov.is_ep() && self.ep_square() != Some(mov.dest_square());
+            let capturable = self.player_bb(us.other()) | self.ep_square.map(ChessSquare::bb).unwrap_or_default();
+            !bad_ep
+                // we still need to check this because this could have been a pawn move from the other player
+                && Self::single_pawn_moves(us, src, capturable, self.empty_bb())
+                    .is_bit_set_at(mov.dest_square().bb_idx())
+        } else {
+            let ray = ChessBitboard::ray_exclusive(src, mov.dest_square(), ChessboardSize {});
+            let on_ray = ray & self.occupied_bb();
+            on_ray.is_zero() && !self.player_bb(us).is_bit_set_at(mov.dest_square().bb_idx())
         }
     }
 

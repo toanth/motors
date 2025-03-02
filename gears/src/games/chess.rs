@@ -403,8 +403,14 @@ impl Board for Chessboard {
         self.flip_side_to_move()
     }
 
-    fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {
-        self.is_move_pseudolegal_impl(mov)
+    fn is_move_pseudolegal(&self, mov: ChessMove) -> bool {
+        let res = self.is_move_pseudolegal_impl(mov);
+        debug_assert!(!res || self.is_generated_move_pseudolegal(mov), "{mov:?} {self}");
+        res
+    }
+
+    fn is_generated_move_pseudolegal(&self, mov: ChessMove) -> bool {
+        self.is_generated_move_pseudolegal_impl(mov)
     }
 
     fn player_result_no_movegen<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {

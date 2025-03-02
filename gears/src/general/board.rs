@@ -15,6 +15,7 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::PlayerResult::Lose;
 use crate::games::{
     AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, NoHistory,
     PosHash, Settings, Size,
@@ -24,18 +25,17 @@ use crate::general::board::SelfChecks::{Assertion, Verify};
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    select_name_static, tokens, EntityList, NamedEntity, Res, StaticallyNamedEntity, Tokens, TokensToString,
+    EntityList, NamedEntity, Res, StaticallyNamedEntity, Tokens, TokensToString, select_name_static, tokens,
 };
 use crate::general::move_list::MoveList;
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::{Legal, PseudoLegal};
 use crate::general::moves::Move;
 use crate::general::squares::{RectangularCoordinates, RectangularSize, SquareColor};
-use crate::output::text_output::BoardFormatter;
 use crate::output::OutputOpts;
+use crate::output::text_output::BoardFormatter;
 use crate::search::Depth;
-use crate::PlayerResult::Lose;
-use crate::{player_res_to_match_res, GameOver, GameOverReason, MatchResult, PlayerResult};
+use crate::{GameOver, GameOverReason, MatchResult, PlayerResult, player_res_to_match_res};
 use anyhow::{anyhow, bail};
 use arbitrary::Arbitrary;
 use colored::Colorize;
@@ -397,11 +397,7 @@ pub trait Board:
     /// Returns the number of legal moves. Automatically falls back to [`Self::num_pseudolegal_moves`] for games
     /// with legal movegen.
     fn num_legal_moves(&self) -> usize {
-        if Self::Move::legality() == Legal {
-            self.num_pseudolegal_moves()
-        } else {
-            self.legal_moves_slow().num_moves()
-        }
+        if Self::Move::legality() == Legal { self.num_pseudolegal_moves() } else { self.legal_moves_slow().num_moves() }
     }
 
     /// Returns a random legal move, that is, chooses a pseudorandom move from the set of legal moves.
@@ -422,6 +418,14 @@ pub trait Board:
     /// Makes a nullmove, i.e. flips the active player. While this action isn't strictly legal in most games,
     /// it's still very useful and necessary for null move pruning.
     fn make_nullmove(self) -> Option<Self>;
+
+    /// See [`Self::is_move_pseudolegal`]. However, this function assumes that the move is pseudolegal
+    /// for some unknown position, usually because it has been generated in the past and saved, but it is no
+    /// longer certain that it is indeed pseudolegal for the current position. Therefore, this function can sometimes
+    /// be implemented slightly more efficiently than [`Self::is_move_pseudolegal`].
+    fn is_generated_move_pseudolegal(&self, mov: Self::Move) -> bool {
+        self.is_move_pseudolegal(mov)
+    }
 
     /// Returns true iff the move is pseudolegal, that is, it can be played with `make_move` without
     /// causing a panic. When it is not certain that a move is definitely (pseudo)legal for the current position,
@@ -608,11 +612,7 @@ pub trait BoardHelpers: Board {
     /// Convenience function that computes the player result by calling [`Self::no_moves_result()`] if `no_legal_moves` is true,
     /// else it calls [`Self::player_result_no_movegen()`].
     fn player_result<H: BoardHistory>(&self, history: &H, no_legal_moves: bool) -> Option<PlayerResult> {
-        if no_legal_moves {
-            Some(self.no_moves_result())
-        } else {
-            self.player_result_no_movegen(history)
-        }
+        if no_legal_moves { Some(self.no_moves_result()) } else { self.player_result_no_movegen(history) }
     }
 
     /// Reads in a compact textual description of the board, such that `B::from_fen(board.as_fen()) == b` holds.
