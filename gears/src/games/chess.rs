@@ -7,7 +7,7 @@ use rand::prelude::IteratorRandom;
 use rand::Rng;
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use std::ops::Not;
+use std::ops::{Index, IndexMut, Not};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 
@@ -26,12 +26,12 @@ use crate::games::{
 use crate::general::bitboards::chessboard::{black_squares, white_squares, ChessBitboard};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
-use crate::general::board::Strictness::Strict;
+use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
     board_from_name, position_fen_part, read_common_fen_part, read_two_move_numbers, BitboardBoard, BoardHelpers,
     NameToPos, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard,
 };
-use crate::general::common::{parse_int_from_str, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens};
+use crate::general::common::{parse_int_from_str, EntityList, Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::text_output::{
@@ -70,6 +70,19 @@ pub enum ChessColor {
     #[default]
     White = 0,
     Black = 1,
+}
+
+impl<T> Index<ChessColor> for [T; 2] {
+    type Output = T;
+    fn index(&self, index: ChessColor) -> &Self::Output {
+        &self[index as usize]
+    }
+}
+
+impl<T> IndexMut<ChessColor> for [T; 2] {
+    fn index_mut(&mut self, index: ChessColor) -> &mut Self::Output {
+        &mut self[index as usize]
+    }
 }
 
 impl Display for ChessColor {
@@ -112,6 +125,13 @@ impl Color for ChessColor {
     }
 }
 
+#[derive(Debug, Default, Eq, PartialEq, Copy, Clone, Arbitrary)]
+struct Hashes {
+    pawns: PosHash,
+    nonpawns: [PosHash; NUM_COLORS],
+    total: PosHash,
+}
+
 #[derive(Eq, PartialEq, Debug, Copy, Clone, Arbitrary)]
 #[must_use]
 pub struct Chessboard {
@@ -121,11 +141,11 @@ pub struct Chessboard {
     ply_100_ctr: usize,
     active_player: ChessColor,
     castling: CastlingFlags,
-    ep_square: Option<ChessSquare>,
-    hash: PosHash,
+    ep_square: Option<ChessSquare>, // eventually, see if using Optional and Noned instead of Option improves nps
+    hashes: Hashes,
 }
 
-const _: () = assert!(size_of::<Chessboard>() == 8 * 12);
+const _: () = assert!(size_of::<Chessboard>() == 10 * 12);
 
 impl Default for Chessboard {
     fn default() -> Self {
@@ -175,7 +195,7 @@ impl Board for Chessboard {
             active_player: White,
             castling: CastlingFlags::default(),
             ep_square: None,
-            hash: PosHash(0),
+            hashes: Hashes::default(),
         })
     }
 
@@ -190,59 +210,33 @@ impl Board for Chessboard {
         })
     }
 
-    fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
+    fn name_to_pos_map() -> EntityList<NameToPos> {
         vec![
-            GenericSelect {
-                name: "kiwipete",
-                val: || {
-                    Self::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 10 11", Strict)
-                        .unwrap()
-                },
-            },
-            GenericSelect {
-                name: "lucena",
-                val: || Self::from_fen("1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1", Strict).unwrap(),
-            },
-            GenericSelect {
-                name: "philidor",
-                val: || Self::from_fen("3k4/R7/7r/2KP4/8/8/8/8 w - - 0 1", Strict).unwrap(),
-            },
-            GenericSelect {
-                name: "mate_in_1",
-                val: || Self::from_fen("8/7r/8/K1k5/8/8/4p3/8 b - - 10 11", Strict).unwrap(),
-            },
-            GenericSelect {
-                name: "draw_in_1",
-                val: || Self::from_fen("2B2k2/8/8/5B2/8/8/8/KR6 w - - 99 123", Strict).unwrap(),
-            },
-            GenericSelect {
-                name: "unusual",
-                val: || {
-                    Self::from_fen("2kb1b2/pR2P1P1/P1N1P3/1p2Pp2/P5P1/1N6/4P2B/2qR2K1 w - f6 99 123", Strict).unwrap()
-                },
-            },
-            GenericSelect {
-                name: "see_win_pawn",
-                val: || Self::from_fen("k6q/3n1n2/3b4/2P1p3/3P1P2/3N1NP1/8/1K6 w - - 0 1", Strict).unwrap(),
-            },
-            GenericSelect {
-                name: "see_xray",
-                val: || Self::from_fen("5q1k/8/8/8/RRQ2nrr/8/8/K7 w - - 0 1", Strict).unwrap(),
-            },
-            GenericSelect {
-                name: "zugzwang",
-                val: || Self::from_fen("6Q1/8/8/7k/8/8/3p1pp1/3Kbrrb w - - 26 14", Strict).unwrap(),
-            },
-            GenericSelect {
-                name: "puzzle",
-                val: || Self::from_fen("rk6/p1r3p1/P3B1Kp/1p2B3/8/8/8/8 w - - 0 1", Strict).unwrap(),
-            },
+            NameToPos::strict("kiwipete", "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"),
+            NameToPos::strict("lucena", "1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1"),
+            NameToPos::strict("philidor", "3k4/R7/7r/2KP4/8/8/8/8 w - - 0 1"),
+            NameToPos::strict("lasker-reichhelm", "8/k7/3p4/p2P1p2/P2P1P2/8/8/K7 w - - 0 1"),
+            NameToPos::strict("behting", "8/8/7p/3KNN1k/2p4p/8/3P2p1/8 w - - 0 1"),
+            NameToPos::strict("saavedra", "8/8/1KP5/3r4/8/8/8/k7 w - - 0 1"),
+            NameToPos::strict("mate_in_1", "8/7r/8/K1k5/8/8/4p3/8 b - - 10 11"),
+            NameToPos::strict("draw_in_1", "2B2k2/8/8/5B2/8/8/8/KR6 w - - 99 123"),
+            NameToPos::strict("unusual", "2kb1b2/pR2P1P1/P1N1P3/1p2Pp2/P5P1/1N6/4P2B/2qR2K1 w - f6 99 123"),
+            NameToPos::strict("see_win_pawn", "k6q/3n1n2/3b4/2P1p3/3P1P2/3N1NP1/8/1K6 w - - 0 1"),
+            NameToPos::strict("see_xray", "5q1k/8/8/8/RRQ2nrr/8/8/K7 w - - 0 1"),
+            NameToPos::strict("zugzwang", "6Q1/8/8/7k/8/8/3p1pp1/3Kbrrb w - - 26 14"),
+            NameToPos::strict("puzzle", "rk6/p1r3p1/P3B1Kp/1p2B3/8/8/8/8 w - - 0 1"),
             // still very difficult for caps-lite to solve
-            GenericSelect {
-                name: "mate_in_16",
-                val: || {
-                    Self::from_fen("1r1q1r2/5pk1/p2p1Np1/2pBp2p/1p2P2P/2PP2P1/1P1Q4/2K2R1b w - - 0 29", Strict).unwrap()
-                },
+            NameToPos::strict("mate_in_16", "1r1q1r2/5pk1/p2p1Np1/2pBp2p/1p2P2P/2PP2P1/1P1Q4/2K2R1b w - - 0 29"),
+            NameToPos {
+                name: "futile",
+                fen: "1k6/1p1p1p1p/pPpPpPpP/P1P1P1P1/1B1R3B/1R3RR1/1B2R3/1K1R1RB1 w - - 18 10",
+                strictness: Relaxed,
+            },
+            // Could be strict, but then it would be a bench position, and takes too long for that (TODO: Fix that)
+            NameToPos {
+                name: "captures",
+                fen: "r1n1n1b1/1P1P1P1P/1N1N1N2/2RnQrRq/2pKp3/3BNQbQ/k7/4Bq2 w - - 0 1",
+                strictness: Relaxed,
             },
         ]
     }
@@ -316,7 +310,9 @@ impl Board for Chessboard {
             // mate in 15 that stronger engines tend to miss(even lichess SF only finds a mate in 17 with max parameters)
             "5k2/1p5Q/p2r1qp1/P1p1RpN1/2P5/3P3P/5PP1/6K1 b - - 0 56",
         ];
-        fens.map(|fen| Self::from_fen(fen, Strict).unwrap()).iter().copied().collect_vec()
+        let mut res = fens.map(|fen| Self::from_fen(fen, Strict).unwrap()).iter().copied().collect_vec();
+        res.extend(Self::name_to_pos_map().iter().filter(|e| e.strictness == Strict).map(|e| e.create::<Chessboard>()));
+        res
     }
 
     fn settings(&self) -> Self::Settings {
@@ -399,10 +395,10 @@ impl Board for Chessboard {
         // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove
         self.ply_100_ctr = 0;
         if let Some(sq) = self.ep_square {
-            self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[sq.file() as usize];
+            self.hashes.total ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[sq.file() as usize];
             self.ep_square = None;
         }
-        self.hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+        self.hashes.total ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         self.flip_side_to_move()
     }
 
@@ -463,7 +459,7 @@ impl Board for Chessboard {
     }
 
     fn hash_pos(&self) -> PosHash {
-        self.hash
+        self.hashes.total
     }
 
     fn read_fen_and_advance_input(words: &mut Tokens, strictness: Strictness) -> Res<Self> {
@@ -587,8 +583,8 @@ impl Chessboard {
             ChessPiece::new(ColoredChessPieceType::new(color, piece), square)
         );
         let bb = square.bb();
-        self.piece_bbs[piece as usize] ^= bb;
-        self.color_bbs[color as usize] ^= bb;
+        self.piece_bbs[piece] ^= bb;
+        self.color_bbs[color] ^= bb;
         // It's not really clear how to so handle these flags when removing pieces, so we just unset them on a best effort basis
         if piece == Rook {
             for side in CastleRight::iter() {
@@ -625,12 +621,20 @@ impl Chessboard {
         // it is possible that from == to or that there's another piece on the target square
         let bb = from.bb() ^ to.bb();
         let color = self.active_player;
-        self.color_bbs[color as usize] ^= bb;
+        self.color_bbs[color] ^= bb;
         self.piece_bbs[piece.to_uncolored_idx()] ^= bb;
     }
 
+    pub fn pawn_key(&self) -> PosHash {
+        self.hashes.pawns
+    }
+
+    pub fn nonpawn_key(&self, color: ChessColor) -> PosHash {
+        self.hashes.nonpawns[color]
+    }
+
     /// A mate that happens on the 100 move rule counter reaching 100 takes precedence.
-    /// This barely every happens, which is why we can afford the slow operation of checking for a checkmate in that case.
+    /// This barely ever happens, which is why we can afford the slow operation of checking for a checkmate in that case.
     pub fn is_50mr_draw(&self) -> bool {
         self.ply_100_ctr >= 100 && !self.is_checkmate_slow()
     }
@@ -782,8 +786,8 @@ impl Chessboard {
         for bb in &mut res.0.piece_bbs {
             *bb = bb.flip_up_down();
         }
-        res.0.color_bbs[Black as usize] = res.0.player_bb(White).flip_up_down();
-        res.0.color_bbs[White as usize] = ChessBitboard::default();
+        res.0.color_bbs[Black] = res.0.player_bb(White).flip_up_down();
+        res.0.color_bbs[White] = ChessBitboard::default();
         res = Self::chess960_startpos_white(white_num, White, res)?;
         // the hash is computed in the verify method
         Ok(res
@@ -894,7 +898,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         }
         // we allow loading FENs where more than one piece gives check to the king in a way that could not have been reached
         // from startpos, e.g. "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1"
-        if this.ply_100_ctr >= 100 {
+        if this.ply_100_ctr > 100 {
             bail!("The 50 move rule has been exceeded (there have already been {0} plies played)", this.ply_100_ctr);
         } else if this.ply >= 100_000 {
             bail!("Ridiculously large ply counter: {0}", this.ply);
@@ -921,8 +925,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                     bb.num_ones()
                 );
             } else if strictness == Strict {
-                num_promoted_pawns[color as usize] +=
-                    0.max(bb.num_ones() as isize - startpos_piece_count[piece.uncolor() as usize]);
+                num_promoted_pawns[color] += 0.max(bb.num_ones() as isize - startpos_piece_count[piece.uncolor()]);
             }
             if checks != CheckFen {
                 for other_piece in ColoredChessPieceType::pieces() {
@@ -954,11 +957,11 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         }
         for color in ChessColor::iter() {
             let num_pawns = this.colored_piece_bb(color, Pawn).num_ones() as isize;
-            if strictness == Strict && num_promoted_pawns[color as usize] + num_pawns > 8 {
+            if strictness == Strict && num_promoted_pawns[color] + num_pawns > 8 {
                 bail!("Incorrect piece distribution for {color}")
             }
         }
-        this.hash = this.compute_zobrist();
+        this.hashes = this.compute_zobrist();
 
         // We check the ep square last because this can require doing movegen, which needs most invariants to hold.
         if let Some(ep_square) = this.ep_square {
@@ -996,7 +999,6 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 }
             }
         }
-
         Ok(this)
     }
 
@@ -1012,8 +1014,8 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         let this = &mut self.0;
         debug_assert!(this.is_empty(square));
         let bb = square.bb();
-        this.piece_bbs[piece.uncolor() as usize] ^= bb;
-        this.color_bbs[piece.color().unwrap() as usize] ^= bb;
+        this.piece_bbs[piece.uncolor()] ^= bb;
+        this.color_bbs[piece.color().unwrap()] ^= bb;
     }
 
     fn remove_piece(&mut self, sq: ChessSquare) {
@@ -1365,7 +1367,7 @@ mod tests {
         for mov in moves {
             board = board.make_move(ChessMove::from_compact_text(mov, &board).unwrap()).unwrap();
             assert_ne!(board.hash_pos(), hash);
-            assert!(!n_fold_repetition(2, &hist, board.hash, 12345));
+            assert!(!n_fold_repetition(2, &hist, board.hash_pos(), 12345));
         }
         assert_eq!(board.active_player, Black);
         let board = Chessboard::from_name("kiwipete").unwrap();
@@ -1443,7 +1445,7 @@ mod tests {
         let board = Chessboard::from_fen(fen, Strict).unwrap();
         assert_eq!(board.legal_moves_slow().len(), 218);
         assert!(board.debug_verify_invariants(Strict).is_ok());
-        let board = board.flip_side_to_move().unwrap();
+        let board = board.make_nullmove().unwrap();
         assert!(board.legal_moves_slow().is_empty());
         assert_eq!(board.player_result_slow(&NoHistory::default()), Some(Draw));
         // chess960 castling rights encoded using X-FEN

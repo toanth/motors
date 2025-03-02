@@ -150,6 +150,8 @@ impl AbstractPieceType<FairyBoard> for ColoredPieceId {
     fn to_char(self, typ: CharType, rules: &RulesRef) -> char {
         if let Some(color) = self.color {
             self.id.get(rules).player_symbol[color.idx()][typ as usize]
+        } else if self == Self::empty() {
+            '.'
         } else {
             self.id.get(rules).uncolored_symbol[typ as usize]
         }

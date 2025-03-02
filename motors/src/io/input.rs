@@ -18,7 +18,7 @@
 use crate::io::autocomplete::CommandAutocomplete;
 use crate::io::input::InputEnum::{Interactive, NonInteractive};
 use crate::io::{AbstractEngineUgi, EngineUGI};
-use colored::Colorize;
+use gears::colored::Colorize;
 use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
@@ -46,13 +46,13 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
 
         ugi.state.go_state.pos = ugi.state.pos().clone();
         self.autocompletion.state.go_state = ugi.state.go_state.clone();
-        if ugi.state.engine.main_atomic_search_data().currently_searching() {
+        if ugi.state.is_currently_searching() {
             ugi.write_ugi(&format_args!(" [{0} Type '{1}' to cancel]", "Searching...".bold(), "stop".bold()));
             let pv_spacer = if ugi.state.pos().active_player().is_first() { "" } else { "    " };
             ugi.write_ugi(&format_args!(
                 "{}",
                 format!(
-                    "\nIter    Seldepth    Score      Time    Nodes   (New)     NPS  Branch     TT     {pv_spacer}PV"
+                    "\nIter    Seldepth    Score      Time       Nodes   (New)     NPS  Branch     TT     {pv_spacer}PV"
                 )
                 .bold(),
             ));

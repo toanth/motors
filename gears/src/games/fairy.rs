@@ -26,8 +26,8 @@ use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
 use crate::games::fairy::rules::{Draw, GameLoss, NumRoyals, Rules, RulesRef};
 use crate::games::{
-    n_fold_repetition, AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates,
-    DimT, GenericPiece, NoHistory, PosHash, Size,
+    AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, GenericPiece,
+    NoHistory, PosHash, Size,
 };
 use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
@@ -41,7 +41,6 @@ use crate::general::common::{
     select_name_static, tokens, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
 };
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
-use crate::general::moves::Move;
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
 use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter};
 use crate::output::OutputOpts;
@@ -517,20 +516,11 @@ impl Board for FairyBoard {
         Self::from_fen(&settings.0.startpos_fen, Strict).unwrap()
     }
 
-    fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
+    fn name_to_pos_map() -> EntityList<NameToPos> {
         // TODO: add more named positions
         vec![
-            GenericSelect {
-                name: "kiwipete",
-                val: || {
-                    Self::from_fen("chess r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", Strict)
-                        .unwrap()
-                },
-            },
-            GenericSelect {
-                name: "large_mnk",
-                val: || Self::from_fen("mnk 11 11 4 11/11/11/11/11/11/11/11/11/11/11 x 1", Strict).unwrap(),
-            },
+            NameToPos::strict("kiwipete", "chess r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"),
+            NameToPos::strict("large_mnk", "mnk 11 11 4 11/11/11/11/11/11/11/11/11/11/11 x 1"),
         ]
     }
 
@@ -609,6 +599,16 @@ impl Board for FairyBoard {
         Depth::new(3)
     }
 
+    fn cannot_call_movegen(&self) -> bool {
+        let mut res = false;
+        // currently, all non-movegenning loss conditions need to be checked in perft too
+        for loss in &self.rules().game_loss {
+            res |= loss.check_no_movegen(self).is_some();
+        }
+        // currently, there are no draw conditions that would need to be checked specially in perft
+        res
+    }
+
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
         self.gen_pseudolegal_impl(moves);
     }
@@ -643,52 +643,14 @@ impl Board for FairyBoard {
     }
 
     fn player_result_no_movegen<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
-        let us = self.active_player();
         for condition in &self.rules().game_loss {
-            let loss = match condition {
-                GameLoss::NoRoyals => self.royal_bb_for(us).is_zero(),
-                GameLoss::NoPieces => self.active_player_bb().is_zero(),
-                GameLoss::Checkmate => false,
-                GameLoss::NoNonRoyals => (self.active_player_bb() & !self.royal_bb()).is_zero(),
-                GameLoss::NoNonRoyalsExceptRecapture => {
-                    let has_nonroyals = (self.active_player_bb() & !self.royal_bb()).has_set_bit();
-                    if has_nonroyals {
-                        false
-                    } else {
-                        let their_nonroyals = self.inactive_player_bb() & !self.royal_bb();
-                        if their_nonroyals.num_ones() > 1 {
-                            true
-                        } else {
-                            let capturable = their_nonroyals & !self.capturing_attack_bb_of(us);
-                            return if capturable.has_set_bit() {
-                                Some(PlayerResult::Lose)
-                            } else {
-                                Some(PlayerResult::Draw)
-                            };
-                        }
-                    }
-                }
-                GameLoss::NoMoves => false, // will be dealt with in `no_moves_result()`
-                &GameLoss::InRowAtLeast(k) => {
-                    if self.0.last_move.is_null() {
-                        false
-                    } else {
-                        let sq = self.0.last_move.dest_square_in(self);
-                        self.k_in_row_at(k, sq, !us)
-                    }
-                }
-            };
-            if loss {
-                return Some(PlayerResult::Lose);
+            if let Some(r) = condition.check_no_movegen(self) {
+                return Some(r);
             }
         }
-        for rule in &self.rules().draw {
-            if match *rule {
-                Draw::Counter(max) => self.0.draw_counter >= max,
-                Draw::Repetition(max) => n_fold_repetition(max, history, self.hash, usize::MAX),
-                _ => false,
-            } {
-                return Some(PlayerResult::Draw);
+        for condition in &self.rules().draw {
+            if let Some(r) = condition.check_no_movegen(self, history) {
+                return Some(r);
             }
         }
         None
@@ -889,6 +851,7 @@ mod tests {
     use crate::games::mnk::MNKBoard;
     use crate::games::{chess, Height, Width, ZobristHistory};
     use crate::general::board::Strictness::{Relaxed, Strict};
+    use crate::general::moves::Move;
     use crate::general::perft::perft;
     use crate::PlayerResult::Draw;
     use crate::{GameOverReason, GameResult, MatchResult};
@@ -969,7 +932,7 @@ mod tests {
                 let chess_perft = perft(depth, chess_pos, false);
                 let fairy_perft = perft(depth, fairy_pos.clone(), false);
                 assert_eq!(chess_perft.depth, fairy_perft.depth);
-                assert_eq!(chess_perft.nodes, fairy_perft.nodes);
+                assert_eq!(chess_perft.nodes, fairy_perft.nodes, "{chess_pos} with depth {depth}");
                 assert!(chess_perft.time.as_millis() * 100 + 1000 > fairy_perft.time.as_millis());
             }
         }
@@ -1075,6 +1038,11 @@ mod tests {
         let pos = pos.make_move(mov).unwrap();
         assert_eq!(pos.num_legal_moves(), 7);
         assert_eq!(pos.as_fen(), "mnk 3 3 3 3/2O/X2 x 2");
+        assert_eq!(pos.last_move, mov);
+        let pos = FairyBoard::from_fen_for("mnk", "5 5 4 X4/O4/O2X1/O1X2/OX3 x 5", Strict).unwrap();
+        assert!(pos.is_game_lost_slow());
+        assert!(pos.cannot_call_movegen());
+        // TODO: panic when starting search in won position
     }
 
     #[test]
@@ -1085,11 +1053,11 @@ mod tests {
             let max = if cfg!(debug_assertions) { 4 } else { 6 };
             for i in 1..max {
                 let depth = Depth::new(i);
-                let chess_perft = perft(depth, mnk_pos, false);
+                let mnk_perft = perft(depth, mnk_pos, false);
                 let fairy_perft = perft(depth, fairy_pos.clone(), false);
-                assert_eq!(chess_perft.depth, fairy_perft.depth);
-                assert_eq!(chess_perft.nodes, fairy_perft.nodes);
-                let chess_time = chess_perft.time.as_millis();
+                assert_eq!(mnk_perft.depth, fairy_perft.depth);
+                assert_eq!(mnk_perft.nodes, fairy_perft.nodes, "Depth {i}, pos: {mnk_pos}");
+                let chess_time = mnk_perft.time.as_millis();
                 let fairy_time = fairy_perft.time.as_millis();
                 assert!(chess_time * 100 + 1000 > fairy_time, "{chess_time} {fairy_time} {i} {fairy_pos}");
             }

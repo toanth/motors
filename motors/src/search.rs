@@ -1,29 +1,30 @@
 use crate::eval::Eval;
+use crate::io::ugi_output::AbstractUgiOutput;
 use crate::search::multithreading::SearchThreadType::*;
 use crate::search::multithreading::SearchType::*;
 use crate::search::multithreading::{AtomicSearchState, EngineReceives, EngineThread, SearchThreadType, Sender};
 use crate::search::statistics::{Statistics, Summary};
 use crate::search::tt::TT;
-use colored::Color::Red;
-use colored::Colorize;
 use crossbeam_channel::unbounded;
 use derive_more::{Add, Neg, Sub};
-use dyn_clone::DynClone;
 use gears::arrayvec::ArrayVec;
+use gears::colored::Color::Red;
+use gears::colored::Colorize;
+use gears::dyn_clone::DynClone;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::bail;
 use gears::general::common::{EntityList, Name, NamedEntity, Res, StaticallyNamedEntity};
 use gears::general::move_list::MoveList;
 use gears::general::moves::Move;
+use gears::itertools::Itertools;
 use gears::output::Message;
 use gears::output::Message::Warning;
+use gears::rand::prelude::StdRng;
+use gears::rand::SeedableRng;
 use gears::score::{Score, ScoreT, MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON};
 use gears::search::{Depth, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType};
-use itertools::Itertools;
-use rand::prelude::StdRng;
-use rand::SeedableRng;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -31,6 +32,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
+use std::ops::{Deref, DerefMut};
 use std::sync::atomic::Ordering::Acquire;
 use std::sync::Arc;
 use std::thread::spawn;
@@ -157,7 +159,6 @@ impl Default for BenchResult {
 
 impl Display for BenchResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // Uses colored instead of crossterm because that's necessary for OpenBench to parse the output
         let depth = if let Some(depth) = self.depth { format!("depth {depth}, ") } else { String::new() };
         writeln!(
             f,
@@ -376,14 +377,6 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
 
     fn search_state_mut_dyn(&mut self) -> &mut dyn AbstractSearchState<B>;
 
-    fn search_state(&self) -> &SearchStateFor<B, Self>
-    where
-        Self: Sized;
-
-    fn search_state_mut(&mut self) -> &mut SearchStateFor<B, Self>
-    where
-        Self: Sized;
-
     /// Reset the engine into a fresh state, e.g. by clearing the TT and various heuristics.
     fn forget(&mut self) {
         self.search_state_mut_dyn().forget(true);
@@ -395,43 +388,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
     where
         Self: Sized,
     {
-        &self.search_state().search_params().limit
-    }
-
-    fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool;
-
-    // Sensible default values, but engines may choose to check more/less frequently than every 4096 nodes
-    fn should_stop(&self) -> bool
-    where
-        Self: Sized,
-    {
-        let state = self.search_state();
-        let limit = self.limit();
-        // Do the less expensive checks first to avoid querying the time in each node
-        // loads an atomic, so calling this function twice probably won't be optimized
-        let nodes = state.uci_nodes();
-        if nodes >= limit.nodes.get() || state.stop_flag() {
-            self.search_state().stop_search();
-            return true;
-        }
-        if nodes % DEFAULT_CHECK_TIME_INTERVAL != 0 {
-            return false;
-        }
-        if self.time_up(limit.tc, limit.fixed_time, self.search_state().start_time()) {
-            self.search_state().stop_search();
-            return true;
-        }
-        false
-    }
-
-    fn should_not_start_negamax(&self, soft_limit: Duration, max_soft_depth: isize, mate_depth: Depth) -> bool
-    where
-        Self: Sized,
-    {
-        let state = self.search_state();
-        state.start_time().elapsed() >= soft_limit
-            || state.depth().get() as isize > max_soft_depth
-            || state.best_score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT)
+        &self.search_state_dyn().search_params().limit
     }
 
     /// Returns a [`SearchInfo`] object with information about the search so far.
@@ -480,10 +437,60 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
     fn do_search(&mut self) -> SearchResult<B>;
 }
 
+/// A proof number search isn't a normal engine, and neither is a random mover
+pub trait NormalEngine<B: Board>: Engine<B> {
+    fn search_state(&self) -> &SearchStateFor<B, Self>
+    where
+        Self: Sized;
+
+    fn search_state_mut(&mut self) -> &mut SearchStateFor<B, Self>
+    where
+        Self: Sized;
+
+    fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
+        let elapsed = start_time.elapsed();
+        elapsed >= hard_limit.min(tc.remaining / 32 + tc.increment / 2)
+    }
+
+    // Sensible default values, but engines may choose to check more/less frequently than every 4096 nodes
+    fn should_stop(&self) -> bool
+    where
+        Self: Sized,
+    {
+        let state = self.search_state();
+        let limit = self.limit();
+        // Do the less expensive checks first to avoid querying the time in each node
+        // loads an atomic, so calling this function twice probably won't be optimized
+        let nodes = state.uci_nodes();
+        if nodes >= limit.nodes.get() || state.stop_flag() {
+            self.search_state().stop_search();
+            return true;
+        }
+        if nodes % DEFAULT_CHECK_TIME_INTERVAL != 0 {
+            return false;
+        }
+        if self.time_up(limit.tc, limit.fixed_time, self.search_state().start_time()) {
+            self.search_state().stop_search();
+            return true;
+        }
+        false
+    }
+
+    fn should_not_start_negamax(&self, soft_limit: Duration, max_soft_depth: isize, mate_depth: Depth) -> bool
+    where
+        Self: Sized,
+    {
+        let state = self.search_state();
+        state.start_time().elapsed() >= soft_limit
+            || state.depth().get() as isize > max_soft_depth
+            || state.best_score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT)
+    }
+}
+
 const DEFAULT_CHECK_TIME_INTERVAL: u64 = 2048;
 
 #[allow(type_alias_bounds)]
-pub type SearchStateFor<B: Board, E: Engine<B>> = SearchState<B, E::SearchStackEntry, E::CustomInfo>;
+pub type SearchStateFor<B: Board, E: NormalEngine<B>> = SearchState<B, E::SearchStackEntry, E::CustomInfo>;
 
 #[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg)]
 #[must_use]
@@ -574,6 +581,42 @@ impl<B: Board> SearchParams<B> {
             num_multi_pv: self.num_multi_pv,
         }
     }
+
+    /// this will block if
+    /// a) this is a main thread (i.e., it actually outputs), and
+    /// b) the search is an infinite search from `go infinite` but not `ponder`, and
+    /// c) the search hasn't been cancelled yet. It will wait until the search has been cancelled.
+    /// Auxiliary threads and ponder searches both return instantly from this function, without printing anything.
+    /// If the search result has chosen a null move, this instead outputs a warning and a random legal move.
+    fn send_search_res(&self, res: &SearchResult<B>) {
+        let Main(data) = &self.thread_type else {
+            return;
+        };
+        if self.atomic.suppress_best_move.load(Acquire) {
+            return;
+        }
+        if data.search_type == Infinite {
+            while !self.atomic.stop_flag() {
+                spin_loop();
+            }
+        }
+        let pos = &self.pos;
+        let mut output = data.output.lock().unwrap();
+        if res.chosen_move == B::Move::default() {
+            let mut rng = StdRng::seed_from_u64(42); // keep everything deterministic
+            let chosen_move = pos.random_legal_move(&mut rng).unwrap_or_default();
+            if chosen_move != B::Move::default() {
+                debug_assert!(pos.is_move_legal(chosen_move), "{} {pos}", chosen_move.compact_formatter(pos));
+                output.write_message(Warning, &format_args!("Engine did not return a best move, playing a random move instead"));
+                output.write_search_res(&SearchResult::<B>::move_only(chosen_move, pos.clone()));
+                return;
+            }
+            output.write_message(Warning, &format_args!("search() called in a position with no legal moves"));
+        }
+        debug_assert!(res.chosen_move == B::Move::default() || pos.is_move_legal(res.chosen_move));
+
+        output.write_search_res(res);
+    }
 }
 
 pub trait SearchStackEntry<B: Board>: Default + Clone + Debug {
@@ -645,8 +688,18 @@ pub trait AbstractSearchState<B: Board> {
     fn search_params(&self) -> &SearchParams<B>;
     fn to_bench_res(&self) -> BenchResult;
     fn to_search_info(&self) -> SearchInfo<B>;
-    fn aggregated_statistics(&self) -> &Statistics;
+    fn aggregated_statistics(&self) -> Statistics;
     fn send_search_info(&self);
+    fn send_non_ugi(&mut self, typ: Message, message: &fmt::Arguments) {
+        if let Some(mut output) = self.search_params().thread_type.output() {
+            output.write_message(typ, message);
+        }
+    }
+    fn send_ugi(&mut self, message: &fmt::Arguments) {
+        if let Some(mut output) = self.search_params().thread_type.output() {
+            output.write_ugi(message);
+        }
+    }
     /// Engine-specific info, like the contents of history tables.
     fn write_internal_info(&self) -> Option<String>;
 }
@@ -663,6 +716,19 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     last_msg_time: Instant,
     statistics: Statistics,
     aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
+}
+
+impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> Deref for SearchState<B, E, C> {
+    type Target = C;
+    fn deref(&self) -> &Self::Target {
+        &self.custom
+    }
+}
+
+impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> DerefMut for SearchState<B, E, C> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.custom
+    }
 }
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> for SearchState<B, E, C> {
@@ -708,7 +774,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         // smarter, and perform better on lichess when it's up against an opponent with pondering enabled.
         // However, don't do this if the engine is used for analysis.
         if num_moves == 1 && parameters.limit.is_only_time_based() {
-            parameters.limit.depth = Depth::new_unchecked(1);
+            parameters.limit.depth = Depth::new(1);
         }
         self.params = parameters;
         // it's possible that a stop command has already been received and handled, which means the stop flag
@@ -721,8 +787,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         self.aggregate_match_statistics();
         // might block, see method. Do this as the last step so that we're not using compute after sending
         // the search result.
-        self.send_search_res(res);
-        self.search_params_mut().atomic.set_searching(false);
+        self.params.send_search_res(res);
+        self.params.atomic.set_searching(false);
     }
 
     fn search_params(&self) -> &SearchParams<B> {
@@ -771,14 +837,13 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         }
     }
 
-    fn aggregated_statistics(&self) -> &Statistics {
-        &self.aggregated_statistics
+    fn aggregated_statistics(&self) -> Statistics {
+        self.aggregated_statistics.clone()
     }
 
     fn send_search_info(&self) {
         if let Some(mut output) = self.search_params().thread_type.output() {
-            let info = self.to_search_info();
-            output.write_search_info(info);
+            output.write_search_info(self.to_search_info());
         }
     }
 
@@ -844,12 +909,6 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         self.search_params().num_multi_pv
     }
 
-    fn send_non_ugi(&mut self, typ: Message, message: &fmt::Arguments) {
-        if let Some(mut output) = self.search_params().thread_type.output() {
-            output.write_message(typ, message);
-        }
-    }
-
     fn send_currmove(&mut self, mov: B::Move, move_nr: usize, score: Score, alpha: Score, beta: Score) {
         if let Some(mut output) = self.params.thread_type.output() {
             output.write_currmove(&self.params.pos, mov, move_nr, score, alpha, beta);
@@ -857,6 +916,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         }
     }
 
+    /// Marked as cold since it's turned off by default in non-interactive mode, and will be called very rarely even if enabled.
+    #[cold]
     fn send_currline(&mut self, ply: usize, eval: Score, alpha: Score, beta: Score) {
         if let Some(mut output) = self.params.thread_type.output() {
             if self.search_stack[0].last_played_move().is_none() {
@@ -866,43 +927,6 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             output.write_currline(&self.params.pos, line, eval, alpha, beta);
             self.last_msg_time = Instant::now();
         }
-    }
-
-    /// this will block if
-    /// a) this is a main thread (i.e., it actually outputs), and
-    /// b) the search is an infinite search from `go infinite` but not `ponder`, and
-    /// c) the search hasn't been cancelled yet. It will wait until the search has been cancelled.
-    /// Auxiliary threads and ponder searches both return instantly from this function, without printing anything.
-    /// If the search result has chosen a null move, this instead outputs a warning and a random legal move.
-    fn send_search_res(&mut self, res: &SearchResult<B>) {
-        let search_params = self.search_params();
-        let Main(data) = &search_params.thread_type else {
-            return;
-        };
-        if search_params.atomic.suppress_best_move.load(Acquire) {
-            return;
-        }
-        if data.search_type == Infinite {
-            while !self.search_params().atomic.stop_flag() {
-                spin_loop();
-            }
-        }
-        let pos = &self.search_params().pos;
-        let mut output = data.output.lock().unwrap();
-        if res.chosen_move == B::Move::default() {
-            let mut rng = StdRng::seed_from_u64(42); // keep everything deterministic
-            let chosen_move = pos.random_legal_move(&mut rng).unwrap_or_default();
-            if chosen_move != B::Move::default() {
-                debug_assert!(pos.is_move_legal(chosen_move), "{} {pos}", chosen_move.compact_formatter(pos));
-                output.write_message(Warning, &format_args!("Not even a single iteration finished"));
-                output.write_search_res(&SearchResult::<B>::move_only(chosen_move, pos.clone()));
-                return;
-            }
-            output.write_message(Warning, &format_args!("search() called in a position with no legal moves"));
-        }
-        debug_assert!(res.chosen_move == B::Move::default() || pos.is_move_legal(res.chosen_move));
-
-        output.write_search_res(res);
     }
 
     fn new(max_depth: Depth) -> Self {
@@ -984,9 +1008,11 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         // self.search_stack[0].pv doesn't have to be the same as `self.multi_pvs[self.current_pv_num].pv`
         // because it gets cleared when visiting the root,
         // and if the root never updates its PV (because it fails low or because the search is stopped), it will remain
-        // empty. On the other hand, it can get updated during search; the other one only updates after each aw.
-
-        self.search_stack.get(0).and_then(|e| e.pv()).unwrap_or_default()
+        // empty. On the other hand, it can get updated during search; this only updates after each aw.
+        self.search_stack
+            .get(0)
+            .and_then(|e| e.pv())
+            .unwrap_or_else(|| &self.multi_pvs[self.current_pv_num].pv.list.as_slice())
     }
 }
 
@@ -1019,7 +1045,7 @@ pub fn run_bench_with<B: Board>(
     }
     total.pv_score_hash = hasher.finish();
     if cfg!(feature = "statistics") {
-        eprintln!("{}", Summary::new(engine.search_state_dyn().aggregated_statistics()));
+        eprintln!("{}", Summary::new(&engine.search_state_dyn().aggregated_statistics()));
     }
     total
 }
@@ -1057,7 +1083,7 @@ mod tests {
         for p in B::bench_positions() {
             let res = engine.bench(p.clone(), SearchLimit::nodes_(1), tt.clone());
             assert!(res.depth.is_none());
-            assert!(res.max_depth.get() <= 1);
+            assert!(res.max_depth.get() <= 1 + 1); // possible extensions
             assert!(res.nodes <= 100); // TODO: Assert exactly 1
             let params =
                 SearchParams::new_unshared(p.clone(), SearchLimit::depth_(1), ZobristHistory::default(), tt.clone());

@@ -25,8 +25,8 @@ use crate::games::uttt::ColoredUtttPieceType::{OStone, XStone};
 use crate::games::uttt::UtttColor::{O, X};
 use crate::games::uttt::UtttPieceType::{Empty, Occupied};
 use crate::games::{
-    AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, GenericPiece, NoHistory,
-    PieceType, PosHash, Settings,
+    AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, GenericPiece, PieceType, PosHash,
+    Settings,
 };
 use crate::general::bitboards::{
     Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard,
@@ -37,9 +37,7 @@ use crate::general::board::{
     ply_counter_from_fullmove_nr, read_common_fen_part, simple_fen, Board, BoardHelpers, NameToPos, SelfChecks,
     Strictness, UnverifiedBoard,
 };
-use crate::general::common::{
-    ith_one_u128, ith_one_u64, parse_int, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
-};
+use crate::general::common::{ith_one_u128, ith_one_u64, parse_int, EntityList, Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
@@ -423,6 +421,7 @@ impl UtttBoard {
         bb & Self::BOARD_BB
     }
 
+    // TODO: Should already be handled in board.rs? (same for some other methods)
     pub fn occupied_bb(&self) -> ExtendedRawBitboard {
         Self::board_bb(self.colors_internal[0] | self.colors_internal[1])
     }
@@ -547,6 +546,16 @@ impl UtttBoard {
 
     pub fn is_open(self, square: UtttSquare) -> bool {
         self.open.is_bit_set_at(square.bb_idx())
+    }
+
+    pub fn last_move_won_game(&self) -> bool {
+        if self.last_move.is_null() {
+            false
+        } else {
+            let sq = self.last_move.dest_square().sub_board();
+            let bb = self.won_sub_boards(self.inactive_player());
+            Self::is_sub_board_won_at(bb, sq)
+        }
     }
 
     pub fn from_alternative_fen(fen: &str, strictness: Strictness) -> Res<Self> {
@@ -683,25 +692,13 @@ impl Board for UtttBoard {
         Self::default()
     }
 
-    fn name_to_pos_map() -> EntityList<NameToPos<Self>> {
+    fn name_to_pos_map() -> EntityList<NameToPos> {
         vec![
-            NameToPos {
-                name: "midgame",
-                val: || {
-                    Self::from_fen("o1o4x1/9/xox4x1/x2x5/4o4/o2x1o3/o2x1o3/1x1xo1ox1/oxx1o1ox1 o 14 h9", Strict)
-                        .unwrap()
-                },
-            },
-            GenericSelect {
-                name: "mate_in_6",
-                val: || {
-                    Self::from_fen(
-                        "oxoooxoxx/x2o2o1x/xox1x2x1/xxox2x1o/xox1oxo1o/o2x1o3/o2xoo3/1x1xo1ox1/oxx1o1ox1 o 25 g6",
-                        Strict,
-                    )
-                    .unwrap()
-                },
-            },
+            NameToPos::strict("midgame", "o1o4x1/9/xox4x1/x2x5/4o4/o2x1o3/o2x1o3/1x1xo1ox1/oxx1o1ox1 o 14 h9"),
+            NameToPos::strict(
+                "mate_in_6",
+                "oxoooxoxx/x2o2o1x/xox1x2x1/xxox2x1o/xox1oxo1o/o2x1o3/o2xoo3/1x1xo1ox1/oxx1o1ox1 o 25 g6",
+            ),
         ]
     }
 
@@ -752,11 +749,13 @@ impl Board for UtttBoard {
         Depth::new(4)
     }
 
+    fn cannot_call_movegen(&self) -> bool {
+        self.last_move_won_game()
+    }
+
+    // TODO: Testcase that it's impossible to lead a FEN where a player won the game
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
-        // don't assume that the board is empty in startpos to support different starting positions
-        if self.player_result_no_movegen(&NoHistory::default()) == Some(Lose) {
-            return;
-        }
+        debug_assert!(!self.last_move_won_game(), "{self}");
         if self.last_move != UtttMove::NULL {
             let sub_board = self.last_move.dest_square().sub_square();
             if self.is_sub_board_open(sub_board) {
@@ -781,10 +780,7 @@ impl Board for UtttBoard {
     }
 
     fn num_pseudolegal_moves(&self) -> usize {
-        // don't assume that the board is empty in startpos to support different starting positions
-        if self.player_result_no_movegen(&NoHistory::default()) == Some(Lose) {
-            return 0;
-        }
+        debug_assert!(!self.last_move_won_game());
         if self.last_move != UtttMove::NULL {
             let sub_board = self.last_move.dest_square().sub_square();
             if self.is_sub_board_open(sub_board) {
@@ -796,10 +792,7 @@ impl Board for UtttBoard {
     }
 
     fn random_legal_move<R: Rng>(&self, rng: &mut R) -> Option<Self::Move> {
-        // don't assume that the board is empty in startpos to support different starting positions
-        if self.player_result_no_movegen(&NoHistory::default()) == Some(Lose) {
-            return None;
-        }
+        debug_assert!(!self.last_move_won_game());
         if self.last_move != UtttMove::NULL {
             let sub_board = self.last_move.dest_square().sub_square();
             if self.is_sub_board_open(sub_board) {

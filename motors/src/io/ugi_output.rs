@@ -18,8 +18,8 @@
 
 // TODO: Keep this is a global object instead? Would make it easier to print warnings from anywhere, simplify search sender design
 
-use colored::Color::TrueColor;
-use colored::Colorize;
+use gears::colored::Color::TrueColor;
+use gears::colored::Colorize;
 use gears::colorgrad::{BasisGradient, Gradient, LinearGradient};
 use gears::games::CharType::Unicode;
 use gears::games::Color;
@@ -27,14 +27,14 @@ use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::{sigmoid, Tokens};
 use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::Move;
+use gears::itertools::Itertools;
 use gears::output::{Message, OutputBox, OutputOpts};
 use gears::score::{Score, SCORE_LOST, SCORE_WON};
 use gears::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
 use gears::search::NodeType::*;
 use gears::search::{Depth, MpvType, NodeType, NodesLimit, SearchInfo, SearchResult};
-use gears::{colorgrad, GameState};
+use gears::{colored, colorgrad, GameState};
 use indicatif::{ProgressBar, ProgressStyle};
-use itertools::Itertools;
 use std::io::stdout;
 use std::time::Duration;
 use std::{fmt, mem};
@@ -162,6 +162,8 @@ impl TypeErasedUgiOutput {
         assert!(self.pretty);
         let exact = info.bound == Some(Exact);
 
+        let important = mpv_type != SecondaryLine && exact;
+
         if mpv_type != SecondaryLine && self.previous_exact_info.as_ref().is_some_and(|i| i.depth != info.depth - 1) {
             self.previous_exact_info = None;
         }
@@ -176,13 +178,13 @@ impl TypeErasedUgiOutput {
         );
 
         let mut time = info.time.as_secs_f64();
-        let nodes = info.nodes.get() as f64 / 1_000_000.0;
+        let nodes = info.nodes.get();
         let diff_string = if let Some(prev) = &self.previous_exact_info {
-            write_with_suffix(info.nodes.get() - prev.nodes.get(), mpv_type == SecondaryLine)
+            write_with_suffix(info.nodes.get() - prev.nodes.get(), !important)
         } else {
             " ".repeat(8)
         };
-        let nps = nodes / time;
+        let nps = nodes as f64 / 1_000_000.0 / time;
         let nps_color = self.alt_grad.at(nps as f32 / 4.0);
         let [r, g, b, _] = nps_color.to_rgba8();
         let nps = format!("{nps:5.2}").color(TrueColor { r, g, b }).dimmed();
@@ -194,7 +196,7 @@ impl TypeErasedUgiOutput {
             in_seconds = false;
         }
         let time = format!("{time:5.1}").color(TrueColor { r, g, b });
-        let nodes = format!("{nodes:6.1}");
+        let nodes = format!("{nodes:12}");
 
         let mut multipv =
             if mpv_type == OnlyLine { "    ".to_string() } else { format!("{:>4}", format!("({})", info.pv_num + 1)) };
@@ -221,7 +223,7 @@ impl TypeErasedUgiOutput {
         let tt = format!("{:5.1}", info.hashfull as f64 / 10.0).to_string().color(TrueColor { r, g, b }).dimmed();
         let branching = format!("{:>6.2}", info.effective_branching_factor()).dimmed();
         format!(
-            " {iter}{complete} {seldepth:>3} {multipv} {score:>8}  {time}{s}  {nodes}{M}{diff_string}  {nps}{M}  {branching} {tt}{p}  {pv}",
+            " {iter}{complete} {seldepth:>3} {multipv} {score:>8}  {time}{s}{nodes}{diff_string}  {nps}{M}  {branching} {tt}{p}  {pv}",
             s = if in_seconds { "s" } else { "m" }.dimmed(),
             M = "M".dimmed(),
             p = "%".dimmed(),

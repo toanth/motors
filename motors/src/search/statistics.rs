@@ -3,9 +3,9 @@ use crate::search::statistics::NodeCounterType::{Begun, Completed};
 use crate::search::statistics::SearchCounter::*;
 use crate::search::statistics::SearchType::*;
 use derive_more::Display;
-use gears::search::NodeType;
 #[allow(unused_imports)]
-use itertools::Itertools;
+use gears::itertools::Itertools;
+use gears::search::NodeType;
 use std::fmt::Formatter;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;

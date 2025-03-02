@@ -22,15 +22,17 @@ use crate::games::fairy::pieces::{Piece, PieceId};
 use crate::games::fairy::rules::GameLoss::InRowAtLeast;
 use crate::games::fairy::rules::NumRoyals::Exactly;
 use crate::games::fairy::{
-    ColorInfo, FairyBitboard, FairyCastleInfo, FairyColor, FairySize, RawFairyBitboard, UnverifiedFairyBoard,
-    MAX_NUM_PIECE_TYPES,
+    ColorInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairySize, RawFairyBitboard,
+    UnverifiedFairyBoard, MAX_NUM_PIECE_TYPES,
 };
 use crate::games::mnk::{MNKBoard, MnkSettings};
-use crate::games::{chess, DimT, PosHash, Settings};
-use crate::general::bitboards::Bitboard;
-use crate::general::board::{Board, BoardHelpers};
+use crate::games::{chess, n_fold_repetition, BoardHistory, DimT, PosHash, Settings};
+use crate::general::bitboards::{Bitboard, RawBitboard};
+use crate::general::board::{BitboardBoard, Board, BoardHelpers};
 use crate::general::common::{Res, Tokens};
+use crate::general::moves::Move;
 use crate::general::squares::GridSize;
+use crate::PlayerResult;
 use arbitrary::Arbitrary;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
@@ -60,12 +62,75 @@ pub enum GameLoss {
     InRowAtLeast(usize),
 }
 
+impl GameLoss {
+    // can also return a Some(PlayerResult::Draw)
+    pub(super) fn check_no_movegen(&self, pos: &FairyBoard) -> Option<PlayerResult> {
+        let us = pos.active_player();
+        let loss = match self {
+            GameLoss::NoRoyals => pos.royal_bb_for(us).is_zero(),
+            GameLoss::NoPieces => pos.active_player_bb().is_zero(),
+            GameLoss::Checkmate => false,
+            GameLoss::NoNonRoyals => (pos.active_player_bb() & !pos.royal_bb()).is_zero(),
+            GameLoss::NoNonRoyalsExceptRecapture => {
+                let has_nonroyals = (pos.active_player_bb() & !pos.royal_bb()).has_set_bit();
+                if has_nonroyals {
+                    false
+                } else {
+                    let their_nonroyals = pos.inactive_player_bb() & !pos.royal_bb();
+                    if their_nonroyals.num_ones() > 1 {
+                        true
+                    } else {
+                        let capturable = their_nonroyals & !pos.capturing_attack_bb_of(us);
+                        return if capturable.has_set_bit() {
+                            Some(PlayerResult::Lose)
+                        } else {
+                            Some(PlayerResult::Draw)
+                        };
+                    }
+                }
+            }
+            GameLoss::NoMoves => false, // will be dealt with in `no_moves_result()`
+            &GameLoss::InRowAtLeast(k) => {
+                let mut res = false;
+                if pos.0.last_move.is_null() {
+                    for sq in pos.inactive_player_bb().ones() {
+                        res |= pos.k_in_row_at(k, sq, !us);
+                    }
+                    res
+                } else {
+                    let sq = pos.0.last_move.dest_square_in(pos);
+                    pos.k_in_row_at(k, sq, !us)
+                }
+            }
+        };
+        if loss {
+            Some(PlayerResult::Lose)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
 #[must_use]
 pub enum Draw {
     NoMoves,
     Counter(usize),
     Repetition(usize),
+}
+
+impl Draw {
+    pub fn check_no_movegen<H: BoardHistory>(self, pos: &FairyBoard, history: &H) -> Option<PlayerResult> {
+        if match self {
+            Draw::Counter(max) => pos.0.draw_counter >= max,
+            Draw::Repetition(max) => n_fold_repetition(max, history, pos.hash_pos(), usize::MAX),
+            Draw::NoMoves => false,
+        } {
+            Some(PlayerResult::Draw)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Arbitrary)]
@@ -304,7 +369,7 @@ impl Rules {
             size,
             has_ep: false,
             has_castling: false,
-            store_last_move: false,
+            store_last_move: true,
             effect_rules: EffectRules::default(),
             check_rules: CheckRules::default(),
             name: "mnk".to_string(),

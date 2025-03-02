@@ -19,16 +19,19 @@ use crate::io::autocomplete::AutoCompleteState;
 use crate::io::command::Standard::*;
 use crate::io::SearchType::{Bench, Normal, Perft, Ponder, SplitPerft};
 use crate::io::{AbstractEngineUgi, EngineUGI, SearchType};
-use colored::Colorize;
 use gears::arrayvec::ArrayVec;
 use gears::cli::Game;
+use gears::colored::Colorize;
 use gears::games::CharType::{Ascii, Unicode};
 use gears::games::{AbstractPieceType, Color, ColoredPiece, Size};
 use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness};
 use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{parse_duration_ms, parse_int, parse_int_from_str, Name, NamedEntity, Res, Tokens};
+use gears::general::common::{
+    parse_duration_ms, parse_int, parse_int_from_str, tokens, Name, NamedEntity, Res, Tokens,
+};
 use gears::general::move_list::MoveList;
 use gears::general::moves::{ExtendedFormat, Move};
+use gears::itertools::Itertools;
 use gears::output::Message::Warning;
 use gears::output::OutputOpts;
 use gears::search::{Depth, NodesLimit, SearchLimit};
@@ -37,7 +40,6 @@ use gears::GameResult;
 use gears::MatchStatus::{Ongoing, Over};
 use gears::ProgramStatus::Run;
 use gears::Quitting::{QuitMatch, QuitProgram};
-use itertools::Itertools;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Duration;
@@ -326,6 +328,8 @@ pub fn ugi_commands() -> CommandList {
             |ugi, words, _| ugi.handle_set_eval(words),
             --> |state| state.set_eval_subcmds()
         ),
+        command!(wait, Custom, "Wait until the current search is done before executing commands", |ugi, words, _| ugi
+            .handle_wait(words)),
         command!(load_pgn | pgn, Custom, "Loads a PGN from a given file, or opens a text editor", |ugi, words, _| {
             ugi.load_pgn(words)
         }),
@@ -432,6 +436,7 @@ pub trait AbstractGoState: Debug {
     fn get_mut(&mut self) -> &mut GenericGoState;
     fn load_pos(&mut self, name: &str, words: &mut Tokens, allow_partial: bool) -> Res<()>;
     fn set_search_type(&mut self, search_type: SearchType, depth_words: Option<&mut Tokens>) -> Res<()>;
+    fn set_engine(&mut self, words: &mut Tokens) -> Res<()>;
 }
 
 impl<B: Board> AbstractGoState for GoState<B> {
@@ -486,6 +491,15 @@ impl<B: Board> AbstractGoState for GoState<B> {
         }
         Ok(())
     }
+
+    fn set_engine(&mut self, words: &mut Tokens) -> Res<()> {
+        let Some(engine_name) = words.peek() else {
+            bail!("Expected engine name after 'engine' go option");
+        };
+        self.generic.engine_name = Some(engine_name.to_string());
+        _ = words.next();
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -506,6 +520,7 @@ pub struct GenericGoState {
     pub move_overhead: Duration,
     pub strictness: Strictness,
     pub override_hash_size: Option<usize>,
+    pub engine_name: Option<String>,
 }
 
 impl<B: Board> GoState<B> {
@@ -537,6 +552,7 @@ impl<B: Board> GoState<B> {
                 move_overhead,
                 strictness,
                 override_hash_size: None,
+                engine_name: None,
             },
             search_moves: None,
             pos,
@@ -698,6 +714,18 @@ pub(super) fn go_options_impl(
                 Custom,
                 "Search test: Print info about nodes, nps, and hash of search",
                 |state, words, _| state.go_state_mut().set_search_type(Bench, Some(words))
+            ),
+            command!(
+                prove | proof | pr,
+                Custom,
+                "Do a proof number search to find a forced win, similar to using 'engine proof'", // TODO: Support 'prove loss' and 'proof draw'
+                |state, _, _| state.go_state_mut().set_engine(&mut tokens("proof"))
+            ),
+            command!(
+                engine | eng | e,
+                Custom,
+                "Use the given engine without modifying the current engine's state",
+                |state, words, _| state.go_state_mut().set_engine(words)
             ),
         ];
         res.append(&mut additional);

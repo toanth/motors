@@ -4,11 +4,9 @@ use crate::search::multithreading::EngineReceives::*;
 use crate::search::multithreading::SearchThreadType::{Auxiliary, Main};
 use crate::search::multithreading::SearchType::{Infinite, Normal, Ponder};
 use crate::search::tt::{TTEntry, TT};
-use crate::search::{
-    AbstractEvalBuilder, AbstractSearchState, AbstractSearcherBuilder, Engine, EngineInfo, SearchParams,
-};
-use colored::Colorize;
-use dyn_clone::clone_box;
+use crate::search::{AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EngineInfo, SearchParams};
+use gears::colored::Colorize;
+use gears::dyn_clone::clone_box;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
@@ -183,11 +181,11 @@ impl<B: Board> AtomicSearchState<B> {
     }
 
     pub fn depth(&self) -> Depth {
-        Depth::new_unchecked(self.depth.load(Relaxed) as usize)
+        Depth::new(self.depth.load(Relaxed) as usize)
     }
 
     pub fn seldepth(&self) -> Depth {
-        Depth::new_unchecked(self.seldepth.load(Relaxed))
+        Depth::new(self.seldepth.load(Relaxed))
     }
 
     pub fn score(&self) -> Score {
@@ -215,10 +213,10 @@ impl<B: Board> AtomicSearchState<B> {
         self.should_stop.store(val, Release)
     }
 
-    pub(super) fn count_node(&self) {
+    pub(super) fn count_node(&self) -> u64 {
         // TODO: Test if using a relaxed load, non-atomic add, and relaxed store is faster
         // (should compile to `add` instead of `lock add` on x86)
-        _ = self.nodes.fetch_add(1, Relaxed);
+        self.nodes.fetch_add(1, Relaxed)
     }
 
     pub(super) fn set_depth(&self, depth: isize) {
@@ -260,7 +258,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
     }
 
     fn write_error(&mut self, msg: &fmt::Arguments) {
-        self.engine.search_state_mut().send_non_ugi(Error, msg);
+        self.engine.search_state_mut_dyn().send_non_ugi(Error, msg);
         eprintln!("Engine thread encountered an error: '{msg}'");
     }
 
@@ -292,7 +290,7 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
             }
             SetEval(eval) => self.engine.set_eval(eval),
             Print(engine_info) => {
-                let state_info = self.engine.search_state().write_internal_info();
+                let state_info = self.engine.search_state_dyn().write_internal_info();
                 let info = state_info.unwrap_or_else(|| {
                     format!(
                         "The engine {} doesn't support printing internal engine information.",

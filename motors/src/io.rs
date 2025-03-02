@@ -37,9 +37,9 @@ use crate::search::multithreading::EngineWrapper;
 use crate::search::tt::{TTEntry, DEFAULT_HASH_SIZE_MB, TT};
 use crate::search::{run_bench_with, EvalList, SearchParams, SearcherList};
 use crate::{create_engine_box_from_str, create_engine_from_str, create_eval_from_str, create_match};
-use colored::Color::Red;
-use colored::Colorize;
 use gears::cli::select_game;
+use gears::colored::Color::Red;
+use gears::colored::Colorize;
 use gears::games::{CharType, Color, ColoredPiece, ColoredPieceType, OutputList, ZobristHistory};
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, UnverifiedBoard};
@@ -53,11 +53,13 @@ use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
 use gears::general::perft::{parallel_perft_for, split_perft};
+use gears::itertools::Itertools;
 use gears::output::logger::LoggerBuilder;
 use gears::output::pgn::parse_pgn;
 use gears::output::text_output::{display_color, AdaptFormatter};
 use gears::output::Message::*;
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
+use gears::score::Score;
 use gears::search::{Depth, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
@@ -69,7 +71,6 @@ use gears::{
     output_builder_from_str, AbstractRun, GameState, MatchState, MatchStatus, PlayerResult, ProgramStatus, Quitting,
     UgiPosState,
 };
-use itertools::Itertools;
 use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::ops::{Deref, DerefMut};
@@ -129,11 +130,21 @@ struct EngineGameState<B: Board> {
     debug_mode: bool,
     ponder_limit: Option<SearchLimit>,
     engine: EngineWrapper<B>,
+    /// The `go` command can take an engine option, which starts a search with the given engine without changing the normal engine.
+    /// This temporary engine is largely ignored for most functionality, and at most one engine is allowed to search at the same time.
+    temp_engine: Option<EngineWrapper<B>>,
     /// This doesn't have to be the UGI engine name. It often isn't, especially when two engines with
     /// the same name play against each other, such as in a SPRT. It should be unique, however
     /// (the `monitors` client ensures that, but another GUI might not).
     display_name: String,
     opponent_name: Option<String>,
+}
+
+impl<B: Board> EngineGameState<B> {
+    fn is_currently_searching(&self) -> bool {
+        self.engine.main_atomic_search_data().currently_searching()
+            || self.temp_engine.as_ref().is_some_and(|e| e.main_atomic_search_data().currently_searching())
+    }
 }
 
 impl<B: Board> Deref for EngineGameState<B> {
@@ -287,6 +298,7 @@ impl<B: Board> EngineUGI<B> {
             debug_mode: opts.debug,
             ponder_limit: None,
             engine,
+            temp_engine: None,
             display_name,
             opponent_name: None,
         };
@@ -612,12 +624,20 @@ impl<B: Board> EngineUGI<B> {
         let mut name = String::default();
         loop {
             let next_word = words.next().unwrap_or_default();
-            if next_word.eq_ignore_ascii_case("value") || next_word.is_empty() {
+            if next_word.is_empty() {
+                // input didn't contain 'value', so assume the first token is the name and the rest is the value
+                let mut words = tokens(&name);
+                let name = words.next().unwrap_or_default();
+                let value = words.join(" ");
+                let name = EngineOptionName::from_str(name.trim()).unwrap();
+                return self.set_option(name, value);
+            }
+            if next_word.eq_ignore_ascii_case("value") {
                 break;
             }
             name = name + " " + next_word;
         }
-        let mut value = words.next().unwrap_or_default().to_string();
+        let mut value = words.next().unwrap().to_string();
         loop {
             let next_word = words.next().unwrap_or_default();
             if next_word.is_empty() {
@@ -719,30 +739,39 @@ impl<B: Board> EngineUGI<B> {
         }
         self.state.set_status(Run(Ongoing));
         let search_moves = self.state.go_state.search_moves.take();
+        // Stop the temporary search, if it exists. This could take some time, but that's fine since there won't be a temporary engine
+        // unless the user specifically requested it.
+        self.state.temp_engine = None;
+        let engine = if let Some(name) = &opts.engine_name {
+            let temp_engine = create_engine_from_str(
+                name,
+                &self.searcher_factories,
+                &self.eval_factories,
+                self.output.clone(),
+                tt.clone().unwrap_or_default(), // use default (i.e small) TT size to avoid using too much memory by mistake
+            )?;
+            self.state.temp_engine = Some(temp_engine);
+            self.state.temp_engine.as_mut().unwrap()
+        } else {
+            &mut self.state.engine
+        };
         match opts.search_type {
             // this keeps the current history even if we're searching a different position, but that's probably not a problem
             // and doing a normal search from a custom position isn't even implemented at the moment -- TODO: implement?
             Normal => {
                 // It doesn't matter if we got a ponderhit or a miss, we simply abort the ponder search and start a new search.
-                if self.state.ponder_limit.is_some() {
+                if opts.engine_name.is_none() && self.state.ponder_limit.is_some() {
                     self.state.ponder_limit = None;
                     // TODO: Maybe do this all the time to make sure two `go` commands after another work -- write testcase for that
-                    self.state.engine.send_stop(true); // aborts the pondering without printing a search result
+                    engine.send_stop(true); // aborts the pondering without printing a search result
                 }
-                self.state.engine.start_search(
-                    pos,
-                    opts.limit,
-                    hist,
-                    search_moves,
-                    opts.multi_pv,
-                    false,
-                    opts.threads,
-                    tt,
-                )?;
+                engine.start_search(pos, opts.limit, hist, search_moves, opts.multi_pv, false, opts.threads, tt)?;
             }
             SearchType::Ponder => {
-                self.state.ponder_limit = Some(opts.limit);
-                self.state.engine.start_search(
+                if opts.engine_name.is_none() {
+                    self.state.ponder_limit = Some(opts.limit);
+                }
+                engine.start_search(
                     pos,
                     SearchLimit::infinite(), //always allocate infinite time for pondering
                     hist,
@@ -788,9 +817,16 @@ impl<B: Board> EngineUGI<B> {
             if let Some(eval_name) = info.eval() {
                 let mut eval = create_eval_from_str(&eval_name.short_name(), &self.eval_factories)?.build();
                 let eval_score = eval.eval(&state.board, 0);
-                let diagram = show_eval_pos(&state.board, state.last_move(), eval);
-                diagram
-                    + &format!("Eval Score: {}\n", pretty_score(eval_score, None, None, &score_gradient(), true, false))
+                if self.is_interactive() {
+                    let diagram = show_eval_pos(&state.board, state.last_move(), eval);
+                    diagram
+                        + &format!(
+                            "Eval Score: {}\n",
+                            pretty_score(eval_score, None, None, &score_gradient(), true, false)
+                        )
+                } else {
+                    eval_score.0.to_string()
+                }
             } else {
                 format!("The engine '{}' doesn't have an eval function", info.short_name().bold())
             }
@@ -1245,6 +1281,8 @@ trait AbstractEngineUgi: Debug {
 
     fn handle_query(&mut self, words: &mut Tokens) -> Res<()>;
 
+    fn handle_wait(&mut self, words: &mut Tokens) -> Res<()>;
+
     fn handle_play(&mut self, words: &mut Tokens) -> Res<()>;
 
     fn handle_assist(&mut self, words: &mut Tokens) -> Res<()>;
@@ -1318,7 +1356,6 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         self.write_ugi(&format_args!("{proto}ok"));
         self.state.protocol = Protocol::from_str(proto).unwrap();
         self.output().set_pretty(self.state.protocol == Interactive);
-        self.output().show_currline = false; // set here so that interactive mode shows it by default
         Ok(())
     }
 
@@ -1345,6 +1382,9 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
 
     fn handle_stop(&mut self, suppress_best_move: bool) -> Res<()> {
         self.state.engine.send_stop(suppress_best_move);
+        if let Some(tmp) = &mut self.state.temp_engine {
+            tmp.send_stop(suppress_best_move);
+        }
         Ok(())
     }
 
@@ -1427,6 +1467,21 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
 
     fn handle_query(&mut self, words: &mut Tokens) -> Res<()> {
         self.handle_query_impl(words)
+    }
+
+    fn handle_wait(&mut self, words: &mut Tokens) -> Res<()> {
+        let mut max_duration = Duration::MAX;
+        if let Some(token) = words.next() {
+            max_duration = Duration::from_millis(parse_int_from_str(token, "duration in ms")?);
+        }
+        let start = Instant::now();
+        while self.state.is_currently_searching() {
+            sleep(Duration::from_millis(100));
+            if start.elapsed() >= max_duration {
+                break;
+            }
+        }
+        Ok(())
     }
 
     fn handle_play(&mut self, words: &mut Tokens) -> Res<()> {
@@ -1646,11 +1701,13 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
     let move_string =
         if let Some(mov) = mov { mov.to_extended_text(pos, Standard).bold().to_string() } else { "<none>".to_string() };
     let bound_str = entry.bound().comparison_str(false).bold().to_string();
+    let score = Score::from_compact(entry.score);
     write!(
         &mut res,
-        "\nScore: {bound_str}{0} ({1}), Depth: {2}, Best Move: {3}",
-        pretty_score(entry.score, None, None, &score_gradient(), true, false),
+        "\nScore: {bound_str}{0} ({1}), Raw Eval: {2}, Depth: {3}, Best Move: {4}",
+        pretty_score(score, None, None, &score_gradient(), true, false),
         entry.bound(),
+        pretty_score(entry.raw_eval(), None, None, &score_gradient(), true, false),
         entry.depth.to_string().bold(),
         move_string,
     )

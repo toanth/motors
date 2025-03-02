@@ -312,6 +312,7 @@ pub fn parse_ugi_position_and_moves<B: Board>(
     strictness: Strictness,
     state: &mut dyn ParseUgiPosState<B>,
 ) -> Res<()> {
+    let input_copy = rest.clone();
     let pos = parse_ugi_position_part(first_word, rest, accept_pos_word, state.initial(), strictness);
     // don't reset the position if all we got was moves
     // (i.e. 'p mv e4' allows going back to a position before the current position, unlike `p c mv e4`)
@@ -334,7 +335,9 @@ pub fn parse_ugi_position_and_moves<B: Board>(
         let Ok(first_move) = B::Move::from_text(first_move_word, state.pos()) else {
             match pos {
                 Ok(_) => return Ok(()),
-                Err(err) => bail!("'{}' is not a valid position or move: {err}", first_word.red()),
+                Err(err) => {
+                    bail!("'{}' is not a valid position or move: {err}", tokens_to_string(first_word, input_copy).red())
+                }
             }
         };
         parsed_move = true;

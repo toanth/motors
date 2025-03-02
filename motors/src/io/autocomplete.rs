@@ -22,23 +22,23 @@ use crate::io::command::{
 use crate::io::SearchType::Normal;
 use crate::io::{AbstractEngineUgi, EngineUGI, SearchType};
 use crate::search::{AbstractEvalBuilder, AbstractSearcherBuilder, EvalList, SearcherList};
-use colored::Colorize;
 use edit_distance::edit_distance;
+use gears::colored::Colorize;
 use gears::games::OutputList;
 use gears::general::board::Board;
 use gears::general::common::anyhow::anyhow;
 use gears::general::common::{tokens, Name, NamedEntity, Res, Tokens};
 use gears::general::moves::Move;
+use gears::itertools::Itertools;
 use gears::output::{Message, OutputBuilder, OutputOpts};
+use gears::rand::prelude::IndexedRandom;
+use gears::rand::{rng, Rng};
 use gears::ugi::EngineOption;
 use gears::MatchStatus::Ongoing;
 use gears::ProgramStatus::Run;
 use gears::{ProgramStatus, Quitting};
 use inquire::autocompletion::Replacement;
 use inquire::{Autocomplete, CustomUserError};
-use itertools::Itertools;
-use rand::prelude::IndexedRandom;
-use rand::{rng, Rng};
 use std::fmt;
 use std::fmt::Debug;
 use std::iter::once;
@@ -172,7 +172,6 @@ impl<B: Board> AbstractEngineUgi for ACState<B> {
     fn go_state_mut(&mut self) -> &mut dyn AbstractGoState {
         &mut self.go_state
     }
-
     fn load_go_state_pos(&mut self, name: &str, words: &mut Tokens) -> Res<()> {
         self.go_state.load_pos(name, words, true)
     }
@@ -235,30 +234,27 @@ impl<B: Board> AbstractEngineUgi for ACState<B> {
     fn handle_query(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
+    fn handle_wait(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
     fn handle_play(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-
     fn handle_assist(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-
     fn handle_undo(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-
     fn handle_gb(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-
     fn handle_place_piece(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-
     fn handle_remove_piece(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-
     fn handle_move_piece(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
