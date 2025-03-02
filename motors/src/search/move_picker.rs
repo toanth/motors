@@ -3,7 +3,6 @@ use crate::search::{Engine, MoveScore, MoveScorer, SearchStateFor};
 use gears::arrayvec::{ArrayVec, IntoIter};
 use gears::general::board::Board;
 use gears::general::move_list::MoveList;
-use gears::general::moves::Move;
 use gears::itertools::Itertools;
 
 #[expect(type_alias_bounds)]
@@ -91,7 +90,7 @@ impl<B: Board, const MAX_LEN: usize> MovePicker<B, MAX_LEN> {
     /// Assumes that better moves have a *higher* score.
     pub fn new(pos: B, best: B::Move, tactical_only: bool) -> Self {
         // TODO: Test always playing the TT move in qsearch, even if not tactical
-        let state = if pos.is_move_pseudolegal(best) && (!tactical_only || best.is_tactical(&pos)) {
+        let state = if pos.is_move_pseudolegal(best) {
             TTMove
         } else {
             BeginList
