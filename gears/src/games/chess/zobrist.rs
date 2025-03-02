@@ -1,7 +1,7 @@
+use crate::games::chess::ChessColor::Black;
 use crate::games::chess::pieces::ChessPieceType::Pawn;
 use crate::games::chess::pieces::{ChessPieceType, NUM_COLORS};
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
-use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard, Hashes};
 use crate::games::{Color, PosHash};
 use crate::general::bitboards::Bitboard;
@@ -38,7 +38,7 @@ impl PcgXslRr128_64Oneseq {
     }
 
     // const mut refs aren't stable yet, so returning the new state is a workaround
-    const fn gen(mut self) -> (Self, PosHash) {
+    const fn generate(mut self) -> (Self, PosHash) {
         self.0 = self.0.wrapping_mul(MUTLIPLIER);
         self.0 = self.0.wrapping_add(INCREMENT);
         let upper = (self.0 >> 64) as u64;
@@ -58,23 +58,23 @@ pub const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
             side_to_move_key: PosHash(0),
         }
     };
-    let mut gen = PcgXslRr128_64Oneseq::new(0x42);
+    let mut generator = PcgXslRr128_64Oneseq::new(0x42);
     let mut i = 0;
     while i < NUM_COLORED_PIECE_SQUARE_ENTRIES {
-        (gen, res.piece_square_keys[i]) = gen.gen();
+        (generator, res.piece_square_keys[i]) = generator.generate();
         i += 1;
     }
     let mut i = 0;
     while i < res.castle_keys.len() {
-        (gen, res.castle_keys[i]) = gen.gen();
+        (generator, res.castle_keys[i]) = generator.generate();
         i += 1;
     }
     let mut i = 0;
     while i < NUM_COLUMNS {
-        (gen, res.ep_file_keys[i]) = gen.gen();
+        (generator, res.ep_file_keys[i]) = generator.generate();
         i += 1;
     }
-    (_, res.side_to_move_key) = gen.gen();
+    (_, res.side_to_move_key) = generator.generate();
     res
 };
 
@@ -116,6 +116,7 @@ impl Chessboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::games::chess::ChessColor::White;
     use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
     use crate::games::chess::pieces::ChessPieceType::*;
     use crate::games::chess::squares::{D_FILE_NO, E_FILE_NO};
@@ -126,14 +127,14 @@ mod tests {
 
     #[test]
     fn pcg_test() {
-        let gen = PcgXslRr128_64Oneseq::new(42);
-        assert_eq!(gen.0 >> 64, 1_610_214_578_838_163_691);
-        assert_eq!(gen.0 & ((1 << 64) - 1), 13_841_303_961_814_150_380);
-        let (gen, rand) = gen.gen();
+        let generator = PcgXslRr128_64Oneseq::new(42);
+        assert_eq!(generator.0 >> 64, 1_610_214_578_838_163_691);
+        assert_eq!(generator.0 & ((1 << 64) - 1), 13_841_303_961_814_150_380);
+        let (generator, rand) = generator.generate();
         assert_eq!(rand.0, 2_915_081_201_720_324_186);
-        let (gen, rand) = gen.gen();
+        let (generator, rand) = generator.generate();
         assert_eq!(rand.0, 13_533_757_442_135_995_717);
-        let (_gen, rand) = gen.gen();
+        let (_gen, rand) = generator.generate();
         assert_eq!(rand.0, 13_172_715_927_431_628_928);
     }
 

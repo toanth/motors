@@ -14,16 +14,16 @@ pub struct BasicMnkEval {}
 
 fn eval_player(bb: MnkBitboard) -> ScoreT {
     let blockers = !bb;
-    let gen = BitReverseSliderGenerator::new(blockers, None);
+    let generator = BitReverseSliderGenerator::new(blockers, None);
     let mut res = 0;
     for coords in bb.ones() {
-        let run = gen.vertical_attacks(coords).count_ones();
+        let run = generator.vertical_attacks(coords).count_ones();
         res += 1 << run;
-        let run = gen.horizontal_attacks(coords).count_ones();
+        let run = generator.horizontal_attacks(coords).count_ones();
         res += 1 << run;
-        let run = gen.diagonal_attacks(coords).count_ones();
+        let run = generator.diagonal_attacks(coords).count_ones();
         res += 1 << run;
-        let run = gen.anti_diagonal_attacks(coords).count_ones();
+        let run = generator.anti_diagonal_attacks(coords).count_ones();
         res += 1 << run;
     }
     res

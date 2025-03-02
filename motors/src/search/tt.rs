@@ -1,11 +1,11 @@
-use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T1};
+use std::arch::x86_64::{_MM_HINT_T1, _mm_prefetch};
 use std::fmt::{Display, Formatter};
 use std::mem::size_of;
 #[cfg(feature = "unsafe")]
 use std::mem::transmute_copy;
 use std::ptr::addr_of;
-use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
+use std::sync::atomic::Ordering::Relaxed;
 
 use portable_atomic::AtomicU128;
 use rayon::prelude::IntoParallelRefMutIterator;
@@ -13,14 +13,14 @@ use rayon::prelude::ParallelIterator;
 use static_assertions::const_assert_eq;
 use strum_macros::FromRepr;
 
+use OptionalNodeType::*;
+use gears::games::PosHash;
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
-use gears::games::PosHash;
 use gears::general::board::Board;
 use gears::general::moves::{Move, UntrustedMove};
-use gears::score::{CompactScoreT, Score, ScoreT, SCORE_WON};
+use gears::score::{CompactScoreT, SCORE_WON, Score, ScoreT};
 use gears::search::NodeType;
-use OptionalNodeType::*;
 
 type AtomicTTEntry = AtomicU128;
 
@@ -55,7 +55,7 @@ where
 }
 
 impl<B: Board> TTEntry<B> {
-    pub fn new(hash: PosHash, score: Score,eval: Score, mov: B::Move, depth: isize, bound: NodeType) -> TTEntry<B> {
+    pub fn new(hash: PosHash, score: Score, eval: Score, mov: B::Move, depth: isize, bound: NodeType) -> TTEntry<B> {
         let depth = depth.clamp(0, u8::MAX as isize) as u8;
         Self {
             score: score.compact(),
@@ -127,7 +127,7 @@ impl<B: Board> TTEntry<B> {
         let mov = B::Move::from_u64_unchecked(((val >> 16) & 0xffff) as u64);
         let depth = ((val >> 8) & 0xff) as u8;
         let bound = OptionalNodeType::from_repr((val & 0xff) as u8).unwrap();
-        Self { hash, score,eval, mov, depth, bound }
+        Self { hash, score, eval, mov, depth, bound }
     }
 }
 #[cfg(feature = "chess")]
@@ -204,11 +204,7 @@ impl TT {
             .take(len)
             .filter(|e: &&AtomicTTEntry| TTEntry::<B>::unpack(e.load(Relaxed)).bound != Empty)
             .count();
-        if len < 1000 {
-            (num_used as f64 * 1000.0 / len as f64).round() as usize
-        } else {
-            num_used
-        }
+        if len < 1000 { (num_used as f64 * 1000.0 / len as f64).round() as usize } else { num_used }
     }
 
     fn index_of(&self, hash: PosHash) -> usize {
@@ -217,11 +213,7 @@ impl TT {
     }
 
     pub(super) fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {
-        debug_assert!(
-            entry.score().abs() + ply as ScoreT <= SCORE_WON,
-            "score {score} ply {ply}",
-            score = entry.score
-        );
+        debug_assert!(entry.score().abs() + ply as ScoreT <= SCORE_WON, "score {score} ply {ply}", score = entry.score);
         let idx = self.index_of(entry.hash);
         // Mate score adjustments: For the current search, we want to penalize later mates to prefer earlier ones,
         // where "later" means being found at greater depth (usually called the `ply` parameter in the search function).
@@ -255,11 +247,7 @@ impl TT {
             }
         }
         debug_assert!(entry.score().0.abs() <= SCORE_WON.0);
-        if entry.hash != hash || entry.bound == Empty {
-            None
-        } else {
-            Some(entry)
-        }
+        if entry.hash != hash || entry.bound == Empty { None } else { Some(entry) }
     }
 
     #[inline(always)]
@@ -279,11 +267,11 @@ mod test {
     use crate::search::chess::caps::Caps;
     use crate::search::multithreading::AtomicSearchState;
     use crate::search::{Engine, NormalEngine, SearchParams};
-    use gears::games::chess::moves::ChessMove;
     use gears::games::ZobristHistory;
+    use gears::games::chess::moves::ChessMove;
     use gears::general::board::BoardHelpers;
     use gears::rand::distr::Uniform;
-    use gears::rand::{rng, Rng, RngCore};
+    use gears::rand::{Rng, RngCore, rng};
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
     use gears::search::NodeType::Exact;
     use gears::search::{Depth, SearchLimit};
@@ -322,9 +310,14 @@ mod test {
                 let score = Score(rng().sample(Uniform::new(MIN_NORMAL_SCORE.0, MAX_NORMAL_SCORE.0).unwrap()));
                 let depth = rng().sample(Uniform::new(1, 100).unwrap());
                 let bound = OptionalNodeType::from_repr(rng().sample(Uniform::new(0, 3).unwrap()) + 1).unwrap();
-                let entry: TTEntry<Chessboard> =
-                    TTEntry { hash: pos.hash_pos(), score: score.compact(),
-                    eval: score.compact() - 1, mov: UntrustedMove::from_move(mov), depth, bound };
+                let entry: TTEntry<Chessboard> = TTEntry {
+                    hash: pos.hash_pos(),
+                    score: score.compact(),
+                    eval: score.compact() - 1,
+                    mov: UntrustedMove::from_move(mov),
+                    depth,
+                    bound,
+                };
                 let packed = entry.pack();
                 let val = TTEntry::unpack(packed);
                 assert_eq!(val, entry);
@@ -344,10 +337,10 @@ mod test {
             let size = tt.size_in_entries();
             assert_eq!(size, 1.max(num_bytes / size_of::<AtomicTTEntry>()));
             let mut occurrences = vec![0_u64; size];
-            let mut gen = rng();
+            let mut rng = rng();
             let num_samples = 200_000;
             for _ in 0..num_samples {
-                let idx = tt.index_of(PosHash(gen.next_u64()));
+                let idx = tt.index_of(PosHash(rng.next_u64()));
                 occurrences[idx] += 1;
             }
             let expected = num_samples as f64 / size as f64;
@@ -368,18 +361,12 @@ mod test {
         let pos = Chessboard::default();
         let mut engine = Caps::default();
         let bad_move = ChessMove::from_compact_text("a2a3", &pos).unwrap();
-        let entry: TTEntry<Chessboard> = TTEntry::new(
-            pos.hash_pos(),
-            MAX_NORMAL_SCORE,
-            MIN_NORMAL_SCORE,
-            bad_move,
-            123,
-            Exact,
-        );
+        let entry: TTEntry<Chessboard> =
+            TTEntry::new(pos.hash_pos(), MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, bad_move, 123, Exact);
         tt.store(entry, 0);
         let next_pos = pos.make_move(bad_move).unwrap();
         let next_entry: TTEntry<Chessboard> =
-            TTEntry::new(next_pos.hash_pos(), MIN_NORMAL_SCORE,MAX_NORMAL_SCORE, ChessMove::NULL, 122, Exact);
+            TTEntry::new(next_pos.hash_pos(), MIN_NORMAL_SCORE, MAX_NORMAL_SCORE, ChessMove::NULL, 122, Exact);
         tt.store(next_entry, 1);
         let mov = engine.search_with_tt(pos, SearchLimit::depth(Depth::new(1)), tt.clone()).chosen_move;
         assert_eq!(mov, bad_move);

@@ -1,11 +1,11 @@
+use crate::games::chess::CastleRight::*;
+use crate::games::chess::ChessColor::*;
 use crate::games::chess::castling::CastleRight;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
 use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
 use crate::games::chess::squares::ChessSquare;
-use crate::games::chess::CastleRight::*;
-use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessBitboardTrait, ChessColor, Chessboard, PAWN_CAPTURES};
 use crate::games::{Board, Color, ColoredPieceType};
 use crate::general::bitboards::chessboard::{ChessBitboard, KINGS, KNIGHTS};
@@ -82,16 +82,16 @@ impl Chessboard {
                 && Self::single_pawn_moves(color, src, capturable, self.empty_bb())
                     .is_bit_set_at(mov.dest_square().bb_idx())
         } else {
-            let gen = self.slider_generator();
-            (self.attacks_no_castle_or_pawn_push(src, mov.piece_type(), color, &gen) & !self.active_player_bb())
+            let generator = self.slider_generator();
+            (self.attacks_no_castle_or_pawn_push(src, mov.piece_type(), color, &generator) & !self.active_player_bb())
                 .is_bit_set_at(mov.dest_square().bb_idx())
         }
     }
 
     /// Used for castling and to implement `is_in_check`:
     /// Pretend there is a king of color `us` at `square` and test if it is in check.
-    pub fn is_in_check_on_square(&self, us: ChessColor, square: ChessSquare, gen: &ChessSliderGenerator) -> bool {
-        (self.all_attacking(square, gen) & self.player_bb(us.other())).has_set_bit()
+    pub fn is_in_check_on_square(&self, us: ChessColor, square: ChessSquare, generator: &ChessSliderGenerator) -> bool {
+        (self.all_attacking(square, generator) & self.player_bb(us.other())).has_set_bit()
     }
 
     pub(super) fn gen_pseudolegal_moves<T: MoveList<Self>>(
@@ -290,7 +290,7 @@ impl Chessboard {
         &self,
         moves: &mut T,
         filter: ChessBitboard,
-        gen: &ChessSliderGenerator,
+        generator: &ChessSliderGenerator,
     ) {
         let piece = if SLIDER == Bishop as usize {
             Bishop
@@ -304,9 +304,9 @@ impl Chessboard {
         let pieces = self.colored_piece_bb(color, piece);
         for from in pieces.ones() {
             let attacks = match piece {
-                Bishop => gen.bishop_attacks(from),
-                Rook => gen.rook_attacks(from),
-                _ => gen.queen_attacks(from),
+                Bishop => generator.bishop_attacks(from),
+                Rook => generator.rook_attacks(from),
+                _ => generator.queen_attacks(from),
             };
             let attacks = attacks & filter;
             for to in attacks.ones() {
@@ -344,17 +344,17 @@ impl Chessboard {
 
     // TODO: Use precomputed rays
     pub fn ray_attacks(&self, target: ChessSquare, ray_square: ChessSquare, blockers: ChessBitboard) -> ChessBitboard {
-        let gen = ChessSliderGenerator::new(blockers);
+        let generator = ChessSliderGenerator::new(blockers);
         let file_diff = target.file().wrapping_sub(ray_square.file());
         let rank_diff = target.rank().wrapping_sub(ray_square.rank());
         if file_diff == 0 {
-            gen.vertical_attacks(target) & (self.piece_bb(Rook) | self.piece_bb(Queen))
+            generator.vertical_attacks(target) & (self.piece_bb(Rook) | self.piece_bb(Queen))
         } else if rank_diff == 0 {
-            gen.horizontal_attacks(target) & (self.piece_bb(Rook) | self.piece_bb(Queen))
+            generator.horizontal_attacks(target) & (self.piece_bb(Rook) | self.piece_bb(Queen))
         } else if file_diff == rank_diff {
-            gen.diagonal_attacks(target) & (self.piece_bb(Bishop) | self.piece_bb(Queen))
+            generator.diagonal_attacks(target) & (self.piece_bb(Bishop) | self.piece_bb(Queen))
         } else if file_diff == 0_u8.wrapping_sub(rank_diff) {
-            gen.anti_diagonal_attacks(target) & (self.piece_bb(Bishop) | self.piece_bb(Queen))
+            generator.anti_diagonal_attacks(target) & (self.piece_bb(Bishop) | self.piece_bb(Queen))
         } else {
             ChessBitboard::default()
         }

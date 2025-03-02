@@ -3,14 +3,17 @@ use arbitrary::Arbitrary;
 use colored::Color::Red;
 use colored::Colorize;
 use itertools::Itertools;
-use rand::prelude::IteratorRandom;
 use rand::Rng;
+use rand::prelude::IteratorRandom;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::ops::{Index, IndexMut, Not};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose};
+use crate::games::chess::ChessColor::{Black, White};
 use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::castling::{CastleRight, CastlingFlags};
 use crate::games::chess::moves::ChessMove;
@@ -18,29 +21,26 @@ use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType, NUM_CHESS_PIECES, NUM_COLORS};
 use crate::games::chess::squares::{ChessSquare, ChessboardSize};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
-use crate::games::chess::ChessColor::{Black, White};
 use crate::games::{
-    n_fold_repetition, AbstractPieceType, Board, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, DimT,
-    PieceType, PosHash, Settings,
+    AbstractPieceType, Board, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, DimT, PieceType, PosHash,
+    Settings, n_fold_repetition,
 };
-use crate::general::bitboards::chessboard::{black_squares, white_squares, ChessBitboard};
+use crate::general::bitboards::chessboard::{ChessBitboard, black_squares, white_squares};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    board_from_name, position_fen_part, read_common_fen_part, read_two_move_numbers, BitboardBoard, BoardHelpers,
-    NameToPos, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard,
+    BitboardBoard, BoardHelpers, NameToPos, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard, board_from_name,
+    position_fen_part, read_common_fen_part, read_two_move_numbers,
 };
-use crate::general::common::{parse_int_from_str, EntityList, Res, StaticallyNamedEntity, Tokens};
+use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, parse_int_from_str};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
-use crate::output::text_output::{
-    board_to_string, display_board_pretty, display_color, AdaptFormatter, BoardFormatter, DefaultBoardFormatter,
-};
 use crate::output::OutputOpts;
+use crate::output::text_output::{
+    AdaptFormatter, BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty, display_color,
+};
 use crate::search::Depth;
-use crate::PlayerResult;
-use crate::PlayerResult::{Draw, Lose};
 
 pub mod castling;
 mod movegen;
@@ -418,11 +418,7 @@ impl Board for Chessboard {
             return Some(res);
         }
         let no_moves = self.legal_moves_slow().is_empty();
-        if no_moves {
-            Some(self.no_moves_result())
-        } else {
-            None
-        }
+        if no_moves { Some(self.no_moves_result()) } else { None }
     }
 
     fn no_moves_result(&self) -> PlayerResult {
@@ -482,7 +478,9 @@ impl Board for Chessboard {
             // so we silently ignore those invalid ep squares unless in strict mode.
             if (board.0.colored_piece_bb(color, Pawn) & ep_capturing).is_zero() {
                 if strictness == Strict {
-                    bail!("The ep square is set to {ep_square} even though no pawn can recapture. In strict mode, this is not allowed")
+                    bail!(
+                        "The ep square is set to {ep_square} even though no pawn can recapture. In strict mode, this is not allowed"
+                    )
                 }
                 None
             } else {
@@ -606,11 +604,10 @@ impl Chessboard {
             self.piece_type_on(from)
         );
         debug_assert!(
-            (self.active_player ==
-            self.colored_piece_on(from).color().unwrap())
-            // in chess960 castling, it's possible that the rook has been sent to the king square,
-            // which means the color bit of the king square is currently not set
-            || (piece == King && self.piece_bb(Rook).is_bit_set_at(from.bb_idx())),
+            (self.active_player == self.colored_piece_on(from).color().unwrap())
+                // in chess960 castling, it's possible that the rook has been sent to the king square,
+                // which means the color bit of the king square is currently not set
+                || (piece == King && self.piece_bb(Rook).is_bit_set_at(from.bb_idx())),
             "{self}"
         );
         // with chess960 castling, it's possible to move to the source square or a square occupied by a rook
@@ -683,11 +680,7 @@ impl Chessboard {
     }
 
     pub fn no_moves_result_if(&self, in_check: bool) -> PlayerResult {
-        if in_check {
-            Lose
-        } else {
-            Draw
-        }
+        if in_check { Lose } else { Draw }
     }
 
     pub fn ep_square(&self) -> Option<ChessSquare> {
@@ -699,8 +692,8 @@ impl Chessboard {
     }
 
     pub fn is_in_check(&self) -> bool {
-        let gen = self.slider_generator();
-        self.is_in_check_on_square(self.active_player, self.king_square(self.active_player), &gen)
+        let generator = self.slider_generator();
+        self.is_in_check_on_square(self.active_player, self.king_square(self.active_player), &generator)
     }
 
     pub fn gives_check(&self, mov: ChessMove) -> bool {
@@ -884,11 +877,12 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         }
         let inactive_player = this.active_player.other();
 
-        let gen = self.0.slider_generator();
-        if this.is_in_check_on_square(inactive_player, this.king_square(inactive_player), &gen) {
+        let generator = self.0.slider_generator();
+        if this.is_in_check_on_square(inactive_player, this.king_square(inactive_player), &generator) {
             bail!("Player {inactive_player} is in check, but it's not their turn to move");
         } else if strictness == Strict {
-            let checkers = this.all_attacking(this.king_square(this.active_player), &gen) & this.inactive_player_bb();
+            let checkers =
+                this.all_attacking(this.king_square(this.active_player), &generator) & this.inactive_player_bb();
             let num_attacking = checkers.num_ones();
             ensure!(
                 num_attacking <= 2,
@@ -972,14 +966,18 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             let remove_pawn_square = ep_square.pawn_advance_unchecked(inactive_player);
             let pawn_origin_square = ep_square.pawn_advance_unchecked(this.active_player);
             if this.colored_piece_on(remove_pawn_square).symbol != ColoredChessPieceType::new(inactive_player, Pawn) {
-                bail!("FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}");
+                bail!(
+                    "FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}"
+                );
             } else if !this.is_empty(ep_square) {
                 bail!(
                     "The en passant square ({ep_square}) must be empty, but it's occupied by a {}",
                     this.piece_type_on(ep_square).to_name()
                 )
             } else if !this.is_empty(pawn_origin_square) {
-                bail!("The en passant square is set to {ep_square}, so the pawn must have come from {pawn_origin_square}. But this square isn't empty")
+                bail!(
+                    "The en passant square is set to {ep_square}, so the pawn must have come from {pawn_origin_square}. But this square isn't empty"
+                )
             }
             let active = this.active_player();
             // In the current version of the FEN standard, the ep square should only be set if a pawn can capture.
@@ -988,14 +986,19 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             // no longer exist at this point. However, illegal pseudolegal ep squares are detected here if in strict mode.
             if strictness == Strict {
                 let possible_ep_pawns = remove_pawn_square.bb().west() | remove_pawn_square.bb().east();
-                ensure!((possible_ep_pawns & this.colored_piece_bb(active, Pawn)).has_set_bit(),
-                    "The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square");
+                ensure!(
+                    (possible_ep_pawns & this.colored_piece_bb(active, Pawn)).has_set_bit(),
+                    "The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square"
+                );
                 if checks == CheckFen {
                     let legal_ep = this.legal_moves_slow().iter().any(|m| m.is_ep());
                     // this doesn't necessarily mean that the ep pawn capturing is pinned, the king could also be in check.
-                    ensure!(legal_ep,"The en passant square is set, but even though there is a pseudolegal ep capture move, it is not legal \
+                    ensure!(
+                        legal_ep,
+                        "The en passant square is set, but even though there is a pseudolegal ep capture move, it is not legal \
                     (either all pawns that could capture en passant are pinned, or the king is in check). \
-                    This is not allowed when parsing FENs in strict mode");
+                    This is not allowed when parsing FENs in strict mode"
+                    );
                 }
             }
         }
@@ -1124,7 +1127,7 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::games::chess::squares::{B_FILE_NO, E_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO};
-    use crate::games::{char_to_file, Coordinates, NoHistory, RectangularCoordinates, ZobristHistory};
+    use crate::games::{Coordinates, NoHistory, RectangularCoordinates, ZobristHistory, char_to_file};
     use crate::general::board::RectangularBoard;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::moves::Move;

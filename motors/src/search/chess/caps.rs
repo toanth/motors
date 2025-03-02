@@ -3,8 +3,8 @@ use std::mem::take;
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::{Duration, Instant};
 
-use crate::eval::chess::lite::LiTEval;
 use crate::eval::Eval;
+use crate::eval::chess::lite::LiTEval;
 use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::chess::caps_values::cc;
 use crate::search::move_picker::MovePicker;
@@ -13,33 +13,34 @@ use crate::search::statistics::SearchType::{MainSearch, Qsearch};
 use crate::search::tt::TTEntry;
 use crate::search::*;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
+use gears::PlayerResult::{Lose, Win};
 use gears::arrayvec::ArrayVec;
 use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
 use gears::games::chess::pieces::ChessPieceType::Pawn;
 use gears::games::chess::pieces::NUM_COLORS;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
-use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS};
-use gears::games::{n_fold_repetition, BoardHistory, Color, PosHash, ZobristHistory};
+use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS, UnverifiedChessboard};
+use gears::games::{BoardHistory, Color, PosHash, ZobristHistory, n_fold_repetition};
 use gears::general::bitboards::RawBitboard;
-use gears::general::board::BitboardBoard;
+use gears::general::board::Strictness::Strict;
+use gears::general::board::{BitboardBoard, UnverifiedBoard};
 use gears::general::common::Description::NoDescription;
-use gears::general::common::{parse_bool_from_str, parse_int_from_str, select_name_static, Res, StaticallyNamedEntity};
+use gears::general::common::{Res, StaticallyNamedEntity, parse_bool_from_str, parse_int_from_str, select_name_static};
 use gears::general::move_list::EagerNonAllocMoveList;
 use gears::general::moves::Move;
 use gears::itertools::Itertools;
-use gears::output::text_output::AdaptFormatter;
 use gears::output::Message::Debug;
 use gears::output::OutputOpts;
+use gears::output::text_output::AdaptFormatter;
 use gears::score::{
-    game_result_to_score, ScoreT, MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET,
+    MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, ScoreT, game_result_to_score,
 };
 use gears::search::NodeType::*;
 use gears::search::*;
 use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::Check;
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
-use gears::PlayerResult::{Lose, Win};
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(225);
@@ -432,7 +433,6 @@ impl Engine<Chessboard> for Caps {
             options,
         )
     }
-
 
     fn set_option(&mut self, option: EngineOptionName, old_value: &mut EngineOptionType, value: String) -> Res<()> {
         let name = option.name().to_string();
@@ -1025,6 +1025,11 @@ impl Caps {
                 if move_score.0 < cc::lmr_bad_hist() && depth <= 2 {
                     break;
                 }
+                // PVS SEE pruning: Don't play moves with bad SEE score at low depth
+                let see_threshold = -50 * depth as i32;
+                if move_score < KILLER_SCORE && depth < 4 && !pos.see_at_least(mov, SeeScore(see_threshold)) {
+                    continue;
+                }
             }
 
             if root && self.excluded_moves.contains(&mov) {
@@ -1059,7 +1064,7 @@ impl Caps {
                 // to verify our belief.
                 // I think it's common to have a minimum depth for doing LMR, but not having that gained elo.
                 let mut reduction = 0;
-                if !in_check && num_uninteresting_visited >= cc::lmr_min_uninteresting() {
+                if num_uninteresting_visited >= cc::lmr_min_uninteresting() {
                     reduction = depth / cc::lmr_depth_div()
                         + (num_uninteresting_visited + 1).ilog2() as isize
                         + cc::lmr_const();
@@ -1080,6 +1085,9 @@ impl Caps {
                         reduction += 1;
                     }
                     if new_pos.is_in_check() {
+                        reduction -= 1;
+                    }
+                    if in_check {
                         reduction -= 1;
                     }
                 }
@@ -1287,8 +1295,9 @@ impl Caps {
         let mut children_visited = 0;
         while let Some((mov, score)) = move_picker.next(&move_scorer, &self.state) {
             debug_assert!(mov.is_tactical(&pos));
-            if score < MoveScore(0) {
-                // qsearch see pruning: If the move has a negative SEE score, don't even bother playing it in qsearch.
+            if score < MoveScore(0) || children_visited >= 3 {
+                // qsearch see pruning and qsearch late move  pruning (lmp):
+                // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
                 break;
             }
             let Some(new_pos) = pos.make_move(mov) else {
@@ -1328,8 +1337,14 @@ impl Caps {
             let mov = self.search_stack[ply - 1].last_tried_move();
             self.eval.eval_incremental(old_pos, mov, &pos, ply)
         };
-        debug_assert!(!res.is_won_or_lost(), "{res} {0} {1}, {pos}", res.0, self.eval.eval(&pos, ply));
-        res
+        // the score must not be in the mate score range unless the position includes too many pieces
+        debug_assert!(
+            !res.is_won_or_lost() || UnverifiedChessboard::new(pos).verify(Strict).is_err(),
+            "{res} {0} {1}, {pos}",
+            res.0,
+            self.eval.eval(&pos, ply)
+        );
+        res.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
 
     fn update_continuation_hist(

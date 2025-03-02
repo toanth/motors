@@ -3,15 +3,18 @@ use std::fmt::Display;
 use gears::games::BoardHistory;
 use gears::general::board::{Board, BoardHelpers};
 
-use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
+use crate::eval::rand_eval::RandEval;
 use crate::search::statistics::SearchType::MainSearch;
 use crate::search::{
     AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, NormalEngine, SearchState,
     SearchStateFor,
 };
 use gears::general::common::StaticallyNamedEntity;
-use gears::score::{game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE_WON};
+use gears::score::{
+    MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, SCORE_LOST, SCORE_TIME_UP, SCORE_WON, Score,
+    game_result_to_score,
+};
 use gears::search::NodeType::*;
 use gears::search::{Depth, NodesLimit, SearchResult};
 
@@ -60,7 +63,9 @@ impl<B: Board> Engine<B> for Gaps<B> {
     }
 
     fn static_eval(&mut self, pos: B, ply: usize) -> Score {
-        self.eval.eval(&pos, ply)
+        self.eval
+            .eval(&pos, ply)
+            .clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
 
     fn max_bench_depth(&self) -> Depth {

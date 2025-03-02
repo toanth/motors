@@ -8,15 +8,15 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem::size_of;
 use strum_macros::EnumIter;
 
-use crate::games::mnk::Symbol::{Empty, O, X};
 use crate::games::PlayerResult::Draw;
+use crate::games::mnk::Symbol::{Empty, O, X};
 use crate::games::*;
-use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboard, MAX_WIDTH};
+use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, MAX_WIDTH, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    board_from_name, read_common_fen_part, read_single_move_number, simple_fen, BoardHelpers, NameToPos,
-    RectangularBoard, SelfChecks, Strictness, UnverifiedBoard,
+    BoardHelpers, NameToPos, RectangularBoard, SelfChecks, Strictness, UnverifiedBoard, board_from_name,
+    read_common_fen_part, read_single_move_number, simple_fen,
 };
 use crate::general::common::*;
 use crate::general::hq::BitReverseSliderGenerator;
@@ -24,8 +24,8 @@ use crate::general::move_list::EagerNonAllocMoveList;
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
 use crate::general::squares::{GridCoordinates, GridSize};
-use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter};
 use crate::output::OutputOpts;
+use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::Depth;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
@@ -324,11 +324,7 @@ impl MnkSettings {
         let height = height.0;
         let width = width.0;
         let res = Self { height, width, k };
-        if res.check_invariants() {
-            Some(res)
-        } else {
-            None
-        }
+        if res.check_invariants() { Some(res) } else { None }
     }
 
     pub fn height(self) -> Height {
@@ -742,11 +738,7 @@ impl Board for MNKBoard {
 impl MNKBoard {
     fn last_move_won_game(&self) -> bool {
         // verifying a board (e.g. when parsing FENs) sets the last move in case the game is over
-        if let Some(last_move) = self.last_move {
-            self.is_game_won_at(last_move.target)
-        } else {
-            false
-        }
+        if let Some(last_move) = self.last_move { self.is_game_won_at(last_move.target) } else { false }
     }
 
     fn is_game_won_at(&self, square: GridCoordinates) -> bool {
@@ -760,14 +752,14 @@ impl MNKBoard {
         debug_assert!(
             (blockers.raw() & ExtendedRawBitboard::single_piece_at(self.size().internal_key(square))).is_zero()
         );
-        let gen = SliderGen::new(blockers, None);
+        let generator = SliderGen::new(blockers, None);
 
         let k = self.k() as usize - 1;
 
-        (gen.horizontal_attacks(square) & player_bb).num_ones() >= k
-            || (gen.vertical_attacks(square) & player_bb).num_ones() >= k
-            || (gen.diagonal_attacks(square) & player_bb).num_ones() >= k
-            || (gen.anti_diagonal_attacks(square) & player_bb).num_ones() >= k
+        (generator.horizontal_attacks(square) & player_bb).num_ones() >= k
+            || (generator.vertical_attacks(square) & player_bb).num_ones() >= k
+            || (generator.diagonal_attacks(square) & player_bb).num_ones() >= k
+            || (generator.anti_diagonal_attacks(square) & player_bb).num_ones() >= k
     }
 }
 
@@ -1143,8 +1135,10 @@ mod test {
         assert!(MNKBoard::from_fen("4 3 2 3/3/3/3", Relaxed).is_err());
         assert!(MNKBoard::from_fen("4 3 2 3/3/3/3 w", Relaxed).is_err());
         assert!(MNKBoard::from_fen("4 3 2 3/3/3/3 wx", Relaxed).is_err());
-        assert!(MNKBoard::from_fen("4 3 2 3/4/3/3 o", Relaxed)
-            .is_err_and(|e| e.to_string().contains("Line '4' has incorrect width")));
+        assert!(
+            MNKBoard::from_fen("4 3 2 3/4/3/3 o", Relaxed)
+                .is_err_and(|e| e.to_string().contains("Line '4' has incorrect width"))
+        );
         _ = MNKBoard::from_fen("4 3 2 3//3/3 o", Relaxed).unwrap_err();
         assert!(MNKBoard::from_fen("4 3 2 x", Relaxed).is_err());
         assert!(MNKBoard::from_fen("4 0 2 /// x", Relaxed).is_err());

@@ -1,17 +1,17 @@
 use std::fmt::Display;
 
 use crate::eval::chess::lite_values::*;
-use crate::eval::chess::{pawn_shield_idx, DiagonalOpenness, FileOpenness};
+use crate::eval::chess::{DiagonalOpenness, FileOpenness, pawn_shield_idx};
+use gears::games::Color;
+use gears::games::chess::ChessColor::{Black, White};
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::ChessPieceType::*;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, ChessboardSize};
-use gears::games::chess::ChessColor::{Black, White};
 use gears::games::chess::{ChessBitboardTrait, ChessColor, Chessboard};
-use gears::games::Color;
 use gears::games::{DimT, PosHash};
-use gears::general::bitboards::chessboard::{ChessBitboard, COLORED_SQUARES};
 use gears::general::bitboards::RawBitboard;
+use gears::general::bitboards::chessboard::{COLORED_SQUARES, ChessBitboard};
 use gears::general::bitboards::{Bitboard, KnownSizeBitboard};
 use gears::general::board::{BitboardBoard, Board, BoardHelpers};
 use gears::general::common::StaticallyNamedEntity;
@@ -216,22 +216,22 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn checking(pos: &Chessboard, color: ChessColor, gen: &ChessSliderGenerator) -> [ChessBitboard; 5] {
+    fn checking(pos: &Chessboard, color: ChessColor, generator: &ChessSliderGenerator) -> [ChessBitboard; 5] {
         let mut result = [ChessBitboard::default(); 5];
         let square = pos.king_square(color);
         result[Pawn as usize] = Chessboard::single_pawn_captures(!color, square);
         result[Knight as usize] = Chessboard::knight_attacks_from(square);
-        result[Bishop as usize] = gen.bishop_attacks(square);
-        result[Rook as usize] = gen.rook_attacks(square);
+        result[Bishop as usize] = generator.bishop_attacks(square);
+        result[Rook as usize] = generator.rook_attacks(square);
         result[Queen as usize] = result[Rook as usize] | result[Bishop as usize];
         result
     }
 
     fn mobility_and_threats(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
-        let gen = pos.slider_generator();
+        let generator = pos.slider_generator();
 
-        let checking_squares = Self::checking(pos, !color, &gen);
+        let checking_squares = Self::checking(pos, !color, &generator);
 
         let attacked_by_pawn = pos.colored_piece_bb(color.other(), Pawn).pawn_attacks(color.other());
         let king_zone = Chessboard::normal_king_attacks_from(pos.king_square(color.other()));
@@ -251,7 +251,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         for piece in ChessPieceType::non_pawn_pieces() {
             for square in pos.colored_piece_bb(color, piece).ones() {
-                let attacks = pos.attacks_no_castle_or_pawn_push(square, piece, color, &gen);
+                let attacks = pos.attacks_no_castle_or_pawn_push(square, piece, color, &generator);
                 all_attacks |= attacks;
                 let attacks_no_pawn_recapture = attacks & !attacked_by_pawn;
                 let mobility = (attacks_no_pawn_recapture & !pos.player_bb(color)).num_ones();

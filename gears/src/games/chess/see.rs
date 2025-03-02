@@ -84,8 +84,9 @@ impl Chessboard {
             our_victim = Pawn;
             let bb = mov.square_of_pawn_taken_by_ep().unwrap().bb();
             debug_assert_eq!(bb & !self.occupied_bb(), ChessBitboard::default());
-            let gen = ChessSliderGenerator::new(self.occupied_bb() ^ bb);
-            all_remaining_attackers |= gen.vertical_attacks(square) & (self.piece_bb(Rook) | self.piece_bb(Queen));
+            let generator = ChessSliderGenerator::new(self.occupied_bb() ^ bb);
+            all_remaining_attackers |=
+                generator.vertical_attacks(square) & (self.piece_bb(Rook) | self.piece_bb(Queen));
         }
         let mut eval = move_see_value(mov, our_victim);
         // testing if eval - max recapture score was >= beta caused a decently large bench performance regression,
@@ -141,8 +142,8 @@ impl Chessboard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::games::chess::Chessboard;
     use crate::games::Board;
+    use crate::games::chess::Chessboard;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::Relaxed;
     use crate::general::common::parse_int_from_str;

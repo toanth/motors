@@ -16,6 +16,7 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::attacks::AttackBitboardFilter::{EmptySquares, NotUs};
 use crate::games::fairy::attacks::AttackKind::Normal;
 use crate::games::fairy::attacks::AttackTypes::{Leaping, Rider};
@@ -23,12 +24,11 @@ use crate::games::fairy::attacks::GenAttacksCondition::Always;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::ColoredPieceId;
 use crate::games::fairy::rules::CheckRules;
-use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::{
     CastlingMoveInfo, FairyBitboard, FairyBoard, FairyCastleInfo, FairyColor, FairyPiece, FairySize, FairySquare,
     RawFairyBitboard, Side, UnverifiedFairyBoard,
 };
-use crate::games::{char_to_file, Color, ColoredPiece, ColoredPieceType, DimT, Size};
+use crate::games::{Color, ColoredPiece, ColoredPieceType, DimT, Size, char_to_file};
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, Board, BoardHelpers, PieceTypeOf, Strictness, UnverifiedBoard};
 use crate::general::common::{Res, Tokens};
@@ -287,12 +287,12 @@ impl GenPieceAttackKind {
                 //     size,
                 // );
                 // TODO: Keep `gen` alive across calls by making it a parameter
-                let gen = SliderGen::new(blockers, None);
+                let generator = SliderGen::new(blockers, None);
                 let res = match sliding {
-                    SliderDirections::Vertical => gen.vertical_attacks(piece),
-                    SliderDirections::Rook => gen.rook_attacks(piece),
-                    SliderDirections::Bishop => gen.bishop_attacks(piece),
-                    SliderDirections::Queen => gen.queen_attacks(piece),
+                    SliderDirections::Vertical => generator.vertical_attacks(piece),
+                    SliderDirections::Rook => generator.rook_attacks(piece),
+                    SliderDirections::Bishop => generator.bishop_attacks(piece),
+                    SliderDirections::Queen => generator.queen_attacks(piece),
                     SliderDirections::Rider { precomputed } => {
                         let ray = FairyBitboard::new(precomputed[size.internal_key(piece)], size);
                         // TODO: Also use gen, remove the fallback
@@ -626,12 +626,12 @@ impl FairyBoard {
         let blockers = !self.player_bb(color);
         debug_assert!((blockers.raw() & RawFairyBitboard::single_piece_at(self.size().internal_key(sq))).is_zero());
 
-        let gen = SliderGen::new(blockers, None);
+        let generator = SliderGen::new(blockers, None);
 
-        (gen.horizontal_attacks(sq) & self.player_bb(color)).num_ones() >= k - 1
-            || (gen.vertical_attacks(sq) & self.player_bb(color)).num_ones() >= k - 1
-            || (gen.diagonal_attacks(sq) & self.player_bb(color)).num_ones() >= k - 1
-            || (gen.anti_diagonal_attacks(sq) & self.player_bb(color)).num_ones() >= k - 1
+        (generator.horizontal_attacks(sq) & self.player_bb(color)).num_ones() >= k - 1
+            || (generator.vertical_attacks(sq) & self.player_bb(color)).num_ones() >= k - 1
+            || (generator.diagonal_attacks(sq) & self.player_bb(color)).num_ones() >= k - 1
+            || (generator.anti_diagonal_attacks(sq) & self.player_bb(color)).num_ones() >= k - 1
     }
 }
 
@@ -663,11 +663,7 @@ impl UnverifiedFairyBoard {
 
             let lowercase_c = c.to_ascii_lowercase();
             let file = if (lowercase_c == 'k' || lowercase_c == 'q') && size.width.val() == 8 {
-                if lowercase_c == 'k' {
-                    7
-                } else {
-                    0
-                }
+                if lowercase_c == 'k' { 7 } else { 0 }
             } else {
                 char_to_file(lowercase_c)
             };
