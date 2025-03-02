@@ -190,7 +190,7 @@ impl CorrHist {
         }
         let color = pos.active_player();
         let mut correction = self.pawns[color][pos.pawn_key()] as isize;
-        correction += self.material[color][pos.material_key()] as isize;
+        correction += self.material[color][pos.material_key()] as isize * 512 / 1024;
         for c in ChessColor::iter() {
             correction += self.nonpawns[color][pos.nonpawn_key(c)][c] as isize / 2;
         }
