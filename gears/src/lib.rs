@@ -4,20 +4,20 @@
 
 #![deny(unused_results)]
 
-use crate::games::Color;
-use crate::games::{BoardHistory, ZobristHistory};
-use crate::general::board::{Board, BoardHelpers, Strictness};
-use crate::general::common::Description::WithDescription;
-use crate::general::common::{select_name_dyn, Res, Tokens};
-use crate::general::moves::Move;
-use crate::output::OutputBuilder;
-use crate::search::TimeControl;
-use crate::ugi::{parse_ugi_position_and_moves, ParseUgiPosState};
 use crate::AdjudicationReason::*;
 use crate::GameResult::Aborted;
 use crate::MatchStatus::{NotStarted, Ongoing, Over};
 use crate::PlayerResult::{Draw, Lose, Win};
 use crate::ProgramStatus::Run;
+use crate::games::Color;
+use crate::games::{BoardHistory, ZobristHistory};
+use crate::general::board::{Board, BoardHelpers, Strictness};
+use crate::general::common::Description::WithDescription;
+use crate::general::common::{Res, Tokens, select_name_dyn};
+use crate::general::moves::Move;
+use crate::output::OutputBuilder;
+use crate::search::TimeControl;
+use crate::ugi::{ParseUgiPosState, parse_ugi_position_and_moves};
 use anyhow::{anyhow, bail};
 pub use arrayvec;
 pub use colored;
@@ -73,11 +73,7 @@ impl PlayerResult {
     }
 
     pub fn flip_if(self, condition: bool) -> Self {
-        if condition {
-            self.flip()
-        } else {
-            self
-        }
+        if condition { self.flip() } else { self }
     }
 }
 
@@ -177,11 +173,7 @@ impl From<GameResult> for f64 {
 
 impl GameResult {
     pub fn check_finished(self) -> Option<Self> {
-        if self == Aborted {
-            None
-        } else {
-            Some(self)
-        }
+        if self == Aborted { None } else { Some(self) }
     }
 
     fn to_canonical_string(self) -> String {
@@ -439,6 +431,16 @@ impl<B: Board> UgiPosState<B> {
         }
         self.board = pos;
         Ok(count)
+    }
+
+    pub fn seen_so_far(&self) -> impl Iterator<Item = (B, B::Move)> {
+        let mut pos = self.pos_before_moves.clone();
+        let moves = self.mov_hist.clone();
+        moves.into_iter().map(move |mov| {
+            let res = (pos.clone(), mov);
+            pos = pos.clone().make_move(mov).unwrap();
+            res
+        })
     }
 
     fn clear_current_state(&mut self) {

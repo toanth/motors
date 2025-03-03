@@ -871,7 +871,10 @@ impl<'a> MoveParser<'a> {
 
     fn parse_annotation(&mut self) {
         self.ignore_whitespace();
-        let annotation_chars = ['!', '?', '⌓', '□', ' ', '⩲', '⩱', '±', '∓', '∞', '/', '+', '-', '=', '$'];
+        let annotation_chars = [
+            '!', '?', '⌓', '□', ' ', '⩲', '⩱', '±', '∓', '⨀', '○', '⟳', '↑', '→', '⯹', '⨁', '⇆', '∞', '/', '+', '-',
+            '=', '<', '>', '$',
+        ];
         while self.current_char().is_some_and(|c| annotation_chars.contains(&c)) {
             if self.current_char().unwrap() != '$' {
                 self.advance_char();
