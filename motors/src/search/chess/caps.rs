@@ -1207,11 +1207,18 @@ impl Caps {
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
                 if alpha < score && reduction > 0 {
+                    // do deeper / shallower: Adjust the first re-search depth based on the result of the first search
+                    let mut retry_depth = depth - 1;
+                    if score > alpha + 50 + 4 * depth as ScoreT {
+                        retry_depth += 1;
+                    } else if score < alpha + 10 {
+                        retry_depth -= 1;
+                    }
                     self.statistics.lmr_first_retry();
                     score = -self.negamax(
                         new_pos,
                         ply + 1,
-                        depth - 1,
+                        retry_depth,
                         -(alpha + 1),
                         -alpha,
                         FailHigh, // we still expect the child to fail high here
