@@ -1,3 +1,4 @@
+use arbitrary::Arbitrary;
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 use std::ops::{Index, IndexMut};
@@ -39,7 +40,7 @@ pub const UNICODE_BLACK_ROOK: char = '♜';
 pub const UNICODE_BLACK_QUEEN: char = '♛';
 pub const UNICODE_BLACK_KING: char = '♚';
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, EnumIter, FromRepr)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Default, EnumIter, FromRepr, Arbitrary)]
 #[must_use]
 pub enum ChessPieceType {
     Pawn,

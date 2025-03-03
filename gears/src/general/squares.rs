@@ -1,8 +1,8 @@
 #[cfg(feature = "chess")]
 use crate::games::chess::ChessColor;
-use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, KnownSize, Size, Width};
+use crate::games::{Coordinates, DimT, Height, KnownSize, Size, Width, char_to_file, file_to_char};
 use crate::general::bitboards::{KnownSizeBitboard, SmallGridBitboard};
-use crate::general::common::{parse_int_from_str, Res};
+use crate::general::common::{Res, parse_int_from_str};
 use crate::general::squares::SquareColor::{Black, White};
 use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
@@ -10,6 +10,7 @@ use colored::Colorize;
 use std::cmp::max;
 use std::fmt;
 use std::fmt::{Display, Formatter};
+use std::ops::{Index, IndexMut};
 use std::str::FromStr;
 
 pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
@@ -23,11 +24,7 @@ pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
         self.column()
     }
     fn square_color(self) -> SquareColor {
-        if (self.row() as usize + self.column() as usize) % 2 == 0 {
-            Black
-        } else {
-            White
-        }
+        if (self.row() as usize + self.column() as usize) % 2 == 0 { Black } else { White }
     }
 }
 
@@ -367,11 +364,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
     }
 
     pub fn flip_if(self, flip: bool) -> Self {
-        if flip {
-            self.flip()
-        } else {
-            self
-        }
+        if flip { self.flip() } else { self }
     }
 
     pub fn north_unchecked(self) -> Self {
@@ -470,5 +463,19 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> RectangularCoo
 
     fn column(self) -> DimT {
         self.idx % INTERNAL_WIDTH as DimT
+    }
+}
+
+impl<T> Index<SmallGridSquare<8, 8, 8>> for [T; 64] {
+    type Output = T;
+
+    fn index(&self, index: SmallGridSquare<8, 8, 8>) -> &Self::Output {
+        &self[index.bb_idx()]
+    }
+}
+
+impl<T> IndexMut<SmallGridSquare<8, 8, 8>> for [T; 64] {
+    fn index_mut(&mut self, index: SmallGridSquare<8, 8, 8>) -> &mut Self::Output {
+        &mut self[index.bb_idx()]
     }
 }

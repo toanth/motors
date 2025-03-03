@@ -455,6 +455,7 @@ impl Chessboard {
             special_hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         }
         self.ep_square = None;
+        self.mailbox[from] = Empty; // needs to be done before moving the rook in chess960 castling
         if mov.is_castle() {
             self.do_castle(mov, from, &mut to)?;
         } else if mov.is_ep() {
@@ -465,7 +466,8 @@ impl Chessboard {
             self.ply_100_ctr = 0;
         } else if mov.is_non_ep_capture(&self) {
             let captured = self.piece_type_on(to);
-            debug_assert_eq!(self.colored_piece_on(to).color().unwrap(), them);
+            assert!(self.colored_piece_on(to).color().is_some(), "{to} {self} {mov:?} {captured}");
+            debug_assert_eq!(self.colored_piece_on(to).color().unwrap(), them, "{self} {mov:?}");
             debug_assert_ne!(captured, King);
             self.remove_piece_unchecked(to, captured, them);
             if captured == Pawn {
@@ -497,12 +499,15 @@ impl Chessboard {
         }
         special_hash ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         self.move_piece(from, to, piece);
+        self.mailbox[to] = piece;
         if mov.is_promotion() {
+            let piece = mov.flags().promo_piece();
             let bb = to.bb();
             self.piece_bbs[Pawn] ^= bb;
-            self.piece_bbs[mov.flags().promo_piece()] ^= bb;
+            self.piece_bbs[piece] ^= bb;
+            self.mailbox[to] = piece;
             self.hashes.pawns ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, us, to);
-            self.hashes.nonpawns[us] ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(mov.flags().promo_piece(), us, to);
+            self.hashes.nonpawns[us] ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, us, to);
         }
         self.ply += 1;
         self.hashes.total = special_hash ^ self.hashes.pawns ^ self.hashes.nonpawns[0] ^ self.hashes.nonpawns[1];
@@ -561,6 +566,8 @@ impl Chessboard {
         let rook_to = ChessSquare::from_rank_file(from.rank(), rook_to_file);
         debug_assert!(self.colored_piece_on(rook_from).symbol == ColoredChessPieceType::new(color, Rook));
         self.move_piece(rook_from, rook_to, Rook);
+        self.mailbox[rook_from] = Empty;
+        self.mailbox[rook_to] = Rook;
         let mut delta = PosHash(0);
         delta ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Rook, color, rook_to);
         delta ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Rook, color, rook_from);

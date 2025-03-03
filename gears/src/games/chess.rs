@@ -19,11 +19,11 @@ use crate::games::chess::castling::{CastleRight, CastlingFlags};
 use crate::games::chess::moves::ChessMove;
 use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType, NUM_CHESS_PIECES, NUM_COLORS};
-use crate::games::chess::squares::{ChessSquare, ChessboardSize};
+use crate::games::chess::squares::{ChessSquare, ChessboardSize, NUM_SQUARES};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::{
-    AbstractPieceType, Board, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, DimT, PieceType, PosHash,
-    Settings, n_fold_repetition,
+    AbstractPieceType, Board, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, DimT, PosHash, Settings,
+    n_fold_repetition,
 };
 use crate::general::bitboards::chessboard::{ChessBitboard, black_squares, white_squares};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard};
@@ -137,6 +137,7 @@ struct Hashes {
 pub struct Chessboard {
     piece_bbs: [ChessBitboard; NUM_CHESS_PIECES],
     color_bbs: [ChessBitboard; NUM_COLORS],
+    mailbox: [ChessPieceType; NUM_SQUARES],
     ply: usize,
     ply_100_ctr: usize,
     active_player: ChessColor,
@@ -145,7 +146,7 @@ pub struct Chessboard {
     hashes: Hashes,
 }
 
-const _: () = assert!(size_of::<Chessboard>() == 10 * 12);
+const _: () = assert!(size_of::<Chessboard>() == 184);
 
 impl Default for Chessboard {
     fn default() -> Self {
@@ -190,6 +191,7 @@ impl Board for Chessboard {
         UnverifiedChessboard(Self {
             piece_bbs: Default::default(),
             color_bbs: Default::default(),
+            mailbox: [Empty; NUM_SQUARES],
             ply: 0,
             ply_100_ctr: 0,
             active_player: White,
@@ -361,8 +363,7 @@ impl Board for Chessboard {
     }
 
     fn piece_type_on(&self, square: ChessSquare) -> ChessPieceType {
-        let idx = square.bb_idx();
-        ChessPieceType::from_idx(self.piece_bbs.iter().position(|bb| bb.is_bit_set_at(idx)).unwrap_or(NUM_CHESS_PIECES))
+        self.mailbox[square]
     }
 
     fn default_perft_depth(&self) -> Depth {
@@ -590,6 +591,7 @@ impl Chessboard {
         let bb = square.bb();
         self.piece_bbs[piece] ^= bb;
         self.color_bbs[color] ^= bb;
+        self.mailbox[square] = Empty;
         // It's not really clear how to so handle these flags when removing pieces, so we just unset them on a best effort basis
         if piece == Rook {
             for side in CastleRight::iter() {
@@ -602,24 +604,23 @@ impl Chessboard {
         }
     }
 
+    // doens't update the mailbox because that doesn't work for chess960 castling
     fn move_piece(&mut self, from: ChessSquare, to: ChessSquare, piece: ChessPieceType) {
         debug_assert_ne!(piece, Empty);
         // for a castling move, the rook has already been moved to the square still occupied by the king
         debug_assert!(
-            self.piece_type_on(from) == piece || (piece == King && self.piece_type_on(from) == Rook),
-            "{}",
-            self.piece_type_on(from)
+            self.piece_bb(piece).is_bit_set_at(from.bb_idx())
+                || (piece == King && self.piece_bb(Rook).is_bit_set_at(from.bb_idx())),
+            "{0} {1}",
+            self.piece_type_on(from),
+            self.colored_piece_on(from).uncolored()
         );
         debug_assert!(
-            (self.active_player == self.colored_piece_on(from).color().unwrap())
+            (self.active_player_bb().is_bit_set_at(from.bb_idx()))
                 // in chess960 castling, it's possible that the rook has been sent to the king square,
                 // which means the color bit of the king square is currently not set
                 || (piece == King && self.piece_bb(Rook).is_bit_set_at(from.bb_idx())),
             "{self}"
-        );
-        // with chess960 castling, it's possible to move to the source square or a square occupied by a rook
-        debug_assert!(
-            self.colored_piece_on(to).color() != self.colored_piece_on(from).color() || piece == King || piece == Rook
         );
         // use ^ instead of | for to merge the from and to bitboards because in chess960 castling,
         // it is possible that from == to or that there's another piece on the target square
@@ -788,6 +789,12 @@ impl Chessboard {
         }
         res.0.color_bbs[Black] = res.0.player_bb(White).flip_up_down();
         res.0.color_bbs[White] = ChessBitboard::default();
+        for i in 0..8 {
+            res.0.mailbox[64 - 8 + i] = res.0.mailbox[i];
+            res.0.mailbox[i] = Empty;
+            res.0.mailbox[64 - 16 + i] = Pawn;
+            res.0.mailbox[8 + i] = Empty;
+        }
         res = Self::chess960_startpos_white(white_num, White, res)?;
         // the hash is computed in the verify method
         Ok(res
@@ -961,6 +968,13 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 bail!("Incorrect piece distribution for {color}")
             }
         }
+        for (i, &piece) in this.mailbox.iter().enumerate() {
+            if piece == Empty {
+                assert!(this.empty_bb().is_bit_set_at(i));
+            } else {
+                assert!(this.piece_bb(piece).is_bit_set_at(i));
+            }
+        }
         this.hashes = this.compute_zobrist();
 
         // We check the ep square last because this can require doing movegen, which needs most invariants to hold.
@@ -1025,11 +1039,13 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         let bb = square.bb();
         this.piece_bbs[piece.uncolor()] ^= bb;
         this.color_bbs[piece.color().unwrap()] ^= bb;
+        this.mailbox[square] = piece.uncolor();
     }
 
     fn remove_piece(&mut self, sq: ChessSquare) {
         let piece = self.0.colored_piece_on(sq);
         self.0.remove_piece_unchecked(sq, piece.symbol.uncolor(), piece.color().unwrap());
+        self.0.mailbox[sq] = Empty;
     }
 
     fn piece_on(&self, coords: ChessSquare) -> ChessPiece {
