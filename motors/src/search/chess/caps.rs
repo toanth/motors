@@ -48,10 +48,11 @@ use strum::IntoEnumIterator;
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
 const DEPTH_SOFT_LIMIT: Depth = Depth::new_unchecked(225);
-/// The maximum value of the `ply` parameter, i.e. the maximum depth (in plies) before qsearch is reached
+/// The maximum value of the `ply` parameter in main search, i.e. the maximum depth (in plies) before qsearch is reached
 const DEPTH_HARD_LIMIT: Depth = Depth::new_unchecked(255);
 
-/// Qsearch can't go more than 30 plies deep, so this prevents out of bounds accesses
+/// Qsearch can go more than 30 plies deeper than the depth hard limit if ther's more material on the board; in that case we simply
+/// return the static eval.
 const SEARCH_STACK_LEN: usize = DEPTH_HARD_LIMIT.get() + 30;
 
 const HIST_DIVISOR: i32 = 1024;
@@ -1405,7 +1406,7 @@ impl Caps {
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
         // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
         // only after aging
-        if best_score >= beta {
+        if best_score >= beta || ply >= SEARCH_STACK_LEN {
             return Some(best_score);
         }
         // TODO: Set stand pat to SCORE_LOST when in check, generate evasions?
