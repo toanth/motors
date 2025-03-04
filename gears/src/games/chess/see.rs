@@ -71,7 +71,9 @@ impl Chessboard {
             let generator = ChessSliderGenerator::new(self.occupied_bb() ^ bb);
             remaining_attackers |= generator.vertical_attacks(square) & (self.piece_bb(Rook) | self.piece_bb(Queen));
         }
-        eval += if mov.is_castle() { SeeScore(0) } else { piece_see_value(our_victim) };
+        if !mov.is_castle() {
+            eval += piece_see_value(our_victim)
+        };
 
         // testing if eval - max recapture score was >= beta caused a decently large bench performance regression,
         // so let's not do that. This also significantly simplifies the code, because the max recapture score can be larger

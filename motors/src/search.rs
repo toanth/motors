@@ -494,15 +494,22 @@ pub type SearchStateFor<B: Board, E: NormalEngine<B>> = SearchState<B, E::Search
 
 #[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Add, Sub, Neg)]
 #[must_use]
-pub struct MoveScore(pub i32);
+pub struct MoveScore(pub i16);
 
 impl MoveScore {
-    const MAX: MoveScore = MoveScore(i32::MAX);
-    const MIN: MoveScore = MoveScore(i32::MIN + 1);
+    const MAX: MoveScore = MoveScore(i16::MAX);
 }
 
 pub trait MoveScorer<B: Board, E: Engine<B>>: Debug {
-    fn score_move(&self, mov: B::Move, state: &SearchStateFor<B, E>) -> MoveScore;
+    /// This gets called when inserting a move into the move list
+    fn score_move_eager_part(&self, mov: B::Move, state: &SearchStateFor<B, E>) -> MoveScore;
+    /// This gets called upon choosing the next move, and if it returns `false`, the move is deferred until all moves
+    /// where this returned `true` have been tried. This results in a bucketed sort, where this function determines the bucket.
+    /// Because most nodes never look at most moves, this lazy computation can be a speedup.
+    fn defer_playing_move(&self, mov: B::Move) -> bool;
+
+    /// Negative value that gets added to the score of deferred moves
+    const DEFERRED_OFFSET: MoveScore;
 }
 
 /// A struct bundling parameters that modify the core search.
