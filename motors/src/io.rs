@@ -596,6 +596,9 @@ impl<B: Board> EngineUGI<B> {
             UCIShowCurrLine => {
                 self.output().show_currline = parse_bool_from_str(&value, "show current line")?;
             }
+            CurrlineNullmove => {
+                self.output().currline_null_moves = parse_bool_from_str(&value, "show nullmoves in `currline`")?;
+            }
             Strictness => {
                 self.strictness = if parse_bool_from_str(&value, "strictness")? { Strict } else { Relaxed };
             }
@@ -1159,6 +1162,10 @@ impl<B: Board> EngineUGI<B> {
                 UCIShowCurrLine => EngineOption {
                     name: UCIShowCurrLine,
                     value: Check(UgiCheck { val: self.output().show_currline, default: Some(false) }),
+                },
+                CurrlineNullmove => EngineOption {
+                    name: CurrlineNullmove,
+                    value: Check(UgiCheck { val: self.output().show_currline, default: Some(true) }),
                 },
                 MoveOverhead => EngineOption {
                     name: MoveOverhead,

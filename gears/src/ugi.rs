@@ -1,5 +1,5 @@
 use crate::general::board::{Board, BoardHelpers, Strictness};
-use crate::general::common::{tokens, tokens_to_string, NamedEntity, Res, Tokens};
+use crate::general::common::{NamedEntity, Res, Tokens, tokens, tokens_to_string};
 use crate::general::moves::Move;
 use anyhow::{anyhow, bail};
 use colored::Colorize;
@@ -44,11 +44,7 @@ pub struct UgiString {
 impl UgiString {
     pub fn value(&self) -> String {
         // The UCI spec demands to send empty strings as '<empty>'
-        if self.val.is_empty() {
-            "<empty>".to_string()
-        } else {
-            self.val.clone()
-        }
+        if self.val.is_empty() { "<empty>".to_string() } else { self.val.clone() }
     }
 }
 
@@ -127,6 +123,7 @@ pub enum EngineOptionName {
     UCIOpponent,
     UCIEngineAbout,
     UCIShowCurrLine,
+    CurrlineNullmove,
     MoveOverhead,
     Strictness,
     RespondToMove,
@@ -149,19 +146,34 @@ impl NamedEntity for EngineOptionName {
         let res = match self {
             EngineOptionName::Hash => "Size of the Transposition Table in MiB",
             EngineOptionName::Threads => "Number of search threads",
-            EngineOptionName::Ponder => "Pondering mode. Pondering is supported even without this option, so it has no effect",
+            EngineOptionName::Ponder => {
+                "Pondering mode. Pondering is supported even without this option, so it has no effect"
+            }
             EngineOptionName::MultiPv => "The number of Principal Variation (PV) lines to output",
             EngineOptionName::UciElo => "Limit strength to this elo. Currently not supported",
             EngineOptionName::UCIOpponent => "The opponent. Currently only used to output the name in PGNs",
             EngineOptionName::UCIEngineAbout => "Information about the engine. Can't be changed, only queried",
             EngineOptionName::UCIShowCurrLine => "Every now and then, print the line currently being searched",
-            EngineOptionName::MoveOverhead => "Subtract this from the remaining time each move to account for overhead of sending the move",
-            EngineOptionName::Strictness => "Be more restrictive about the positions to accept. By default, many non-standard positions are accepted",
-            EngineOptionName::RespondToMove => "When the input is a single move, let the engine play one move in response",
-            EngineOptionName::SetEngine => "Change the current searcher, and optionally the eval. Similar effect to `uginewgame`",
-            EngineOptionName::SetEval => "Change the current evaluation function without resetting the engine state, such as clearing the TT",
+            EngineOptionName::CurrlineNullmove => {
+                "Print nullmoves in non-interactive `currline`, if they exist. Option is ignored if currline isn't printed"
+            }
+            EngineOptionName::MoveOverhead => {
+                "Subtract this from the remaining time each move to account for overhead of sending the move"
+            }
+            EngineOptionName::Strictness => {
+                "Be more restrictive about the positions to accept. By default, many non-standard positions are accepted"
+            }
+            EngineOptionName::RespondToMove => {
+                "When the input is a single move, let the engine play one move in response"
+            }
+            EngineOptionName::SetEngine => {
+                "Change the current searcher, and optionally the eval. Similar effect to `uginewgame`"
+            }
+            EngineOptionName::SetEval => {
+                "Change the current evaluation function without resetting the engine state, such as clearing the TT"
+            }
             EngineOptionName::Variant => "Changes the current variant for 'fairy', e.g. 'chess' or 'shatranj'",
-            EngineOptionName::Other(name) => { return Some(format!("Custom option named '{name}'")) }
+            EngineOptionName::Other(name) => return Some(format!("Custom option named '{name}'")),
         };
         Some(res.to_string())
     }
@@ -178,6 +190,7 @@ impl EngineOptionName {
             EngineOptionName::UCIOpponent => "UCI_Opponent",
             EngineOptionName::UCIEngineAbout => "UCI_EngineAbout",
             EngineOptionName::UCIShowCurrLine => "UCI_ShowCurrLine",
+            EngineOptionName::CurrlineNullmove => "CurrlineNullmove",
             EngineOptionName::MoveOverhead => "MoveOverhead",
             EngineOptionName::Strictness => "Strict",
             EngineOptionName::RespondToMove => "RespondToMove",
@@ -483,10 +496,14 @@ mod tests {
         let mut pos = Chessboard::from_name("kiwipete").unwrap();
         let moves = " 0-0 e8h8 a2a3";
         let input = pos.as_fen() + moves;
-        assert!(only_load_ugi_position("position", &mut tokens(moves), &Chessboard::default(), Relaxed, true, false)
-            .is_err());
-        assert!(only_load_ugi_position("position", &mut tokens(&input), &Chessboard::default(), Relaxed, true, false)
-            .is_ok());
+        assert!(
+            only_load_ugi_position("position", &mut tokens(moves), &Chessboard::default(), Relaxed, true, false)
+                .is_err()
+        );
+        assert!(
+            only_load_ugi_position("position", &mut tokens(&input), &Chessboard::default(), Relaxed, true, false)
+                .is_ok()
+        );
         let res = load_ugi_pos_simple(&input, Strict, &pos).unwrap();
         pos = pos.make_move_from_str("O-O").unwrap();
         pos = pos.make_move_from_str("0-0 ?").unwrap();
@@ -495,8 +512,10 @@ mod tests {
 
         let pos = Chessboard::from_name("lucena").unwrap();
         let input = "lucena moves";
-        assert!(only_load_ugi_position("position", &mut tokens(input), &Chessboard::default(), Relaxed, true, false)
-            .is_err());
+        assert!(
+            only_load_ugi_position("position", &mut tokens(input), &Chessboard::default(), Relaxed, true, false)
+                .is_err()
+        );
         let res = only_load_ugi_position("position", &mut tokens(input), &Chessboard::default(), Relaxed, true, true)
             .unwrap();
         assert_eq!(pos, res);

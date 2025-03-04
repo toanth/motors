@@ -24,16 +24,16 @@ use gears::colorgrad::{BasisGradient, Gradient, LinearGradient};
 use gears::games::CharType::Unicode;
 use gears::games::Color;
 use gears::general::board::{Board, BoardHelpers};
-use gears::general::common::{sigmoid, Tokens};
+use gears::general::common::{Tokens, sigmoid};
 use gears::general::moves::ExtendedFormat::Standard;
 use gears::general::moves::Move;
 use gears::itertools::Itertools;
 use gears::output::{Message, OutputBox, OutputOpts};
-use gears::score::{Score, SCORE_LOST, SCORE_WON};
+use gears::score::{SCORE_LOST, SCORE_WON, Score};
 use gears::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
 use gears::search::NodeType::*;
 use gears::search::{Depth, MpvType, NodeType, NodesLimit, SearchInfo, SearchResult};
-use gears::{colored, colorgrad, GameState};
+use gears::{GameState, colored, colorgrad};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::io::stdout;
 use std::time::Duration;
@@ -266,6 +266,7 @@ pub struct UgiOutput<B: Board> {
     pub(super) additional_outputs: Vec<OutputBox<B>>,
     previous_exact_pv: Option<Vec<B::Move>>,
     pub show_currline: bool,
+    pub currline_null_moves: bool,
 }
 
 impl<B: Board> Default for UgiOutput<B> {
@@ -274,7 +275,8 @@ impl<B: Board> Default for UgiOutput<B> {
             additional_outputs: vec![],
             previous_exact_pv: None,
             type_erased: TypeErasedUgiOutput::default(),
-            show_currline: true,
+            show_currline: false,
+            currline_null_moves: true,
         }
     }
 }
@@ -307,8 +309,12 @@ impl<B: Board> UgiOutput<B> {
         self.write_ugi(&format_args!("{msg}"))
     }
 
+    fn can_show_currline(&mut self) -> bool {
+        self.show_currline || self.type_erased.pretty
+    }
+
     pub fn write_currmove(&mut self, pos: &B, mov: B::Move, move_nr: usize, score: Score, alpha: Score, beta: Score) {
-        if !self.show_currline || !pos.is_move_legal(mov) {
+        if !self.can_show_currline() || !pos.is_move_legal(mov) {
             return;
         }
         // UGI wants 1-indexed output, but we've already counted the move, so move_nr is 1-indexed
@@ -331,15 +337,24 @@ impl<B: Board> UgiOutput<B> {
         beta: Score,
     ) {
         use std::fmt::Write;
-        if !self.show_currline {
+        if !self.can_show_currline() {
             return;
         }
         if !self.type_erased.pretty {
             let mut pos = pos.clone();
             let mut line = String::new();
             for mov in variation {
-                write!(line, " {}", mov.compact_formatter(&pos)).unwrap();
-                pos = pos.make_move(mov).unwrap();
+                let old_pos = pos.clone();
+                if mov.is_null() {
+                    if self.currline_null_moves {
+                        pos = pos.make_nullmove().unwrap();
+                    } else {
+                        break;
+                    }
+                } else {
+                    pos = pos.make_move(mov).unwrap();
+                }
+                write!(line, " {}", mov.compact_formatter(&old_pos)).unwrap();
             }
             // We only send search results from the main thread, no matter how many threads are searching.
             // And we're also not inspecting other threads' PVs from the main thread.
@@ -421,11 +436,7 @@ pub fn suffix_for(val: isize, start: Option<usize>) -> (isize, &'static str) {
 fn write_with_suffix(val: u64, dimmed: bool) -> String {
     let (new_val, suffix) = suffix_for(val as isize, None);
     let res = format!(" {:>7}", format!("(+{new_val:>3}{suffix})"));
-    if dimmed {
-        res.dimmed().to_string()
-    } else {
-        res
-    }
+    if dimmed { res.dimmed().to_string() } else { res }
 }
 
 pub fn score_gradient() -> LinearGradient {
