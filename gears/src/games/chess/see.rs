@@ -1,13 +1,12 @@
 use crate::games::chess::moves::ChessMove;
-use crate::games::chess::moves::ChessMoveFlags::{NormalPawnMove, PromoQueen};
 use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use crate::games::chess::squares::ChessSquare;
-use crate::games::chess::{ChessColor, Chessboard, PAWN_CAPTURES};
+use crate::games::chess::{Chessboard, PAWN_CAPTURES};
 use crate::games::{AbstractPieceType, Board, Color};
 use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::{KnownSizeBitboard, RawBitboard};
-use crate::general::board::{BitboardBoard, BoardHelpers};
+use crate::general::board::BitboardBoard;
 use crate::general::hq::ChessSliderGenerator;
 use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use std::mem::swap;
@@ -31,24 +30,10 @@ pub fn piece_see_value(piece: ChessPieceType) -> SeeScore {
     SEE_SCORES[piece.to_uncolored_idx()]
 }
 
-pub fn move_see_value(mov: ChessMove, victim: ChessPieceType) -> SeeScore {
-    let mut score = piece_see_value(victim);
-    if mov.is_promotion() {
-        score += piece_see_value(mov.promo_piece()) - piece_see_value(Pawn);
-    } else if mov.is_castle() {
-        score = SeeScore(0); // the 'victim' would be our own rook
-    }
-    score
-}
-
 impl Chessboard {
-    fn next_see_attacker(
-        &self,
-        color: ChessColor,
-        all_remaining_attackers: ChessBitboard,
-    ) -> Option<(ChessPieceType, ChessSquare)> {
+    fn next_see_attacker(&self, our_remaining_attackers: ChessBitboard) -> Option<(ChessPieceType, ChessSquare)> {
         for piece in ChessPieceType::pieces() {
-            let mut current_attackers = self.colored_piece_bb(color, piece) & all_remaining_attackers;
+            let mut current_attackers = self.piece_bb(piece) & our_remaining_attackers;
             if current_attackers.has_set_bit() {
                 return Some((piece, ChessSquare::from_bb_index(current_attackers.pop_lsb())));
             };
@@ -59,76 +44,75 @@ impl Chessboard {
     pub fn see(&self, mov: ChessMove, mut alpha: SeeScore, mut beta: SeeScore) -> SeeScore {
         debug_assert!(alpha < beta);
         let square = mov.dest_square();
-        let mut color = self.active_player;
+        let mut us = self.active_player;
         let original_moving_piece = mov.piece_type();
         let mut our_victim = self.piece_type_on(square);
         // A simple shortcut to avoid doing most of the work of SEE for a large portion of the cases it's called.
         // This needs to handle the case of the opponent recapturing with a pawn promotion.
         if piece_see_value(our_victim) - piece_see_value(original_moving_piece) >= beta
             && !(square.is_backrank()
-                && (PAWN_CAPTURES[color as usize][square.bb_idx()] & self.colored_piece_bb(color.other(), Pawn))
+                && (PAWN_CAPTURES[us as usize][square.bb_idx()] & self.colored_piece_bb(us.other(), Pawn))
                     .has_set_bit())
         {
             return beta;
         }
         let generator = self.slider_generator();
-        let mut all_remaining_attackers = self.all_attacking(square, &generator);
-        let mut removed_attackers = ChessBitboard::default();
-        if self.is_occupied(square) {
-            removed_attackers = square.bb(); // hyperbola quintessence expects the source square to be empty // TODO: It doesn't any more
-        }
+        let mut remaining_attackers = self.all_attacking(square, &generator);
+        let mut remaining_blockers = self.occupied_bb();
         let mut their_victim = original_moving_piece;
+        let mut eval = SeeScore(0);
         if mov.is_promotion() {
             their_victim = mov.promo_piece();
+            eval = piece_see_value(mov.promo_piece()) - piece_see_value(Pawn);
         } else if mov.is_ep() {
             our_victim = Pawn;
             let bb = mov.square_of_pawn_taken_by_ep().unwrap().bb();
             debug_assert_eq!(bb & !self.occupied_bb(), ChessBitboard::default());
             let generator = ChessSliderGenerator::new(self.occupied_bb() ^ bb);
-            all_remaining_attackers |=
-                generator.vertical_attacks(square) & (self.piece_bb(Rook) | self.piece_bb(Queen));
+            remaining_attackers |= generator.vertical_attacks(square) & (self.piece_bb(Rook) | self.piece_bb(Queen));
         }
-        let mut eval = move_see_value(mov, our_victim);
+        eval += if mov.is_castle() { SeeScore(0) } else { piece_see_value(our_victim) };
+
         // testing if eval - max recapture score was >= beta caused a decently large bench performance regression,
         // so let's not do that. This also significantly simplifies the code, because the max recapture score can be larger
         // than the captured piece value in case of promotions.
 
         let mut see_attack =
             |attacker: ChessSquare, all_remaining_attackers: &mut ChessBitboard, piece: ChessPieceType| {
+                let removed = ChessBitboard::single_piece(attacker);
+                debug_assert!((removed & remaining_blockers).has_set_bit());
                 // `&= !` instead of `^` because in the case of a regular pawn move, the moving pawn wasn't part of the attacker bb.
-                *all_remaining_attackers &= !ChessBitboard::single_piece(attacker);
-                removed_attackers |= ChessBitboard::single_piece(attacker);
-                debug_assert_eq!(removed_attackers & !self.occupied_bb(), ChessBitboard::default());
-                let blockers_left = self.occupied_bb() ^ removed_attackers;
+                *all_remaining_attackers &= !removed;
+                remaining_blockers ^= removed;
                 // xrays for sliders
-                let ray_attacks = self.ray_attacks(square, attacker, blockers_left);
-                let new_attack = ray_attacks & !(removed_attackers | *all_remaining_attackers);
-                debug_assert!(new_attack.count_ones() <= 1);
+                let ray_attacks = self.ray_attacks(square, attacker, remaining_blockers);
+                let new_attack = ray_attacks & remaining_blockers;
+                debug_assert!((new_attack & !*all_remaining_attackers).count_ones() <= 1);
                 *all_remaining_attackers |= new_attack;
-                let (flags, new_piece) = if piece == Pawn && square.is_backrank() {
-                    (PromoQueen, Queen)
+                if piece == Pawn && square.is_backrank() {
+                    (piece_see_value(Queen) - piece_see_value(Pawn), Queen)
                 } else {
-                    (NormalPawnMove, piece) // the flag doesn't matter, as long as it's not a promo or castle
-                };
-                (ChessMove::new(attacker, square, flags), new_piece)
+                    (SeeScore(0), piece)
+                }
             };
-        _ = see_attack(mov.src_square(), &mut all_remaining_attackers, original_moving_piece);
+        _ = see_attack(mov.src_square(), &mut remaining_attackers, original_moving_piece);
 
         loop {
-            color = color.other();
+            us = !us;
             (alpha, beta) = (-beta, -alpha);
             eval = -eval;
             swap(&mut our_victim, &mut their_victim);
             if eval >= beta {
-                return if color == self.active_player { beta } else { -beta };
+                return if us == self.active_player { beta } else { -beta };
             } else if eval > alpha {
                 alpha = eval;
             }
-            let Some((piece, attacker_src_square)) = self.next_see_attacker(color, all_remaining_attackers) else {
-                return if color == self.active_player { eval.max(alpha) } else { -eval.max(alpha) };
+            let our_remaining_attackers = remaining_attackers & self.player_bb(us);
+            let Some((piece, attacker_src_square)) = self.next_see_attacker(our_remaining_attackers) else {
+                return if us == self.active_player { eval.max(alpha) } else { -eval.max(alpha) };
             };
-            let (mov, piece) = see_attack(attacker_src_square, &mut all_remaining_attackers, piece);
-            eval += move_see_value(mov, our_victim);
+            let (additional_score, piece) = see_attack(attacker_src_square, &mut remaining_attackers, piece);
+            eval += piece_see_value(our_victim) + additional_score;
             their_victim = piece;
         }
     }
