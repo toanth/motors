@@ -189,10 +189,10 @@ impl CorrHist {
             return raw;
         }
         let color = pos.active_player();
-        let mut correction = self.pawns[color][pos.pawn_key()] as isize;
-        correction += self.material[color][pos.material_key()] as isize * 512 / 1024;
+        let mut correction = self.pawns[color][pos.pawn_key()] as isize * 750 / 1024;
+        correction += self.material[color][pos.material_key()] as isize * 500 / 1024;
         for c in ChessColor::iter() {
-            correction += self.nonpawns[color][pos.nonpawn_key(c)][c] as isize / 2;
+            correction += self.nonpawns[color][pos.nonpawn_key(c)][c] as isize * 375 / 1024;
         }
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
         Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
@@ -274,6 +274,9 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
             *value = 0;
         }
         for value in self.corr_hist.nonpawns.iter_mut().flatten().flatten() {
+            *value = 0;
+        }
+        for value in self.corr_hist.material.iter_mut().flatten() {
             *value = 0;
         }
         self.root_move_nodes.clear();
