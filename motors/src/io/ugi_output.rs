@@ -35,6 +35,7 @@ use gears::search::NodeType::*;
 use gears::search::{Depth, MpvType, NodeType, NodesLimit, SearchInfo, SearchResult};
 use gears::{GameState, colored, colorgrad};
 use indicatif::{ProgressBar, ProgressStyle};
+use std::fmt::Write;
 use std::io::stdout;
 use std::time::Duration;
 use std::{fmt, mem};
@@ -114,6 +115,7 @@ impl TypeErasedUgiOutput {
         alpha: Score,
         beta: Score,
         curr_pos: Option<&str>,
+        root_pos: Option<&str>,
     ) -> &ProgressBar {
         use fmt::Write;
         let bar = self.progress_bar.get_or_insert_with(|| {
@@ -133,23 +135,25 @@ impl TypeErasedUgiOutput {
             "ms in this AW] Searching".dimmed(),
         )
         .unwrap();
-        let mut board_string = String::new();
-        if let Some((diagram, fen)) = &self.previous_exact_pv_end_pos {
-            let pv_prefix = format!("Position at the end of the PV: '{}'", fen.dimmed());
-            writeln!(board_string, "\n{pv_prefix}\n{diagram}").unwrap();
-        };
-        if let Some(curr_pos) =
-            curr_pos.map(|s| s.to_string()).or(self.previous_exact_pv_end_pos.as_ref().map(|s| format!("\n\n{}", s.0)))
-        {
-            let mut res = String::new();
-            for (first, second) in board_string.lines().zip(curr_pos.lines()) {
-                writeln!(res, "{first}{}{second}", " ".repeat(15)).unwrap();
-            }
-            board_string = res;
-        }
-        write!(message, "{board_string}").unwrap();
+        Self::write_boards(&mut message, curr_pos, root_pos, &self.previous_exact_pv_end_pos);
         bar.set_prefix(message);
         bar
+    }
+
+    fn write_boards(msg: &mut String, curr_pos: Option<&str>, root_pos: Option<&str>, prev: &Option<(String, String)>) {
+        let Some((pv_pos, fen)) = prev else {
+            return;
+        };
+        let spacer = " ".repeat(15);
+        writeln!(msg, "\nPosition at the end of the PV: '{}'", fen.dimmed()).unwrap();
+        if let Some(curr_pos) = curr_pos {
+            let root_pos = root_pos.unwrap();
+            let mut boards = String::new();
+            for (first, (second, third)) in root_pos.lines().zip(pv_pos.lines().zip(curr_pos.lines())) {
+                writeln!(boards, "{first}{spacer}{second}{spacer}{third}").unwrap();
+            }
+            writeln!(msg, "{boards}").unwrap();
+        }
     }
 
     // this is a pretty large function, and instantiating it for each game would make it the 5th largest function in terms of generated llvm lines.
@@ -324,7 +328,7 @@ impl<B: Board> UgiOutput<B> {
             return;
         }
         let (variation, _) = pretty_variation(&[mov], pos.clone(), None, None, Exact);
-        let bar = self.type_erased.show_bar(num_moves, &variation, score, alpha, beta, None);
+        let bar = self.type_erased.show_bar(num_moves, &variation, score, alpha, beta, None, None);
         bar.set_position(move_nr as u64);
     }
 
@@ -363,9 +367,10 @@ impl<B: Board> UgiOutput<B> {
         }
         let num_legal = pos.num_legal_moves();
         let variation = variation.collect_vec();
-        let (variation, pos) = pretty_variation(&variation, pos.clone(), None, None, Exact);
-        let pos = "\n\n".to_string() + &pos.as_diagram(Unicode, false);
-        _ = self.type_erased.show_bar(num_legal, &variation, eval, alpha, beta, Some(&pos));
+        let (variation, end_pos) = pretty_variation(&variation, pos.clone(), None, None, Exact);
+        let end_pos = end_pos.as_diagram(Unicode, false);
+        let root_pos = pos.as_diagram(Unicode, false);
+        _ = self.type_erased.show_bar(num_legal, &variation, eval, alpha, beta, Some(&end_pos), Some(&root_pos));
     }
 
     pub fn write_search_info(&mut self, mut info: SearchInfo<B>) {

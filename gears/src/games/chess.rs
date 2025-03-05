@@ -309,7 +309,7 @@ impl Board for Chessboard {
             "nrb1nkrq/2pp1ppp/p4b2/1p2p3/P4B2/3P4/1PP1PPPP/NR1BNRKQ w gb - 0 9",
             // a very weird position (not reachable from startpos, but still somewhat realistic)
             "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1",
-            // mate in 15 that stronger engines tend to miss(even lichess SF only finds a mate in 17 with max parameters)
+            // mate in 15 that stronger engines tend to miss (even lichess SF only finds a mate in 17 with max parameters)
             "5k2/1p5Q/p2r1qp1/P1p1RpN1/2P5/3P3P/5PP1/6K1 b - - 0 56",
         ];
         let mut res = fens.map(|fen| Self::from_fen(fen, Strict).unwrap()).iter().copied().collect_vec();
