@@ -871,7 +871,7 @@ impl Caps {
             }
         } else {
             self.statistics.tt_miss(MainSearch);
-            raw_eval = self.eval(pos, ply);
+            raw_eval = self.eval(&pos, ply);
             eval = raw_eval;
         };
         eval = self.corr_hist.correct(&pos, eval);
@@ -1274,7 +1274,7 @@ impl Caps {
                 best_move = mov;
             }
         } else {
-            raw_eval = self.eval(pos, ply);
+            raw_eval = self.eval(&pos, ply);
             eval = raw_eval;
         }
         let mut best_score = self.corr_hist.correct(&pos, eval);
@@ -1333,17 +1333,17 @@ impl Caps {
         Some(best_score)
     }
 
-    fn eval(&mut self, pos: Chessboard, ply: usize) -> Score {
+    fn eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
         let res = if ply == 0 {
-            self.eval.eval(&pos, 0)
+            self.eval.eval(pos, 0)
         } else {
             let old_pos = &self.state.search_stack[ply - 1].pos;
             let mov = self.search_stack[ply - 1].last_tried_move();
-            self.eval.eval_incremental(old_pos, mov, &pos, ply)
+            self.eval.eval_incremental(old_pos, mov, pos, ply)
         };
         // the score must not be in the mate score range unless the position includes too many pieces
         debug_assert!(
-            !res.is_won_or_lost() || UnverifiedChessboard::new(pos).verify(Strict).is_err(),
+            !res.is_won_or_lost() || UnverifiedChessboard::new(*pos).verify(Strict).is_err(),
             "{res} {0} {1}, {pos}",
             res.0,
             self.eval.eval(&pos, ply)
@@ -1433,7 +1433,9 @@ impl Caps {
     #[inline]
     fn maybe_send_currline(&mut self, pos: &Chessboard, alpha: Score, beta: Score, ply: usize, score: Option<Score>) {
         if self.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0 && self.last_msg_time.elapsed().as_millis() >= 1000 {
-            let score = score.or_else(|| self.qsearch(*pos, alpha, beta, ply)).unwrap_or_default();
+            // calling qsearch instead of eval would give better results, but it would also mean that benches are no longer
+            // deterministic
+            let score = score.unwrap_or_else(|| self.eval(pos, ply));
             self.search_stack[ply].forget();
             let flip = pos.active_player() != self.params.pos.active_player();
             let score = score.flip_if(flip);
