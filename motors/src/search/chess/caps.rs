@@ -1436,7 +1436,6 @@ impl Caps {
             // calling qsearch instead of eval would give better results, but it would also mean that benches are no longer
             // deterministic
             let score = score.unwrap_or_else(|| self.eval(pos, ply));
-            self.search_stack[ply].forget();
             let flip = pos.active_player() != self.params.pos.active_player();
             let score = score.flip_if(flip);
             let alpha = alpha.flip_if(flip);
