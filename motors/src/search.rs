@@ -1046,9 +1046,9 @@ pub fn run_bench_with<B: Board>(
     for position in bench_positions {
         // engine.forget();
         single_bench(position, engine, limit, tt.clone(), &mut total, &mut hasher);
-        if let Some(limit) = second_limit {
-            single_bench(position, engine, limit, tt.clone(), &mut total, &mut hasher);
-        }
+        // if let Some(limit) = second_limit {
+        //     single_bench(position, engine, limit, tt.clone(), &mut total, &mut hasher);
+        // }
     }
     if limit.depth != SearchLimit::infinite().depth {
         total.depth = Some(limit.depth);
