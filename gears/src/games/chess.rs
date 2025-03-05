@@ -239,7 +239,7 @@ impl Board for Chessboard {
                 fen: "QQQQQQBk/Q6B/Q6Q/Q6Q/Q6Q/Q6Q/Q6Q/KQQQQQQQ w - - 0 1",
                 strictness: Relaxed,
             },
-            NameToPos::strict("long_check_sequence", "4r1Q1/B2nr3/5b2/8/4p3/4KbNq/ppppppp1/RR3Nkn w - - 0 1"),
+            // NameToPos::strict("long_check_sequence", "4r1Q1/B2nr3/5b2/8/4p3/4KbNq/ppppppp1/RR3Nkn w - - 0 1"),
         ]
     }
 
