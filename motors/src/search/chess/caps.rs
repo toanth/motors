@@ -44,10 +44,11 @@ use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(225);
-/// The maximum value of the `ply` parameter, i.e. the maximum depth (in plies) before qsearch is reached
+/// The maximum value of the `ply` parameter in main search, i.e. the maximum depth (in plies) before qsearch is reached
 const DEPTH_HARD_LIMIT: Depth = Depth::new(255);
 
-/// Qsearch can't go more than 30 plies deep, so this prevents out of bounds accesses
+/// Qsearch can go more than 30 plies deeper than the depth hard limit if ther's more material on the board; in that case we simply
+/// return the static eval.
 const SEARCH_STACK_LEN: usize = DEPTH_HARD_LIMIT.get() + 30;
 
 type HistScoreT = i16;
@@ -871,7 +872,7 @@ impl Caps {
             }
         } else {
             self.statistics.tt_miss(MainSearch);
-            raw_eval = self.eval(pos, ply);
+            raw_eval = self.eval(&pos, ply);
             eval = raw_eval;
         };
         eval = self.corr_hist.correct(&pos, eval);
@@ -1047,8 +1048,8 @@ impl Caps {
             self.record_move(mov, pos, ply, MainSearch);
             if root && depth >= 8 && self.start_time.elapsed().as_millis() >= 3000 {
                 let move_num = self.search_stack[0].tried_moves.len();
-                // will usually get a TT cutoff immediately
-                let score = -self.qsearch(new_pos, alpha, beta, 1).unwrap_or_default();
+                // `qsearch` would give better results, but would make bench be nondeterministic
+                let score = -self.eval(&new_pos, 0);
                 self.send_currmove(mov, move_num, score, alpha, beta);
             }
             if move_score < KILLER_SCORE {
@@ -1115,11 +1116,18 @@ impl Caps {
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
                 if alpha < score && reduction > 0 {
+                    // do deeper / shallower: Adjust the first re-search depth based on the result of the first search
+                    let mut retry_depth = depth - 1;
+                    if score > alpha + 50 + 4 * depth as ScoreT {
+                        retry_depth += 1;
+                    } else if score < alpha + 10 {
+                        retry_depth -= 1;
+                    }
                     self.statistics.lmr_first_retry();
                     score = -self.negamax(
                         new_pos,
                         ply + 1,
-                        depth - 1,
+                        retry_depth,
                         -(alpha + 1),
                         -alpha,
                         FailHigh, // we still expect the child to fail high here
@@ -1274,7 +1282,7 @@ impl Caps {
                 best_move = mov;
             }
         } else {
-            raw_eval = self.eval(pos, ply);
+            raw_eval = self.eval(&pos, ply);
             eval = raw_eval;
         }
         let mut best_score = self.corr_hist.correct(&pos, eval);
@@ -1282,7 +1290,7 @@ impl Caps {
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
         // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
         // only after aging
-        if best_score >= beta {
+        if best_score >= beta || ply >= SEARCH_STACK_LEN {
             return Some(best_score);
         }
         // TODO: Set stand pat to SCORE_LOST when in check, generate evasions?
@@ -1333,17 +1341,17 @@ impl Caps {
         Some(best_score)
     }
 
-    fn eval(&mut self, pos: Chessboard, ply: usize) -> Score {
+    fn eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
         let res = if ply == 0 {
-            self.eval.eval(&pos, 0)
+            self.eval.eval(pos, 0)
         } else {
             let old_pos = &self.state.search_stack[ply - 1].pos;
             let mov = self.search_stack[ply - 1].last_tried_move();
-            self.eval.eval_incremental(old_pos, mov, &pos, ply)
+            self.eval.eval_incremental(old_pos, mov, pos, ply)
         };
         // the score must not be in the mate score range unless the position includes too many pieces
         debug_assert!(
-            !res.is_won_or_lost() || UnverifiedChessboard::new(pos).verify(Strict).is_err(),
+            !res.is_won_or_lost() || UnverifiedChessboard::new(*pos).verify(Strict).is_err(),
             "{res} {0} {1}, {pos}",
             res.0,
             self.eval.eval(&pos, ply)
@@ -1433,8 +1441,9 @@ impl Caps {
     #[inline]
     fn maybe_send_currline(&mut self, pos: &Chessboard, alpha: Score, beta: Score, ply: usize, score: Option<Score>) {
         if self.uci_nodes() % DEFAULT_CHECK_TIME_INTERVAL == 0 && self.last_msg_time.elapsed().as_millis() >= 1000 {
-            let score = score.or_else(|| self.qsearch(*pos, alpha, beta, ply)).unwrap_or_default();
-            self.search_stack[ply].forget();
+            // calling qsearch instead of eval would give better results, but it would also mean that benches are no longer
+            // deterministic
+            let score = score.unwrap_or_else(|| self.eval(pos, ply));
             let flip = pos.active_player() != self.params.pos.active_player();
             let score = score.flip_if(flip);
             let alpha = alpha.flip_if(flip);
