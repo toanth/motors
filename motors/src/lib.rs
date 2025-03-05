@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use gears::dyn_clone::clone_box;
 use gears::rand::rngs::StdRng;
 
+use crate::Mode::{Bench, Perft};
 #[cfg(feature = "ataxx")]
 use crate::eval::ataxx::bate::Bate;
 use crate::eval::chess::lite::KingGambot;
@@ -20,9 +21,9 @@ use crate::eval::mnk::base::BasicMnkEval;
 use crate::eval::rand_eval::RandEval;
 #[cfg(feature = "uttt")]
 use crate::eval::uttt::lute::Lute;
-use crate::io::cli::{parse_cli, EngineOpts};
-use crate::io::ugi_output::UgiOutput;
 use crate::io::EngineUGI;
+use crate::io::cli::{EngineOpts, parse_cli};
+use crate::io::ugi_output::UgiOutput;
 #[cfg(feature = "caps")]
 use crate::search::chess::caps::Caps;
 #[cfg(feature = "gaps")]
@@ -34,11 +35,12 @@ use crate::search::generic::random_mover::RandomMover;
 use crate::search::multithreading::EngineWrapper;
 use crate::search::tt::TT;
 use crate::search::{
-    run_bench_with, AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EvalBuilder, EvalList, SearcherBuilder,
-    SearcherList,
+    AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EvalBuilder, EvalList, SearcherBuilder, SearcherList,
+    run_bench_with,
 };
-use crate::Mode::{Bench, Perft};
+use gears::Quitting::*;
 use gears::cli::{ArgIter, Game};
+use gears::games::OutputList;
 #[cfg(feature = "ataxx")]
 use gears::games::ataxx::AtaxxBoard;
 #[cfg(feature = "chess")]
@@ -48,18 +50,16 @@ use gears::games::fairy::FairyBoard;
 use gears::games::mnk::MNKBoard;
 #[cfg(feature = "uttt")]
 use gears::games::uttt::UtttBoard;
-use gears::games::OutputList;
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, BoardHelpers};
-use gears::general::common::anyhow::anyhow;
 use gears::general::common::Description::WithDescription;
-use gears::general::common::{select_name_dyn, Res};
+use gears::general::common::anyhow::anyhow;
+use gears::general::common::{Res, select_name_dyn};
 use gears::general::perft::{perft, split_perft};
 use gears::output::normal_outputs;
 use gears::search::{Depth, SearchLimit};
 use gears::ugi::load_ugi_pos_simple;
-use gears::Quitting::*;
-use gears::{create_selected_output_builders, AbstractRun, AnyRunnable, OutputArgs, Quitting};
+use gears::{AbstractRun, AnyRunnable, OutputArgs, Quitting, create_selected_output_builders};
 use std::fmt::{Display, Formatter};
 
 pub mod eval;
@@ -301,10 +301,10 @@ pub fn generic_searchers<B: Board>() -> SearcherList<B> {
     vec![
         #[cfg(feature = "random_mover")]
         Box::new(SearcherBuilder::<B, RandomMover<B, StdRng>>::default()),
-        #[cfg(feature = "gaps")]
-        Box::new(SearcherBuilder::<B, Gaps<B>>::default()),
         #[cfg(feature = "proof_number")]
         Box::new(SearcherBuilder::<B, ProofNumberSearcher<B>>::default()),
+        #[cfg(feature = "gaps")]
+        Box::new(SearcherBuilder::<B, Gaps<B>>::default()),
     ]
 }
 
