@@ -1047,8 +1047,8 @@ impl Caps {
             self.record_move(mov, pos, ply, MainSearch);
             if root && depth >= 8 && self.start_time.elapsed().as_millis() >= 3000 {
                 let move_num = self.search_stack[0].tried_moves.len();
-                // will usually get a TT cutoff immediately
-                let score = -self.qsearch(new_pos, alpha, beta, 1).unwrap_or_default();
+                // `qsearch` would give better results, but would make bench be nondeterministic
+                let score = -self.eval(&new_pos, 0);
                 self.send_currmove(mov, move_num, score, alpha, beta);
             }
             if move_score < KILLER_SCORE {
