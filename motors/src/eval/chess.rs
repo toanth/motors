@@ -3,8 +3,8 @@ use gears::games::chess::pieces::NUM_CHESS_PIECES;
 use gears::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO, NUM_SQUARES};
 use gears::games::chess::ChessColor;
 use gears::games::chess::ChessColor::Black;
-use gears::general::bitboards::chess::ChessBitboard;
-use gears::general::bitboards::Bitboard;
+use gears::general::bitboards::chessboard::ChessBitboard;
+use gears::general::bitboards::{Bitboard, KnownSizeBitboard};
 use gears::general::squares::RectangularCoordinates;
 use strum_macros::EnumIter;
 
@@ -37,11 +37,7 @@ pub const PAWN_SHIELD_SHIFT: [usize; NUM_SQUARES] = {
     let mut res = [0; NUM_SQUARES];
     let mut square = 0;
     while square < 64 {
-        let mut entry = if square % 8 == 0 {
-            square + 8
-        } else {
-            square + 7
-        };
+        let mut entry = if square % 8 == 0 { square + 8 } else { square + 7 };
         if entry > 63 {
             entry = 63;
         }
@@ -51,11 +47,7 @@ pub const PAWN_SHIELD_SHIFT: [usize; NUM_SQUARES] = {
     res
 };
 
-pub fn pawn_shield_idx(
-    mut pawns: ChessBitboard,
-    mut king: ChessSquare,
-    color: ChessColor,
-) -> usize {
+pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: ChessColor) -> usize {
     if color == Black {
         king = king.flip();
         pawns = pawns.flip_up_down();
@@ -64,8 +56,8 @@ pub fn pawn_shield_idx(
     // TODO: pext if available
     let file = king.file();
     if file == A_FILE_NO || file == H_FILE_NO {
-        bb &= ChessBitboard::from_u64(0x303);
-        let mut pattern = (bb.0 | (bb.0 >> (8 - 2))) as usize & 0x3f;
+        bb &= ChessBitboard::from_raw(0x303);
+        let mut pattern = (bb.raw() | (bb.raw() >> (8 - 2))) as usize & 0x3f;
         if pattern.count_ones() > 2 {
             pattern = 0b11_11;
         }
@@ -75,8 +67,8 @@ pub fn pawn_shield_idx(
             (1 << 6) + (1 << 4) + pattern
         }
     } else {
-        bb &= ChessBitboard::from_u64(0x707);
-        let mut pattern = (bb.0 | (bb.0 >> (8 - 3))) as usize & 0x7f;
+        bb &= ChessBitboard::from_raw(0x707);
+        let mut pattern = (bb.raw() | (bb.raw() >> (8 - 3))) as usize & 0x7f;
         if pattern.count_ones() > 3 {
             pattern = 0b111_111;
         }
@@ -95,11 +87,10 @@ mod tests {
     use gears::games::chess::pieces::ChessPieceType::Pawn;
     use gears::games::chess::ChessColor::White;
     use gears::games::chess::{ChessColor, Chessboard};
-    use gears::games::DimT;
+    use gears::games::{Color, DimT};
     use gears::general::bitboards::RawBitboard;
-    use gears::general::board::Board;
+    use gears::general::board::{BitboardBoard, Board};
     use gears::score::Score;
-    use strum::IntoEnumIterator;
 
     #[test]
     fn pawn_shield_startpos_test() {
@@ -138,11 +129,7 @@ mod tests {
         assert_eq!(black, 0b010_101);
     }
 
-    fn expected_pawn_shield_idx(
-        mut pawns: ChessBitboard,
-        mut king: ChessSquare,
-        color: ChessColor,
-    ) -> usize {
+    fn expected_pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: ChessColor) -> usize {
         if color == Black {
             pawns = pawns.flip_up_down();
             king = king.flip();
@@ -185,7 +172,6 @@ mod tests {
         for pos in Chessboard::bench_positions() {
             for square in ChessSquare::iter() {
                 for color in ChessColor::iter() {
-                    let _fen = pos.as_fen();
                     let pawns = pos.colored_piece_bb(color, Pawn);
                     let actual = pawn_shield_idx(pawns, square, color);
                     let expected = expected_pawn_shield_idx(pawns, square, color);

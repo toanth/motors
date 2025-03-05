@@ -46,8 +46,7 @@ impl StaticallyNamedEntity for Bate {
     where
         Self: Sized,
     {
-        "A simple, classical evaluation for Ataxx, which counts the number of pieces per side"
-            .to_string()
+        "A simple, classical evaluation for Ataxx, which counts the number of pieces per side".to_string()
     }
 }
 

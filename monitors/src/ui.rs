@@ -25,10 +25,7 @@ pub trait InputBuilder<B: Board>: NamedEntity + DynClone {
         if option.is_empty() {
             Ok(())
         } else {
-            bail!(
-                "Unrecognized option {option} for match input '{}'",
-                self.long_name()
-            )
+            bail!("Unrecognized option {option} for match input '{}'", self.long_name())
         }
     }
 }

@@ -1,11 +1,9 @@
 use std::fmt::Display;
-use strum::IntoEnumIterator;
 
 use gears::games::mnk::{MNKBoard, MnkBitboard};
-use gears::general::bitboards::{Bitboard, RawBitboard, RayDirections};
-use gears::general::board::Board;
+use gears::general::bitboards::Bitboard;
 use gears::general::common::StaticallyNamedEntity;
-use gears::general::squares::GridSize;
+use gears::general::hq::BitReverseSliderGenerator;
 use gears::score::{Score, ScoreT};
 
 use crate::eval::Eval;
@@ -14,17 +12,19 @@ use crate::eval::Eval;
 #[derive(Debug, Default, Clone)]
 pub struct BasicMnkEval {}
 
-fn eval_player(bb: MnkBitboard, size: GridSize) -> ScoreT {
+fn eval_player(bb: MnkBitboard) -> ScoreT {
     let blockers = !bb;
+    let generator = BitReverseSliderGenerator::new(blockers, None);
     let mut res = 0;
-    for coords in bb.ones_for_size(size) {
-        for dir in RayDirections::iter() {
-            // TODO: Don't bitand with bb, bitand with !other_bb?
-            let run = (MnkBitboard::slider_attacks(coords, blockers, dir) & bb)
-                .to_primitive()
-                .count_ones();
-            res += 1 << run;
-        }
+    for coords in bb.ones() {
+        let run = generator.vertical_attacks(coords).count_ones();
+        res += 1 << run;
+        let run = generator.horizontal_attacks(coords).count_ones();
+        res += 1 << run;
+        let run = generator.diagonal_attacks(coords).count_ones();
+        res += 1 << run;
+        let run = generator.anti_diagonal_attacks(coords).count_ones();
+        res += 1 << run;
     }
     res
 }
@@ -54,9 +54,6 @@ impl StaticallyNamedEntity for BasicMnkEval {
 
 impl Eval<MNKBoard> for BasicMnkEval {
     fn eval(&mut self, pos: &MNKBoard, _ply: usize) -> Score {
-        Score(
-            eval_player(pos.active_player_bb(), pos.size())
-                - eval_player(pos.inactive_player_bb(), pos.size()),
-        )
+        Score(eval_player(pos.active_player_bb()) - eval_player(pos.inactive_player_bb()))
     }
 }

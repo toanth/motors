@@ -1,3 +1,4 @@
+use std::fmt;
 use std::fmt::Debug;
 
 use dyn_clone::DynClone;
@@ -69,7 +70,7 @@ pub trait AbstractOutput: NamedEntity + Debug + Send + 'static {
 
     fn output_name(&self) -> String;
 
-    fn write_ugi_output(&mut self, _message: &str, _player: Option<&str>) {
+    fn write_ugi_output(&mut self, _message: &fmt::Arguments, _player: Option<&str>) {
         // do nothing (most UIs don't log all UGI commands)
     }
 
@@ -77,7 +78,7 @@ pub trait AbstractOutput: NamedEntity + Debug + Send + 'static {
         // do nothing (most UIs don't log all UGI commands)
     }
 
-    fn display_message(&mut self, typ: Message, message: &str);
+    fn display_message(&mut self, typ: Message, message: &fmt::Arguments);
 }
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -87,9 +88,7 @@ pub struct OutputOpts {
 
 impl OutputOpts {
     pub fn dont_flip() -> Self {
-        Self {
-            disable_flipping: true,
-        }
+        Self { disable_flipping: true }
     }
 }
 
@@ -101,19 +100,25 @@ pub trait Output<B: Board>: AbstractOutput {
 
     fn inform_game_over(&mut self, m: &dyn GameState<B>) {
         match m.match_status() {
-            MatchStatus::Over(res) => self.display_message(Info, &game_over_message(res)),
+            MatchStatus::Over(res) => self.display_message(Info, &format_args!("{}", game_over_message(res))),
             _ => panic!("Internal error: the match isn't over"),
         }
     }
 
     fn as_string(&self, m: &dyn GameState<B>, opts: OutputOpts) -> String;
 
-    fn display_message_with_state(&mut self, _: &dyn GameState<B>, typ: Message, message: &str) {
+    fn display_message_with_state(&mut self, _: &dyn GameState<B>, typ: Message, message: &fmt::Arguments) {
         self.display_message(typ, message);
     }
 
     fn update_engine_info(&mut self, engine_name: &str, info: &SearchInfo<B>) {
-        self.display_message(Info, &format!("{engine_name}: {info}"));
+        self.display_message(Info, &format_args!("{engine_name}: {info}"));
+    }
+    fn upcast_box(self: Box<Self>) -> Box<dyn AbstractOutput>
+    where
+        Self: Sized,
+    {
+        self
     }
 }
 
@@ -147,18 +152,9 @@ pub fn required_outputs<B: Board>() -> OutputList<B> {
     for display_type in DisplayType::iter().dropping_back(1) {
         res.push(Box::new(TextOutputBuilder::new(display_type)));
     }
-    res.push(Box::new(TextOutputBuilder::messages_for(
-        vec![Warning, Error],
-        "error",
-    )));
-    res.push(Box::new(TextOutputBuilder::messages_for(
-        vec![Debug],
-        "debug",
-    )));
-    res.push(Box::new(TextOutputBuilder::messages_for(
-        vec![Info],
-        "info",
-    )));
+    res.push(Box::new(TextOutputBuilder::messages_for(vec![Warning, Error], "error")));
+    res.push(Box::new(TextOutputBuilder::messages_for(vec![Debug], "debug")));
+    res.push(Box::new(TextOutputBuilder::messages_for(vec![Info], "info")));
     #[allow(clippy::box_default)]
     res.push(Box::new(LoggerBuilder::default()));
     res

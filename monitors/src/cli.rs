@@ -11,9 +11,7 @@ use itertools::Itertools;
 
 use gears::cli::{get_next_arg, get_next_int, get_next_nonzero_usize, parse_output, ArgIter, Game};
 use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{
-    nonzero_u64, parse_duration_ms, parse_fp_from_str, parse_int_from_str, tokens, Res,
-};
+use gears::general::common::{nonzero_u64, parse_duration_ms, parse_fp_from_str, parse_int_from_str, tokens, Res};
 use gears::score::Score;
 use gears::search::{Depth, TimeControl};
 use gears::OutputArgs;
@@ -159,15 +157,10 @@ pub enum PlayerArgs {
 fn parse_key_equals_value(arg: &str) -> Res<(&str, Res<&str>)> {
     let mut parts = arg.split('=');
     let key = parts.next().unwrap();
-    let value = parts
-        .next()
-        .ok_or_else(|| anyhow!("Expected '=<value>' after '{key}'"));
+    let value = parts.next().ok_or_else(|| anyhow!("Expected '=<value>' after '{key}'"));
     if let Some(rest) = parts.next() {
         let rest = rest.to_string().add(&parts.join("="));
-        bail!(
-            "Expected an argument of the form 'key=value' or 'key' but got '{key}={}={rest}'",
-            value.unwrap()
-        )
+        bail!("Expected an argument of the form 'key=value' or 'key' but got '{key}={}={rest}'", value.unwrap())
     }
     Ok((key, value))
 }
@@ -209,9 +202,7 @@ fn parse_adjudication(args: &mut ArgIter, is_draw: bool) -> Res<ScoreAdjudicatio
 }
 
 // Channeling my inner C++ programmer to write a function accepting a generic iterator.
-pub fn parse_engine<Iter: Iterator<Item = String>>(
-    args: &mut Peekable<Iter>,
-) -> Res<ClientEngineCliArgs> {
+pub fn parse_engine<Iter: Iterator<Item = String>>(args: &mut Peekable<Iter>) -> Res<ClientEngineCliArgs> {
     let mut res = ClientEngineCliArgs::default();
     while let Some(arg) = args.peek() {
         if arg.starts_with('-') {
@@ -284,17 +275,10 @@ fn get_version() -> &'static str {
     option_env!("CARGO_PKG_VERSION").unwrap_or("<unknown version>")
 }
 
-pub fn combine_engine_args(
-    engine: &mut ClientEngineCliArgs,
-    each: &ClientEngineCliArgs,
-    add_debug_flag: bool,
-) {
+pub fn combine_engine_args(engine: &mut ClientEngineCliArgs, each: &ClientEngineCliArgs, add_debug_flag: bool) {
     // Logically, this function performs |= on each contained `Option`. Unfortunately,
     // Rust doesn't provide a built-in |= operator for `Option`s.
-    engine.display_name = engine
-        .display_name
-        .clone()
-        .or_else(|| each.display_name.clone());
+    engine.display_name = engine.display_name.clone().or_else(|| each.display_name.clone());
     if engine.cmd.is_empty() {
         engine.cmd.clone_from(&each.cmd);
     }
@@ -303,10 +287,7 @@ pub fn combine_engine_args(
         engine.engine_args.clone_from(&each.engine_args);
     }
     engine.add_debug_flag = add_debug_flag;
-    engine.init_string = engine
-        .init_string
-        .clone()
-        .or_else(|| each.init_string.clone());
+    engine.init_string = engine.init_string.clone().or_else(|| each.init_string.clone());
     engine.stderr = engine.stderr.clone().or_else(|| each.stderr.clone());
     engine.proto = engine.proto.or(each.proto);
     engine.tc = engine.tc.or(each.tc);
@@ -316,10 +297,7 @@ pub fn combine_engine_args(
     engine.depth = engine.depth.or(each.depth);
     engine.nodes = engine.nodes.or(each.nodes);
     each.custom_options.iter().for_each(|(key, value)| {
-        engine
-            .custom_options
-            .entry(key.clone())
-            .or_insert(value.clone());
+        engine.custom_options.entry(key.clone()).or_insert(value.clone());
     });
 }
 
@@ -393,8 +371,7 @@ pub fn parse_cli() -> Res<CommandLineArgs> {
             "-site" => res.site = Some(get_next_arg(&mut args, "site")?),
             "-srand" => todo!(),
             "-wait" => {
-                res.wait_after_match =
-                    Duration::from_millis(get_next_int::<i64>(&mut args, "wait")?.max(1) as u64);
+                res.wait_after_match = Duration::from_millis(get_next_int::<i64>(&mut args, "wait")?.max(1) as u64);
             }
             "-resultformat" => todo!(),
             "-startpos" => todo!(), // set one startpos for all matches. Incompatible with sprt.

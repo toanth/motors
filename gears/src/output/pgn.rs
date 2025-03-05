@@ -21,17 +21,17 @@
 use crate::MatchStatus::*;
 use crate::ProgramStatus::Run;
 use crate::games::{BoardHistory, Color};
-use crate::general::board::Board;
 use crate::general::board::Strictness::Relaxed;
+use crate::general::board::{Board, BoardHelpers, Strictness};
 use crate::general::common::{Res, parse_bool_from_str, parse_int_from_str};
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Move;
 use crate::output::pgn::RoundNumber::{Custom, Number, Unimportant, Unknown};
 use crate::output::pgn::TagPair::{
-    Black, BlackElo, BlackTitle, BlackType, Date, Event, Fen, Other, Result, Round, SetUp, Site,
-    White, WhiteElo, WhiteTitle, WhiteType,
+    Black, BlackElo, BlackTitle, BlackType, Date, Event, Fen, Other, Result, Round, SetUp, Site, White, WhiteElo,
+    WhiteTitle, WhiteType,
 };
-use crate::{AdjudicationReason, GameOverReason, GameResult, GameState, MatchResult, MatchState};
+use crate::{AdjudicationReason, GameOverReason, GameResult, GameState, MatchResult, MatchStatus, UgiPosState};
 use anyhow::{anyhow, bail};
 use colored::Colorize;
 use std::fmt::Display;
@@ -59,6 +59,7 @@ pub fn match_to_pgn_string<B: Board>(m: &dyn GameState<B>) -> String {
             },
         },
     };
+    let mut board = m.initial_pos().clone();
     let mut res = format!(
         "[Event \"{event}\"]\n\
         [Site \"{site}\"]\n\
@@ -79,15 +80,12 @@ pub fn match_to_pgn_string<B: Board>(m: &dyn GameState<B>) -> String {
         date = chrono::offset::Utc::now().to_rfc2822(),
         fen = m.initial_pos().as_fen(),
         p1 = m.player_name(B::Color::first()).unwrap_or("??".to_string()),
-        p2 = m
-            .player_name(B::Color::second())
-            .unwrap_or("??".to_string()),
-        p1_name = B::Color::first(),
-        p2_name = B::Color::second(),
+        p2 = m.player_name(B::Color::second()).unwrap_or("??".to_string()),
+        p1_name = B::Color::first().name(&board.settings()).as_ref(),
+        p2_name = B::Color::second().name(&board.settings()).as_ref(),
     );
-    let mut board = m.initial_pos();
     for (ply, mov) in m.move_history().iter().enumerate() {
-        let mov_str = mov.extended_formatter(board, Standard);
+        let mov_str = mov.extended_formatter(&board, Standard);
         if ply % 2 == 0 {
             res += &format!("\n{}. {mov_str}", (ply + 1) / 2 + 1);
         } else {
@@ -142,12 +140,7 @@ impl FromStr for PlayerType {
         match s {
             "human" => Ok(PlayerType::Human),
             "program" => Ok(PlayerType::Program),
-            _ => bail!(
-                "unknown player type '{0}', must be '{1}' or '{2}'",
-                s.red(),
-                "human".bold(),
-                "program".bold()
-            ),
+            _ => bail!("unknown player type '{0}', must be '{1}' or '{2}'", s.red(), "human".bold(), "program".bold()),
         }
     }
 }
@@ -230,28 +223,19 @@ impl TagPair {
 #[derive(Debug, Default, Clone)]
 pub struct PgnData<B: Board> {
     pub tag_pairs: Vec<TagPair>,
-    pub game: MatchState<B>,
+    pub game: UgiPosState<B>,
 }
 
-struct PgnParser<'a, B: Board> {
+/// Moved out of PgnParser to save generics instantiations (the `parse_pgn` method would otherwise be the 6th largest function
+/// in terms of combined LLVM lines)
+struct PgnParserState<'a> {
     first_in_line: bool,
     byte_idx: usize,
     original_input: &'a str,
     unread: Peekable<Chars<'a>>,
-    res: PgnData<B>,
 }
 
-impl<'a, B: Board> PgnParser<'a, B> {
-    fn new(input: &'a str) -> Self {
-        Self {
-            first_in_line: true,
-            byte_idx: 0,
-            original_input: input,
-            unread: input.chars().peekable(),
-            res: PgnData::default(),
-        }
-    }
-
+impl PgnParserState<'_> {
     fn eat(&mut self) -> Option<char> {
         self.first_in_line = self.unread.peek().is_some_and(|&c| c == '\n');
         let res = self.unread.next();
@@ -264,7 +248,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
     fn ignore_percent_comment(&mut self) -> bool {
         if self.first_in_line && self.unread.peek().is_some_and(|&c| c == '%') {
             loop {
-                self.eat();
+                _ = self.eat();
                 if self.first_in_line {
                     return true;
                 }
@@ -285,19 +269,44 @@ impl<'a, B: Board> PgnParser<'a, B> {
             if !c.is_whitespace() {
                 return Ok(());
             }
-            self.eat();
+            _ = self.eat();
         }
         Ok(())
     }
 
+    /// The resulting [`UgiPosState`] can't represent variations, so we ignore them.
+    /// Currently, we do not even check for legality; as long as all parens are closed we accept.
+    fn parse_variations(&mut self) -> Res<()> {
+        let paren = self.eat();
+        assert_eq!(paren, Some('('));
+
+        let mut nesting = 1;
+        loop {
+            self.ignore_whitespace()?;
+            match self.eat() {
+                Some('(') => nesting += 1,
+                Some(')') => nesting -= 1,
+                None => bail!("Unclosed variation: Opening '(' does not have a matching ')'"),
+                _ => {}
+            }
+            if nesting == 0 {
+                self.ignore_whitespace()?;
+                if let Some('(') = self.unread.peek() {
+                    continue;
+                }
+                return Ok(());
+            }
+        }
+    }
+
     fn parse_brace_comment(&mut self) -> Res<()> {
         assert!(self.unread.peek().is_some_and(|&c| c == '{'));
-        self.eat();
+        _ = self.eat();
         while let Some(&c) = self.unread.peek() {
             if self.ignore_percent_comment() {
                 continue;
             }
-            self.eat();
+            _ = self.eat();
             if c == '}' {
                 return Ok(());
             }
@@ -307,13 +316,13 @@ impl<'a, B: Board> PgnParser<'a, B> {
 
     fn parse_tag_pair(&mut self) -> Res<TagPair> {
         debug_assert!(self.unread.peek().is_some_and(|&c| c == '['));
-        self.eat();
+        _ = self.eat();
         self.ignore_whitespace()?;
         let mut name = String::new();
         while let Some(&c) = self.unread.peek() {
             if c.is_alphanumeric() || c == '_' {
                 name.push(c);
-                self.eat().unwrap();
+                _ = self.eat();
             } else {
                 break;
             }
@@ -322,10 +331,10 @@ impl<'a, B: Board> PgnParser<'a, B> {
             bail!("Empty tag after starting a tag pair with '['")
         }
         self.ignore_whitespace()?;
-        if self.unread.peek().is_none_or(|&c| c != '"') {
+        if self.unread.peek() != Some(&'"') {
             bail!("Expected the tag value to start with a quote ('\"')")
         }
-        self.eat();
+        _ = self.eat();
         let mut value = String::new();
         while let Some(c) = self.eat() {
             if c == '\\' {
@@ -339,25 +348,76 @@ impl<'a, B: Board> PgnParser<'a, B> {
             value.push(c);
         }
         self.ignore_whitespace()?;
-        if self.unread.peek().is_none_or(|&c| c != ']') {
+        if self.unread.peek() != Some(&']') {
             bail!("Expected the tag pair to end with a closing bracket (']')")
         }
-        self.eat();
+        _ = self.eat();
         TagPair::parse(name, value)
     }
 
-    fn parse_all_tag_pairs(&mut self) -> Res<()> {
-        self.ignore_whitespace()?;
-        while let Some(&c) = self.unread.peek() {
+    fn eat_move_number(&mut self) -> Res<()> {
+        if self.unread.peek().is_some_and(|c| c.is_ascii_digit()) {
+            _ = self.eat();
+            while self.unread.peek().is_some_and(|c| c.is_ascii_digit()) {
+                _ = self.eat();
+            }
+            self.ignore_whitespace()?;
+            while self.unread.peek().is_some_and(|&c| c == '.') {
+                _ = self.eat();
+            }
+            self.ignore_whitespace()?;
+        }
+        Ok(())
+    }
+
+    fn unread(&mut self) -> &str {
+        &self.original_input[self.byte_idx..]
+    }
+}
+
+struct PgnParser<'a, B: Board> {
+    state: PgnParserState<'a>,
+    res: PgnData<B>,
+}
+
+impl<'a, B: Board> PgnParser<'a, B> {
+    fn new(input: &'a str) -> Self {
+        let state = PgnParserState {
+            first_in_line: true,
+            byte_idx: 0,
+            original_input: input,
+            unread: input.chars().peekable(),
+        };
+        Self { state, res: PgnData::default() }
+    }
+
+    fn parse_all_tag_pairs(&mut self, strictness: Strictness) -> Res<()> {
+        self.state.ignore_whitespace()?;
+        while let Some(&c) = self.state.unread.peek() {
             if c == '[' {
-                let tag_pair = self.parse_tag_pair()?;
+                let tag_pair = self.state.parse_tag_pair()?;
                 if let TagPair::Fen(fen) = &tag_pair {
                     self.res.game.board = B::from_fen(fen, Relaxed)?;
                 }
                 self.res.tag_pairs.push(tag_pair);
-                self.ignore_whitespace()?;
+                self.state.ignore_whitespace()?;
             } else {
                 break;
+            }
+        }
+        for p in &self.res.tag_pairs {
+            match p {
+                TagPair::Fen(fen) => {
+                    self.res.game.pos_before_moves = B::from_fen(fen, strictness)?;
+                    self.res.game.board = self.res.game.pos_before_moves.clone();
+                }
+                Result(res) => {
+                    if res.check_finished().is_some() {
+                        self.res.game.status =
+                            Run(MatchStatus::Over(MatchResult { result: *res, reason: GameOverReason::Normal }))
+                    }
+                }
+                _ => { /*do nothing*/ }
             }
         }
         Ok(())
@@ -365,86 +425,67 @@ impl<'a, B: Board> PgnParser<'a, B> {
 
     // TODO: Support for Variations with (moves)
     fn parse_move(&mut self) -> Res<()> {
-        self.ignore_whitespace()?;
-        if self.unread.peek().is_none() {
+        self.state.ignore_whitespace()?;
+        let next = self.state.unread.peek().copied();
+        if next.is_none() {
             return Ok(());
+        } else if next == Some('(') {
+            self.state.parse_variations()?;
         }
-        let string = &self.original_input[self.byte_idx..];
+        let string = self.state.unread();
         let next_word = string.split_ascii_whitespace().next().unwrap_or_default();
         if let Ok(result) = GameResult::from_str(next_word) {
-            self.res.game.status = Run(Over(MatchResult {
-                result,
-                reason: GameOverReason::Normal,
-            }));
+            self.res.game.status = Run(Over(MatchResult { result, reason: GameOverReason::Normal }));
             for _ in 0..next_word.len() {
-                self.eat().unwrap();
+                _ = self.state.eat().unwrap();
             }
             return Ok(());
         }
-        if self.unread.peek().is_some_and(|c| c.is_ascii_digit()) {
-            self.eat();
-            while self.unread.peek().is_some_and(|c| c.is_ascii_digit()) {
-                self.eat();
-            }
-            self.ignore_whitespace()?;
-            while self.unread.peek().is_some_and(|&c| c == '.') {
-                self.eat();
-            }
-            self.ignore_whitespace()?;
-        }
-        let string = &self.original_input[self.byte_idx..];
+        self.state.eat_move_number()?;
+        let string = self.state.unread();
         if let Run(Over(_)) = self.res.game.status {
-            bail!(
-                "The game has already ended, cannot parse additional moves at start of '{}'",
-                string.bold()
-            )
+            bail!("The game has already ended, cannot parse additional moves at start of '{}'", string.bold())
         }
         let prev_board = &self.res.game.board;
         let (remaining, mov) = B::Move::parse_extended_text(string, prev_board)?;
-        let Some(new_board) = prev_board.make_move(mov) else {
-            bail!("Illegal psuedolegal move '{}'", mov.to_string().red());
+        let Some(new_board) = prev_board.clone().make_move(mov) else {
+            bail!("Illegal psuedolegal move '{}'", mov.compact_formatter(prev_board).to_string().red());
         };
-        self.res.game.board_hist.push(prev_board);
+        self.res.game.board_hist.push(prev_board.hash_pos());
         self.res.game.mov_hist.push(mov);
         self.res.game.board = new_board;
-        if let Some(res) = self
-            .res
-            .game
-            .board
-            .match_result_slow(&self.res.game.board_hist)
-        {
+        if let Some(res) = self.res.game.board.match_result_slow(&self.res.game.board_hist) {
             if let Run(st) = &mut self.res.game.status {
                 *st = Over(res);
             }
         }
         for _ in 0..string.len() - remaining.len() {
-            self.eat().unwrap();
+            _ = self.state.eat().unwrap();
         }
         Ok(())
     }
 
     fn parse_all_moves(&mut self) -> Res<()> {
-        while self.unread.peek().is_some() {
+        self.res.game.status = Run(Ongoing);
+        while self.state.unread.peek().is_some() {
             self.parse_move()?;
         }
         Ok(())
     }
 
-    fn parse(&mut self) -> Res<PgnData<B>> {
-        self.parse_all_tag_pairs()?;
+    fn parse(&mut self, strictness: Strictness) -> Res<PgnData<B>> {
+        self.parse_all_tag_pairs(strictness)?;
         self.parse_all_moves()?;
         Ok(take(&mut self.res))
     }
 }
 
-pub fn parse_pgn<B: Board>(pgn: &str) -> Res<PgnData<B>> {
+pub fn parse_pgn<B: Board>(pgn: &str, strictness: Strictness, pos: Option<B>) -> Res<PgnData<B>> {
     let mut parser: PgnParser<'_, B> = PgnParser::new(pgn);
-    parser.parse().map_err(|err| {
-        anyhow!(
-            "{err}. Unconsumed input: '{}'",
-            &parser.original_input[parser.byte_idx..].to_string().red()
-        )
-    })
+    if let Some(pos) = pos {
+        parser.res.tag_pairs.push(Fen(pos.as_fen()));
+    }
+    parser.parse(strictness).map_err(|err| anyhow!("{err}. Unconsumed input: '{}'", parser.state.unread().red()))
 }
 
 #[cfg(test)]
@@ -454,27 +495,21 @@ mod tests {
     use crate::games::chess::moves::ChessMove;
     use crate::games::chess::pieces::ChessPieceType::Bishop;
     use crate::games::chess::squares::ChessSquare;
+    use crate::general::board::Strictness::Strict;
+    use itertools::Itertools;
 
     #[test]
     fn parse_one_ply_pgn() {
         let pgn = "1. e4";
         let mut parser: PgnParser<'_, Chessboard> = PgnParser::new(pgn);
-        let data = parser.parse().unwrap();
+        let data = parser.parse(Relaxed).unwrap();
         let pos = Chessboard::default();
-        let pos = pos
-            .make_move(ChessMove::from_text("e4", &pos).unwrap())
-            .unwrap();
+        let pos = pos.make_move(ChessMove::from_text("e4", &pos).unwrap()).unwrap();
         assert_eq!(data.game.pos_before_moves, Chessboard::default());
         assert_eq!(data.game.mov_hist.len(), 1);
         assert_eq!(data.game.board, pos);
-        assert_eq!(
-            data.game.mov_hist[0],
-            ChessMove::from_text("e4", &Chessboard::default()).unwrap()
-        );
-        assert_eq!(
-            data.game.board_hist.0[0],
-            Chessboard::default().zobrist_hash()
-        );
+        assert_eq!(data.game.mov_hist[0], ChessMove::from_text("e4", &Chessboard::default()).unwrap());
+        assert_eq!(data.game.board_hist.0[0], Chessboard::default().hash_pos());
     }
 
     #[test]
@@ -482,14 +517,10 @@ mod tests {
         let pgn = "{this}1e4{is} \n%a\nd5 {test}";
         let mut parser: PgnParser<'_, Chessboard> = PgnParser::new(pgn);
 
-        let data = parser.parse().unwrap();
+        let data = parser.parse(Relaxed).unwrap();
         let pos = Chessboard::default();
-        let pos = pos
-            .make_move(ChessMove::from_text("e4", &pos).unwrap())
-            .unwrap();
-        let pos = pos
-            .make_move(ChessMove::from_text("d5", &pos).unwrap())
-            .unwrap();
+        let pos = pos.make_move(ChessMove::from_text("e4", &pos).unwrap()).unwrap();
+        let pos = pos.make_move(ChessMove::from_text("d5", &pos).unwrap()).unwrap();
         assert_eq!(data.game.mov_hist.len(), 2);
         assert_eq!(data.game.pos_before_moves, Chessboard::default());
         assert_eq!(data.game.board, pos);
@@ -510,11 +541,12 @@ mod tests {
 [ Black "Spassky, Boris V."]
 [Result{} "1/2-1/2"]
 
-1.e4 e5 2.Nf3 Nc6 3.Bb5 {This opening is called the Ruy Lopez.} 3...a6
+1.e4 e5 ({or maybe} 1...d5? {hmm, doesn't seem right :(}) 2.Nf3 Nc6 3.Bb5 {This opening is called the Ruy Lopez.} 3...a6
 4.Ba4 Nf6 5.O-O Be7 6.Re1 b5 7.Bb3 d6 8.c3 O-O 9.h3 Nb8 10.d4 Nbd7
 %test%\
 11.c4 c6 12.cxb5 axb5 13.Nc3 Bb7 14.Bg5 b4 15.Nb1 h6 16.Bh4 c5 17.dxe5
 Nxe4 18.Bxe7 Qxe7 19.exd6 Qf6 20.Nbd2 Nxd6 21.Nc4 Nxc4 22.Bxc4 Nb6
+({look,} {a test!})
 23.Ne5 Rae8 24.Bxf7+ Rxf7 25.Nxf7 Rxe1+ 26.Qxe1 Kxf7 27.Qe3 Qg5 28.Qxg5
 hxg5 29.b3 Ke6 30.a3 Kd6 31.axb4 cxb4 32.Ra5 Nd5 33.f3 Bc8 34.Kf2 Bf5
 {another test %}
@@ -524,7 +556,7 @@ hxg5 29.b3 Ke6 30.a3 Kd6 31.axb4 cxb4 32.Ra5 Nd5 33.f3 Bc8 34.Kf2 Bf5
 35.Ra7 g6 36.Ra6+ Kc5 37.Ke1{}Nf4 38.g3 Nxh3 39.Kd2 Kb5 40.Rd6 Kc5 41.Ra6
 Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
         let mut parser: PgnParser<'_, Chessboard> = PgnParser::new(pgn);
-        let data = parser.parse().unwrap();
+        let data = parser.parse(Relaxed).unwrap();
         assert_eq!(data.tag_pairs.len(), 7);
         assert!(matches!(data.tag_pairs[0], Event(_)));
         assert_eq!(data.tag_pairs[0], Event("F/S Return Match".to_string()));
@@ -537,10 +569,65 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
         assert_eq!(data.game.pos_before_moves, Chessboard::default());
         assert_eq!(data.game.mov_hist.len(), 42 * 2 + 1);
         assert_eq!(data.game.board_hist.len(), data.game.mov_hist.len());
-        assert_eq!(
-            data.game.mov_hist[42].dest_square(),
-            ChessSquare::from_chars('c', '4').unwrap()
-        );
+        assert_eq!(data.game.mov_hist[42].dest_square(), ChessSquare::from_chars('c', '4').unwrap());
         assert_eq!(data.game.mov_hist[42].piece_type(), Bishop);
     }
+
+    #[test]
+    fn parse_pgn_fen() {
+        // modified from <https://de.wikipedia.org/wiki/Portable_Game_Notation>
+        let pgn = r#"
+        [Event "IBM Kasparov vs. Deep Blue Rematch"]
+        [Site "New York, NY USA"]
+        [Date "1997.05.11"]
+        [Round "6"]
+        [White "Deep Blue"]
+        [Black "Kasparov, Garry"]
+        [SetUp "1"]
+        [Opening "Caro-Kann: 4...Nd7"]
+        [FEN "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"]
+        [ECO "B17"]
+        [Result "1-0"]
+%̷̹̈́̓ ̹̓ ͉̽̈́ ͉̼̰̻̽͂ ̰̓c̹̹ ̴͇̈́̈́|
+        1...c6 2. d4 d5 3. Nc3 dxe4 ()4. Nxe4 Nd7 5. Ng5( (a)) Ngf6 6. Bd3 e6 7. N1f3 h6 8. Nxe6 Qe7 9. O-O fxe6 10. Bg6+ Kd8 {Kasparov schüttelt kurz den Kopf} 11. Bf4 b5 12. a4 Bb7 13. Re1 Nd5 14. Bg3 Kc8 15. axb5 cxb5 16. Qd3 Bc6 17. Bf5 exf5 18. Rxe7 Bxe7 19. c4 1-0
+        "#;
+        let info = parse_pgn::<Chessboard>(pgn, Relaxed, None).unwrap();
+        assert_eq!(info.tag_pairs.len(), 11);
+        assert_ne!(info.game.pos_before_moves, Chessboard::default());
+        assert_eq!(
+            info.game.pos_before_moves,
+            Chessboard::default().make_move(ChessMove::from_text("e4", &Chessboard::default()).unwrap()).unwrap()
+        );
+        assert_eq!(info.game.mov_hist.len(), 19 * 2 - 1 - 1);
+        assert_eq!(
+            info.game.status,
+            Run(Over(MatchResult { result: GameResult::P1Win, reason: GameOverReason::Normal }))
+        );
+        assert_eq!(info.game.board.as_fen(), "r1k4r/p2nb1p1/2b4p/1p1n1p2/2PP4/3Q1NB1/1P3PPP/R5K1 b - - 0 19");
+    }
+
+    #[test]
+    fn invalid_pgn_test() {
+        let pgn = r#"1.e4 e5 2.Qh5 a6 3. Bc4 b6 4. Qxf7 d6"#;
+        let info = parse_pgn::<Chessboard>(pgn, Relaxed, None);
+        assert!(info.is_err());
+        assert!(info.err().unwrap().to_string().contains("The game has already ended"));
+    }
+
+    #[test]
+    fn lots_of_checks() {
+        let pgn = r#"[Variant "From Position"]
+            [FEN "4r1Q1/B2nr3/5b2/8/4p3/4KbNq/ppppppp1/RR3Nkn w - - 0 1"]
+            1. Nh2+??  (1. Nxe2+ Bxe2+ 2. Qg3 Nxg3 3. Nxg3+ axb1=Q 4. Rxb1+ cxb1=Q 5. Kf4 Qh6+ 6. Kf5 Re5#)(1.Nxd2{is also possible:)})
+                f1=N+ 2. Rxf1+ gxf1=N+ 3. Ngxf1+ Bg5+ 4. Qxg5+ Bg2+ 5. Nf3+ exf3+ 6. Kd3+ Nc5+
+{comment {} 7. Qxc5+ Re3+ 8. Nxe3+ c1=N+ 9. Qxc1+ d1=Q+ 10. Qxd1+ e1=N+ 11. Qxe1+ Bf1+ 12. Nxf1+ f2+
+  {\}       13. Ne3+ f1=Q+ 14. Qxf1+ Qxf1+ 15. Nxf1+ Re3+ 16. Nxe3+ b1=Q+ 17. Rxb1+ axb1=Q+ 18. Nc2+ Nf2+ 19. Bxf2+??"#;
+        let data = PgnParser::<'_, Chessboard>::new(pgn).parse(Strict).unwrap();
+        assert_eq!(data.tag_pairs.len(), 2);
+        for (pos, mov) in data.game.seen_so_far().dropping(1) {
+            assert!(pos.is_in_check(), "{pos}");
+            assert!(pos.gives_check(mov));
+        }
+    }
+    // TODO: Pgn test for another game than chess
 }

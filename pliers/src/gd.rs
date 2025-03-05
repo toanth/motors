@@ -3,9 +3,9 @@
 use crate::eval::{count_occurrences, display, interpolate, WeightsInterpretation};
 use crate::trace::TraceTrait;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
-use gears::crossterm::style::Stylize;
+use gears::colored::Colorize;
 use rand::prelude::SliceRandom;
-use rand::thread_rng;
+use rand::rng;
 use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
@@ -149,21 +149,7 @@ impl LossGradient for CrossEntropyLoss {
 /// A single weight.
 ///
 /// Tuning works by changing the values of all weights in parallel to minimize the loss.
-#[derive(
-    Debug,
-    Display,
-    Default,
-    Copy,
-    Clone,
-    PartialOrd,
-    PartialEq,
-    Add,
-    AddAssign,
-    Sub,
-    SubAssign,
-    Mul,
-    Div,
-)]
+#[derive(Debug, Display, Default, Copy, Clone, PartialOrd, PartialEq, Add, AddAssign, Sub, SubAssign, Mul, Div)]
 pub struct Weight(pub Float);
 
 impl Weight {
@@ -349,12 +335,7 @@ pub trait Datapoint: Clone + Send + Sync {
     }
 
     /// Create a new datapoint from a list of features, phase, outcome and weight (only needed for [`WeightedDatapoint`]).
-    fn new_from_features(
-        features: Vec<Feature>,
-        phase: Float,
-        outcome: Outcome,
-        weight: Float,
-    ) -> Self;
+    fn new_from_features(features: Vec<Feature>, phase: Float, outcome: Outcome, weight: Float) -> Self;
 
     /// The outcome of this position, a [win rate prediction](Outcome) between `0` and `1`.
     fn outcome(&self) -> Outcome;
@@ -390,12 +371,7 @@ pub struct NonTaperedDatapoint {
 }
 
 impl Datapoint for NonTaperedDatapoint {
-    fn new_from_features(
-        features: Vec<Feature>,
-        _phase: Float,
-        outcome: Outcome,
-        _weight: Float,
-    ) -> Self {
+    fn new_from_features(features: Vec<Feature>, _phase: Float, outcome: Outcome, _weight: Float) -> Self {
         Self { features, outcome }
     }
 
@@ -404,9 +380,7 @@ impl Datapoint for NonTaperedDatapoint {
     }
 
     fn features(&self) -> impl Iterator<Item = WeightedFeature> {
-        self.features
-            .iter()
-            .map(|feature| WeightedFeature::new(feature.idx(), feature.float()))
+        self.features.iter().map(|feature| WeightedFeature::new(feature.idx(), feature.float()))
     }
 
     fn num_weights_per_feature() -> usize {
@@ -431,26 +405,12 @@ pub struct TaperedDatapoint {
 
 impl Datapoint for TaperedDatapoint {
     #[cfg(feature = "save_space")]
-    fn new_from_features(
-        features: Vec<Feature>,
-        phase: Float,
-        outcome: Outcome,
-        _weight: Float,
-    ) -> Self {
-        Self {
-            features,
-            phase,
-            outcome,
-        }
+    fn new_from_features(features: Vec<Feature>, phase: Float, outcome: Outcome, _weight: Float) -> Self {
+        Self { features, phase, outcome }
     }
 
     #[cfg(not(feature = "save_space"))]
-    fn new_from_features(
-        features: Vec<Feature>,
-        phase: Float,
-        outcome: Outcome,
-        _weight: Float,
-    ) -> Self {
+    fn new_from_features(features: Vec<Feature>, phase: Float, outcome: Outcome, _weight: Float) -> Self {
         // Doing this here instead of "on demand" in [`features`] dramatically improves performance
         // while still keeping memory requirements manageable
         let features = features
@@ -499,16 +459,8 @@ pub struct WeightedDatapoint {
 }
 
 impl Datapoint for WeightedDatapoint {
-    fn new_from_features(
-        features: Vec<Feature>,
-        phase: Float,
-        outcome: Outcome,
-        weight: Float,
-    ) -> Self {
-        Self {
-            inner: TaperedDatapoint::new_from_features(features, phase, outcome, weight),
-            weight,
-        }
+    fn new_from_features(features: Vec<Feature>, phase: Float, outcome: Outcome, weight: Float) -> Self {
+        Self { inner: TaperedDatapoint::new_from_features(features, phase, outcome, weight), weight }
     }
 
     fn outcome(&self) -> Outcome {
@@ -543,11 +495,7 @@ pub struct Dataset<D: Datapoint> {
 impl<D: Datapoint> Dataset<D> {
     /// Create a new dataset, where each data point consist of `num_weights` weights.
     pub fn new(num_weights: usize) -> Self {
-        Self {
-            data_points: vec![],
-            weights_in_pos: num_weights,
-            sampling_weight_sum: 0.0,
-        }
+        Self { data_points: vec![], weights_in_pos: num_weights, sampling_weight_sum: 0.0 }
     }
 
     /// The number of weights per position.
@@ -575,16 +523,12 @@ impl<D: Datapoint> Dataset<D> {
 
     /// Shuffle the dataset, which is useful when not tuning on the entire dataset.
     pub fn shuffle(&mut self) {
-        self.data_points.shuffle(&mut thread_rng());
+        self.data_points.shuffle(&mut rng());
     }
 
     /// Converts the entire dataset into a single batch.
     pub fn as_batch(&self) -> Batch<D> {
-        Batch {
-            datapoints: &self.data_points,
-            num_weights: self.weights_in_pos,
-            weight_sum: self.sampling_weight_sum,
-        }
+        Batch { datapoints: &self.data_points, num_weights: self.weights_in_pos, weight_sum: self.sampling_weight_sum }
     }
 
     /// Turns a subset of the dataset into a batch.
@@ -595,19 +539,11 @@ impl<D: Datapoint> Dataset<D> {
         let end_idx = end_idx.min(self.data_points.len());
         let datapoints = &self.data_points[start_idx..end_idx];
         let weight_sum = if D::all_sampling_weights_identical() {
-            datapoints
-                .first()
-                .map(|d| d.sampling_weight())
-                .unwrap_or(1.0)
-                * datapoints.len() as Float
+            datapoints.first().map(|d| d.sampling_weight()).unwrap_or(1.0) * datapoints.len() as Float
         } else {
             datapoints.iter().map(Datapoint::sampling_weight).sum()
         };
-        Batch {
-            datapoints,
-            num_weights: self.weights_in_pos,
-            weight_sum,
-        }
+        Batch { datapoints, num_weights: self.weights_in_pos, weight_sum }
     }
 }
 
@@ -646,21 +582,13 @@ pub fn cp_eval_for_weights<D: Datapoint>(weights: &Weights, position: &D) -> CpS
 }
 
 /// Win rate prediction of a position, given the current weights.
-pub fn wr_prediction_for_weights<D: Datapoint>(
-    weights: &Weights,
-    position: &D,
-    eval_scale: ScalingFactor,
-) -> WrScore {
+pub fn wr_prediction_for_weights<D: Datapoint>(weights: &Weights, position: &D, eval_scale: ScalingFactor) -> WrScore {
     let eval = cp_eval_for_weights(weights, position);
     cp_to_wr(eval, eval_scale)
 }
 
 /// Loss of a position, given the current weights.
-pub fn loss<D: Datapoint>(
-    weights: &Weights,
-    batch: Batch<'_, D>,
-    eval_scale: ScalingFactor,
-) -> Float {
+pub fn loss<D: Datapoint>(weights: &Weights, batch: Batch<'_, D>, eval_scale: ScalingFactor) -> Float {
     loss_for(weights, batch, eval_scale, quadratic_sample_loss)
 }
 
@@ -733,8 +661,7 @@ pub fn compute_scaled_gradient<D: Datapoint, G: LossGradient>(
                     let wr_prediction = wr_prediction_for_weights(weights, data, eval_scale);
 
                     // constant factors have been moved outside the loop
-                    let scaled_delta =
-                        G::sample_gradient(wr_prediction, data.outcome()) * data.sampling_weight();
+                    let scaled_delta = G::sample_gradient(wr_prediction, data.outcome()) * data.sampling_weight();
                     grad.update(data, scaled_delta);
                     grad
                 },
@@ -753,9 +680,8 @@ pub fn compute_scaled_gradient<D: Datapoint, G: LossGradient>(
             let wr_prediction = wr_prediction_for_weights(weights, data, eval_scale);
             // don't use a separate loop for multiplying with `constant_factor` because the gradient may very well be
             // larger than the numer of samples, so this would likely be slower
-            let scaled_delta = constant_factor
-                * G::sample_gradient(wr_prediction, data.outcome())
-                * data.sampling_weight();
+            let scaled_delta =
+                constant_factor * G::sample_gradient(wr_prediction, data.outcome()) * data.sampling_weight();
             grad.update(data, scaled_delta);
         }
         grad
@@ -774,11 +700,7 @@ pub fn optimize_dataset<D: Datapoint>(
 ) -> Weights {
     let mut prev_weights: Vec<Weight> = vec![];
     let mut weights = Weights::new(dataset.num_weights());
-    let initial_lr_factor = if weights_interpretation.retune_from_zero() {
-        0.25
-    } else {
-        0.5
-    };
+    let initial_lr_factor = if weights_interpretation.retune_from_zero() { 0.25 } else { 0.5 };
     optimizer.lr_drop(initial_lr_factor);
     if !weights_interpretation.retune_from_zero() {
         weights = weights_interpretation
@@ -797,10 +719,7 @@ pub fn optimize_dataset<D: Datapoint>(
         optimizer.iteration(&mut weights, dataset.as_batch(), eval_scale, epoch);
         if epoch % print_interval == 0 {
             let loss = loss(&weights, dataset.as_batch(), eval_scale);
-            println!(
-                "Epoch {epoch} complete, weights:\n {}",
-                display(weights_interpretation, &weights, &prev_weights)
-            );
+            println!("Epoch {epoch} complete, weights:\n {}", display(weights_interpretation, &weights, &prev_weights));
             let elapsed = start.elapsed();
             // If no weight changed by more than 0.05 within the last `print_interval` epochs, stop.
             let mut max_diff: Float = 0.0;
@@ -822,9 +741,7 @@ pub fn optimize_dataset<D: Datapoint>(
                 break;
             }
             if max_diff.abs() <= 0.05 && epoch >= print_interval {
-                println!(
-                    "Maximum absolute weight change less than 0.05, stopping after {epoch} epochs"
-                );
+                println!("Maximum absolute weight change less than 0.05, stopping after {epoch} epochs");
                 break;
             }
             prev_weights.clone_from(&weights.0);
@@ -847,13 +764,7 @@ pub fn adamw_optimize<D: Datapoint, G: LossGradient>(
     format_weights: &dyn WeightsInterpretation,
 ) -> Weights {
     let mut optimizer = AdamW::<G>::new(dataset.as_batch(), eval_scale);
-    optimize_dataset(
-        dataset,
-        eval_scale,
-        num_epochs,
-        format_weights,
-        &mut optimizer,
-    )
+    optimize_dataset(dataset, eval_scale, num_epochs, format_weights, &mut optimizer)
 }
 
 /// Print the final weights once the optimization is complete.
@@ -868,17 +779,10 @@ pub fn print_optimized_weights<D: Datapoint>(
 ) {
     let occurrence_counts = count_occurrences(batch);
     let occurrences = Weights(occurrence_counts.iter().map(|o| Weight(*o)).collect());
-    println!(
-        "Occurrences:\n{}",
-        display(interpretation, &occurrences, &[])
-    );
+    println!("Occurrences:\n{}", display(interpretation, &occurrences, &[]));
     let mut weights = weights.clone();
     interpolate(&occurrence_counts, &mut weights, interpretation);
-    println!(
-        "Scaling factor: {scale:.2}, {0}:\n{1}",
-        "Final eval".bold(),
-        display(interpretation, &weights, &[])
-    );
+    println!("Scaling factor: {scale:.2}, {0}:\n{1}", "Final eval".bold(), display(interpretation, &weights, &[]));
 }
 
 /// The default optimizer. Currently, this is [`Adam`].
@@ -904,22 +808,11 @@ pub trait Optimizer<D: Datapoint> {
     fn lr_drop(&mut self, factor: Float);
 
     /// A single iteration of the optimizer.
-    fn iteration(
-        &mut self,
-        weights: &mut Weights,
-        batch: Batch<'_, D>,
-        eval_scale: ScalingFactor,
-        i: usize,
-    );
+    fn iteration(&mut self, weights: &mut Weights, batch: Batch<'_, D>, eval_scale: ScalingFactor, i: usize);
 
     /// A simple but generic optimization procedure. Usually, calling [`optimize_dataset`] (directly or through
     /// the [`optimize`](super::optimize) function) results in faster convergence. This function is primarily useful for debugging.
-    fn optimize_simple(
-        &mut self,
-        batch: Batch<'_, D>,
-        eval_scale: ScalingFactor,
-        num_iterations: usize,
-    ) -> Weights {
+    fn optimize_simple(&mut self, batch: Batch<'_, D>, eval_scale: ScalingFactor, num_iterations: usize) -> Weights {
         let mut weights = Weights::new(batch.num_weights);
         for i in 0..num_iterations {
             self.iteration(&mut weights, batch, eval_scale, i);
@@ -943,24 +836,15 @@ impl<D: Datapoint> Optimizer<D> for SimpleGDOptimizer {
         Self: Sized;
 
     fn new(_batch: Batch<D>, eval_scale: ScalingFactor) -> Self {
-        Self {
-            alpha: eval_scale / 4.0,
-        }
+        Self { alpha: eval_scale / 4.0 }
     }
 
     fn lr_drop(&mut self, factor: Float) {
         self.alpha /= factor;
     }
 
-    fn iteration(
-        &mut self,
-        weights: &mut Weights,
-        batch: Batch<D>,
-        eval_scale: ScalingFactor,
-        _i: usize,
-    ) {
-        let gradient =
-            compute_scaled_gradient_with(weights, batch, eval_scale, QuadraticLoss::default());
+    fn iteration(&mut self, weights: &mut Weights, batch: Batch<D>, eval_scale: ScalingFactor, _i: usize) {
+        let gradient = compute_scaled_gradient_with(weights, batch, eval_scale, QuadraticLoss::default());
         for i in 0..weights.len() {
             weights[i].0 -= gradient[i].0 * self.alpha;
         }
@@ -1023,13 +907,7 @@ impl<D: Datapoint, G: LossGradient> Optimizer<D> for Adam<G> {
         <AdamW<G> as Optimizer<D>>::lr_drop(&mut self.0, factor);
     }
 
-    fn iteration(
-        &mut self,
-        weights: &mut Weights,
-        batch: Batch<'_, D>,
-        eval_scale: ScalingFactor,
-        i: usize,
-    ) {
+    fn iteration(&mut self, weights: &mut Weights, batch: Batch<'_, D>, eval_scale: ScalingFactor, i: usize) {
         self.0.iteration(weights, batch, eval_scale, i);
     }
 }
@@ -1078,13 +956,7 @@ impl<D: Datapoint, G: LossGradient> Optimizer<D> for AdamW<G> {
         self.hyper_params.alpha /= factor;
     }
 
-    fn iteration(
-        &mut self,
-        weights: &mut Weights,
-        batch: Batch<D>,
-        eval_scale: ScalingFactor,
-        iteration: usize,
-    ) {
+    fn iteration(&mut self, weights: &mut Weights, batch: Batch<D>, eval_scale: ScalingFactor, iteration: usize) {
         let iteration = iteration + 1;
         let beta1 = self.hyper_params.beta1;
         let beta2 = self.hyper_params.beta2;
@@ -1097,8 +969,7 @@ impl<D: Datapoint, G: LossGradient> Optimizer<D> for AdamW<G> {
             let unbiased_v = self.v[i] / (1.0 - beta2.powi(iteration as i32));
             let w = weights[i];
             weights[i] -= w * self.hyper_params.lambda
-                + unbiased_m * self.hyper_params.alpha
-                    / (unbiased_v.0.sqrt() + self.hyper_params.epsilon);
+                + unbiased_m * self.hyper_params.alpha / (unbiased_v.0.sqrt() + self.hyper_params.epsilon);
         }
     }
 }
@@ -1106,8 +977,8 @@ impl<D: Datapoint, G: LossGradient> Optimizer<D> for AdamW<G> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::distributions::{Distribution, Uniform};
-    use rand::thread_rng;
+    use rand::distr::Distribution;
+    use rand::distr::Uniform;
     use std::cmp::Ordering;
     use std::cmp::Ordering::Equal;
 
@@ -1116,22 +987,10 @@ mod tests {
         let weights = Weights(vec![Weight(0.0); 42]);
         let no_features = vec![Feature::default(); 42];
         for outcome in [0.0, 0.5, 1.0] {
-            let dataset = vec![NonTaperedDatapoint {
-                features: no_features.clone(),
-                outcome: Outcome::new(outcome),
-            }];
-            let batch = Batch {
-                datapoints: dataset.as_slice(),
-                num_weights: 1,
-                weight_sum: 1.0,
-            };
+            let dataset = vec![NonTaperedDatapoint { features: no_features.clone(), outcome: Outcome::new(outcome) }];
+            let batch = Batch { datapoints: dataset.as_slice(), num_weights: 1, weight_sum: 1.0 };
             for eval_scale in 1..100_i8 {
-                let loss = loss_for(
-                    &weights,
-                    batch,
-                    ScalingFactor::from(eval_scale),
-                    quadratic_sample_loss,
-                );
+                let loss = loss_for(&weights, batch, ScalingFactor::from(eval_scale), quadratic_sample_loss);
                 if outcome == 0.5 {
                     assert_eq!(loss, 0.0);
                 } else {
@@ -1145,18 +1004,10 @@ mod tests {
     pub fn compute_gradient_test() {
         let weights = Weights(vec![Weight(0.0)]);
         for outcome in [0.0, 0.5, 1.0] {
-            let data_points = [NonTaperedDatapoint {
-                features: vec![Feature::new(1, 0)],
-                outcome: Outcome::new(outcome),
-            }];
-            let batch = Batch {
-                datapoints: data_points.as_slice(),
-                num_weights: 1,
-                weight_sum: 1.0,
-            };
-            let gradient = compute_scaled_gradient::<NonTaperedDatapoint, CrossEntropyLoss>(
-                &weights, batch, 1.0,
-            );
+            let data_points =
+                [NonTaperedDatapoint { features: vec![Feature::new(1, 0)], outcome: Outcome::new(outcome) }];
+            let batch = Batch { datapoints: data_points.as_slice(), num_weights: 1, weight_sum: 1.0 };
+            let gradient = compute_scaled_gradient::<NonTaperedDatapoint, CrossEntropyLoss>(&weights, batch, 1.0);
             assert_eq!(gradient.len(), 1);
             let gradient_value = gradient[0].0;
             let sgn = |x| {
@@ -1182,20 +1033,13 @@ mod tests {
                 for outcome in [0.0, 0.5, 1.0, 0.9, 0.499] {
                     let mut weights = Weights(vec![Weight(initial_weight)]);
                     let position = vec![Feature::new(feature, 0)];
-                    let datapoint = NonTaperedDatapoint {
-                        features: position.clone(),
-                        outcome: Outcome::new(outcome),
-                    };
+                    let datapoint = NonTaperedDatapoint { features: position.clone(), outcome: Outcome::new(outcome) };
                     let mut dataset = Dataset::new(1);
                     dataset.push(datapoint);
                     let batch = dataset.as_batch();
                     for _ in 0..100 {
-                        let grad = compute_scaled_gradient_with(
-                            &weights,
-                            batch,
-                            scaling_factor,
-                            QuadraticLoss::default(),
-                        );
+                        let grad =
+                            compute_scaled_gradient_with(&weights, batch, scaling_factor, QuadraticLoss::default());
                         let old_weights = weights.clone();
                         weights -= &(grad.clone() * 0.5);
                         // println!("loss {0}, initial weight {initial_weight}, weights {weights}, gradient {grad}, eval {1}, predicted {2}, outcome {outcome}, feature {feature}, scaling factor {scaling_factor}", loss(&weights, &dataset, scaling_factor), cp_eval_for_weights(&weights, &dataset[0].position), wr_prediction_for_weights(&weights, &dataset[0].position, scaling_factor));
@@ -1232,19 +1076,11 @@ mod tests {
         for outcome in [0.0, 0.5, 1.0] {
             let mut weights = Weights(vec![Weight(0.0), Weight(1.0), Weight(-1.0)]);
             let position = vec![Feature::new(1, 0), Feature::new(-1, 1), Feature::new(2, 2)];
-            let datapoint = NonTaperedDatapoint {
-                features: position.clone(),
-                outcome: Outcome::new(outcome),
-            };
+            let datapoint = NonTaperedDatapoint { features: position.clone(), outcome: Outcome::new(outcome) };
             let dataset = vec![datapoint];
-            let batch = Batch {
-                datapoints: dataset.as_slice(),
-                num_weights: 3,
-                weight_sum: 3.0,
-            };
+            let batch = Batch { datapoints: dataset.as_slice(), num_weights: 3, weight_sum: 3.0 };
             for i in 0..100 {
-                let grad =
-                    compute_scaled_gradient_with(&weights, batch, 1.0, QuadraticLoss::default());
+                let grad = compute_scaled_gradient_with(&weights, batch, 1.0, QuadraticLoss::default());
                 let old_weights = weights.clone();
                 weights -= &grad;
                 let new_loss = loss(&weights, batch, 1.0);
@@ -1262,24 +1098,12 @@ mod tests {
         for outcome in [0.0, 0.5, 1.0] {
             let mut weights = Weights(vec![Weight(123.987), Weight(-987.123)]);
             let position = vec![Feature::new(3, 0), Feature::new(-3, 1)];
-            let datapoint = NonTaperedDatapoint {
-                features: position.clone(),
-                outcome: Outcome::new(outcome),
-            };
+            let datapoint = NonTaperedDatapoint { features: position.clone(), outcome: Outcome::new(outcome) };
             let dataset = vec![datapoint];
-            let batch = Batch {
-                datapoints: dataset.as_slice(),
-                num_weights: 1,
-                weight_sum: 1.0,
-            };
+            let batch = Batch { datapoints: dataset.as_slice(), num_weights: 1, weight_sum: 1.0 };
             let mut lr = 0.2;
             for i in 0..100 {
-                let grad = compute_scaled_gradient_with(
-                    &weights,
-                    batch,
-                    scale,
-                    CrossEntropyLoss::default(),
-                );
+                let grad = compute_scaled_gradient_with(&weights, batch, scale, CrossEntropyLoss::default());
                 let old_weights = weights.clone();
                 weights -= &(grad.clone() * lr);
                 let current_loss = loss(&weights, batch, scale);
@@ -1302,35 +1126,20 @@ mod tests {
     pub fn two_positions_test() {
         type AnyOptimizer = Box<dyn Optimizer<NonTaperedDatapoint>>;
         let scale = 1000.0;
-        let win = NonTaperedDatapoint {
-            features: vec![Feature::new(1, 0), Feature::new(-1, 1)],
-            outcome: WrScore(1.0),
-        };
-        let lose = NonTaperedDatapoint {
-            features: vec![Feature::new(-1, 0), Feature::new(1, 1)],
-            outcome: WrScore(0.0),
-        };
+        let win =
+            NonTaperedDatapoint { features: vec![Feature::new(1, 0), Feature::new(-1, 1)], outcome: WrScore(1.0) };
+        let lose =
+            NonTaperedDatapoint { features: vec![Feature::new(-1, 0), Feature::new(1, 1)], outcome: WrScore(0.0) };
         let dataset = vec![win, lose];
-        let batch = Batch {
-            datapoints: dataset.as_slice(),
-            num_weights: 2,
-            weight_sum: 2.0,
-        };
-        let weights_dist = Uniform::new(-100.0, 100.0);
-        let mut rng = thread_rng();
+        let batch = Batch { datapoints: dataset.as_slice(), num_weights: 2, weight_sum: 2.0 };
+        let weights_dist = Uniform::new(-100.0, 100.0).unwrap();
+        let mut rng = rng();
         for _ in 0..100 {
-            let mut weights = Weights(vec![
-                Weight(weights_dist.sample(&mut rng)),
-                Weight(weights_dist.sample(&mut rng)),
-            ]);
+            let mut weights =
+                Weights(vec![Weight(weights_dist.sample(&mut rng)), Weight(weights_dist.sample(&mut rng))]);
             let mut weights_copy = weights.clone();
             for _ in 0..200 {
-                let grad = compute_scaled_gradient_with(
-                    &weights,
-                    batch,
-                    scale,
-                    CrossEntropyLoss::default(),
-                );
+                let grad = compute_scaled_gradient_with(&weights, batch, scale, CrossEntropyLoss::default());
                 weights -= &grad;
             }
             let remaining_loss = loss_for(&weights, batch, scale, quadratic_sample_loss);
@@ -1374,11 +1183,7 @@ mod tests {
         };
 
         let dataset = vec![draw_datapoint, win_datapoint, lose_datapoint];
-        let batch = Batch {
-            datapoints: dataset.as_slice(),
-            num_weights: 3,
-            weight_sum: 3.0,
-        };
+        let batch = Batch { datapoints: dataset.as_slice(), num_weights: 3, weight_sum: 3.0 };
         for _ in 0..500 {
             let grad = compute_scaled_gradient_with(&weights, batch, 1.0, QuadraticLoss::default());
             println!(
@@ -1397,25 +1202,16 @@ mod tests {
             weights[1].0 - weights[0].0 <= 0.6 + 0.001,
             "difference in duplicated weights is not supposed to get larger"
         );
-        assert_eq!(
-            weights[2].0, 2.0,
-            "irrelevant weight is not supposed to change at all"
-        );
+        assert_eq!(weights[2].0, 2.0, "irrelevant weight is not supposed to change at all");
     }
 
     #[test]
     pub fn adam_one_weight_test() {
         for outcome in [0.0, 0.5, 1.0] {
             let eval_scale = 10000.0;
-            let dataset = vec![NonTaperedDatapoint {
-                features: vec![Feature::new(1, 0)],
-                outcome: Outcome::new(outcome),
-            }];
-            let batch = Batch {
-                datapoints: dataset.as_slice(),
-                num_weights: 1,
-                weight_sum: 1.0,
-            };
+            let dataset =
+                vec![NonTaperedDatapoint { features: vec![Feature::new(1, 0)], outcome: Outcome::new(outcome) }];
+            let batch = Batch { datapoints: dataset.as_slice(), num_weights: 1, weight_sum: 1.0 };
             let mut adam = Adam::<QuadraticLoss>::new(batch, eval_scale);
             let weights = adam.optimize_simple(batch, eval_scale, 20);
             assert_eq!(weights.len(), 1);

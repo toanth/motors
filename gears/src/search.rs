@@ -21,7 +21,7 @@ pub const MAX_DEPTH: Depth = Depth(10_000);
 #[must_use]
 pub struct SearchResult<B: Board> {
     pub chosen_move: B::Move,
-    pub score: Option<Score>,
+    pub score: Score,
     // TODO: NodeType to represent UCI upper bound and lower bound scores
     pub ponder_move: Option<B::Move>,
     pub pos: B,
@@ -30,11 +30,7 @@ pub struct SearchResult<B: Board> {
 impl<B: Board> SearchResult<B> {
     pub fn move_only(chosen_move: B::Move, pos: B) -> Self {
         debug_assert!(chosen_move.is_null() || pos.is_move_legal(chosen_move));
-        Self {
-            chosen_move,
-            pos,
-            ..Default::default()
-        }
+        Self { chosen_move, pos, ..Default::default() }
     }
 
     pub fn move_and_score(chosen_move: B::Move, score: Score, pos: B) -> Self {
@@ -46,31 +42,18 @@ impl<B: Board> SearchResult<B> {
         debug_assert!(chosen_move.is_null() || pos.is_move_legal(chosen_move));
         #[cfg(debug_assertions)]
         if !chosen_move.is_null() {
-            let new_pos = pos.make_move(chosen_move).unwrap();
+            let new_pos = pos.clone().make_move(chosen_move).unwrap();
             if let Some(ponder) = ponder_move {
-                debug_assert!(
-                    new_pos.is_move_legal(ponder),
-                    "{ponder}, {new_pos}, {pos}, {chosen_move}"
-                );
+                debug_assert!(new_pos.is_move_legal(ponder));
             }
         }
-        Self {
-            chosen_move,
-            score: Some(score),
-            ponder_move,
-            pos,
-        }
+        Self { chosen_move, score, ponder_move, pos }
     }
 
     pub fn new_from_pv(score: Score, pos: B, pv: &[B::Move]) -> Self {
         debug_assert!(score.is_valid());
         // the pv may be empty if search is called in a position where the game is over
-        Self::new(
-            pv.first().copied().unwrap_or_default(),
-            score,
-            pv.get(1).copied(),
-            pos,
-        )
+        Self::new(pv.first().copied().unwrap_or_default(), score, pv.get(1).copied(), pos)
     }
 
     pub fn ponder_move(&self) -> Option<B::Move> {
@@ -80,11 +63,14 @@ impl<B: Board> SearchResult<B> {
 
 impl<B: Board> Display for SearchResult<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "bestmove {}", self.chosen_move.compact_formatter(&self.pos))?;
         if let Some(ponder) = self.ponder_move() {
-            write!(f, "bestmove {} ponder {ponder}", self.chosen_move)
-        } else {
-            write!(f, "bestmove {}", self.chosen_move)
+            // currently, this is unnecessary, but this might change in the future, and in any case
+            // using a board to format a move that's not legal in that position would be *extremely* strange
+            let new_pos = self.pos.clone().make_move(self.chosen_move).unwrap();
+            write!(f, " ponder {}", ponder.compact_formatter(&new_pos))?;
         }
+        Ok(())
     }
 }
 
@@ -147,7 +133,7 @@ impl NodeType {
 
 #[derive(Debug)]
 #[must_use]
-pub struct SearchInfo<B: Board> {
+pub struct SearchInfo<'a, B: Board> {
     pub best_move_of_all_pvs: B::Move,
     pub depth: Depth,
     pub seldepth: Depth,
@@ -155,7 +141,7 @@ pub struct SearchInfo<B: Board> {
     pub nodes: NodesLimit,
     pub pv_num: usize,
     pub max_num_pvs: usize,
-    pub pv: Vec<B::Move>,
+    pub pv: &'a [B::Move],
     pub score: Score,
     pub hashfull: usize,
     pub pos: B,
@@ -163,7 +149,7 @@ pub struct SearchInfo<B: Board> {
     pub additional: Option<String>,
 }
 
-impl<B: Board> Default for SearchInfo<B> {
+impl<B: Board> Default for SearchInfo<'_, B> {
     fn default() -> Self {
         Self {
             best_move_of_all_pvs: B::Move::default(),
@@ -173,7 +159,7 @@ impl<B: Board> Default for SearchInfo<B> {
             nodes: NodesLimit::MAX,
             pv_num: 1,
             max_num_pvs: 1,
-            pv: vec![],
+            pv: &[],
             score: Score::default(),
             hashfull: 0,
             pos: B::default(),
@@ -183,7 +169,7 @@ impl<B: Board> Default for SearchInfo<B> {
     }
 }
 
-impl<B: Board> SearchInfo<B> {
+impl<B: Board> SearchInfo<'_, B> {
     pub fn nps(&self) -> usize {
         let micros = self.time.as_micros() as f64;
         if micros == 0.0 {
@@ -204,7 +190,7 @@ impl<B: Board> SearchInfo<B> {
     }
 }
 
-impl<B: Board> Display for SearchInfo<B> {
+impl<B: Board> Display for SearchInfo<'_, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let bound = match self.bound.unwrap_or(Exact) {
             FailHigh => " lowerbound",
@@ -222,8 +208,10 @@ impl<B: Board> Display for SearchInfo<B> {
                nps = self.nps(),
                hashfull = self.hashfull,
         )?;
-        for mov in &self.pv {
-            write!(f, " {mov}")?;
+        let mut pos = self.pos.clone();
+        for &mov in self.pv {
+            write!(f, " {}", mov.compact_formatter(&pos))?;
+            pos = pos.make_move(mov).unwrap();
         }
         if let Some(ref additional) = self.additional {
             write!(f, " string {additional}")?;
@@ -251,12 +239,7 @@ impl Display for TimeControl {
         if self.is_infinite() {
             write!(f, "infinite")
         } else {
-            write!(
-                f,
-                "{0}ms + {1}ms",
-                self.remaining.as_millis(),
-                self.increment.as_millis()
-            )
+            write!(f, "{0}ms + {1}ms", self.remaining.as_millis(), self.increment.as_millis())
         }
     }
 }
@@ -277,15 +260,9 @@ impl FromStr for TimeControl {
         let start_time = Duration::from_secs_f64(start_time);
         let mut increment = Duration::default();
         if let Some(inc_str) = parts.next() {
-            increment = Duration::from_secs_f64(
-                parse_fp_from_str::<f64>(inc_str.trim(), "the increment")?.max(0.0),
-            );
+            increment = Duration::from_secs_f64(parse_fp_from_str::<f64>(inc_str.trim(), "the increment")?.max(0.0));
         }
-        Ok(TimeControl {
-            remaining: start_time,
-            increment,
-            moves_to_go: None,
-        })
+        Ok(TimeControl { remaining: start_time, increment, moves_to_go: None })
     }
 }
 
@@ -326,29 +303,13 @@ impl TimeControl {
             "infinite\n".to_string()
         } else {
             let t = self.remaining(start).as_millis() / 100;
-            format!(
-                "{min:02}:{s:02}.{ds:01}\n",
-                min = t / 600,
-                s = t % 600 / 10,
-                ds = t % 10
-            )
+            format!("{min:02}:{s:02}.{ds:01}\n", min = t / 600, s = t % 600 / 10, ds = t % 10)
         }
     }
 }
 
 #[derive(
-    Debug,
-    Default,
-    Copy,
-    Clone,
-    Ord,
-    PartialOrd,
-    Eq,
-    PartialEq,
-    Add,
-    AddAssign,
-    SubAssign,
-    derive_more::Display,
+    Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Add, AddAssign, SubAssign, derive_more::Display,
 )]
 #[must_use]
 pub struct Depth(usize);
@@ -365,8 +326,8 @@ impl Depth {
         self.0 as isize
     }
 
-    pub const fn new_unchecked(val: usize) -> Self {
-        debug_assert!(val <= Self::MAX.get());
+    pub const fn new(val: usize) -> Self {
+        assert!(val <= Self::MAX.get());
         Self(val)
     }
 
@@ -433,7 +394,7 @@ impl Default for SearchLimit {
             fixed_time: Duration::MAX,
             depth: MAX_DEPTH,
             nodes: NodesLimit::new(u64::MAX).unwrap(),
-            mate: Depth::new_unchecked(0), // only finding a mate in 0 would stop the search
+            mate: Depth::new(0), // only finding a mate in 0 would stop the search
         }
     }
 }
@@ -456,7 +417,7 @@ impl Display for SearchLimit {
         if self.nodes.get() != u64::MAX {
             limits.push(format!("{} nodes", self.nodes.get()));
         }
-        if self.mate != Depth::new_unchecked(0) {
+        if self.mate != Depth::new(0) {
             limits.push(format!("mate in {} plies", self.mate.get()));
         }
         if limits.len() == 1 {
@@ -473,46 +434,31 @@ impl SearchLimit {
     }
 
     pub fn tc(tc: TimeControl) -> Self {
-        Self {
-            tc,
-            ..Self::infinite()
-        }
+        Self { tc, ..Self::infinite() }
     }
 
     pub fn per_move(fixed_time: Duration) -> Self {
-        Self {
-            fixed_time,
-            ..Self::infinite()
-        }
+        Self { fixed_time, ..Self::infinite() }
     }
 
     pub fn depth(depth: Depth) -> Self {
-        Self {
-            depth,
-            ..Self::infinite()
-        }
+        Self { depth, ..Self::infinite() }
     }
 
     pub fn depth_(depth: usize) -> Self {
-        Self::depth(Depth::new_unchecked(depth))
+        Self::depth(Depth::new(depth))
     }
 
     pub fn mate(depth: Depth) -> Self {
-        Self {
-            mate: depth,
-            ..Self::infinite()
-        }
+        Self { mate: depth, ..Self::infinite() }
     }
 
     pub fn mate_in_moves(num_moves: usize) -> Self {
-        Self::mate(Depth::new_unchecked(num_moves * 2))
+        Self::mate(Depth::new(num_moves * 2))
     }
 
     pub fn nodes(nodes: NodesLimit) -> Self {
-        Self {
-            nodes,
-            ..Self::infinite()
-        }
+        Self { nodes, ..Self::infinite() }
     }
 
     pub fn nodes_(nodes: u64) -> Self {

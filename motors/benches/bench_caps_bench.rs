@@ -26,6 +26,7 @@ fn caps_normal_bench_depth_7(c: &mut Criterion) {
                 SearchLimit::depth_(7),
                 Some(SearchLimit::nodes_(20_000)),
                 &Chessboard::bench_positions(),
+                None,
             )
         });
     });

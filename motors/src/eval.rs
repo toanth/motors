@@ -1,11 +1,10 @@
 use gears::dyn_clone::DynClone;
 use gears::games::Color;
 use gears::general::board::Board;
-use std::fmt::Debug;
-use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
-
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{PhaseType, PhasedScore, Score, ScoreT};
+use std::fmt::Debug;
+use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 pub mod rand_eval;
 
@@ -13,6 +12,7 @@ pub mod rand_eval;
 pub mod ataxx;
 #[cfg(feature = "chess")]
 pub mod chess;
+mod fairy;
 #[cfg(feature = "mnk")]
 pub mod mnk;
 #[cfg(feature = "uttt")]
@@ -82,13 +82,7 @@ impl ScoreType for PhasedScore {
     type Finalized = Score;
     type SingleFeatureScore = Self;
 
-    fn finalize<C: Color>(
-        self,
-        phase: PhaseType,
-        max_phase: PhaseType,
-        color: C,
-        tempo: Self::Finalized,
-    ) -> Score {
+    fn finalize<C: Color>(self, phase: PhaseType, max_phase: PhaseType, color: C, tempo: Self::Finalized) -> Score {
         let score = self.taper(phase, max_phase);
         tempo + if color.is_first() { score } else { -score }
     }
