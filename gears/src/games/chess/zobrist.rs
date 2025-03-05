@@ -1,31 +1,26 @@
-use strum::IntoEnumIterator;
-
-use crate::games::ZobristHash;
-use crate::games::chess::ChessColor::*;
+use crate::games::chess::ChessColor::Black;
 use crate::games::chess::pieces::ChessPieceType::Pawn;
 use crate::games::chess::pieces::{ChessPieceType, NUM_COLORS};
 use crate::games::chess::squares::{ChessSquare, NUM_COLUMNS};
 use crate::games::chess::{ChessColor, Chessboard, Hashes};
+use crate::games::{Color, PosHash};
+use crate::general::bitboards::Bitboard;
+use crate::general::board::BitboardBoard;
 use crate::general::squares::RectangularCoordinates;
 
 pub const NUM_PIECE_SQUARE_ENTRIES: usize = 64 * 6;
 pub const NUM_COLORED_PIECE_SQUARE_ENTRIES: usize = NUM_PIECE_SQUARE_ENTRIES * 2;
 
 pub struct PrecomputedZobristKeys {
-    pub piece_square_keys: [ZobristHash; NUM_COLORED_PIECE_SQUARE_ENTRIES],
-    pub castle_keys: [ZobristHash; 1 << (2 * 2)],
-    pub ep_file_keys: [ZobristHash; NUM_COLUMNS],
-    pub side_to_move_key: ZobristHash,
+    pub piece_square_keys: [PosHash; NUM_COLORED_PIECE_SQUARE_ENTRIES],
+    pub castle_keys: [PosHash; 1 << (2 * 2)],
+    pub ep_file_keys: [PosHash; NUM_COLUMNS],
+    pub side_to_move_key: PosHash,
 }
 
 impl PrecomputedZobristKeys {
-    pub fn piece_key(
-        &self,
-        piece: ChessPieceType,
-        color: ChessColor,
-        square: ChessSquare,
-    ) -> ZobristHash {
-        self.piece_square_keys[square.bb_idx() * 12 + piece as usize * 2 + color as usize]
+    pub fn piece_key(&self, piece: ChessPieceType, color: ChessColor, square: ChessSquare) -> PosHash {
+        self.piece_square_keys[square.bb_idx() + piece as usize * 64 + color as usize * 64 * 6]
     }
 }
 
@@ -39,23 +34,16 @@ const INCREMENT: u128 = (6_364_136_223_846_793_005 << 64) + 1_442_695_040_888_96
 // the pcg xsl rr 128 64 oneseq generator, aka pcg64_oneseq (most other pcg generators have additional problems)
 impl PcgXslRr128_64Oneseq {
     const fn new(seed: u128) -> Self {
-        Self(
-            seed.wrapping_add(INCREMENT)
-                .wrapping_mul(MUTLIPLIER)
-                .wrapping_add(INCREMENT),
-        )
+        Self(seed.wrapping_add(INCREMENT).wrapping_mul(MUTLIPLIER).wrapping_add(INCREMENT))
     }
 
     // const mut refs aren't stable yet, so returning the new state is a workaround
-    const fn generate(mut self) -> (Self, ZobristHash) {
+    const fn generate(mut self) -> (Self, PosHash) {
         self.0 = self.0.wrapping_mul(MUTLIPLIER);
         self.0 = self.0.wrapping_add(INCREMENT);
         let upper = (self.0 >> 64) as u64;
         let xored = upper ^ ((self.0 & u64::MAX as u128) as u64);
-        (
-            self,
-            ZobristHash(xored.rotate_right((upper >> (122 - 64)) as u32)),
-        )
+        (self, PosHash(xored.rotate_right((upper >> (122 - 64)) as u32)))
     }
 }
 
@@ -64,10 +52,10 @@ impl PcgXslRr128_64Oneseq {
 pub const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
     let mut res = {
         PrecomputedZobristKeys {
-            piece_square_keys: [ZobristHash(0); NUM_COLORED_PIECE_SQUARE_ENTRIES],
-            castle_keys: [ZobristHash(0); 1 << (2 * 2)],
-            ep_file_keys: [ZobristHash(0); NUM_COLUMNS],
-            side_to_move_key: ZobristHash(0),
+            piece_square_keys: [PosHash(0); NUM_COLORED_PIECE_SQUARE_ENTRIES],
+            castle_keys: [PosHash(0); 1 << (2 * 2)],
+            ep_file_keys: [PosHash(0); NUM_COLUMNS],
+            side_to_move_key: PosHash(0),
         }
     };
     let mut generator = PcgXslRr128_64Oneseq::new(0x42);
@@ -92,9 +80,9 @@ pub const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
 
 impl Chessboard {
     pub(super) fn compute_zobrist(&self) -> Hashes {
-        let mut pawns = ZobristHash(0);
-        let mut nonpawns = [ZobristHash(0); NUM_COLORS];
-        let mut special = ZobristHash(0);
+        let mut pawns = PosHash(0);
+        let mut nonpawns = [PosHash(0); NUM_COLORS];
+        let mut special = PosHash(0);
         for color in ChessColor::iter() {
             for piece in ChessPieceType::non_pawn_pieces() {
                 let pieces = self.colored_piece_bb(color, piece);
@@ -106,19 +94,13 @@ impl Chessboard {
                 pawns ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, color, square);
             }
         }
-        special ^= self.ep_square.map_or(ZobristHash(0), |square| {
-            PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize]
-        });
         special ^=
-            PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
+            self.ep_square.map_or(PosHash(0), |square| PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize]);
+        special ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         if self.active_player == Black {
             special ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
         }
-        Hashes {
-            pawns,
-            nonpawns,
-            total: pawns ^ nonpawns[0] ^ nonpawns[1] ^ special,
-        }
+        Hashes { pawns, nonpawns, total: pawns ^ nonpawns[0] ^ nonpawns[1] ^ special }
     }
 
     pub(super) fn update_zobrist(
@@ -126,20 +108,20 @@ impl Chessboard {
         piece: ChessPieceType,
         from: ChessSquare,
         to: ChessSquare,
-    ) -> ZobristHash {
-        PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, to)
-            ^ PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, from)
+    ) -> PosHash {
+        PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, to) ^ PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, from)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::games::chess::ChessColor::White;
     use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
     use crate::games::chess::pieces::ChessPieceType::*;
     use crate::games::chess::squares::{D_FILE_NO, E_FILE_NO};
-    use crate::general::board::Board;
     use crate::general::board::Strictness::Strict;
+    use crate::general::board::{Board, BoardHelpers};
     use crate::general::moves::Move;
     use std::collections::HashMap;
 
@@ -158,33 +140,25 @@ mod tests {
 
     #[test]
     fn simple_test() {
-        let a1 = PRECOMPUTED_ZOBRIST_KEYS
-            .piece_key(Bishop, White, ChessSquare::from_chars('f', '4').unwrap())
-            .0;
-        let b1 = PRECOMPUTED_ZOBRIST_KEYS
-            .piece_key(Bishop, White, ChessSquare::from_chars('g', '5').unwrap())
-            .0;
-        let a2 = PRECOMPUTED_ZOBRIST_KEYS
-            .piece_key(Knight, Black, ChessSquare::from_chars('h', '5').unwrap())
-            .0;
-        let b2 = PRECOMPUTED_ZOBRIST_KEYS
-            .piece_key(Knight, Black, ChessSquare::from_chars('g', '4').unwrap())
-            .0;
+        let a1 = PRECOMPUTED_ZOBRIST_KEYS.piece_key(Bishop, White, ChessSquare::from_chars('f', '4').unwrap()).0;
+        let b1 = PRECOMPUTED_ZOBRIST_KEYS.piece_key(Bishop, White, ChessSquare::from_chars('g', '5').unwrap()).0;
+        let a2 = PRECOMPUTED_ZOBRIST_KEYS.piece_key(Knight, Black, ChessSquare::from_chars('h', '5').unwrap()).0;
+        let b2 = PRECOMPUTED_ZOBRIST_KEYS.piece_key(Knight, Black, ChessSquare::from_chars('g', '4').unwrap()).0;
         assert_ne!(a1 ^ a2, b1 ^ b2); // used to be bugged
         let position = Chessboard::from_name("kiwipete").unwrap();
-        let hash = position.zobrist_hash();
+        let hash = position.hash_pos();
         let mut hashes = HashMap::new();
         let mut collisions = HashMap::new();
         for mov in position.legal_moves_slow() {
             let new_board = position.make_move(mov).unwrap();
-            assert_ne!(new_board.zobrist_hash(), hash);
-            let previous = hashes.insert(new_board.zobrist_hash().0, new_board);
+            assert_ne!(new_board.hash_pos(), hash);
+            let previous = hashes.insert(new_board.hash_pos().0, new_board);
             assert!(previous.is_none());
-            let different_bits = (new_board.zobrist_hash().0 ^ hash.0).count_ones();
+            let different_bits = (new_board.hash_pos().0 ^ hash.0).count_ones();
             assert!((16..=48).contains(&different_bits));
             for mov in new_board.legal_moves_slow() {
                 let new_board = new_board.make_move(mov).unwrap();
-                let previous = hashes.insert(new_board.zobrist_hash().0, new_board);
+                let previous = hashes.insert(new_board.hash_pos().0, new_board);
                 if previous.is_some() {
                     let old_board = previous.unwrap();
                     println!(
@@ -194,28 +168,19 @@ mod tests {
                     );
                     // There's one ep move after one ply from the current position, which creates the only transposition reachable within 2 plies
                     if old_board != new_board {
-                        collisions.insert(new_board.zobrist_hash().0, [old_board, new_board]);
+                        _ = collisions.insert(new_board.hash_pos().0, [old_board, new_board]);
                     }
                 }
-                let different_bits = (new_board.zobrist_hash().0 ^ hash.0).count_ones();
+                let different_bits = (new_board.hash_pos().0 ^ hash.0).count_ones();
                 assert!((12..52).contains(&different_bits));
             }
         }
-        assert!(
-            collisions.is_empty(),
-            "num collisions: {0} out of {1}",
-            collisions.len(),
-            hashes.len()
-        );
+        assert!(collisions.is_empty(), "num collisions: {0} out of {1}", collisions.len(), hashes.len());
     }
 
     #[test]
     fn ep_test() {
-        let position = Chessboard::from_fen(
-            "4r1k1/p4pp1/6bp/2p5/r2p4/P4PPP/1P2P3/2RRB1K1 w - - 1 15",
-            Strict,
-        )
-        .unwrap();
+        let position = Chessboard::from_fen("4r1k1/p4pp1/6bp/2p5/r2p4/P4PPP/1P2P3/2RRB1K1 w - - 1 15", Strict).unwrap();
         assert_eq!(position.hashes, position.compute_zobrist());
         let mov = ChessMove::new(
             ChessSquare::from_rank_file(1, E_FILE_NO),
@@ -240,7 +205,7 @@ mod tests {
                 let Some(new_pos) = pos.make_move(m) else {
                     continue;
                 };
-                assert!(new_pos.debug_verify_invariants(Strict).is_ok(), "{pos} {m}");
+                assert!(new_pos.debug_verify_invariants(Strict).is_ok(), "{pos} {}", m.compact_formatter(&pos));
                 if !(m.is_double_pawn_push()
                     || m.is_capture(&pos)
                     || m.is_promotion()
@@ -248,7 +213,7 @@ mod tests {
                     || pos.castling != new_pos.castling)
                 {
                     assert_eq!(
-                        pos.zobrist_hash()
+                        pos.hash_pos()
                             ^ Chessboard::update_zobrist(
                                 pos.active_player,
                                 m.piece_type(),
@@ -256,8 +221,9 @@ mod tests {
                                 m.dest_square()
                             )
                             ^ PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key,
-                        new_pos.zobrist_hash(),
-                        "{pos} {m}"
+                        new_pos.hash_pos(),
+                        "{pos} {}",
+                        m.compact_formatter(&pos)
                     );
                 }
             }

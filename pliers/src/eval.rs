@@ -6,8 +6,8 @@
 use crate::eval::Direction::{Down, Up};
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
-    cp_eval_for_weights, cp_to_wr, default_sample_loss, Batch, Datapoint, DefaultOptimizer, Float,
-    LossGradient, Optimizer, Outcome, ScalingFactor, Weight, Weights,
+    cp_eval_for_weights, cp_to_wr, default_sample_loss, Batch, Datapoint, DefaultOptimizer, Float, LossGradient,
+    Optimizer, Outcome, ScalingFactor, Weight, Weights,
 };
 use crate::load_data::Filter;
 use crate::trace::TraceTrait;
@@ -56,12 +56,7 @@ pub fn write_phased_with_width(
 /// Write a pair of weights to `f`, coloring each one red if the corresponding `special` entry is set.
 ///
 /// The two weight indices are `feature_idx * 2` and `feature_idx * 2 + 1`.
-pub fn write_phased(
-    f: &mut Formatter,
-    weights: &[Weight],
-    feature_idx: usize,
-    special: &[bool],
-) -> fmt::Result {
+pub fn write_phased(f: &mut Formatter, weights: &[Weight], feature_idx: usize, special: &[bool]) -> fmt::Result {
     write_phased_with_width(f, weights, feature_idx, special, 0)
 }
 
@@ -110,14 +105,7 @@ pub fn write_2d_range_phased(
         } else {
             write!(f, "],\n    [")?;
         }
-        write_range_phased(
-            f,
-            weights,
-            start + outer * inner_len,
-            inner_len,
-            special,
-            false,
-        )?;
+        write_range_phased(f, weights, start + outer * inner_len, inner_len, special, false)?;
     }
     writeln!(f, "]\n];")
 }
@@ -148,24 +136,14 @@ pub fn count_occurrences<D: Datapoint>(batch: Batch<D>) -> Vec<Float> {
 /// This function should rarely be necessary. It is intended as a workaround for insufficient datasets, but the better
 /// option is generally to use a larger dataset. Initial weights should be initialized to sensible priors when using this
 /// function.
-pub fn interpolate(
-    occurrences: &[Float],
-    weights: &mut Weights,
-    interpretation: &dyn WeightsInterpretation,
-) {
+pub fn interpolate(occurrences: &[Float], weights: &mut Weights, interpretation: &dyn WeightsInterpretation) {
     if let Some(decay) = interpretation.interpolate_decay() {
         assert!(
             (0.0..1.0).contains(&decay),
             "decay must be in [0, 1) -- if you want no decay, simply return `None` in `initial_weights`."
         );
-        let initial_weights = interpretation
-            .initial_weights()
-            .expect("Initial weights are needed for interpolating");
-        assert_eq!(
-            initial_weights.num_weights(),
-            weights.num_weights(),
-            "weights don't match up with initial weights"
-        );
+        let initial_weights = interpretation.initial_weights().expect("Initial weights are needed for interpolating");
+        assert_eq!(initial_weights.num_weights(), weights.num_weights(), "weights don't match up with initial weights");
         assert_eq!(
             occurrences.len(),
             weights.num_weights(),
@@ -200,11 +178,7 @@ impl EvalScale {
     /// gets turned to infinity. It's generally better to use a fixed scaling factor, tuning the scaling factor based on the
     /// initial weights is mostly used to import weights that haven't been tuned with this tuner;
     /// as soon as it has been used and resulted in a satisfactory eval scale, you should use that through the `Scale` variant.
-    pub fn to_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
-        self,
-        batch: Batch<D>,
-        eval: &E,
-    ) -> ScalingFactor {
+    pub fn to_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(self, batch: Batch<D>, eval: &E) -> ScalingFactor {
         match self {
             Scale(scale) => scale,
             InitialWeights(weights) => tune_scaling_factor(&weights, batch, eval),
@@ -219,11 +193,7 @@ pub fn display<'a, E: WeightsInterpretation + ?Sized>(
     weights: &'a Weights,
     old_weights: &'a [Weight],
 ) -> FormatWeights<'a> {
-    FormatWeights {
-        format_weights: this.display(),
-        weights,
-        old_weights,
-    }
+    FormatWeights { format_weights: this.display(), weights, old_weights }
 }
 
 /// This trait deals with how your eval interprets weights: You only need to implement the [`display`](Self::display) method to
@@ -244,9 +214,7 @@ pub trait WeightsInterpretation {
     /// The `old_weights` parameter can safely be ignored, its purpose is to highlight changes in weights in a
     /// human-readably way, such as by coloring weights with large changes red. The [`changed_at_least`] function
     /// can be called to help implement this.
-    fn display(
-        &self,
-    ) -> fn(f: &mut Formatter, weights: &Weights, old_weights: &[Weight]) -> std::fmt::Result;
+    fn display(&self) -> fn(f: &mut Formatter, weights: &Weights, old_weights: &[Weight]) -> std::fmt::Result;
 
     /// The eval scale is used to convert a [centipawn score](  gd::CpScore) in `(-∞, ∞)` to a winrate prediction
     /// in `(-1, 1)`.
@@ -391,10 +359,9 @@ fn grad_for_eval_scale<D: Datapoint>(
         let cp_eval = cp_eval_for_weights(weights, data);
         let prediction = cp_to_wr(cp_eval, eval_scale);
         let outcome = data.outcome();
-        let sample_grad =
-            <DefaultOptimizer as Optimizer<D>>::Loss::sample_gradient(prediction, outcome)
-                * cp_eval.0
-                * data.sampling_weight();
+        let sample_grad = <DefaultOptimizer as Optimizer<D>>::Loss::sample_gradient(prediction, outcome)
+            * cp_eval.0
+            * data.sampling_weight();
         scaled_grad += sample_grad;
         loss += default_sample_loss(prediction, data.outcome()) * data.sampling_weight();
     }
@@ -411,11 +378,7 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
     batch: Batch<D>,
     eval: &E,
 ) -> ScalingFactor {
-    assert_eq!(
-        E::num_weights(),
-        weights.len(),
-        "The batch doesn't seem to have been created by this eval function"
-    );
+    assert_eq!(E::num_weights(), weights.len(), "The batch doesn't seem to have been created by this eval function");
     assert_eq!(
         weights.len(),
         batch.num_weights,
@@ -429,10 +392,7 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
         !weights.iter().all(|w| w.0 == 0.0),
         "All weights are zero; can't tune a scaling factor. This may be due to a bugged eval or empty dataset"
     );
-    println!(
-        "Optimizing scaling factor for eval:\n{}",
-        display(eval, weights, &[])
-    );
+    println!("Optimizing scaling factor for eval:\n{}", display(eval, weights, &[]));
     // First, do exponential search to find an interval in which we know that the optimal value lies.
     loop {
         assert!(!(scale >= 1e9 || scale <= 1e-9),

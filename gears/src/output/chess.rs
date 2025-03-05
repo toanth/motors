@@ -1,10 +1,9 @@
-use crate::games::{Color, ColoredPiece};
+use crate::games::{CharType, Color, ColoredPiece};
 use crate::general::board::RectangularBoard;
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity};
 use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::text_output::{
-    display_color, p1_color, p2_color, AdaptFormatter, BoardFormatter, PieceToChar, TextStream,
-    TextWriter,
+    display_color, p1_color, p2_color, AdaptFormatter, BoardFormatter, TextStream, TextWriter,
 };
 use crate::output::Message::Info;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder, OutputOpts};
@@ -12,6 +11,7 @@ use crate::GameState;
 use anyhow::bail;
 use colored::Color::{TrueColor, White};
 use colored::Colorize;
+use std::fmt;
 use std::fmt::{Display, Write};
 use std::io::stdout;
 
@@ -22,9 +22,7 @@ pub(super) struct ChessOutput {
 
 impl Default for ChessOutput {
     fn default() -> Self {
-        Self {
-            writer: TextWriter::new_for(TextStream::Stdout(stdout()), vec![Info]),
-        }
+        Self { writer: TextWriter::new_for(TextStream::Stdout(stdout()), vec![Info]) }
     }
 }
 
@@ -47,7 +45,7 @@ impl AbstractOutput for ChessOutput {
         self.writer.stream.name()
     }
 
-    fn display_message(&mut self, typ: Message, message: &str) {
+    fn display_message(&mut self, typ: Message, message: &fmt::Arguments) {
         self.writer.display_message(typ, message);
     }
 }
@@ -60,10 +58,7 @@ impl<B: RectangularBoard> Output<B> for ChessOutput {
         if last_move.is_none() {
             writeln!(res, "Starting new game!").unwrap();
         }
-        pretty_as_chessboard(
-            &pos,
-            pos.pretty_formatter(Some(PieceToChar::Ascii), last_move, opts),
-        )
+        pretty_as_chessboard(pos, pos.pretty_formatter(Some(CharType::Ascii), last_move, opts))
     }
 }
 
@@ -92,19 +87,16 @@ pub fn guess_colorgrad_color(color: colored::Color) -> colorgrad::Color {
     colorgrad::Color::from_html(name).expect("incorrect color name")
 }
 
-fn pretty_as_chessboard<B: RectangularBoard>(
-    pos: &B,
-    formatter: Box<dyn BoardFormatter<B>>,
-) -> String {
-    let pos = *pos;
+fn pretty_as_chessboard<B: RectangularBoard>(pos: &B, formatter: Box<dyn BoardFormatter<B>>) -> String {
+    let p = pos.clone();
     let flip = formatter.flip_board();
     let formatter = AdaptFormatter {
         underlying: formatter,
         color_frame: Box::new(|_, color| color),
         display_piece: Box::new(move |square, width, _| {
-            let piece = pos.colored_piece_on(square);
+            let piece = p.colored_piece_on(square);
             if let Some(color) = piece.color() {
-                format!("{0:^1$}", piece.to_ascii_char(), width)
+                format!("{0:^1$}", piece.to_char(CharType::Ascii, &p.settings()), width)
                     .color(display_color(color))
                     .to_string()
             } else {
@@ -121,7 +113,7 @@ fn pretty_as_chessboard<B: RectangularBoard>(
         for x in 0..pos.width() {
             let display_x = if flip { pos.width() - 1 - x } else { x };
             let display_y = if flip { y } else { pos.height() - 1 - y };
-            let square = B::Coordinates::from_row_column(display_y, display_x);
+            let square = B::Coordinates::from_rank_file(display_y, display_x);
             let color = pos.colored_piece_on(square).color();
             let bg_color = match pos.background_color(square) {
                 SquareColor::White => colorgrad::Color::from_html("aliceblue").unwrap(),
@@ -144,11 +136,7 @@ fn pretty_as_chessboard<B: RectangularBoard>(
             };
             let [r, g, b, _] = bg_color.to_rgba8();
             let bg_color = TrueColor { r, g, b };
-            let piece = formatter
-                .display_piece(square, 3)
-                .color(color)
-                .bold()
-                .on_color(bg_color);
+            let piece = formatter.display_piece(square, 3).color(color).bold().on_color(bg_color);
             write!(&mut line, "{piece}").unwrap();
         }
         let y = if flip { y + 1 } else { pos.height() - y };

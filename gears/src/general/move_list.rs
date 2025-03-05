@@ -13,7 +13,7 @@ pub trait MoveList<B: Board>: IntoIterator<Item = B::Move> + Debug {
     fn swap_remove_move(&mut self, idx: usize) -> B::Move;
 
     /// Doesn't guarantee any particular iteration order
-    fn iter_moves(&self) -> impl Iterator<Item = &B::Move>;
+    fn iter_moves(&self) -> impl Iterator<Item = &B::Move> + Send;
 
     fn remove(&mut self, to_remove: B::Move);
 
@@ -43,7 +43,7 @@ impl<B: Board, const N: usize> MoveList<B> for EagerNonAllocMoveList<B, N> {
 
     fn remove(&mut self, to_remove: B::Move) {
         if let Some(idx) = self.iter().position(|m| *m == to_remove) {
-            self.swap_remove(idx);
+            _ = self.swap_remove(idx);
         }
     }
 

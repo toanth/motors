@@ -8,10 +8,11 @@ use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::ChessColor::White;
 use gears::games::chess::{ChessColor, Chessboard};
-use gears::general::bitboards::RawBitboard;
+use gears::games::Color;
+use gears::general::bitboards::{Bitboard, RawBitboard};
+use gears::general::board::BitboardBoard;
 use motors::eval::chess::CHESS_PHASE_VALUES;
 use std::fmt::Formatter;
-use strum::IntoEnumIterator;
 
 pub mod lite;
 pub mod material_only_eval;
@@ -76,7 +77,7 @@ fn write_phased_psqt(
 ) -> std::fmt::Result {
     const TAB: &str = "    "; // Use 4 spaces for a tab.
     if let Some(piece) = piece {
-        writeln!(f, "{TAB}// {}", piece.name())?;
+        writeln!(f, "{TAB}// {}", piece.to_name())?;
         write!(f, "{TAB}[")?;
     } else {
         write!(f, "[")?;
@@ -105,23 +106,10 @@ fn write_phased_psqt(
     Ok(())
 }
 
-fn write_psqts(
-    f: &mut Formatter<'_>,
-    weights: &[Weight],
-    special_entries: &[bool],
-) -> std::fmt::Result {
-    writeln!(
-        f,
-        "const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = ["
-    )?;
+fn write_psqts(f: &mut Formatter<'_>, weights: &[Weight], special_entries: &[bool]) -> std::fmt::Result {
+    writeln!(f, "const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = [")?;
     for piece in ChessPieceType::pieces() {
-        write_phased_psqt(
-            f,
-            weights,
-            special_entries,
-            Some(piece),
-            64 * piece as usize,
-        )?;
+        write_phased_psqt(f, weights, special_entries, Some(piece), 64 * piece as usize)?;
     }
     writeln!(f, "];")?;
     Ok(())

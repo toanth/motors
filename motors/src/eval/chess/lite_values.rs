@@ -97,17 +97,8 @@ const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = [
 ];
 
 const BISHOP_PAIR: PhasedScore = p(22, 53);
-const BAD_BISHOP: [PhasedScore; 9] = [
-    p(9, 19),
-    p(10, 17),
-    p(10, 6),
-    p(7, -2),
-    p(3, -10),
-    p(-1, -20),
-    p(-8, -29),
-    p(-16, -42),
-    p(-28, -53),
-];
+const BAD_BISHOP: [PhasedScore; 9] =
+    [p(9, 19), p(10, 17), p(10, 6), p(7, -2), p(3, -10), p(-1, -20), p(-8, -29), p(-16, -42), p(-28, -53)];
 const ROOK_OPEN_FILE: PhasedScore = p(13, 5);
 const ROOK_CLOSED_FILE: PhasedScore = p(-12, -0);
 const ROOK_SEMIOPEN_FILE: PhasedScore = p(3, 4);
@@ -237,16 +228,9 @@ const PASSED_PAWNS: [PhasedScore; NUM_SQUARES] = [
 ];
 const UNSUPPORTED_PAWN: PhasedScore = p(-10, -10);
 const DOUBLED_PAWN: PhasedScore = p(-7, -21);
-const PAWN_PROTECTION: [PhasedScore; NUM_CHESS_PIECES] = [
-    p(13, 11),
-    p(8, 13),
-    p(14, 19),
-    p(9, 7),
-    p(-3, 16),
-    p(-46, 6),
-];
-const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] =
-    [p(0, 0), p(38, 9), p(39, 35), p(51, -8), p(35, -34), p(0, 0)];
+const PAWN_PROTECTION: [PhasedScore; NUM_CHESS_PIECES] =
+    [p(13, 11), p(8, 13), p(14, 19), p(9, 7), p(-3, 16), p(-46, 6)];
+const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = [p(0, 0), p(38, 9), p(39, 35), p(51, -8), p(35, -34), p(0, 0)];
 
 pub const MAX_MOBILITY: usize = 7 + 7 + 7 + 6;
 const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = [
@@ -402,70 +386,28 @@ const MOBILITY: [[PhasedScore; MAX_MOBILITY + 1]; NUM_CHESS_PIECES - 1] = [
     ],
 ];
 const THREATS: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = [
-    [
-        p(-9, 7),
-        p(0, 0),
-        p(23, 19),
-        p(49, -12),
-        p(20, -33),
-        p(0, 0),
-    ],
+    [p(-9, 7), p(0, 0), p(23, 19), p(49, -12), p(20, -33), p(0, 0)],
     [p(-3, 11), p(20, 23), p(0, 0), p(31, 5), p(31, 53), p(0, 0)],
     [p(-3, 13), p(11, 15), p(18, 12), p(0, 0), p(45, -5), p(0, 0)],
     [p(-2, 5), p(2, 5), p(-0, 21), p(1, 1), p(0, 0), p(0, 0)],
-    [
-        p(71, 28),
-        p(-35, 18),
-        p(-9, 17),
-        p(-22, 7),
-        p(0, 0),
-        p(0, 0),
-    ],
+    [p(71, 28), p(-35, 18), p(-9, 17), p(-22, 7), p(0, 0), p(0, 0)],
 ];
 const DEFENDED: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = [
     [p(2, 7), p(8, 7), p(6, 11), p(13, 7), p(7, 20), p(11, 6)],
-    [
-        p(1, 6),
-        p(11, 22),
-        p(-127, -28),
-        p(8, 15),
-        p(9, 20),
-        p(4, 7),
-    ],
+    [p(1, 6), p(11, 22), p(-127, -28), p(8, 15), p(9, 20), p(4, 7)],
     [p(2, 2), p(13, 6), p(9, 11), p(11, 8), p(11, 21), p(21, -6)],
-    [
-        p(2, -2),
-        p(9, 1),
-        p(7, -5),
-        p(4, 15),
-        p(-61, -252),
-        p(5, -11),
-    ],
+    [p(2, -2), p(9, 1), p(7, -5), p(4, 15), p(-61, -252), p(5, -11)],
     [p(64, -2), p(41, 6), p(46, 0), p(25, 5), p(37, -12), p(0, 0)],
 ];
-const KING_ZONE_ATTACK: [PhasedScore; 6] = [
-    p(-21, -18),
-    p(19, -10),
-    p(11, -4),
-    p(14, -12),
-    p(-1, 12),
-    p(-13, 12),
-];
+const KING_ZONE_ATTACK: [PhasedScore; 6] = [p(-21, -18), p(19, -10), p(11, -4), p(14, -12), p(-1, 12), p(-13, 12)];
 const CAN_GIVE_CHECK: [PhasedScore; 5] = [p(0, 0), p(28, 11), p(13, 19), p(34, -1), p(5, 32)];
 
 /// This is a trait because there are two different instantiations:
 /// The normal eval values and the version used by the tuner, where these functions return traces.
-pub trait LiteValues:
-    Debug + Default + Copy + Clone + Send + 'static + StaticallyNamedEntity
-{
+pub trait LiteValues: Debug + Default + Copy + Clone + Send + 'static + StaticallyNamedEntity {
     type Score: ScoreType;
 
-    fn psqt(
-        &self,
-        square: ChessSquare,
-        piece: ChessPieceType,
-        color: ChessColor,
-    ) -> SingleFeatureScore<Self::Score>;
+    fn psqt(&self, square: ChessSquare, piece: ChessPieceType, color: ChessColor) -> SingleFeatureScore<Self::Score>;
 
     fn passed_pawn(square: ChessSquare) -> SingleFeatureScore<Self::Score>;
 
@@ -491,15 +433,9 @@ pub trait LiteValues:
 
     fn mobility(piece: ChessPieceType, mobility: usize) -> SingleFeatureScore<Self::Score>;
 
-    fn threats(
-        attacking: ChessPieceType,
-        targeted: ChessPieceType,
-    ) -> SingleFeatureScore<Self::Score>;
+    fn threats(attacking: ChessPieceType, targeted: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 
-    fn defended(
-        protecting: ChessPieceType,
-        target: ChessPieceType,
-    ) -> SingleFeatureScore<Self::Score>;
+    fn defended(protecting: ChessPieceType, target: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 
     fn king_zone_attack(attacking: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 
@@ -580,10 +516,7 @@ impl LiteValues for Lite {
         }
     }
 
-    fn bishop_openness(
-        openness: FileOpenness,
-        len: usize,
-    ) -> <PhasedScore as ScoreType>::SingleFeatureScore {
+    fn bishop_openness(openness: FileOpenness, len: usize) -> <PhasedScore as ScoreType>::SingleFeatureScore {
         BISHOP_OPENNESS[openness as usize][len - 1]
     }
 

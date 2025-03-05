@@ -97,14 +97,13 @@ extern crate core;
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::eval::{count_occurrences, display, Eval};
 use crate::gd::{
-    optimize_dataset, print_optimized_weights, Datapoint, Dataset, DefaultOptimizer, Optimizer,
-    Weight, Weights,
+    optimize_dataset, print_optimized_weights, Datapoint, Dataset, DefaultOptimizer, Optimizer, Weight, Weights,
 };
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
 use gears::colored::Colorize;
 use gears::games::chess::Chessboard;
-use gears::general::board::Board;
+use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Res;
 use serde_json::from_reader;
@@ -163,21 +162,15 @@ pub fn load_datasets_from_json(json_file_path: &Path) -> Res<Vec<AnnotatedFenFil
         "Could not open the dataset json file: {err}. Check that the path is correct, maybe try using an absolute path. \
         The current path is '{}'.", json_file_path.display()
     ))?;
-    let mut files: Vec<AnnotatedFenFile> = from_reader(BufReader::new(json_file))
-        .map_err(|err| anyhow!("Couldn't read the JSON file: {err}"))?;
+    let mut files: Vec<AnnotatedFenFile> =
+        from_reader(BufReader::new(json_file)).map_err(|err| anyhow!("Couldn't read the JSON file: {err}"))?;
 
     if files.is_empty() {
         bail!("The json file appears to be empty. Please add at least one dataset".to_string(),)
     }
     // Ideally, the `AnnotatedFenFile` would store a `PathBuf`, but that makes serialization more difficult.
     for file in &mut files {
-        file.path = json_file_path
-            .parent()
-            .unwrap()
-            .join(Path::new(&file.path))
-            .to_str()
-            .unwrap()
-            .to_string();
+        file.path = json_file_path.parent().unwrap().join(Path::new(&file.path)).to_str().unwrap().to_string();
     }
     Ok(files)
 }
@@ -205,16 +198,9 @@ pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
     let scale = e.eval_scale().to_scaling_factor(batch, &e);
     let mut optimizer = O::new(batch, scale);
 
-    let num_all_features = batch
-        .datapoints
-        .iter()
-        .map(|d| d.features().count())
-        .sum::<usize>();
+    let num_all_features = batch.datapoints.iter().map(|d| d.features().count()).sum::<usize>();
     let average = num_all_features as f64 / batch.datapoints.len() as f64;
-    println!(
-        "\nAverage Number of Features per Position: {}\n",
-        format!("{average:.3}").bold()
-    );
+    println!("\nAverage Number of Features per Position: {}\n", format!("{average:.3}").bold());
 
     let occurrences = Weights(count_occurrences(batch).into_iter().map(Weight).collect());
     println!("Occurrences:\n{}", display(&e, &occurrences, &[]));
@@ -267,22 +253,22 @@ mod tests {
 
     use crate::eval::chess::piston_eval::PistonEval;
     use crate::gd::{
-        cp_eval_for_weights, cp_to_wr, loss_for, quadratic_sample_loss, Adam, AdamW, CpScore,
-        CrossEntropyLoss, Float, Outcome, QuadraticLoss,
+        cp_eval_for_weights, cp_to_wr, loss_for, quadratic_sample_loss, Adam, AdamW, CpScore, CrossEntropyLoss, Float,
+        Outcome, QuadraticLoss,
     };
     use crate::load_data::Perspective::SideToMove;
     use gears::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
     use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
     use gears::games::chess::ChessColor::White;
-    use gears::games::{AbstractPieceType, ColoredPieceType};
+    use gears::games::chess::ChessSettings;
+    use gears::games::{AbstractPieceType, CharType, ColoredPieceType};
     use ChessPieceType::*;
 
     #[test]
     pub fn two_chess_positions_test() {
         let positions = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 [0.5]
         7k/8/8/8/8/8/8/R6K w - - 0 1 [1-0]";
-        let mut positions =
-            FenReader::<Chessboard, PistonEval>::load_from_str(positions, SideToMove).unwrap();
+        let mut positions = FenReader::<Chessboard, PistonEval>::load_from_str(positions, SideToMove).unwrap();
         assert_eq!(positions.data().len(), 2);
         assert_eq!(positions.data()[0].outcome(), Outcome::new(0.5));
         assert_eq!(positions.data()[1].outcome(), Outcome::new(1.0));
@@ -293,29 +279,13 @@ mod tests {
         let batch = positions.batch(0, 1);
         let eval_scale = 100.0;
         let mut optimizer = AdamW::<CrossEntropyLoss>::new(batch, eval_scale);
-        let startpos_weights = optimize_dataset(
-            &mut positions,
-            eval_scale,
-            100,
-            &PistonEval::default(),
-            &mut optimizer,
-        );
+        let startpos_weights =
+            optimize_dataset(&mut positions, eval_scale, 100, &PistonEval::default(), &mut optimizer);
         let startpos_eval = cp_eval_for_weights(&startpos_weights, &positions.data()[0]);
         assert_eq!(startpos_eval, CpScore(0.0));
         let mut optimizer = Adam::<QuadraticLoss>::new(positions.as_batch(), eval_scale);
-        let weights = optimize_dataset(
-            &mut positions,
-            eval_scale,
-            500,
-            &PistonEval::default(),
-            &mut optimizer,
-        );
-        let loss = loss_for(
-            &weights,
-            positions.as_batch(),
-            eval_scale,
-            quadratic_sample_loss,
-        );
+        let weights = optimize_dataset(&mut positions, eval_scale, 500, &PistonEval::default(), &mut optimizer);
+        let loss = loss_for(&weights, positions.as_batch(), eval_scale, quadratic_sample_loss);
         assert!(loss <= 0.01, "{loss}");
     }
 
@@ -333,16 +303,14 @@ mod tests {
         for piece in ChessPieceType::non_king_pieces() {
             let str = format!(
                 "8/7{0}/8/8/8/k7/8/K7 w - - 0 1 | {1}\n",
-                ColoredChessPieceType::new(White, piece).to_ascii_char(),
+                ColoredChessPieceType::new(White, piece).to_char(CharType::Ascii, &ChessSettings::default()),
                 cp_to_wr(CpScore(piece_val(piece) as Float), eval_scale),
             );
             fens += &str;
         }
-        let datapoints =
-            FenReader::<Chessboard, MaterialOnlyEval>::load_from_str(&fens, SideToMove).unwrap();
+        let datapoints = FenReader::<Chessboard, MaterialOnlyEval>::load_from_str(&fens, SideToMove).unwrap();
         let batch = datapoints.as_batch();
-        let weights = AdamW::<CrossEntropyLoss>::new(batch, eval_scale)
-            .optimize_simple(batch, eval_scale, 2000);
+        let weights = AdamW::<CrossEntropyLoss>::new(batch, eval_scale).optimize_simple(batch, eval_scale, 2000);
         assert_eq!(weights.len(), 5);
         let weight = weights[0];
         for piece in ChessPieceType::non_king_pieces() {
