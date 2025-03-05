@@ -44,10 +44,11 @@ use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType, UgiCheck};
 
 /// The maximum value of the `depth` parameter, i.e. the maximum number of Iterative Deepening iterations.
 const DEPTH_SOFT_LIMIT: Depth = Depth::new(225);
-/// The maximum value of the `ply` parameter, i.e. the maximum depth (in plies) before qsearch is reached
+/// The maximum value of the `ply` parameter in main search, i.e. the maximum depth (in plies) before qsearch is reached
 const DEPTH_HARD_LIMIT: Depth = Depth::new(255);
 
-/// Qsearch can't go more than 30 plies deep, so this prevents out of bounds accesses
+/// Qsearch can go more than 30 plies deeper than the depth hard limit if ther's more material on the board; in that case we simply
+/// return the static eval.
 const SEARCH_STACK_LEN: usize = DEPTH_HARD_LIMIT.get() + 30;
 
 type HistScoreT = i16;
@@ -1115,11 +1116,18 @@ impl Caps {
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
                 if alpha < score && reduction > 0 {
+                    // do deeper / shallower: Adjust the first re-search depth based on the result of the first search
+                    let mut retry_depth = depth - 1;
+                    if score > alpha + 50 + 4 * depth as ScoreT {
+                        retry_depth += 1;
+                    } else if score < alpha + 10 {
+                        retry_depth -= 1;
+                    }
                     self.statistics.lmr_first_retry();
                     score = -self.negamax(
                         new_pos,
                         ply + 1,
-                        depth - 1,
+                        retry_depth,
                         -(alpha + 1),
                         -alpha,
                         FailHigh, // we still expect the child to fail high here
@@ -1282,7 +1290,7 @@ impl Caps {
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
         // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
         // only after aging
-        if best_score >= beta {
+        if best_score >= beta || ply >= SEARCH_STACK_LEN {
             return Some(best_score);
         }
         // TODO: Set stand pat to SCORE_LOST when in check, generate evasions?
