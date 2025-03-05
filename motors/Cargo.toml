@@ -30,7 +30,8 @@ indicatif = "0.17.11"
 
 
 [features]
-default = ["unsafe", "chess", "ataxx", "mnk", "uttt", "fairy", "random_mover", "proof_number", "gaps", "caps"]
+default = ["chess", "ataxx", "mnk", "uttt", "fairy", "random_mover", "proof_number", "gaps", "caps"]
+#default = ["unsafe", "chess", "ataxx", "mnk", "uttt", "fairy", "random_mover", "proof_number", "gaps", "caps"]
 random_mover = []
 proof_number = []
 gaps = []
