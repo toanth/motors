@@ -253,7 +253,7 @@ impl Name {
     pub fn new<T: NamedEntity + ?Sized>(t: &T) -> Self {
         Self { short: t.short_name(), long: t.long_name(), description: t.description() }
     }
-    pub fn from_str(string: &str) -> Self {
+    pub fn from_name(string: &str) -> Self {
         Self { short: string.to_string(), long: string.to_string(), description: None }
     }
 }
@@ -308,23 +308,34 @@ fn select_name_impl<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String, G: 
     match idx {
         None => {
             let list_as_string = match list.len() {
-                0 => format!("There are no valid {typ} names (presumably your program version was built with those features disabled)"),
-                1 => format!("The only valid {typ} for this version of the program is {}", to_name(&list.next().unwrap())),
-                _ => {
-                    match name {
-                        None => { format!("Valid {typ} names are {}", list_to_string(list, to_name)) }
-                        Some(name) => {
-                            let near_matches = list.clone().filter(|x|
-                                edit_distance(&to_name(x).to_ascii_lowercase(), &format!("'{}'", name.to_ascii_lowercase().bold())) <= 3
-                            ).collect_vec();
-                            if near_matches.is_empty() {
-                                format!("Valid {typ} names are {}", list_to_string(list, to_name))
-                            } else {
-                                format!("Perhaps you meant: {}", list_to_string(near_matches.iter(), |x| to_name(x)))
-                            }
+                0 => format!(
+                    "There are no valid {typ} names (presumably your program version was built with those features disabled)"
+                ),
+                1 => format!(
+                    "The only valid {typ} for this version of the program is {}",
+                    to_name(&list.next().unwrap())
+                ),
+                _ => match name {
+                    None => {
+                        format!("Valid {typ} names are {}", list_to_string(list, to_name))
+                    }
+                    Some(name) => {
+                        let near_matches = list
+                            .clone()
+                            .filter(|x| {
+                                edit_distance(
+                                    &to_name(x).to_ascii_lowercase(),
+                                    &format!("'{}'", name.to_ascii_lowercase().bold()),
+                                ) <= 3
+                            })
+                            .collect_vec();
+                        if near_matches.is_empty() {
+                            format!("Valid {typ} names are {}", list_to_string(list, to_name))
+                        } else {
+                            format!("Perhaps you meant: {}", list_to_string(near_matches.iter(), |x| to_name(x)))
                         }
                     }
-                }
+                },
             };
             let game_name = game_name.bold();
             if let Some(name) = name {
@@ -401,9 +412,9 @@ pub fn nonzero_u64(val: u64, name: &str) -> Res<NonZeroU64> {
 
 #[cfg(test)]
 mod tests {
-    use rand::{rng, Rng};
+    use rand::{Rng, rng};
 
-    use crate::general::common::{ith_one_u128, ith_one_u64};
+    use crate::general::common::{ith_one_u64, ith_one_u128};
     // TODO: Test this on bitboards instead
     // #[test]
     // fn pop_lsb64_test() {

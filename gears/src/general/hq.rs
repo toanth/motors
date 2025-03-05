@@ -425,7 +425,7 @@ static BIT_REVERSE_HQ_DATA: [[U128BitReverseHq; 128]; MAX_WIDTH] = {
             let sq_bb = 1 << sq;
             entry.square = U128AndRev::bit_reversed(sq_bb);
             entry.rays[Horizontal as usize] =
-                U128AndRev::bit_reversed((((1 << width) - 1) << (sq / width) * width) ^ sq_bb);
+                U128AndRev::bit_reversed((((1 << width) - 1) << ((sq / width) * width)) ^ sq_bb);
             entry.rays[Vertical as usize] = U128AndRev::bit_reversed((STEPS_U128[width] << (sq % width)) ^ sq_bb);
             entry.rays[Diagonal as usize] = U128AndRev::bit_reversed(DIAGONALS_U128[width][sq] ^ sq_bb);
             entry.rays[AntiDiagonal as usize] = U128AndRev::bit_reversed(ANTI_DIAGONALS_U128[width][sq] ^ sq_bb);

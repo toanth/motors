@@ -562,7 +562,7 @@ impl Caps {
                 let atomic = &self.state.params.atomic;
                 let pv = &self.state.search_stack[0].pv;
 
-                if pv.len() > 0 {
+                if !pv.is_empty() {
                     if self.current_pv_num == 0 {
                         let chosen_move = pv.get(0).unwrap();
                         let ponder_move = pv.get(1);
@@ -999,7 +999,7 @@ impl Caps {
 
         let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
         let move_scorer = CapsMoveScorer { board: pos, ply };
-        while let Some((mov, move_score)) = move_picker.next(&move_scorer, &self) {
+        while let Some((mov, move_score)) = move_picker.next(&move_scorer, self) {
             if can_prune && best_score > MAX_SCORE_LOST {
                 // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
                 // so don't even bother looking at them in the last few layers.
@@ -1215,10 +1215,10 @@ impl Caps {
         }
 
         // Corrhist updates
-        if !in_check
-            && (best_move.is_null() || !best_move.is_tactical(&pos))
-            && !(best_score <= eval && bound_so_far == NodeType::lower_bound())
-            && !(best_score >= eval && bound_so_far == NodeType::upper_bound())
+        if !(in_check
+            || best_move.is_tactical(&pos)
+            || (best_score <= eval && bound_so_far == NodeType::lower_bound())
+            || (best_score >= eval && bound_so_far == NodeType::upper_bound()))
         {
             self.corr_hist.update(&pos, depth, eval, best_score);
         }
@@ -1354,7 +1354,7 @@ impl Caps {
             !res.is_won_or_lost() || UnverifiedChessboard::new(*pos).verify(Strict).is_err(),
             "{res} {0} {1}, {pos}",
             res.0,
-            self.eval.eval(&pos, ply)
+            self.eval.eval(pos, ply)
         );
         res.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
@@ -1484,13 +1484,13 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
             MoveScore(state.history[mov.from_to_square()] + countermove_score + follow_up_score / 2)
         } else {
             let captured = mov.captured(&self.board);
-            let base_val = MoveScore(HIST_DIVISOR as i16 * 10);
+            let base_val = MoveScore(HIST_DIVISOR * 10);
             let hist_val = state.capt_hist.get(mov, self.board.active_player());
-            base_val + MoveScore(captured as i16 * HIST_DIVISOR as i16) + hist_val
+            base_val + MoveScore(captured as i16 * HIST_DIVISOR) + hist_val
         }
     }
 
-    const DEFERRED_OFFSET: MoveScore = MoveScore(HIST_DIVISOR as i16 * -30);
+    const DEFERRED_OFFSET: MoveScore = MoveScore(HIST_DIVISOR * -30);
 
     fn defer_playing_move(&self, mov: ChessMove) -> bool {
         mov.is_tactical(&self.board) && !self.board.see_at_least(mov, SeeScore(0))

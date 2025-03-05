@@ -332,13 +332,11 @@ impl UnverifiedBoard<FairyBoard> for UnverifiedFairyBoard {
         }
         for color in FairyColor::iter() {
             for loss in &self.rules.0.game_loss {
-                if loss == &GameLoss::Checkmate {
-                    if self.royal_bb_for(color).is_zero() {
-                        bail!(
-                            "The {} player has no royal pieces, but the variant counts checkmate as a loss",
-                            self.color_name(color)
-                        );
-                    }
+                if loss == &GameLoss::Checkmate && self.royal_bb_for(color).is_zero() {
+                    bail!(
+                        "The {} player has no royal pieces, but the variant counts checkmate as a loss",
+                        self.color_name(color)
+                    );
                 }
             }
         }

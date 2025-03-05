@@ -15,22 +15,22 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
+use crate::eval::rand_eval::RandEval;
 use crate::search::statistics::Statistics;
 use crate::search::{
-    AbstractSearchState, BenchResult, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchParams,
-    DEFAULT_CHECK_TIME_INTERVAL,
+    AbstractSearchState, BenchResult, DEFAULT_CHECK_TIME_INTERVAL, EmptySearchStackEntry, Engine, EngineInfo,
+    NoCustomInfo, SearchParams,
 };
+use gears::PlayerResult;
 use gears::games::{BoardHistory, Color, PosHash, ZobristHistory2Fold};
 use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::move_list::MoveList;
 use gears::itertools::Itertools;
-use gears::score::{Score, SCORE_LOST, SCORE_WON};
+use gears::score::{SCORE_LOST, SCORE_WON, Score};
 use gears::search::NodeType::Exact;
 use gears::search::{Depth, NodesLimit, SearchInfo, SearchResult};
-use gears::PlayerResult;
 use std::cmp::min;
 use std::fmt::Display;
 use std::time::Instant;
@@ -111,13 +111,11 @@ impl<B: Board> ProofNumberSearcher<B> {
         let mut move_idx = usize::MAX;
         // TODO: Collect into arrayvec or similar instead, or better use the smallvec crate, also for some movelists
         let nodes = self.params.atomic.count_node();
-        if nodes >= self.limit().nodes.get() {
+        if nodes >= self.limit().nodes.get()
+            || (nodes % DEFAULT_CHECK_TIME_INTERVAL == 0
+                && (self.start_time.elapsed() >= self.params.limit.fixed_time || self.params.atomic.stop_flag()))
+        {
             return None;
-        } else if nodes % DEFAULT_CHECK_TIME_INTERVAL == 0 {
-            if self.start_time.elapsed() >= self.params.limit.fixed_time || self.params.atomic.stop_flag() {
-                return None;
-            }
-            // depth and mate limits are meaningless and ignored, as is time management
         }
         let mut children = pos
             .children()
@@ -157,7 +155,7 @@ impl<B: Board> ProofNumberSearcher<B> {
         Some(work)
     }
 
-    fn select_child(&mut self, children: &Vec<(B, DeltaPhi)>, phi_c: &mut u64, delta_2: &mut u64) -> usize {
+    fn select_child(&mut self, children: &[(B, DeltaPhi)], phi_c: &mut u64, delta_2: &mut u64) -> usize {
         let mut delta_c = INFINITY;
         *phi_c = INFINITY;
         let mut best_child_idx = 0;
@@ -214,12 +212,8 @@ impl<B: Board> ProofNumberSearcher<B> {
 
     fn get(&self, hash: PosHash) -> Option<Node> {
         // TODO: Multiplication trick
-        let entry = self.tt[hash.0 as usize % self.tt.len()].clone();
-        if entry.hash == hash {
-            Some(entry)
-        } else {
-            None
-        }
+        let entry = self.tt[hash.0 as usize % self.tt.len()];
+        if entry.hash == hash { Some(entry) } else { None }
     }
 
     fn player_res_to_deltaphi(&self, res: PlayerResult, active: B::Color) -> DeltaPhi {
@@ -394,8 +388,8 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gears::games::chess::moves::ChessMove;
     use gears::games::chess::Chessboard;
+    use gears::games::chess::moves::ChessMove;
     use gears::general::board::Strictness::Strict;
     use gears::general::moves::Move;
 

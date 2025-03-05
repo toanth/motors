@@ -1012,7 +1012,7 @@ fn option_values(val: &EngineOptionType) -> CommandList {
             .options
             .iter()
             .map(|o| {
-                let name = Name::from_str(&o);
+                let name = Name::from_name(o);
                 named_entity_to_command(&name)
             })
             .collect_vec(),

@@ -107,6 +107,7 @@ impl Default for TypeErasedUgiOutput {
 }
 
 impl TypeErasedUgiOutput {
+    #[allow(clippy::too_many_arguments)]
     fn show_bar(
         &mut self,
         num_moves: usize,
