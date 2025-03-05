@@ -36,7 +36,7 @@ rayon = "1.10.0"
 # removing the regex dependency by replacing the single instance of using a regex improved compile times from ~30 to ~20 seconds
 
 [features]
-default = ["chess", "mnk", "ataxx", "uttt", "fairy", "unsafe"]
+default = ["chess", "mnk", "ataxx", "uttt", "fairy"]
 unsafe = []
 chess = []
 mnk = []
