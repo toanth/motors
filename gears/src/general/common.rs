@@ -14,18 +14,6 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use std::str::{FromStr, SplitWhitespace};
 use std::time::Duration;
 
-pub fn pop_lsb64(x: &mut u64) -> u32 {
-    let shift = x.trailing_zeros();
-    *x &= *x - 1;
-    shift
-}
-
-pub fn pop_lsb128(x: &mut u128) -> u32 {
-    let shift = x.trailing_zeros();
-    *x &= *x - 1;
-    shift
-}
-
 // The `bitintr` crate provides similar features, but unfortunately it is bugged and unmaintained.
 
 #[allow(unused)]
@@ -106,10 +94,24 @@ pub fn ith_one_u128(idx: usize, val: u128) -> usize {
     }
 }
 
+pub trait TokensToString {
+    fn string(&mut self) -> String;
+}
+
+impl TokensToString for Tokens<'_> {
+    fn string(&mut self) -> String {
+        self.join(" ")
+    }
+}
+
 pub type Tokens<'a> = Peekable<SplitWhitespace<'a>>;
 
 pub fn tokens(input: &str) -> Tokens {
     input.split_whitespace().peekable()
+}
+
+pub fn tokens_to_string(first: &str, mut rest: Tokens) -> String {
+    first.to_string() + " " + &rest.join(" ")
 }
 
 pub type Res<T> = anyhow::Result<T>;
@@ -120,38 +122,29 @@ pub fn sigmoid(score: Score, scale: f64) -> f64 {
 }
 
 pub fn parse_fp_from_str<T: Float + FromStr>(as_str: &str, name: &str) -> Res<T> {
-    as_str
-        .parse::<T>()
-        .map_err(|_err| anyhow::anyhow!("Couldn't parse {name} ('{as_str}')"))
+    as_str.parse::<T>().map_err(|_err| anyhow::anyhow!("Couldn't parse {name} ('{as_str}')"))
 }
 
 pub fn parse_int_from_str<T: PrimInt + FromStr>(as_str: &str, name: &str) -> Res<T> {
     // for some weird Rust reason, parse::<T>() returns a completely unbounded Err on failure,
     // so we just write the error message ourselves
-    as_str
-        .parse::<T>()
-        .map_err(|_err| anyhow::anyhow!("Couldn't parse {name} ('{as_str}')"))
+    as_str.parse::<T>().map_err(|_err| anyhow::anyhow!("Couldn't parse {name} ('{as_str}')"))
 }
 
 pub fn parse_int<T: PrimInt + FromStr + Display>(words: &mut Tokens, name: &str) -> Res<T> {
-    parse_int_from_str(
-        words
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("Missing {name}"))?,
-        name,
-    )
+    parse_int_from_str(words.next().ok_or_else(|| anyhow::anyhow!("Missing {name}"))?, name)
 }
 
 pub fn parse_int_from_stdin<T: PrimInt + FromStr>() -> Res<T> {
     let mut s = String::default();
-    stdin().read_line(&mut s)?;
+    _ = stdin().read_line(&mut s)?;
     parse_int_from_str(s.trim(), "integer")
 }
 
 pub fn parse_bool_from_str(input: &str, name: &str) -> Res<bool> {
-    if input.eq_ignore_ascii_case("true") {
+    if input.eq_ignore_ascii_case("true") || input.eq_ignore_ascii_case("on") || input == "1" {
         Ok(true)
-    } else if input.eq_ignore_ascii_case("false") {
+    } else if input.eq_ignore_ascii_case("false") || input.eq_ignore_ascii_case("off") || input == "0" {
         Ok(false)
     } else {
         Err(anyhow::anyhow!(
@@ -170,9 +163,19 @@ pub fn parse_duration_ms(words: &mut Tokens, name: &str) -> Res<Duration> {
     Ok(Duration::from_millis(num_ms.max(0) as u64))
 }
 
+/// Apparently, this will soon be unnecessary. Remove once stable Rust implements trait upcasting
+pub trait AsNamedEntity {
+    fn upcast(&self) -> &dyn NamedEntity;
+}
+impl<T: NamedEntity> AsNamedEntity for T {
+    fn upcast(&self) -> &dyn NamedEntity {
+        self
+    }
+}
+
 /// The name is used to identify the entity throughout all UIs and command line arguments.
 /// Examples are games ('chess', 'mnk', etc), engines ('caps', 'random', etc), and UIs ('fen', 'pretty', etc)
-pub trait NamedEntity: Debug {
+pub trait NamedEntity: Debug + AsNamedEntity {
     /// The short name must consist of a single word in lowercase letters and is usually used for text-based UIs
     fn short_name(&self) -> String;
 
@@ -248,11 +251,10 @@ impl NamedEntity for Name {
 
 impl Name {
     pub fn new<T: NamedEntity + ?Sized>(t: &T) -> Self {
-        Self {
-            short: t.short_name(),
-            long: t.long_name(),
-            description: t.description(),
-        }
+        Self { short: t.short_name(), long: t.long_name(), description: t.description() }
+    }
+    pub fn from_str(string: &str) -> Self {
+        Self { short: string.to_string(), long: string.to_string(), description: None }
     }
 }
 
@@ -287,18 +289,11 @@ pub enum Description {
     NoDescription,
 }
 
-fn list_to_string<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String>(
-    iter: I,
-    to_name: F,
-) -> String {
+fn list_to_string<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String>(iter: I, to_name: F) -> String {
     iter.map(|x| to_name(&x)).join(", ")
 }
 
-fn select_name_impl<
-    I: ExactSizeIterator + Clone,
-    F: Fn(&I::Item) -> String,
-    G: Fn(&I::Item, &str) -> bool,
->(
+fn select_name_impl<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String, G: Fn(&I::Item, &str) -> bool>(
     name: Option<&str>,
     mut list: I,
     typ: &str,
@@ -335,7 +330,8 @@ fn select_name_impl<
             if let Some(name) = name {
                 let name = name.red();
                 Err(anyhow::anyhow!(
-                    "Couldn't find {typ} '{name}' for the current game ({game_name}). {list_as_string}."))
+                    "Couldn't find {typ} '{name}' for the current game ({game_name}). {list_as_string}."
+                ))
             } else {
                 Err(anyhow::anyhow!(list_as_string))
             }
@@ -344,17 +340,12 @@ fn select_name_impl<
     }
 }
 
-pub fn to_name_and_optional_description<T: NamedEntity + ?Sized>(
-    x: &T,
-    description: Description,
-) -> String {
+pub fn to_name_and_optional_description<T: NamedEntity + ?Sized>(x: &T, description: Description) -> String {
     if description == WithDescription {
         format!(
             "\n{name:<18} {descr}",
             name = format!("'{}':", x.short_name().bold()),
-            descr = x
-                .description()
-                .unwrap_or_else(|| "<No description>".to_string())
+            descr = x.description().unwrap_or_else(|| "<No description>".to_string())
         )
     } else {
         format!("'{}'", x.short_name().bold())
@@ -412,51 +403,51 @@ pub fn nonzero_u64(val: u64, name: &str) -> Res<NonZeroU64> {
 mod tests {
     use rand::{rng, Rng};
 
-    use crate::general::common::{ith_one_u128, ith_one_u64, pop_lsb128, pop_lsb64};
-
-    #[test]
-    fn pop_lsb64_test() {
-        let mut x = 1;
-        assert_eq!(pop_lsb64(&mut x), 0);
-        assert_eq!(x, 0);
-        x = 2;
-        assert_eq!(pop_lsb64(&mut x), 1);
-        assert_eq!(x, 0);
-        x = 3;
-        assert_eq!(pop_lsb64(&mut x), 0);
-        assert_eq!(x, 2);
-        x = 0b110_001;
-        assert_eq!(pop_lsb64(&mut x), 0);
-        assert_eq!(x, 0b110_000);
-        x = 0b1100_1011_0011_1001_0000_0000_0000_0000_0000;
-        assert_eq!(pop_lsb64(&mut x), 20);
-        assert_eq!(x, 0b1100_1011_0011_1000_0000_0000_0000_0000_0000);
-    }
-
-    #[test]
-    fn pop_lsb128_test() {
-        let mut rng = rng();
-        for _ in 0..10_000 {
-            let mut val = rng.random_range(0..=u64::MAX);
-            let mut val_u128 = val as u128;
-            assert_eq!(pop_lsb64(&mut val), pop_lsb128(&mut val_u128));
-            assert_eq!(val, val_u128 as u64);
-        }
-        let mut val = u64::MAX as u128 + 1;
-        assert_eq!(pop_lsb128(&mut val), 64);
-        assert_eq!(val, 0);
-        val = (0b100_0101_0110_1001_0101_1010 << 64) + 0b100_1010_0011;
-        let copy = val;
-        assert_eq!(pop_lsb128(&mut val), 0);
-        assert_eq!(val, copy - 1);
-        val = 0b100_0101_0110_1001_0101_1010 << 64;
-        let copy = val;
-        assert_eq!(pop_lsb128(&mut val), 65);
-        assert_eq!(val, copy - (1 << 65));
-        val = u128::MAX;
-        assert_eq!(pop_lsb128(&mut val), 0);
-        assert_eq!(val, u128::MAX - 1);
-    }
+    use crate::general::common::{ith_one_u128, ith_one_u64};
+    // TODO: Test this on bitboards instead
+    // #[test]
+    // fn pop_lsb64_test() {
+    //     let mut x = 1;
+    //     assert_eq!(pop_lsb64(&mut x), 0);
+    //     assert_eq!(x, 0);
+    //     x = 2;
+    //     assert_eq!(pop_lsb64(&mut x), 1);
+    //     assert_eq!(x, 0);
+    //     x = 3;
+    //     assert_eq!(pop_lsb64(&mut x), 0);
+    //     assert_eq!(x, 2);
+    //     x = 0b110_001;
+    //     assert_eq!(pop_lsb64(&mut x), 0);
+    //     assert_eq!(x, 0b110_000);
+    //     x = 0b1100_1011_0011_1001_0000_0000_0000_0000_0000;
+    //     assert_eq!(pop_lsb64(&mut x), 20);
+    //     assert_eq!(x, 0b1100_1011_0011_1000_0000_0000_0000_0000_0000);
+    // }
+    //
+    // #[test]
+    // fn pop_lsb128_test() {
+    //     let mut rng = rng();
+    //     for _ in 0..10_000 {
+    //         let mut val = rng.random_range(0..=u64::MAX);
+    //         let mut val_u128 = val as u128;
+    //         assert_eq!(pop_lsb64(&mut val), pop_lsb128(&mut val_u128));
+    //         assert_eq!(val, val_u128 as u64);
+    //     }
+    //     let mut val = u64::MAX as u128 + 1;
+    //     assert_eq!(pop_lsb128(&mut val), 64);
+    //     assert_eq!(val, 0);
+    //     val = (0b100_0101_0110_1001_0101_1010 << 64) + 0b100_1010_0011;
+    //     let copy = val;
+    //     assert_eq!(pop_lsb128(&mut val), 0);
+    //     assert_eq!(val, copy - 1);
+    //     val = 0b100_0101_0110_1001_0101_1010 << 64;
+    //     let copy = val;
+    //     assert_eq!(pop_lsb128(&mut val), 65);
+    //     assert_eq!(val, copy - (1 << 65));
+    //     val = u128::MAX;
+    //     assert_eq!(pop_lsb128(&mut val), 0);
+    //     assert_eq!(val, u128::MAX - 1);
+    // }
 
     #[test]
     fn ith_one_u64_test() {

@@ -28,16 +28,18 @@ dyn-clone = "1.0.18"
 arrayvec = "0.7.6"
 edit-distance = "2.1.3"
 arbitrary = { version = "1.4.1", features = ["derive"] }
-thiserror = "1.0.64"
+thiserror = "2.0.9"
 anyhow = "1.0.95"
 crossterm = "0.28.1"
 colorgrad = "0.7.0"
+rayon = "1.10.0"
 # removing the regex dependency by replacing the single instance of using a regex improved compile times from ~30 to ~20 seconds
 
 [features]
-default = ["chess", "mnk", "ataxx", "uttt", "unsafe"]
+default = ["chess", "mnk", "ataxx", "uttt", "fairy", "unsafe"]
 unsafe = []
 chess = []
 mnk = []
 ataxx = []
 uttt = []
+fairy = ["chess", "mnk"]

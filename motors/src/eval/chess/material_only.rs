@@ -2,7 +2,7 @@ use crate::eval::Eval;
 use gears::games::chess::pieces::ChessPieceType;
 use gears::games::chess::Chessboard;
 use gears::games::Color;
-use gears::general::board::Board;
+use gears::general::board::{BitboardBoard, Board};
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{Score, ScoreT};
 use std::fmt::Display;
@@ -44,7 +44,7 @@ impl Eval<Chessboard> for MaterialOnlyEval {
         let mut score = 0;
         for _ in 0..2 {
             for piece in ChessPieceType::non_king_pieces() {
-                let num_pieces = pos.colored_piece_bb(color, piece).0.count_ones() as ScoreT;
+                let num_pieces = pos.colored_piece_bb(color, piece).count_ones() as ScoreT;
                 score += num_pieces * MATERIAL_VALUE[piece as usize];
             }
             score = -score;

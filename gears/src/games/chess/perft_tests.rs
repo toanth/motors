@@ -5,11 +5,15 @@ mod tests {
     use crate::games::chess::Chessboard;
     use crate::games::Board;
     use crate::general::board::Strictness::{Relaxed, Strict};
+    use crate::general::board::{BoardHelpers, Strictness};
+    use crate::general::common::parse_int_from_str;
     use crate::general::perft::perft;
     use crate::search::Depth;
     use itertools::Itertools;
     use rand::prelude::SliceRandom;
-    use rand::rng;
+    use rand::rngs::StdRng;
+    use rand::{rng, Rng, SeedableRng};
+    use std::io::{stdout, Write};
     use std::num::NonZeroUsize;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::thread::{available_parallelism, current, scope};
@@ -18,45 +22,38 @@ mod tests {
     #[test]
     fn kiwipete_test() {
         let board = Chessboard::from_name("kiwipete").unwrap();
-        let res = perft(Depth::new_unchecked(4), board);
+        let res = perft(Depth::new(4), board, false);
         assert_eq!(res.nodes, 4_085_603);
         // Disabled in debug mode because that would take too long. TODO: Optimize movegen, especially in debug mode.
         if !cfg!(debug_assertions) {
             // kiwipete after white castles (cheaper to run than increasing the depth of kiwipete, and failed perft once)
-            let board = Chessboard::from_fen(
-                "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R4RK1 b kq - 1 1",
-                Strict,
-            )
-            .unwrap();
-            let res = perft(Depth::new_unchecked(4), board);
+            let board =
+                Chessboard::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R4RK1 b kq - 1 1", Strict)
+                    .unwrap();
+            let res = perft(Depth::new(4), board, true);
             assert_eq!(res.nodes, 4_119_629);
             // kiwipete after white plays a2a3
-            let board = Chessboard::from_fen(
-                "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q1p/1PPBBPPP/R3K2R b KQkq - 0 1",
-                Strict,
-            )
-            .unwrap();
-            let res = perft(Depth::new_unchecked(4), board);
+            let board =
+                Chessboard::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q1p/1PPBBPPP/R3K2R b KQkq - 0 1", Strict)
+                    .unwrap();
+            let res = perft(Depth::new(4), board, false);
             assert_eq!(res.nodes, 4_627_439);
         }
     }
 
     #[test]
     fn leonids_position_test() {
-        let board = Chessboard::from_fen(
-            "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1",
-            Strict,
-        )
-        .unwrap();
-        let res = perft(Depth::new_unchecked(1), board);
+        let board = Chessboard::from_fen("q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - - 0 1", Strict)
+            .unwrap();
+        let res = perft(Depth::new(1), board, true);
         assert_eq!(res.nodes, 99);
         assert!(res.time.as_millis() <= 2);
-        let res = perft(Depth::new_unchecked(2), board);
+        let res = perft(Depth::new(2), board, true);
         assert_eq!(res.nodes, 6271);
-        let res = perft(Depth::new_unchecked(3), board);
+        let res = perft(Depth::new(3), board, true);
         assert_eq!(res.nodes, 568_299);
         if cfg!(not(debug_assertions)) {
-            let res = perft(Depth::new_unchecked(4), board);
+            let res = perft(Depth::new(4), board, false);
             assert_eq!(res.nodes, 34_807_627);
         }
     }
@@ -76,10 +73,7 @@ mod tests {
             53117779,
         ];
         for (depth, perft_num) in expected.iter().enumerate() {
-            assert_eq!(
-                perft(Depth::new_unchecked(depth + 1), pos).nodes,
-                *perft_num
-            );
+            assert_eq!(perft(Depth::new(depth + 1), pos, false).nodes, *perft_num);
         }
     }
 
@@ -96,12 +90,14 @@ mod tests {
             let fen = parts.next().unwrap();
             let mut res = vec![INVALID; 8];
             for r in parts {
-                assert_eq!(r.chars().nth(0).unwrap(), 'D');
-                assert!(r.chars().nth(1).unwrap().is_ascii_digit());
-                let depth = r.chars().nth(1).unwrap().to_digit(10).unwrap();
+                let mut words = r.split_whitespace();
+                let depth = words.next().unwrap();
+                let depth = depth.strip_prefix("D").unwrap();
+                let depth = parse_int_from_str::<usize>(depth, "perft depth").unwrap();
                 assert!(depth <= 7);
-                let node_count = r.split_whitespace().nth(1).unwrap().parse().unwrap();
-                res[depth as usize] = node_count;
+                let node_count = words.next().unwrap();
+                let node_count = parse_int_from_str(node_count, "perft node count").unwrap();
+                res[depth] = node_count;
             }
             ExpectedPerftRes { fen, res }
         }
@@ -112,13 +108,19 @@ mod tests {
     #[test]
     #[ignore]
     fn standard_perft_test() {
-        perft_test(&STANDARD_FENS);
+        perft_test(STANDARD_FENS, Strict);
     }
 
     #[test]
     #[ignore]
     fn chess960_perft_test() {
-        perft_test(&CHESS_960_FENS);
+        perft_test(&CHESS_960_FENS, Strict);
+    }
+
+    #[test]
+    #[ignore]
+    fn custom_perft_test() {
+        perft_test(CUSTOM_FENS, Relaxed);
     }
 
     #[test]
@@ -135,11 +137,11 @@ mod tests {
             "rk3r2/8/8/5r2/6R1/8/8/R3K1R1 w AGaf - 0 1 ;D1 31 ;D2 841 ;D3 23877 ;D4 711547 ;D5 20894205",// ;D6 644033568"
         ];
 
-        perft_test(&FENS);
+        perft_test(&FENS, Strict);
     }
 
     /// Parallelizes the perft testcases so that this takes less time, but the chess960 suite still takes a very long time.
-    fn perft_test(fens: &'static [&'static str]) {
+    fn perft_test(fens: &'static [&'static str], strictness: Strictness) {
         let start_time = Instant::now();
         let num_threads = available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap());
         println!("Running perft test with {num_threads} threads in parallel");
@@ -149,7 +151,10 @@ mod tests {
         let mut fens = fens.iter().collect_vec();
         // the chess960 perft suite takes so long that it makes sense to just stop the test suite at some point when doing
         // routine testing. Shuffle to ensure that all positions have a chance of being tested.
-        fens.shuffle(&mut rng());
+        let seed = rng().random_range(..=u64::MAX);
+        println!("\nSEED: {seed}\n");
+        let mut rng = StdRng::seed_from_u64(seed);
+        fens.shuffle(&mut rng);
         let testcases_per_thread = (num_fens + num_threads.get() - 1) / num_threads;
         let thread_data = fens.iter().chunks(testcases_per_thread);
         let mut thread_fens = vec![];
@@ -157,21 +162,30 @@ mod tests {
             thread_fens.push(chunk.collect_vec());
         }
         scope(|s| {
+            let mut handles = vec![];
             for chunk in thread_fens {
-                s.spawn(move || {
+                let handle = s.spawn(move || {
                     for testcase in chunk {
                         let expected = ExpectedPerftRes::new(testcase);
-                        let board = Chessboard::from_fen(expected.fen, Strict).unwrap();
+                        let board = Chessboard::from_fen(expected.fen, strictness).unwrap();
                         println!("Thread {1:?}: Running test on fen {0}, board\n{board}", expected.fen, current().id());
-                        for (depth, expected_count) in expected
-                            .res
-                            .iter()
-                            .enumerate()
-                            .filter(|(_depth, x)| **x != INVALID)
+                        stdout().flush().unwrap();
+                        let fen = board.as_fen();
+                        let board2 = Chessboard::from_fen(&fen, strictness).unwrap();
+                        if board != board2 {
+                            eprintln!("boards differ: {board} vs {board2}, fen was {}", expected.fen);
+                            // it's fine for relaxed FENs to contain illegal pseudolegal ep moves
+                            assert_eq!(strictness, Relaxed);
+                            assert!(Chessboard::from_fen(expected.fen, Strict).is_err());
+                            assert!(board.pseudolegal_moves().iter().any(|m| m.is_ep()));
+                            assert!(!board.legal_moves_slow().iter().any(|m| m.is_ep()));
+                        }
+                        for (depth, expected_count) in
+                            expected.res.iter().enumerate().filter(|(_depth, x)| **x != INVALID)
                         {
-                            let res = perft(Depth::new_unchecked(depth), board);
+                            let res = perft(Depth::new(depth), board, false);
                             assert_eq!(res.depth.get(), depth);
-                            assert_eq!(res.nodes, *expected_count);
+                            assert_eq!(res.nodes, *expected_count, "{depth} {board}");
                             println!(
                                 "Thread {3:?}: Perft depth {0} took {1} ms, total time so far: {2}ms",
                                 res.depth.get(),
@@ -180,17 +194,30 @@ mod tests {
                                 current().id()
                             );
                         }
-                        solved_tests.fetch_add(1, Ordering::Relaxed);
-                        println!(
-                            "Finished {0} / {1} positions",
-                            solved_tests.load(Ordering::Relaxed),
-                            num_fens
-                        );
+                        _ = solved_tests.fetch_add(1, Ordering::Relaxed);
+                        println!("Finished {0} / {1} positions", solved_tests.load(Ordering::Relaxed), num_fens);
                     }
                 });
+                handles.push(handle);
+            }
+            for (i, handle) in handles.into_iter().enumerate() {
+                if let Err(err) = handle.join() {
+                    eprintln!("Error in spawned thread {i}: {err:?}");
+                }
             }
         });
     }
+
+    const CUSTOM_FENS: &[&str] = &[
+        // tricky to parse X-FENs
+        "r1rkrqnb/1b6/2n5/ppppppp1/PPPPPP2/B1NQ4/6PP/1K1RR1NB w Kkq - 8 14 ;D1 42 ;D2 1620 ;D3 67391 ;D4 2592441 ;D5 107181922",
+        "rrkrn1r1/2P2P2/8/p3pP2/8/8/4R2p/1RR1KR1R w KCdq e6 90 99 ;D1 53 ;D2 1349 ;D3 63522 ;D4 1754940 ;D5 80364051",
+        "rr2k1r1/p1p4P/1p3P2/8/1P6/3p4/7P/2RK1R1R w Kk - 0 1 ;D1 29 ;D2 522 ;D3 14924 ;D4 277597 ;D5 8098755",
+        "8/2k5/8/8/8/8/8/RR1K1R1R w KB - 0 1 ;D1 38 ;D2 174 ;D3 7530 ;D4 35038 ;D5 1620380 ;D6 7173240",
+        // pins
+        "1nbqkbnr/ppp1pppp/8/r2pP2K/8/8/PPPP1PPP/RNBQ1BNR w k d6 0 2 ;D1 31;D2 927 ;D3 26832 ;D4 813632 ;D5 23977743",
+        "2k5/3q4/8/8/3B4/3K1B1r/8/8 w - - 0 1 ;D1 7 ;D2 211; D3 4246 ;D4 138376 ;D5 2611571 ;D6 85530145",
+    ];
 
     const STANDARD_FENS: &[&str] = &[
         // positions from https://github.com/AndyGrant/Ethereal/blob/master/src/perft/standard.epd,
@@ -324,25 +351,25 @@ mod tests {
         "n1n5/PPPk4/8/8/8/8/4Kppp/5N1N b - - 0 1 ;D1 24 ;D2 496 ;D3 9483 ;D4 182838 ;D5 3605103 ;D6 71179139",
         "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1 ;D4 43238 ;D5 674624 ;D6 11030083",
         "rnbqkb1r/ppppp1pp/7n/4Pp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3 ;D5 11139762",
-            // positions from https://analog-hors.github.io/webperft/
+        // positions from https://analog-hors.github.io/webperft/
         "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1 ;D1 6 ;D2 264 ;D3 9467 ;D4 422333 ;D5 15833292 ;D6 706045033",
         "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8 ;D1 44 ;D2 1486 ;D3 62379 ;D4 2103487 ;D5 89941194 ;D6 3048196529", // can take a while
         "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10 ;D1 46 ;D2 2079 ;D3 89890 ;D4 3894594 ;D5 164075551",
-            // pinned en passant pawn (probably already in fen list, but better safe than sorry
-        "1nbqkbnr/ppp1pppp/8/r2pP2K/8/8/PPPP1PPP/RNBQ1BNR w k d6 0 2 ;D1 31;D2 927 ;D3 26832 ;D4 813632 ;D5 23977743",
-            // another pinned pawns test (this time without en passant)
+        // another pinned pawns test (this time without en passant)
         "4Q3/5p2/6k1/8/4p3/8/2B3K1/8 b - - 0 1 ;D1 7 ;D2 203 ;D3 1250 ;D4 37962 ;D5 227787 ;D6 7036323 ;D7 41501304",
+        // yet another pinned pawn test
+        "5Q2/8/8/2p5/1k3p1Q/6P1/6K1/8 b - - 1 42 ;D1 7 ;D2 266 ;D3 2018 ;D4 74544 ;D5 504298; D6 19353971",
         // maximum number of legal moves (and mate in one)
-        "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1; D1 218; D2 99; D3 19073; D4 85043; D5 13853661", // D6 115892741",
+        "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1 ;D1 218 ;D2 99 ;D3 19073 ;D4 85043 ;D5 13853661", // D6 115892741",
         // the same position with flipped side to move has no legal moves
-        "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 b - - 0 1; D1 0; D2 0; D3 0; D4 0; D5 0; D6 0; D7 0",
+        "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 b - - 0 1 ;D1 0 ;D2 0 ;D3 0 ;D4 0 ;D5 0 ;D6 0 ;D7 0",
         // a very weird position (not reachable from startpos, but still somewhat realistic)
-        "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1; D1 4; D2 16; D3 176; D4 1936; D5 22428; D6 255135; D7 3830854",
+        "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1 ;D1 4 ;D2 16 ;D3 176 ;D4 1936 ;D5 22428 ;D6 255135 ;D7 3830854",
             ];
 
     /// This perft test suite is also taken from Ethereal: <https://github.com/AndyGrant/Ethereal/blob/master/src/perft/fischer.epd>.
     /// I have no idea why it is this massive, running it takes forever.
-    const CHESS_960_FENS: [&str; 960 + 2] = [
+    const CHESS_960_FENS: [&str; 960] = [
 "bqnb1rkr/pp3ppp/3ppn2/2p5/5P2/P2P4/NPP1P1PP/BQ1BNRKR w HFhf - 2 9 ;D1 21 ;D2 528 ;D3 12189 ;D4 326672 ;D5 8146062 ;D6 227689589",
 "2nnrbkr/p1qppppp/8/1ppb4/6PP/3PP3/PPP2P2/BQNNRBKR w HEhe - 1 9 ;D1 21 ;D2 807 ;D3 18002 ;D4 667366 ;D5 16253601 ;D6 590751109",
 "b1q1rrkb/pppppppp/3nn3/8/P7/1PPP4/4PPPP/BQNNRKRB w GE - 1 9 ;D1 20 ;D2 479 ;D3 10471 ;D4 273318 ;D5 6417013 ;D6 177654692",
@@ -1303,9 +1330,5 @@ mod tests {
 "rkr1nbbq/2ppp1pp/1pn5/p4p2/P6P/3P4/1PP1PPPB/RKRNNB1Q w CAca - 1 9 ;D1 24 ;D2 645 ;D3 15689 ;D4 446423 ;D5 11484012 ;D6 341262639",
 "rkrnnqbb/p1ppp2p/Qp6/4Pp2/5p2/8/PPPP2PP/RKRNN1BB w CAca - 0 9 ;D1 35 ;D2 929 ;D3 32020 ;D4 896130 ;D5 31272517 ;D6 915268405",
 "bbq1nr1r/pppppk1p/2n2p2/6p1/P4P2/4P1P1/1PPP3P/BBQNNRKR w HF - 1 9 ;D1 23 ;D2 589 ;D3 14744 ;D4 387556 ;D5 10316716 ;D6 280056112",
-// tricky to parse X-FEN
-"r1rkrqnb/1b6/2n5/ppppppp1/PPPPPP2/B1NQ4/6PP/1K1RR1NB w Kkq - 8 14 ;D1 42 ;D2 1620 ;D3 67391 ;D4 2592441 ;D5 107181922",
-// another tricky X-FEN
-"rrkrn1r1/2P2P2/8/p3pP2/8/8/4R2p/1RR1KR1R w KCdq e6 90 99 ;D1 53 ;D2 1349 ;D3 63522 ;D4 1754940 ;D5 80364051"
 ];
 }

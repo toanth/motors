@@ -9,13 +9,12 @@ This repository contains 4 crates related to board games:
 - `monitors`: a WIP **UGI client**, will eventually include a GUI (text-based for now)
 - `pliers`: **Tuner** for HCE eval weights
 
-Currently, the most interesting part is probably the superhuman UCI [Chess960](<https://en.wikipedia.org/wiki/Fischer_random_chess>), DFRC
+Currently, the most interesting part is probably the superhuman UCI Chess960, DFRC
 and **Chess Engine** `CAPS-LiTE`.
 
 [//]: # (Motors &#40;**Mo**re **t**han **or**dinary **s**earchers&#41;)
 Motors
 is both the name of this GitHub repo,
-
 and of the `motors` crate, which contains engines.
 
 An engine typically consists of two parts, the *searcher* and the *evaluation function*,
@@ -108,7 +107,8 @@ for an actual engine like `caps` or `gaps`.
 
 Currently, 4 games are implemented:
 
-- **Chess**, including Chess960 (a.k.a. Fischer Random Chess) and Double Fischer Random Chess (DFRC)
+- [**Chess**](<https://en.wikipedia.org/wiki/Fischer_random_chess>), including Chess960 (a.k.a. Fischer Random Chess) and Double Fischer
+  Random Chess (DFRC)
 - [**Ataxx**](https://en.wikipedia.org/wiki/Ataxx), a challenging board game where the goal is to convert your opponent's pieces
 - [**m, n, k**](https://en.wikipedia.org/wiki/M,n,k-game) games, a generalization of Tic-Tac-Toe that can actually be difficult. The current
   implementation is somewhat limited and does

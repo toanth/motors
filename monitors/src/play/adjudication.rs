@@ -3,8 +3,8 @@ use gears::games::Color;
 use gears::general::board::Board;
 use gears::score::Score;
 use gears::{
-    player_res_to_match_res, AdjudicationReason, GameOver, GameOverReason, GameResult, GameState,
-    MatchResult, PlayerResult,
+    player_res_to_match_res, AdjudicationReason, GameOver, GameOverReason, GameResult, GameState, MatchResult,
+    PlayerResult,
 };
 
 pub trait Adjudication<B: Board> {
@@ -33,11 +33,7 @@ impl Adjudicator {
         draw: Option<ScoreAdjudication>,
         max_moves_until_draw: usize,
     ) -> Self {
-        Self {
-            resign,
-            draw,
-            max_moves_until_draw,
-        }
+        Self { resign, draw, max_moves_until_draw }
     }
 
     fn adjudicate_resignation<B: Board>(&mut self, state: &ClientState<B>) -> Option<MatchResult> {
@@ -45,31 +41,16 @@ impl Adjudicator {
         if state.ply_count() < resign.start_after {
             return None;
         } else if state.ply_count() >= self.max_moves_until_draw {
-            let message = format!(
-                "The specified maximum of {} plies was reached",
-                2 * self.max_moves_until_draw
-            );
+            let message = format!("The specified maximum of {} plies was reached", 2 * self.max_moves_until_draw);
             return Some(MatchResult {
                 result: GameResult::Draw,
                 reason: GameOverReason::Adjudication(AdjudicationReason::Adjudicator(message)),
             });
         }
-        let white_score = state
-            .get_engine(B::Color::first())
-            .current_match
-            .as_ref()
-            .unwrap()
-            .search_info
-            .as_ref()?
-            .score;
-        let black_score = state
-            .get_engine(B::Color::second())
-            .current_match
-            .as_ref()
-            .unwrap()
-            .search_info
-            .as_ref()?
-            .score;
+        let white_score =
+            state.get_engine(B::Color::first()).current_match.as_ref().unwrap().search_info.as_ref()?.score;
+        let black_score =
+            state.get_engine(B::Color::second()).current_match.as_ref().unwrap().search_info.as_ref()?.score;
         let mut player = None;
         let mut counter = resign.counter;
         if white_score > resign.score_threshold && black_score < -resign.score_threshold {
@@ -84,10 +65,7 @@ impl Adjudicator {
         resign.counter = counter; // can't change resign.counter directly because that would imply two mut references
         if resign.counter >= resign.move_number {
             assert!(player.is_some());
-            let message = format!(
-                "Limit of {0} cp exceeded for {counter} plies in a row",
-                resign.score_threshold.0
-            );
+            let message = format!("Limit of {0} cp exceeded for {counter} plies in a row", resign.score_threshold.0);
             let game_over = GameOver {
                 result: PlayerResult::Lose,
                 reason: GameOverReason::Adjudication(AdjudicationReason::Adjudicator(message)),
@@ -105,25 +83,9 @@ impl Adjudicator {
             return None;
         }
         let mut counter = draw.counter;
-        if state
-            .get_engine(B::Color::first())
-            .current_match
-            .as_ref()
-            .unwrap()
-            .search_info
-            .as_ref()?
-            .score
-            .abs()
+        if state.get_engine(B::Color::first()).current_match.as_ref().unwrap().search_info.as_ref()?.score.abs()
             < draw.score_threshold
-            && state
-                .get_engine(B::Color::second())
-                .current_match
-                .as_ref()
-                .unwrap()
-                .search_info
-                .as_ref()?
-                .score
-                .abs()
+            && state.get_engine(B::Color::second()).current_match.as_ref().unwrap().search_info.as_ref()?.score.abs()
                 < draw.score_threshold
         {
             counter += 1;
@@ -137,10 +99,7 @@ impl Adjudicator {
                 result: PlayerResult::Draw,
                 reason: GameOverReason::Adjudication(AdjudicationReason::Adjudicator(message)),
             };
-            return Some(player_res_to_match_res(
-                game_over,
-                state.the_match.board.active_player(),
-            ));
+            return Some(player_res_to_match_res(game_over, state.the_match.board.active_player()));
         }
         None
     }
@@ -151,7 +110,6 @@ impl<B: Board> Adjudication<B> for Adjudicator {
         if state.contains_human() {
             return None;
         }
-        self.adjudicate_draw(state)
-            .or_else(|| self.adjudicate_resignation(state))
+        self.adjudicate_draw(state).or_else(|| self.adjudicate_resignation(state))
     }
 }
