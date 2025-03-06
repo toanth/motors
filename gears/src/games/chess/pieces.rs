@@ -65,6 +65,10 @@ impl ChessPieceType {
         Self::pieces().dropping(1)
     }
 
+    pub fn sliders() -> impl Iterator<Item = ChessPieceType> {
+        Self::non_king_pieces().dropping(2)
+    }
+
     pub fn to_name(self) -> &'static str {
         match self {
             Pawn => "pawn",
