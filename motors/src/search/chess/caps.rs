@@ -1706,6 +1706,7 @@ mod tests {
     #[cfg(not(debug_assertions))]
     /// puzzles that are reasonably challenging for most humans, but shouldn't be too difficult for the engine
     fn mate_test() {
+        use gears::general::moves::ExtendedFormat::Standard;
         let fens = [
             ("8/5K2/4N2k/2B5/5pP1/1np2n2/1p6/r2R4 w - - 0 1", "d1d5", 5),
             ("5rk1/r5p1/2b2p2/3q1N2/6Q1/3B2P1/5P2/6KR w - - 0 1", "f5h6", 5),
