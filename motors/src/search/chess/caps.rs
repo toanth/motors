@@ -1027,7 +1027,7 @@ impl Caps {
                     break;
                 }
                 // History Pruning: At very low depth, don't play quiet moves with bad history scores. Skipping bad captures too gained elo.
-                if move_score.0 < cc::lmr_bad_hist() && depth <= 2 {
+                if move_score.0 < -(200 + 50 * depth * depth) as i16 && depth <= 2 {
                     break;
                 }
                 // PVS SEE pruning: Don't play moves with bad SEE score at low depth
