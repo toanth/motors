@@ -1000,10 +1000,10 @@ impl Caps {
         let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
         let move_scorer = CapsMoveScorer { board: pos, ply };
         while let Some((mov, move_score)) = move_picker.next(&move_scorer, self) {
-            if can_prune && best_score > MAX_SCORE_LOST {
+            if !in_check && !root && best_score > MAX_SCORE_LOST {
                 // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
                 // so don't even bother looking at them in the last few layers.
-                // FP (Futility Pruning): If the static eval is far below alpha,
+                // FP (Futility Pruning): If eval is far below alpha,
                 // then it's unlikely that a quiet move can raise alpha: We've probably blundered at some prior point in search,
                 // so cut our losses and return. This has the potential of missing sacrificing mate combinations, though.
                 let fp_margin = if we_blundered {
