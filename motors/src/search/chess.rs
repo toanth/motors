@@ -15,11 +15,13 @@ mod tests {
     use gears::PlayerResult::Draw;
     use gears::games::chess::Chessboard;
     use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
+    use gears::games::chess::pieces::ChessPiece;
     use gears::games::chess::pieces::ChessPieceType::Bishop;
+    use gears::games::chess::pieces::ColoredChessPieceType::BlackKnight;
     use gears::games::chess::squares::ChessSquare;
     use gears::games::{BoardHistory, ZobristHistory, n_fold_repetition};
     use gears::general::board::Strictness::{Relaxed, Strict};
-    use gears::general::board::{Board, BoardHelpers};
+    use gears::general::board::{Board, BoardHelpers, UnverifiedBoard};
     use gears::general::common::NamedEntity;
     use gears::general::moves::Move;
     use gears::output::pgn::parse_pgn;
@@ -53,20 +55,41 @@ mod tests {
     #[test]
     #[cfg(feature = "random_mover")]
     fn random_mover_test() {
-        mated_test(&mut RandomMover::<Chessboard, StdRng>::default());
+        game_over_test(&mut RandomMover::<Chessboard, StdRng>::default());
     }
 
-    fn mated_test<E: Engine<Chessboard>>(engine: &mut E) {
-        let game_over_pos = load_ugi_pos_simple("mate_in_1 moves h7a7", Strict, &Chessboard::default()).unwrap();
-        assert!(game_over_pos.is_game_lost_slow());
+    fn game_over_test<E: Engine<Chessboard>>(engine: &mut E) {
+        let mated_pos = load_ugi_pos_simple("mate_in_1 moves h7a7", Strict, &Chessboard::default()).unwrap();
+        assert!(mated_pos.is_game_lost_slow());
         for i in (1..123).step_by(11) {
-            let res = engine.search_with_new_tt(game_over_pos, SearchLimit::depth(Depth::new(i)));
+            let res = engine.search_with_new_tt(mated_pos, SearchLimit::depth(Depth::new(i)));
             assert!(res.ponder_move.is_none());
             assert_eq!(res.chosen_move, ChessMove::default());
-            let res = engine.search_with_new_tt(game_over_pos, SearchLimit::nodes_(i as u64));
+            let res = engine.search_with_new_tt(mated_pos, SearchLimit::nodes_(i as u64));
             assert!(res.ponder_move.is_none());
             assert_eq!(res.chosen_move, ChessMove::default());
         }
+        let fen = "QQQQQQQQ/QQQQQQQQ/QQQQQQQQ/QQQQQQQQ/QQQQQQQQ/QQQQQQQQ/QQQQQQNN/KQQQQQNk w - - 0 1";
+        let drawn_pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        assert!(drawn_pos.is_stalemate_slow());
+        let res = engine.search_with_new_tt(drawn_pos, SearchLimit::nodes_(42));
+        assert_eq!(res.ponder_move, None);
+        assert_eq!(res.chosen_move, ChessMove::default());
+        // TODO: Ensure that this returns 0 instead of SCORE_TIME_UP
+        // assert_eq!(res.score, Score(0));
+        let drawn_pos = drawn_pos.make_nullmove().unwrap();
+        let res = engine.search_with_new_tt(drawn_pos, SearchLimit::nodes_(42));
+        // assert_eq!(res.score, Score(0));
+        assert_eq!(res.chosen_move, ChessMove::default());
+        let mut pos =
+            drawn_pos.replace_piece(ChessPiece::new(BlackKnight, ChessSquare::from_str("g1").unwrap())).unwrap();
+        pos.try_replace_piece(ChessSquare::from_str("g2").unwrap(), BlackKnight).unwrap();
+        pos.try_replace_piece(ChessSquare::from_str("h2").unwrap(), BlackKnight).unwrap();
+        let drawn_pos = pos.verify(Relaxed).unwrap();
+        let res = engine.search_with_new_tt(drawn_pos, SearchLimit::nodes_(42));
+        assert_eq!(res.ponder_move, None);
+        assert_eq!(res.chosen_move, ChessMove::default());
+        // assert_eq!(res.score, Score(0));
     }
 
     fn generic_search_test<E: Engine<Chessboard>>(mut engine: E) {
@@ -83,7 +106,7 @@ mod tests {
         );
         assert_eq!(res.score, SCORE_WON - 3);
 
-        mated_test(&mut engine);
+        game_over_test(&mut engine);
         avoid_repetition(&mut engine);
         mate_beats_repetition(&mut engine);
 

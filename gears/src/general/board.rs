@@ -183,6 +183,13 @@ where
     /// Like [`Self::try_remove_piece`], but does not check that the coordinates are valid.
     fn remove_piece(&mut self, coords: B::Coordinates);
 
+    /// Like [`Self::try_place_piece`], but replaces any piece that is already on the given coordinates.
+    fn try_replace_piece(&mut self, coords: B::Coordinates, piece: ColPieceTypeOf<B>) -> Res<()> {
+        self.try_remove_piece(coords)?;
+        self.place_piece(coords, piece);
+        Ok(())
+    }
+
     /// Returns the piece on the given coordinates, or `None` if the coordinates aren't valid.
     /// Some [`UnverifiedBoard`]s can represent multiple pieces at the same coordinates; it is implementation-defined
     /// what this method does in that case (but it should never return empty coordinates in that case).
@@ -659,7 +666,7 @@ pub trait BoardHelpers: Board {
 
     /// Place a piece of the given type and color on the given square. Doesn't check that the resulting position is
     /// legal (hence the `Unverified` return type), but can still fail if the piece can't be placed because e.g. there
-    /// is already a piece on that square. See [`UnverifiedBoard::try_place_piece`].
+    /// is already a piece on that square. See [`UnverifiedBoard::try_place_piece`] and [`Self::replace_piece`].
     fn place_piece(self, piece: Self::Piece) -> Res<Self::Unverified> {
         let mut res = Self::Unverified::new(self);
         res.try_place_piece(piece)?;
@@ -670,6 +677,13 @@ pub trait BoardHelpers: Board {
     fn remove_piece(self, square: Self::Coordinates) -> Res<Self::Unverified> {
         let mut res = Self::Unverified::new(self);
         res.try_remove_piece(square)?;
+        Ok(res)
+    }
+
+    /// Like `[Self::place_piece`], but if the target isn't empty, it just replaces the piece.
+    fn replace_piece(self, piece: Self::Piece) -> Res<Self::Unverified> {
+        let mut res = Self::Unverified::new(self);
+        res.try_replace_piece(piece.coordinates(), piece.colored_piece_type())?;
         Ok(res)
     }
 
