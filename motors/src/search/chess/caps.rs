@@ -1492,6 +1492,8 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
 
     const DEFERRED_OFFSET: MoveScore = MoveScore(HIST_DIVISOR * -30);
 
+    /// Only compute SEE scores for moves when we're actually trying to play them.
+    /// Idea from Cosmo.
     fn defer_playing_move(&self, mov: ChessMove) -> bool {
         mov.is_tactical(&self.board) && !self.board.see_at_least(mov, SeeScore(0))
     }
