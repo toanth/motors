@@ -129,7 +129,7 @@ impl<B: Board, const MAX_LEN: usize> MovePicker<B, MAX_LEN> {
                     }
                     self.ignored_prefix = 0;
                 }
-                if let Some(res) = self.next_from_list(scorer) {
+                if let Some(res) = self.next_from_list(scorer, state) {
                     return Some(res);
                 }
                 self.state = DeferredList;
@@ -140,14 +140,18 @@ impl<B: Board, const MAX_LEN: usize> MovePicker<B, MAX_LEN> {
         }
     }
 
-    fn next_from_list<E: Engine<B>, Scorer: MoveScorer<B, E>>(&mut self, scorer: &Scorer) -> Option<ScoredMove<B>> {
+    fn next_from_list<E: Engine<B>, Scorer: MoveScorer<B, E>>(
+        &mut self,
+        scorer: &Scorer,
+        state: &SearchStateFor<B, E>,
+    ) -> Option<ScoredMove<B>> {
         loop {
             if self.ignored_prefix >= self.list.len() {
                 return None;
             }
             let idx = self.list[self.ignored_prefix..].iter().map(|(_mov, score)| score).position_max()?
                 + self.ignored_prefix;
-            if scorer.defer_playing_move(self.list[idx].0) {
+            if scorer.defer_playing_move(self.list[idx].0, state) {
                 self.list.swap(self.ignored_prefix, idx);
                 self.ignored_prefix += 1;
                 continue;

@@ -506,7 +506,7 @@ pub trait MoveScorer<B: Board, E: Engine<B>>: Debug {
     /// This gets called upon choosing the next move, and if it returns `false`, the move is deferred until all moves
     /// where this returned `true` have been tried. This results in a bucketed sort, where this function determines the bucket.
     /// Because most nodes never look at most moves, this lazy computation can be a speedup.
-    fn defer_playing_move(&self, mov: B::Move) -> bool;
+    fn defer_playing_move(&self, mov: B::Move, state: &SearchStateFor<B, E>) -> bool;
 
     /// Negative value that gets added to the score of deferred moves
     const DEFERRED_OFFSET: MoveScore;

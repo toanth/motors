@@ -1492,8 +1492,8 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
 
     const DEFERRED_OFFSET: MoveScore = MoveScore(HIST_DIVISOR * -30);
 
-    fn defer_playing_move(&self, mov: ChessMove) -> bool {
-        mov.is_tactical(&self.board) && !self.board.see_at_least(mov, SeeScore(0))
+    fn defer_playing_move(&self, mov: ChessMove, state: &CapsState) -> bool {
+        mov != state.search_stack[self.ply].killer && !self.board.see_at_least(mov, SeeScore(0))
     }
 }
 
@@ -1689,11 +1689,11 @@ mod tests {
         assert_eq!(moves[1], good_capture);
         assert_eq!(moves[2], killer);
         assert_eq!(moves[3], hist_move);
+        assert_eq!(moves[4], bad_capture);
         let illegal = ChessMove::from_text("a1a2", &pos).unwrap();
-        assert_eq!(moves[4], illegal);
+        assert_eq!(moves[5], illegal);
+        assert_eq!(moves[6], bad_quiet);
         assert!(!pos.is_pseudolegal_move_legal(illegal));
-        assert_eq!(moves[5], bad_quiet);
-        assert_eq!(moves[6], bad_capture);
         let search_res = caps.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
         assert_eq!(search_res.chosen_move, good_capture);
         assert!(search_res.score > Score(0));
