@@ -1,6 +1,6 @@
 //! Everything related to the actual optimization, using a Gradient Descent-based tuner ([`Adam`] by default).
 
-use crate::eval::{count_occurrences, display, interpolate, WeightsInterpretation};
+use crate::eval::{WeightsInterpretation, count_occurrences, display, interpolate};
 use crate::trace::TraceTrait;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
 use gears::colored::Colorize;
@@ -587,12 +587,12 @@ pub fn wr_prediction_for_weights<D: Datapoint>(weights: &Weights, position: &D, 
     cp_to_wr(eval, eval_scale)
 }
 
-/// Loss of a position, given the current weights.
+/// Loss of a batch, given the current weights.
 pub fn loss<D: Datapoint>(weights: &Weights, batch: Batch<'_, D>, eval_scale: ScalingFactor) -> Float {
     loss_for(weights, batch, eval_scale, quadratic_sample_loss)
 }
 
-/// Loss of a position, given the current weights, using the `sample_loss` parameter to calculate
+/// Loss of a batch, given the current weights, using the `sample_loss` parameter to calculate
 /// the loss of a single sample.
 pub fn loss_for<D: Datapoint, L: LossFn>(
     weights: &Weights,
@@ -785,8 +785,8 @@ pub fn print_optimized_weights<D: Datapoint>(
     println!("Scaling factor: {scale:.2}, {0}:\n{1}", "Final eval".bold(), display(interpretation, &weights, &[]));
 }
 
-/// The default optimizer. Currently, this is [`Adam`].
-pub type DefaultOptimizer = Adam<QuadraticLoss>;
+/// The default optimizer. Currently, this is [`AdamW`].
+pub type DefaultOptimizer = AdamW<QuadraticLoss>;
 
 /// Change the current weights each iteration by taking into account the gradient.
 ///
@@ -1056,7 +1056,10 @@ mod tests {
                         let new_loss = loss(&weights, batch, scaling_factor);
                         let old_loss = loss(&old_weights, batch, scaling_factor);
                         assert!(new_loss >= 0.0, "{new_loss}");
-                        assert!(new_loss - old_loss <= 1e-10, "new loss: {new_loss}, old loss: {old_loss}, feature {feature}, initial weight {initial_weight}, outcome {outcome}");
+                        assert!(
+                            new_loss - old_loss <= 1e-10,
+                            "new loss: {new_loss}, old loss: {old_loss}, feature {feature}, initial weight {initial_weight}, outcome {outcome}"
+                        );
                     }
                     let loss = loss_for(&weights, batch, scaling_factor, quadratic_sample_loss);
                     if feature != 0 {

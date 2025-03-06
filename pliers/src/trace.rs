@@ -32,8 +32,8 @@ use core::fmt;
 use gears::games::Color;
 use gears::score::PhaseType;
 use motors::eval::ScoreType;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 // TODO: Only a single generic trace type
@@ -143,7 +143,7 @@ impl TraceTrait for SparseTrace {
     }
 
     fn max_num_features(&self) -> usize {
-        todo!()
+        unreachable!("This method shouldn't be called on a SparseTrace")
     }
 }
 

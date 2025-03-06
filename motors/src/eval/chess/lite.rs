@@ -279,7 +279,6 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Self::bishop_pair(pos, color);
             score += Self::bad_bishop(pos, color);
             score += Self::open_lines(pos, color);
-            // score += Self::outposts(pos, color);
             score += Self::mobility_and_threats(pos, color);
             score = -score;
         }
