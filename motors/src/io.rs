@@ -55,7 +55,7 @@ use gears::general::common::{
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
-use gears::general::perft::{parallel_perft_for, split_perft};
+use gears::general::perft::{perft_for, split_perft};
 use gears::itertools::Itertools;
 use gears::output::Message::*;
 use gears::output::logger::LoggerBuilder;
@@ -709,15 +709,23 @@ impl<B: Board> EngineUGI<B> {
             }
             Perft => {
                 let positions = if opts.complete { B::bench_positions() } else { vec![board] };
+                let threads = opts.threads.unwrap_or(0);
+                if threads > 1 {
+                    bail!("For 'perft' runs, the 'Threads' options can only be used to set threads to 1")
+                }
                 for i in 1..=limit.depth.get() {
-                    self.output().write_ugi(&format_args!("{}", parallel_perft_for(Depth::new(i), &positions)))
+                    self.output().write_ugi(&format_args!("{}", perft_for(Depth::new(i), &positions, threads != 1)))
                 }
             }
             SplitPerft => {
                 if limit.depth.get() == 0 {
                     bail!("{} requires a depth of at least 1", "splitperft".bold())
                 }
-                self.write_ugi(&format_args!("{}", split_perft(limit.depth, board, true)));
+                let threads = opts.threads.unwrap_or(0);
+                if threads > 1 {
+                    bail!("For 'splitperft' runs, the 'Threads' options can only be used to set threads to 1")
+                }
+                self.write_ugi(&format_args!("{}", split_perft(limit.depth, board, threads != 1)));
             }
             _ => return self.start_search(self.state.board_hist.clone()),
         }

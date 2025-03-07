@@ -604,7 +604,7 @@ pub trait BoardHelpers: Board {
     /// Returns an iterator over all the positions after making a legal move.
     /// Not very useful for search because it doesn't allow changing the order of generated positions,
     /// but convenient for some use cases like [`perft`](crate::general::perft::perft).
-    fn children(&self) -> impl Iterator<Item = Self> {
+    fn children(&self) -> impl Iterator<Item = Self> + Send {
         self.pseudolegal_moves().into_iter().filter_map(move |m| self.clone().make_move(m))
     }
 
