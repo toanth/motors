@@ -367,7 +367,7 @@ impl Board for Chessboard {
     }
 
     fn default_perft_depth(&self) -> Depth {
-        Depth::new(4)
+        Depth::new(5)
     }
 
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
