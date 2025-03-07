@@ -818,7 +818,7 @@ impl Caps {
         if let Some(tt_entry) = old_entry {
             if ignore_tt_entry {
                 raw_eval = tt_entry.raw_eval(); // can still use the saved raw eval
-                eval = raw_eval;
+                eval = self.corr_hist.correct(&pos, raw_eval);
             } else {
                 let tt_bound = tt_entry.bound();
                 debug_assert_eq!(tt_entry.hash, pos.hash_pos());
@@ -859,13 +859,13 @@ impl Caps {
                     }
                 }
                 raw_eval = tt_entry.raw_eval();
-                eval = raw_eval;
+                eval = self.corr_hist.correct(&pos, raw_eval);
                 // The TT score is backed by a search, so it should be more trustworthy than a simple call to static eval.
                 // Note that the TT score may be a mate score, so `eval` can also be a mate score. This doesn't currently
                 // create any problems, but should be kept in mind.
                 if tt_bound == Exact
-                    || (tt_bound == NodeType::lower_bound() && tt_score >= raw_eval)
-                    || (tt_bound == NodeType::upper_bound() && tt_score <= raw_eval)
+                    || (tt_bound == NodeType::lower_bound() && tt_score >= eval)
+                    || (tt_bound == NodeType::upper_bound() && tt_score <= eval)
                 {
                     eval = tt_score;
                 }
@@ -873,9 +873,8 @@ impl Caps {
         } else {
             self.statistics.tt_miss(MainSearch);
             raw_eval = self.eval(&pos, ply);
-            eval = raw_eval;
+            eval = self.corr_hist.correct(&pos, raw_eval);
         };
-        eval = self.corr_hist.correct(&pos, eval);
 
         self.record_pos(pos, eval, ply);
 
