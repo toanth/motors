@@ -322,6 +322,7 @@ pub struct CapsSearchStackEntry {
     tried_moves: ArrayVec<ChessMove, MAX_CHESS_MOVES_IN_POS>,
     pos: Chessboard,
     eval: Score,
+    last_hist_score: MoveScore,
 }
 
 impl SearchStackEntry<Chessboard> for CapsSearchStackEntry {
@@ -909,6 +910,8 @@ impl Caps {
             // Be more careful about pruning too aggressively if the node is expected to fail low -- we should not rfp
             // a true fail low node, but our expectation may also be wrong.
             let mut margin = (cc::rfp_base() - (ScoreT::from(they_blundered) * cc::rfp_blunder())) * depth as ScoreT;
+            // Adapt the margin based on the history score of the move that got us to this position.
+            margin += self.search_stack[ply - 1].last_hist_score.0 as ScoreT / 16;
             if expected_node_type == FailHigh {
                 margin /= cc::rfp_fail_high_div();
             }
@@ -1000,6 +1003,8 @@ impl Caps {
         let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
         let move_scorer = CapsMoveScorer { board: pos, ply };
         while let Some((mov, move_score)) = move_picker.next(&move_scorer, self) {
+            let tactical = mov.is_tactical(&pos);
+            let hist_score = move_scorer.hist_score(mov, &self.state, tactical);
             if can_prune && best_score > MAX_SCORE_LOST {
                 // LMP (Late Move Pruning): Trust the move ordering and assume that moves ordered late aren't very interesting,
                 // so don't even bother looking at them in the last few layers.
@@ -1046,6 +1051,7 @@ impl Caps {
             #[cfg(debug_assertions)]
             let debug_history_len = self.params.history.len();
             self.record_move(mov, pos, ply, MainSearch);
+            self.search_stack[ply].last_hist_score = hist_score;
             if root && depth >= 8 && self.start_time.elapsed().as_millis() >= 3000 {
                 let move_num = self.search_stack[0].tried_moves.len();
                 // `qsearch` would give better results, but would make bench be nondeterministic
@@ -1469,6 +1475,29 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
         if mov == state.search_stack[self.ply].killer {
             KILLER_SCORE
         } else if !mov.is_tactical(&self.board) {
+            self.hist_score(mov, state, false)
+        } else {
+            let captured = mov.captured(&self.board);
+            let base_val = MoveScore(HIST_DIVISOR * 10);
+            let hist_val = self.hist_score(mov, state, true);
+            base_val + MoveScore(captured as i16 * HIST_DIVISOR) + hist_val
+        }
+    }
+
+    const DEFERRED_OFFSET: MoveScore = MoveScore(HIST_DIVISOR * -30);
+
+    /// Only compute SEE scores for moves when we're actually trying to play them.
+    /// Idea from Cosmo.
+    fn defer_playing_move(&self, mov: ChessMove) -> bool {
+        mov.is_tactical(&self.board) && !self.board.see_at_least(mov, SeeScore(0))
+    }
+}
+
+impl CapsMoveScorer {
+    fn hist_score(&self, mov: ChessMove, state: &CapsState, tactical: bool) -> MoveScore {
+        if tactical {
+            state.capt_hist.get(mov, self.board.active_player())
+        } else {
             let countermove_score = if self.ply > 0 {
                 let prev_move = state.search_stack[self.ply - 1].last_tried_move();
                 state.countermove_hist.score(mov, prev_move, self.board.active_player())
@@ -1482,20 +1511,7 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
                 0
             };
             MoveScore(state.history[mov.from_to_square()] + countermove_score + follow_up_score / 2)
-        } else {
-            let captured = mov.captured(&self.board);
-            let base_val = MoveScore(HIST_DIVISOR * 10);
-            let hist_val = state.capt_hist.get(mov, self.board.active_player());
-            base_val + MoveScore(captured as i16 * HIST_DIVISOR) + hist_val
         }
-    }
-
-    const DEFERRED_OFFSET: MoveScore = MoveScore(HIST_DIVISOR * -30);
-
-    /// Only compute SEE scores for moves when we're actually trying to play them.
-    /// Idea from Cosmo.
-    fn defer_playing_move(&self, mov: ChessMove) -> bool {
-        mov.is_tactical(&self.board) && !self.board.see_at_least(mov, SeeScore(0))
     }
 }
 
