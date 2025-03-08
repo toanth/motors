@@ -40,13 +40,16 @@ fn h2(hash: PosHash) -> usize {
     (hash.0 as usize >> 48) & MASK
 }
 
+fn entry(hash: PosHash) -> u32 {
+    hash.0 as u32
+}
+
 #[derive(Debug)]
 pub struct UpcomingRepetitionTable {
-    hashes: [PosHash; SIZE],
+    hashes: [u32; SIZE],
     moves: [ChessMove; SIZE],
 }
 
-// TODO: Only store u32 instead of full zobrist hashes
 // It might make sense to try a different hashing scheme than cuckoo hashing, like robin hood hashing.
 // That should be more cache efficient, at least.
 pub fn calc_move_hash_table() -> UpcomingRepetitionTable {
@@ -80,9 +83,12 @@ pub fn calc_move_hash_table() -> UpcomingRepetitionTable {
             }
         }
     }
+    let mut res_hashes = [0; SIZE];
+    hashes.map(|h| h.0 as u32).swap_with_slice(&mut res_hashes);
+
     // There are exactly 3668 reversible moves on an empty chessboard
     assert_eq!(count, 3668);
-    UpcomingRepetitionTable { hashes, moves }
+    UpcomingRepetitionTable { hashes: res_hashes, moves }
 }
 
 fn has_upcoming_repetition(table: &UpcomingRepetitionTable, history: &ZobristHistory, pos: &Chessboard) -> bool {
@@ -99,9 +105,9 @@ fn has_upcoming_repetition(table: &UpcomingRepetitionTable, history: &ZobristHis
         }
         let diff = pos.hash_pos() ^ history.0[n - i];
         let mut idx = h1(diff);
-        if table.hashes[idx] != diff {
+        if table.hashes[idx] != entry(diff) {
             idx = h2(diff);
-            if table.hashes[idx] != diff {
+            if table.hashes[idx] != entry(diff) {
                 continue;
             }
         }
@@ -149,7 +155,7 @@ mod tests {
         let new_pos = pos.make_move(mov).unwrap();
         let hash_diff = pos.hash_pos() ^ new_pos.hash_pos();
         assert!(table.moves.contains(&mov));
-        assert!(table.hashes.contains(&hash_diff));
+        assert!(table.hashes.contains(&entry(hash_diff)));
     }
 
     #[test]
