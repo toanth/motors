@@ -372,7 +372,7 @@ impl WithRev for U128AndRev {
 }
 
 /// Because boards smaller than 8x8 still use an internal width of 8, this can be used as-is for those boards
-/// `static` instead of `const` because it's large and used in multiple places
+/// `static` instead of `const` because it's relatively large and used in multiple places
 static CHESS_HQ_DATA: [HqDataByteswap<u64>; 64] = {
     let zero = HqDataByteswap { square: U64AndRev::unreversed(0), rays: [U64AndRev::unreversed(0); 3] };
     let mut res = [zero; 64];

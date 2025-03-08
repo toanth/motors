@@ -49,7 +49,7 @@ impl PcgXslRr128_64Oneseq {
 
 // Unfortunately, `const_random!` generates new values each time, so the build isn't deterministic unless
 // the environment variable CONST_RANDOM_SEED is set
-pub const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
+pub const ZOBRIST_KEYS: PrecomputedZobristKeys = {
     let mut res = {
         PrecomputedZobristKeys {
             piece_square_keys: [PosHash(0); NUM_COLORED_PIECE_SQUARE_ENTRIES],
@@ -87,29 +87,23 @@ impl Chessboard {
             for piece in ChessPieceType::non_pawn_pieces() {
                 let pieces = self.colored_piece_bb(color, piece);
                 for square in pieces.ones() {
-                    nonpawns[color] ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, square);
+                    nonpawns[color] ^= ZOBRIST_KEYS.piece_key(piece, color, square);
                 }
             }
             for square in self.colored_piece_bb(color, Pawn).ones() {
-                pawns ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, color, square);
+                pawns ^= ZOBRIST_KEYS.piece_key(Pawn, color, square);
             }
         }
-        special ^=
-            self.ep_square.map_or(PosHash(0), |square| PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[square.file() as usize]);
-        special ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
+        special ^= self.ep_square.map_or(PosHash(0), |square| ZOBRIST_KEYS.ep_file_keys[square.file() as usize]);
+        special ^= ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         if self.active_player == Black {
-            special ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+            special ^= ZOBRIST_KEYS.side_to_move_key;
         }
         Hashes { pawns, nonpawns, total: pawns ^ nonpawns[0] ^ nonpawns[1] ^ special }
     }
 
-    pub(super) fn update_zobrist(
-        color: ChessColor,
-        piece: ChessPieceType,
-        from: ChessSquare,
-        to: ChessSquare,
-    ) -> PosHash {
-        PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, to) ^ PRECOMPUTED_ZOBRIST_KEYS.piece_key(piece, color, from)
+    pub fn zobrist_delta(color: ChessColor, piece: ChessPieceType, from: ChessSquare, to: ChessSquare) -> PosHash {
+        ZOBRIST_KEYS.piece_key(piece, color, to) ^ ZOBRIST_KEYS.piece_key(piece, color, from)
     }
 }
 
@@ -140,10 +134,10 @@ mod tests {
 
     #[test]
     fn simple_test() {
-        let a1 = PRECOMPUTED_ZOBRIST_KEYS.piece_key(Bishop, White, ChessSquare::from_chars('f', '4').unwrap()).0;
-        let b1 = PRECOMPUTED_ZOBRIST_KEYS.piece_key(Bishop, White, ChessSquare::from_chars('g', '5').unwrap()).0;
-        let a2 = PRECOMPUTED_ZOBRIST_KEYS.piece_key(Knight, Black, ChessSquare::from_chars('h', '5').unwrap()).0;
-        let b2 = PRECOMPUTED_ZOBRIST_KEYS.piece_key(Knight, Black, ChessSquare::from_chars('g', '4').unwrap()).0;
+        let a1 = ZOBRIST_KEYS.piece_key(Bishop, White, ChessSquare::from_chars('f', '4').unwrap()).0;
+        let b1 = ZOBRIST_KEYS.piece_key(Bishop, White, ChessSquare::from_chars('g', '5').unwrap()).0;
+        let a2 = ZOBRIST_KEYS.piece_key(Knight, Black, ChessSquare::from_chars('h', '5').unwrap()).0;
+        let b2 = ZOBRIST_KEYS.piece_key(Knight, Black, ChessSquare::from_chars('g', '4').unwrap()).0;
         assert_ne!(a1 ^ a2, b1 ^ b2); // used to be bugged
         let position = Chessboard::from_name("kiwipete").unwrap();
         let hash = position.hash_pos();
@@ -214,13 +208,13 @@ mod tests {
                 {
                     assert_eq!(
                         pos.hash_pos()
-                            ^ Chessboard::update_zobrist(
+                            ^ Chessboard::zobrist_delta(
                                 pos.active_player,
                                 m.piece_type(),
                                 m.src_square(),
                                 m.dest_square()
                             )
-                            ^ PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key,
+                            ^ ZOBRIST_KEYS.side_to_move_key,
                         new_pos.hash_pos(),
                         "{pos} {}",
                         m.compact_formatter(&pos)

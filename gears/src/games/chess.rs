@@ -20,7 +20,7 @@ use crate::games::chess::moves::ChessMove;
 use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType, NUM_CHESS_PIECES, NUM_COLORS};
 use crate::games::chess::squares::{ChessSquare, ChessboardSize};
-use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
+use crate::games::chess::zobrist::ZOBRIST_KEYS;
 use crate::games::{
     AbstractPieceType, Board, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, DimT, PieceType, PosHash,
     Settings, n_fold_repetition,
@@ -49,6 +49,7 @@ mod perft_tests;
 pub mod pieces;
 pub mod see;
 pub mod squares;
+mod upcomin_repetition;
 pub mod zobrist;
 
 pub const START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -397,10 +398,10 @@ impl Board for Chessboard {
         // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove
         self.ply_100_ctr = 0;
         if let Some(sq) = self.ep_square {
-            self.hashes.total ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[sq.file() as usize];
+            self.hashes.total ^= ZOBRIST_KEYS.ep_file_keys[sq.file() as usize];
             self.ep_square = None;
         }
-        self.hashes.total ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+        self.hashes.total ^= ZOBRIST_KEYS.side_to_move_key;
         self.flip_side_to_move()
     }
 

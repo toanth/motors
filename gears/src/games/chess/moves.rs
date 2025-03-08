@@ -17,7 +17,7 @@ use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType};
 use crate::games::chess::squares::{C_FILE_NO, ChessSquare, D_FILE_NO, F_FILE_NO, G_FILE_NO};
-use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
+use crate::games::chess::zobrist::ZOBRIST_KEYS;
 use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{
     AbstractPieceType, Board, CharType, Color, ColoredPiece, ColoredPieceType, DimT, PosHash, char_to_file,
@@ -129,8 +129,8 @@ impl ChessMove {
 
     pub fn piece(self, board: &Chessboard) -> ChessPiece {
         let source = self.src_square();
-        debug_assert!(board.is_occupied(source));
-        debug_assert!(board.active_player_bb().is_bit_set_at(source.bb_idx()));
+        debug_assert!(board.is_occupied(source), "{}", self.compact_formatter(board));
+        debug_assert!(board.active_player_bb().is_bit_set_at(source.bb_idx()), "{}", self.compact_formatter(board));
         ChessPiece::new(ColoredChessPieceType::new(board.active_player, self.flags().piece_type()), source)
     }
 
@@ -437,10 +437,10 @@ impl Chessboard {
         let them = us.other();
         let from = mov.src_square();
         let mut to = mov.dest_square();
-        let hash_delta = Self::update_zobrist(us, piece, from, to);
-        let new_hash = self.hash_pos() ^ hash_delta ^ PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+        let hash_delta = Self::zobrist_delta(us, piece, from, to);
+        let new_hash = self.hash_pos() ^ hash_delta ^ ZOBRIST_KEYS.side_to_move_key;
         // this is only an approximation of the new hash, but that is good enough
-        prefetch(new_hash ^ PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key); // TODO: Remove?
+        prefetch(new_hash ^ ZOBRIST_KEYS.side_to_move_key); // TODO: Remove?
         prefetch(new_hash);
         debug_assert_eq!(us, mov.piece(&self).color().unwrap());
         self.ply_100_ctr += 1;
@@ -452,7 +452,7 @@ impl Chessboard {
         // remove old castling flags and ep square, they'll later be set again
         let mut special_hash = PosHash(0);
         if us == White {
-            special_hash ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
+            special_hash ^= ZOBRIST_KEYS.side_to_move_key;
         }
         self.ep_square = None;
         if mov.is_castle() {
@@ -461,7 +461,7 @@ impl Chessboard {
             let taken_pawn = mov.square_of_pawn_taken_by_ep().unwrap();
             debug_assert_eq!(self.colored_piece_on(taken_pawn).symbol, ColoredChessPieceType::new(them, Pawn));
             self.remove_piece_unchecked(taken_pawn, Pawn, them);
-            self.hashes.pawns ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, them, taken_pawn);
+            self.hashes.pawns ^= ZOBRIST_KEYS.piece_key(Pawn, them, taken_pawn);
             self.ply_100_ctr = 0;
         } else if mov.is_non_ep_capture(&self) {
             let captured = self.piece_type_on(to);
@@ -469,9 +469,9 @@ impl Chessboard {
             debug_assert_ne!(captured, King);
             self.remove_piece_unchecked(to, captured, them);
             if captured == Pawn {
-                self.hashes.pawns ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(captured, them, to);
+                self.hashes.pawns ^= ZOBRIST_KEYS.piece_key(captured, them, to);
             } else {
-                self.hashes.nonpawns[them] ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(captured, them, to);
+                self.hashes.nonpawns[them] ^= ZOBRIST_KEYS.piece_key(captured, them, to);
             }
             self.ply_100_ctr = 0;
         } else if piece == Pawn {
@@ -480,7 +480,7 @@ impl Chessboard {
             // TODO: Store double pawn push flag in the move?
             if from.rank().abs_diff(to.rank()) == 2 && possible_ep_pawns.has_set_bit() {
                 self.ep_square = Some(ChessSquare::from_rank_file((to.rank() + from.rank()) / 2, to.file()));
-                special_hash ^= PRECOMPUTED_ZOBRIST_KEYS.ep_file_keys[to.file() as usize];
+                special_hash ^= ZOBRIST_KEYS.ep_file_keys[to.file() as usize];
             }
         }
         if piece == King {
@@ -495,14 +495,14 @@ impl Chessboard {
         } else if to == self.rook_start_square(them, Kingside) {
             self.castling.unset_castle_right(them, Kingside);
         }
-        special_hash ^= PRECOMPUTED_ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
+        special_hash ^= ZOBRIST_KEYS.castle_keys[self.castling.allowed_castling_directions()];
         self.move_piece(from, to, piece);
         if mov.is_promotion() {
             let bb = to.bb();
             self.piece_bbs[Pawn] ^= bb;
             self.piece_bbs[mov.flags().promo_piece()] ^= bb;
-            self.hashes.pawns ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, us, to);
-            self.hashes.nonpawns[us] ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(mov.flags().promo_piece(), us, to);
+            self.hashes.pawns ^= ZOBRIST_KEYS.piece_key(Pawn, us, to);
+            self.hashes.nonpawns[us] ^= ZOBRIST_KEYS.piece_key(mov.flags().promo_piece(), us, to);
         }
         self.ply += 1;
         self.hashes.total = special_hash ^ self.hashes.pawns ^ self.hashes.nonpawns[0] ^ self.hashes.nonpawns[1];
@@ -562,11 +562,11 @@ impl Chessboard {
         debug_assert!(self.colored_piece_on(rook_from).symbol == ColoredChessPieceType::new(color, Rook));
         self.move_piece(rook_from, rook_to, Rook);
         let mut delta = PosHash(0);
-        delta ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Rook, color, rook_to);
-        delta ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Rook, color, rook_from);
-        delta ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(King, color, *to);
+        delta ^= ZOBRIST_KEYS.piece_key(Rook, color, rook_to);
+        delta ^= ZOBRIST_KEYS.piece_key(Rook, color, rook_from);
+        delta ^= ZOBRIST_KEYS.piece_key(King, color, *to);
         *to = ChessSquare::from_rank_file(from.rank(), to_file);
-        delta ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(King, color, *to);
+        delta ^= ZOBRIST_KEYS.piece_key(King, color, *to);
         self.hashes.nonpawns[color] ^= delta;
         Some(())
     }

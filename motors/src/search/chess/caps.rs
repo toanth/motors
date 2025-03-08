@@ -763,8 +763,16 @@ impl Caps {
             self.search_stack[ply].pv.clear();
         }
 
+        let mut best_score = NO_SCORE_YET;
+
         // Always search all children at the root, even for draws or if a search limit has been reached
         if !root {
+            // If there is a move that can repeat a position we've looked at during search, we are guaranteed at least a draw score.
+            // So don't even bother searching other moves if the draw score would already cause a cutoff.
+            if pos.has_upcoming_repetition(&self.params.history) {
+                alpha = alpha.max(Score(0));
+                best_score = Score(0);
+            }
             // Mate Distance Pruning (MDP): If we've already found a mate in n, don't bother looking for longer mates.
             // This isn't intended to gain elo (since it only works in positions that are already won or lost)
             // but makes the engine better at finding shorter checkmates. Don't do MDP at the root because that can prevent us
@@ -803,7 +811,6 @@ impl Caps {
         }
         let can_prune = !is_pv_node && !in_check;
 
-        let mut best_score = NO_SCORE_YET;
         let mut bound_so_far = FailLow;
 
         // If we didn't get a move from the TT and there's no best_move to store because the node failed low,

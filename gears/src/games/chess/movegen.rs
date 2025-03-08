@@ -39,7 +39,6 @@ impl Chessboard {
     /// chess960 castling move with the same source and dest square as the normal king move isn't, or the other way around.
     /// For pawns, there's a difference between attacks and pushes, and this function ignores pushes.
     pub fn attacks_no_castle_or_pawn_push(
-        &self,
         square: ChessSquare,
         piece: ChessPieceType,
         color: ChessColor,
@@ -88,7 +87,7 @@ impl Chessboard {
                     .is_bit_set_at(mov.dest_square().bb_idx())
         } else {
             let generator = self.slider_generator();
-            (self.attacks_no_castle_or_pawn_push(src, mov.piece_type(), color, &generator) & !self.active_player_bb())
+            (Self::attacks_no_castle_or_pawn_push(src, mov.piece_type(), color, &generator) & !self.active_player_bb())
                 .is_bit_set_at(mov.dest_square().bb_idx())
         }
     }

@@ -251,7 +251,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         for piece in ChessPieceType::non_pawn_pieces() {
             for square in pos.colored_piece_bb(color, piece).ones() {
-                let attacks = pos.attacks_no_castle_or_pawn_push(square, piece, color, &generator);
+                let attacks = Chessboard::attacks_no_castle_or_pawn_push(square, piece, color, &generator);
                 all_attacks |= attacks;
                 let attacks_no_pawn_recapture = attacks & !attacked_by_pawn;
                 let mobility = (attacks_no_pawn_recapture & !pos.player_bb(color)).num_ones();
