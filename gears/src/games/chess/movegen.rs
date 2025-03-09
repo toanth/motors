@@ -258,6 +258,7 @@ impl Chessboard {
     }
 
     fn gen_king_moves<T: MoveList<Self>>(&self, moves: &mut T, filter: ChessBitboard, only_captures: bool) {
+        let filter = filter & !self.threats;
         let color = self.active_player;
         let king = self.colored_piece_bb(color, King);
         let king_square = ChessSquare::from_bb_index(king.num_trailing_zeros());
@@ -323,15 +324,15 @@ impl Chessboard {
     // All the following methods can be called with squares that do not contain the specified piece.
     // This makes sense because it allows to find all pieces able to attack a given square.
 
-    pub fn normal_king_attacks_from(square: ChessSquare) -> ChessBitboard {
+    pub const fn normal_king_attacks_from(square: ChessSquare) -> ChessBitboard {
         KINGS[square.bb_idx()]
     }
 
-    pub fn knight_attacks_from(square: ChessSquare) -> ChessBitboard {
+    pub const fn knight_attacks_from(square: ChessSquare) -> ChessBitboard {
         KNIGHTS[square.bb_idx()]
     }
 
-    pub fn single_pawn_captures(color: ChessColor, square: ChessSquare) -> ChessBitboard {
+    pub const fn single_pawn_captures(color: ChessColor, square: ChessSquare) -> ChessBitboard {
         PAWN_CAPTURES[color as usize][square.bb_idx()]
     }
 
@@ -362,5 +363,26 @@ impl Chessboard {
         } else {
             ChessBitboard::default()
         }
+    }
+
+    /// Calculate a bitboard of all squares that are attacked by the opponent. This doesn't count non-capture pawn moves.
+    pub(super) fn calc_threats(&self, player: ChessColor) -> ChessBitboard {
+        // TODO: Setwise hq
+        let slider_gen = self.slider_generator();
+        let mut res = Self::normal_king_attacks_from(self.king_square(player));
+        for knight in self.colored_piece_bb(player, Knight).ones() {
+            res |= Self::knight_attacks_from(knight);
+        }
+        for bishop in self.colored_piece_bb(player, Bishop).ones() {
+            res |= slider_gen.bishop_attacks(bishop);
+        }
+        for rook in self.colored_piece_bb(player, Rook).ones() {
+            res |= slider_gen.rook_attacks(rook);
+        }
+        for queen in self.colored_piece_bb(player, Queen).ones() {
+            res |= slider_gen.queen_attacks(queen);
+        }
+        res |= self.colored_piece_bb(player, Pawn).pawn_attacks(player);
+        res
     }
 }

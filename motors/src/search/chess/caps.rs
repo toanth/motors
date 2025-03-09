@@ -1682,7 +1682,7 @@ mod tests {
             moves.push(mov);
             scores.push(score);
         }
-        assert_eq!(moves.len(), 7);
+        assert_eq!(moves.len(), 6);
         assert!(scores.is_sorted_by(|a, b| a > b), "{scores:?} {moves:?} {pos}");
         assert_eq!(scores[0], MoveScore::MAX);
         assert_eq!(moves[0], tt_move);
@@ -1692,10 +1692,10 @@ mod tests {
         assert_eq!(moves[2], killer);
         assert_eq!(moves[3], hist_move);
         let illegal = ChessMove::from_text("a1a2", &pos).unwrap();
-        assert_eq!(moves[4], illegal);
+        assert!(!moves.contains(&illegal));
         assert!(!pos.is_pseudolegal_move_legal(illegal));
-        assert_eq!(moves[5], bad_quiet);
-        assert_eq!(moves[6], bad_capture);
+        assert_eq!(moves[4], bad_quiet);
+        assert_eq!(moves[5], bad_capture);
         let search_res = caps.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());
         assert_eq!(search_res.chosen_move, good_capture);
         assert!(search_res.score > Score(0));

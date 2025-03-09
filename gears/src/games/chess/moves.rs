@@ -511,6 +511,7 @@ impl Chessboard {
 
     /// Called at the end of [`Self::make_nullmove`] and [`Self::make_move`].
     pub(super) fn flip_side_to_move(mut self) -> Option<Self> {
+        self.threats = self.calc_threats(self.active_player);
         if self.is_in_check() {
             None
         } else {

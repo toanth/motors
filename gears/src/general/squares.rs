@@ -1,8 +1,8 @@
 #[cfg(feature = "chess")]
 use crate::games::chess::ChessColor;
-use crate::games::{char_to_file, file_to_char, Coordinates, DimT, Height, KnownSize, Size, Width};
+use crate::games::{Coordinates, DimT, Height, KnownSize, Size, Width, char_to_file, file_to_char};
 use crate::general::bitboards::{KnownSizeBitboard, SmallGridBitboard};
-use crate::general::common::{parse_int_from_str, Res};
+use crate::general::common::{Res, parse_int_from_str};
 use crate::general::squares::SquareColor::{Black, White};
 use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
@@ -23,11 +23,7 @@ pub trait RectangularCoordinates: Coordinates<Size: RectangularSize<Self>> {
         self.column()
     }
     fn square_color(self) -> SquareColor {
-        if (self.row() as usize + self.column() as usize) % 2 == 0 {
-            Black
-        } else {
-            White
-        }
+        if (self.row() as usize + self.column() as usize) % 2 == 0 { Black } else { White }
     }
 }
 
@@ -353,12 +349,12 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
         GridCoordinates { row: self.row(), column: self.column() }
     }
 
-    pub fn to_u8(self) -> u8 {
+    pub const fn to_u8(self) -> u8 {
         self.idx
     }
 
     /// Note that this isn't necessarily consecutive because the bitboard assumes a width of at least 8 for efficiency reasons.
-    pub fn bb_idx(self) -> usize {
+    pub const fn bb_idx(self) -> usize {
         self.idx as usize
     }
 
@@ -367,11 +363,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
     }
 
     pub fn flip_if(self, flip: bool) -> Self {
-        if flip {
-            self.flip()
-        } else {
-            self
-        }
+        if flip { self.flip() } else { self }
     }
 
     pub fn north_unchecked(self) -> Self {
