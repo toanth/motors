@@ -306,7 +306,7 @@ impl<B: Board> AbstractSearchState<B> for ProofNumberSearcher<B> {
         // do nothing
     }
 
-    fn write_internal_info(&self) -> Option<String> {
+    fn write_internal_info(&self, _pos: &B) -> Option<String> {
         None
     }
 }

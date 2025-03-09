@@ -656,7 +656,7 @@ pub trait CustomInfo<B: Board>: Default + Clone + Debug {
     }
     fn hard_forget_except_tt(&mut self);
 
-    fn write_internal_info(&self) -> Option<String> {
+    fn write_internal_info(&self, _pos: &B) -> Option<String> {
         None
     }
 }
@@ -711,7 +711,7 @@ pub trait AbstractSearchState<B: Board> {
         }
     }
     /// Engine-specific info, like the contents of history tables.
-    fn write_internal_info(&self) -> Option<String>;
+    fn write_internal_info(&self, pos: &B) -> Option<String>;
 }
 
 #[derive(Debug)]
@@ -857,8 +857,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         }
     }
 
-    fn write_internal_info(&self) -> Option<String> {
-        self.custom.write_internal_info()
+    fn write_internal_info(&self, pos: &B) -> Option<String> {
+        self.custom.write_internal_info(pos)
     }
 }
 

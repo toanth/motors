@@ -253,7 +253,7 @@ impl<B: Board> GameState<B> for EngineGameState<B> {
 
     fn engine_state(&self) -> Res<String> {
         self.engine.get_engine_info().internal_state_description = None;
-        self.engine.send_print()?;
+        self.engine.send_print(self.go_state.pos.clone())?;
         let start = Instant::now();
         loop {
             let description = self.engine.get_engine_info().internal_state_description.take();
@@ -551,20 +551,9 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_engine_print_impl(&mut self) -> Res<()> {
-        self.state.engine.get_engine_info().internal_state_description = None;
-        self.state.engine.send_print()?;
-        let start = Instant::now();
-        loop {
-            let description = self.state.engine.get_engine_info().internal_state_description.take();
-            if let Some(description) = description {
-                self.write_ugi(&format_args!("{description}"));
-                return Ok(());
-            }
-            sleep(Duration::from_millis(10));
-            if start.elapsed().as_millis() > 200 {
-                bail!("Failed to show internal engine state (can't be used when the engine is currently searching)");
-            }
-        }
+        let string = self.state.engine_state()?;
+        self.write_ugi(&format_args!("{string}"));
+        Ok(())
     }
 
     fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()> {

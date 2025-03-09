@@ -22,7 +22,8 @@ use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS, UnverifiedChessboard};
 use gears::games::{BoardHistory, Color, PosHash, ZobristHistory, n_fold_repetition};
-use gears::general::bitboards::RawBitboard;
+use gears::general::bitboards::chessboard::ChessBitboard;
+use gears::general::bitboards::{KnownSizeBitboard, RawBitboard};
 use gears::general::board::Strictness::Strict;
 use gears::general::board::{BitboardBoard, UnverifiedBoard};
 use gears::general::common::Description::NoDescription;
@@ -73,37 +74,46 @@ fn update_history_score(entry: &mut HistScoreT, bonus: HistScoreT) {
 /// but didn't cause a beta cutoff. Order all non-TT non-killer moves based on that (as well as based on the continuation
 /// history)
 #[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
-struct HistoryHeuristic(Box<[HistScoreT; 64 * 64]>);
+struct HistoryHeuristic(Box<[[HistScoreT; 64 * 64]; 4]>);
 
 impl HistoryHeuristic {
-    fn update(&mut self, mov: ChessMove, bonus: HistScoreT) {
-        update_history_score(&mut self[mov.from_to_square()], bonus);
+    fn update(&mut self, mov: ChessMove, threats: ChessBitboard, bonus: HistScoreT) {
+        let mut threats_idx = threats.is_bit_set(mov.src_square()) as usize;
+        threats_idx = threats_idx * 2 + threats.is_bit_set(mov.dest_square()) as usize;
+        update_history_score(&mut self[threats_idx][mov.from_to_square()], bonus);
+    }
+    fn get(&self, mov: ChessMove, threats: ChessBitboard) -> HistScoreT {
+        let mut threats_idx = threats.is_bit_set(mov.src_square()) as usize;
+        threats_idx = threats_idx * 2 + threats.is_bit_set(mov.dest_square()) as usize;
+        self[threats_idx][mov.from_to_square()]
     }
 }
 
 impl Default for HistoryHeuristic {
     fn default() -> Self {
-        HistoryHeuristic(Box::new([0; 64 * 64]))
+        HistoryHeuristic(Box::new([[0; 64 * 64]; 4]))
     }
 }
 
 /// Capture History Heuristic: Same as quiet history heuristic, but for captures.
 #[derive(Debug, Clone)]
-struct CaptHist(Box<[[[HistScoreT; 64]; 6]; NUM_COLORS]>);
+struct CaptHist(Box<[[[[HistScoreT; 64]; 6]; 2]; NUM_COLORS]>);
 
 impl CaptHist {
-    fn update(&mut self, mov: ChessMove, color: ChessColor, bonus: HistScoreT) {
-        let entry = &mut self.0[color][mov.piece_type() as usize][mov.dest_square().bb_idx()];
+    fn update(&mut self, mov: ChessMove, threats: ChessBitboard, color: ChessColor, bonus: HistScoreT) {
+        let defended = threats.is_bit_set_at(mov.dest_square().bb_idx()) as usize;
+        let entry = &mut self.0[color][defended][mov.piece_type() as usize][mov.dest_square().bb_idx()];
         update_history_score(entry, bonus);
     }
-    fn get(&self, mov: ChessMove, color: ChessColor) -> MoveScore {
-        MoveScore(self.0[color][mov.piece_type() as usize][mov.dest_square().bb_idx()])
+    fn get(&self, mov: ChessMove, threats: ChessBitboard, color: ChessColor) -> MoveScore {
+        let defended = threats.is_bit_set_at(mov.dest_square().bb_idx()) as usize;
+        MoveScore(self.0[color][defended][mov.piece_type() as usize][mov.dest_square().bb_idx()])
     }
 }
 
 impl Default for CaptHist {
     fn default() -> Self {
-        Self(Box::new([[[0; 64]; 6]; NUM_COLORS]))
+        Self(Box::new([[[[0; 64]; 6]; 2]; NUM_COLORS]))
     }
 }
 
@@ -254,10 +264,10 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
     }
 
     fn hard_forget_except_tt(&mut self) {
-        for value in self.history.iter_mut() {
+        for value in self.history.iter_mut().flatten() {
             *value = 0;
         }
-        for value in self.capt_hist.0.iter_mut().flatten().flatten() {
+        for value in self.capt_hist.0.iter_mut().flatten().flatten().flatten() {
             *value = 0;
         }
         for value in self.countermove_hist.iter_mut() {
@@ -275,21 +285,25 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
         self.root_move_nodes.clear();
     }
 
-    fn write_internal_info(&self) -> Option<String> {
-        Some(write_single_hist_table(&self.history, false) + "\n" + &write_single_hist_table(&self.history, true))
+    fn write_internal_info(&self, pos: &Chessboard) -> Option<String> {
+        Some(
+            write_single_hist_table(&self.history, pos, false)
+                + "\n"
+                + &write_single_hist_table(&self.history, pos, true),
+        )
     }
 }
 
-fn write_single_hist_table(table: &HistoryHeuristic, flip: bool) -> String {
+fn write_single_hist_table(table: &HistoryHeuristic, pos: &Chessboard, flip: bool) -> String {
     let show_square = |from: ChessSquare| {
         let sum: i32 = ChessSquare::iter()
             .map(|to| {
-                let idx = if flip {
-                    ChessMove::new(to, from, ChessMoveFlags::QueenMove).from_to_square()
+                let mov = if flip {
+                    ChessMove::new(to, from, ChessMoveFlags::QueenMove)
                 } else {
-                    ChessMove::new(from, to, ChessMoveFlags::QueenMove).from_to_square()
+                    ChessMove::new(from, to, ChessMoveFlags::QueenMove)
                 };
-                table.0[idx] as i32
+                table.get(mov, pos.threats()) as i32
             })
             .sum();
         sum as f64 / 64.0
@@ -1381,18 +1395,19 @@ impl Caps {
         let color = pos.active_player();
         let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else { unreachable!() };
         let bonus = (depth * cc::hist_depth_bonus()) as HistScoreT;
+        let threats = pos.threats();
         if mov.is_tactical(pos) {
             for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| m.is_tactical(pos)) {
-                self.state.custom.capt_hist.update(*disappointing, color, -bonus);
+                self.state.custom.capt_hist.update(*disappointing, threats, color, -bonus);
             }
-            self.state.custom.capt_hist.update(mov, color, bonus);
+            self.state.custom.capt_hist.update(mov, threats, color, bonus);
             return;
         }
         entry.killer = mov;
         for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
-            self.state.custom.history.update(*disappointing, -bonus);
+            self.state.custom.history.update(*disappointing, threats, -bonus);
         }
-        self.state.custom.history.update(mov, bonus);
+        self.state.custom.history.update(mov, threats, bonus);
         if ply > 0 {
             let parent = before.last_mut().unwrap();
             Self::update_continuation_hist(
@@ -1481,11 +1496,11 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
             } else {
                 0
             };
-            MoveScore(state.history[mov.from_to_square()] + countermove_score + follow_up_score / 2)
+            MoveScore(state.history.get(mov, self.board.threats()) + countermove_score + follow_up_score / 2)
         } else {
             let captured = mov.captured(&self.board);
             let base_val = MoveScore(HIST_DIVISOR * 10);
-            let hist_val = state.capt_hist.get(mov, self.board.active_player());
+            let hist_val = state.capt_hist.get(mov, self.board.threats(), self.board.active_player());
             base_val + MoveScore(captured as i16 * HIST_DIVISOR) + hist_val
         }
     }
@@ -1664,15 +1679,16 @@ mod tests {
         let mut tt = TT::default();
         let entry = TTEntry::new(pos.hash_pos(), Score(0), Score(-12), tt_move, 123, Exact);
         tt.store::<Chessboard>(entry, 0);
+        let threats = pos.threats();
         let mut caps = Caps::default();
         let killer = ChessMove::from_text("b2c2", &pos).unwrap();
         caps.search_stack[0].killer = killer;
         let hist_move = ChessMove::from_text("b2b1", &pos).unwrap();
-        caps.history.update(hist_move, 1000);
+        caps.history.update(hist_move, threats, 1000);
         let bad_quiet = ChessMove::from_text("b2a2", &pos).unwrap();
-        caps.history.update(bad_quiet, -1);
+        caps.history.update(bad_quiet, threats, -1);
         let bad_capture = ChessMove::from_text("b2b3", &pos).unwrap();
-        caps.capt_hist.update(bad_capture, White, 100);
+        caps.capt_hist.update(bad_capture, threats, White, 100);
 
         let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> = MovePicker::new(pos, tt_move, false);
         let move_scorer = CapsMoveScorer { board: pos, ply: 0 };

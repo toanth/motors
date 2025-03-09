@@ -385,4 +385,8 @@ impl Chessboard {
         res |= self.colored_piece_bb(player, Pawn).pawn_attacks(player);
         res
     }
+
+    pub fn threats(&self) -> ChessBitboard {
+        self.threats
+    }
 }
