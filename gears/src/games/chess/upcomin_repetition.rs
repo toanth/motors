@@ -44,6 +44,7 @@ fn entry(hash: PosHash) -> u32 {
     hash.0 as u32
 }
 
+/// Based on <https://web.archive.org/web/20201107002606/https://marcelk.net/2013-04-06/paper/upcoming-rep-v2.pdf>
 #[derive(Debug)]
 pub struct UpcomingRepetitionTable {
     hashes: [u32; SIZE],
@@ -92,9 +93,6 @@ pub fn calc_move_hash_table() -> UpcomingRepetitionTable {
 }
 
 fn has_upcoming_repetition(table: &UpcomingRepetitionTable, history: &ZobristHistory, pos: &Chessboard) -> bool {
-    if pos.ply_100_ctr < 3 {
-        return false;
-    }
     let n = history.len();
     let max_lookback = pos.ply_100_ctr.min(n);
     let mut their_delta = pos.hash_pos() ^ history.0[n - 1] ^ ZOBRIST_KEYS.side_to_move_key;
@@ -136,6 +134,9 @@ fn has_upcoming_repetition(table: &UpcomingRepetitionTable, history: &ZobristHis
 
 impl Chessboard {
     pub fn has_upcoming_repetition(&self, history: &ZobristHistory) -> bool {
+        if self.ply_100_ctr < 3 || history.is_empty() {
+            return false;
+        }
         has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, history, self)
     }
 }
@@ -145,6 +146,8 @@ pub static UPCOMING_REPETITION_TABLE: LazyLock<UpcomingRepetitionTable> = LazyLo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::games::n_fold_repetition;
+    use crate::general::board::Strictness::Strict;
     use crate::general::board::{Board, BoardHelpers};
 
     #[test]
@@ -164,10 +167,49 @@ mod tests {
         let moves = ["Qg3", "Bb7", "Qf3"];
         let mut hist = ZobristHistory::default();
         for m in moves {
-            hist.push(pos.hash_pos());
             assert!(!pos.has_upcoming_repetition(&hist));
+            hist.push(pos.hash_pos());
             pos = pos.make_move_from_str(m).unwrap();
         }
         assert!(pos.has_upcoming_repetition(&hist));
+        hist.push(pos.hash_pos());
+        pos = pos.make_move_from_str("Ba6").unwrap();
+        assert!(pos.match_result_slow(&hist).is_none());
+        assert!(pos.has_upcoming_repetition(&hist));
+        hist.push(pos.hash_pos());
+        pos = pos.make_nullmove().unwrap();
+        assert!(!pos.has_upcoming_repetition(&hist));
+        hist.push(pos.hash_pos());
+        pos = pos.make_move_from_str("Bb5").unwrap();
+        assert!(!pos.has_upcoming_repetition(&hist));
+        hist.push(pos.hash_pos());
+        pos = pos.make_nullmove().unwrap();
+        pos.ply_100_ctr = 42;
+        assert!(pos.has_upcoming_repetition(&hist));
+        hist.push(pos.hash_pos());
+        pos = pos.make_move_from_str("Ba6").unwrap();
+        assert!(hist.0.contains(&pos.hash_pos()));
+        assert!(pos.has_upcoming_repetition(&hist));
+        hist.push(pos.hash_pos());
+        pos = pos.make_nullmove().unwrap();
+        assert!(!pos.has_upcoming_repetition(&hist));
+    }
+
+    #[test]
+    fn triangulation_test() {
+        let mut pos = Chessboard::from_fen("8/1p1k4/1P6/2PK4/8/8/8/8 w - - 4 7", Strict).unwrap();
+        let moves = ["Ke5!", "Kc6", "Kd4", "Kd7"];
+        let mut hist = ZobristHistory::default();
+        for m in moves {
+            assert!(!n_fold_repetition(2, &hist, pos.hash_pos(), 100));
+            assert!(!pos.has_upcoming_repetition(&hist), "{pos}");
+            hist.push(pos.hash_pos());
+            pos = pos.make_move_from_str(m).unwrap();
+        }
+        assert!(pos.has_upcoming_repetition(&hist)); // Ke5 repeats
+        hist.push(pos.hash_pos());
+        pos = pos.make_move_from_str("Kd5").unwrap();
+        assert!(!n_fold_repetition(2, &hist, pos.hash_pos(), 100));
+        assert!(!pos.has_upcoming_repetition(&hist));
     }
 }

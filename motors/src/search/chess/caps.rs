@@ -355,6 +355,8 @@ pub struct Caps {
 
 impl Default for Caps {
     fn default() -> Self {
+        // ensure the cycle detection table is initialized now so that we don't have to wait for that during search.
+        _ = Chessboard::default().has_upcoming_repetition(&ZobristHistory::default());
         Self::with_eval(Box::new(DefaultEval::default()))
     }
 }
