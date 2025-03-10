@@ -257,13 +257,13 @@ impl NamedEntity for EngineOption {
 pub fn parse_ugi_position_part_impl<B: Board>(
     first_word: &str,
     rest: &mut Tokens,
-    old_board: &B,
+    current_pos: &B,
     strictness: Strictness,
 ) -> Res<B> {
     Ok(match first_word.to_ascii_lowercase().as_str() {
         "fen" | "f" => B::read_fen_and_advance_input(rest, strictness)?,
-        "startpos" | "s" => B::startpos_for_settings(old_board.settings()),
-        "current" | "c" => old_board.clone(),
+        "startpos" | "s" => B::startpos_for_settings(current_pos.settings()),
+        "current" | "c" => current_pos.clone(),
         name => match B::from_name(name) {
             Ok(res) => res,
             Err(err) => {
@@ -282,7 +282,7 @@ pub fn parse_ugi_position_part<B: Board>(
     first_word: &str,
     rest: &mut Tokens,
     allow_position_part: bool,
-    old_board: &B,
+    current_pos: &B,
     strictness: Strictness,
 ) -> Res<B> {
     let mut first = first_word;
@@ -296,7 +296,7 @@ pub fn parse_ugi_position_part<B: Board>(
     }
     let remaining = rest.clone();
     let copy = rest.clone();
-    let res = parse_ugi_position_part_impl(first, rest, old_board, strictness);
+    let res = parse_ugi_position_part_impl(first, rest, current_pos, strictness);
     let Err(err) = res else { return res };
     // If parsing the position failed, we try to insert 'fen' at the beginning and parse it again.
     // (So 'mnk 3 3 3 3/3/3 x 1' is valid)
@@ -326,7 +326,7 @@ pub fn parse_ugi_position_and_moves<B: Board>(
     state: &mut dyn ParseUgiPosState<B>,
 ) -> Res<()> {
     let input_copy = rest.clone();
-    let pos = parse_ugi_position_part(first_word, rest, accept_pos_word, state.initial(), strictness);
+    let pos = parse_ugi_position_part(first_word, rest, accept_pos_word, state.pos(), strictness);
     // don't reset the position if all we got was moves
     // (i.e. 'p mv e4' allows going back to a position before the current position, unlike `p c mv e4`)
     if let Ok(pos) = &pos {
