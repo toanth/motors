@@ -237,15 +237,13 @@ impl<B: Board> AtomicSearchState<B> {
     }
 }
 
-// TODO: Maybe use a thread pool instead and get rid of this class and channels entirely?
-// Would mean starting from a clean state for every search, or putting more search state in a struct that outlives the thread
-pub struct EngineThread<B: Board, E: Engine<B>> {
-    engine: E,
+pub struct EngineThread<B: Board> {
+    engine: Box<dyn Engine<B>>,
     receiver: Receiver<EngineReceives<B>>,
 }
 
-impl<B: Board, E: Engine<B>> EngineThread<B, E> {
-    pub fn new(engine: E, receiver: Receiver<EngineReceives<B>>) -> Self {
+impl<B: Board> EngineThread<B> {
+    pub fn new(engine: Box<dyn Engine<B>>, receiver: Receiver<EngineReceives<B>>) -> Self {
         Self { engine, receiver }
     }
 

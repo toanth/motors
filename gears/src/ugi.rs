@@ -373,7 +373,7 @@ pub fn parse_ugi_position_and_moves<B: Board>(
             Err(err) => {
                 if !parsed_move {
                     bail!(
-                        "'{0}' must be followed by a move, but '{1}' is not a pseudolegal {2} move: {err}",
+                        "'{0}' must be followed by a move, but '{1}' is not a legal {2} move: {err}",
                         "moves".bold(),
                         next_word.red(),
                         B::game_name()
