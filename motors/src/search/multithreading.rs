@@ -81,6 +81,10 @@ impl<B: Board> MainThreadData<B> {
         }
         Ok(())
     }
+
+    pub(super) fn shared_atomic_state(&self) -> &[Arc<AtomicSearchState<B>>] {
+        self.atomic_search_data.as_slice()
+    }
 }
 
 #[derive(Debug, Default)]

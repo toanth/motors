@@ -2,6 +2,7 @@ use crate::general::board::{Board, BoardHelpers};
 use crate::general::moves::Move;
 use crate::search::Depth;
 use colored::Colorize;
+use itertools::Itertools;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelBridge};
 use std::collections::HashSet;
@@ -95,7 +96,7 @@ pub fn split_perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> SplitPe
     if depth.get() > 2 && parallelize {
         pos.legal_moves_slow()
             .into_iter()
-            .collect::<Vec<_>>()
+            .collect_vec()
             .par_iter()
             .map(|&mov| {
                 let child_nodes = do_perft(depth.get() - 1, pos.clone().make_move(mov).unwrap());

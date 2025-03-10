@@ -832,7 +832,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
     }
 
     fn to_search_info(&self) -> SearchInfo<B> {
-        SearchInfo {
+        let mut res = SearchInfo {
             best_move_of_all_pvs: self.best_move(),
             depth: self.depth(),
             seldepth: self.seldepth(),
@@ -845,8 +845,16 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
             hashfull: self.estimate_hashfull(),
             pos: self.params.pos.clone(),
             bound: self.cur_pv_data().bound,
+            num_threads: 1,
             additional: Self::additional(),
+        };
+        if let Main(data) = &self.params.thread_type {
+            let shared = data.shared_atomic_state();
+            res.nodes = NodesLimit::new(shared.iter().map(|d| d.nodes()).sum()).unwrap();
+            res.seldepth = shared.iter().map(|d| d.seldepth()).max().unwrap();
+            res.num_threads = shared.len();
         }
+        res
     }
 
     fn aggregated_statistics(&self) -> Statistics {
