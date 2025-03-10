@@ -365,23 +365,19 @@ impl Chessboard {
         }
     }
 
-    /// Calculate a bitboard of all squares that are attacked by the opponent. This doesn't count non-capture pawn moves.
-    pub(super) fn calc_threats(&self, player: ChessColor) -> ChessBitboard {
-        // TODO: Setwise hq
+    /// Calculate a bitboard of all squares that are attacked by the given player.
+    /// This only counts hypothetical captures, so no pawn pushes or castling moves.
+    pub fn calc_threats(&self, player: ChessColor) -> ChessBitboard {
         let slider_gen = self.slider_generator();
         let mut res = Self::normal_king_attacks_from(self.king_square(player));
         for knight in self.colored_piece_bb(player, Knight).ones() {
             res |= Self::knight_attacks_from(knight);
         }
-        for bishop in self.colored_piece_bb(player, Bishop).ones() {
-            res |= slider_gen.bishop_attacks(bishop);
-        }
-        for rook in self.colored_piece_bb(player, Rook).ones() {
-            res |= slider_gen.rook_attacks(rook);
-        }
-        for queen in self.colored_piece_bb(player, Queen).ones() {
-            res |= slider_gen.queen_attacks(queen);
-        }
+        let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
+        let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
+        let us = self.player_bb(player);
+        res |= slider_gen.all_bishop_attacks(bishop_sliders & us);
+        res |= slider_gen.all_rook_attacks(rook_sliders & us);
         res |= self.colored_piece_bb(player, Pawn).pawn_attacks(player);
         res
     }

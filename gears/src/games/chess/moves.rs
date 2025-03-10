@@ -1043,7 +1043,9 @@ impl<'a> MoveParser<'a> {
 #[cfg(test)]
 mod tests {
     use crate::games::Board;
+    use crate::games::chess::ChessColor::White;
     use crate::games::chess::Chessboard;
+    use crate::games::chess::castling::CastleRight::Queenside;
     use crate::games::chess::moves::ChessMove;
     use crate::games::chess::pieces::ChessPieceType;
     use crate::games::chess::squares::ChessSquare;
@@ -1210,5 +1212,12 @@ mod tests {
         assert_eq!(moves.len(), 2);
         assert_eq!(moves[0], "f1a1");
         assert_eq!(moves[1], "f1h1");
+        let fen = "8/4k3/8/8/8/8/8/RK1b4 w A - 0 1";
+        let mut pos = Chessboard::from_fen(fen, Strict).unwrap();
+        assert!(pos.castling.can_castle(White, Queenside));
+        assert!(pos.make_move_from_str("0-0-0").is_err());
+        pos = pos.make_nullmove().unwrap();
+        pos = pos.make_move_from_str("Be2").unwrap();
+        assert!(pos.make_move_from_str("0-0-0").is_ok());
     }
 }
