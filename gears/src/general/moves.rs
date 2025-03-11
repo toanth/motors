@@ -31,6 +31,8 @@ use std::hash::Hash;
 /// for the given position, which is why such a move is represented as a `Untrusted<Move>`.
 /// Note that legality depends on the position and can't be statically enforced; incorrectly assuming (pseudo)legality
 /// usually results in a panic when playing the move, although *there is no guarantee given; the behavior is unspecified*.
+/// Also note that it is up to the game implementation to decide what it considers to be a pseudolegal move; this decision
+/// does not have to coincide with commonly-used definitions: E.g. chess is allowed to not even generate some illegal pseudolegal moves.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
 pub enum Legality {
     PseudoLegal,
@@ -212,19 +214,11 @@ impl<B: Board> UntrustedMove<B> {
     }
 
     pub fn check_pseudolegal(self, pos: &B) -> Option<B::Move> {
-        if pos.is_move_pseudolegal(self.0) {
-            Some(self.0)
-        } else {
-            None
-        }
+        if pos.is_move_pseudolegal(self.0) { Some(self.0) } else { None }
     }
 
     pub fn check_legal(&self, pos: &B) -> Option<B::Move> {
-        if pos.is_move_legal(self.0) {
-            Some(self.0)
-        } else {
-            None
-        }
+        if pos.is_move_legal(self.0) { Some(self.0) } else { None }
     }
 
     pub fn trust_unchecked(self) -> B::Move {

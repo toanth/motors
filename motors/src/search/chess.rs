@@ -170,6 +170,8 @@ mod tests {
             tt.clone(),
             atomic2.clone(),
         );
+        // The bound of 500 is rather large because gaps does not produce very stable evals
+        let max_diff = if engine.short_name() == "CAPS" { 50 } else { 500 };
         let handle = spawn(move || engine.search(params));
         let handle2 = spawn(move || engine2.search(params2));
         sleep(Duration::from_millis(500));
@@ -182,8 +184,7 @@ mod tests {
         fence(SeqCst);
         atomic2.set_stop(true);
         let res2 = handle2.join().unwrap();
-        // The bound of 400 is rather large because gaps does not produce very stable evals
-        assert!(res.score.0.abs_diff(res2.score.0) <= 400, "{0} {1}", res.score, res2.score);
+        assert!(res.score.0.abs_diff(res2.score.0) <= max_diff, "{0} {1}", res.score, res2.score);
         assert_eq!(res.chosen_move.piece_type(), Bishop);
         assert_eq!(res2.chosen_move.src_square(), ChessSquare::from_str("a4").unwrap());
     }

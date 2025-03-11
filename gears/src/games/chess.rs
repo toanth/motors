@@ -138,8 +138,9 @@ pub struct Chessboard {
     piece_bbs: [ChessBitboard; NUM_CHESS_PIECES],
     color_bbs: [ChessBitboard; NUM_COLORS],
     threats: ChessBitboard,
-    ply: usize,
-    ply_100_ctr: usize,
+    checkers: ChessBitboard,
+    ply: u32,
+    ply_100_ctr: u8,
     active_player: ChessColor,
     castling: CastlingFlags,
     ep_square: Option<ChessSquare>, // eventually, see if using Optional and Noned instead of Option improves nps
@@ -192,6 +193,7 @@ impl Board for Chessboard {
             piece_bbs: Default::default(),
             color_bbs: Default::default(),
             threats: ChessBitboard::default(),
+            checkers: ChessBitboard::default(),
             ply: 0,
             ply_100_ctr: 0,
             active_player: White,
@@ -328,11 +330,11 @@ impl Board for Chessboard {
     }
 
     fn halfmove_ctr_since_start(&self) -> usize {
-        self.ply
+        self.ply as usize
     }
 
     fn halfmove_repetition_clock(&self) -> usize {
-        self.ply_100_ctr
+        self.ply_100_ctr as usize
     }
 
     fn size(&self) -> ChessboardSize {
@@ -652,7 +654,7 @@ impl Chessboard {
     /// TODO: Only set the ep square if there are legal en passants possible
     pub fn is_3fold_repetition<H: BoardHistory>(&self, history: &H) -> bool {
         // There's no need to test if the repetition is a checkmate, because checkmate positions can't repeat
-        n_fold_repetition(3, history, self.hash_pos(), self.ply_100_ctr)
+        n_fold_repetition(3, history, self.hash_pos(), self.halfmove_repetition_clock())
     }
 
     /// Check if the current position is a checkmate.
@@ -702,8 +704,7 @@ impl Chessboard {
     }
 
     pub fn is_in_check(&self) -> bool {
-        let generator = self.slider_generator();
-        self.is_in_check_on_square(self.active_player, self.king_square(self.active_player), &generator)
+        self.checkers.has_set_bit()
     }
 
     pub fn gives_check(&self, mov: ChessMove) -> bool {
@@ -904,9 +905,9 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         // from startpos, e.g. "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1"
         if this.ply_100_ctr > 100 {
             bail!("The 50 move rule has been exceeded (there have already been {0} plies played)", this.ply_100_ctr);
-        } else if this.ply >= 100_000 {
+        } else if this.ply >= 20_000 {
             bail!("Ridiculously large ply counter: {0}", this.ply);
-        } else if strictness == Strict && this.ply_100_ctr > this.ply {
+        } else if strictness == Strict && this.halfmove_repetition_clock() > this.halfmove_ctr_since_start() {
             bail!(
                 "The halfmove repetition clock ({0}) is larger than the number of played half moves ({1}), \
                 which is not allowed in strict mode",
@@ -1011,7 +1012,8 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 }
             }
         }
-        this.threats = this.calc_threats(this.inactive_player());
+        this.threats = this.calc_threats(this.inactive_player(), &this.slider_generator());
+        this.checkers = this.calc_checkers_of(this.inactive_player(), &this.slider_generator());
         Ok(this)
     }
 
@@ -1053,12 +1055,12 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
     }
 
     fn set_ply_since_start(&mut self, ply: usize) -> Res<()> {
-        self.0.ply = ply;
+        self.0.ply = u32::try_from(ply)?;
         Ok(())
     }
 
     fn set_halfmove_repetition_clock(&mut self, ply: usize) -> Res<()> {
-        self.0.ply_100_ctr = ply;
+        self.0.ply_100_ctr = u8::try_from(ply)?;
         Ok(())
     }
 }
@@ -1070,11 +1072,6 @@ impl UnverifiedChessboard {
 
     pub fn set_ep(mut self, ep: Option<ChessSquare>) -> Self {
         self.0.ep_square = ep;
-        self
-    }
-
-    pub fn set_halfmove_repetition_clock(mut self, ply: usize) -> Self {
-        self.0.ply_100_ctr = ply;
         self
     }
 }
@@ -1370,14 +1367,14 @@ mod tests {
         assert_ne!(new_hash, board.hash_pos());
         for (i, mov) in moves.iter().enumerate() {
             let hash = board.hash_pos();
-            assert_eq!(i > 3, n_fold_repetition(2, &hist, hash, board.ply_100_ctr));
-            assert_eq!(i > 7, n_fold_repetition(3, &hist, hash, board.ply_100_ctr));
+            assert_eq!(i > 3, n_fold_repetition(2, &hist, hash, board.halfmove_repetition_clock()));
+            assert_eq!(i > 7, n_fold_repetition(3, &hist, hash, board.halfmove_repetition_clock()));
             assert_eq!(i == 8, board.player_result_no_movegen(&hist).is_some_and(|r| r == Draw));
             hist.push(hash);
             let mov = ChessMove::from_compact_text(mov, &board).unwrap();
             board = board.make_move(mov).unwrap();
             assert_eq!(
-                n_fold_repetition(3, &hist, board.hash_pos(), board.ply_100_ctr),
+                n_fold_repetition(3, &hist, board.hash_pos(), board.halfmove_repetition_clock()),
                 board.is_3fold_repetition(&hist)
             );
             assert_eq!(board.is_3fold_repetition(&hist), board.player_result_no_movegen(&hist).is_some());
@@ -1460,7 +1457,7 @@ mod tests {
         let fen = "B4Q1b/8/8/8/2K3P1/5k2/8/b4RNB b - - 0 1"; // far too many checks, but we still accept it
         assert!(Chessboard::from_fen(fen, Strict).is_err());
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
-        assert_eq!(board.pseudolegal_moves().len(), 3 + 2 * 6);
+        assert!(board.pseudolegal_moves().len() <= 3 + 2 * 6);
         assert_eq!(board.legal_moves_slow().len(), 3);
         // maximum number of legal moves in any position reachable from startpos
         let fen = "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1";

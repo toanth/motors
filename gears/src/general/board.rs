@@ -36,7 +36,7 @@ use crate::output::OutputOpts;
 use crate::output::text_output::BoardFormatter;
 use crate::search::Depth;
 use crate::{GameOver, GameOverReason, MatchResult, PlayerResult, player_res_to_match_res};
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use rand::Rng;
@@ -587,7 +587,9 @@ pub trait BoardHelpers: Board {
     }
 
     /// Returns a list of pseudo legal moves, that is, moves which can either be played using
-    /// `make_move` or which will cause `make_move` to return `None`.
+    /// [`Self::make_move`] or which will cause `make_move` to return `None`.
+    /// Note that an implementation is allowed to filter out illegal pseudolegal moves, so this function does not
+    /// guarantee that e.g. all pseudolegal chess moves are being returned.
     fn pseudolegal_moves(&self) -> Self::MoveList {
         let mut moves = Self::MoveList::default();
         self.gen_pseudolegal(&mut moves);
@@ -650,7 +652,9 @@ pub trait BoardHelpers: Board {
     /// fail for a bug-free program; failure most likely means the `Board` implementation is bugged.
     /// For checking invariants that might be violated, use a `Board::Unverified` and call `verify_with_level`.
     fn debug_verify_invariants(self, strictness: Strictness) -> Res<Self> {
-        Self::Unverified::new(self).verify_with_level(Assertion, strictness)
+        let verified = Self::Unverified::new(self.clone()).verify_with_level(Assertion, strictness)?;
+        ensure!(verified == self, "Recalculated data doesn't match: Should be '{verified}' but is '{self}'");
+        Ok(verified)
     }
 
     /// Parses a move using [`Move::from_text`], then applies it on this board and returns the result.

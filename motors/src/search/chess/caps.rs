@@ -1520,8 +1520,6 @@ mod tests {
     use gears::games::chess::Chessboard;
     use gears::general::board::BoardHelpers;
     use gears::general::board::Strictness::{Relaxed, Strict};
-    #[cfg(not(debug_assertions))]
-    use gears::general::moves::ExtendedFormat::Standard;
     use gears::general::moves::UntrustedMove;
     use gears::search::NodesLimit;
 

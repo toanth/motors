@@ -511,8 +511,10 @@ impl Chessboard {
 
     /// Called at the end of [`Self::make_nullmove`] and [`Self::make_move`].
     pub(super) fn flip_side_to_move(mut self) -> Option<Self> {
-        self.threats = self.calc_threats(self.active_player);
-        if self.is_in_check() {
+        let slider_gen = self.slider_generator();
+        self.threats = self.calc_threats(self.active_player, &slider_gen);
+        self.checkers = self.calc_checkers_of(self.active_player, &slider_gen);
+        if self.calc_checkers_of(!self.active_player, &slider_gen).has_set_bit() {
             None
         } else {
             self.active_player = self.active_player.other();
