@@ -156,9 +156,11 @@ const CORRHIST_SCALE: isize = 256;
 
 #[derive(Debug, Clone)]
 struct CorrHist {
+    // TODO: Some or all of these tables could probably be reduced in size, especially the pawn history one
     pawns: Box<[[ScoreT; CORRHIST_SIZE]; NUM_COLORS]>,
     // the outer color index is the active player, the inner color is the color we're looking at
     nonpawns: Box<[[[ScoreT; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]>,
+    threats: Box<[[ScoreT; CORRHIST_SIZE]; NUM_COLORS]>,
 }
 
 impl Default for CorrHist {
@@ -166,11 +168,24 @@ impl Default for CorrHist {
         CorrHist {
             pawns: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]),
             nonpawns: Box::new([[[0; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]),
+            threats: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]),
         }
     }
 }
 
 impl CorrHist {
+    // uses the final mix step of the well-known murmur3 hash function in order to convert a bitboard to an index
+    // -- simply calculating 'bb modulo table size' would only consider the lowest bits of the bitboard
+    fn murmur3_idx(bb: ChessBitboard) -> usize {
+        let mut bb = bb.0;
+        bb ^= bb >> 33;
+        bb = bb.wrapping_mul(0xff51afd7ed558ccd);
+        bb ^= bb >> 33;
+        bb = bb.wrapping_mul(0xc4ceb9fe1a85ec53);
+        bb ^= bb >> 33;
+        bb as usize
+    }
+
     fn update_entry(entry: &mut ScoreT, weight: isize, bonus: isize) {
         let val = *entry as isize;
         let new_val = ((val * (CORRHIST_SCALE - weight) + bonus * weight) / CORRHIST_SCALE)
@@ -188,6 +203,8 @@ impl CorrHist {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             Self::update_entry(&mut self.nonpawns[color][nonpawn_idx][c], weight, bonus);
         }
+        let threat_idx = Self::murmur3_idx(pos.threats()) % CORRHIST_SIZE;
+        Self::update_entry(&mut self.threats[color][threat_idx], weight, bonus);
     }
 
     fn correct(&mut self, pos: &Chessboard, raw: Score) -> Score {
@@ -201,6 +218,8 @@ impl CorrHist {
             let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
             correction += self.nonpawns[color][nonpawn_idx][c] as isize / 2;
         }
+        let threat_idx = Self::murmur3_idx(pos.threats()) % CORRHIST_SIZE;
+        correction += self.threats[color][threat_idx] as isize / 2;
         let score = raw.0 as isize + correction / CORRHIST_SCALE;
         Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
     }
@@ -280,6 +299,9 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
             *value = 0;
         }
         for value in self.corr_hist.nonpawns.iter_mut().flatten().flatten() {
+            *value = 0;
+        }
+        for value in self.corr_hist.threats.iter_mut().flatten() {
             *value = 0;
         }
         self.root_move_nodes.clear();
