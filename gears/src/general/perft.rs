@@ -200,7 +200,16 @@ impl<B: Board> Hash for HashWrapper<B> {
 }
 
 pub fn num_unique_positions_at<B: Board>(depth: Depth, pos: B) -> usize {
-    let mut set = all_positions_at(depth, pos.clone()).map(|b| HashWrapper(b)).collect::<HashSet<_>>();
+    if depth.get() == 0 {
+        return 1;
+    }
+    let subtree_res =
+        pos.children().par_bridge().flat_map_iter(|c| all_positions_at(depth - 1, c).map(|b| HashWrapper(b)));
+    let mut set = subtree_res.collect::<HashSet<_>>();
+    // let mut set = all_positions_at(depth, pos.clone()).map(|b| HashWrapper(b)).collect::<HashSet<_>>();
+    for c in pos.children() {
+        _ = set.insert(HashWrapper(c));
+    }
     _ = set.insert(HashWrapper(pos));
     set.len()
 }
