@@ -120,7 +120,7 @@ impl Chessboard {
         }
     }
 
-    /// Used for checking castling legality:
+    /// Used for checking castling legality and verifying FENs:
     /// Pretend there is a king of color `us` at `square` and test if it is in check.
     pub fn is_in_check_on_square(&self, us: ChessColor, square: ChessSquare, generator: &ChessSliderGenerator) -> bool {
         (self.all_attacking(square, generator) & self.player_bb(us.other())).has_set_bit()
@@ -373,17 +373,13 @@ impl Chessboard {
             | Self::single_pawn_captures(White, square) & self.colored_piece_bb(Black, Pawn)
     }
 
-    pub(super) fn calc_checkers_of(&self, player: ChessColor, slider_gen: &ChessSliderGenerator) -> ChessBitboard {
-        self.all_attacking(self.king_square(!player), slider_gen) & self.player_bb(player)
-    }
-
     pub fn checkers(&self) -> ChessBitboard {
         self.checkers
     }
 
     /// Calculate a bitboard of all squares that are attacked by the given player.
     /// This only counts hypothetical captures, so no pawn pushes or castling moves.
-    pub(super) fn calc_threats(&self, player: ChessColor, slider_gen: &ChessSliderGenerator) -> ChessBitboard {
+    pub(super) fn calc_threats_of(&self, player: ChessColor, slider_gen: &ChessSliderGenerator) -> ChessBitboard {
         let mut res = Self::normal_king_attacks_from(self.king_square(player));
         for knight in self.colored_piece_bb(player, Knight).ones() {
             res |= Self::knight_attacks_from(knight);
@@ -399,5 +395,39 @@ impl Chessboard {
 
     pub fn threats(&self) -> ChessBitboard {
         self.threats
+    }
+
+    // This doesn't calculate checks from a king because those can't happen in a legal position, but
+    // this means that it can't be used to verify that a position is legal
+    pub fn set_checkers_and_pinned(&mut self) {
+        let us = self.active_player();
+        let their_bb = self.player_bb(!us);
+        let king = self.king_square(us);
+        let mut pinned = ChessBitboard::default();
+        let mut checkers = (Self::knight_attacks_from(king) & self.piece_bb(Knight))
+            | Self::single_pawn_captures(us, king) & self.colored_piece_bb(!us, Pawn);
+        let slider_gen = ChessSliderGenerator::new(their_bb);
+        let rook_sliders = (self.piece_bb(Rook) | self.piece_bb(Queen)) & their_bb;
+        let bishop_sliders = (self.piece_bb(Bishop) | self.piece_bb(Queen)) & their_bb;
+        for slider in (rook_sliders & slider_gen.rook_attacks(king)).ones() {
+            let on_ray =
+                ChessBitboard::ray_exclusive(slider, king, ChessboardSize::default()) & self.active_player_bb();
+            if on_ray.is_zero() {
+                checkers |= slider.bb();
+            } else if on_ray.is_single_piece() {
+                pinned |= slider.bb();
+            }
+        }
+        for slider in (bishop_sliders & slider_gen.bishop_attacks(king)).ones() {
+            let on_ray =
+                ChessBitboard::ray_exclusive(slider, king, ChessboardSize::default()) & self.active_player_bb();
+            if on_ray.is_zero() {
+                checkers |= slider.bb();
+            } else if on_ray.is_single_piece() {
+                pinned |= slider.bb();
+            }
+        }
+        self.checkers = checkers & self.player_bb(!us);
+        self.pinned = pinned;
     }
 }

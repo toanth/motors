@@ -139,6 +139,7 @@ pub struct Chessboard {
     color_bbs: [ChessBitboard; NUM_COLORS],
     threats: ChessBitboard,
     checkers: ChessBitboard,
+    pinned: ChessBitboard,
     ply: u32,
     ply_100_ctr: u8,
     active_player: ChessColor,
@@ -147,7 +148,8 @@ pub struct Chessboard {
     hashes: Hashes,
 }
 
-const _: () = assert!(size_of::<Chessboard>() == 128);
+// TODO: It might be worth it to use u32s for te non-main hashes so that the size can shrink down to 128 bytes
+const _: () = assert!(size_of::<Chessboard>() == 136);
 
 impl Default for Chessboard {
     fn default() -> Self {
@@ -194,6 +196,7 @@ impl Board for Chessboard {
             color_bbs: Default::default(),
             threats: ChessBitboard::default(),
             checkers: ChessBitboard::default(),
+            pinned: ChessBitboard::default(),
             ply: 0,
             ply_100_ctr: 0,
             active_player: White,
@@ -408,14 +411,14 @@ impl Board for Chessboard {
         self.flip_side_to_move()
     }
 
+    fn is_generated_move_pseudolegal(&self, mov: ChessMove) -> bool {
+        self.is_generated_move_pseudolegal_impl(mov)
+    }
+
     fn is_move_pseudolegal(&self, mov: ChessMove) -> bool {
         let res = self.is_move_pseudolegal_impl(mov);
         debug_assert!(!res || self.is_generated_move_pseudolegal(mov), "{mov:?} {self}");
         res
-    }
-
-    fn is_generated_move_pseudolegal(&self, mov: ChessMove) -> bool {
-        self.is_generated_move_pseudolegal_impl(mov)
     }
 
     fn player_result_no_movegen<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
@@ -886,21 +889,6 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 }
             }
         }
-        let inactive_player = this.active_player.other();
-
-        let generator = self.0.slider_generator();
-        if this.is_in_check_on_square(inactive_player, this.king_square(inactive_player), &generator) {
-            bail!("Player {inactive_player} is in check, but it's not their turn to move");
-        } else if strictness == Strict {
-            let checkers =
-                this.all_attacking(this.king_square(this.active_player), &generator) & this.inactive_player_bb();
-            let num_attacking = checkers.num_ones();
-            ensure!(
-                num_attacking <= 2,
-                "{} is in check from {num_attacking} pieces, which is not allowed in strict mode",
-                this.active_player
-            );
-        }
         // we allow loading FENs where more than one piece gives check to the king in a way that could not have been reached
         // from startpos, e.g. "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1"
         if this.ply_100_ctr > 100 {
@@ -967,6 +955,20 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         }
         this.hashes = this.compute_zobrist();
 
+        let inactive_player = this.active_player.other();
+        let slider_gen = this.slider_generator();
+        this.threats = this.calc_threats_of(this.inactive_player(), &slider_gen);
+        this.set_checkers_and_pinned();
+        if this.is_in_check_on_square(inactive_player, this.king_square(inactive_player), &slider_gen) {
+            bail!("Player {inactive_player} is in check, but it's not their turn to move");
+        } else if strictness == Strict {
+            let num_attacking = this.checkers.num_ones();
+            ensure!(
+                num_attacking <= 2,
+                "{} is in check from {num_attacking} pieces, which is not allowed in strict mode",
+                this.active_player
+            );
+        }
         // We check the ep square last because this can require doing movegen, which needs most invariants to hold.
         if let Some(ep_square) = this.ep_square {
             ensure!(
@@ -1012,8 +1014,6 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 }
             }
         }
-        this.threats = this.calc_threats(this.inactive_player(), &this.slider_generator());
-        this.checkers = this.calc_checkers_of(this.inactive_player(), &this.slider_generator());
         Ok(this)
     }
 
@@ -1208,6 +1208,7 @@ mod tests {
             "QQQQKQQQ\nwV0 \n",
             "kQQQQQDDw-W0w",
             "2rr2k1/1p4bp/p1q1pqp1/4Pp1n/2PB4/1PN3P1/P3Q2P/2Rr2K1 w - f6 0 20",
+            "7r/8/8/8/8/1k4P1/1K6/8 w - - 3 3",
         ];
         for fen in fens {
             let pos = Chessboard::from_fen(fen, Relaxed);
