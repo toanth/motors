@@ -1124,7 +1124,7 @@ impl Caps {
                     reduction += 1;
                 }
                 // this ensures that check extensions prevent going into qsearch while in check
-                reduction = reduction.min(depth - 1);
+                reduction = reduction.clamp(0, depth - 1);
 
                 score = -self.negamax(new_pos, ply + 1, depth - 1 - reduction, -(alpha + 1), -alpha, FailHigh)?;
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
