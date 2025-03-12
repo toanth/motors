@@ -1481,7 +1481,7 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
     fn score_move_eager_part(&self, mov: ChessMove, state: &CapsState) -> MoveScore {
         // The move list is iterated backwards, which is why better moves get higher scores
         // No need to check against the TT move because that's already handled by the move picker
-        if mov == state.search_stack[self.ply].killer {
+        if mov == state.search_stack[self.ply].killer && !mov.is_tactical(&self.board) {
             KILLER_SCORE
         } else if !mov.is_tactical(&self.board) {
             let countermove_score = if self.ply > 0 {
