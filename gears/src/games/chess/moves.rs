@@ -6,7 +6,6 @@ use std::str::FromStr;
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use itertools::Itertools;
-use num::iter;
 use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, FromRepr};
 
@@ -16,7 +15,7 @@ use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType};
-use crate::games::chess::squares::{C_FILE_NO, ChessSquare, D_FILE_NO, F_FILE_NO, G_FILE_NO};
+use crate::games::chess::squares::{C_FILE_NO, ChessSquare, ChessboardSize, D_FILE_NO, F_FILE_NO, G_FILE_NO};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{
@@ -27,7 +26,6 @@ use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, BoardHelpers};
 use crate::general::common::Res;
-use crate::general::hq::ChessSliderGenerator;
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::PseudoLegal;
 use crate::general::moves::{ExtendedFormat, Legality, Move, UntrustedMove};
@@ -263,8 +261,7 @@ impl Move<Chessboard> for ChessMove {
         }
         let piece = self.piece(board);
         let moves = board
-            // we have to use .pseudolegal instead of legal moves here because that's what the rules demand.
-            .pseudolegal_moves()
+            .legal_moves_slow()
             .into_iter()
             .filter(|mov| {
                 mov.piece(board).symbol == piece.symbol
@@ -443,6 +440,9 @@ impl Chessboard {
         prefetch(new_hash ^ PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key); // TODO: Remove?
         prefetch(new_hash);
         debug_assert_eq!(us, mov.piece(&self).color().unwrap());
+        if !self.maybe_legal(mov) {
+            return None;
+        }
         self.ply_100_ctr += 1;
         if piece == Pawn {
             self.hashes.pawns ^= hash_delta;
@@ -463,6 +463,11 @@ impl Chessboard {
             self.remove_piece_unchecked(taken_pawn, Pawn, them);
             self.hashes.pawns ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(Pawn, them, taken_pawn);
             self.ply_100_ctr = 0;
+            self.move_piece(from, to, Pawn);
+            if self.is_in_check_on_square(us, self.king_square(us), &self.slider_generator()) {
+                return None;
+            }
+            self.move_piece(to, from, Pawn); // TODO: Less ridiculous implementation
         } else if mov.is_non_ep_capture(&self) {
             let captured = self.piece_type_on(to);
             debug_assert_eq!(self.colored_piece_on(to).color().unwrap(), them);
@@ -512,20 +517,19 @@ impl Chessboard {
     /// Called at the end of [`Self::make_nullmove`] and [`Self::make_move`].
     pub(super) fn flip_side_to_move(mut self) -> Option<Self> {
         let slider_gen = self.slider_generator();
-        if self.is_in_check_on_square(self.active_player, self.king_square(self.active_player), &slider_gen) {
-            None
-        } else {
-            self.active_player = self.active_player.other();
-            self.threats = self.calc_threats_of(self.inactive_player(), &slider_gen);
-            self.set_checkers_and_pinned();
-            debug_assert_eq!(self.hashes, self.compute_zobrist());
-            Some(self)
-        }
+        debug_assert!(
+            !self.is_in_check_on_square(self.active_player, self.king_square(self.active_player), &slider_gen),
+            "{self}"
+        );
+        self.active_player = self.active_player.other();
+        self.threats = self.calc_threats_of(self.inactive_player(), &slider_gen);
+        self.set_checkers_and_pinned();
+        debug_assert_eq!(self.hashes, self.compute_zobrist());
+        Some(self)
     }
 
     fn do_castle(&mut self, mov: ChessMove, from: ChessSquare, to: &mut ChessSquare) -> Option<()> {
         let color = self.active_player;
-        let from_file = from.file() as isize;
         let rook_file = to.file() as isize;
         let (side, to_file, rook_to_file) = if mov.flags() == CastleKingside {
             (Kingside, G_FILE_NO, F_FILE_NO)
@@ -544,21 +548,13 @@ impl Chessboard {
                 && rook_file == self.castling.rook_start_file(color, Queenside) as isize
         );
 
-        // Explicitly test if the current square is in check in case the following for loop is empty
-        // because the king doesn't move -- in that case, testing for check after the castle might obscure the
-        // check with the rook, e.g. black in 'rbbqQ1kr/1p2p1pp/p5n1/2pp1p2/2P4P/P7/BP1PPPP1/R1B1NNKR b HAha - 0 10'
-        if self.is_in_check() {
+        let king_ray = ChessBitboard::ray_inclusive(
+            mov.src_square(),
+            ChessSquare::from_rank_file(from.rank(), to_file),
+            ChessboardSize::default(),
+        );
+        if (king_ray & self.threats).has_set_bit() {
             return None;
-        }
-        let generator = ChessSliderGenerator::new(self.occupied_bb());
-        // This works even for DFRC castling because the king is always placed between the rooks
-        let step = if side == Kingside { 1 } else { -1 };
-        // no need to test for check on the target square as that will be done at the end of this function after
-        // the rook has moved
-        for file in iter::range_step(from_file + step, to_file as isize, step) {
-            if self.is_in_check_on_square(color, ChessSquare::from_rank_file(from.rank(), file as DimT), &generator) {
-                return None;
-            }
         }
         let rook_from = self.rook_start_square(color, side);
         let rook_to = ChessSquare::from_rank_file(from.rank(), rook_to_file);
@@ -571,7 +567,15 @@ impl Chessboard {
         *to = ChessSquare::from_rank_file(from.rank(), to_file);
         delta ^= PRECOMPUTED_ZOBRIST_KEYS.piece_key(King, color, *to);
         self.hashes.nonpawns[color] ^= delta;
-        Some(())
+        if self.is_in_check_on_square(
+            self.active_player,
+            ChessSquare::from_rank_file(from.rank(), to_file),
+            &self.slider_generator(),
+        ) {
+            None
+        } else {
+            Some(())
+        }
     }
 }
 
@@ -900,6 +904,7 @@ impl<'a> MoveParser<'a> {
         }
 
         // assert_ne!(self.piece, Pawn); // Pawns aren't written as `p` in SAN, but the parser still accepts this.
+        let original_piece = self.piece;
         if self.piece == Empty {
             self.piece = Pawn;
         }
@@ -916,7 +921,7 @@ impl<'a> MoveParser<'a> {
             .into_iter()
             .filter(|mov| self.is_pseudolegal(mov) && board.is_pseudolegal_move_legal(*mov));
         let res = match moves.next() {
-            None => self.error_msg(board)?,
+            None => self.error_msg(board, original_piece)?,
             Some(mov) => {
                 if let Some(other) = moves.next() {
                     bail!(
@@ -945,8 +950,7 @@ impl<'a> MoveParser<'a> {
             && self.promotion == mov.promo_piece()
     }
 
-    fn error_msg(&self, board: &Chessboard) -> Res<ChessMove> {
-        let original_piece = self.piece;
+    fn error_msg(&self, board: &Chessboard, original_piece: ChessPieceType) -> Res<ChessMove> {
         // invalid move, try to print a helpful error message
         let f = |file: Option<DimT>, rank: Option<DimT>| {
             if let Some(file) = file {
@@ -1052,6 +1056,7 @@ mod tests {
     use crate::games::chess::pieces::ChessPieceType;
     use crate::games::chess::squares::ChessSquare;
     use crate::games::generic_tests;
+    use crate::general::bitboards::RawBitboard;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::board::UnverifiedBoard;
@@ -1079,7 +1084,7 @@ mod tests {
             ("🨅e4", "e4"),
             ("♚f2", "Kf2"),
             ("♖b8+", "Rb8+"),
-            ("Rb7d7", "Rbd7"), // even though the move Rd1d7 isn't legal, it's still necessary to disambiguate with Rbd7
+            ("Rb7d7", "Rd7"), // the move Rd1d7 is pseudolegal but not legal, so it shouldn't be disambiguated
             ("gf8:🨂", "gxf8=R"),
             (":d8🨂 checkmate", "exd8=R#"),
             ("exf♘", "exf8=N"),
@@ -1091,9 +1096,15 @@ mod tests {
             ("N3a5", "Nba5"),
         ];
         let pos = Chessboard::from_name("unusual").unwrap();
+        {
+            let pos = pos.make_move_from_str("Rb8").unwrap();
+            assert!(pos.checkers.has_set_bit());
+            assert!(!pos.legal_moves_slow().is_empty());
+        }
         for (input, output) in transformations {
             let mov = ChessMove::from_extended_text(input, &pos).unwrap();
-            assert_eq!(mov.to_extended_text(&pos, Standard), output);
+            let extended = mov.to_extended_text(&pos, Standard);
+            assert_eq!(extended, output);
             assert_eq!(ChessMove::from_extended_text(&mov.to_extended_text(&pos, Alternative), &pos).unwrap(), mov);
         }
     }

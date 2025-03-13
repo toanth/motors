@@ -319,7 +319,7 @@ impl Board for Chessboard {
             // mate in 15 that stronger engines tend to miss (even lichess SF only finds a mate in 17 with max parameters)
             "5k2/1p5Q/p2r1qp1/P1p1RpN1/2P5/3P3P/5PP1/6K1 b - - 0 56",
         ];
-        let mut res = fens.map(|fen| Self::from_fen(fen, Strict).unwrap()).iter().copied().collect_vec();
+        let mut res = fens.into_iter().map(|fen| Self::from_fen(fen, Strict).unwrap()).collect_vec();
         res.extend(Self::name_to_pos_map().iter().filter(|e| e.strictness == Strict).map(|e| e.create::<Chessboard>()));
         res
     }
@@ -400,6 +400,9 @@ impl Board for Chessboard {
     }
 
     fn make_nullmove(mut self) -> Option<Self> {
+        if self.checkers.has_set_bit() {
+            return None;
+        }
         self.ply += 1;
         // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove
         self.ply_100_ctr = 0;
@@ -1408,7 +1411,7 @@ mod tests {
         assert!(pos.is_in_check());
         assert!(pos.is_in_check_on_square(White, pos.king_square(White), &pos.slider_generator()));
         let moves = pos.pseudolegal_moves();
-        assert!(!moves.is_empty());
+        assert!(moves.is_empty()); // we don't even generate moves anymore here
         let moves = pos.legal_moves_slow();
         assert!(moves.is_empty());
         assert!(pos.is_game_lost_slow());

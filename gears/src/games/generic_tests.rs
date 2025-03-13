@@ -7,8 +7,8 @@ use crate::general::moves::ExtendedFormat::{Alternative, Standard};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::Move;
 use itertools::Itertools;
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use std::collections::{HashSet, VecDeque};
 use std::marker::PhantomData;
 
@@ -48,6 +48,7 @@ impl<B: Board> GenericTests<B> {
             let pos = pos.create::<B>();
             for mov in pos.legal_moves_slow() {
                 for format in [Standard, Alternative] {
+                    println!("{} {pos}", mov.compact_formatter(&pos));
                     let encoded = mov.to_extended_text(&pos, format);
                     let decoded = B::Move::from_extended_text(&encoded, &pos);
                     assert!(decoded.is_ok());

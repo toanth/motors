@@ -434,9 +434,11 @@ pub trait Board:
         self.is_move_pseudolegal(mov)
     }
 
-    /// Returns true iff the move is pseudolegal, that is, it can be played with `make_move` without
+    /// Returns true iff the move is pseudolegal, that is, it can be played with [`Self::make_move`] without
     /// causing a panic. When it is not certain that a move is definitely (pseudo)legal for the current position,
     /// `Untrusted<Move>` should be used.
+    /// Note that it is possible for a move to be considered pseudolegal even though [`Self::pseudolegal_moves`]
+    /// would not generate it (but such a move would never be legal)
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool;
 
     /// Returns true iff the move is legal, that is, if it is pseudolegal and playing it with `make_move`

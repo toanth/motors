@@ -616,6 +616,7 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
 
     #[test]
     fn lots_of_checks() {
+        // from <https://timkr.home.xs4all.nl/records/records.htm>
         let pgn = r#"[Variant "From Position"]
             [FEN "4r1Q1/B2nr3/5b2/8/4p3/4KbNq/ppppppp1/RR3Nkn w - - 0 1"]
             1. Nh2+??  (1. Nxe2+ Bxe2+ 2. Qg3 Nxg3 3. Nxg3+ axb1=Q 4. Rxb1+ cxb1=Q 5. Kf4 Qh6+ 6. Kf5 Re5#)(1.Nxd2{is also possible:)})
