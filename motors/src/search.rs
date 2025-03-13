@@ -267,9 +267,20 @@ pub type EvalList<B> = EntityList<Box<dyn AbstractEvalBuilder<B>>>;
 /// There are two related concepts: `Engine` and `Searcher`.
 /// A searcher is an algorithm like caps or gaps, an engine is a searcher plus an eval.
 pub trait AbstractSearcherBuilder<B: Board>: NamedEntity + DynClone {
-    fn build_in_new_thread(&self, eval: Box<dyn Eval<B>>) -> (Sender<EngineReceives<B>>, EngineInfo);
+    fn build_in_new_thread(&self, eval: Box<dyn Eval<B>>) -> (Sender<EngineReceives<B>>, EngineInfo) {
+        let engine = self.build_for_eval(eval);
+        let info = engine.engine_info();
+        let (sender, receiver) = unbounded();
+        let mut thread = EngineThread::new(engine, receiver);
+        _ = spawn(move || thread.main_loop());
+        (sender, info)
+    }
 
-    fn build(&self, eval_builder: &dyn AbstractEvalBuilder<B>) -> Box<dyn Engine<B>>;
+    fn build(&self, eval_builder: &dyn AbstractEvalBuilder<B>) -> Box<dyn Engine<B>> {
+        self.build_for_eval(eval_builder.build())
+    }
+
+    fn build_for_eval(&self, eval: Box<dyn Eval<B>>) -> Box<dyn Engine<B>>;
 }
 
 pub type SearcherList<B> = EntityList<Box<dyn AbstractSearcherBuilder<B>>>;
@@ -299,17 +310,8 @@ impl<B: Board, E: Engine<B>> SearcherBuilder<B, E> {
 }
 
 impl<B: Board, E: Engine<B>> AbstractSearcherBuilder<B> for SearcherBuilder<B, E> {
-    fn build_in_new_thread(&self, eval: Box<dyn Eval<B>>) -> (Sender<EngineReceives<B>>, EngineInfo) {
-        let engine = E::with_eval(eval);
-        let info = engine.engine_info();
-        let (sender, receiver) = unbounded();
-        let mut thread = EngineThread::new(engine, receiver);
-        _ = spawn(move || thread.main_loop());
-        (sender, info)
-    }
-
-    fn build(&self, eval_builder: &dyn AbstractEvalBuilder<B>) -> Box<dyn Engine<B>> {
-        Box::new(E::with_eval(eval_builder.build()))
+    fn build_for_eval(&self, eval: Box<dyn Eval<B>>) -> Box<dyn Engine<B>> {
+        Box::new(E::with_eval(eval))
     }
 }
 
@@ -830,7 +832,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
     }
 
     fn to_search_info(&self) -> SearchInfo<B> {
-        SearchInfo {
+        let mut res = SearchInfo {
             best_move_of_all_pvs: self.best_move(),
             depth: self.depth(),
             seldepth: self.seldepth(),
@@ -843,8 +845,16 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
             hashfull: self.estimate_hashfull(),
             pos: self.params.pos.clone(),
             bound: self.cur_pv_data().bound,
+            num_threads: 1,
             additional: Self::additional(),
+        };
+        if let Main(data) = &self.params.thread_type {
+            let shared = data.shared_atomic_state();
+            res.nodes = NodesLimit::new(shared.iter().map(|d| d.nodes()).sum()).unwrap();
+            res.seldepth = shared.iter().map(|d| d.seldepth()).max().unwrap();
+            res.num_threads = shared.len();
         }
+        res
     }
 
     fn aggregated_statistics(&self) -> Statistics {

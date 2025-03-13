@@ -8,30 +8,30 @@ use itertools::Itertools;
 use rand::rng;
 
 use crate::cli::PlayerArgs::{Engine, Human};
-use crate::cli::{parse_engine, parse_human, HumanArgs, PlayerArgs};
+use crate::cli::{HumanArgs, PlayerArgs, parse_engine, parse_human};
 use crate::play::player::{Player, PlayerBuilder};
 use crate::play::ugi_client::Client;
 use crate::play::ugi_input::BestMoveAction::Play;
 use crate::ui::text_input::DefaultPlayer::{Active, Inactive, NoPlayer};
 use crate::ui::{Input, InputBuilder};
+use gears::MatchStatus::{Ongoing, Over};
 use gears::colored::Colorize;
 use gears::games::Color;
 use gears::general::board::Strictness::Relaxed;
 use gears::general::board::{Board, BoardHelpers};
-use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Description::{NoDescription, WithDescription};
+use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
-    parse_int_from_str, select_name_static, to_name_and_optional_description, tokens, NamedEntity, Res,
-    StaticallyNamedEntity, Tokens,
+    NamedEntity, Res, StaticallyNamedEntity, Tokens, parse_int_from_str, select_name_static,
+    to_name_and_optional_description, tokens,
 };
 use gears::general::moves::ExtendedFormat::Alternative;
 use gears::general::moves::Move;
 use gears::output::Message::{Info, Warning};
 use gears::output::OutputOpts;
 use gears::search::TimeControl;
-use gears::ugi::{parse_ugi_position_part, EngineOption};
-use gears::MatchStatus::{Ongoing, Over};
-use gears::{output_builder_from_str, GameState};
+use gears::ugi::{EngineOption, parse_ugi_position_part};
+use gears::{GameState, output_builder_from_str};
 
 // TODO: Unify with motors `Command`, probably move to gears
 struct TextSelection<F> {
@@ -87,43 +87,111 @@ impl<B: Board> TextInputThread<B> {
             // created here so that this isn't done each time the user inputs something (which probably wouldn't matter
             // either, but I like this more)
             commands: vec![
-                sel_descr(vec!["quit"], |mut client, _| {
-                    client.quit_program();
-                    Ok(())
-                }, "Exits the entire program"),
-                sel_descr(vec!["abort", "resign"], |mut client, _| {
-                    client.abort_match();
-                    Ok(())
-                }, "Aborts the current match"),
-                sel_descr(vec!["stop"], |client, words| Self::handle_stop(client, words), "If an engine is currently thinking, tell it to stop and play the move it thinks is best"),
-                sel_descr(vec!["restart"], |mut client, _| {
-                    client.restart();
-                    Ok(())
-                }, "Restart the current match"),
-                sel_descr(vec!["flip"], |mut client, _| {
-                    client.flip_players();
-                    Ok(())
-                }, "Makes the players switch sides"),
-                sel_descr(vec!["moves"], |client, _| {
-                    Self::list_moves(client);
-                    Ok(())
-                }, "Lists all legal moves in the current position"),
-                sel_descr(vec!["random"], |client, _| Self::random_move(client), "Plays a random legal move in the current position"),
-                sel_descr(vec!["undo", "takeback"], |client, words| Self::handle_undo(client, words), "Takes back the last n half moves (default: n = 1), e.g. 'undo 2'"),
-                sel_descr(vec!["ui", "output"], |client, words| Self::handle_ui(client, words), "Set or add outputs, e.g. 'ui ascii' or 'ui add fen'"),
-                sel_descr(vec!["next_match"], |mut client, _| {
-                    client.restart_flipped_colors();
-                    Ok(())
-                }, "Restarts the match with flipped colors"),
-                sel_descr(vec!["print", "show"], |client, words| Self::handle_print(client, words), "Shows the current state of the match, using the specified output, e.g. 'show' or 'print pgn'"),
-                sel_descr(vec!["info"], |client, words| Self::handle_info(client, words), "Print general information about the given player, e.g. 'info' or 'info black'"),
-                sel_descr(vec!["set_player"], |client, words| Self::handle_set_player(client, words), "Set a player, e.g. 'set_player white human'."),
-                sel_descr(vec!["load_player"], |_, _| panic!("This should've been handled manually'"), "Load a new player, which will then be available to play, such as by using 'set_player'"),
-                sel_descr(vec!["position"], |client, words| Self::handle_position(client, words), "Set the current position, e.g. 'position fen <fen>'"),
-                sel_descr(vec!["tc", "time"], |client, words| Self::handle_tc(client, words), "Set the time control of a player, given in seconds, e.g. 'tc white 300+3' or 'tc black 8+0.08'"),
-                sel_descr(vec!["ugi", "uci", "send_ugi", "send_uci"], |client, words| Self::handle_send_ugi(client, words), "Manually send a UGI command to an engine, e.g 'ugi white go depth 3'. Note that this can very easily crash the engine and is only intended as a developer tool."),
+                sel_descr(
+                    vec!["quit"],
+                    |mut client, _| {
+                        client.quit_program();
+                        Ok(())
+                    },
+                    "Exits the entire program",
+                ),
+                sel_descr(
+                    vec!["abort", "resign"],
+                    |mut client, _| {
+                        client.abort_match();
+                        Ok(())
+                    },
+                    "Aborts the current match",
+                ),
+                sel_descr(
+                    vec!["stop"],
+                    |client, words| Self::handle_stop(client, words),
+                    "If an engine is currently thinking, tell it to stop and play the move it thinks is best",
+                ),
+                sel_descr(
+                    vec!["restart"],
+                    |mut client, _| {
+                        client.restart();
+                        Ok(())
+                    },
+                    "Restart the current match",
+                ),
+                sel_descr(
+                    vec!["flip"],
+                    |mut client, _| {
+                        client.flip_players();
+                        Ok(())
+                    },
+                    "Makes the players switch sides",
+                ),
+                sel_descr(
+                    vec!["moves"],
+                    |client, _| {
+                        Self::list_moves(client);
+                        Ok(())
+                    },
+                    "Lists all legal moves in the current position",
+                ),
+                sel_descr(
+                    vec!["random"],
+                    |client, _| Self::random_move(client),
+                    "Plays a random legal move in the current position",
+                ),
+                sel_descr(
+                    vec!["undo", "takeback"],
+                    |client, words| Self::handle_undo(client, words),
+                    "Takes back the last n half moves (default: n = 1), e.g. 'undo 2'",
+                ),
+                sel_descr(
+                    vec!["ui", "output"],
+                    |client, words| Self::handle_ui(client, words),
+                    "Set or add outputs, e.g. 'ui ascii' or 'ui add fen'",
+                ),
+                sel_descr(
+                    vec!["next_match"],
+                    |mut client, _| {
+                        client.restart_flipped_colors();
+                        Ok(())
+                    },
+                    "Restarts the match with flipped colors",
+                ),
+                sel_descr(
+                    vec!["print", "show"],
+                    |client, words| Self::handle_print(client, words),
+                    "Shows the current state of the match, using the specified output, e.g. 'show' or 'print pgn'",
+                ),
+                sel_descr(
+                    vec!["info"],
+                    |client, words| Self::handle_info(client, words),
+                    "Print general information about the given player, e.g. 'info' or 'info black'",
+                ),
+                sel_descr(
+                    vec!["set_player"],
+                    |client, words| Self::handle_set_player(client, words),
+                    "Set a player, e.g. 'set_player white human'.",
+                ),
+                sel_descr(
+                    vec!["load_player"],
+                    |_, _| panic!("This should've been handled manually'"),
+                    "Load a new player, which will then be available to play, such as by using 'set_player'",
+                ),
+                sel_descr(
+                    vec!["position"],
+                    |client, words| Self::handle_position(client, words),
+                    "Set the current position, e.g. 'position fen <fen>'",
+                ),
+                sel_descr(
+                    vec!["tc", "time"],
+                    |client, words| Self::handle_tc(client, words),
+                    "Set the time control of a player, given in seconds, e.g. 'tc white 300+3' or 'tc black 8+0.08'",
+                ),
+                sel_descr(
+                    vec!["ugi", "uci", "send_ugi", "send_uci"],
+                    |client, words| Self::handle_send_ugi(client, words),
+                    "Manually send a UGI command to an engine, e.g 'ugi white go depth 3'. Note that this can very easily crash the engine and is only intended as a developer tool.",
+                ),
                 sel_descr(vec![""], |_, _| Ok(()), "Empty commands are ignored"),
-            ]
+            ],
         };
         loop {
             let mut input = String::new();
@@ -179,7 +247,7 @@ impl<B: Board> TextInputThread<B> {
                 }
                 Err(err) => {
                     let func = select_name_static(command, self.commands.iter(), "command", &B::game_name(), NoDescription)
-                        .map_err(|msg| anyhow!("'{command}' is not a pseudolegal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?
+                        .map_err(|msg| anyhow!("'{command}' is not a legal move: {err}.\nIt's also not a command: {msg}\nType 'help' for more information."))?
                         .func;
                     func(client, &mut words)?;
                 }
@@ -206,7 +274,9 @@ impl<B: Board> TextInputThread<B> {
                 .unwrap_or("No description available");
             println!("{desc}");
         } else {
-            println!("Input either a move (most formats based on algebraic notation are recognized) or a command. Valid commands are:");
+            println!(
+                "Input either a move (most formats based on algebraic notation are recognized) or a command. Valid commands are:"
+            );
             for cmd in commands {
                 println!(
                     "{:25}  {description}",
@@ -345,7 +415,9 @@ impl<B: Board> TextInputThread<B> {
         if found {
             bail!("The player '{name}' is already playing in this match")
         } else {
-            bail!("No player with the given name '{name}' found. Maybe you need to load this player first (type 'load_player <options>')")
+            bail!(
+                "No player with the given name '{name}' found. Maybe you need to load this player first (type 'load_player <options>')"
+            )
         }
     }
 

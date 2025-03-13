@@ -372,6 +372,7 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
                     hashfull: 0,
                     pos: root,
                     bound: Some(Exact),
+                    num_threads: 1,
                     additional: None,
                 };
                 o.write_search_info(info);

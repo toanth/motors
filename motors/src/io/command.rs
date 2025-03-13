@@ -522,6 +522,7 @@ pub struct GenericGoState {
     pub threads: Option<usize>,
     pub search_type: SearchType,
     pub complete: bool,
+    pub unique: bool,
     pub move_overhead: Duration,
     pub strictness: Strictness,
     pub override_hash_size: Option<usize>,
@@ -571,6 +572,7 @@ impl<B: Board> GoState<B> {
                 threads: None,
                 search_type,
                 complete: false,
+                unique: false,
                 move_overhead,
                 strictness,
                 override_hash_size: None,
@@ -759,14 +761,27 @@ pub(super) fn go_options_impl(
                 "Use the given engine without modifying the current engine's state",
                 |state, words, _| state.go_state_mut().set_engine(words)
             ),
-            command!(complete | all, Custom, "Run bench / perft on all bench positions", |state, _, _| {
+        ];
+        // this checks only the mode that `go_options` is called for, but it can be changed through args (eg `go perft`),
+        // which is why there's another check when actually handling it. Still, the first check prevents it from showing up in completion suggestion.
+        if mode.is_none_or(|m| [Bench, Perft].iter().contains(&m)) {
+            res.push(command!(complete | all, Custom, "Run bench / perft on all bench positions", |state, _, _| {
                 if ![Bench, Perft].contains(&state.go_state_mut().get_mut().search_type) {
                     bail!("The 'all' option can only be used with 'bench' or 'perft' searches")
                 }
                 state.go_state_mut().get_mut().complete = true;
                 Ok(())
-            }),
-        ];
+            }));
+        }
+        if mode.is_none_or(|m| m == Perft) {
+            res.push(command!(unique, Custom, "Only count unique positions in perft", |state, _, _| {
+                if state.go_state_mut().get_mut().search_type != Perft {
+                    bail!("The 'all' option can only be used with 'perft' searches")
+                }
+                state.go_state_mut().get_mut().unique = true;
+                Ok(())
+            }));
+        }
         res.append(&mut additional);
     }
     res

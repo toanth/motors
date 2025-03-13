@@ -259,8 +259,6 @@ impl Name {
 }
 
 pub type EntityList<T> = Vec<T>;
-// T is usually of a dyn trait
-pub type DynEntityList<T> = Vec<Box<T>>;
 
 // TODO: Rework, description should be required
 #[derive(Debug)]

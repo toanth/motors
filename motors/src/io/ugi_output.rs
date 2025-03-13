@@ -49,6 +49,7 @@ struct TypeErasedSearchInfo {
     pv_num: usize,
     score: Score,
     hashfull: usize,
+    num_threads: f64,
     bound: Option<NodeType>,
 }
 
@@ -62,6 +63,7 @@ impl TypeErasedSearchInfo {
             pv_num: info.pv_num,
             score: info.score,
             hashfull: info.hashfull,
+            num_threads: info.num_threads as f64,
             bound: info.bound,
         }
     }
@@ -74,7 +76,7 @@ impl TypeErasedSearchInfo {
             return 0.0; // I hate NaNs.
         }
         // subtract the depth to not count the root node, which means the branching factor for depth 1 is the number of legal moves
-        ((self.nodes.get() - depth) as f64).powf(1.0 / depth as f64)
+        ((self.nodes.get() - depth) as f64 / self.num_threads).powf(1.0 / depth as f64)
     }
 }
 
@@ -190,7 +192,7 @@ impl TypeErasedUgiOutput {
             " ".repeat(8)
         };
         let nps = nodes as f64 / 1_000_000.0 / time;
-        let nps_color = self.alt_grad.at(nps as f32 / 4.0);
+        let nps_color = self.alt_grad.at((nps / (4.0 * info.num_threads)) as f32);
         let [r, g, b, _] = nps_color.to_rgba8();
         let nps = format!("{nps:5.2}").color(TrueColor { r, g, b }).dimmed();
         let time_badness = 1.0 - (time + 1.0).log2() / 10.0;

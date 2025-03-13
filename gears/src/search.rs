@@ -1,8 +1,9 @@
 use crate::general::board::Board;
-use crate::general::common::{parse_fp_from_str, Res};
+use crate::general::common::{Res, parse_fp_from_str};
 use crate::general::moves::Move;
 use crate::score::Score;
 use crate::search::MpvType::{MainOfMultiple, OnlyLine, SecondaryLine};
+use NodeType::*;
 use anyhow::{anyhow, bail};
 use colored::{ColoredString, Colorize};
 use derive_more::{Add, AddAssign, SubAssign};
@@ -13,7 +14,6 @@ use std::ops::Sub;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 use strum_macros::FromRepr;
-use NodeType::*;
 
 pub const MAX_DEPTH: Depth = Depth(10_000);
 
@@ -146,6 +146,7 @@ pub struct SearchInfo<'a, B: Board> {
     pub hashfull: usize,
     pub pos: B,
     pub bound: Option<NodeType>,
+    pub num_threads: usize,
     pub additional: Option<String>,
 }
 
@@ -164,6 +165,7 @@ impl<B: Board> Default for SearchInfo<'_, B> {
             hashfull: 0,
             pos: B::default(),
             bound: None,
+            num_threads: 1,
             additional: None,
         }
     }
@@ -172,11 +174,7 @@ impl<B: Board> Default for SearchInfo<'_, B> {
 impl<B: Board> SearchInfo<'_, B> {
     pub fn nps(&self) -> usize {
         let micros = self.time.as_micros() as f64;
-        if micros == 0.0 {
-            0
-        } else {
-            ((self.nodes.get() as f64 * 1_000_000.0) / micros) as usize
-        }
+        if micros == 0.0 { 0 } else { ((self.nodes.get() as f64 * 1_000_000.0) / micros) as usize }
     }
 
     pub fn mpv_type(&self) -> MpvType {
@@ -197,16 +195,17 @@ impl<B: Board> Display for SearchInfo<'_, B> {
             Exact => "",
             FailLow => " upperbound",
         };
-        write!(f,
-               "info depth {depth} seldepth {seldepth} multipv {multipv} score {score}{bound} time {time} nodes {nodes} nps {nps} hashfull {hashfull} pv",
-               depth = self.depth.get(),
-               score = self.score,
-               time = self.time.as_millis(),
-               nodes = self.nodes.get(),
-               seldepth = self.seldepth.0,
-               multipv = self.pv_num + 1,
-               nps = self.nps(),
-               hashfull = self.hashfull,
+        write!(
+            f,
+            "info depth {depth} seldepth {seldepth} multipv {multipv} score {score}{bound} time {time} nodes {nodes} nps {nps} hashfull {hashfull} pv",
+            depth = self.depth.get(),
+            score = self.score,
+            time = self.time.as_millis(),
+            nodes = self.nodes.get(),
+            seldepth = self.seldepth.0,
+            multipv = self.pv_num + 1,
+            nps = self.nps(),
+            hashfull = self.hashfull,
         )?;
         let mut pos = self.pos.clone();
         for &mov in self.pv {
@@ -284,8 +283,8 @@ impl TimeControl {
         if !self.is_infinite() {
             self.remaining += self.increment;
             self.remaining -= elapsed; // In this order to avoid computing negative intermediate values (which panics)
-                                       // TODO: This probably still panics when remaining + increment - elapsed is less than 0 but greater than -time_margin.
-                                       // TODO: Handle movestogo
+            // TODO: This probably still panics when remaining + increment - elapsed is less than 0 but greater than -time_margin.
+            // TODO: Handle movestogo
         }
     }
 
@@ -420,11 +419,7 @@ impl Display for SearchLimit {
         if self.mate != Depth::new(0) {
             limits.push(format!("mate in {} plies", self.mate.get()));
         }
-        if limits.len() == 1 {
-            write!(f, "{}", limits[0])
-        } else {
-            write!(f, "[{}]", limits.iter().format(","))
-        }
+        if limits.len() == 1 { write!(f, "{}", limits[0]) } else { write!(f, "[{}]", limits.iter().format(",")) }
     }
 }
 

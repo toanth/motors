@@ -55,7 +55,7 @@ use gears::general::common::{
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
-use gears::general::perft::{perft_for, split_perft};
+use gears::general::perft::{num_unique_positions_at, perft_for, split_perft};
 use gears::itertools::Itertools;
 use gears::output::Message::*;
 use gears::output::logger::LoggerBuilder;
@@ -697,13 +697,20 @@ impl<B: Board> EngineUGI<B> {
                 return self.bench(limit, &bench_positions);
             }
             Perft => {
-                let positions = if opts.complete { B::bench_positions() } else { vec![board] };
+                let positions = if opts.complete { B::bench_positions() } else { vec![board.clone()] };
                 let threads = opts.threads.unwrap_or(0);
                 if threads > 1 {
                     bail!("For 'perft' runs, the 'Threads' options can only be used to set threads to 1")
                 }
                 for i in 1..=limit.depth.get() {
-                    self.output().write_ugi(&format_args!("{}", perft_for(Depth::new(i), &positions, threads != 1)))
+                    if opts.unique {
+                        self.output().write_ugi(&format_args!(
+                            "# unique positions at depth {i}: {}",
+                            num_unique_positions_at(Depth::new(i), board.clone()).to_string().bold()
+                        ))
+                    } else {
+                        self.output().write_ugi(&format_args!("{}", perft_for(Depth::new(i), &positions, threads != 1)))
+                    }
                 }
             }
             SplitPerft => {
