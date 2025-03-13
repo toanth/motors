@@ -5,12 +5,12 @@ use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::moves::{ChessMove, ChessMoveFlags};
 use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
-use crate::games::chess::squares::{ChessSquare, ChessboardSize};
+use crate::games::chess::squares::{C_FILE_NO, ChessSquare, ChessboardSize, G_FILE_NO};
 use crate::games::chess::{ChessBitboardTrait, ChessColor, Chessboard, PAWN_CAPTURES};
 use crate::games::{Board, Color, ColoredPieceType};
 use crate::general::bitboards::chessboard::{ChessBitboard, KINGS, KNIGHTS};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
-use crate::general::board::BitboardBoard;
+use crate::general::board::{BitboardBoard, BoardHelpers};
 use crate::general::hq::ChessSliderGenerator;
 use crate::general::move_list::MoveList;
 use crate::general::squares::RectangularCoordinates;
@@ -448,34 +448,43 @@ impl Chessboard {
         self.pinned = pinned;
     }
 
-    // May return `true` for a move that turns out to be illegal, but never returns `false` for a legal move.
-    // Assumes that the move is pseudolegal, so we don't need to re-check conditions that are already checked in
-    // is_move_pseudolegal and `is_generated_move_pseudolegal`, like not moving the king into check
-    pub(super) fn maybe_legal(&self, mov: ChessMove) -> bool {
+    pub(super) fn is_pseudolegal_legal_impl(&self, mov: ChessMove) -> bool {
         if mov.piece_type() == King {
-            if !mov.is_castle() {
-                // checked later
+            if mov.is_castle() {
+                let side = if mov.flags() == CastleKingside { Kingside } else { Queenside };
+                let to_file = if mov.flags() == CastleKingside { G_FILE_NO } else { C_FILE_NO };
+                let king_ray = ChessBitboard::ray_inclusive(
+                    mov.src_square(),
+                    ChessSquare::from_rank_file(mov.src_square().rank(), to_file),
+                    ChessboardSize::default(),
+                );
+                (king_ray & self.threats).is_zero()
+                    && !self.pinned.is_bit_set(self.rook_start_square(self.active_player(), side))
+            } else {
                 let dest = mov.dest_square();
                 debug_assert!(!self.threats.is_bit_set(dest));
-                if self.checkers().has_set_bit() {
-                    let slider_gen =
-                        ChessSliderGenerator::new(self.occupied_bb() ^ self.colored_piece_bb(self.active_player, King));
-                    let rook_sliders = (self.piece_bb(Rook) | self.piece_bb(Queen)) & self.inactive_player_bb();
-                    let bishop_sliders = (self.piece_bb(Bishop) | self.piece_bb(Queen)) & self.inactive_player_bb();
-                    return (rook_sliders & slider_gen.rook_attacks(dest)
-                        | bishop_sliders & slider_gen.bishop_attacks(dest))
-                    .is_zero();
+                if self.checkers().is_zero() {
+                    return true;
                 }
+                let slider_gen =
+                    ChessSliderGenerator::new(self.occupied_bb() ^ self.colored_piece_bb(self.active_player, King));
+                let rook_sliders = (self.piece_bb(Rook) | self.piece_bb(Queen)) & self.inactive_player_bb();
+                let bishop_sliders = (self.piece_bb(Bishop) | self.piece_bb(Queen)) & self.inactive_player_bb();
+                (rook_sliders & slider_gen.rook_attacks(dest) | bishop_sliders & slider_gen.bishop_attacks(dest))
+                    .is_zero()
             }
         } else {
             let king_sq = self.king_square(self.active_player);
             debug_assert!(!self.checkers().more_than_one_bit_set());
             let src = mov.src_square();
-            if self.checkers().has_set_bit() {
+            if mov.is_ep() {
+                let mut b = *self;
+                b.remove_piece_unchecked(mov.square_of_pawn_taken_by_ep().unwrap(), Pawn, self.inactive_player());
+                b.move_piece(mov.src_square(), mov.dest_square(), Pawn);
+                return !b.is_in_check_on_square(b.active_player(), king_sq, &b.slider_generator());
+            } else if self.checkers().has_set_bit() {
                 if self.pinned.is_bit_set(src) {
                     return false;
-                } else if mov.is_ep() {
-                    return true; // checked later
                 }
                 let checker = ChessSquare::from_bb_index(self.checkers().pop_lsb());
                 let ray = ChessBitboard::ray_inclusive(checker, king_sq, ChessboardSize::default());
@@ -487,9 +496,8 @@ impl Chessboard {
                 let pin_ray = ChessBitboard::ray_inclusive(pinning, king_sq, ChessboardSize::default());
                 return pin_ray.is_bit_set(mov.dest_square());
             }
+            true
         }
-        // some special cases, like ep captures, are checked for legality when making the move
-        true
     }
 }
 

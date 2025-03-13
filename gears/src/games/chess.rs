@@ -396,7 +396,10 @@ impl Board for Chessboard {
     }
 
     fn make_move(self, mov: Self::Move) -> Option<Self> {
-        self.make_move_impl(mov, |_hash| ())
+        if !self.is_move_legal(mov) {
+            return None;
+        }
+        Some(self.make_move_impl(mov, |_hash| ()))
     }
 
     fn make_nullmove(mut self) -> Option<Self> {
@@ -411,7 +414,7 @@ impl Board for Chessboard {
             self.ep_square = None;
         }
         self.hashes.total ^= PRECOMPUTED_ZOBRIST_KEYS.side_to_move_key;
-        self.flip_side_to_move()
+        Some(self.flip_side_to_move())
     }
 
     fn is_generated_move_pseudolegal(&self, mov: ChessMove) -> bool {
@@ -422,6 +425,10 @@ impl Board for Chessboard {
         let res = self.is_move_pseudolegal_impl(mov);
         debug_assert!(!res || self.is_generated_move_pseudolegal(mov), "{mov:?} {self}");
         res
+    }
+
+    fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {
+        self.is_pseudolegal_legal_impl(mov)
     }
 
     fn player_result_no_movegen<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {

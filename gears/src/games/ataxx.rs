@@ -286,6 +286,9 @@ impl Board for AtaxxBoard {
     }
 
     fn make_move(self, mov: Self::Move) -> Option<Self> {
+        if !self.is_pseudolegal_move_legal(mov) {
+            return None;
+        }
         Some(self.make_move_impl(mov))
     }
 
