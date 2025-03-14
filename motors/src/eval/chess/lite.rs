@@ -223,6 +223,26 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         result
     }
 
+    fn pins_and_discovered_checks(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
+        let mut score = Tuned::Score::default();
+        let their_king = pos.king_square(!color);
+        let blockers = pos.occupied_bb();
+        let rook_sliders = (pos.piece_bb(Rook) | pos.piece_bb(Queen)) & pos.player_bb(color);
+        for piece in rook_sliders.ones() {
+            let ray = ChessBitboard::ray_exclusive(piece, their_king, ChessboardSize::default());
+            let blockers = ray & blockers;
+            if blockers.is_single_piece() {
+                let piece = pos.piece_type_on(blockers.ones().next().unwrap());
+                if (blockers & pos.player_bb(color)).has_set_bit() {
+                    score += Tuned::discovered_check(piece);
+                } else {
+                    score += Tuned::pin(piece)
+                }
+            }
+        }
+        score
+    }
+
     fn mobility_and_threats(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let generator = pos.slider_generator();
@@ -277,6 +297,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Self::open_lines(pos, color);
             // score += Self::outposts(pos, color);
             score += Self::mobility_and_threats(pos, color);
+            score += Self::pins_and_discovered_checks(pos, color);
             score = -score;
         }
         score
