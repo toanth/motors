@@ -4,11 +4,11 @@ use crate::eval::write_phased_with_width;
 use crate::gd::{Float, Weight};
 use crate::load_data::{Filter, ParseResult};
 use crate::trace::{BasicTrace, SimpleTrace, TraceNFeatures};
+use gears::games::Color;
+use gears::games::chess::ChessColor::White;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
-use gears::games::chess::ChessColor::White;
 use gears::games::chess::{ChessColor, Chessboard};
-use gears::games::Color;
 use gears::general::bitboards::{Bitboard, RawBitboard};
 use gears::general::board::BitboardBoard;
 use motors::eval::chess::CHESS_PHASE_VALUES;
@@ -24,11 +24,7 @@ pub struct SkipChecks {}
 impl Filter<Chessboard> for SkipChecks {
     #[expect(refining_impl_trait)]
     fn filter(pos: ParseResult<Chessboard>) -> Option<ParseResult<Chessboard>> {
-        if pos.pos.is_in_check() {
-            None
-        } else {
-            Some(pos)
-        }
+        if pos.pos.is_in_check() { None } else { Some(pos) }
     }
 }
 
@@ -58,7 +54,7 @@ fn psqt_trace(pos: &Chessboard) -> TraceNFeatures<NUM_PSQT_FEATURES> {
     trace.phase = chess_phase(pos);
     for color in ChessColor::iter() {
         for piece in ChessPieceType::pieces() {
-            let bb = pos.colored_piece_bb(color, piece);
+            let bb = pos.col_piece_bb(color, piece);
             for square in bb.ones() {
                 let idx = to_feature_idx(piece, color, square);
                 trace.increment(idx, color);

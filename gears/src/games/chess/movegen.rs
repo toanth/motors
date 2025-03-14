@@ -35,10 +35,10 @@ impl Chessboard {
         captures | pushes
     }
 
-    /// Castling moves can be special: For example, it's possible that a normal king move is legal, but a
+    /// This doesn't include castle moves and pawn pushes because those can never capture and are generally special:
+    /// For example, it's possible that a normal king move is legal, but a
     /// chess960 castling move with the same source and dest square as the normal king move isn't, or the other way around.
-    /// For pawns, there's a difference between attacks and pushes, and this function ignores pushes.
-    pub fn attacks_no_castle_or_pawn_push(
+    pub fn threatening_attacks(
         &self,
         square: ChessSquare,
         piece: ChessPieceType,
@@ -73,7 +73,7 @@ impl Chessboard {
         let piece = flags.piece_type();
         let src = mov.src_square();
         let color = self.active_player;
-        if !self.colored_piece_bb(color, piece).is_bit_set_at(src.bb_idx()) {
+        if !self.col_piece_bb(color, piece).is_bit_set_at(src.bb_idx()) {
             return false;
         }
         if mov.is_castle() {
@@ -88,7 +88,7 @@ impl Chessboard {
                     .is_bit_set_at(mov.dest_square().bb_idx())
         } else {
             let generator = self.slider_generator();
-            (self.attacks_no_castle_or_pawn_push(src, mov.piece_type(), color, &generator) & !self.active_player_bb())
+            (self.threatening_attacks(src, mov.piece_type(), color, &generator) & !self.active_player_bb())
                 .is_bit_set_at(mov.dest_square().bb_idx())
         }
     }
@@ -99,7 +99,7 @@ impl Chessboard {
         let us = self.active_player;
         let src = mov.src_square();
         let piece = mov.flags().piece_type();
-        if !self.colored_piece_bb(us, piece).is_bit_set_at(src.bb_idx()) {
+        if !self.col_piece_bb(us, piece).is_bit_set_at(src.bb_idx()) {
             // this check is still necessary because otherwise we could e.g. accept a move with piece 'bishop' from a queen.
             return false;
         }
@@ -152,7 +152,7 @@ impl Chessboard {
 
     fn gen_pawn_moves<T: MoveList<Self>>(&self, moves: &mut T, only_tactical: bool) {
         let color = self.active_player;
-        let pawns = self.colored_piece_bb(color, Pawn);
+        let pawns = self.col_piece_bb(color, Pawn);
         let occupied = self.occupied_bb();
         let free = !occupied;
         let opponent = self.player_bb(color.other());
@@ -201,7 +201,7 @@ impl Chessboard {
     fn is_castling_pseudolegal(&self, side: CastleRight) -> bool {
         let color = self.active_player;
         let king_square = self.king_square(color);
-        let king = self.colored_piece_bb(color, King);
+        let king = self.col_piece_bb(color, King);
         // Castling, handling the general (D)FRC case.
         let king_file = king_square.file() as usize;
         const KING_QUEENSIDE_BB: [ChessBitboard; 8] = [
@@ -290,7 +290,7 @@ impl Chessboard {
     }
 
     fn gen_knight_moves<T: MoveList<Self>>(&self, moves: &mut T, filter: ChessBitboard) {
-        let knights = self.colored_piece_bb(self.active_player, Knight);
+        let knights = self.col_piece_bb(self.active_player, Knight);
         for from in knights.ones() {
             let attacks = Self::knight_attacks_from(from) & filter;
             for to in attacks.ones() {
@@ -314,7 +314,7 @@ impl Chessboard {
             Queen
         };
         let color = self.active_player;
-        let pieces = self.colored_piece_bb(color, piece);
+        let pieces = self.col_piece_bb(color, piece);
         for from in pieces.ones() {
             let attacks = match piece {
                 Bishop => generator.bishop_attacks(from),
@@ -369,8 +369,8 @@ impl Chessboard {
             | bishop_sliders & slider_gen.bishop_attacks(square)
             | (Self::knight_attacks_from(square) & self.piece_bb(Knight))
             | (Self::normal_king_attacks_from(square) & self.piece_bb(King))
-            | Self::single_pawn_captures(Black, square) & self.colored_piece_bb(White, Pawn)
-            | Self::single_pawn_captures(White, square) & self.colored_piece_bb(Black, Pawn)
+            | Self::single_pawn_captures(Black, square) & self.col_piece_bb(White, Pawn)
+            | Self::single_pawn_captures(White, square) & self.col_piece_bb(Black, Pawn)
     }
 
     pub(super) fn calc_checkers_of(&self, player: ChessColor, slider_gen: &ChessSliderGenerator) -> ChessBitboard {
@@ -385,7 +385,7 @@ impl Chessboard {
     /// This only counts hypothetical captures, so no pawn pushes or castling moves.
     pub(super) fn calc_threats(&self, player: ChessColor, slider_gen: &ChessSliderGenerator) -> ChessBitboard {
         let mut res = Self::normal_king_attacks_from(self.king_square(player));
-        for knight in self.colored_piece_bb(player, Knight).ones() {
+        for knight in self.col_piece_bb(player, Knight).ones() {
             res |= Self::knight_attacks_from(knight);
         }
         let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
@@ -393,7 +393,7 @@ impl Chessboard {
         let us = self.player_bb(player);
         res |= slider_gen.all_bishop_attacks(bishop_sliders & us);
         res |= slider_gen.all_rook_attacks(rook_sliders & us);
-        res |= self.colored_piece_bb(player, Pawn).pawn_attacks(player);
+        res |= self.col_piece_bb(player, Pawn).pawn_attacks(player);
         res
     }
 
