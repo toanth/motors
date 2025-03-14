@@ -135,23 +135,19 @@ impl ChessSliderGenerator {
     // However, in normal chess positions there are rarely more than 3 rook/bishop sliders per side, so Kogge-Stone is probably
     // still slower than this approach.
     pub fn all_bishop_attacks(&self, bishop_sliders: ChessBitboard) -> ChessBitboard {
-        let mut res = U64AndRev::default();
+        let mut res = ChessBitboard::default();
         for square in bishop_sliders.ones() {
-            let data = &CHESS_HQ_DATA[square.bb_idx()];
-            res = res | self.hq(Diagonal, data);
-            res = res | self.hq(AntiDiagonal, data);
+            res |= self.bishop_attacks(square);
         }
-        Self::finish(res)
+        res
     }
 
-    pub fn all_rook_attacks(&self, bishop_sliders: ChessBitboard) -> ChessBitboard {
-        let mut vertical = U64AndRev::default();
-        let mut horizontal = ChessBitboard::default();
-        for square in bishop_sliders.ones() {
-            vertical = vertical | self.hq(Vertical, &CHESS_HQ_DATA[square.bb_idx()]);
-            horizontal = horizontal | self.horizontal_attacks(square);
+    pub fn all_rook_attacks(&self, rook_sliders: ChessBitboard) -> ChessBitboard {
+        let mut res = ChessBitboard::default();
+        for square in rook_sliders.ones() {
+            res |= self.rook_attacks(square);
         }
-        Self::finish(vertical) | horizontal
+        res
     }
 }
 

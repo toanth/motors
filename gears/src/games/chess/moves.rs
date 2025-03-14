@@ -6,7 +6,6 @@ use std::str::FromStr;
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use itertools::Itertools;
-use num::iter;
 use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, FromRepr};
 
@@ -16,7 +15,7 @@ use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType};
-use crate::games::chess::squares::{C_FILE_NO, ChessSquare, D_FILE_NO, F_FILE_NO, G_FILE_NO};
+use crate::games::chess::squares::{C_FILE_NO, ChessSquare, ChessboardSize, D_FILE_NO, F_FILE_NO, G_FILE_NO};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{
@@ -27,7 +26,6 @@ use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, BoardHelpers};
 use crate::general::common::Res;
-use crate::general::hq::ChessSliderGenerator;
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::PseudoLegal;
 use crate::general::moves::{ExtendedFormat, Legality, Move, UntrustedMove};
@@ -525,7 +523,6 @@ impl Chessboard {
 
     fn do_castle(&mut self, mov: ChessMove, from: ChessSquare, to: &mut ChessSquare) -> Option<()> {
         let color = self.active_player;
-        let from_file = from.file() as isize;
         let rook_file = to.file() as isize;
         let (side, to_file, rook_to_file) = if mov.flags() == CastleKingside {
             (Kingside, G_FILE_NO, F_FILE_NO)
@@ -544,21 +541,13 @@ impl Chessboard {
                 && rook_file == self.castling.rook_start_file(color, Queenside) as isize
         );
 
-        // Explicitly test if the current square is in check in case the following for loop is empty
-        // because the king doesn't move -- in that case, testing for check after the castle might obscure the
-        // check with the rook, e.g. black in 'rbbqQ1kr/1p2p1pp/p5n1/2pp1p2/2P4P/P7/BP1PPPP1/R1B1NNKR b HAha - 0 10'
-        if self.is_in_check() {
+        let king_ray = ChessBitboard::ray_inclusive(
+            from,
+            ChessSquare::from_rank_file(from.rank(), to_file),
+            ChessboardSize::default(),
+        );
+        if (king_ray & self.threats()).has_set_bit() {
             return None;
-        }
-        let generator = ChessSliderGenerator::new(self.occupied_bb());
-        // This works even for DFRC castling because the king is always placed between the rooks
-        let step = if side == Kingside { 1 } else { -1 };
-        // no need to test for check on the target square as that will be done at the end of this function after
-        // the rook has moved
-        for file in iter::range_step(from_file + step, to_file as isize, step) {
-            if self.is_in_check_on_square(color, ChessSquare::from_rank_file(from.rank(), file as DimT), &generator) {
-                return None;
-            }
         }
         let rook_from = self.rook_start_square(color, side);
         let rook_to = ChessSquare::from_rank_file(from.rank(), rook_to_file);
