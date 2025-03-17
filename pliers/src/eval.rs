@@ -6,8 +6,8 @@
 use crate::eval::Direction::{Down, Up};
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
-    cp_eval_for_weights, cp_to_wr, default_sample_loss, Batch, Datapoint, DefaultOptimizer, Float, LossGradient,
-    Optimizer, Outcome, ScalingFactor, Weight, Weights,
+    Batch, Datapoint, DefaultOptimizer, Float, LossGradient, Optimizer, Outcome, PosIndex, ScalingFactor, Weight,
+    Weights, cp_eval_for_weights, cp_to_wr, default_sample_loss,
 };
 use crate::load_data::Filter;
 use crate::trace::TraceTrait;
@@ -117,7 +117,7 @@ pub fn write_2d_range_phased(
 pub fn count_occurrences<D: Datapoint>(batch: Batch<D>) -> Vec<Float> {
     let mut res = vec![0.0; batch.num_weights];
     for datapoint in batch.iter() {
-        for feature in datapoint.features() {
+        for feature in datapoint.weights() {
             res[feature.idx] += feature.weight.abs() * datapoint.sampling_weight();
         }
     }
@@ -216,6 +216,16 @@ pub trait WeightsInterpretation {
     /// can be called to help implement this.
     fn display(&self) -> fn(f: &mut Formatter, weights: &Weights, old_weights: &[Weight]) -> std::fmt::Result;
 
+    /// Returns a textual description of a feature given by its index.
+    ///
+    /// By default, this is simply the feature index.
+    fn feature_name(feature_idx: usize) -> String
+    where
+        Self: Sized,
+    {
+        format!("{feature_idx}")
+    }
+
     /// The eval scale is used to convert a [centipawn score](  gd::CpScore) in `(-∞, ∞)` to a winrate prediction
     /// in `(-1, 1)`.
     ///
@@ -313,8 +323,8 @@ pub trait Eval<B: Board>: WeightsInterpretation + Default {
     /// These features get then turned into weights, which are tuned automatically.
     /// Although it is possible to implement this method directly, the recommended route is to implement
     /// [`feature_trace`](Self::feature_trace) instead.
-    fn extract_features(pos: &B, outcome: Outcome, weight: Float) -> Self::D {
-        Self::D::new(Self::feature_trace(pos), outcome, weight)
+    fn extract_features(pos: &B, outcome: Outcome, index: PosIndex, weight: Float) -> Self::D {
+        Self::D::new(Self::feature_trace(pos), outcome, index, weight)
     }
 
     /// Converts a position into a [trace](TraceTrait).
@@ -395,10 +405,12 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
     println!("Optimizing scaling factor for eval:\n{}", display(eval, weights, &[]));
     // First, do exponential search to find an interval in which we know that the optimal value lies.
     loop {
-        assert!(!(scale >= 1e9 || scale <= 1e-9),
+        assert!(
+            !(scale >= 1e9 || scale <= 1e-9),
             "The eval scale doesn't seem to converge. This may be due to a bugged eval implementation or simply \
             because the eval fails to accurately predict the used datasets. You can always fall back to hand-picking an \
-            eval scale in case this doesn't work, or try again with different datasets");
+            eval scale in case this doesn't work, or try again with different datasets"
+        );
         let (dir, _loss) = grad_for_eval_scale(weights, batch, scale);
         if prev_dir.is_none() {
             prev_dir = Some(dir);

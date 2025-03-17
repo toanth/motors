@@ -1,7 +1,9 @@
 use std::fmt::Display;
 
 use crate::eval::chess::lite_values::*;
-use crate::eval::chess::{DiagonalOpenness, FileOpenness, pawn_shield_idx};
+use crate::eval::chess::{
+    DiagonalOpenness, FileOpenness, pawn_advanced_center_idx, pawn_passive_center_idx, pawn_shield_idx,
+};
 use gears::games::Color;
 use gears::games::chess::ChessColor::{Black, White};
 use gears::games::chess::moves::ChessMove;
@@ -164,6 +166,18 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
+    fn pawn_center(pos: &Chessboard) -> Tuned::Score {
+        let mut score = Tuned::Score::default();
+        for color in ChessColor::iter() {
+            let advanced_idx = pawn_advanced_center_idx(pos.colored_piece_bb(color, Pawn), color);
+            let passive_idx = pawn_passive_center_idx(pos.colored_piece_bb(color, Pawn), color);
+            score += Tuned::pawn_advanced_center(advanced_idx);
+            score += Tuned::pawn_passive_center(passive_idx);
+            score = -score;
+        }
+        score
+    }
+
     fn pawns_for(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
         let our_pawns = pos.colored_piece_bb(color, Pawn);
         let their_pawns = pos.colored_piece_bb(color.other(), Pawn);
@@ -190,7 +204,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     }
 
     fn pawns(pos: &Chessboard) -> Tuned::Score {
-        Self::pawns_for(pos, White) - Self::pawns_for(pos, Black)
+        Self::pawn_center(pos) + Self::pawns_for(pos, White) - Self::pawns_for(pos, Black)
     }
 
     fn open_lines(pos: &Chessboard, color: ChessColor) -> Tuned::Score {

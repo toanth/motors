@@ -95,17 +95,15 @@
 extern crate core;
 
 use crate::eval::EvalScale::{InitialWeights, Scale};
-use crate::eval::{count_occurrences, display, Eval};
-use crate::gd::{
-    optimize_dataset, print_optimized_weights, Datapoint, Dataset, DefaultOptimizer, Optimizer, Weight, Weights,
-};
+use crate::eval::{Eval, count_occurrences, display};
+use crate::gd::{Datapoint, DefaultOptimizer, Optimizer, Weight, Weights, optimize_dataset, print_optimized_weights};
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
 use gears::colored::Colorize;
 use gears::games::chess::Chessboard;
 use gears::general::board::{Board, BoardHelpers};
-use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Res;
+use gears::general::common::anyhow::{anyhow, bail};
 use serde_json::from_reader;
 use std::env::args;
 use std::fs::File;
@@ -189,16 +187,13 @@ pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
 ) -> Res<()> {
     #[cfg(debug_assertions)]
     println!("Running in debug mode. Run in release mode for increased performance.");
-    let mut dataset = Dataset::new(E::num_weights());
-    for file in file_list {
-        dataset.union(FenReader::<B, E>::load_from_file(file)?);
-    }
+    let mut dataset = FenReader::<B, E>::load_from_file_list(file_list, Some(20.0))?;
     let e = E::default();
     let batch = dataset.as_batch();
     let scale = e.eval_scale().to_scaling_factor(batch, &e);
     let mut optimizer = O::new(batch, scale);
 
-    let num_all_features = batch.datapoints.iter().map(|d| d.features().count()).sum::<usize>();
+    let num_all_features = batch.datapoints.iter().map(|d| d.weights().count()).sum::<usize>();
     let average = num_all_features as f64 / batch.datapoints.len() as f64;
     println!("\nAverage Number of Features per Position: {}\n", format!("{average:.3}").bold());
 
@@ -233,7 +228,7 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
     println!(
         "There are {0} weights and {1} out of {2} active features",
         weights.len(),
-        dataset.data()[0].features().count(),
+        dataset.data()[0].weights().count(),
         E::num_features()
     );
     print_optimized_weights(&weights, dataset.as_batch(), scale, &e);
@@ -253,16 +248,16 @@ mod tests {
 
     use crate::eval::chess::piston_eval::PistonEval;
     use crate::gd::{
-        cp_eval_for_weights, cp_to_wr, loss_for, quadratic_sample_loss, Adam, AdamW, CpScore, CrossEntropyLoss, Float,
-        Outcome, QuadraticLoss,
+        Adam, AdamW, CpScore, CrossEntropyLoss, Float, Outcome, QuadraticLoss, cp_eval_for_weights, cp_to_wr, loss_for,
+        quadratic_sample_loss,
     };
     use crate::load_data::Perspective::SideToMove;
-    use gears::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
-    use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
+    use ChessPieceType::*;
     use gears::games::chess::ChessColor::White;
     use gears::games::chess::ChessSettings;
+    use gears::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
+    use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
     use gears::games::{AbstractPieceType, CharType, ColoredPieceType};
-    use ChessPieceType::*;
 
     #[test]
     pub fn two_chess_positions_test() {
@@ -274,8 +269,8 @@ mod tests {
         assert_eq!(positions.data()[1].outcome(), Outcome::new(1.0));
         assert_eq!(positions.num_weights(), NUM_PIECE_SQUARE_ENTRIES * 2);
         // the kings are on mirrored positions and cancel each other out
-        assert_eq!(positions.data()[0].features().count(), 0);
-        assert_eq!(positions.data()[1].features().count(), 2); // 1 feature per phases
+        assert_eq!(positions.data()[0].weights().count(), 0);
+        assert_eq!(positions.data()[1].weights().count(), 2); // 1 feature per phases
         let batch = positions.batch(0, 1);
         let eval_scale = 100.0;
         let mut optimizer = AdamW::<CrossEntropyLoss>::new(batch, eval_scale);

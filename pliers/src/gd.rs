@@ -1,6 +1,7 @@
 //! Everything related to the actual optimization, using a Gradient Descent-based tuner ([`Adam`] by default).
 
-use crate::eval::{count_occurrences, display, interpolate, WeightsInterpretation};
+use crate::eval::{WeightsInterpretation, count_occurrences, display, interpolate};
+use crate::load_data::FeatureAppearance;
 use crate::trace::TraceTrait;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
 use gears::colored::Colorize;
@@ -254,7 +255,7 @@ impl Div<Float> for Weights {
 
 impl Weights {
     fn update<D: Datapoint>(&mut self, data_point: &D, factor: Float) {
-        for feature in data_point.features() {
+        for feature in data_point.weights() {
             self[feature.idx].0 += feature.weight * factor;
         }
     }
@@ -301,11 +302,11 @@ impl Feature {
 
 /// Struct used for tuning.
 ///
-/// Each [`WeightedFeature`] of a [`Datapoint`] is multiplied by the corresponding current eval weight and added up
+/// Each weight in an [`IndexedWeight`] of a [`Datapoint`] is multiplied by the corresponding current eval weight and added up
 /// to compute the [`CpScore`]. Users should not generally need to worry about this, unless they want to implement
 /// their own tuning algorithm.
 #[derive(Debug, Copy, Clone)]
-pub struct WeightedFeature {
+pub struct IndexedWeight {
     /// The weight of this entry.
     pub weight: Float,
     /// The index of the *weight* that this entry corresponds to.
@@ -313,11 +314,15 @@ pub struct WeightedFeature {
     pub idx: usize,
 }
 
-impl WeightedFeature {
+impl IndexedWeight {
     fn new(idx: usize, weight: Float) -> Self {
         Self { weight, idx }
     }
 }
+
+/// The index of a datapoint in the entire dataset
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct PosIndex(pub usize);
 
 /// Represents a single position.
 ///
@@ -330,21 +335,36 @@ pub trait Datapoint: Clone + Send + Sync {
     ///
     /// The `weight` is used for downweighting samples, but of the three provided trait implementations,
     /// only [`WeightedDatapoint`] cares about this. It should rarely be needed.
-    fn new<T: TraceTrait>(trace: T, outcome: Outcome, weight: Float) -> Self {
-        Self::new_from_features(trace.as_features(0), trace.phase(), outcome, weight)
+    fn new<T: TraceTrait>(trace: T, outcome: Outcome, index: PosIndex, weight: Float) -> Self {
+        Self::new_from_features(trace.as_features(0), trace.phase(), outcome, index, weight)
     }
 
-    /// Create a new datapoint from a list of features, phase, outcome and weight (only needed for [`WeightedDatapoint`]).
-    fn new_from_features(features: Vec<Feature>, phase: Float, outcome: Outcome, weight: Float) -> Self;
+    /// Create a new datapoint from a list of features, phase, outcome, index and weight (only needed for [`WeightedDatapoint`]).
+    fn new_from_features(
+        features: Vec<Feature>,
+        phase: Float,
+        outcome: Outcome,
+        index: PosIndex,
+        weight: Float,
+    ) -> Self;
 
     /// The outcome of this position, a [win rate prediction](Outcome) between `0` and `1`.
     fn outcome(&self) -> Outcome;
 
-    /// The list of weighted features that appear in this position.
+    /// Returns the globally unique index of this datapoint (data points don't have to be numbered condecutively
+    /// because filtering can remove some data points).
+    fn index(&self) -> PosIndex;
+
+    /// The list of weights that appear in this position.
     ///
     /// This weight can depend on the general weight of this datapoint as well as on the phase tapering factor
     /// for a tapered eval.
-    fn features(&self) -> impl Iterator<Item = WeightedFeature>;
+    fn weights(&self) -> impl Iterator<Item = IndexedWeight>;
+
+    /// The feature index that an [`IndexedWeight`] corresponds to
+    fn feature_idx(weight: IndexedWeight) -> usize {
+        weight.idx / Self::num_weights_per_feature()
+    }
 
     /// Into how many weights does a feature get transformed? For a [`TaperedDatapoint`], this is the number of phases (2),
     /// for a non-tapered datapoint this is 1.
@@ -368,19 +388,31 @@ pub struct NonTaperedDatapoint {
     pub features: Vec<Feature>,
     /// The win rate prediction of the FEN (can be based on a WDL result or an engine's score).
     pub outcome: Outcome,
+    /// The globally unique index of this datapoint
+    pub index: PosIndex,
 }
 
 impl Datapoint for NonTaperedDatapoint {
-    fn new_from_features(features: Vec<Feature>, _phase: Float, outcome: Outcome, _weight: Float) -> Self {
-        Self { features, outcome }
+    fn new_from_features(
+        features: Vec<Feature>,
+        _phase: Float,
+        outcome: Outcome,
+        index: PosIndex,
+        _weight: Float,
+    ) -> Self {
+        Self { features, outcome, index }
     }
 
     fn outcome(&self) -> Outcome {
         self.outcome
     }
 
-    fn features(&self) -> impl Iterator<Item = WeightedFeature> {
-        self.features.iter().map(|feature| WeightedFeature::new(feature.idx(), feature.float()))
+    fn index(&self) -> PosIndex {
+        self.index
+    }
+
+    fn weights(&self) -> impl Iterator<Item = IndexedWeight> {
+        self.features.iter().map(|feature| IndexedWeight::new(feature.idx(), feature.float()))
     }
 
     fn num_weights_per_feature() -> usize {
@@ -394,53 +426,70 @@ impl Datapoint for NonTaperedDatapoint {
 pub struct TaperedDatapoint {
     /// The features of this position.
     #[cfg(not(feature = "save_space"))]
-    features: Vec<WeightedFeature>,
+    features: Vec<IndexedWeight>,
     #[cfg(feature = "save_space")]
     features: Vec<Feature>,
     #[cfg(feature = "save_space")]
     phase: Float,
     /// The win rate prediction of the FEN (can be based on the WDL result or an engine's score).
     outcome: Outcome,
+    index: PosIndex,
 }
 
 impl Datapoint for TaperedDatapoint {
     #[cfg(feature = "save_space")]
-    fn new_from_features(features: Vec<Feature>, phase: Float, outcome: Outcome, _weight: Float) -> Self {
-        Self { features, phase, outcome }
+    fn new_from_features(
+        features: Vec<Feature>,
+        phase: Float,
+        outcome: Outcome,
+        index: PosIndex,
+        _weight: Float,
+    ) -> Self {
+        Self { features, phase, outcome, index }
     }
 
     #[cfg(not(feature = "save_space"))]
-    fn new_from_features(features: Vec<Feature>, phase: Float, outcome: Outcome, _weight: Float) -> Self {
+    fn new_from_features(
+        features: Vec<Feature>,
+        phase: Float,
+        outcome: Outcome,
+        index: PosIndex,
+        _weight: Float,
+    ) -> Self {
         // Doing this here instead of "on demand" in [`features`] dramatically improves performance
         // while still keeping memory requirements manageable
         let features = features
             .into_iter()
             .flat_map(|feature| {
                 [
-                    WeightedFeature::new(feature.idx() * 2, feature.float() * phase),
-                    WeightedFeature::new(feature.idx() * 2 + 1, feature.float() * (1.0 - phase)),
+                    IndexedWeight::new(feature.idx() * 2, feature.float() * phase),
+                    IndexedWeight::new(feature.idx() * 2 + 1, feature.float() * (1.0 - phase)),
                 ]
             })
             .collect();
-        Self { features, outcome }
+        Self { features, outcome, index }
     }
 
     fn outcome(&self) -> Outcome {
         self.outcome
     }
 
+    fn index(&self) -> PosIndex {
+        self.index
+    }
+
     #[cfg(feature = "save_space")]
-    fn features(&self) -> impl Iterator<Item = WeightedFeature> {
+    fn weights(&self) -> impl Iterator<Item = IndexedWeight> {
         self.features.iter().flat_map(|feature| {
             [
-                WeightedFeature::new(feature.idx() * 2, feature.float() * self.phase),
-                WeightedFeature::new(feature.idx() * 2 + 1, feature.float() * (1.0 - self.phase)),
+                IndexedWeight::new(feature.idx() * 2, feature.float() * self.phase),
+                IndexedWeight::new(feature.idx() * 2 + 1, feature.float() * (1.0 - self.phase)),
             ]
         })
     }
 
     #[cfg(not(feature = "save_space"))]
-    fn features(&self) -> impl Iterator<Item = WeightedFeature> {
+    fn weights(&self) -> impl Iterator<Item = IndexedWeight> {
         self.features.iter().copied()
     }
 
@@ -459,16 +508,26 @@ pub struct WeightedDatapoint {
 }
 
 impl Datapoint for WeightedDatapoint {
-    fn new_from_features(features: Vec<Feature>, phase: Float, outcome: Outcome, weight: Float) -> Self {
-        Self { inner: TaperedDatapoint::new_from_features(features, phase, outcome, weight), weight }
+    fn new_from_features(
+        features: Vec<Feature>,
+        phase: Float,
+        outcome: Outcome,
+        index: PosIndex,
+        weight: Float,
+    ) -> Self {
+        Self { inner: TaperedDatapoint::new_from_features(features, phase, outcome, index, weight), weight }
     }
 
     fn outcome(&self) -> Outcome {
         self.inner.outcome
     }
 
-    fn features(&self) -> impl Iterator<Item = WeightedFeature> {
-        self.inner.features()
+    fn index(&self) -> PosIndex {
+        self.inner.index()
+    }
+
+    fn weights(&self) -> impl Iterator<Item = IndexedWeight> {
+        self.inner.weights()
     }
 
     fn num_weights_per_feature() -> usize {
@@ -519,6 +578,11 @@ impl<D: Datapoint> Dataset<D> {
         assert_eq!(self.weights_in_pos, other.weights_in_pos);
         self.data_points.append(&mut other.data_points);
         self.sampling_weight_sum += other.sampling_weight_sum;
+    }
+
+    /// Remove all data points with an index appearing in `list`
+    pub fn remove(&mut self, list: &[FeatureAppearance]) {
+        self.data_points.retain(|e| list.iter().all(|x| x.data_point_idx != e.index()))
     }
 
     /// Shuffle the dataset, which is useful when not tuning on the entire dataset.
@@ -575,7 +639,7 @@ impl<D: Datapoint> Deref for Batch<'_, D> {
 /// Eval of a position, given the current weights.
 pub fn cp_eval_for_weights<D: Datapoint>(weights: &Weights, position: &D) -> CpScore {
     let mut res = 0.0;
-    for feature in position.features() {
+    for feature in position.weights() {
         res += feature.weight * weights[feature.idx].0;
     }
     CpScore(res)
@@ -987,7 +1051,11 @@ mod tests {
         let weights = Weights(vec![Weight(0.0); 42]);
         let no_features = vec![Feature::default(); 42];
         for outcome in [0.0, 0.5, 1.0] {
-            let dataset = vec![NonTaperedDatapoint { features: no_features.clone(), outcome: Outcome::new(outcome) }];
+            let dataset = vec![NonTaperedDatapoint {
+                features: no_features.clone(),
+                index: PosIndex(0),
+                outcome: Outcome::new(outcome),
+            }];
             let batch = Batch { datapoints: dataset.as_slice(), num_weights: 1, weight_sum: 1.0 };
             for eval_scale in 1..100_i8 {
                 let loss = loss_for(&weights, batch, ScalingFactor::from(eval_scale), quadratic_sample_loss);
@@ -1004,8 +1072,11 @@ mod tests {
     pub fn compute_gradient_test() {
         let weights = Weights(vec![Weight(0.0)]);
         for outcome in [0.0, 0.5, 1.0] {
-            let data_points =
-                [NonTaperedDatapoint { features: vec![Feature::new(1, 0)], outcome: Outcome::new(outcome) }];
+            let data_points = [NonTaperedDatapoint {
+                features: vec![Feature::new(1, 0)],
+                index: PosIndex(0),
+                outcome: Outcome::new(outcome),
+            }];
             let batch = Batch { datapoints: data_points.as_slice(), num_weights: 1, weight_sum: 1.0 };
             let gradient = compute_scaled_gradient::<NonTaperedDatapoint, CrossEntropyLoss>(&weights, batch, 1.0);
             assert_eq!(gradient.len(), 1);
@@ -1033,7 +1104,11 @@ mod tests {
                 for outcome in [0.0, 0.5, 1.0, 0.9, 0.499] {
                     let mut weights = Weights(vec![Weight(initial_weight)]);
                     let position = vec![Feature::new(feature, 0)];
-                    let datapoint = NonTaperedDatapoint { features: position.clone(), outcome: Outcome::new(outcome) };
+                    let datapoint = NonTaperedDatapoint {
+                        features: position.clone(),
+                        index: PosIndex(0),
+                        outcome: Outcome::new(outcome),
+                    };
                     let mut dataset = Dataset::new(1);
                     dataset.push(datapoint);
                     let batch = dataset.as_batch();
@@ -1056,7 +1131,10 @@ mod tests {
                         let new_loss = loss(&weights, batch, scaling_factor);
                         let old_loss = loss(&old_weights, batch, scaling_factor);
                         assert!(new_loss >= 0.0, "{new_loss}");
-                        assert!(new_loss - old_loss <= 1e-10, "new loss: {new_loss}, old loss: {old_loss}, feature {feature}, initial weight {initial_weight}, outcome {outcome}");
+                        assert!(
+                            new_loss - old_loss <= 1e-10,
+                            "new loss: {new_loss}, old loss: {old_loss}, feature {feature}, initial weight {initial_weight}, outcome {outcome}"
+                        );
                     }
                     let loss = loss_for(&weights, batch, scaling_factor, quadratic_sample_loss);
                     if feature != 0 {
@@ -1076,7 +1154,8 @@ mod tests {
         for outcome in [0.0, 0.5, 1.0] {
             let mut weights = Weights(vec![Weight(0.0), Weight(1.0), Weight(-1.0)]);
             let position = vec![Feature::new(1, 0), Feature::new(-1, 1), Feature::new(2, 2)];
-            let datapoint = NonTaperedDatapoint { features: position.clone(), outcome: Outcome::new(outcome) };
+            let datapoint =
+                NonTaperedDatapoint { features: position.clone(), outcome: Outcome::new(outcome), index: PosIndex(0) };
             let dataset = vec![datapoint];
             let batch = Batch { datapoints: dataset.as_slice(), num_weights: 3, weight_sum: 3.0 };
             for i in 0..100 {
@@ -1098,7 +1177,8 @@ mod tests {
         for outcome in [0.0, 0.5, 1.0] {
             let mut weights = Weights(vec![Weight(123.987), Weight(-987.123)]);
             let position = vec![Feature::new(3, 0), Feature::new(-3, 1)];
-            let datapoint = NonTaperedDatapoint { features: position.clone(), outcome: Outcome::new(outcome) };
+            let datapoint =
+                NonTaperedDatapoint { features: position.clone(), outcome: Outcome::new(outcome), index: PosIndex(0) };
             let dataset = vec![datapoint];
             let batch = Batch { datapoints: dataset.as_slice(), num_weights: 1, weight_sum: 1.0 };
             let mut lr = 0.2;
@@ -1126,10 +1206,16 @@ mod tests {
     pub fn two_positions_test() {
         type AnyOptimizer = Box<dyn Optimizer<NonTaperedDatapoint>>;
         let scale = 1000.0;
-        let win =
-            NonTaperedDatapoint { features: vec![Feature::new(1, 0), Feature::new(-1, 1)], outcome: WrScore(1.0) };
-        let lose =
-            NonTaperedDatapoint { features: vec![Feature::new(-1, 0), Feature::new(1, 1)], outcome: WrScore(0.0) };
+        let win = NonTaperedDatapoint {
+            features: vec![Feature::new(1, 0), Feature::new(-1, 1)],
+            outcome: WrScore(1.0),
+            index: PosIndex(0),
+        };
+        let lose = NonTaperedDatapoint {
+            features: vec![Feature::new(-1, 0), Feature::new(1, 1)],
+            outcome: WrScore(0.0),
+            index: PosIndex(1),
+        };
         let dataset = vec![win, lose];
         let batch = Batch { datapoints: dataset.as_slice(), num_weights: 2, weight_sum: 2.0 };
         let weights_dist = Uniform::new(-100.0, 100.0).unwrap();
@@ -1172,14 +1258,17 @@ mod tests {
         let draw_datapoint = NonTaperedDatapoint {
             features: vec![Feature::new(0, 0), Feature::new(0, 1), Feature::new(0, 2)],
             outcome: Outcome::new(0.5),
+            index: PosIndex(0),
         };
         let lose_datapoint = NonTaperedDatapoint {
             features: vec![Feature::new(-1, 0), Feature::new(-1, 1), Feature::new(0, 2)],
             outcome: Outcome::new(0.0),
+            index: PosIndex(1),
         };
         let win_datapoint = NonTaperedDatapoint {
             features: vec![Feature::new(1, 0), Feature::new(1, 1), Feature::new(0, 2)],
             outcome: Outcome::new(1.0),
+            index: PosIndex(2),
         };
 
         let dataset = vec![draw_datapoint, win_datapoint, lose_datapoint];
@@ -1209,8 +1298,11 @@ mod tests {
     pub fn adam_one_weight_test() {
         for outcome in [0.0, 0.5, 1.0] {
             let eval_scale = 10000.0;
-            let dataset =
-                vec![NonTaperedDatapoint { features: vec![Feature::new(1, 0)], outcome: Outcome::new(outcome) }];
+            let dataset = vec![NonTaperedDatapoint {
+                features: vec![Feature::new(1, 0)],
+                outcome: Outcome::new(outcome),
+                index: PosIndex(0),
+            }];
             let batch = Batch { datapoints: dataset.as_slice(), num_weights: 1, weight_sum: 1.0 };
             let mut adam = Adam::<QuadraticLoss>::new(batch, eval_scale);
             let weights = adam.optimize_simple(batch, eval_scale, 20);

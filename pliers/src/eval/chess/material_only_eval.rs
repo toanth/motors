@@ -4,9 +4,9 @@ use crate::eval::{Eval, WeightsInterpretation};
 use crate::gd::{NonTaperedDatapoint, Weight, Weights};
 use crate::load_data::NoFilter;
 use crate::trace::{BasicTrace, SimpleTrace, TraceTrait};
+use gears::games::Color;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::{ChessColor, Chessboard};
-use gears::games::Color;
 use gears::general::bitboards::RawBitboard;
 use gears::general::board::BitboardBoard;
 use std::fmt::Formatter;
@@ -52,7 +52,7 @@ impl Eval<Chessboard> for MaterialOnlyEval {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gd::Outcome;
+    use crate::gd::{Outcome, PosIndex};
     use gears::games::chess::pieces::ChessPieceType::Pawn;
     use gears::general::board::Board;
 
@@ -66,7 +66,7 @@ mod tests {
     #[test]
     pub fn lucena_test() {
         let board = Chessboard::from_name("lucena").unwrap();
-        let features = MaterialOnlyEval::extract_features(&board, Outcome::new(1.0), 1.0).features;
+        let features = MaterialOnlyEval::extract_features(&board, Outcome::new(1.0), PosIndex(0), 1.0).features;
         assert_eq!(features.len(), 1);
         for (i, f) in features.iter().enumerate() {
             assert_eq!(i, f.idx());

@@ -1,37 +1,37 @@
 //! The hand-crafted eval used by the `caps` chess engine.
 
-use crate::eval::chess::lite::LiteFeatureSubset::*;
-use crate::eval::chess::{write_phased_psqt, write_psqts, SkipChecks};
 use crate::eval::EvalScale::Scale;
+use crate::eval::chess::lite::LiteFeatureSubset::*;
+use crate::eval::chess::{SkipChecks, write_phased_psqt, write_psqts};
 use crate::eval::{
-    changed_at_least, write_2d_range_phased, write_phased, write_range_phased, Eval, EvalScale, WeightsInterpretation,
+    Eval, EvalScale, WeightsInterpretation, changed_at_least, write_2d_range_phased, write_phased, write_range_phased,
 };
 use crate::gd::{Float, TaperedDatapoint, Weight, Weights};
 use crate::trace::{FeatureSubSet, SingleFeature, SparseTrace, TraceTrait};
+use gears::games::chess::ChessColor::White;
 use gears::games::chess::pieces::ChessPieceType::*;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::see::SEE_SCORES;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
-use gears::games::chess::ChessColor::White;
 use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::common::StaticallyNamedEntity;
+use motors::eval::SingleFeatureScore;
+use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
-use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
-use motors::eval::SingleFeatureScore;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::iter::Iterator;
 use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
+use strum_macros::{EnumIter, FromRepr};
 
 #[derive(Debug, Default, Copy, Clone)]
 struct LiTETrace {}
 
 /// All features considered by LiTE.
 #[allow(missing_docs)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, EnumIter)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, EnumIter, FromRepr, derive_more::Display)]
 pub enum LiteFeatureSubset {
     Psqt,
     BishopPair,
@@ -39,6 +39,8 @@ pub enum LiteFeatureSubset {
     RookOpenness,
     KingOpenness,
     BishopOpenness,
+    PawnAdvancedCenter,
+    PawnPassiveCenter,
     PawnShield,
     PassedPawn,
     UnsupportedPawn,
@@ -61,6 +63,8 @@ impl FeatureSubSet for LiteFeatureSubset {
             RookOpenness => 3,
             KingOpenness => 3,
             BishopOpenness => 4 * 8,
+            PawnAdvancedCenter => 1 << 6,
+            PawnPassiveCenter => 1 << 6,
             PawnShield => NUM_PAWN_SHIELD_CONFIGURATIONS,
             PassedPawn => NUM_SQUARES,
             UnsupportedPawn => 1,
@@ -115,6 +119,12 @@ impl FeatureSubSet for LiteFeatureSubset {
                     writeln!(f, "],")?;
                 }
                 return writeln!(f, "];");
+            }
+            PawnAdvancedCenter => {
+                writeln!(f, "const PAWN_ADVANCED_CENTER: [PhasedScore; NUM_PAWN_CENTER_CONFIGURATIONS] = ")?;
+            }
+            PawnPassiveCenter => {
+                writeln!(f, "const PAWN_PASSIVE_CENTER: [PhasedScore; NUM_PAWN_CENTER_CONFIGURATIONS] = ")?;
             }
             PawnShield => {
                 writeln!(f, "const PAWN_SHIELDS: [PhasedScore; NUM_PAWN_SHIELD_CONFIGURATIONS] = [")?;
@@ -273,6 +283,14 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(BishopOpenness, idx)
     }
 
+    fn pawn_advanced_center(config: usize) -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(PawnAdvancedCenter, config)
+    }
+
+    fn pawn_passive_center(config: usize) -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(PawnPassiveCenter, config)
+    }
+
     fn pawn_shield(&self, _color: ChessColor, config: usize) -> SingleFeature {
         SingleFeature::new(PawnShield, config)
     }
@@ -331,6 +349,11 @@ impl WeightsInterpretation for TuneLiTEval {
             }
             Ok(())
         }
+    }
+
+    fn feature_name(feature_idx: usize) -> String {
+        let feature = LiteFeatureSubset::iter().rfind(|f| f.start_idx() <= feature_idx).unwrap();
+        format!("{feature} index {}", feature_idx - feature.start_idx())
     }
 
     fn eval_scale(&self) -> EvalScale {
