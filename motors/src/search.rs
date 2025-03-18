@@ -478,12 +478,19 @@ pub trait NormalEngine<B: Board>: Engine<B> {
         false
     }
 
-    fn should_not_start_negamax(&self, soft_limit: Duration, max_soft_depth: isize, mate_depth: Depth) -> bool
+    fn should_not_start_negamax(
+        &self,
+        soft_limit: Duration,
+        soft_nodes: u64,
+        max_soft_depth: isize,
+        mate_depth: Depth,
+    ) -> bool
     where
         Self: Sized,
     {
         let state = self.search_state();
         state.start_time().elapsed() >= soft_limit
+            || state.uci_nodes() >= soft_nodes
             || state.depth().get() as isize > max_soft_depth
             || state.best_score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT)
     }
@@ -1125,10 +1132,10 @@ mod tests {
             search_moves.push(search_moves.first().copied().unwrap_or_default());
             search_moves.push(B::Move::default());
             let multi_pv = search_moves.len() + 3;
-            let params =
-                SearchParams::new_unshared(p, SearchLimit::nodes_(1_234), ZobristHistory::default(), tt.clone())
-                    .additional_pvs(multi_pv - 1)
-                    .restrict_moves(search_moves.clone());
+            let limit = SearchLimit::nodes_(1234).and(SearchLimit::soft_nodes_(1000));
+            let params = SearchParams::new_unshared(p, limit, ZobristHistory::default(), tt.clone())
+                .additional_pvs(multi_pv - 1)
+                .restrict_moves(search_moves.clone());
             let res = engine.search(params);
             assert!(search_moves.contains(&res.chosen_move));
             // assert_eq!(engine.search_state().internal_node_count(), 1_234); // TODO: Assert exact match
