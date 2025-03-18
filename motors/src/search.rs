@@ -45,7 +45,7 @@ mod move_picker;
 pub mod multithreading;
 pub(crate) mod spsa_param;
 pub mod statistics;
-pub(super) mod tt;
+pub mod tt;
 
 #[derive(Debug, Clone)]
 #[must_use]

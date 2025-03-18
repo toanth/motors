@@ -95,17 +95,17 @@
 extern crate core;
 
 use crate::eval::EvalScale::{InitialWeights, Scale};
-use crate::eval::{count_occurrences, display, Eval};
+use crate::eval::{Eval, count_occurrences, display};
 use crate::gd::{
-    optimize_dataset, print_optimized_weights, Datapoint, Dataset, DefaultOptimizer, Optimizer, Weight, Weights,
+    Datapoint, Dataset, DefaultOptimizer, Optimizer, Weight, Weights, optimize_dataset, print_optimized_weights,
 };
-use crate::load_data::Perspective::White;
+use crate::load_data::Perspective::FirstPlayer;
 use crate::load_data::{AnnotatedFenFile, FenReader};
 use gears::colored::Colorize;
 use gears::games::chess::Chessboard;
 use gears::general::board::{Board, BoardHelpers};
-use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Res;
+use gears::general::common::anyhow::{anyhow, bail};
 use serde_json::from_reader;
 use std::env::args;
 use std::fs::File;
@@ -139,13 +139,18 @@ pub fn try_to_run<B: Board, E: Eval<B>>() -> Res<()> {
     optimize::<B, E>(files.as_ref())
 }
 
+/// Returns either the default json path or the path gives as first argument
+pub fn get_json_path<B: Board>() -> String {
+    let default_path = format!("pliers/datasets/{}/datasets.json", B::game_name());
+    args().nth(1).unwrap_or(default_path)
+}
+
 /// Load a list datasets from a JSON file.
 ///
 /// The path to this file is extracted from the first command line argument, with a game-specific fallback
 /// if no command line arguments are used.
 pub fn get_datasets<B: Board>() -> Res<Vec<AnnotatedFenFile>> {
-    let default_path = format!("pliers/datasets/{}/datasets.json", B::game_name());
-    let json_file_path = args().nth(1).unwrap_or(default_path);
+    let json_file_path = get_json_path::<B>();
     let json_file_path = Path::new(&json_file_path);
     load_datasets_from_json(json_file_path)
 }
@@ -154,7 +159,7 @@ pub fn get_datasets<B: Board>() -> Res<Vec<AnnotatedFenFile>> {
 ///
 /// Each dataset needs to have a `"path"` relative to the location of the JSON file.
 /// Additionally, it can have a [`"perspective"`][load_data::Perspective] field that tells the tuner how to interpret the results.
-/// The default value of this field is [`White`], but it is possible to specify
+/// The default value of this field is [`FirstPlayer`], but it is possible to specify
 /// [`SideToMove`][load_data::Perspective::SideToMove] instead. The [`weight`][load_data::AnnotatedFenFile::weight] field
 /// can be used to reduce the effect of lower-quality datasets. It is typically not needed.
 pub fn load_datasets_from_json(json_file_path: &Path) -> Res<Vec<AnnotatedFenFile>> {
@@ -221,7 +226,7 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
     let fen = format!("{} [1.0]", pos.as_fen());
     println!("(FEN: {fen}\n");
     let e = E::default();
-    let mut dataset = FenReader::<Chessboard, E>::load_from_str(&fen, White).unwrap();
+    let mut dataset = FenReader::<Chessboard, E>::load_from_str(&fen, FirstPlayer, None).unwrap();
     assert_eq!(dataset.num_weights(), E::num_weights());
     let scale = match e.eval_scale() {
         Scale(scale) => scale,
@@ -253,22 +258,23 @@ mod tests {
 
     use crate::eval::chess::piston_eval::PistonEval;
     use crate::gd::{
-        cp_eval_for_weights, cp_to_wr, loss_for, quadratic_sample_loss, Adam, AdamW, CpScore, CrossEntropyLoss, Float,
-        Outcome, QuadraticLoss,
+        Adam, AdamW, CpScore, CrossEntropyLoss, Float, Outcome, QuadraticLoss, cp_eval_for_weights, cp_to_wr, loss_for,
+        quadratic_sample_loss,
     };
     use crate::load_data::Perspective::SideToMove;
-    use gears::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
-    use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
+    use ChessPieceType::*;
     use gears::games::chess::ChessColor::White;
     use gears::games::chess::ChessSettings;
+    use gears::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
+    use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
     use gears::games::{AbstractPieceType, CharType, ColoredPieceType};
-    use ChessPieceType::*;
 
     #[test]
     pub fn two_chess_positions_test() {
-        let positions = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 [0.5]
-        7k/8/8/8/8/8/8/R6K w - - 0 1 [1-0]";
-        let mut positions = FenReader::<Chessboard, PistonEval>::load_from_str(positions, SideToMove).unwrap();
+        let positions = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 [0.4] [0.6]
+        7k/8/8/8/8/8/8/R6K w - - 0 1 [1-0] [1.0]";
+        let mut positions =
+            FenReader::<Chessboard, PistonEval>::load_from_str(positions, SideToMove, Some(0.5)).unwrap();
         assert_eq!(positions.data().len(), 2);
         assert_eq!(positions.data()[0].outcome(), Outcome::new(0.5));
         assert_eq!(positions.data()[1].outcome(), Outcome::new(1.0));
@@ -308,7 +314,7 @@ mod tests {
             );
             fens += &str;
         }
-        let datapoints = FenReader::<Chessboard, MaterialOnlyEval>::load_from_str(&fens, SideToMove).unwrap();
+        let datapoints = FenReader::<Chessboard, MaterialOnlyEval>::load_from_str(&fens, SideToMove, None).unwrap();
         let batch = datapoints.as_batch();
         let weights = AdamW::<CrossEntropyLoss>::new(batch, eval_scale).optimize_simple(batch, eval_scale, 2000);
         assert_eq!(weights.len(), 5);
