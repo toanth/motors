@@ -51,8 +51,7 @@ impl Chessboard {
         // This needs to handle the case of the opponent recapturing with a pawn promotion.
         if piece_see_value(our_victim) - piece_see_value(original_moving_piece) >= beta
             && !(square.is_backrank()
-                && (PAWN_CAPTURES[us as usize][square.bb_idx()] & self.colored_piece_bb(us.other(), Pawn))
-                    .has_set_bit())
+                && (PAWN_CAPTURES[us as usize][square.bb_idx()] & self.col_piece_bb(us.other(), Pawn)).has_set_bit())
         {
             return beta;
         }

@@ -686,6 +686,17 @@ pub(super) fn go_options_impl(
                     .ok_or_else(|| anyhow!("node count can't be zero"))?;
                 Ok(())
             }),
+            command!(
+                softnodes | sn,
+                Custom,
+                "Don't increase the depth after this limit has been reached",
+                |state, words, _| {
+                    state.go_state_mut().limit_mut().soft_nodes =
+                        NodesLimit::new(parse_int(words, "soft nodes limit")?)
+                            .ok_or_else(|| anyhow!("soft nodes limit can't be zero"))?;
+                    Ok(())
+                }
+            ),
             command!(mate | m, All, "Maximum depth in moves until a mate has to be found", |state, words, _| {
                 let depth: isize = parse_int(words, "mate move count")?;
                 state.go_state_mut().limit_mut().mate = Depth::try_new(depth * 2)?; // 'mate' is given in moves instead of plies

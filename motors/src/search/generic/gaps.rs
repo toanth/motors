@@ -12,8 +12,7 @@ use crate::search::{
 };
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{
-    MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, SCORE_LOST, SCORE_TIME_UP, SCORE_WON, Score,
-    game_result_to_score,
+    MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, SCORE_LOST, SCORE_TIME_UP, SCORE_WON, Score, game_result_to_score,
 };
 use gears::search::NodeType::*;
 use gears::search::{Depth, NodesLimit, SearchResult};
@@ -63,9 +62,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
     }
 
     fn static_eval(&mut self, pos: B, ply: usize) -> Score {
-        self.eval
-            .eval(&pos, ply)
-            .clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
+        self.eval.eval(&pos, ply).clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
 
     fn max_bench_depth(&self) -> Depth {
@@ -107,7 +104,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
 
         'id: for depth in 1..=max_depth {
             for pv_num in 0..self.state.multi_pv() {
-                if self.should_not_start_negamax(limit.fixed_time, max_depth, limit.mate) {
+                if self.should_not_start_negamax(limit.fixed_time, limit.soft_nodes.get(), max_depth, limit.mate) {
                     break 'id;
                 }
 
@@ -207,11 +204,7 @@ impl<B: Board> Gaps<B> {
         }
         let node_type = best_score.node_type(alpha, beta);
         self.state.statistics.count_complete_node(MainSearch, node_type, depth, ply, num_children);
-        if num_children == 0 {
-            game_result_to_score(pos.no_moves_result(), ply)
-        } else {
-            best_score
-        }
+        if num_children == 0 { game_result_to_score(pos.no_moves_result(), ply) } else { best_score }
     }
 }
 

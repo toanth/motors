@@ -350,7 +350,7 @@ impl Board for Chessboard {
 
     fn is_piece_on(&self, coords: ChessSquare, piece: ColoredChessPieceType) -> bool {
         if let Some(color) = piece.color() {
-            self.colored_piece_bb(color, piece.uncolor()).is_bit_set_at(coords.bb_idx())
+            self.col_piece_bb(color, piece.uncolor()).is_bit_set_at(coords.bb_idx())
         } else {
             self.is_empty(coords)
         }
@@ -460,20 +460,19 @@ impl Board for Chessboard {
         }
         // return true if the opponent has pawns because that can create possibilities to force them
         // to restrict the king's mobility
-        if (self.piece_bb(Pawn) | self.colored_piece_bb(player, Rook) | self.colored_piece_bb(player, Queen))
-            .has_set_bit()
-            || (self.colored_piece_bb(player.other(), King) & CORNER_SQUARES).has_set_bit()
+        if (self.piece_bb(Pawn) | self.col_piece_bb(player, Rook) | self.col_piece_bb(player, Queen)).has_set_bit()
+            || (self.col_piece_bb(player.other(), King) & CORNER_SQUARES).has_set_bit()
         {
             return true;
         }
         // we have at most two knights and no other pieces
-        if self.colored_piece_bb(player, Bishop).is_zero() && self.colored_piece_bb(player, Knight).num_ones() <= 2 {
+        if self.col_piece_bb(player, Bishop).is_zero() && self.col_piece_bb(player, Knight).num_ones() <= 2 {
             // this can very rarely be incorrect because a mate with a knight is possible even without pawns
             // and even if the king is not in the corner, but those cases are extremely rare
             return false;
         }
-        let bishops = self.colored_piece_bb(player, Bishop);
-        if self.colored_piece_bb(player, Knight).is_zero()
+        let bishops = self.col_piece_bb(player, Bishop);
+        if self.col_piece_bb(player, Knight).is_zero()
             && ((bishops & white_squares()).is_zero() || (bishops & black_squares()).is_zero())
         {
             return false;
@@ -503,7 +502,7 @@ impl Board for Chessboard {
             // This library instead uses pseudolegal ep captures internally and checks legality when creating FENs,
             // but some existing programs give invalid fens that in some cases contain an ep square after every double pawn push,
             // so we silently ignore those invalid ep squares unless in strict mode.
-            if (board.0.colored_piece_bb(color, Pawn) & ep_capturing).is_zero() {
+            if (board.0.col_piece_bb(color, Pawn) & ep_capturing).is_zero() {
                 if strictness == Strict {
                     bail!(
                         "The ep square is set to {ep_square} even though no pawn can recapture. In strict mode, this is not allowed"
@@ -715,7 +714,7 @@ impl Chessboard {
     }
 
     pub fn king_square(&self, color: ChessColor) -> ChessSquare {
-        ChessSquare::from_bb_index(self.colored_piece_bb(color, King).num_trailing_zeros())
+        ChessSquare::from_bb_index(self.col_piece_bb(color, King).num_trailing_zeros())
     }
 
     pub fn is_in_check(&self) -> bool {
@@ -880,11 +879,11 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         let mut this = self.0;
         for color in ChessColor::iter() {
             ensure!(
-                this.colored_piece_bb(color, King).is_single_piece(),
+                this.col_piece_bb(color, King).is_single_piece(),
                 "The {color} player does not have exactly one king"
             );
             ensure!(
-                (this.colored_piece_bb(color, Pawn) & (ChessBitboard::rank_0() | ChessBitboard::rank(7))).is_zero(),
+                (this.col_piece_bb(color, Pawn) & (ChessBitboard::rank_0() | ChessBitboard::rank(7))).is_zero(),
                 "The {color} player has a pawn on the first or eight rank"
             );
         }
@@ -892,7 +891,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         for color in ChessColor::iter() {
             for side in CastleRight::iter() {
                 let has_eligible_rook =
-                    (this.rook_start_square(color, side).bb() & this.colored_piece_bb(color, Rook)).has_set_bit();
+                    (this.rook_start_square(color, side).bb() & this.col_piece_bb(color, Rook)).has_set_bit();
                 if this.castling.can_castle(color, side) && !has_eligible_rook {
                     bail!(
                         "Color {color} can castle {side}, but there is no rook to castle{}",
@@ -920,7 +919,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         let startpos_piece_count = [8, 2, 2, 2, 1, 1];
         for piece in ColoredChessPieceType::pieces() {
             let color = piece.color().unwrap();
-            let bb = this.colored_piece_bb(color, piece.uncolor());
+            let bb = this.col_piece_bb(color, piece.uncolor());
             if strictness == Strict {
                 num_promoted_pawns[color] += 0.max(bb.num_ones() as isize - startpos_piece_count[piece.uncolor()]);
                 // Print a better error message than the generic "invalid piece distribution".
@@ -937,7 +936,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                         continue;
                     }
                     ensure!(
-                        (bb & this.colored_piece_bb(other_piece.color().unwrap(), other_piece.uncolor())).is_zero(),
+                        (bb & this.col_piece_bb(other_piece.color().unwrap(), other_piece.uncolor())).is_zero(),
                         "There are two pieces on the same square: {piece} and {other_piece}"
                     );
                 }
@@ -960,7 +959,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             }
         }
         for color in ChessColor::iter() {
-            let num_pawns = this.colored_piece_bb(color, Pawn).num_ones() as isize;
+            let num_pawns = this.col_piece_bb(color, Pawn).num_ones() as isize;
             if strictness == Strict && num_promoted_pawns[color] + num_pawns > 8 {
                 bail!("Incorrect piece distribution for {color}")
             }
@@ -1011,7 +1010,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             if strictness == Strict {
                 let possible_ep_pawns = remove_pawn_square.bb().west() | remove_pawn_square.bb().east();
                 ensure!(
-                    (possible_ep_pawns & this.colored_piece_bb(active, Pawn)).has_set_bit(),
+                    (possible_ep_pawns & this.col_piece_bb(active, Pawn)).has_set_bit(),
                     "The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square"
                 );
                 if checks == CheckFen {

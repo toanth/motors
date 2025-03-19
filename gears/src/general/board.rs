@@ -761,7 +761,7 @@ pub trait BitboardBoard: Board<Coordinates: RectangularCoordinates> {
     /// Bitboard of all pieces of the given type and color, e.g. all black rooks in chess.
     /// Note that it might not be valid to use the empty piece, if such a piece exists.
     // TODO: Remove empty from pieces, use options
-    fn colored_piece_bb(&self, color: Self::Color, piece: PieceTypeOf<Self>) -> Self::Bitboard {
+    fn col_piece_bb(&self, color: Self::Color, piece: PieceTypeOf<Self>) -> Self::Bitboard {
         self.piece_bb(piece) & self.player_bb(color)
     }
 
