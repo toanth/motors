@@ -476,7 +476,7 @@ impl Chessboard {
             self.ply_100_ctr = 0;
         } else if piece == Pawn {
             self.ply_100_ctr = 0;
-            let possible_ep_pawns = (to.bb().west() | to.bb().east()) & self.colored_piece_bb(them, Pawn);
+            let possible_ep_pawns = (to.bb().west() | to.bb().east()) & self.col_piece_bb(them, Pawn);
             // TODO: Store double pawn push flag in the move?
             if from.rank().abs_diff(to.rank()) == 2 && possible_ep_pawns.has_set_bit() {
                 self.ep_square = Some(ChessSquare::from_rank_file((to.rank() + from.rank()) / 2, to.file()));
@@ -1003,7 +1003,7 @@ impl<'a> MoveParser<'a> {
                 )
             }
         }
-        if (board.colored_piece_bb(board.active_player, self.piece) & from_bb).is_zero() {
+        if (board.col_piece_bb(board.active_player, self.piece) & from_bb).is_zero() {
             bail!(
                 "There is no {0} {1} on {from}, so the move '{2}' is invalid{3}",
                 board.active_player,
