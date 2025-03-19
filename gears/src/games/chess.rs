@@ -418,9 +418,10 @@ impl Board for Chessboard {
     }
 
     fn is_generated_move_pseudolegal(&self, mov: ChessMove) -> bool {
-        let res = self.is_generated_move_pseudolegal_impl(mov);
-        debug_assert!(res || !self.is_move_pseudolegal_impl(mov), "{mov:?} {self}");
-        res
+        self.is_move_pseudolegal_impl(mov)
+        // let res = self.is_generated_move_pseudolegal_impl(mov);
+        // debug_assert!(res || !self.is_move_pseudolegal_impl(mov), "{mov:?} {self}");
+        // res
     }
 
     fn is_move_pseudolegal(&self, mov: ChessMove) -> bool {
