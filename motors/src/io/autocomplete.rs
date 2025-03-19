@@ -21,7 +21,7 @@ use crate::io::command::{
     named_entity_to_command, options_options, piece_options, position_options, query_options, select_command,
     ugi_commands,
 };
-use crate::io::{AbstractEngineUgi, EngineUGI, SearchType};
+use crate::io::{AbstractEngineUgiState, EngineUGI, SearchType};
 use crate::search::{AbstractEvalBuilder, AbstractSearcherBuilder, EvalList, SearcherList};
 use edit_distance::edit_distance;
 use gears::MatchStatus::Ongoing;
@@ -86,7 +86,7 @@ pub(super) trait AutoCompleteState: Debug {
     fn make_move(&mut self, mov: &str);
     fn options(&self) -> &[EngineOption];
     fn dyn_cloned(&self) -> Box<dyn AutoCompleteState>;
-    fn upcast_mut(&mut self) -> &mut dyn AbstractEngineUgi;
+    fn upcast_mut(&mut self) -> &mut dyn AbstractEngineUgiState;
 }
 
 impl<B: Board> AutoCompleteState for ACState<B> {
@@ -161,12 +161,12 @@ impl<B: Board> AutoCompleteState for ACState<B> {
         Box::new(self.clone())
     }
 
-    fn upcast_mut(&mut self) -> &mut dyn AbstractEngineUgi {
+    fn upcast_mut(&mut self) -> &mut dyn AbstractEngineUgiState {
         self
     }
 }
 
-impl<B: Board> AbstractEngineUgi for ACState<B> {
+impl<B: Board> AbstractEngineUgiState for ACState<B> {
     fn options_text(&self, _words: &mut Tokens) -> Res<String> {
         Ok(String::new())
     }
