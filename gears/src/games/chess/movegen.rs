@@ -121,12 +121,12 @@ impl Chessboard {
             // we can't assume that the position was from the same game, so we still have to check that rook and king positions match
             self.check_castling_move_pseudolegal(mov, us)
         } else if piece == Pawn {
-            let bad_ep = mov.is_ep() && self.ep_square() != Some(mov.dest_square());
-            let capturable = self.player_bb(us.other()) | self.ep_square.map(ChessSquare::bb).unwrap_or_default();
-            !bad_ep
-                // we still need to check this because this could have been a pawn move from the other player
-                && Self::single_pawn_moves(us, src, capturable, self.empty_bb())
-                    .is_bit_set_at(mov.dest_square().bb_idx())
+            if mov.is_ep() {
+                return self.ep_square() == Some(mov.dest_square());
+            }
+            let capturable = self.player_bb(!us);
+            // we still need to check this because this could have been a pawn move from the other player
+            Self::single_pawn_moves(us, src, capturable, self.empty_bb()).is_bit_set_at(mov.dest_square().bb_idx())
         } else {
             if self.simple_illegal(piece, mov.dest_square()) {
                 return false;
