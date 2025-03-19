@@ -480,6 +480,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
     }
 }
 
+#[cold]
 pub fn parse_pgn<B: Board>(pgn: &str, strictness: Strictness, pos: Option<B>) -> Res<PgnData<B>> {
     let mut parser: PgnParser<'_, B> = PgnParser::new(pgn);
     if let Some(pos) = pos {

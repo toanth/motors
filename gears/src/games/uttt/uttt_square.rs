@@ -103,6 +103,10 @@ impl Coordinates for UtttSquare {
         let size = SmallGridSize::default();
         Self { sub_board: self.sub_board.flip_left_right(size), sub_square: self.sub_square.flip_left_right(size) }
     }
+
+    fn from_x_y(rank: usize, file: usize) -> Self {
+        Self::from_rank_file(rank as DimT, file as DimT)
+    }
 }
 
 impl RectangularCoordinates for UtttSquare {

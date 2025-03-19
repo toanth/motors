@@ -18,7 +18,7 @@
 use crate::io::SearchType::{Bench, Normal, Perft, Ponder, SplitPerft};
 use crate::io::autocomplete::AutoCompleteState;
 use crate::io::command::Standard::*;
-use crate::io::{AbstractEngineUgi, EngineUGI, SearchType};
+use crate::io::{AbstractEngineUgiState, EngineUGI, SearchType};
 use gears::GameResult;
 use gears::MatchStatus::{Ongoing, Over};
 use gears::ProgramStatus::Run;
@@ -93,7 +93,7 @@ pub struct Command {
     pub help_text: Option<String>,
     pub standard: Standard,
     pub autocomplete_recurse: bool,
-    pub func: fn(&mut dyn AbstractEngineUgi, remaining_input: &mut Tokens, _cmd: &str) -> Res<()>,
+    pub func: fn(&mut dyn AbstractEngineUgiState, remaining_input: &mut Tokens, _cmd: &str) -> Res<()>,
     sub_commands: SubCommandsFn,
 }
 
@@ -102,7 +102,7 @@ impl Command {
         self.standard
     }
 
-    pub fn func(&self) -> fn(&mut dyn AbstractEngineUgi, &mut Tokens, &str) -> Res<()> {
+    pub fn func(&self) -> fn(&mut dyn AbstractEngineUgiState, &mut Tokens, &str) -> Res<()> {
         self.func
     }
 
@@ -192,7 +192,7 @@ pub fn ugi_commands() -> CommandList {
             go | g | search,
             All,
             "Start the search. Optionally takes a position and a mode such as `perft`",
-            |ugi: &mut dyn AbstractEngineUgi, words, _| { ugi.handle_go(Normal, words) },
+            |ugi: &mut dyn AbstractEngineUgiState, words, _| { ugi.handle_go(Normal, words) },
             --> |state: &mut dyn AutoCompleteState| state.go_subcmds(Normal),
             recurse = true
         ),
