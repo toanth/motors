@@ -43,6 +43,7 @@ use inquire::{Autocomplete, CustomUserError};
 use std::fmt;
 use std::fmt::Debug;
 use std::iter::once;
+use std::ops::DerefMut;
 use std::rc::Rc;
 use std::str::from_utf8;
 use std::time::Instant;
@@ -84,6 +85,8 @@ pub(super) trait AutoCompleteState: Debug {
     fn piece_subcmds(&self) -> CommandList;
     fn make_move(&mut self, mov: &str);
     fn options(&self) -> &[EngineOption];
+    fn dyn_cloned(&self) -> Box<dyn AutoCompleteState>;
+    fn upcast_mut(&mut self) -> &mut dyn AbstractEngineUgi;
 }
 
 impl<B: Board> AutoCompleteState for ACState<B> {
@@ -152,6 +155,14 @@ impl<B: Board> AutoCompleteState for ACState<B> {
 
     fn options(&self) -> &[EngineOption] {
         self.options.as_slice()
+    }
+
+    fn dyn_cloned(&self) -> Box<dyn AutoCompleteState> {
+        Box::new(self.clone())
+    }
+
+    fn upcast_mut(&mut self) -> &mut dyn AbstractEngineUgi {
+        self
     }
 }
 
@@ -322,9 +333,9 @@ fn push(completions: &mut Vec<(isize, Completion)>, word: &str, node: &Command) 
 /// Recursively go through all commands that have been typed so far and add completions.
 /// `node` is the command we're currently looking at, `rest` are the tokens after that,
 /// and `to_complete` is the last typed token or `""`, which is the one that should be completed
-fn completions_for<B: Board>(
+fn completions_for(
     node: &Command,
-    state: &mut ACState<B>,
+    state: &mut dyn AutoCompleteState,
     rest: &mut Tokens,
     to_complete: &str,
 ) -> Vec<(isize, Completion)> {
@@ -345,10 +356,10 @@ fn completions_for<B: Board>(
             if next_token.is_some_and(|name| child.matches(name)) {
                 found_subcommand = true;
                 _ = rest.next(); // eat the token for the subcommand
-                let mut state = state.clone();
+                let mut state = state.dyn_cloned();
                 // possibly change the autocomplete state
-                _ = child.func()(&mut state, rest, next_token.unwrap());
-                let mut new_completions = completions_for(child, &mut state, rest, to_complete);
+                _ = child.func()(state.deref_mut().upcast_mut(), rest, next_token.unwrap());
+                let mut new_completions = completions_for(child, state.deref_mut(), rest, to_complete);
                 next_token = rest.peek().copied();
                 res.append(&mut new_completions);
             }
