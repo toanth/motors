@@ -35,6 +35,7 @@ use crate::general::board::{
 };
 use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, parse_int_from_str};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
+use crate::general::moves::Move;
 use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::OutputOpts;
 use crate::output::text_output::{
@@ -418,7 +419,7 @@ impl Board for Chessboard {
     }
 
     fn is_generated_move_pseudolegal(&self, mov: ChessMove) -> bool {
-        self.is_move_pseudolegal_impl(mov)
+        !mov.is_null() // incorrect, just for debugging TODO: Replace
         // let res = self.is_generated_move_pseudolegal_impl(mov);
         // debug_assert!(res || !self.is_move_pseudolegal_impl(mov), "{mov:?} {self}");
         // res

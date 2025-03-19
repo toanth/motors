@@ -432,7 +432,7 @@ impl Chessboard {
     #[allow(clippy::too_many_lines)]
     pub(super) fn make_move_impl<F: Fn(PosHash)>(mut self, mov: ChessMove, prefetch: F) -> Self {
         let piece = mov.piece_type();
-        debug_assert_eq!(piece, self.piece_type_on(mov.src_square()));
+        debug_assert_eq!(piece, self.piece_type_on(mov.src_square()), "{mov:?} {self}");
         let us = self.active_player;
         let them = us.other();
         let from = mov.src_square();
