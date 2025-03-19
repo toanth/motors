@@ -1,21 +1,22 @@
-use crate::games::{CharType, Color, ColoredPiece, DimT, Settings};
+use crate::GameState;
+use crate::MatchStatus::*;
+use crate::games::{CharType, Color, ColoredPiece, Coordinates, DimT, Settings};
 use crate::general::board::{Board, BoardHelpers, RectangularBoard};
 use crate::general::common::{NamedEntity, Res};
 use crate::general::move_list::MoveList;
 use crate::general::moves::ExtendedFormat::Alternative;
 use crate::general::moves::Move;
-use crate::general::squares::RectangularCoordinates;
 use crate::general::squares::SquareColor::Black;
+use crate::general::squares::{RectangularCoordinates, SquareColor};
 use crate::output::pgn::match_to_pgn_string;
 use crate::output::text_output::DisplayType::*;
+use crate::output::text_output::PrintType::Simple;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder, OutputOpts};
-use crate::GameState;
-use crate::MatchStatus::*;
 use anyhow::{anyhow, bail, ensure};
 use colored::Colorize;
 use std::fmt;
 use std::fs::File;
-use std::io::{stderr, stdout, Stderr, Stdout, Write};
+use std::io::{Stderr, Stdout, Write, stderr, stdout};
 use std::mem::swap;
 use std::path::Path;
 use std::str::SplitWhitespace;
@@ -356,44 +357,112 @@ impl<B: Board> OutputBuilder<B> for TextOutputBuilder {
     }
 }
 
-pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece, CharType, &B::Settings) -> char>(
-    pos: &B,
-    piece_to_char: F,
-    typ: CharType,
-    flip: bool,
-) -> String {
+struct SquareInfo {
+    piece_char: char,
+    square_color: SquareColor,
+    empty: bool,
+    // Some(true) for first player, Some(false) for second, None for no player
+    is_first_player: Option<bool>,
+}
+
+/// Type-erase the `Board` to reduce unnecessary code bloat
+trait AbstractPrettyBoardPrinter {
+    fn square_info(&self, row: DimT, column: DimT) -> SquareInfo;
+    fn width(&self) -> DimT;
+    fn height(&self) -> DimT;
+    fn get_width(&self) -> usize {
+        self.width() as usize
+    }
+    fn get_height(&self) -> usize {
+        self.height() as usize
+    }
+    fn fen(&self) -> String;
+    fn settings_text(&self) -> Option<String>;
+    fn formatter(&self) -> &dyn AbstractBoardFormatter;
+}
+
+enum PrintType<'a, B: Board> {
+    Formatter(&'a dyn BoardFormatter<B>),
+    Simple(&'a dyn Fn(B::Piece, CharType, &B::Settings) -> char, CharType),
+}
+
+struct PrettyBoardPrinter<'a, B: RectangularBoard> {
+    board: &'a B,
+    print_type: PrintType<'a, B>,
+}
+
+impl<'a, B: RectangularBoard> AbstractPrettyBoardPrinter for PrettyBoardPrinter<'a, B> {
+    fn square_info(&self, rank: DimT, file: DimT) -> SquareInfo {
+        let square = B::Coordinates::from_rank_file(rank, file);
+        let piece = self.board.colored_piece_on(square);
+        let Simple(piece_to_char, char_type) = &self.print_type else { unreachable!() };
+        let piece_char = (piece_to_char)(piece, *char_type, &self.board.settings());
+        let square_color = square.square_color();
+        let empty = self.board.is_empty(square);
+        let is_first_player = piece.color().map(|c| c.is_first());
+        SquareInfo { piece_char, square_color, empty, is_first_player }
+    }
+    fn width(&self) -> DimT {
+        self.board.width()
+    }
+    fn height(&self) -> DimT {
+        self.board.height()
+    }
+
+    fn fen(&self) -> String {
+        self.board.as_fen()
+    }
+
+    fn settings_text(&self) -> Option<String> {
+        self.board.settings().text()
+    }
+
+    fn formatter(&self) -> &dyn AbstractBoardFormatter {
+        let PrintType::Formatter(formatter) = &self.print_type else { unreachable!() };
+        formatter.upcast()
+    }
+}
+
+fn board_to_string_impl(printer: &dyn AbstractPrettyBoardPrinter, flip: bool) -> String {
     use std::fmt::Write;
-    let flip = flip && B::should_flip_visually();
     let mut res = String::new();
-    if let Some(text) = pos.settings().text() {
+    if let Some(text) = printer.settings_text() {
         res = format!("{text}\n");
     }
-    for y in 0..pos.height() {
-        let yc = if flip { y } else { pos.height() - 1 - y };
+    for y in 0..printer.height() {
+        let yc = if flip { y } else { printer.height() - 1 - y };
         write!(&mut res, "{:>2} ", yc + 1).unwrap();
-        for x in 0..pos.width() {
-            let xc = if flip { pos.width() - 1 - x } else { x };
-            let square = B::Coordinates::from_rank_file(yc, xc);
-            let piece = pos.colored_piece_on(square);
-            let c = piece_to_char(piece, typ, &pos.settings());
-            let c = if let Some(color) = piece.color() {
-                c.to_string().color(display_color(color)).to_string()
-            } else if piece.is_empty() && square.square_color() == Black {
-                c.to_string().dimmed().to_string()
+        for x in 0..printer.width() {
+            let xc = if flip { printer.width() - 1 - x } else { x };
+            let info = printer.square_info(yc, xc);
+            let c = if let Some(is_first_player) = info.is_first_player {
+                info.piece_char.to_string().color(display_color_of(is_first_player)).to_string()
+            } else if info.empty && info.square_color == Black {
+                info.piece_char.to_string().dimmed().to_string()
             } else {
-                c.to_string()
+                info.piece_char.to_string()
             };
             write!(&mut res, " {c}").unwrap();
         }
         res += "\n";
     }
     res += "   ";
-    for x in 0..pos.get_width() {
-        let xc = if flip { pos.get_width() - 1 - x } else { x };
-        write!(&mut res, " {}", ('A'..).nth(xc).unwrap()).unwrap();
+    for x in 0..printer.width() {
+        let xc = if flip { printer.width() - 1 - x } else { x };
+        write!(&mut res, " {}", ('A'..).nth(xc as usize).unwrap()).unwrap();
     }
     res += "\n";
     res
+}
+
+pub fn board_to_string<B: RectangularBoard, F: Fn(B::Piece, CharType, &B::Settings) -> char>(
+    pos: &B,
+    piece_to_char: F,
+    typ: CharType,
+    flip: bool,
+) -> String {
+    let printer = PrettyBoardPrinter { board: pos, print_type: Simple(&piece_to_char, typ) };
+    board_to_string_impl(&printer, flip && B::should_flip_visually())
 }
 
 pub fn p1_color() -> colored::Color {
@@ -406,12 +475,12 @@ pub fn p2_color() -> colored::Color {
     // #d23681
 }
 
+fn display_color_of(is_first: bool) -> colored::Color {
+    if is_first { p1_color() } else { p2_color() }
+}
+
 pub fn display_color<C: Color>(color: C) -> colored::Color {
-    if color.is_first() {
-        p1_color()
-    } else {
-        p2_color()
-    }
+    display_color_of(color.is_first())
 }
 
 fn with_color(text: &str, color: Option<colored::Color>, highlight: bool) -> String {
@@ -469,48 +538,49 @@ fn flip_if(flip: bool, c: &'static str) -> &'static str {
     }
 }
 
-fn border_cross<B: RectangularBoard>(pos: &B, y: usize, x: usize, cross: &'static str) -> &'static str {
+fn border_cross(printer: &dyn AbstractPrettyBoardPrinter, y: usize, x: usize, cross: &'static str) -> &'static str {
     if cross != CROSS {
         return cross;
     }
     if x == 0 {
         if y == 0 {
             HEAVY_UPPER_LEFT_CORNER
-        } else if y == pos.get_height() {
+        } else if y == printer.get_height() {
             HEAVY_LOWER_LEFT_CORNER
         } else {
             LEFT_BORDER
         }
-    } else if x == pos.get_width() {
+    } else if x == printer.get_width() {
         if y == 0 {
             HEAVY_UPPER_RIGHT_CORNER
-        } else if y == pos.get_height() {
+        } else if y == printer.get_height() {
             HEAVY_LOWER_RIGHT_CORNER
         } else {
             RIGHT_BORDER
         }
     } else if y == 0 {
         UPPER_BORDER
-    } else if y == pos.get_height() {
+    } else if y == printer.get_height() {
         LOWER_BORDER
     } else {
         CROSS
     }
 }
 
-fn write_horizontal_bar<B: RectangularBoard>(
+fn write_horizontal_bar(
     y: usize,
-    pos: &B,
+    printer: &dyn AbstractPrettyBoardPrinter,
     colors: &[Vec<Option<colored::Color>>],
-    fmt: &dyn BoardFormatter<B>,
+    flip: bool,
 ) -> String {
     use fmt::Write;
+    let fmt = printer.formatter();
     let sq_width = fmt.overwrite_width().unwrap_or(3);
-    let flip = fmt.flip_board() && B::should_flip_visually();
+    // let flip = fmt.flip_board() && B::should_flip_visually();
     let y_spacer = y % fmt.vertical_spacer_interval() == 0;
     let mut res = "    ".to_string();
-    let bar = if y == 0 || y == pos.get_height() { HEAVY_HORIZONTAL_BAR } else { HORIZONTAL_BAR };
-    for x in 0..=pos.get_width() {
+    let bar = if y == 0 || y == printer.get_height() { HEAVY_HORIZONTAL_BAR } else { HORIZONTAL_BAR };
+    for x in 0..=printer.get_width() {
         let x_spacer = x % fmt.horizontal_spacer_interval() == 0;
         let mut col = colors[y][x];
         let mut cross = CROSS;
@@ -536,15 +606,15 @@ fn write_horizontal_bar<B: RectangularBoard>(
                 }
             }
         }
-        if cross_color.is_none() && ![0, pos.get_width()].contains(&x) && ![0, pos.get_height()].contains(&y) {
+        if cross_color.is_none() && ![0, printer.get_width()].contains(&x) && ![0, printer.get_height()].contains(&y) {
             if y_spacer && !x_spacer {
                 cross = HORIZONTAL_BAR;
             } else if !y_spacer && x_spacer {
                 cross = VERTICAL_BAR;
             }
         }
-        let plus = with_color(flip_if(!flip, border_cross(pos, y, x, cross)), cross_color, y_spacer || x_spacer);
-        if x == pos.get_width() {
+        let plus = with_color(flip_if(!flip, border_cross(printer, y, x, cross)), cross_color, y_spacer || x_spacer);
+        if x == printer.get_width() {
             res += &plus;
         } else {
             let bar = with_color(&bar.repeat(sq_width), col, y_spacer);
@@ -555,63 +625,69 @@ fn write_horizontal_bar<B: RectangularBoard>(
 }
 
 // most of this function deals with coloring the frame of a square
-pub fn display_board_pretty<B: RectangularBoard>(pos: &B, fmt: &mut dyn BoardFormatter<B>) -> String {
-    let flip = fmt.flip_board() && B::should_flip_visually();
+fn display_board_pretty_impl(printer: &dyn AbstractPrettyBoardPrinter, flip: bool) -> String {
+    let fmt = printer.formatter();
     let sq_width = fmt.overwrite_width().unwrap_or(3);
-    let mut colors = vec![vec![None; pos.get_width() + 1]; pos.get_height() + 1];
+    let mut colors = vec![vec![None; printer.get_width() + 1]; printer.get_height() + 1];
     #[allow(clippy::needless_range_loop)]
-    for y in 0..pos.get_height() {
-        for x in 0..pos.get_width() {
-            let square = B::Coordinates::from_rank_file(y as u8, x as u8);
+    for y in 0..printer.get_height() {
+        for x in 0..printer.get_width() {
             if flip {
-                colors[y][pos.get_width() - 1 - x] = fmt.frame_color(square);
+                colors[y][printer.get_width() - 1 - x] = fmt.frame_color_rank_file(y, x);
             } else {
-                colors[y][x] = fmt.frame_color(square);
+                colors[y][x] = fmt.frame_color_rank_file(y, x);
             }
         }
     }
     let mut res: Vec<String> = vec![];
-    for y in 0..pos.get_height() {
-        res.push(write_horizontal_bar(y, pos, &colors, fmt));
+    for y in 0..printer.get_height() {
+        res.push(write_horizontal_bar(y, printer, &colors, flip));
         let mut line = format!(" {:>2} ", (y + 1)).dimmed().to_string();
-        for x in 0..pos.get_width() {
+        for x in 0..printer.get_width() {
             let mut col = colors[y][x];
             if col.is_none() && x > 0 {
                 col = colors[y][x - 1];
             }
             let bar = if x == 0 { HEAVY_VERTICAL_BAR } else { VERTICAL_BAR };
             line += &with_color(bar, col, x % fmt.horizontal_spacer_interval() == 0);
-            let xc = if flip { pos.get_width() - 1 - x } else { x };
-            line += &fmt.display_piece(B::Coordinates::from_rank_file(y as DimT, xc as DimT), sq_width);
+            let xc = if flip { printer.get_width() - 1 - x } else { x };
+            line += &fmt.display_piece_rank_file(y, xc, sq_width);
         }
         line += &with_color(
             HEAVY_VERTICAL_BAR,
-            colors[y][pos.get_width() - 1],
-            pos.get_width() % fmt.horizontal_spacer_interval() == 0,
+            colors[y][printer.get_width() - 1],
+            printer.get_width() % fmt.horizontal_spacer_interval() == 0,
         );
         res.push(line);
     }
-    res.push(write_horizontal_bar(pos.get_height(), pos, &colors, fmt));
+    res.push(write_horizontal_bar(printer.get_height(), printer, &colors, flip));
     if !flip {
         res.reverse();
     }
-    if let Some(text) = pos.settings().text() {
+    if let Some(text) = printer.settings_text() {
         res.insert(0, text);
     }
-    res.insert(0, format!("{0} '{1}'", "Fen:".dimmed(), pos.as_fen()));
+    res.insert(0, format!("{0} '{1}'", "Fen:".dimmed(), printer.fen()));
     let mut line = "    ".to_string();
-    for x in 0..pos.get_width() {
-        let xc = if flip { pos.get_width() - 1 - x } else { x };
+    for x in 0..printer.get_width() {
+        let xc = if flip { printer.get_width() - 1 - x } else { x };
         line += &format!(" {:^sq_width$}", ('A'..).nth(xc).unwrap()).dimmed().to_string();
     }
     res.push(line);
     res.join("\n") + "\n"
 }
 
-pub trait BoardFormatter<B: Board> {
-    fn display_piece(&self, coords: B::Coordinates, width: usize) -> String;
+// most of this function deals with coloring the frame of a square
+pub fn display_board_pretty<B: RectangularBoard>(pos: &B, fmt: &mut dyn BoardFormatter<B>) -> String {
+    let flip = fmt.flip_board() && B::should_flip_visually();
+    let printer = PrettyBoardPrinter { board: pos, print_type: PrintType::Formatter::<B>(fmt) };
+    display_board_pretty_impl(&printer, flip)
+}
 
-    fn frame_color(&self, coords: B::Coordinates) -> Option<colored::Color>;
+pub trait AbstractBoardFormatter {
+    fn display_piece_rank_file(&self, rank: usize, file: usize, width: usize) -> String;
+
+    fn frame_color_rank_file(&self, rank: usize, file: usize) -> Option<colored::Color>;
 
     fn flip_board(&self) -> bool;
 
@@ -620,6 +696,15 @@ pub trait BoardFormatter<B: Board> {
     fn vertical_spacer_interval(&self) -> usize;
 
     fn overwrite_width(&self) -> Option<usize>;
+
+    // TODO: This will become unnecessary in Rust 1.86
+    fn upcast(&self) -> &dyn AbstractBoardFormatter;
+}
+
+pub trait BoardFormatter<B: Board>: AbstractBoardFormatter {
+    fn display_piece(&self, coords: B::Coordinates, width: usize) -> String;
+
+    fn frame_color(&self, coords: B::Coordinates) -> Option<colored::Color>;
 }
 
 pub struct DefaultBoardFormatter<B: RectangularBoard> {
@@ -646,15 +731,41 @@ impl<B: RectangularBoard> DefaultBoardFormatter<B> {
     }
 }
 
+impl<B: RectangularBoard> AbstractBoardFormatter for DefaultBoardFormatter<B> {
+    fn display_piece_rank_file(&self, rank: usize, file: usize, width: usize) -> String {
+        self.display_piece(B::Coordinates::from_rank_file(rank as DimT, file as DimT), width)
+    }
+
+    fn frame_color_rank_file(&self, rank: usize, file: usize) -> Option<colored::Color> {
+        self.frame_color(B::Coordinates::from_rank_file(rank as DimT, file as DimT))
+    }
+
+    fn flip_board(&self) -> bool {
+        self.flip
+    }
+
+    fn horizontal_spacer_interval(&self) -> usize {
+        self.horizontal_spacer_interval
+    }
+
+    fn vertical_spacer_interval(&self) -> usize {
+        self.vertical_spacer_interval
+    }
+
+    fn overwrite_width(&self) -> Option<usize> {
+        None
+    }
+
+    fn upcast(&self) -> &dyn AbstractBoardFormatter {
+        self
+    }
+}
+
 impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
     fn display_piece(&self, square: B::Coordinates, width: usize) -> String {
         let piece = self.pos.colored_piece_on(square);
         let c = if piece.is_empty() {
-            if self.pos.background_color(square) == Black {
-                '*'
-            } else {
-                ' '
-            }
+            if self.pos.background_color(square) == Black { '*' } else { ' ' }
         } else {
             piece.to_display_char(self.piece_to_char, &self.pos.settings())
         };
@@ -678,26 +789,11 @@ impl<B: RectangularBoard> BoardFormatter<B> for DefaultBoardFormatter<B> {
             None
         }
     }
-
-    fn flip_board(&self) -> bool {
-        self.flip
-    }
-
-    fn horizontal_spacer_interval(&self) -> usize {
-        self.horizontal_spacer_interval
-    }
-
-    fn vertical_spacer_interval(&self) -> usize {
-        self.vertical_spacer_interval
-    }
-
-    fn overwrite_width(&self) -> Option<usize> {
-        None
-    }
 }
 
 #[allow(type_alias_bounds)]
-pub type AdaptPieceDisplay<B: Board> = dyn Fn(B::Coordinates, Option<colored::Color>) -> Option<colored::Color>;
+pub type AdaptPieceDisplay<B: RectangularBoard> =
+    dyn Fn(B::Coordinates, Option<colored::Color>) -> Option<colored::Color>;
 
 pub struct AdaptFormatter<B: Board> {
     pub underlying: Box<dyn BoardFormatter<B>>,
@@ -708,15 +804,15 @@ pub struct AdaptFormatter<B: Board> {
     pub square_width: Option<usize>,
 }
 
-impl<B: Board> BoardFormatter<B> for AdaptFormatter<B> {
-    fn display_piece(&self, square: B::Coordinates, width: usize) -> String {
-        let underlying_res = self.underlying.display_piece(square, width);
-        (self.display_piece)(square, width, underlying_res)
+impl<B: Board> AbstractBoardFormatter for AdaptFormatter<B> {
+    fn display_piece_rank_file(&self, rank: usize, file: usize, width: usize) -> String {
+        let sq = B::Coordinates::from_x_y(rank, file);
+        self.display_piece(sq, width)
     }
 
-    fn frame_color(&self, coords: B::Coordinates) -> Option<colored::Color> {
-        let color = self.underlying.frame_color(coords);
-        (self.color_frame)(coords, color)
+    fn frame_color_rank_file(&self, rank: usize, file: usize) -> Option<colored::Color> {
+        let sq = B::Coordinates::from_x_y(rank, file);
+        self.frame_color(sq)
     }
 
     fn flip_board(&self) -> bool {
@@ -733,5 +829,21 @@ impl<B: Board> BoardFormatter<B> for AdaptFormatter<B> {
 
     fn overwrite_width(&self) -> Option<usize> {
         self.square_width
+    }
+
+    fn upcast(&self) -> &dyn AbstractBoardFormatter {
+        self
+    }
+}
+
+impl<B: Board> BoardFormatter<B> for AdaptFormatter<B> {
+    fn display_piece(&self, square: B::Coordinates, width: usize) -> String {
+        let underlying_res = self.underlying.display_piece(square, width);
+        (self.display_piece)(square, width, underlying_res)
+    }
+
+    fn frame_color(&self, coords: B::Coordinates) -> Option<colored::Color> {
+        let color = self.underlying.frame_color(coords);
+        (self.color_frame)(coords, color)
     }
 }

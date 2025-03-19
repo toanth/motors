@@ -290,6 +290,9 @@ pub trait Coordinates:
 
     /// mirrors the coordinates horizontally
     fn flip_left_right(self, size: Self::Size) -> Self;
+
+    /// Even non-recrangular boards are printed in a way that all coordinates have unique x, y values.
+    fn from_x_y(rank: usize, file: usize) -> Self;
 }
 
 pub type DimT = u8;

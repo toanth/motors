@@ -54,6 +54,10 @@ impl Coordinates for GridCoordinates {
     fn flip_left_right(self, size: Self::Size) -> Self {
         GridCoordinates { row: self.row, column: size.width.0 - 1 - self.column }
     }
+
+    fn from_x_y(rank: usize, file: usize) -> Self {
+        Self::from_rank_file(rank as DimT, file as DimT)
+    }
 }
 
 impl RectangularCoordinates for GridCoordinates {
@@ -446,6 +450,10 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Coordinates
         } else {
             Self::from_rank_file(self.rank(), W as DimT - 1 - self.file())
         }
+    }
+
+    fn from_x_y(rank: usize, file: usize) -> Self {
+        Self::from_rank_file(rank as DimT, file as DimT)
     }
 }
 
