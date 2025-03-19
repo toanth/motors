@@ -315,6 +315,9 @@ impl Board for Chessboard {
             "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1",
             // mate in 15 that stronger engines tend to miss (even lichess SF only finds a mate in 17 with max parameters)
             "5k2/1p5Q/p2r1qp1/P1p1RpN1/2P5/3P3P/5PP1/6K1 b - - 0 56",
+            // the next 2 positions have the exact same zobrist hash (thanks to analog hors for the python script to find them)
+            "1Q2Q3/N2NP1K1/Rn2B3/qQr3n1/1n5N/1P6/4n3/BkN4q w - - 0 1",
+            "2n5/1Rp1K1pn/q6Q/1rrr4/k3Br2/7B/1n1N2Q1/1Nn2R2 w - - 0 1",
         ];
         let mut res = fens.map(|fen| Self::from_fen(fen, Strict).unwrap()).iter().copied().collect_vec();
         res.extend(Self::name_to_pos_map().iter().filter(|e| e.strictness == Strict).map(|e| e.create::<Chessboard>()));
@@ -408,14 +411,14 @@ impl Board for Chessboard {
         self.flip_side_to_move()
     }
 
+    fn is_generated_move_pseudolegal(&self, mov: ChessMove) -> bool {
+        self.is_generated_move_pseudolegal_impl(mov)
+    }
+
     fn is_move_pseudolegal(&self, mov: ChessMove) -> bool {
         let res = self.is_move_pseudolegal_impl(mov);
         debug_assert!(!res || self.is_generated_move_pseudolegal(mov), "{mov:?} {self}");
         res
-    }
-
-    fn is_generated_move_pseudolegal(&self, mov: ChessMove) -> bool {
-        self.is_generated_move_pseudolegal_impl(mov)
     }
 
     fn player_result_no_movegen<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {

@@ -1093,8 +1093,6 @@ impl Caps {
                     } else if move_score > MoveScore(cc::lmr_good_hist()) {
                         // Since the TT and killer move and good captures are not lmr'ed,
                         // this only applies to quiet moves with a good combined history score.
-                        // Note that this can cause LMR to *extend* instead of reduce, so in the future
-                        // it might make sense to clamp the extension.
                         reduction -= 1;
                     }
                     if !is_pv_node {

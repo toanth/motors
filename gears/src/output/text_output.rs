@@ -107,7 +107,8 @@ pub enum DisplayType {
     Pgn,
     Moves, // Prints all legal moves
     Uci,
-    Ugi, // The same as `UCI`, but with a different name so that the user can write both 'print uci' and 'print ugi'
+    Ugi,  // The same as `UCI`, but with a different name so that the user can write both 'print uci' and 'print ugi'
+    Hash, // The hash of the current position
     MsgOnly, // Doesn't print the state at all, but a text output with that display type would still display messages.
 }
 
@@ -123,6 +124,7 @@ impl NamedEntity for DisplayType {
             Moves => "moves",
             Uci => "uci",
             Ugi => "ugi",
+            Hash => "hash",
             MsgOnly => "messages",
         }
         .to_string()
@@ -139,6 +141,7 @@ impl NamedEntity for DisplayType {
             Moves => "Moves",
             Uci => "UCI",
             Ugi => "UGI",
+            Hash => "Hash",
             MsgOnly => "Only Messages",
         }
         .to_string()
@@ -155,6 +158,7 @@ impl NamedEntity for DisplayType {
             Moves => "A space-separated list of all legal moves, intended mostly for debugging",
             Uci => "A textual representation of the match using the machine-readable UGI notation that gets used for engine-GUI communication. UCI for chess and the very slightly different UGI protocol for other games",
             Ugi => "Same as 'UCI'",
+            Hash => "The hash of the current position (does not include the board history)",
             MsgOnly => "Doesn't print the match or current position at all, but will display messages",
         }.to_string())
     }
@@ -242,6 +246,7 @@ impl BoardToText {
             Pgn => Self::match_to_pgn(m),
             Moves => Self::list_moves(m),
             Uci | Ugi => BoardToText::match_to_ugi(m),
+            Hash => m.get_board().hash_pos().to_string(),
             MsgOnly => String::default(),
         }
     }

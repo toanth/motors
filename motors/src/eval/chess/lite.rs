@@ -27,6 +27,7 @@ use crate::eval::{Eval, ScoreType, SingleFeatureScore};
 #[derive(Debug, Default, Copy, Clone)]
 struct EvalState<Tuned: LiteValues> {
     hash: PosHash,
+    pawn_key: PosHash,
     phase: PhaseType,
     // scores are stored from the perspective of the white player
     psqt_score: Tuned::Score,
@@ -342,6 +343,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let pawn_score = Self::pawns(pos);
         state.pawn_score = pawn_score.clone();
         state.hash = pos.hash_pos();
+        state.pawn_key = pos.pawn_key();
         state.total_score = Self::recomputed_every_time(pos) + psqt_score + pawn_shield_score + pawn_score;
         state
     }
@@ -366,7 +368,9 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     where
         Tuned::Score: Display,
     {
-        if old_pos.hash_pos() != state.hash {
+        // test both the total hash and the pawn key as a band-aid mitigation against hash collisions
+        // (which should basically never happen in a game, but could be set up manually using `position` commands)
+        if old_pos.hash_pos() != state.hash || old_pos.pawn_key() != state.pawn_key {
             return self.eval_from_scratch(new_pos);
         } else if mov == ChessMove::default() {
             debug_assert_eq!(&old_pos.make_nullmove().unwrap(), new_pos);
@@ -404,6 +408,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             state.pawn_score = Self::pawns(new_pos);
         }
         state.hash = new_pos.hash_pos();
+        state.pawn_key = new_pos.pawn_key();
         let score = Self::recomputed_every_time(new_pos)
             + state.psqt_score.clone()
             + state.pawn_shield_score.clone()
