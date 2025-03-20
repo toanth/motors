@@ -15,20 +15,20 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::attacks::{EffectRules, MoveKind};
 use crate::games::fairy::moves::MoveEffect::{
     PlaceSinglePiece, RemoveCastlingRight, RemovePieceFromHand, RemoveSinglePiece, ResetDrawCtr, ResetEp, SetColorTo,
     SetEp,
 };
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
-use crate::games::fairy::Side::{Kingside, Queenside};
 use crate::games::fairy::{FairyBitboard, FairyBoard, FairyColor, FairySize, FairySquare, RawFairyBitboard, Side};
 use crate::games::{AbstractPieceType, Color, ColoredPieceType, DimT, Size};
 use crate::general::bitboards::{Bitboard, RawBitboard};
 use crate::general::board::SelfChecks::Verify;
 use crate::general::board::Strictness::Relaxed;
 use crate::general::board::{BitboardBoard, Board, UnverifiedBoard};
-use crate::general::common::{tokens, Res};
+use crate::general::common::{Res, tokens};
 use crate::general::moves::Legality::PseudoLegal;
 use crate::general::moves::{ExtendedFormat, Legality, Move, UntrustedMove};
 use crate::general::squares::{CompactSquare, RectangularCoordinates};
@@ -116,11 +116,7 @@ impl Move<FairyBoard> for FairyMove {
 
     fn src_square_in(self, pos: &FairyBoard) -> Option<FairySquare> {
         let sq = self.from.square(pos.size());
-        if pos.size().coordinates_valid(sq) {
-            Some(sq)
-        } else {
-            None
-        }
+        if pos.size().coordinates_valid(sq) { Some(sq) } else { None }
     }
 
     fn dest_square_in(self, pos: &FairyBoard) -> FairySquare {
@@ -287,7 +283,7 @@ fn effects_for(mov: FairyMove, pos: &mut FairyBoard, r: EffectRules) {
             PlaceSinglePiece(to, piece).apply(pos);
             let ep_capture_bb = FairyBitboard::single_piece_for(to, pos.size());
             let ep_capture_bb = ep_capture_bb.west() | ep_capture_bb.east();
-            if (pos.colored_piece_bb(piece.color().unwrap().other(), piece.uncolor()) & ep_capture_bb).has_set_bit() {
+            if (pos.col_piece_bb(piece.color().unwrap().other(), piece.uncolor()) & ep_capture_bb).has_set_bit() {
                 set_ep = Some(to.pawn_push(!piece.color().unwrap().is_first()));
             }
         }

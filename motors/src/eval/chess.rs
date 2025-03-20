@@ -1,8 +1,8 @@
 use derive_more::Display;
-use gears::games::chess::pieces::NUM_CHESS_PIECES;
-use gears::games::chess::squares::{ChessSquare, A_FILE_NO, H_FILE_NO, NUM_SQUARES};
 use gears::games::chess::ChessColor;
 use gears::games::chess::ChessColor::Black;
+use gears::games::chess::pieces::NUM_CHESS_PIECES;
+use gears::games::chess::squares::{A_FILE_NO, ChessSquare, H_FILE_NO, NUM_SQUARES};
 use gears::general::bitboards::chessboard::ChessBitboard;
 use gears::general::bitboards::{Bitboard, KnownSizeBitboard};
 use gears::general::squares::RectangularCoordinates;
@@ -61,11 +61,7 @@ pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: C
         if pattern.count_ones() > 2 {
             pattern = 0b11_11;
         }
-        if file == A_FILE_NO {
-            (1 << 6) + pattern
-        } else {
-            (1 << 6) + (1 << 4) + pattern
-        }
+        if file == A_FILE_NO { (1 << 6) + pattern } else { (1 << 6) + (1 << 4) + pattern }
     } else {
         bb &= ChessBitboard::from_raw(0x707);
         let mut pattern = (bb.raw() | (bb.raw() >> (8 - 3))) as usize & 0x7f;
@@ -79,13 +75,13 @@ pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: C
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::eval::Eval;
     use crate::eval::chess::lite::LiTEval;
     use crate::eval::chess::material_only::MaterialOnlyEval;
     use crate::eval::chess::piston::PistonEval;
-    use crate::eval::Eval;
 
-    use gears::games::chess::pieces::ChessPieceType::Pawn;
     use gears::games::chess::ChessColor::White;
+    use gears::games::chess::pieces::ChessPieceType::Pawn;
     use gears::games::chess::{ChessColor, Chessboard};
     use gears::games::{Color, DimT};
     use gears::general::bitboards::RawBitboard;
@@ -172,7 +168,7 @@ mod tests {
         for pos in Chessboard::bench_positions() {
             for square in ChessSquare::iter() {
                 for color in ChessColor::iter() {
-                    let pawns = pos.colored_piece_bb(color, Pawn);
+                    let pawns = pos.col_piece_bb(color, Pawn);
                     let actual = pawn_shield_idx(pawns, square, color);
                     let expected = expected_pawn_shield_idx(pawns, square, color);
                     assert_eq!(actual, expected);

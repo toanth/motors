@@ -5,15 +5,15 @@ use std::fmt::Formatter;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
+use crate::games::chess::ChessColor::*;
 use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::pieces::ChessPieceType::{King, Rook};
 use crate::games::chess::pieces::ColoredChessPieceType;
 use crate::games::chess::squares::{
-    ChessSquare, A_FILE_NO, C_FILE_NO, D_FILE_NO, E_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
+    A_FILE_NO, C_FILE_NO, ChessSquare, D_FILE_NO, E_FILE_NO, F_FILE_NO, G_FILE_NO, H_FILE_NO, NUM_COLUMNS,
 };
-use crate::games::chess::ChessColor::*;
 use crate::games::chess::{ChessColor, Chessboard};
-use crate::games::{char_to_file, file_to_char, Board, Color, ColoredPieceType, DimT};
+use crate::games::{Board, Color, ColoredPieceType, DimT, char_to_file, file_to_char};
 use crate::general::bitboards::RawBitboard;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{BitboardBoard, Strictness};
@@ -146,22 +146,20 @@ impl CastlingFlags {
                 Black => 7,
             };
             // This is a precondition to calling `king_square` below
-            let num_kings = board.colored_piece_bb(color, King).num_ones();
+            let num_kings = board.col_piece_bb(color, King).num_ones();
             if num_kings != 1 {
                 bail!("the FEN must contain exactly one {color} king, but instead it contains {num_kings}");
             }
             let king_square = board.king_square(color);
             let king_file = king_square.file();
             if king_square != ChessSquare::from_rank_file(rank, king_file) {
-                bail!("Incorrect starting position for king. The king must be on the back rank, not on square {king_square}");
+                bail!(
+                    "Incorrect starting position for king. The king must be on the back rank, not on square {king_square}"
+                );
             }
 
             let side = |file: DimT| {
-                if file < king_file {
-                    Queenside
-                } else {
-                    Kingside
-                }
+                if file < king_file { Queenside } else { Kingside }
             };
             // Unless in strict mode, support normal chess style (aka X-FEN) castling fens for chess960 and disambiguate by using
             // the outermost rook as demanded by <https://en.wikipedia.org/wiki/X-FEN#Encoding_castling_rights>
@@ -177,7 +175,9 @@ impl CastlingFlags {
                         ColoredChessPieceType::new(color, Rook),
                     ) || board.king_square(color).file() != E_FILE_NO)
                 {
-                    bail!("In strict mode, normal chess ('q' and 'k') castle rights can only be used for rooks on the a or h files and a king on the e file")
+                    bail!(
+                        "In strict mode, normal chess ('q' and 'k') castle rights can only be used for rooks on the a or h files and a king on the e file"
+                    )
                 }
                 self.0 |= 1 << X_FEN_FLAG_SHIFT;
                 match side {

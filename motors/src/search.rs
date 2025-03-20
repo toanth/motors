@@ -1,5 +1,5 @@
 use crate::eval::Eval;
-use crate::io::ugi_output::AbstractUgiOutput;
+use crate::io::ugi_output::{AbstractUgiOutput, UgiOutput};
 use crate::search::multithreading::SearchThreadType::*;
 use crate::search::multithreading::SearchType::*;
 use crate::search::multithreading::{AtomicSearchState, EngineReceives, EngineThread, SearchThreadType, Sender};
@@ -33,8 +33,8 @@ use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
 use std::sync::atomic::Ordering::Acquire;
+use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 use std::time::{Duration, Instant};
 
@@ -478,12 +478,19 @@ pub trait NormalEngine<B: Board>: Engine<B> {
         false
     }
 
-    fn should_not_start_negamax(&self, soft_limit: Duration, max_soft_depth: isize, mate_depth: Depth) -> bool
+    fn should_not_start_negamax(
+        &self,
+        soft_limit: Duration,
+        soft_nodes: u64,
+        max_soft_depth: isize,
+        mate_depth: Depth,
+    ) -> bool
     where
         Self: Sized,
     {
         let state = self.search_state();
         state.start_time().elapsed() >= soft_limit
+            || state.uci_nodes() >= soft_nodes
             || state.depth().get() as isize > max_soft_depth
             || state.best_score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT)
     }
@@ -547,8 +554,23 @@ impl<B: Board> SearchParams<B> {
         Self::create(pos, limit, history, tt, None, 0, atomic, Auxiliary)
     }
 
+    pub fn with_output(
+        pos: B,
+        limit: SearchLimit,
+        history: ZobristHistory,
+        tt: TT,
+        restrict_moves: Option<Vec<B::Move>>,
+        additional_pvs: usize,
+        output: Arc<Mutex<UgiOutput<B>>>,
+        info: Arc<Mutex<EngineInfo>>,
+    ) -> Self {
+        let atomic = Arc::new(AtomicSearchState::default());
+        let thread_type = SearchThreadType::new_single_thread(output, info, atomic.clone());
+        Self::create(pos, limit, history, tt, restrict_moves, additional_pvs, atomic, thread_type)
+    }
+
     #[expect(clippy::too_many_arguments)]
-    pub fn create(
+    fn create(
         pos: B,
         limit: SearchLimit,
         history: ZobristHistory,
@@ -1125,10 +1147,10 @@ mod tests {
             search_moves.push(search_moves.first().copied().unwrap_or_default());
             search_moves.push(B::Move::default());
             let multi_pv = search_moves.len() + 3;
-            let params =
-                SearchParams::new_unshared(p, SearchLimit::nodes_(1_234), ZobristHistory::default(), tt.clone())
-                    .additional_pvs(multi_pv - 1)
-                    .restrict_moves(search_moves.clone());
+            let limit = SearchLimit::nodes_(1234).and(SearchLimit::soft_nodes_(1000));
+            let params = SearchParams::new_unshared(p, limit, ZobristHistory::default(), tt.clone())
+                .additional_pvs(multi_pv - 1)
+                .restrict_moves(search_moves.clone());
             let res = engine.search(params);
             assert!(search_moves.contains(&res.chosen_move));
             // assert_eq!(engine.search_state().internal_node_count(), 1_234); // TODO: Assert exact match

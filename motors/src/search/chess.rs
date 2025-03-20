@@ -1,17 +1,10 @@
 #[cfg(feature = "caps")]
 pub mod caps;
 mod caps_values;
+mod histories;
 
 #[cfg(test)]
 mod tests {
-    use gears::rand::rngs::StdRng;
-    use std::str::FromStr;
-    use std::sync::Arc;
-    use std::sync::atomic::Ordering::SeqCst;
-    use std::sync::atomic::fence;
-    use std::thread::{sleep, spawn};
-    use std::time::Duration;
-
     use gears::PlayerResult::Draw;
     use gears::games::chess::Chessboard;
     use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
@@ -25,9 +18,16 @@ mod tests {
     use gears::general::common::NamedEntity;
     use gears::general::moves::Move;
     use gears::output::pgn::parse_pgn;
+    use gears::rand::rngs::StdRng;
     use gears::score::{SCORE_LOST, SCORE_WON, Score};
     use gears::search::{Depth, NodesLimit, SearchLimit};
     use gears::ugi::load_ugi_pos_simple;
+    use std::str::FromStr;
+    use std::sync::Arc;
+    use std::sync::atomic::Ordering::SeqCst;
+    use std::sync::atomic::fence;
+    use std::thread::{sleep, spawn};
+    use std::time::Duration;
 
     use crate::eval::chess::lite::{KingGambot, LiTEval};
     use crate::eval::chess::material_only::MaterialOnlyEval;
@@ -271,5 +271,31 @@ mod tests {
             assert_eq!(res.score.plies_until_game_won(), Some(5));
             assert_eq!(res.chosen_move, ChessMove::from_text("f3", &pos).unwrap());
         }
+    }
+
+    #[test]
+    fn hash_collision() {
+        let pos1 = "2n5/1Rp1K1pn/q6Q/1rrr4/k3Br2/7B/1n1N2Q1/1Nn2R2 w - - 0 1";
+        let pos1 = Chessboard::from_fen(pos1, Strict).unwrap();
+        let pos2 = "1K1NQ3/q2RqR2/3rp3/Qr3rn1/1Q1bB3/1Q1b1PN1/pRp3P1/k1q1Bn1q w - - 0 1";
+        let pos2 = Chessboard::from_fen(pos2, Strict).unwrap();
+        assert_eq!(pos1.hash_pos(), pos2.hash_pos());
+        let limit = SearchLimit::nodes_(2222);
+        let tt = TT::default();
+        let mut engine = Caps::for_eval::<LiTEval>();
+        let res1 = engine.search_with_tt(pos1, limit, tt.clone());
+        assert_eq!(engine.uci_nodes(), 2222);
+        assert!(pos1.is_move_legal(res1.chosen_move));
+        let res2 = engine.search_with_tt(pos2, limit, tt.clone());
+        assert_ne!(res2.chosen_move, res1.chosen_move);
+        assert!(pos2.is_move_legal(res2.chosen_move));
+        let entry = tt.load::<Chessboard>(pos2.hash_pos(), 0).unwrap();
+        assert_eq!(entry.mov.trust_unchecked(), res2.chosen_move);
+        let entry1 = tt.load(pos1.hash_pos(), 0).unwrap();
+        assert_eq!(entry1, entry);
+        let res1 = engine.search_with_tt(pos1, SearchLimit::depth_(3), tt.clone());
+        assert_ne!(res1.chosen_move, res2.chosen_move);
+        assert!(pos1.is_move_legal(res1.chosen_move));
+        assert_ne!(engine.uci_nodes(), 2222);
     }
 }

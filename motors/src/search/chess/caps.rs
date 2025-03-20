@@ -5,25 +5,25 @@ use std::time::{Duration, Instant};
 
 use crate::eval::Eval;
 use crate::eval::chess::lite::LiTEval;
-use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::chess::caps_values::cc;
+use crate::search::chess::histories::{
+    CaptHist, ContHist, CorrHist, HIST_DIVISOR, HistScoreT, HistoryHeuristic, write_single_hist_table,
+};
 use crate::search::move_picker::MovePicker;
 use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
 use crate::search::tt::TTEntry;
 use crate::search::*;
-use derive_more::{Deref, DerefMut, Index, IndexMut};
+use derive_more::{Deref, DerefMut};
 use gears::PlayerResult::{Lose, Win};
 use gears::arrayvec::ArrayVec;
-use gears::games::chess::moves::{ChessMove, ChessMoveFlags};
+use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::ChessPieceType::Pawn;
-use gears::games::chess::pieces::NUM_COLORS;
 use gears::games::chess::see::SeeScore;
-use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
+use gears::games::chess::squares::NUM_SQUARES;
 use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS, UnverifiedChessboard};
-use gears::games::{BoardHistory, Color, PosHash, ZobristHistory, n_fold_repetition};
-use gears::general::bitboards::chessboard::ChessBitboard;
-use gears::general::bitboards::{KnownSizeBitboard, RawBitboard};
+use gears::games::{BoardHistory, PosHash, ZobristHistory, n_fold_repetition};
+use gears::general::bitboards::RawBitboard;
 use gears::general::board::Strictness::Strict;
 use gears::general::board::{BitboardBoard, UnverifiedBoard};
 use gears::general::common::Description::NoDescription;
@@ -32,8 +32,6 @@ use gears::general::move_list::EagerNonAllocMoveList;
 use gears::general::moves::Move;
 use gears::itertools::Itertools;
 use gears::output::Message::Debug;
-use gears::output::OutputOpts;
-use gears::output::text_output::AdaptFormatter;
 use gears::score::{
     MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, ScoreT, game_result_to_score,
 };
@@ -52,159 +50,8 @@ const DEPTH_HARD_LIMIT: Depth = Depth::new(255);
 /// return the static eval.
 const SEARCH_STACK_LEN: usize = DEPTH_HARD_LIMIT.get() + 30;
 
-type HistScoreT = i16;
-
-const HIST_DIVISOR: HistScoreT = 1024;
 /// The TT move and good captures have a higher score, all other moves have a lower score.
 const KILLER_SCORE: MoveScore = MoveScore(8 * HIST_DIVISOR);
-
-/// Updates the history using the History Gravity technique,
-/// which keeps history scores from growing arbitrarily large and scales the bonus/malus depending on how
-/// "unexpected" they are, i.e. by how much they differ from the current history scores.
-fn update_history_score(entry: &mut HistScoreT, bonus: HistScoreT) {
-    // The maximum history score magnitude can be slightly larger than the divisor due to rounding errors.
-    // The `.abs()` call is necessary to correctly handle history malus.
-    let bonus = bonus as i32;
-    let e = *entry as i32;
-    let bonus = (bonus - bonus.abs() * e / HIST_DIVISOR as i32) as i16; // bonus can also be negative
-    *entry += bonus;
-}
-
-/// Quiet History Heuristic: Give bonuses to quiet moves that causes a beta cutoff a maluses to quiet moves that were tried
-/// but didn't cause a beta cutoff. Order all non-TT non-killer moves based on that (as well as based on the continuation
-/// history)
-#[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
-struct HistoryHeuristic(Box<[[HistScoreT; 64 * 64]; 4]>);
-
-impl HistoryHeuristic {
-    fn update(&mut self, mov: ChessMove, threats: ChessBitboard, bonus: HistScoreT) {
-        let mut threats_idx = threats.is_bit_set(mov.src_square()) as usize;
-        threats_idx = threats_idx * 2 + threats.is_bit_set(mov.dest_square()) as usize;
-        update_history_score(&mut self[threats_idx][mov.from_to_square()], bonus);
-    }
-    fn get(&self, mov: ChessMove, threats: ChessBitboard) -> HistScoreT {
-        let mut threats_idx = threats.is_bit_set(mov.src_square()) as usize;
-        threats_idx = threats_idx * 2 + threats.is_bit_set(mov.dest_square()) as usize;
-        self[threats_idx][mov.from_to_square()]
-    }
-}
-
-impl Default for HistoryHeuristic {
-    fn default() -> Self {
-        HistoryHeuristic(Box::new([[0; 64 * 64]; 4]))
-    }
-}
-
-/// Capture History Heuristic: Same as quiet history heuristic, but for captures.
-#[derive(Debug, Clone)]
-struct CaptHist(Box<[[[[HistScoreT; 64]; 6]; 2]; NUM_COLORS]>);
-
-impl CaptHist {
-    fn update(&mut self, mov: ChessMove, threats: ChessBitboard, color: ChessColor, bonus: HistScoreT) {
-        let defended = threats.is_bit_set_at(mov.dest_square().bb_idx()) as usize;
-        let entry = &mut self.0[color][defended][mov.piece_type() as usize][mov.dest_square().bb_idx()];
-        update_history_score(entry, bonus);
-    }
-    fn get(&self, mov: ChessMove, threats: ChessBitboard, color: ChessColor) -> MoveScore {
-        let defended = threats.is_bit_set_at(mov.dest_square().bb_idx()) as usize;
-        MoveScore(self.0[color][defended][mov.piece_type() as usize][mov.dest_square().bb_idx()])
-    }
-}
-
-impl Default for CaptHist {
-    fn default() -> Self {
-        Self(Box::new([[[[0; 64]; 6]; 2]; NUM_COLORS]))
-    }
-}
-
-/// Continuation history.
-/// Used for Countermove History (CMH, 1 ply ago) and Follow-up Move History (FMH, 2 plies ago).
-/// Unlike the main quiet history heuristic, this in indexed by the previous piece, previous target square,
-/// current piece, current target square, and color.
-#[derive(Debug, Clone, Deref, DerefMut, Index, IndexMut)]
-struct ContHist(Vec<HistScoreT>); // Can't store this on the stack because it's too large.
-
-impl ContHist {
-    fn idx(mov: ChessMove, prev_move: ChessMove, color: ChessColor) -> usize {
-        (mov.piece_type() as usize + mov.dest_square().bb_idx() * 6)
-            + (prev_move.piece_type() as usize + prev_move.dest_square().bb_idx() * 6) * 64 * 6
-            + color as usize * 64 * 6 * 64 * 6
-    }
-    fn update(&mut self, mov: ChessMove, prev_mov: ChessMove, bonus: HistScoreT, color: ChessColor) {
-        let entry = &mut self[Self::idx(mov, prev_mov, color)];
-        update_history_score(entry, bonus);
-    }
-    fn score(&self, mov: ChessMove, prev_move: ChessMove, color: ChessColor) -> HistScoreT {
-        self[Self::idx(mov, prev_move, color)]
-    }
-}
-
-impl Default for ContHist {
-    fn default() -> Self {
-        ContHist(vec![0; 2 * 6 * 64 * 6 * 64])
-    }
-}
-
-// See <https://www.chessprogramming.org/Static_Evaluation_Correction_History>
-
-// Code adapted from Sirius
-const CORRHIST_SIZE: usize = 1 << 14;
-
-const MAX_CORRHIST_VAL: isize = i16::MAX as isize;
-
-const CORRHIST_SCALE: isize = 256;
-
-#[derive(Debug, Clone)]
-struct CorrHist {
-    pawns: Box<[[ScoreT; CORRHIST_SIZE]; NUM_COLORS]>,
-    // the outer color index is the active player, the inner color is the color we're looking at
-    nonpawns: Box<[[[ScoreT; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]>,
-}
-
-impl Default for CorrHist {
-    fn default() -> Self {
-        CorrHist {
-            pawns: Box::new([[0; CORRHIST_SIZE]; NUM_COLORS]),
-            nonpawns: Box::new([[[0; NUM_COLORS]; CORRHIST_SIZE]; NUM_COLORS]),
-        }
-    }
-}
-
-impl CorrHist {
-    fn update_entry(entry: &mut ScoreT, weight: isize, bonus: isize) {
-        let val = *entry as isize;
-        let new_val = ((val * (CORRHIST_SCALE - weight) + bonus * weight) / CORRHIST_SCALE)
-            .clamp(-MAX_CORRHIST_VAL, MAX_CORRHIST_VAL);
-        *entry = new_val as ScoreT;
-    }
-
-    fn update(&mut self, pos: &Chessboard, depth: isize, eval: Score, score: Score) {
-        let color = pos.active_player();
-        let weight = (1 + depth).min(16);
-        let bonus = (score - eval).0 as isize * CORRHIST_SCALE;
-        let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
-        Self::update_entry(&mut self.pawns[color][pawn_idx], weight, bonus);
-        for c in ChessColor::iter() {
-            let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
-            Self::update_entry(&mut self.nonpawns[color][nonpawn_idx][c], weight, bonus);
-        }
-    }
-
-    fn correct(&mut self, pos: &Chessboard, raw: Score) -> Score {
-        if raw.is_won_or_lost() {
-            return raw;
-        }
-        let color = pos.active_player();
-        let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
-        let mut correction = self.pawns[color][pawn_idx] as isize;
-        for c in ChessColor::iter() {
-            let nonpawn_idx = pos.nonpawn_key(c).0 as usize % CORRHIST_SIZE;
-            correction += self.nonpawns[color][nonpawn_idx][c] as isize / 2;
-        }
-        let score = raw.0 as isize + correction / CORRHIST_SCALE;
-        Score(score.clamp(MIN_NORMAL_SCORE.0 as isize, MAX_NORMAL_SCORE.0 as isize) as ScoreT)
-    }
-}
 
 #[derive(Debug, Clone)]
 struct RootMoveNodes(Box<[[u64; NUM_SQUARES]; NUM_SQUARES]>);
@@ -267,21 +114,14 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
         for value in self.history.iter_mut().flatten() {
             *value = 0;
         }
-        for value in self.capt_hist.0.iter_mut().flatten().flatten().flatten() {
-            *value = 0;
-        }
+        self.capt_hist.reset();
         for value in self.countermove_hist.iter_mut() {
             *value = 0;
         }
         for value in self.follow_up_move_hist.iter_mut() {
             *value = 0;
         }
-        for value in self.corr_hist.pawns.iter_mut().flatten() {
-            *value = 0;
-        }
-        for value in self.corr_hist.nonpawns.iter_mut().flatten().flatten() {
-            *value = 0;
-        }
+        self.corr_hist.reset();
         self.root_move_nodes.clear();
     }
 
@@ -292,41 +132,6 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
                 + &write_single_hist_table(&self.history, pos, true),
         )
     }
-}
-
-fn write_single_hist_table(table: &HistoryHeuristic, pos: &Chessboard, flip: bool) -> String {
-    let show_square = |from: ChessSquare| {
-        let sum: i32 = ChessSquare::iter()
-            .map(|to| {
-                let mov = if flip {
-                    ChessMove::new(to, from, ChessMoveFlags::QueenMove)
-                } else {
-                    ChessMove::new(from, to, ChessMoveFlags::QueenMove)
-                };
-                table.get(mov, pos.threats()) as i32
-            })
-            .sum();
-        sum as f64 / 64.0
-    };
-    let as_nums = ChessSquare::iter()
-        .map(|sq| {
-            let score = show_square(sq);
-            format!("{score:^7.1}").color(color_for_score(Score((score * 4.0) as ScoreT), &score_gradient()))
-        })
-        .collect_vec();
-
-    let formatter = Chessboard::default().pretty_formatter(None, None, OutputOpts::default());
-    let mut formatter = AdaptFormatter {
-        underlying: formatter,
-        color_frame: Box::new(|_, col| col),
-        display_piece: Box::new(move |sq, _, _| as_nums[sq.bb_idx()].to_string()),
-        horizontal_spacer_interval: None,
-        vertical_spacer_interval: None,
-        square_width: Some(7),
-    };
-    let text =
-        if flip { "Main History Destination Square:\n" } else { "Main History Source Square:\n" }.bold().to_string();
-    text + &Chessboard::default().display_pretty(&mut formatter)
 }
 
 #[derive(Debug, Default, Clone)]
@@ -627,7 +432,7 @@ impl Caps {
     /// This means that it's possible for the root to fail low (or high), which is always something to consider:
     /// For example, the best move is not trustworthy if the root failed low (but because the TT move is ordered first,
     /// and the TT move at the root is always `state.best_move` (there can be no collisions because it's written to last),
-    /// it should in theory still be trustworthy if the root failed high)
+    /// it is still trustworthy except for depth 1 or when doing a multipv search)
     fn aspiration(
         &mut self,
         pos: Chessboard,
@@ -653,7 +458,7 @@ impl Caps {
                 (limit.remaining.saturating_sub(limit.increment)) * cc::inv_soft_limit_div_clamp() / 1024
                     + limit.increment,
             );
-            if self.should_not_start_negamax(soft_limit, max_depth, self.limit().mate) {
+            if self.should_not_start_negamax(soft_limit, self.limit().soft_nodes.get(), max_depth, self.limit().mate) {
                 self.statistics.soft_limit_stop();
                 return (false, None, None);
             }
@@ -1060,6 +865,7 @@ impl Caps {
             #[cfg(debug_assertions)]
             let debug_history_len = self.params.history.len();
             self.record_move(mov, pos, ply, MainSearch);
+
             if root && depth >= 8 && self.start_time.elapsed().as_millis() >= 3000 {
                 let move_num = self.search_stack[0].tried_moves.len();
                 // `qsearch` would give better results, but would make bench be nondeterministic
@@ -1093,8 +899,6 @@ impl Caps {
                     } else if move_score > MoveScore(cc::lmr_good_hist()) {
                         // Since the TT and killer move and good captures are not lmr'ed,
                         // this only applies to quiet moves with a good combined history score.
-                        // Note that this can cause LMR to *extend* instead of reduce, so in the future
-                        // it might make sense to clamp the extension.
                         reduction -= 1;
                     }
                     if !is_pv_node {
@@ -1124,7 +928,7 @@ impl Caps {
                     reduction += 1;
                 }
                 // this ensures that check extensions prevent going into qsearch while in check
-                reduction = reduction.min(depth - 1);
+                reduction = reduction.clamp(0, depth - 1);
 
                 score = -self.negamax(new_pos, ply + 1, depth - 1 - reduction, -(alpha + 1), -alpha, FailHigh)?;
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
@@ -1217,7 +1021,7 @@ impl Caps {
         );
 
         if self.search_stack[ply].tried_moves.is_empty() {
-            return Some(game_result_to_score(pos.no_moves_result_if(in_check), ply));
+            return Some(game_result_to_score(pos.no_moves_result(), ply));
         }
 
         let tt_entry: TTEntry<Chessboard> =
@@ -1481,9 +1285,15 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
     fn score_move_eager_part(&self, mov: ChessMove, state: &CapsState) -> MoveScore {
         // The move list is iterated backwards, which is why better moves get higher scores
         // No need to check against the TT move because that's already handled by the move picker
-        if mov == state.search_stack[self.ply].killer && !mov.is_tactical(&self.board) {
+        if mov.is_tactical(&self.board) {
+            let captured = mov.captured(&self.board);
+            let base_val = MoveScore(HIST_DIVISOR * 10);
+            let hist_val = state.capt_hist.get(mov, self.board.threats(), self.board.active_player());
+            base_val + MoveScore(captured as i16 * HIST_DIVISOR) + hist_val
+        } else if mov == state.search_stack[self.ply].killer {
+            // `else` ensures that tactical moves can't be killers
             KILLER_SCORE
-        } else if !mov.is_tactical(&self.board) {
+        } else {
             let countermove_score = if self.ply > 0 {
                 let prev_move = state.search_stack[self.ply - 1].last_tried_move();
                 state.countermove_hist.score(mov, prev_move, self.board.active_player())
@@ -1497,11 +1307,6 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
                 0
             };
             MoveScore(state.history.get(mov, self.board.threats()) + countermove_score + follow_up_score / 2)
-        } else {
-            let captured = mov.captured(&self.board);
-            let base_val = MoveScore(HIST_DIVISOR * 10);
-            let hist_val = state.capt_hist.get(mov, self.board.threats(), self.board.active_player());
-            base_val + MoveScore(captured as i16 * HIST_DIVISOR) + hist_val
         }
     }
 

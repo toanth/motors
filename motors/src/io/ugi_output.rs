@@ -247,6 +247,8 @@ impl TypeErasedUgiOutput {
 
 pub trait AbstractUgiOutput {
     fn write_ugi(&mut self, msg: &fmt::Arguments);
+
+    fn write_ugi_input(&mut self, msg: Tokens);
 }
 
 impl<B: Board> AbstractUgiOutput for UgiOutput<B> {
@@ -261,6 +263,12 @@ impl<B: Board> AbstractUgiOutput for UgiOutput<B> {
         _ = Stdout::flush(&mut stdout());
         for output in &mut self.additional_outputs {
             output.write_ugi_output(message, None);
+        }
+    }
+
+    fn write_ugi_input(&mut self, msg: Tokens) {
+        for output in &mut self.additional_outputs {
+            output.write_ugi_input(msg.clone(), None);
         }
     }
 }
@@ -402,12 +410,6 @@ impl<B: Board> UgiOutput<B> {
             self.type_erased.previous_exact_info = Some(info);
             self.previous_exact_pv = Some(pv.into());
             self.type_erased.previous_exact_pv_end_pos = Some((end_pos.as_diagram(Unicode, false), end_pos.as_fen()));
-        }
-    }
-
-    pub(super) fn write_ugi_input(&mut self, msg: Tokens) {
-        for output in &mut self.additional_outputs {
-            output.write_ugi_input(msg.clone(), None);
         }
     }
 

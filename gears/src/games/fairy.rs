@@ -574,7 +574,7 @@ impl Board for FairyBoard {
     fn is_piece_on(&self, coords: Self::Coordinates, piece: ColPieceTypeOf<Self>) -> bool {
         let idx = self.0.idx(coords);
         if let Some(color) = piece.color() {
-            self.colored_piece_bb(color, piece.uncolor()).is_bit_set_at(idx)
+            self.col_piece_bb(color, piece.uncolor()).is_bit_set_at(idx)
         } else {
             self.piece_bb(piece.uncolor()).is_bit_set_at(idx)
         }
