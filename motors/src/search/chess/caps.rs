@@ -804,6 +804,10 @@ impl Caps {
                     if verification_score.is_none_or(|score| score >= beta) {
                         return verification_score;
                     }
+                    // The verification score comes from a search, so it's more trustworthy than the (possibly tt-adjusted) eval.
+                    // Because we're not in a PV node, the verification search must have failed low, so that's what we expect to do as well.
+                    eval = verification_score?;
+                    expected_node_type = FailLow;
                 }
             }
         }
