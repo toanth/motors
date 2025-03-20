@@ -165,6 +165,11 @@ impl Chessboard {
         self.gen_slider_moves::<T, { Queen as usize }>(moves, filter, &slider_generator);
         self.gen_knight_moves(moves, filter);
         self.gen_pawn_moves(moves, filter, only_tactical);
+        if cfg!(debug_assertions) {
+            for &m in moves.iter_moves() {
+                debug_assert!(self.is_generated_move_pseudolegal(m));
+            }
+        }
     }
 
     fn gen_pawn_moves<T: MoveList<Self>>(&self, moves: &mut T, filter: ChessBitboard, only_tactical: bool) {
@@ -418,69 +423,63 @@ impl Chessboard {
     // this means that it can't be used to verify that a position is legal
     pub fn set_checkers_and_pinned(&mut self) {
         let us = self.active_player();
+        let our_bb = self.player_bb(us);
         let their_bb = self.player_bb(!us);
         let king = self.king_square(us);
-        let mut pinned = ChessBitboard::default();
-        let mut checkers = (Self::knight_attacks_from(king) & self.piece_bb(Knight))
-            | Self::single_pawn_captures(us, king) & self.col_piece_bb(!us, Pawn);
+        self.pinned = ChessBitboard::default();
+        self.checkers = ((Self::knight_attacks_from(king) & self.piece_bb(Knight))
+            | Self::single_pawn_captures(us, king) & self.col_piece_bb(!us, Pawn))
+            & their_bb;
         let slider_gen = ChessSliderGenerator::new(their_bb);
         let rook_sliders = (self.piece_bb(Rook) | self.piece_bb(Queen)) & their_bb;
         let bishop_sliders = (self.piece_bb(Bishop) | self.piece_bb(Queen)) & their_bb;
-        for slider in (rook_sliders & slider_gen.rook_attacks(king)).ones() {
-            let on_ray =
-                ChessBitboard::ray_exclusive(slider, king, ChessboardSize::default()) & self.active_player_bb();
+
+        let mut update = |slider: ChessSquare| {
+            let on_ray = ChessBitboard::ray_exclusive(slider, king, ChessboardSize::default()) & our_bb;
             if on_ray.is_zero() {
-                checkers |= slider.bb();
+                self.checkers |= slider.bb();
             } else if on_ray.is_single_piece() {
-                pinned |= on_ray;
+                self.pinned |= on_ray;
             }
+        };
+
+        for slider in (rook_sliders & slider_gen.rook_attacks(king)).ones() {
+            update(slider);
         }
         for slider in (bishop_sliders & slider_gen.bishop_attacks(king)).ones() {
-            let on_ray =
-                ChessBitboard::ray_exclusive(slider, king, ChessboardSize::default()) & self.active_player_bb();
-            if on_ray.is_zero() {
-                checkers |= slider.bb();
-            } else if on_ray.is_single_piece() {
-                pinned |= on_ray;
-            }
+            update(slider);
         }
-        self.checkers = checkers & self.player_bb(!us);
-        self.pinned = pinned;
     }
 
     pub(super) fn is_pseudolegal_legal_impl(&self, mov: ChessMove) -> bool {
-        if mov.piece_type() == King {
-            if mov.is_castle() {
-                let side = if mov.flags() == CastleKingside { Kingside } else { Queenside };
-                let to_file = if mov.flags() == CastleKingside { G_FILE_NO } else { C_FILE_NO };
-                let king_ray = ChessBitboard::ray_inclusive(
-                    mov.src_square(),
-                    ChessSquare::from_rank_file(mov.src_square().rank(), to_file),
-                    ChessboardSize::default(),
-                );
-                (king_ray & self.threats).is_zero()
-                    && !self.pinned.is_bit_set(self.rook_start_square(self.active_player(), side))
-            } else {
-                let dest = mov.dest_square();
-                debug_assert!(!self.threats.is_bit_set(dest));
-                if self.checkers().is_zero() {
-                    return true;
-                }
-                let slider_gen =
-                    ChessSliderGenerator::new(self.occupied_bb() ^ self.col_piece_bb(self.active_player, King));
-                let rook_sliders = (self.piece_bb(Rook) | self.piece_bb(Queen)) & self.inactive_player_bb();
-                let bishop_sliders = (self.piece_bb(Bishop) | self.piece_bb(Queen)) & self.inactive_player_bb();
-                (rook_sliders & slider_gen.rook_attacks(dest) | bishop_sliders & slider_gen.bishop_attacks(dest))
-                    .is_zero()
+        let src = mov.src_square();
+        let dest = mov.dest_square();
+        if mov.is_castle() {
+            let to_file = if mov.flags() == CastleKingside { G_FILE_NO } else { C_FILE_NO };
+            let king_ray = ChessBitboard::ray_inclusive(
+                mov.src_square(),
+                ChessSquare::from_rank_file(src.rank(), to_file),
+                ChessboardSize::default(),
+            );
+            (king_ray & self.threats).is_zero() && !self.pinned.is_bit_set(dest)
+        } else if mov.flags() == NormalKingMove {
+            debug_assert!(!self.threats.is_bit_set(dest));
+            if self.checkers().is_zero() {
+                return true;
             }
+            let slider_gen =
+                ChessSliderGenerator::new(self.occupied_bb() ^ self.col_piece_bb(self.active_player, King));
+            let rook_sliders = (self.piece_bb(Rook) | self.piece_bb(Queen)) & self.inactive_player_bb();
+            let bishop_sliders = (self.piece_bb(Bishop) | self.piece_bb(Queen)) & self.inactive_player_bb();
+            ((rook_sliders & slider_gen.rook_attacks(dest)) | (bishop_sliders & slider_gen.bishop_attacks(dest)))
+                .is_zero()
         } else {
             let king_sq = self.king_square(self.active_player);
             debug_assert!(!self.checkers().more_than_one_bit_set());
-            let src = mov.src_square();
             if mov.is_ep() {
                 let mut b = *self;
                 b.remove_piece_unchecked(mov.square_of_pawn_taken_by_ep().unwrap(), Pawn, self.inactive_player());
-                b.move_piece(mov.src_square(), mov.dest_square(), Pawn);
+                b.move_piece(src, dest, Pawn);
                 return !b.is_in_check_on_square(b.active_player(), king_sq, &b.slider_generator());
             } else if self.checkers().has_set_bit() {
                 if self.pinned.is_bit_set(src) {
@@ -490,9 +489,9 @@ impl Chessboard {
                 let ray = ChessBitboard::ray_inclusive(checker, king_sq, ChessboardSize::default());
                 return ray.is_bit_set(mov.dest_square());
             } else if self.pinned.is_bit_set(src) {
-                let pinning = self.ray_attacks(src, king_sq, self.occupied_bb());
+                let mut pinning = self.ray_attacks(src, king_sq, self.occupied_bb());
                 debug_assert!(pinning.is_single_piece());
-                let pinning = pinning.ones().next().unwrap();
+                let pinning = ChessSquare::from_bb_index(pinning.pop_lsb());
                 let pin_ray = ChessBitboard::ray_inclusive(pinning, king_sq, ChessboardSize::default());
                 return pin_ray.is_bit_set(mov.dest_square());
             }
