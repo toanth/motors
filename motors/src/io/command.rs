@@ -15,7 +15,7 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::io::SearchType::{Bench, Normal, Perft, Ponder, SplitPerft};
+use crate::io::SearchType::{Auto, Bench, Normal, Perft, Ponder, SplitPerft};
 use crate::io::autocomplete::AutoCompleteState;
 use crate::io::command::Standard::*;
 use crate::io::{AbstractEngineUgiState, EngineUGI, SearchType};
@@ -381,6 +381,14 @@ pub fn ugi_commands() -> CommandList {
             "Moves the piece on the first given square to the second given square, e.g. 'move a1 a2'",
             |ugi, words, _| ugi.handle_move_piece(words),
             --> |state| state.coords_subcmds(true, true)
+        ),
+        command!(
+            auto,
+            Custom,
+            "Search like 'go', then play the chosen move. Blocks until the search is complete",
+            |ugi, words, _| { ugi.handle_go(Auto, words) },
+            --> |state| state.go_subcmds(Auto),
+            recurse = true
         ),
         command!(
             perft,

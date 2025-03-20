@@ -1,5 +1,5 @@
 use crate::eval::Eval;
-use crate::io::ugi_output::AbstractUgiOutput;
+use crate::io::ugi_output::{AbstractUgiOutput, UgiOutput};
 use crate::search::multithreading::SearchThreadType::*;
 use crate::search::multithreading::SearchType::*;
 use crate::search::multithreading::{AtomicSearchState, EngineReceives, EngineThread, SearchThreadType, Sender};
@@ -33,8 +33,8 @@ use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
 use std::sync::atomic::Ordering::Acquire;
+use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 use std::time::{Duration, Instant};
 
@@ -554,8 +554,23 @@ impl<B: Board> SearchParams<B> {
         Self::create(pos, limit, history, tt, None, 0, atomic, Auxiliary)
     }
 
+    pub fn with_output(
+        pos: B,
+        limit: SearchLimit,
+        history: ZobristHistory,
+        tt: TT,
+        restrict_moves: Option<Vec<B::Move>>,
+        additional_pvs: usize,
+        output: Arc<Mutex<UgiOutput<B>>>,
+        info: Arc<Mutex<EngineInfo>>,
+    ) -> Self {
+        let atomic = Arc::new(AtomicSearchState::default());
+        let thread_type = SearchThreadType::new_single_thread(output, info, atomic.clone());
+        Self::create(pos, limit, history, tt, restrict_moves, additional_pvs, atomic, thread_type)
+    }
+
     #[expect(clippy::too_many_arguments)]
-    pub fn create(
+    fn create(
         pos: B,
         limit: SearchLimit,
         history: ZobristHistory,

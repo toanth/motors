@@ -47,7 +47,7 @@ use gears::games::{CharType, Color, ColoredPiece, ColoredPieceType, OutputList, 
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, UnverifiedBoard};
 use gears::general::common::Description::{NoDescription, WithDescription};
-use gears::general::common::anyhow::{anyhow, bail};
+use gears::general::common::anyhow::{anyhow, bail, ensure};
 use gears::general::common::{
     NamedEntity, parse_bool_from_str, parse_duration_ms, parse_int_from_str, select_name_static, tokens,
     tokens_to_string,
@@ -94,6 +94,7 @@ enum SearchType {
     Bench,
     Perft,
     SplitPerft,
+    Auto, // Like `Normal`, but done in this thread (i.e., blocks) and plays the chosen move instantly
 }
 
 impl Display for SearchType {
@@ -107,6 +108,7 @@ impl Display for SearchType {
                 Perft => "perft",
                 SplitPerft => "split perft",
                 Bench => "bench",
+                Auto => "auto",
             }
         )
     }
@@ -458,25 +460,37 @@ impl<B: Board> EngineUGI<B> {
             return Ok(true);
         }
         if single_move && self.respond_to_move {
-            self.play_engine_move()?;
+            self.play_engine_move(None)?;
         }
         Ok(true)
     }
 
-    fn play_engine_move(&mut self) -> Res<()> {
-        self.write_ugi_msg("Searching...");
-        let engine = self.state.engine.get_engine_info().short_name();
-        let mut engine = create_engine_box_from_str(&engine, &self.searcher_factories, &self.eval_factories)?;
-        let limit = SearchLimit::per_move(Duration::from_millis(1_000));
-        let params =
-            SearchParams::new_unshared(self.state.board.clone(), limit, self.state.board_hist.clone(), TT::default());
+    fn play_engine_move(&mut self, params: Option<SearchParams<B>>) -> Res<()> {
+        if self.is_interactive() {
+            self.write_ugi_msg("Searching...");
+        }
+        let engine_name = self.state.engine.get_engine_info().short_name();
+        let mut engine = create_engine_box_from_str(&engine_name, &self.searcher_factories, &self.eval_factories)?;
+        let params = params.unwrap_or_else(|| {
+            let limit = SearchLimit::per_move(Duration::from_millis(1_000));
+            SearchParams::new_unshared(self.state.board.clone(), limit, self.state.board_hist.clone(), TT::default())
+        });
+        ensure!(
+            !params.limit.is_infinite(),
+            "Cannot use an infinite limit for this search, as that would block forever (can't use 'stop')"
+        );
         let res = engine.search(params);
-        self.write_ugi(&format_args!(
-            "Chosen move: {}",
-            &res.chosen_move.to_extended_text(&self.state.board, Alternative).bold()
-        ));
+        ensure!(!res.chosen_move.is_null(), "Engine {engine_name} did not choose a move");
+        if self.is_interactive() {
+            self.write_ugi(&format_args!(
+                "Playing move: {}",
+                &res.chosen_move.to_extended_text(&self.state.board, Alternative).bold()
+            ));
+        }
         self.state.make_move(res.chosen_move, true)?;
-        _ = print_game_over(self, false);
+        if self.is_interactive() {
+            _ = print_game_over(self, false);
+        }
         Ok(())
     }
 
@@ -627,6 +641,19 @@ impl<B: Board> EngineUGI<B> {
         let limit = self.state.go_state.generic.limit;
         let board = self.state.go_state.pos.clone();
         match opts.search_type {
+            Auto => {
+                let params = SearchParams::with_output(
+                    board.clone(),
+                    limit,
+                    self.state.board_hist.clone(),
+                    self.state.engine.next_tt(),
+                    self.state.go_state.search_moves.take(),
+                    opts.multi_pv.saturating_sub(1),
+                    self.output.clone(),
+                    self.state.engine.get_engine_info_arc(),
+                );
+                return self.play_engine_move(Some(params));
+            }
             Bench => {
                 let bench_positions: Vec<B> = if opts.complete { B::bench_positions() } else { vec![board] };
                 return self.bench(limit, &bench_positions);
@@ -1410,7 +1437,7 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
         if let Some(next) = words.next() {
             self.set_option(RespondToMove, next.to_string())
         } else {
-            self.play_engine_move()
+            self.play_engine_move(None)
         }
     }
 
@@ -1779,12 +1806,13 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
     let score = Score::from_compact(entry.score);
     write!(
         &mut res,
-        "\nScore: {bound_str}{0} ({1}), Raw Eval: {2}, Depth: {3}, Best Move: {4}",
+        "\nHash: {5}\nScore: {bound_str}{0} ({1}), Raw Eval: {2}, Depth: {3}, Best Move: {4}",
         pretty_score(score, None, None, &score_gradient(), true, false),
         entry.bound(),
         pretty_score(entry.raw_eval(), None, None, &score_gradient(), true, false),
         entry.depth.to_string().bold(),
         move_string,
+        pos.hash_pos()
     )
     .unwrap();
     res

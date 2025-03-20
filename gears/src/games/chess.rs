@@ -318,6 +318,9 @@ impl Board for Chessboard {
             "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1",
             // mate in 15 that stronger engines tend to miss (even lichess SF only finds a mate in 17 with max parameters)
             "5k2/1p5Q/p2r1qp1/P1p1RpN1/2P5/3P3P/5PP1/6K1 b - - 0 56",
+            // the next 2 positions have the exact same zobrist hash (thanks to analog hors for the python script to find them)
+            "1Q2Q3/N2NP1K1/Rn2B3/qQr3n1/1n5N/1P6/4n3/BkN4q w - - 0 1",
+            "2n5/1Rp1K1pn/q6Q/1rrr4/k3Br2/7B/1n1N2Q1/1Nn2R2 w - - 0 1",
         ];
         let mut res = fens.into_iter().map(|fen| Self::from_fen(fen, Strict).unwrap()).collect_vec();
         res.extend(Self::name_to_pos_map().iter().filter(|e| e.strictness == Strict).map(|e| e.create::<Chessboard>()));
@@ -449,7 +452,7 @@ impl Board for Chessboard {
     }
 
     fn no_moves_result(&self) -> PlayerResult {
-        self.no_moves_result_if(self.is_in_check())
+        if self.is_in_check() { Lose } else { Draw }
     }
 
     /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
@@ -703,10 +706,6 @@ impl Chessboard {
             return false;
         }
         true
-    }
-
-    pub fn no_moves_result_if(&self, in_check: bool) -> PlayerResult {
-        if in_check { Lose } else { Draw }
     }
 
     pub fn ep_square(&self) -> Option<ChessSquare> {
