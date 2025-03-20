@@ -1262,7 +1262,7 @@ impl Caps {
                 return Some(tt_score);
             }
             raw_eval = tt_entry.raw_eval();
-            eval = raw_eval;
+            eval = self.corr_hist.correct(&pos, raw_eval);
 
             // even though qsearch never checks for game over conditions, it's still possible for it to load a checkmate score
             // and propagate that up to a qsearch parent node, where it gets saved with a depth of 0, so game over scores
@@ -1282,9 +1282,9 @@ impl Caps {
             }
         } else {
             raw_eval = self.eval(&pos, ply);
-            eval = raw_eval;
+            eval = self.corr_hist.correct(&pos, raw_eval);
         }
-        let mut best_score = self.corr_hist.correct(&pos, eval);
+        let mut best_score = eval;
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
         // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
