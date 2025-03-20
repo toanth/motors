@@ -267,9 +267,20 @@ pub type EvalList<B> = EntityList<Box<dyn AbstractEvalBuilder<B>>>;
 /// There are two related concepts: `Engine` and `Searcher`.
 /// A searcher is an algorithm like caps or gaps, an engine is a searcher plus an eval.
 pub trait AbstractSearcherBuilder<B: Board>: NamedEntity + DynClone {
-    fn build_in_new_thread(&self, eval: Box<dyn Eval<B>>) -> (Sender<EngineReceives<B>>, EngineInfo);
+    fn build_in_new_thread(&self, eval: Box<dyn Eval<B>>) -> (Sender<EngineReceives<B>>, EngineInfo) {
+        let engine = self.build_for_eval(eval);
+        let info = engine.engine_info();
+        let (sender, receiver) = unbounded();
+        let mut thread = EngineThread::new(engine, receiver);
+        _ = spawn(move || thread.main_loop());
+        (sender, info)
+    }
 
-    fn build(&self, eval_builder: &dyn AbstractEvalBuilder<B>) -> Box<dyn Engine<B>>;
+    fn build(&self, eval_builder: &dyn AbstractEvalBuilder<B>) -> Box<dyn Engine<B>> {
+        self.build_for_eval(eval_builder.build())
+    }
+
+    fn build_for_eval(&self, eval: Box<dyn Eval<B>>) -> Box<dyn Engine<B>>;
 }
 
 pub type SearcherList<B> = EntityList<Box<dyn AbstractSearcherBuilder<B>>>;
@@ -299,17 +310,8 @@ impl<B: Board, E: Engine<B>> SearcherBuilder<B, E> {
 }
 
 impl<B: Board, E: Engine<B>> AbstractSearcherBuilder<B> for SearcherBuilder<B, E> {
-    fn build_in_new_thread(&self, eval: Box<dyn Eval<B>>) -> (Sender<EngineReceives<B>>, EngineInfo) {
-        let engine = E::with_eval(eval);
-        let info = engine.engine_info();
-        let (sender, receiver) = unbounded();
-        let mut thread = EngineThread::new(engine, receiver);
-        _ = spawn(move || thread.main_loop());
-        (sender, info)
-    }
-
-    fn build(&self, eval_builder: &dyn AbstractEvalBuilder<B>) -> Box<dyn Engine<B>> {
-        Box::new(E::with_eval(eval_builder.build()))
+    fn build_for_eval(&self, eval: Box<dyn Eval<B>>) -> Box<dyn Engine<B>> {
+        Box::new(E::with_eval(eval))
     }
 }
 
@@ -476,12 +478,19 @@ pub trait NormalEngine<B: Board>: Engine<B> {
         false
     }
 
-    fn should_not_start_negamax(&self, soft_limit: Duration, max_soft_depth: isize, mate_depth: Depth) -> bool
+    fn should_not_start_negamax(
+        &self,
+        soft_limit: Duration,
+        soft_nodes: u64,
+        max_soft_depth: isize,
+        mate_depth: Depth,
+    ) -> bool
     where
         Self: Sized,
     {
         let state = self.search_state();
         state.start_time().elapsed() >= soft_limit
+            || state.uci_nodes() >= soft_nodes
             || state.depth().get() as isize > max_soft_depth
             || state.best_score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT)
     }
@@ -656,7 +665,7 @@ pub trait CustomInfo<B: Board>: Default + Clone + Debug {
     }
     fn hard_forget_except_tt(&mut self);
 
-    fn write_internal_info(&self) -> Option<String> {
+    fn write_internal_info(&self, _pos: &B) -> Option<String> {
         None
     }
 }
@@ -711,7 +720,7 @@ pub trait AbstractSearchState<B: Board> {
         }
     }
     /// Engine-specific info, like the contents of history tables.
-    fn write_internal_info(&self) -> Option<String>;
+    fn write_internal_info(&self, pos: &B) -> Option<String>;
 }
 
 #[derive(Debug)]
@@ -830,7 +839,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
     }
 
     fn to_search_info(&self) -> SearchInfo<B> {
-        SearchInfo {
+        let mut res = SearchInfo {
             best_move_of_all_pvs: self.best_move(),
             depth: self.depth(),
             seldepth: self.seldepth(),
@@ -843,8 +852,16 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
             hashfull: self.estimate_hashfull(),
             pos: self.params.pos.clone(),
             bound: self.cur_pv_data().bound,
+            num_threads: 1,
             additional: Self::additional(),
+        };
+        if let Main(data) = &self.params.thread_type {
+            let shared = data.shared_atomic_state();
+            res.nodes = NodesLimit::new(shared.iter().map(|d| d.nodes()).sum()).unwrap();
+            res.seldepth = shared.iter().map(|d| d.seldepth()).max().unwrap();
+            res.num_threads = shared.len();
         }
+        res
     }
 
     fn aggregated_statistics(&self) -> Statistics {
@@ -857,8 +874,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         }
     }
 
-    fn write_internal_info(&self) -> Option<String> {
-        self.custom.write_internal_info()
+    fn write_internal_info(&self, pos: &B) -> Option<String> {
+        self.custom.write_internal_info(pos)
     }
 }
 
@@ -1115,10 +1132,10 @@ mod tests {
             search_moves.push(search_moves.first().copied().unwrap_or_default());
             search_moves.push(B::Move::default());
             let multi_pv = search_moves.len() + 3;
-            let params =
-                SearchParams::new_unshared(p, SearchLimit::nodes_(1_234), ZobristHistory::default(), tt.clone())
-                    .additional_pvs(multi_pv - 1)
-                    .restrict_moves(search_moves.clone());
+            let limit = SearchLimit::nodes_(1234).and(SearchLimit::soft_nodes_(1000));
+            let params = SearchParams::new_unshared(p, limit, ZobristHistory::default(), tt.clone())
+                .additional_pvs(multi_pv - 1)
+                .restrict_moves(search_moves.clone());
             let res = engine.search(params);
             assert!(search_moves.contains(&res.chosen_move));
             // assert_eq!(engine.search_state().internal_node_count(), 1_234); // TODO: Assert exact match

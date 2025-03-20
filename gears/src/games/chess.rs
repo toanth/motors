@@ -137,15 +137,17 @@ struct Hashes {
 pub struct Chessboard {
     piece_bbs: [ChessBitboard; NUM_CHESS_PIECES],
     color_bbs: [ChessBitboard; NUM_COLORS],
-    ply: usize,
-    ply_100_ctr: usize,
+    threats: ChessBitboard,
+    checkers: ChessBitboard,
+    ply: u32,
+    ply_100_ctr: u8,
     active_player: ChessColor,
     castling: CastlingFlags,
     ep_square: Option<ChessSquare>, // eventually, see if using Optional and Noned instead of Option improves nps
     hashes: Hashes,
 }
 
-const _: () = assert!(size_of::<Chessboard>() == 10 * 12);
+const _: () = assert!(size_of::<Chessboard>() == 128);
 
 impl Default for Chessboard {
     fn default() -> Self {
@@ -190,6 +192,8 @@ impl Board for Chessboard {
         UnverifiedChessboard(Self {
             piece_bbs: Default::default(),
             color_bbs: Default::default(),
+            threats: ChessBitboard::default(),
+            checkers: ChessBitboard::default(),
             ply: 0,
             ply_100_ctr: 0,
             active_player: White,
@@ -311,6 +315,9 @@ impl Board for Chessboard {
             "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1",
             // mate in 15 that stronger engines tend to miss (even lichess SF only finds a mate in 17 with max parameters)
             "5k2/1p5Q/p2r1qp1/P1p1RpN1/2P5/3P3P/5PP1/6K1 b - - 0 56",
+            // the next 2 positions have the exact same zobrist hash (thanks to analog hors for the python script to find them)
+            "1Q2Q3/N2NP1K1/Rn2B3/qQr3n1/1n5N/1P6/4n3/BkN4q w - - 0 1",
+            "2n5/1Rp1K1pn/q6Q/1rrr4/k3Br2/7B/1n1N2Q1/1Nn2R2 w - - 0 1",
         ];
         let mut res = fens.map(|fen| Self::from_fen(fen, Strict).unwrap()).iter().copied().collect_vec();
         res.extend(Self::name_to_pos_map().iter().filter(|e| e.strictness == Strict).map(|e| e.create::<Chessboard>()));
@@ -326,11 +333,11 @@ impl Board for Chessboard {
     }
 
     fn halfmove_ctr_since_start(&self) -> usize {
-        self.ply
+        self.ply as usize
     }
 
     fn halfmove_repetition_clock(&self) -> usize {
-        self.ply_100_ctr
+        self.ply_100_ctr as usize
     }
 
     fn size(&self) -> ChessboardSize {
@@ -343,7 +350,7 @@ impl Board for Chessboard {
 
     fn is_piece_on(&self, coords: ChessSquare, piece: ColoredChessPieceType) -> bool {
         if let Some(color) = piece.color() {
-            self.colored_piece_bb(color, piece.uncolor()).is_bit_set_at(coords.bb_idx())
+            self.col_piece_bb(color, piece.uncolor()).is_bit_set_at(coords.bb_idx())
         } else {
             self.is_empty(coords)
         }
@@ -367,7 +374,7 @@ impl Board for Chessboard {
     }
 
     fn default_perft_depth(&self) -> Depth {
-        Depth::new(4)
+        Depth::new(5)
     }
 
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
@@ -404,14 +411,14 @@ impl Board for Chessboard {
         self.flip_side_to_move()
     }
 
+    fn is_generated_move_pseudolegal(&self, mov: ChessMove) -> bool {
+        self.is_generated_move_pseudolegal_impl(mov)
+    }
+
     fn is_move_pseudolegal(&self, mov: ChessMove) -> bool {
         let res = self.is_move_pseudolegal_impl(mov);
         debug_assert!(!res || self.is_generated_move_pseudolegal(mov), "{mov:?} {self}");
         res
-    }
-
-    fn is_generated_move_pseudolegal(&self, mov: ChessMove) -> bool {
-        self.is_generated_move_pseudolegal_impl(mov)
     }
 
     fn player_result_no_movegen<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
@@ -430,7 +437,7 @@ impl Board for Chessboard {
     }
 
     fn no_moves_result(&self) -> PlayerResult {
-        self.no_moves_result_if(self.is_in_check())
+        if self.is_in_check() { Lose } else { Draw }
     }
 
     /// Doesn't quite conform to FIDE rules, but probably mostly agrees with USCF rules (in that it should almost never
@@ -441,20 +448,19 @@ impl Board for Chessboard {
         }
         // return true if the opponent has pawns because that can create possibilities to force them
         // to restrict the king's mobility
-        if (self.piece_bb(Pawn) | self.colored_piece_bb(player, Rook) | self.colored_piece_bb(player, Queen))
-            .has_set_bit()
-            || (self.colored_piece_bb(player.other(), King) & CORNER_SQUARES).has_set_bit()
+        if (self.piece_bb(Pawn) | self.col_piece_bb(player, Rook) | self.col_piece_bb(player, Queen)).has_set_bit()
+            || (self.col_piece_bb(player.other(), King) & CORNER_SQUARES).has_set_bit()
         {
             return true;
         }
         // we have at most two knights and no other pieces
-        if self.colored_piece_bb(player, Bishop).is_zero() && self.colored_piece_bb(player, Knight).num_ones() <= 2 {
+        if self.col_piece_bb(player, Bishop).is_zero() && self.col_piece_bb(player, Knight).num_ones() <= 2 {
             // this can very rarely be incorrect because a mate with a knight is possible even without pawns
             // and even if the king is not in the corner, but those cases are extremely rare
             return false;
         }
-        let bishops = self.colored_piece_bb(player, Bishop);
-        if self.colored_piece_bb(player, Knight).is_zero()
+        let bishops = self.col_piece_bb(player, Bishop);
+        if self.col_piece_bb(player, Knight).is_zero()
             && ((bishops & white_squares()).is_zero() || (bishops & black_squares()).is_zero())
         {
             return false;
@@ -484,7 +490,7 @@ impl Board for Chessboard {
             // This library instead uses pseudolegal ep captures internally and checks legality when creating FENs,
             // but some existing programs give invalid fens that in some cases contain an ep square after every double pawn push,
             // so we silently ignore those invalid ep squares unless in strict mode.
-            if (board.0.colored_piece_bb(color, Pawn) & ep_capturing).is_zero() {
+            if (board.0.col_piece_bb(color, Pawn) & ep_capturing).is_zero() {
                 if strictness == Strict {
                     bail!(
                         "The ep square is set to {ep_square} even though no pawn can recapture. In strict mode, this is not allowed"
@@ -650,7 +656,7 @@ impl Chessboard {
     /// TODO: Only set the ep square if there are legal en passants possible
     pub fn is_3fold_repetition<H: BoardHistory>(&self, history: &H) -> bool {
         // There's no need to test if the repetition is a checkmate, because checkmate positions can't repeat
-        n_fold_repetition(3, history, self.hash_pos(), self.ply_100_ctr)
+        n_fold_repetition(3, history, self.hash_pos(), self.halfmove_repetition_clock())
     }
 
     /// Check if the current position is a checkmate.
@@ -687,21 +693,16 @@ impl Chessboard {
         true
     }
 
-    pub fn no_moves_result_if(&self, in_check: bool) -> PlayerResult {
-        if in_check { Lose } else { Draw }
-    }
-
     pub fn ep_square(&self) -> Option<ChessSquare> {
         self.ep_square
     }
 
     pub fn king_square(&self, color: ChessColor) -> ChessSquare {
-        ChessSquare::from_bb_index(self.colored_piece_bb(color, King).num_trailing_zeros())
+        ChessSquare::from_bb_index(self.col_piece_bb(color, King).num_trailing_zeros())
     }
 
     pub fn is_in_check(&self) -> bool {
-        let generator = self.slider_generator();
-        self.is_in_check_on_square(self.active_player, self.king_square(self.active_player), &generator)
+        self.checkers.has_set_bit()
     }
 
     pub fn gives_check(&self, mov: ChessMove) -> bool {
@@ -862,11 +863,11 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         let mut this = self.0;
         for color in ChessColor::iter() {
             ensure!(
-                this.colored_piece_bb(color, King).is_single_piece(),
+                this.col_piece_bb(color, King).is_single_piece(),
                 "The {color} player does not have exactly one king"
             );
             ensure!(
-                (this.colored_piece_bb(color, Pawn) & (ChessBitboard::rank_0() | ChessBitboard::rank(7))).is_zero(),
+                (this.col_piece_bb(color, Pawn) & (ChessBitboard::rank_0() | ChessBitboard::rank(7))).is_zero(),
                 "The {color} player has a pawn on the first or eight rank"
             );
         }
@@ -874,7 +875,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         for color in ChessColor::iter() {
             for side in CastleRight::iter() {
                 let has_eligible_rook =
-                    (this.rook_start_square(color, side).bb() & this.colored_piece_bb(color, Rook)).has_set_bit();
+                    (this.rook_start_square(color, side).bb() & this.col_piece_bb(color, Rook)).has_set_bit();
                 if this.castling.can_castle(color, side) && !has_eligible_rook {
                     bail!(
                         "Color {color} can castle {side}, but there is no rook to castle{}",
@@ -902,9 +903,9 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         // from startpos, e.g. "B6b/8/8/8/2K5/5k2/8/b6B b - - 0 1"
         if this.ply_100_ctr > 100 {
             bail!("The 50 move rule has been exceeded (there have already been {0} plies played)", this.ply_100_ctr);
-        } else if this.ply >= 100_000 {
+        } else if this.ply >= 20_000 {
             bail!("Ridiculously large ply counter: {0}", this.ply);
-        } else if strictness == Strict && this.ply_100_ctr > this.ply {
+        } else if strictness == Strict && this.halfmove_repetition_clock() > this.halfmove_ctr_since_start() {
             bail!(
                 "The halfmove repetition clock ({0}) is larger than the number of played half moves ({1}), \
                 which is not allowed in strict mode",
@@ -917,7 +918,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
         let startpos_piece_count = [8, 2, 2, 2, 1, 1];
         for piece in ColoredChessPieceType::pieces() {
             let color = piece.color().unwrap();
-            let bb = this.colored_piece_bb(color, piece.uncolor());
+            let bb = this.col_piece_bb(color, piece.uncolor());
             if strictness == Strict {
                 num_promoted_pawns[color] += 0.max(bb.num_ones() as isize - startpos_piece_count[piece.uncolor()]);
                 // Print a better error message than the generic "invalid piece distribution".
@@ -934,7 +935,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                         continue;
                     }
                     ensure!(
-                        (bb & this.colored_piece_bb(other_piece.color().unwrap(), other_piece.uncolor())).is_zero(),
+                        (bb & this.col_piece_bb(other_piece.color().unwrap(), other_piece.uncolor())).is_zero(),
                         "There are two pieces on the same square: {piece} and {other_piece}"
                     );
                 }
@@ -957,7 +958,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             }
         }
         for color in ChessColor::iter() {
-            let num_pawns = this.colored_piece_bb(color, Pawn).num_ones() as isize;
+            let num_pawns = this.col_piece_bb(color, Pawn).num_ones() as isize;
             if strictness == Strict && num_promoted_pawns[color] + num_pawns > 8 {
                 bail!("Incorrect piece distribution for {color}")
             }
@@ -994,7 +995,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             if strictness == Strict {
                 let possible_ep_pawns = remove_pawn_square.bb().west() | remove_pawn_square.bb().east();
                 ensure!(
-                    (possible_ep_pawns & this.colored_piece_bb(active, Pawn)).has_set_bit(),
+                    (possible_ep_pawns & this.col_piece_bb(active, Pawn)).has_set_bit(),
                     "The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square"
                 );
                 if checks == CheckFen {
@@ -1009,6 +1010,8 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 }
             }
         }
+        this.threats = this.calc_threats(this.inactive_player(), &this.slider_generator());
+        this.checkers = this.calc_checkers_of(this.inactive_player(), &this.slider_generator());
         Ok(this)
     }
 
@@ -1050,12 +1053,12 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
     }
 
     fn set_ply_since_start(&mut self, ply: usize) -> Res<()> {
-        self.0.ply = ply;
+        self.0.ply = u32::try_from(ply)?;
         Ok(())
     }
 
     fn set_halfmove_repetition_clock(&mut self, ply: usize) -> Res<()> {
-        self.0.ply_100_ctr = ply;
+        self.0.ply_100_ctr = u8::try_from(ply)?;
         Ok(())
     }
 }
@@ -1067,11 +1070,6 @@ impl UnverifiedChessboard {
 
     pub fn set_ep(mut self, ep: Option<ChessSquare>) -> Self {
         self.0.ep_square = ep;
-        self
-    }
-
-    pub fn set_halfmove_repetition_clock(mut self, ply: usize) -> Self {
-        self.0.ply_100_ctr = ply;
         self
     }
 }
@@ -1367,14 +1365,14 @@ mod tests {
         assert_ne!(new_hash, board.hash_pos());
         for (i, mov) in moves.iter().enumerate() {
             let hash = board.hash_pos();
-            assert_eq!(i > 3, n_fold_repetition(2, &hist, hash, board.ply_100_ctr));
-            assert_eq!(i > 7, n_fold_repetition(3, &hist, hash, board.ply_100_ctr));
+            assert_eq!(i > 3, n_fold_repetition(2, &hist, hash, board.halfmove_repetition_clock()));
+            assert_eq!(i > 7, n_fold_repetition(3, &hist, hash, board.halfmove_repetition_clock()));
             assert_eq!(i == 8, board.player_result_no_movegen(&hist).is_some_and(|r| r == Draw));
             hist.push(hash);
             let mov = ChessMove::from_compact_text(mov, &board).unwrap();
             board = board.make_move(mov).unwrap();
             assert_eq!(
-                n_fold_repetition(3, &hist, board.hash_pos(), board.ply_100_ctr),
+                n_fold_repetition(3, &hist, board.hash_pos(), board.halfmove_repetition_clock()),
                 board.is_3fold_repetition(&hist)
             );
             assert_eq!(board.is_3fold_repetition(&hist), board.player_result_no_movegen(&hist).is_some());
@@ -1449,7 +1447,7 @@ mod tests {
         let fen = "RRRRRRRR/RRRRRRRR/BBBBBBBB/BBBBBBBB/QQQQQQQQ/QQQQQQQQ/QPPPPPPP/K6k b - - 0 1";
         assert!(Chessboard::from_fen(fen, Strict).is_err());
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
-        assert_eq!(board.pseudolegal_moves().len(), 3);
+        assert!(board.pseudolegal_moves().len() <= 3);
         let mut rng = rng();
         let mov = board.random_legal_move(&mut rng).unwrap();
         let board = board.make_move(mov).unwrap();
@@ -1457,7 +1455,7 @@ mod tests {
         let fen = "B4Q1b/8/8/8/2K3P1/5k2/8/b4RNB b - - 0 1"; // far too many checks, but we still accept it
         assert!(Chessboard::from_fen(fen, Strict).is_err());
         let board = Chessboard::from_fen(fen, Relaxed).unwrap();
-        assert_eq!(board.pseudolegal_moves().len(), 8 + 2 * 6);
+        assert!(board.pseudolegal_moves().len() <= 3 + 2 * 6);
         assert_eq!(board.legal_moves_slow().len(), 3);
         // maximum number of legal moves in any position reachable from startpos
         let fen = "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1";

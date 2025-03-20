@@ -3,17 +3,17 @@ use crate::io::ugi_output::UgiOutput;
 use crate::search::multithreading::EngineReceives::*;
 use crate::search::multithreading::SearchThreadType::{Auxiliary, Main};
 use crate::search::multithreading::SearchType::{Infinite, Normal, Ponder};
-use crate::search::tt::{TTEntry, TT};
+use crate::search::tt::{TT, TTEntry};
 use crate::search::{AbstractEvalBuilder, AbstractSearcherBuilder, Engine, EngineInfo, SearchParams};
 use gears::colored::Colorize;
 use gears::dyn_clone::clone_box;
 use gears::games::ZobristHistory;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{parse_int_from_str, Name, NamedEntity, Res};
+use gears::general::common::{Name, NamedEntity, Res, parse_int_from_str};
 use gears::general::moves::Move;
 use gears::output::Message::*;
-use gears::score::{Score, NO_SCORE_YET};
+use gears::score::{NO_SCORE_YET, Score};
 use gears::search::{Depth, SearchLimit};
 use gears::ugi::EngineOptionName;
 use gears::ugi::EngineOptionName::{Hash, Threads};
@@ -37,7 +37,7 @@ pub enum EngineReceives<B: Board> {
     SetOption(EngineOptionName, String, Arc<Mutex<EngineInfo>>),
     Search(SearchParams<B>),
     SetEval(Box<dyn Eval<B>>),
-    Print(Arc<Mutex<EngineInfo>>),
+    Print(Arc<Mutex<EngineInfo>>, B),
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -80,6 +80,10 @@ impl<B: Board> MainThreadData<B> {
             data.reset(true);
         }
         Ok(())
+    }
+
+    pub(super) fn shared_atomic_state(&self) -> &[Arc<AtomicSearchState<B>>] {
+        self.atomic_search_data.as_slice()
     }
 }
 
@@ -202,11 +206,7 @@ impl<B: Board> AtomicSearchState<B> {
 
     pub fn ponder_move(&self) -> Option<B::Move> {
         let mov = B::Move::from_u64_unchecked(self.ponder_move.load(Relaxed)).trust_unchecked();
-        if mov == B::Move::default() {
-            None
-        } else {
-            Some(mov)
-        }
+        if mov == B::Move::default() { None } else { Some(mov) }
     }
 
     pub(super) fn set_stop(&self, val: bool) {
@@ -241,15 +241,13 @@ impl<B: Board> AtomicSearchState<B> {
     }
 }
 
-// TODO: Maybe use a thread pool instead and get rid of this class and channels entirely?
-// Would mean starting from a clean state for every search, or putting more search state in a struct that outlives the thread
-pub struct EngineThread<B: Board, E: Engine<B>> {
-    engine: E,
+pub struct EngineThread<B: Board> {
+    engine: Box<dyn Engine<B>>,
     receiver: Receiver<EngineReceives<B>>,
 }
 
-impl<B: Board, E: Engine<B>> EngineThread<B, E> {
-    pub fn new(engine: E, receiver: Receiver<EngineReceives<B>>) -> Self {
+impl<B: Board> EngineThread<B> {
+    pub fn new(engine: Box<dyn Engine<B>>, receiver: Receiver<EngineReceives<B>>) -> Self {
         Self { engine, receiver }
     }
 
@@ -289,8 +287,8 @@ impl<B: Board, E: Engine<B>> EngineThread<B, E> {
                 self.start_search(params);
             }
             SetEval(eval) => self.engine.set_eval(eval),
-            Print(engine_info) => {
-                let state_info = self.engine.search_state_dyn().write_internal_info();
+            Print(engine_info, pos) => {
+                let state_info = self.engine.search_state_dyn().write_internal_info(&pos);
                 let info = state_info.unwrap_or_else(|| {
                     format!(
                         "The engine {} doesn't support printing internal engine information.",
@@ -504,8 +502,8 @@ impl<B: Board> EngineWrapper<B> {
         self.main.send(SetEval(eval)).map_err(|err| anyhow!(err.to_string()))
     }
 
-    pub fn send_print(&self) -> Res<()> {
-        self.main.send(Print(self.get_engine_info_arc())).map_err(|err| anyhow!(err.to_string()))
+    pub fn send_print(&self, pos: B) -> Res<()> {
+        self.main.send(Print(self.get_engine_info_arc(), pos)).map_err(|err| anyhow!(err.to_string()))
     }
 
     pub fn send_stop(&mut self, suppress_best_move: bool) {
@@ -554,11 +552,7 @@ impl<B: Board> EngineWrapper<B> {
     }
 
     pub fn num_threads(&self) -> usize {
-        if let Some(num) = self.overwrite_num_threads {
-            num
-        } else {
-            self.auxiliary.len() + 1
-        }
+        if let Some(num) = self.overwrite_num_threads { num } else { self.auxiliary.len() + 1 }
     }
 
     pub fn main_atomic_search_data(&self) -> Arc<AtomicSearchState<B>> {

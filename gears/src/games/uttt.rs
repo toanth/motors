@@ -20,10 +20,12 @@ pub mod uttt_square;
 #[cfg(test)]
 mod uttt_tests;
 
-use crate::games::uttt::uttt_square::{UtttSize, UtttSquare};
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose};
 use crate::games::uttt::ColoredUtttPieceType::{OStone, XStone};
 use crate::games::uttt::UtttColor::{O, X};
 use crate::games::uttt::UtttPieceType::{Empty, Occupied};
+use crate::games::uttt::uttt_square::{UtttSize, UtttSquare};
 use crate::games::{
     AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, GenericPiece, PieceType, PosHash,
     Settings,
@@ -34,21 +36,19 @@ use crate::general::bitboards::{
 use crate::general::board::SelfChecks::*;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    ply_counter_from_fullmove_nr, read_common_fen_part, simple_fen, Board, BoardHelpers, NameToPos, SelfChecks,
-    Strictness, UnverifiedBoard,
+    Board, BoardHelpers, NameToPos, SelfChecks, Strictness, UnverifiedBoard, ply_counter_from_fullmove_nr,
+    read_common_fen_part, simple_fen,
 };
-use crate::general::common::{ith_one_u128, ith_one_u64, parse_int, EntityList, Res, StaticallyNamedEntity, Tokens};
+use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, ith_one_u64, ith_one_u128, parse_int};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::{Legality, Move, UntrustedMove};
 use crate::general::squares::{RectangularCoordinates, SmallGridSize, SmallGridSquare, SquareColor};
-use crate::output::text_output::{
-    board_to_string, display_board_pretty, p1_color, p2_color, AdaptFormatter, BoardFormatter, DefaultBoardFormatter,
-};
 use crate::output::OutputOpts;
+use crate::output::text_output::{
+    AdaptFormatter, BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty, p1_color, p2_color,
+};
 use crate::search::Depth;
-use crate::PlayerResult;
-use crate::PlayerResult::{Draw, Lose};
 use anyhow::bail;
 use arbitrary::Arbitrary;
 use colored::Colorize;
@@ -297,11 +297,7 @@ impl UtttMove {
 
 impl Display for UtttMove {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        if self.is_null() {
-            write!(f, "0000")
-        } else {
-            write!(f, "{}", self.dest_square())
-        }
+        if self.is_null() { write!(f, "0000") } else { write!(f, "{}", self.dest_square()) }
     }
 }
 
@@ -561,7 +557,8 @@ impl UtttBoard {
     pub fn from_alternative_fen(fen: &str, strictness: Strictness) -> Res<Self> {
         if fen.len() != Self::NUM_SQUARES || fen.contains(|c: char| ![' ', 'x', 'o', 'X', 'O'].contains(&c)) {
             bail!(
-                "Incorrect alternative UTTT FEN '{}', must consist of exactly 81 chars, all of which must be ' ', 'x', 'o', 'X', or 'O'", fen.red()
+                "Incorrect alternative UTTT FEN '{}', must consist of exactly 81 chars, all of which must be ' ', 'x', 'o', 'X', or 'O'",
+                fen.red()
             );
         }
         let mut board = UnverifiedUtttBoard::new(Self::empty());
@@ -577,7 +574,10 @@ impl UtttBoard {
                 board.0.active = UtttColor::from_char(c, &UtttSettings::default()).unwrap().other();
                 let mov = board.last_move_mut();
                 if *mov != UtttMove::NULL {
-                    bail!("Upper case pieces are used for the last move, but there is more than one upper case letter in '{}'", fen.red());
+                    bail!(
+                        "Upper case pieces are used for the last move, but there is more than one upper case letter in '{}'",
+                        fen.red()
+                    );
                 }
                 *mov = UtttMove::new(square);
             }
@@ -746,7 +746,7 @@ impl Board for UtttBoard {
     }
 
     fn default_perft_depth(&self) -> Depth {
-        Depth::new(4)
+        Depth::new(5)
     }
 
     fn cannot_call_movegen(&self) -> bool {

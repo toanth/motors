@@ -290,6 +290,9 @@ pub trait Coordinates:
 
     /// mirrors the coordinates horizontally
     fn flip_left_right(self, size: Self::Size) -> Self;
+
+    /// Even non-recrangular boards are printed in a way that all coordinates have unique x, y values.
+    fn from_x_y(rank: usize, file: usize) -> Self;
 }
 
 pub type DimT = u8;
@@ -393,9 +396,15 @@ pub trait KnownSize<C: Coordinates>: Size<C> + Default {
 
 pub type OutputList<B> = EntityList<Box<dyn OutputBuilder<B>>>;
 
-#[derive(Copy, Clone, Eq, PartialEq, Default, Debug, derive_more::Display, BitXor, BitXorAssign, Arbitrary)]
+#[derive(Copy, Clone, Eq, PartialEq, Default, Debug, BitXor, BitXorAssign, Arbitrary)]
 #[must_use]
 pub struct PosHash(pub u64);
+
+impl Display for PosHash {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:#x}", self.0)
+    }
+}
 
 pub trait Settings: Eq + Debug + Default {
     fn text(&self) -> Option<String> {

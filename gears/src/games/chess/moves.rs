@@ -476,7 +476,7 @@ impl Chessboard {
             self.ply_100_ctr = 0;
         } else if piece == Pawn {
             self.ply_100_ctr = 0;
-            let possible_ep_pawns = (to.bb().west() | to.bb().east()) & self.colored_piece_bb(them, Pawn);
+            let possible_ep_pawns = (to.bb().west() | to.bb().east()) & self.col_piece_bb(them, Pawn);
             // TODO: Store double pawn push flag in the move?
             if from.rank().abs_diff(to.rank()) == 2 && possible_ep_pawns.has_set_bit() {
                 self.ep_square = Some(ChessSquare::from_rank_file((to.rank() + from.rank()) / 2, to.file()));
@@ -511,7 +511,10 @@ impl Chessboard {
 
     /// Called at the end of [`Self::make_nullmove`] and [`Self::make_move`].
     pub(super) fn flip_side_to_move(mut self) -> Option<Self> {
-        if self.is_in_check() {
+        let slider_gen = self.slider_generator();
+        self.threats = self.calc_threats(self.active_player, &slider_gen);
+        self.checkers = self.calc_checkers_of(self.active_player, &slider_gen);
+        if self.calc_checkers_of(!self.active_player, &slider_gen).has_set_bit() {
             None
         } else {
             self.active_player = self.active_player.other();
@@ -911,7 +914,7 @@ impl<'a> MoveParser<'a> {
         let mut moves = board
             .pseudolegal_moves()
             .into_iter()
-            .filter(|mov| self.is_pseudolegal(mov) && board.is_pseudolegal_move_legal(*mov));
+            .filter(|mov| self.is_matching_pseudolegal(mov) && board.is_pseudolegal_move_legal(*mov));
         let res = match moves.next() {
             None => self.error_msg(board)?,
             Some(mov) => {
@@ -933,7 +936,7 @@ impl<'a> MoveParser<'a> {
         Ok(res)
     }
 
-    fn is_pseudolegal(&self, mov: &ChessMove) -> bool {
+    fn is_matching_pseudolegal(&self, mov: &ChessMove) -> bool {
         mov.piece_type() == self.piece
             && mov.dest_square().file() == self.target_file.unwrap()
             && self.target_rank.is_none_or(|r| r == mov.dest_square().rank())
@@ -968,9 +971,16 @@ impl<'a> MoveParser<'a> {
             additional = format!(" ({} has been checkmated)", board.active_player);
         } else if board.is_in_check() {
             additional = format!(" ({} is in check)", board.active_player);
-        } else if board.pseudolegal_moves().iter().any(|m| self.is_pseudolegal(m)) {
+        } else if board.pseudolegal_moves().iter().any(|m| self.is_matching_pseudolegal(m)) {
             additional = format!(" (The move leaves the {} king in check)", board.active_player)
+        } else if self.piece == King {
+            // rank and file have already been checked to exist in the move description (only pawns can omit rank)
+            let dest = ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap());
+            if board.threats().is_bit_set(dest) {
+                additional = format!(" (The king would be in check on the {dest} square)")
+            }
         }
+        // TODO: else, if piece is pinned, update message
         // moves without a piece but source and dest square have probably been meant as UCI moves, and not as pawn moves
         if original_piece == Empty && from_bb.is_single_piece() {
             let piece = board.colored_piece_on(from_bb.to_square().unwrap());
@@ -993,7 +1003,7 @@ impl<'a> MoveParser<'a> {
                 )
             }
         }
-        if (board.colored_piece_bb(board.active_player, self.piece) & from_bb).is_zero() {
+        if (board.col_piece_bb(board.active_player, self.piece) & from_bb).is_zero() {
             bail!(
                 "There is no {0} {1} on {from}, so the move '{2}' is invalid{3}",
                 board.active_player,
@@ -1042,7 +1052,9 @@ impl<'a> MoveParser<'a> {
 #[cfg(test)]
 mod tests {
     use crate::games::Board;
+    use crate::games::chess::ChessColor::White;
     use crate::games::chess::Chessboard;
+    use crate::games::chess::castling::CastleRight::Queenside;
     use crate::games::chess::moves::ChessMove;
     use crate::games::chess::pieces::ChessPieceType;
     use crate::games::chess::squares::ChessSquare;
@@ -1209,5 +1221,12 @@ mod tests {
         assert_eq!(moves.len(), 2);
         assert_eq!(moves[0], "f1a1");
         assert_eq!(moves[1], "f1h1");
+        let fen = "8/4k3/8/8/8/8/8/RK1b4 w A - 0 1";
+        let mut pos = Chessboard::from_fen(fen, Strict).unwrap();
+        assert!(pos.castling.can_castle(White, Queenside));
+        assert!(pos.make_move_from_str("0-0-0").is_err());
+        pos = pos.make_nullmove().unwrap();
+        pos = pos.make_move_from_str("Be2").unwrap();
+        assert!(pos.make_move_from_str("0-0-0").is_ok());
     }
 }

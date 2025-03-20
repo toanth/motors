@@ -21,6 +21,7 @@ mod perft_tests;
 mod pieces;
 mod rules;
 
+use crate::PlayerResult;
 use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
@@ -33,24 +34,23 @@ use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawB
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers, BitboardBoard, Board,
-    BoardHelpers, BoardSize, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard,
+    BitboardBoard, Board, BoardHelpers, BoardSize, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks, Strictness,
+    UnverifiedBoard, position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers,
 };
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    select_name_static, tokens, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
+    EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, select_name_static, tokens,
 };
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
-use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter};
 use crate::output::OutputOpts;
+use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::Depth;
-use crate::PlayerResult;
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use itertools::Itertools;
-use rand::prelude::IndexedRandom;
 use rand::Rng;
+use rand::prelude::IndexedRandom;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -574,7 +574,7 @@ impl Board for FairyBoard {
     fn is_piece_on(&self, coords: Self::Coordinates, piece: ColPieceTypeOf<Self>) -> bool {
         let idx = self.0.idx(coords);
         if let Some(color) = piece.color() {
-            self.colored_piece_bb(color, piece.uncolor()).is_bit_set_at(idx)
+            self.col_piece_bb(color, piece.uncolor()).is_bit_set_at(idx)
         } else {
             self.piece_bb(piece.uncolor()).is_bit_set_at(idx)
         }
@@ -843,18 +843,18 @@ impl Display for NoRulesFenFormatter<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::PlayerResult::Draw;
     use crate::games::chess::Chessboard;
     use crate::games::fairy::attacks::MoveKind;
     use crate::games::fairy::moves::FairyMove;
     use crate::games::mnk::MNKBoard;
-    use crate::games::{chess, Height, Width, ZobristHistory};
+    use crate::games::{Height, Width, ZobristHistory, chess};
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::moves::Move;
     use crate::general::perft::perft;
-    use crate::PlayerResult::Draw;
     use crate::{GameOverReason, GameResult, MatchResult};
-    use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use std::str::FromStr;
 
     #[test]

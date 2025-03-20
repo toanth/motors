@@ -593,7 +593,7 @@ impl Board for MNKBoard {
     }
 
     fn default_perft_depth(&self) -> Depth {
-        let n = 1_000_000_f64.log(self.num_squares() as f64) as usize;
+        let n = 1 + 1_000_000_f64.log(self.num_squares() as f64) as usize;
         Depth::new(n)
     }
 

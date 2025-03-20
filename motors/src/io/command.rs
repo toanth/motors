@@ -18,7 +18,7 @@
 use crate::io::SearchType::{Bench, Normal, Perft, Ponder, SplitPerft};
 use crate::io::autocomplete::AutoCompleteState;
 use crate::io::command::Standard::*;
-use crate::io::{AbstractEngineUgi, EngineUGI, SearchType};
+use crate::io::{AbstractEngineUgiState, EngineUGI, SearchType};
 use gears::GameResult;
 use gears::MatchStatus::{Ongoing, Over};
 use gears::ProgramStatus::Run;
@@ -93,7 +93,7 @@ pub struct Command {
     pub help_text: Option<String>,
     pub standard: Standard,
     pub autocomplete_recurse: bool,
-    pub func: fn(&mut dyn AbstractEngineUgi, remaining_input: &mut Tokens, _cmd: &str) -> Res<()>,
+    pub func: fn(&mut dyn AbstractEngineUgiState, remaining_input: &mut Tokens, _cmd: &str) -> Res<()>,
     sub_commands: SubCommandsFn,
 }
 
@@ -102,7 +102,7 @@ impl Command {
         self.standard
     }
 
-    pub fn func(&self) -> fn(&mut dyn AbstractEngineUgi, &mut Tokens, &str) -> Res<()> {
+    pub fn func(&self) -> fn(&mut dyn AbstractEngineUgiState, &mut Tokens, &str) -> Res<()> {
         self.func
     }
 
@@ -192,7 +192,7 @@ pub fn ugi_commands() -> CommandList {
             go | g | search,
             All,
             "Start the search. Optionally takes a position and a mode such as `perft`",
-            |ugi: &mut dyn AbstractEngineUgi, words, _| { ugi.handle_go(Normal, words) },
+            |ugi: &mut dyn AbstractEngineUgiState, words, _| { ugi.handle_go(Normal, words) },
             --> |state: &mut dyn AutoCompleteState| state.go_subcmds(Normal),
             recurse = true
         ),
@@ -522,6 +522,7 @@ pub struct GenericGoState {
     pub threads: Option<usize>,
     pub search_type: SearchType,
     pub complete: bool,
+    pub unique: bool,
     pub move_overhead: Duration,
     pub strictness: Strictness,
     pub override_hash_size: Option<usize>,
@@ -571,6 +572,7 @@ impl<B: Board> GoState<B> {
                 threads: None,
                 search_type,
                 complete: false,
+                unique: false,
                 move_overhead,
                 strictness,
                 override_hash_size: None,
@@ -684,6 +686,17 @@ pub(super) fn go_options_impl(
                     .ok_or_else(|| anyhow!("node count can't be zero"))?;
                 Ok(())
             }),
+            command!(
+                softnodes | sn,
+                Custom,
+                "Don't increase the depth after this limit has been reached",
+                |state, words, _| {
+                    state.go_state_mut().limit_mut().soft_nodes =
+                        NodesLimit::new(parse_int(words, "soft nodes limit")?)
+                            .ok_or_else(|| anyhow!("soft nodes limit can't be zero"))?;
+                    Ok(())
+                }
+            ),
             command!(mate | m, All, "Maximum depth in moves until a mate has to be found", |state, words, _| {
                 let depth: isize = parse_int(words, "mate move count")?;
                 state.go_state_mut().limit_mut().mate = Depth::try_new(depth * 2)?; // 'mate' is given in moves instead of plies
@@ -759,14 +772,27 @@ pub(super) fn go_options_impl(
                 "Use the given engine without modifying the current engine's state",
                 |state, words, _| state.go_state_mut().set_engine(words)
             ),
-            command!(complete | all, Custom, "Run bench / perft on all bench positions", |state, _, _| {
+        ];
+        // this checks only the mode that `go_options` is called for, but it can be changed through args (eg `go perft`),
+        // which is why there's another check when actually handling it. Still, the first check prevents it from showing up in completion suggestion.
+        if mode.is_none_or(|m| [Bench, Perft].iter().contains(&m)) {
+            res.push(command!(complete | all, Custom, "Run bench / perft on all bench positions", |state, _, _| {
                 if ![Bench, Perft].contains(&state.go_state_mut().get_mut().search_type) {
                     bail!("The 'all' option can only be used with 'bench' or 'perft' searches")
                 }
                 state.go_state_mut().get_mut().complete = true;
                 Ok(())
-            }),
-        ];
+            }));
+        }
+        if mode.is_none_or(|m| m == Perft) {
+            res.push(command!(unique, Custom, "Only count unique positions in perft", |state, _, _| {
+                if state.go_state_mut().get_mut().search_type != Perft {
+                    bail!("The 'all' option can only be used with 'perft' searches")
+                }
+                state.go_state_mut().get_mut().unique = true;
+                Ok(())
+            }));
+        }
         res.append(&mut additional);
     }
     res

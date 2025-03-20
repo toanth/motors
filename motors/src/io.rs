@@ -55,7 +55,7 @@ use gears::general::common::{
 use gears::general::common::{Res, Tokens};
 use gears::general::moves::ExtendedFormat::{Alternative, Standard};
 use gears::general::moves::Move;
-use gears::general::perft::{perft_for, split_perft};
+use gears::general::perft::{num_unique_positions_at, perft_for, split_perft};
 use gears::itertools::Itertools;
 use gears::output::Message::*;
 use gears::output::logger::LoggerBuilder;
@@ -68,8 +68,8 @@ use gears::ugi::EngineOptionName::*;
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString, load_ugi_pos_simple};
 use gears::{
-    AbstractRun, GameState, MatchState, MatchStatus, PlayerResult, ProgramStatus, Quitting, UgiPosState,
-    output_builder_from_str,
+    AbstractRun, AbstractUgiPosState, GameState, MatchState, MatchStatus, PlayerResult, ProgramStatus, Quitting,
+    UgiPosState, output_builder_from_str,
 };
 use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter, Write};
@@ -147,6 +147,73 @@ impl<B: Board> EngineGameState<B> {
     }
 }
 
+impl<B: Board> GameState<B> for EngineGameState<B> {
+    fn initial_pos(&self) -> &B {
+        &self.match_state.pos_before_moves
+    }
+
+    fn get_board(&self) -> &B {
+        &self.board
+    }
+
+    fn game_name(&self) -> &str {
+        &self.game_name
+    }
+
+    fn move_history(&self) -> &[B::Move] {
+        &self.mov_hist
+    }
+
+    fn match_status(&self) -> MatchStatus {
+        match self.status.clone() {
+            Run(status) => status,
+            Quit(_) => MatchStatus::aborted(),
+        }
+    }
+
+    fn name(&self) -> &str {
+        &self.display_name
+    }
+
+    fn event(&self) -> String {
+        format!("{0} {1} match", self.name(), self.game_name())
+    }
+
+    fn site(&self) -> &str {
+        "?"
+    }
+
+    fn player_name(&self, color: B::Color) -> Option<String> {
+        if color == self.board.inactive_player() { Some(self.name().to_string()) } else { self.opponent_name.clone() }
+    }
+
+    fn time(&self, _color: B::Color) -> Option<TimeControl> {
+        // Technically, we get the time with 'go', but we can't trust it for the other player,
+        // and we don't really need this for ourselves while we're thinking
+        None
+    }
+
+    fn thinking_since(&self, _color: B::Color) -> Option<Instant> {
+        None
+    }
+
+    fn engine_state(&self) -> Res<String> {
+        self.engine.get_engine_info().internal_state_description = None;
+        self.engine.send_print(self.go_state.pos.clone())?;
+        let start = Instant::now();
+        loop {
+            let description = self.engine.get_engine_info().internal_state_description.take();
+            if let Some(description) = description {
+                return Ok(description);
+            }
+            sleep(Duration::from_millis(10));
+            if start.elapsed().as_millis() > 200 {
+                bail!("Failed to show internal engine state (can't be used when the engine is currently searching)");
+            }
+        }
+    }
+}
+
 impl<B: Board> Deref for EngineGameState<B> {
     type Target = MatchState<B>;
 
@@ -194,78 +261,54 @@ impl<B: Board> AbstractRun for EngineUGI<B> {
     }
 
     fn handle_input(&mut self, input: &str) -> Res<()> {
-        self.handle_ugi_input(tokens(input))
+        handle_ugi_input(self, tokens(input), &B::game_name())
     }
     fn quit(&mut self) -> Res<()> {
         self.handle_quit(QuitProgram)
     }
 }
 
-impl<B: Board> GameState<B> for EngineGameState<B> {
-    fn initial_pos(&self) -> &B {
-        &self.match_state.pos_before_moves
+// A free function so that it does not depend on a generic parameter
+fn handle_ugi_input(ugi: &mut dyn AbstractEngineUgi, mut words: Tokens, game_name: &str) -> Res<()> {
+    ugi.write_ugi_input(words.clone());
+    if ugi.fuzzing_mode() {
+        ugi.write_ugi(&format_args!("Fuzzing input: [{}]", words.clone().join(" ")));
     }
-
-    fn get_board(&self) -> &B {
-        &self.board
-    }
-
-    fn game_name(&self) -> &str {
-        &self.game_name
-    }
-
-    fn move_history(&self) -> &[B::Move] {
-        &self.mov_hist
-    }
-
-    fn match_status(&self) -> MatchStatus {
-        match self.status.clone() {
-            Run(status) => status,
-            Quit(_) => MatchStatus::aborted(),
+    let words = &mut words;
+    let Some(first_word) = words.next() else {
+        return Ok(()); // ignore empty input
+    };
+    let Ok(cmd) = select_name_static(first_word, ugi.all_commands().ugi.iter(), "command", game_name, NoDescription)
+    else {
+        let words_copy = words.clone();
+        // These input options are not autocompleted (except for moves, which is done separately) and not selected using commands.
+        // This allows precomputing commands, resolves potential conflicts with commands, and speeds up autocompletion
+        if ugi.handle_move_fen_or_pgn(first_word, words)? {
+            return Ok(());
+        } else if first_word.eq_ignore_ascii_case("barbecue") {
+            ugi.write_ugi_msg(&print_as_ascii_art("lol", 2));
         }
-    }
+        ugi.write_message(Warning, &format_args!("{}", invalid_command_msg(ugi.is_interactive(), first_word, words)));
+        ugi.set_failed_cmd(Some(tokens_to_string(first_word, words_copy)));
+        return Ok(());
+    };
 
-    fn name(&self) -> &str {
-        &self.display_name
-    }
+    // this does all the actual work of executing the command
+    () = cmd.func()(ugi.upcast_mut(), words, first_word)?;
 
-    fn event(&self) -> String {
-        format!("{0} {1} match", self.name(), B::game_name())
+    if let Some(remaining) = words.next() {
+        // can't reuse cmd because the borrow checker complains
+        let cmd = select_name_static(first_word, ugi.all_commands().ugi.iter(), "command", game_name, NoDescription)?;
+        ugi.write_message(
+            Warning,
+            &format_args!(
+                "Ignoring trailing input starting with '{0}' after a valid '{1}' command",
+                remaining.bold().red(),
+                cmd.short_name().bold()
+            ),
+        );
     }
-
-    fn site(&self) -> &str {
-        "?"
-    }
-
-    fn player_name(&self, color: B::Color) -> Option<String> {
-        if color == self.board.inactive_player() { Some(self.name().to_string()) } else { self.opponent_name.clone() }
-    }
-
-    fn time(&self, _color: B::Color) -> Option<TimeControl> {
-        // Technically, we get the time with 'go', but we can't trust it for the other player,
-        // and we don't really need this for ourselves while we're thinking
-        None
-    }
-
-    fn thinking_since(&self, _color: B::Color) -> Option<Instant> {
-        None
-    }
-
-    fn engine_state(&self) -> Res<String> {
-        self.engine.get_engine_info().internal_state_description = None;
-        self.engine.send_print()?;
-        let start = Instant::now();
-        loop {
-            let description = self.engine.get_engine_info().internal_state_description.take();
-            if let Some(description) = description {
-                return Ok(description);
-            }
-            sleep(Duration::from_millis(10));
-            if start.elapsed().as_millis() > 200 {
-                bail!("Failed to show internal engine state (can't be used when the engine is currently searching)");
-            }
-        }
-    }
+    Ok(())
 }
 
 impl<B: Board> EngineUGI<B> {
@@ -327,20 +370,13 @@ impl<B: Board> EngineUGI<B> {
         })
     }
 
-    pub fn fuzzing_mode(&self) -> bool {
-        cfg!(feature = "fuzzing")
-    }
-
-    fn is_interactive(&self) -> bool {
-        self.state.protocol == Interactive
-    }
-
     fn output(&self) -> MutexGuard<UgiOutput<B>> {
         self.output.lock().unwrap()
     }
 
     fn ugi_loop(&mut self) -> Quitting {
-        self.write_message(Debug, &format_args!("Starting UGI loop (playing {})", B::game_name()));
+        let game_name = B::game_name();
+        self.write_message(Debug, &format_args!("Starting UGI loop (playing {})", &game_name));
         let text = format!("Motors: {}", self.state.game_name());
         let text = print_as_ascii_art(&text, 2);
         self.write_ugi(&format_args!("{}", text.dimmed()));
@@ -360,6 +396,7 @@ impl<B: Board> EngineUGI<B> {
         }
         loop {
             input.set_interactive(self.state.protocol == Interactive, self);
+            self.state.go_state.pos = self.state.pos().clone();
             let input = match input.get_line(self) {
                 Ok(input) => input,
                 Err(err) => {
@@ -368,7 +405,7 @@ impl<B: Board> EngineUGI<B> {
                 }
             };
             self.failed_cmd = None;
-            let res = self.handle_ugi_input(tokens(&input));
+            let res = handle_ugi_input(self, tokens(&input), &game_name);
             match res {
                 Err(err) => {
                     self.write_message(Error, &format_args!("{err}"));
@@ -405,108 +442,6 @@ impl<B: Board> EngineUGI<B> {
         self.state.debug_mode || self.state.protocol == Interactive
     }
 
-    pub fn handle_ugi_input(&mut self, mut words: Tokens) -> Res<()> {
-        self.output().write_ugi_input(words.clone());
-        if self.fuzzing_mode() {
-            self.output().write_ugi(&format_args!("Fuzzing input: [{}]", words.clone().join(" ")));
-        }
-        let words = &mut words;
-        let Some(first_word) = words.next() else {
-            return Ok(()); // ignore empty input
-        };
-        let Ok(cmd) =
-            select_name_static(first_word, self.commands.ugi.iter(), "command", self.state.game_name(), NoDescription)
-        else {
-            let words_copy = words.clone();
-            // These input options are not autocompleted (except for moves, which is done separately) and not selected using commands.
-            // This allows precomputing commands, resolves potential conflicts with commands, and speeds up autocompletion
-            if self.handle_move_fen_or_pgn(first_word, words)? {
-                return Ok(());
-            } else if first_word.eq_ignore_ascii_case("barbecue") {
-                self.write_ugi_msg(&print_as_ascii_art("lol", 2));
-            }
-            self.write_message(
-                Warning,
-                &format_args!("{}", invalid_command_msg(self.is_interactive(), first_word, words)),
-            );
-            self.failed_cmd = Some(tokens_to_string(first_word, words_copy));
-            return Ok(());
-        };
-
-        // this does all the actual work of executing the command
-        () = cmd.func()(self, words, first_word)?;
-
-        if let Some(remaining) = words.next() {
-            // can't reuse cmd because the borrow checker complains
-            let cmd = select_name_static(
-                first_word,
-                self.commands.ugi.iter(),
-                "command",
-                self.state.game_name(),
-                NoDescription,
-            )?;
-            self.write_message(
-                Warning,
-                &format_args!(
-                    "Ignoring trailing input starting with '{0}' after a valid '{1}' command",
-                    remaining.bold().red(),
-                    cmd.short_name().bold()
-                ),
-            );
-        }
-        Ok(())
-    }
-
-    fn print_game_over(&mut self, flip: bool) -> bool {
-        self.print_board(OutputOpts { disable_flipping: true });
-        let Some(res) = self.state.board.player_result_slow(&self.state.board_hist) else {
-            return false;
-        };
-        let res = res.flip_if(flip);
-        let text = match res {
-            PlayerResult::Win => "V i c t o r y !",
-            PlayerResult::Lose => "D e f e a t",
-            PlayerResult::Draw => "D r a w .",
-        };
-        let text = print_as_ascii_art(text, 10);
-        let text = match res {
-            PlayerResult::Win => text.green(),
-            PlayerResult::Lose => text.red(),
-            PlayerResult::Draw => text.into(),
-        };
-        self.write_ugi(&format_args!("{text}"));
-        true
-    }
-
-    fn handle_move_fen_or_pgn(&mut self, first_word: &str, rest: &mut Tokens) -> Res<bool> {
-        let original = rest.clone();
-        let res = self.handle_move_input(first_word, rest);
-        if let Ok(true) = res {
-            return res;
-        }
-        let text = tokens_to_string(first_word, original);
-        let mut tokens = tokens(&text);
-        if let Ok(pgn_data) = parse_pgn::<B>(&text, self.strictness, Some(self.state.board.clone())) {
-            let keep_hist = self.is_interactive() || self.state.debug_mode;
-            self.state.match_state.set_new_pos_state(pgn_data.game, keep_hist);
-            self.write_ugi(&format_args!(
-                "{}",
-                "Interpreting input as PGN (Not a valid command or variation)...".bold()
-            ));
-            self.print_board(OutputOpts::default());
-            return Ok(true);
-        } else if self.handle_pos(&mut tokens).is_ok() {
-            if let Some(next) = tokens.peek() {
-                self.write_message(
-                    Warning,
-                    &format_args!("Ignoring trailing input starting with '{}' after a valid position", next.red()),
-                );
-            }
-            return Ok(true);
-        }
-        res
-    }
-
     fn handle_move_input(&mut self, first_word: &str, rest: &mut Tokens) -> Res<bool> {
         let Ok(mov) = B::Move::from_text(first_word, &self.state.board) else {
             return Ok(false);
@@ -519,7 +454,7 @@ impl<B: Board> EngineUGI<B> {
             state.make_move(mov, true)?;
         }
         self.state.match_state = state;
-        if self.print_game_over(true) {
+        if print_game_over(self, true) {
             return Ok(true);
         }
         if single_move && self.respond_to_move {
@@ -541,30 +476,24 @@ impl<B: Board> EngineUGI<B> {
             &res.chosen_move.to_extended_text(&self.state.board, Alternative).bold()
         ));
         self.state.make_move(res.chosen_move, true)?;
-        _ = self.print_game_over(false);
+        _ = print_game_over(self, false);
         Ok(())
     }
 
     fn id(&self) -> String {
         let info = self.state.engine.get_engine_info();
-        format!("id name Motors -- Game {0} -- Engine {1}\nid author ToTheAnd", B::game_name(), info.long_name(),)
+        format!(
+            "id name Motors -- Game {0} -- Engine {1}\nid author ToTheAnd",
+            self.state.game_name(),
+            info.long_name(),
+        )
     }
 
+    #[cold]
     fn handle_engine_print_impl(&mut self) -> Res<()> {
-        self.state.engine.get_engine_info().internal_state_description = None;
-        self.state.engine.send_print()?;
-        let start = Instant::now();
-        loop {
-            let description = self.state.engine.get_engine_info().internal_state_description.take();
-            if let Some(description) = description {
-                self.write_ugi(&format_args!("{description}"));
-                return Ok(());
-            }
-            sleep(Duration::from_millis(10));
-            if start.elapsed().as_millis() > 200 {
-                bail!("Failed to show internal engine state (can't be used when the engine is currently searching)");
-            }
-        }
+        let string = self.state.engine_state()?;
+        self.write_ugi(&format_args!("{string}"));
+        Ok(())
     }
 
     fn set_option(&mut self, name: EngineOptionName, value: String) -> Res<()> {
@@ -653,11 +582,6 @@ impl<B: Board> EngineUGI<B> {
         self.set_option(name, value)
     }
 
-    fn print_board(&mut self, opts: OutputOpts) {
-        // TODO: Rework the output system
-        _ = self.handle_print(&mut tokens(""), opts);
-    }
-
     fn handle_go_impl(&mut self, initial_search_type: SearchType, words: &mut Tokens) -> Res<()> {
         self.state.go_state = GoState::new(self, initial_search_type);
 
@@ -708,13 +632,20 @@ impl<B: Board> EngineUGI<B> {
                 return self.bench(limit, &bench_positions);
             }
             Perft => {
-                let positions = if opts.complete { B::bench_positions() } else { vec![board] };
+                let positions = if opts.complete { B::bench_positions() } else { vec![board.clone()] };
                 let threads = opts.threads.unwrap_or(0);
                 if threads > 1 {
                     bail!("For 'perft' runs, the 'Threads' options can only be used to set threads to 1")
                 }
                 for i in 1..=limit.depth.get() {
-                    self.output().write_ugi(&format_args!("{}", perft_for(Depth::new(i), &positions, threads != 1)))
+                    if opts.unique {
+                        self.output().write_ugi(&format_args!(
+                            "# unique positions at depth {i}: {}",
+                            num_unique_positions_at(Depth::new(i), board.clone()).to_string().bold()
+                        ))
+                    } else {
+                        self.output().write_ugi(&format_args!("{}", perft_for(Depth::new(i), &positions, threads != 1)))
+                    }
                 }
             }
             SplitPerft => {
@@ -819,6 +750,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
+    #[cold]
     fn handle_eval_or_tt_impl(&mut self, eval: bool, words: &mut Tokens) -> Res<()> {
         let mut state = self.state.clone();
         if words.peek().is_some() {
@@ -851,6 +783,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
+    #[cold]
     fn handle_query_impl(&mut self, words: &mut Tokens) -> Res<()> {
         let query = *words.peek().ok_or(anyhow!("Missing argument to '{}'", "query".bold()))?;
         match select_name_static(
@@ -895,6 +828,7 @@ impl<B: Board> EngineUGI<B> {
         }
     }
 
+    #[cold]
     fn handle_print_impl(&mut self, words: &mut Tokens, opts: OutputOpts) -> Res<()> {
         let output = self.select_output(words)?;
         let print = |this: &Self, output: Option<OutputBox<B>>, state| match output {
@@ -919,6 +853,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
+    #[cold]
     fn handle_output_impl(&mut self, words: &mut Tokens) -> Res<()> {
         let mut next = words.next().unwrap_or_default();
         let output_ptr = self.output.clone();
@@ -951,6 +886,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
+    #[cold]
     fn handle_debug_impl(&mut self, words: &mut Tokens) -> Res<()> {
         match words.next().unwrap_or("on") {
             "on" => {
@@ -985,6 +921,7 @@ impl<B: Board> EngineUGI<B> {
     // This function doesn't depend on the generic parameter, and luckily the rust compiler is smart enough to
     // polymorphize the monomorphed functions again,i.e. it will only generate this function once. So no need to
     // manually move it into a context where it doesn't depend on `B`.
+    #[cold]
     fn handle_log_impl(&mut self, words: &mut Tokens) -> Res<()> {
         self.output().additional_outputs.retain(|o| !o.is_logger());
         let next = words.peek().copied().unwrap_or_default();
@@ -998,31 +935,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
-    fn print_help_impl(&self) {
-        let engine_name = format!(
-            "{0} ({1})",
-            self.state.display_name.clone().bold(),
-            self.state.engine.get_engine_info().long_name().bold()
-        );
-        let motors = "motors".bold();
-        let game_name = B::game_name().bold();
-        let mut text = format!(
-            "{motors}: A work-in-progress collection of engines for various games, \
-            currently playing {game_name}, using the engine {engine_name}.\
-            \nSeveral commands are supported (see https://backscattering.de/chess/uci/ for a description of the UCI interface):\n\
-            \n{}:\n",
-            "UGI Commands".bold()
-        );
-        for cmd in self.commands.ugi.iter().filter(|c| c.standard() != Custom) {
-            writeln!(&mut text, " {}", *cmd).unwrap();
-        }
-        write!(&mut text, "\n{}:\n", "Custom Commands".bold()).unwrap();
-        for cmd in self.commands.ugi.iter().filter(|c| c.standard() == Custom) {
-            writeln!(&mut text, " {}", *cmd).unwrap();
-        }
-        println!("{text}");
-    }
-
+    #[cold]
     fn handle_engine_impl(&mut self, words: &mut Tokens) -> Res<()> {
         let Some(engine) = words.next() else {
             let info = self.state.engine.get_engine_info();
@@ -1062,6 +975,7 @@ impl<B: Board> EngineUGI<B> {
         Ok(())
     }
 
+    #[cold]
     fn handle_set_eval_impl(&mut self, words: &mut Tokens) -> Res<()> {
         let Some(name) = words.next() else {
             let name = self
@@ -1083,27 +997,6 @@ impl<B: Board> EngineUGI<B> {
     fn handle_variant(&mut self, words: &mut Tokens) -> Res<()> {
         let first = words.next().unwrap_or_default();
         self.state.match_state.handle_variant(first, words)
-    }
-
-    fn handle_play_impl(&mut self, words: &mut Tokens) -> Res<()> {
-        let default = self.state.game_name();
-        let game_name = words.next().unwrap_or(default);
-        let game = select_game(game_name)?;
-        let mut opts = EngineOpts::for_game(game, self.state.debug_mode);
-        if let Some(word) = words.next() {
-            opts.engine = word.to_string();
-        }
-        if words.peek().is_some() {
-            opts.pos_name = Some(words.join(" "));
-        }
-        let mut nested_match = create_match(opts)?;
-        if nested_match.run() == QuitProgram {
-            self.handle_quit(QuitProgram)?;
-        } else {
-            // print the current board again, now that the match is over
-            self.print_board(OutputOpts::default());
-        }
-        Ok(())
     }
 
     fn write_ugi_options(&self) -> String {
@@ -1163,7 +1056,7 @@ impl<B: Board> EngineUGI<B> {
                             "Motors by ToTheAnd. Game: {2}. Engine: {0}. Eval: {1}  ",
                             engine.long,
                             eval_long_name,
-                            B::game_name()
+                            self.state.game_name()
                         )),
                     }),
                 },
@@ -1243,7 +1136,8 @@ impl<B: Board> EngineUGI<B> {
 }
 
 /// This trait exists to allow erasing the type of the board where possible in order to reduce code bloat.
-trait AbstractEngineUgi: Debug {
+/// It is implemented both by `EngineUGI` and by the autocompletion state.
+trait AbstractEngineUgiState: Debug {
     fn options_text(&self, words: &mut Tokens) -> Res<String>;
 
     fn write_ugi_msg(&mut self, msg: &str) {
@@ -1327,7 +1221,7 @@ trait AbstractEngineUgi: Debug {
     fn handle_quit(&mut self, typ: Quitting) -> Res<()>;
 }
 
-impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
+impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
     fn options_text(&self, words: &mut Tokens) -> Res<String> {
         write_options_impl(
             self.get_options(),
@@ -1420,6 +1314,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         self.handle_setoption_impl(words)
     }
 
+    #[cold]
     fn handle_interactive(&mut self) -> Res<()> {
         self.state.protocol = Interactive;
         self.output().set_pretty(true);
@@ -1458,6 +1353,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         self.handle_set_eval_impl(words)
     }
 
+    #[cold]
     fn load_pgn(&mut self, words: &mut Tokens) -> Res<()> {
         let pgn_text = if words.peek().is_some() {
             fs::read_to_string(words.join(" "))?
@@ -1471,6 +1367,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         Ok(())
     }
 
+    #[cold]
     fn handle_flip(&mut self) -> Res<()> {
         let new_board = self
             .state
@@ -1488,6 +1385,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         self.handle_query_impl(words)
     }
 
+    #[cold]
     fn handle_wait(&mut self, words: &mut Tokens) -> Res<()> {
         let mut max_duration = Duration::MAX;
         if let Some(token) = words.next() {
@@ -1504,9 +1402,10 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
     }
 
     fn handle_play(&mut self, words: &mut Tokens) -> Res<()> {
-        self.handle_play_impl(words)
+        handle_play_impl(self, words)
     }
 
+    #[cold]
     fn handle_assist(&mut self, words: &mut Tokens) -> Res<()> {
         if let Some(next) = words.next() {
             self.set_option(RespondToMove, next.to_string())
@@ -1515,6 +1414,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         }
     }
 
+    #[cold]
     fn handle_undo(&mut self, words: &mut Tokens) -> Res<()> {
         let count = words.next().unwrap_or("1");
         let count = parse_int_from_str(count, "number of halfmoves to undo")?;
@@ -1529,6 +1429,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         Ok(())
     }
 
+    #[cold]
     fn handle_gb(&mut self, words: &mut Tokens) -> Res<()> {
         let count = words.next().unwrap_or("1");
         let count = parse_int_from_str(count, "number of positions to go back")?;
@@ -1543,6 +1444,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         Ok(())
     }
 
+    #[cold]
     fn handle_place_piece(&mut self, words: &mut Tokens) -> Res<()> {
         let pos = self.state.pos();
         let settings = pos.settings();
@@ -1557,6 +1459,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         Ok(())
     }
 
+    #[cold]
     fn handle_remove_piece(&mut self, words: &mut Tokens) -> Res<()> {
         let Some(coords) = words.next() else { bail!("Missing square from which to remove a piece") };
         let square = B::Coordinates::from_str(coords)?;
@@ -1567,6 +1470,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         Ok(())
     }
 
+    #[cold]
     fn handle_move_piece(&mut self, words: &mut Tokens) -> Res<()> {
         let Some(src) = words.next() else { bail!("Missing square from which to remove the piece") };
         let src = B::Coordinates::from_str(src)?;
@@ -1583,8 +1487,14 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         Ok(())
     }
 
+    #[cold]
     fn print_help(&mut self) -> Res<()> {
-        self.print_help_impl();
+        let engine_name = format!(
+            "{0} ({1})",
+            self.state.display_name.clone().bold(),
+            self.state.engine.get_engine_info().long_name().bold()
+        );
+        print_help_impl(self, engine_name);
         Ok(())
     }
 
@@ -1607,6 +1517,7 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
         Ok(())
     }
 
+    #[cold]
     fn handle_quit(&mut self, typ: Quitting) -> Res<()> {
         // Do this before sending `quit`: If that fails, we can still recognize that we wanted to quit,
         // so that continuing on errors won't prevent us from quitting the program.
@@ -1616,11 +1527,154 @@ impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
     }
 }
 
+/// Trait to reduce code duplication. Unlike `AbstractEngineUgiState`, this is not implemented by the auto complete state.
+trait AbstractEngineUgi: AbstractEngineUgiState {
+    fn upcast_mut(&mut self) -> &mut dyn AbstractEngineUgiState;
+
+    fn abstract_ugi_pos_state(&self) -> &dyn AbstractUgiPosState;
+
+    fn all_commands(&self) -> &AllCommands;
+
+    fn set_failed_cmd(&mut self, cmd: Option<String>);
+
+    fn write_ugi_input(&self, words: Tokens);
+
+    fn game_name(&self) -> &str;
+
+    fn print_board(&mut self, opts: OutputOpts) {
+        // TODO: Rework the output system
+        _ = self.handle_print(&mut tokens(""), opts);
+    }
+
+    fn fuzzing_mode(&self) -> bool {
+        cfg!(feature = "fuzzing")
+    }
+
+    fn protocol(&self) -> Protocol;
+
+    fn is_interactive(&self) -> bool {
+        self.protocol() == Interactive
+    }
+
+    fn debug_mode(&self) -> bool;
+
+    fn handle_move_fen_or_pgn(&mut self, first_word: &str, rest: &mut Tokens) -> Res<bool>;
+}
+
+impl<B: Board> AbstractEngineUgi for EngineUGI<B> {
+    fn upcast_mut(&mut self) -> &mut dyn AbstractEngineUgiState {
+        self
+    }
+
+    fn abstract_ugi_pos_state(&self) -> &dyn AbstractUgiPosState {
+        self.state.abstract_pos_state()
+    }
+
+    fn all_commands(&self) -> &AllCommands {
+        &self.commands
+    }
+
+    fn set_failed_cmd(&mut self, cmd: Option<String>) {
+        self.failed_cmd = cmd;
+    }
+
+    fn write_ugi_input(&self, words: Tokens) {
+        self.output().write_ugi_input(words);
+    }
+
+    fn game_name(&self) -> &str {
+        &self.state.game_name()
+    }
+
+    fn protocol(&self) -> Protocol {
+        self.state.protocol
+    }
+
+    fn debug_mode(&self) -> bool {
+        self.state.debug_mode
+    }
+
+    #[cold]
+    fn handle_move_fen_or_pgn(&mut self, first_word: &str, rest: &mut Tokens) -> Res<bool> {
+        let original = rest.clone();
+        let res = self.handle_move_input(first_word, rest);
+        if let Ok(true) = res {
+            return res;
+        }
+        let text = tokens_to_string(first_word, original);
+        let mut tokens = tokens(&text);
+        if let Ok(pgn_data) = parse_pgn::<B>(&text, self.strictness, Some(self.state.board.clone())) {
+            let keep_hist = self.is_interactive() || self.state.debug_mode;
+            self.state.match_state.set_new_pos_state(pgn_data.game, keep_hist);
+            self.write_ugi(&format_args!(
+                "{}",
+                "Interpreting input as PGN (Not a valid command or variation)...".bold()
+            ));
+            self.print_board(OutputOpts::default());
+            return Ok(true);
+        } else if self.handle_pos(&mut tokens).is_ok() {
+            if let Some(next) = tokens.peek() {
+                self.write_message(
+                    Warning,
+                    &format_args!("Ignoring trailing input starting with '{}' after a valid position", next.red()),
+                );
+            }
+            return Ok(true);
+        }
+        res
+    }
+}
+
+#[cold]
+fn print_game_over(ugi: &mut dyn AbstractEngineUgi, flip: bool) -> bool {
+    ugi.print_board(OutputOpts { disable_flipping: true });
+    let Some(res) = ugi.abstract_ugi_pos_state().player_result() else {
+        return false;
+    };
+    let res = res.flip_if(flip);
+    let text = match res {
+        PlayerResult::Win => "V i c t o r y !",
+        PlayerResult::Lose => "D e f e a t",
+        PlayerResult::Draw => "D r a w .",
+    };
+    let text = print_as_ascii_art(text, 10);
+    let text = match res {
+        PlayerResult::Win => text.green(),
+        PlayerResult::Lose => text.red(),
+        PlayerResult::Draw => text.into(),
+    };
+    ugi.write_ugi(&format_args!("{text}"));
+    true
+}
+
+#[cold]
+fn print_help_impl(ugi: &dyn AbstractEngineUgi, engine_name: String) {
+    let motors = "motors".bold();
+    let game_name = ugi.game_name().bold();
+    let mut text = format!(
+        "{motors}: A work-in-progress collection of engines for various games, \
+        currently playing {game_name}, using the engine {engine_name}.\
+        \nSeveral commands are supported (see https://backscattering.de/chess/uci/ for a description of the UCI interface):\n\
+        \n{}:\n",
+        "UGI Commands".bold()
+    );
+    for cmd in ugi.all_commands().ugi.iter().filter(|c| c.standard() != Custom) {
+        writeln!(&mut text, " {}", *cmd).unwrap();
+    }
+    write!(&mut text, "\n{}:\n", "Custom Commands".bold()).unwrap();
+    for cmd in ugi.all_commands().ugi.iter().filter(|c| c.standard() == Custom) {
+        writeln!(&mut text, " {}", *cmd).unwrap();
+    }
+    println!("{text}");
+}
+
+#[cold]
 fn write_single_option(option: &EngineOption, res: &mut String) {
     writeln!(res, "{name}: {value}", name = option.name.to_string().bold(), value = option.value.value_to_str().bold())
         .unwrap();
 }
 
+#[cold]
 fn write_options_impl(
     options: Vec<EngineOption>,
     engine_name: &str,
@@ -1651,6 +1705,7 @@ fn write_options_impl(
     })
 }
 
+#[cold]
 fn invalid_command_msg(interactive: bool, first_word: &str, rest: &mut Tokens) -> String {
     // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
     // expositor UCI spec demands that an invalid token should cause the entire message to be ignored.
@@ -1686,6 +1741,7 @@ fn invalid_command_msg(interactive: bool, first_word: &str, rest: &mut Tokens) -
 }
 
 // take a BoardGameState instead of a board to correctly handle displaying the last move
+#[cold]
 fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String {
     let pos = state.board.clone();
     let pos2 = pos.clone();
@@ -1723,17 +1779,19 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
     let score = Score::from_compact(entry.score);
     write!(
         &mut res,
-        "\nScore: {bound_str}{0} ({1}), Raw Eval: {2}, Depth: {3}, Best Move: {4}",
+        "\nHash: {5}\nScore: {bound_str}{0} ({1}), Raw Eval: {2}, Depth: {3}, Best Move: {4}",
         pretty_score(score, None, None, &score_gradient(), true, false),
         entry.bound(),
         pretty_score(entry.raw_eval(), None, None, &score_gradient(), true, false),
         entry.depth.to_string().bold(),
         move_string,
+        pos.hash_pos()
     )
     .unwrap();
     res
 }
 
+#[cold]
 fn show_eval_pos<B: Board>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>>) -> String {
     let eval = RefCell::new(eval);
     let formatter = pos.pretty_formatter(None, last, OutputOpts::default());
@@ -1767,4 +1825,26 @@ fn show_eval_pos<B: Board>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>
         square_width: Some(7),
     };
     pos.display_pretty(&mut formatter)
+}
+
+#[cold]
+fn handle_play_impl(ugi: &mut dyn AbstractEngineUgi, words: &mut Tokens) -> Res<()> {
+    let default = ugi.game_name();
+    let game_name = words.next().unwrap_or(default);
+    let game = select_game(game_name)?;
+    let mut opts = EngineOpts::for_game(game, ugi.debug_mode());
+    if let Some(word) = words.next() {
+        opts.engine = word.to_string();
+    }
+    if words.peek().is_some() {
+        opts.pos_name = Some(words.join(" "));
+    }
+    let mut nested_match = create_match(opts)?;
+    if nested_match.run() == QuitProgram {
+        ugi.handle_quit(QuitProgram)?;
+    } else {
+        // print the current board again, now that the match is over
+        ugi.print_board(OutputOpts::default());
+    }
+    Ok(())
 }

@@ -2,6 +2,7 @@ use crate::general::board::{Board, BoardHelpers};
 use crate::general::moves::Move;
 use crate::search::Depth;
 use colored::Colorize;
+use itertools::Itertools;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelBridge};
 use std::collections::HashSet;
@@ -95,7 +96,7 @@ pub fn split_perft<B: Board>(depth: Depth, pos: B, parallelize: bool) -> SplitPe
     if depth.get() > 2 && parallelize {
         pos.legal_moves_slow()
             .into_iter()
-            .collect::<Vec<_>>()
+            .collect_vec()
             .par_iter()
             .map(|&mov| {
                 let child_nodes = do_perft(depth.get() - 1, pos.clone().make_move(mov).unwrap());
@@ -199,7 +200,16 @@ impl<B: Board> Hash for HashWrapper<B> {
 }
 
 pub fn num_unique_positions_at<B: Board>(depth: Depth, pos: B) -> usize {
-    let mut set = all_positions_at(depth, pos.clone()).map(|b| HashWrapper(b)).collect::<HashSet<_>>();
+    if depth.get() == 0 {
+        return 1;
+    }
+    let subtree_res =
+        pos.children().par_bridge().flat_map_iter(|c| all_positions_at(depth - 1, c).map(|b| HashWrapper(b)));
+    let mut set = subtree_res.collect::<HashSet<_>>();
+    // let mut set = all_positions_at(depth, pos.clone()).map(|b| HashWrapper(b)).collect::<HashSet<_>>();
+    for c in pos.children() {
+        _ = set.insert(HashWrapper(c));
+    }
     _ = set.insert(HashWrapper(pos));
     set.len()
 }

@@ -124,11 +124,34 @@ impl ChessSliderGenerator {
 
     pub fn queen_attacks(&self, square: ChessSquare) -> ChessBitboard {
         let idx = square.bb_idx();
-        let non_horizontal = self.hq(Diagonal, &CHESS_HQ_DATA[idx])
-            | self.hq(AntiDiagonal, &CHESS_HQ_DATA[idx])
-            | self.hq(Vertical, &CHESS_HQ_DATA[idx]);
+        let non_horizontal = self.hq(Vertical, &CHESS_HQ_DATA[idx])
+            | self.hq(Diagonal, &CHESS_HQ_DATA[idx])
+            | self.hq(AntiDiagonal, &CHESS_HQ_DATA[idx]);
         let non_horizontal = Self::finish(non_horizontal);
         self.horizontal_attacks(square) | non_horizontal
+    }
+
+    // It might be worth investigating using Kogge-Stone, which should perform equally well no matter how many sliders there are.
+    // However, in normal chess positions there are rarely more than 3 rook/bishop sliders per side, so Kogge-Stone is probably
+    // still slower than this approach.
+    pub fn all_bishop_attacks(&self, bishop_sliders: ChessBitboard) -> ChessBitboard {
+        let mut res = U64AndRev::default();
+        for square in bishop_sliders.ones() {
+            let data = &CHESS_HQ_DATA[square.bb_idx()];
+            res = res | self.hq(Diagonal, data);
+            res = res | self.hq(AntiDiagonal, data);
+        }
+        Self::finish(res)
+    }
+
+    pub fn all_rook_attacks(&self, bishop_sliders: ChessBitboard) -> ChessBitboard {
+        let mut vertical = U64AndRev::default();
+        let mut horizontal = ChessBitboard::default();
+        for square in bishop_sliders.ones() {
+            vertical = vertical | self.hq(Vertical, &CHESS_HQ_DATA[square.bb_idx()]);
+            horizontal = horizontal | self.horizontal_attacks(square);
+        }
+        Self::finish(vertical) | horizontal
     }
 }
 

@@ -2,31 +2,31 @@ mod board_impl;
 mod common;
 mod perft_test;
 
+use crate::PlayerResult;
+use crate::PlayerResult::{Draw, Lose, Win};
+use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::ataxx::common::ColoredAtaxxPieceType::{Blocked, Empty, OPiece, XPiece};
 use crate::games::ataxx::common::{AtaxxMove, ColoredAtaxxPieceType, MAX_ATAXX_MOVES_IN_POS};
-use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::{Board, BoardHistory, CharType, Color, ColoredPiece, GenericPiece, NoHistory, PosHash, Settings};
 use crate::general::bitboards::{KnownSizeBitboard, RawBitboard, RawStandardBitboard, SmallGridBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    simple_fen, BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard,
+    BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard, simple_fen,
 };
 use crate::general::common::{Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::SquareColor::White;
 use crate::general::squares::{SmallGridSize, SmallGridSquare, SquareColor};
-use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter};
 use crate::output::OutputOpts;
+use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::Depth;
-use crate::PlayerResult;
-use crate::PlayerResult::{Draw, Lose, Win};
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use itertools::Itertools;
-use rand::prelude::IndexedRandom;
 use rand::Rng;
+use rand::prelude::IndexedRandom;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::ops::Not;
@@ -262,7 +262,7 @@ impl Board for AtaxxBoard {
     }
 
     fn default_perft_depth(&self) -> Depth {
-        Depth::new(4)
+        Depth::new(5)
     }
 
     fn gen_pseudolegal<T: MoveList<Self>>(&self, moves: &mut T) {
