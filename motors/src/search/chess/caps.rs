@@ -1090,8 +1090,8 @@ impl Caps {
             // nonregression SPRT with `[-7, 0]` bounds even though I don't know why, and those conditions make it fail
             // the re-search test case. So the conditions are still disabled for now,
             // test reintroducing them at some point in the future after I have TT aging!
-            if (bound == NodeType::lower_bound() && tt_score >= raw_eval)
-                || (bound == NodeType::upper_bound() && tt_score <= raw_eval)
+            if (bound == NodeType::lower_bound() && tt_score >= eval)
+                || (bound == NodeType::upper_bound() && tt_score <= eval)
             {
                 eval = tt_score;
             };
