@@ -681,7 +681,7 @@ impl<B: Board> CustomInfo<B> for NoCustomInfo {
 struct PVData<B: Board> {
     alpha: Score,
     beta: Score,
-    radius: Score,
+    widening: Score,
     pv: Pv<B, 200>, // A PV of 200 plies should be more than enough for anybody (tm)
     score: Score,
     bound: Option<NodeType>,
@@ -692,7 +692,7 @@ impl<B: Board> Default for PVData<B> {
         Self {
             alpha: MIN_ALPHA,
             beta: MAX_BETA,
-            radius: Score(20),
+            widening: Score(20),
             pv: Pv::default(),
             score: NO_SCORE_YET,
             bound: None,

@@ -29,7 +29,6 @@ spsa_params! [
     soft_limit_node_scale: u64 = 1400; 900..=2000; step = 50;
     aw_exact_add: ScoreT = 11; 0..=42; step=2;
     aw_exact_div: ScoreT = 3; 1..=10; step=1;
-    aw_delta_max: u32 = 11; 0..=40; step=4;
     aw_widening_factor: ScoreT = 3; 1..=10; step=1;
     they_blundered_threshold: ScoreT = 58; 0..=200; step=5;
     we_blundered_threshold: ScoreT = -47; -200..=0; step=5;

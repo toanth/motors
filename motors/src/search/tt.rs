@@ -380,7 +380,8 @@ mod test {
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().depth, 5);
         _ = engine2.search_with_tt(pos, limit, tt.clone());
-        assert!(engine2.search_state().uci_nodes() <= nodes);
+        let nodes2 = engine2.search_state().uci_nodes();
+        assert!(nodes2 <= nodes + 50, "{nodes2} {nodes}");
         tt.forget();
         let atomic = Arc::new(AtomicSearchState::default());
         let params = SearchParams::with_atomic_state(

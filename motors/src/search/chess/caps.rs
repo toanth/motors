@@ -445,7 +445,6 @@ impl Caps {
         loop {
             let alpha = self.cur_pv_data().alpha;
             let beta = self.cur_pv_data().beta;
-            let mut window_radius = self.cur_pv_data().radius;
             let mut soft_limit = unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension);
             soft_limit_fail_low_extension = 1.0;
             if depth > 8 && self.multi_pvs.len() == 1 {
@@ -471,12 +470,13 @@ impl Caps {
                 return (false, Some(depth), None);
             };
 
+            let widening = self.cur_pv_data().widening.0;
             self.state.send_non_ugi(
                 Debug,
                 &format_args!(
-                    "depth {depth}, score {0}, radius {1}, interval ({2}, {3}) nodes {4}",
+                    "depth {depth}, score {0}, widening {1}, interval ({2}, {3}) nodes {4}",
                     pv_score.0,
-                    window_radius.0,
+                    widening,
                     alpha.0,
                     beta.0,
                     self.uci_nodes()
@@ -493,10 +493,15 @@ impl Caps {
                 // a problem with our chosen move. So increase the soft limit such that we can gather more information.
                 soft_limit_fail_low_extension = cc::soft_limit_fail_low_factor() as f64 / 1000.0;
                 aw_depth = depth;
-            } else if node_type == FailHigh && depth >= 8 {
-                // If the search discovers an unexpectedly good move, it can take a long while to search it because the TT isn't filled
-                // and because even with fail soft, scores tend to fall close to the aspiration window. So reduce the depth to speed this up.
-                aw_depth = (aw_depth - 1).max(depth - 2);
+                self.cur_pv_data_mut().alpha = (pv_score - widening).max(MIN_ALPHA);
+                self.cur_pv_data_mut().beta = (self.cur_pv_data().alpha + self.cur_pv_data().beta) / 2;
+            } else if node_type == FailHigh {
+                self.cur_pv_data_mut().beta = (pv_score + widening).min(MAX_BETA);
+                if depth >= 8 {
+                    // If the search discovers an unexpectedly good move, it can take a long while to search it because the TT isn't filled
+                    // and because even with fail soft, scores tend to fall close to the aspiration window. So reduce the depth to speed this up.
+                    aw_depth = (aw_depth - 1).max(depth - 2);
+                }
             }
 
             if cfg!(debug_assertions) {
@@ -530,17 +535,11 @@ impl Caps {
             }
 
             self.statistics.aw_node_type(node_type);
-            if node_type == Exact {
-                window_radius = Score((window_radius.0 + cc::aw_exact_add()) / cc::aw_exact_div());
+            self.cur_pv_data_mut().widening.0 = if node_type == Exact {
+                (widening + cc::aw_exact_add()) / cc::aw_exact_div()
             } else {
-                let delta = pv_score.0.abs_diff(alpha.0);
-                let delta = delta.min(pv_score.0.abs_diff(beta.0));
-                let delta = delta.min(cc::aw_delta_max()) as i32;
-                window_radius.0 = SCORE_WON.0.min(window_radius.0 * cc::aw_widening_factor() + delta);
-            }
-            self.cur_pv_data_mut().radius = window_radius;
-            self.cur_pv_data_mut().alpha = (pv_score - window_radius).max(MIN_ALPHA);
-            self.cur_pv_data_mut().beta = (pv_score + window_radius).min(MAX_BETA);
+                widening * cc::aw_widening_factor()
+            };
 
             if node_type == Exact {
                 self.send_search_info();
