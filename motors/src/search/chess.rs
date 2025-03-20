@@ -1,6 +1,7 @@
 #[cfg(feature = "caps")]
 pub mod caps;
 mod caps_values;
+mod histories;
 
 #[cfg(test)]
 mod tests {
