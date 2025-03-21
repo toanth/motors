@@ -7,7 +7,7 @@ use crate::eval::Eval;
 use crate::eval::chess::lite::LiTEval;
 use crate::search::chess::caps_values::cc;
 use crate::search::chess::histories::{
-    CaptHist, ContHist, CorrHist, HIST_DIVISOR, HistScoreT, HistoryHeuristic, write_single_hist_table,
+    CaptHist, ContHist, CorrHist, HIST_DIVISOR, HIST_SCALE, HistScoreT, HistoryHeuristic, write_single_hist_table,
 };
 use crate::search::move_picker::MovePicker;
 use crate::search::statistics::SearchType;
@@ -51,7 +51,7 @@ const DEPTH_HARD_LIMIT: Depth = Depth::new(255);
 const SEARCH_STACK_LEN: usize = DEPTH_HARD_LIMIT.get() + 30;
 
 /// The TT move and good captures have a higher score, all other moves have a lower score.
-const KILLER_SCORE: MoveScore = MoveScore(8 * HIST_DIVISOR);
+const KILLER_SCORE: MoveScore = MoveScore(5 * HIST_DIVISOR - 1);
 
 #[derive(Debug, Clone)]
 struct RootMoveNodes(Box<[[u64; NUM_SQUARES]; NUM_SQUARES]>);
@@ -1181,6 +1181,7 @@ impl Caps {
         mov: ChessMove,
         prev_move: ChessMove,
         bonus: HistScoreT,
+        malus: HistScoreT,
         color: ChessColor,
         pos: &Chessboard,
         hist: &mut ContHist,
@@ -1191,25 +1192,26 @@ impl Caps {
         }
         hist.update(mov, prev_move, bonus, color);
         for disappointing in failed.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
-            hist.update(*disappointing, prev_move, -bonus, color);
+            hist.update(*disappointing, prev_move, malus, color);
         }
     }
 
     fn update_histories_and_killer(&mut self, pos: &Chessboard, mov: ChessMove, depth: isize, ply: usize) {
         let color = pos.active_player();
         let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else { unreachable!() };
-        let bonus = (depth * cc::hist_depth_bonus()) as HistScoreT;
+        let bonus = cc::max_hist_bonus().min(depth * cc::hist_depth_bonus()) as HistScoreT;
+        let malus = -cc::max_hist_malus().min(depth * cc::hist_depth_malus()) as HistScoreT;
         let threats = pos.threats();
         if mov.is_tactical(pos) {
             for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| m.is_tactical(pos)) {
-                self.state.custom.capt_hist.update(*disappointing, threats, color, -bonus);
+                self.state.custom.capt_hist.update(*disappointing, threats, color, malus);
             }
             self.state.custom.capt_hist.update(mov, threats, color, bonus);
             return;
         }
         entry.killer = mov;
         for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
-            self.state.custom.history.update(*disappointing, threats, -bonus);
+            self.state.custom.history.update(*disappointing, threats, malus);
         }
         self.state.custom.history.update(mov, threats, bonus);
         if ply > 0 {
@@ -1218,6 +1220,7 @@ impl Caps {
                 mov,
                 parent.last_tried_move(),
                 bonus,
+                malus,
                 color,
                 pos,
                 &mut self.state.custom.countermove_hist,
@@ -1230,6 +1233,7 @@ impl Caps {
                     mov,
                     grandparent.last_tried_move(),
                     bonus,
+                    malus,
                     color,
                     pos,
                     fmh,
@@ -1287,30 +1291,35 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
         // No need to check against the TT move because that's already handled by the move picker
         if mov.is_tactical(&self.board) {
             let captured = mov.captured(&self.board);
-            let base_val = MoveScore(HIST_DIVISOR * 10);
+            let base_val = MoveScore(HIST_DIVISOR * 6);
             let hist_val = state.capt_hist.get(mov, self.board.threats(), self.board.active_player());
-            base_val + MoveScore(captured as i16 * HIST_DIVISOR) + hist_val
+            let res = base_val + MoveScore(captured as i16 * HIST_DIVISOR) + hist_val;
+            debug_assert!(res > KILLER_SCORE);
+            res
         } else if mov == state.search_stack[self.ply].killer {
             // `else` ensures that tactical moves can't be killers
             KILLER_SCORE
         } else {
             let countermove_score = if self.ply > 0 {
                 let prev_move = state.search_stack[self.ply - 1].last_tried_move();
-                state.countermove_hist.score(mov, prev_move, self.board.active_player())
+                state.countermove_hist.get(mov, prev_move, self.board.active_player())
             } else {
                 0
             };
             let follow_up_score = if self.ply > 1 {
                 let prev_move = state.search_stack[self.ply - 2].last_tried_move();
-                state.follow_up_move_hist.score(mov, prev_move, self.board.active_player())
+                state.follow_up_move_hist.get(mov, prev_move, self.board.active_player())
             } else {
                 0
             };
-            MoveScore(state.history.get(mov, self.board.threats()) + countermove_score + follow_up_score / 2)
+            let sum = state.history.get(mov, self.board.threats()) + countermove_score + follow_up_score / 2;
+            let res = MoveScore(sum as HistScoreT / HIST_SCALE);
+            debug_assert!(res < KILLER_SCORE);
+            res
         }
     }
 
-    const DEFERRED_OFFSET: MoveScore = MoveScore(HIST_DIVISOR * -30);
+    const DEFERRED_OFFSET: MoveScore = MoveScore(HIST_DIVISOR * -(6 + 9));
 
     /// Only compute SEE scores for moves when we're actually trying to play them.
     /// Idea from Cosmo.

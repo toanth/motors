@@ -34,17 +34,21 @@ use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, Score, ScoreT};
 
 pub(super) type HistScoreT = i16;
 
-pub(super) const HIST_DIVISOR: HistScoreT = 1024;
+pub(super) const HIST_DIVISOR: HistScoreT = 2048;
+
+pub(super) const HIST_SCALE: HistScoreT = 8;
+
+const INTERNAL_MAX_HIST: HistScoreT = HIST_DIVISOR * HIST_SCALE;
 
 /// Updates the history using the History Gravity technique,
 /// which keeps history scores from growing arbitrarily large and scales the bonus/malus depending on how
 /// "unexpected" they are, i.e. by how much they differ from the current history scores.
 fn update_history_score(entry: &mut HistScoreT, bonus: HistScoreT) {
-    // The maximum history score magnitude can be slightly larger than the divisor due to rounding errors.
-    // The `.abs()` call is necessary to correctly handle history malus.
-    let bonus = bonus as i32;
-    let e = *entry as i32;
-    let bonus = (bonus - bonus.abs() * e / HIST_DIVISOR as i32) as i16; // bonus can also be negative
+    debug_assert!(bonus.abs() <= INTERNAL_MAX_HIST);
+    let bonus = bonus as isize;
+    let e = *entry as isize;
+    // give an additional bonus in [-bonus, bonus] based on how unexpected this bonus is
+    let bonus = (bonus - bonus.abs() * e / INTERNAL_MAX_HIST as isize) as i16; // bonus can also be negative
     *entry += bonus;
 }
 
@@ -60,10 +64,10 @@ impl HistoryHeuristic {
         threats_idx = threats_idx * 2 + threats.is_bit_set(mov.dest_square()) as usize;
         update_history_score(&mut self[threats_idx][mov.from_to_square()], bonus);
     }
-    pub(super) fn get(&self, mov: ChessMove, threats: ChessBitboard) -> HistScoreT {
+    pub(super) fn get(&self, mov: ChessMove, threats: ChessBitboard) -> isize {
         let mut threats_idx = threats.is_bit_set(mov.src_square()) as usize;
         threats_idx = threats_idx * 2 + threats.is_bit_set(mov.dest_square()) as usize;
-        self[threats_idx][mov.from_to_square()]
+        self[threats_idx][mov.from_to_square()] as isize
     }
 }
 
@@ -85,7 +89,7 @@ impl CaptHist {
     }
     pub(super) fn get(&self, mov: ChessMove, threats: ChessBitboard, color: ChessColor) -> MoveScore {
         let defended = threats.is_bit_set_at(mov.dest_square().bb_idx()) as usize;
-        MoveScore(self.0[color][defended][mov.piece_type() as usize][mov.dest_square().bb_idx()])
+        MoveScore(self.0[color][defended][mov.piece_type() as usize][mov.dest_square().bb_idx()] / HIST_SCALE)
     }
     pub(super) fn reset(&mut self) {
         for value in self.0.iter_mut().flatten().flatten().flatten() {
@@ -117,8 +121,8 @@ impl ContHist {
         let entry = &mut self[Self::idx(mov, prev_mov, color)];
         update_history_score(entry, bonus);
     }
-    pub(super) fn score(&self, mov: ChessMove, prev_move: ChessMove, color: ChessColor) -> HistScoreT {
-        self[Self::idx(mov, prev_move, color)]
+    pub(super) fn get(&self, mov: ChessMove, prev_move: ChessMove, color: ChessColor) -> isize {
+        self[Self::idx(mov, prev_move, color)] as isize
     }
 }
 
