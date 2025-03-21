@@ -261,8 +261,7 @@ impl Move<Chessboard> for ChessMove {
         }
         let piece = self.piece(board);
         let moves = board
-            // we have to use .pseudolegal instead of legal moves here because that's what the rules demand.
-            .pseudolegal_moves()
+            .legal_moves_slow()
             .into_iter()
             .filter(|mov| {
                 mov.piece(board).symbol == piece.symbol
@@ -889,6 +888,7 @@ impl<'a> MoveParser<'a> {
         }
 
         // assert_ne!(self.piece, Pawn); // Pawns aren't written as `p` in SAN, but the parser still accepts this.
+        let original_piece = self.piece;
         if self.piece == Empty {
             self.piece = Pawn;
         }
@@ -905,7 +905,7 @@ impl<'a> MoveParser<'a> {
             .into_iter()
             .filter(|mov| self.is_matching_pseudolegal(mov) && board.is_pseudolegal_move_legal(*mov));
         let res = match moves.next() {
-            None => self.error_msg(board)?,
+            None => self.error_msg(board, original_piece)?,
             Some(mov) => {
                 if let Some(other) = moves.next() {
                     bail!(
@@ -934,8 +934,7 @@ impl<'a> MoveParser<'a> {
             && self.promotion == mov.promo_piece()
     }
 
-    fn error_msg(&self, board: &Chessboard) -> Res<ChessMove> {
-        let original_piece = self.piece;
+    fn error_msg(&self, board: &Chessboard, original_piece: ChessPieceType) -> Res<ChessMove> {
         // invalid move, try to print a helpful error message
         let f = |file: Option<DimT>, rank: Option<DimT>| {
             if let Some(file) = file {
@@ -1048,6 +1047,7 @@ mod tests {
     use crate::games::chess::pieces::ChessPieceType;
     use crate::games::chess::squares::ChessSquare;
     use crate::games::generic_tests;
+    use crate::general::bitboards::RawBitboard;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::board::UnverifiedBoard;
@@ -1075,7 +1075,7 @@ mod tests {
             ("🨅e4", "e4"),
             ("♚f2", "Kf2"),
             ("♖b8+", "Rb8+"),
-            ("Rb7d7", "Rbd7"), // even though the move Rd1d7 isn't legal, it's still necessary to disambiguate with Rbd7
+            ("Rb7d7", "Rd7"), // the move Rd1d7 is pseudolegal but not legal, so it shouldn't be disambiguated
             ("gf8:🨂", "gxf8=R"),
             (":d8🨂 checkmate", "exd8=R#"),
             ("exf♘", "exf8=N"),
@@ -1087,9 +1087,15 @@ mod tests {
             ("N3a5", "Nba5"),
         ];
         let pos = Chessboard::from_name("unusual").unwrap();
+        {
+            let pos = pos.make_move_from_str("Rb8").unwrap();
+            assert!(pos.checkers.has_set_bit());
+            assert!(!pos.legal_moves_slow().is_empty());
+        }
         for (input, output) in transformations {
             let mov = ChessMove::from_extended_text(input, &pos).unwrap();
-            assert_eq!(mov.to_extended_text(&pos, Standard), output);
+            let extended = mov.to_extended_text(&pos, Standard);
+            assert_eq!(extended, output);
             assert_eq!(ChessMove::from_extended_text(&mov.to_extended_text(&pos, Alternative), &pos).unwrap(), mov);
         }
     }

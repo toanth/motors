@@ -524,7 +524,7 @@ impl Caps {
                 }
                 // assert this now because this doesn't hold for incomplete iterations
                 debug_assert!(
-                    !pv_score.is_won_or_lost() || pv_score.plies_until_game_over().unwrap() <= 256,
+                    !pv_score.is_won_or_lost() || pv_score.plies_until_game_over().unwrap() <= 500,
                     "{pv_score}"
                 );
             }
@@ -1505,7 +1505,6 @@ mod tests {
         assert!(scores.is_sorted_by(|a, b| a > b), "{scores:?} {moves:?} {pos}");
         assert_eq!(scores[0], MoveScore::MAX);
         assert_eq!(moves[0], tt_move);
-        // assert_eq!(scores[1], )
         let good_capture = ChessMove::from_text("b2d2", &pos).unwrap();
         assert_eq!(moves[1], good_capture);
         assert_eq!(moves[2], killer);

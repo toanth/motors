@@ -1,5 +1,5 @@
 #![deny(missing_docs)]
-#![deny(missing_crate_level_docs)]
+#![deny(rustdoc::missing_crate_level_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
 #![deny(rustdoc::private_intra_doc_links)]
 #![deny(rustdoc::invalid_codeblock_attributes)]
@@ -95,17 +95,17 @@
 extern crate core;
 
 use crate::eval::EvalScale::{InitialWeights, Scale};
-use crate::eval::{count_occurrences, display, Eval};
+use crate::eval::{Eval, count_occurrences, display};
 use crate::gd::{
-    optimize_dataset, print_optimized_weights, Datapoint, Dataset, DefaultOptimizer, Optimizer, Weight, Weights,
+    Datapoint, Dataset, DefaultOptimizer, Optimizer, Weight, Weights, optimize_dataset, print_optimized_weights,
 };
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
 use gears::colored::Colorize;
 use gears::games::chess::Chessboard;
 use gears::general::board::{Board, BoardHelpers};
-use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Res;
+use gears::general::common::anyhow::{anyhow, bail};
 use serde_json::from_reader;
 use std::env::args;
 use std::fs::File;
@@ -253,16 +253,16 @@ mod tests {
 
     use crate::eval::chess::piston_eval::PistonEval;
     use crate::gd::{
-        cp_eval_for_weights, cp_to_wr, loss_for, quadratic_sample_loss, Adam, AdamW, CpScore, CrossEntropyLoss, Float,
-        Outcome, QuadraticLoss,
+        Adam, AdamW, CpScore, CrossEntropyLoss, Float, Outcome, QuadraticLoss, cp_eval_for_weights, cp_to_wr, loss_for,
+        quadratic_sample_loss,
     };
     use crate::load_data::Perspective::SideToMove;
-    use gears::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
-    use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
+    use ChessPieceType::*;
     use gears::games::chess::ChessColor::White;
     use gears::games::chess::ChessSettings;
+    use gears::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
+    use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
     use gears::games::{AbstractPieceType, CharType, ColoredPieceType};
-    use ChessPieceType::*;
 
     #[test]
     pub fn two_chess_positions_test() {

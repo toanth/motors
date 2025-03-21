@@ -148,6 +148,11 @@ impl Chessboard {
         self.gen_slider_moves::<T, { Queen as usize }>(moves, filter, &slider_generator);
         self.gen_knight_moves(moves, filter);
         self.gen_pawn_moves(moves, only_tactical);
+        if cfg!(debug_assertions) {
+            for &m in moves.iter_moves() {
+                debug_assert!(self.is_generated_move_pseudolegal(m));
+            }
+        }
     }
 
     fn gen_pawn_moves<T: MoveList<Self>>(&self, moves: &mut T, only_tactical: bool) {
@@ -399,5 +404,28 @@ impl Chessboard {
 
     pub fn threats(&self) -> ChessBitboard {
         self.threats
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attack_test() {
+        for pos in Chessboard::bench_positions() {
+            for mov in pos.legal_moves_slow() {
+                let child = pos.make_move(mov).unwrap();
+                let slider_gen = child.slider_generator();
+                let mut threats = ChessBitboard::default();
+                for sq in ChessSquare::iter() {
+                    let attacks = child.all_attacking(sq, &slider_gen);
+                    if (attacks & child.inactive_player_bb()).has_set_bit() {
+                        threats |= sq.bb();
+                    }
+                }
+                assert_eq!(threats, child.threats(), "{child} {:?}", threats ^ child.threats());
+            }
+        }
     }
 }
