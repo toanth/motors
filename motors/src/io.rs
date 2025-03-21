@@ -280,19 +280,24 @@ fn handle_ugi_input(ugi: &mut dyn AbstractEngineUgi, mut words: Tokens, game_nam
     let Some(first_word) = words.next() else {
         return Ok(()); // ignore empty input
     };
-    let Ok(cmd) = select_name_static(first_word, ugi.all_commands().ugi.iter(), "command", game_name, NoDescription)
-    else {
-        let words_copy = words.clone();
-        // These input options are not autocompleted (except for moves, which is done separately) and not selected using commands.
-        // This allows precomputing commands, resolves potential conflicts with commands, and speeds up autocompletion
-        if ugi.handle_move_fen_or_pgn(first_word, words)? {
+    let cmd = match select_name_static(first_word, ugi.all_commands().ugi.iter(), "command", game_name, NoDescription) {
+        Ok(cmd) => cmd,
+        Err(err) => {
+            let words_copy = words.clone();
+            // These input options are not autocompleted (except for moves, which is done separately) and not selected using commands.
+            // This allows precomputing commands, resolves potential conflicts with commands, and speeds up autocompletion
+            if ugi.handle_move_fen_or_pgn(first_word, words)? {
+                return Ok(());
+            } else if first_word.eq_ignore_ascii_case("barbecue") {
+                ugi.write_ugi_msg(&print_as_ascii_art("lol", 2));
+            }
+            ugi.write_message(
+                Warning,
+                &format_args!("{}", invalid_command_msg(ugi.is_interactive(), first_word, words, &err.to_string())),
+            );
+            ugi.set_failed_cmd(Some(tokens_to_string(first_word, words_copy)));
             return Ok(());
-        } else if first_word.eq_ignore_ascii_case("barbecue") {
-            ugi.write_ugi_msg(&print_as_ascii_art("lol", 2));
         }
-        ugi.write_message(Warning, &format_args!("{}", invalid_command_msg(ugi.is_interactive(), first_word, words)));
-        ugi.set_failed_cmd(Some(tokens_to_string(first_word, words_copy)));
-        return Ok(());
     };
 
     // this does all the actual work of executing the command
@@ -1733,7 +1738,7 @@ fn write_options_impl(
 }
 
 #[cold]
-fn invalid_command_msg(interactive: bool, first_word: &str, rest: &mut Tokens) -> String {
+fn invalid_command_msg(interactive: bool, first_word: &str, rest: &mut Tokens, err_msg: &str) -> String {
     // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
     // expositor UCI spec demands that an invalid token should cause the entire message to be ignored.
     let suggest_help = if interactive {
@@ -1741,30 +1746,22 @@ fn invalid_command_msg(interactive: bool, first_word: &str, rest: &mut Tokens) -
     } else {
         format!(
             "If you are a human, consider typing '{0}' to see a list of recognized commands.\n\
-            In that case, also consider typing '{1}' to enable the interactive interface.",
+            Also consider typing '{1}' or '{2}' to enable the interactive interface.",
             "help".bold(),
-            "interactive".bold()
+            "interactive".bold(),
+            "i".bold(),
         )
     };
     let input = format!("{first_word} {}", rest.clone().join(" "));
     let first_len = first_word.chars().count();
-    let error_msg = if input.len() > 200 || first_len > 50 {
-        let first_word = if first_len > 75 {
-            format!(
-                "{0}{1}",
-                first_word.chars().take(50).collect::<String>().red(),
-                "...(rest omitted for brevity)".dimmed()
-            )
-        } else {
-            first_word.red().to_string()
-        };
-        format!("Invalid first word '{first_word}' of a long UGI command")
+    let error_msg = if input.len() > 150 || first_len > 50 {
+        "Invalid first word of a long UGI command".to_string()
     } else if rest.peek().is_none() {
         format!("Invalid single-word UGI command '{}'", first_word.red())
     } else {
         format!("Invalid first word '{0}' of UGI command '{1}'", first_word.red(), input.trim().bold())
     };
-    format!("{error_msg}, ignoring the entire command.\n{suggest_help}")
+    format!("{error_msg}, ignoring the entire command:\n{err_msg}\n{suggest_help}")
 }
 
 // take a BoardGameState instead of a board to correctly handle displaying the last move
