@@ -559,7 +559,7 @@ impl Board for FairyBoard {
         self.0.ply_since_start
     }
 
-    fn halfmove_repetition_clock(&self) -> usize {
+    fn ply_draw_clock(&self) -> usize {
         self.0.draw_counter
     }
 
@@ -834,7 +834,7 @@ impl Display for NoRulesFenFormatter<'_> {
             }
         }
         if pos.rules().has_halfmove_repetition_clock() {
-            write!(f, "{} ", pos.halfmove_repetition_clock())?;
+            write!(f, "{} ", pos.ply_draw_clock())?;
         }
         write!(f, "{}", pos.fullmove_ctr_1_based())
     }

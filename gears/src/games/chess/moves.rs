@@ -717,7 +717,7 @@ impl<'a> MoveParser<'a> {
         // To handle this, 'b' is assumed to never refer to a bishop (but `B`, '🨃', '♗' and '♝' always refer to bishops).
         // The same is true for 'D' in German notation.
         let Some(current) = self.current_char() else {
-            bail!("Empty move");
+            bail!("Empty move string");
         };
         match current {
             'a'..='h' | 'A' | 'C' | 'E'..='H' | 'x' | ':' | '×' => (),

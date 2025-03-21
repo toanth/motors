@@ -721,7 +721,7 @@ impl Board for UtttBoard {
         self.ply_since_start
     }
 
-    fn halfmove_repetition_clock(&self) -> usize {
+    fn ply_draw_clock(&self) -> usize {
         0
     }
 

@@ -227,7 +227,7 @@ impl Board for AtaxxBoard {
         self.ply
     }
 
-    fn halfmove_repetition_clock(&self) -> usize {
+    fn ply_draw_clock(&self) -> usize {
         self.ply_100_ctr
     }
 

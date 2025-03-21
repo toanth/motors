@@ -565,7 +565,7 @@ impl Board for MNKBoard {
         self.ply as usize
     }
 
-    fn halfmove_repetition_clock(&self) -> usize {
+    fn ply_draw_clock(&self) -> usize {
         0
     }
 

@@ -594,7 +594,7 @@ impl Caps {
                 return Some(alpha);
             }
 
-            let ply_100_ctr = pos.halfmove_repetition_clock();
+            let ply_100_ctr = pos.ply_draw_clock();
 
             if pos.is_50mr_draw()
                 || pos.has_insufficient_material()
