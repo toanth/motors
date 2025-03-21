@@ -199,7 +199,7 @@ impl ChessMove {
     }
 
     pub(super) fn flags(self) -> ChessMoveFlags {
-        ChessMoveFlags::iter().nth((self.0 >> 12) as usize).unwrap()
+        ChessMoveFlags::iter().nth((self.0 >> 12) as usize).unwrap_or_default()
     }
 
     pub fn from_to_square(self) -> usize {
