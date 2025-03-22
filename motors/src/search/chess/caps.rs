@@ -1296,7 +1296,7 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
         // No need to check against the TT move because that's already handled by the move picker
         if mov.is_tactical(&self.board) {
             let captured = mov.captured(&self.board);
-            let base_val = MoveScore(HIST_DIVISOR * 6);
+            let base_val = MoveScore(HIST_DIVISOR * 10);
             let hist_val = state.capt_hist.get(mov, self.board.threats(), self.board.active_player());
             let res = base_val + MoveScore(captured as i16 * HIST_DIVISOR) + hist_val;
             debug_assert!(res > KILLER_SCORE);
@@ -1324,7 +1324,7 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
         }
     }
 
-    const DEFERRED_OFFSET: MoveScore = MoveScore(HIST_DIVISOR * -(6 + 9));
+    const DEFERRED_OFFSET: MoveScore = MoveScore(HIST_DIVISOR * -30);
 
     /// Only compute SEE scores for moves when we're actually trying to play them.
     /// Idea from Cosmo.
