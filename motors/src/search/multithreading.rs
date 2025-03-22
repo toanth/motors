@@ -103,6 +103,14 @@ impl<B: Board> SearchThreadType<B> {
             Auxiliary => None,
         }
     }
+    pub(super) fn new_single_thread(
+        output: Arc<Mutex<UgiOutput<B>>>,
+        engine_info: Arc<Mutex<EngineInfo>>,
+        atomic: Arc<AtomicSearchState<B>>,
+    ) -> Self {
+        let data = MainThreadData { atomic_search_data: vec![atomic], output, engine_info, search_type: Normal };
+        Main(data)
+    }
 }
 
 #[derive(Debug)]

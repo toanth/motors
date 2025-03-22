@@ -8,7 +8,9 @@ use crate::games::ataxx::AtaxxColor::{O, X};
 use crate::games::ataxx::common::ColoredAtaxxPieceType::{Blocked, Empty, OPiece, XPiece};
 use crate::games::ataxx::common::{AtaxxMove, ColoredAtaxxPieceType, MAX_ATAXX_MOVES_IN_POS};
 use crate::games::chess::pieces::NUM_COLORS;
-use crate::games::{Board, BoardHistory, CharType, Color, ColoredPiece, GenericPiece, NoHistory, PosHash, Settings};
+use crate::games::{
+    Board, BoardHistory, CharType, Color, ColoredPiece, GenericPiece, NoHistory, PosHash, Settings, Size,
+};
 use crate::general::bitboards::{KnownSizeBitboard, RawBitboard, RawStandardBitboard, SmallGridBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
@@ -17,6 +19,7 @@ use crate::general::board::{
 };
 use crate::general::common::{Res, StaticallyNamedEntity, Tokens};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
+use crate::general::moves::Move;
 use crate::general::squares::SquareColor::White;
 use crate::general::squares::{SmallGridSize, SmallGridSquare, SquareColor};
 use crate::output::OutputOpts;
@@ -224,7 +227,7 @@ impl Board for AtaxxBoard {
         self.ply
     }
 
-    fn halfmove_repetition_clock(&self) -> usize {
+    fn ply_draw_clock(&self) -> usize {
         self.ply_100_ctr
     }
 
@@ -297,7 +300,9 @@ impl Board for AtaxxBoard {
     }
 
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {
-        self.is_move_legal_impl(mov)
+        self.size().coordinates_valid(mov.target)
+            && mov.src_square_in(self).is_none_or(|c| self.size().coordinates_valid(c))
+            && self.is_move_legal_impl(mov)
     }
 
     fn player_result_no_movegen<H: BoardHistory>(&self, _history: &H) -> Option<PlayerResult> {

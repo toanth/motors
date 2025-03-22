@@ -333,7 +333,7 @@ pub trait Board:
 
     /// An upper bound on the number of past plies that need to be considered for repetitions.
     /// This can be the same as [`Self::halfmove_ctr_since_start`] or always zero if repetitions aren't possible.
-    fn halfmove_repetition_clock(&self) -> usize;
+    fn ply_draw_clock(&self) -> usize;
 
     /// The size of the board.
     fn size(&self) -> BoardSize<Self>;
@@ -434,9 +434,11 @@ pub trait Board:
         self.is_move_pseudolegal(mov)
     }
 
-    /// Returns true iff the move is pseudolegal, that is, it can be played with `make_move` without
+    /// Returns true iff the move is pseudolegal, that is, it can be played with [`Self::make_move`] without
     /// causing a panic. When it is not certain that a move is definitely (pseudo)legal for the current position,
     /// `Untrusted<Move>` should be used.
+    /// Note that it is possible for a move to be considered pseudolegal even though [`Self::pseudolegal_moves`]
+    /// would not generate it (but such a move would never be legal)
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool;
 
     /// Returns true iff the move is legal, that is, if it is pseudolegal and playing it with `make_move`
@@ -848,7 +850,7 @@ pub fn common_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) -> f
 pub fn simple_fen<T: RectangularBoard>(f: &mut Formatter<'_>, pos: &T, halfmove: bool, fullmove: bool) -> fmt::Result {
     common_fen_part(f, pos)?;
     if halfmove {
-        write!(f, " {}", pos.halfmove_repetition_clock())?;
+        write!(f, " {}", pos.ply_draw_clock())?;
     }
     if fullmove {
         write!(f, " {}", pos.fullmove_ctr_1_based())?;

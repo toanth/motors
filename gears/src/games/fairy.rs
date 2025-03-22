@@ -559,7 +559,7 @@ impl Board for FairyBoard {
         self.0.ply_since_start
     }
 
-    fn halfmove_repetition_clock(&self) -> usize {
+    fn ply_draw_clock(&self) -> usize {
         self.0.draw_counter
     }
 
@@ -834,7 +834,7 @@ impl Display for NoRulesFenFormatter<'_> {
             }
         }
         if pos.rules().has_halfmove_repetition_clock() {
-            write!(f, "{} ", pos.halfmove_repetition_clock())?;
+            write!(f, "{} ", pos.ply_draw_clock())?;
         }
         write!(f, "{}", pos.fullmove_ctr_1_based())
     }
@@ -1055,9 +1055,9 @@ mod tests {
                 let fairy_perft = perft(depth, fairy_pos.clone(), false);
                 assert_eq!(mnk_perft.depth, fairy_perft.depth);
                 assert_eq!(mnk_perft.nodes, fairy_perft.nodes, "Depth {i}, pos: {mnk_pos}");
-                let chess_time = mnk_perft.time.as_millis();
+                let mnk_time = mnk_perft.time.as_millis();
                 let fairy_time = fairy_perft.time.as_millis();
-                assert!(chess_time * 100 + 1000 > fairy_time, "{chess_time} {fairy_time} {i} {fairy_pos}");
+                assert!(mnk_time * 100 + 1000 > fairy_time, "{mnk_time} {fairy_time} {i} {fairy_pos}");
             }
         }
     }

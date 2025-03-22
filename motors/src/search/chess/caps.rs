@@ -529,7 +529,7 @@ impl Caps {
                 }
                 // assert this now because this doesn't hold for incomplete iterations
                 debug_assert!(
-                    !pv_score.is_won_or_lost() || pv_score.plies_until_game_over().unwrap() <= 256,
+                    !pv_score.is_won_or_lost() || pv_score.plies_until_game_over().unwrap() <= 500,
                     "{pv_score}"
                 );
             }
@@ -593,7 +593,7 @@ impl Caps {
                 return Some(alpha);
             }
 
-            let ply_100_ctr = pos.halfmove_repetition_clock();
+            let ply_100_ctr = pos.ply_draw_clock();
 
             if pos.is_50mr_draw()
                 || pos.has_insufficient_material()
@@ -845,7 +845,7 @@ impl Caps {
                     break;
                 }
                 // History Pruning: At very low depth, don't play quiet moves with bad history scores. Skipping bad captures too gained elo.
-                if move_score.0 < cc::lmr_bad_hist() && depth <= 2 {
+                if (move_score.0 as isize) < -150 * depth && depth <= 3 {
                     break;
                 }
                 // PVS SEE pruning: Don't play moves with bad SEE score at low depth
@@ -1504,7 +1504,6 @@ mod tests {
         assert!(scores.is_sorted_by(|a, b| a > b), "{scores:?} {moves:?} {pos}");
         assert_eq!(scores[0], MoveScore::MAX);
         assert_eq!(moves[0], tt_move);
-        // assert_eq!(scores[1], )
         let good_capture = ChessMove::from_text("b2d2", &pos).unwrap();
         assert_eq!(moves[1], good_capture);
         assert_eq!(moves[2], killer);
