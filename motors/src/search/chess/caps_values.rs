@@ -56,8 +56,8 @@ spsa_params! [
     lmr_min_uninteresting: isize = 3; 0..=16; step=1;
     lmr_depth_div: isize = 8; 2..=16; step=1;
     lmr_const: isize = -1; -4..=8; step=1;
-    lmr_bad_hist: i16 = -514; -1000..=0; step=32;
-    lmr_good_hist: i16 = 1050; 0..=2000; step=32;
+    lmr_bad_hist: i16 = -257; -800..=0; step=16;
+    lmr_good_hist: i16 = 525; 0..=900; step=16;
     min_fr_depth: isize = 7; 1..=15; step=1;
     fr_base: ScoreT = 400; 100..=800; step=16;
     fr_scale: ScoreT = 32; 8..=128; step=2;

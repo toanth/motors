@@ -34,9 +34,9 @@ use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, Score, ScoreT};
 
 pub(super) type HistScoreT = i16;
 
-pub(super) const HIST_DIVISOR: HistScoreT = 2048;
+pub(super) const HIST_DIVISOR: HistScoreT = 1024;
 
-pub(super) const HIST_SCALE: HistScoreT = 8;
+pub(super) const HIST_SCALE: HistScoreT = 16;
 
 const INTERNAL_MAX_HIST: HistScoreT = HIST_DIVISOR * HIST_SCALE;
 
@@ -44,7 +44,7 @@ const INTERNAL_MAX_HIST: HistScoreT = HIST_DIVISOR * HIST_SCALE;
 /// which keeps history scores from growing arbitrarily large and scales the bonus/malus depending on how
 /// "unexpected" they are, i.e. by how much they differ from the current history scores.
 fn update_history_score(entry: &mut HistScoreT, bonus: HistScoreT) {
-    debug_assert!(bonus.abs() <= INTERNAL_MAX_HIST);
+    debug_assert!(bonus.abs() <= INTERNAL_MAX_HIST, "{bonus}");
     let bonus = bonus as isize;
     let e = *entry as isize;
     // give an additional bonus in [-bonus, bonus] based on how unexpected this bonus is
