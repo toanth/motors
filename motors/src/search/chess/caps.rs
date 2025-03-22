@@ -46,12 +46,12 @@ const DEPTH_SOFT_LIMIT: Depth = Depth::new(225);
 /// The maximum value of the `ply` parameter in main search, i.e. the maximum depth (in plies) before qsearch is reached
 const DEPTH_HARD_LIMIT: Depth = Depth::new(255);
 
-/// Qsearch can go more than 30 plies deeper than the depth hard limit if ther's more material on the board; in that case we simply
+/// Qsearch can go more than 30 plies deeper than the depth hard limit if there's more material on the board; in that case we simply
 /// return the static eval.
 const SEARCH_STACK_LEN: usize = DEPTH_HARD_LIMIT.get() + 30;
 
 /// The TT move and good captures have a higher score, all other moves have a lower score.
-const KILLER_SCORE: MoveScore = MoveScore(5 * HIST_DIVISOR - 1);
+const KILLER_SCORE: MoveScore = MoveScore(5 * HIST_DIVISOR);
 
 #[derive(Debug, Clone)]
 struct RootMoveNodes(Box<[[u64; NUM_SQUARES]; NUM_SQUARES]>);
@@ -1297,7 +1297,7 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
         if mov.is_tactical(&self.board) {
             let captured = mov.captured(&self.board);
             let base_val = MoveScore(HIST_DIVISOR * 10);
-            let hist_val = state.capt_hist.get(mov, self.board.threats(), self.board.active_player());
+            let hist_val = state.capt_hist.score(mov, self.board.threats(), self.board.active_player());
             let res = base_val + MoveScore(captured as i16 * HIST_DIVISOR) + hist_val;
             debug_assert!(res > KILLER_SCORE);
             res

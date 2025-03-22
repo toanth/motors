@@ -45,11 +45,12 @@ const INTERNAL_MAX_HIST: HistScoreT = HIST_DIVISOR * HIST_SCALE;
 /// "unexpected" they are, i.e. by how much they differ from the current history scores.
 fn update_history_score(entry: &mut HistScoreT, bonus: HistScoreT) {
     debug_assert!(bonus.abs() <= INTERNAL_MAX_HIST, "{bonus}");
-    let bonus = bonus as isize;
+    let b = bonus as isize;
     let e = *entry as isize;
     // give an additional bonus in [-bonus, bonus] based on how unexpected this bonus is
-    let bonus = (bonus - bonus.abs() * e / INTERNAL_MAX_HIST as isize) as i16; // bonus can also be negative
+    let bonus = (b - b.abs() * e / INTERNAL_MAX_HIST as isize) as i16; // bonus can also be negative
     *entry += bonus;
+    debug_assert!(*entry <= INTERNAL_MAX_HIST, "{entry} = {e} + {bonus}, {b}");
 }
 
 /// Quiet History Heuristic: Give bonuses to quiet moves that causes a beta cutoff a maluses to quiet moves that were tried
@@ -87,7 +88,7 @@ impl CaptHist {
         let entry = &mut self.0[color][defended][mov.piece_type() as usize][mov.dest_square().bb_idx()];
         update_history_score(entry, bonus);
     }
-    pub(super) fn get(&self, mov: ChessMove, threats: ChessBitboard, color: ChessColor) -> MoveScore {
+    pub(super) fn score(&self, mov: ChessMove, threats: ChessBitboard, color: ChessColor) -> MoveScore {
         let defended = threats.is_bit_set_at(mov.dest_square().bb_idx()) as usize;
         MoveScore(self.0[color][defended][mov.piece_type() as usize][mov.dest_square().bb_idx()] / HIST_SCALE)
     }
