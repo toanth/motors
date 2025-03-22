@@ -749,13 +749,13 @@ impl Chessboard {
             bit
         };
 
-        let bsq_bishop = extract_factor(4) * 2;
-        let mut wsq_bishop = extract_factor(4) * 2 + 1;
-        if wsq_bishop >= bsq_bishop {
-            wsq_bishop -= 1;
+        let wsq_bishop = extract_factor(4) * 2 + 1;
+        let mut bsq_bishop = extract_factor(4) * 2;
+        if bsq_bishop > wsq_bishop {
+            bsq_bishop -= 1;
         }
-        _ = place_piece(bsq_bishop, Bishop);
         _ = place_piece(wsq_bishop, Bishop);
+        _ = place_piece(bsq_bishop, Bishop);
         let queen = extract_factor(6);
         _ = place_piece(queen, Queen);
         assert!(num < 10);
@@ -1557,6 +1557,11 @@ mod tests {
         }
         // castling flags are compared for equality by ignoring the bits that specify the format
         assert!(startpos_found);
+        let std = Chessboard::chess_960_startpos(518).unwrap();
+        let start = Chessboard::default();
+        assert_eq!(std, Chessboard::default(), "{std} vs {start}");
+        let pos = Chessboard::chess_960_startpos(100).unwrap();
+        assert_eq!(pos.as_fen(), "qbbnrnkr/pppppppp/8/8/8/8/PPPPPPPP/QBBNRNKR w HEhe - 0 1");
     }
 
     #[test]
