@@ -784,6 +784,7 @@ impl Chessboard {
         Ok(board)
     }
 
+    /// Loads the given Chess960 startpos using [Scharnagl's method](<https://en.wikipedia.org/wiki/Fischer_random_chess_numbering_scheme>).
     pub fn chess_960_startpos(num: usize) -> Res<Self> {
         Self::dfrc_startpos(num, num)
     }
@@ -797,12 +798,13 @@ impl Chessboard {
         res.0.color_bbs[Black] = res.0.player_bb(White).flip_up_down();
         res.0.color_bbs[White] = ChessBitboard::default();
         res = Self::chess960_startpos_white(white_num, White, res)?;
-        // the hash is computed in the verify method
+        // the hash and other metadata is computed in the `verify` method
         Ok(res
-            .verify_with_level(Assertion, Strict)
+            .verify(Strict)
             .expect("Internal error: Setting up a Chess960 starting position resulted in an invalid position"))
     }
 
+    /// Loads a DFRC startpos by setting white's startpos as `num / 960` and black's startpos as `num % 960`.
     pub fn dfrc_startpos_from_single_num(num: usize) -> Res<Self> {
         Self::dfrc_startpos(num / 960, num % 960)
     }

@@ -1050,11 +1050,13 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         // self.search_stack[0].pv doesn't have to be the same as `self.multi_pvs[self.current_pv_num].pv`
         // because it gets cleared when visiting the root,
         // and if the root never updates its PV (because it fails low or because the search is stopped), it will remain
-        // empty. On the other hand, it can get updated during search; this only updates after each aw.
-        self.search_stack
-            .first()
-            .and_then(|e| e.pv())
-            .unwrap_or_else(|| self.multi_pvs[self.current_pv_num].pv.list.as_slice())
+        // empty. On the other hand, it can get updated during search.
+        let res = self.search_stack.first().and_then(|e| e.pv());
+        if res.is_none_or(|pv| pv.is_empty()) {
+            self.multi_pvs[self.current_pv_num].pv.list.as_slice()
+        } else {
+            res.unwrap()
+        }
     }
 }
 
