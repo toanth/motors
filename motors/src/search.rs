@@ -22,7 +22,7 @@ use gears::output::Message;
 use gears::output::Message::Warning;
 use gears::rand::SeedableRng;
 use gears::rand::prelude::StdRng;
-use gears::score::{MAX_BETA, MIN_ALPHA, NO_SCORE_YET, SCORE_WON, Score, ScoreT};
+use gears::score::{SCORE_WON, Score, ScoreT};
 use gears::search::{Depth, NodeType, NodesLimit, SearchInfo, SearchLimit, SearchResult, TimeControl};
 use gears::ugi::{EngineOption, EngineOptionName, EngineOptionType};
 use std::collections::HashMap;
@@ -694,9 +694,6 @@ impl<B: Board> CustomInfo<B> for NoCustomInfo {
 
 #[derive(Debug, Clone)]
 struct PVData<B: Board> {
-    alpha: Score,
-    beta: Score,
-    widening: Score,
     pv: Pv<B, 200>, // A PV of 200 plies should be more than enough for anybody (tm)
     score: Score,
     bound: Option<NodeType>,
@@ -704,14 +701,7 @@ struct PVData<B: Board> {
 
 impl<B: Board> Default for PVData<B> {
     fn default() -> Self {
-        Self {
-            alpha: MIN_ALPHA,
-            beta: MAX_BETA,
-            widening: Score(20),
-            pv: Pv::default(),
-            score: NO_SCORE_YET,
-            bound: None,
-        }
+        Self { pv: Pv::default(), score: Score(0), bound: None }
     }
 }
 
