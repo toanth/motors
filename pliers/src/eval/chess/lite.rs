@@ -1,25 +1,25 @@
 //! The hand-crafted eval used by the `caps` chess engine.
 
-use crate::eval::chess::lite::LiteFeatureSubset::*;
-use crate::eval::chess::{write_phased_psqt, write_psqts, SkipChecks};
 use crate::eval::EvalScale::Scale;
+use crate::eval::chess::lite::LiteFeatureSubset::*;
+use crate::eval::chess::{SkipChecks, write_phased_psqt, write_psqts};
 use crate::eval::{
-    changed_at_least, write_2d_range_phased, write_phased, write_range_phased, Eval, EvalScale, WeightsInterpretation,
+    Eval, EvalScale, WeightsInterpretation, changed_at_least, write_2d_range_phased, write_phased, write_range_phased,
 };
 use crate::gd::{Float, TaperedDatapoint, Weight, Weights};
 use crate::trace::{FeatureSubSet, SingleFeature, SparseTrace, TraceTrait};
+use gears::games::chess::ChessColor::White;
 use gears::games::chess::pieces::ChessPieceType::*;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::see::SEE_SCORES;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
-use gears::games::chess::ChessColor::White;
 use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::common::StaticallyNamedEntity;
+use motors::eval::SingleFeatureScore;
+use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
-use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
-use motors::eval::SingleFeatureScore;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::iter::Iterator;
@@ -49,6 +49,8 @@ pub enum LiteFeatureSubset {
     Threat,
     Defense,
     KingZoneAttack,
+    FlankAttack,
+    FlankDefense,
     CanGiveCheck,
 }
 
@@ -71,6 +73,8 @@ impl FeatureSubSet for LiteFeatureSubset {
             Threat => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             KingZoneAttack => NUM_CHESS_PIECES,
+            FlankAttack => 1,
+            FlankDefense => 1,
             CanGiveCheck => NUM_CHESS_PIECES - 1,
         }
     }
@@ -189,6 +193,8 @@ impl FeatureSubSet for LiteFeatureSubset {
             KingZoneAttack => {
                 write!(f, "const KING_ZONE_ATTACK: [PhasedScore; 6] = ")?;
             }
+            FlankAttack => write!(f, "const FLANK_ATTACK: PhasedScore = ")?,
+            FlankDefense => write!(f, "const FLANK_DEFENSE: PhasedScore = ")?,
             CanGiveCheck => {
                 write!(f, "const CAN_GIVE_CHECK: [PhasedScore; 5] = ")?;
             }
@@ -308,6 +314,14 @@ impl LiteValues for LiTETrace {
 
     fn king_zone_attack(attacking: ChessPieceType) -> SingleFeature {
         SingleFeature::new(KingZoneAttack, attacking as usize)
+    }
+
+    fn flank_attack() -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(FlankAttack, 0)
+    }
+
+    fn flank_defense() -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(FlankDefense, 0)
     }
 
     fn can_give_check(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {

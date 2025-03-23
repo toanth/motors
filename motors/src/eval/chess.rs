@@ -72,6 +72,32 @@ pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: C
     }
 }
 
+const FLANKS: [ChessBitboard; 8] = {
+    let mut res = [ChessBitboard::new(0); 8];
+    let queenside = ChessBitboard::new(0xf0f0f0f0f0f0f0f);
+    let kingside = ChessBitboard::new(queenside.0 << 4);
+    let center = ChessBitboard::new(queenside.0 << 2);
+    res[0] = queenside;
+    res[1] = queenside;
+    res[2] = queenside;
+    res[3] = center;
+    res[4] = center;
+    res[5] = kingside;
+    res[6] = kingside;
+    res[7] = kingside;
+    res
+};
+
+const SIDES: [ChessBitboard; 2] = {
+    let white_ranks = ChessBitboard::new(0xffff_ffff);
+    let black_ranks = ChessBitboard::new(white_ranks.0 << (4 * 8));
+    [white_ranks, black_ranks]
+};
+
+pub fn flank(sq: ChessSquare, color: ChessColor) -> ChessBitboard {
+    FLANKS[sq.file() as usize] & SIDES[color as usize]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

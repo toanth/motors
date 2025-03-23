@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use crate::eval::chess::lite_values::*;
-use crate::eval::chess::{DiagonalOpenness, FileOpenness, pawn_shield_idx};
+use crate::eval::chess::{DiagonalOpenness, FileOpenness, flank, pawn_shield_idx};
 use gears::games::Color;
 use gears::games::chess::ChessColor::{Black, White};
 use gears::games::chess::moves::ChessMove;
@@ -224,16 +224,17 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         result
     }
 
-    fn mobility_and_threats(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
+    fn mobility_and_threats(pos: &Chessboard, us: ChessColor) -> Tuned::Score {
         let mut score = Tuned::Score::default();
         let generator = pos.slider_generator();
 
-        let checking_squares = Self::checking(pos, !color, &generator);
+        let checking_squares = Self::checking(pos, !us, &generator);
 
-        let attacked_by_pawn = pos.col_piece_bb(color.other(), Pawn).pawn_attacks(color.other());
-        let king_zone = Chessboard::normal_king_attacks_from(pos.king_square(color.other()));
-        let our_pawns = pos.col_piece_bb(color, Pawn);
-        let pawn_attacks = our_pawns.pawn_attacks(color);
+        let attacked_by_pawn = pos.col_piece_bb(us.other(), Pawn).pawn_attacks(us.other());
+        let their_king = pos.king_square(!us);
+        let king_zone = Chessboard::normal_king_attacks_from(their_king);
+        let our_pawns = pos.col_piece_bb(us, Pawn);
+        let pawn_attacks = our_pawns.pawn_attacks(us);
         if (pawn_attacks & king_zone).has_set_bit() {
             score += Tuned::king_zone_attack(Pawn);
         }
@@ -241,22 +242,22 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         // let pawn_king_attacks = (pawn_attacks & king_zone).num_ones();
         // score += Tuned::king_zone_attack(Pawn) * pawn_king_attacks;
         for piece in ChessPieceType::pieces() {
-            let protected_by_pawns = pawn_attacks & pos.col_piece_bb(color, piece);
+            let protected_by_pawns = pawn_attacks & pos.col_piece_bb(us, piece);
             score += Tuned::pawn_protection(piece) * protected_by_pawns.num_ones();
-            let attacked_by_pawns = pawn_attacks & pos.col_piece_bb(!color, piece);
+            let attacked_by_pawns = pawn_attacks & pos.col_piece_bb(!us, piece);
             score += Tuned::pawn_attack(piece) * attacked_by_pawns.num_ones();
         }
         for piece in ChessPieceType::non_pawn_pieces() {
-            for square in pos.col_piece_bb(color, piece).ones() {
-                let attacks = pos.threatening_attacks(square, piece, color, &generator);
+            for square in pos.col_piece_bb(us, piece).ones() {
+                let attacks = pos.threatening_attacks(square, piece, us, &generator);
                 all_attacks |= attacks;
                 let attacks_no_pawn_recapture = attacks & !attacked_by_pawn;
-                let mobility = (attacks_no_pawn_recapture & !pos.player_bb(color)).num_ones();
+                let mobility = (attacks_no_pawn_recapture & !pos.player_bb(us)).num_ones();
                 score += Tuned::mobility(piece, mobility);
                 for threatened_piece in ChessPieceType::pieces() {
-                    let attacked = pos.col_piece_bb(color.other(), threatened_piece) & attacks;
+                    let attacked = pos.col_piece_bb(us.other(), threatened_piece) & attacks;
                     score += Tuned::threats(piece, threatened_piece) * attacked.num_ones();
-                    let defended = pos.col_piece_bb(color, threatened_piece) & attacks_no_pawn_recapture;
+                    let defended = pos.col_piece_bb(us, threatened_piece) & attacks_no_pawn_recapture;
                     score += Tuned::defended(piece, threatened_piece) * defended.num_ones();
                 }
                 if (attacks_no_pawn_recapture & king_zone).has_set_bit() {
@@ -267,6 +268,11 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 }
             }
         }
+        // Idea from sirius
+        let num_attacked = (flank(their_king, !us) & pos.player_bb(!us) & all_attacks).num_ones();
+        score += Tuned::flank_attack() * num_attacked;
+        let num_defended = (flank(pos.king_square(us), us) & pos.player_bb(us) & all_attacks).num_ones();
+        score += Tuned::flank_defense() * num_defended;
         score
     }
 
