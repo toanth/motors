@@ -30,8 +30,6 @@ impl Filter<Chessboard> for SkipChecks {
 
 // TODO: Qsearch filter
 
-const NUM_PHASES: usize = 2;
-
 const NUM_PSQT_FEATURES: usize = NUM_CHESS_PIECES * NUM_SQUARES;
 
 /// Computes the game phase based on the number of pieces on the board.
@@ -50,8 +48,8 @@ fn to_feature_idx(piece: ChessPieceType, color: ChessColor, square: ChessSquare)
 }
 
 fn psqt_trace(pos: &Chessboard) -> TraceNFeatures<NUM_PSQT_FEATURES> {
-    let mut trace = SimpleTrace::for_features(NUM_PSQT_FEATURES);
-    trace.phase = chess_phase(pos);
+    let phase = chess_phase(pos);
+    let mut trace = SimpleTrace::for_features(NUM_PSQT_FEATURES, phase);
     for color in ChessColor::iter() {
         for piece in ChessPieceType::pieces() {
             let bb = pos.col_piece_bb(color, piece);

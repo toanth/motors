@@ -1,25 +1,25 @@
 //! The hand-crafted eval used by the `caps` chess engine.
 
-use crate::eval::chess::lite::LiteFeatureSubset::*;
-use crate::eval::chess::{write_phased_psqt, write_psqts, SkipChecks};
 use crate::eval::EvalScale::Scale;
+use crate::eval::chess::lite::LiteFeatureSubset::*;
+use crate::eval::chess::{SkipChecks, write_phased_psqt, write_psqts};
 use crate::eval::{
-    changed_at_least, write_2d_range_phased, write_phased, write_range_phased, Eval, EvalScale, WeightsInterpretation,
+    Eval, EvalScale, WeightsInterpretation, changed_at_least, write_2d_range_phased, write_phased, write_range_phased,
 };
-use crate::gd::{Float, TaperedDatapoint, Weight, Weights};
+use crate::gd::{Float, Weight, Weights};
 use crate::trace::{FeatureSubSet, SingleFeature, SparseTrace, TraceTrait};
+use gears::games::chess::ChessColor::White;
 use gears::games::chess::pieces::ChessPieceType::*;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::see::SEE_SCORES;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
-use gears::games::chess::ChessColor::White;
 use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::common::StaticallyNamedEntity;
+use motors::eval::SingleFeatureScore;
+use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
-use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::{FileOpenness, NUM_PAWN_SHIELD_CONFIGURATIONS};
-use motors::eval::SingleFeatureScore;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::iter::Iterator;
@@ -356,13 +356,10 @@ impl WeightsInterpretation for TuneLiTEval {
 }
 
 impl Eval<Chessboard> for TuneLiTEval {
-    fn num_weights() -> usize {
-        Self::num_features() * 2
-    }
     fn num_features() -> usize {
         LiteFeatureSubset::iter().map(|f| f.num_features()).sum()
     }
-    type D = TaperedDatapoint;
+
     type Filter = SkipChecks;
 
     fn feature_trace(pos: &Chessboard) -> impl TraceTrait {

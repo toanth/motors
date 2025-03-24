@@ -32,8 +32,8 @@ use core::fmt;
 use gears::games::Color;
 use gears::score::PhaseType;
 use motors::eval::ScoreType;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 // TODO: Only a single generic trace type
@@ -353,9 +353,8 @@ pub struct SimpleTrace {
 
 impl SimpleTrace {
     /// Create a trace of `num_feature` elements, all initialized to zero.
-    /// Also sets the `phase` to zero.
-    pub fn for_features(num_features: usize) -> Self {
-        Self { p1: vec![0; num_features], p2: vec![0; num_features], phase: 0.0 }
+    pub fn for_features(num_features: usize, phase: Float) -> Self {
+        Self { p1: vec![0; num_features], p2: vec![0; num_features], phase }
     }
 }
 
@@ -410,7 +409,7 @@ pub struct TraceNFeatures<const N: usize>(pub SimpleTrace);
 
 impl<const N: usize> Default for TraceNFeatures<N> {
     fn default() -> Self {
-        Self(SimpleTrace::for_features(N))
+        Self(SimpleTrace::for_features(N, 1.0))
     }
 }
 

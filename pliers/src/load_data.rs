@@ -1,16 +1,16 @@
 //! Everything related to loading and converting lists of annotated FENs into a [`Dataset`].
 
 use crate::eval::Eval;
-use crate::gd::{Dataset, Float, Outcome};
+use crate::gd::{Dataset, Outcome};
 use crate::load_data::Perspective::SideToMove;
 use derive_more::Display;
+use gears::GameResult;
 use gears::colored::Colorize;
 use gears::games::Color;
 use gears::general::board::Board;
 use gears::general::board::Strictness::Relaxed;
 use gears::general::common::anyhow::{anyhow, bail};
-use gears::general::common::{parse_fp_from_str, tokens, Res, Tokens};
-use gears::GameResult;
+use gears::general::common::{Res, Tokens, parse_fp_from_str, tokens};
 use rayon::iter::ParallelIterator;
 use rayon::prelude::ParallelBridge;
 use serde::Deserialize;
@@ -28,10 +28,6 @@ pub struct ParseResult<B: Board> {
     pub pos: B,
     /// The predicted winrate or WDL result.
     pub outcome: Outcome,
-    /// Setting a weight less than 1 can be used to make samples have a smaller effect.
-    /// This can be useful if there is a small, high-quality dataset, and a large but lower-quality dataset.
-    /// Usually, this should not be necessary. The better course of action is always to use better datasets.
-    pub weight: Float,
 }
 
 /// Describes criteria tha FENs to be used for tuning.
@@ -76,9 +72,6 @@ pub struct AnnotatedFenFile {
     #[serde(default)]
     /// How to interpret result annotations.
     pub perspective: Perspective,
-    /// Optional weight used to reduce the impact of large but low-quality datasets when there is also a smaller but
-    /// higher-quality dataset. Not usually necessary.
-    pub weight: Option<Float>,
 }
 
 /// A struct to avoid having to specify the generic [`Board`] and [`Eval`] arguments each time.
@@ -103,7 +96,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         bail!("'{}' is not a valid wdl", wdl.red())
     }
 
-    fn read_annotated_fen(input: &str, perspective: Perspective, weight: Float) -> Res<ParseResult<B>> {
+    fn read_annotated_fen(input: &str, perspective: Perspective) -> Res<ParseResult<B>> {
         let mut input = tokens(input);
         let pos = B::read_fen_and_advance_input(&mut input, Relaxed)?;
         // skip up to one token between the end of the fen and the wdl
@@ -111,20 +104,19 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
         if perspective == SideToMove && pos.active_player() == B::Color::second() {
             outcome.0 = 1.0 - outcome.0;
         }
-        Ok(ParseResult { pos, outcome, weight })
+        Ok(ParseResult { pos, outcome })
     }
 
     fn load_datapoint_from_annotated_fen(
         input: &str,
         line_num: usize,
         perspective: Perspective,
-        weight: Float,
-        dataset: &mut Dataset<E::D>,
+        dataset: &mut Dataset,
     ) -> Res<()> {
-        let parse_res = Self::read_annotated_fen(input, perspective, weight)
+        let parse_res = Self::read_annotated_fen(input, perspective)
             .map_err(|err| anyhow!("Error in line {0}: Couldn't parse FEN '{1}': {err}", line_num + 1, input.bold()))?;
         for datapoint in E::Filter::filter(parse_res) {
-            dataset.push(E::extract_features(&datapoint.pos, datapoint.outcome, datapoint.weight));
+            E::extract_features(&datapoint.pos, datapoint.outcome, dataset);
         }
         Ok(())
     }
@@ -132,10 +124,10 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
     /// Load FENs from a [`&str`] instead of a file.
     ///
     /// This is primarily intended for debugging and small examples.
-    pub fn load_from_str(annotated_fens: &str, perspective: Perspective) -> Res<Dataset<E::D>> {
+    pub fn load_from_str(annotated_fens: &str, perspective: Perspective) -> Res<Dataset> {
         let mut res = Dataset::new(E::num_weights());
         for (idx, line) in annotated_fens.lines().enumerate() {
-            Self::load_datapoint_from_annotated_fen(line, idx, perspective, 1.0, &mut res)?;
+            Self::load_datapoint_from_annotated_fen(line, idx, perspective, &mut res)?;
         }
         Ok(res)
     }
@@ -144,16 +136,12 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
     ///
     /// Regularly prints ou the number of loaded FENs.
     /// Fails if there is any invalid FEN in the dataset.
-    pub fn load_from_file(input_file: &AnnotatedFenFile) -> Res<Dataset<E::D>> {
+    pub fn load_from_file(input_file: &AnnotatedFenFile) -> Res<Dataset> {
         let file = File::open(Path::new(&input_file.path))
             .map_err(|err| anyhow!("Could not open file '{}': {err}", input_file.path))?;
         let file = BufReader::new(file);
         let perspective = input_file.perspective;
-        let weight = input_file.weight.unwrap_or(1.0);
-        println!(
-            "Loading FENs from file '{0}' (Outcomes are {perspective} relative), sampling weight: {weight:.1}",
-            input_file.path.as_str().bold()
-        );
+        println!("Loading FENs from file '{0}' (Outcomes are {perspective} relative)", input_file.path.as_str().bold());
         let reader = BufReader::new(file);
         let id = || (Dataset::new(E::num_weights()), 0);
         let (dataset, num_lines) = reader
@@ -162,7 +150,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
             .par_bridge()
             .try_fold(id, |(mut dataset, num_lines_so_far), (line_num, line)| {
                 let line = line.map_err(|err| anyhow!("Failed to read line {line_num}: {err}"))?;
-                Self::load_datapoint_from_annotated_fen(&line, line_num, perspective, weight, &mut dataset)?;
+                Self::load_datapoint_from_annotated_fen(&line, line_num, perspective, &mut dataset)?;
                 if line_num % 100_000 == 0 {
                     println!("Loading...  Read {line_num} lines so far");
                 }
@@ -170,7 +158,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
             })
             .try_reduce(id, |(mut a, a_lines), (b, b_lines)| {
                 a.union(b);
-                let res: Res<(Dataset<E::D>, i32)> = Ok((a, a_lines + b_lines));
+                let res: Res<(Dataset, i32)> = Ok((a, a_lines + b_lines));
                 res
             })?;
         println!("Read {num_lines} fens in total, after filtering there are {} positions", dataset.data().len());
