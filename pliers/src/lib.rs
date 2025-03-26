@@ -1,5 +1,5 @@
 #![deny(missing_docs)]
-#![deny(missing_crate_level_docs)]
+#![deny(rustdoc::missing_crate_level_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
 #![deny(rustdoc::private_intra_doc_links)]
 #![deny(rustdoc::invalid_codeblock_attributes)]
@@ -65,7 +65,6 @@
 //! #        todo!()
 //! #    }
 //!
-//! #    type D = NonTaperedDatapoint;
 //! #    type Filter = NoFilter;
 //!
 //! #    fn feature_trace(pos: &AtaxxBoard) -> impl TraceTrait {
@@ -95,17 +94,15 @@
 extern crate core;
 
 use crate::eval::EvalScale::{InitialWeights, Scale};
-use crate::eval::{count_occurrences, display, Eval};
-use crate::gd::{
-    optimize_dataset, print_optimized_weights, Datapoint, Dataset, DefaultOptimizer, Optimizer, Weight, Weights,
-};
+use crate::eval::{Eval, count_occurrences, display};
+use crate::gd::{Dataset, DefaultOptimizer, Optimizer, Weight, Weights, optimize_dataset, print_optimized_weights};
 use crate::load_data::Perspective::White;
 use crate::load_data::{AnnotatedFenFile, FenReader};
 use gears::colored::Colorize;
 use gears::games::chess::Chessboard;
 use gears::general::board::{Board, BoardHelpers};
-use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Res;
+use gears::general::common::anyhow::{anyhow, bail};
 use serde_json::from_reader;
 use std::env::args;
 use std::fs::File;
@@ -183,10 +180,7 @@ pub fn optimize<B: Board, E: Eval<B>>(file_list: &[AnnotatedFenFile]) -> Res<()>
 /// Optimize the eval with the given optimizer for the given number of epochs.
 ///
 /// Runs the optimizer on the entire dataset.
-pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
-    file_list: &[AnnotatedFenFile],
-    num_epochs: usize,
-) -> Res<()> {
+pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer>(file_list: &[AnnotatedFenFile], num_epochs: usize) -> Res<()> {
     #[cfg(debug_assertions)]
     println!("Running in debug mode. Run in release mode for increased performance.");
     let mut dataset = Dataset::new(E::num_weights());
@@ -198,9 +192,8 @@ pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer<E::D>>(
     let scale = e.eval_scale().to_scaling_factor(batch, &e);
     let mut optimizer = O::new(batch, scale);
 
-    let num_all_features = batch.datapoints.iter().map(|d| d.features().count()).sum::<usize>();
-    let average = num_all_features as f64 / batch.datapoints.len() as f64;
-    println!("\nAverage Number of Features per Position: {}\n", format!("{average:.3}").bold());
+    let average = batch.num_entries() as f64 / batch.num_datapoins() as f64;
+    println!("\nAverage number of Entries per Position: {}\n", format!("{average:.3}").bold());
 
     let occurrences = Weights(count_occurrences(batch).into_iter().map(Weight).collect());
     println!("Occurrences:\n{}", display(&e, &occurrences, &[]));
@@ -231,10 +224,9 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
     let weights = optimize_dataset(&mut dataset, scale, 1, &e, &mut optimizer);
     assert_eq!(weights.len(), E::num_weights());
     println!(
-        "There are {0} weights and {1} out of {2} active features",
-        weights.len(),
-        dataset.data()[0].features().count(),
-        E::num_features()
+        "There are {0} out of {1} active weights",
+        dataset.as_batch().datapoint_iter().next().unwrap().entries.len(),
+        E::num_weights()
     );
     print_optimized_weights(&weights, dataset.as_batch(), scale, &e);
     println!("\nEND DEBUG POSITION OUTPUT\n");
@@ -253,16 +245,16 @@ mod tests {
 
     use crate::eval::chess::piston_eval::PistonEval;
     use crate::gd::{
-        cp_eval_for_weights, cp_to_wr, loss_for, quadratic_sample_loss, Adam, AdamW, CpScore, CrossEntropyLoss, Float,
-        Outcome, QuadraticLoss,
+        Adam, AdamW, CpScore, CrossEntropyLoss, Float, Outcome, QuadraticLoss, cp_eval_for_weights, cp_to_wr, loss_for,
+        quadratic_sample_loss,
     };
     use crate::load_data::Perspective::SideToMove;
-    use gears::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
-    use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
+    use ChessPieceType::*;
     use gears::games::chess::ChessColor::White;
     use gears::games::chess::ChessSettings;
+    use gears::games::chess::pieces::{ChessPieceType, ColoredChessPieceType};
+    use gears::games::chess::zobrist::NUM_PIECE_SQUARE_ENTRIES;
     use gears::games::{AbstractPieceType, CharType, ColoredPieceType};
-    use ChessPieceType::*;
 
     #[test]
     pub fn two_chess_positions_test() {
@@ -270,18 +262,20 @@ mod tests {
         7k/8/8/8/8/8/8/R6K w - - 0 1 [1-0]";
         let mut positions = FenReader::<Chessboard, PistonEval>::load_from_str(positions, SideToMove).unwrap();
         assert_eq!(positions.data().len(), 2);
-        assert_eq!(positions.data()[0].outcome(), Outcome::new(0.5));
-        assert_eq!(positions.data()[1].outcome(), Outcome::new(1.0));
+        assert_eq!(positions.data()[0].outcome, Outcome::new(0.5));
+        assert_eq!(positions.data()[1].outcome, Outcome::new(1.0));
         assert_eq!(positions.num_weights(), NUM_PIECE_SQUARE_ENTRIES * 2);
+        let batch = positions.as_batch();
         // the kings are on mirrored positions and cancel each other out
-        assert_eq!(positions.data()[0].features().count(), 0);
-        assert_eq!(positions.data()[1].features().count(), 2); // 1 feature per phases
+        assert_eq!(batch.entries_of(0).len(), 0);
+        assert_eq!(batch.entries_of(1).len(), 2); // 1 feature, 2 weights
         let batch = positions.batch(0, 1);
         let eval_scale = 100.0;
         let mut optimizer = AdamW::<CrossEntropyLoss>::new(batch, eval_scale);
         let startpos_weights =
             optimize_dataset(&mut positions, eval_scale, 100, &PistonEval::default(), &mut optimizer);
-        let startpos_eval = cp_eval_for_weights(&startpos_weights, &positions.data()[0]);
+        let batch = positions.batch(0, 1);
+        let startpos_eval = cp_eval_for_weights(&startpos_weights, batch.datapoint_iter().nth(0).unwrap());
         assert_eq!(startpos_eval, CpScore(0.0));
         let mut optimizer = Adam::<QuadraticLoss>::new(positions.as_batch(), eval_scale);
         let weights = optimize_dataset(&mut positions, eval_scale, 500, &PistonEval::default(), &mut optimizer);
@@ -315,7 +309,7 @@ mod tests {
         let weight = weights[0];
         for piece in ChessPieceType::non_king_pieces() {
             let ratio = weights[piece as usize].0 / weight.0;
-            assert!((ratio - piece_val(piece) as Float).abs() <= 0.1);
+            assert!((ratio - piece_val(piece) as Float).abs() <= 0.1, "{ratio} {piece}");
         }
     }
 }

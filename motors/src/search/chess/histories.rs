@@ -40,8 +40,7 @@ pub(super) const HIST_DIVISOR: HistScoreT = 1024;
 /// which keeps history scores from growing arbitrarily large and scales the bonus/malus depending on how
 /// "unexpected" they are, i.e. by how much they differ from the current history scores.
 fn update_history_score(entry: &mut HistScoreT, bonus: HistScoreT) {
-    // The maximum history score magnitude can be slightly larger than the divisor due to rounding errors.
-    // The `.abs()` call is necessary to correctly handle history malus.
+    let bonus = bonus.clamp(-HIST_DIVISOR, HIST_DIVISOR);
     let bonus = bonus as i32;
     let e = *entry as i32;
     let bonus = (bonus - bonus.abs() * e / HIST_DIVISOR as i32) as i16; // bonus can also be negative

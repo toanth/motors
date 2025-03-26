@@ -319,7 +319,7 @@ impl Board for Chessboard {
             "1Q2Q3/N2NP1K1/Rn2B3/qQr3n1/1n5N/1P6/4n3/BkN4q w - - 0 1",
             "2n5/1Rp1K1pn/q6Q/1rrr4/k3Br2/7B/1n1N2Q1/1Nn2R2 w - - 0 1",
         ];
-        let mut res = fens.map(|fen| Self::from_fen(fen, Strict).unwrap()).iter().copied().collect_vec();
+        let mut res = fens.into_iter().map(|fen| Self::from_fen(fen, Strict).unwrap()).collect_vec();
         res.extend(Self::name_to_pos_map().iter().filter(|e| e.strictness == Strict).map(|e| e.create::<Chessboard>()));
         res
     }
@@ -336,7 +336,11 @@ impl Board for Chessboard {
         self.ply as usize
     }
 
-    fn halfmove_repetition_clock(&self) -> usize {
+    /// When no pawn move or capture has been played for 100 ply, the game is a draw
+    /// (This is not entirely accurate to the FIDE rules, which require a player to claim this draw, and only force a draw
+    /// after 150 ply. But it's the common ruleset for all engine games). Note that castling moves are irreversible
+    /// (i.e. there are no possible repetitions before/after a castling move) without resetting this clock.
+    fn ply_draw_clock(&self) -> usize {
         self.ply_100_ctr as usize
     }
 
@@ -412,12 +416,14 @@ impl Board for Chessboard {
     }
 
     fn is_generated_move_pseudolegal(&self, mov: ChessMove) -> bool {
-        self.is_generated_move_pseudolegal_impl(mov)
+        let res = self.is_generated_move_pseudolegal_impl(mov);
+        debug_assert!(res || !self.is_move_pseudolegal_impl(mov), "{mov:?} {self}");
+        res
     }
 
     fn is_move_pseudolegal(&self, mov: ChessMove) -> bool {
         let res = self.is_move_pseudolegal_impl(mov);
-        debug_assert!(!res || self.is_generated_move_pseudolegal(mov), "{mov:?} {self}");
+        debug_assert!(!res || self.is_generated_move_pseudolegal_impl(mov), "{mov:?} {self}");
         res
     }
 
@@ -656,7 +662,7 @@ impl Chessboard {
     /// TODO: Only set the ep square if there are legal en passants possible
     pub fn is_3fold_repetition<H: BoardHistory>(&self, history: &H) -> bool {
         // There's no need to test if the repetition is a checkmate, because checkmate positions can't repeat
-        n_fold_repetition(3, history, self.hash_pos(), self.halfmove_repetition_clock())
+        n_fold_repetition(3, history, self.hash_pos(), self.ply_draw_clock())
     }
 
     /// Check if the current position is a checkmate.
@@ -743,13 +749,13 @@ impl Chessboard {
             bit
         };
 
-        let bsq_bishop = extract_factor(4) * 2;
-        let mut wsq_bishop = extract_factor(4) * 2 + 1;
-        if wsq_bishop >= bsq_bishop {
-            wsq_bishop -= 1;
+        let wsq_bishop = extract_factor(4) * 2 + 1;
+        let mut bsq_bishop = extract_factor(4) * 2;
+        if bsq_bishop > wsq_bishop {
+            bsq_bishop -= 1;
         }
-        _ = place_piece(bsq_bishop, Bishop);
         _ = place_piece(wsq_bishop, Bishop);
+        _ = place_piece(bsq_bishop, Bishop);
         let queen = extract_factor(6);
         _ = place_piece(queen, Queen);
         assert!(num < 10);
@@ -778,6 +784,7 @@ impl Chessboard {
         Ok(board)
     }
 
+    /// Loads the given Chess960 startpos using [Scharnagl's method](<https://en.wikipedia.org/wiki/Fischer_random_chess_numbering_scheme>).
     pub fn chess_960_startpos(num: usize) -> Res<Self> {
         Self::dfrc_startpos(num, num)
     }
@@ -791,12 +798,13 @@ impl Chessboard {
         res.0.color_bbs[Black] = res.0.player_bb(White).flip_up_down();
         res.0.color_bbs[White] = ChessBitboard::default();
         res = Self::chess960_startpos_white(white_num, White, res)?;
-        // the hash is computed in the verify method
+        // the hash and other metadata is computed in the `verify` method
         Ok(res
-            .verify_with_level(Assertion, Strict)
+            .verify(Strict)
             .expect("Internal error: Setting up a Chess960 starting position resulted in an invalid position"))
     }
 
+    /// Loads a DFRC startpos by setting white's startpos as `num / 960` and black's startpos as `num % 960`.
     pub fn dfrc_startpos_from_single_num(num: usize) -> Res<Self> {
         Self::dfrc_startpos(num / 960, num % 960)
     }
@@ -905,7 +913,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             bail!("The 50 move rule has been exceeded (there have already been {0} plies played)", this.ply_100_ctr);
         } else if this.ply >= 20_000 {
             bail!("Ridiculously large ply counter: {0}", this.ply);
-        } else if strictness == Strict && this.halfmove_repetition_clock() > this.halfmove_ctr_since_start() {
+        } else if strictness == Strict && this.ply_draw_clock() > this.halfmove_ctr_since_start() {
             bail!(
                 "The halfmove repetition clock ({0}) is larger than the number of played half moves ({1}), \
                 which is not allowed in strict mode",
@@ -1354,6 +1362,47 @@ mod tests {
         assert!(board.tactical_pseudolegal().is_empty());
         let board = Chessboard::from_name("kiwipete").unwrap();
         assert_eq!(board.tactical_pseudolegal().len(), 8);
+        let board = Chessboard::from_name("mate_in_1").unwrap();
+        let tactical = board.tactical_pseudolegal();
+        assert_eq!(tactical.len(), 2);
+        for m in tactical {
+            assert!(m.is_promotion());
+            assert!(!m.is_capture(&board));
+            assert_eq!(m.piece_type(), Pawn);
+            assert!([Queen, Knight].contains(&m.promo_piece()));
+        }
+    }
+
+    #[test]
+    fn fifty_mr_test() {
+        let board = Chessboard::from_fen("1r2k3/P5R1/2P5/8/8/8/8/1R1K3R w BHb - 99 51", Strict).unwrap();
+        let moves = board.legal_moves_slow();
+        assert_eq!(moves.len(), 48);
+        let mut mate_ctr = 0;
+        let resetting = ["c7", "a7a8Q", "a8N", "a8B", "a8=R", "a7xb8N", ":b8B", "b8:=R", "xb8Q+", "Rb8:+"]
+            .into_iter()
+            .map(|str| ChessMove::from_text(str, &board).unwrap())
+            .collect_vec();
+        for m in moves {
+            let new_pos = board.make_move(m).unwrap();
+            if resetting.contains(&m) {
+                assert_eq!(new_pos.ply_draw_clock(), 0);
+                if !["b1b8", "a7b8q", "a7b8r"].contains(&m.compact_formatter(&board).to_string().as_str()) {
+                    assert!(new_pos.player_result_slow(&NoHistory::default()).is_none(), "{m:?}");
+                } else {
+                    assert!(new_pos.is_checkmate_slow());
+                    mate_ctr += 1;
+                }
+            } else {
+                assert_eq!(new_pos.ply_draw_clock(), 100);
+                if new_pos.is_checkmate_slow() {
+                    mate_ctr += 1;
+                } else {
+                    assert!(new_pos.is_50mr_draw());
+                }
+            }
+        }
+        assert_eq!(mate_ctr, 4);
     }
 
     #[test]
@@ -1365,14 +1414,14 @@ mod tests {
         assert_ne!(new_hash, board.hash_pos());
         for (i, mov) in moves.iter().enumerate() {
             let hash = board.hash_pos();
-            assert_eq!(i > 3, n_fold_repetition(2, &hist, hash, board.halfmove_repetition_clock()));
-            assert_eq!(i > 7, n_fold_repetition(3, &hist, hash, board.halfmove_repetition_clock()));
+            assert_eq!(i > 3, n_fold_repetition(2, &hist, hash, board.ply_draw_clock()));
+            assert_eq!(i > 7, n_fold_repetition(3, &hist, hash, board.ply_draw_clock()));
             assert_eq!(i == 8, board.player_result_no_movegen(&hist).is_some_and(|r| r == Draw));
             hist.push(hash);
             let mov = ChessMove::from_compact_text(mov, &board).unwrap();
             board = board.make_move(mov).unwrap();
             assert_eq!(
-                n_fold_repetition(3, &hist, board.hash_pos(), board.halfmove_repetition_clock()),
+                n_fold_repetition(3, &hist, board.hash_pos(), board.ply_draw_clock()),
                 board.is_3fold_repetition(&hist)
             );
             assert_eq!(board.is_3fold_repetition(&hist), board.player_result_no_movegen(&hist).is_some());
@@ -1510,6 +1559,11 @@ mod tests {
         }
         // castling flags are compared for equality by ignoring the bits that specify the format
         assert!(startpos_found);
+        let std = Chessboard::chess_960_startpos(518).unwrap();
+        let start = Chessboard::default();
+        assert_eq!(std, Chessboard::default(), "{std} vs {start}");
+        let pos = Chessboard::chess_960_startpos(100).unwrap();
+        assert_eq!(pos.as_fen(), "qbbnrnkr/pppppppp/8/8/8/8/PPPPPPPP/QBBNRNKR w HEhe - 0 1");
     }
 
     #[test]

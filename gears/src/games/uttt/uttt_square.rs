@@ -78,8 +78,9 @@ pub struct UtttSquare {
 
 impl Display for UtttSquare {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // use `unchecked` because this function can be called to print invalid coordinates
-        SmallGridSquare::<9, 9, 9>::unchecked((self.rank() * 9 + self.file()) as usize).fmt(f)
+        // use `unchecked` because this function can be called to print invalid coordinates.
+        // Convert to usize first because the multiplication can overflow for invalid values otherwise
+        SmallGridSquare::<9, 9, 9>::unchecked(self.rank() as usize * 9 + self.file() as usize).fmt(f)
     }
 }
 

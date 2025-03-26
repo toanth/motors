@@ -237,7 +237,7 @@ mod tests {
         assert!(new_board.is_in_check());
         assert!(new_board.is_3fold_repetition(&hist));
         assert!(new_board.player_result_slow(&hist).is_some_and(|r| r == Draw));
-        assert!(n_fold_repetition(2, &hist, new_board.hash_pos(), new_board.halfmove_repetition_clock(),));
+        assert!(n_fold_repetition(2, &hist, new_board.hash_pos(), new_board.ply_draw_clock(),));
         hist.pop();
         let mut engine = Caps::for_eval::<MaterialOnlyEval>();
         for depth in 1..10 {
@@ -271,6 +271,15 @@ mod tests {
             assert_eq!(res.score.plies_until_game_won(), Some(5));
             assert_eq!(res.chosen_move, ChessMove::from_text("f3", &pos).unwrap());
         }
+    }
+
+    #[test]
+    fn deep_search() {
+        let fen = "5b1k/p1p1p1p1/P1P1P1P1/8/4p1p1/PpPpP1P1/1P1P4/K1B3B1 w - - 0 1";
+        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        let mut engine = Caps::for_eval::<PistonEval>();
+        let res = engine.search_with_new_tt(pos, SearchLimit::depth_(9999));
+        assert_eq!(res.score, Score(0));
     }
 
     #[test]

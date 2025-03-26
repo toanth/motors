@@ -6,7 +6,6 @@ use std::str::FromStr;
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use itertools::Itertools;
-use num::iter;
 use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, FromRepr};
 
@@ -16,7 +15,7 @@ use crate::games::chess::castling::CastleRight::*;
 use crate::games::chess::moves::ChessMoveFlags::*;
 use crate::games::chess::pieces::ChessPieceType::*;
 use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType};
-use crate::games::chess::squares::{C_FILE_NO, ChessSquare, D_FILE_NO, F_FILE_NO, G_FILE_NO};
+use crate::games::chess::squares::{C_FILE_NO, ChessSquare, ChessboardSize, D_FILE_NO, F_FILE_NO, G_FILE_NO};
 use crate::games::chess::zobrist::PRECOMPUTED_ZOBRIST_KEYS;
 use crate::games::chess::{ChessColor, Chessboard};
 use crate::games::{
@@ -27,7 +26,6 @@ use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, BoardHelpers};
 use crate::general::common::Res;
-use crate::general::hq::ChessSliderGenerator;
 use crate::general::moves::ExtendedFormat::Standard;
 use crate::general::moves::Legality::PseudoLegal;
 use crate::general::moves::{ExtendedFormat, Legality, Move, UntrustedMove};
@@ -199,7 +197,7 @@ impl ChessMove {
     }
 
     pub(super) fn flags(self) -> ChessMoveFlags {
-        ChessMoveFlags::iter().nth((self.0 >> 12) as usize).unwrap()
+        ChessMoveFlags::iter().nth((self.0 >> 12) as usize).unwrap_or_default()
     }
 
     pub fn from_to_square(self) -> usize {
@@ -263,8 +261,7 @@ impl Move<Chessboard> for ChessMove {
         }
         let piece = self.piece(board);
         let moves = board
-            // we have to use .pseudolegal instead of legal moves here because that's what the rules demand.
-            .pseudolegal_moves()
+            .legal_moves_slow()
             .into_iter()
             .filter(|mov| {
                 mov.piece(board).symbol == piece.symbol
@@ -525,7 +522,6 @@ impl Chessboard {
 
     fn do_castle(&mut self, mov: ChessMove, from: ChessSquare, to: &mut ChessSquare) -> Option<()> {
         let color = self.active_player;
-        let from_file = from.file() as isize;
         let rook_file = to.file() as isize;
         let (side, to_file, rook_to_file) = if mov.flags() == CastleKingside {
             (Kingside, G_FILE_NO, F_FILE_NO)
@@ -544,21 +540,13 @@ impl Chessboard {
                 && rook_file == self.castling.rook_start_file(color, Queenside) as isize
         );
 
-        // Explicitly test if the current square is in check in case the following for loop is empty
-        // because the king doesn't move -- in that case, testing for check after the castle might obscure the
-        // check with the rook, e.g. black in 'rbbqQ1kr/1p2p1pp/p5n1/2pp1p2/2P4P/P7/BP1PPPP1/R1B1NNKR b HAha - 0 10'
-        if self.is_in_check() {
+        let king_ray = ChessBitboard::ray_inclusive(
+            from,
+            ChessSquare::from_rank_file(from.rank(), to_file),
+            ChessboardSize::default(),
+        );
+        if (king_ray & self.threats()).has_set_bit() {
             return None;
-        }
-        let generator = ChessSliderGenerator::new(self.occupied_bb());
-        // This works even for DFRC castling because the king is always placed between the rooks
-        let step = if side == Kingside { 1 } else { -1 };
-        // no need to test for check on the target square as that will be done at the end of this function after
-        // the rook has moved
-        for file in iter::range_step(from_file + step, to_file as isize, step) {
-            if self.is_in_check_on_square(color, ChessSquare::from_rank_file(from.rank(), file as DimT), &generator) {
-                return None;
-            }
         }
         let rook_from = self.rook_start_square(color, side);
         let rook_to = ChessSquare::from_rank_file(from.rank(), rook_to_file);
@@ -717,7 +705,7 @@ impl<'a> MoveParser<'a> {
         // To handle this, 'b' is assumed to never refer to a bishop (but `B`, '🨃', '♗' and '♝' always refer to bishops).
         // The same is true for 'D' in German notation.
         let Some(current) = self.current_char() else {
-            bail!("Empty move");
+            bail!("Empty move string");
         };
         match current {
             'a'..='h' | 'A' | 'C' | 'E'..='H' | 'x' | ':' | '×' => (),
@@ -900,6 +888,7 @@ impl<'a> MoveParser<'a> {
         }
 
         // assert_ne!(self.piece, Pawn); // Pawns aren't written as `p` in SAN, but the parser still accepts this.
+        let original_piece = self.piece;
         if self.piece == Empty {
             self.piece = Pawn;
         }
@@ -916,7 +905,7 @@ impl<'a> MoveParser<'a> {
             .into_iter()
             .filter(|mov| self.is_matching_pseudolegal(mov) && board.is_pseudolegal_move_legal(*mov));
         let res = match moves.next() {
-            None => self.error_msg(board)?,
+            None => self.error_msg(board, original_piece)?,
             Some(mov) => {
                 if let Some(other) = moves.next() {
                     bail!(
@@ -945,8 +934,7 @@ impl<'a> MoveParser<'a> {
             && self.promotion == mov.promo_piece()
     }
 
-    fn error_msg(&self, board: &Chessboard) -> Res<ChessMove> {
-        let original_piece = self.piece;
+    fn error_msg(&self, board: &Chessboard, original_piece: ChessPieceType) -> Res<ChessMove> {
         // invalid move, try to print a helpful error message
         let f = |file: Option<DimT>, rank: Option<DimT>| {
             if let Some(file) = file {
@@ -1059,12 +1047,14 @@ mod tests {
     use crate::games::chess::pieces::ChessPieceType;
     use crate::games::chess::squares::ChessSquare;
     use crate::games::generic_tests;
+    use crate::general::bitboards::RawBitboard;
     use crate::general::board::BoardHelpers;
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::board::UnverifiedBoard;
     use crate::general::moves::ExtendedFormat::{Alternative, Standard};
     use crate::general::moves::Move;
     use crate::general::perft::perft;
+    use crate::output::pgn::parse_pgn;
     use crate::search::Depth;
     use itertools::Itertools;
 
@@ -1086,7 +1076,7 @@ mod tests {
             ("🨅e4", "e4"),
             ("♚f2", "Kf2"),
             ("♖b8+", "Rb8+"),
-            ("Rb7d7", "Rbd7"), // even though the move Rd1d7 isn't legal, it's still necessary to disambiguate with Rbd7
+            ("Rb7d7", "Rd7"), // the move Rd1d7 is pseudolegal but not legal, so it shouldn't be disambiguated
             ("gf8:🨂", "gxf8=R"),
             (":d8🨂 checkmate", "exd8=R#"),
             ("exf♘", "exf8=N"),
@@ -1098,9 +1088,15 @@ mod tests {
             ("N3a5", "Nba5"),
         ];
         let pos = Chessboard::from_name("unusual").unwrap();
+        {
+            let pos = pos.make_move_from_str("Rb8").unwrap();
+            assert!(pos.checkers.has_set_bit());
+            assert!(!pos.legal_moves_slow().is_empty());
+        }
         for (input, output) in transformations {
             let mov = ChessMove::from_extended_text(input, &pos).unwrap();
-            assert_eq!(mov.to_extended_text(&pos, Standard), output);
+            let extended = mov.to_extended_text(&pos, Standard);
+            assert_eq!(extended, output);
             assert_eq!(ChessMove::from_extended_text(&mov.to_extended_text(&pos, Alternative), &pos).unwrap(), mov);
         }
     }
@@ -1228,5 +1224,21 @@ mod tests {
         pos = pos.make_nullmove().unwrap();
         pos = pos.make_move_from_str("Be2").unwrap();
         assert!(pos.make_move_from_str("0-0-0").is_ok());
+    }
+
+    #[test]
+    fn many_queens() {
+        let pgn = "
+Na3 ♞a6 2. ♘a3c4 a6c5 3. Na5 Nb3 4. Nc6 Nf6 5. Nf3 Ne4 6. Nh4 Ng5 7. Ng6 Nf3+ 8. e:f3 dxc6 9. Bc4 ♗f5! 10. Be6 Bd3 11. ab c5 12. Ra6 ba6: \
+    13. b3b4 a5 14. b5 a4 15. cxd3 c4 16. d4 fxe6 17. d5 ♟e6e5 18. f4 hxg6 19. f5 Rh3 20. gxh3 e4 21. h4 g5 22. h5 g4 23. Ke2 g3 24. h4 e3 \
+    25. Kf3 g2 26. h6 e2 27. h7 a3 28. h5 ♟a2 29. h6 a1=♛ 30. ♔g4 g1=Q+ 31. Kh5 g5 32. b4 a5 33. h8=Q Qb1 34. Qb2 a4 35. h7 a4a3 36. d4 c3 \
+    37. d6 c5 38. d4d5 c4 39. f4 Qa7 40. h8=Q a3a2 41. Qhd4 Bh6 42. b6 Kf8 43. b7 Kg8 44. b8Q ♚h7 45. f6 g4 46. f7 g3 47. f8=Q e5 48. d7 e4 \
+    49. ♙b4b5 g2 50. Qfb4 e1=Q 51. ♙f5 e3 52. f6 e2 53. Bf4 c2 54. f7 c1=Q 55. f8=Q g1♛ 56. d6 Qda5 57. d8=Q a1=Q \
+    58. Qg5 Qeg3 59. d7 e1Q 60. d8=♕ c3 61. b6 c2 62. b7 ♕cd2 63. Qb8d6 c1=Q 64. b8=Q";
+        let data = parse_pgn::<Chessboard>(pgn, Strict, None).unwrap();
+        let pos = data.game.board;
+        assert_eq!(pos.as_fen(), "rQ1Q1Q2/q6k/3Q3b/q5QK/1Q1Q1B2/6q1/1Q1q4/qqqQq1qR b - - 0 64");
+        let perft_res = perft(Depth::new(3), pos, true);
+        assert_eq!(perft_res.nodes, 492194);
     }
 }
