@@ -192,9 +192,8 @@ pub fn optimize_for<B: Board, E: Eval<B>, O: Optimizer>(file_list: &[AnnotatedFe
     let scale = e.eval_scale().to_scaling_factor(batch, &e);
     let mut optimizer = O::new(batch, scale);
 
-    let num_all_features = batch.datapoint_iter().map(|d| d.features().count()).sum::<usize>();
-    let average = num_all_features as f64 / batch.num_datapoins() as f64;
-    println!("\nAverage Number of Features per Position: {}\n", format!("{average:.3}").bold());
+    let average = batch.num_entries() as f64 / batch.num_datapoins() as f64;
+    println!("\nAverage number of Entries per Position: {}\n", format!("{average:.3}").bold());
 
     let occurrences = Weights(count_occurrences(batch).into_iter().map(Weight).collect());
     println!("Occurrences:\n{}", display(&e, &occurrences, &[]));
@@ -225,10 +224,9 @@ pub fn debug_eval_on_pos<B: Board, E: Eval<Chessboard>>(pos: B) {
     let weights = optimize_dataset(&mut dataset, scale, 1, &e, &mut optimizer);
     assert_eq!(weights.len(), E::num_weights());
     println!(
-        "There are {0} weights and {1} out of {2} active features",
-        weights.len(),
-        dataset.as_batch().datapoint_iter().next().unwrap().features().count(),
-        E::num_features()
+        "There are {0} out of {1} active weights",
+        dataset.as_batch().datapoint_iter().next().unwrap().entries.len(),
+        E::num_weights()
     );
     print_optimized_weights(&weights, dataset.as_batch(), scale, &e);
     println!("\nEND DEBUG POSITION OUTPUT\n");
@@ -269,8 +267,8 @@ mod tests {
         assert_eq!(positions.num_weights(), NUM_PIECE_SQUARE_ENTRIES * 2);
         let batch = positions.as_batch();
         // the kings are on mirrored positions and cancel each other out
-        assert_eq!(batch.features_of(0).len(), 0);
-        assert_eq!(batch.features_of(1).len(), 1); // 1 feature, 2 weights
+        assert_eq!(batch.entries_of(0).len(), 0);
+        assert_eq!(batch.entries_of(1).len(), 2); // 1 feature, 2 weights
         let batch = positions.batch(0, 1);
         let eval_scale = 100.0;
         let mut optimizer = AdamW::<CrossEntropyLoss>::new(batch, eval_scale);
@@ -307,10 +305,10 @@ mod tests {
         let datapoints = FenReader::<Chessboard, MaterialOnlyEval>::load_from_str(&fens, SideToMove).unwrap();
         let batch = datapoints.as_batch();
         let weights = AdamW::<CrossEntropyLoss>::new(batch, eval_scale).optimize_simple(batch, eval_scale, 2000);
-        assert_eq!(weights.len(), 5 * 2);
+        assert_eq!(weights.len(), 5);
         let weight = weights[0];
         for piece in ChessPieceType::non_king_pieces() {
-            let ratio = weights[piece as usize * 2].0 / weight.0;
+            let ratio = weights[piece as usize].0 / weight.0;
             assert!((ratio - piece_val(piece) as Float).abs() <= 0.1, "{ratio} {piece}");
         }
     }

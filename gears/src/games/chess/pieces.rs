@@ -94,7 +94,7 @@ impl ChessPieceType {
 
 impl Display for ChessPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Unicode, &ChessSettings::default()))
+        write!(f, "{}", self.to_name())
     }
 }
 

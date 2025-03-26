@@ -27,13 +27,12 @@
 //! in an existing eval function. This avoids having to repeat the eval function implementation for the tuner.
 //! [`TuneLiTEval`] is an example of how such an implementation can look like.
 
-use crate::gd::{Feature, FeatureT, Float, Weights};
+use crate::gd::{Entry, FeatureT, Float, Weights};
 use core::fmt;
 use gears::games::Color;
 use gears::score::PhaseType;
 use motors::eval::ScoreType;
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
+use std::collections::{HashMap, hash_map};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 // TODO: Only a single generic trace type
@@ -110,10 +109,10 @@ impl SparseTrace {
         for (key, val) in other.map {
             let val = if negate_other { -val } else { val };
             match self.map.entry(key) {
-                Entry::Occupied(o) => {
+                hash_map::Entry::Occupied(o) => {
                     *o.into_mut() += val;
                 }
-                Entry::Vacant(v) => {
+                hash_map::Entry::Vacant(v) => {
                     v.insert(val);
                 }
             }
@@ -122,15 +121,20 @@ impl SparseTrace {
 }
 
 impl TraceTrait for SparseTrace {
-    fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
+    fn as_entries(&self, idx_offset: usize) -> Vec<Entry> {
         let mut res = vec![];
-        for (index, feature) in &self.map {
-            let count: FeatureT = (*feature).try_into().unwrap();
+        for (&index, &feature) in &self.map {
+            let index = (index + idx_offset) * 2;
+            let count: FeatureT = feature.try_into().unwrap();
             if count != 0 {
-                res.push(Feature::new((*feature).try_into().unwrap(), (index + idx_offset).try_into().unwrap()));
+                let phase = self.phase;
+                let midgame = Entry { weight: count as Float * phase, idx: index };
+                res.push(midgame);
+                let endgame = Entry { weight: count as Float * (1.0 - phase), idx: index + 1 };
+                res.push(endgame);
             }
         }
-        res.sort_by_key(|f| f.idx());
+        res.sort_by_key(|f| f.idx);
         res
     }
 
@@ -282,17 +286,18 @@ impl ScoreType for SparseTrace {
 /// }
 /// ```
 pub trait TraceTrait: Debug {
-    /// Converts the trace into a list of features.
+    /// Converts the trace into a list of weighted features.
     ///
     /// The default implementation of this function simply delegates the work to nested traces.
     /// It is usually not necessary to override this default implementation.
-    /// This function creates a sparse array of [`Feature`]s, where each entry is the number of times it appears for
-    /// the white player minus the number of times it appears for the black player.
-    fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
+    /// This function creates a sparse array of [`Entry`]s, where each entry is the number of times it appears for
+    /// the white player minus the number of times it appears for the black player, potentially multiplied by the phase.
+    /// For phased evals, the number of `WeightedFeature`s is twice the number of features in the trace.
+    fn as_entries(&self, idx_offset: usize) -> Vec<Entry> {
         let mut res = vec![];
         let mut offset = idx_offset;
         for nested in self.nested_traces() {
-            res.append(&mut nested.as_features(offset));
+            res.append(&mut nested.as_entries(offset));
             offset += nested.max_num_features();
         }
         res
@@ -312,7 +317,7 @@ pub trait TraceTrait: Debug {
     /// The number of features that are being covered by this trace.
     ///
     /// Note that in many cases, not all features appear in a position, so the len of the result of
-    /// [`as_features`](Self::as_features) is often smaller than this value.
+    /// [`as_features`](Self::as_entries) is often smaller than this value.
     /// It is usually not necessary to override this method.
     fn max_num_features(&self) -> usize {
         self.nested_traces().iter().map(|trace| trace.max_num_features()).sum()
@@ -348,12 +353,13 @@ pub struct SimpleTrace {
     /// How often each feature appears for the black player.
     pub p2: Vec<isize>,
     /// The phase value. Only needed for tapered evaluations.
-    pub phase: Float,
+    pub phase: Option<Float>,
 }
 
 impl SimpleTrace {
     /// Create a trace of `num_feature` elements, all initialized to zero.
-    pub fn for_features(num_features: usize, phase: Float) -> Self {
+    /// For an untapared eval, `phasae` must be `None`.
+    pub fn for_num_features(num_features: usize, phase: Option<Float>) -> Self {
         Self { p1: vec![0; num_features], p2: vec![0; num_features], phase }
     }
 }
@@ -361,21 +367,29 @@ impl SimpleTrace {
 impl TraceTrait for SimpleTrace {
     /// A [`SimpleTrace`] does not contain any other traces, so this function does the actual work of converting
     /// a trace into a list of features.
-    fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
+    fn as_entries(&self, idx_offset: usize) -> Vec<Entry> {
         assert_eq!(self.p1.len(), self.p2.len());
         let mut res = vec![];
+        let phase = self.phase.unwrap_or(1.0);
         for i in 0..self.p1.len() {
             let diff = self.p1[i] - self.p2[i];
             if diff != 0 {
-                let idx = i + idx_offset;
+                let mut idx = i + idx_offset;
+                if self.phase.is_some() {
+                    idx *= 2;
+                }
                 assert!(diff >= FeatureT::MIN as isize && diff <= FeatureT::MAX as isize);
                 assert!(res.len() < u16::MAX as usize);
                 assert!(u16::try_from(idx).is_ok());
-                let feature = Feature::new(diff as FeatureT, idx as u16);
-                res.push(feature);
+                let midgame = Entry { weight: diff as Float * phase, idx };
+                res.push(midgame);
+                if self.phase.is_some() {
+                    let endgame = Entry { weight: diff as Float * (1.0 - phase), idx: idx + 1 };
+                    res.push(endgame);
+                }
             }
         }
-        res.sort_by_key(|a| a.idx());
+        res.sort_by_key(|a| a.idx);
         res
     }
 
@@ -384,7 +398,7 @@ impl TraceTrait for SimpleTrace {
     }
 
     fn phase(&self) -> Float {
-        self.phase
+        self.phase.unwrap_or(1.0)
     }
 
     fn max_num_features(&self) -> usize {
@@ -409,14 +423,14 @@ pub struct TraceNFeatures<const N: usize>(pub SimpleTrace);
 
 impl<const N: usize> Default for TraceNFeatures<N> {
     fn default() -> Self {
-        Self(SimpleTrace::for_features(N, 1.0))
+        Self(SimpleTrace::for_num_features(N, Some(1.0)))
     }
 }
 
 impl<const N: usize> TraceTrait for TraceNFeatures<N> {
-    fn as_features(&self, idx_offset: usize) -> Vec<Feature> {
+    fn as_entries(&self, idx_offset: usize) -> Vec<Entry> {
         assert_eq!(self.0.max_num_features(), N);
-        self.0.as_features(idx_offset)
+        self.0.as_entries(idx_offset)
     }
 
     fn nested_traces(&self) -> Vec<&dyn TraceTrait> {
@@ -424,7 +438,7 @@ impl<const N: usize> TraceTrait for TraceNFeatures<N> {
     }
 
     fn phase(&self) -> Float {
-        self.0.phase
+        self.0.phase()
     }
     fn max_num_features(&self) -> usize {
         N

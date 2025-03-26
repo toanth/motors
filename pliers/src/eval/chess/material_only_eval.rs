@@ -31,10 +31,14 @@ impl Eval<Chessboard> for MaterialOnlyEval {
         NUM_CHESS_PIECES - 1
     }
 
+    fn num_weights() -> usize {
+        Self::num_features()
+    }
+
     type Filter = NoFilter;
 
     fn feature_trace(pos: &Chessboard) -> impl TraceTrait {
-        let mut trace = SimpleTrace::for_features(Self::num_features(), 1.0);
+        let mut trace = SimpleTrace::for_num_features(Self::num_features(), None);
         for color in ChessColor::iter() {
             for piece in ChessPieceType::non_king_pieces() {
                 let num_pieces = pos.col_piece_bb(color, piece).num_ones() as isize;
@@ -55,7 +59,7 @@ mod tests {
     pub fn startpos_test() {
         let board = Chessboard::default();
         let features = MaterialOnlyEval::feature_trace(&board);
-        assert_eq!(features.as_features(0).len(), 0);
+        assert_eq!(features.as_entries(0).len(), 0);
     }
 
     #[test]
@@ -64,9 +68,8 @@ mod tests {
         let mut dataset = Dataset::new(2);
         MaterialOnlyEval::extract_features(&board, Outcome::new(1.0), &mut dataset);
         let dp = dataset.as_batch().datapoint_iter().next().unwrap();
-        let mut features = dp.features();
-        assert_eq!(features.clone().count(), 2);
-        assert_eq!(features.next().unwrap().weight, 1.0);
-        assert_eq!(features.next().unwrap().weight, 0.0);
+        let entries = dp.entries;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].weight, 1.0);
     }
 }

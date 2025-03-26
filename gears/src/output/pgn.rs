@@ -370,7 +370,7 @@ impl PgnParserState<'_> {
         Ok(())
     }
 
-    fn unread(&mut self) -> &str {
+    fn unread(&self) -> &str {
         &self.original_input[self.byte_idx..]
     }
 }
@@ -447,7 +447,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
             bail!("The game has already ended, cannot parse additional moves at start of '{}'", string.bold())
         }
         let prev_board = &self.res.game.board;
-        let (remaining, mov) = B::Move::parse_extended_text(string, prev_board)?;
+        let (remaining, mov) = B::Move::parse_text(string, prev_board)?;
         let Some(new_board) = prev_board.clone().make_move(mov) else {
             bail!("Illegal psuedolegal move '{}'", mov.compact_formatter(prev_board).to_string().red());
         };
@@ -459,7 +459,8 @@ impl<'a, B: Board> PgnParser<'a, B> {
                 *st = Over(res);
             }
         }
-        for _ in 0..string.len() - remaining.len() {
+        let remaining_len = remaining.len();
+        while self.state.unread().len() != remaining_len {
             _ = self.state.eat().unwrap();
         }
         Ok(())
@@ -486,7 +487,13 @@ pub fn parse_pgn<B: Board>(pgn: &str, strictness: Strictness, pos: Option<B>) ->
     if let Some(pos) = pos {
         parser.res.tag_pairs.push(Fen(pos.as_fen()));
     }
-    parser.parse(strictness).map_err(|err| anyhow!("{err}. Unconsumed input: '{}'", parser.state.unread().red()))
+    parser.parse(strictness).map_err(|err| {
+        anyhow!(
+            "{err}.\nPosition when the error occurred: '{0}'. Unconsumed input: '{1}'",
+            parser.res.game.board,
+            parser.state.unread().red()
+        )
+    })
 }
 
 #[cfg(test)]
@@ -631,5 +638,6 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
             assert!(pos.gives_check(mov));
         }
     }
-    // TODO: Pgn test for another game than chess
+
+    // TODO: Pgn test for another game than chess, especially fairy chess
 }

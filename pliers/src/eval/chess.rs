@@ -49,7 +49,7 @@ fn to_feature_idx(piece: ChessPieceType, color: ChessColor, square: ChessSquare)
 
 fn psqt_trace(pos: &Chessboard) -> TraceNFeatures<NUM_PSQT_FEATURES> {
     let phase = chess_phase(pos);
-    let mut trace = SimpleTrace::for_features(NUM_PSQT_FEATURES, phase);
+    let mut trace = SimpleTrace::for_num_features(NUM_PSQT_FEATURES, Some(phase));
     for color in ChessColor::iter() {
         for piece in ChessPieceType::pieces() {
             let bb = pos.col_piece_bb(color, piece);

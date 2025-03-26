@@ -251,13 +251,13 @@ impl Div<Float> for Weights {
 
 impl Weights {
     fn update(&mut self, data_point: DatapointRef, factor: Float) {
-        for feature in data_point.features() {
+        for feature in data_point.entries {
             self[feature.idx].0 += feature.weight * factor;
         }
     }
 }
 
-pub(super) type FeatureT = i8;
+pub(super) type FeatureT = i16;
 
 /// A feature can occur some fixed number of times in a position.
 ///
@@ -273,7 +273,7 @@ pub(super) type FeatureT = i8;
 #[derive(Debug, Default, Copy, Clone, PartialOrd, PartialEq)]
 #[must_use]
 pub struct Feature {
-    count: FeatureT,
+    pub(super) count: FeatureT,
     idx: u16,
 }
 
@@ -298,11 +298,11 @@ impl Feature {
 
 /// Struct used for tuning.
 ///
-/// Each [`WeightedFeature`] of a [`Datapoint`] is multiplied by the corresponding current eval weight and added up
+/// Each [`Entry`] of a [`Datapoint`] is multiplied by the corresponding current eval weight and added up
 /// to compute the [`CpScore`]. Users should not generally need to worry about this, unless they want to implement
 /// their own tuning algorithm.
 #[derive(Debug, Copy, Clone)]
-pub struct WeightedFeature {
+pub struct Entry {
     /// The weight of this entry.
     pub weight: Float,
     /// The index of the *weight* that this entry corresponds to.
@@ -310,51 +310,50 @@ pub struct WeightedFeature {
     pub idx: usize,
 }
 
-impl WeightedFeature {
-    fn new(idx: usize, weight: Float) -> Self {
+impl Entry {
+    /// Construct a single entry with the given index and weight.
+    pub fn new(idx: usize, weight: Float) -> Self {
         Self { weight, idx }
+    }
+
+    /// Create a `Vec` of entries from a slice of features and the phase, where each feature correspononds to two entries.
+    pub fn from_features(features: &[Feature], phase: Float) -> Vec<Self> {
+        features
+            .into_iter()
+            .flat_map(|&feature| {
+                [
+                    Self::new(feature.idx() * 2, feature.float() * phase),
+                    Self::new(feature.idx() * 2 + 1, feature.float() * (1.0 - phase)),
+                ]
+            })
+            .collect()
+    }
+
+    /// Create a `Vec` of entries from a slice of features, with a one-to-one correspondence.
+    pub fn from_features_unphased(features: &[Feature]) -> Vec<Self> {
+        features.into_iter().map(|&feature| Self::new(feature.idx(), feature.float())).collect()
     }
 }
 
-/// The index of a feature in the list of all features over all data points.
+/// The index of an [`Entry`] in the list of all entries over all data points.
 /// Using `u32` restricts the total number of features to around 4 billion, but so far that's not a problem
-pub type FeatureIdxT = u32;
+pub type EntryIdxT = u32;
 
 /// A data point that is part of a [`Dataset`]
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct SingleDatapoint {
-    pub(crate) start_idx: FeatureIdxT,
-    pub(crate) end_idx: FeatureIdxT,
-    pub(crate) phase: Float,
+    pub(crate) start_idx: EntryIdxT,
+    pub(crate) end_idx: EntryIdxT,
     pub(crate) outcome: Outcome,
 }
 
 /// This is the 'public' representation of a data point
 #[derive(Debug, Copy, Clone)]
 pub struct DatapointRef<'a> {
-    features: &'a [Feature],
-    /// The phase of the data point; by convention 0 for unphased evals.
-    pub phase: Float,
+    /// The list of entries.
+    pub entries: &'a [Entry],
     /// The outcome between 0 and 1
     pub outcome: Outcome,
-}
-
-impl<'a> DatapointRef<'a> {
-    /// Create a data point from a list of features, phase, and outcome. Useful for building a [`Dataset`],
-    /// together with [`Dataset::push`]
-    pub fn from_features(features: &'a [Feature], phase: Float, outcome: Outcome) -> Self {
-        Self { features, phase, outcome }
-    }
-
-    /// The features of this data point.
-    pub fn features(&self) -> impl Iterator<Item = WeightedFeature> + Clone {
-        self.features.iter().flat_map(|f| {
-            [
-                WeightedFeature::new(f.idx() * 2, f.float() * self.phase),
-                WeightedFeature::new(f.idx() * 2 + 1, f.float() * (1.0 - self.phase)),
-            ]
-        })
-    }
 }
 
 /// The totality of all data points.
@@ -364,7 +363,7 @@ impl<'a> DatapointRef<'a> {
 #[must_use]
 pub struct Dataset {
     datapoints: Vec<SingleDatapoint>,
-    features: Vec<Feature>,
+    entries: Vec<Entry>,
     weights_in_pos: usize,
 }
 
@@ -372,8 +371,7 @@ impl Dataset {
     /// Create a new dataset, where each data point consist of `num_weights` weights.
     /// (But datapoints are still stored as a sparse matrix)
     pub fn new(num_weights: usize) -> Self {
-        assert_eq!(num_weights % 2, 0, "`num_weights` must be even because every feature has 2 phased weights");
-        Self { datapoints: vec![], features: vec![], weights_in_pos: num_weights }
+        Self { datapoints: vec![], entries: vec![], weights_in_pos: num_weights }
     }
 
     /// The number of weights per position.
@@ -392,33 +390,34 @@ impl Dataset {
 
     /// Add a new datapoint.
     pub fn push(&mut self, datapoint: DatapointRef) {
-        let n = self.features.len() as FeatureIdxT;
-        let end = n + datapoint.features.len() as FeatureIdxT;
-        let new = SingleDatapoint { start_idx: n, end_idx: end, phase: datapoint.phase, outcome: datapoint.outcome };
+        let n = self.entries.len() as EntryIdxT;
+        let end = n + datapoint.entries.len() as EntryIdxT;
+        let new = SingleDatapoint { start_idx: n, end_idx: end, outcome: datapoint.outcome };
         let range = (end - n) as usize;
-        assert!(range * 2 <= self.weights_in_pos, "{range} {}", self.weights_in_pos);
-        self.features.extend_from_slice(datapoint.features);
+        assert!(range <= self.weights_in_pos, "{range} {}", self.weights_in_pos);
+        // todo: dont push weight == 0 entries (can come from phase == 1 or 0)
+        self.entries.extend_from_slice(datapoint.entries);
         self.datapoints.push(new);
     }
 
     /// Combine two datasets into one larger dataset without removing duplicate positions.
     pub fn union(&mut self, other: Dataset) {
         assert_eq!(self.weights_in_pos, other.weights_in_pos);
-        let n = self.features.len() as u32;
+        let n = self.entries.len() as u32;
         self.datapoints.reserve(self.datapoints.len() + other.datapoints.len());
         for mut d in other.datapoints {
             d.start_idx += n;
             d.end_idx += n;
             self.datapoints.push(d);
         }
-        self.features.extend_from_slice(&other.features);
+        self.entries.extend_from_slice(&other.entries);
     }
 
     /// Converts the entire dataset into a single batch.
     pub fn as_batch(&self) -> Batch {
         Batch {
             datapoints: self.datapoints.as_slice(),
-            features: self.features.as_slice(),
+            entries: self.entries.as_slice(),
             weights_in_pos: self.weights_in_pos,
         }
     }
@@ -427,7 +426,7 @@ impl Dataset {
     pub fn batch(&self, start_idx: usize, end_idx: usize) -> Batch {
         let end_idx = end_idx.min(self.datapoints.len());
         let datapoints = &self.datapoints[start_idx..end_idx];
-        Batch { datapoints, features: self.features.as_slice(), weights_in_pos: self.weights_in_pos }
+        Batch { datapoints, entries: self.entries.as_slice(), weights_in_pos: self.weights_in_pos }
     }
 }
 
@@ -436,15 +435,15 @@ impl Dataset {
 pub struct Batch<'a> {
     /// The underlying array of data points.
     datapoints: &'a [SingleDatapoint],
-    features: &'a [Feature],
+    entries: &'a [Entry],
     /// The number of weights per data point. This is 2 times the number of features
     pub weights_in_pos: usize,
 }
 
 impl<'a> Batch<'a> {
     /// The total number of features.
-    pub fn num_features(&self) -> usize {
-        self.features.len()
+    pub fn num_entries(&self) -> usize {
+        self.entries.len()
     }
     /// The number of data points in this batch.
     pub fn num_datapoins(&self) -> usize {
@@ -452,35 +451,33 @@ impl<'a> Batch<'a> {
     }
     /// An iterator over all the data points.
     pub fn datapoint_iter(&self) -> impl Iterator<Item = DatapointRef<'a>> + Clone + Send + Sync + use<'a> {
-        let features = self.features;
+        let features = self.entries;
         self.datapoints.iter().map(move |datapoint| DatapointRef {
-            features: &features[datapoint.start_idx as usize..datapoint.end_idx as usize],
-            phase: datapoint.phase,
+            entries: &features[datapoint.start_idx as usize..datapoint.end_idx as usize],
             outcome: datapoint.outcome,
         })
     }
     /// A parallel iterator over all the data points.
     pub fn par_datapoint_iter(&self) -> impl ParallelIterator<Item = DatapointRef<'a>> + Clone + Send + Sync + use<'a> {
-        let features = self.features;
+        let features = self.entries;
         self.datapoints.par_iter().map(move |datapoint| DatapointRef {
-            features: &features[datapoint.start_idx as usize..datapoint.end_idx as usize],
-            phase: datapoint.phase,
+            entries: &features[datapoint.start_idx as usize..datapoint.end_idx as usize],
             outcome: datapoint.outcome,
         })
     }
 
     /// The features of a data point, given by its index.
-    pub fn features_of(&self, datapoint_idx: usize) -> &[Feature] {
+    pub fn entries_of(&self, datapoint_idx: usize) -> &[Entry] {
         let dp = &self.datapoints[datapoint_idx];
-        &self.features[dp.start_idx as usize..dp.end_idx as usize]
+        &self.entries[dp.start_idx as usize..dp.end_idx as usize]
     }
 }
 
 /// Eval of a position, given the current weights.
 pub fn cp_eval_for_weights(weights: &Weights, position: DatapointRef) -> CpScore {
     let mut res = 0.0;
-    for feature in position.features() {
-        res += feature.weight * weights[feature.idx].0;
+    for entry in position.entries {
+        res += entry.weight * weights[entry.idx].0;
     }
     CpScore(res)
 }
@@ -499,7 +496,7 @@ pub fn loss(weights: &Weights, batch: Batch<'_>, eval_scale: ScalingFactor) -> F
 /// Loss of a position, given the current weights, using the `sample_loss` parameter to calculate
 /// the loss of a single sample.
 pub fn loss_for<L: LossFn>(weights: &Weights, batch: Batch<'_>, eval_scale: ScalingFactor, sample_loss: L) -> Float {
-    let sum = if batch.num_features() >= MIN_MULTITHREADING_BATCH_SIZE {
+    let sum = if batch.num_entries() >= MIN_MULTITHREADING_BATCH_SIZE {
         batch
             .par_datapoint_iter()
             .map(|datapoint| {
@@ -550,7 +547,7 @@ pub fn compute_scaled_gradient<G: LossGradient>(
     // see above, it should strictly speaking be `/ eval_scale` but `*` is superior
     // because it removes the effect of the eval scale
     let constant_factor = 2.0 * eval_scale / batch.weights_in_pos as Float;
-    if batch.num_datapoins() >= MIN_MULTITHREADING_BATCH_SIZE {
+    let grad = if batch.num_datapoins() >= MIN_MULTITHREADING_BATCH_SIZE {
         batch
             .par_datapoint_iter()
             .fold(
@@ -571,18 +568,18 @@ pub fn compute_scaled_gradient<G: LossGradient>(
                     a
                 },
             )
-            * constant_factor
     } else {
         let mut grad = Gradient::new(weights.num_weights());
         for data in batch.datapoint_iter() {
             let wr_prediction = wr_prediction_for_weights(weights, data, eval_scale);
             // don't use a separate loop for multiplying with `constant_factor` because the gradient may very well be
             // larger than the numer of samples, so this would likely be slower
-            let scaled_delta = constant_factor * G::sample_gradient(wr_prediction, data.outcome);
+            let scaled_delta = G::sample_gradient(wr_prediction, data.outcome);
             grad.update(data, scaled_delta);
         }
         grad
-    }
+    };
+    grad * constant_factor
 }
 /// This is where the actual optimization happens.
 ///
@@ -882,11 +879,13 @@ mod tests {
 
     #[test]
     pub fn simple_loss_test() {
-        let weights = Weights(vec![Weight(0.0); 42 * 2]);
-        let no_features = vec![Feature::default(); 42];
+        let weights = Weights(vec![Weight(0.0); 42]);
+        let no_features = [Feature::default(); 42];
+        let entries = Entry::from_features_unphased(&no_features);
         for outcome in [0.0, 0.5, 1.0] {
             let mut dataset = Dataset::new(weights.len());
-            dataset.push(DatapointRef::from_features(no_features.as_slice(), 1.0, Outcome::new(outcome)));
+            let d = DatapointRef { entries: &entries, outcome: Outcome::new(outcome) };
+            dataset.push(d);
             let batch = dataset.as_batch();
             for eval_scale in 1..100_i8 {
                 let loss = loss_for(&weights, batch, ScalingFactor::from(eval_scale), quadratic_sample_loss);
@@ -905,7 +904,8 @@ mod tests {
         for outcome in [0.0, 0.5, 1.0] {
             let mut dataset = Dataset::new(2);
             let features = vec![Feature::new(1, 0)];
-            dataset.push(DatapointRef::from_features(&features, 1.0, Outcome::new(outcome)));
+            let entries = Entry::from_features(&features, 1.0);
+            dataset.push(DatapointRef { entries: &entries, outcome: Outcome::new(outcome) });
             let batch = dataset.as_batch();
             let gradient = compute_scaled_gradient::<CrossEntropyLoss>(&weights, batch, 2.0);
             assert_eq!(gradient.len(), 2);
@@ -925,7 +925,7 @@ mod tests {
     }
 
     #[test]
-    // testcase that contains only 1 position with only 1 feature
+    // testcase that contains only 1 position with only 1 unphased feature
     pub fn one_feature_test() {
         let scaling_factor = 42.0;
         for feature in [1, 2, -1, 0] {
@@ -933,8 +933,9 @@ mod tests {
                 for outcome in [0.0, 0.5, 1.0, 0.9, 0.499] {
                     let mut weights = Weights(vec![Weight(initial_weight), Weight(0.0)]);
                     let position = vec![Feature::new(feature, 0)];
-                    let mut dataset = Dataset::new(2);
-                    dataset.push(DatapointRef::from_features(&position, 1.0, Outcome::new(outcome)));
+                    let entries = Entry::from_features_unphased(&position);
+                    let mut dataset = Dataset::new(1);
+                    dataset.push(DatapointRef { entries: &entries, outcome: Outcome::new(outcome) });
                     let batch = dataset.as_batch();
                     for _ in 0..100 {
                         let grad =
@@ -980,7 +981,8 @@ mod tests {
                 Weights(vec![Weight(0.0), Weight(0.0), Weight(1.0), Weight(0.0), Weight(-1.0), Weight(0.0)]);
             let position = vec![Feature::new(1, 0), Feature::new(-1, 1), Feature::new(2, 2)];
             let mut dataset = Dataset::new(weights.len());
-            dataset.push(DatapointRef::from_features(&position, 1.0, Outcome::new(outcome)));
+            let entries = Entry::from_features(&position, 1.0);
+            dataset.push(DatapointRef { entries: &entries, outcome: Outcome::new(outcome) });
             let batch = dataset.as_batch();
             for i in 0..100 {
                 let grad = compute_scaled_gradient_with(&weights, batch, 1.0, QuadraticLoss::default());
@@ -998,11 +1000,12 @@ mod tests {
     #[test]
     pub fn two_features_test() {
         let scale = 500.0;
-        for outcome in [0.0, 0.5, 1.0] {
+        for outcome in [0.5, 0.0, 1.0] {
             let mut weights = Weights(vec![Weight(123.987), Weight(0.0), Weight(-987.123), Weight(0.0)]);
             let position = vec![Feature::new(3, 0), Feature::new(-3, 1)];
             let mut dataset = Dataset::new(4);
-            dataset.push(DatapointRef::from_features(&position, 1.0, Outcome::new(outcome)));
+            let entries = Entry::from_features(&position, 0.9);
+            dataset.push(DatapointRef { entries: &entries, outcome: Outcome::new(outcome) });
             let batch = dataset.as_batch();
             let mut lr = 1.0;
             for i in 0..100 {
@@ -1011,6 +1014,7 @@ mod tests {
                 weights -= &(grad.clone() * lr);
                 let current_loss = loss(&weights, batch, scale);
                 let old_loss = loss(&old_weights, batch, scale);
+                eprintln!("{outcome} {i}: {current_loss} {lr} {grad:?} {weights:?}");
                 assert!(current_loss <= old_loss, "{i} {current_loss} {old_loss}");
                 lr *= 0.9;
             }
@@ -1018,7 +1022,7 @@ mod tests {
             assert!(loss <= 0.01, "{loss}");
             if outcome == 0.5 {
                 assert_eq!(weights[0].0.signum(), weights[2].0.signum());
-                let diff = weights[0].0.abs() - weights[2].0.abs();
+                let diff = ((weights[0] * 9.0 + weights[1]) - (weights[2] * 9.0 + weights[3])).0;
                 assert!(diff.abs() <= 0.000_001, "{diff} {weights:?}");
             } else {
                 assert_eq!(weights[0].0 > weights[2].0, outcome > 0.5);
@@ -1033,8 +1037,10 @@ mod tests {
         let win = vec![Feature::new(1, 0), Feature::new(-1, 1)];
         let lose = vec![Feature::new(-1, 0), Feature::new(1, 1)];
         let mut dataset = Dataset::new(4);
-        dataset.push(DatapointRef::from_features(&win, 1.0, Outcome::new(1.0)));
-        dataset.push(DatapointRef::from_features(&lose, 1.0, Outcome::new(0.0)));
+        let win = Entry::from_features(&win, 1.0);
+        let lose = Entry::from_features(&lose, 1.0);
+        dataset.push(DatapointRef { entries: &win, outcome: Outcome::new(1.0) });
+        dataset.push(DatapointRef { entries: &lose, outcome: Outcome::new(0.0) });
         let batch = dataset.as_batch();
         let weights_dist = Uniform::new(-100.0, 100.0).unwrap();
         let mut rng = rng();
@@ -1079,9 +1085,12 @@ mod tests {
         let lose_datapoint = vec![Feature::new(-1, 0), Feature::new(-1, 1), Feature::new(0, 2)];
 
         let mut dataset = Dataset::new(3 * 2);
-        dataset.push(DatapointRef::from_features(&draw_datapoint, 1.0, Outcome::new(0.5)));
-        dataset.push(DatapointRef::from_features(&win_datapoint, 1.0, Outcome::new(1.0)));
-        dataset.push(DatapointRef::from_features(&lose_datapoint, 1.0, Outcome::new(0.0)));
+        let draw = Entry::from_features(&draw_datapoint, 1.0);
+        let win = Entry::from_features(&win_datapoint, 1.0);
+        let lose = Entry::from_features(&lose_datapoint, 1.0);
+        dataset.push(DatapointRef { entries: &draw, outcome: Outcome::new(0.5) });
+        dataset.push(DatapointRef { entries: &win, outcome: Outcome::new(1.0) });
+        dataset.push(DatapointRef { entries: &lose, outcome: Outcome::new(0.0) });
         let batch = dataset.as_batch();
         for _ in 0..500 {
             let grad = compute_scaled_gradient_with(&weights, batch, 1.0, QuadraticLoss::default());
@@ -1109,7 +1118,8 @@ mod tests {
             let eval_scale = 10000.0;
             let features = vec![Feature::new(1, 0)];
             let mut dataset = Dataset::new(2);
-            dataset.push(DatapointRef::from_features(&features, 1.0, Outcome::new(outcome)));
+            let entry = Entry::from_features_unphased(&features);
+            dataset.push(DatapointRef { entries: &entry, outcome: Outcome::new(outcome) });
             let batch = dataset.as_batch();
             let mut adam = Adam::<QuadraticLoss>::new(batch, eval_scale);
             let weights = adam.optimize_simple(batch, eval_scale, 20);

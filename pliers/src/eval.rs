@@ -117,7 +117,7 @@ pub fn write_2d_range_phased(
 pub fn count_occurrences(batch: Batch) -> Vec<Float> {
     let mut res = vec![0.0; batch.weights_in_pos];
     for datapoint in batch.datapoint_iter() {
-        for feature in datapoint.features() {
+        for feature in datapoint.entries {
             res[feature.idx] += feature.weight.abs();
         }
     }
@@ -275,6 +275,7 @@ pub trait WeightsInterpretation {
 /// a [`Filter`] that gets called when loading FENs (e.g. [`NoFilter`](super::load_data::NoFilter)), and implementing the [`feature_trace`][Self::feature_trace] method.
 pub trait Eval<B: Board>: WeightsInterpretation + Default {
     /// Because the eval is assumed to be tapered, this is twice the number of features.
+    /// An untapered eval should overwrite this method to return the same value as [`Self::num_features`].
     /// Conceptually, this should be a compile time constant. However, Rust's compile time computation is so limited that it's
     /// sometimes more convenient to calculate this at runtime.
     fn num_weights() -> usize {
@@ -308,8 +309,8 @@ pub trait Eval<B: Board>: WeightsInterpretation + Default {
     /// [`feature_trace`](Self::feature_trace) instead.
     fn extract_features(pos: &B, outcome: Outcome, dataset: &mut Dataset) {
         let trace = Self::feature_trace(pos);
-        let features = trace.as_features(0);
-        let datapoint_ref = DatapointRef::from_features(&features, trace.phase(), outcome);
+        let features = trace.as_entries(0);
+        let datapoint_ref = DatapointRef { entries: &features, outcome };
         dataset.push(datapoint_ref);
     }
 
