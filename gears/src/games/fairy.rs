@@ -16,9 +16,9 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 mod attacks;
-mod moves;
+pub mod moves;
 mod perft_tests;
-mod pieces;
+pub mod pieces;
 mod rules;
 
 use crate::PlayerResult;

@@ -37,18 +37,15 @@ impl PcgXslRr128_64Oneseq {
         Self(seed.wrapping_add(INCREMENT).wrapping_mul(MUTLIPLIER).wrapping_add(INCREMENT))
     }
 
-    // const mut refs aren't stable yet, so returning the new state is a workaround
-    const fn generate(mut self) -> (Self, PosHash) {
+    const fn generate(&mut self) -> PosHash {
         self.0 = self.0.wrapping_mul(MUTLIPLIER);
         self.0 = self.0.wrapping_add(INCREMENT);
         let upper = (self.0 >> 64) as u64;
-        let xored = upper ^ ((self.0 & u64::MAX as u128) as u64);
-        (self, PosHash(xored.rotate_right((upper >> (122 - 64)) as u32)))
+        let xored = upper ^ (self.0 as u64);
+        PosHash(xored.rotate_right((upper >> (122 - 64)) as u32))
     }
 }
 
-// Unfortunately, `const_random!` generates new values each time, so the build isn't deterministic unless
-// the environment variable CONST_RANDOM_SEED is set
 pub const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
     let mut res = {
         PrecomputedZobristKeys {
@@ -61,20 +58,20 @@ pub const PRECOMPUTED_ZOBRIST_KEYS: PrecomputedZobristKeys = {
     let mut generator = PcgXslRr128_64Oneseq::new(0x42);
     let mut i = 0;
     while i < NUM_COLORED_PIECE_SQUARE_ENTRIES {
-        (generator, res.piece_square_keys[i]) = generator.generate();
+        res.piece_square_keys[i] = generator.generate();
         i += 1;
     }
     let mut i = 0;
     while i < res.castle_keys.len() {
-        (generator, res.castle_keys[i]) = generator.generate();
+        res.castle_keys[i] = generator.generate();
         i += 1;
     }
     let mut i = 0;
     while i < NUM_COLUMNS {
-        (generator, res.ep_file_keys[i]) = generator.generate();
+        res.ep_file_keys[i] = generator.generate();
         i += 1;
     }
-    (_, res.side_to_move_key) = generator.generate();
+    res.side_to_move_key = generator.generate();
     res
 };
 
@@ -127,14 +124,14 @@ mod tests {
 
     #[test]
     fn pcg_test() {
-        let generator = PcgXslRr128_64Oneseq::new(42);
+        let mut generator = PcgXslRr128_64Oneseq::new(42);
         assert_eq!(generator.0 >> 64, 1_610_214_578_838_163_691);
         assert_eq!(generator.0 & ((1 << 64) - 1), 13_841_303_961_814_150_380);
-        let (generator, rand) = generator.generate();
+        let rand = generator.generate();
         assert_eq!(rand.0, 2_915_081_201_720_324_186);
-        let (generator, rand) = generator.generate();
+        let rand = generator.generate();
         assert_eq!(rand.0, 13_533_757_442_135_995_717);
-        let (_gen, rand) = generator.generate();
+        let rand = generator.generate();
         assert_eq!(rand.0, 13_172_715_927_431_628_928);
     }
 
