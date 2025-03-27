@@ -947,6 +947,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         &mut self.search_params_mut().tt
     }
 
+    /// Returns the number of multipv searches to use
     fn multi_pv(&self) -> usize {
         self.search_params().num_multi_pv
     }

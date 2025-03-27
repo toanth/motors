@@ -710,15 +710,6 @@ impl Caps {
         let they_blundered = ply >= 2 && eval - self.search_stack[ply - 2].eval > Score(cc::they_blundered_threshold());
         let we_blundered = ply >= 2 && eval - self.search_stack[ply - 2].eval < Score(cc::we_blundered_threshold());
 
-        // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
-        // because the move ordering won't be great, so don't spend too much time on it.
-        // Instead, search it with reduced depth to fill the TT entry so that we can re-search it faster the next time
-        // we see this node. If there was no TT entry because the node failed low, this node probably isn't that interesting,
-        // so reducing the depth also makes sense in this case.
-        if depth >= cc::iir_min_depth() && best_move == ChessMove::default() {
-            depth -= 1;
-        }
-
         if can_prune {
             // RFP (Reverse Futility Pruning): If eval is far above beta, it's likely that our opponent
             // blundered in a previous move of the search, so if the depth is low, don't even bother searching further.
@@ -806,6 +797,15 @@ impl Caps {
                     }
                 }
             }
+        }
+
+        // IIR (Internal Iterative Reductions): If we don't have a TT move, this node will likely take a long time
+        // because the move ordering won't be great, so don't spend too much time on it.
+        // Instead, search it with reduced depth to fill the TT entry so that we can re-search it faster the next time
+        // we see this node. If there was no TT entry because the node failed low, this node probably isn't that interesting,
+        // so reducing the depth also makes sense in this case.
+        if depth >= cc::iir_min_depth() && best_move == ChessMove::default() {
+            depth -= 1;
         }
 
         self.maybe_send_currline(&pos, alpha, beta, ply, None);
@@ -996,7 +996,7 @@ impl Caps {
                 current.pv.extend(best_move, &child.pv);
                 if cfg!(debug_assertions)
                     && depth > 1
-                    && self.multi_pv() == 1
+                    && self.params.thread_type.num_threads().is_some_and(|n| n == 1)
                     && score < beta
                     && !score.is_won_lost_or_draw_score()
                 {

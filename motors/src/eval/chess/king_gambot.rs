@@ -15,16 +15,16 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::eval::chess::lite_values::{Lite, LiteValues};
-use crate::eval::chess::FileOpenness;
 use crate::eval::SingleFeatureScore;
+use crate::eval::chess::FileOpenness;
+use crate::eval::chess::lite_values::{Lite, LiteValues};
+use gears::games::chess::ChessColor;
+use gears::games::chess::ChessColor::White;
 use gears::games::chess::pieces::ChessPieceType;
 use gears::games::chess::pieces::ChessPieceType::King;
 use gears::games::chess::squares::ChessSquare;
-use gears::games::chess::ChessColor;
-use gears::games::chess::ChessColor::White;
 use gears::general::common::StaticallyNamedEntity;
-use gears::score::{p, PhasedScore};
+use gears::score::{PhasedScore, p};
 use std::fmt::Display;
 
 #[rustfmt::skip]
@@ -112,13 +112,17 @@ impl LiteValues for KingGambotValues {
         Lite::bishop_openness(openness, len)
     }
 
+    fn pawn_advanced_center(config: usize) -> SingleFeatureScore<Self::Score> {
+        Lite::pawn_advanced_center(config)
+    }
+
+    fn pawn_passive_center(config: usize) -> SingleFeatureScore<Self::Score> {
+        Lite::pawn_passive_center(config)
+    }
+
     fn pawn_shield(&self, color: ChessColor, config: usize) -> PhasedScore {
         let value = Lite::default().pawn_shield(color, config);
-        if self.us == color {
-            value / 2
-        } else {
-            value
-        }
+        if self.us == color { value / 2 } else { value }
     }
 
     fn pawn_protection(piece: ChessPieceType) -> PhasedScore {

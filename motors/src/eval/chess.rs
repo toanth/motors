@@ -33,6 +33,8 @@ pub const NUM_PSQT_FEATURES: usize = NUM_CHESS_PIECES * NUM_SQUARES;
 
 pub const NUM_PAWN_SHIELD_CONFIGURATIONS: usize = (1 << 6) + (1 << 4) + (1 << 4);
 
+pub const NUM_PAWN_CENTER_CONFIGURATIONS: usize = 1 << 6;
+
 pub const PAWN_SHIELD_SHIFT: [usize; NUM_SQUARES] = {
     let mut res = [0; NUM_SQUARES];
     let mut square = 0;
@@ -70,6 +72,22 @@ pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: C
         }
         pattern
     }
+}
+
+pub fn pawn_advanced_center_idx(mut pawns: ChessBitboard, color: ChessColor) -> usize {
+    if color == Black {
+        pawns = pawns.flip_up_down();
+    }
+    let pawns = pawns.0;
+    ((pawns >> (24 + 2) & 0xf) | (pawns >> (32 + 3 - 4) & (0x3 << 4))) as usize
+}
+
+pub fn pawn_passive_center_idx(mut pawns: ChessBitboard, color: ChessColor) -> usize {
+    if color == Black {
+        pawns = pawns.flip_up_down();
+    }
+    let pawns = pawns.0;
+    ((pawns >> (16 + 2) & 0xf) | (pawns >> (24 + 3 - 4) & (0x3 << 4))) as usize
 }
 
 #[cfg(test)]

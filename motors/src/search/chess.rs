@@ -274,6 +274,15 @@ mod tests {
     }
 
     #[test]
+    fn deep_search() {
+        let fen = "5b1k/p1p1p1p1/P1P1P1P1/8/4p1p1/PpPpP1P1/1P1P4/K1B3B1 w - - 0 1";
+        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        let mut engine = Caps::for_eval::<PistonEval>();
+        let res = engine.search_with_new_tt(pos, SearchLimit::depth_(9999));
+        assert_eq!(res.score, Score(0));
+    }
+
+    #[test]
     fn hash_collision() {
         let pos1 = "2n5/1Rp1K1pn/q6Q/1rrr4/k3Br2/7B/1n1N2Q1/1Nn2R2 w - - 0 1";
         let pos1 = Chessboard::from_fen(pos1, Strict).unwrap();
