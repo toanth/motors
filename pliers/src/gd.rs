@@ -481,6 +481,7 @@ impl<'a> Batch<'a> {
         self.entries_of(dp)
     }
 
+    /// The features of a data point, given by its index.
     pub(crate) fn entries_of(&self, dp: &SingleDatapoint) -> &[Entry] {
         &self.entries[dp.start_idx as usize..dp.end_idx as usize]
     }
