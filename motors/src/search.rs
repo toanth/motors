@@ -492,6 +492,7 @@ pub trait NormalEngine<B: Board>: Engine<B> {
         state.start_time().elapsed() >= soft_limit
             || state.uci_nodes() >= soft_nodes
             || state.depth().get() as isize > max_soft_depth
+            // even in a multipv search, we stop as soon as a single mate is found
             || state.best_score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT)
     }
 }
