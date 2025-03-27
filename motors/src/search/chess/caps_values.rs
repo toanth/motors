@@ -61,8 +61,8 @@ spsa_params! [
     min_fr_depth: isize = 7; 1..=15; step=1;
     fr_base: ScoreT = 400; 100..=800; step=16;
     fr_scale: ScoreT = 32; 8..=128; step=2;
-    hist_depth_bonus: isize = 256; 1..=1024; step=16;
-    hist_depth_malus: isize = 256; 1..=1024; step=16;
+    hist_depth_bonus: isize = 64; 1..=1024; step=4;
+    hist_depth_malus: isize = 64; 1..=1024; step=4;
     max_hist_bonus: isize = 15_000; 1024..=16383; step=256;
     max_hist_malus: isize = 15_000; 1024..=16383; step=256;
 ];
