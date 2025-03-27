@@ -373,7 +373,7 @@ impl<B: Board> UgiOutput<B> {
             }
             // We only send search results from the main thread, no matter how many threads are searching.
             // And we're also not inspecting other threads' PVs from the main thread.
-            self.write_ugi(&format_args!("info cpu 1 currline {line}"));
+            self.write_ugi(&format_args!("info cpu 1 currline{line}"));
             return;
         }
         let num_legal = pos.num_legal_moves();
@@ -523,7 +523,7 @@ pub fn pretty_score(
         } else {
             '🡪'
         };
-        write!(&mut res, " {}", c.to_string().bold().color(TrueColor { r, g, b })).unwrap();
+        write!(&mut res, " {}", c.to_string().dimmed().color(TrueColor { r, g, b })).unwrap();
         res
     } else if min_width {
         res + "  "
