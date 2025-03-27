@@ -523,7 +523,7 @@ pub fn pretty_score(
         } else {
             '🡪'
         };
-        write!(&mut res, " {}", c.to_string().bold().color(TrueColor { r, g, b })).unwrap();
+        write!(&mut res, " {}", c.to_string().dimmed().color(TrueColor { r, g, b })).unwrap();
         res
     } else if min_width {
         res + "  "
