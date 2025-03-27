@@ -552,6 +552,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
                 let idx = row * self.size().internal_width() + column;
                 write!(f, "{}", if self.is_bit_set_at(idx) { '1' } else { '0' })?;
             }
+            writeln!(f)?;
         }
         Ok(())
     }

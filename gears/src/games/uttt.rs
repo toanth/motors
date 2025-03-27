@@ -28,7 +28,7 @@ use crate::games::uttt::UtttPieceType::{Empty, Occupied};
 use crate::games::uttt::uttt_square::{UtttSize, UtttSquare};
 use crate::games::{
     AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, GenericPiece, PieceType, PosHash,
-    Settings,
+    Settings, Size,
 };
 use crate::general::bitboards::{
     Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard,
@@ -721,7 +721,7 @@ impl Board for UtttBoard {
         self.ply_since_start
     }
 
-    fn halfmove_repetition_clock(&self) -> usize {
+    fn ply_draw_clock(&self) -> usize {
         0
     }
 
@@ -835,6 +835,9 @@ impl Board for UtttBoard {
     }
 
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool {
+        if !self.size().coordinates_valid(mov.dest_square()) {
+            return false;
+        }
         if !self.last_move.is_null() {
             let sub_board = self.last_move.dest_square().sub_square();
             if self.is_sub_board_open(sub_board) && mov.dest_square().sub_board() != sub_board {

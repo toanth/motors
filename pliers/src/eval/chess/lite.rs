@@ -6,7 +6,7 @@ use crate::eval::chess::{SkipChecks, write_phased_psqt, write_psqts};
 use crate::eval::{
     Eval, EvalScale, WeightsInterpretation, changed_at_least, write_2d_range_phased, write_phased, write_range_phased,
 };
-use crate::gd::{Float, TaperedDatapoint, Weight, Weights};
+use crate::gd::{Float, Weight, Weights};
 use crate::trace::{FeatureSubSet, SingleFeature, SparseTrace, TraceTrait};
 use gears::games::chess::ChessColor::White;
 use gears::games::chess::pieces::ChessPieceType::*;
@@ -351,7 +351,8 @@ impl WeightsInterpretation for TuneLiTEval {
         }
     }
 
-    fn feature_name(feature_idx: usize) -> String {
+    fn feature_name(weight_idx: usize) -> String {
+        let feature_idx = weight_idx / 2;
         let feature = LiteFeatureSubset::iter().rfind(|f| f.start_idx() <= feature_idx).unwrap();
         format!("{feature} index {}", feature_idx - feature.start_idx())
     }
@@ -379,13 +380,10 @@ impl WeightsInterpretation for TuneLiTEval {
 }
 
 impl Eval<Chessboard> for TuneLiTEval {
-    fn num_weights() -> usize {
-        Self::num_features() * 2
-    }
     fn num_features() -> usize {
         LiteFeatureSubset::iter().map(|f| f.num_features()).sum()
     }
-    type D = TaperedDatapoint;
+
     type Filter = SkipChecks;
 
     fn feature_trace(pos: &Chessboard) -> impl TraceTrait {

@@ -1,8 +1,8 @@
 use std::fmt::Display;
 
+use gears::games::Color;
 use gears::games::chess::pieces::ChessPieceType;
 use gears::games::chess::{ChessColor, Chessboard};
-use gears::games::Color;
 use gears::general::bitboards::RawBitboard;
 use gears::general::board::{BitboardBoard, Board};
 use gears::general::common::StaticallyNamedEntity;
@@ -184,7 +184,7 @@ impl Eval<Chessboard> for PistonEval {
         let mut phase = 0;
         for color in ChessColor::iter() {
             for piece in ChessPieceType::pieces() {
-                let mut bb = pos.colored_piece_bb(color, piece);
+                let mut bb = pos.col_piece_bb(color, piece);
                 while bb.has_set_bit() {
                     let idx = bb.pop_lsb();
                     let mg_table = piece as usize * 2;

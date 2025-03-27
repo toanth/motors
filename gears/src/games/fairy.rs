@@ -16,11 +16,12 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 mod attacks;
-mod moves;
+pub mod moves;
 mod perft_tests;
-mod pieces;
+pub mod pieces;
 mod rules;
 
+use crate::PlayerResult;
 use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
@@ -33,24 +34,23 @@ use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawB
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers, BitboardBoard, Board,
-    BoardHelpers, BoardSize, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard,
+    BitboardBoard, Board, BoardHelpers, BoardSize, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks, Strictness,
+    UnverifiedBoard, position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers,
 };
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
-    select_name_static, tokens, EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens,
+    EntityList, GenericSelect, Res, StaticallyNamedEntity, Tokens, select_name_static, tokens,
 };
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::squares::{GridCoordinates, GridSize, RectangularCoordinates, SquareColor};
-use crate::output::text_output::{board_to_string, display_board_pretty, BoardFormatter, DefaultBoardFormatter};
 use crate::output::OutputOpts;
+use crate::output::text_output::{BoardFormatter, DefaultBoardFormatter, board_to_string, display_board_pretty};
 use crate::search::Depth;
-use crate::PlayerResult;
 use anyhow::{bail, ensure};
 use arbitrary::Arbitrary;
 use itertools::Itertools;
-use rand::prelude::IndexedRandom;
 use rand::Rng;
+use rand::prelude::IndexedRandom;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -559,7 +559,7 @@ impl Board for FairyBoard {
         self.0.ply_since_start
     }
 
-    fn halfmove_repetition_clock(&self) -> usize {
+    fn ply_draw_clock(&self) -> usize {
         self.0.draw_counter
     }
 
@@ -574,7 +574,7 @@ impl Board for FairyBoard {
     fn is_piece_on(&self, coords: Self::Coordinates, piece: ColPieceTypeOf<Self>) -> bool {
         let idx = self.0.idx(coords);
         if let Some(color) = piece.color() {
-            self.colored_piece_bb(color, piece.uncolor()).is_bit_set_at(idx)
+            self.col_piece_bb(color, piece.uncolor()).is_bit_set_at(idx)
         } else {
             self.piece_bb(piece.uncolor()).is_bit_set_at(idx)
         }
@@ -834,7 +834,7 @@ impl Display for NoRulesFenFormatter<'_> {
             }
         }
         if pos.rules().has_halfmove_repetition_clock() {
-            write!(f, "{} ", pos.halfmove_repetition_clock())?;
+            write!(f, "{} ", pos.ply_draw_clock())?;
         }
         write!(f, "{}", pos.fullmove_ctr_1_based())
     }
@@ -843,18 +843,18 @@ impl Display for NoRulesFenFormatter<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::PlayerResult::Draw;
     use crate::games::chess::Chessboard;
     use crate::games::fairy::attacks::MoveKind;
     use crate::games::fairy::moves::FairyMove;
     use crate::games::mnk::MNKBoard;
-    use crate::games::{chess, Height, Width, ZobristHistory};
+    use crate::games::{Height, Width, ZobristHistory, chess};
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::moves::Move;
     use crate::general::perft::perft;
-    use crate::PlayerResult::Draw;
     use crate::{GameOverReason, GameResult, MatchResult};
-    use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use std::str::FromStr;
 
     #[test]
@@ -1055,9 +1055,9 @@ mod tests {
                 let fairy_perft = perft(depth, fairy_pos.clone(), false);
                 assert_eq!(mnk_perft.depth, fairy_perft.depth);
                 assert_eq!(mnk_perft.nodes, fairy_perft.nodes, "Depth {i}, pos: {mnk_pos}");
-                let chess_time = mnk_perft.time.as_millis();
+                let mnk_time = mnk_perft.time.as_millis();
                 let fairy_time = fairy_perft.time.as_millis();
-                assert!(chess_time * 100 + 1000 > fairy_time, "{chess_time} {fairy_time} {i} {fairy_pos}");
+                assert!(mnk_time * 100 + 1000 > fairy_time, "{mnk_time} {fairy_time} {i} {fairy_pos}");
             }
         }
     }
