@@ -2,12 +2,12 @@ use std::fmt;
 use std::fmt::Display;
 use std::str::SplitWhitespace;
 
+use crate::GameState;
 use crate::general::board::Board;
 use crate::general::common::{NamedEntity, Res, StaticallyNamedEntity, Tokens, TokensToString};
 use crate::output::text_output::DisplayType::Fen;
 use crate::output::text_output::{BoardToText, TextStream};
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder, OutputOpts};
-use crate::GameState;
 
 #[derive(Debug)]
 pub struct Logger {
@@ -54,16 +54,20 @@ impl AbstractOutput for Logger {
     }
 
     fn write_ugi_output(&mut self, message: &fmt::Arguments, player: Option<&str>) {
+        let time_stamp = chrono::Utc::now().to_rfc3339();
+        let message = format!("[{time_stamp}] {message}");
         match player {
-            None => self.stream.write("<", message),
-            Some(name) => self.stream.write(&format!("<({name})"), message),
+            None => self.stream.write("<", &format_args!("{message}")),
+            Some(name) => self.stream.write(&format!("<({name})"), &format_args!("{message}")),
         }
     }
 
     fn write_ugi_input(&mut self, mut message: Tokens, player: Option<&str>) {
+        let time_stamp = chrono::Utc::now().to_rfc3339();
+        let message = format!("[{time_stamp}] {}", message.string());
         match player {
-            None => self.stream.write(">", &format_args!("{}", message.string())),
-            Some(name) => self.stream.write(&format!("({name})>"), &format_args!("{}", message.string())),
+            None => self.stream.write(">", &format_args!("{}", message)),
+            Some(name) => self.stream.write(&format!("({name})>"), &format_args!("{}", message)),
         }
     }
 

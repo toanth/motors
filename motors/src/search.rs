@@ -360,8 +360,10 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
         self.search_state_dyn().to_bench_res()
     }
 
-    fn bench(&mut self, pos: B, limit: SearchLimit, tt: TT) -> BenchResult {
-        let _ = self.search_with_tt(pos, limit, tt);
+    fn bench(&mut self, pos: B, limit: SearchLimit, tt: TT, additional_pvs: usize) -> BenchResult {
+        let mut params = SearchParams::new_unshared(pos, limit, ZobristHistory::default(), tt);
+        params.num_multi_pv = additional_pvs + 1;
+        let _ = self.search(params);
         self.search_state_dyn().to_bench_res()
     }
 
@@ -492,6 +494,7 @@ pub trait NormalEngine<B: Board>: Engine<B> {
         state.start_time().elapsed() >= soft_limit
             || state.uci_nodes() >= soft_nodes
             || state.depth().get() as isize > max_soft_depth
+            // even in a multipv search, we stop as soon as a single mate is found
             || state.best_score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT)
     }
 }
@@ -831,15 +834,22 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
 
     fn to_bench_res(&self) -> BenchResult {
         let mut hasher = DefaultHasher::new();
-        if self.params.num_multi_pv > 0 {
-            for mov in self.current_mpv_pv() {
+        for pv_data in &self.multi_pvs {
+            for mov in &pv_data.pv.list {
+                mov.hash(&mut hasher);
+            }
+            pv_data.score.hash(&mut hasher);
+            pv_data.alpha.hash(&mut hasher);
+            pv_data.beta.hash(&mut hasher);
+        }
+        if let Some(pv) = self.search_stack.first().and_then(|e| e.pv()) {
+            for mov in pv {
                 mov.hash(&mut hasher);
             }
         }
         // the score can differ even if the pv is the same, so make sure to include that in the hash
         self.best_score().hash(&mut hasher);
-        // The pv doesn't necessarily contain the best move for multipv searches. When run though cli `--bench`, the bench search doesn't do multipv,
-        // but it's possible to input e.g. `bench mpv 2` to get a multipv bench. Additionally, bench is important for debugging, so to catch
+        // The pv doesn't necessarily contain the best move for multipv searches. Additionally, bench is important for debugging, so to catch
         // bugs where the best move changes but not the PV, the best move and ponder move are included in the bench hash
         self.best_move().hash(&mut hasher);
         self.ponder_move().hash(&mut hasher);
@@ -1080,9 +1090,9 @@ pub fn run_bench_with<B: Board>(
     let tt = tt.unwrap_or_default();
     for position in bench_positions {
         // engine.forget();
-        single_bench(position, engine, limit, tt.clone(), &mut total, &mut hasher);
+        single_bench(position, engine, limit, tt.clone(), 0, &mut total, &mut hasher);
         if let Some(limit) = second_limit {
-            single_bench(position, engine, limit, tt.clone(), &mut total, &mut hasher);
+            single_bench(position, engine, limit, tt.clone(), 1, &mut total, &mut hasher);
         }
     }
     if limit.depth != SearchLimit::infinite().depth {
@@ -1100,6 +1110,7 @@ fn single_bench<B: Board>(
     engine: &mut dyn Engine<B>,
     limit: SearchLimit,
     tt: TT,
+    additional_pvs: usize,
     total: &mut BenchResult,
     hasher: &mut DefaultHasher,
 ) {
@@ -1109,7 +1120,7 @@ fn single_bench<B: Board>(
         limit.fixed_time = limit.fixed_time.min(Duration::from_millis(20));
         limit
     };
-    let res = engine.bench(pos.clone(), limit, tt);
+    let res = engine.bench(pos.clone(), limit, tt, additional_pvs);
     total.nodes += res.nodes;
     total.time += res.time;
     total.max_depth = total.max_depth.max(res.max_depth);
@@ -1126,7 +1137,7 @@ mod tests {
     pub fn generic_engine_test<B: Board, E: Engine<B>>(mut engine: E) {
         let tt = TT::default();
         for p in B::bench_positions() {
-            let res = engine.bench(p.clone(), SearchLimit::nodes_(1), tt.clone());
+            let res = engine.bench(p.clone(), SearchLimit::nodes_(1), tt.clone(), 0);
             assert!(res.depth.is_none());
             assert!(res.max_depth.get() <= 1 + 1); // possible extensions
             assert!(res.nodes <= 100); // TODO: Assert exactly 1
