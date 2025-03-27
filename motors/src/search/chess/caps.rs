@@ -7,7 +7,7 @@ use crate::eval::Eval;
 use crate::eval::chess::lite::LiTEval;
 use crate::search::chess::caps_values::cc;
 use crate::search::chess::histories::{
-    CaptHist, ContHist, CorrHist, HIST_DIV, HIST_SCALE, HistScoreT, HistoryHeuristic, write_single_hist_table,
+    CaptHist, ContHist, CorrHist, HIST_RANGE, HIST_SCALE, HistScoreT, HistoryHeuristic, write_single_hist_table,
 };
 use crate::search::move_picker::MovePicker;
 use crate::search::statistics::SearchType;
@@ -51,7 +51,7 @@ const DEPTH_HARD_LIMIT: Depth = Depth::new(255);
 const SEARCH_STACK_LEN: usize = DEPTH_HARD_LIMIT.get() + 30;
 
 /// The TT move and good captures have a higher score, all other moves have a lower score.
-const KILLER_SCORE: MoveScore = MoveScore(5 * HIST_DIV);
+const KILLER_SCORE: MoveScore = MoveScore(8 * HIST_RANGE);
 
 #[derive(Debug, Clone)]
 struct RootMoveNodes(Box<[[u64; NUM_SQUARES]; NUM_SQUARES]>);
@@ -1296,9 +1296,9 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
         // No need to check against the TT move because that's already handled by the move picker
         if mov.is_tactical(&self.board) {
             let captured = mov.captured(&self.board);
-            let base_val = MoveScore(HIST_DIV * 10);
+            let base_val = MoveScore(HIST_RANGE * 10);
             let hist_val = state.capt_hist.score(mov, self.board.threats(), self.board.active_player());
-            let res = base_val + MoveScore(captured as i16 * HIST_DIV) + hist_val;
+            let res = base_val + MoveScore(captured as i16 * HIST_RANGE) + hist_val;
             debug_assert!(res > KILLER_SCORE);
             res
         } else if mov == state.search_stack[self.ply].killer {
@@ -1324,7 +1324,7 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
         }
     }
 
-    const DEFERRED_OFFSET: MoveScore = MoveScore(HIST_DIV * -30);
+    const DEFERRED_OFFSET: MoveScore = MoveScore(HIST_RANGE * -30);
 
     /// Only compute SEE scores for moves when we're actually trying to play them.
     /// Idea from Cosmo.

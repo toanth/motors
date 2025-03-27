@@ -34,11 +34,11 @@ use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, Score, ScoreT};
 
 pub(super) type HistScoreT = i16;
 
-pub(super) const HIST_DIV: HistScoreT = 1024;
+pub(super) const HIST_RANGE: HistScoreT = 1024;
 
-pub(super) const HIST_SCALE: HistScoreT = 16;
+pub(super) const HIST_SCALE: HistScoreT = 8;
 
-const INTERNAL_MAX_HIST: HistScoreT = HIST_DIV * HIST_SCALE;
+const INTERNAL_MAX_HIST: HistScoreT = 16_384;
 
 /// Updates the history using the History Gravity technique,
 /// which keeps history scores from growing arbitrarily large and scales the bonus/malus depending on how
