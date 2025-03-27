@@ -184,15 +184,19 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             let normalized_square = square.flip_if(color == White);
             let in_front =
                 (ChessBitboard::A_FILE << (square.flip_if(color == Black).bb_idx() + 8)).flip_if(color == Black);
-            let blocking = in_front | in_front.west() | in_front.east();
-            if (in_front & our_pawns).is_zero() && (blocking & their_pawns).is_zero() {
+            let blocking_squares = in_front | in_front.west() | in_front.east();
+            if (in_front & our_pawns).is_zero() && (blocking_squares & their_pawns).is_zero() {
                 score += Tuned::passed_pawn(normalized_square);
             }
             let file = ChessBitboard::file(square.file());
-            let neighbors = file.west() | file.east();
-            let supporting = neighbors & !blocking;
+            let neighbor_files = file.west() | file.east();
+            let supporting = neighbor_files & !blocking_squares;
             if (supporting & our_pawns).is_zero() {
                 score += Tuned::unsupported_pawn();
+            }
+            let sq_bb = square.bb();
+            if (our_pawns & (sq_bb.east() | sq_bb.west())).has_set_bit() {
+                score += Tuned::phalanx(normalized_square.rank() - 1);
             }
         }
         let num_doubled_pawns = (our_pawns & (our_pawns.north())).num_ones();

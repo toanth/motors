@@ -178,6 +178,7 @@ impl<B: Board, E: Eval<B>> FenReader<B, E> {
             res.union(file_res);
         }
         if let Some(max_occurrence) = remove_uncommon {
+            println!("Finding and removing uncommon entries...");
             let uncommon = list_uncommon::<E>(res.as_batch(), max_occurrence);
             println!(
                 "Removing {0} positions with uncommon features: (<= {1} abs occurrence sum)",
