@@ -8,6 +8,7 @@ use crate::eval::{
 };
 use crate::gd::{Float, Weight, Weights};
 use crate::trace::{FeatureSubSet, SingleFeature, SparseTrace, TraceTrait};
+use gears::games::DimT;
 use gears::games::chess::ChessColor::White;
 use gears::games::chess::pieces::ChessPieceType::*;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
@@ -45,6 +46,7 @@ pub enum LiteFeatureSubset {
     PassedPawn,
     UnsupportedPawn,
     DoubledPawn,
+    Phalanx,
     PawnProtection,
     PawnAttacks,
     Mobility,
@@ -69,6 +71,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             PassedPawn => NUM_SQUARES,
             UnsupportedPawn => 1,
             DoubledPawn => 1,
+            Phalanx => 6,
             PawnProtection => NUM_CHESS_PIECES,
             PawnAttacks => NUM_CHESS_PIECES,
             Mobility => (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1),
@@ -151,6 +154,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             DoubledPawn => {
                 write!(f, "const DOUBLED_PAWN: PhasedScore = ")?;
+            }
+            Phalanx => {
+                write!(f, "const PHALANX: [PhasedScore; 6] = ")?;
             }
             PawnProtection => {
                 write!(f, "const PAWN_PROTECTION: [PhasedScore; NUM_CHESS_PIECES] = ")?;
@@ -253,6 +259,10 @@ impl LiteValues for LiTETrace {
 
     fn doubled_pawn() -> SingleFeature {
         SingleFeature::new(DoubledPawn, 0)
+    }
+
+    fn phalanx(rank: DimT) -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(Phalanx, rank as usize)
     }
 
     fn bishop_pair() -> SingleFeature {
