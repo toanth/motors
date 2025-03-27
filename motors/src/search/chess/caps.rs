@@ -994,7 +994,12 @@ impl Caps {
             if is_pv_node {
                 let ([.., current], [child, ..]) = self.search_stack.split_at_mut(ply + 1) else { unreachable!() };
                 current.pv.extend(best_move, &child.pv);
-                if depth > 1 && score < beta && !score.is_won_lost_or_draw_score() {
+                if cfg!(debug_assertions)
+                    && depth > 1
+                    && self.multi_pv() > 1
+                    && score < beta
+                    && !score.is_won_lost_or_draw_score()
+                {
                     debug_assert_eq!(self.tt().load::<Chessboard>(new_pos.hash_pos(), ply + 1).unwrap().bound(), Exact);
                 }
             }
