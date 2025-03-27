@@ -15,7 +15,6 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::eval::SingleFeatureScore;
 use crate::eval::chess::FileOpenness;
 use crate::eval::chess::lite_values::{Lite, LiteValues};
 use gears::games::DimT;
@@ -85,6 +84,10 @@ impl LiteValues for KingGambotValues {
         Lite::passed_pawn(square)
     }
 
+    fn reachable_pawn() -> PhasedScore {
+        Lite::reachable_pawn()
+    }
+
     fn unsupported_pawn() -> PhasedScore {
         Lite::unsupported_pawn()
     }
@@ -93,7 +96,7 @@ impl LiteValues for KingGambotValues {
         Lite::doubled_pawn()
     }
 
-    fn phalanx(rank: DimT) -> SingleFeatureScore<Self::Score> {
+    fn phalanx(rank: DimT) -> PhasedScore {
         Lite::phalanx(rank)
     }
 
@@ -101,7 +104,7 @@ impl LiteValues for KingGambotValues {
         Lite::bishop_pair()
     }
 
-    fn bad_bishop(num_pawns: usize) -> SingleFeatureScore<Self::Score> {
+    fn bad_bishop(num_pawns: usize) -> PhasedScore {
         Lite::bad_bishop(num_pawns)
     }
 
@@ -117,11 +120,11 @@ impl LiteValues for KingGambotValues {
         Lite::bishop_openness(openness, len)
     }
 
-    fn pawn_advanced_center(config: usize) -> SingleFeatureScore<Self::Score> {
+    fn pawn_advanced_center(config: usize) -> PhasedScore {
         Lite::pawn_advanced_center(config)
     }
 
-    fn pawn_passive_center(config: usize) -> SingleFeatureScore<Self::Score> {
+    fn pawn_passive_center(config: usize) -> PhasedScore {
         Lite::pawn_passive_center(config)
     }
 

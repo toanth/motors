@@ -90,6 +90,40 @@ pub fn pawn_passive_center_idx(mut pawns: ChessBitboard, color: ChessColor) -> u
     ((pawns >> (16 + 2) & 0xf) | (pawns >> (24 + 3 - 4) & (0x3 << 4))) as usize
 }
 
+/// Returns the bitboard of squares on which our pawn can be stopped from promoting by our opponent's king
+/// (a.k.a. the square rule), assuming it's our turn to move.
+/// Assumes that our pawn is white and the opponent's king is black.
+const fn reachable_pawns(king_sq: usize) -> ChessBitboard {
+    // Unfortunately, the ChessSquare methods are from traits and therefore not `const`.
+    let mut res = 0;
+    let king_rank = king_sq / 8;
+    let king_file = king_sq % 8;
+    let mut sq = 0;
+    while sq < 64 {
+        let mut rank = sq / 8;
+        if rank <= 1 {
+            rank = 2;
+        }
+        let file = sq % 8;
+        let file_diff = king_file.abs_diff(file);
+        if file_diff < 8 - rank && king_rank >= rank {
+            res |= 1 << sq;
+        }
+        sq += 1;
+    }
+    ChessBitboard::new(res)
+}
+
+pub const REACHABLE_PAWNS: [ChessBitboard; 64] = {
+    let mut res = [ChessBitboard::new(0); 64];
+    let mut i = 0;
+    while i < 64 {
+        res[i] = reachable_pawns(i);
+        i += 1;
+    }
+    res
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;

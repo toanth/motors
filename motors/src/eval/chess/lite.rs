@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::eval::chess::lite_values::*;
 use crate::eval::chess::{
-    DiagonalOpenness, FileOpenness, pawn_advanced_center_idx, pawn_passive_center_idx, pawn_shield_idx,
+    DiagonalOpenness, FileOpenness, REACHABLE_PAWNS, pawn_advanced_center_idx, pawn_passive_center_idx, pawn_shield_idx,
 };
 use gears::games::Color;
 use gears::games::chess::ChessColor::{Black, White};
@@ -175,18 +175,21 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn pawns_for(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
-        let our_pawns = pos.col_piece_bb(color, Pawn);
-        let their_pawns = pos.col_piece_bb(color.other(), Pawn);
+    fn pawns_for(pos: &Chessboard, us: ChessColor) -> Tuned::Score {
+        let our_pawns = pos.col_piece_bb(us, Pawn);
+        let their_pawns = pos.col_piece_bb(us.other(), Pawn);
         let mut score = Tuned::Score::default();
 
         for square in our_pawns.ones() {
-            let normalized_square = square.flip_if(color == White);
-            let in_front =
-                (ChessBitboard::A_FILE << (square.flip_if(color == Black).bb_idx() + 8)).flip_if(color == Black);
+            let normalized_square = square.flip_if(us == Black);
+            let in_front = (ChessBitboard::A_FILE << (square.flip_if(us == Black).bb_idx() + 8)).flip_if(us == Black);
             let blocking_squares = in_front | in_front.west() | in_front.east();
             if (in_front & our_pawns).is_zero() && (blocking_squares & their_pawns).is_zero() {
                 score += Tuned::passed_pawn(normalized_square);
+                let their_king = pos.king_square(!us).flip_if(us == Black);
+                if REACHABLE_PAWNS[their_king.bb_idx()].is_bit_set(normalized_square) {
+                    score += Tuned::reachable_pawn();
+                }
             }
             let file = ChessBitboard::file(square.file());
             let neighbor_files = file.west() | file.east();
