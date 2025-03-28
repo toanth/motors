@@ -37,7 +37,7 @@ pub(super) type HistScoreT = i16;
 
 pub(super) const HIST_RANGE: HistScoreT = 1024;
 
-pub(super) const HIST_SCALE: HistScoreT = 16;
+pub(super) const HIST_SCALE: HistScoreT = 1;
 
 const INTERNAL_MAX_HIST: HistScoreT = HIST_RANGE * HIST_SCALE;
 
