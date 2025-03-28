@@ -17,6 +17,7 @@
  */
 use crate::io::ugi_output::{color_for_score, score_gradient};
 use crate::search::MoveScore;
+use crate::search::chess::caps_values::cc;
 use derive_more::{Deref, DerefMut, Index, IndexMut};
 use gears::colored::Colorize;
 use gears::games::Color;
@@ -36,9 +37,9 @@ pub(super) type HistScoreT = i16;
 
 pub(super) const HIST_RANGE: HistScoreT = 1024;
 
-pub(super) const HIST_SCALE: HistScoreT = 8;
+pub(super) const HIST_SCALE: HistScoreT = 16;
 
-const INTERNAL_MAX_HIST: HistScoreT = 16_384;
+const INTERNAL_MAX_HIST: HistScoreT = HIST_RANGE * HIST_SCALE;
 
 /// Updates the history using the History Gravity technique,
 /// which keeps history scores from growing arbitrarily large and scales the bonus/malus depending on how
@@ -74,6 +75,7 @@ impl HistoryHeuristic {
 
 impl Default for HistoryHeuristic {
     fn default() -> Self {
+        debug_assert!(cc::max_hist_bonus() <= INTERNAL_MAX_HIST as isize);
         HistoryHeuristic(Box::new([[0; 64 * 64]; 4]))
     }
 }

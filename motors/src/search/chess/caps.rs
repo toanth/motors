@@ -1186,7 +1186,6 @@ impl Caps {
         mov: ChessMove,
         prev_move: ChessMove,
         bonus: HistScoreT,
-        malus: HistScoreT,
         color: ChessColor,
         pos: &Chessboard,
         hist: &mut ContHist,
@@ -1197,7 +1196,7 @@ impl Caps {
         }
         hist.update(mov, prev_move, bonus, color);
         for disappointing in failed.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
-            hist.update(*disappointing, prev_move, malus, color);
+            hist.update(*disappointing, prev_move, -bonus, color);
         }
     }
 
@@ -1205,18 +1204,17 @@ impl Caps {
         let color = pos.active_player();
         let (before, [entry, ..]) = self.state.search_stack.split_at_mut(ply) else { unreachable!() };
         let bonus = cc::max_hist_bonus().min(depth * cc::hist_depth_bonus()) as HistScoreT;
-        let malus = -cc::max_hist_malus().min(depth * cc::hist_depth_malus()) as HistScoreT;
         let threats = pos.threats();
         if mov.is_tactical(pos) {
             for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| m.is_tactical(pos)) {
-                self.state.custom.capt_hist.update(*disappointing, threats, color, malus);
+                self.state.custom.capt_hist.update(*disappointing, threats, color, -bonus);
             }
             self.state.custom.capt_hist.update(mov, threats, color, bonus);
             return;
         }
         entry.killer = mov;
         for disappointing in entry.tried_moves.iter().dropping_back(1).filter(|m| !m.is_tactical(pos)) {
-            self.state.custom.history.update(*disappointing, threats, malus);
+            self.state.custom.history.update(*disappointing, threats, -bonus);
         }
         self.state.custom.history.update(mov, threats, bonus);
         if ply > 0 {
@@ -1225,7 +1223,6 @@ impl Caps {
                 mov,
                 parent.last_tried_move(),
                 bonus,
-                malus,
                 color,
                 pos,
                 &mut self.state.custom.countermove_hist,
@@ -1238,7 +1235,6 @@ impl Caps {
                     mov,
                     grandparent.last_tried_move(),
                     bonus,
-                    malus,
                     color,
                     pos,
                     fmh,
@@ -1319,7 +1315,7 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
             };
             let sum = state.history.get(mov, self.board.threats()) + countermove_score + follow_up_score / 2;
             let res = MoveScore(sum as HistScoreT / HIST_SCALE);
-            debug_assert!(res < KILLER_SCORE);
+            debug_assert!(res < KILLER_SCORE, "{res:?} {KILLER_SCORE:?} {sum} {countermove_score} {follow_up_score}");
             res
         }
     }
