@@ -194,12 +194,19 @@ impl<B: Board> ProofNumberSearcher<B> {
         }
     }
 
+    fn tt_idx(&self, hash: PosHash) -> usize {
+        // Uses lemire's multiplication trick, like the TT implementation
+        ((hash.0 as u128 * self.tt.len() as u128) >> 64) as usize
+    }
+
     fn save_to_tt(&mut self, pos: &B, dp: DeltaPhi, new_work: WorkT, move_idx: usize) {
         let hash = pos.hash_pos();
-        let len = self.tt.len();
-        let entry = &mut self.tt[hash.0 as usize % len];
-        // if entry.hash != hash && entry.
+        let idx = self.tt_idx(pos.hash_pos());
+        let entry = &mut self.tt[idx];
         // currently, we're using always replace. TODO: Test better replacement strategy
+        if !(entry.hash == hash && move_idx == usize::MAX) {
+            entry.chosen_move_idx = move_idx as u16;
+        }
         if entry.hash != hash {
             entry.work = 0;
         }
@@ -207,12 +214,10 @@ impl<B: Board> ProofNumberSearcher<B> {
         entry.hash = hash;
         entry.bounds.delta = dp.delta;
         entry.bounds.phi = dp.phi;
-        entry.chosen_move_idx = move_idx as u16;
     }
 
     fn get(&self, hash: PosHash) -> Option<Node> {
-        // TODO: Multiplication trick
-        let entry = self.tt[hash.0 as usize % self.tt.len()];
+        let entry = self.tt[self.tt_idx(hash)];
         if entry.hash == hash { Some(entry) } else { None }
     }
 
@@ -402,7 +407,7 @@ mod tests {
         // Rh6 leads to a variation where every move of the opponent is forced, so it's considered equally expensive as a mate in 1
         // (Rh4 would too, but that would result in a repeated position)
         let acceptable = [ChessMove::from_text("Ra7#", &pos).unwrap(), ChessMove::from_text("Rh6", &pos).unwrap()];
-        assert!(matches!(res, Some((true, _))));
+        assert!(matches!(res, Some((true, _))), "{res:?}");
         assert!(acceptable.contains(&res.unwrap().1), "{}", res.unwrap().1.compact_formatter(&pos));
         let pos = pos.make_nullmove().unwrap();
         let res = searcher.try_find_move(pos);
