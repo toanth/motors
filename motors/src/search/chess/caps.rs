@@ -225,7 +225,7 @@ impl Engine<Chessboard> for Caps {
         Self { state: SearchState::new(Depth::new(SEARCH_STACK_LEN)), eval }
     }
 
-    fn static_eval(&mut self, pos: Chessboard, ply: usize) -> Score {
+    fn static_eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
         self.eval.eval(&pos, ply)
     }
 

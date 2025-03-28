@@ -109,7 +109,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
         SearchResult::move_only(best_move, pos.clone())
     }
 
-    fn static_eval(&mut self, _pos: B, _ply: usize) -> Score {
+    fn static_eval(&mut self, _pos: &B, _ply: usize) -> Score {
         Score(0)
     }
 

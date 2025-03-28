@@ -323,7 +323,7 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
         Self::new(DEFAULT_NUM_TT_ENTRIES)
     }
 
-    fn static_eval(&mut self, _pos: B, _ply: usize) -> Score {
+    fn static_eval(&mut self, _pos: &B, _ply: usize) -> Score {
         // TODO: Use eval
         Score(0)
     }
