@@ -33,7 +33,8 @@ use gears::general::moves::Move;
 use gears::itertools::Itertools;
 use gears::output::Message::Debug;
 use gears::score::{
-    MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, ScoreT, game_result_to_score,
+    MAX_BETA, MAX_NORMAL_SCORE, MAX_SCORE_LOST, MIN_ALPHA, MIN_NORMAL_SCORE, NO_SCORE_YET, SCORE_LOST, ScoreT,
+    game_result_to_score,
 };
 use gears::search::NodeType::*;
 use gears::search::*;
@@ -225,7 +226,7 @@ impl Engine<Chessboard> for Caps {
         Self { state: SearchState::new(Depth::new(SEARCH_STACK_LEN)), eval }
     }
 
-    fn static_eval(&mut self, pos: Chessboard, ply: usize) -> Score {
+    fn static_eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
         self.eval.eval(&pos, ply)
     }
 
@@ -1060,6 +1061,7 @@ impl Caps {
         if self.should_stop() {
             return None;
         }
+        let in_check = pos.is_in_check();
         // The stand pat check. Since we're not looking at all moves, it's very likely that there's a move we didn't
         // look at that doesn't make our position worse, so we don't want to assume that we have to play a capture.
         let raw_eval;
@@ -1105,10 +1107,13 @@ impl Caps {
                 best_move = mov;
             }
         } else {
-            raw_eval = self.eval(&pos, ply);
+            raw_eval = if in_check { SCORE_LOST + ply as ScoreT } else { self.eval(&pos, ply) };
             eval = raw_eval;
         }
-        let mut best_score = self.corr_hist.correct(&pos, eval);
+        let mut best_score = eval;
+        if !in_check {
+            best_score = self.corr_hist.correct(&pos, eval);
+        }
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
         // IIR, because it will make this fail-high node appear like a fail-low node. TODO: Test regardless, but probably
@@ -1116,7 +1121,7 @@ impl Caps {
         if best_score >= beta || ply >= SEARCH_STACK_LEN {
             return Some(best_score);
         }
-        // TODO: Set stand pat to SCORE_LOST when in check, generate evasions?
+
         if best_score > alpha {
             bound_so_far = Exact;
             alpha = best_score;
@@ -1125,12 +1130,13 @@ impl Caps {
 
         self.maybe_send_currline(&pos, alpha, beta, ply, Some(best_score));
 
-        let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> = MovePicker::new(pos, best_move, true);
+        let mut move_picker: MovePicker<Chessboard, MAX_CHESS_MOVES_IN_POS> =
+            MovePicker::new(pos, best_move, !in_check);
         let move_scorer = CapsMoveScorer { board: pos, ply };
         let mut children_visited = 0;
         while let Some((mov, score)) = move_picker.next(&move_scorer, &self.state) {
-            debug_assert!(mov.is_tactical(&pos));
-            if score < MoveScore(0) || children_visited >= 3 {
+            debug_assert!(mov.is_tactical(&pos) || pos.is_in_check());
+            if !eval.is_game_lost_score() && score < MoveScore(0) || children_visited >= 3 {
                 // qsearch see pruning and qsearch late move  pruning (lmp):
                 // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
                 break;

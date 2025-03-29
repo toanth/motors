@@ -239,14 +239,14 @@ impl TT {
         let idx = self.index_of(hash);
         let mut entry = TTEntry::unpack(self.0[idx].load(Relaxed));
         // Mate score adjustments, see `store`
-        if let Some(plies) = entry.score().plies_until_game_won() {
-            if plies < 0 {
+        if let Some(tt_plies) = entry.score().plies_until_game_won() {
+            if tt_plies <= 0 {
                 entry.score += ply as CompactScoreT;
             } else {
                 entry.score -= ply as CompactScoreT;
             }
         }
-        debug_assert!(entry.score().0.abs() <= SCORE_WON.0);
+        debug_assert!(entry.score().0.abs() <= SCORE_WON.0, "{} {ply} {entry:?}", entry.score().0);
         if entry.hash != hash || entry.bound == Empty { None } else { Some(entry) }
     }
 
