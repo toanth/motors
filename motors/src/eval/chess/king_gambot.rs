@@ -18,6 +18,7 @@
 use crate::eval::SingleFeatureScore;
 use crate::eval::chess::FileOpenness;
 use crate::eval::chess::lite_values::{Lite, LiteValues};
+use gears::games::DimT;
 use gears::games::chess::ChessColor;
 use gears::games::chess::ChessColor::White;
 use gears::games::chess::pieces::ChessPieceType;
@@ -90,6 +91,10 @@ impl LiteValues for KingGambotValues {
 
     fn doubled_pawn() -> PhasedScore {
         Lite::doubled_pawn()
+    }
+
+    fn phalanx(rank: DimT) -> SingleFeatureScore<Self::Score> {
+        Lite::phalanx(rank)
     }
 
     fn bishop_pair() -> PhasedScore {

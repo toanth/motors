@@ -226,7 +226,7 @@ impl Engine<Chessboard> for Caps {
         Self { state: SearchState::new(Depth::new(SEARCH_STACK_LEN)), eval }
     }
 
-    fn static_eval(&mut self, pos: Chessboard, ply: usize) -> Score {
+    fn static_eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
         self.eval.eval(&pos, ply)
     }
 
@@ -591,7 +591,7 @@ impl Caps {
             // from ever returning exact scores, since for a mate in 1 the score would always be exactly `beta`.
             alpha = alpha.max(game_result_to_score(Lose, ply));
             beta = beta.min(game_result_to_score(Win, ply + 1));
-            if alpha >= beta {
+            if alpha >= beta && self.current_pv_num == 0 {
                 return Some(alpha);
             }
 
