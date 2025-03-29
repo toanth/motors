@@ -43,7 +43,8 @@ pub enum LiteFeatureSubset {
     PawnAdvancedCenter,
     PawnPassiveCenter,
     PawnShield,
-    ReachablePawn,
+    StoppablePasser,
+    CloseKingPasser,
     PassedPawn,
     UnsupportedPawn,
     DoubledPawn,
@@ -69,7 +70,8 @@ impl FeatureSubSet for LiteFeatureSubset {
             PawnAdvancedCenter => 1 << 6,
             PawnPassiveCenter => 1 << 6,
             PawnShield => NUM_PAWN_SHIELD_CONFIGURATIONS,
-            ReachablePawn => 1,
+            StoppablePasser => 1,
+            CloseKingPasser => 1,
             PassedPawn => NUM_SQUARES,
             UnsupportedPawn => 1,
             DoubledPawn => 1,
@@ -146,8 +148,11 @@ impl FeatureSubSet for LiteFeatureSubset {
                 }
                 return writeln!(f, "];");
             }
-            ReachablePawn => {
-                writeln!(f, "const REACHABLE_PAWN: PhasedScore = ")?;
+            StoppablePasser => {
+                writeln!(f, "const STOPPABLE_PASSER: PhasedScore = ")?;
+            }
+            CloseKingPasser => {
+                writeln!(f, "const CLOSE_KING_PASSER: PhasedScore = ")?;
             }
             PassedPawn => {
                 writeln!(f, "\n#[rustfmt::skip]")?;
@@ -258,8 +263,12 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(PassedPawn, idx)
     }
 
-    fn reachable_pawn() -> SingleFeatureScore<Self::Score> {
-        SingleFeature::new(ReachablePawn, 0)
+    fn stoppable_passer() -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(StoppablePasser, 0)
+    }
+
+    fn close_king_passer() -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(CloseKingPasser, 0)
     }
 
     fn unsupported_pawn() -> SingleFeature {
