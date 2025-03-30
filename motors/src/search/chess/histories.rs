@@ -173,6 +173,8 @@ impl CorrHist {
         let color = pos.active_player();
         let weight = (1 + depth).min(16);
         let bonus = (score - eval).0 as isize * CORRHIST_SCALE;
+        // Idea from Simbelmyne
+        let bonus = bonus.clamp(-MAX_CORRHIST_VAL / 4, MAX_CORRHIST_VAL / 4);
         let pawn_idx = pos.pawn_key().0 as usize % CORRHIST_SIZE;
         Self::update_entry(&mut self.pawns[color][pawn_idx], weight, bonus);
         for c in ChessColor::iter() {
