@@ -591,7 +591,7 @@ pub trait LiteValues: Debug + Default + Copy + Clone + Send + 'static + Statical
     fn can_give_check(piece: ChessPieceType) -> SingleFeatureScore<Self::Score>;
 }
 
-/// Eval values tuned on a combination of the zurichess dataset and a dataset used by 4ku,
+/// Eval values tuned on a combination of the lichess-big-3-resolved dataset and a dataset used by 4ku,
 /// created by GCP using his engine Stoofvlees and filtered by cj5716 using Stockfish at depth 9,
 /// using my own tuner `pliers`.
 #[derive(Debug, Default, Copy, Clone)]
