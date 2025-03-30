@@ -184,11 +184,18 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             let normalized_square = square.flip_if(us == Black);
             let in_front = (ChessBitboard::A_FILE << (square.flip_if(us == Black).bb_idx() + 8)).flip_if(us == Black);
             let blocking_squares = in_front | in_front.west() | in_front.east();
+            // passed pawn
             if (in_front & our_pawns).is_zero() && (blocking_squares & their_pawns).is_zero() {
                 score += Tuned::passed_pawn(normalized_square);
                 let their_king = pos.king_square(!us).flip_if(us == Black);
+                let our_king = pos.king_square(us);
                 if REACHABLE_PAWNS[their_king.bb_idx()].is_bit_set(normalized_square) {
-                    score += Tuned::reachable_pawn();
+                    score += Tuned::stoppable_passer();
+                }
+                if (Chessboard::normal_king_attacks_from(square) & Chessboard::normal_king_attacks_from(our_king))
+                    .has_set_bit()
+                {
+                    score += Tuned::close_king_passer();
                 }
             }
             let file = ChessBitboard::file(square.file());
