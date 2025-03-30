@@ -201,8 +201,10 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             let file = ChessBitboard::file(square.file());
             let neighbor_files = file.west() | file.east();
             let supporting = neighbor_files & !blocking_squares;
-            if (supporting & our_pawns).is_zero() {
-                score += Tuned::unsupported_pawn();
+            if (neighbor_files & our_pawns).is_zero() {
+                score += Tuned::isolated_pawn()
+            } else if (supporting & our_pawns).is_zero() {
+                score += Tuned::backwards_pawn();
             }
             let sq_bb = square.bb();
             if (our_pawns & (sq_bb.east() | sq_bb.west())).has_set_bit() {

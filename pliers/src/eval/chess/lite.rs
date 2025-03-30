@@ -16,7 +16,6 @@ use gears::games::chess::see::SEE_SCORES;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::common::StaticallyNamedEntity;
-use motors::eval::SingleFeatureScore;
 use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
@@ -46,7 +45,8 @@ pub enum LiteFeatureSubset {
     StoppablePasser,
     CloseKingPasser,
     PassedPawn,
-    UnsupportedPawn,
+    BackwardsPawn,
+    IsolatedPawn,
     DoubledPawn,
     Phalanx,
     PawnProtection,
@@ -73,7 +73,8 @@ impl FeatureSubSet for LiteFeatureSubset {
             StoppablePasser => 1,
             CloseKingPasser => 1,
             PassedPawn => NUM_SQUARES,
-            UnsupportedPawn => 1,
+            BackwardsPawn => 1,
+            IsolatedPawn => 1,
             DoubledPawn => 1,
             Phalanx => 6,
             PawnProtection => NUM_CHESS_PIECES,
@@ -159,8 +160,11 @@ impl FeatureSubSet for LiteFeatureSubset {
                 write!(f, "const PASSED_PAWNS: [PhasedScore; NUM_SQUARES] = ")?;
                 return write_phased_psqt(f, weights, special, None, self.start_idx());
             }
-            UnsupportedPawn => {
-                write!(f, "const UNSUPPORTED_PAWN: PhasedScore = ")?;
+            BackwardsPawn => {
+                write!(f, "const BACKWARDS_PAWN: PhasedScore = ")?;
+            }
+            IsolatedPawn => {
+                write!(f, "const ISOLATED_PAWN: PhasedScore = ")?;
             }
             DoubledPawn => {
                 write!(f, "const DOUBLED_PAWN: PhasedScore = ")?;
@@ -263,23 +267,27 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(PassedPawn, idx)
     }
 
-    fn stoppable_passer() -> SingleFeatureScore<Self::Score> {
+    fn stoppable_passer() -> SingleFeature {
         SingleFeature::new(StoppablePasser, 0)
     }
 
-    fn close_king_passer() -> SingleFeatureScore<Self::Score> {
+    fn close_king_passer() -> SingleFeature {
         SingleFeature::new(CloseKingPasser, 0)
     }
 
-    fn unsupported_pawn() -> SingleFeature {
-        SingleFeature::new(UnsupportedPawn, 0)
+    fn backwards_pawn() -> SingleFeature {
+        SingleFeature::new(BackwardsPawn, 0)
+    }
+
+    fn isolated_pawn() -> SingleFeature {
+        SingleFeature::new(IsolatedPawn, 0)
     }
 
     fn doubled_pawn() -> SingleFeature {
         SingleFeature::new(DoubledPawn, 0)
     }
 
-    fn phalanx(rank: DimT) -> SingleFeatureScore<Self::Score> {
+    fn phalanx(rank: DimT) -> SingleFeature {
         SingleFeature::new(Phalanx, rank as usize)
     }
 
@@ -287,7 +295,7 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(BishopPair, 0)
     }
 
-    fn bad_bishop(num_pawns: usize) -> SingleFeatureScore<Self::Score> {
+    fn bad_bishop(num_pawns: usize) -> SingleFeature {
         SingleFeature::new(BadBishop, num_pawns)
     }
 
@@ -311,11 +319,11 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(BishopOpenness, idx)
     }
 
-    fn pawn_advanced_center(config: usize) -> SingleFeatureScore<Self::Score> {
+    fn pawn_advanced_center(config: usize) -> SingleFeature {
         SingleFeature::new(PawnAdvancedCenter, config)
     }
 
-    fn pawn_passive_center(config: usize) -> SingleFeatureScore<Self::Score> {
+    fn pawn_passive_center(config: usize) -> SingleFeature {
         SingleFeature::new(PawnPassiveCenter, config)
     }
 
@@ -356,7 +364,7 @@ impl LiteValues for LiTETrace {
         SingleFeature::new(KingZoneAttack, attacking as usize)
     }
 
-    fn can_give_check(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
+    fn can_give_check(piece: ChessPieceType) -> SingleFeature {
         SingleFeature::new(CanGiveCheck, piece as usize)
     }
 }
