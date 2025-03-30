@@ -265,7 +265,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.query_subcmds()
         ),
         command!(
-            option | info,
+            option | info | listoptions,
             Custom,
             "Prints information about the current options. Optionally takes an option name",
             |ugi, words, _| {

@@ -1,6 +1,7 @@
 use crate::general::board::{Board, BoardHelpers, Strictness};
-use crate::general::common::{NamedEntity, Res, Tokens, tokens, tokens_to_string};
+use crate::general::common::{NamedEntity, Res, Tokens, TokensToString, tokens, tokens_to_string};
 use crate::general::moves::Move;
+use crate::output::pgn::parse_pgn_moves_format;
 use anyhow::{anyhow, bail};
 use colored::Colorize;
 use std::fmt::{Display, Formatter};
@@ -264,6 +265,7 @@ pub fn parse_ugi_position_part_impl<B: Board>(
         "fen" | "f" => B::read_fen_and_advance_input(rest, strictness)?,
         "startpos" | "s" => B::startpos_for_settings(current_pos.settings()),
         "current" | "c" => current_pos.clone(),
+        "" => bail!("Empty position description, expected 'fen', 'startpos', 'current' or a name"),
         name => match B::from_name(name) {
             Ok(res) => res,
             Err(err) => {
@@ -317,6 +319,103 @@ pub fn parse_ugi_position_part<B: Board>(
     parse_ugi_position_part_impl(first, rest, &pos, strictness).or(Ok(pos))
 }
 
+fn ignore_move_number(input: &str) -> Option<&str> {
+    let remaining = input.trim_start_matches(|c: char| c.is_ascii_digit());
+    if remaining == input {
+        return None;
+    }
+    if let Some(remaining) = remaining.strip_prefix("...") {
+        return Some(remaining.trim_ascii_start());
+    } else if let Some(remaining) = remaining.strip_prefix('.') {
+        return Some(remaining.trim_ascii_start());
+    }
+    None
+}
+
+fn parse_ugi_moves_part<B: Board>(
+    words: &mut Tokens,
+    state: &mut dyn ParseUgiPosState<B>,
+    allow_empty: bool,
+) -> Res<()> {
+    let mut parsed_move = false;
+    let mut has_moves_word = false;
+    let mut current_word = words.peek().copied();
+    if current_word.is_some_and(|f| f.eq_ignore_ascii_case("moves") || f.eq_ignore_ascii_case("mv")) {
+        _ = words.next();
+        current_word = words.peek().copied();
+        has_moves_word = true
+    }
+    // TODO: Handle flip / nullmove?
+    let mut accept_move_number = true;
+    while let Some(next_word) = current_word {
+        let mov = match B::Move::from_text(next_word, state.pos()) {
+            Ok(mov) => mov,
+            Err(err) => {
+                if accept_move_number {
+                    if let Some(remaining) = ignore_move_number(next_word) {
+                        accept_move_number = false;
+                        if remaining.is_empty() {
+                            _ = words.next();
+                            current_word = words.peek().copied();
+                        } else {
+                            current_word = Some(remaining);
+                        }
+                        continue;
+                    }
+                }
+                if !parsed_move && has_moves_word {
+                    bail!(
+                        "'{0}' must be followed by a move, but '{1}' is not a legal {2} move: {err}",
+                        "moves".bold(),
+                        next_word.red(),
+                        B::game_name()
+                    )
+                } else if !parsed_move && !allow_empty {
+                    bail!("Expected a valid move, got '{}'", next_word.red())
+                }
+                return Ok(()); // allow parsing other commands after a position subcommand
+            }
+        };
+        accept_move_number = true;
+        debug_assert!(state.pos().is_move_pseudolegal(mov));
+        state.make_move(mov).map_err(|err| {
+            anyhow!(
+                "move '{0}' is pseudolegal but not legal in position '{1}': {err}",
+                mov.compact_formatter(state.pos()).to_string().red(),
+                *state.pos()
+            )
+        })?;
+        parsed_move = true;
+        _ = words.next();
+        current_word = words.peek().copied();
+    }
+    if !parsed_move && has_moves_word {
+        bail!("Missing {0} move after '{1}'", B::game_name(), "moves".bold())
+    }
+    Ok(())
+}
+
+pub fn parse_moves<B: Board>(words: &mut Tokens, state: &mut dyn ParseUgiPosState<B>, allow_empty: bool) -> Res<()> {
+    let mut input_copy = words.clone();
+    if let Err(err) = parse_ugi_moves_part(words, state, allow_empty) {
+        if input_copy.peek().is_some_and(|f| f.eq_ignore_ascii_case("moves") || f.eq_ignore_ascii_case("mv")) {
+            _ = input_copy.next();
+            if input_copy.peek().is_none() {
+                bail!("Expected moves after '{}' command", "moves".bold())
+            }
+        }
+        let moves = input_copy.string();
+        *words = input_copy;
+        let Ok(pgn_data) = parse_pgn_moves_format(&moves, state.pos()) else {
+            return Err(err);
+        };
+        for m in pgn_data.game.mov_hist {
+            state.make_move(m)?
+        }
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn parse_ugi_position_and_moves<B: Board>(
     first_word: &str,
@@ -325,78 +424,33 @@ pub fn parse_ugi_position_and_moves<B: Board>(
     strictness: Strictness,
     state: &mut dyn ParseUgiPosState<B>,
 ) -> Res<()> {
-    let input_copy = rest.clone();
+    let mut input_copy = rest.clone();
     let pos = parse_ugi_position_part(first_word, rest, accept_pos_word, state.pos(), strictness);
     // don't reset the position if all we got was moves
     // (i.e. 'p mv e4' allows going back to a position before the current position, unlike `p c mv e4`)
     if let Ok(pos) = &pos {
         state.finish_pos_part(pos);
     }
-    let mut first_move_word = first_word;
-    if pos.is_ok() {
-        match rest.peek() {
-            None => return Ok(()),
-            Some(word) => first_move_word = *word,
+    let res = if pos.is_ok() {
+        if rest.peek().is_none() {
+            return Ok(());
         }
-    }
-    let mut parsed_move = false;
-    if first_move_word.eq_ignore_ascii_case("moves") || first_move_word.eq_ignore_ascii_case("mv") {
-        if pos.is_ok() {
-            _ = rest.next();
-        }
+        parse_moves(rest, state, true)
     } else {
-        let Ok(first_move) = B::Move::from_text(first_move_word, state.pos()) else {
-            match pos {
-                Ok(_) => return Ok(()),
-                Err(err) => {
-                    bail!("'{}' is not a valid position or move: {err}", tokens_to_string(first_word, input_copy).red())
-                }
-            }
-        };
-        parsed_move = true;
-        if pos.is_ok() {
-            _ = rest.next();
+        // pretend that we parsed the current position and try again
+        let string = tokens_to_string(first_word, input_copy.clone());
+        let mut tokens = tokens(&string);
+        let res = parse_moves(&mut tokens, state, false);
+        let advance_by = rest.clone().count().saturating_sub(tokens.clone().count());
+        for _ in 0..advance_by {
+            _ = rest.next().unwrap();
         }
-        debug_assert!(state.pos().is_move_pseudolegal(first_move));
-        state.make_move(first_move).map_err(|err| {
-            anyhow!(
-                "move '{0}' is pseudolegal but not legal in position '{1}': {err}",
-                first_move.compact_formatter(state.pos()).to_string().red(),
-                *state.pos()
-            )
-        })?;
+        res
+    };
+    if res.is_err() && pos.is_err() {
+        bail!("'{0}' is not a valid position or move: {1}", input_copy.string().red(), pos.err().unwrap())
     }
-    // TODO: Handle flip / nullmove?
-    while let Some(next_word) = rest.peek().copied() {
-        let mov = match B::Move::from_text(next_word, state.pos()) {
-            Ok(mov) => mov,
-            Err(err) => {
-                if !parsed_move {
-                    bail!(
-                        "'{0}' must be followed by a move, but '{1}' is not a legal {2} move: {err}",
-                        "moves".bold(),
-                        next_word.red(),
-                        B::game_name()
-                    )
-                }
-                return Ok(()); // allow parsing other commands after a position subcommand
-            }
-        };
-        _ = rest.next();
-        debug_assert!(state.pos().is_move_pseudolegal(mov));
-        state.make_move(mov).map_err(|err| {
-            anyhow!(
-                "move '{0}' is not legal in position '{1}': {err}",
-                mov.compact_formatter(state.pos()).to_string().red(),
-                *state.pos()
-            )
-        })?;
-        parsed_move = true;
-    }
-    if !parsed_move {
-        bail!("Missing {0} move after '{1}'", B::game_name(), "moves".bold())
-    }
-    Ok(())
+    res
 }
 
 pub fn only_load_ugi_position<B: Board>(
@@ -501,8 +555,7 @@ mod tests {
                 .is_err()
         );
         assert!(
-            only_load_ugi_position("position", &mut tokens(&input), &Chessboard::default(), Relaxed, true, false)
-                .is_ok()
+            only_load_ugi_position("pos", &mut tokens(&input), &Chessboard::default(), Relaxed, true, false).is_ok()
         );
         let res = load_ugi_pos_simple(&input, Strict, &pos).unwrap();
         pos = pos.make_move_from_str("O-O").unwrap();
@@ -516,8 +569,7 @@ mod tests {
             only_load_ugi_position("position", &mut tokens(input), &Chessboard::default(), Relaxed, true, false)
                 .is_err()
         );
-        let res = only_load_ugi_position("position", &mut tokens(input), &Chessboard::default(), Relaxed, true, true)
-            .unwrap();
+        let res = only_load_ugi_position("p", &mut tokens(input), &Chessboard::default(), Relaxed, true, true).unwrap();
         assert_eq!(pos, res);
     }
 }

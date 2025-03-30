@@ -151,7 +151,7 @@ where
         Self::parse_compact_text(s, board).or_else(|_| Self::parse_extended_text(s, board))
     }
 
-    /// See [`Self::parse_text`]. This funciton returns an error unless the entire input has been consumed.
+    /// See [`Self::parse_text`]. This function returns an error unless the entire input has been consumed.
     fn from_text(s: &str, board: &B) -> Res<Self> {
         // Try `from_compact_text` first because that's usually cheaper and will be used by the GUI, i.e., when performance matters
         B::Move::from_compact_text(s, board).or_else(|_| B::Move::from_extended_text(s, board))

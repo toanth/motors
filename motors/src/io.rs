@@ -1290,6 +1290,7 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
     }
 
     fn handle_ugi(&mut self, proto: &str) -> Res<()> {
+        self.state.protocol = Protocol::from_str(proto)?;
         let id_msg = self.id();
         self.write_ugi(&format_args!(
             "Starting {proto} mode. Type '{0}' or '{1}' for interactive mode.\n",
@@ -1299,7 +1300,6 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
         self.write_ugi_msg(&id_msg);
         self.write_ugi(&format_args!("{}", self.write_ugi_options().as_str()));
         self.write_ugi(&format_args!("{proto}ok"));
-        self.state.protocol = Protocol::from_str(proto).unwrap();
         self.output().set_pretty(self.state.protocol == Interactive);
         Ok(())
     }
