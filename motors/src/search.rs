@@ -437,7 +437,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
     }
 
     /// The important function.
-    /// Should not be called directly (TODO: Rename to `search_impl`)
+    /// Should not be called directly
     fn do_search(&mut self) -> SearchResult<B>;
 }
 
