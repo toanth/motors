@@ -569,10 +569,10 @@ impl Caps {
         mut beta: Score,
         mut expected_node_type: NodeType,
     ) -> Option<Score> {
-        debug_assert!(alpha < beta);
-        debug_assert!(ply <= DEPTH_HARD_LIMIT.get());
-        debug_assert!(depth <= DEPTH_SOFT_LIMIT.isize());
-        debug_assert!(self.params.history.len() >= ply);
+        debug_assert!(alpha < beta, "{alpha} {beta} {pos} {ply} {depth}");
+        debug_assert!(ply <= DEPTH_HARD_LIMIT.get(), "{ply} {depth} {pos}");
+        debug_assert!(depth <= DEPTH_SOFT_LIMIT.isize(), "{ply} {depth} {pos}");
+        debug_assert!(self.params.history.len() >= ply, "{ply} {depth} {pos}, {:?}", self.params.history);
         self.statistics.count_node_started(MainSearch);
 
         let root = ply == 0;
@@ -589,10 +589,12 @@ impl Caps {
             // This isn't intended to gain elo (since it only works in positions that are already won or lost)
             // but makes the engine better at finding shorter checkmates. Don't do MDP at the root because that can prevent us
             // from ever returning exact scores, since for a mate in 1 the score would always be exactly `beta`.
-            alpha = alpha.max(game_result_to_score(Lose, ply));
-            beta = beta.min(game_result_to_score(Win, ply + 1));
-            if alpha >= beta && self.current_pv_num == 0 {
-                return Some(alpha);
+            if self.current_pv_num == 0 {
+                alpha = alpha.max(game_result_to_score(Lose, ply));
+                beta = beta.min(game_result_to_score(Win, ply + 1));
+                if alpha >= beta {
+                    return Some(alpha);
+                }
             }
 
             let ply_100_ctr = pos.ply_draw_clock();
@@ -997,7 +999,7 @@ impl Caps {
                 current.pv.extend(best_move, &child.pv);
                 if cfg!(debug_assertions)
                     && depth > 1
-                    && self.multi_pv() > 1
+                    && self.params.thread_type.num_threads() == Some(1)
                     && score < beta
                     && !score.is_won_lost_or_draw_score()
                 {

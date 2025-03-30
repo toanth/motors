@@ -111,6 +111,13 @@ impl<B: Board> SearchThreadType<B> {
         let data = MainThreadData { atomic_search_data: vec![atomic], output, engine_info, search_type: Normal };
         Main(data)
     }
+
+    pub fn num_threads(&self) -> Option<usize> {
+        match self {
+            Main(data) => Some(data.atomic_search_data.len()),
+            Auxiliary => None,
+        }
+    }
 }
 
 #[derive(Debug)]
