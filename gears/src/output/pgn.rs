@@ -423,7 +423,6 @@ impl<'a, B: Board> PgnParser<'a, B> {
         Ok(())
     }
 
-    // TODO: Support for Variations with (moves)
     fn parse_move(&mut self) -> Res<()> {
         self.state.ignore_whitespace()?;
         let next = self.state.unread.peek().copied();
@@ -494,6 +493,15 @@ pub fn parse_pgn<B: Board>(pgn: &str, strictness: Strictness, pos: Option<B>) ->
             parser.state.unread().red()
         )
     })
+}
+
+#[cold]
+/// This function is used as a fallback when parsing UGI moves, to enable pgn format after `position <fen> moves`.
+pub fn parse_pgn_moves_format<B: Board>(pgn_moves: &str, pos: &B) -> Res<PgnData<B>> {
+    let mut parser: PgnParser<'_, B> = PgnParser::new(pgn_moves);
+    parser.res.game.board = pos.clone();
+    parser.parse_all_moves()?;
+    Ok(parser.res)
 }
 
 #[cfg(test)]

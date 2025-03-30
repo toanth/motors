@@ -12,7 +12,7 @@ use std::fmt::{Debug, Display};
 use std::io::stdin;
 use std::iter::Peekable;
 use std::num::{NonZeroU64, NonZeroUsize};
-use std::str::{FromStr, SplitWhitespace};
+use std::str::{FromStr, SplitAsciiWhitespace};
 use std::time::Duration;
 // The `bitintr` crate provides similar features, but unfortunately it is bugged and unmaintained.
 
@@ -104,10 +104,10 @@ impl TokensToString for Tokens<'_> {
     }
 }
 
-pub type Tokens<'a> = Peekable<SplitWhitespace<'a>>;
+pub type Tokens<'a> = Peekable<SplitAsciiWhitespace<'a>>;
 
 pub fn tokens(input: &str) -> Tokens {
-    input.split_whitespace().peekable()
+    input.split_ascii_whitespace().peekable()
 }
 
 pub fn tokens_to_string(first: &str, mut rest: Tokens) -> String {
