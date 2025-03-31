@@ -97,6 +97,10 @@ impl LiteValues for KingGambotValues {
         Lite::immobile_passer()
     }
 
+    fn protected_passer() -> SingleFeatureScore<Self::Score> {
+        Lite::protected_passer()
+    }
+
     fn unsupported_pawn() -> PhasedScore {
         Lite::unsupported_pawn()
     }
