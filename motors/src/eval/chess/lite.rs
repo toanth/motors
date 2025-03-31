@@ -185,10 +185,13 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 if REACHABLE_PAWNS[their_king.bb_idx()].is_bit_set(normalized_square) {
                     score += Tuned::stoppable_passer();
                 }
-                if (Chessboard::normal_king_attacks_from(square) & Chessboard::normal_king_attacks_from(our_king))
-                    .has_set_bit()
-                {
+                let near_king =
+                    Chessboard::normal_king_attacks_from(square) & Chessboard::normal_king_attacks_from(our_king);
+                if near_king.has_set_bit() {
                     score += Tuned::close_king_passer();
+                }
+                if pos.player_bb(!us).is_bit_set(square.pawn_advance_unchecked(us)) {
+                    score += Tuned::immobile_passer()
                 }
             }
             let file = ChessBitboard::file(square.file());
