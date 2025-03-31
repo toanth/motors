@@ -62,7 +62,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
     }
 
     fn static_eval(&mut self, pos: &B, ply: usize) -> Score {
-        self.eval.eval(pos, ply).clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
+        self.eval.eval(pos, ply, self.state.params.pos.active_player()).clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
 
     fn max_bench_depth(&self) -> Depth {

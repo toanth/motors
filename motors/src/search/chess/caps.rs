@@ -227,7 +227,7 @@ impl Engine<Chessboard> for Caps {
     }
 
     fn static_eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
-        self.eval.eval(&pos, ply)
+        self.eval.eval(&pos, ply, self.params.pos.active_player())
     }
 
     fn max_bench_depth(&self) -> Depth {
@@ -1173,19 +1173,22 @@ impl Caps {
     }
 
     fn eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
+        let us = self.params.pos.active_player();
         let res = if ply == 0 {
-            self.eval.eval(pos, 0)
+            self.eval.eval(pos, 0, us)
         } else {
             let old_pos = &self.state.search_stack[ply - 1].pos;
             let mov = self.search_stack[ply - 1].last_tried_move();
-            self.eval.eval_incremental(old_pos, mov, pos, ply)
+            let res = self.eval.eval_incremental(old_pos, mov, pos, ply, us);
+            debug_assert_eq!(res, self.eval.eval(pos, ply, us), "{pos} {mov:?} {old_pos} {ply}");
+            res
         };
         // the score must not be in the mate score range unless the position includes too many pieces
         debug_assert!(
             !res.is_won_or_lost() || UnverifiedChessboard::new(*pos).verify(Strict).is_err(),
             "{res} {0} {1}, {pos}",
             res.0,
-            self.eval.eval(pos, ply)
+            self.eval.eval(pos, ply, us)
         );
         res.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
@@ -1419,6 +1422,7 @@ mod tests {
         depth_1_nodes_test(Caps::for_eval::<MaterialOnlyEval>(), tt.clone());
         depth_1_nodes_test(Caps::for_eval::<PistonEval>(), tt.clone());
         depth_1_nodes_test(Caps::for_eval::<KingGambot>(), tt.clone());
+        depth_1_nodes_test(Caps::for_eval::<LiTEval>(), tt.clone());
     }
 
     // TODO: Eventually, make sure that GAPS also passed this

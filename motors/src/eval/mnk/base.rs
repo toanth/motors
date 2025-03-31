@@ -1,10 +1,9 @@
-use std::fmt::Display;
-
-use gears::games::mnk::{MNKBoard, MnkBitboard};
+use gears::games::mnk::{MNKBoard, MnkBitboard, MnkColor};
 use gears::general::bitboards::Bitboard;
 use gears::general::common::StaticallyNamedEntity;
 use gears::general::hq::BitReverseSliderGenerator;
 use gears::score::{Score, ScoreT};
+use std::fmt::Display;
 
 use crate::eval::Eval;
 
@@ -53,7 +52,7 @@ impl StaticallyNamedEntity for BasicMnkEval {
 }
 
 impl Eval<MNKBoard> for BasicMnkEval {
-    fn eval(&mut self, pos: &MNKBoard, _ply: usize) -> Score {
+    fn eval(&mut self, pos: &MNKBoard, _ply: usize, _engine: MnkColor) -> Score {
         Score(eval_player(pos.active_player_bb()) - eval_player(pos.inactive_player_bb()))
     }
 }
