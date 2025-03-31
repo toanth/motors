@@ -15,7 +15,6 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::eval::SingleFeatureScore;
 use crate::eval::chess::FileOpenness;
 use crate::eval::chess::lite_values::{Lite, LiteValues};
 use gears::games::DimT;
@@ -89,7 +88,7 @@ impl LiteValues for KingGambotValues {
         Lite::stoppable_passer()
     }
 
-    fn close_king_passer() -> SingleFeatureScore<Self::Score> {
+    fn close_king_passer() -> PhasedScore {
         Lite::close_king_passer()
     }
 
@@ -99,6 +98,10 @@ impl LiteValues for KingGambotValues {
 
     fn doubled_pawn() -> PhasedScore {
         Lite::doubled_pawn()
+    }
+
+    fn no_pawns() -> PhasedScore {
+        Lite::no_pawns()
     }
 
     fn phalanx(rank: DimT) -> PhasedScore {

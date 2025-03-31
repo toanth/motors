@@ -211,6 +211,9 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         }
         let num_doubled_pawns = (our_pawns & (our_pawns.north())).num_ones();
         score += Tuned::doubled_pawn() * num_doubled_pawns;
+        if our_pawns.is_zero() {
+            score += Tuned::no_pawns()
+        }
         score
     }
 
