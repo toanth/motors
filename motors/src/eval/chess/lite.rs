@@ -183,6 +183,11 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             if (supporting & our_pawns).is_zero() {
                 score += Tuned::unsupported_pawn();
             }
+            let sq_bb = square.bb();
+            let has_neighbor = (our_pawns & (sq_bb.east() | sq_bb.west())).has_set_bit();
+            if has_neighbor {
+                score += Tuned::phalanx(normalized_square.rank() - 1);
+            }
             // passed pawn
             if (in_front & our_pawns).is_zero() && (blocking_squares & their_pawns).is_zero() {
                 score += Tuned::passed_pawn(normalized_square);
@@ -199,13 +204,9 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 if pos.player_bb(!us).is_bit_set(square.pawn_advance_unchecked(us)) {
                     score += Tuned::immobile_passer();
                 }
-                if our_pawns.pawn_attacks(us).is_bit_set(square) {
+                if our_pawns.pawn_attacks(us).is_bit_set(square) || has_neighbor {
                     score += Tuned::protected_passer();
                 }
-            }
-            let sq_bb = square.bb();
-            if (our_pawns & (sq_bb.east() | sq_bb.west())).has_set_bit() {
-                score += Tuned::phalanx(normalized_square.rank() - 1);
             }
         }
         let num_doubled_pawns = (our_pawns & (our_pawns.north())).num_ones();
