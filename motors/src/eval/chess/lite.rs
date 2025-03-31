@@ -427,7 +427,11 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         // TODO: Test if this is actually faster -- getting the captured piece is quite expensive
         // (but this could be remedied by reusing that info from `psqt_delta`, or by using a redundant mailbox)
         // In the long run, move pawn protection / attacks to another function and cache `Self::pawns` as well
-        if matches!(piece_type, Pawn | King) || captured == Pawn {
+        let in_front_of_pawns = old_pos.col_piece_bb(White, Pawn).pawn_advance(White)
+            | old_pos.col_piece_bb(Black, Pawn).pawn_advance(Black);
+        let maybe_pawn_eval_change =
+            in_front_of_pawns.is_bit_set(mov.src_square()) || in_front_of_pawns.is_bit_set(mov.dest_square());
+        if matches!(piece_type, Pawn | King) || captured == Pawn || maybe_pawn_eval_change {
             state.pawn_score = Self::pawns(new_pos);
         }
         state.hash = new_pos.hash_pos();
