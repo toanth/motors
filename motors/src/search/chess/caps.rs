@@ -78,13 +78,6 @@ impl RootMoveNodes {
     }
 }
 
-fn should_replace(new_entry: TTEntry<Chessboard>, old_entry: Option<TTEntry<Chessboard>>) -> bool {
-    let Some(ref old_entry) = old_entry else {
-        return true;
-    };
-    new_entry.bound() == Exact || new_entry.age() != old_entry.age() || new_entry.depth + 3 > old_entry.depth
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct CapsCustomInfo {
     history: HistoryHeuristic,
@@ -1051,7 +1044,7 @@ impl Caps {
 
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
-        if !(root && self.current_pv_num > 0) && should_replace(tt_entry, old_entry) {
+        if !(root && self.current_pv_num > 0) {
             self.tt_mut().store(tt_entry, ply);
         }
 
@@ -1184,9 +1177,7 @@ impl Caps {
 
         let tt_entry: TTEntry<Chessboard> =
             TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, 0, bound_so_far, self.age);
-        if should_replace(tt_entry, old_entry) {
-            self.tt_mut().store(tt_entry, ply);
-        }
+        self.tt_mut().store(tt_entry, ply);
         Some(best_score)
     }
 
