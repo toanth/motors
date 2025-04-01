@@ -978,6 +978,10 @@ impl Caps {
 
             if root {
                 self.state.custom.root_move_nodes.update(mov, self.state.uci_nodes() - nodes_before_move);
+                let move_num = self.search_stack[0].tried_moves.len() - 1;
+                if move_num < 5 && self.start_time.elapsed().as_millis() >= 3000 {
+                    self.send_refutation(mov, score, move_num);
+                }
             }
             debug_assert!(score.0.abs() <= SCORE_WON.0, "score {} ply {ply}", score.0);
 

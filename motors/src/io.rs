@@ -541,6 +541,7 @@ impl<B: Board> EngineUGI<B> {
                     }
                 }
             }
+            UCIShowRefutations => self.output().show_refutation = parse_bool_from_str(&value, "show refutations")?,
             UCIShowCurrLine => {
                 self.output().show_currline = parse_bool_from_str(&value, "show current line")?;
             }
@@ -1091,6 +1092,10 @@ impl<B: Board> EngineUGI<B> {
                             self.state.game_name()
                         )),
                     }),
+                },
+                UCIShowRefutations => EngineOption {
+                    name: UCIShowRefutations,
+                    value: Check(UgiCheck { val: self.output().show_refutation, default: Some(false) }),
                 },
                 UCIShowCurrLine => EngineOption {
                     name: UCIShowCurrLine,

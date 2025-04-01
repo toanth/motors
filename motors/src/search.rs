@@ -981,6 +981,15 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         }
     }
 
+    /// Marked as cold for similar reasons to [`Self::send_currline`].
+    #[cold]
+    fn send_refutation(&mut self, root_move: B::Move, score: Score, move_num: usize) {
+        if let Some(mut output) = self.params.thread_type.output() {
+            output.write_refutation(&self.params.pos, root_move, score, move_num);
+            self.last_msg_time = Instant::now();
+        }
+    }
+
     fn new(max_depth: Depth) -> Self {
         Self::new_with(vec![E::default(); max_depth.get() + 1], C::default())
     }

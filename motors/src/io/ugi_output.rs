@@ -113,6 +113,7 @@ impl TypeErasedUgiOutput {
     fn show_bar(
         &mut self,
         num_moves: usize,
+        top_moves: Option<&str>,
         pretty_variation: &str,
         eval: Score,
         alpha: Score,
@@ -138,6 +139,9 @@ impl TypeErasedUgiOutput {
             "ms in this AW] Searching".dimmed(),
         )
         .unwrap();
+        if let Some(str) = top_moves {
+            write!(message, "{str}").unwrap();
+        }
         Self::write_boards(&mut message, curr_pos, root_pos, &self.previous_exact_pv_end_pos);
         bar.set_prefix(message);
         bar
@@ -280,6 +284,8 @@ pub struct UgiOutput<B: Board> {
     type_erased: TypeErasedUgiOutput,
     pub(super) additional_outputs: Vec<OutputBox<B>>,
     previous_exact_pv: Option<Vec<B::Move>>,
+    top_moves: Vec<(B::Move, Score)>,
+    pub show_refutation: bool,
     pub show_currline: bool,
     pub currline_null_moves: bool,
 }
@@ -290,8 +296,10 @@ impl<B: Board> Default for UgiOutput<B> {
             additional_outputs: vec![],
             previous_exact_pv: None,
             type_erased: TypeErasedUgiOutput::default(),
+            show_refutation: false,
             show_currline: false,
             currline_null_moves: true,
+            top_moves: vec![],
         }
     }
 }
@@ -301,6 +309,11 @@ impl<B: Board> UgiOutput<B> {
         let mut res = Self::default();
         res.type_erased.pretty = pretty;
         res
+    }
+
+    pub fn new_search(&mut self) {
+        self.top_moves.clear();
+        self.previous_exact_pv = None;
     }
 
     pub fn set_pretty(&mut self, pretty: bool) {
@@ -328,6 +341,10 @@ impl<B: Board> UgiOutput<B> {
         self.show_currline || self.type_erased.pretty
     }
 
+    fn can_show_refutation(&mut self) -> bool {
+        self.show_refutation || self.type_erased.pretty
+    }
+
     pub fn write_currmove(&mut self, pos: &B, mov: B::Move, move_nr: usize, score: Score, alpha: Score, beta: Score) {
         if !self.can_show_currline() || !pos.is_move_legal(mov) {
             return;
@@ -339,7 +356,7 @@ impl<B: Board> UgiOutput<B> {
             return;
         }
         let (variation, _) = pretty_variation(&[mov], pos.clone(), None, None, Exact);
-        let bar = self.type_erased.show_bar(num_moves, &variation, score, alpha, beta, None, None);
+        let bar = self.type_erased.show_bar(num_moves, None, &variation, score, alpha, beta, None, None);
         bar.set_position(move_nr as u64);
     }
 
@@ -356,21 +373,7 @@ impl<B: Board> UgiOutput<B> {
             return;
         }
         if !self.type_erased.pretty {
-            let mut pos = pos.clone();
-            let mut line = String::new();
-            for mov in variation {
-                let old_pos = pos.clone();
-                if mov.is_null() {
-                    if self.currline_null_moves {
-                        pos = pos.make_nullmove().unwrap();
-                    } else {
-                        break;
-                    }
-                } else {
-                    pos = pos.make_move(mov).unwrap();
-                }
-                write!(line, " {}", mov.compact_formatter(&old_pos)).unwrap();
-            }
+            let line = format_variation_noninteractive(pos.clone(), variation, self.currline_null_moves);
             // We only send search results from the main thread, no matter how many threads are searching.
             // And we're also not inspecting other threads' PVs from the main thread.
             self.write_ugi(&format_args!("info cpu 1 currline{line}"));
@@ -381,7 +384,39 @@ impl<B: Board> UgiOutput<B> {
         let (variation, end_pos) = pretty_variation(&variation, pos.clone(), None, None, Exact);
         let end_pos = end_pos.as_diagram(Unicode, false);
         let root_pos = pos.as_diagram(Unicode, false);
-        _ = self.type_erased.show_bar(num_legal, &variation, eval, alpha, beta, Some(&end_pos), Some(&root_pos));
+        let mut top_moves = "\nTop moves: ".to_string();
+        for (i, (m, score)) in self.top_moves.iter().enumerate() {
+            let score = pretty_score(*score, None, None, &self.type_erased.gradient, false, false);
+            if i > 0 {
+                write!(top_moves, ", ").unwrap();
+            }
+            write!(top_moves, "{0} [{score}]", m.extended_formatter(&pos, Standard)).unwrap();
+        }
+        let top_moves = if self.top_moves.is_empty() { None } else { Some(top_moves.as_ref()) };
+        _ = self.type_erased.show_bar(
+            num_legal,
+            top_moves,
+            &variation,
+            eval,
+            alpha,
+            beta,
+            Some(&end_pos),
+            Some(&root_pos),
+        );
+    }
+
+    pub fn write_refutation(&mut self, pos: &B, refuted_move: B::Move, score: Score, move_num: usize) {
+        if move_num == 0 {
+            self.top_moves.clear();
+        }
+        if !self.can_show_refutation() {
+            return;
+        }
+        self.top_moves.push((refuted_move, score));
+        if !self.type_erased.pretty {
+            self.write_ugi(&format_args!("info refutation {}", refuted_move.compact_formatter(&pos)));
+            return;
+        }
     }
 
     pub fn write_search_info(&mut self, mut info: SearchInfo<B>) {
@@ -424,6 +459,28 @@ impl<B: Board> UgiOutput<B> {
             output.show(m, opts);
         }
     }
+}
+
+fn format_variation_noninteractive<B: Board>(
+    mut pos: B,
+    variation: impl Iterator<Item = B::Move>,
+    allow_nullmoves: bool,
+) -> String {
+    let mut line = String::new();
+    for mov in variation {
+        let old_pos = pos.clone();
+        if mov.is_null() {
+            if allow_nullmoves {
+                pos = pos.make_nullmove().unwrap();
+            } else {
+                break;
+            }
+        } else {
+            pos = pos.make_move(mov).unwrap();
+        }
+        write!(line, " {}", mov.compact_formatter(&old_pos)).unwrap();
+    }
+    line
 }
 
 pub fn suffix_for(val: isize, start: Option<usize>) -> (isize, &'static str) {

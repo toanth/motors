@@ -123,6 +123,7 @@ pub enum EngineOptionName {
     UciElo,
     UCIOpponent,
     UCIEngineAbout,
+    UCIShowRefutations,
     UCIShowCurrLine,
     CurrlineNullmove,
     MoveOverhead,
@@ -154,6 +155,7 @@ impl NamedEntity for EngineOptionName {
             EngineOptionName::UciElo => "Limit strength to this elo. Currently not supported",
             EngineOptionName::UCIOpponent => "The opponent. Currently only used to output the name in PGNs",
             EngineOptionName::UCIEngineAbout => "Information about the engine. Can't be changed, only queried",
+            EngineOptionName::UCIShowRefutations => "Print the top alternative moves using the UCI Refutation command",
             EngineOptionName::UCIShowCurrLine => "Every now and then, print the line currently being searched",
             EngineOptionName::CurrlineNullmove => {
                 "Print nullmoves in non-interactive `currline`, if they exist. Option is ignored if currline isn't printed"
@@ -190,6 +192,7 @@ impl EngineOptionName {
             EngineOptionName::UciElo => "UCI_Elo",
             EngineOptionName::UCIOpponent => "UCI_Opponent",
             EngineOptionName::UCIEngineAbout => "UCI_EngineAbout",
+            EngineOptionName::UCIShowRefutations => "UCI_ShowRefutations",
             EngineOptionName::UCIShowCurrLine => "UCI_ShowCurrLine",
             EngineOptionName::CurrlineNullmove => "CurrlineNullmove",
             EngineOptionName::MoveOverhead => "MoveOverhead",
