@@ -1,4 +1,12 @@
+use derive_more::Index;
 use gears::games::PosHash;
+#[cfg(feature = "chess")]
+use gears::games::chess::Chessboard;
+use gears::general::board::Board;
+use gears::general::moves::{Move, UntrustedMove};
+use gears::itertools::Itertools;
+use gears::score::{CompactScoreT, SCORE_WON, Score, ScoreT};
+use gears::search::NodeType;
 use portable_atomic::AtomicU128;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelRefMutIterator;
@@ -11,13 +19,6 @@ use std::mem::transmute_copy;
 use std::ptr::addr_of;
 use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
-
-#[cfg(feature = "chess")]
-use gears::games::chess::Chessboard;
-use gears::general::board::Board;
-use gears::general::moves::{Move, UntrustedMove};
-use gears::score::{CompactScoreT, SCORE_WON, Score, ScoreT};
-use gears::search::NodeType;
 
 type AtomicTTEntry = AtomicU128;
 
@@ -40,6 +41,12 @@ fn unpack_age_and_bound(val: u8) -> (Age, Option<NodeType>) {
     let bound = NodeType::from_repr(val & 0b11);
     (age, bound)
 }
+
+const NUM_ENTRIES_IN_BUCKET: usize = 4;
+
+#[repr(align(64))]
+#[derive(Debug, Default, Index)]
+struct TTBucket([AtomicTTEntry; NUM_ENTRIES_IN_BUCKET]);
 
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
 #[repr(C)]
@@ -171,7 +178,7 @@ pub const DEFAULT_HASH_SIZE_MB: usize = 16;
 /// Resizing the TT during search will wait until the search is finished (all threads will receive a new arc)
 // TODO: TT handle
 #[derive(Clone, Debug)]
-pub struct TT(pub Arc<[AtomicTTEntry]>);
+pub struct TT(Arc<[TTBucket]>);
 
 impl Default for TT {
     fn default() -> Self {
@@ -191,23 +198,27 @@ impl TT {
     }
 
     fn new_with_bytes(size_in_bytes: usize) -> Self {
-        let new_size = 1.max(size_in_bytes / size_of::<AtomicTTEntry>());
+        let new_size = 1.max(size_in_bytes / (size_of::<AtomicTTEntry>() * NUM_ENTRIES_IN_BUCKET));
         let tt = if cfg!(feature = "unsafe") && size_in_bytes > 1024 * 1024 * 16 {
             let mut arr = Box::new_uninit_slice(new_size);
             arr.par_iter_mut().for_each(|elem| {
-                _ = elem.write(AtomicU128::default());
+                _ = elem.write(TTBucket::default());
             });
             unsafe { arr.assume_init() }
         } else {
             let mut arr = Vec::with_capacity(new_size);
-            arr.resize_with(new_size, AtomicU128::default);
+            arr.resize_with(new_size, TTBucket::default);
             arr.into_boxed_slice()
         };
         Self(tt.into())
     }
 
-    pub fn size_in_entries(&self) -> usize {
+    pub fn size_in_buckets(&self) -> usize {
         self.0.len()
+    }
+
+    pub fn size_in_entries(&self) -> usize {
+        self.size_in_buckets() * NUM_ENTRIES_IN_BUCKET
     }
 
     pub fn size_in_bytes(&self) -> usize {
@@ -215,37 +226,52 @@ impl TT {
     }
 
     pub fn size_in_mib(&self) -> usize {
-        (self.size_in_bytes() + 500_000) / (1 << 20)
+        (self.size_in_bytes() + (1 << 19)) / (1 << 20)
     }
 
     pub fn forget(&mut self) {
         // TODO: Instead of overwriting every entry, simply increase the age such that old entries will be ignored
-        for entry in self.0.iter() {
-            entry.store(0, Relaxed);
+        for bucket in self.0.iter() {
+            for entry in &bucket.0 {
+                entry.store(0, Relaxed);
+            }
         }
     }
 
     /// Counts the number of non-empty entries in the first 1k entries
     // TODO: Use age for a better estimate
     pub fn estimate_hashfull<B: Board>(&self) -> usize {
-        let len = 1000.min(self.size_in_entries());
+        let num_buckets = (1000 / NUM_ENTRIES_IN_BUCKET).min(self.size_in_buckets());
+        let num_entries = num_buckets * NUM_ENTRIES_IN_BUCKET;
         let num_used = self
             .0
             .iter()
-            .take(len)
+            .take(num_buckets)
+            .flat_map(|bucket| bucket.0.iter())
             .filter(|e: &&AtomicTTEntry| !TTEntry::<B>::unpack(e.load(Relaxed)).is_empty())
             .count();
-        if len < 1000 { (num_used as f64 * 1000.0 / len as f64).round() as usize } else { num_used }
+        if num_entries < 1000 { (num_used as f64 * 1000.0 / num_entries as f64).round() as usize } else { num_used }
     }
 
-    fn index_of(&self, hash: PosHash) -> usize {
+    fn bucket_index_of(&self, hash: PosHash) -> usize {
         // Uses the multiplication trick from here: <https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/>
-        ((hash.0 as u128 * self.size_in_entries() as u128) >> 64) as usize
+        ((hash.0 as u128 * self.size_in_buckets() as u128) >> 64) as usize
     }
 
-    pub(super) fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {
+    // The lowest score is getting replaced
+    fn entry_replacement_score<B: Board>(candidate: &TTEntry<B>, to_insert: &TTEntry<B>) -> usize {
+        if to_insert.hash == candidate.hash || candidate.is_empty() {
+            0
+        } else if candidate.age() != to_insert.age() {
+            1
+        } else {
+            candidate.depth as usize + 2
+        }
+    }
+
+    pub fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {
         debug_assert!(entry.score().abs() + ply as ScoreT <= SCORE_WON, "score {score} ply {ply}", score = entry.score);
-        let idx = self.index_of(entry.hash);
+        let bucket = self.bucket_index_of(entry.hash);
         // Mate score adjustments: For the current search, we want to penalize later mates to prefer earlier ones,
         // where "later" means being found at greater depth (usually called the `ply` parameter in the search function).
         // But since the TT persists across searches and can also reach the same position at different plies though transpositions,
@@ -257,18 +283,25 @@ impl TT {
                 entry.score += ply as CompactScoreT;
             }
         }
+        let bucket = &self.0[bucket].0;
+        let idx_in_bucket = bucket
+            .iter()
+            .map(|e| TTEntry::unpack(e.load(Relaxed)))
+            .position_max_by_key(|e| Self::entry_replacement_score(e, &entry))
+            .unwrap();
         debug_assert!(
             entry.score().0.abs() <= SCORE_WON.0,
             "score {}, ply {ply}, won in {won}",
             entry.score,
             won = entry.score().plies_until_game_won().unwrap_or(-1),
         );
-        self.0[idx].store(entry.pack(), Relaxed);
+        bucket[idx_in_bucket].store(entry.pack(), Relaxed);
     }
 
-    pub(super) fn load<B: Board>(&self, hash: PosHash, ply: usize) -> Option<TTEntry<B>> {
-        let idx = self.index_of(hash);
-        let mut entry = TTEntry::unpack(self.0[idx].load(Relaxed));
+    pub fn load<B: Board>(&self, hash: PosHash, ply: usize) -> Option<TTEntry<B>> {
+        let bucket = &self.0[self.bucket_index_of(hash)];
+        let mut entry =
+            bucket.0.iter().map(|e| TTEntry::<B>::unpack(e.load(Relaxed))).find(|e| e.hash == hash && !e.is_empty())?;
         // Mate score adjustments, see `store`
         if let Some(tt_plies) = entry.score().plies_until_game_won() {
             if tt_plies <= 0 {
@@ -286,7 +319,7 @@ impl TT {
         if cfg!(feature = "unsafe") {
             unsafe {
                 #[cfg(all(target_arch = "x86_64", target_feature = "sse"))]
-                _mm_prefetch::<_MM_HINT_T1>(addr_of!(self.0[self.index_of(hash)]) as *const i8);
+                _mm_prefetch::<_MM_HINT_T1>(addr_of!(self.0[self.bucket_index_of(hash)]) as *const i8);
             }
         }
     }
@@ -365,26 +398,37 @@ mod test {
 
     #[test]
     fn test_size() {
-        let sizes = [1, 2, 3, 4, 8, 15, 16, 17, 79, 80, 81, 100, 12345, 0x1ff_ffff, 0x200_0000];
+        let sizes = [
+            1, 2, 3, 4, 5, 8, 15, 16, 17, 63, 64, 65, 72, 79, 80, 81, 100, 159, 160, 176, 12345, 0x1ff_ffff, 0x200_0000,
+        ];
         for num_bytes in sizes {
             let tt = TT::new_with_bytes(num_bytes);
+            let num_buckets = tt.size_in_buckets();
+            assert_eq!(num_buckets, 1.max(num_bytes / size_of::<TTBucket>()), "{num_bytes}");
             let size = tt.size_in_entries();
-            assert_eq!(size, 1.max(num_bytes / size_of::<AtomicTTEntry>()));
-            let mut occurrences = vec![0_u64; size];
+            assert_eq!(size, num_buckets * NUM_ENTRIES_IN_BUCKET, "{num_bytes}");
+            let mut occurrences = vec![0_u64; num_buckets];
             let mut rng = rng();
             let num_samples = 200_000;
             for _ in 0..num_samples {
-                let idx = tt.index_of(PosHash(rng.next_u64()));
+                let idx = tt.bucket_index_of(PosHash(rng.next_u64()));
                 occurrences[idx] += 1;
             }
-            let expected = num_samples as f64 / size as f64;
+            let expected = num_samples as f64 / num_buckets as f64;
             let min = occurrences.iter().min().copied().unwrap_or_default();
             let max = occurrences.iter().max().copied().unwrap_or_default();
-            let std_dev =
-                (occurrences.iter().map(|x| x * x).sum::<u64>() as f64 / size as f64 - expected * expected).sqrt();
-            assert!(std_dev <= num_samples as f64 / 128.0, "{std_dev} {expected} {size} {num_bytes}");
-            assert!(expected - min as f64 <= num_samples as f64 / 128.0, "{expected} {min} {size} {num_bytes}");
-            assert!(max as f64 - expected <= num_samples as f64 / 128.0, "{expected} {max} {size} {num_bytes}");
+            let std_dev = (occurrences.iter().map(|x| x * x).sum::<u64>() as f64 / num_buckets as f64
+                - expected * expected)
+                .sqrt();
+            assert!(std_dev <= num_samples as f64 / 128.0, "{std_dev} {expected} {num_buckets} {size} {num_bytes}");
+            assert!(
+                expected - min as f64 <= num_samples as f64 / 128.0,
+                "{expected} {min} {num_buckets} {size} {num_bytes}"
+            );
+            assert!(
+                max as f64 - expected <= num_samples as f64 / 128.0,
+                "{expected} {max} {num_buckets} {size} {num_bytes}"
+            );
         }
     }
 
