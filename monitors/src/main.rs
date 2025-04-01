@@ -1,23 +1,23 @@
 use std::process::abort;
 
-use gears::cli::Game;
-use gears::games::ataxx::AtaxxBoard;
-use gears::games::chess::Chessboard;
-use gears::games::mnk::MNKBoard;
-use gears::games::uttt::UtttBoard;
-use gears::games::OutputList;
-use gears::general::board::{Board, RectangularBoard};
-use gears::general::common::anyhow::anyhow;
-use gears::general::common::Description::WithDescription;
-use gears::general::common::{select_name_dyn, Res};
-use gears::output::{normal_outputs, required_outputs};
-use gears::{create_selected_output_builders, output_builder_from_str, AnyRunnable};
-
 use crate::cli::{parse_cli, CommandLineArgs, HumanArgs, PlayerArgs};
 use crate::play::player::PlayerBuilder;
 use crate::play::ugi_client::RunClient;
 use crate::ui::text_input::TextInputBuilder;
 use crate::ui::{InputBuilder, InputList};
+use gears::cli::Game;
+use gears::games::ataxx::AtaxxBoard;
+use gears::games::chess::Chessboard;
+use gears::games::fairy::FairyBoard;
+use gears::games::mnk::MNKBoard;
+use gears::games::uttt::UtttBoard;
+use gears::games::OutputList;
+use gears::general::board::{Board, BoardHelpers, RectangularBoard};
+use gears::general::common::anyhow::anyhow;
+use gears::general::common::Description::WithDescription;
+use gears::general::common::{select_name_dyn, Res};
+use gears::output::{normal_outputs, required_outputs};
+use gears::{create_selected_output_builders, output_builder_from_str, AnyRunnable};
 
 pub mod cli;
 pub mod play;
@@ -64,6 +64,11 @@ fn list_uttt_uis() -> (OutputList<UtttBoard>, InputList<UtttBoard>) {
 }
 
 #[must_use]
+fn list_fairy_uis() -> (OutputList<FairyBoard>, InputList<FairyBoard>) {
+    normal_uis::<FairyBoard>()
+}
+
+#[must_use]
 fn list_mnk_uis() -> (OutputList<MNKBoard>, InputList<MNKBoard>) {
     normal_uis::<MNKBoard>()
 }
@@ -73,13 +78,7 @@ pub fn create_input_from_str<B: Board>(
     opts: &str,
     list: &[Box<dyn InputBuilder<B>>],
 ) -> Res<Box<dyn InputBuilder<B>>> {
-    let mut ui_builder = dyn_clone::clone_box(select_name_dyn(
-        name,
-        list,
-        "input",
-        &B::game_name(),
-        WithDescription,
-    )?);
+    let mut ui_builder = dyn_clone::clone_box(select_name_dyn(name, list, "input", &B::game_name(), WithDescription)?);
     ui_builder.set_option(opts)?;
     Ok(ui_builder)
 }
@@ -101,6 +100,7 @@ pub fn create_match(args: CommandLineArgs) -> Res<AnyRunnable> {
         Game::Mnk => create_client_match_for_game(args, list_mnk_uis()),
         Game::Ataxx => create_client_match_for_game(args, list_ataxx_uis()),
         Game::Uttt => create_client_match_for_game(args, list_uttt_uis()),
+        Game::Fairy => create_client_match_for_game(args, list_fairy_uis()),
     }
 }
 
@@ -140,8 +140,7 @@ pub fn create_client_match_for_game<B: Board>(
 pub fn run_program() -> Res<()> {
     let args = parse_cli().map_err(|err| anyhow!("Error parsing command line arguments: {err}"))?;
 
-    let mut the_match =
-        create_match(args).map_err(|err| anyhow!("Couldn't start the client: {err}"))?;
+    let mut the_match = create_match(args).map_err(|err| anyhow!("Couldn't start the client: {err}"))?;
     _ = the_match.run();
     Ok(())
 }

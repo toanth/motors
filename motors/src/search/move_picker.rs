@@ -41,12 +41,12 @@ impl<B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> Int
     }
 }
 
-impl<'a, B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> MoveList<B>
-    for MoveListScorer<'a, B, E, MAX_LEN, Scorer>
+impl<B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>> MoveList<B>
+    for MoveListScorer<'_, B, E, MAX_LEN, Scorer>
 {
     fn add_move(&mut self, mov: B::Move) {
         if self.excluded != mov {
-            let score = self.scorer.score_move(mov, self.state);
+            let score = self.scorer.score_move_eager_part(mov, self.state);
             self.list.push((mov, score));
         }
     }
@@ -65,7 +65,7 @@ impl<'a, B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>>
 
     fn remove(&mut self, to_remove: B::Move) {
         if let Some((idx, _)) = self.list.iter().find_position(|(mov, _)| *mov == to_remove) {
-            self.swap_remove_move(idx);
+            _ = self.swap_remove_move(idx);
         }
     }
 
@@ -74,33 +74,36 @@ impl<'a, B: Board, E: Engine<B>, const MAX_LEN: usize, Scorer: MoveScorer<B, E>>
     }
 }
 
-enum MovePickerState<B: Board, const MAX_LEN: usize> {
+enum MovePickerState {
     TTMove,
-    BeginList,
-    List(ScoredMoveList<B, MAX_LEN>),
+    List,
+    DeferredList,
 }
 
 pub struct MovePicker<B: Board, const MAX_LEN: usize> {
-    state: MovePickerState<B, MAX_LEN>,
+    state: MovePickerState,
+    list: ScoredMoveList<B, MAX_LEN>,
     pos: B,
     tactical_only: bool,
     tt_move: B::Move,
+    ignored_prefix: usize,
 }
 
 impl<B: Board, const MAX_LEN: usize> MovePicker<B, MAX_LEN> {
     /// Assumes that better moves have a *higher* score.
     pub fn new(pos: B, best: B::Move, tactical_only: bool) -> Self {
-        // TODO: Test always playing the TT move in qsearch, even if not tactical
-        let state = if pos.is_move_pseudolegal(best) && (!tactical_only || best.is_tactical(&pos)) {
+        let state = if pos.is_generated_move_pseudolegal(best) && (!tactical_only || best.is_tactical(&pos)) {
             TTMove
         } else {
-            BeginList
+            List
         };
         Self {
             state,
+            list: ScoredMoveList::<B, MAX_LEN>::default(),
             pos,
             tactical_only,
             tt_move: best,
+            ignored_prefix: usize::MAX,
         }
     }
 
@@ -109,34 +112,53 @@ impl<B: Board, const MAX_LEN: usize> MovePicker<B, MAX_LEN> {
         scorer: &Scorer,
         state: &SearchStateFor<B, E>,
     ) -> Option<ScoredMove<B>> {
-        match &mut self.state {
+        match self.state {
             TTMove => {
-                self.state = BeginList;
+                self.state = List;
                 Some((self.tt_move, MoveScore::MAX))
             }
-            BeginList => {
-                let mut list = ScoredMoveList::<B, MAX_LEN>::default();
-                let mut scorer = MoveListScorer {
-                    list: &mut list,
-                    scorer,
-                    state,
-                    excluded: self.tt_move,
-                };
-                if self.tactical_only {
-                    self.pos.gen_tactical_pseudolegal(&mut scorer);
-                } else {
-                    self.pos.gen_pseudolegal(&mut scorer);
+            List => {
+                if self.ignored_prefix == usize::MAX {
+                    let mut list_scorer =
+                        MoveListScorer { list: &mut self.list, scorer, state, excluded: self.tt_move };
+                    if self.tactical_only {
+                        self.pos.gen_tactical_pseudolegal(&mut list_scorer);
+                    } else {
+                        self.pos.gen_pseudolegal(&mut list_scorer);
+                    }
+                    self.ignored_prefix = 0;
                 }
-                let res = Self::next_from_list(&mut list);
-                self.state = List(list);
-                res
+                if let Some(res) = self.next_from_list(scorer) {
+                    return Some(res);
+                }
+                self.state = DeferredList;
+                self.ignored_prefix = 0;
+                self.next_from_deferred(Scorer::DEFERRED_OFFSET)
             }
-            List(list) => Self::next_from_list(list),
+            DeferredList => self.next_from_deferred(Scorer::DEFERRED_OFFSET),
         }
     }
 
-    fn next_from_list(list: &mut ScoredMoveList<B, MAX_LEN>) -> Option<ScoredMove<B>> {
-        let idx = list.iter().map(|(_mov, score)| score).position_max()?;
-        Some(list.swap_remove(idx))
+    fn next_from_list<E: Engine<B>, Scorer: MoveScorer<B, E>>(&mut self, scorer: &Scorer) -> Option<ScoredMove<B>> {
+        loop {
+            if self.ignored_prefix >= self.list.len() {
+                return None;
+            }
+            let idx = self.list[self.ignored_prefix..].iter().map(|(_mov, score)| score).position_max()?
+                + self.ignored_prefix;
+            if scorer.defer_playing_move(self.list[idx].0) {
+                self.list.swap(self.ignored_prefix, idx);
+                self.ignored_prefix += 1;
+                continue;
+            } else {
+                return Some(self.list.swap_remove(idx));
+            }
+        }
+    }
+
+    fn next_from_deferred(&mut self, offset: MoveScore) -> Option<ScoredMove<B>> {
+        let res = self.list.get(self.ignored_prefix);
+        self.ignored_prefix += 1;
+        res.copied().map(|m| (m.0, m.1 + offset))
     }
 }

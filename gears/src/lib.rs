@@ -2,18 +2,22 @@
 //! It is designed to be easily extensible to new games. [`gears`](crate) forms the foundation of the `motors`, `monitors`
 //! and `pliers` crates, which deal with engines, UI, and tuning, respectively.
 
-use crate::games::{BoardHistory, Color, ZobristHistory};
-use crate::general::board::{Board, Strictness};
-use crate::general::common::Description::WithDescription;
-use crate::general::common::{select_name_dyn, Res, Tokens};
-use crate::output::OutputBuilder;
-use crate::search::TimeControl;
-use crate::ugi::parse_ugi_position_and_moves;
+#![deny(unused_results)]
+
 use crate::AdjudicationReason::*;
 use crate::GameResult::Aborted;
-use crate::MatchStatus::{NotStarted, Over};
+use crate::MatchStatus::{NotStarted, Ongoing, Over};
 use crate::PlayerResult::{Draw, Lose, Win};
 use crate::ProgramStatus::Run;
+use crate::games::Color;
+use crate::games::{BoardHistory, ZobristHistory};
+use crate::general::board::{Board, BoardHelpers, Strictness};
+use crate::general::common::Description::WithDescription;
+use crate::general::common::{Res, Tokens, select_name_dyn};
+use crate::general::moves::Move;
+use crate::output::OutputBuilder;
+use crate::search::TimeControl;
+use crate::ugi::{ParseUgiPosState, parse_ugi_position_and_moves};
 use anyhow::{anyhow, bail};
 pub use arrayvec;
 pub use colored;
@@ -22,8 +26,10 @@ pub use colorgrad;
 pub use crossterm;
 pub use dyn_clone;
 pub use itertools;
+use itertools::Itertools;
 pub use rand;
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::Deref;
 use std::str::FromStr;
 use std::time::Instant;
 pub use strum;
@@ -50,6 +56,7 @@ pub mod ugi;
 
 /// Result of a match from a player's perspective.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[must_use]
 pub enum PlayerResult {
     Win,
     Lose,
@@ -66,16 +73,13 @@ impl PlayerResult {
     }
 
     pub fn flip_if(self, condition: bool) -> Self {
-        if condition {
-            self.flip()
-        } else {
-            self
-        }
+        if condition { self.flip() } else { self }
     }
 }
 
 /// Result of a match from a player's perspective, together with the reason for this outcome
 #[derive(Eq, PartialEq, Clone, Debug)]
+#[must_use]
 pub struct GameOver {
     pub result: PlayerResult,
     pub reason: GameOverReason,
@@ -93,15 +97,13 @@ pub enum MatchStatus {
 
 impl MatchStatus {
     pub fn aborted() -> Self {
-        Over(MatchResult {
-            result: Aborted,
-            reason: GameOverReason::Adjudication(AbortedByUser),
-        })
+        Over(MatchResult { result: Aborted, reason: GameOverReason::Adjudication(AbortedByUser) })
     }
 }
 
 /// Low-level result of a match from a `MatchManager`'s perspective
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[must_use]
 pub enum GameResult {
     P1Win,
     P2Win,
@@ -138,9 +140,7 @@ impl FromStr for GameResult {
                 let s = s.replace("O", "0").replace(char::is_whitespace, "");
                 match s.as_str() {
                     "1" | "1.0" | "1,0" | "1-0" | "1.0-0.0" | "1,0-0,0" => Ok(GameResult::P1Win),
-                    "0" | "0.0" | "0,0" | "0-1" | "0.0-1.0" | "0,0-1,0" | "2" => {
-                        Ok(GameResult::P2Win)
-                    }
+                    "0" | "0.0" | "0,0" | "0-1" | "0.0-1.0" | "0,0-1,0" | "2" => Ok(GameResult::P2Win),
                     "0.5" | "0,5" | "0.5-0.5" | "0,5-0,5" | "1/2-1/2" => Ok(GameResult::Draw),
                     _ => bail!("Unrecognized game result '{}'", s.red()),
                 }
@@ -173,11 +173,7 @@ impl From<GameResult> for f64 {
 
 impl GameResult {
     pub fn check_finished(self) -> Option<Self> {
-        if self == Aborted {
-            None
-        } else {
-            Some(self)
-        }
+        if self == Aborted { None } else { Some(self) }
     }
 
     fn to_canonical_string(self) -> String {
@@ -193,6 +189,7 @@ impl GameResult {
 
 /// Reason for why the match manager adjudicated a match
 #[derive(Clone, Eq, PartialEq, Debug)]
+#[must_use]
 pub enum AdjudicationReason {
     TimeUp,
     InvalidMove,
@@ -215,6 +212,7 @@ impl Display for AdjudicationReason {
 
 /// Reason for why a match ended.
 #[derive(Clone, Eq, PartialEq, Debug)]
+#[must_use]
 pub enum GameOverReason {
     Normal,
     Adjudication(AdjudicationReason),
@@ -241,17 +239,14 @@ pub fn player_res_to_match_res<C: Color>(game_over: GameOver, color: C) -> Match
     let result = match game_over.result {
         PlayerResult::Draw => GameResult::Draw,
         res => {
-            if (color == C::first()) == (res == Win) {
+            if color.is_first() == (res == Win) {
                 GameResult::P1Win
             } else {
                 GameResult::P2Win
             }
         }
     };
-    MatchResult {
-        result,
-        reason: game_over.reason,
-    }
+    MatchResult { result, reason: game_over.reason }
 }
 
 #[derive(Debug, Clone)]
@@ -276,7 +271,8 @@ pub enum Quitting {
 }
 
 /// The program can either be running, or be about to quit
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[must_use]
 pub enum ProgramStatus {
     Run(MatchStatus),
     Quit(Quitting),
@@ -307,8 +303,8 @@ pub type AnyRunnable = Box<dyn AbstractRun>;
 
 /// The current state of the match.
 pub trait GameState<B: Board> {
-    fn initial_pos(&self) -> B;
-    fn get_board(&self) -> B;
+    fn initial_pos(&self) -> &B;
+    fn get_board(&self) -> &B;
     fn game_name(&self) -> &str;
     fn move_history(&self) -> &[B::Move];
     fn active_player(&self) -> B::Color {
@@ -337,66 +333,216 @@ pub fn output_builder_from_str<B: Board>(
     name: &str,
     list: &[Box<dyn OutputBuilder<B>>],
 ) -> Res<Box<dyn OutputBuilder<B>>> {
-    Ok(dyn_clone::clone_box(select_name_dyn(
-        name,
-        list,
-        "output",
-        &B::game_name(),
-        WithDescription,
-    )?))
+    Ok(dyn_clone::clone_box(select_name_dyn(name, list, "output", &B::game_name(), WithDescription)?))
 }
 
 pub fn create_selected_output_builders<B: Board>(
     outputs: &[OutputArgs],
     list: &[Box<dyn OutputBuilder<B>>],
 ) -> Res<Vec<Box<dyn OutputBuilder<B>>>> {
-    outputs
-        .iter()
-        .map(|o| output_builder_from_str(&o.name, list))
-        .collect()
+    outputs.iter().map(|o| output_builder_from_str(&o.name, list)).collect()
+}
+
+/// The relevant data in a UGI `position` command or a PGN, i.e. position and moves, as well as some metadata
+#[derive(Debug, Default, Clone)]
+#[must_use]
+pub struct UgiPosState<B: Board> {
+    pub board: B,
+    pub status: ProgramStatus,
+    pub mov_hist: Vec<B::Move>,
+    pub board_hist: ZobristHistory,
+    pub pos_before_moves: B,
+}
+
+pub trait AbstractUgiPosState {
+    fn undo_moves(&mut self, count: usize) -> Res<usize>;
+
+    fn clear_current_state(&mut self);
+
+    fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()>;
+
+    fn player_result(&self) -> Option<PlayerResult>;
+}
+
+impl<B: Board> AbstractUgiPosState for UgiPosState<B> {
+    fn undo_moves(&mut self, count: usize) -> Res<usize> {
+        let mut pos = self.pos_before_moves.clone();
+        assert_eq!(self.mov_hist.len(), self.board_hist.len());
+        if self.mov_hist.is_empty() && count > 0 {
+            bail!(
+                "There are no moves to undo. The current position is '{pos}'.\n\
+            (Try 'go_back' to go to the previous 'position' command)"
+            );
+        }
+        let count = count.min(self.mov_hist.len());
+        for &mov in self.mov_hist.iter().dropping_back(count) {
+            pos = pos.make_move(mov).unwrap();
+        }
+        for _ in 0..count {
+            _ = self.mov_hist.pop();
+            self.board_hist.pop();
+        }
+        if count > 0 {
+            self.status = Run(Ongoing);
+        }
+        self.board = pos;
+        Ok(count)
+    }
+
+    fn clear_current_state(&mut self) {
+        self.board = self.pos_before_moves.clone();
+        self.mov_hist.clear();
+        self.board_hist.clear();
+        self.status = Run(NotStarted);
+    }
+
+    fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()> {
+        self.board = B::variant(first, words)?;
+        self.pos_before_moves = self.board.clone();
+        self.mov_hist.clear();
+        self.board_hist.clear();
+        self.status = Run(NotStarted);
+        Ok(())
+    }
+
+    fn player_result(&self) -> Option<PlayerResult> {
+        self.board.player_result_slow(&self.board_hist)
+    }
+}
+
+impl<B: Board> UgiPosState<B> {
+    pub fn new(pos: B) -> Self {
+        UgiPosState {
+            board: pos.clone(),
+            status: Run(NotStarted),
+            mov_hist: Vec::with_capacity(256),
+            board_hist: ZobristHistory::with_capacity(256),
+            pos_before_moves: pos,
+        }
+    }
+
+    fn make_move(&mut self, mov: B::Move, check_game_over: bool) -> Res<()> {
+        debug_assert!(self.board.is_move_pseudolegal(mov));
+        if let Run(Over(result)) = &self.status {
+            bail!(
+                "Cannot play move '{3}' because the game is already over: {0} ({1}). The position is '{2}'",
+                result.result,
+                result.reason,
+                self.board,
+                mov.compact_formatter(&self.board).to_string().red()
+            )
+        }
+        self.board_hist.push(self.board.hash_pos());
+        self.mov_hist.push(mov);
+        self.board = self.board.clone().make_move(mov).ok_or_else(|| {
+            anyhow!(
+                "Illegal move {0} (pseudolegal but not legal) in position {1}",
+                mov.compact_formatter(&self.board).to_string().red(),
+                self.board
+            )
+        })?;
+        if check_game_over {
+            if let Some(res) = self.board.match_result_slow(&self.board_hist) {
+                self.status = Run(Over(res));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn seen_so_far(&self) -> impl Iterator<Item = (B, B::Move)> {
+        let mut pos = self.pos_before_moves.clone();
+        let moves = self.mov_hist.clone();
+        moves.into_iter().map(move |mov| {
+            let res = (pos.clone(), mov);
+            pos = pos.clone().make_move(mov).unwrap();
+            res
+        })
+    }
 }
 
 /// Everything that's necessary to reconstruct the match without match-specific info like timers.
 /// Can be used to represent everything that gets set through a ugi `position` command, or the data inside a PGN.
 #[derive(Debug, Default, Clone)]
+#[must_use]
 pub struct MatchState<B: Board> {
-    pub board: B,
-    pub status: ProgramStatus,
-    pub mov_hist: Vec<B::Move>,
-    pub board_hist: ZobristHistory<B>,
-    pub pos_before_moves: B,
-    pub last_played_color: B::Color,
+    state_hist: Vec<UgiPosState<B>>,
+    current: UgiPosState<B>,
+}
+
+impl<B: Board> Deref for MatchState<B> {
+    type Target = UgiPosState<B>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.current
+    }
 }
 
 impl<B: Board> MatchState<B> {
+    pub fn new(pos: B) -> Self {
+        let state_hist = Vec::with_capacity(256);
+        let pos_state = UgiPosState::new(pos);
+        Self { state_hist, current: pos_state }
+    }
+
+    pub fn abstract_pos_state(&self) -> &dyn AbstractUgiPosState {
+        &self.current
+    }
+
+    pub fn pos(&self) -> &B {
+        &self.current.board
+    }
+
+    pub fn set_status(&mut self, status: ProgramStatus) {
+        self.current.status = status;
+    }
+
     pub fn last_move(&self) -> Option<B::Move> {
-        self.mov_hist.last().copied()
+        self.current.mov_hist.last().copied()
     }
 
-    pub fn make_move(&mut self, mov: B::Move) -> Res<B> {
-        debug_assert!(self.board.is_move_pseudolegal(mov));
-        if let Run(Over(result)) = &self.status {
-            bail!(
-                "Cannot play move '{mov}' because the game is already over: {0} ({1}). The position is '{2}'",
-                result.result, result.reason, self.board
-            )
+    pub fn make_move(&mut self, mov: B::Move, check_game_over: bool) -> Res<()> {
+        self.current.make_move(mov, check_game_over)
+    }
+
+    pub fn undo_moves(&mut self, count: usize) -> Res<usize> {
+        self.current.undo_moves(count)
+    }
+
+    pub fn go_back(&mut self, n: usize) -> Res<usize> {
+        if self.state_hist.is_empty() {
+            bail!("There is no position to go back to; this is the initial position of the match")
         }
-        self.board_hist.push(&self.board);
-        self.mov_hist.push(mov);
-        self.board = self.board.make_move(mov).ok_or_else(|| {
-            anyhow!(
-                "Illegal move {mov} (pseudolegal but not legal) in position {}",
-                self.board
-            )
-        })?;
-        Ok(self.board)
+        self.clear_current_state();
+        let count = n.min(self.state_hist.len());
+        let idx = self.state_hist.len() - count;
+        let old = self.state_hist[idx].clone();
+        self.state_hist.truncate(idx);
+        self.current = old;
+        Ok(count)
     }
 
-    pub fn clear_state(&mut self) {
-        self.board = self.pos_before_moves;
-        self.mov_hist.clear();
-        self.board_hist.clear();
-        self.status = Run(NotStarted);
+    fn new_pos(&mut self, keep_hist: bool) {
+        let pos_state = if keep_hist {
+            self.current.clone()
+        } else {
+            UgiPosState {
+                board: self.current.board.clone(),
+                status: self.current.status.clone(),
+                mov_hist: vec![],
+                board_hist: ZobristHistory::default(),
+                pos_before_moves: self.current.board.clone(),
+            }
+        };
+        self.state_hist.push(pos_state);
+    }
+
+    pub fn set_new_pos_state(&mut self, state: UgiPosState<B>, keep_hist: bool) {
+        self.new_pos(keep_hist);
+        self.current = state;
+    }
+
+    fn clear_current_state(&mut self) {
+        self.current.clear_current_state()
     }
 
     pub fn handle_position(
@@ -404,26 +550,46 @@ impl<B: Board> MatchState<B> {
         words: &mut Tokens,
         allow_pos_word: bool,
         strictness: Strictness,
+        check_game_over: bool,
+        keep_hist: bool,
     ) -> Res<()> {
-        let pos = self.board;
-        let Some(next_word) = words.next() else {
-            bail!("Missing position after '{}' command", "position".bold())
-        };
-        parse_ugi_position_and_moves(
-            next_word,
-            words,
-            allow_pos_word,
-            strictness,
-            &pos,
-            self,
-            |this, mov| this.make_move(mov).map(|_| ()),
-            |this| {
-                this.pos_before_moves = this.board;
-                this.clear_state()
-            },
-            |state| &mut state.board,
-        )?;
-        self.last_played_color = self.board.active_player();
+        let Some(next_word) = words.next() else { bail!("Missing position after '{}' command", "position".bold()) };
+        let mut parse_state = ParseUgiMatchState { match_state: self, check_game_over, keep_hist };
+        parse_ugi_position_and_moves(next_word, words, allow_pos_word, strictness, &mut parse_state)?;
         Ok(())
+    }
+
+    pub fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()> {
+        self.current.handle_variant(first, words)
+    }
+}
+
+struct ParseUgiMatchState<'a, B: Board> {
+    match_state: &'a mut MatchState<B>,
+    check_game_over: bool,
+    keep_hist: bool,
+}
+
+impl<B: Board> ParseUgiPosState<B> for ParseUgiMatchState<'_, B> {
+    fn pos(&mut self) -> &mut B {
+        &mut self.match_state.current.board
+    }
+
+    fn initial(&self) -> &B {
+        &self.match_state.current.pos_before_moves
+    }
+
+    fn previous(&self) -> Option<&B> {
+        self.match_state.state_hist.last().map(|s| &s.board)
+    }
+
+    fn finish_pos_part(&mut self, pos: &B) {
+        self.match_state.new_pos(self.keep_hist);
+        self.match_state.current.pos_before_moves = pos.clone();
+        self.match_state.clear_current_state();
+    }
+
+    fn make_move(&mut self, mov: B::Move) -> Res<()> {
+        self.match_state.make_move(mov, self.check_game_over)
     }
 }

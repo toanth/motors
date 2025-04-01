@@ -19,7 +19,7 @@
 #![no_main]
 
 use gears::games::chess::Chessboard;
-use gears::general::board::Board;
+use gears::general::board::BoardHelpers;
 use gears::general::board::Strictness::Relaxed;
 use libfuzzer_sys::fuzz_target;
 use std::str::from_utf8;

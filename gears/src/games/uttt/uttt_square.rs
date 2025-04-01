@@ -18,9 +18,7 @@
 
 use crate::games::uttt::UtttSubSquare;
 use crate::games::{Coordinates, DimT, Height, Size, Width};
-use crate::general::squares::{
-    RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare,
-};
+use crate::general::squares::{RectangularCoordinates, RectangularSize, SmallGridSize, SmallGridSquare};
 use arbitrary::Arbitrary;
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
@@ -43,7 +41,7 @@ impl Size<UtttSquare> for UtttSize {
         9 * 9
     }
 
-    fn to_internal_key(self, coordinates: UtttSquare) -> usize {
+    fn internal_key(self, coordinates: UtttSquare) -> usize {
         coordinates.bb_idx()
     }
 
@@ -57,8 +55,7 @@ impl Size<UtttSquare> for UtttSize {
 
     fn coordinates_valid(self, coordinates: UtttSquare) -> bool {
         let size = SmallGridSize::<3, 3>::default();
-        size.coordinates_valid(coordinates.sub_board)
-            && size.coordinates_valid(coordinates.sub_square)
+        size.coordinates_valid(coordinates.sub_board) && size.coordinates_valid(coordinates.sub_square)
     }
 }
 
@@ -81,8 +78,9 @@ pub struct UtttSquare {
 
 impl Display for UtttSquare {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // use `unchecked` because this function can be called to print invalid coordinates
-        SmallGridSquare::<9, 9, 9>::unchecked((self.rank() * 9 + self.file()) as usize).fmt(f)
+        // use `unchecked` because this function can be called to print invalid coordinates.
+        // Convert to usize first because the multiplication can overflow for invalid values otherwise
+        SmallGridSquare::<9, 9, 9>::unchecked(self.rank() as usize * 9 + self.file() as usize).fmt(f)
     }
 }
 
@@ -90,7 +88,7 @@ impl FromStr for UtttSquare {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        SmallGridSquare::<9, 9, 9>::from_str(s).map(|c| Self::from_row_column(c.row(), c.column()))
+        SmallGridSquare::<9, 9, 9>::from_str(s).map(|c| Self::from_rank_file(c.row(), c.column()))
     }
 }
 
@@ -99,36 +97,24 @@ impl Coordinates for UtttSquare {
 
     fn flip_up_down(self, _size: Self::Size) -> Self {
         let size = SmallGridSize::default();
-        Self {
-            sub_board: self.sub_board.flip_up_down(size),
-            sub_square: self.sub_square.flip_up_down(size),
-        }
+        Self { sub_board: self.sub_board.flip_up_down(size), sub_square: self.sub_square.flip_up_down(size) }
     }
 
     fn flip_left_right(self, _size: Self::Size) -> Self {
         let size = SmallGridSize::default();
-        Self {
-            sub_board: self.sub_board.flip_left_right(size),
-            sub_square: self.sub_square.flip_left_right(size),
-        }
+        Self { sub_board: self.sub_board.flip_left_right(size), sub_square: self.sub_square.flip_left_right(size) }
     }
 
-    fn no_coordinates() -> Self {
-        Self {
-            sub_board: SmallGridSquare::no_coordinates_const(),
-            sub_square: SmallGridSquare::no_coordinates_const(),
-        }
+    fn from_x_y(rank: usize, file: usize) -> Self {
+        Self::from_rank_file(rank as DimT, file as DimT)
     }
 }
 
 impl RectangularCoordinates for UtttSquare {
-    fn from_row_column(row: DimT, column: DimT) -> Self {
-        let sub_board = SmallGridSquare::from_row_column(row / 3, column / 3);
-        let sub_square = SmallGridSquare::from_row_column(row % 3, column % 3);
-        Self {
-            sub_board,
-            sub_square,
-        }
+    fn from_rank_file(row: DimT, column: DimT) -> Self {
+        let sub_board = SmallGridSquare::from_rank_file(row / 3, column / 3);
+        let sub_square = SmallGridSquare::from_rank_file(row % 3, column % 3);
+        Self { sub_board, sub_square }
     }
 
     fn row(self) -> DimT {
@@ -142,10 +128,7 @@ impl RectangularCoordinates for UtttSquare {
 
 impl UtttSquare {
     pub fn new(sub_board: UtttSubSquare, sub_square: UtttSubSquare) -> Self {
-        Self {
-            sub_board,
-            sub_square,
-        }
+        Self { sub_board, sub_square }
     }
 
     #[must_use]
@@ -195,9 +178,6 @@ impl UtttSquare {
     }
 
     pub const fn no_coordinates_const() -> Self {
-        Self {
-            sub_board: SmallGridSquare::no_coordinates_const(),
-            sub_square: SmallGridSquare::from_bb_index(0),
-        }
+        Self { sub_board: SmallGridSquare::no_coordinates_const(), sub_square: SmallGridSquare::from_bb_index(0) }
     }
 }

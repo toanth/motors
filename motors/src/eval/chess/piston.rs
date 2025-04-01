@@ -1,10 +1,10 @@
 use std::fmt::Display;
-use strum::IntoEnumIterator;
 
+use gears::games::Color;
 use gears::games::chess::pieces::ChessPieceType;
 use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::bitboards::RawBitboard;
-use gears::general::board::Board;
+use gears::general::board::{BitboardBoard, Board};
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{PhasedScore, Score, ScoreT};
 
@@ -178,13 +178,13 @@ impl StaticallyNamedEntity for PistonEval {
 }
 
 impl Eval<Chessboard> for PistonEval {
-    fn eval(&mut self, pos: &Chessboard, _ply: usize) -> Score {
+    fn eval(&mut self, pos: &Chessboard, _ply: usize, _engine: ChessColor) -> Score {
         let mut mg = Score(0);
         let mut eg = Score(0);
         let mut phase = 0;
         for color in ChessColor::iter() {
             for piece in ChessPieceType::pieces() {
-                let mut bb = pos.colored_piece_bb(color, piece);
+                let mut bb = pos.col_piece_bb(color, piece);
                 while bb.has_set_bit() {
                     let idx = bb.pop_lsb();
                     let mg_table = piece as usize * 2;

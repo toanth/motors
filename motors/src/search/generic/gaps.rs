@@ -1,22 +1,23 @@
 use std::fmt::Display;
-use std::time::{Duration, Instant};
 
 use gears::games::BoardHistory;
-use gears::general::board::Board;
+use gears::general::board::{Board, BoardHelpers};
 
-use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
+use crate::eval::rand_eval::RandEval;
 use crate::search::statistics::SearchType::MainSearch;
 use crate::search::{
-    AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchState,
+    AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, NormalEngine, SearchState,
     SearchStateFor,
 };
 use gears::general::common::StaticallyNamedEntity;
-use gears::score::{game_result_to_score, Score, SCORE_LOST, SCORE_TIME_UP, SCORE_WON};
+use gears::score::{
+    MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, SCORE_LOST, SCORE_TIME_UP, SCORE_WON, Score, game_result_to_score,
+};
 use gears::search::NodeType::*;
-use gears::search::{Depth, NodesLimit, SearchResult, TimeControl};
+use gears::search::{Depth, NodesLimit, SearchResult};
 
-const MAX_DEPTH: Depth = Depth::new_unchecked(100);
+const MAX_DEPTH: Depth = Depth::new(100);
 
 type DefaultEval = RandEval;
 
@@ -57,14 +58,11 @@ impl<B: Board> Engine<B> for Gaps<B> {
     type CustomInfo = NoCustomInfo;
 
     fn with_eval(eval: Box<dyn Eval<B>>) -> Self {
-        Self {
-            state: SearchState::new(MAX_DEPTH),
-            eval,
-        }
+        Self { state: SearchState::new(MAX_DEPTH), eval }
     }
 
-    fn static_eval(&mut self, pos: B, ply: usize) -> Score {
-        self.eval.eval(&pos, ply)
+    fn static_eval(&mut self, pos: &B, ply: usize) -> Score {
+        self.eval.eval(pos, ply, self.state.params.pos.active_player()).clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
 
     fn max_bench_depth(&self) -> Depth {
@@ -79,29 +77,16 @@ impl<B: Board> Engine<B> for Gaps<B> {
         &mut self.state
     }
 
-    fn search_state(&self) -> &SearchStateFor<B, Self> {
-        &self.state
-    }
-
-    fn search_state_mut(&mut self) -> &mut SearchStateFor<B, Self> {
-        &mut self.state
-    }
-
     fn engine_info(&self) -> EngineInfo {
         EngineInfo::new(
             self,
             self.eval.as_ref(),
             "0.0.1",
-            Depth::new_unchecked(4),
+            Depth::new(4),
             NodesLimit::new(50_000).unwrap(),
             None,
             vec![],
         )
-    }
-
-    fn time_up(&self, tc: TimeControl, hard_limit: Duration, start_time: Instant) -> bool {
-        let elapsed = start_time.elapsed();
-        elapsed >= hard_limit.min(tc.remaining / 32 + tc.increment / 2)
     }
 
     fn set_eval(&mut self, eval: Box<dyn Eval<B>>) {
@@ -111,7 +96,7 @@ impl<B: Board> Engine<B> for Gaps<B> {
     fn do_search(&mut self) -> SearchResult<B> {
         let mut limit = self.state.params.limit;
         let max_depth = MAX_DEPTH.min(limit.depth).isize();
-        let pos = self.state.params.pos;
+        let pos = self.state.params.pos.clone();
         limit.fixed_time = limit.fixed_time.min(limit.tc.remaining);
 
         self.state.statistics.next_id_iteration();
@@ -119,15 +104,15 @@ impl<B: Board> Engine<B> for Gaps<B> {
 
         'id: for depth in 1..=max_depth {
             for pv_num in 0..self.state.multi_pv() {
-                if self.should_not_start_negamax(limit.fixed_time, max_depth, limit.mate) {
+                if self.should_not_start_negamax(limit.fixed_time, limit.soft_nodes.get(), max_depth, limit.mate) {
                     break 'id;
                 }
 
                 self.state.current_pv_num = pv_num;
                 self.state.atomic().set_depth(depth);
                 self.state.atomic().update_seldepth(depth as usize);
-                self.state.atomic().count_node();
-                let iteration_score = self.negamax(pos, 0, depth, SCORE_LOST, SCORE_WON);
+                _ = self.state.atomic().count_node();
+                let iteration_score = self.negamax(pos.clone(), 0, depth, SCORE_LOST, SCORE_WON);
                 self.state.cur_pv_data_mut().score = iteration_score;
                 if self.state.stop_flag() {
                     self.state.cur_pv_data_mut().bound = None;
@@ -143,30 +128,27 @@ impl<B: Board> Engine<B> for Gaps<B> {
                 self.search_state().send_search_info();
                 self.state.excluded_moves.push(best_mpv_move);
             }
-            self.state
-                .excluded_moves
-                .truncate(self.state.excluded_moves.len() - self.state.multi_pv());
+            self.state.excluded_moves.truncate(self.state.excluded_moves.len() - self.state.multi_pv());
             self.state.statistics.next_id_iteration();
         }
 
-        SearchResult::move_and_score(
-            self.state.atomic().best_move(),
-            self.state.atomic().score(),
-            pos,
-        )
+        SearchResult::move_and_score(self.state.atomic().best_move(), self.state.atomic().score(), pos)
+    }
+}
+
+impl<B: Board> NormalEngine<B> for Gaps<B> {
+    fn search_state(&self) -> &SearchStateFor<B, Self> {
+        &self.state
+    }
+
+    fn search_state_mut(&mut self) -> &mut SearchStateFor<B, Self> {
+        &mut self.state
     }
 }
 
 impl<B: Board> Gaps<B> {
     #[allow(clippy::too_many_arguments)]
-    fn negamax(
-        &mut self,
-        pos: B,
-        ply: usize,
-        depth: isize,
-        mut alpha: Score,
-        beta: Score,
-    ) -> Score {
+    fn negamax(&mut self, pos: B, ply: usize, depth: isize, mut alpha: Score, beta: Score) -> Score {
         debug_assert!(alpha < beta);
         debug_assert!(ply <= MAX_DEPTH.get() * 2);
         debug_assert!(depth <= MAX_DEPTH.isize());
@@ -176,14 +158,14 @@ impl<B: Board> Gaps<B> {
             return game_result_to_score(res, ply);
         }
         if depth <= 0 {
-            return self.eval.eval(&pos, ply);
+            return self.static_eval(&pos, ply);
         }
 
         let mut best_score = SCORE_LOST;
         let mut num_children = 0;
 
         for mov in pos.pseudolegal_moves() {
-            let new_pos = pos.make_move(mov);
+            let new_pos = pos.clone().make_move(mov);
             if new_pos.is_none() {
                 continue; // illegal pseudolegal move
             }
@@ -193,9 +175,9 @@ impl<B: Board> Gaps<B> {
                 continue;
             }
             self.state.statistics.count_legal_make_move(MainSearch);
-            self.state.atomic().count_node();
+            _ = self.state.atomic().count_node();
 
-            self.state.params.history.push(&pos);
+            self.state.params.history.push(pos.hash_pos());
 
             let score = -self.negamax(new_pos.unwrap(), ply + 1, depth - 1, -beta, -alpha);
 
@@ -221,31 +203,28 @@ impl<B: Board> Gaps<B> {
             break;
         }
         let node_type = best_score.node_type(alpha, beta);
-        self.state
-            .statistics
-            .count_complete_node(MainSearch, node_type, depth, ply, num_children);
-        if num_children == 0 {
-            game_result_to_score(pos.no_moves_result(), ply)
-        } else {
-            best_score
-        }
+        self.state.statistics.count_complete_node(MainSearch, node_type, depth, ply, num_children);
+        if num_children == 0 { game_result_to_score(pos.no_moves_result(), ply) } else { best_score }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::eval::ataxx::bate::Bate;
     use crate::eval::chess::lite::LiTEval;
     use crate::eval::mnk::base::BasicMnkEval;
     use crate::search::tests::generic_engine_test;
     use gears::games::ataxx::AtaxxBoard;
     use gears::games::chess::Chessboard;
+    use gears::games::fairy::FairyBoard;
     use gears::games::mnk::MNKBoard;
 
     #[test]
     fn generic_test() {
         generic_engine_test::<Chessboard, Gaps<Chessboard>>(Gaps::for_eval::<LiTEval>());
         generic_engine_test::<MNKBoard, Gaps<MNKBoard>>(Gaps::for_eval::<BasicMnkEval>());
-        generic_engine_test::<AtaxxBoard, Gaps<AtaxxBoard>>(Gaps::for_eval::<RandEval>());
+        generic_engine_test::<AtaxxBoard, Gaps<AtaxxBoard>>(Gaps::for_eval::<Bate>());
+        generic_engine_test::<FairyBoard, Gaps<FairyBoard>>(Gaps::for_eval::<RandEval>())
     }
 }

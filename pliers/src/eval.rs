@@ -6,8 +6,8 @@
 use crate::eval::Direction::{Down, Up};
 use crate::eval::EvalScale::{InitialWeights, Scale};
 use crate::gd::{
-    cp_eval_for_weights, cp_to_wr, default_sample_loss, Batch, Datapoint, DefaultOptimizer, Float,
-    LossGradient, Optimizer, Outcome, ScalingFactor, Weight, Weights,
+    Batch, DatapointRef, Dataset, DefaultOptimizer, Float, LossGradient, Optimizer, Outcome, ScalingFactor, Weight,
+    Weights, cp_eval_for_weights, cp_to_wr, default_sample_loss,
 };
 use crate::load_data::Filter;
 use crate::trace::TraceTrait;
@@ -56,12 +56,7 @@ pub fn write_phased_with_width(
 /// Write a pair of weights to `f`, coloring each one red if the corresponding `special` entry is set.
 ///
 /// The two weight indices are `feature_idx * 2` and `feature_idx * 2 + 1`.
-pub fn write_phased(
-    f: &mut Formatter,
-    weights: &[Weight],
-    feature_idx: usize,
-    special: &[bool],
-) -> fmt::Result {
+pub fn write_phased(f: &mut Formatter, weights: &[Weight], feature_idx: usize, special: &[bool]) -> fmt::Result {
     write_phased_with_width(f, weights, feature_idx, special, 0)
 }
 
@@ -110,14 +105,7 @@ pub fn write_2d_range_phased(
         } else {
             write!(f, "],\n    [")?;
         }
-        write_range_phased(
-            f,
-            weights,
-            start + outer * inner_len,
-            inner_len,
-            special,
-            false,
-        )?;
+        write_range_phased(f, weights, start + outer * inner_len, inner_len, special, false)?;
     }
     writeln!(f, "]\n];")
 }
@@ -126,11 +114,11 @@ pub fn write_2d_range_phased(
 /// dataset, weighted by the sampling weight of its datapoint (which should usually be `1.0`).
 /// This can be used to give a very rough idea of the variance of the weight.
 #[must_use]
-pub fn count_occurrences<D: Datapoint>(batch: Batch<D>) -> Vec<Float> {
-    let mut res = vec![0.0; batch.num_weights];
-    for datapoint in batch.iter() {
-        for feature in datapoint.features() {
-            res[feature.idx] += feature.weight.abs() * datapoint.sampling_weight();
+pub fn count_occurrences(batch: Batch) -> Vec<Float> {
+    let mut res = vec![0.0; batch.weights_in_pos];
+    for datapoint in batch.datapoint_iter() {
+        for feature in datapoint.entries {
+            res[feature.idx] += feature.weight.abs();
         }
     }
     res
@@ -148,24 +136,14 @@ pub fn count_occurrences<D: Datapoint>(batch: Batch<D>) -> Vec<Float> {
 /// This function should rarely be necessary. It is intended as a workaround for insufficient datasets, but the better
 /// option is generally to use a larger dataset. Initial weights should be initialized to sensible priors when using this
 /// function.
-pub fn interpolate(
-    occurrences: &[Float],
-    weights: &mut Weights,
-    interpretation: &dyn WeightsInterpretation,
-) {
+pub fn interpolate(occurrences: &[Float], weights: &mut Weights, interpretation: &dyn WeightsInterpretation) {
     if let Some(decay) = interpretation.interpolate_decay() {
         assert!(
             (0.0..1.0).contains(&decay),
             "decay must be in [0, 1) -- if you want no decay, simply return `None` in `initial_weights`."
         );
-        let initial_weights = interpretation
-            .initial_weights()
-            .expect("Initial weights are needed for interpolating");
-        assert_eq!(
-            initial_weights.num_weights(),
-            weights.num_weights(),
-            "weights don't match up with initial weights"
-        );
+        let initial_weights = interpretation.initial_weights().expect("Initial weights are needed for interpolating");
+        assert_eq!(initial_weights.num_weights(), weights.num_weights(), "weights don't match up with initial weights");
         assert_eq!(
             occurrences.len(),
             weights.num_weights(),
@@ -200,11 +178,7 @@ impl EvalScale {
     /// gets turned to infinity. It's generally better to use a fixed scaling factor, tuning the scaling factor based on the
     /// initial weights is mostly used to import weights that haven't been tuned with this tuner;
     /// as soon as it has been used and resulted in a satisfactory eval scale, you should use that through the `Scale` variant.
-    pub fn to_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
-        self,
-        batch: Batch<D>,
-        eval: &E,
-    ) -> ScalingFactor {
+    pub fn to_scaling_factor<B: Board, E: Eval<B>>(self, batch: Batch, eval: &E) -> ScalingFactor {
         match self {
             Scale(scale) => scale,
             InitialWeights(weights) => tune_scaling_factor(&weights, batch, eval),
@@ -219,11 +193,7 @@ pub fn display<'a, E: WeightsInterpretation + ?Sized>(
     weights: &'a Weights,
     old_weights: &'a [Weight],
 ) -> FormatWeights<'a> {
-    FormatWeights {
-        format_weights: this.display(),
-        weights,
-        old_weights,
-    }
+    FormatWeights { format_weights: this.display(), weights, old_weights }
 }
 
 /// This trait deals with how your eval interprets weights: You only need to implement the [`display`](Self::display) method to
@@ -244,9 +214,17 @@ pub trait WeightsInterpretation {
     /// The `old_weights` parameter can safely be ignored, its purpose is to highlight changes in weights in a
     /// human-readably way, such as by coloring weights with large changes red. The [`changed_at_least`] function
     /// can be called to help implement this.
-    fn display(
-        &self,
-    ) -> fn(f: &mut Formatter, weights: &Weights, old_weights: &[Weight]) -> std::fmt::Result;
+    fn display(&self) -> fn(f: &mut Formatter, weights: &Weights, old_weights: &[Weight]) -> std::fmt::Result;
+
+    /// Returns a textual description of a feature given by its index.
+    ///
+    /// By default, this is simply the index of a corresponding weight.
+    fn feature_name(weight_idx: usize) -> String
+    where
+        Self: Sized,
+    {
+        format!("{weight_idx}")
+    }
 
     /// The eval scale is used to convert a [centipawn score](  gd::CpScore) in `(-∞, ∞)` to a winrate prediction
     /// in `(-1, 1)`.
@@ -306,12 +284,13 @@ pub trait WeightsInterpretation {
 /// number of weights and features, the type of a single [`Datapoint`] (e.g. [`NonTaperedDatapoint`](gd::NonTaperedDatapoint)),
 /// a [`Filter`] that gets called when loading FENs (e.g. [`NoFilter`](super::load_data::NoFilter)), and implementing the [`feature_trace`][Self::feature_trace] method.
 pub trait Eval<B: Board>: WeightsInterpretation + Default {
-    /// For a normal, non-tapered, eval, the number of weights is the same as the number of features.
-    /// For a tapered eval, it's twice the number of features. It would also be perfectly fine, if unusual,
-    /// to only taper some features or to use 3 phases.
+    /// Because the eval is assumed to be tapered, this is twice the number of features.
+    /// An untapered eval should overwrite this method to return the same value as [`Self::num_features`].
     /// Conceptually, this should be a compile time constant. However, Rust's compile time computation is so limited that it's
     /// sometimes more convenient to calculate this at runtime.
-    fn num_weights() -> usize;
+    fn num_weights() -> usize {
+        Self::num_features() * 2
+    }
 
     /// A feature is a property of the position that gets recognized by the eval.
     ///
@@ -323,13 +302,6 @@ pub trait Eval<B: Board>: WeightsInterpretation + Default {
     /// sometimes more convenient to calculate this at runtime.
     // TODO: Remove this requirement?
     fn num_features() -> usize;
-
-    /// How a position is represented in the tuner.
-    ///
-    /// [`NonTaperedDatapoint`](gd::NonTaperedDatapoint) should be the default choice,
-    /// [`TaperedDatapoint`](gd::TaperedDatapoint) is obviously useful for a tapered eval, and [`WeightedDatapoint`](gd::WeightedDatapoint) is the combination of a
-    /// [`TaperedDatapoint`](gd::TaperedDatapoint) and a sampling weight; this is rarely necessary.
-    type D: Datapoint;
 
     /// The [`Filter`] gets applied when loading a position.
     ///
@@ -345,8 +317,11 @@ pub trait Eval<B: Board>: WeightsInterpretation + Default {
     /// These features get then turned into weights, which are tuned automatically.
     /// Although it is possible to implement this method directly, the recommended route is to implement
     /// [`feature_trace`](Self::feature_trace) instead.
-    fn extract_features(pos: &B, outcome: Outcome, weight: Float) -> Self::D {
-        Self::D::new(Self::feature_trace(pos), outcome, weight)
+    fn extract_features(pos: &B, outcome: Outcome, dataset: &mut Dataset) {
+        let trace = Self::feature_trace(pos);
+        let features = trace.as_entries(0);
+        let datapoint_ref = DatapointRef { entries: &features, outcome };
+        dataset.push(datapoint_ref);
     }
 
     /// Converts a position into a [trace](TraceTrait).
@@ -379,26 +354,19 @@ enum Direction {
     Down,
 }
 
-fn grad_for_eval_scale<D: Datapoint>(
-    weights: &Weights,
-    batch: Batch<D>,
-    eval_scale: ScalingFactor,
-) -> (Direction, Float) {
+fn grad_for_eval_scale(weights: &Weights, batch: Batch, eval_scale: ScalingFactor) -> (Direction, Float) {
     // the gradient of the loss function with respect to 1/eval_scale, ignoring constant factors
     let mut scaled_grad = 0.0;
     let mut loss = 0.0;
-    for data in batch.datapoints {
+    for data in batch.datapoint_iter() {
         let cp_eval = cp_eval_for_weights(weights, data);
         let prediction = cp_to_wr(cp_eval, eval_scale);
-        let outcome = data.outcome();
-        let sample_grad =
-            <DefaultOptimizer as Optimizer<D>>::Loss::sample_gradient(prediction, outcome)
-                * cp_eval.0
-                * data.sampling_weight();
+        let outcome = data.outcome;
+        let sample_grad = <DefaultOptimizer as Optimizer>::Loss::sample_gradient(prediction, outcome) * cp_eval.0;
         scaled_grad += sample_grad;
-        loss += default_sample_loss(prediction, data.outcome()) * data.sampling_weight();
+        loss += default_sample_loss(prediction, data.outcome);
     }
-    loss /= batch.weight_sum as Float;
+    loss /= batch.num_datapoins() as Float;
     // the gradient tells us how we need to change 1/eval_scale to maximize the loss, which is the same direction
     // as changing eval_scale to minimize the loss.
     let dir = if scaled_grad > 0.0 { Up } else { Down };
@@ -406,21 +374,13 @@ fn grad_for_eval_scale<D: Datapoint>(
     (dir, loss)
 }
 
-fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
-    weights: &Weights,
-    batch: Batch<D>,
-    eval: &E,
-) -> ScalingFactor {
-    assert_eq!(
-        E::num_weights(),
-        weights.len(),
-        "The batch doesn't seem to have been created by this eval function"
-    );
+fn tune_scaling_factor<B: Board, E: Eval<B>>(weights: &Weights, batch: Batch, eval: &E) -> ScalingFactor {
+    assert_eq!(E::num_weights(), weights.len(), "The batch doesn't seem to have been created by this eval function");
     assert_eq!(
         weights.len(),
-        batch.num_weights,
+        batch.weights_in_pos,
         "Incorrect number of weights: The eval claims to have {0} weights, but the weights used for tuning the scaling factor have {1} entries",
-        batch.num_weights,
+        batch.weights_in_pos,
         weights.len()
     );
     let mut scale = 100.0;
@@ -429,16 +389,15 @@ fn tune_scaling_factor<B: Board, D: Datapoint, E: Eval<B>>(
         !weights.iter().all(|w| w.0 == 0.0),
         "All weights are zero; can't tune a scaling factor. This may be due to a bugged eval or empty dataset"
     );
-    println!(
-        "Optimizing scaling factor for eval:\n{}",
-        display(eval, weights, &[])
-    );
+    println!("Optimizing scaling factor for eval:\n{}", display(eval, weights, &[]));
     // First, do exponential search to find an interval in which we know that the optimal value lies.
     loop {
-        assert!(!(scale >= 1e9 || scale <= 1e-9),
+        assert!(
+            !(scale >= 1e9 || scale <= 1e-9),
             "The eval scale doesn't seem to converge. This may be due to a bugged eval implementation or simply \
             because the eval fails to accurately predict the used datasets. You can always fall back to hand-picking an \
-            eval scale in case this doesn't work, or try again with different datasets");
+            eval scale in case this doesn't work, or try again with different datasets"
+        );
         let (dir, _loss) = grad_for_eval_scale(weights, batch, scale);
         if prev_dir.is_none() {
             prev_dir = Some(dir);

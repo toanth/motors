@@ -15,28 +15,29 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Motors. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::eval::chess::lite_values::{Lite, LiteValues};
-use crate::eval::chess::FileOpenness;
 use crate::eval::SingleFeatureScore;
+use crate::eval::chess::FileOpenness;
+use crate::eval::chess::lite_values::{Lite, LiteValues};
+use gears::games::DimT;
+use gears::games::chess::ChessColor;
+use gears::games::chess::ChessColor::White;
 use gears::games::chess::pieces::ChessPieceType;
 use gears::games::chess::pieces::ChessPieceType::King;
 use gears::games::chess::squares::ChessSquare;
-use gears::games::chess::ChessColor;
-use gears::games::chess::ChessColor::White;
 use gears::general::common::StaticallyNamedEntity;
-use gears::score::{p, PhasedScore};
+use gears::score::{PhasedScore, p};
 use std::fmt::Display;
 
 #[rustfmt::skip]
 const KING_GAMBOT_VALUES: [PhasedScore; 64] =   [
-    p(550, 200),    p(550, 200),    p(550, 200),    p(550, 200),    p(550, 200),    p(550, 200),    p(550, 200),    p(550, 200),
-    p(500, 150),    p(500, 150),    p(500, 150),    p(500, 150),    p(500, 150),    p(500, 150),    p(500, 150),    p(500, 150),
-    p(450, 100),    p(450, 100),    p(450, 100),    p(450, 100),    p(450, 100),    p(450, 100),    p(450, 100),    p(450, 100),
-    p(400, 0),      p(400, 0),      p(400, 0),      p(400, 0),      p(400, 0),      p(400, 0),      p(400, 0),      p(400, 0),
-    p(300, -100),   p(300, -100),   p(300, -100),   p(300, -100),   p(300, -100),   p(300, -100),   p(300, -100),   p(300, -100),
-    p(200, -200),   p(200, -200),   p(200, -200),   p(200, -200),   p(200, -200),   p(200, -200),   p(200, -200),   p(200, -200),
-    p(0, -200),     p(0, -200),     p(0, -200),     p(0, -200),     p(0, -200),     p(0, -200),     p(0, -200),     p(0, -200),
-    p(-200, -200),  p(-200, -200),  p(-200, -200),  p(-200, -200),  p(-200, -200),  p(-200, -200),  p(-200, -200),  p(-200, -200),
+    p(650, 300),    p(650, 300),    p(650, 300),    p(650, 300),    p(650, 300),    p(650, 300),    p(650, 300),    p(650, 300),
+    p(500, 200),    p(500, 200),    p(500, 200),    p(500, 200),    p(500, 200),    p(500, 200),    p(500, 200),    p(500, 200),
+    p(400, 100),    p(400, 100),    p(400, 100),    p(400, 100),    p(400, 100),    p(400, 100),    p(400, 100),    p(400, 100),
+    p(250, 0),      p(250, 0),      p(250, 0),      p(250, 0),      p(250, 0),      p(250, 0),      p(250, 0),      p(250, 0),
+    p(100, -100),   p(100, -100),   p(100, -100),   p(100, -100),   p(100, -100),   p(100, -100),   p(100, -100),   p(100, -100),
+    p(-100, -200),  p(-100, -200),  p(-100, -200),  p(-100, -200),  p(-100, -200),  p(-100, -200),  p(-100, -200),  p(-100, -200),
+    p(-300, -300),  p(-300, -300),  p(-300, -300),  p(-300, -300),  p(-300, -300),  p(-300, -300),  p(-300, -300),  p(-300, -300),
+    p(-500, -500),  p(-500, -500),  p(-500, -500),  p(-500, -500),  p(-500, -500),  p(-500, -500),  p(-500, -500),  p(-500, -500),
 ];
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -84,6 +85,18 @@ impl LiteValues for KingGambotValues {
         Lite::passed_pawn(square)
     }
 
+    fn stoppable_passer() -> PhasedScore {
+        Lite::stoppable_passer()
+    }
+
+    fn close_king_passer() -> SingleFeatureScore<Self::Score> {
+        Lite::close_king_passer()
+    }
+
+    fn immobile_passer() -> SingleFeatureScore<Self::Score> {
+        Lite::immobile_passer()
+    }
+
     fn unsupported_pawn() -> PhasedScore {
         Lite::unsupported_pawn()
     }
@@ -92,11 +105,15 @@ impl LiteValues for KingGambotValues {
         Lite::doubled_pawn()
     }
 
+    fn phalanx(rank: DimT) -> PhasedScore {
+        Lite::phalanx(rank)
+    }
+
     fn bishop_pair() -> PhasedScore {
         Lite::bishop_pair()
     }
 
-    fn bad_bishop(num_pawns: usize) -> SingleFeatureScore<Self::Score> {
+    fn bad_bishop(num_pawns: usize) -> PhasedScore {
         Lite::bad_bishop(num_pawns)
     }
 
@@ -105,20 +122,24 @@ impl LiteValues for KingGambotValues {
     }
 
     fn king_openness(openness: FileOpenness) -> PhasedScore {
-        Lite::king_openness(openness)
+        Lite::king_openness(openness) / 2
     }
 
     fn bishop_openness(openness: FileOpenness, len: usize) -> PhasedScore {
         Lite::bishop_openness(openness, len)
     }
 
+    fn pawn_advanced_center(config: usize) -> PhasedScore {
+        Lite::pawn_advanced_center(config)
+    }
+
+    fn pawn_passive_center(config: usize) -> PhasedScore {
+        Lite::pawn_passive_center(config)
+    }
+
     fn pawn_shield(&self, color: ChessColor, config: usize) -> PhasedScore {
         let value = Lite::default().pawn_shield(color, config);
-        if self.us == color {
-            value / 2
-        } else {
-            value
-        }
+        if self.us == color { value / 2 } else { value }
     }
 
     fn pawn_protection(piece: ChessPieceType) -> PhasedScore {
@@ -142,10 +163,10 @@ impl LiteValues for KingGambotValues {
     }
 
     fn king_zone_attack(attacking: ChessPieceType) -> PhasedScore {
-        Lite::king_zone_attack(attacking)
+        Lite::king_zone_attack(attacking) / 2
     }
 
     fn can_give_check(piece: ChessPieceType) -> PhasedScore {
-        Lite::can_give_check(piece)
+        Lite::can_give_check(piece) / 2
     }
 }
