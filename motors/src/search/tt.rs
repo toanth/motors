@@ -262,14 +262,12 @@ impl TT {
     fn entry_replacement_score<B: Board>(candidate: &TTEntry<B>, to_insert: &TTEntry<B>) -> usize {
         if to_insert.hash == candidate.hash || candidate.is_empty() {
             0
-        } else if candidate.age() != to_insert.age() {
-            1
         } else {
-            candidate.depth as usize + 2
+            candidate.depth as usize + ((candidate.age() == to_insert.age()) as usize * 1000)
         }
     }
 
-    pub fn store<B: Board>(&mut self, mut entry: TTEntry<B>, ply: usize) {
+    pub fn store<B: Board>(&self, mut entry: TTEntry<B>, ply: usize) {
         debug_assert!(entry.score().abs() + ply as ScoreT <= SCORE_WON, "score {score} ply {ply}", score = entry.score);
         let bucket = self.bucket_index_of(entry.hash);
         // Mate score adjustments: For the current search, we want to penalize later mates to prefer earlier ones,
@@ -287,7 +285,7 @@ impl TT {
         let idx_in_bucket = bucket
             .iter()
             .map(|e| TTEntry::unpack(e.load(Relaxed)))
-            .position_max_by_key(|e| Self::entry_replacement_score(e, &entry))
+            .position_min_by_key(|e| Self::entry_replacement_score(e, &entry))
             .unwrap();
         debug_assert!(
             entry.score().0.abs() <= SCORE_WON.0,
@@ -337,7 +335,7 @@ mod test {
     use gears::rand::distr::Uniform;
     use gears::rand::{Rng, RngCore, rng};
     use gears::score::{MAX_NORMAL_SCORE, MIN_NORMAL_SCORE};
-    use gears::search::NodeType::Exact;
+    use gears::search::NodeType::{Exact, FailHigh, FailLow};
     use gears::search::{Depth, SearchLimit};
     use std::thread::{sleep, spawn};
     use std::time::Duration;
@@ -370,7 +368,7 @@ mod test {
             let num_bytes_in_size = rng().sample(Uniform::new(4, 25).unwrap());
             let size_in_bytes =
                 (1 << num_bytes_in_size) + rng().sample(Uniform::new(0, 1 << num_bytes_in_size).unwrap());
-            let mut tt = TT::new_with_bytes(size_in_bytes);
+            let tt = TT::new_with_bytes(size_in_bytes);
             for mov in pos.pseudolegal_moves() {
                 let score = Score(rng().sample(Uniform::new(MIN_NORMAL_SCORE.0, MAX_NORMAL_SCORE.0).unwrap()));
                 let depth = rng().sample(Uniform::new(1, 100).unwrap());
@@ -430,6 +428,47 @@ mod test {
                 "{expected} {max} {num_buckets} {size} {num_bytes}"
             );
         }
+    }
+
+    #[test]
+    #[cfg(feature = "chess")]
+    fn bucket_test() {
+        assert_eq!(NUM_ENTRIES_IN_BUCKET, 4);
+        let tt = TT::new_with_bytes(1024);
+        assert_eq!(tt.size_in_buckets(), 16);
+        let mov = ChessMove::default();
+        let entry = TTEntry::<Chessboard>::new(PosHash(42), Score(0), Score(100), mov, 10, Exact, Age(0));
+        tt.store(entry, 0);
+        let bucket_idx = tt.bucket_index_of(entry.hash);
+        let bucket = &tt.0[bucket_idx].0;
+        assert_ne!(tt.bucket_index_of(PosHash(!0)), bucket_idx);
+        let entry2 = TTEntry::<Chessboard>::new(PosHash(100), Score(10), Score(-20), mov, 5, FailHigh, Age(1));
+        assert_eq!(bucket_idx, tt.bucket_index_of(entry2.hash));
+        tt.store(entry2, 1);
+        let entry3 = TTEntry::<Chessboard>::new(PosHash(0), Score(-1210), Score(-512), mov, 7, FailLow, Age(0));
+        assert_eq!(bucket_idx, tt.bucket_index_of(entry3.hash));
+        tt.store(entry3, 0);
+        let entry4 = TTEntry::<Chessboard>::new(PosHash(0x100000), Score(1234), Score(9876), mov, 12, FailHigh, Age(0));
+        assert_eq!(bucket_idx, tt.bucket_index_of(entry4.hash));
+        tt.store(entry4, 0);
+        let num_empty =
+            bucket.iter().map(|e| TTEntry::<Chessboard>::unpack(e.load(Relaxed))).filter(|e| e.is_empty()).count();
+        assert_eq!(num_empty, 0);
+
+        let new_entry = TTEntry::<Chessboard>::new(PosHash(0x4200000), Score(100), Score(0), mov, 0, FailLow, Age(0));
+        assert_eq!(bucket_idx, tt.bucket_index_of(new_entry.hash));
+        tt.store(new_entry, 0);
+        let has = |entry: TTEntry<Chessboard>| {
+            bucket.iter().map(|e| TTEntry::<Chessboard>::unpack(e.load(Relaxed))).contains(&entry)
+        };
+        let has_entry2 = has(entry2);
+        assert!(!has_entry2);
+        assert!(has(entry));
+        let entry_again = entry;
+        tt.store(entry_again, 0);
+        assert!(has(new_entry));
+        tt.store(entry2, 0);
+        assert!(!has(new_entry));
     }
 
     #[test]

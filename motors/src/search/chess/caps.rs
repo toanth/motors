@@ -1504,7 +1504,7 @@ mod tests {
         let fen = "7k/8/8/8/p7/1p6/1R1r4/K7 w - - 4 3";
         let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
         let tt_move = ChessMove::from_text("a1b1", &pos).unwrap();
-        let mut tt = TT::default();
+        let tt = TT::default();
         let entry = TTEntry::new(pos.hash_pos(), Score(0), Score(-12), tt_move, 123, Exact, Age::default());
         tt.store::<Chessboard>(entry, 0);
         let threats = pos.threats();
