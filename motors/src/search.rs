@@ -696,13 +696,13 @@ impl<B: Board> CustomInfo<B> for NoCustomInfo {
 }
 
 #[derive(Debug, Clone)]
-struct PVData<B: Board> {
+pub struct PVData<B: Board> {
     alpha: Score,
     beta: Score,
     radius: Score,
-    pv: Pv<B, 200>, // A PV of 200 plies should be more than enough for anybody (tm)
-    score: Score,
-    bound: Option<NodeType>,
+    pub pv: Pv<B, 200>, // A PV of 200 plies should be more than enough for anybody (tm)
+    pub score: Score,
+    pub bound: Option<NodeType>,
 }
 
 impl<B: Board> Default for PVData<B> {
@@ -723,6 +723,7 @@ pub trait AbstractSearchState<B: Board> {
     fn new_search(&mut self, params: SearchParams<B>);
     fn end_search(&mut self, res: &SearchResult<B>);
     fn search_params(&self) -> &SearchParams<B>;
+    fn pv_data(&self) -> &[PVData<B>];
     fn to_bench_res(&self) -> BenchResult;
     fn to_search_info(&self) -> SearchInfo<B>;
     fn aggregated_statistics(&self) -> Statistics;
@@ -830,6 +831,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
 
     fn search_params(&self) -> &SearchParams<B> {
         &self.params
+    }
+
+    fn pv_data(&self) -> &[PVData<B>] {
+        self.multi_pvs.as_slice()
     }
 
     fn to_bench_res(&self) -> BenchResult {

@@ -397,7 +397,6 @@ impl Caps {
                     // want a mate limit condition to trigger, so we clamp the fail high score to MAX_NORMAL_SCORE.
                     if let Some(score) = score {
                         debug_assert!(score.is_valid());
-                        atomic.set_score(score);
                         if pv_num == 0 {
                             atomic.set_score(score);
                         } else {
