@@ -12,7 +12,7 @@ use crate::search::chess::histories::{
 use crate::search::move_picker::MovePicker;
 use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
-use crate::search::tt::{Age, TTEntry};
+use crate::search::tt::TTEntry;
 use crate::search::*;
 use derive_more::{Deref, DerefMut};
 use gears::PlayerResult::{Lose, Win};
@@ -95,7 +95,6 @@ pub struct CapsCustomInfo {
     nmp_disabled: [bool; 2],
     depth_hard_limit: usize,
     root_move_nodes: RootMoveNodes,
-    age: Age,
 }
 
 impl CapsCustomInfo {
@@ -110,7 +109,6 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
         debug_assert!(!self.nmp_disabled[1]);
         // don't update history values, malus and gravity already take care of that
         self.root_move_nodes.clear();
-        self.age.increment();
     }
 
     fn hard_forget_except_tt(&mut self) {
@@ -126,7 +124,6 @@ impl CustomInfo<Chessboard> for CapsCustomInfo {
         }
         self.corr_hist.reset();
         self.root_move_nodes.clear();
-        self.age = Age::default();
     }
 
     fn write_internal_info(&self, pos: &Chessboard) -> Option<String> {
