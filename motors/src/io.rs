@@ -1808,11 +1808,12 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
     let score = Score::from_compact(entry.score);
     write!(
         &mut res,
-        "\nHash: {5}\nScore: {bound_str}{0} ({1}), Raw Eval: {2}, Depth: {3}, Best Move: {4}",
+        "\nHash: {6}\nScore: {bound_str}{0} ({1}), Raw Eval: {2}, Depth: {3}, Age Ctr: {4}, Best Move: {5}",
         pretty_score(score, None, None, &score_gradient(), true, false),
         entry.bound(),
         pretty_score(entry.raw_eval(), None, None, &score_gradient(), true, false),
         entry.depth.to_string().bold(),
+        entry.age(),
         move_string,
         pos.hash_pos()
     )
