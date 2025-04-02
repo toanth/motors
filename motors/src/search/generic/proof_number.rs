@@ -20,7 +20,7 @@ use crate::eval::rand_eval::RandEval;
 use crate::search::statistics::Statistics;
 use crate::search::{
     AbstractSearchState, BenchResult, DEFAULT_CHECK_TIME_INTERVAL, EmptySearchStackEntry, Engine, EngineInfo,
-    NoCustomInfo, SearchParams,
+    NoCustomInfo, PVData, SearchParams,
 };
 use gears::PlayerResult;
 use gears::games::{BoardHistory, Color, PosHash, ZobristHistory2Fold};
@@ -293,6 +293,10 @@ impl<B: Board> AbstractSearchState<B> for ProofNumberSearcher<B> {
 
     fn search_params(&self) -> &SearchParams<B> {
         &self.params
+    }
+
+    fn pv_data(&self) -> &[PVData<B>] {
+        &[]
     }
 
     fn to_bench_res(&self) -> BenchResult {
