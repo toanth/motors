@@ -723,6 +723,13 @@ impl Board for UtttBoard {
             if rng.random_bool(0.5) {
                 pos.0.active = !pos.0.active;
             }
+            if rng.random_bool(0.5) {
+                let bb = pos.0.inactive_player_bb();
+                if bb.has_set_bit() {
+                    let piece = ith_one_u128(rng.random_range(0..bb.num_ones()), bb);
+                    pos.0.last_move = UtttMove::new(UtttSquare::from_bb_idx(piece));
+                }
+            }
             if let Ok(pos) = pos.verify(Relaxed) {
                 return pos;
             }
@@ -950,6 +957,8 @@ impl Board for UtttBoard {
         last_move: Option<UtttMove>,
         opts: OutputOpts,
     ) -> Box<dyn BoardFormatter<Self>> {
+        let l = if self.last_move.is_null() { None } else { Some(self.last_move) };
+        let last_move = last_move.or(l);
         let pos = *self;
         let formatter = AdaptFormatter {
             underlying: Box::new(DefaultBoardFormatter::new(*self, piece_to_char, last_move, opts)),
