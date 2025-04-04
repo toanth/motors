@@ -35,7 +35,7 @@ impl Chessboard {
         for piece in ChessPieceType::pieces() {
             let mut current_attackers = self.piece_bb(piece) & our_remaining_attackers;
             if current_attackers.has_set_bit() {
-                return Some((piece, ChessSquare::from_bb_index(current_attackers.pop_lsb())));
+                return Some((piece, ChessSquare::from_bb_idx(current_attackers.pop_lsb())));
             };
         }
         None

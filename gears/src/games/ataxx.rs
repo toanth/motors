@@ -5,19 +5,21 @@ mod perft_test;
 use crate::PlayerResult;
 use crate::PlayerResult::{Draw, Lose, Win};
 use crate::games::ataxx::AtaxxColor::{O, X};
+use crate::games::ataxx::common::AtaxxPieceType::Occupied;
 use crate::games::ataxx::common::ColoredAtaxxPieceType::{Blocked, Empty, OPiece, XPiece};
 use crate::games::ataxx::common::{AtaxxMove, ColoredAtaxxPieceType, MAX_ATAXX_MOVES_IN_POS};
 use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::{
-    Board, BoardHistory, CharType, Color, ColoredPiece, GenericPiece, NoHistory, PosHash, Settings, Size,
+    Board, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, GenericPiece, NoHistory, PosHash, Settings,
+    Size,
 };
-use crate::general::bitboards::{KnownSizeBitboard, RawBitboard, RawStandardBitboard, SmallGridBitboard};
+use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard, SmallGridBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
-use crate::general::board::Strictness::Strict;
+use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
     BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard, simple_fen,
 };
-use crate::general::common::{Res, StaticallyNamedEntity, Tokens};
+use crate::general::common::{Res, StaticallyNamedEntity, Tokens, ith_one_u64};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
 use crate::general::moves::Move;
 use crate::general::squares::SquareColor::White;
@@ -213,6 +215,30 @@ impl Board for AtaxxBoard {
             "oxx3o/xxx4/xxx4/5x1/7/7/x5x x 0 1",
         ];
         fens.iter().map(|fen| Self::from_fen(fen, Strict).unwrap()).collect_vec()
+    }
+
+    fn random_pos(rng: &mut impl Rng) -> Self {
+        loop {
+            let mut pos = Self::Unverified::new(Self::empty());
+            let pieces = rng.random_range(2..pos.0.num_squares() - 1);
+            for _ in 0..pieces {
+                let empty = pos.0.empty_bb().raw();
+                let sq = rng.random_range(0..empty.num_ones());
+                // even though an ataxx bitboard is 7x7, the empty bitboard only has ones on valid squares
+                let sq = ith_one_u64(sq, empty);
+                let sq = AtaxxSquare::from_bb_idx(sq);
+                let color = AtaxxColor::iter().nth(rng.random_range(0..2)).unwrap();
+                // doesn't currently generate gaps (doing so would need to ensure the board is connected)
+                let piece = ColoredAtaxxPieceType::new(color, Occupied);
+                pos.place_piece(sq, piece);
+            }
+            if rng.random_bool(0.5) {
+                pos.0.active_player = !pos.0.active_player;
+            }
+            if let Ok(pos) = pos.verify(Relaxed) {
+                return pos;
+            }
+        }
     }
 
     fn settings(&self) -> Self::Settings {
@@ -428,14 +454,14 @@ impl UnverifiedBoard<AtaxxBoard> for UnverifiedAtaxxBoard {
         ensure!(
             overlap.is_zero(),
             "Both players have a piece on the same square ('{}')",
-            AtaxxSquare::from_bb_index(overlap.pop_lsb())
+            AtaxxSquare::from_bb_idx(overlap.pop_lsb())
         );
         for color in AtaxxColor::iter() {
             let mut overlap = this.empty & this.colors[color as usize];
             ensure!(
                 overlap.is_zero(),
                 "The square '{}' is both empty and occupied by a player",
-                AtaxxSquare::from_bb_index(overlap.pop_lsb())
+                AtaxxSquare::from_bb_idx(overlap.pop_lsb())
             );
         }
         Ok(this)

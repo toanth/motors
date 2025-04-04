@@ -34,7 +34,7 @@ use crate::general::bitboards::{
     Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard,
 };
 use crate::general::board::SelfChecks::*;
-use crate::general::board::Strictness::Strict;
+use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
     Board, BoardHelpers, NameToPos, SelfChecks, Strictness, UnverifiedBoard, ply_counter_from_fullmove_nr,
     read_common_fen_part, simple_fen,
@@ -709,6 +709,26 @@ impl Board for UtttBoard {
             .collect_vec()
     }
 
+    fn random_pos(rng: &mut impl Rng) -> Self {
+        loop {
+            let mut pos = UnverifiedUtttBoard::new(UtttBoard::empty());
+            let num_pieces = rng.random_range(0..42);
+            for _ in 0..num_pieces {
+                let empty = pos.0.all_empty_squares_bb();
+                let sq = ith_one_u128(rng.random_range(0..empty.num_ones()), empty);
+                let piece = if rng.random_bool(0.5) { O } else { X };
+                let piece = ColoredUtttPieceType::new(piece, Occupied);
+                pos.place_piece(UtttSquare::from_bb_idx(sq), piece)
+            }
+            if rng.random_bool(0.5) {
+                pos.0.active = !pos.0.active;
+            }
+            if let Ok(pos) = pos.verify(Relaxed) {
+                return pos;
+            }
+        }
+    }
+
     fn settings(&self) -> UtttSettings {
         UtttSettings {}
     }
@@ -762,7 +782,7 @@ impl Board for UtttBoard {
                 debug_assert!(!self.is_sub_board_won(X, sub_board) && !self.is_sub_board_won(O, sub_board));
                 let sub_bitboard = self.open_sub_board(sub_board);
                 for idx in sub_bitboard.one_indices() {
-                    let square = UtttSquare::new(sub_board, UtttSubSquare::from_bb_index(idx));
+                    let square = UtttSquare::new(sub_board, UtttSubSquare::from_bb_idx(idx));
                     moves.add_move(UtttMove::new(square));
                 }
                 return;
@@ -800,7 +820,7 @@ impl Board for UtttBoard {
                 let bb = self.open_sub_board(sub_board);
                 let idx = rng.random_range(0..bb.num_ones());
                 let idx = ith_one_u64(idx, bb.raw());
-                let sq = UtttSquare::new(sub_board, UtttSubSquare::from_bb_index(idx));
+                let sq = UtttSquare::new(sub_board, UtttSubSquare::from_bb_idx(idx));
                 return Some(UtttMove::new(sq));
             }
         }
@@ -1027,7 +1047,7 @@ impl UnverifiedBoard<UtttBoard> for UnverifiedUtttBoard {
         }
         let mut won_by_both = this.won_sub_boards(O) & this.won_sub_boards(X);
         if won_by_both.has_set_bit() {
-            bail!("Sub board {0} has been won by both players", UtttSubSquare::from_bb_index(won_by_both.pop_lsb()));
+            bail!("Sub board {0} has been won by both players", UtttSubSquare::from_bb_idx(won_by_both.pop_lsb()));
         }
         for color in UtttColor::iter() {
             let won_sub_boards = this.won_sub_boards(color);

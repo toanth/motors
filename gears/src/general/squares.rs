@@ -316,7 +316,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
     const UP_DOWN_MASK: DimT = ((1 << H.ilog2()) - 1) << INTERNAL_WIDTH.ilog2();
     const LEFT_RIGHT_MASK: DimT = (1 << W.ilog2()) - 1;
 
-    pub const fn from_bb_index(idx: usize) -> Self {
+    pub const fn from_bb_idx(idx: usize) -> Self {
         assert!(H <= Self::MAX_H);
         assert!(W <= Self::MAX_W);
         assert!(H * W <= DimT::MAX as usize); // `<=` because invalid coordinates have to be representable
@@ -330,7 +330,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
     }
 
     pub const fn from_coordinates(c: GridCoordinates) -> Self {
-        Self::from_bb_index(c.row as usize * INTERNAL_WIDTH + c.column as usize)
+        Self::from_bb_idx(c.row as usize * INTERNAL_WIDTH + c.column as usize)
     }
 
     pub const fn from_rank_file(rank: DimT, file: DimT) -> Self {
@@ -409,7 +409,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        (0..H).flat_map(|i| (INTERNAL_WIDTH * i)..(INTERNAL_WIDTH * i + W)).map(Self::from_bb_index)
+        (0..H).flat_map(|i| (INTERNAL_WIDTH * i)..(INTERNAL_WIDTH * i + W)).map(Self::from_bb_idx)
     }
 
     // Ideally, no_coordinates shouldn't be necessary, but sadly there's no `NonMaxU8` (except for a crate that xors U8::MAX on every access)

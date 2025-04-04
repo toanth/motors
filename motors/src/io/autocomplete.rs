@@ -271,7 +271,9 @@ impl<B: Board> AbstractEngineUgiState for ACState<B> {
     fn handle_move_piece(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-
+    fn handle_randomize(&mut self) -> Res<()> {
+        Ok(())
+    }
     fn print_help(&mut self) -> Res<()> {
         Ok(())
     }

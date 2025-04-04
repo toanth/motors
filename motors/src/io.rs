@@ -62,6 +62,7 @@ use gears::output::logger::LoggerBuilder;
 use gears::output::pgn::parse_pgn;
 use gears::output::text_output::{AdaptFormatter, display_color};
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
+use gears::rand::rng;
 use gears::score::Score;
 use gears::search::{Depth, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
@@ -1247,6 +1248,8 @@ trait AbstractEngineUgiState: Debug {
 
     fn handle_move_piece(&mut self, words: &mut Tokens) -> Res<()>;
 
+    fn handle_randomize(&mut self) -> Res<()>;
+
     fn print_help(&mut self) -> Res<()>;
 
     fn write_is_player(&mut self, is_first: bool) -> Res<()>;
@@ -1519,6 +1522,13 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
         let piece = B::Piece::new(piece.colored_piece_type(), dest);
         new_pos.try_place_piece(piece)?;
         let pos = new_pos.verify(self.strictness)?;
+        self.state.set_new_pos_state(UgiPosState::new(pos), true);
+        self.print_board(OutputOpts::default());
+        Ok(())
+    }
+
+    fn handle_randomize(&mut self) -> Res<()> {
+        let pos = B::random_pos(&mut rng());
         self.state.set_new_pos_state(UgiPosState::new(pos), true);
         self.print_board(OutputOpts::default());
         Ok(())

@@ -527,6 +527,13 @@ impl Board for FairyBoard {
         vec![Self::startpos()]
     }
 
+    // TODO: We could at least pass settings and do `startpos_for_setting()`, but ideally we'd also randomize the settings.
+    // We could generate random positions but couln't control the probability of them being legal
+    // unless we fell back to the starting position
+    fn random_pos(_rng: &mut impl Rng) -> Self {
+        Self::startpos()
+    }
+
     fn settings(&self) -> Self::Settings {
         self.rules.clone()
     }

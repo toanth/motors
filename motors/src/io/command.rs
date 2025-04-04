@@ -383,6 +383,12 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.coords_subcmds(true, true)
         ),
         command!(
+            random_pos | randomize | rand,
+            Custom,
+            "Creates a new random position. No guarantees about the probability distribution",
+            |ugi, _, _| { ugi.handle_randomize() }
+        ),
+        command!(
             auto,
             Custom,
             "Search like 'go', then play the chosen move. Blocks until the search is complete",
@@ -866,7 +872,6 @@ fn generic_go_options(accept_pos_word: bool) -> CommandList {
             "Load a positions from a FEN",
             |state, words, _| state.load_go_state_pos("fen", words),
             --> |state| state.moves_subcmds(true, true),
-            // TODO: Set position based on the FEN
             recurse = true
         ),
         pos_command!(

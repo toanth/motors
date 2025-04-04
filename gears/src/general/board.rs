@@ -313,6 +313,11 @@ pub trait Board:
     #[must_use]
     fn bench_positions() -> Vec<Self>;
 
+    /// Return a random legal (but `Relaxed`) position. Not every position has to be able to be generated, and there
+    /// are no requirements for the distribution of positions. So always returning startpos would be a valid, if poor,
+    /// implementation.
+    fn random_pos(rng: &mut impl Rng) -> Self;
+
     fn settings(&self) -> Self::Settings;
 
     /// Returns a board in the startpos of the variant corresponding to the `name`.

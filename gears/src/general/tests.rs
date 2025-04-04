@@ -31,72 +31,72 @@ mod bitboards {
         #[test]
         fn diag_test() {
             assert_eq!(
-                ChessBitboard::diag_for_sq(ChessSquare::from_bb_index(0), ChessboardSize::default()),
+                ChessBitboard::diag_for_sq(ChessSquare::from_bb_idx(0), ChessboardSize::default()),
                 ChessBitboard::from_raw(0x8040_2010_0804_0201)
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(ChessSquare::from_bb_index(1), ChessboardSize::default()),
+                ChessBitboard::diag_for_sq(ChessSquare::from_bb_idx(1), ChessboardSize::default()),
                 ChessBitboard::from_raw(0x80_4020_1008_0402)
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(ChessSquare::from_bb_index(7), ChessboardSize::default()),
+                ChessBitboard::diag_for_sq(ChessSquare::from_bb_idx(7), ChessboardSize::default()),
                 ChessBitboard::from_raw(0x80)
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(ChessSquare::from_bb_index(8), ChessboardSize::default()),
+                ChessBitboard::diag_for_sq(ChessSquare::from_bb_idx(8), ChessboardSize::default()),
                 ChessBitboard::from_raw(0x4020_1008_0402_0100)
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(ChessSquare::from_bb_index(9), ChessboardSize::default()),
-                ChessBitboard::diag_for_sq(ChessSquare::from_bb_index(0), ChessboardSize::default())
+                ChessBitboard::diag_for_sq(ChessSquare::from_bb_idx(9), ChessboardSize::default()),
+                ChessBitboard::diag_for_sq(ChessSquare::from_bb_idx(0), ChessboardSize::default())
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(ChessSquare::from_bb_index(15), ChessboardSize::default()),
+                ChessBitboard::diag_for_sq(ChessSquare::from_bb_idx(15), ChessboardSize::default()),
                 ChessBitboard::from_raw(0x8040)
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(ChessSquare::from_bb_index(10), ChessboardSize::default()),
-                ChessBitboard::diag_for_sq(ChessSquare::from_bb_index(1), ChessboardSize::default())
+                ChessBitboard::diag_for_sq(ChessSquare::from_bb_idx(10), ChessboardSize::default()),
+                ChessBitboard::diag_for_sq(ChessSquare::from_bb_idx(1), ChessboardSize::default())
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(ChessSquare::from_bb_index(12), ChessboardSize::default()),
-                ChessBitboard::diag_for_sq(ChessSquare::from_bb_index(3), ChessboardSize::default())
+                ChessBitboard::diag_for_sq(ChessSquare::from_bb_idx(12), ChessboardSize::default()),
+                ChessBitboard::diag_for_sq(ChessSquare::from_bb_idx(3), ChessboardSize::default())
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(ChessSquare::from_bb_index(17), ChessboardSize::default()),
-                ChessBitboard::diag_for_sq(ChessSquare::from_bb_index(8), ChessboardSize::default())
+                ChessBitboard::diag_for_sq(ChessSquare::from_bb_idx(17), ChessboardSize::default()),
+                ChessBitboard::diag_for_sq(ChessSquare::from_bb_idx(8), ChessboardSize::default())
             );
             assert_eq!(
-                ChessBitboard::diag_for_sq(ChessSquare::from_bb_index(42), ChessboardSize::default()),
-                ChessBitboard::diag_for_sq(ChessSquare::from_bb_index(33), ChessboardSize::default())
+                ChessBitboard::diag_for_sq(ChessSquare::from_bb_idx(42), ChessboardSize::default()),
+                ChessBitboard::diag_for_sq(ChessSquare::from_bb_idx(33), ChessboardSize::default())
             );
         }
 
         #[test]
         fn anti_diag_test() {
             assert_eq!(
-                ChessBitboard::anti_diag_for_sq(ChessSquare::from_bb_index(0), ChessboardSize::default()),
+                ChessBitboard::anti_diag_for_sq(ChessSquare::from_bb_idx(0), ChessboardSize::default()),
                 ChessBitboard::from_raw(1)
             );
             assert_eq!(
-                ChessBitboard::anti_diag_for_sq(ChessSquare::from_bb_index(7), ChessboardSize::default()),
+                ChessBitboard::anti_diag_for_sq(ChessSquare::from_bb_idx(7), ChessboardSize::default()),
                 ChessBitboard::from_raw(0x0102_0408_1020_4080)
             );
             assert_eq!(
-                ChessBitboard::anti_diag_for_sq(ChessSquare::from_bb_index(14), ChessboardSize::default()),
-                ChessBitboard::anti_diag_for_sq(ChessSquare::from_bb_index(7), ChessboardSize::default())
+                ChessBitboard::anti_diag_for_sq(ChessSquare::from_bb_idx(14), ChessboardSize::default()),
+                ChessBitboard::anti_diag_for_sq(ChessSquare::from_bb_idx(7), ChessboardSize::default())
             );
             assert_eq!(
-                ChessBitboard::anti_diag_for_sq(ChessSquare::from_bb_index(8), ChessboardSize::default()),
+                ChessBitboard::anti_diag_for_sq(ChessSquare::from_bb_idx(8), ChessboardSize::default()),
                 ChessBitboard::from_raw(0x0102)
             );
             assert_eq!(
-                ChessBitboard::anti_diag_for_sq(ChessSquare::from_bb_index(15), ChessboardSize::default()),
+                ChessBitboard::anti_diag_for_sq(ChessSquare::from_bb_idx(15), ChessboardSize::default()),
                 ChessBitboard::from_raw(0x0204_0810_2040_8000)
             );
             assert_eq!(
-                ChessBitboard::anti_diag_for_sq(ChessSquare::from_bb_index(42), ChessboardSize::default()),
-                ChessBitboard::anti_diag_for_sq(ChessSquare::from_bb_index(35), ChessboardSize::default())
+                ChessBitboard::anti_diag_for_sq(ChessSquare::from_bb_idx(42), ChessboardSize::default()),
+                ChessBitboard::anti_diag_for_sq(ChessSquare::from_bb_idx(35), ChessboardSize::default())
             );
         }
 
