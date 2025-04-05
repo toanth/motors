@@ -624,6 +624,7 @@ impl<B: Board> SearchParams<B> {
     /// If the search result has chosen a null move, this instead outputs a warning and a random legal move.
     fn end_and_send(&self, res: &SearchResult<B>) {
         let Main(data) = &self.thread_type else {
+            self.atomic.set_searching(false);
             return;
         };
         if self.atomic.suppress_best_move.load(Acquire) {
