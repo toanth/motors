@@ -1,3 +1,4 @@
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse"))]
 use std::arch::x86_64::{_MM_HINT_T1, _mm_prefetch};
 use std::fmt::{Display, Formatter};
 use std::mem::size_of;
@@ -251,12 +252,11 @@ impl TT {
     }
 
     #[inline(always)]
+    #[allow(unused_variables)]
     pub fn prefetch(&self, hash: PosHash) {
-        if cfg!(feature = "unsafe") {
-            unsafe {
-                #[cfg(all(target_arch = "x86_64", target_feature = "sse"))]
-                _mm_prefetch::<_MM_HINT_T1>(addr_of!(self.0[self.index_of(hash)]) as *const i8);
-            }
+        #[cfg(all(target_arch = "x86_64", target_feature = "sse", feature = "unsafe"))]
+        unsafe {
+            _mm_prefetch::<_MM_HINT_T1>(addr_of!(self.0[self.index_of(hash)]) as *const i8);
         }
     }
 }
