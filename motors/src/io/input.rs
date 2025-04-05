@@ -111,7 +111,7 @@ pub struct Input<B: Board> {
 
 impl<B: Board> Input<B> {
     pub fn new(mut interactive: bool, ugi: &mut EngineUGI<B>) -> (Self, bool) {
-        if interactive && !stdout().is_terminal() {
+        if !stdout().is_terminal() {
             interactive = false;
         }
         let typ = if interactive {

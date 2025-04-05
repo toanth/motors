@@ -622,11 +622,12 @@ impl<B: Board> SearchParams<B> {
     /// c) the search hasn't been cancelled yet. It will wait until the search has been cancelled.
     /// Auxiliary threads and ponder searches both return instantly from this function, without printing anything.
     /// If the search result has chosen a null move, this instead outputs a warning and a random legal move.
-    fn send_search_res(&self, res: &SearchResult<B>) {
+    fn end_and_send(&self, res: &SearchResult<B>) {
         let Main(data) = &self.thread_type else {
             return;
         };
         if self.atomic.suppress_best_move.load(Acquire) {
+            self.atomic.set_searching(false);
             return;
         }
         if data.search_type == Infinite {
@@ -636,6 +637,9 @@ impl<B: Board> SearchParams<B> {
         }
         let pos = &self.pos;
         let mut output = data.output.lock().unwrap();
+        // do this before sending 'bestmove' to avoid a race condition where we send bestmove, the gui sends a new 'go', the uci thread tries
+        // to start a new search, but the searching flag is still not unset, so it fails
+        self.atomic.set_searching(false);
         if res.chosen_move == B::Move::default() {
             let mut rng = StdRng::seed_from_u64(42); // keep everything deterministic
             let chosen_move = pos.random_legal_move(&mut rng).unwrap_or_default();
@@ -824,9 +828,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         self.send_statistics();
         self.aggregate_match_statistics();
         // might block, see method. Do this as the last step so that we're not using compute after sending
-        // the search result.
-        self.params.send_search_res(res);
-        self.params.atomic.set_searching(false);
+        // the search result and so that we avoid race conditions.
+        self.params.end_and_send(res);
     }
 
     fn search_params(&self) -> &SearchParams<B> {

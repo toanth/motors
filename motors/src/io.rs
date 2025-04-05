@@ -398,8 +398,8 @@ impl<B: Board> EngineUGI<B> {
             self.write_message(Warning, &format_args!("{}", "Fuzzing Mode Enabled!".bold()));
         }
 
-        let (mut input, interactive) = Input::new(self.state.protocol == Interactive, self);
-        if self.state.protocol == Interactive && !interactive {
+        let (mut input, is_interactive) = Input::new(self.state.protocol == Interactive, self);
+        if self.state.protocol == Interactive && !is_interactive {
             self.state.protocol = UGI; // Will be overwritten shortly, and isn't really used much anyway
         }
         loop {

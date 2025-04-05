@@ -287,8 +287,7 @@ impl<B: Board> AbstractSearchState<B> for ProofNumberSearcher<B> {
         // normal searchers spin until they receive an explicit `stop` when asked to do an infinite search,
         // but this isn't useful for a proof number search.
         self.params.atomic.set_stop(true);
-        self.params.send_search_res(res);
-        self.params.atomic.set_searching(false);
+        self.params.end_and_send(res);
     }
 
     fn search_params(&self) -> &SearchParams<B> {
