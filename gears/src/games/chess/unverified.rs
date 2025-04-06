@@ -22,16 +22,17 @@ use crate::games::chess::pieces::ColoredChessPieceType::{BlackKing, WhiteKing};
 use crate::games::chess::pieces::{ChessPiece, ChessPieceType, ColoredChessPieceType};
 use crate::games::chess::squares::{ChessSquare, ChessboardSize};
 use crate::games::chess::{ChessColor, ChessSettings, Chessboard};
-use crate::games::{Color, ColoredPiece, ColoredPieceType};
+use crate::games::{Color, ColoredPiece, ColoredPieceType, Coordinates};
 use crate::general::bitboards::chessboard::ChessBitboard;
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
 use crate::general::board::Strictness::Strict;
-use crate::general::board::{BitboardBoard, Board, BoardHelpers, SelfChecks, Strictness, UnverifiedBoard};
+use crate::general::board::{BitboardBoard, Board, BoardHelpers, SelfChecks, Strictness, Symmetry, UnverifiedBoard};
 use crate::general::common::{Res, ith_one_u64};
 use crate::general::squares::RectangularCoordinates;
 use anyhow::{bail, ensure};
 use rand::Rng;
+use std::ops::Not;
 use strum::IntoEnumIterator;
 
 #[derive(Debug, Copy, Clone)]
@@ -259,46 +260,116 @@ impl UnverifiedChessboard {
         self
     }
 
-    pub fn random_unverified_pos(rng: &mut impl Rng) -> Self {
-        // more pieces make it more likely that the resulting position isn't legal,
-        // and we also care more about reachable positions. So we limit the number of pieces to 42.
-        let num_pieces = rng.random_range(0..=40);
-        let num_pieces = num_pieces + 2;
+    pub fn random_unverified_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Self {
         let mut pos = Chessboard::empty();
-        let king_sq1 = rng.random_range(0..64);
+        let mask = if let Some(symmetry) = symmetry {
+            match symmetry {
+                Symmetry::Material => ChessBitboard::default().not(),
+                Symmetry::Horizontal => ChessBitboard::new(0xf0f0_f0f0_f0f0_f0f0),
+                Symmetry::Vertical => ChessBitboard::new(0xffff_ffff),
+                Symmetry::Rotation180 => ChessBitboard::new(0xffff_ffff),
+            }
+        } else {
+            ChessBitboard::default().not()
+        };
+        let king_sq1 = rng.random_range(0..mask.num_ones());
         let king_sq1 = ChessSquare::from_bb_idx(king_sq1);
         pos.place_piece(king_sq1, WhiteKing);
-        loop {
-            let king_sq2 = rng.random_range(0..64);
-            let king_sq2 = ChessSquare::from_bb_idx(king_sq2);
-            if Chessboard::normal_king_attacks_from(king_sq2).is_bit_set(king_sq1) {
-                continue;
-            }
-            pos.place_piece(king_sq2, BlackKing);
-            break;
-        }
-        for _ in 0..num_pieces {
-            let piece = rng.random_range(0..10);
-            let col = ChessColor::iter().nth(piece / 5).unwrap();
-            let piece = ChessPieceType::from_repr(piece % 5).unwrap();
-            let piece = ColoredChessPieceType::new(col, piece);
-
-            let num_empty = pos.0.empty_bb().num_ones();
+        let king_sq2 = if let Some(symmetry) = symmetry {
+            mirror_sq(king_sq1, symmetry, rng, &pos.0)
+        } else {
             loop {
-                let sq = rng.random_range(0..num_empty);
-                let sq = ith_one_u64(sq, pos.0.empty_bb().raw());
-                let sq = ChessSquare::from_bb_idx(sq);
+                let king_sq2 = rng.random_range(0..64);
+                let king_sq2 = ChessSquare::from_bb_idx(king_sq2);
+                if Chessboard::normal_king_attacks_from(king_sq2).is_bit_set(king_sq1) {
+                    continue;
+                }
+                break king_sq2;
+            }
+        };
+        pos.place_piece(king_sq2, BlackKing);
+
+        // more pieces make it more likely that the resulting position isn't legal,
+        // and we also care more about reachable positions. So we limit the number of pieces to 42 even in relaxed mode.
+        let max_num_pieces = if strictness == Strict { 30 } else { 40 };
+        let num_pieces = if symmetry.is_some() {
+            rng.random_range(0..=(max_num_pieces / 2)) + 1
+        } else {
+            rng.random_range(0..=max_num_pieces) + 2
+        };
+        for _ in 0..num_pieces {
+            let piece = if symmetry.is_some() {
+                let piece = rng.random_range(0..5);
+                ColoredChessPieceType::new(White, ChessPieceType::from_repr(piece).unwrap())
+            } else {
+                let piece = rng.random_range(0..10);
+                let col = ChessColor::iter().nth(piece / 5).unwrap();
+                let piece = ChessPieceType::from_repr(piece % 5).unwrap();
+                ColoredChessPieceType::new(col, piece)
+            };
+
+            let empty = pos.0.empty_bb() & mask;
+            let num_empty = empty.num_ones();
+            loop {
+                let sq_idx = rng.random_range(0..num_empty);
+                let sq_idx = ith_one_u64(sq_idx, empty.raw());
+                let sq = ChessSquare::from_bb_idx(sq_idx);
                 if piece.uncolor() == Pawn && sq.is_backrank() {
                     continue;
                 }
                 pos.place_piece(sq, piece);
+                if let Some(symmetry) = symmetry {
+                    let sq = mirror_sq(sq, symmetry, rng, &pos.0);
+                    let piece = ColoredChessPieceType::new(Black, piece.uncolor());
+                    pos.place_piece(sq, piece);
+                }
                 break;
             }
+        }
+        // vertical and rotational symmetry keep the white pieces on the lower half of the board,
+        // but this introduces a smallish chance to flip that
+        if rng.random_bool(0.2) {
+            pos.0.color_bbs.swap(0, 1)
         }
         if rng.random_bool(0.5) {
             pos.0.active_player = !pos.0.active_player;
         }
         // don't generate castling or ep flags for now
         pos
+    }
+}
+
+fn mirror_sq(sq: ChessSquare, symmetry: Symmetry, rng: &mut impl Rng, pos: &Chessboard) -> ChessSquare {
+    match symmetry {
+        Symmetry::Material => {
+            let empty = pos.empty_bb().raw();
+            ChessSquare::from_bb_idx(ith_one_u64(rng.random_range(0..empty.num_ones()), empty))
+        }
+        Symmetry::Horizontal => sq.flip_left_right(ChessboardSize::default()),
+        Symmetry::Vertical => sq.flip_up_down(ChessboardSize::default()),
+        Symmetry::Rotation180 => sq.flip_left_right(ChessboardSize::default()).flip_up_down(ChessboardSize::default()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::general::board::Strictness::Relaxed;
+    use proptest::proptest;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+
+    proptest! {
+        #[test]
+        fn random_unverified(seed in 0..=u64::MAX, strictness in 0..2, symmetry in 0..=Symmetry::iter().count()) {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let symmetry = Symmetry::iter().nth(symmetry);
+            let strictness = if strictness == 0 { Strict } else { Relaxed };
+            let res = UnverifiedChessboard::random_unverified_pos(&mut rng, strictness, symmetry);
+            let ok = res.verify_with_level(SelfChecks::Verify, strictness);
+            if ok.is_ok() {
+                assert!(res.verify_with_level(Assertion, Relaxed).is_ok());
+            }
+        }
     }
 }

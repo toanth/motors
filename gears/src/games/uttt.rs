@@ -34,9 +34,9 @@ use crate::general::bitboards::{
     Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard,
 };
 use crate::general::board::SelfChecks::*;
-use crate::general::board::Strictness::{Relaxed, Strict};
+use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    Board, BoardHelpers, NameToPos, SelfChecks, Strictness, UnverifiedBoard, ply_counter_from_fullmove_nr,
+    Board, BoardHelpers, NameToPos, SelfChecks, Strictness, Symmetry, UnverifiedBoard, ply_counter_from_fullmove_nr,
     read_common_fen_part, simple_fen,
 };
 use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, ith_one_u64, ith_one_u128, parse_int};
@@ -709,7 +709,10 @@ impl Board for UtttBoard {
             .collect_vec()
     }
 
-    fn random_pos(rng: &mut impl Rng) -> Self {
+    fn random_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Res<Self> {
+        if symmetry.is_some() {
+            bail!("The UTTT game doesn't support setting up a random symmetrical position")
+        }
         loop {
             let mut pos = UnverifiedUtttBoard::new(UtttBoard::empty());
             let num_pieces = rng.random_range(0..42);
@@ -730,8 +733,8 @@ impl Board for UtttBoard {
                     pos.0.last_move = UtttMove::new(UtttSquare::from_bb_idx(piece));
                 }
             }
-            if let Ok(pos) = pos.verify(Relaxed) {
-                return pos;
+            if let Ok(pos) = pos.verify(strictness) {
+                return Ok(pos);
             }
         }
     }

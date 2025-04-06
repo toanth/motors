@@ -386,7 +386,8 @@ pub fn ugi_commands() -> CommandList {
             random_pos | randomize | rand,
             Custom,
             "Creates a new random position. No guarantees about the probability distribution",
-            |ugi, _, _| { ugi.handle_randomize() }
+            |ugi, words, _| { ugi.handle_randomize(words) },
+            --> |state| state.randomize_subcmds()
         ),
         command!(
             auto,

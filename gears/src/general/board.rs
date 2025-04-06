@@ -43,6 +43,7 @@ use rand::Rng;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::NonZeroUsize;
+use strum_macros::EnumIter;
 
 #[derive(Debug, Copy, Clone)]
 pub struct NameToPos {
@@ -93,6 +94,35 @@ pub enum SelfChecks {
 pub enum Strictness {
     Relaxed,
     Strict,
+}
+
+// In the future, this could also include diagonal and antidiagonal
+#[derive(Debug, Copy, Clone, Eq, PartialEq, EnumIter)]
+#[must_use]
+pub enum Symmetry {
+    Material,
+    Horizontal,
+    Vertical,
+    Rotation180,
+}
+
+impl NamedEntity for Symmetry {
+    fn short_name(&self) -> String {
+        match self {
+            Symmetry::Material => "Material".to_string(),
+            Symmetry::Horizontal => "Horizontal".to_string(),
+            Symmetry::Vertical => "Vertical".to_string(),
+            Symmetry::Rotation180 => "Rotation".to_string(),
+        }
+    }
+
+    fn long_name(&self) -> String {
+        self.short_name()
+    }
+
+    fn description(&self) -> Option<String> {
+        Some(format!("Set the symmetry to '{}'", self.short_name()))
+    }
 }
 
 /// An [`UnverifiedBoard`] is a [`Board`] where invariants can be violated.
@@ -315,8 +345,8 @@ pub trait Board:
 
     /// Return a random legal (but `Relaxed`) position. Not every position has to be able to be generated, and there
     /// are no requirements for the distribution of positions. So always returning startpos would be a valid, if poor,
-    /// implementation.
-    fn random_pos(rng: &mut impl Rng) -> Self;
+    /// implementation. Not all implementation have to support this function or all symmetries, so it returns a `Res`.
+    fn random_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Res<Self>;
 
     fn settings(&self) -> Self::Settings;
 

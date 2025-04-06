@@ -35,7 +35,7 @@ use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
     BitboardBoard, Board, BoardHelpers, BoardSize, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks, Strictness,
-    UnverifiedBoard, position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers,
+    Symmetry, UnverifiedBoard, position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers,
 };
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
@@ -530,8 +530,8 @@ impl Board for FairyBoard {
     // TODO: We could at least pass settings and do `startpos_for_setting()`, but ideally we'd also randomize the settings.
     // We could generate random positions but couln't control the probability of them being legal
     // unless we fell back to the starting position
-    fn random_pos(_rng: &mut impl Rng) -> Self {
-        Self::startpos()
+    fn random_pos(_rng: &mut impl Rng, _strictness: Strictness, _symmetry: Option<Symmetry>) -> Res<Self> {
+        bail!("Not currently implemented for Fairy")
     }
 
     fn settings(&self) -> Self::Settings {

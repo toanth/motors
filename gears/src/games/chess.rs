@@ -31,7 +31,7 @@ use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawSta
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    BitboardBoard, BoardHelpers, NameToPos, PieceTypeOf, Strictness, UnverifiedBoard, board_from_name,
+    BitboardBoard, BoardHelpers, NameToPos, PieceTypeOf, Strictness, Symmetry, UnverifiedBoard, board_from_name,
     position_fen_part, read_common_fen_part, read_two_move_numbers,
 };
 use crate::general::common::{EntityList, Res, StaticallyNamedEntity, Tokens, parse_int_from_str};
@@ -326,13 +326,13 @@ impl Board for Chessboard {
         res
     }
 
-    fn random_pos(rng: &mut impl Rng) -> Self {
+    fn random_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Res<Self> {
         loop {
             // The probability of the unverified position being legal should be decently large,
             // so this rejection sampling approach shouldn't be too slow in practice
-            let pos = UnverifiedChessboard::random_unverified_pos(rng);
-            if let Ok(pos) = pos.verify(Relaxed) {
-                return pos;
+            let pos = UnverifiedChessboard::random_unverified_pos(rng, strictness, symmetry);
+            if let Ok(pos) = pos.verify(strictness) {
+                return Ok(pos);
             }
         }
     }

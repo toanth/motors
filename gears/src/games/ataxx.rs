@@ -10,14 +10,14 @@ use crate::games::ataxx::common::ColoredAtaxxPieceType::{Blocked, Empty, OPiece,
 use crate::games::ataxx::common::{AtaxxMove, ColoredAtaxxPieceType, MAX_ATAXX_MOVES_IN_POS};
 use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::{
-    Board, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, GenericPiece, NoHistory, PosHash, Settings,
-    Size,
+    Board, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, GenericPiece, NoHistory,
+    PosHash, Settings, Size,
 };
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard, RawStandardBitboard, SmallGridBitboard};
 use crate::general::board::SelfChecks::{Assertion, CheckFen};
-use crate::general::board::Strictness::{Relaxed, Strict};
+use crate::general::board::Strictness::Strict;
 use crate::general::board::{
-    BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks, Strictness, UnverifiedBoard, simple_fen,
+    BitboardBoard, BoardHelpers, PieceTypeOf, SelfChecks, Strictness, Symmetry, UnverifiedBoard, simple_fen,
 };
 use crate::general::common::{Res, StaticallyNamedEntity, Tokens, ith_one_u64};
 use crate::general::move_list::{EagerNonAllocMoveList, MoveList};
@@ -217,12 +217,32 @@ impl Board for AtaxxBoard {
         fens.iter().map(|fen| Self::from_fen(fen, Strict).unwrap()).collect_vec()
     }
 
-    fn random_pos(rng: &mut impl Rng) -> Self {
+    fn random_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Res<Self> {
         loop {
             let mut pos = Self::Unverified::new(Self::empty());
-            let pieces = rng.random_range(2..pos.0.num_squares() - 1);
+            let mask = if let Some(symmetry) = symmetry {
+                match symmetry {
+                    Symmetry::Material => pos.0.empty_bb(),
+                    Symmetry::Horizontal => AtaxxBitboard::file(0) | AtaxxBitboard::file(1) | AtaxxBitboard::file(2),
+                    Symmetry::Vertical => AtaxxBitboard::rank(0) | AtaxxBitboard::rank(1) | AtaxxBitboard::rank(2),
+                    Symmetry::Rotation180 => {
+                        let files = AtaxxBitboard::file(0)
+                            | AtaxxBitboard::file(1)
+                            | AtaxxBitboard::file(2)
+                            | AtaxxBitboard::file(4);
+                        let ranks = AtaxxBitboard::rank(0) | AtaxxBitboard::rank(1) | AtaxxBitboard::rank(2);
+                        files & ranks
+                    }
+                }
+            } else {
+                pos.0.empty_bb()
+            };
+            let mut pieces = rng.random_range(2..(mask.num_ones() - 1));
+            if symmetry == Some(Symmetry::Material) {
+                pieces /= 2;
+            }
             for _ in 0..pieces {
-                let empty = pos.0.empty_bb().raw();
+                let empty = (pos.0.empty_bb() & mask).raw();
                 let sq = rng.random_range(0..empty.num_ones());
                 // even though an ataxx bitboard is 7x7, the empty bitboard only has ones on valid squares
                 let sq = ith_one_u64(sq, empty);
@@ -231,12 +251,30 @@ impl Board for AtaxxBoard {
                 // doesn't currently generate gaps (doing so would need to ensure the board is connected)
                 let piece = ColoredAtaxxPieceType::new(color, Occupied);
                 pos.place_piece(sq, piece);
+                if let Some(symmetry) = symmetry {
+                    let sq = match symmetry {
+                        Symmetry::Material => {
+                            let empty = pos.0.empty_bb().raw();
+                            AtaxxSquare::from_bb_idx(ith_one_u64(rng.random_range(0..empty.num_ones()), empty))
+                        }
+                        Symmetry::Horizontal => sq.flip_left_right(AtaxxSize::default()),
+                        Symmetry::Vertical => sq.flip_up_down(AtaxxSize::default()),
+                        Symmetry::Rotation180 => {
+                            sq.flip_left_right(AtaxxSize::default()).flip_up_down(AtaxxSize::default())
+                        }
+                    };
+                    let piece = ColoredAtaxxPieceType::new(!color, Occupied);
+                    pos.place_piece(sq, piece);
+                }
+            }
+            if rng.random_bool(0.5) {
+                pos.0.colors.swap(0, 1);
             }
             if rng.random_bool(0.5) {
                 pos.0.active_player = !pos.0.active_player;
             }
-            if let Ok(pos) = pos.verify(Relaxed) {
-                return pos;
+            if let Ok(pos) = pos.verify(strictness) {
+                return Ok(pos);
             }
         }
     }

@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, ensure};
 use colored::Colorize;
 use itertools::Itertools;
 use static_assertions::const_assert_eq;
@@ -15,7 +15,7 @@ use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawB
 use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::{Relaxed, Strict};
 use crate::general::board::{
-    BoardHelpers, NameToPos, RectangularBoard, SelfChecks, Strictness, UnverifiedBoard, board_from_name,
+    BoardHelpers, NameToPos, RectangularBoard, SelfChecks, Strictness, Symmetry, UnverifiedBoard, board_from_name,
     read_common_fen_part, read_single_move_number, simple_fen,
 };
 use crate::general::common::*;
@@ -544,7 +544,11 @@ impl Board for MNKBoard {
         fens.map(|f| Self::from_fen(f, Relaxed).unwrap()).into_iter().collect()
     }
 
-    fn random_pos(rng: &mut impl Rng) -> Self {
+    fn random_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Res<Self> {
+        ensure!(
+            symmetry.is_none(),
+            "The m,n,k game implementation does not support setting a random symmetrical position"
+        );
         loop {
             let height = rng.random_range(3..10);
             let width = rng.random_range(3..10);
@@ -563,8 +567,8 @@ impl Board for MNKBoard {
             if rng.random_bool(0.5) {
                 pos.0.active_player = !pos.0.active_player;
             }
-            if let Ok(pos) = pos.verify(Relaxed) {
-                return pos;
+            if let Ok(pos) = pos.verify(strictness) {
+                return Ok(pos);
             }
         }
     }

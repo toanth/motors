@@ -28,7 +28,7 @@ use gears::MatchStatus::Ongoing;
 use gears::ProgramStatus::Run;
 use gears::colored::Colorize;
 use gears::games::OutputList;
-use gears::general::board::Board;
+use gears::general::board::{Board, Symmetry};
 use gears::general::common::anyhow::anyhow;
 use gears::general::common::{Name, NamedEntity, Res, Tokens, tokens};
 use gears::general::moves::Move;
@@ -47,6 +47,7 @@ use std::ops::DerefMut;
 use std::rc::Rc;
 use std::str::from_utf8;
 use std::time::Instant;
+use strum::IntoEnumIterator;
 
 fn add<T>(mut a: Vec<T>, mut b: Vec<T>) -> Vec<T> {
     a.append(&mut b);
@@ -83,6 +84,7 @@ pub(super) trait AutoCompleteState: Debug {
     fn set_eval_subcmds(&self) -> CommandList;
     fn coords_subcmds(&self, ac_coords: bool, only_occupied: bool) -> CommandList;
     fn piece_subcmds(&self) -> CommandList;
+    fn randomize_subcmds(&self) -> CommandList;
     fn make_move(&mut self, mov: &str);
     fn options(&self) -> &[EngineOption];
     fn dyn_cloned(&self) -> Box<dyn AutoCompleteState>;
@@ -142,6 +144,10 @@ impl<B: Board> AutoCompleteState for ACState<B> {
 
     fn piece_subcmds(&self) -> CommandList {
         piece_options(&self.go_state.pos)
+    }
+
+    fn randomize_subcmds(&self) -> CommandList {
+        Symmetry::iter().map(|s| named_entity_to_command(&s)).collect()
     }
 
     fn make_move(&mut self, mov: &str) {
@@ -271,7 +277,7 @@ impl<B: Board> AbstractEngineUgiState for ACState<B> {
     fn handle_move_piece(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-    fn handle_randomize(&mut self) -> Res<()> {
+    fn handle_randomize(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
     fn print_help(&mut self) -> Res<()> {

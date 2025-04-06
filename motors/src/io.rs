@@ -45,7 +45,7 @@ use gears::colored::Color::Red;
 use gears::colored::Colorize;
 use gears::games::{CharType, Color, ColoredPiece, ColoredPieceType, OutputList, ZobristHistory};
 use gears::general::board::Strictness::{Relaxed, Strict};
-use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, UnverifiedBoard};
+use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoard};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::anyhow::{anyhow, bail, ensure};
 use gears::general::common::{
@@ -1248,7 +1248,7 @@ trait AbstractEngineUgiState: Debug {
 
     fn handle_move_piece(&mut self, words: &mut Tokens) -> Res<()>;
 
-    fn handle_randomize(&mut self) -> Res<()>;
+    fn handle_randomize(&mut self, words: &mut Tokens) -> Res<()>;
 
     fn print_help(&mut self) -> Res<()>;
 
@@ -1527,8 +1527,14 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
         Ok(())
     }
 
-    fn handle_randomize(&mut self) -> Res<()> {
-        let pos = B::random_pos(&mut rng());
+    fn handle_randomize(&mut self, words: &mut Tokens) -> Res<()> {
+        let mut symmetry = None;
+        if let Some(&word) = words.peek() {
+            let symmetries = Symmetry::iter().collect_vec();
+            symmetry = Some(*select_name_static(word, symmetries.iter(), "symmetry", self.game_name(), NoDescription)?);
+            _ = words.next();
+        }
+        let pos = B::random_pos(&mut rng(), self.strictness, symmetry)?;
         self.state.set_new_pos_state(UgiPosState::new(pos), true);
         self.print_board(OutputOpts::default());
         Ok(())

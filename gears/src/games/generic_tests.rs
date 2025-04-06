@@ -215,7 +215,8 @@ impl<B: Board> GenericTests<B> {
                     }
                 }
                 // even invalid moves must be able to be printed in this format
-                let _text = m.trust_unchecked().compact_formatter(&pos).to_string();            })
+                let _text = m.trust_unchecked().compact_formatter(&pos).to_string();
+            })
         }
     }
 }
