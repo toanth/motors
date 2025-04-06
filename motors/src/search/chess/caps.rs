@@ -14,7 +14,6 @@ use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
 use crate::search::tt::TTEntry;
 use crate::search::*;
-use derive_more::{Deref, DerefMut};
 use gears::PlayerResult::{Lose, Win};
 use gears::arrayvec::ArrayVec;
 use gears::games::chess::moves::ChessMove;

@@ -5,9 +5,9 @@ use crate::load_data::FeatureAppearance;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, Div, Mul, Sub, SubAssign};
 use gears::colored::Colorize;
 use rayon::prelude::*;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
-use std::ops::{DivAssign, MulAssign};
+use std::ops::{AddAssign, Div, DivAssign, Mul, MulAssign, SubAssign};
 use std::time::Instant;
 
 // TODO: Better value

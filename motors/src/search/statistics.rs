@@ -6,7 +6,7 @@ use derive_more::Display;
 #[allow(unused_imports)]
 use gears::itertools::Itertools;
 use gears::search::NodeType;
-use std::fmt::Formatter;
+use std::fmt::{Display, Formatter};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
