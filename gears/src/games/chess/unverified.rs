@@ -281,7 +281,7 @@ impl UnverifiedChessboard {
             loop {
                 let king_sq2 = rng.random_range(0..64);
                 let king_sq2 = ChessSquare::from_bb_idx(king_sq2);
-                if Chessboard::normal_king_attacks_from(king_sq2).is_bit_set(king_sq1) {
+                if king_sq2 == king_sq1 || Chessboard::normal_king_attacks_from(king_sq2).is_bit_set(king_sq1) {
                     continue;
                 }
                 break king_sq2;

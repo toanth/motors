@@ -392,8 +392,8 @@ fn parse_ugi_moves_part<B: Board>(
         _ = words.next();
         current_word = words.peek().copied();
     }
-    if !parsed_move && has_moves_word {
-        bail!("Missing {0} move after '{1}'", B::game_name(), "moves".bold())
+    if !parsed_move && !allow_empty {
+        bail!("Missing {0} move'", B::game_name())
     }
     Ok(())
 }
@@ -567,7 +567,7 @@ mod tests {
         assert_eq!(res, pos);
 
         let pos = Chessboard::from_name("lucena").unwrap();
-        let input = "lucena moves";
+        let input = "lucena moves not";
         assert!(
             only_load_ugi_position("position", &mut tokens(input), &Chessboard::default(), Relaxed, true, false)
                 .is_err()
