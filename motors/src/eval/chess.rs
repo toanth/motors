@@ -1,10 +1,12 @@
 use derive_more::Display;
-use gears::games::chess::ChessColor;
 use gears::games::chess::ChessColor::Black;
+use gears::games::chess::pieces::ChessPieceType::{Bishop, Knight, Pawn, Queen, Rook};
 use gears::games::chess::pieces::NUM_CHESS_PIECES;
 use gears::games::chess::squares::{A_FILE_NO, ChessSquare, H_FILE_NO, NUM_SQUARES};
+use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::bitboards::chessboard::ChessBitboard;
-use gears::general::bitboards::{Bitboard, KnownSizeBitboard};
+use gears::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
+use gears::general::board::BitboardBoard;
 use gears::general::squares::RectangularCoordinates;
 use strum_macros::EnumIter;
 
@@ -123,6 +125,19 @@ pub const REACHABLE_PAWNS: [ChessBitboard; 64] = {
     }
     res
 };
+
+// This function is only an approximation that can return both false negatives and positives, but should only
+// rarely return `false` if there actually is a way to win.
+pub fn realistic_win(pos: &Chessboard, us: ChessColor) -> bool {
+    let winning_pieces = pos.piece_bb(Pawn) | pos.piece_bb(Queen) | pos.piece_bb(Rook);
+    if (winning_pieces & pos.player_bb(us)).has_set_bit() {
+        return true;
+    }
+    if pos.col_piece_bb(us, Bishop).more_than_one_bit_set() {
+        return true;
+    }
+    pos.col_piece_bb(us, Bishop).has_set_bit() && pos.col_piece_bb(us, Knight).has_set_bit()
+}
 
 #[cfg(test)]
 mod tests {

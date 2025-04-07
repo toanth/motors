@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use crate::eval::Eval;
 use crate::eval::chess::lite::LiTEval;
+use crate::eval::chess::realistic_win;
 use crate::search::chess::caps_values::cc;
 use crate::search::chess::histories::{
     CaptHist, ContHist, CorrHist, HIST_DIVISOR, HistScoreT, HistoryHeuristic, write_single_hist_table,
@@ -1192,7 +1193,7 @@ impl Caps {
 
     fn eval(&mut self, pos: &Chessboard, ply: usize) -> Score {
         let us = self.params.pos.active_player();
-        let res = if ply == 0 {
+        let mut res = if ply == 0 {
             self.eval.eval(pos, 0, us)
         } else {
             let old_pos = &self.state.search_stack[ply - 1].pos;
@@ -1208,6 +1209,12 @@ impl Caps {
             res.0,
             self.eval.eval(pos, ply, us)
         );
+        if !realistic_win(pos, us) {
+            res = res.min(Score(0));
+        }
+        if !realistic_win(pos, !us) {
+            res = res.max(Score(0));
+        }
         res.clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
 
