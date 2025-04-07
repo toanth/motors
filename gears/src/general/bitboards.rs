@@ -4,7 +4,10 @@ use arbitrary::{Arbitrary, Unstructured};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::FusedIterator;
-use std::ops::{Deref, DerefMut};
+use std::ops::{
+    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Deref, DerefMut, Not, Shl, ShlAssign, Shr,
+    ShrAssign, Sub,
+};
 
 use derive_more::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, ShlAssign, Shr, ShrAssign, Sub,
@@ -552,6 +555,7 @@ pub trait Bitboard<R: RawBitboard, C: RectangularCoordinates>:
                 let idx = row * self.size().internal_width() + column;
                 write!(f, "{}", if self.is_bit_set_at(idx) { '1' } else { '0' })?;
             }
+            writeln!(f)?;
         }
         Ok(())
     }

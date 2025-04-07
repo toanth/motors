@@ -21,14 +21,14 @@ use crate::io::command::{
     named_entity_to_command, options_options, piece_options, position_options, query_options, select_command,
     ugi_commands,
 };
-use crate::io::{AbstractEngineUgi, EngineUGI, SearchType};
+use crate::io::{AbstractEngineUgiState, EngineUGI, SearchType};
 use crate::search::{AbstractEvalBuilder, AbstractSearcherBuilder, EvalList, SearcherList};
 use edit_distance::edit_distance;
 use gears::MatchStatus::Ongoing;
 use gears::ProgramStatus::Run;
 use gears::colored::Colorize;
 use gears::games::OutputList;
-use gears::general::board::Board;
+use gears::general::board::{Board, Symmetry};
 use gears::general::common::anyhow::anyhow;
 use gears::general::common::{Name, NamedEntity, Res, Tokens, tokens};
 use gears::general::moves::Move;
@@ -43,9 +43,11 @@ use inquire::{Autocomplete, CustomUserError};
 use std::fmt;
 use std::fmt::Debug;
 use std::iter::once;
+use std::ops::DerefMut;
 use std::rc::Rc;
 use std::str::from_utf8;
 use std::time::Instant;
+use strum::IntoEnumIterator;
 
 fn add<T>(mut a: Vec<T>, mut b: Vec<T>) -> Vec<T> {
     a.append(&mut b);
@@ -82,8 +84,11 @@ pub(super) trait AutoCompleteState: Debug {
     fn set_eval_subcmds(&self) -> CommandList;
     fn coords_subcmds(&self, ac_coords: bool, only_occupied: bool) -> CommandList;
     fn piece_subcmds(&self) -> CommandList;
+    fn randomize_subcmds(&self) -> CommandList;
     fn make_move(&mut self, mov: &str);
     fn options(&self) -> &[EngineOption];
+    fn dyn_cloned(&self) -> Box<dyn AutoCompleteState>;
+    fn upcast_mut(&mut self) -> &mut dyn AbstractEngineUgiState;
 }
 
 impl<B: Board> AutoCompleteState for ACState<B> {
@@ -141,6 +146,10 @@ impl<B: Board> AutoCompleteState for ACState<B> {
         piece_options(&self.go_state.pos)
     }
 
+    fn randomize_subcmds(&self) -> CommandList {
+        Symmetry::iter().map(|s| named_entity_to_command(&s)).collect()
+    }
+
     fn make_move(&mut self, mov: &str) {
         let Ok(mov) = B::Move::from_text(mov, self.pos()) else {
             return;
@@ -153,9 +162,17 @@ impl<B: Board> AutoCompleteState for ACState<B> {
     fn options(&self) -> &[EngineOption] {
         self.options.as_slice()
     }
+
+    fn dyn_cloned(&self) -> Box<dyn AutoCompleteState> {
+        Box::new(self.clone())
+    }
+
+    fn upcast_mut(&mut self) -> &mut dyn AbstractEngineUgiState {
+        self
+    }
 }
 
-impl<B: Board> AbstractEngineUgi for ACState<B> {
+impl<B: Board> AbstractEngineUgiState for ACState<B> {
     fn options_text(&self, _words: &mut Tokens) -> Res<String> {
         Ok(String::new())
     }
@@ -260,7 +277,9 @@ impl<B: Board> AbstractEngineUgi for ACState<B> {
     fn handle_move_piece(&mut self, _words: &mut Tokens) -> Res<()> {
         Ok(())
     }
-
+    fn handle_randomize(&mut self, _words: &mut Tokens) -> Res<()> {
+        Ok(())
+    }
     fn print_help(&mut self) -> Res<()> {
         Ok(())
     }
@@ -322,9 +341,9 @@ fn push(completions: &mut Vec<(isize, Completion)>, word: &str, node: &Command) 
 /// Recursively go through all commands that have been typed so far and add completions.
 /// `node` is the command we're currently looking at, `rest` are the tokens after that,
 /// and `to_complete` is the last typed token or `""`, which is the one that should be completed
-fn completions_for<B: Board>(
+fn completions_for(
     node: &Command,
-    state: &mut ACState<B>,
+    state: &mut dyn AutoCompleteState,
     rest: &mut Tokens,
     to_complete: &str,
 ) -> Vec<(isize, Completion)> {
@@ -345,10 +364,10 @@ fn completions_for<B: Board>(
             if next_token.is_some_and(|name| child.matches(name)) {
                 found_subcommand = true;
                 _ = rest.next(); // eat the token for the subcommand
-                let mut state = state.clone();
+                let mut state = state.dyn_cloned();
                 // possibly change the autocomplete state
-                _ = child.func()(&mut state, rest, next_token.unwrap());
-                let mut new_completions = completions_for(child, &mut state, rest, to_complete);
+                _ = child.func()(state.deref_mut().upcast_mut(), rest, next_token.unwrap());
+                let mut new_completions = completions_for(child, state.deref_mut(), rest, to_complete);
                 next_token = rest.peek().copied();
                 res.append(&mut new_completions);
             }

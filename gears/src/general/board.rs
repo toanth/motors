@@ -36,13 +36,14 @@ use crate::output::OutputOpts;
 use crate::output::text_output::BoardFormatter;
 use crate::search::Depth;
 use crate::{GameOver, GameOverReason, MatchResult, PlayerResult, player_res_to_match_res};
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, ensure};
 use arbitrary::Arbitrary;
 use colored::Colorize;
 use rand::Rng;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::NonZeroUsize;
+use strum_macros::EnumIter;
 
 #[derive(Debug, Copy, Clone)]
 pub struct NameToPos {
@@ -93,6 +94,35 @@ pub enum SelfChecks {
 pub enum Strictness {
     Relaxed,
     Strict,
+}
+
+// In the future, this could also include diagonal and antidiagonal
+#[derive(Debug, Copy, Clone, Eq, PartialEq, EnumIter)]
+#[must_use]
+pub enum Symmetry {
+    Material,
+    Horizontal,
+    Vertical,
+    Rotation180,
+}
+
+impl NamedEntity for Symmetry {
+    fn short_name(&self) -> String {
+        match self {
+            Symmetry::Material => "Material".to_string(),
+            Symmetry::Horizontal => "Horizontal".to_string(),
+            Symmetry::Vertical => "Vertical".to_string(),
+            Symmetry::Rotation180 => "Rotation".to_string(),
+        }
+    }
+
+    fn long_name(&self) -> String {
+        self.short_name()
+    }
+
+    fn description(&self) -> Option<String> {
+        Some(format!("Set the symmetry to '{}'", self.short_name()))
+    }
 }
 
 /// An [`UnverifiedBoard`] is a [`Board`] where invariants can be violated.
@@ -313,6 +343,11 @@ pub trait Board:
     #[must_use]
     fn bench_positions() -> Vec<Self>;
 
+    /// Return a random legal (but `Relaxed`) position. Not every position has to be able to be generated, and there
+    /// are no requirements for the distribution of positions. So always returning startpos would be a valid, if poor,
+    /// implementation. Not all implementation have to support this function or all symmetries, so it returns a `Res`.
+    fn random_pos(rng: &mut impl Rng, strictness: Strictness, symmetry: Option<Symmetry>) -> Res<Self>;
+
     fn settings(&self) -> Self::Settings;
 
     /// Returns a board in the startpos of the variant corresponding to the `name`.
@@ -333,7 +368,7 @@ pub trait Board:
 
     /// An upper bound on the number of past plies that need to be considered for repetitions.
     /// This can be the same as [`Self::halfmove_ctr_since_start`] or always zero if repetitions aren't possible.
-    fn halfmove_repetition_clock(&self) -> usize;
+    fn ply_draw_clock(&self) -> usize;
 
     /// The size of the board.
     fn size(&self) -> BoardSize<Self>;
@@ -434,9 +469,11 @@ pub trait Board:
         self.is_move_pseudolegal(mov)
     }
 
-    /// Returns true iff the move is pseudolegal, that is, it can be played with `make_move` without
+    /// Returns true iff the move is pseudolegal, that is, it can be played with [`Self::make_move`] without
     /// causing a panic. When it is not certain that a move is definitely (pseudo)legal for the current position,
     /// `Untrusted<Move>` should be used.
+    /// Note that it is possible for a move to be considered pseudolegal even though [`Self::pseudolegal_moves`]
+    /// would not generate it (but such a move would never be legal)
     fn is_move_pseudolegal(&self, mov: Self::Move) -> bool;
 
     /// Returns true iff the move is legal, that is, if it is pseudolegal and playing it with `make_move`
@@ -587,7 +624,9 @@ pub trait BoardHelpers: Board {
     }
 
     /// Returns a list of pseudo legal moves, that is, moves which can either be played using
-    /// `make_move` or which will cause `make_move` to return `None`.
+    /// [`Self::make_move`] or which will cause `make_move` to return `None`.
+    /// Note that an implementation is allowed to filter out illegal pseudolegal moves, so this function does not
+    /// guarantee that e.g. all pseudolegal chess moves are being returned.
     fn pseudolegal_moves(&self) -> Self::MoveList {
         let mut moves = Self::MoveList::default();
         self.gen_pseudolegal(&mut moves);
@@ -650,7 +689,9 @@ pub trait BoardHelpers: Board {
     /// fail for a bug-free program; failure most likely means the `Board` implementation is bugged.
     /// For checking invariants that might be violated, use a `Board::Unverified` and call `verify_with_level`.
     fn debug_verify_invariants(self, strictness: Strictness) -> Res<Self> {
-        Self::Unverified::new(self).verify_with_level(Assertion, strictness)
+        let verified = Self::Unverified::new(self.clone()).verify_with_level(Assertion, strictness)?;
+        ensure!(verified == self, "Recalculated data doesn't match: Should be '{verified}' but is '{self}'");
+        Ok(verified)
     }
 
     /// Parses a move using [`Move::from_text`], then applies it on this board and returns the result.
@@ -755,7 +796,7 @@ pub trait BitboardBoard: Board<Coordinates: RectangularCoordinates> {
     /// Bitboard of all pieces of the given type and color, e.g. all black rooks in chess.
     /// Note that it might not be valid to use the empty piece, if such a piece exists.
     // TODO: Remove empty from pieces, use options
-    fn colored_piece_bb(&self, color: Self::Color, piece: PieceTypeOf<Self>) -> Self::Bitboard {
+    fn col_piece_bb(&self, color: Self::Color, piece: PieceTypeOf<Self>) -> Self::Bitboard {
         self.piece_bb(piece) & self.player_bb(color)
     }
 
@@ -844,7 +885,7 @@ pub fn common_fen_part<B: RectangularBoard>(f: &mut Formatter<'_>, pos: &B) -> f
 pub fn simple_fen<T: RectangularBoard>(f: &mut Formatter<'_>, pos: &T, halfmove: bool, fullmove: bool) -> fmt::Result {
     common_fen_part(f, pos)?;
     if halfmove {
-        write!(f, " {}", pos.halfmove_repetition_clock())?;
+        write!(f, " {}", pos.ply_draw_clock())?;
     }
     if fullmove {
         write!(f, " {}", pos.fullmove_ctr_1_based())?;

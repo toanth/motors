@@ -12,20 +12,20 @@ use crate::play::player::{EnginePlayer, Protocol};
 use crate::play::ugi_client::{Client, PlayerId};
 use crate::play::ugi_input::EngineStatus::*;
 use crate::play::ugi_input::HandleBestMove::{Ignore, Play};
+use gears::MatchStatus::Over;
 use gears::colored::Colorize;
 use gears::general::board::Board;
 use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::{
-    parse_duration_ms, parse_int_from_str, tokens, tokens_to_string, Res, Tokens, TokensToString,
+    Res, Tokens, TokensToString, parse_duration_ms, parse_int_from_str, tokens, tokens_to_string,
 };
 use gears::general::moves::Move;
 use gears::output::Message::*;
-use gears::score::{Score, ScoreT, SCORE_LOST, SCORE_WON};
+use gears::score::{SCORE_LOST, SCORE_WON, Score, ScoreT};
 use gears::search::{Depth, NodeType, NodesLimit, SearchInfo, SearchLimit};
 use gears::ugi::EngineOptionType::*;
 use gears::ugi::{EngineOption, EngineOptionName, UgiCheck, UgiCombo, UgiSpin, UgiString};
-use gears::MatchStatus::Over;
-use gears::{player_res_to_match_res, AdjudicationReason, GameOver, GameOverReason, MatchStatus, PlayerResult};
+use gears::{AdjudicationReason, GameOver, GameOverReason, MatchStatus, PlayerResult, player_res_to_match_res};
 // TODO: Does not currently handle engines that simply don't terminate the search (unless the user inputs 'stop')
 // (not receiving ugiok/uiok is handled, as is losing on time with a bestmove response,
 // but non-responding engines currently require user intervention)
@@ -159,6 +159,7 @@ impl<B: Board> OwnedSearchInfo<B> {
             hashfull: self.hashfull,
             pos: self.pos.clone(),
             bound: self.bound,
+            num_threads: 1,
             additional: self.additional.clone(),
         }
     }
@@ -427,7 +428,9 @@ impl<B: Board> InputThread<B> {
             bail!("Expected a single word after 'protocol', but the engine message just ends there")
         };
         if let Some(next) = words.next() {
-            bail!("Expected a single word after 'protocol' (which would have been '{version}'), but it's followed by '{next}'")
+            bail!(
+                "Expected a single word after 'protocol' (which would have been '{version}'), but it's followed by '{next}'"
+            )
         }
         client.show_message(Debug, &format_args!("protocol version of engine '{name}': '{version}'"));
         Ok(())

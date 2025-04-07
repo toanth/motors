@@ -16,9 +16,9 @@
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
 mod attacks;
-mod moves;
+pub mod moves;
 mod perft_tests;
-mod pieces;
+pub mod pieces;
 mod rules;
 
 use crate::PlayerResult;
@@ -35,7 +35,7 @@ use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
     BitboardBoard, Board, BoardHelpers, BoardSize, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks, Strictness,
-    UnverifiedBoard, position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers,
+   Symmetry, UnverifiedBoard, position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers,
 };
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
@@ -527,6 +527,13 @@ impl Board for FairyBoard {
         vec![Self::startpos()]
     }
 
+    // TODO: We could at least pass settings and do `startpos_for_setting()`, but ideally we'd also randomize the settings.
+    // We could generate random positions but couln't control the probability of them being legal
+    // unless we fell back to the starting position
+    fn random_pos(_rng: &mut impl Rng, _strictness: Strictness, _symmetry: Option<Symmetry>) -> Res<Self> {
+        bail!("Not currently implemented for Fairy")
+    }
+
     fn settings(&self) -> Self::Settings {
         self.rules.clone()
     }
@@ -559,7 +566,7 @@ impl Board for FairyBoard {
         self.0.ply_since_start
     }
 
-    fn halfmove_repetition_clock(&self) -> usize {
+    fn ply_draw_clock(&self) -> usize {
         self.0.draw_counter
     }
 
@@ -574,7 +581,7 @@ impl Board for FairyBoard {
     fn is_piece_on(&self, coords: Self::Coordinates, piece: ColPieceTypeOf<Self>) -> bool {
         let idx = self.0.idx(coords);
         if let Some(color) = piece.color() {
-            self.colored_piece_bb(color, piece.uncolor()).is_bit_set_at(idx)
+            self.col_piece_bb(color, piece.uncolor()).is_bit_set_at(idx)
         } else {
             self.piece_bb(piece.uncolor()).is_bit_set_at(idx)
         }
@@ -834,7 +841,7 @@ impl Display for NoRulesFenFormatter<'_> {
             }
         }
         if pos.rules().has_halfmove_repetition_clock() {
-            write!(f, "{} ", pos.halfmove_repetition_clock())?;
+            write!(f, "{} ", pos.ply_draw_clock())?;
         }
         write!(f, "{}", pos.fullmove_ctr_1_based())
     }
@@ -1057,7 +1064,7 @@ mod tests {
                 assert_eq!(mnk_perft.nodes, fairy_perft.nodes, "Depth {i}, pos: {mnk_pos}");
                 let mnk_time = mnk_perft.time.as_millis();
                 let fairy_time = fairy_perft.time.as_millis();
-                assert!(mnk_time * 200 + 2000 > fairy_time, "{mnk_time} {fairy_time} {i} {fairy_pos}");
+                assert!(mnk_time * 100 + 2000 > fairy_time, "{mnk_time} {fairy_time} {i} {fairy_pos}");
             }
         }
     }

@@ -62,7 +62,7 @@ pub fn calc_move_hash_table() -> UpcomingRepetitionTable {
         let color = piece.color().unwrap();
         let piece = piece.uncolor();
         for src in ChessSquare::iter() {
-            let attacks = Chessboard::attacks_no_castle_or_pawn_push(src, piece, color, &slider_gen);
+            let attacks = Chessboard::threatening_attacks(src, piece, color, &slider_gen);
             for dest in attacks.ones() {
                 if dest.bb_idx() < src.bb_idx() {
                     continue;
@@ -94,7 +94,7 @@ pub fn calc_move_hash_table() -> UpcomingRepetitionTable {
 
 fn has_upcoming_repetition(table: &UpcomingRepetitionTable, history: &ZobristHistory, pos: &Chessboard) -> bool {
     let n = history.len();
-    let max_lookback = pos.ply_100_ctr.min(n);
+    let max_lookback = pos.ply_draw_clock().min(n);
     let mut their_delta = pos.hash_pos() ^ history.0[n - 1] ^ ZOBRIST_KEYS.side_to_move_key;
     for i in (3..=max_lookback).step_by(2) {
         their_delta ^= history.0[n - i + 1] ^ history.0[n - i] ^ ZOBRIST_KEYS.side_to_move_key;
@@ -122,7 +122,7 @@ fn has_upcoming_repetition(table: &UpcomingRepetitionTable, history: &ZobristHis
             }
             let mov = ChessMove::new(src, dest, table.moves[idx].flags());
             let piece = mov.piece(pos);
-            debug_assert!(pos.colored_piece_bb(piece.color().unwrap(), piece.uncolored()).is_bit_set_at(src.bb_idx()));
+            debug_assert!(pos.col_piece_bb(piece.color().unwrap(), piece.uncolored()).is_bit_set_at(src.bb_idx()));
             debug_assert!(pos.is_empty(dest));
             debug_assert!(pos.is_move_legal(mov));
             debug_assert_eq!(pos.make_move(mov).unwrap().hash_pos(), history.0[n - i]);

@@ -7,8 +7,10 @@ use crate::general::moves::ExtendedFormat::{Alternative, Standard};
 use crate::general::moves::Legality::Legal;
 use crate::general::moves::Move;
 use itertools::Itertools;
-use rand::rngs::StdRng;
+use num::ToPrimitive;
+use proptest::proptest;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use std::collections::{HashSet, VecDeque};
 use std::marker::PhantomData;
 
@@ -193,5 +195,28 @@ impl<B: Board> GenericTests<B> {
         Self::fen_roundtrip_test();
         Self::statistical_hash_test(B::default());
         Self::unverified_tests();
+        Self::move_test();
+    }
+
+    fn move_test() {
+        let num_bits = size_of::<<B::Move as Move<B>>::Underlying>() * 8;
+        let max_val = 1 << num_bits.min(32);
+        for pos in B::bench_positions() {
+            proptest!(|(pattern in 0..max_val)| {
+                let p_u64 = pattern as u64;
+                let m = B::Move::from_u64_unchecked(p_u64);
+                assert_eq!(m.clone().to_underlying().to_u64().unwrap(), p_u64);
+                if let Some(m) = m.clone().check_pseudolegal(&pos) {
+                    let new_pos = pos.clone().make_move(m);
+                    if pos.is_pseudolegal_move_legal(m) {
+                        assert!(new_pos.is_some());
+                    } else {
+                        assert!(new_pos.is_none());
+                    }
+                }
+                // even invalid moves must be able to be printed in this format
+                let _text = m.trust_unchecked().compact_formatter(&pos).to_string();
+            })
+        }
     }
 }

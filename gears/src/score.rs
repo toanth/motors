@@ -18,15 +18,15 @@
 
 //! Anything related to search that is also used by `monitors`, and therefore doesn't belong in `motors`.
 
+use crate::PlayerResult;
 use crate::general::common::Res;
 use crate::search::NodeType;
 use crate::search::NodeType::{Exact, FailHigh, FailLow};
-use crate::PlayerResult;
 use anyhow::anyhow;
-use derive_more::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use derive_more::{Add, AddAssign, Neg, Sub, SubAssign};
 use num::ToPrimitive;
 use std::fmt::{Display, Formatter};
-use std::ops::{Div, DivAssign};
+use std::ops::{Add, Div, DivAssign, Mul, MulAssign, Sub};
 
 /// Valid scores fit into 16 bits, but it's possible to temporarily overflow that range with some operations,
 /// e.g. when computing `score - previous_score`. So in order to avoid bugs related to that, simply use 32 bits.
@@ -143,11 +143,7 @@ impl Score {
     }
 
     pub fn flip_if(self, flip: bool) -> Self {
-        if flip {
-            -self
-        } else {
-            self
-        }
+        if flip { -self } else { self }
     }
 
     pub fn node_type(self, alpha: Score, beta: Score) -> NodeType {

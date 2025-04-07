@@ -1,3 +1,4 @@
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse"))]
 use std::arch::x86_64::{_MM_HINT_T1, _mm_prefetch};
 use std::fmt::{Display, Formatter};
 use std::mem::size_of;
@@ -239,24 +240,23 @@ impl TT {
         let idx = self.index_of(hash);
         let mut entry = TTEntry::unpack(self.0[idx].load(Relaxed));
         // Mate score adjustments, see `store`
-        if let Some(plies) = entry.score().plies_until_game_won() {
-            if plies < 0 {
+        if let Some(tt_plies) = entry.score().plies_until_game_won() {
+            if tt_plies <= 0 {
                 entry.score += ply as CompactScoreT;
             } else {
                 entry.score -= ply as CompactScoreT;
             }
         }
-        debug_assert!(entry.score().0.abs() <= SCORE_WON.0);
+        debug_assert!(entry.score().0.abs() <= SCORE_WON.0, "{} {ply} {entry:?}", entry.score().0);
         if entry.hash != hash || entry.bound == Empty { None } else { Some(entry) }
     }
 
     #[inline(always)]
+    #[allow(unused_variables)]
     pub fn prefetch(&self, hash: PosHash) {
-        if cfg!(feature = "unsafe") {
-            unsafe {
-                #[cfg(all(target_arch = "x86_64", target_feature = "sse"))]
-                _mm_prefetch::<_MM_HINT_T1>(addr_of!(self.0[self.index_of(hash)]) as *const i8);
-            }
+        #[cfg(all(target_arch = "x86_64", target_feature = "sse", feature = "unsafe"))]
+        unsafe {
+            _mm_prefetch::<_MM_HINT_T1>(addr_of!(self.0[self.index_of(hash)]) as *const i8);
         }
     }
 }

@@ -571,7 +571,7 @@ impl FairyBoard {
             for attack_kind in &piece_type.attacks {
                 match attack_kind.required {
                     RequiredForAttack::PieceOnBoard => {
-                        let bb = self.colored_piece_bb(color, id);
+                        let bb = self.col_piece_bb(color, id);
                         for start in bb.ones() {
                             let piece = FairyPiece { symbol: ColoredPieceId::new(color, id), coordinates: start };
                             if let Some(bb) = attack_kind.attacks(piece, self, mode) {

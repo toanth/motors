@@ -35,10 +35,10 @@ impl Chessboard {
         captures | pushes
     }
 
-    /// Castling moves can be special: For example, it's possible that a normal king move is legal, but a
+    /// This doesn't include castle moves and pawn pushes because those can never capture and are generally special:
+    /// For example, it's possible that a normal king move is legal, but a
     /// chess960 castling move with the same source and dest square as the normal king move isn't, or the other way around.
-    /// For pawns, there's a difference between attacks and pushes, and this function ignores pushes.
-    pub fn attacks_no_castle_or_pawn_push(
+    pub fn threatening_attacks(
         square: ChessSquare,
         piece: ChessPieceType,
         color: ChessColor,
@@ -72,7 +72,7 @@ impl Chessboard {
         let piece = flags.piece_type();
         let src = mov.src_square();
         let color = self.active_player;
-        if !self.colored_piece_bb(color, piece).is_bit_set_at(src.bb_idx()) {
+        if !self.col_piece_bb(color, piece).is_bit_set_at(src.bb_idx()) {
             return false;
         }
         if mov.is_castle() {
@@ -87,7 +87,7 @@ impl Chessboard {
                     .is_bit_set_at(mov.dest_square().bb_idx())
         } else {
             let generator = self.slider_generator();
-            (Self::attacks_no_castle_or_pawn_push(src, mov.piece_type(), color, &generator) & !self.active_player_bb())
+            (Self::threatening_attacks(src, mov.piece_type(), color, &generator) & !self.active_player_bb())
                 .is_bit_set_at(mov.dest_square().bb_idx())
         }
     }
@@ -98,7 +98,7 @@ impl Chessboard {
         let us = self.active_player;
         let src = mov.src_square();
         let piece = mov.flags().piece_type();
-        if !self.colored_piece_bb(us, piece).is_bit_set_at(src.bb_idx()) {
+        if !self.col_piece_bb(us, piece).is_bit_set_at(src.bb_idx()) {
             // this check is still necessary because otherwise we could e.g. accept a move with piece 'bishop' from a queen.
             return false;
         }
@@ -119,7 +119,7 @@ impl Chessboard {
         }
     }
 
-    /// Used for castling and to implement `is_in_check`:
+    /// Used for checking castling legality:
     /// Pretend there is a king of color `us` at `square` and test if it is in check.
     pub fn is_in_check_on_square(&self, us: ChessColor, square: ChessSquare, generator: &ChessSliderGenerator) -> bool {
         (self.all_attacking(square, generator) & self.player_bb(us.other())).has_set_bit()
@@ -128,21 +128,35 @@ impl Chessboard {
     pub(super) fn gen_pseudolegal_moves<T: MoveList<Self>>(
         &self,
         moves: &mut T,
-        filter: ChessBitboard,
+        mut filter: ChessBitboard,
         only_tactical: bool,
     ) {
         let slider_generator = self.slider_generator();
+        self.gen_king_moves(moves, filter, only_tactical);
+        // in a double check, only generate king moves. We support loading FENs with more than 2 checkers.
+        if self.checkers.more_than_one_bit_set() {
+            return;
+        }
+        if self.checkers.has_set_bit() {
+            let checker = ChessSquare::from_bb_idx(self.checkers().pop_lsb());
+            filter &=
+                ChessBitboard::ray_inclusive(self.king_square(self.active_player), checker, ChessboardSize::default());
+        }
         self.gen_slider_moves::<T, { Bishop as usize }>(moves, filter, &slider_generator);
         self.gen_slider_moves::<T, { Rook as usize }>(moves, filter, &slider_generator);
         self.gen_slider_moves::<T, { Queen as usize }>(moves, filter, &slider_generator);
         self.gen_knight_moves(moves, filter);
-        self.gen_king_moves(moves, filter, only_tactical);
         self.gen_pawn_moves(moves, only_tactical);
+        if cfg!(debug_assertions) {
+            for &m in moves.iter_moves() {
+                debug_assert!(self.is_generated_move_pseudolegal(m));
+            }
+        }
     }
 
     fn gen_pawn_moves<T: MoveList<Self>>(&self, moves: &mut T, only_tactical: bool) {
         let color = self.active_player;
-        let pawns = self.colored_piece_bb(color, Pawn);
+        let pawns = self.col_piece_bb(color, Pawn);
         let occupied = self.occupied_bb();
         let free = !occupied;
         let opponent = self.player_bb(color.other());
@@ -165,7 +179,7 @@ impl Chessboard {
         for move_type in [right_pawn_captures, left_pawn_captures, regular_pawn_moves, double_pawn_moves] {
             let bb = move_type.0;
             for to in bb.ones() {
-                let from = ChessSquare::from_bb_index((to.to_u8() as isize - move_type.1) as usize);
+                let from = ChessSquare::from_bb_idx((to.to_u8() as isize - move_type.1) as usize);
                 let is_capture = from.file() != to.file();
                 let mut flag = NormalPawnMove;
                 if self.ep_square.is_some_and(|sq| sq == to) {
@@ -191,7 +205,7 @@ impl Chessboard {
     fn is_castling_pseudolegal(&self, side: CastleRight) -> bool {
         let color = self.active_player;
         let king_square = self.king_square(color);
-        let king = self.colored_piece_bb(color, King);
+        let king = self.col_piece_bb(color, King);
         // Castling, handling the general (D)FRC case.
         let king_file = king_square.file() as usize;
         const KING_QUEENSIDE_BB: [ChessBitboard; 8] = [
@@ -257,30 +271,30 @@ impl Chessboard {
     }
 
     fn gen_king_moves<T: MoveList<Self>>(&self, moves: &mut T, filter: ChessBitboard, only_captures: bool) {
-        let color = self.active_player;
-        let king = self.colored_piece_bb(color, King);
-        let king_square = ChessSquare::from_bb_index(king.num_trailing_zeros());
+        let filter = filter & !self.threats;
+        let us = self.active_player;
+        let king_square = self.king_square(us);
         let mut attacks = Self::normal_king_attacks_from(king_square) & filter;
         while attacks.has_set_bit() {
             let target = attacks.pop_lsb();
-            moves.add_move(ChessMove::new(king_square, ChessSquare::from_bb_index(target), NormalKingMove));
+            moves.add_move(ChessMove::new(king_square, ChessSquare::from_bb_idx(target), NormalKingMove));
         }
         if only_captures {
             return;
         }
         // Castling, handling the general (D)FRC case.
         if self.is_castling_pseudolegal(Queenside) {
-            let rook = self.rook_start_square(color, Queenside);
+            let rook = self.rook_start_square(us, Queenside);
             moves.add_move(ChessMove::new(king_square, rook, CastleQueenside));
         }
         if self.is_castling_pseudolegal(Kingside) {
-            let rook = self.rook_start_square(color, Kingside);
+            let rook = self.rook_start_square(us, Kingside);
             moves.add_move(ChessMove::new(king_square, rook, CastleKingside));
         }
     }
 
     fn gen_knight_moves<T: MoveList<Self>>(&self, moves: &mut T, filter: ChessBitboard) {
-        let knights = self.colored_piece_bb(self.active_player, Knight);
+        let knights = self.col_piece_bb(self.active_player, Knight);
         for from in knights.ones() {
             let attacks = Self::knight_attacks_from(from) & filter;
             for to in attacks.ones() {
@@ -304,7 +318,7 @@ impl Chessboard {
             Queen
         };
         let color = self.active_player;
-        let pieces = self.colored_piece_bb(color, piece);
+        let pieces = self.col_piece_bb(color, piece);
         for from in pieces.ones() {
             let attacks = match piece {
                 Bishop => generator.bishop_attacks(from),
@@ -322,27 +336,16 @@ impl Chessboard {
     // All the following methods can be called with squares that do not contain the specified piece.
     // This makes sense because it allows to find all pieces able to attack a given square.
 
-    pub fn normal_king_attacks_from(square: ChessSquare) -> ChessBitboard {
+    pub const fn normal_king_attacks_from(square: ChessSquare) -> ChessBitboard {
         KINGS[square.bb_idx()]
     }
 
-    pub fn knight_attacks_from(square: ChessSquare) -> ChessBitboard {
+    pub const fn knight_attacks_from(square: ChessSquare) -> ChessBitboard {
         KNIGHTS[square.bb_idx()]
     }
 
-    pub fn single_pawn_captures(color: ChessColor, square: ChessSquare) -> ChessBitboard {
+    pub const fn single_pawn_captures(color: ChessColor, square: ChessSquare) -> ChessBitboard {
         PAWN_CAPTURES[color as usize][square.bb_idx()]
-    }
-
-    pub fn all_attacking(&self, square: ChessSquare, slider_gen: &ChessSliderGenerator) -> ChessBitboard {
-        let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
-        let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
-        rook_sliders & slider_gen.rook_attacks(square)
-            | bishop_sliders & slider_gen.bishop_attacks(square)
-            | (Self::knight_attacks_from(square) & self.piece_bb(Knight))
-            | (Self::normal_king_attacks_from(square) & self.piece_bb(King))
-            | Self::single_pawn_captures(Black, square) & self.colored_piece_bb(White, Pawn)
-            | Self::single_pawn_captures(White, square) & self.colored_piece_bb(Black, Pawn)
     }
 
     // TODO: Use precomputed rays
@@ -360,6 +363,68 @@ impl Chessboard {
             generator.anti_diagonal_attacks(target) & (self.piece_bb(Bishop) | self.piece_bb(Queen))
         } else {
             ChessBitboard::default()
+        }
+    }
+
+    pub fn all_attacking(&self, square: ChessSquare, slider_gen: &ChessSliderGenerator) -> ChessBitboard {
+        let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
+        let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
+        rook_sliders & slider_gen.rook_attacks(square)
+            | bishop_sliders & slider_gen.bishop_attacks(square)
+            | (Self::knight_attacks_from(square) & self.piece_bb(Knight))
+            | (Self::normal_king_attacks_from(square) & self.piece_bb(King))
+            | Self::single_pawn_captures(Black, square) & self.col_piece_bb(White, Pawn)
+            | Self::single_pawn_captures(White, square) & self.col_piece_bb(Black, Pawn)
+    }
+
+    pub(super) fn calc_checkers_of(&self, player: ChessColor, slider_gen: &ChessSliderGenerator) -> ChessBitboard {
+        self.all_attacking(self.king_square(!player), slider_gen) & self.player_bb(player)
+    }
+
+    pub fn checkers(&self) -> ChessBitboard {
+        self.checkers
+    }
+
+    /// Calculate a bitboard of all squares that are attacked by the given player.
+    /// This only counts hypothetical captures, so no pawn pushes or castling moves.
+    pub(super) fn calc_threats(&self, player: ChessColor, slider_gen: &ChessSliderGenerator) -> ChessBitboard {
+        let mut res = Self::normal_king_attacks_from(self.king_square(player));
+        for knight in self.col_piece_bb(player, Knight).ones() {
+            res |= Self::knight_attacks_from(knight);
+        }
+        let bishop_sliders = self.piece_bb(Bishop) | self.piece_bb(Queen);
+        let rook_sliders = self.piece_bb(Rook) | self.piece_bb(Queen);
+        let us = self.player_bb(player);
+        res |= slider_gen.all_bishop_attacks(bishop_sliders & us);
+        res |= slider_gen.all_rook_attacks(rook_sliders & us);
+        res |= self.col_piece_bb(player, Pawn).pawn_attacks(player);
+        res
+    }
+
+    pub fn threats(&self) -> ChessBitboard {
+        self.threats
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attack_test() {
+        for pos in Chessboard::bench_positions() {
+            for mov in pos.legal_moves_slow() {
+                let child = pos.make_move(mov).unwrap();
+                let slider_gen = child.slider_generator();
+                let mut threats = ChessBitboard::default();
+                for sq in ChessSquare::iter() {
+                    let attacks = child.all_attacking(sq, &slider_gen);
+                    if (attacks & child.inactive_player_bb()).has_set_bit() {
+                        threats |= sq.bb();
+                    }
+                }
+                assert_eq!(threats, child.threats(), "{child} {:?}", threats ^ child.threats());
+            }
         }
     }
 }

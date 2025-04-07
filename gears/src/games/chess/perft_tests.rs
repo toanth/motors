@@ -1,12 +1,12 @@
-// #![feature(test)]
-
 #[cfg(test)]
 mod tests {
     use crate::games::Board;
     use crate::games::chess::Chessboard;
+    use crate::games::chess::moves::ChessMove;
     use crate::general::board::Strictness::{Relaxed, Strict};
     use crate::general::board::{BoardHelpers, Strictness};
     use crate::general::common::parse_int_from_str;
+    use crate::general::moves::Move;
     use crate::general::perft::perft;
     use crate::search::Depth;
     use itertools::Itertools;
@@ -85,6 +85,137 @@ mod tests {
         assert_eq!(res.nodes, 1);
     }
 
+    // ** The following tests are based on tests by kz04px: <https://github.com/kz04px/rawr/blob/master/tests/perft_extra.rs> **
+
+    #[test]
+    fn perft_enpassant() {
+        let tests = [
+            // EP
+            ("8/8/8/8/1k1PpN1R/8/8/4K3 b - d3 0 1", vec![1, 9, 193]),
+            ("8/8/8/8/1k1Ppn1R/8/8/4K3 b - d3 0 1", vec![1, 17, 220]),
+            ("4k3/8/8/2PpP3/8/8/8/4K3 w - d6 0 1", vec![1, 9, 47, 376]),
+            ("4k3/8/8/8/2pPp3/8/8/4K3 b - d3 0 1", vec![1, 9, 47, 376]),
+            // EP - pinned diagonal
+            ("4k3/b7/8/2Pp4/8/8/8/6K1 w - d6 0 1", vec![1, 5, 45]),
+            ("4k3/7b/8/4pP2/8/8/8/1K6 w - e6 0 1", vec![1, 5, 45]),
+            ("6k1/8/8/8/2pP4/8/B7/3K4 b - d3 0 1", vec![1, 5, 45]),
+            ("1k6/8/8/8/4Pp2/8/7B/4K3 b - e3 0 1", vec![1, 5, 45]),
+            ("4k3/b7/8/1pP5/8/8/8/6K1 w - b6 0 1", vec![1, 6, 52]),
+            ("4k3/7b/8/5Pp1/8/8/8/1K6 w - g6 0 1", vec![1, 6, 51]),
+            ("6k1/8/8/8/1Pp5/8/B7/4K3 b - b3 0 1", vec![1, 6, 52]),
+            ("1k6/8/8/8/5pP1/8/7B/4K3 b - g3 0 1", vec![1, 6, 51]),
+            ("4k3/K7/8/1pP5/8/8/8/6b1 w - b6 0 1", vec![1, 6, 66]),
+            ("4k3/7K/8/5Pp1/8/8/8/1b6 w - g6 0 1", vec![1, 6, 60]),
+            ("6B1/8/8/8/1Pp5/8/k7/4K3 b - b3 0 1", vec![1, 6, 66]),
+            ("1B6/8/8/8/5pP1/8/7k/4K3 b - g3 0 1", vec![1, 6, 60]),
+            ("4k3/b7/8/2Pp4/3K4/8/8/8 w - d6 0 1", vec![1, 5, 44]),
+            ("4k3/8/1b6/2Pp4/3K4/8/8/8 w - d6 0 1", vec![1, 6, 59]),
+            ("4k3/8/b7/1Pp5/2K5/8/8/8 w - c6 0 1", vec![1, 6, 49]),
+            ("4k3/8/7b/5pP1/5K2/8/8/8 w - f6 0 1", vec![1, 6, 49]),
+            ("4k3/7b/8/4pP2/4K3/8/8/8 w - e6 0 1", vec![1, 5, 44]),
+            ("4k3/8/6b1/4pP2/4K3/8/8/8 w - e6 0 1", vec![1, 6, 53]),
+            ("4k3/8/3K4/1pP5/8/q7/8/8 w - b6 0 1", vec![1, 5, 114]),
+            ("7k/4K3/8/1pP5/8/q7/8/8 w - b6 0 1", vec![1, 8, 171]),
+            // EP - double check
+            ("4k3/2rn4/8/2K1pP2/8/8/8/8 w - e6 0 1", vec![1, 4, 75]),
+            // EP - pinned horizontal
+            ("4k3/8/8/K2pP2r/8/8/8/8 w - d6 0 1", vec![1, 6, 94]),
+            ("4k3/8/8/K2pP2q/8/8/8/8 w - d6 0 1", vec![1, 6, 130]),
+            ("4k3/8/8/r2pP2K/8/8/8/8 w - d6 0 1", vec![1, 6, 87]),
+            ("4k3/8/8/q2pP2K/8/8/8/8 w - d6 0 1", vec![1, 6, 129]),
+            ("8/8/8/8/1k1Pp2R/8/8/4K3 b - d3 0 1", vec![1, 8, 125]),
+            ("8/8/8/8/1R1Pp2k/8/8/4K3 b - d3 0 1", vec![1, 6, 87]),
+            // EP - pinned vertical
+            ("k7/8/4r3/3pP3/8/8/8/4K3 w - d6 0 1", vec![1, 5, 70]),
+            ("k3K3/8/8/3pP3/8/8/8/4r3 w - d6 0 1", vec![1, 6, 91]),
+            // EP - in check
+            ("4k3/8/8/4pP2/3K4/8/8/8 w - e6 0 1", vec![1, 9, 49]),
+            ("8/8/8/4k3/5Pp1/8/8/3K4 b - f3 0 1", vec![1, 9, 50]),
+            // EP - block check
+            ("4k3/8/K6r/3pP3/8/8/8/8 w - d6 0 1", vec![1, 6, 109]),
+            ("4k3/8/K6q/3pP3/8/8/8/8 w - d6 0 1", vec![1, 6, 151]),
+        ];
+
+        for (fen, results) in tests {
+            let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+            for (idx, &expected) in results.iter().enumerate() {
+                let result = perft(Depth::new(idx), pos, false);
+                assert_eq!(result.nodes, expected, "depth {idx}: {fen}");
+            }
+        }
+    }
+
+    #[test]
+    fn perft_double_checked() {
+        let tests = [
+            ("4k3/8/4r3/8/8/8/3p4/4K3 w - - 0 1", [1, 4, 80, 320]),
+            ("4k3/8/4q3/8/8/8/3b4/4K3 w - - 0 1", [1, 4, 143, 496]),
+        ];
+
+        for (fen, results) in tests {
+            let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+            for (idx, &expected) in results.iter().enumerate() {
+                let result = perft(Depth::new(idx), pos, false);
+                assert_eq!(result.nodes, expected, "depth {idx}: {fen}");
+            }
+        }
+    }
+
+    #[test]
+    fn perft_pins() {
+        let tests = [
+            ("4k3/8/8/8/1b5b/8/3Q4/4K3 w - - 0 1", [1, 3, 54, 1256, 20328]),
+            ("4k3/8/8/8/1b5b/8/3R4/4K3 w - - 0 1", [1, 3, 54, 836, 14835]),
+            ("4k3/8/8/8/1b5b/2Q5/5P2/4K3 w - - 0 1", [1, 6, 98, 2274, 34581]),
+            ("4k3/8/8/8/1b5b/2R5/5P2/4K3 w - - 0 1", [1, 4, 72, 1300, 23118]),
+            ("4k3/8/8/8/1b2r3/8/3Q4/4K3 w - - 0 1", [1, 3, 66, 1390, 29093]),
+            ("4k3/8/8/8/1b2r3/8/3QP3/4K3 w - - 0 1", [1, 6, 119, 2074, 40736]),
+            // Additional position with some rather tricky cases
+            ("1k6/8/1q3b2/2R1P3/r1RK1B1r/8/8/8 w - - 0 1", [1, 8, 276, 4995, 180603]),
+            // castling out of a pin
+            ("3k4/4r3/8/8/8/4B3/8/R3K3 w Q - 0 1", [1, 16, 214, 4814, 72521]),
+            // even more weird pins
+            ("3q3r/7R/3r3Q/B2R2rk/1b3B1p/2B1Pp2/1qNKBR2/4B3 b - - 21 42", [1, 2, 84, 3342, 130469]),
+        ];
+
+        for (fen, results) in tests {
+            let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+            for (idx, &expected) in results.iter().enumerate() {
+                let result = perft(Depth::new(idx), pos, false);
+                assert_eq!(result.nodes, expected, "depth {idx}: {fen}");
+            }
+        }
+    }
+
+    #[test]
+    fn perft_dfrc() {
+        let tests = [
+            ("2r1kr2/8/8/8/8/8/8/1R2K1R1 w GBfc - 0 1", [1, 22, 501, 11459]),
+            ("rkr5/8/8/8/8/8/8/5RKR w HFca - 0 1", [1, 22, 442, 10217]),
+            ("2r3kr/8/8/8/8/8/8/2KRR3 w h - 3 2", [1, 3, 72, 1371]),
+            ("5rkr/8/8/8/8/8/8/RKR5 w CAhf - 0 1", [1, 22, 442, 10206]),
+            ("3rkr2/8/8/8/8/8/8/R3K2R w HAfd - 0 1", [1, 20, 452, 9873]),
+            ("4k3/8/8/8/8/8/8/4KR2 w F - 0 1", [1, 14, 47, 781]),
+            ("4kr2/8/8/8/8/8/8/4K3 w f - 0 1", [1, 3, 42, 246]),
+            ("4k3/8/8/8/8/8/8/2R1K3 w C - 0 1", [1, 16, 71, 1277]),
+            ("2r1k3/8/8/8/8/8/8/4K3 w c - 0 1", [1, 5, 80, 448]),
+        ];
+        let pos = Chessboard::from_fen("1r4kr/8/8/8/8/8/2R5/RK6 w Ah - 2 2", Strict).unwrap();
+        let mov = ChessMove::from_text("0-0-0", &pos).unwrap();
+        assert!(pos.is_generated_move_pseudolegal(mov));
+        assert!(!pos.is_pseudolegal_move_legal(mov));
+
+        for (fen, results) in tests {
+            let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+            for (idx, &expected) in results.iter().enumerate() {
+                let result = perft(Depth::new(idx), pos, false);
+                assert_eq!(result.nodes, expected, "depth {idx}: {fen}");
+            }
+        }
+    }
+
+    // ** The following test positions are mostly form well-known perft suites, with a couple of custom additions
+
     struct ExpectedPerftRes {
         fen: &'static str,
         res: Vec<u64>,
@@ -111,8 +242,6 @@ mod tests {
         }
     }
 
-    /// Perft test suite taken from Ethereal: <https://github.com/AndyGrant/Ethereal/blob/master/src/perft/>
-    /// Additional positions from the excellent website <https://analog-hors.github.io/webperft/>
     #[test]
     #[ignore]
     fn standard_perft_test() {
@@ -373,6 +502,8 @@ mod tests {
         "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 b - - 0 1 ;D1 0 ;D2 0 ;D3 0 ;D4 0 ;D5 0 ;D6 0 ;D7 0",
         // a very weird position (not reachable from startpos, but still somewhat realistic)
         "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w - - 0 1 ;D1 4 ;D2 16 ;D3 176 ;D4 1936 ;D5 22428 ;D6 255135 ;D7 3830854",
+        // Triggered a bug in SF once which didn't appear in the usual perft test suite
+        "r7/4p3/5p1q/3P4/4pQ2/4pP2/6pp/R3K1kr w Q - 1 3 ;D1 29 ;D2 681 ;D3 18511 ;D4 430036 ;D5 11609488 ;D6 274691896",
     ];
 
     /// This perft test suite is also taken from Ethereal: <https://github.com/AndyGrant/Ethereal/blob/master/src/perft/fischer.epd>.

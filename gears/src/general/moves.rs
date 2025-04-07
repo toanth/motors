@@ -31,6 +31,8 @@ use std::hash::Hash;
 /// for the given position, which is why such a move is represented as a `Untrusted<Move>`.
 /// Note that legality depends on the position and can't be statically enforced; incorrectly assuming (pseudo)legality
 /// usually results in a panic when playing the move, although *there is no guarantee given; the behavior is unspecified*.
+/// Also note that it is up to the game implementation to decide what it considers to be a pseudolegal move; this decision
+/// does not have to coincide with commonly-used definitions: E.g. chess is allowed to not even generate some illegal pseudolegal moves.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Arbitrary)]
 pub enum Legality {
     PseudoLegal,
@@ -108,12 +110,12 @@ where
     /// Parse a compact text representation emitted by `to_compact_text`, such as the one used by UCI.
     /// Returns the remaining input.
     /// Needs to ensure that the move is at least pseudolegal.
-    fn parse_compact_text<'a>(s: &'a str, board: &B) -> Res<(&'a str, B::Move)>;
+    fn parse_compact_text<'a>(s: &'a str, board: &B) -> Res<(&'a str, Self)>;
 
     /// Parse a compact text representation emitted by `to_compact_text`, such as the one used by UCI.
     /// Returns an error unless the entire input has been consumed.
     /// Needs to ensure that the move is at least pseudolegal.
-    fn from_compact_text(s: &str, board: &B) -> Res<B::Move> {
+    fn from_compact_text(s: &str, board: &B) -> Res<Self> {
         let (remaining, parsed) = Self::parse_compact_text(s, board)?;
         if !remaining.is_empty() {
             bail!("Additional input after move {0}: '{1}'", parsed.compact_formatter(board), remaining);
@@ -124,13 +126,15 @@ where
     /// Parse a longer text representation emitted by `format_extended`, such as long algebraic notation.
     /// May optionally also parse additional notation, such as short algebraic notation.
     /// Needs to ensure that the move is at least pseudolegal. Returns the remaining input.
-    fn parse_extended_text<'a>(s: &'a str, board: &B) -> Res<(&'a str, B::Move)>;
+    /// If the input format is unknown, calling [`Self::parse_text`] is the better choice.
+    fn parse_extended_text<'a>(s: &'a str, board: &B) -> Res<(&'a str, Self)>;
 
     /// Parse a longer text representation emitted by `format_extended`, such as long algebraic notation.
     /// May optionally also parse additional notation, such as short algebraic notation.
     /// Needs to ensure that the move is at least pseudolegal.
     /// Returns an error unless the entire input has been consumed.
-    fn from_extended_text(s: &str, board: &B) -> Res<B::Move> {
+    /// If the input format is unknown, calling [`Self::from_text`] is the better choice.
+    fn from_extended_text(s: &str, board: &B) -> Res<Self> {
         let (remaining, parsed) = Self::parse_extended_text(s, board)?;
         if !remaining.is_empty() {
             bail!("Additional input after move {0}: '{1}'", parsed.compact_formatter(board), remaining);
@@ -143,7 +147,12 @@ where
     /// This is supposed to be used whenever the move format is unknown, such as when the user enters a move, and therefore
     /// should handle as many different cases as possible, but always needs to handle the compact text representation.
     /// Like all move parsing functions, this function needs to ensure that the move is pseudolegal in the current position.
-    fn from_text(s: &str, board: &B) -> Res<B::Move> {
+    fn parse_text<'a>(s: &'a str, board: &B) -> Res<(&'a str, Self)> {
+        Self::parse_compact_text(s, board).or_else(|_| Self::parse_extended_text(s, board))
+    }
+
+    /// See [`Self::parse_text`]. This function returns an error unless the entire input has been consumed.
+    fn from_text(s: &str, board: &B) -> Res<Self> {
         // Try `from_compact_text` first because that's usually cheaper and will be used by the GUI, i.e., when performance matters
         B::Move::from_compact_text(s, board).or_else(|_| B::Move::from_extended_text(s, board))
     }
@@ -212,19 +221,11 @@ impl<B: Board> UntrustedMove<B> {
     }
 
     pub fn check_pseudolegal(self, pos: &B) -> Option<B::Move> {
-        if pos.is_move_pseudolegal(self.0) {
-            Some(self.0)
-        } else {
-            None
-        }
+        if pos.is_move_pseudolegal(self.0) { Some(self.0) } else { None }
     }
 
     pub fn check_legal(&self, pos: &B) -> Option<B::Move> {
-        if pos.is_move_legal(self.0) {
-            Some(self.0)
-        } else {
-            None
-        }
+        if pos.is_move_legal(self.0) { Some(self.0) } else { None }
     }
 
     pub fn trust_unchecked(self) -> B::Move {

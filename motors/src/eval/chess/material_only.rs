@@ -1,7 +1,7 @@
 use crate::eval::Eval;
-use gears::games::chess::pieces::ChessPieceType;
-use gears::games::chess::Chessboard;
 use gears::games::Color;
+use gears::games::chess::pieces::ChessPieceType;
+use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::board::{BitboardBoard, Board};
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::{Score, ScoreT};
@@ -39,12 +39,12 @@ impl Eval<Chessboard> for MaterialOnlyEval {
     fn piece_scale(&self) -> ScoreT {
         5
     }
-    fn eval(&mut self, pos: &Chessboard, _ply: usize) -> Score {
+    fn eval(&mut self, pos: &Chessboard, _ply: usize, _engine: ChessColor) -> Score {
         let mut color = pos.active_player();
         let mut score = 0;
         for _ in 0..2 {
             for piece in ChessPieceType::non_king_pieces() {
-                let num_pieces = pos.colored_piece_bb(color, piece).count_ones() as ScoreT;
+                let num_pieces = pos.col_piece_bb(color, piece).count_ones() as ScoreT;
                 score += num_pieces * MATERIAL_VALUE[piece as usize];
             }
             score = -score;

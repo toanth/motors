@@ -124,11 +124,30 @@ impl ChessSliderGenerator {
 
     pub fn queen_attacks(&self, square: ChessSquare) -> ChessBitboard {
         let idx = square.bb_idx();
-        let non_horizontal = self.hq(Diagonal, &CHESS_HQ_DATA[idx])
-            | self.hq(AntiDiagonal, &CHESS_HQ_DATA[idx])
-            | self.hq(Vertical, &CHESS_HQ_DATA[idx]);
+        let non_horizontal = self.hq(Vertical, &CHESS_HQ_DATA[idx])
+            | self.hq(Diagonal, &CHESS_HQ_DATA[idx])
+            | self.hq(AntiDiagonal, &CHESS_HQ_DATA[idx]);
         let non_horizontal = Self::finish(non_horizontal);
         self.horizontal_attacks(square) | non_horizontal
+    }
+
+    // It might be worth investigating using Kogge-Stone, which should perform equally well no matter how many sliders there are.
+    // However, in normal chess positions there are rarely more than 3 rook/bishop sliders per side, so Kogge-Stone is probably
+    // still slower than this approach.
+    pub fn all_bishop_attacks(&self, bishop_sliders: ChessBitboard) -> ChessBitboard {
+        let mut res = ChessBitboard::default();
+        for square in bishop_sliders.ones() {
+            res |= self.bishop_attacks(square);
+        }
+        res
+    }
+
+    pub fn all_rook_attacks(&self, rook_sliders: ChessBitboard) -> ChessBitboard {
+        let mut res = ChessBitboard::default();
+        for square in rook_sliders.ones() {
+            res |= self.rook_attacks(square);
+        }
+        res
     }
 }
 
@@ -461,17 +480,17 @@ mod tests {
     fn chess_test() {
         let blockers = white_squares();
         let generator = ChessSliderGenerator::new(blockers);
-        let attacks_bishop_a1 = generator.bishop_attacks(ChessSquare::from_bb_index(0));
-        assert_eq!(attacks_bishop_a1, ChessBitboard::diagonal(ChessSquare::from_bb_index(0)) & !ChessBitboard::new(1));
-        let attacks_bishop_b1 = generator.bishop_attacks(ChessSquare::from_bb_index(1));
+        let attacks_bishop_a1 = generator.bishop_attacks(ChessSquare::from_bb_idx(0));
+        assert_eq!(attacks_bishop_a1, ChessBitboard::diagonal(ChessSquare::from_bb_idx(0)) & !ChessBitboard::new(1));
+        let attacks_bishop_b1 = generator.bishop_attacks(ChessSquare::from_bb_idx(1));
         assert_eq!(attacks_bishop_b1.0, 0x500);
-        let attacks_rook_a1 = generator.rook_attacks(ChessSquare::from_bb_index(0));
+        let attacks_rook_a1 = generator.rook_attacks(ChessSquare::from_bb_idx(0));
         assert_eq!(attacks_rook_a1.0, 0x102);
-        let attacks_rook_b1 = generator.rook_attacks(ChessSquare::from_bb_index(1));
+        let attacks_rook_b1 = generator.rook_attacks(ChessSquare::from_bb_idx(1));
         assert_eq!(attacks_rook_b1.0, 0x2020d);
-        let attacks_queen_a1 = generator.queen_attacks(ChessSquare::from_bb_index(0));
+        let attacks_queen_a1 = generator.queen_attacks(ChessSquare::from_bb_idx(0));
         assert_eq!(attacks_queen_a1, attacks_rook_a1 | attacks_bishop_a1);
-        let attacks_queen_b1 = generator.queen_attacks(ChessSquare::from_bb_index(1));
+        let attacks_queen_b1 = generator.queen_attacks(ChessSquare::from_bb_idx(1));
         assert_eq!(attacks_queen_b1, attacks_rook_b1 | attacks_bishop_b1);
         let e4 = ChessSquare::from_str("e4").unwrap();
         assert!(blockers.is_bit_set_at(e4.bb_idx()));
