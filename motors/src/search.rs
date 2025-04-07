@@ -970,6 +970,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         self.search_params().num_multi_pv
     }
 
+    // move_nr starts from 1, not 0
     fn send_currmove(&mut self, mov: B::Move, move_nr: usize, score: Score, alpha: Score, beta: Score) {
         if let Some(mut output) = self.params.thread_type.output() {
             output.write_currmove(&self.params.pos, mov, move_nr, score, alpha, beta);
