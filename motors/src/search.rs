@@ -352,7 +352,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
     /// For engines like `RandomMover` where there is no static eval, this should return `Score(0)`.
     /// Most evals completely ignore the `ply` parameter, but it can be used e.g. to decide which color we are
     /// for asymmetric evals.
-    fn static_eval(&mut self, pos: B, ply: usize) -> Score;
+    fn static_eval(&mut self, pos: &B, ply: usize) -> Score;
 
     fn clean_bench(&mut self, pos: B, limit: SearchLimit) -> BenchResult {
         self.forget();
@@ -360,8 +360,10 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
         self.search_state_dyn().to_bench_res()
     }
 
-    fn bench(&mut self, pos: B, limit: SearchLimit, tt: TT) -> BenchResult {
-        let _ = self.search_with_tt(pos, limit, tt);
+    fn bench(&mut self, pos: B, limit: SearchLimit, tt: TT, additional_pvs: usize) -> BenchResult {
+        let mut params = SearchParams::new_unshared(pos, limit, ZobristHistory::default(), tt);
+        params.num_multi_pv = additional_pvs + 1;
+        let _ = self.search(params);
         self.search_state_dyn().to_bench_res()
     }
 
@@ -435,7 +437,7 @@ pub trait Engine<B: Board>: StaticallyNamedEntity + Send + 'static {
     }
 
     /// The important function.
-    /// Should not be called directly (TODO: Rename to `search_impl`)
+    /// Should not be called directly
     fn do_search(&mut self) -> SearchResult<B>;
 }
 
@@ -492,6 +494,7 @@ pub trait NormalEngine<B: Board>: Engine<B> {
         state.start_time().elapsed() >= soft_limit
             || state.uci_nodes() >= soft_nodes
             || state.depth().get() as isize > max_soft_depth
+            // even in a multipv search, we stop as soon as a single mate is found
             || state.best_score() >= Score(SCORE_WON.0 - mate_depth.get() as ScoreT)
     }
 }
@@ -619,11 +622,13 @@ impl<B: Board> SearchParams<B> {
     /// c) the search hasn't been cancelled yet. It will wait until the search has been cancelled.
     /// Auxiliary threads and ponder searches both return instantly from this function, without printing anything.
     /// If the search result has chosen a null move, this instead outputs a warning and a random legal move.
-    fn send_search_res(&self, res: &SearchResult<B>) {
+    fn end_and_send(&self, res: &SearchResult<B>) {
         let Main(data) = &self.thread_type else {
+            self.atomic.set_searching(false);
             return;
         };
         if self.atomic.suppress_best_move.load(Acquire) {
+            self.atomic.set_searching(false);
             return;
         }
         if data.search_type == Infinite {
@@ -633,6 +638,9 @@ impl<B: Board> SearchParams<B> {
         }
         let pos = &self.pos;
         let mut output = data.output.lock().unwrap();
+        // do this before sending 'bestmove' to avoid a race condition where we send bestmove, the gui sends a new 'go', the uci thread tries
+        // to start a new search, but the searching flag is still not unset, so it fails
+        self.atomic.set_searching(false);
         if res.chosen_move == B::Move::default() {
             let mut rng = StdRng::seed_from_u64(42); // keep everything deterministic
             let chosen_move = pos.random_legal_move(&mut rng).unwrap_or_default();
@@ -693,13 +701,13 @@ impl<B: Board> CustomInfo<B> for NoCustomInfo {
 }
 
 #[derive(Debug, Clone)]
-struct PVData<B: Board> {
+pub struct PVData<B: Board> {
     alpha: Score,
     beta: Score,
     radius: Score,
-    pv: Pv<B, 200>, // A PV of 200 plies should be more than enough for anybody (tm)
-    score: Score,
-    bound: Option<NodeType>,
+    pub pv: Pv<B, 200>, // A PV of 200 plies should be more than enough for anybody (tm)
+    pub score: Score,
+    pub bound: Option<NodeType>,
 }
 
 impl<B: Board> Default for PVData<B> {
@@ -720,6 +728,7 @@ pub trait AbstractSearchState<B: Board> {
     fn new_search(&mut self, params: SearchParams<B>);
     fn end_search(&mut self, res: &SearchResult<B>);
     fn search_params(&self) -> &SearchParams<B>;
+    fn pv_data(&self) -> &[PVData<B>];
     fn to_bench_res(&self) -> BenchResult;
     fn to_search_info(&self) -> SearchInfo<B>;
     fn aggregated_statistics(&self) -> Statistics;
@@ -820,26 +829,36 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         self.send_statistics();
         self.aggregate_match_statistics();
         // might block, see method. Do this as the last step so that we're not using compute after sending
-        // the search result.
-        self.params.send_search_res(res);
-        self.params.atomic.set_searching(false);
+        // the search result and so that we avoid race conditions.
+        self.params.end_and_send(res);
     }
 
     fn search_params(&self) -> &SearchParams<B> {
         &self.params
     }
 
+    fn pv_data(&self) -> &[PVData<B>] {
+        self.multi_pvs.as_slice()
+    }
+
     fn to_bench_res(&self) -> BenchResult {
         let mut hasher = DefaultHasher::new();
-        if self.params.num_multi_pv > 0 {
-            for mov in self.current_mpv_pv() {
+        for pv_data in &self.multi_pvs {
+            for mov in &pv_data.pv.list {
+                mov.hash(&mut hasher);
+            }
+            pv_data.score.hash(&mut hasher);
+            pv_data.alpha.hash(&mut hasher);
+            pv_data.beta.hash(&mut hasher);
+        }
+        if let Some(pv) = self.search_stack.first().and_then(|e| e.pv()) {
+            for mov in pv {
                 mov.hash(&mut hasher);
             }
         }
         // the score can differ even if the pv is the same, so make sure to include that in the hash
         self.best_score().hash(&mut hasher);
-        // The pv doesn't necessarily contain the best move for multipv searches. When run though cli `--bench`, the bench search doesn't do multipv,
-        // but it's possible to input e.g. `bench mpv 2` to get a multipv bench. Additionally, bench is important for debugging, so to catch
+        // The pv doesn't necessarily contain the best move for multipv searches. Additionally, bench is important for debugging, so to catch
         // bugs where the best move changes but not the PV, the best move and ponder move are included in the bench hash
         self.best_move().hash(&mut hasher);
         self.ponder_move().hash(&mut hasher);
@@ -951,6 +970,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         self.search_params().num_multi_pv
     }
 
+    // move_nr starts from 1, not 0
     fn send_currmove(&mut self, mov: B::Move, move_nr: usize, score: Score, alpha: Score, beta: Score) {
         if let Some(mut output) = self.params.thread_type.output() {
             output.write_currmove(&self.params.pos, mov, move_nr, score, alpha, beta);
@@ -967,6 +987,15 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             }
             let line = self.search_stack.iter().take(ply).map(|entry| entry.last_played_move().unwrap());
             output.write_currline(&self.params.pos, line, eval, alpha, beta);
+            self.last_msg_time = Instant::now();
+        }
+    }
+
+    /// Marked as cold for similar reasons to [`Self::send_currline`].
+    #[cold]
+    fn send_refutation(&mut self, root_move: B::Move, score: Score, move_num: usize) {
+        if let Some(mut output) = self.params.thread_type.output() {
+            output.write_refutation(&self.params.pos, root_move, score, move_num);
             self.last_msg_time = Instant::now();
         }
     }
@@ -1050,11 +1079,13 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         // self.search_stack[0].pv doesn't have to be the same as `self.multi_pvs[self.current_pv_num].pv`
         // because it gets cleared when visiting the root,
         // and if the root never updates its PV (because it fails low or because the search is stopped), it will remain
-        // empty. On the other hand, it can get updated during search; this only updates after each aw.
-        self.search_stack
-            .first()
-            .and_then(|e| e.pv())
-            .unwrap_or_else(|| self.multi_pvs[self.current_pv_num].pv.list.as_slice())
+        // empty. On the other hand, it can get updated during search.
+        let res = self.search_stack.first().and_then(|e| e.pv());
+        if res.is_none_or(|pv| pv.is_empty()) {
+            self.multi_pvs[self.current_pv_num].pv.list.as_slice()
+        } else {
+            res.unwrap()
+        }
     }
 }
 
@@ -1077,9 +1108,9 @@ pub fn run_bench_with<B: Board>(
     let tt = tt.unwrap_or_default();
     for position in bench_positions {
         // engine.forget();
-        single_bench(position, engine, limit, tt.clone(), &mut total, &mut hasher);
+        single_bench(position, engine, limit, tt.clone(), 0, &mut total, &mut hasher);
         if let Some(limit) = second_limit {
-            single_bench(position, engine, limit, tt.clone(), &mut total, &mut hasher);
+            single_bench(position, engine, limit, tt.clone(), 1, &mut total, &mut hasher);
         }
     }
     if limit.depth != SearchLimit::infinite().depth {
@@ -1097,6 +1128,7 @@ fn single_bench<B: Board>(
     engine: &mut dyn Engine<B>,
     limit: SearchLimit,
     tt: TT,
+    additional_pvs: usize,
     total: &mut BenchResult,
     hasher: &mut DefaultHasher,
 ) {
@@ -1106,7 +1138,7 @@ fn single_bench<B: Board>(
         limit.fixed_time = limit.fixed_time.min(Duration::from_millis(20));
         limit
     };
-    let res = engine.bench(pos.clone(), limit, tt);
+    let res = engine.bench(pos.clone(), limit, tt, additional_pvs);
     total.nodes += res.nodes;
     total.time += res.time;
     total.max_depth = total.max_depth.max(res.max_depth);
@@ -1123,7 +1155,7 @@ mod tests {
     pub fn generic_engine_test<B: Board, E: Engine<B>>(mut engine: E) {
         let tt = TT::default();
         for p in B::bench_positions() {
-            let res = engine.bench(p.clone(), SearchLimit::nodes_(1), tt.clone());
+            let res = engine.bench(p.clone(), SearchLimit::nodes_(1), tt.clone(), 0);
             assert!(res.depth.is_none());
             assert!(res.max_depth.get() <= 1 + 1); // possible extensions
             assert!(res.nodes <= 100); // TODO: Assert exactly 1

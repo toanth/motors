@@ -15,16 +15,16 @@
  *  You should have received a copy of the GNU General Public License
  *  along with Gears. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::games::uttt::uttt_square::UtttSquare;
 use crate::games::uttt::ColoredUtttPieceType::{OStone, XStone};
 use crate::games::uttt::UtttColor::*;
+use crate::games::uttt::uttt_square::UtttSquare;
 use crate::games::uttt::{UnverifiedUtttBoard, UtttBoard, UtttMove, UtttSubSquare};
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{Board, BoardHelpers, UnverifiedBoard};
 use crate::general::perft::perft;
 use crate::search::Depth;
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 
 #[test]
 fn perft_tests() {
@@ -67,7 +67,7 @@ fn alternative_fen_test() {
 #[test]
 fn sub_board_won_test() {
     let mut pos = UnverifiedUtttBoard::new(UtttBoard::default());
-    let sub_board = UtttSubSquare::from_bb_index(0);
+    let sub_board = UtttSubSquare::from_bb_idx(0);
     pos.place_piece(UtttSquare::new(sub_board, UtttSubSquare::unchecked(0)), XStone);
     pos.place_piece(UtttSquare::new(sub_board, UtttSubSquare::unchecked(1)), OStone);
     pos.place_piece(UtttSquare::new(sub_board, UtttSubSquare::unchecked(3)), XStone);

@@ -103,13 +103,13 @@ impl ChessMove {
 
     #[inline]
     pub fn src_square(self) -> ChessSquare {
-        ChessSquare::from_bb_index((self.0 & 0x3f) as usize)
+        ChessSquare::from_bb_idx((self.0 & 0x3f) as usize)
     }
 
     #[inline]
     /// For a castle move, this always returns the rook square, which allows disambiguating Chess960 castling moves.
     pub fn dest_square(self) -> ChessSquare {
-        ChessSquare::from_bb_index(((self.0 >> 6) & 0x3f) as usize)
+        ChessSquare::from_bb_idx(((self.0 >> 6) & 0x3f) as usize)
     }
 
     pub fn square_of_pawn_taken_by_ep(self) -> Option<ChessSquare> {
@@ -197,7 +197,7 @@ impl ChessMove {
     }
 
     pub(super) fn flags(self) -> ChessMoveFlags {
-        ChessMoveFlags::iter().nth((self.0 >> 12) as usize).unwrap()
+        ChessMoveFlags::iter().nth((self.0 >> 12) as usize).unwrap_or_default()
     }
 
     pub fn from_to_square(self) -> usize {
@@ -544,7 +544,7 @@ impl Chessboard {
         );
 
         let king_ray = ChessBitboard::ray_inclusive(
-            mov.src_square(),
+            from,
             ChessSquare::from_rank_file(from.rank(), to_file),
             ChessboardSize::default(),
         );
@@ -710,7 +710,7 @@ impl<'a> MoveParser<'a> {
         // To handle this, 'b' is assumed to never refer to a bishop (but `B`, '🨃', '♗' and '♝' always refer to bishops).
         // The same is true for 'D' in German notation.
         let Some(current) = self.current_char() else {
-            bail!("Empty move");
+            bail!("Empty move string");
         };
         match current {
             'a'..='h' | 'A' | 'C' | 'E'..='H' | 'x' | ':' | '×' => (),
@@ -1059,6 +1059,7 @@ mod tests {
     use crate::general::moves::ExtendedFormat::{Alternative, Standard};
     use crate::general::moves::Move;
     use crate::general::perft::perft;
+    use crate::output::pgn::parse_pgn;
     use crate::search::Depth;
     use itertools::Itertools;
 
@@ -1228,5 +1229,21 @@ mod tests {
         pos = pos.make_nullmove().unwrap();
         pos = pos.make_move_from_str("Be2").unwrap();
         assert!(pos.make_move_from_str("0-0-0").is_ok());
+    }
+
+    #[test]
+    fn many_queens() {
+        let pgn = "
+Na3 ♞a6 2. ♘a3c4 a6c5 3. Na5 Nb3 4. Nc6 Nf6 5. Nf3 Ne4 6. Nh4 Ng5 7. Ng6 Nf3+ 8. e:f3 dxc6 9. Bc4 ♗f5! 10. Be6 Bd3 11. ab c5 12. Ra6 ba6: \
+    13. b3b4 a5 14. b5 a4 15. cxd3 c4 16. d4 fxe6 17. d5 ♟e6e5 18. f4 hxg6 19. f5 Rh3 20. gxh3 e4 21. h4 g5 22. h5 g4 23. Ke2 g3 24. h4 e3 \
+    25. Kf3 g2 26. h6 e2 27. h7 a3 28. h5 ♟a2 29. h6 a1=♛ 30. ♔g4 g1=Q+ 31. Kh5 g5 32. b4 a5 33. h8=Q Qb1 34. Qb2 a4 35. h7 a4a3 36. d4 c3 \
+    37. d6 c5 38. d4d5 c4 39. f4 Qa7 40. h8=Q a3a2 41. Qhd4 Bh6 42. b6 Kf8 43. b7 Kg8 44. b8Q ♚h7 45. f6 g4 46. f7 g3 47. f8=Q e5 48. d7 e4 \
+    49. ♙b4b5 g2 50. Qfb4 e1=Q 51. ♙f5 e3 52. f6 e2 53. Bf4 c2 54. f7 c1=Q 55. f8=Q g1♛ 56. d6 Qda5 57. d8=Q a1=Q \
+    58. Qg5 Qeg3 59. d7 e1Q 60. d8=♕ c3 61. b6 c2 62. b7 ♕cd2 63. Qb8d6 c1=Q 64. b8=Q";
+        let data = parse_pgn::<Chessboard>(pgn, Strict, None).unwrap();
+        let pos = data.game.board;
+        assert_eq!(pos.as_fen(), "rQ1Q1Q2/q6k/3Q3b/q5QK/1Q1Q1B2/6q1/1Q1q4/qqqQq1qR b - - 0 64");
+        let perft_res = perft(Depth::new(3), pos, true);
+        assert_eq!(perft_res.nodes, 492194);
     }
 }

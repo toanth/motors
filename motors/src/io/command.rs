@@ -265,7 +265,7 @@ pub fn ugi_commands() -> CommandList {
             --> |state| state.query_subcmds()
         ),
         command!(
-            option | info,
+            option | info | listoptions,
             Custom,
             "Prints information about the current options. Optionally takes an option name",
             |ugi, words, _| {
@@ -381,6 +381,13 @@ pub fn ugi_commands() -> CommandList {
             "Moves the piece on the first given square to the second given square, e.g. 'move a1 a2'",
             |ugi, words, _| ugi.handle_move_piece(words),
             --> |state| state.coords_subcmds(true, true)
+        ),
+        command!(
+            random_pos | randomize | rand,
+            Custom,
+            "Creates a new random position. No guarantees about the probability distribution",
+            |ugi, words, _| { ugi.handle_randomize(words) },
+            --> |state| state.randomize_subcmds()
         ),
         command!(
             auto,
@@ -866,7 +873,6 @@ fn generic_go_options(accept_pos_word: bool) -> CommandList {
             "Load a positions from a FEN",
             |state, words, _| state.load_go_state_pos("fen", words),
             --> |state| state.moves_subcmds(true, true),
-            // TODO: Set position based on the FEN
             recurse = true
         ),
         pos_command!(

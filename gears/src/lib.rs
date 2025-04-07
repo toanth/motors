@@ -9,8 +9,8 @@ use crate::GameResult::Aborted;
 use crate::MatchStatus::{NotStarted, Ongoing, Over};
 use crate::PlayerResult::{Draw, Lose, Win};
 use crate::ProgramStatus::Run;
-use crate::games::Color;
 use crate::games::{BoardHistory, ZobristHistory};
+use crate::games::{Color, NoHistory};
 use crate::general::board::{Board, BoardHelpers, Strictness};
 use crate::general::common::Description::WithDescription;
 use crate::general::common::{Res, Tokens, select_name_dyn};
@@ -286,7 +286,7 @@ impl Default for ProgramStatus {
 
 /// Base trait for the different modes in which the user can run the program.
 /// It contains one important method: [`run`].
-/// The [`handle_input`] and [`quit`] method are really just hacks to support fuzzing.
+/// The [`handle_input`] and [`quit`] method are really just hacks to support (fuzz) testing.
 pub trait AbstractRun: Debug {
     fn run(&mut self) -> Quitting;
     fn handle_input(&mut self, _input: &str) -> Res<()> {
@@ -412,9 +412,11 @@ impl<B: Board> AbstractUgiPosState for UgiPosState<B> {
 
 impl<B: Board> UgiPosState<B> {
     pub fn new(pos: B) -> Self {
+        let status =
+            if let Some(res) = pos.match_result_slow(&NoHistory::default()) { Run(Over(res)) } else { Run(NotStarted) };
         UgiPosState {
             board: pos.clone(),
-            status: Run(NotStarted),
+            status,
             mov_hist: Vec::with_capacity(256),
             board_hist: ZobristHistory::with_capacity(256),
             pos_before_moves: pos,

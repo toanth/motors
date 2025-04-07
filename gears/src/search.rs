@@ -10,7 +10,7 @@ use derive_more::{Add, AddAssign, SubAssign};
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
-use std::ops::Sub;
+use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 use strum_macros::FromRepr;

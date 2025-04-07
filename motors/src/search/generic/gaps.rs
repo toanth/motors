@@ -61,8 +61,8 @@ impl<B: Board> Engine<B> for Gaps<B> {
         Self { state: SearchState::new(MAX_DEPTH), eval }
     }
 
-    fn static_eval(&mut self, pos: B, ply: usize) -> Score {
-        self.eval.eval(&pos, ply).clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
+    fn static_eval(&mut self, pos: &B, ply: usize) -> Score {
+        self.eval.eval(pos, ply, self.state.params.pos.active_player()).clamp(MIN_NORMAL_SCORE, MAX_NORMAL_SCORE)
     }
 
     fn max_bench_depth(&self) -> Depth {
@@ -158,7 +158,7 @@ impl<B: Board> Gaps<B> {
             return game_result_to_score(res, ply);
         }
         if depth <= 0 {
-            return self.eval.eval(&pos, ply);
+            return self.static_eval(&pos, ply);
         }
 
         let mut best_score = SCORE_LOST;

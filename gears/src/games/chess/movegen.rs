@@ -155,16 +155,19 @@ impl Chessboard {
         if self.checkers.more_than_one_bit_set() {
             return;
         }
+        let mut check_ray = !ChessBitboard::default();
         if self.checkers.has_set_bit() {
-            let checker = ChessSquare::from_bb_index(self.checkers().pop_lsb());
-            filter &=
+            let checker = ChessSquare::from_bb_idx(self.checkers().pop_lsb());
+            check_ray =
                 ChessBitboard::ray_inclusive(self.king_square(self.active_player), checker, ChessboardSize::default());
+            filter &= check_ray;
         }
         self.gen_slider_moves::<T, { Bishop as usize }>(moves, filter, &slider_generator);
         self.gen_slider_moves::<T, { Rook as usize }>(moves, filter, &slider_generator);
         self.gen_slider_moves::<T, { Queen as usize }>(moves, filter, &slider_generator);
         self.gen_knight_moves(moves, filter);
-        self.gen_pawn_moves(moves, filter, only_tactical);
+        self.gen_pawn_moves(moves, check_ray, only_tactical);
+
         if cfg!(debug_assertions) {
             for &m in moves.iter_moves() {
                 debug_assert!(self.is_generated_move_pseudolegal(m));
@@ -197,7 +200,7 @@ impl Chessboard {
         for move_type in [right_pawn_captures, left_pawn_captures, regular_pawn_moves, double_pawn_moves] {
             let bb = move_type.0;
             for to in bb.ones() {
-                let from = ChessSquare::from_bb_index((to.to_u8() as isize - move_type.1) as usize);
+                let from = ChessSquare::from_bb_idx((to.to_u8() as isize - move_type.1) as usize);
                 let is_capture = from.file() != to.file();
                 let mut flag = NormalPawnMove;
                 if self.ep_square.is_some_and(|sq| sq == to) {
@@ -295,7 +298,7 @@ impl Chessboard {
         let mut attacks = Self::normal_king_attacks_from(king_square) & filter;
         while attacks.has_set_bit() {
             let target = attacks.pop_lsb();
-            moves.add_move(ChessMove::new(king_square, ChessSquare::from_bb_index(target), NormalKingMove));
+            moves.add_move(ChessMove::new(king_square, ChessSquare::from_bb_idx(target), NormalKingMove));
         }
         if only_captures {
             return;
@@ -485,13 +488,13 @@ impl Chessboard {
                 if self.pinned.is_bit_set(src) {
                     return false;
                 }
-                let checker = ChessSquare::from_bb_index(self.checkers().pop_lsb());
+                let checker = ChessSquare::from_bb_idx(self.checkers().pop_lsb());
                 let ray = ChessBitboard::ray_inclusive(checker, king_sq, ChessboardSize::default());
                 return ray.is_bit_set(mov.dest_square());
             } else if self.pinned.is_bit_set(src) {
                 let mut pinning = self.ray_attacks(src, king_sq, self.occupied_bb());
                 debug_assert!(pinning.is_single_piece());
-                let pinning = ChessSquare::from_bb_index(pinning.pop_lsb());
+                let pinning = ChessSquare::from_bb_idx(pinning.pop_lsb());
                 let pin_ray = ChessBitboard::ray_inclusive(pinning, king_sq, ChessboardSize::default());
                 return pin_ray.is_bit_set(mov.dest_square());
             }

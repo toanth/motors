@@ -45,7 +45,7 @@ use gears::colored::Color::Red;
 use gears::colored::Colorize;
 use gears::games::{CharType, Color, ColoredPiece, ColoredPieceType, OutputList, ZobristHistory};
 use gears::general::board::Strictness::{Relaxed, Strict};
-use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, UnverifiedBoard};
+use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoard};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::anyhow::{anyhow, bail, ensure};
 use gears::general::common::{
@@ -62,6 +62,7 @@ use gears::output::logger::LoggerBuilder;
 use gears::output::pgn::parse_pgn;
 use gears::output::text_output::{AdaptFormatter, display_color};
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
+use gears::rand::rng;
 use gears::score::Score;
 use gears::search::{Depth, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
@@ -280,19 +281,24 @@ fn handle_ugi_input(ugi: &mut dyn AbstractEngineUgi, mut words: Tokens, game_nam
     let Some(first_word) = words.next() else {
         return Ok(()); // ignore empty input
     };
-    let Ok(cmd) = select_name_static(first_word, ugi.all_commands().ugi.iter(), "command", game_name, NoDescription)
-    else {
-        let words_copy = words.clone();
-        // These input options are not autocompleted (except for moves, which is done separately) and not selected using commands.
-        // This allows precomputing commands, resolves potential conflicts with commands, and speeds up autocompletion
-        if ugi.handle_move_fen_or_pgn(first_word, words)? {
+    let cmd = match select_name_static(first_word, ugi.all_commands().ugi.iter(), "command", game_name, NoDescription) {
+        Ok(cmd) => cmd,
+        Err(err) => {
+            let words_copy = words.clone();
+            // These input options are not autocompleted (except for moves, which is done separately) and not selected using commands.
+            // This allows precomputing commands, resolves potential conflicts with commands, and speeds up autocompletion
+            if ugi.handle_move_fen_or_pgn(first_word, words)? {
+                return Ok(());
+            } else if first_word.eq_ignore_ascii_case("barbecue") {
+                ugi.write_ugi_msg(&print_as_ascii_art("lol", 2));
+            }
+            ugi.write_message(
+                Warning,
+                &format_args!("{}", invalid_command_msg(ugi.is_interactive(), first_word, words, &err.to_string())),
+            );
+            ugi.set_failed_cmd(Some(tokens_to_string(first_word, words_copy)));
             return Ok(());
-        } else if first_word.eq_ignore_ascii_case("barbecue") {
-            ugi.write_ugi_msg(&print_as_ascii_art("lol", 2));
         }
-        ugi.write_message(Warning, &format_args!("{}", invalid_command_msg(ugi.is_interactive(), first_word, words)));
-        ugi.set_failed_cmd(Some(tokens_to_string(first_word, words_copy)));
-        return Ok(());
     };
 
     // this does all the actual work of executing the command
@@ -392,8 +398,8 @@ impl<B: Board> EngineUGI<B> {
             self.write_message(Warning, &format_args!("{}", "Fuzzing Mode Enabled!".bold()));
         }
 
-        let (mut input, interactive) = Input::new(self.state.protocol == Interactive, self);
-        if self.state.protocol == Interactive && !interactive {
+        let (mut input, is_interactive) = Input::new(self.state.protocol == Interactive, self);
+        if self.state.protocol == Interactive && !is_interactive {
             self.state.protocol = UGI; // Will be overwritten shortly, and isn't really used much anyway
         }
         loop {
@@ -536,6 +542,7 @@ impl<B: Board> EngineUGI<B> {
                     }
                 }
             }
+            UCIShowRefutations => self.output().show_refutation = parse_bool_from_str(&value, "show refutations")?,
             UCIShowCurrLine => {
                 self.output().show_currline = parse_bool_from_str(&value, "show current line")?;
             }
@@ -732,7 +739,6 @@ impl<B: Board> EngineUGI<B> {
                 // It doesn't matter if we got a ponderhit or a miss, we simply abort the ponder search and start a new search.
                 if opts.engine_name.is_none() && self.state.ponder_limit.is_some() {
                     self.state.ponder_limit = None;
-                    // TODO: Maybe do this all the time to make sure two `go` commands after another work -- write testcase for that
                     engine.send_stop(true); // aborts the pondering without printing a search result
                 }
                 engine.start_search(pos, opts.limit, hist, search_moves, opts.multi_pv, false, opts.threads, tt)?;
@@ -787,7 +793,7 @@ impl<B: Board> EngineUGI<B> {
             let info = self.state.engine.get_engine_info();
             if let Some(eval_name) = info.eval() {
                 let mut eval = create_eval_from_str(&eval_name.short_name(), &self.eval_factories)?.build();
-                let eval_score = eval.eval(&state.board, 0);
+                let eval_score = eval.eval(&state.board, 0, state.board.active_player());
                 if self.is_interactive() {
                     let diagram = show_eval_pos(&state.board, state.last_move(), eval);
                     diagram
@@ -1087,6 +1093,10 @@ impl<B: Board> EngineUGI<B> {
                         )),
                     }),
                 },
+                UCIShowRefutations => EngineOption {
+                    name: UCIShowRefutations,
+                    value: Check(UgiCheck { val: self.output().show_refutation, default: Some(false) }),
+                },
                 UCIShowCurrLine => EngineOption {
                     name: UCIShowCurrLine,
                     value: Check(UgiCheck { val: self.output().show_currline, default: Some(false) }),
@@ -1237,6 +1247,8 @@ trait AbstractEngineUgiState: Debug {
 
     fn handle_move_piece(&mut self, words: &mut Tokens) -> Res<()>;
 
+    fn handle_randomize(&mut self, words: &mut Tokens) -> Res<()>;
+
     fn print_help(&mut self) -> Res<()>;
 
     fn write_is_player(&mut self, is_first: bool) -> Res<()>;
@@ -1285,6 +1297,7 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
     }
 
     fn handle_ugi(&mut self, proto: &str) -> Res<()> {
+        self.state.protocol = Protocol::from_str(proto)?;
         let id_msg = self.id();
         self.write_ugi(&format_args!(
             "Starting {proto} mode. Type '{0}' or '{1}' for interactive mode.\n",
@@ -1294,7 +1307,6 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
         self.write_ugi_msg(&id_msg);
         self.write_ugi(&format_args!("{}", self.write_ugi_options().as_str()));
         self.write_ugi(&format_args!("{proto}ok"));
-        self.state.protocol = Protocol::from_str(proto).unwrap();
         self.output().set_pretty(self.state.protocol == Interactive);
         Ok(())
     }
@@ -1509,6 +1521,19 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
         let piece = B::Piece::new(piece.colored_piece_type(), dest);
         new_pos.try_place_piece(piece)?;
         let pos = new_pos.verify(self.strictness)?;
+        self.state.set_new_pos_state(UgiPosState::new(pos), true);
+        self.print_board(OutputOpts::default());
+        Ok(())
+    }
+
+    fn handle_randomize(&mut self, words: &mut Tokens) -> Res<()> {
+        let mut symmetry = None;
+        if let Some(&word) = words.peek() {
+            let symmetries = Symmetry::iter().collect_vec();
+            symmetry = Some(*select_name_static(word, symmetries.iter(), "symmetry", self.game_name(), NoDescription)?);
+            _ = words.next();
+        }
+        let pos = B::random_pos(&mut rng(), self.strictness, symmetry)?;
         self.state.set_new_pos_state(UgiPosState::new(pos), true);
         self.print_board(OutputOpts::default());
         Ok(())
@@ -1733,7 +1758,7 @@ fn write_options_impl(
 }
 
 #[cold]
-fn invalid_command_msg(interactive: bool, first_word: &str, rest: &mut Tokens) -> String {
+fn invalid_command_msg(interactive: bool, first_word: &str, rest: &mut Tokens, err_msg: &str) -> String {
     // The original UCI spec demands that unrecognized tokens should be ignored, whereas the
     // expositor UCI spec demands that an invalid token should cause the entire message to be ignored.
     let suggest_help = if interactive {
@@ -1741,30 +1766,22 @@ fn invalid_command_msg(interactive: bool, first_word: &str, rest: &mut Tokens) -
     } else {
         format!(
             "If you are a human, consider typing '{0}' to see a list of recognized commands.\n\
-            In that case, also consider typing '{1}' to enable the interactive interface.",
+            Also consider typing '{1}' or '{2}' to enable the interactive interface.",
             "help".bold(),
-            "interactive".bold()
+            "interactive".bold(),
+            "i".bold(),
         )
     };
     let input = format!("{first_word} {}", rest.clone().join(" "));
     let first_len = first_word.chars().count();
-    let error_msg = if input.len() > 200 || first_len > 50 {
-        let first_word = if first_len > 75 {
-            format!(
-                "{0}{1}",
-                first_word.chars().take(50).collect::<String>().red(),
-                "...(rest omitted for brevity)".dimmed()
-            )
-        } else {
-            first_word.red().to_string()
-        };
-        format!("Invalid first word '{first_word}' of a long UGI command")
+    let error_msg = if input.len() > 150 || first_len > 50 {
+        "Invalid first word of a long UGI command".to_string()
     } else if rest.peek().is_none() {
         format!("Invalid single-word UGI command '{}'", first_word.red())
     } else {
         format!("Invalid first word '{0}' of UGI command '{1}'", first_word.red(), input.trim().bold())
     };
-    format!("{error_msg}, ignoring the entire command.\n{suggest_help}")
+    format!("{error_msg}, ignoring the entire command:\n{err_msg}\n{suggest_help}")
 }
 
 // take a BoardGameState instead of a board to correctly handle displaying the last move
@@ -1822,7 +1839,7 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
 fn show_eval_pos<B: Board>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>>) -> String {
     let eval = RefCell::new(eval);
     let formatter = pos.pretty_formatter(None, last, OutputOpts::default());
-    let eval_pos = eval.borrow_mut().eval(pos, 0);
+    let eval_pos = eval.borrow_mut().eval(pos, 0, pos.active_player());
     let p = pos.clone();
     let mut formatter = AdaptFormatter {
         underlying: formatter,
@@ -1836,7 +1853,7 @@ fn show_eval_pos<B: Board>(pos: &B, last: Option<B::Move>, eval: Box<dyn Eval<B>
                 format!("{}:", piece.to_char(CharType::Ascii, &p.settings()).to_string().color(display_color(color)));
             let score = match p.clone().remove_piece(coords).unwrap().verify(Relaxed) {
                 Ok(pos) => {
-                    let diff = eval_pos - eval.borrow_mut().eval(&pos, 0);
+                    let diff = eval_pos - eval.borrow_mut().eval(&pos, 0, pos.active_player());
                     let (val, suffix) = suffix_for(diff.0 as isize, Some(10_000));
                     // reduce the scale by some scale because we expect pieces values to be much larger
                     // than eval values. The ideal scale depends on the game and eval,

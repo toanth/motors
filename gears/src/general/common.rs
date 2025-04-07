@@ -1,6 +1,7 @@
 use crate::general::common::Description::WithDescription;
 use crate::score::Score;
 pub use anyhow;
+use anyhow::bail;
 use colored::Colorize;
 use edit_distance::edit_distance;
 use itertools::Itertools;
@@ -11,9 +12,8 @@ use std::fmt::{Debug, Display};
 use std::io::stdin;
 use std::iter::Peekable;
 use std::num::{NonZeroU64, NonZeroUsize};
-use std::str::{FromStr, SplitWhitespace};
+use std::str::{FromStr, SplitAsciiWhitespace};
 use std::time::Duration;
-
 // The `bitintr` crate provides similar features, but unfortunately it is bugged and unmaintained.
 
 #[allow(unused)]
@@ -104,10 +104,10 @@ impl TokensToString for Tokens<'_> {
     }
 }
 
-pub type Tokens<'a> = Peekable<SplitWhitespace<'a>>;
+pub type Tokens<'a> = Peekable<SplitAsciiWhitespace<'a>>;
 
 pub fn tokens(input: &str) -> Tokens {
-    input.split_whitespace().peekable()
+    input.split_ascii_whitespace().peekable()
 }
 
 pub fn tokens_to_string(first: &str, mut rest: Tokens) -> String {
@@ -291,6 +291,15 @@ fn list_to_string<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String>(iter:
     iter.map(|x| to_name(&x)).join(", ")
 }
 
+pub fn red_name(word: &str) -> String {
+    let len = word.chars().count();
+    if len > 50 {
+        format!("{0}{1}", word.chars().take(50).collect::<String>().red(), "...(rest omitted for brevity)".dimmed())
+    } else {
+        word.red().to_string()
+    }
+}
+
 fn select_name_impl<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String, G: Fn(&I::Item, &str) -> bool>(
     name: Option<&str>,
     mut list: I,
@@ -337,12 +346,9 @@ fn select_name_impl<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String, G: 
             };
             let game_name = game_name.bold();
             if let Some(name) = name {
-                let name = name.red();
-                Err(anyhow::anyhow!(
-                    "Couldn't find {typ} '{name}' for the current game ({game_name}). {list_as_string}."
-                ))
+                bail!("Couldn't find {typ} '{}' for the current game ({game_name}). {list_as_string}.", red_name(name))
             } else {
-                Err(anyhow::anyhow!(list_as_string))
+                bail!(list_as_string)
             }
         }
         Some(res) => Ok(res),

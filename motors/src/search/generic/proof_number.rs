@@ -20,7 +20,7 @@ use crate::eval::rand_eval::RandEval;
 use crate::search::statistics::Statistics;
 use crate::search::{
     AbstractSearchState, BenchResult, DEFAULT_CHECK_TIME_INTERVAL, EmptySearchStackEntry, Engine, EngineInfo,
-    NoCustomInfo, SearchParams,
+    NoCustomInfo, PVData, SearchParams,
 };
 use gears::PlayerResult;
 use gears::games::{BoardHistory, Color, PosHash, ZobristHistory2Fold};
@@ -194,12 +194,19 @@ impl<B: Board> ProofNumberSearcher<B> {
         }
     }
 
+    fn tt_idx(&self, hash: PosHash) -> usize {
+        // Uses lemire's multiplication trick, like the TT implementation
+        ((hash.0 as u128 * self.tt.len() as u128) >> 64) as usize
+    }
+
     fn save_to_tt(&mut self, pos: &B, dp: DeltaPhi, new_work: WorkT, move_idx: usize) {
         let hash = pos.hash_pos();
-        let len = self.tt.len();
-        let entry = &mut self.tt[hash.0 as usize % len];
-        // if entry.hash != hash && entry.
+        let idx = self.tt_idx(pos.hash_pos());
+        let entry = &mut self.tt[idx];
         // currently, we're using always replace. TODO: Test better replacement strategy
+        if !(entry.hash == hash && move_idx == usize::MAX) {
+            entry.chosen_move_idx = move_idx as u16;
+        }
         if entry.hash != hash {
             entry.work = 0;
         }
@@ -207,12 +214,10 @@ impl<B: Board> ProofNumberSearcher<B> {
         entry.hash = hash;
         entry.bounds.delta = dp.delta;
         entry.bounds.phi = dp.phi;
-        entry.chosen_move_idx = move_idx as u16;
     }
 
     fn get(&self, hash: PosHash) -> Option<Node> {
-        // TODO: Multiplication trick
-        let entry = self.tt[hash.0 as usize % self.tt.len()];
+        let entry = self.tt[self.tt_idx(hash)];
         if entry.hash == hash { Some(entry) } else { None }
     }
 
@@ -282,12 +287,15 @@ impl<B: Board> AbstractSearchState<B> for ProofNumberSearcher<B> {
         // normal searchers spin until they receive an explicit `stop` when asked to do an infinite search,
         // but this isn't useful for a proof number search.
         self.params.atomic.set_stop(true);
-        self.params.send_search_res(res);
-        self.params.atomic.set_searching(false);
+        self.params.end_and_send(res);
     }
 
     fn search_params(&self) -> &SearchParams<B> {
         &self.params
+    }
+
+    fn pv_data(&self) -> &[PVData<B>] {
+        &[]
     }
 
     fn to_bench_res(&self) -> BenchResult {
@@ -323,7 +331,7 @@ impl<B: Board> Engine<B> for ProofNumberSearcher<B> {
         Self::new(DEFAULT_NUM_TT_ENTRIES)
     }
 
-    fn static_eval(&mut self, _pos: B, _ply: usize) -> Score {
+    fn static_eval(&mut self, _pos: &B, _ply: usize) -> Score {
         // TODO: Use eval
         Score(0)
     }
@@ -402,7 +410,7 @@ mod tests {
         // Rh6 leads to a variation where every move of the opponent is forced, so it's considered equally expensive as a mate in 1
         // (Rh4 would too, but that would result in a repeated position)
         let acceptable = [ChessMove::from_text("Ra7#", &pos).unwrap(), ChessMove::from_text("Rh6", &pos).unwrap()];
-        assert!(matches!(res, Some((true, _))));
+        assert!(matches!(res, Some((true, _))), "{res:?}");
         assert!(acceptable.contains(&res.unwrap().1), "{}", res.unwrap().1.compact_formatter(&pos));
         let pos = pos.make_nullmove().unwrap();
         let res = searcher.try_find_move(pos);

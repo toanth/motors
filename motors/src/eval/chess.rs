@@ -33,6 +33,8 @@ pub const NUM_PSQT_FEATURES: usize = NUM_CHESS_PIECES * NUM_SQUARES;
 
 pub const NUM_PAWN_SHIELD_CONFIGURATIONS: usize = (1 << 6) + (1 << 4) + (1 << 4);
 
+pub const NUM_PAWN_CENTER_CONFIGURATIONS: usize = 1 << 6;
+
 pub const PAWN_SHIELD_SHIFT: [usize; NUM_SQUARES] = {
     let mut res = [0; NUM_SQUARES];
     let mut square = 0;
@@ -71,6 +73,56 @@ pub fn pawn_shield_idx(mut pawns: ChessBitboard, mut king: ChessSquare, color: C
         pattern
     }
 }
+
+pub fn pawn_advanced_center_idx(mut pawns: ChessBitboard, color: ChessColor) -> usize {
+    if color == Black {
+        pawns = pawns.flip_up_down();
+    }
+    let pawns = pawns.0;
+    ((pawns >> (24 + 2) & 0xf) | (pawns >> (32 + 3 - 4) & (0x3 << 4))) as usize
+}
+
+pub fn pawn_passive_center_idx(mut pawns: ChessBitboard, color: ChessColor) -> usize {
+    if color == Black {
+        pawns = pawns.flip_up_down();
+    }
+    let pawns = pawns.0;
+    ((pawns >> (16 + 2) & 0xf) | (pawns >> (24 + 3 - 4) & (0x3 << 4))) as usize
+}
+
+/// Returns the bitboard of squares on which our pawn can be stopped from promoting by our opponent's king
+/// (a.k.a. the square rule), assuming it's our turn to move.
+/// Assumes that our pawn is white and the opponent's king is black.
+const fn reachable_pawns(king_sq: usize) -> ChessBitboard {
+    // Unfortunately, the ChessSquare methods are from traits and therefore not `const`.
+    let mut res = 0;
+    let king_rank = king_sq / 8;
+    let king_file = king_sq % 8;
+    let mut sq = 0;
+    while sq < 64 {
+        let mut rank = sq / 8;
+        if rank <= 1 {
+            rank = 2;
+        }
+        let file = sq % 8;
+        let file_diff = king_file.abs_diff(file);
+        if file_diff < 8 - rank && king_rank >= rank {
+            res |= 1 << sq;
+        }
+        sq += 1;
+    }
+    ChessBitboard::new(res)
+}
+
+pub const REACHABLE_PAWNS: [ChessBitboard; 64] = {
+    let mut res = [ChessBitboard::new(0); 64];
+    let mut i = 0;
+    while i < 64 {
+        res[i] = reachable_pawns(i);
+        i += 1;
+    }
+    res
+};
 
 #[cfg(test)]
 mod tests {
@@ -179,10 +231,10 @@ mod tests {
     }
 
     fn generic_eval_test<E: Eval<Chessboard> + Default>() {
-        let score = E::default().eval(&Chessboard::default(), 0);
+        let score = E::default().eval(&Chessboard::default(), 0, White);
         assert!(score.abs() <= Score(25));
         assert!(score >= Score(0));
-        let score = E::default().eval(&Chessboard::from_name("lucena").unwrap(), 0);
+        let score = E::default().eval(&Chessboard::from_name("lucena").unwrap(), 0, White);
         assert!(score >= Score(100));
     }
 
