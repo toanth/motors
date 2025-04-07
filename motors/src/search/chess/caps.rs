@@ -900,7 +900,7 @@ impl Caps {
             if first_child {
                 // Idea from Nalwald
                 if let Some(tt_entry) = old_entry {
-                    if tt_entry.score() >= beta && tt_entry.bound() == FailHigh {
+                    if tt_entry.bound() == FailHigh {
                         child_beta = -(beta - 1);
                     }
                 }
