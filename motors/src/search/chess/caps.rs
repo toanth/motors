@@ -896,8 +896,14 @@ impl Caps {
             let mut score;
             let first_child = self.search_stack[ply].tried_moves.len() == 1;
             let mut child_alpha = -beta;
-            let child_beta = -alpha;
+            let mut child_beta = -alpha;
             if first_child {
+                // Idea from Nalwald
+                if let Some(tt_entry) = old_entry {
+                    if tt_entry.score() >= beta && tt_entry.bound() == FailHigh {
+                        child_beta = -(beta - 1);
+                    }
+                }
                 let child_node_type = expected_node_type.inverse();
                 score = -self.negamax(new_pos, ply + 1, depth - 1, child_alpha, child_beta, child_node_type)?;
             } else {
@@ -963,16 +969,18 @@ impl Caps {
                     // we still expect the child to fail high here
                     score = -self.negamax(new_pos, ply + 1, retry_depth, child_alpha, child_beta, FailHigh)?;
                 }
-
-                // If the full-depth null-window search performed better than expected, do a full-depth search with the
-                // full window to find the true score.
-                // This is only relevant for PV nodes, because all other nodes are searched with a null window anyway.
-                // This is also necessary to ensure that the PV doesn't get truncated, because otherwise there could be nodes in
-                // the PV that were not searched as PV nodes. So we make sure we're researching in PV nodes with beta == alpha + 1.
-                if is_pv_node && child_beta - child_alpha == Score(1) && score > alpha {
-                    self.statistics.lmr_second_retry();
-                    score = -self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha, Exact)?;
-                }
+            }
+            // If the full-depth null-window search performed better than expected, do a full-depth search with the
+            // full window to find the true score.
+            // This is only relevant for PV nodes, because all other nodes are searched with a null window anyway.
+            // This is also necessary to ensure that the PV doesn't get truncated, because otherwise there could be nodes in
+            // the PV that were not searched as PV nodes. So we make sure we're researching in PV nodes with beta == alpha + 1.
+            if is_pv_node
+                && child_beta - child_alpha == Score(1)
+                && if first_child { score < beta } else { score > alpha }
+            {
+                self.statistics.lmr_second_retry();
+                score = -self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha, Exact)?;
             }
 
             self.undo_move();
