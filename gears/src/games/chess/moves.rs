@@ -103,13 +103,13 @@ impl ChessMove {
 
     #[inline]
     pub fn src_square(self) -> ChessSquare {
-        ChessSquare::from_bb_index((self.0 & 0x3f) as usize)
+        ChessSquare::from_bb_idx((self.0 & 0x3f) as usize)
     }
 
     #[inline]
     /// For a castle move, this always returns the rook square, which allows disambiguating Chess960 castling moves.
     pub fn dest_square(self) -> ChessSquare {
-        ChessSquare::from_bb_index(((self.0 >> 6) & 0x3f) as usize)
+        ChessSquare::from_bb_idx(((self.0 >> 6) & 0x3f) as usize)
     }
 
     pub fn square_of_pawn_taken_by_ep(self) -> Option<ChessSquare> {

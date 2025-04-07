@@ -10,3 +10,4 @@ fuzz/corpus/
 coverage/
 launch.json
 proptest-regressions/
+replay/

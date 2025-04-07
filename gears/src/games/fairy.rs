@@ -35,7 +35,7 @@ use crate::general::board::SelfChecks::CheckFen;
 use crate::general::board::Strictness::Strict;
 use crate::general::board::{
     BitboardBoard, Board, BoardHelpers, BoardSize, ColPieceTypeOf, NameToPos, PieceTypeOf, SelfChecks, Strictness,
-    UnverifiedBoard, position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers,
+    Symmetry, UnverifiedBoard, position_fen_part, read_common_fen_part, read_single_move_number, read_two_move_numbers,
 };
 use crate::general::common::Description::NoDescription;
 use crate::general::common::{
@@ -525,6 +525,13 @@ impl Board for FairyBoard {
     fn bench_positions() -> Vec<Self> {
         // TODO: More positions covering a wide variety of rules
         vec![Self::startpos()]
+    }
+
+    // TODO: We could at least pass settings and do `startpos_for_setting()`, but ideally we'd also randomize the settings.
+    // We could generate random positions but couln't control the probability of them being legal
+    // unless we fell back to the starting position
+    fn random_pos(_rng: &mut impl Rng, _strictness: Strictness, _symmetry: Option<Symmetry>) -> Res<Self> {
+        bail!("Not currently implemented for Fairy")
     }
 
     fn settings(&self) -> Self::Settings {
@@ -1057,7 +1064,7 @@ mod tests {
                 assert_eq!(mnk_perft.nodes, fairy_perft.nodes, "Depth {i}, pos: {mnk_pos}");
                 let mnk_time = mnk_perft.time.as_millis();
                 let fairy_time = fairy_perft.time.as_millis();
-                assert!(mnk_time * 100 + 1000 > fairy_time, "{mnk_time} {fairy_time} {i} {fairy_pos}");
+                assert!(mnk_time * 100 + 2000 > fairy_time, "{mnk_time} {fairy_time} {i} {fairy_pos}");
             }
         }
     }

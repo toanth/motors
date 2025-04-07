@@ -560,7 +560,7 @@ pub fn pretty_score(
     };
     if let Some(previous) = previous {
         if !main_line || bound != Some(Exact) {
-            return res + "  ";
+            return res + "   ";
         }
         // use both `sigmoid - sigmoid` and `sigmoid(diff)` to weight changes close to 0 stronger
         let x = ((0.5 + 2.0 * (sigmoid(score, 100.0) as f32 - sigmoid(previous, 100.0) as f32))
@@ -569,21 +569,25 @@ pub fn pretty_score(
         let color = gradient.at(x);
         let [r, g, b, _] = color.to_rgba8();
         let diff = score - previous;
-        let c = if diff >= Score(10) {
-            '🡩'
+        let delta = if score.is_won_or_lost() {
+            if score.is_game_won_score() { ":)" } else { ":(" }
+        } else if score.0 == 0 {
+            ":|"
+        } else if diff >= Score(10) {
+            "🡩 "
         } else if diff <= Score(-10) {
-            '🡫'
+            "🡫 "
         } else if diff > Score(0) {
-            '🡭'
+            "🡭 "
         } else if diff < Score(0) {
-            '🡮'
+            "🡮 "
         } else {
-            '🡪'
+            "🡪 "
         };
-        write!(&mut res, " {}", c.to_string().dimmed().color(TrueColor { r, g, b })).unwrap();
+        write!(&mut res, " {}", delta.to_string().dimmed().color(TrueColor { r, g, b })).unwrap();
         res
     } else if min_width {
-        res + "  "
+        res + "   "
     } else {
         res
     }

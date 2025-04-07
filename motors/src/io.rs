@@ -45,7 +45,7 @@ use gears::colored::Color::Red;
 use gears::colored::Colorize;
 use gears::games::{CharType, Color, ColoredPiece, ColoredPieceType, OutputList, ZobristHistory};
 use gears::general::board::Strictness::{Relaxed, Strict};
-use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, UnverifiedBoard};
+use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoard};
 use gears::general::common::Description::{NoDescription, WithDescription};
 use gears::general::common::anyhow::{anyhow, bail, ensure};
 use gears::general::common::{
@@ -62,6 +62,7 @@ use gears::output::logger::LoggerBuilder;
 use gears::output::pgn::parse_pgn;
 use gears::output::text_output::{AdaptFormatter, display_color};
 use gears::output::{Message, OutputBox, OutputBuilder, OutputOpts};
+use gears::rand::rng;
 use gears::score::Score;
 use gears::search::{Depth, SearchLimit, TimeControl};
 use gears::ugi::EngineOptionName::*;
@@ -397,8 +398,8 @@ impl<B: Board> EngineUGI<B> {
             self.write_message(Warning, &format_args!("{}", "Fuzzing Mode Enabled!".bold()));
         }
 
-        let (mut input, interactive) = Input::new(self.state.protocol == Interactive, self);
-        if self.state.protocol == Interactive && !interactive {
+        let (mut input, is_interactive) = Input::new(self.state.protocol == Interactive, self);
+        if self.state.protocol == Interactive && !is_interactive {
             self.state.protocol = UGI; // Will be overwritten shortly, and isn't really used much anyway
         }
         loop {
@@ -738,7 +739,6 @@ impl<B: Board> EngineUGI<B> {
                 // It doesn't matter if we got a ponderhit or a miss, we simply abort the ponder search and start a new search.
                 if opts.engine_name.is_none() && self.state.ponder_limit.is_some() {
                     self.state.ponder_limit = None;
-                    // TODO: Maybe do this all the time to make sure two `go` commands after another work -- write testcase for that
                     engine.send_stop(true); // aborts the pondering without printing a search result
                 }
                 engine.start_search(pos, opts.limit, hist, search_moves, opts.multi_pv, false, opts.threads, tt)?;
@@ -1247,6 +1247,8 @@ trait AbstractEngineUgiState: Debug {
 
     fn handle_move_piece(&mut self, words: &mut Tokens) -> Res<()>;
 
+    fn handle_randomize(&mut self, words: &mut Tokens) -> Res<()>;
+
     fn print_help(&mut self) -> Res<()>;
 
     fn write_is_player(&mut self, is_first: bool) -> Res<()>;
@@ -1519,6 +1521,19 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
         let piece = B::Piece::new(piece.colored_piece_type(), dest);
         new_pos.try_place_piece(piece)?;
         let pos = new_pos.verify(self.strictness)?;
+        self.state.set_new_pos_state(UgiPosState::new(pos), true);
+        self.print_board(OutputOpts::default());
+        Ok(())
+    }
+
+    fn handle_randomize(&mut self, words: &mut Tokens) -> Res<()> {
+        let mut symmetry = None;
+        if let Some(&word) = words.peek() {
+            let symmetries = Symmetry::iter().collect_vec();
+            symmetry = Some(*select_name_static(word, symmetries.iter(), "symmetry", self.game_name(), NoDescription)?);
+            _ = words.next();
+        }
+        let pos = B::random_pos(&mut rng(), self.strictness, symmetry)?;
         self.state.set_new_pos_state(UgiPosState::new(pos), true);
         self.print_board(OutputOpts::default());
         Ok(())

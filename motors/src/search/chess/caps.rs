@@ -14,14 +14,13 @@ use crate::search::statistics::SearchType;
 use crate::search::statistics::SearchType::{MainSearch, Qsearch};
 use crate::search::tt::TTEntry;
 use crate::search::*;
-use derive_more::{Deref, DerefMut};
 use gears::PlayerResult::{Lose, Win};
 use gears::arrayvec::ArrayVec;
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::pieces::ChessPieceType::Pawn;
 use gears::games::chess::see::SeeScore;
 use gears::games::chess::squares::NUM_SQUARES;
-use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS, UnverifiedChessboard};
+use gears::games::chess::{ChessColor, Chessboard, MAX_CHESS_MOVES_IN_POS, unverified::UnverifiedChessboard};
 use gears::games::{BoardHistory, PosHash, ZobristHistory, n_fold_repetition};
 use gears::general::bitboards::RawBitboard;
 use gears::general::board::Strictness::Strict;
@@ -627,6 +626,10 @@ impl Caps {
         let mut best_score = NO_SCORE_YET;
         let mut bound_so_far = FailLow;
 
+        // ************************
+        // ***** Probe the TT *****
+        // ************************
+
         // If we didn't get a move from the TT and there's no best_move to store because the node failed low,
         // store a null move in the TT. This helps IIR.
         let mut best_move = ChessMove::default();
@@ -711,6 +714,10 @@ impl Caps {
         // a prediction for how the eval is going to evolve, while these variables are more about cutting early after bad moves.
         let they_blundered = ply >= 2 && eval - self.search_stack[ply - 2].eval > Score(cc::they_blundered_threshold());
         let we_blundered = ply >= 2 && eval - self.search_stack[ply - 2].eval < Score(cc::we_blundered_threshold());
+
+        // *********************************************************
+        // ***** Pre-move loop pruning (other than TT cutoffs) *****
+        // *********************************************************
 
         if can_prune {
             // RFP (Reverse Futility Pruning): If eval is far above beta, it's likely that our opponent
@@ -818,6 +825,10 @@ impl Caps {
         let mut num_uninteresting_visited = 0;
         debug_assert!(self.search_stack[ply].tried_moves.is_empty());
 
+        // *************************
+        // ***** The move loop *****
+        // *************************
+
         let mut move_picker = MovePicker::<Chessboard, MAX_CHESS_MOVES_IN_POS>::new(pos, best_move, false);
         let move_scorer = CapsMoveScorer { board: pos, ply };
         while let Some((mov, move_score)) = move_picker.next(&move_scorer, self) {
@@ -883,9 +894,14 @@ impl Caps {
             // that the other moves are worse, which we can do with a zero window search. Should this assumption fail,
             // re-search with a full window.
             let mut score;
-            if self.search_stack[ply].tried_moves.len() == 1 {
-                score = -self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha, expected_node_type.inverse())?;
+            let first_child = self.search_stack[ply].tried_moves.len() == 1;
+            let mut child_alpha = -beta;
+            let child_beta = -alpha;
+            if first_child {
+                let child_node_type = expected_node_type.inverse();
+                score = -self.negamax(new_pos, ply + 1, depth - 1, child_alpha, child_beta, child_node_type)?;
             } else {
+                child_alpha = -(alpha + 1);
                 // LMR (Late Move Reductions): Trust the move ordering (quiet history, continuation history and capture history heuristics)
                 // and assume that moves ordered later are worse. Therefore, we can do a reduced-depth search with a null window
                 // to verify our belief.
@@ -932,7 +948,7 @@ impl Caps {
                 // this ensures that check extensions prevent going into qsearch while in check
                 reduction = reduction.clamp(0, depth - 1);
 
-                score = -self.negamax(new_pos, ply + 1, depth - 1 - reduction, -(alpha + 1), -alpha, FailHigh)?;
+                score = -self.negamax(new_pos, ply + 1, depth - 1 - reduction, child_alpha, child_beta, FailHigh)?;
                 // If the score turned out to be better than expected (at least `alpha`), this might just be because
                 // of the reduced depth. So do a full-depth search first, but don't use the full window quite yet.
                 if alpha < score && reduction > 0 {
@@ -944,21 +960,16 @@ impl Caps {
                         retry_depth -= 1;
                     }
                     self.statistics.lmr_first_retry();
-                    score = -self.negamax(
-                        new_pos,
-                        ply + 1,
-                        retry_depth,
-                        -(alpha + 1),
-                        -alpha,
-                        FailHigh, // we still expect the child to fail high here
-                    )?;
+                    // we still expect the child to fail high here
+                    score = -self.negamax(new_pos, ply + 1, retry_depth, child_alpha, child_beta, FailHigh)?;
                 }
-                // If the full-depth search also performed better than expected, do a full-depth search with the
+
+                // If the full-depth null-window search performed better than expected, do a full-depth search with the
                 // full window to find the true score.
                 // This is only relevant for PV nodes, because all other nodes are searched with a null window anyway.
-                // This is necessary to ensure that the PV doesn't get truncated, because otherwise there could be nodes in
-                // the PV that were not searched as PV nodes.
-                if is_pv_node && alpha < score {
+                // This is also necessary to ensure that the PV doesn't get truncated, because otherwise there could be nodes in
+                // the PV that were not searched as PV nodes. So we make sure we're researching in PV nodes with beta == alpha + 1.
+                if is_pv_node && child_beta - child_alpha == Score(1) && score > alpha {
                     self.statistics.lmr_second_retry();
                     score = -self.negamax(new_pos, ply + 1, depth - 1, -beta, -alpha, Exact)?;
                 }
@@ -1021,6 +1032,10 @@ impl Caps {
             self.update_histories_and_killer(&pos, mov, depth, ply);
             break;
         }
+
+        // ******************************************************
+        // ***** After move loop, save some info and return *****
+        // ******************************************************
 
         // Update statistics for this node as soon as we know the node type, before returning.
         self.state.statistics.count_complete_node(

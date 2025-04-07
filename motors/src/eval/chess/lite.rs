@@ -171,7 +171,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let our_pawns = pos.col_piece_bb(us, Pawn);
         let their_pawns = pos.col_piece_bb(us.other(), Pawn);
         let mut score = Tuned::Score::default();
-        score += Self::pawn_shield_for(pos, White);
+        score += Self::pawn_shield_for(pos, us);
 
         for square in our_pawns.ones() {
             let normalized_square = square.flip_if(us == Black);
@@ -510,5 +510,31 @@ impl Eval<Chessboard> for KingGambot {
 
     fn piece_scale(&self) -> ScoreT {
         5
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gears::games::chess::Chessboard;
+    use gears::general::board::BoardHelpers;
+    use gears::general::board::Strictness::Strict;
+
+    #[test]
+    fn test_symmetry() {
+        let pos = Chessboard::default();
+        let mut eval = LiTEval::default();
+        let e = eval.eval(&pos, 0, White);
+        assert_eq!(e, TEMPO);
+        assert_eq!(e, eval.eval(&pos, 0, Black));
+        assert_eq!(e, eval.eval(&pos, 1, Black));
+        let pos = Chessboard::from_fen("1k6/p6r/4p3/8/8/4P3/P6R/1K6 w - - 0 1", Strict).unwrap();
+        let e = eval.eval(&pos, 0, White);
+        assert_eq!(e, TEMPO);
+        let pos = pos.make_move_from_str("Rxh7").unwrap();
+        let e = eval.eval(&pos, 0, White);
+        assert!(-e > TEMPO + Score(300), "{e}");
+        let e2 = eval.eval(&pos.make_nullmove().unwrap(), 0, Black);
+        assert_eq!(e - TEMPO, -e2 + TEMPO);
     }
 }

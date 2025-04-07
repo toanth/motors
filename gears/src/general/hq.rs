@@ -480,17 +480,17 @@ mod tests {
     fn chess_test() {
         let blockers = white_squares();
         let generator = ChessSliderGenerator::new(blockers);
-        let attacks_bishop_a1 = generator.bishop_attacks(ChessSquare::from_bb_index(0));
-        assert_eq!(attacks_bishop_a1, ChessBitboard::diagonal(ChessSquare::from_bb_index(0)) & !ChessBitboard::new(1));
-        let attacks_bishop_b1 = generator.bishop_attacks(ChessSquare::from_bb_index(1));
+        let attacks_bishop_a1 = generator.bishop_attacks(ChessSquare::from_bb_idx(0));
+        assert_eq!(attacks_bishop_a1, ChessBitboard::diagonal(ChessSquare::from_bb_idx(0)) & !ChessBitboard::new(1));
+        let attacks_bishop_b1 = generator.bishop_attacks(ChessSquare::from_bb_idx(1));
         assert_eq!(attacks_bishop_b1.0, 0x500);
-        let attacks_rook_a1 = generator.rook_attacks(ChessSquare::from_bb_index(0));
+        let attacks_rook_a1 = generator.rook_attacks(ChessSquare::from_bb_idx(0));
         assert_eq!(attacks_rook_a1.0, 0x102);
-        let attacks_rook_b1 = generator.rook_attacks(ChessSquare::from_bb_index(1));
+        let attacks_rook_b1 = generator.rook_attacks(ChessSquare::from_bb_idx(1));
         assert_eq!(attacks_rook_b1.0, 0x2020d);
-        let attacks_queen_a1 = generator.queen_attacks(ChessSquare::from_bb_index(0));
+        let attacks_queen_a1 = generator.queen_attacks(ChessSquare::from_bb_idx(0));
         assert_eq!(attacks_queen_a1, attacks_rook_a1 | attacks_bishop_a1);
-        let attacks_queen_b1 = generator.queen_attacks(ChessSquare::from_bb_index(1));
+        let attacks_queen_b1 = generator.queen_attacks(ChessSquare::from_bb_idx(1));
         assert_eq!(attacks_queen_b1, attacks_rook_b1 | attacks_bishop_b1);
         let e4 = ChessSquare::from_str("e4").unwrap();
         assert!(blockers.is_bit_set_at(e4.bb_idx()));

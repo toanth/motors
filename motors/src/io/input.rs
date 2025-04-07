@@ -51,7 +51,7 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
             ugi.write_ugi(&format_args!(
                 "{}",
                 format!(
-                    "\nIter    Seldepth    Score      Time       Nodes   (New)     NPS  Branch     TT     {pv_spacer}PV"
+                    "\nIter    Seldepth    Score       Time       Nodes   (New)     NPS  Branch     TT     {pv_spacer}PV"
                 )
                 .bold(),
             ));
@@ -111,7 +111,7 @@ pub struct Input<B: Board> {
 
 impl<B: Board> Input<B> {
     pub fn new(mut interactive: bool, ugi: &mut EngineUGI<B>) -> (Self, bool) {
-        if interactive && !stdout().is_terminal() {
+        if !stdout().is_terminal() {
             interactive = false;
         }
         let typ = if interactive {

@@ -139,7 +139,7 @@ impl Chessboard {
             return;
         }
         if self.checkers.has_set_bit() {
-            let checker = ChessSquare::from_bb_index(self.checkers().pop_lsb());
+            let checker = ChessSquare::from_bb_idx(self.checkers().pop_lsb());
             filter &=
                 ChessBitboard::ray_inclusive(self.king_square(self.active_player), checker, ChessboardSize::default());
         }
@@ -180,7 +180,7 @@ impl Chessboard {
         for move_type in [right_pawn_captures, left_pawn_captures, regular_pawn_moves, double_pawn_moves] {
             let bb = move_type.0;
             for to in bb.ones() {
-                let from = ChessSquare::from_bb_index((to.to_u8() as isize - move_type.1) as usize);
+                let from = ChessSquare::from_bb_idx((to.to_u8() as isize - move_type.1) as usize);
                 let is_capture = from.file() != to.file();
                 let mut flag = NormalPawnMove;
                 if self.ep_square.is_some_and(|sq| sq == to) {
@@ -278,7 +278,7 @@ impl Chessboard {
         let mut attacks = Self::normal_king_attacks_from(king_square) & filter;
         while attacks.has_set_bit() {
             let target = attacks.pop_lsb();
-            moves.add_move(ChessMove::new(king_square, ChessSquare::from_bb_index(target), NormalKingMove));
+            moves.add_move(ChessMove::new(king_square, ChessSquare::from_bb_idx(target), NormalKingMove));
         }
         if only_captures {
             return;

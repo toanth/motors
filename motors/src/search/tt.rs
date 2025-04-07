@@ -1,3 +1,4 @@
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse"))]
 use derive_more::Index;
 use gears::games::PosHash;
 #[cfg(feature = "chess")]
@@ -331,13 +332,13 @@ impl TT {
     }
 
     #[inline(always)]
+    #[allow(unused_variables)]
     pub fn prefetch(&self, hash: PosHash) {
-        if cfg!(feature = "unsafe") {
-            // SAFETY: This function is safe to call and computing the pointer is also safe.
-            unsafe {
-                #[cfg(all(target_arch = "x86_64", target_feature = "sse"))]
-                _mm_prefetch::<_MM_HINT_T1>(&raw const self.0[self.bucket_index_of(hash)] as *const i8);
-            }
+        #[cfg(all(target_arch = "x86_64", target_feature = "sse", feature = "unsafe"))]
+        // SAFETY: This function is safe to call and computing the pointer is also safe.
+        unsafe {
+            #[cfg(all(target_arch = "x86_64", target_feature = "sse"))]
+            _mm_prefetch::<_MM_HINT_T1>(&raw const self.0[self.bucket_index_of(hash)] as *const i8);
         }
     }
 }
