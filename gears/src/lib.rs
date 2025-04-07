@@ -286,7 +286,7 @@ impl Default for ProgramStatus {
 
 /// Base trait for the different modes in which the user can run the program.
 /// It contains one important method: [`run`].
-/// The [`handle_input`] and [`quit`] method are really just hacks to support fuzzing.
+/// The [`handle_input`] and [`quit`] method are really just hacks to support (fuzz) testing.
 pub trait AbstractRun: Debug {
     fn run(&mut self) -> Quitting;
     fn handle_input(&mut self, _input: &str) -> Res<()> {

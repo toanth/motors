@@ -739,7 +739,6 @@ impl<B: Board> EngineUGI<B> {
                 // It doesn't matter if we got a ponderhit or a miss, we simply abort the ponder search and start a new search.
                 if opts.engine_name.is_none() && self.state.ponder_limit.is_some() {
                     self.state.ponder_limit = None;
-                    // TODO: Maybe do this all the time to make sure two `go` commands after another work -- write testcase for that
                     engine.send_stop(true); // aborts the pondering without printing a search result
                 }
                 engine.start_search(pos, opts.limit, hist, search_moves, opts.multi_pv, false, opts.threads, tt)?;
