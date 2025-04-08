@@ -175,7 +175,7 @@ pub struct Caps {
 impl Default for Caps {
     fn default() -> Self {
         // ensure the cycle detection table is initialized now so that we don't have to wait for that during search.
-        _ = Chessboard::default().has_upcoming_repetition(&ZobristHistory::default());
+        _ = Chessboard::force_init_upcoming_repetition_table();
         Self::with_eval(Box::new(DefaultEval::default()))
     }
 }
@@ -224,6 +224,7 @@ impl Engine<Chessboard> for Caps {
     type CustomInfo = CapsCustomInfo;
 
     fn with_eval(eval: Box<dyn Eval<Chessboard>>) -> Self {
+        Chessboard::force_init_upcoming_repetition_table();
         Self { state: SearchState::new(Depth::new(SEARCH_STACK_LEN)), eval }
     }
 

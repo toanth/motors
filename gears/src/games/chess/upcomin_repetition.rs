@@ -139,6 +139,12 @@ impl Chessboard {
         }
         has_upcoming_repetition(&UPCOMING_REPETITION_TABLE, history, self)
     }
+
+    // Initializing the upcoming repetition table can take a short while,
+    // and in STC tests we don't want to pay for that in the first search call.
+    pub fn force_init_upcoming_repetition_table() {
+        _ = LazyLock::force(&UPCOMING_REPETITION_TABLE);
+    }
 }
 
 pub static UPCOMING_REPETITION_TABLE: LazyLock<UpcomingRepetitionTable> = LazyLock::new(|| calc_move_hash_table());
