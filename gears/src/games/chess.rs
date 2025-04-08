@@ -142,6 +142,7 @@ pub struct Chessboard {
     color_bbs: [ChessBitboard; NUM_COLORS],
     threats: ChessBitboard,
     checkers: ChessBitboard,
+    pinned: ChessBitboard,
     ply: u32,
     ply_100_ctr: u8,
     active_player: ChessColor,
@@ -150,7 +151,8 @@ pub struct Chessboard {
     hashes: Hashes,
 }
 
-const _: () = assert!(size_of::<Chessboard>() == 128);
+// TODO: It might be worth it to use u32s for te non-main hashes so that the size can shrink down to 128 bytes
+const _: () = assert!(size_of::<Chessboard>() == 136);
 
 impl Default for Chessboard {
     fn default() -> Self {
@@ -197,6 +199,7 @@ impl Board for Chessboard {
             color_bbs: Default::default(),
             threats: ChessBitboard::default(),
             checkers: ChessBitboard::default(),
+            pinned: ChessBitboard::default(),
             ply: 0,
             ply_100_ctr: 0,
             active_player: White,
@@ -414,10 +417,16 @@ impl Board for Chessboard {
     }
 
     fn make_move(self, mov: Self::Move) -> Option<Self> {
-        self.make_move_impl(mov, |_hash| ())
+        if !self.is_move_legal(mov) {
+            return None;
+        }
+        Some(self.make_move_impl(mov, |_hash| ()))
     }
 
     fn make_nullmove(mut self) -> Option<Self> {
+        if self.checkers.has_set_bit() {
+            return None;
+        }
         self.ply += 1;
         // nullmoves count as noisy. This also prevents detecting repetition to before the nullmove
         self.ply_100_ctr = 0;
@@ -426,7 +435,7 @@ impl Board for Chessboard {
             self.ep_square = None;
         }
         self.hashes.total ^= ZOBRIST_KEYS.side_to_move_key;
-        self.flip_side_to_move()
+        Some(self.flip_side_to_move())
     }
 
     fn is_generated_move_pseudolegal(&self, mov: ChessMove) -> bool {
@@ -439,6 +448,10 @@ impl Board for Chessboard {
         let res = self.is_move_pseudolegal_impl(mov);
         debug_assert!(!res || self.is_generated_move_pseudolegal_impl(mov), "{mov:?} {self}");
         res
+    }
+
+    fn is_pseudolegal_move_legal(&self, mov: Self::Move) -> bool {
+        self.is_pseudolegal_legal_impl(mov)
     }
 
     fn player_result_no_movegen<H: BoardHistory>(&self, history: &H) -> Option<PlayerResult> {
@@ -1002,6 +1015,7 @@ mod tests {
             "QQQQKQQQ\nwV0 \n",
             "kQQQQQDDw-W0w",
             "2rr2k1/1p4bp/p1q1pqp1/4Pp1n/2PB4/1PN3P1/P3Q2P/2Rr2K1 w - f6 0 20",
+            "7r/8/8/8/8/1k4P1/1K6/8 w - - 3 3",
         ];
         for fen in fens {
             let pos = Chessboard::from_fen(fen, Relaxed);
@@ -1242,7 +1256,7 @@ mod tests {
         assert!(pos.is_in_check());
         assert!(pos.is_in_check_on_square(White, pos.king_square(White), &pos.slider_generator()));
         let moves = pos.pseudolegal_moves();
-        assert!(!moves.is_empty());
+        assert!(moves.is_empty()); // we don't even generate moves anymore here
         let moves = pos.legal_moves_slow();
         assert!(moves.is_empty());
         assert!(pos.is_game_lost_slow());

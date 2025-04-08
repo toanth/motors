@@ -422,12 +422,15 @@ impl Chessboard {
     }
 
     pub fn make_move_and_prefetch_tt<F: Fn(PosHash)>(self, mov: ChessMove, prefetch: F) -> Option<Self> {
-        self.make_move_impl(mov, prefetch)
+        if !self.is_pseudolegal_move_legal(mov) {
+            return None;
+        }
+        Some(self.make_move_impl(mov, prefetch))
     }
 
     /// Is only ever called on a copy of the board, so no need to undo the changes when a move gets aborted due to pseudo-legality.
     #[allow(clippy::too_many_lines)]
-    pub(super) fn make_move_impl<F: Fn(PosHash)>(mut self, mov: ChessMove, prefetch: F) -> Option<Self> {
+    pub(super) fn make_move_impl<F: Fn(PosHash)>(mut self, mov: ChessMove, prefetch: F) -> Self {
         let piece = mov.piece_type();
         debug_assert_eq!(piece, self.piece_type_on(mov.src_square()));
         let us = self.active_player;
@@ -453,7 +456,7 @@ impl Chessboard {
         }
         self.ep_square = None;
         if mov.is_castle() {
-            self.do_castle(mov, from, &mut to)?;
+            self.do_castle(mov, from, &mut to);
         } else if mov.is_ep() {
             let taken_pawn = mov.square_of_pawn_taken_by_ep().unwrap();
             debug_assert_eq!(self.colored_piece_on(taken_pawn).symbol, ColoredChessPieceType::new(them, Pawn));
@@ -507,20 +510,20 @@ impl Chessboard {
     }
 
     /// Called at the end of [`Self::make_nullmove`] and [`Self::make_move`].
-    pub(super) fn flip_side_to_move(mut self) -> Option<Self> {
+    pub(super) fn flip_side_to_move(mut self) -> Self {
         let slider_gen = self.slider_generator();
-        self.threats = self.calc_threats(self.active_player, &slider_gen);
-        self.checkers = self.calc_checkers_of(self.active_player, &slider_gen);
-        if self.calc_checkers_of(!self.active_player, &slider_gen).has_set_bit() {
-            None
-        } else {
-            self.active_player = self.active_player.other();
-            debug_assert_eq!(self.hashes, self.compute_zobrist());
-            Some(self)
-        }
+        debug_assert!(
+            !self.is_in_check_on_square(self.active_player, self.king_square(self.active_player), &slider_gen),
+            "{self}"
+        );
+        self.active_player = self.active_player.other();
+        self.threats = self.calc_threats_of(self.inactive_player(), &slider_gen);
+        self.set_checkers_and_pinned();
+        debug_assert_eq!(self.hashes, self.compute_zobrist());
+        self
     }
 
-    fn do_castle(&mut self, mov: ChessMove, from: ChessSquare, to: &mut ChessSquare) -> Option<()> {
+    fn do_castle(&mut self, mov: ChessMove, from: ChessSquare, to: &mut ChessSquare) {
         let color = self.active_player;
         let rook_file = to.file() as isize;
         let (side, to_file, rook_to_file) = if mov.flags() == CastleKingside {
@@ -545,9 +548,7 @@ impl Chessboard {
             ChessSquare::from_rank_file(from.rank(), to_file),
             ChessboardSize::default(),
         );
-        if (king_ray & self.threats()).has_set_bit() {
-            return None;
-        }
+        debug_assert!((king_ray & self.threats).is_zero());
         let rook_from = self.rook_start_square(color, side);
         let rook_to = ChessSquare::from_rank_file(from.rank(), rook_to_file);
         debug_assert!(self.colored_piece_on(rook_from).symbol == ColoredChessPieceType::new(color, Rook));
@@ -559,7 +560,11 @@ impl Chessboard {
         *to = ChessSquare::from_rank_file(from.rank(), to_file);
         delta ^= ZOBRIST_KEYS.piece_key(King, color, *to);
         self.hashes.nonpawns[color] ^= delta;
-        Some(())
+        debug_assert!(!self.is_in_check_on_square(
+            self.active_player,
+            ChessSquare::from_rank_file(from.rank(), to_file),
+            &self.slider_generator(),
+        ));
     }
 }
 
