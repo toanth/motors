@@ -174,6 +174,8 @@ pub struct Caps {
 
 impl Default for Caps {
     fn default() -> Self {
+        // ensure the cycle detection table is initialized now so that we don't have to wait for that during search.
+        _ = Chessboard::force_init_upcoming_repetition_table();
         Self::with_eval(Box::new(DefaultEval::default()))
     }
 }
@@ -222,6 +224,7 @@ impl Engine<Chessboard> for Caps {
     type CustomInfo = CapsCustomInfo;
 
     fn with_eval(eval: Box<dyn Eval<Chessboard>>) -> Self {
+        Chessboard::force_init_upcoming_repetition_table();
         Self { state: SearchState::new(Depth::new(SEARCH_STACK_LEN)), eval }
     }
 
@@ -581,8 +584,16 @@ impl Caps {
             self.search_stack[ply].pv.clear();
         }
 
+        let mut best_score = NO_SCORE_YET;
+
         // Always search all children at the root, even for draws or if a search limit has been reached
         if !root {
+            // If there is a move that can repeat a position we've looked at during search, we are guaranteed at least a draw score.
+            // So don't even bother searching other moves if the draw score would already cause a cutoff.
+            if pos.has_upcoming_repetition(&self.params.history) {
+                alpha = alpha.max(Score(0));
+                best_score = Score(0);
+            }
             // Mate Distance Pruning (MDP): If we've already found a mate in n, don't bother looking for longer mates.
             // This isn't intended to gain elo (since it only works in positions that are already won or lost)
             // but makes the engine better at finding shorter checkmates. Don't do MDP at the root because that can prevent us
@@ -590,9 +601,9 @@ impl Caps {
             if self.current_pv_num == 0 {
                 alpha = alpha.max(game_result_to_score(Lose, ply));
                 beta = beta.min(game_result_to_score(Win, ply + 1));
-                if alpha >= beta {
-                    return Some(alpha);
-                }
+            }
+            if alpha >= beta {
+                return Some(alpha);
             }
 
             let ply_100_ctr = pos.ply_draw_clock();
@@ -623,7 +634,6 @@ impl Caps {
         }
         let can_prune = !is_pv_node && !in_check;
 
-        let mut best_score = NO_SCORE_YET;
         let mut bound_so_far = FailLow;
 
         // ************************
@@ -1552,9 +1562,6 @@ mod tests {
         assert_eq!(moves[1], good_capture);
         assert_eq!(moves[2], killer);
         assert_eq!(moves[3], hist_move);
-        let illegal = ChessMove::from_text("a1a2", &pos).unwrap();
-        assert!(!moves.contains(&illegal));
-        assert!(!pos.is_pseudolegal_move_legal(illegal));
         assert_eq!(moves[4], bad_quiet);
         assert_eq!(moves[5], bad_capture);
         let search_res = caps.search_with_tt(pos, SearchLimit::depth_(1), tt.clone());

@@ -197,8 +197,8 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 }
             }
         }
-        this.threats = this.calc_threats(this.inactive_player(), &this.slider_generator());
-        this.checkers = this.calc_checkers_of(this.inactive_player(), &this.slider_generator());
+        this.set_checkers_and_pinned();
+        this.threats = this.calc_threats_of(this.inactive_player(), &this.slider_generator());
         Ok(this)
     }
 
