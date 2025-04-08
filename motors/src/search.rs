@@ -499,7 +499,7 @@ pub trait NormalEngine<B: Board>: Engine<B> {
     }
 }
 
-const DEFAULT_CHECK_TIME_INTERVAL: u64 = 2048;
+const DEFAULT_CHECK_TIME_INTERVAL: u64 = 1024;
 
 #[allow(type_alias_bounds)]
 pub type SearchStateFor<B: Board, E: NormalEngine<B>> = SearchState<B, E::SearchStackEntry, E::CustomInfo>;
@@ -1156,9 +1156,9 @@ mod tests {
         let tt = TT::default();
         for p in B::bench_positions() {
             let res = engine.bench(p.clone(), SearchLimit::nodes_(1), tt.clone(), 0);
-            assert!(res.depth.is_none());
-            assert!(res.max_depth.get() <= 1 + 1); // possible extensions
-            assert!(res.nodes <= 100); // TODO: Assert exactly 1
+            assert!(res.depth.is_none(), "{res}");
+            assert!(res.max_depth.get() <= 1 + 1, "{res}"); // possible extensions
+            assert!(res.nodes <= 100, "{res}"); // TODO: Assert exactly 1
             let params =
                 SearchParams::new_unshared(p.clone(), SearchLimit::depth_(1), ZobristHistory::default(), tt.clone());
             let res = engine.search(params);
