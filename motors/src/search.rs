@@ -1210,6 +1210,7 @@ mod tests {
             engine.forget();
             let params = SearchParams::for_pos(p, limit);
             let res2 = engine.search(params);
+            // make sure all info got reset on `forget()`
             assert_eq!(res, res2);
         }
     }

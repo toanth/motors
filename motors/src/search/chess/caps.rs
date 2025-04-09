@@ -709,7 +709,11 @@ impl Caps {
             raw_eval = self.eval(&pos, ply);
             eval = raw_eval;
         };
-        eval = self.corr_hist.correct(&pos, eval);
+        let mut continued_move = ChessMove::default();
+        if ply >= 2 {
+            continued_move = self.search_stack[ply - 2].last_tried_move();
+        }
+        eval = self.corr_hist.correct(&pos, continued_move, eval);
 
         self.record_pos(pos, eval, ply);
 
@@ -1075,7 +1079,7 @@ impl Caps {
             || (best_score <= eval && bound_so_far == NodeType::lower_bound())
             || (best_score >= eval && bound_so_far == NodeType::upper_bound()))
         {
-            self.corr_hist.update(&pos, depth, eval, best_score);
+            self.corr_hist.update(&pos, continued_move, depth, eval, best_score);
         }
 
         Some(best_score)
@@ -1144,7 +1148,11 @@ impl Caps {
         }
         let mut best_score = eval;
         if !in_check {
-            best_score = self.corr_hist.correct(&pos, eval);
+            let mut continued_move = ChessMove::default();
+            if ply >= 2 {
+                continued_move = self.search_stack[ply - 2].last_tried_move();
+            }
+            best_score = self.corr_hist.correct(&pos, continued_move, eval);
         }
         // Saving to the TT is probably unnecessary since the score is either from the TT or just the static eval,
         // which is not very valuable. Also, the fact that there's no best move might have unfortunate interactions with
