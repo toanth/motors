@@ -8,6 +8,7 @@ use gears::general::moves::{Move, UntrustedMove};
 use gears::itertools::Itertools;
 use gears::score::{CompactScoreT, SCORE_WON, Score, ScoreT};
 use gears::search::NodeType;
+use gears::search::NodeType::Exact;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelRefMutIterator;
 use static_assertions::const_assert_eq;
@@ -49,8 +50,8 @@ fn unpack_age_and_bound(val: u8) -> (Age, Option<NodeType>) {
 
 const NUM_ENTRIES_IN_BUCKET: usize = 4;
 
-#[repr(align(64))]
 #[derive(Debug, Default, Index)]
+#[repr(align(64))]
 struct TTBucket([AtomicTTEntry; NUM_ENTRIES_IN_BUCKET]);
 
 const _: () = assert!(size_of::<TTBucket>() == 64);
@@ -280,8 +281,10 @@ impl TT {
 
     // The lowest score is getting replaced
     fn entry_replacement_score<B: Board>(candidate: &TTEntry<B>, to_insert: &TTEntry<B>) -> usize {
-        if to_insert.hash == candidate.hash || candidate.is_empty() {
+        if to_insert.hash == candidate.hash {
             0
+        } else if candidate.is_empty() {
+            1
         } else {
             candidate.depth as usize + ((candidate.age() == to_insert.age()) as usize * 1000)
         }
@@ -289,7 +292,6 @@ impl TT {
 
     pub fn store<B: Board>(&self, mut entry: TTEntry<B>, ply: usize) {
         debug_assert!(entry.score().abs() + ply as ScoreT <= SCORE_WON, "score {score} ply {ply}", score = entry.score);
-        let bucket = self.bucket_index_of(entry.hash);
         // Mate score adjustments: For the current search, we want to penalize later mates to prefer earlier ones,
         // where "later" means being found at greater depth (usually called the `ply` parameter in the search function).
         // But since the TT persists across searches and can also reach the same position at different plies though transpositions,
@@ -301,6 +303,7 @@ impl TT {
                 entry.score += ply as CompactScoreT;
             }
         }
+        let bucket = self.bucket_index_of(entry.hash);
         let bucket = &self.0[bucket].0;
         let idx_in_bucket = bucket
             .iter()
@@ -328,7 +331,7 @@ impl TT {
             }
         }
         debug_assert!(entry.score().0.abs() <= SCORE_WON.0, "{} {ply} {entry:?}", entry.score().0);
-        if entry.hash != hash || entry.is_empty() { None } else { Some(entry) }
+        Some(entry)
     }
 
     #[inline(always)]
