@@ -755,6 +755,9 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     excluded_moves: Vec<B::Move>,
     multi_pvs: Vec<PVData<B>>,
     current_pv_num: usize,
+    // This is the point at which the search actually started.
+    // The `limit` (part of `params`) has the point when the search was requested
+    execution_start_time: Instant,
     last_msg_time: Instant,
     statistics: Statistics,
     aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
@@ -777,6 +780,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> DerefMut for SearchStat
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> for SearchState<B, E, C> {
     fn forget(&mut self, hard: bool) {
         self.last_msg_time = Instant::now();
+        self.execution_start_time = self.last_msg_time;
         for e in &mut self.search_stack {
             e.forget();
         }
@@ -866,7 +870,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         let hash = hasher.finish();
         BenchResult {
             nodes: self.uci_nodes(),
-            time: self.start_time().elapsed(),
+            time: self.execution_start_time().elapsed(),
             max_depth: self.depth(),
             depth: None,
             pv_score_hash: hash,
@@ -878,7 +882,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
             best_move_of_all_pvs: self.best_move(),
             depth: self.depth(),
             seldepth: self.seldepth(),
-            time: self.start_time().elapsed(),
+            time: self.execution_start_time().elapsed(),
             nodes: NodesLimit::new(self.uci_nodes()).unwrap(),
             pv_num: self.current_pv_num,
             max_num_pvs: self.params.num_multi_pv,
@@ -1008,6 +1012,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     fn new_with(search_stack: Vec<E>, custom: C) -> Self {
         let params =
             SearchParams::new_unshared(B::default(), SearchLimit::infinite(), ZobristHistory::default(), TT::minimal());
+        let now = Instant::now();
         Self {
             search_stack,
             custom,
@@ -1017,7 +1022,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             params,
             excluded_moves: vec![],
             current_pv_num: 0,
-            last_msg_time: Instant::now(),
+            execution_start_time: now,
+            last_msg_time: now,
             age: Age::default(),
         }
     }
@@ -1049,6 +1055,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
 
     fn start_time(&self) -> Instant {
         self.params.limit.start_time
+    }
+
+    fn execution_start_time(&self) -> Instant {
+        self.execution_start_time
     }
 
     /// If the 'statistics' feature is enabled, this collects additional statistics.
