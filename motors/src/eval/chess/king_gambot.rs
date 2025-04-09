@@ -96,8 +96,8 @@ impl LiteValues for KingGambotValues {
         Lite::immobile_passer()
     }
 
-    fn protected_passer_advance() -> PhasedScore {
-        Lite::protected_passer_advance()
+    fn passer_protection() -> PhasedScore {
+        Lite::passer_protection()
     }
 
     fn unsupported_pawn() -> PhasedScore {
