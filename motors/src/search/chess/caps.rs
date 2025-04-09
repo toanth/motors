@@ -1061,7 +1061,8 @@ impl Caps {
         }
 
         let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, depth, bound_so_far);
+            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, depth, bound_so_far, self.age);
+
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
         if !(root && self.current_pv_num > 0) {
@@ -1103,7 +1104,8 @@ impl Caps {
 
         // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
         // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        if let Some(tt_entry) = self.tt().load::<Chessboard>(pos.hash_pos(), ply) {
+        let old_entry = self.tt().load::<Chessboard>(pos.hash_pos(), ply);
+        if let Some(tt_entry) = old_entry {
             debug_assert_eq!(tt_entry.hash, pos.hash_pos());
             let bound = tt_entry.bound();
             let tt_score = tt_entry.score();
@@ -1195,7 +1197,7 @@ impl Caps {
         self.statistics.count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
 
         let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, 0, bound_so_far);
+            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, 0, bound_so_far, self.age);
         self.tt_mut().store(tt_entry, ply);
         Some(best_score)
     }
@@ -1524,8 +1526,8 @@ mod tests {
         let fen = "7k/8/8/8/p7/1p6/1R1r4/K7 w - - 4 3";
         let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
         let tt_move = ChessMove::from_text("a1b1", &pos).unwrap();
-        let mut tt = TT::default();
-        let entry = TTEntry::new(pos.hash_pos(), Score(0), Score(-12), tt_move, 123, Exact);
+        let tt = TT::default();
+        let entry = TTEntry::new(pos.hash_pos(), Score(0), Score(-12), tt_move, 123, Exact, Age::default());
         tt.store::<Chessboard>(entry, 0);
         let threats = pos.threats();
         let mut caps = Caps::default();

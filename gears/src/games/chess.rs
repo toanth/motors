@@ -1338,6 +1338,12 @@ mod tests {
         assert!(Chessboard::from_fen(fen, Strict).is_err());
         let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
         assert_ne!(fen, pos.as_fen());
+        // only legal move is to castle
+        let fen = "8/8/8/8/4k3/7p/4q2P/6KR w K - 0 1";
+        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        let moves = pos.legal_moves_slow();
+        assert_eq!(moves.len(), 1);
+        assert!(moves[0].is_castle());
     }
 
     #[test]

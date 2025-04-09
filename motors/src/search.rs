@@ -4,7 +4,7 @@ use crate::search::multithreading::SearchThreadType::*;
 use crate::search::multithreading::SearchType::*;
 use crate::search::multithreading::{AtomicSearchState, EngineReceives, EngineThread, SearchThreadType, Sender};
 use crate::search::statistics::{Statistics, Summary};
-use crate::search::tt::TT;
+use crate::search::tt::{Age, TT};
 use crossbeam_channel::unbounded;
 use derive_more::{Add, Neg, Sub};
 use gears::arrayvec::ArrayVec;
@@ -761,6 +761,7 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     last_msg_time: Instant,
     statistics: Statistics,
     aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
+    age: Age,
 }
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> Deref for SearchState<B, E, C> {
@@ -786,8 +787,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
         if hard {
             self.custom.hard_forget_except_tt();
             self.params.atomic.reset(false);
+            self.age = Age::default();
         } else {
             self.custom.new_search();
+            self.age.increment();
         }
         self.params.history = ZobristHistory::default(); // will get overwritten later
         self.statistics = Statistics::default();
@@ -885,7 +888,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> 
             max_num_pvs: self.params.num_multi_pv,
             pv: self.current_mpv_pv(),
             score: self.cur_pv_data().score,
-            hashfull: self.estimate_hashfull(),
+            hashfull: self.estimate_hashfull(self.age),
             pos: self.params.pos.clone(),
             bound: self.cur_pv_data().bound,
             num_threads: 1,
@@ -921,8 +924,8 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
         self.search_params().atomic.stop_flag()
     }
 
-    fn estimate_hashfull(&self) -> usize {
-        self.tt().estimate_hashfull::<B>()
+    fn estimate_hashfull(&self, age: Age) -> usize {
+        self.tt().estimate_hashfull::<B>(age)
     }
 
     fn depth(&self) -> Depth {
@@ -1021,6 +1024,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             current_pv_num: 0,
             execution_start_time: now,
             last_msg_time: now,
+            age: Age::default(),
         }
     }
 
