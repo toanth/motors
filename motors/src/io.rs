@@ -43,7 +43,7 @@ use gears::Quitting::QuitProgram;
 use gears::cli::select_game;
 use gears::colored::Color::Red;
 use gears::colored::Colorize;
-use gears::games::{CharType, Color, ColoredPiece, ColoredPieceType, OutputList, ZobristHistory};
+use gears::games::{CharType, Color, ColoredPiece, ColoredPieceType, OutputList};
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoard};
 use gears::general::common::Description::{NoDescription, WithDescription};
@@ -694,12 +694,12 @@ impl<B: Board> EngineUGI<B> {
                 }
                 self.write_ugi(&format_args!("{}", split_perft(limit.depth, board, threads != 1)));
             }
-            _ => return self.start_search(self.state.board_hist.clone()),
+            _ => return self.start_search(),
         }
         Ok(())
     }
 
-    fn start_search(&mut self, hist: ZobristHistory) -> Res<()> {
+    fn start_search(&mut self) -> Res<()> {
         let opts = self.state.go_state.generic.clone();
         let tt = opts.override_hash_size.map(TT::new_with_mib);
         self.write_message(Debug, &format_args!("Starting {0} search with limit {1}", opts.search_type, opts.limit));
@@ -717,6 +717,7 @@ impl<B: Board> EngineUGI<B> {
             );
         }
         self.state.set_status(Run(Ongoing));
+        let hist = self.state.board_hist.clone();
         let search_moves = self.state.go_state.search_moves.take();
         // Stop the temporary search, if it exists. This could take some time, but that's fine since there won't be a temporary engine
         // unless the user specifically requested it.
@@ -1348,7 +1349,7 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
             .state
             .ponder_limit
             .ok_or_else(|| anyhow!("The engine received a '{}' command but wasn't pondering", "ponderhit".bold()))?;
-        self.start_search(self.state.board_hist.clone())
+        self.start_search()
     }
 
     fn handle_setoption(&mut self, words: &mut Tokens) -> Res<()> {

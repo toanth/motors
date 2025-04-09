@@ -301,17 +301,14 @@ pub fn red_name(word: &str) -> String {
 }
 
 fn select_name_impl<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String, G: Fn(&I::Item, &str) -> bool>(
-    name: Option<&str>,
+    name: &str,
     mut list: I,
     typ: &str,
     game_name: &str,
     to_name: F,
     compare: G,
 ) -> Res<I::Item> {
-    let idx = match name {
-        None => None,
-        Some(name) => list.clone().find(|entity| compare(entity, name)),
-    };
+    let idx = list.clone().find(|entity| compare(entity, name));
     match idx {
         None => {
             let list_as_string = match list.len() {
@@ -322,34 +319,25 @@ fn select_name_impl<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String, G: 
                     "The only valid {typ} for this version of the program is {}",
                     to_name(&list.next().unwrap())
                 ),
-                _ => match name {
-                    None => {
+                _ => {
+                    let near_matches = list
+                        .clone()
+                        .filter(|x| {
+                            edit_distance(
+                                &to_name(x).to_ascii_lowercase(),
+                                &format!("'{}'", name.to_ascii_lowercase().bold()),
+                            ) <= 3
+                        })
+                        .collect_vec();
+                    if near_matches.is_empty() {
                         format!("Valid {typ} names are {}", list_to_string(list, to_name))
+                    } else {
+                        format!("Perhaps you meant: {}", list_to_string(near_matches.iter(), |x| to_name(x)))
                     }
-                    Some(name) => {
-                        let near_matches = list
-                            .clone()
-                            .filter(|x| {
-                                edit_distance(
-                                    &to_name(x).to_ascii_lowercase(),
-                                    &format!("'{}'", name.to_ascii_lowercase().bold()),
-                                ) <= 3
-                            })
-                            .collect_vec();
-                        if near_matches.is_empty() {
-                            format!("Valid {typ} names are {}", list_to_string(list, to_name))
-                        } else {
-                            format!("Perhaps you meant: {}", list_to_string(near_matches.iter(), |x| to_name(x)))
-                        }
-                    }
-                },
+                }
             };
             let game_name = game_name.bold();
-            if let Some(name) = name {
-                bail!("Couldn't find {typ} '{}' for the current game ({game_name}). {list_as_string}.", red_name(name))
-            } else {
-                bail!(list_as_string)
-            }
+            bail!("Couldn't find {typ} '{}' for the current game ({game_name}). {list_as_string}.", red_name(name))
         }
         Some(res) => Ok(res),
     }
@@ -375,7 +363,7 @@ pub fn select_name_dyn<'a, T: NamedEntity + ?Sized>(
     descr: Description,
 ) -> Res<&'a T> {
     select_name_impl(
-        Some(name),
+        name,
         list.iter(),
         typ,
         game_name,
@@ -396,14 +384,7 @@ pub fn select_name_static<'a, T: NamedEntity, I: ExactSizeIterator<Item = &'a T>
     game_name: &str,
     descr: Description,
 ) -> Res<&'a T> {
-    select_name_impl(
-        Some(name),
-        list,
-        typ,
-        game_name,
-        |x| to_name_and_optional_description(*x, descr),
-        |e, s| e.matches(s),
-    )
+    select_name_impl(name, list, typ, game_name, |x| to_name_and_optional_description(*x, descr), |e, s| e.matches(s))
 }
 
 pub fn nonzero_usize(val: usize, name: &str) -> Res<NonZeroUsize> {
