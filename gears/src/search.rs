@@ -392,6 +392,7 @@ pub struct SearchLimit {
     pub nodes: NodesLimit,
     pub soft_nodes: NodesLimit,
     pub mate: Depth,
+    pub start_time: Instant,
 }
 
 impl Default for SearchLimit {
@@ -403,6 +404,7 @@ impl Default for SearchLimit {
             nodes: NodesLimit::new(u64::MAX).unwrap(),
             soft_nodes: NodesLimit::new(u64::MAX).unwrap(),
             mate: Depth::new(0), // only finding a mate in 0 would stop the search
+            start_time: Instant::now(),
         }
     }
 }
@@ -488,6 +490,7 @@ impl SearchLimit {
             nodes: self.nodes.min(other.nodes),
             soft_nodes: self.soft_nodes.min(other.soft_nodes),
             mate: self.mate.max(other.mate),
+            start_time: self.start_time.min(other.start_time),
         }
     }
 

@@ -755,7 +755,6 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     excluded_moves: Vec<B::Move>,
     multi_pvs: Vec<PVData<B>>,
     current_pv_num: usize,
-    start_time: Instant,
     last_msg_time: Instant,
     statistics: Statistics,
     aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
@@ -776,8 +775,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> DerefMut for SearchStat
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> for SearchState<B, E, C> {
     fn forget(&mut self, hard: bool) {
-        self.start_time = Instant::now();
-        self.last_msg_time = self.start_time;
+        self.last_msg_time = Instant::now();
         for e in &mut self.search_stack {
             e.forget();
         }
@@ -1005,12 +1003,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     }
 
     fn new_with(search_stack: Vec<E>, custom: C) -> Self {
-        let start_time = Instant::now();
         let params =
             SearchParams::new_unshared(B::default(), SearchLimit::infinite(), ZobristHistory::default(), TT::minimal());
         Self {
             search_stack,
-            start_time,
             custom,
             statistics: Statistics::default(),
             aggregated_statistics: Statistics::default(),
@@ -1018,7 +1014,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             params,
             excluded_moves: vec![],
             current_pv_num: 0,
-            last_msg_time: start_time,
+            last_msg_time: Instant::now(),
         }
     }
 
@@ -1048,7 +1044,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     }
 
     fn start_time(&self) -> Instant {
-        self.start_time
+        self.params.limit.start_time
     }
 
     /// If the 'statistics' feature is enabled, this collects additional statistics.

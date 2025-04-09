@@ -308,7 +308,7 @@ pub struct CommandAutocomplete<B: Board> {
 impl<B: Board> CommandAutocomplete<B> {
     pub fn new(ugi: &EngineUGI<B>) -> Self {
         let state = ACState {
-            go_state: GoState::new(ugi, Normal),
+            go_state: GoState::new(ugi, Normal, Instant::now()),
             outputs: ugi.output_factories.clone(),
             searchers: ugi.searcher_factories.clone(),
             evals: ugi.eval_factories.clone(),

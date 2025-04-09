@@ -889,7 +889,7 @@ impl Caps {
             let debug_history_len = self.params.history.len();
             self.record_move(mov, pos, ply, MainSearch);
 
-            if root && depth >= 8 && self.start_time.elapsed().as_millis() >= 3000 {
+            if root && depth >= 8 && self.limit().start_time.elapsed().as_millis() >= 3000 {
                 let move_num = self.search_stack[0].tried_moves.len();
                 // `qsearch` would give better results, but would make bench be nondeterministic
                 let score = -self.eval(&new_pos, 0);
@@ -999,7 +999,7 @@ impl Caps {
             if root {
                 self.state.custom.root_move_nodes.update(mov, self.state.uci_nodes() - nodes_before_move);
                 let move_num = self.search_stack[0].tried_moves.len() - 1;
-                if move_num < 5 && self.start_time.elapsed().as_millis() >= 3000 {
+                if move_num < 5 && self.limit().start_time.elapsed().as_millis() >= 3000 {
                     self.send_refutation(mov, score, move_num);
                 }
             }
