@@ -278,13 +278,12 @@ impl TT {
     }
 
     // The lowest score is getting replaced
-    fn entry_replacement_score<B: Board>(candidate: &TTEntry<B>, to_insert: &TTEntry<B>) -> usize {
-        if to_insert.hash == candidate.hash {
-            0
-        } else if candidate.is_empty() {
-            1
+    fn entry_replacement_score<B: Board>(candidate: &TTEntry<B>, to_insert: &TTEntry<B>) -> isize {
+        if to_insert.hash == candidate.hash || candidate.is_empty() {
+            isize::MIN
         } else {
-            candidate.depth as usize + ((candidate.age() == to_insert.age()) as usize * 1000)
+            let age_diff = (to_insert.age().0.wrapping_sub(candidate.age().0).wrapping_add(1 << 6)) & 0b11_1111;
+            candidate.depth as isize - age_diff as isize * 4
         }
     }
 
