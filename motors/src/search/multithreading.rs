@@ -436,7 +436,7 @@ impl<B: Board> EngineWrapper<B> {
         let params = SearchParams::create(
             pos,
             limit,
-            history.clone(),
+            history,
             tt,
             search_moves.clone(),
             multi_pv.saturating_sub(1),
