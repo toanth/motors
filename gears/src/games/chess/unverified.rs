@@ -48,6 +48,22 @@ impl From<Chessboard> for UnverifiedChessboard {
 impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
     fn verify_with_level(self, checks: SelfChecks, strictness: Strictness) -> Res<Chessboard> {
         let mut this = self.0;
+        if checks == Assertion {
+            ensure!(
+                (this.player_bb(White) & this.player_bb(Black)).is_zero(),
+                "A square is set both on the white and black player bitboard, but no piece bitboard has this bit set"
+            );
+            let mut pieces = ChessBitboard::default();
+            for piece in ChessPieceType::pieces() {
+                pieces |= this.piece_bb(piece);
+            }
+            if pieces != this.color_bbs[0] | this.color_bbs[1] {
+                bail!(
+                    "The colored bitboards and the piece bitboards don't match on the following squares: {}",
+                    pieces ^ (this.color_bbs[0] | this.color_bbs[1])
+                );
+            }
+        }
         for color in ChessColor::iter() {
             ensure!(
                 this.col_piece_bb(color, King).is_single_piece(),
@@ -65,7 +81,7 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                     (this.rook_start_square(color, side).bb() & this.col_piece_bb(color, Rook)).has_set_bit();
                 if this.castling.can_castle(color, side) && !has_eligible_rook {
                     bail!(
-                        "Color {color} can castle {side}, but there is no rook to castle{}",
+                        "The {color} player can castle {side}, but there is no rook to castle with{}",
                         if checks == CheckFen { " (invalid castling flag in FEN?)" } else { "" }
                     );
                 }
@@ -128,22 +144,6 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
                 }
             }
         }
-        if checks == Assertion {
-            ensure!(
-                (this.player_bb(White) & this.player_bb(Black)).is_zero(),
-                "A square is set both on the white and black player bitboard, but no piece bitboard has this bit set"
-            );
-            let mut pieces = ChessBitboard::default();
-            for piece in ChessPieceType::pieces() {
-                pieces |= this.piece_bb(piece);
-            }
-            if pieces != this.color_bbs[0] | this.color_bbs[1] {
-                bail!(
-                    "The colored bitboards and the piece bitboards don't match on the following squares: {}",
-                    pieces ^ (this.color_bbs[0] | this.color_bbs[1])
-                );
-            }
-        }
         for color in ChessColor::iter() {
             let num_pawns = this.col_piece_bb(color, Pawn).num_ones() as isize;
             if strictness == Strict && num_promoted_pawns[color] + num_pawns > 8 {
@@ -160,15 +160,17 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             );
             let remove_pawn_square = ep_square.pawn_advance_unchecked(inactive_player);
             let pawn_origin_square = ep_square.pawn_advance_unchecked(this.active_player);
-            if this.colored_piece_on(remove_pawn_square).symbol != ColoredChessPieceType::new(inactive_player, Pawn) {
-                bail!(
-                    "FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}"
-                );
-            } else if !this.is_empty(ep_square) {
+            if !this.is_empty(ep_square) {
                 bail!(
                     "The en passant square ({ep_square}) must be empty, but it's occupied by a {}",
                     this.piece_type_on(ep_square).to_name()
                 )
+            } else if this.colored_piece_on(remove_pawn_square).symbol
+                != ColoredChessPieceType::new(inactive_player, Pawn)
+            {
+                bail!(
+                    "FEN specifies en passant square {ep_square}, but there is no {inactive_player}-colored pawn on {remove_pawn_square}"
+                );
             } else if !this.is_empty(pawn_origin_square) {
                 bail!(
                     "The en passant square is set to {ep_square}, so the pawn must have come from {pawn_origin_square}. But this square isn't empty"
@@ -177,24 +179,22 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             let active = this.active_player();
             // In the current version of the FEN standard, the ep square should only be set if a pawn can capture.
             // This implementation follows that rule, but many other implementations give the ep square after every double pawn push.
-            // To achieve consistent results, such an incorrect ep square is removed when parsing the FEN in Relaxed mode; it should
-            // no longer exist at this point. However, illegal pseudolegal ep squares are detected here if in strict mode.
-            if strictness == Strict {
-                let possible_ep_pawns = remove_pawn_square.bb().west() | remove_pawn_square.bb().east();
+            // To achieve consistent results, such an incorrect ep square is removed when parsing the FEN; it should
+            // no longer exist at this point.
+            let possible_ep_pawns = remove_pawn_square.bb().west() | remove_pawn_square.bb().east();
+            ensure!(
+                (possible_ep_pawns & this.col_piece_bb(active, Pawn)).has_set_bit(),
+                "The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square"
+            );
+            if strictness == Strict && checks == CheckFen {
+                let legal_ep = this.legal_moves_slow().iter().any(|m| m.is_ep());
+                // this doesn't necessarily mean that the ep pawn capturing is pinned, the king could also be in check.
                 ensure!(
-                    (possible_ep_pawns & this.col_piece_bb(active, Pawn)).has_set_bit(),
-                    "The en passant square is set to '{ep_square}', but there is no {active}-colored pawn that could capture on that square"
-                );
-                if checks == CheckFen {
-                    let legal_ep = this.legal_moves_slow().iter().any(|m| m.is_ep());
-                    // this doesn't necessarily mean that the ep pawn capturing is pinned, the king could also be in check.
-                    ensure!(
-                        legal_ep,
-                        "The en passant square is set, but even though there is a pseudolegal ep capture move, it is not legal \
+                    legal_ep,
+                    "The en passant square is set, but even though there is a pseudolegal ep capture move, it is not legal \
                     (either all pawns that could capture en passant are pinned, or the king is in check). \
                     This is not allowed when parsing FENs in strict mode"
-                    );
-                }
+                );
             }
         }
         this.set_checkers_and_pinned();

@@ -436,7 +436,7 @@ impl<B: Board> EngineWrapper<B> {
         let params = SearchParams::create(
             pos,
             limit,
-            history.clone(),
+            history,
             tt,
             search_moves.clone(),
             multi_pv.saturating_sub(1),
@@ -619,6 +619,21 @@ mod tests {
         ugi.handle_input("go wtime 1 btime 1").unwrap();
         ugi.handle_input("stop").unwrap();
         ugi.quit().unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "chess")]
+    fn set_options_during_match() {
+        let opts = EngineOpts::for_game(Chess, true);
+        let mut ugi = create_match(opts).unwrap();
+        ugi.handle_input("go").unwrap();
+        ugi.handle_input("random_pos").unwrap();
+        ugi.handle_input("setoption name Hash value 1").unwrap();
+        ugi.handle_input("position startpos moves e2e4").unwrap();
+        ugi.handle_input("setoption name Engine value random").unwrap();
+        ugi.handle_input("stop").unwrap();
+        ugi.handle_input("go").unwrap();
+        ugi.handle_input("stop").unwrap();
     }
 
     #[test]

@@ -507,7 +507,7 @@ impl Board for Chessboard {
 
     fn read_fen_and_advance_input(words: &mut Tokens, strictness: Strictness) -> Res<Self> {
         let mut board = Chessboard::empty();
-        board = read_common_fen_part::<Chessboard>(words, board)?;
+        read_common_fen_part::<Chessboard>(words, &mut board)?;
         let color = board.0.active_player();
         let Some(castling_word) = words.next() else { bail!("FEN ends after color to move, missing castling rights") };
         let castling_rights = CastlingFlags::default().parse_castling_rights(castling_word, &board.0, strictness)?;
@@ -534,10 +534,10 @@ impl Board for Chessboard {
                 Some(square)
             }
         };
-        board = board.set_ep(ep_square);
+        board.0.ep_square = ep_square;
         board.0.active_player = color;
         board.0.castling = castling_rights;
-        board = read_two_move_numbers::<Chessboard>(words, board, strictness)?;
+        read_two_move_numbers::<Chessboard>(words, &mut board, strictness)?;
         // also sets the zobrist hash
         board.verify_with_level(CheckFen, strictness)
     }
@@ -1338,6 +1338,12 @@ mod tests {
         assert!(Chessboard::from_fen(fen, Strict).is_err());
         let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
         assert_ne!(fen, pos.as_fen());
+        // only legal move is to castle
+        let fen = "8/8/8/8/4k3/7p/4q2P/6KR w K - 0 1";
+        let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+        let moves = pos.legal_moves_slow();
+        assert_eq!(moves.len(), 1);
+        assert!(moves[0].is_castle());
     }
 
     #[test]

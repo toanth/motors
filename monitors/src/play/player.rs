@@ -383,7 +383,7 @@ impl PlayerBuilder {
         let mate = args.mate.unwrap_or(Depth::MAX);
         let nodes = args.nodes.unwrap_or(NodesLimit::MAX);
         let soft_nodes = NodesLimit::MAX;
-        let default_limit = SearchLimit { tc, fixed_time, depth, nodes, soft_nodes, mate };
+        let default_limit = SearchLimit { tc, fixed_time, depth, nodes, soft_nodes, mate, start_time: Instant::now() };
 
         // try to set uci/ugi mode based on the game, but possibly change that according to how the engine responds
         let proto =

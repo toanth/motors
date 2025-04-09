@@ -92,7 +92,10 @@ impl Chessboard {
             let mut incorrect = false;
             incorrect |= mov.is_ep() && self.ep_square() != Some(mov.dest_square());
             incorrect |= mov.is_promotion() && !mov.dest_square().is_backrank();
-            let capturable = self.player_bb(color.other()) | self.ep_square.map(ChessSquare::bb).unwrap_or_default();
+            if mov.is_ep() {
+                return Some(mov.dest_square()) == self.ep_square;
+            }
+            let capturable = self.player_bb(color.other());
             !incorrect
                 && Self::single_pawn_moves(color, src, capturable, self.empty_bb())
                     .is_bit_set_at(mov.dest_square().bb_idx())
@@ -505,6 +508,8 @@ impl Chessboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::general::board::Strictness::Strict;
+    use std::str::FromStr;
 
     #[test]
     fn attack_test() {
@@ -522,5 +527,17 @@ mod tests {
                 assert_eq!(threats, child.threats(), "{child} {:?}", threats ^ child.threats());
             }
         }
+    }
+    #[test]
+    fn failed_proptest() {
+        let pos =
+            Chessboard::from_fen("2kb1b2/pR2P1P1/P1N1P3/1p2Pp2/P5P1/1N6/4P2B/2qR2K1 w - f6 99 123", Strict).unwrap();
+        let mov =
+            ChessMove::new(ChessSquare::from_str("e5").unwrap(), ChessSquare::from_str("f6").unwrap(), NormalPawnMove);
+        assert!(!pos.is_move_pseudolegal(mov));
+        assert!(!pos.is_generated_move_pseudolegal(mov));
+        let mov = ChessMove::new(mov.src_square(), mov.dest_square(), EnPassant);
+        assert!(pos.is_move_pseudolegal(mov));
+        assert!(pos.is_generated_move_pseudolegal(mov));
     }
 }

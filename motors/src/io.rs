@@ -43,7 +43,7 @@ use gears::Quitting::QuitProgram;
 use gears::cli::select_game;
 use gears::colored::Color::Red;
 use gears::colored::Colorize;
-use gears::games::{CharType, Color, ColoredPiece, ColoredPieceType, OutputList, ZobristHistory};
+use gears::games::{CharType, Color, ColoredPiece, ColoredPieceType, OutputList};
 use gears::general::board::Strictness::{Relaxed, Strict};
 use gears::general::board::{Board, BoardHelpers, ColPieceTypeOf, Strictness, Symmetry, UnverifiedBoard};
 use gears::general::common::Description::{NoDescription, WithDescription};
@@ -412,6 +412,8 @@ impl<B: Board> EngineUGI<B> {
                     break;
                 }
             };
+            // Set the start time as early as possible so that we don't overestimate the remaining time
+            self.state.go_state.generic.limit.start_time = Instant::now();
             self.failed_cmd = None;
             let res = handle_ugi_input(self, tokens(&input), &game_name);
             match res {
@@ -604,7 +606,7 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_go_impl(&mut self, initial_search_type: SearchType, words: &mut Tokens) -> Res<()> {
-        self.state.go_state = GoState::new(self, initial_search_type);
+        self.state.go_state = GoState::new(self, initial_search_type, self.state.go_state.start_time());
 
         if matches!(initial_search_type, Perft | SplitPerft | Bench) {
             accept_depth(self.go_state_mut().limit_mut(), words)?;
@@ -692,12 +694,12 @@ impl<B: Board> EngineUGI<B> {
                 }
                 self.write_ugi(&format_args!("{}", split_perft(limit.depth, board, threads != 1)));
             }
-            _ => return self.start_search(self.state.board_hist.clone()),
+            _ => return self.start_search(),
         }
         Ok(())
     }
 
-    fn start_search(&mut self, hist: ZobristHistory) -> Res<()> {
+    fn start_search(&mut self) -> Res<()> {
         let opts = self.state.go_state.generic.clone();
         let tt = opts.override_hash_size.map(TT::new_with_mib);
         self.write_message(Debug, &format_args!("Starting {0} search with limit {1}", opts.search_type, opts.limit));
@@ -715,6 +717,7 @@ impl<B: Board> EngineUGI<B> {
             );
         }
         self.state.set_status(Run(Ongoing));
+        let hist = self.state.board_hist.clone();
         let search_moves = self.state.go_state.search_moves.take();
         // Stop the temporary search, if it exists. This could take some time, but that's fine since there won't be a temporary engine
         // unless the user specifically requested it.
@@ -1341,12 +1344,12 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
     }
 
     fn handle_ponderhit(&mut self) -> Res<()> {
-        self.state.go_state = GoState::new(self, Normal);
+        self.state.go_state = GoState::new(self, Normal, self.state.go_state.start_time());
         self.state.go_state.generic.limit = self
             .state
             .ponder_limit
             .ok_or_else(|| anyhow!("The engine received a '{}' command but wasn't pondering", "ponderhit".bold()))?;
-        self.start_search(self.state.board_hist.clone())
+        self.start_search()
     }
 
     fn handle_setoption(&mut self, words: &mut Tokens) -> Res<()> {
@@ -1823,11 +1826,12 @@ fn format_tt_entry<B: Board>(state: MatchState<B>, entry: TTEntry<B>) -> String 
     let score = Score::from_compact(entry.score);
     write!(
         &mut res,
-        "\nHash: {5}\nScore: {bound_str}{0} ({1}), Raw Eval: {2}, Depth: {3}, Best Move: {4}",
+        "\nHash: {6}\nScore: {bound_str}{0} ({1}), Raw Eval: {2}, Depth: {3}, Age Ctr: {4}, Best Move: {5}",
         pretty_score(score, None, None, &score_gradient(), true, false),
         entry.bound(),
         pretty_score(entry.raw_eval(), None, None, &score_gradient(), true, false),
         entry.depth.to_string().bold(),
+        entry.age(),
         move_string,
         pos.hash_pos()
     )

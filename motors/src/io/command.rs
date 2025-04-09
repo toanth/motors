@@ -42,7 +42,7 @@ use gears::search::{Depth, NodesLimit, SearchLimit};
 use gears::ugi::{EngineOption, EngineOptionType, only_load_ugi_position};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -555,8 +555,9 @@ impl<B: Board> GoState<B> {
             _ => SearchLimit::infinite().depth,
         }
     }
-    pub fn new(ugi: &EngineUGI<B>, search_type: SearchType) -> Self {
-        let limit = SearchLimit::depth(Self::default_depth_limit(ugi, search_type));
+    pub fn new(ugi: &EngineUGI<B>, search_type: SearchType, start_time: Instant) -> Self {
+        let mut limit = SearchLimit::depth(Self::default_depth_limit(ugi, search_type));
+        limit.start_time = start_time;
         let bench_limit = Self::default_depth_limit(ugi, Bench);
         let perft_limit = Self::default_depth_limit(ugi, Perft);
         Self::new_for_pos(
@@ -598,6 +599,9 @@ impl<B: Board> GoState<B> {
             search_moves: None,
             pos,
         }
+    }
+    pub(super) fn start_time(&self) -> Instant {
+        self.generic.limit.start_time
     }
 }
 

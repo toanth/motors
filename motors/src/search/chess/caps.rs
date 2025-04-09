@@ -889,7 +889,7 @@ impl Caps {
             let debug_history_len = self.params.history.len();
             self.record_move(mov, pos, ply, MainSearch);
 
-            if root && depth >= 8 && self.start_time.elapsed().as_millis() >= 3000 {
+            if root && depth >= 8 && self.limit().start_time.elapsed().as_millis() >= 3000 {
                 let move_num = self.search_stack[0].tried_moves.len();
                 // `qsearch` would give better results, but would make bench be nondeterministic
                 let score = -self.eval(&new_pos, 0);
@@ -999,7 +999,7 @@ impl Caps {
             if root {
                 self.state.custom.root_move_nodes.update(mov, self.state.uci_nodes() - nodes_before_move);
                 let move_num = self.search_stack[0].tried_moves.len() - 1;
-                if move_num < 5 && self.start_time.elapsed().as_millis() >= 3000 {
+                if move_num < 5 && self.limit().start_time.elapsed().as_millis() >= 3000 {
                     self.send_refutation(mov, score, move_num);
                 }
             }
@@ -1061,7 +1061,8 @@ impl Caps {
         }
 
         let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, depth, bound_so_far);
+            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, depth, bound_so_far, self.age);
+
         // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
         if !(root && self.current_pv_num > 0) {
@@ -1103,7 +1104,8 @@ impl Caps {
 
         // Don't do TT cutoffs with alpha already raised by the stand pat check, because that relies on the null move observation.
         // But if there's a TT entry from normal search that's worse than the stand pat score, we should trust that more.
-        if let Some(tt_entry) = self.tt().load::<Chessboard>(pos.hash_pos(), ply) {
+        let old_entry = self.tt().load::<Chessboard>(pos.hash_pos(), ply);
+        if let Some(tt_entry) = old_entry {
             debug_assert_eq!(tt_entry.hash, pos.hash_pos());
             let bound = tt_entry.bound();
             let tt_score = tt_entry.score();
@@ -1195,7 +1197,7 @@ impl Caps {
         self.statistics.count_complete_node(Qsearch, bound_so_far, 0, ply, children_visited);
 
         let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, 0, bound_so_far);
+            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, 0, bound_so_far, self.age);
         self.tt_mut().store(tt_entry, ply);
         Some(best_score)
     }
@@ -1524,8 +1526,8 @@ mod tests {
         let fen = "7k/8/8/8/p7/1p6/1R1r4/K7 w - - 4 3";
         let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
         let tt_move = ChessMove::from_text("a1b1", &pos).unwrap();
-        let mut tt = TT::default();
-        let entry = TTEntry::new(pos.hash_pos(), Score(0), Score(-12), tt_move, 123, Exact);
+        let tt = TT::default();
+        let entry = TTEntry::new(pos.hash_pos(), Score(0), Score(-12), tt_move, 123, Exact, Age::default());
         tt.store::<Chessboard>(entry, 0);
         let threats = pos.threats();
         let mut caps = Caps::default();

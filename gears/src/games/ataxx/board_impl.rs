@@ -5,7 +5,7 @@ use crate::games::{Board, Color, PosHash};
 use crate::general::bitboards::chessboard::{ATAXX_LEAPERS, KINGS};
 use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;
-use crate::general::board::{read_simple_fen_part, BitboardBoard, BoardHelpers, Strictness, UnverifiedBoard};
+use crate::general::board::{BitboardBoard, BoardHelpers, Strictness, UnverifiedBoard, read_simple_fen_part};
 use crate::general::common::{Res, Tokens};
 use crate::general::move_list::MoveList;
 use crate::general::squares::sup_distance;
@@ -159,8 +159,8 @@ impl AtaxxBoard {
     }
 
     pub fn read_fen_impl(words: &mut Tokens, strictness: Strictness) -> Res<Self> {
-        let empty = UnverifiedAtaxxBoard::new(AtaxxBoard::empty());
-        let board = read_simple_fen_part::<AtaxxBoard>(words, empty, strictness)?;
+        let mut board = UnverifiedAtaxxBoard::new(AtaxxBoard::empty());
+        read_simple_fen_part::<AtaxxBoard>(words, &mut board, strictness)?;
         board.verify_with_level(CheckFen, strictness)
     }
 }

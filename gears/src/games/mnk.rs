@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail, ensure};
 use colored::Colorize;
 use itertools::Itertools;
-use static_assertions::const_assert_eq;
 use std::cmp::min;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -196,7 +195,7 @@ pub struct FillSquare {
     // pub player: Player,
 }
 
-const_assert_eq!(size_of::<FillSquare>(), 2);
+const _: () = assert!(size_of::<FillSquare>() == 2);
 
 impl Default for FillSquare {
     fn default() -> Self {
@@ -721,7 +720,8 @@ impl Board for MNKBoard {
         };
         let settings = MnkSettings::from_input(first, words)?;
         let board = MNKBoard::empty_for_settings(settings);
-        let mut board = read_common_fen_part::<MNKBoard>(words, UnverifiedMnkBoard::new(board))?;
+        let mut board = UnverifiedMnkBoard::new(board);
+        read_common_fen_part::<MNKBoard>(words, &mut board)?;
 
         let mut ply = board.0.occupied_bb().num_ones();
         if (ply % 2 == 0) != board.active_player().is_first() {
@@ -730,7 +730,7 @@ impl Board for MNKBoard {
             ply += 1;
         }
         board.set_ply_since_start(ply)?;
-        board = read_single_move_number::<MNKBoard>(words, board, strictness)?;
+        read_single_move_number::<MNKBoard>(words, &mut board, strictness)?;
 
         board.0.last_move = None;
 
@@ -1163,10 +1163,8 @@ mod test {
         assert!(MNKBoard::from_fen("4 3 2 3/3/3/3", Relaxed).is_err());
         assert!(MNKBoard::from_fen("4 3 2 3/3/3/3 w", Relaxed).is_err());
         assert!(MNKBoard::from_fen("4 3 2 3/3/3/3 wx", Relaxed).is_err());
-        assert!(
-            MNKBoard::from_fen("4 3 2 3/4/3/3 o", Relaxed)
-                .is_err_and(|e| e.to_string().contains("Line '4' has incorrect width"))
-        );
+        let e = MNKBoard::from_fen("4 3 2 3/4/3/3 o", Relaxed);
+        assert!(e.as_ref().is_err_and(|e| e.to_string().contains("Line '4' has incorrect width")), "{e:?}");
         _ = MNKBoard::from_fen("4 3 2 3//3/3 o", Relaxed).unwrap_err();
         assert!(MNKBoard::from_fen("4 3 2 x", Relaxed).is_err());
         assert!(MNKBoard::from_fen("4 0 2 /// x", Relaxed).is_err());
