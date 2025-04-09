@@ -1,4 +1,3 @@
-#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse"))]
 use derive_more::Index;
 use gears::games::PosHash;
 #[cfg(feature = "chess")]
@@ -8,10 +7,9 @@ use gears::general::moves::{Move, UntrustedMove};
 use gears::itertools::Itertools;
 use gears::score::{CompactScoreT, SCORE_WON, Score, ScoreT};
 use gears::search::NodeType;
-use gears::search::NodeType::Exact;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelRefMutIterator;
-use static_assertions::const_assert_eq;
+#[cfg(all(feature = "unsafe", target_arch = "x86_64", target_feature = "sse"))]
 use std::arch::x86_64::{_MM_HINT_T1, _mm_prefetch};
 use std::fmt::{Display, Formatter};
 use std::mem::size_of;
@@ -190,9 +188,9 @@ impl<B: Board> TTEntry<B> {
     }
 }
 #[cfg(feature = "chess")]
-const_assert_eq!(size_of::<TTEntry<Chessboard>>(), 16);
+const _: () = assert!(size_of::<TTEntry<Chessboard>>() == 16);
 #[cfg(feature = "chess")]
-const_assert_eq!(size_of::<TTEntry<Chessboard>>(), size_of::<AtomicTTEntry>());
+const _: () = assert!(size_of::<TTEntry<Chessboard>>() == size_of::<AtomicTTEntry>());
 
 pub const DEFAULT_HASH_SIZE_MB: usize = 16;
 
@@ -500,12 +498,13 @@ mod test {
         let pos = Chessboard::default();
         let mut engine = Caps::default();
         let bad_move = ChessMove::from_compact_text("a2a3", &pos).unwrap();
+        let age = Age(42);
         let entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.hash_pos(), MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, bad_move, 123, Exact, Age(42));
+            TTEntry::new(pos.hash_pos(), MAX_NORMAL_SCORE, MIN_NORMAL_SCORE, bad_move, 123, Exact, age);
         tt.store(entry, 0);
         let next_pos = pos.make_move(bad_move).unwrap();
         let next_entry: TTEntry<Chessboard> =
-            TTEntry::new(next_pos.hash_pos(), MIN_NORMAL_SCORE, MAX_NORMAL_SCORE, ChessMove::NULL, 122, Exact, Age(42));
+            TTEntry::new(next_pos.hash_pos(), MIN_NORMAL_SCORE, MAX_NORMAL_SCORE, ChessMove::NULL, 122, Exact, age);
         tt.store(next_entry, 1);
         let mov = engine.search_with_tt(pos, SearchLimit::depth(Depth::new(1)), tt.clone()).chosen_move;
         assert_eq!(mov, bad_move);
@@ -535,6 +534,8 @@ mod test {
         let mut params2 = params.auxiliary(atomic2.clone());
         let pos2 = Chessboard::from_name("kiwipete").unwrap();
         params2.pos = pos2;
+        let mut age = engine.age;
+        age.increment();
         let handle = spawn(move || engine.search(params));
         let handle2 =
             spawn(move || engine2.search(params2) /*SearchResult::<Chessboard>::move_only(ChessMove::NULL)*/);
@@ -550,8 +551,10 @@ mod test {
             res1.chosen_move.compact_formatter(&pos),
             res2.chosen_move.compact_formatter(&pos)
         );
-        let hashfull = tt.estimate_hashfull::<Chessboard>(Age::default());
+        let hashfull = tt.estimate_hashfull::<Chessboard>(age);
         assert!(hashfull > 0, "{hashfull}");
+        let hashfull = tt.estimate_hashfull::<Chessboard>(Age(0));
+        assert!(hashfull == 0, "{hashfull}");
         let entry = tt.load::<Chessboard>(pos.hash_pos(), 0).unwrap();
         let entry2 = tt.load::<Chessboard>(pos2.hash_pos(), 0).unwrap();
         assert_eq!(entry.hash, pos.hash_pos());
