@@ -499,7 +499,7 @@ pub trait NormalEngine<B: Board>: Engine<B> {
     }
 }
 
-const DEFAULT_CHECK_TIME_INTERVAL: u64 = 2048;
+const DEFAULT_CHECK_TIME_INTERVAL: u64 = 1024;
 
 #[allow(type_alias_bounds)]
 pub type SearchStateFor<B: Board, E: NormalEngine<B>> = SearchState<B, E::SearchStackEntry, E::CustomInfo>;
@@ -755,7 +755,6 @@ pub struct SearchState<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> {
     excluded_moves: Vec<B::Move>,
     multi_pvs: Vec<PVData<B>>,
     current_pv_num: usize,
-    start_time: Instant,
     last_msg_time: Instant,
     statistics: Statistics,
     aggregated_statistics: Statistics, // statistics aggregated over all searches of the current match
@@ -777,8 +776,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> DerefMut for SearchStat
 
 impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> AbstractSearchState<B> for SearchState<B, E, C> {
     fn forget(&mut self, hard: bool) {
-        self.start_time = Instant::now();
-        self.last_msg_time = self.start_time;
+        self.last_msg_time = Instant::now();
         for e in &mut self.search_stack {
             e.forget();
         }
@@ -1008,12 +1006,10 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     }
 
     fn new_with(search_stack: Vec<E>, custom: C) -> Self {
-        let start_time = Instant::now();
         let params =
             SearchParams::new_unshared(B::default(), SearchLimit::infinite(), ZobristHistory::default(), TT::minimal());
         Self {
             search_stack,
-            start_time,
             custom,
             statistics: Statistics::default(),
             aggregated_statistics: Statistics::default(),
@@ -1021,7 +1017,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
             params,
             excluded_moves: vec![],
             current_pv_num: 0,
-            last_msg_time: start_time,
+            last_msg_time: Instant::now(),
             age: Age::default(),
         }
     }
@@ -1052,7 +1048,7 @@ impl<B: Board, E: SearchStackEntry<B>, C: CustomInfo<B>> SearchState<B, E, C> {
     }
 
     fn start_time(&self) -> Instant {
-        self.start_time
+        self.params.limit.start_time
     }
 
     /// If the 'statistics' feature is enabled, this collects additional statistics.
@@ -1160,9 +1156,9 @@ mod tests {
         let tt = TT::default();
         for p in B::bench_positions() {
             let res = engine.bench(p.clone(), SearchLimit::nodes_(1), tt.clone(), 0);
-            assert!(res.depth.is_none());
-            assert!(res.max_depth.get() <= 1 + 1); // possible extensions
-            assert!(res.nodes <= 100); // TODO: Assert exactly 1
+            assert!(res.depth.is_none(), "{res}");
+            assert!(res.max_depth.get() <= 1 + 1, "{res}"); // possible extensions
+            assert!(res.nodes <= 100, "{res}"); // TODO: Assert exactly 1
             let params =
                 SearchParams::new_unshared(p.clone(), SearchLimit::depth_(1), ZobristHistory::default(), tt.clone());
             let res = engine.search(params);

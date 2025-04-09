@@ -918,8 +918,8 @@ impl Board for UtttBoard {
     // reachable because the sub board has been won, and update the piece_on function
 
     fn read_fen_and_advance_input(input: &mut Tokens, strictness: Strictness) -> Res<Self> {
-        let pos = Self::default();
-        let mut pos = read_common_fen_part::<UtttBoard>(input, pos.into())?;
+        let mut pos = Self::default().into();
+        read_common_fen_part::<UtttBoard>(input, &mut pos)?;
 
         let mut fullmove_counter = parse_int(input, "fullmove counter")?;
         if fullmove_counter == 0 {

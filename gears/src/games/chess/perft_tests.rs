@@ -354,6 +354,8 @@ mod tests {
         // pins
         "1nbqkbnr/ppp1pppp/8/r2pP2K/8/8/PPPP1PPP/RNBQ1BNR w k d6 0 2 ;D1 31;D2 927 ;D3 26832 ;D4 813632 ;D5 23977743",
         "2k5/3q4/8/8/3B4/3K1B1r/8/8 w - - 0 1 ;D1 7 ;D2 211; D3 4246 ;D4 138376 ;D5 2611571 ;D6 85530145",
+        // castling through check
+        "2r3kr/8/8/8/8/8/8/RK2R3 w Qk - 0 1; D1 21 ;D2 447 ;D3 9933 ;D4 226424 ;D5 5338161 ;D6 126787151",
     ];
 
     const STANDARD_FENS: &[&str] = &[

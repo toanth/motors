@@ -205,6 +205,13 @@ impl ColoredChessPieceType {
         Self::iter().filter(|p| *p != ColoredChessPieceType::Empty)
     }
 
+    pub fn non_pawns() -> impl Iterator<Item = ColoredChessPieceType> {
+        Self::iter().filter(|p| {
+            ![ColoredChessPieceType::Empty, ColoredChessPieceType::BlackPawn, ColoredChessPieceType::WhitePawn]
+                .contains(p)
+        })
+    }
+
     pub fn name(self) -> String {
         format!(
             "{0}{1}",

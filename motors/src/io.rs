@@ -412,6 +412,8 @@ impl<B: Board> EngineUGI<B> {
                     break;
                 }
             };
+            // Set the start time as early as possible so that we don't overestimate the remaining time
+            self.state.go_state.generic.limit.start_time = Instant::now();
             self.failed_cmd = None;
             let res = handle_ugi_input(self, tokens(&input), &game_name);
             match res {
@@ -604,7 +606,7 @@ impl<B: Board> EngineUGI<B> {
     }
 
     fn handle_go_impl(&mut self, initial_search_type: SearchType, words: &mut Tokens) -> Res<()> {
-        self.state.go_state = GoState::new(self, initial_search_type);
+        self.state.go_state = GoState::new(self, initial_search_type, self.state.go_state.start_time());
 
         if matches!(initial_search_type, Perft | SplitPerft | Bench) {
             accept_depth(self.go_state_mut().limit_mut(), words)?;
@@ -1341,7 +1343,7 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
     }
 
     fn handle_ponderhit(&mut self) -> Res<()> {
-        self.state.go_state = GoState::new(self, Normal);
+        self.state.go_state = GoState::new(self, Normal, self.state.go_state.start_time());
         self.state.go_state.generic.limit = self
             .state
             .ponder_limit

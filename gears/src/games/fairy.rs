@@ -733,12 +733,12 @@ impl Board for FairyBoard {
         if let Some(rules) = board.rules.0.read_rules_fen_part(input)? {
             board = Self::empty_for_settings(rules);
         }
-        board = read_common_fen_part::<Self>(input, board)?;
-        board = board.read_castling_and_ep_fen_parts(input, strictness)?;
+        read_common_fen_part::<Self>(input, &mut board)?;
+        board.read_castling_and_ep_fen_parts(input, strictness)?;
         if board.rules().has_halfmove_repetition_clock() {
-            board = read_two_move_numbers::<Self>(input, board, strictness)?;
+            read_two_move_numbers::<Self>(input, &mut board, strictness)?;
         } else {
-            board = read_single_move_number::<Self>(input, board, strictness)?;
+            read_single_move_number::<Self>(input, &mut board, strictness)?;
         }
         board.verify_with_level(CheckFen, strictness)
     }
