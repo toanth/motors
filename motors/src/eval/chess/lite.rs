@@ -168,9 +168,10 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         score
     }
 
-    fn pawns_for(pos: &Chessboard, us: ChessColor, passers: &mut ChessBitboard) -> Tuned::Score {
+    fn pawns_for(state: &mut EvalState<Tuned>, pos: &Chessboard, us: ChessColor) -> Tuned::Score {
         let our_pawns = pos.col_piece_bb(us, Pawn);
         let their_pawns = pos.col_piece_bb(us.other(), Pawn);
+        let mut our_passers = ChessBitboard::default();
         let mut score = Tuned::Score::default();
         score += Self::pawn_shield_for(pos, us);
 
@@ -187,11 +188,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             // passed pawn
             if (in_front & our_pawns).is_zero() && (blocking_squares & their_pawns).is_zero() {
                 score += Tuned::passed_pawn(normalized_square);
-                let their_king = pos.king_square(!us).flip_if(us == Black);
                 let our_king = pos.king_square(us);
-                if REACHABLE_PAWNS[their_king.bb_idx()].is_bit_set(normalized_square) {
-                    score += Tuned::stoppable_passer();
-                }
                 let near_king =
                     Chessboard::normal_king_attacks_from(square) & Chessboard::normal_king_attacks_from(our_king);
                 if near_king.has_set_bit() {
@@ -200,7 +197,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 if pos.player_bb(!us).is_bit_set(square.pawn_advance_unchecked(us)) {
                     score += Tuned::immobile_passer()
                 }
-                *passers |= square.bb();
+                our_passers |= square.bb();
             }
             // may become a passer
             if (in_front & (our_pawns | their_pawns)).is_zero()
@@ -213,14 +210,20 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 score += Tuned::phalanx(normalized_square.rank() - 1);
             }
         }
+        state.passers |= our_passers;
+        our_passers = our_passers.flip_if(us == Black);
+        let their_king = pos.king_square(!us).flip_if(us == Black);
+        if (REACHABLE_PAWNS[their_king.bb_idx()] & our_passers).has_set_bit() {
+            score += Tuned::stoppable_passer();
+        }
         let num_doubled_pawns = (our_pawns & (our_pawns.north())).num_ones();
         score += Tuned::doubled_pawn() * num_doubled_pawns;
         score
     }
 
-    fn pawns(pos: &Chessboard, passers: &mut ChessBitboard) -> Tuned::Score {
-        *passers = ChessBitboard::default();
-        Self::pawn_center(pos) + Self::pawns_for(pos, White, passers) - Self::pawns_for(pos, Black, passers)
+    fn pawns(pos: &Chessboard, state: &mut EvalState<Tuned>) -> Tuned::Score {
+        state.passers = ChessBitboard::default();
+        Self::pawn_center(pos) + Self::pawns_for(state, pos, White) - Self::pawns_for(state, pos, Black)
     }
 
     fn open_lines(pos: &Chessboard, color: ChessColor) -> Tuned::Score {
@@ -375,7 +378,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
         let psqt_score = self.psqt(pos);
         state.psqt_score = psqt_score.clone();
-        let pawn_score = Self::pawns(pos, &mut state.passers);
+        let pawn_score = Self::pawns(pos, &mut state);
         state.pawn_score = pawn_score.clone();
         state.hash = pos.hash_pos();
         state.pawn_key = pos.pawn_key();
@@ -442,7 +445,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let maybe_pawn_eval_change =
             in_front_of_pawns.is_bit_set(mov.src_square()) || in_front_of_pawns.is_bit_set(mov.dest_square());
         if matches!(piece_type, Pawn | King) || captured == Pawn || maybe_pawn_eval_change {
-            state.pawn_score = Self::pawns(new_pos, &mut state.passers);
+            state.pawn_score = Self::pawns(new_pos, &mut state);
         }
         state.hash = new_pos.hash_pos();
         state.pawn_key = new_pos.pawn_key();
