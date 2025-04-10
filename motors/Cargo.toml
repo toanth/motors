@@ -15,10 +15,10 @@ criterion = "0.5.1"
 
 [dependencies]
 gears = { path = "../gears", default-features = false }
-strum = "0.26.3"
-strum_macros = "0.26.4"
-derive_more = { version = "1.0.0", features = ["full"] }
-static_assertions = "1.1.0"
+strum = "0.27"
+strum_macros = "0.27"
+derive_more = { version = "2.0", features = ["full"] }
+static_assertions = "1.1"
 # TODO: Remove crossbeam?
 crossbeam-channel = "0.5.14"
 portable-atomic = "1.10.0" # TODO: Remove?

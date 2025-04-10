@@ -35,7 +35,7 @@ impl Chessboard {
         for piece in ChessPieceType::pieces() {
             let mut current_attackers = self.piece_bb(piece) & our_remaining_attackers;
             if current_attackers.has_set_bit() {
-                return Some((piece, ChessSquare::from_bb_index(current_attackers.pop_lsb())));
+                return Some((piece, ChessSquare::from_bb_idx(current_attackers.pop_lsb())));
             };
         }
         None
@@ -56,7 +56,7 @@ impl Chessboard {
             return beta;
         }
         let generator = self.slider_generator();
-        let mut remaining_attackers = self.all_attacking(square, &generator);
+        let mut remaining_attackers = self.all_attacking(square, &generator) & !self.pinned;
         let mut remaining_blockers = self.occupied_bb();
         let mut their_victim = original_moving_piece;
         let mut eval = SeeScore(0);
@@ -86,7 +86,9 @@ impl Chessboard {
                 *all_remaining_attackers &= !removed;
                 remaining_blockers ^= removed;
                 // xrays for sliders
-                let ray_attacks = self.ray_attacks(square, attacker, remaining_blockers);
+                // removing pinned pieces isn't technically correct because the pinned piece could have been the captured piece,
+                // but it should still be better than not considering pins
+                let ray_attacks = self.ray_attacks(square, attacker, remaining_blockers) & !self.pinned;
                 let new_attack = ray_attacks & remaining_blockers;
                 debug_assert!((new_attack & !*all_remaining_attackers).count_ones() <= 1);
                 *all_remaining_attackers |= new_attack;

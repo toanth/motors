@@ -17,15 +17,15 @@
  */
 use crate::io::autocomplete::CommandAutocomplete;
 use crate::io::input::InputEnum::{Interactive, NonInteractive};
-use crate::io::{AbstractEngineUgi, EngineUGI};
+use crate::io::{AbstractEngineUgi, AbstractEngineUgiState, EngineUGI};
 use gears::colored::Colorize;
 use gears::games::Color;
 use gears::general::board::Board;
-use gears::general::common::anyhow::{anyhow, bail};
 use gears::general::common::Res;
+use gears::general::common::anyhow::{anyhow, bail};
 use gears::output::OutputOpts;
 use inquire::Text;
-use std::io::{stdin, stdout, IsTerminal};
+use std::io::{IsTerminal, stdin, stdout};
 use std::rc::Rc;
 
 trait GetLine<B: Board> {
@@ -44,7 +44,6 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
         // Since Inquire doesn't seem to have an option to do anything about this (like re-drawing the prompt after each line of output),
         // we just disable it while a `go` command is running
 
-        ugi.state.go_state.pos = ugi.state.pos().clone();
         self.autocompletion.state.go_state = ugi.state.go_state.clone();
         if ugi.state.is_currently_searching() {
             ugi.write_ugi(&format_args!(" [{0} Type '{1}' to cancel]", "Searching...".bold(), "stop".bold()));
@@ -52,7 +51,7 @@ impl<B: Board> GetLine<B> for InteractiveInput<B> {
             ugi.write_ugi(&format_args!(
                 "{}",
                 format!(
-                    "\nIter    Seldepth    Score      Time       Nodes   (New)     NPS  Branch     TT     {pv_spacer}PV"
+                    "\nIter    Seldepth    Score       Time       Nodes   (New)     NPS  Branch     TT     {pv_spacer}PV"
                 )
                 .bold(),
             ));
@@ -112,7 +111,7 @@ pub struct Input<B: Board> {
 
 impl<B: Board> Input<B> {
     pub fn new(mut interactive: bool, ugi: &mut EngineUGI<B>) -> (Self, bool) {
-        if interactive && !stdout().is_terminal() {
+        if !stdout().is_terminal() {
             interactive = false;
         }
         let typ = if interactive {

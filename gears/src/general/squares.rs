@@ -54,6 +54,10 @@ impl Coordinates for GridCoordinates {
     fn flip_left_right(self, size: Self::Size) -> Self {
         GridCoordinates { row: self.row, column: size.width.0 - 1 - self.column }
     }
+
+    fn from_x_y(rank: usize, file: usize) -> Self {
+        Self::from_rank_file(rank as DimT, file as DimT)
+    }
 }
 
 impl RectangularCoordinates for GridCoordinates {
@@ -276,6 +280,14 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> RectangularSiz
     fn internal_width(self) -> usize {
         INTERNAL_WIDTH
     }
+
+    fn idx_to_coordinates(&self, idx: DimT) -> SmallGridSquare<H, W, INTERNAL_WIDTH> {
+        if W == INTERNAL_WIDTH {
+            SmallGridSquare { idx }
+        } else {
+            SmallGridSquare::from_rank_file(idx / W as u8, idx % W as u8)
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -312,7 +324,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
     const UP_DOWN_MASK: DimT = ((1 << H.ilog2()) - 1) << INTERNAL_WIDTH.ilog2();
     const LEFT_RIGHT_MASK: DimT = (1 << W.ilog2()) - 1;
 
-    pub const fn from_bb_index(idx: usize) -> Self {
+    pub const fn from_bb_idx(idx: usize) -> Self {
         assert!(H <= Self::MAX_H);
         assert!(W <= Self::MAX_W);
         assert!(H * W <= DimT::MAX as usize); // `<=` because invalid coordinates have to be representable
@@ -326,7 +338,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
     }
 
     pub const fn from_coordinates(c: GridCoordinates) -> Self {
-        Self::from_bb_index(c.row as usize * INTERNAL_WIDTH + c.column as usize)
+        Self::from_bb_idx(c.row as usize * INTERNAL_WIDTH + c.column as usize)
     }
 
     pub const fn from_rank_file(rank: DimT, file: DimT) -> Self {
@@ -405,7 +417,7 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> SmallGridSquar
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        (0..H).flat_map(|i| (INTERNAL_WIDTH * i)..(INTERNAL_WIDTH * i + W)).map(Self::from_bb_index)
+        (0..H).flat_map(|i| (INTERNAL_WIDTH * i)..(INTERNAL_WIDTH * i + W)).map(Self::from_bb_idx)
     }
 
     // Ideally, no_coordinates shouldn't be necessary, but sadly there's no `NonMaxU8` (except for a crate that xors U8::MAX on every access)
@@ -446,6 +458,10 @@ impl<const H: usize, const W: usize, const INTERNAL_WIDTH: usize> Coordinates
         } else {
             Self::from_rank_file(self.rank(), W as DimT - 1 - self.file())
         }
+    }
+
+    fn from_x_y(rank: usize, file: usize) -> Self {
+        Self::from_rank_file(rank as DimT, file as DimT)
     }
 }
 

@@ -1,6 +1,7 @@
 use crate::general::common::Description::WithDescription;
 use crate::score::Score;
 pub use anyhow;
+use anyhow::bail;
 use colored::Colorize;
 use edit_distance::edit_distance;
 use itertools::Itertools;
@@ -11,9 +12,8 @@ use std::fmt::{Debug, Display};
 use std::io::stdin;
 use std::iter::Peekable;
 use std::num::{NonZeroU64, NonZeroUsize};
-use std::str::{FromStr, SplitWhitespace};
+use std::str::{FromStr, SplitAsciiWhitespace};
 use std::time::Duration;
-
 // The `bitintr` crate provides similar features, but unfortunately it is bugged and unmaintained.
 
 #[allow(unused)]
@@ -104,10 +104,10 @@ impl TokensToString for Tokens<'_> {
     }
 }
 
-pub type Tokens<'a> = Peekable<SplitWhitespace<'a>>;
+pub type Tokens<'a> = Peekable<SplitAsciiWhitespace<'a>>;
 
 pub fn tokens(input: &str) -> Tokens {
-    input.split_whitespace().peekable()
+    input.split_ascii_whitespace().peekable()
 }
 
 pub fn tokens_to_string(first: &str, mut rest: Tokens) -> String {
@@ -291,18 +291,24 @@ fn list_to_string<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String>(iter:
     iter.map(|x| to_name(&x)).join(", ")
 }
 
+pub fn red_name(word: &str) -> String {
+    let len = word.chars().count();
+    if len > 50 {
+        format!("{0}{1}", word.chars().take(50).collect::<String>().red(), "...(rest omitted for brevity)".dimmed())
+    } else {
+        word.red().to_string()
+    }
+}
+
 fn select_name_impl<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String, G: Fn(&I::Item, &str) -> bool>(
-    name: Option<&str>,
+    name: &str,
     mut list: I,
     typ: &str,
     game_name: &str,
     to_name: F,
     compare: G,
 ) -> Res<I::Item> {
-    let idx = match name {
-        None => None,
-        Some(name) => list.clone().find(|entity| compare(entity, name)),
-    };
+    let idx = list.clone().find(|entity| compare(entity, name));
     match idx {
         None => {
             let list_as_string = match list.len() {
@@ -313,37 +319,25 @@ fn select_name_impl<I: ExactSizeIterator + Clone, F: Fn(&I::Item) -> String, G: 
                     "The only valid {typ} for this version of the program is {}",
                     to_name(&list.next().unwrap())
                 ),
-                _ => match name {
-                    None => {
+                _ => {
+                    let near_matches = list
+                        .clone()
+                        .filter(|x| {
+                            edit_distance(
+                                &to_name(x).to_ascii_lowercase(),
+                                &format!("'{}'", name.to_ascii_lowercase().bold()),
+                            ) <= 3
+                        })
+                        .collect_vec();
+                    if near_matches.is_empty() {
                         format!("Valid {typ} names are {}", list_to_string(list, to_name))
+                    } else {
+                        format!("Perhaps you meant: {}", list_to_string(near_matches.iter(), |x| to_name(x)))
                     }
-                    Some(name) => {
-                        let near_matches = list
-                            .clone()
-                            .filter(|x| {
-                                edit_distance(
-                                    &to_name(x).to_ascii_lowercase(),
-                                    &format!("'{}'", name.to_ascii_lowercase().bold()),
-                                ) <= 3
-                            })
-                            .collect_vec();
-                        if near_matches.is_empty() {
-                            format!("Valid {typ} names are {}", list_to_string(list, to_name))
-                        } else {
-                            format!("Perhaps you meant: {}", list_to_string(near_matches.iter(), |x| to_name(x)))
-                        }
-                    }
-                },
+                }
             };
             let game_name = game_name.bold();
-            if let Some(name) = name {
-                let name = name.red();
-                Err(anyhow::anyhow!(
-                    "Couldn't find {typ} '{name}' for the current game ({game_name}). {list_as_string}."
-                ))
-            } else {
-                Err(anyhow::anyhow!(list_as_string))
-            }
+            bail!("Couldn't find {typ} '{}' for the current game ({game_name}). {list_as_string}.", red_name(name))
         }
         Some(res) => Ok(res),
     }
@@ -369,7 +363,7 @@ pub fn select_name_dyn<'a, T: NamedEntity + ?Sized>(
     descr: Description,
 ) -> Res<&'a T> {
     select_name_impl(
-        Some(name),
+        name,
         list.iter(),
         typ,
         game_name,
@@ -390,14 +384,7 @@ pub fn select_name_static<'a, T: NamedEntity, I: ExactSizeIterator<Item = &'a T>
     game_name: &str,
     descr: Description,
 ) -> Res<&'a T> {
-    select_name_impl(
-        Some(name),
-        list,
-        typ,
-        game_name,
-        |x| to_name_and_optional_description(*x, descr),
-        |e, s| e.matches(s),
-    )
+    select_name_impl(name, list, typ, game_name, |x| to_name_and_optional_description(*x, descr), |e, s| e.matches(s))
 }
 
 pub fn nonzero_usize(val: usize, name: &str) -> Res<NonZeroUsize> {

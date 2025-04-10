@@ -103,6 +103,21 @@ impl<B: Board> SearchThreadType<B> {
             Auxiliary => None,
         }
     }
+    pub(super) fn new_single_thread(
+        output: Arc<Mutex<UgiOutput<B>>>,
+        engine_info: Arc<Mutex<EngineInfo>>,
+        atomic: Arc<AtomicSearchState<B>>,
+    ) -> Self {
+        let data = MainThreadData { atomic_search_data: vec![atomic], output, engine_info, search_type: Normal };
+        Main(data)
+    }
+
+    pub fn num_threads(&self) -> Option<usize> {
+        match self {
+            Main(data) => Some(data.atomic_search_data.len()),
+            Auxiliary => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -175,7 +190,8 @@ impl<B: Board> AtomicSearchState<B> {
         self.currently_searching.load(Relaxed)
     }
 
-    /// Should only be used by the search thread, uses Relaxed ordering. Any other thread should never set this value.
+    /// Should only be used by the search thread, uses Relaxed ordering. Any other thread should never set this value
+    /// (but could read it).
     pub fn set_searching(&self, val: bool) {
         self.currently_searching.store(val, Relaxed);
     }
@@ -251,7 +267,7 @@ impl<B: Board> EngineThread<B> {
         Self { engine, receiver }
     }
 
-    fn start_search(&mut self, params: SearchParams<B>) {
+    fn search(&mut self, params: SearchParams<B>) {
         let _ = self.engine.search(params); // the engine takes care of sending the search result
     }
 
@@ -284,7 +300,7 @@ impl<B: Board> EngineThread<B> {
                 }
             },
             Search(params) => {
-                self.start_search(params);
+                self.search(params);
             }
             SetEval(eval) => self.engine.set_eval(eval),
             Print(engine_info, pos) => {
@@ -420,7 +436,7 @@ impl<B: Board> EngineWrapper<B> {
         let params = SearchParams::create(
             pos,
             limit,
-            history.clone(),
+            history,
             tt,
             search_moves.clone(),
             multi_pv.saturating_sub(1),
@@ -518,6 +534,7 @@ impl<B: Board> EngineWrapper<B> {
                 spin_loop(); // this should only take a short while
             }
         }
+        // At this point, the engine threat has already read this flag and decided not to print the best move
         if suppress_best_move {
             self.main_thread_data.atomic_search_data[0].suppress_best_move.store(false, Release);
         }
@@ -557,5 +574,99 @@ impl<B: Board> EngineWrapper<B> {
 
     pub fn main_atomic_search_data(&self) -> Arc<AtomicSearchState<B>> {
         self.main_thread_data.atomic_search_data[0].clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::create_match;
+    use crate::io::cli::EngineOpts;
+    use gears::cli::Game;
+    use gears::cli::Game::Chess;
+
+    #[test]
+    fn start_search_test() {
+        let opts = EngineOpts::for_game(Game::default(), false);
+        let mut ugi = create_match(opts).unwrap();
+        ugi.handle_input("go").unwrap();
+        ugi.handle_input("random_pos").unwrap();
+        ugi.handle_input("stop").unwrap();
+        ugi.handle_input("go").unwrap();
+        let res = ugi.handle_input("go");
+        assert!(res.is_err());
+        ugi.handle_input("stop").unwrap();
+        ugi.handle_input("go bench 1").unwrap();
+        ugi.handle_input("wait").unwrap();
+        ugi.handle_input("go wtime 1 btime 1").unwrap();
+        ugi.handle_input("stop").unwrap();
+        ugi.quit().unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "chess")]
+    fn immediate_response_test() {
+        let opts = EngineOpts::for_game(Chess, true);
+        let mut ugi = create_match(opts).unwrap();
+        ugi.handle_input("go").unwrap();
+        ugi.handle_input("random_pos").unwrap();
+        ugi.handle_input("stop").unwrap();
+        ugi.handle_input("go").unwrap();
+        let res = ugi.handle_input("go");
+        assert!(res.is_err());
+        ugi.handle_input("stop").unwrap();
+        ugi.handle_input("go bench 1").unwrap();
+        ugi.handle_input("wait").unwrap();
+        ugi.handle_input("go wtime 1 btime 1").unwrap();
+        ugi.handle_input("stop").unwrap();
+        ugi.quit().unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "chess")]
+    fn set_options_during_match() {
+        let opts = EngineOpts::for_game(Chess, true);
+        let mut ugi = create_match(opts).unwrap();
+        ugi.handle_input("go").unwrap();
+        ugi.handle_input("random_pos").unwrap();
+        ugi.handle_input("setoption name Hash value 1").unwrap();
+        ugi.handle_input("position startpos moves e2e4").unwrap();
+        ugi.handle_input("setoption name Engine value random").unwrap();
+        ugi.handle_input("stop").unwrap();
+        ugi.handle_input("go").unwrap();
+        ugi.handle_input("stop").unwrap();
+    }
+
+    #[test]
+    fn ponder_test() {
+        let opts = EngineOpts::for_game(Game::default(), false);
+        let mut ugi = create_match(opts).unwrap();
+        ugi.handle_input("go ponder").unwrap();
+        ugi.handle_input("stop").unwrap();
+        ugi.handle_input("go ponder").unwrap();
+        let res = ugi.handle_input("go ponder");
+        assert!(res.is_err());
+        ugi.handle_input("ponderhit").unwrap();
+        ugi.handle_input("stop").unwrap();
+        ugi.handle_input("go ponder nodes 100").unwrap();
+        ugi.handle_input("ponderhit").unwrap();
+        ugi.handle_input("wait").unwrap();
+        let res = ugi.handle_input("ponderhit");
+        assert!(res.is_err());
+        ugi.quit().unwrap();
+    }
+
+    #[test]
+    fn multithreaded_search_test() {
+        let opts = EngineOpts::for_game(Game::default(), false);
+        let mut ugi = create_match(opts).unwrap();
+        ugi.handle_input("go t 2").unwrap();
+        ugi.handle_input("stop").unwrap();
+        ugi.handle_input("so Threads 3").unwrap();
+        ugi.handle_input("go").unwrap();
+        let res = ugi.handle_input("go");
+        assert!(res.is_err());
+        ugi.handle_input("stop").unwrap();
+        ugi.handle_input("stop").unwrap();
+        ugi.quit().unwrap();
     }
 }

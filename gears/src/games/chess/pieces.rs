@@ -94,7 +94,7 @@ impl ChessPieceType {
 
 impl Display for ChessPieceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_char(CharType::Unicode, &ChessSettings::default()))
+        write!(f, "{}", self.to_name())
     }
 }
 
@@ -203,6 +203,13 @@ pub enum ColoredChessPieceType {
 impl ColoredChessPieceType {
     pub fn pieces() -> impl Iterator<Item = ColoredChessPieceType> {
         Self::iter().filter(|p| *p != ColoredChessPieceType::Empty)
+    }
+
+    pub fn non_pawns() -> impl Iterator<Item = ColoredChessPieceType> {
+        Self::iter().filter(|p| {
+            ![ColoredChessPieceType::Empty, ColoredChessPieceType::BlackPawn, ColoredChessPieceType::WhitePawn]
+                .contains(p)
+        })
     }
 
     pub fn name(self) -> String {

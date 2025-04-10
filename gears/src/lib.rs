@@ -9,8 +9,8 @@ use crate::GameResult::Aborted;
 use crate::MatchStatus::{NotStarted, Ongoing, Over};
 use crate::PlayerResult::{Draw, Lose, Win};
 use crate::ProgramStatus::Run;
-use crate::games::Color;
 use crate::games::{BoardHistory, ZobristHistory};
+use crate::games::{Color, NoHistory};
 use crate::general::board::{Board, BoardHelpers, Strictness};
 use crate::general::common::Description::WithDescription;
 use crate::general::common::{Res, Tokens, select_name_dyn};
@@ -286,7 +286,7 @@ impl Default for ProgramStatus {
 
 /// Base trait for the different modes in which the user can run the program.
 /// It contains one important method: [`run`].
-/// The [`handle_input`] and [`quit`] method are really just hacks to support fuzzing.
+/// The [`handle_input`] and [`quit`] method are really just hacks to support (fuzz) testing.
 pub trait AbstractRun: Debug {
     fn run(&mut self) -> Quitting;
     fn handle_input(&mut self, _input: &str) -> Res<()> {
@@ -343,23 +343,7 @@ pub fn create_selected_output_builders<B: Board>(
     outputs.iter().map(|o| output_builder_from_str(&o.name, list)).collect()
 }
 
-/// Everything that's necessary to reconstruct the match without match-specific info like timers.
-/// Can be used to represent everything that gets set through a ugi `position` command, or the data inside a PGN.
-#[derive(Debug, Default, Clone)]
-#[must_use]
-pub struct MatchState<B: Board> {
-    state_hist: Vec<UgiPosState<B>>,
-    current: UgiPosState<B>,
-}
-
-impl<B: Board> Deref for MatchState<B> {
-    type Target = UgiPosState<B>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.current
-    }
-}
-
+/// The relevant data in a UGI `position` command or a PGN, i.e. position and moves, as well as some metadata
 #[derive(Debug, Default, Clone)]
 #[must_use]
 pub struct UgiPosState<B: Board> {
@@ -370,11 +354,69 @@ pub struct UgiPosState<B: Board> {
     pub pos_before_moves: B,
 }
 
+pub trait AbstractUgiPosState {
+    fn undo_moves(&mut self, count: usize) -> Res<usize>;
+
+    fn clear_current_state(&mut self);
+
+    fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()>;
+
+    fn player_result(&self) -> Option<PlayerResult>;
+}
+
+impl<B: Board> AbstractUgiPosState for UgiPosState<B> {
+    fn undo_moves(&mut self, count: usize) -> Res<usize> {
+        let mut pos = self.pos_before_moves.clone();
+        assert_eq!(self.mov_hist.len(), self.board_hist.len());
+        if self.mov_hist.is_empty() && count > 0 {
+            bail!(
+                "There are no moves to undo. The current position is '{pos}'.\n\
+            (Try 'go_back' to go to the previous 'position' command)"
+            );
+        }
+        let count = count.min(self.mov_hist.len());
+        for &mov in self.mov_hist.iter().dropping_back(count) {
+            pos = pos.make_move(mov).unwrap();
+        }
+        for _ in 0..count {
+            _ = self.mov_hist.pop();
+            self.board_hist.pop();
+        }
+        if count > 0 {
+            self.status = Run(Ongoing);
+        }
+        self.board = pos;
+        Ok(count)
+    }
+
+    fn clear_current_state(&mut self) {
+        self.board = self.pos_before_moves.clone();
+        self.mov_hist.clear();
+        self.board_hist.clear();
+        self.status = Run(NotStarted);
+    }
+
+    fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()> {
+        self.board = B::variant(first, words)?;
+        self.pos_before_moves = self.board.clone();
+        self.mov_hist.clear();
+        self.board_hist.clear();
+        self.status = Run(NotStarted);
+        Ok(())
+    }
+
+    fn player_result(&self) -> Option<PlayerResult> {
+        self.board.player_result_slow(&self.board_hist)
+    }
+}
+
 impl<B: Board> UgiPosState<B> {
     pub fn new(pos: B) -> Self {
+        let status =
+            if let Some(res) = pos.match_result_slow(&NoHistory::default()) { Run(Over(res)) } else { Run(NotStarted) };
         UgiPosState {
             board: pos.clone(),
-            status: Run(NotStarted),
+            status,
             mov_hist: Vec::with_capacity(256),
             board_hist: ZobristHistory::with_capacity(256),
             pos_before_moves: pos,
@@ -409,30 +451,6 @@ impl<B: Board> UgiPosState<B> {
         Ok(())
     }
 
-    pub fn undo_moves(&mut self, count: usize) -> Res<usize> {
-        let mut pos = self.pos_before_moves.clone();
-        assert_eq!(self.mov_hist.len(), self.board_hist.len());
-        if self.mov_hist.is_empty() && count > 0 {
-            bail!(
-                "There are no moves to undo. The current position is '{pos}'.\n\
-            (Try 'go_back' to go to the previous 'position' command)"
-            );
-        }
-        let count = count.min(self.mov_hist.len());
-        for &mov in self.mov_hist.iter().dropping_back(count) {
-            pos = pos.make_move(mov).unwrap();
-        }
-        for _ in 0..count {
-            _ = self.mov_hist.pop();
-            self.board_hist.pop();
-        }
-        if count > 0 {
-            self.status = Run(Ongoing);
-        }
-        self.board = pos;
-        Ok(count)
-    }
-
     pub fn seen_so_far(&self) -> impl Iterator<Item = (B, B::Move)> {
         let mut pos = self.pos_before_moves.clone();
         let moves = self.mov_hist.clone();
@@ -442,21 +460,22 @@ impl<B: Board> UgiPosState<B> {
             res
         })
     }
+}
 
-    fn clear_current_state(&mut self) {
-        self.board = self.pos_before_moves.clone();
-        self.mov_hist.clear();
-        self.board_hist.clear();
-        self.status = Run(NotStarted);
-    }
+/// Everything that's necessary to reconstruct the match without match-specific info like timers.
+/// Can be used to represent everything that gets set through a ugi `position` command, or the data inside a PGN.
+#[derive(Debug, Default, Clone)]
+#[must_use]
+pub struct MatchState<B: Board> {
+    state_hist: Vec<UgiPosState<B>>,
+    current: UgiPosState<B>,
+}
 
-    fn handle_variant(&mut self, first: &str, words: &mut Tokens) -> Res<()> {
-        self.board = B::variant(first, words)?;
-        self.pos_before_moves = self.board.clone();
-        self.mov_hist.clear();
-        self.board_hist.clear();
-        self.status = Run(NotStarted);
-        Ok(())
+impl<B: Board> Deref for MatchState<B> {
+    type Target = UgiPosState<B>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.current
     }
 }
 
@@ -465,6 +484,10 @@ impl<B: Board> MatchState<B> {
         let state_hist = Vec::with_capacity(256);
         let pos_state = UgiPosState::new(pos);
         Self { state_hist, current: pos_state }
+    }
+
+    pub fn abstract_pos_state(&self) -> &dyn AbstractUgiPosState {
+        &self.current
     }
 
     pub fn pos(&self) -> &B {

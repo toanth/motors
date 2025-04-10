@@ -370,7 +370,7 @@ impl PgnParserState<'_> {
         Ok(())
     }
 
-    fn unread(&mut self) -> &str {
+    fn unread(&self) -> &str {
         &self.original_input[self.byte_idx..]
     }
 }
@@ -423,7 +423,6 @@ impl<'a, B: Board> PgnParser<'a, B> {
         Ok(())
     }
 
-    // TODO: Support for Variations with (moves)
     fn parse_move(&mut self) -> Res<()> {
         self.state.ignore_whitespace()?;
         let next = self.state.unread.peek().copied();
@@ -447,7 +446,7 @@ impl<'a, B: Board> PgnParser<'a, B> {
             bail!("The game has already ended, cannot parse additional moves at start of '{}'", string.bold())
         }
         let prev_board = &self.res.game.board;
-        let (remaining, mov) = B::Move::parse_extended_text(string, prev_board)?;
+        let (remaining, mov) = B::Move::parse_text(string, prev_board)?;
         let Some(new_board) = prev_board.clone().make_move(mov) else {
             bail!("Illegal psuedolegal move '{}'", mov.compact_formatter(prev_board).to_string().red());
         };
@@ -459,7 +458,8 @@ impl<'a, B: Board> PgnParser<'a, B> {
                 *st = Over(res);
             }
         }
-        for _ in 0..string.len() - remaining.len() {
+        let remaining_len = remaining.len();
+        while self.state.unread().len() != remaining_len {
             _ = self.state.eat().unwrap();
         }
         Ok(())
@@ -480,12 +480,28 @@ impl<'a, B: Board> PgnParser<'a, B> {
     }
 }
 
+#[cold]
 pub fn parse_pgn<B: Board>(pgn: &str, strictness: Strictness, pos: Option<B>) -> Res<PgnData<B>> {
     let mut parser: PgnParser<'_, B> = PgnParser::new(pgn);
     if let Some(pos) = pos {
         parser.res.tag_pairs.push(Fen(pos.as_fen()));
     }
-    parser.parse(strictness).map_err(|err| anyhow!("{err}. Unconsumed input: '{}'", parser.state.unread().red()))
+    parser.parse(strictness).map_err(|err| {
+        anyhow!(
+            "{err}.\nPosition when the error occurred: '{0}'. Unconsumed input: '{1}'",
+            parser.res.game.board,
+            parser.state.unread().red()
+        )
+    })
+}
+
+#[cold]
+/// This function is used as a fallback when parsing UGI moves, to enable pgn format after `position <fen> moves`.
+pub fn parse_pgn_moves_format<B: Board>(pgn_moves: &str, pos: &B) -> Res<PgnData<B>> {
+    let mut parser: PgnParser<'_, B> = PgnParser::new(pgn_moves);
+    parser.res.game.board = pos.clone();
+    parser.parse_all_moves()?;
+    Ok(parser.res)
 }
 
 #[cfg(test)]
@@ -616,6 +632,7 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
 
     #[test]
     fn lots_of_checks() {
+        // from <https://timkr.home.xs4all.nl/records/records.htm>
         let pgn = r#"[Variant "From Position"]
             [FEN "4r1Q1/B2nr3/5b2/8/4p3/4KbNq/ppppppp1/RR3Nkn w - - 0 1"]
             1. Nh2+??  (1. Nxe2+ Bxe2+ 2. Qg3 Nxg3 3. Nxg3+ axb1=Q 4. Rxb1+ cxb1=Q 5. Kf4 Qh6+ 6. Kf5 Re5#)(1.Nxd2{is also possible:)})
@@ -629,5 +646,6 @@ Nf2 42.g4 Bd3 43.Re6 1/2-1/2"#;
             assert!(pos.gives_check(mov));
         }
     }
-    // TODO: Pgn test for another game than chess
+
+    // TODO: Pgn test for another game than chess, especially fairy chess
 }
