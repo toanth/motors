@@ -1896,3 +1896,80 @@ fn handle_play_impl(ugi: &mut dyn AbstractEngineUgi, words: &mut Tokens) -> Res<
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{list_chess_evals, list_chess_outputs, list_chess_searchers};
+    use gears::cli::Game::Chess;
+    use gears::create_selected_output_builders;
+    use gears::games::BoardHistory;
+    use gears::games::chess::ChessColor::Black;
+    use gears::games::chess::Chessboard;
+    use gears::rand::prelude::SliceRandom;
+    use gears::rand::rngs::StdRng;
+    use gears::rand::{Rng, SeedableRng};
+
+    fn create_chess_game() -> Box<EngineUGI<Chessboard>> {
+        let outputs = list_chess_outputs();
+        let searchers = list_chess_searchers();
+        let evals = list_chess_evals();
+        let opts = EngineOpts::for_game(Chess, true);
+        Box::new(
+            EngineUGI::create(
+                opts.clone(),
+                create_selected_output_builders(&opts.outputs, &outputs).unwrap(),
+                outputs,
+                searchers,
+                evals,
+            )
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    #[cfg(feature = "chess")]
+    fn chess_test() {
+        let mut ugi = create_chess_game();
+        ugi.handle_input("idk").unwrap();
+        let state = ugi.state.match_state.clone();
+        assert_eq!(state.pos_before_moves, Chessboard::default());
+        assert_eq!(state.pos().active_player(), Black);
+        assert_eq!(state.mov_hist.len(), 1);
+        assert_eq!(state.board_hist.len(), 1);
+        assert_eq!(state.status, Run(NotStarted));
+        ugi.handle_input("undo").unwrap();
+        assert_eq!(*ugi.state.pos(), Chessboard::default());
+        assert_eq!(ugi.state.mov_hist.len(), 0);
+        ugi.handle_input("position startpos e2e4").unwrap();
+        ugi.handle_input("randomize").unwrap();
+        ugi.handle_input("gb").unwrap();
+        assert_eq!(ugi.state.pos().active_player(), Black);
+        // There are actual fuzz tests for the UGI interface, but they aren't run regularly.
+        // So this is a very small part of what fuzz testing would do, but run regularly
+        let mut cmds = vec![
+            "e5",
+            "show engine_state",
+            "tt startpos moves e2e4",
+            "query engine",
+            "ugi",
+            "flip",
+            "gb",
+            "place black knight a4",
+            "remove a1",
+            "move_piece b2 b3",
+            "help",
+            "eval",
+        ];
+        let seed = rng().random::<u64>();
+        eprintln!("Seed: {seed}");
+        let mut rng = StdRng::seed_from_u64(seed);
+        cmds.shuffle(&mut rng);
+        for c in cmds {
+            ugi.handle_input(c).unwrap();
+        }
+        sleep(Duration::from_millis(5000));
+        ugi.quit().unwrap(); // can't use handle_input("quit") because that gets ignored in fuzzing mode
+        assert_eq!(ugi.state.status, Quit(QuitProgram));
+    }
+}
