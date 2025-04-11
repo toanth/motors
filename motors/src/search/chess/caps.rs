@@ -711,7 +711,10 @@ impl Caps {
         };
         let mut continued_move = ChessMove::default();
         if ply >= 2 {
-            continued_move = self.search_stack[ply - 2].last_tried_move();
+            let m = self.search_stack[ply - 2].last_tried_move();
+            if !m.is_capture(&self.search_stack[ply - 2].pos) {
+                continued_move = m;
+            }
         }
         eval = self.corr_hist.correct(&pos, continued_move, eval);
 
@@ -1150,7 +1153,10 @@ impl Caps {
         if !in_check {
             let mut continued_move = ChessMove::default();
             if ply >= 2 {
-                continued_move = self.search_stack[ply - 2].last_tried_move();
+                let m = self.search_stack[ply - 2].last_tried_move();
+                if !m.is_capture(&self.search_stack[ply - 2].pos) {
+                    continued_move = m;
+                }
             }
             best_score = self.corr_hist.correct(&pos, continued_move, eval);
         }
