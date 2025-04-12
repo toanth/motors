@@ -2,7 +2,8 @@ use std::fmt::Display;
 
 use crate::eval::chess::lite_values::*;
 use crate::eval::chess::{
-    DiagonalOpenness, FileOpenness, REACHABLE_PAWNS, pawn_advanced_center_idx, pawn_passive_center_idx, pawn_shield_idx,
+    DiagonalOpenness, FLANK, FileOpenness, REACHABLE_PAWNS, pawn_advanced_center_idx, pawn_passive_center_idx,
+    pawn_shield_idx,
 };
 use gears::games::Color;
 use gears::games::chess::ChessColor::{Black, White};
@@ -171,9 +172,13 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
     fn pawns_for(pos: &Chessboard, us: ChessColor, passers: &mut ChessBitboard) -> Tuned::Score {
         let our_pawns = pos.col_piece_bb(us, Pawn);
         let their_pawns = pos.col_piece_bb(us.other(), Pawn);
+        let all_pawns = pos.piece_bb(Pawn);
         let mut score = Tuned::Score::default();
         score += Self::pawn_shield_for(pos, us);
-
+        let our_king = pos.king_square(us);
+        if (all_pawns & FLANK[our_king.file() as usize]).is_zero() {
+            score += Tuned::pawnless_flank();
+        }
         for square in our_pawns.ones() {
             let normalized_square = square.flip_if(us == Black);
             let in_front = (ChessBitboard::A_FILE << (square.flip_if(us == Black).bb_idx() + 8)).flip_if(us == Black);
@@ -188,7 +193,6 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             if (in_front & our_pawns).is_zero() && (blocking_squares & their_pawns).is_zero() {
                 score += Tuned::passed_pawn(normalized_square);
                 let their_king = pos.king_square(!us).flip_if(us == Black);
-                let our_king = pos.king_square(us);
                 if REACHABLE_PAWNS[their_king.bb_idx()].is_bit_set(normalized_square) {
                     score += Tuned::stoppable_passer();
                 }
@@ -203,7 +207,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 *passers |= square.bb();
             }
             // may become a passer
-            if (in_front & (our_pawns | their_pawns)).is_zero()
+            if (in_front & all_pawns).is_zero()
                 && (blocking_squares & their_pawns).num_ones() <= (supporting & our_pawns).num_ones()
             {
                 score += Tuned::candidate_passer(normalized_square.rank() - 1);

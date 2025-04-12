@@ -150,6 +150,10 @@ impl LiteValues for KingGambotValues {
         if self.us == color { value / 2 } else { value }
     }
 
+    fn pawnless_flank() -> SingleFeatureScore<Self::Score> {
+        Lite::pawnless_flank()
+    }
+
     fn pawn_protection(piece: ChessPieceType) -> PhasedScore {
         Lite::pawn_protection(piece)
     }

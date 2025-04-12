@@ -43,6 +43,7 @@ pub enum LiteFeatureSubset {
     PawnAdvancedCenter,
     PawnPassiveCenter,
     PawnShield,
+    PawnlessFlank,
     StoppablePasser,
     CloseKingPasser,
     ImmobilePasser,
@@ -84,6 +85,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             UnsupportedPawn => 1,
             DoubledPawn => 1,
             Phalanx => 6,
+            PawnlessFlank => 1,
             PawnProtection => NUM_CHESS_PIECES,
             PawnAttacks => NUM_CHESS_PIECES,
             Mobility => (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1),
@@ -186,6 +188,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             Phalanx => {
                 write!(f, "const PHALANX: [PhasedScore; 6] = ")?;
+            }
+            PawnlessFlank => {
+                write!(f, "const PAWNLESS_FLANK: PhasedScore = ")?;
             }
             PawnProtection => {
                 write!(f, "const PAWN_PROTECTION: [PhasedScore; NUM_CHESS_PIECES] = ")?;
@@ -358,6 +363,10 @@ impl LiteValues for LiTETrace {
 
     fn pawn_shield(&self, _color: ChessColor, config: usize) -> SingleFeature {
         SingleFeature::new(PawnShield, config)
+    }
+
+    fn pawnless_flank() -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(PawnlessFlank, 0)
     }
 
     fn pawn_protection(piece: ChessPieceType) -> SingleFeature {
