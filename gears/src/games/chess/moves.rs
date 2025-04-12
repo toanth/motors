@@ -603,6 +603,16 @@ impl<'a> MoveParser<'a> {
     }
 
     pub fn parse(input: &'a str, board: &Chessboard) -> Res<(&'a str, ChessMove)> {
+        match Self::parse_impl(input, board) {
+            Ok(res) => Ok(res),
+            Err(err) => {
+                let msg = format!("Current position: '{board}'").dimmed();
+                bail!("{err}. {msg}")
+            }
+        }
+    }
+
+    fn parse_impl(input: &'a str, board: &Chessboard) -> Res<(&'a str, ChessMove)> {
         let mut parser = MoveParser::new(input);
         if let Some(mov) = parser.parse_castling(board) {
             parser.parse_check_mate();
@@ -610,7 +620,7 @@ impl<'a> MoveParser<'a> {
             if !board.is_move_pseudolegal(mov) {
                 // can't use `to_extended_text` because that requires pseudolegal moves.
                 bail!(
-                    "Castling move '{}' is not pseudolegal in the current position ('{board}')",
+                    "Castling move '{}' is not pseudolegal in the current position",
                     mov.compact_formatter(board).to_string().red()
                 );
             }
@@ -965,7 +975,7 @@ impl<'a> MoveParser<'a> {
         } else if board.is_in_check() {
             additional = format!(" ({} is in check)", board.active_player);
         } else if board.pseudolegal_moves().iter().any(|m| self.is_matching_pseudolegal(m)) {
-            additional = format!(" (The move leaves the {} king in check)", board.active_player)
+            additional = format!(" (it leaves the {} king in check)", board.active_player)
         } else if self.piece == King {
             // rank and file have already been checked to exist in the move description (only pawns can omit rank)
             let dest = ChessSquare::from_rank_file(self.target_rank.unwrap(), self.target_file.unwrap());
@@ -973,24 +983,31 @@ impl<'a> MoveParser<'a> {
                 additional = format!(" (The king would be in check on the {dest} square)")
             }
         }
+        let additional = additional.bold();
+
         // TODO: else, if piece is pinned, update message
         // moves without a piece but source and dest square have probably been meant as UCI moves, and not as pawn moves
         if original_piece == Empty && from_bb.is_single_piece() {
             let piece = board.colored_piece_on(from_bb.to_square().unwrap());
             if piece.is_empty() {
-                bail!("The square {from} is empty, so the move '{}' is invalid{1}", self.consumed().bold(), additional)
+                bail!(
+                    "The square {from} is {0}, so the move '{1}' is invalid{2}",
+                    "empty".bold(),
+                    self.consumed().bold(),
+                    additional
+                )
             } else if piece.color().unwrap() != board.active_player {
                 bail!(
                     "There is a {0} on {from}, but it's {1}'s turn to move, so the move '{2}' is invalid{3}",
-                    piece.symbol.name(),
-                    board.active_player,
+                    piece.symbol.name().bold(),
+                    board.active_player.to_string().bold(),
                     self.consumed().bold(),
                     additional
                 )
             } else {
                 bail!(
                     "There is a {0} on {from}, but it can't move to {to}, so the move '{1}' is invalid{2}",
-                    piece.symbol.name(),
+                    piece.symbol.name().bold(),
                     self.consumed().bold(),
                     additional
                 )
@@ -999,16 +1016,16 @@ impl<'a> MoveParser<'a> {
         if (board.col_piece_bb(board.active_player, self.piece) & from_bb).is_zero() {
             bail!(
                 "There is no {0} {1} on {from}, so the move '{2}' is invalid{3}",
-                board.active_player,
-                self.piece.to_name(),
+                board.active_player.to_string().bold(),
+                self.piece.to_name().bold(),
                 self.consumed().bold(),
                 additional
             )
         } else {
             bail!(
                 "There is no legal {0} {1} move from {from} to {to}, so the move '{2}' is invalid{3}",
-                board.active_player,
-                self.piece.to_name(),
+                board.active_player.to_string().bold(),
+                self.piece.to_name().bold(),
                 self.consumed().bold(),
                 additional
             );

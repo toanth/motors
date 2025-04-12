@@ -178,6 +178,12 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             let normalized_square = square.flip_if(us == Black);
             let in_front = (ChessBitboard::A_FILE << (square.flip_if(us == Black).bb_idx() + 8)).flip_if(us == Black);
             let blocking_squares = in_front | in_front.west() | in_front.east();
+            let file = ChessBitboard::file(square.file());
+            let neighbor_files = file.west() | file.east();
+            let supporting = neighbor_files & !blocking_squares;
+            if (supporting & our_pawns).is_zero() {
+                score += Tuned::unsupported_pawn();
+            }
             // passed pawn
             if (in_front & our_pawns).is_zero() && (blocking_squares & their_pawns).is_zero() {
                 score += Tuned::passed_pawn(normalized_square);
@@ -196,11 +202,11 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 }
                 *passers |= square.bb();
             }
-            let file = ChessBitboard::file(square.file());
-            let neighbor_files = file.west() | file.east();
-            let supporting = neighbor_files & !blocking_squares;
-            if (supporting & our_pawns).is_zero() {
-                score += Tuned::unsupported_pawn();
+            // may become a passer
+            if (in_front & (our_pawns | their_pawns)).is_zero()
+                && (blocking_squares & their_pawns).num_ones() <= (supporting & our_pawns).num_ones()
+            {
+                score += Tuned::candidate_passer(normalized_square.rank() - 1);
             }
             let sq_bb = square.bb();
             if (our_pawns & (sq_bb.east() | sq_bb.west())).has_set_bit() {
@@ -259,7 +265,20 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         for piece in rook_sliders.ones() {
             let ray = ChessBitboard::ray_exclusive(piece, their_king, ChessboardSize::default());
             let blockers = ray & blockers;
-            if blockers.is_single_piece() {
+            if blockers.is_single_piece() && (piece.rank() == their_king.rank() || piece.file() == their_king.file()) {
+                let piece = pos.piece_type_on(blockers.ones().next().unwrap());
+                if (blockers & pos.player_bb(color)).has_set_bit() {
+                    score += Tuned::discovered_check(piece);
+                } else {
+                    score += Tuned::pin(piece)
+                }
+            }
+        }
+        let bishop_sliders = (pos.piece_bb(Bishop) | pos.piece_bb(Queen)) & pos.player_bb(color);
+        for piece in bishop_sliders.ones() {
+            let ray = ChessBitboard::ray_exclusive(piece, their_king, ChessboardSize::default());
+            let blockers = ray & blockers;
+            if blockers.is_single_piece() && (piece.rank() != their_king.rank() && piece.file() != their_king.file()) {
                 let piece = pos.piece_type_on(blockers.ones().next().unwrap());
                 if (blockers & pos.player_bb(color)).has_set_bit() {
                     score += Tuned::discovered_check(piece);

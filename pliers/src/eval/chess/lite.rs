@@ -48,6 +48,7 @@ pub enum LiteFeatureSubset {
     ImmobilePasser,
     ProtectedPasser,
     PassedPawn,
+    CandidatePasser,
     UnsupportedPawn,
     DoubledPawn,
     Phalanx,
@@ -79,6 +80,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             ImmobilePasser => 1,
             ProtectedPasser => 1,
             PassedPawn => NUM_SQUARES,
+            CandidatePasser => 6,
             UnsupportedPawn => 1,
             DoubledPawn => 1,
             Phalanx => 6,
@@ -172,6 +174,9 @@ impl FeatureSubSet for LiteFeatureSubset {
                 writeln!(f, "\n#[rustfmt::skip]")?;
                 write!(f, "const PASSED_PAWNS: [PhasedScore; NUM_SQUARES] = ")?;
                 return write_phased_psqt(f, weights, special, None, self.start_idx());
+            }
+            CandidatePasser => {
+                writeln!(f, "const CANDIDATE_PASSER: [PhasedScore; 6] = ")?;
             }
             UnsupportedPawn => {
                 write!(f, "const UNSUPPORTED_PAWN: PhasedScore = ")?;
@@ -297,6 +302,10 @@ impl LiteValues for LiTETrace {
 
     fn passer_protection() -> SingleFeatureScore<Self::Score> {
         SingleFeature::new(ProtectedPasser, 0)
+    }
+
+    fn candidate_passer(rank: DimT) -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(CandidatePasser, rank as usize)
     }
 
     fn unsupported_pawn() -> SingleFeature {
