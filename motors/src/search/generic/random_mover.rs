@@ -1,20 +1,17 @@
 use gears::itertools::Itertools;
 use std::fmt::{Debug, Display, Formatter};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use gears::general::board::Board;
-use gears::rand::{rng, Rng, RngCore, SeedableRng};
+use gears::rand::{Rng, RngCore, SeedableRng, rng};
 
-use crate::eval::rand_eval::RandEval;
 use crate::eval::Eval;
-use crate::search::{
-    AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchState,
-    SearchStateFor,
-};
+use crate::eval::rand_eval::RandEval;
+use crate::search::{AbstractSearchState, EmptySearchStackEntry, Engine, EngineInfo, NoCustomInfo, SearchState};
 use gears::general::common::StaticallyNamedEntity;
 use gears::score::Score;
 use gears::search::NodeType::Exact;
-use gears::search::{Depth, NodesLimit, SearchInfo, SearchResult, TimeControl};
+use gears::search::{Depth, NodesLimit, SearchInfo, SearchResult};
 
 pub trait SeedRng: Rng + SeedableRng {}
 
@@ -33,10 +30,7 @@ impl<B: Board, R: SeedRng> Debug for RandomMover<B, R> {
 
 impl<B: Board, R: SeedRng> Default for RandomMover<B, R> {
     fn default() -> Self {
-        Self {
-            rng: R::seed_from_u64(rng().next_u64()),
-            state: SearchState::new(Depth::new_unchecked(1)),
-        }
+        Self { rng: R::seed_from_u64(rng().next_u64()), state: SearchState::new(Depth::new(1)) }
     }
 }
 
@@ -78,7 +72,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
     type CustomInfo = NoCustomInfo;
 
     fn max_bench_depth(&self) -> Depth {
-        Depth::new_unchecked(1)
+        Depth::new(1)
     }
 
     fn engine_info(&self) -> EngineInfo {
@@ -86,7 +80,7 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
             self,
             &RandEval::default(),
             "0.1.0",
-            Depth::new_unchecked(1),
+            Depth::new(1),
             NodesLimit::new(1).unwrap(),
             Some(1),
             vec![],
@@ -101,52 +95,39 @@ impl<B: Board, R: SeedRng + Clone + Send + 'static> Engine<B> for RandomMover<B,
 
     fn do_search(&mut self) -> SearchResult<B> {
         self.state.statistics.next_id_iteration();
-        let pos = self.state.params.pos;
+        let pos = &self.state.params.pos;
 
-        let moves = pos
-            .legal_moves_slow()
-            .into_iter()
-            .filter(|m| self.state.excluded_moves.contains(m))
-            .collect_vec();
+        let moves = pos.legal_moves_slow().into_iter().filter(|m| self.state.excluded_moves.contains(m)).collect_vec();
         let best_move = if moves.is_empty() {
             pos.random_legal_move(&mut self.rng).unwrap_or_default()
         } else {
             moves[self.rng.random_range(0..moves.len())]
         };
         self.state.atomic().set_best_move(best_move);
-        SearchResult::move_only(best_move, pos)
+        let info = &mut self.state.multi_pvs[self.state.current_pv_num];
+        info.pv.reset_to_move(best_move);
+        SearchResult::move_only(best_move, pos.clone())
     }
 
-    fn search_state(&self) -> &SearchStateFor<B, Self> {
-        &self.state
-    }
-
-    fn search_state_mut(&mut self) -> &mut SearchStateFor<B, Self> {
-        &mut self.state
-    }
-
-    fn static_eval(&mut self, _pos: B, _ply: usize) -> Score {
+    fn static_eval(&mut self, _pos: &B, _ply: usize) -> Score {
         Score(0)
-    }
-
-    fn time_up(&self, _: TimeControl, _: Duration, _: Instant) -> bool {
-        false
     }
 
     fn search_info(&self) -> SearchInfo<B> {
         SearchInfo {
             best_move_of_all_pvs: self.state.best_move(),
-            depth: Depth::new_unchecked(0),
-            seldepth: Depth::new_unchecked(0),
+            depth: Depth::new(0),
+            seldepth: Depth::new(0),
             time: Duration::default(),
             nodes: NodesLimit::new(1).unwrap(),
             pv_num: 1,
             max_num_pvs: self.state.search_params().num_multi_pv,
-            pv: vec![self.state.best_move()],
+            pv: self.state.current_mpv_pv(),
             score: Score(0),
             hashfull: 0,
-            pos: self.search_state().params.pos,
+            pos: self.state.params.pos.clone(),
             bound: Some(Exact),
+            num_threads: 1,
             additional: None,
         }
     }

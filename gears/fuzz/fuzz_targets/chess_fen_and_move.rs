@@ -19,8 +19,8 @@
 
 use gears::games::chess::moves::ChessMove;
 use gears::games::chess::Chessboard;
-use gears::general::board::Board;
 use gears::general::board::Strictness::Relaxed;
+use gears::general::board::{Board, BoardHelpers};
 use gears::general::moves::Move;
 use libfuzzer_sys::fuzz_target;
 
@@ -34,5 +34,5 @@ fuzz_target!(|data: &str| {
             pos = pos.make_move(mov).unwrap_or(pos);
         }
     }
-    pos.debug_verify_invariants(Relaxed).unwrap();
+    _ = pos.debug_verify_invariants(Relaxed).unwrap();
 });

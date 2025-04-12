@@ -22,6 +22,7 @@ use crate::output::Message::Info;
 use crate::output::{AbstractOutput, Message, Output, OutputBox, OutputBuilder, OutputOpts};
 use crate::GameState;
 use anyhow::bail;
+use std::fmt;
 use std::fmt::Display;
 use std::io::stdout;
 
@@ -32,9 +33,7 @@ pub(super) struct EngineStateOutput {
 
 impl Default for EngineStateOutput {
     fn default() -> Self {
-        Self {
-            writer: TextWriter::new_for(TextStream::Stdout(stdout()), vec![Info]),
-        }
+        Self { writer: TextWriter::new_for(TextStream::Stdout(stdout()), vec![Info]) }
     }
 }
 
@@ -57,7 +56,7 @@ impl AbstractOutput for EngineStateOutput {
         self.writer.stream.name()
     }
 
-    fn display_message(&mut self, typ: Message, message: &str) {
+    fn display_message(&mut self, typ: Message, message: &fmt::Arguments) {
         self.writer.display_message(typ, message);
     }
 }

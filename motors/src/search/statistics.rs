@@ -3,10 +3,10 @@ use crate::search::statistics::NodeCounterType::{Begun, Completed};
 use crate::search::statistics::SearchCounter::*;
 use crate::search::statistics::SearchType::*;
 use derive_more::Display;
-#[expect(unused_imports)]
+#[allow(unused_imports)]
 use gears::itertools::Itertools;
 use gears::search::NodeType;
-use std::fmt::Formatter;
+use std::fmt::{Display, Formatter};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
@@ -256,10 +256,7 @@ impl Statistics {
     pub fn aggregate_searches(&mut self, other: &Statistics) {
         self.depth = self.depth.max(other.depth);
         self.soft_limit_stop += other.soft_limit_stop;
-        self.iterations.resize(
-            self.iterations.len().max(other.iterations.len()),
-            IDStatistics::default(),
-        );
+        self.iterations.resize(self.iterations.len().max(other.iterations.len()), IDStatistics::default());
         for i in 0..self.iterations.len().min(other.iterations.len()) {
             self.iterations[i].aggregate(&other.iterations[i]);
         }
@@ -361,21 +358,14 @@ pub struct IDSummary {
 impl IDSummary {
     pub fn new(statistics: &IDStatistics, depth: u64) -> Self {
         let nodes = statistics.search(MainSearch).counters[NodesStarted as usize];
-        Self {
-            nodes,
-            statistics: *statistics,
-            depth,
-        }
+        Self { nodes, statistics: *statistics, depth }
     }
 
     fn format_ctr(mode: Mode, val: u64, total: u64, total_completed: Option<u64>) -> String {
         let relative = |total: u64| val as f64 / total as f64;
         let res = match mode {
             Percentage => {
-                format!(
-                    "{val} ({:.1}%)",
-                    relative(total) * 100.0 /*multiply by 100.0 last for better precision*/
-                )
+                format!("{val} ({:.1}%)", relative(total) * 100.0 /*multiply by 100.0 last for better precision*/)
             }
             Average => {
                 format!("avg {:.1}", relative(total))
@@ -401,31 +391,21 @@ impl Display for IDSummary {
             nodes = self.nodes,
             in_check = self.statistics.in_check
         )?;
-        let write_node_ctr =
-            |ctr: NodeTypeCtr, total: u64, name: &str, f: &mut Formatter<'_>| -> std::fmt::Result {
-                let total_completed = ctr.sum();
-                write!(
-                    f,
-                    ",  {name} fail low: {0}, exact: {1}, fail high: {2}",
-                    Self::format_ctr(Percentage, ctr.fail_lows, total, Some(total_completed)),
-                    Self::format_ctr(Percentage, ctr.exact, total, Some(total_completed)),
-                    Self::format_ctr(Percentage, ctr.fail_highs, total, Some(total_completed)),
-                )
-            };
-        write_node_ctr(
-            self.statistics.aw,
-            self.statistics.aw.sum(),
-            "asp windows",
-            f,
-        )?;
-        let main_nodes = [
-            self.statistics.main_search.counters[NodesStarted as usize],
-            self.statistics.main_search.node_ctr.sum(),
-        ];
-        let qsearch_nodes = [
-            self.statistics.qsearch.counters[NodesStarted as usize],
-            self.statistics.qsearch.node_ctr.sum(),
-        ];
+        let write_node_ctr = |ctr: NodeTypeCtr, total: u64, name: &str, f: &mut Formatter<'_>| -> std::fmt::Result {
+            let total_completed = ctr.sum();
+            write!(
+                f,
+                ",  {name} fail low: {0}, exact: {1}, fail high: {2}",
+                Self::format_ctr(Percentage, ctr.fail_lows, total, Some(total_completed)),
+                Self::format_ctr(Percentage, ctr.exact, total, Some(total_completed)),
+                Self::format_ctr(Percentage, ctr.fail_highs, total, Some(total_completed)),
+            )
+        };
+        write_node_ctr(self.statistics.aw, self.statistics.aw.sum(), "asp windows", f)?;
+        let main_nodes =
+            [self.statistics.main_search.counters[NodesStarted as usize], self.statistics.main_search.node_ctr.sum()];
+        let qsearch_nodes =
+            [self.statistics.qsearch.counters[NodesStarted as usize], self.statistics.qsearch.node_ctr.sum()];
         assert!(main_nodes[Begun as usize] >= main_nodes[Completed as usize]);
         assert!(qsearch_nodes[Begun as usize] >= qsearch_nodes[Completed as usize]);
         write!(
@@ -449,32 +429,12 @@ impl Display for IDSummary {
             write!(
                 f,
                 ",  {ctr}: {0} and {1}",
-                Self::format_ctr(
-                    mode,
-                    main,
-                    main_nodes[typ as usize],
-                    total_completed.map(|i| main_nodes[i])
-                ),
-                Self::format_ctr(
-                    mode,
-                    qsearch,
-                    qsearch_nodes[typ as usize],
-                    total_completed.map(|i| qsearch_nodes[i])
-                ),
+                Self::format_ctr(mode, main, main_nodes[typ as usize], total_completed.map(|i| main_nodes[i])),
+                Self::format_ctr(mode, qsearch, qsearch_nodes[typ as usize], total_completed.map(|i| qsearch_nodes[i])),
             )?;
         }
-        write_node_ctr(
-            self.statistics.main_search.node_ctr,
-            main_nodes[Begun as usize],
-            "main search",
-            f,
-        )?;
-        write_node_ctr(
-            self.statistics.qsearch.node_ctr,
-            qsearch_nodes[Begun as usize],
-            "quiescent search",
-            f,
-        )?;
+        write_node_ctr(self.statistics.main_search.node_ctr, main_nodes[Begun as usize], "main search", f)?;
+        write_node_ctr(self.statistics.qsearch.node_ctr, qsearch_nodes[Begun as usize], "quiescent search", f)?;
         Ok(())
     }
 }
@@ -497,13 +457,10 @@ impl Summary {
             .map(|(depth, stats)| IDSummary::new(stats, depth as u64 + 1))
             .collect_vec();
         let total = IDSummary::new(
-            &statistics
-                .iterations
-                .iter()
-                .fold(IDStatistics::default(), |mut a, b| {
-                    a.aggregate(b);
-                    a
-                }),
+            &statistics.iterations.iter().fold(IDStatistics::default(), |mut a, b| {
+                a.aggregate(b);
+                a
+            }),
             id_summary.len() as u64,
         );
         Self {
@@ -515,22 +472,23 @@ impl Summary {
     }
     #[cfg(not(feature = "statistics"))]
     pub fn new(_statistics: &Statistics) -> Self {
-        panic!("Cannot generate summaries for statistics unless the 'statistics' feature has been enabled at compile time");
+        panic!(
+            "Cannot generate summaries for statistics unless the 'statistics' feature has been enabled at compile time"
+        );
     }
 }
 
 impl Display for Summary {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "(Completed nodes are nodes where the code reached the return at the end, which means they are \
-        the nodes where at least one move was considered. If two percentages are given, those in between (parentheses) \
-        are as a percentage of all nodes, while those in between [brackets] are as a percentage of completed nodes.\
-        If values are listed as 'x and y', then x is the main search and y is quiescent search.")?;
-        writeln!(f, "aggregated {} search(es)", self.num_searches)?;
         writeln!(
             f,
-            "Stopped after reaching the soft limit: {}",
-            self.soft_limit_stop
+            "(Completed nodes are nodes where the code reached the return at the end, which means they are \
+        the nodes where at least one move was considered. If two percentages are given, those in between (parentheses) \
+        are as a percentage of all nodes, while those in between [brackets] are as a percentage of completed nodes.\
+        If values are listed as 'x and y', then x is the main search and y is quiescent search."
         )?;
+        writeln!(f, "aggregated {} search(es)", self.num_searches)?;
+        writeln!(f, "Stopped after reaching the soft limit: {}", self.soft_limit_stop)?;
         for id in &self.id_summary {
             writeln!(f, "{id}")?;
         }

@@ -10,19 +10,18 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::thread::{sleep, Builder};
+use std::thread::{Builder, sleep};
 use std::time::{Duration, Instant};
 
-use lazy_static::lazy_static;
-use whoami::fallible::realname;
-
 use gears::games::chess::Chessboard;
-use gears::general::board::Board;
-use gears::general::common::anyhow::bail;
+use gears::general::board::{Board, BoardHelpers};
 use gears::general::common::Res;
+use gears::general::common::anyhow::bail;
 use gears::output::Message::*;
-use gears::search::{Depth, NodesLimit, SearchLimit, TimeControl, MAX_DEPTH};
+use gears::search::{Depth, MAX_DEPTH, NodesLimit, SearchLimit, TimeControl};
 use gears::ugi::EngineOption;
+use lazy_static::lazy_static;
+use whoami::realname;
 
 use crate::cli::{ClientEngineCliArgs, PlayerArgs};
 use crate::play::player::EngineStatus::*;
@@ -52,9 +51,7 @@ impl NameSet {
             }
             let new_name = format!("{name}_{n}");
             n += 1;
-            let Some(_) = guard.insert(lowercase_name, n) else {
-                panic!("Internal error")
-            };
+            let Some(_) = guard.insert(lowercase_name, n) else { panic!("Internal error") };
             new_name
         } else {
             guard.insert(lowercase_name, 2);
@@ -148,12 +145,7 @@ impl<B: Board> EnginePlayer<B> {
     pub fn current_match(&mut self) -> &mut CurrentMatch<B> {
         self.current_match
             .as_mut()
-            .ok_or_else(|| {
-                format!(
-                    "Internal error: Engine '{}' isn't currently playing a match",
-                    self.display_name
-                )
-            })
+            .ok_or_else(|| format!("Internal error: Engine '{}' isn't currently playing a match", self.display_name))
             .unwrap()
     }
 
@@ -171,11 +163,7 @@ impl<B: Board> EnginePlayer<B> {
     }
 }
 
-fn send_initial_ugi_impl<B: Board>(
-    client: Arc<Mutex<Client<B>>>,
-    id: PlayerId,
-    retry_on_failure: bool,
-) -> Res<()> {
+fn send_initial_ugi_impl<B: Board>(client: Arc<Mutex<Client<B>>>, id: PlayerId, retry_on_failure: bool) -> Res<()> {
     let proto = client.lock().unwrap().state.get_engine_from_id(id).proto;
     let msg = match proto {
         Ugi => "ugi",
@@ -185,34 +173,22 @@ fn send_initial_ugi_impl<B: Board>(
     client.lock().unwrap().send_ugi_message_to(id, msg);
 
     let start = Instant::now();
-    while matches!(
-        client.lock().unwrap().state.get_engine_from_id(id).status,
-        WaitingUgiOk
-    ) {
+    while matches!(client.lock().unwrap().state.get_engine_from_id(id).status, WaitingUgiOk) {
         sleep(Duration::from_millis(5));
         if start.elapsed() > Duration::from_millis(5100) {
             // the spec demands a grace period of at least 5 seconds
             if retry_on_failure {
-                client
-                    .lock()
-                    .unwrap()
-                    .state
-                    .get_engine_from_id_mut(id)
-                    .proto = match proto {
+                client.lock().unwrap().state.get_engine_from_id_mut(id).proto = match proto {
                     Uci => Ugi,
                     Ugi => Uci,
                 };
                 return send_initial_ugi_impl(client, id, false);
             }
-            let name = client
-                .lock()
-                .unwrap()
-                .state
-                .get_engine_from_id(id)
-                .display_name
-                .clone();
+            let name = client.lock().unwrap().state.get_engine_from_id(id).display_name.clone();
             client.lock().unwrap().quit_program();
-            bail!("Couldn't initialize engine '{name}'. Didn't receive 'ugiok' or 'uciok' after the timeout was reached.")
+            bail!(
+                "Couldn't initialize engine '{name}'. Didn't receive 'ugiok' or 'uciok' after the timeout was reached."
+            )
         }
     }
     Ok(())
@@ -237,11 +213,7 @@ fn send_initial_ugi<B: Board>(
     Ok(())
 }
 
-pub fn limit_to_ugi(
-    limit: SearchLimit,
-    wtime: TimeControl,
-    btime: TimeControl,
-) -> Result<String, std::fmt::Error> {
+pub fn limit_to_ugi(limit: SearchLimit, wtime: TimeControl, btime: TimeControl) -> Result<String, std::fmt::Error> {
     let mut res = String::new();
     write!(res, "go ")?;
     if wtime.remaining != Duration::MAX {
@@ -304,16 +276,10 @@ impl PlayerBuilder {
         self.replace(client, None)
     }
 
-    pub fn replace<B: Board>(
-        self,
-        client: Arc<Mutex<Client<B>>>,
-        player: Option<PlayerId>,
-    ) -> Res<PlayerId> {
+    pub fn replace<B: Board>(self, client: Arc<Mutex<Client<B>>>, player: Option<PlayerId>) -> Res<PlayerId> {
         match self.args {
             PlayerArgs::Engine(ref args) => self.clone().build_engine(args.clone(), client, player),
-            PlayerArgs::Human(_) => self
-                .clone()
-                .build_human(&mut client.lock().unwrap(), player),
+            PlayerArgs::Human(_) => self.clone().build_human(&mut client.lock().unwrap(), player),
         }
     }
 
@@ -323,17 +289,12 @@ impl PlayerBuilder {
         replace: Option<PlayerId>,
     ) -> Res<PlayerId> {
         assert!(matches!(self.args, PlayerArgs::Human(_)));
-        let PlayerArgs::Human(ref args) = self.args else {
-            panic!()
-        };
+        let PlayerArgs::Human(ref args) = self.args else { panic!() };
         let tc = args.tc.unwrap_or(TimeControl::infinite());
         let human = Human(HumanPlayer {
             tc,
             original_tc: tc,
-            name: args
-                .name
-                .clone()
-                .unwrap_or_else(|| realname().unwrap_or("Human".to_string())),
+            name: args.name.clone().unwrap_or_else(|| realname().unwrap_or("Human".to_string())),
             status: HumanPlayerStatus::Idle,
         });
         let res = match replace {
@@ -347,16 +308,15 @@ impl PlayerBuilder {
         // No separate input thread as that is handled by the UI
     }
 
-    fn get_engine_path_and_set_args(
-        args: &mut ClientEngineCliArgs,
-        game_name: &str,
-    ) -> Res<PathBuf> {
+    fn get_engine_path_and_set_args(args: &mut ClientEngineCliArgs, game_name: &str) -> Res<PathBuf> {
         if cfg!(feature = "motors") && args.path.is_none() {
             if args.cmd.is_empty() {
                 // the 'motors-' prefix is used to denote an engine that's build in into monitors;
                 // so this becomes 'monitors engine default'
                 if let Some(name) = &args.display_name {
-                    bail!("The engine name is set ('{name}') but the command isn't. Please specify a command (use 'motors-<name>' to use the built-in engine <name>)")
+                    bail!(
+                        "The engine name is set ('{name}') but the command isn't. Please specify a command (use 'motors-<name>' to use the built-in engine <name>)"
+                    )
                 }
                 args.cmd = "motors-default".to_string();
             }
@@ -400,7 +360,7 @@ impl PlayerBuilder {
 
         client.lock().unwrap().show_message(
             Debug,
-            &format!(
+            &format_args!(
                 "Initializing engine '{display_name}' with command '{cmd}' and options {:?}",
                 args.engine_args,
                 cmd = path.to_str().unwrap_or("<unknown>")
@@ -422,22 +382,12 @@ impl PlayerBuilder {
         let depth = args.depth.unwrap_or(Depth::MAX);
         let mate = args.mate.unwrap_or(Depth::MAX);
         let nodes = args.nodes.unwrap_or(NodesLimit::MAX);
-        let default_limit = SearchLimit {
-            tc,
-            fixed_time,
-            depth,
-            nodes,
-            mate,
-        };
+        let soft_nodes = NodesLimit::MAX;
+        let default_limit = SearchLimit { tc, fixed_time, depth, nodes, soft_nodes, mate, start_time: Instant::now() };
 
         // try to set uci/ugi mode based on the game, but possibly change that according to how the engine responds
-        let proto = args.proto.unwrap_or_else(|| {
-            if TypeId::of::<B>() == TypeId::of::<Chessboard>() {
-                Uci
-            } else {
-                Ugi
-            }
-        });
+        let proto =
+            args.proto.unwrap_or_else(|| if TypeId::of::<B>() == TypeId::of::<Chessboard>() { Uci } else { Ugi });
 
         let engine = EnginePlayer::new(
             proto,
@@ -499,10 +449,10 @@ impl<B: Board> Player<B> {
 
     pub fn assign_to_match(&mut self, color: B::Color) {
         match self {
-            Engine(ref mut engine) => {
+            Engine(engine) => {
                 engine.current_match = Some(CurrentMatch::new(engine.default_limit, color));
             }
-            Human(ref mut human) => human.tc = human.original_tc,
+            Human(human) => human.tc = human.original_tc,
         }
     }
 
@@ -517,10 +467,7 @@ impl<B: Board> Player<B> {
         match self {
             Engine(engine) => {
                 let Some(m) = engine.current_match.as_mut() else {
-                    bail!(
-                        "Engine {} isn't currently playing a match",
-                        engine.display_name
-                    )
+                    bail!("Engine {} isn't currently playing a match", engine.display_name)
                 };
                 m.limit.tc = new_tc;
             }
@@ -538,10 +485,7 @@ impl<B: Board> Player<B> {
 
     pub fn get_limit(&self) -> Option<PlayerLimit> {
         match self {
-            Engine(engine) => engine
-                .current_match
-                .as_ref()
-                .map(|m| PlayerLimit::Engine(m.limit)),
+            Engine(engine) => engine.current_match.as_ref().map(|m| PlayerLimit::Engine(m.limit)),
             Human(human) => Some(PlayerLimit::Human(human.tc)),
         }
     }
@@ -582,20 +526,17 @@ impl<B: Board> Player<B> {
     }
 
     pub fn update_clock_and_check_for_time_loss(&mut self) -> bool {
-        let elapsed = self
-            .thinking_since()
-            .expect("Tried to stop the clock of a player who wasn't thinking")
-            .elapsed();
+        let elapsed = self.thinking_since().expect("Tried to stop the clock of a player who wasn't thinking").elapsed();
         match self {
             // An engine needs to check both the fixed move time and the TimeControl, but a human only has a TimeControl
-            Engine(ref mut engine) => {
+            Engine(engine) => {
                 let limit = engine.current_match.as_ref().unwrap().limit;
                 if elapsed > limit.max_move_time().saturating_add(engine.time_margin.0) {
                     return true;
                 }
                 engine.current_match().limit.tc.update(elapsed);
             }
-            Human(ref mut human) => {
+            Human(human) => {
                 if elapsed > human.tc.remaining {
                     return true;
                 }

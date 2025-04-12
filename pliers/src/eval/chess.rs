@@ -4,14 +4,15 @@ use crate::eval::write_phased_with_width;
 use crate::gd::{Float, Weight};
 use crate::load_data::{Filter, ParseResult};
 use crate::trace::{BasicTrace, SimpleTrace, TraceNFeatures};
+use gears::games::Color;
+use gears::games::chess::ChessColor::White;
 use gears::games::chess::pieces::{ChessPieceType, NUM_CHESS_PIECES};
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
-use gears::games::chess::ChessColor::White;
 use gears::games::chess::{ChessColor, Chessboard};
-use gears::general::bitboards::RawBitboard;
+use gears::general::bitboards::{Bitboard, RawBitboard};
+use gears::general::board::BitboardBoard;
 use motors::eval::chess::CHESS_PHASE_VALUES;
 use std::fmt::Formatter;
-use strum::IntoEnumIterator;
 
 pub mod lite;
 pub mod material_only_eval;
@@ -23,17 +24,11 @@ pub struct SkipChecks {}
 impl Filter<Chessboard> for SkipChecks {
     #[expect(refining_impl_trait)]
     fn filter(pos: ParseResult<Chessboard>) -> Option<ParseResult<Chessboard>> {
-        if pos.pos.is_in_check() {
-            None
-        } else {
-            Some(pos)
-        }
+        if pos.pos.is_in_check() { None } else { Some(pos) }
     }
 }
 
 // TODO: Qsearch filter
-
-const NUM_PHASES: usize = 2;
 
 const NUM_PSQT_FEATURES: usize = NUM_CHESS_PIECES * NUM_SQUARES;
 
@@ -53,11 +48,11 @@ fn to_feature_idx(piece: ChessPieceType, color: ChessColor, square: ChessSquare)
 }
 
 fn psqt_trace(pos: &Chessboard) -> TraceNFeatures<NUM_PSQT_FEATURES> {
-    let mut trace = SimpleTrace::for_features(NUM_PSQT_FEATURES);
-    trace.phase = chess_phase(pos);
+    let phase = chess_phase(pos);
+    let mut trace = SimpleTrace::for_num_features(NUM_PSQT_FEATURES, Some(phase));
     for color in ChessColor::iter() {
         for piece in ChessPieceType::pieces() {
-            let bb = pos.colored_piece_bb(color, piece);
+            let bb = pos.col_piece_bb(color, piece);
             for square in bb.ones() {
                 let idx = to_feature_idx(piece, color, square);
                 trace.increment(idx, color);
@@ -76,7 +71,7 @@ fn write_phased_psqt(
 ) -> std::fmt::Result {
     const TAB: &str = "    "; // Use 4 spaces for a tab.
     if let Some(piece) = piece {
-        writeln!(f, "{TAB}// {}", piece.name())?;
+        writeln!(f, "{TAB}// {}", piece.to_name())?;
         write!(f, "{TAB}[")?;
     } else {
         write!(f, "[")?;
@@ -105,23 +100,10 @@ fn write_phased_psqt(
     Ok(())
 }
 
-fn write_psqts(
-    f: &mut Formatter<'_>,
-    weights: &[Weight],
-    special_entries: &[bool],
-) -> std::fmt::Result {
-    writeln!(
-        f,
-        "const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = ["
-    )?;
+fn write_psqts(f: &mut Formatter<'_>, weights: &[Weight], special_entries: &[bool]) -> std::fmt::Result {
+    writeln!(f, "const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = [")?;
     for piece in ChessPieceType::pieces() {
-        write_phased_psqt(
-            f,
-            weights,
-            special_entries,
-            Some(piece),
-            64 * piece as usize,
-        )?;
+        write_phased_psqt(f, weights, special_entries, Some(piece), 64 * piece as usize)?;
     }
     writeln!(f, "];")?;
     Ok(())
