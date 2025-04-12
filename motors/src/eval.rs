@@ -92,7 +92,11 @@ impl ScoreType for PhasedScore {
         tempo: Self::Finalized,
         bonus: &[Self; 2],
     ) -> Score {
-        self += bonus[color.into()];
+        if color.is_first() {
+            self += bonus[0]
+        } else {
+            self -= bonus[1]
+        }
         let score = self.taper(phase, max_phase);
         tempo + if color.is_first() { score } else { -score }
     }

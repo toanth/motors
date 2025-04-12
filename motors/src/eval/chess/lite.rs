@@ -263,23 +263,28 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let their_king = pos.king_square(!color);
         let blockers = pos.occupied_bb();
         let rook_sliders = (pos.piece_bb(Rook) | pos.piece_bb(Queen)) & pos.player_bb(color);
-        for piece in rook_sliders.ones() {
-            let ray = ChessBitboard::ray_exclusive(piece, their_king, ChessboardSize::default());
+        for slider in rook_sliders.ones() {
+            let ray = ChessBitboard::ray_exclusive(slider, their_king, ChessboardSize::default());
             let blockers = ray & blockers;
-            if blockers.is_single_piece() && (piece.rank() == their_king.rank() || piece.file() == their_king.file()) {
+            if blockers.is_single_piece() && (slider.rank() == their_king.rank() || slider.file() == their_king.file())
+            {
                 let piece = pos.piece_type_on(blockers.ones().next().unwrap());
                 if (blockers & pos.player_bb(color)).has_set_bit() {
                     score += Tuned::discovered_check(piece);
+                    if piece != Pawn {
+                        state.stm_bonus[color] += Tuned::discovered_check_stm();
+                    }
                 } else {
                     score += Tuned::pin(piece)
                 }
             }
         }
         let bishop_sliders = (pos.piece_bb(Bishop) | pos.piece_bb(Queen)) & pos.player_bb(color);
-        for piece in bishop_sliders.ones() {
-            let ray = ChessBitboard::ray_exclusive(piece, their_king, ChessboardSize::default());
+        for slider in bishop_sliders.ones() {
+            let ray = ChessBitboard::ray_exclusive(slider, their_king, ChessboardSize::default());
             let blockers = ray & blockers;
-            if blockers.is_single_piece() && (piece.rank() != their_king.rank() && piece.file() != their_king.file()) {
+            if blockers.is_single_piece() && (slider.rank() != their_king.rank() && slider.file() != their_king.file())
+            {
                 let piece = pos.piece_type_on(blockers.ones().next().unwrap());
                 if (blockers & pos.player_bb(color)).has_set_bit() {
                     score += Tuned::discovered_check(piece);
