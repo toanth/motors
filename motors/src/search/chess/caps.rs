@@ -1176,7 +1176,10 @@ impl Caps {
         let mut children_visited = 0;
         while let Some((mov, score)) = move_picker.next(&move_scorer, &self.state) {
             debug_assert!(mov.is_tactical(&pos) || pos.is_in_check());
-            if !eval.is_game_lost_score() && score < MoveScore(0) || children_visited >= 3 {
+            let hist_score = self.capt_hist.get(mov, pos.threats(), pos.active_player());
+            if !eval.is_game_lost_score()
+                && (score < MoveScore(0) || children_visited >= 3 || hist_score <= MoveScore(-400))
+            {
                 // qsearch see pruning and qsearch late move  pruning (lmp):
                 // If the move has a negative SEE score or if we've already looked at enough moves, don't even bother playing it in qsearch.
                 break;
