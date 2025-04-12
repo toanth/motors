@@ -921,10 +921,10 @@ impl Caps {
                 // the case, search all other moves to a low depth.
                 let mut extend_tt_move = false;
                 if mov == best_move
-                    && tt_bound != Some(NodeType::upper_bound())
+                    && tt_bound != Some(FailLow)
                     && depth >= 10
                     && old_entry.unwrap().depth as isize >= depth - 4
-                    && !old_entry.unwrap().score().is_game_won_score()
+                    && !old_entry.unwrap().score().is_won_or_lost()
                     && !in_singular_search
                     && !root
                 {
@@ -1107,17 +1107,18 @@ impl Caps {
             return Some(game_result_to_score(pos.no_moves_result(), ply));
         }
 
-        let tt_entry: TTEntry<Chessboard> =
-            TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, depth, bound_so_far, self.age);
-
-        // Store the results in the TT, always replacing the previous entry. Note that the TT move is only overwritten
+        // Store the results in the TT, always replacing an old entry in the bucket. Note that the TT move is only overwritten
         // if this node was an exact or fail high node or if there was a collision.
         if !(root && self.current_pv_num > 0) && !in_singular_search {
+            let tt_entry: TTEntry<Chessboard> =
+                TTEntry::new(pos.hash_pos(), best_score, raw_eval, best_move, depth, bound_so_far, self.age);
+
             self.tt_mut().store(tt_entry, ply);
         }
 
         // Corrhist updates
         if !(in_check
+            || in_singular_search
             || best_move.is_tactical(&pos)
             || (best_score <= eval && bound_so_far == NodeType::lower_bound())
             || (best_score >= eval && bound_so_far == NodeType::upper_bound()))
