@@ -106,6 +106,12 @@ impl Not for ChessColor {
     }
 }
 
+impl Into<usize> for ChessColor {
+    fn into(self) -> usize {
+        self as usize
+    }
+}
+
 impl Color for ChessColor {
     type Board = Chessboard;
 

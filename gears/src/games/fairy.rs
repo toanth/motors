@@ -89,6 +89,12 @@ impl FairyColor {
     }
 }
 
+impl Into<usize> for FairyColor {
+    fn into(self) -> usize {
+        self.idx()
+    }
+}
+
 impl Color for FairyColor {
     type Board = FairyBoard;
 

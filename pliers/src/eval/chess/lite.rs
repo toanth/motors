@@ -61,6 +61,7 @@ pub enum LiteFeatureSubset {
     CanGiveCheck,
     Pin,
     DiscoveredCheck,
+    DiscoveredCheckStm,
 }
 
 impl FeatureSubSet for LiteFeatureSubset {
@@ -93,6 +94,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             CanGiveCheck => NUM_CHESS_PIECES - 1,
             Pin => NUM_CHESS_PIECES - 1,
             DiscoveredCheck => NUM_CHESS_PIECES,
+            DiscoveredCheckStm => 1,
         }
     }
 
@@ -242,6 +244,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             DiscoveredCheck => {
                 write!(f, "const DISCOVERED_CHECK: [PhasedScore; NUM_CHESS_PIECES] = ")?;
+            }
+            DiscoveredCheckStm => {
+                write!(f, "const DISCOVERED_CHECK_STM: PhasedScore = ")?;
             }
         }
         write_range_phased(f, weights, self.start_idx(), self.num_features(), special, true)?;
@@ -403,6 +408,10 @@ impl LiteValues for LiTETrace {
 
     fn discovered_check(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
         SingleFeature::new(DiscoveredCheck, piece as usize)
+    }
+
+    fn discovered_check_stm() -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(DiscoveredCheckStm, 0)
     }
 }
 

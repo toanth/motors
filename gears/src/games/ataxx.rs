@@ -65,6 +65,12 @@ impl Not for AtaxxColor {
     }
 }
 
+impl Into<usize> for AtaxxColor {
+    fn into(self) -> usize {
+        self as usize
+    }
+}
+
 impl Color for AtaxxColor {
     type Board = AtaxxBoard;
 

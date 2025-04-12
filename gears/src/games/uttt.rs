@@ -94,6 +94,12 @@ impl Not for UtttColor {
     }
 }
 
+impl Into<usize> for UtttColor {
+    fn into(self) -> usize {
+        self as usize
+    }
+}
+
 impl Color for UtttColor {
     type Board = UtttBoard;
 

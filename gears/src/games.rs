@@ -39,7 +39,7 @@ pub enum CharType {
     Unicode,
 }
 
-pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash + Not {
+pub trait Color: Debug + Default + Copy + Clone + PartialEq + Eq + Send + Hash + Not + Into<usize> {
     type Board: Board<Color = Self>;
 
     #[must_use]

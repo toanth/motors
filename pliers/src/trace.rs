@@ -251,9 +251,11 @@ impl ScoreType for SparseTrace {
         mut self,
         phase: PhaseType,
         max_phase: PhaseType,
-        _color: C,
+        color: C,
         _tempo: Self::Finalized,
+        bonus: &[Self; 2],
     ) -> Self::Finalized {
+        self += bonus[color.into()].clone();
         self.phase = phase as Float / max_phase as Float;
         self
     }

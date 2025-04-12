@@ -70,6 +70,12 @@ impl Not for MnkColor {
     }
 }
 
+impl Into<usize> for MnkColor {
+    fn into(self) -> usize {
+        self as usize
+    }
+}
+
 impl Color for MnkColor {
     type Board = MNKBoard;
 

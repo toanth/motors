@@ -185,4 +185,8 @@ impl LiteValues for KingGambotValues {
     fn discovered_check(piece: ChessPieceType) -> PhasedScore {
         Lite::discovered_check(piece)
     }
+
+    fn discovered_check_stm() -> SingleFeatureScore<Self::Score> {
+        Lite::discovered_check_stm()
+    }
 }
