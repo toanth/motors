@@ -782,7 +782,9 @@ impl Caps {
             // so simply return the nmp score. This is based on the null move observation (there are very few zugzwang positions).
             // If we don't have non-pawn, non-king pieces, we're likely to be in zugzwang, so don't even try NMP.
             let has_nonpawns = (pos.active_player_bb() & !pos.piece_bb(Pawn)).more_than_one_bit_set();
-            let nmp_threshold = beta + ScoreT::from(expected_node_type == FailLow) * cc::nmp_fail_low();
+            let nmp_threshold = beta
+                + ScoreT::from(expected_node_type == FailLow) * cc::nmp_fail_low()
+                + ScoreT::from(is_noisy) * cc::nmp_noisy_tt_move();
             if depth >= cc::nmp_min_depth()
                 && eval >= nmp_threshold
                 && !*self.nmp_disabled_for(pos.active_player())

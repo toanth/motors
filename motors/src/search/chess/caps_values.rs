@@ -39,6 +39,7 @@ spsa_params! [
     rfp_fail_high_div: ScoreT = 3; 1..=10; step=1;
     rfp_max_depth: isize = 6; 1..=10; step=1;
     nmp_fail_low: ScoreT = 62; 0..=256; step=4;
+    nmp_noisy_tt_move: ScoreT = 128; 0..=512; step=4;
     nmp_min_depth: isize = 1; 1..=10; step=1;
     nmp_base: isize = 4; 1..=10; step=1;
     nmp_depth_div: isize = 4; 1..=20; step=1;
