@@ -363,6 +363,12 @@ mod tests {
                 let res = engine.search_with_tt(pos, SearchLimit::nodes_(500), tt.clone());
                 assert!(res.score >= Score(1000), "{}", res.score);
                 assert!(pos.is_move_legal(res.chosen_move));
+
+                let fen = "qqqqqqqq/qqqqqqqq/qqqqqqqq/qqqqqqqq/qqqqrbnq/qqqqbKQn/qqqqrb1b/qqqqqrbk b - - 0 1";
+                let pos = Chessboard::from_fen(fen, Relaxed).unwrap();
+                let res = engine.search_with_tt(pos, SearchLimit::nodes_(500), tt.clone());
+                assert_eq!(res.score.plies_until_game_won(), Some(1));
+                assert_eq!(res.chosen_move, ChessMove::from_text("Qg2", &pos).unwrap());
             }
         }
     }
