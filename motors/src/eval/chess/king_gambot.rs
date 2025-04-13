@@ -182,6 +182,10 @@ impl LiteValues for KingGambotValues {
         Lite::king_zone_attack(attacking) / 2
     }
 
+    fn extended_king_zone_attack() -> SingleFeatureScore<Self::Score> {
+        Lite::extended_king_zone_attack()
+    }
+
     fn can_give_check(piece: ChessPieceType) -> PhasedScore {
         Lite::can_give_check(piece) / 2
     }

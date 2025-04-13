@@ -302,6 +302,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
 
         let attacked_by_pawn = pos.col_piece_bb(us.other(), Pawn).pawn_attacks(us.other());
         let king_zone = Chessboard::normal_king_attacks_from(pos.king_square(us.other()));
+        let extended_king_zone = king_zone.moore_neighbors();
         let our_pawns = pos.col_piece_bb(us, Pawn);
         // handling double pawn pushes lost elo, somehow
         let pawn_advance_threats = (our_pawns.pawn_advance(us) & pos.empty_bb()).pawn_attacks(us);
@@ -311,8 +312,6 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Tuned::king_zone_attack(Pawn);
         }
         let mut all_attacks = pawn_attacks;
-        // let pawn_king_attacks = (pawn_attacks & king_zone).num_ones();
-        // score += Tuned::king_zone_attack(Pawn) * pawn_king_attacks;
         for piece in ChessPieceType::pieces() {
             let protected_by_pawns = pawn_attacks & pos.col_piece_bb(us, piece);
             score += Tuned::pawn_protection(piece) * protected_by_pawns.num_ones();
@@ -336,6 +335,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 }
                 if (attacks_no_pawn_recapture & king_zone).has_set_bit() {
                     score += Tuned::king_zone_attack(piece);
+                } else if (attacks_no_pawn_recapture & extended_king_zone).has_set_bit() {
+                    score += Tuned::extended_king_zone_attack();
                 }
                 if piece != King && (attacks_no_pawn_recapture & checking_squares[piece as usize]).has_set_bit() {
                     score += Tuned::can_give_check(piece);
