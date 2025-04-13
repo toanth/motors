@@ -55,6 +55,7 @@ pub enum LiteFeatureSubset {
     Phalanx,
     PawnProtection,
     PawnAttacks,
+    PawnAdvanceThreat,
     Mobility,
     Threat,
     Defense,
@@ -88,6 +89,7 @@ impl FeatureSubSet for LiteFeatureSubset {
             PawnlessFlank => 1,
             PawnProtection => NUM_CHESS_PIECES,
             PawnAttacks => NUM_CHESS_PIECES,
+            PawnAdvanceThreat => NUM_CHESS_PIECES,
             Mobility => (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1),
             Threat => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
@@ -197,6 +199,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             }
             PawnAttacks => {
                 write!(f, "const PAWN_ATTACKS: [PhasedScore; NUM_CHESS_PIECES] = ")?;
+            }
+            PawnAdvanceThreat => {
+                write!(f, "const PAWN_ADVANCE_THREAT: [PhasedScore; NUM_CHESS_PIECES] = ")?;
             }
             Mobility => {
                 writeln!(f, "\npub const MAX_MOBILITY: usize = 7 + 7 + 7 + 6;")?;
@@ -381,6 +386,10 @@ impl LiteValues for LiTETrace {
             return SingleFeature::no_feature(PawnAttacks);
         }
         SingleFeature::new(PawnAttacks, piece as usize)
+    }
+
+    fn pawn_advance_threat(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(PawnAdvanceThreat, piece as usize)
     }
 
     fn mobility(piece: ChessPieceType, mobility: usize) -> SingleFeature {

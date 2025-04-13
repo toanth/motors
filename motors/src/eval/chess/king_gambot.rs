@@ -162,6 +162,10 @@ impl LiteValues for KingGambotValues {
         Lite::pawn_attack(piece)
     }
 
+    fn pawn_advance_threat(piece: ChessPieceType) -> SingleFeatureScore<Self::Score> {
+        Lite::pawn_advance_threat(piece)
+    }
+
     fn mobility(piece: ChessPieceType, mobility: usize) -> PhasedScore {
         Lite::mobility(piece, mobility)
     }

@@ -303,6 +303,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
         let attacked_by_pawn = pos.col_piece_bb(us.other(), Pawn).pawn_attacks(us.other());
         let king_zone = Chessboard::normal_king_attacks_from(pos.king_square(us.other()));
         let our_pawns = pos.col_piece_bb(us, Pawn);
+        let pawn_advance_threats = (our_pawns.pawn_advance(us) & pos.empty_bb()).pawn_attacks(us);
         let passer_close = (pos.player_bb(us) & state.passers).moore_neighbors();
         let pawn_attacks = our_pawns.pawn_attacks(us);
         if (pawn_attacks & king_zone).has_set_bit() {
@@ -316,6 +317,8 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
             score += Tuned::pawn_protection(piece) * protected_by_pawns.num_ones();
             let attacked_by_pawns = pawn_attacks & pos.col_piece_bb(!us, piece);
             score += Tuned::pawn_attack(piece) * attacked_by_pawns.num_ones();
+            let threatened_by_pawn_advance = pawn_advance_threats & pos.col_piece_bb(!us, piece);
+            score += Tuned::pawn_advance_threat(piece) * threatened_by_pawn_advance.num_ones();
         }
         for piece in ChessPieceType::non_pawn_pieces() {
             for square in pos.col_piece_bb(us, piece).ones() {
