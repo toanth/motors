@@ -177,6 +177,20 @@ impl Chessboard {
         }
     }
 
+    pub fn pawn_push_bb(&self, us: ChessColor) -> ChessBitboard {
+        let pawns = self.col_piece_bb(us, Pawn);
+        let free = self.empty_bb();
+        if us == White {
+            let regular = pawns.north() & free;
+            let double = (regular & ChessBitboard::rank(2)).north();
+            (regular | double) & free
+        } else {
+            let regular = pawns.south() & free;
+            let double = (regular & ChessBitboard::rank(5)).south();
+            (regular | double) & free
+        }
+    }
+
     fn gen_pawn_moves<T: MoveList<Self>>(&self, moves: &mut T, filter: ChessBitboard, only_tactical: bool) {
         let color = self.active_player;
         let pawns = self.col_piece_bb(color, Pawn);
