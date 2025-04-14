@@ -448,7 +448,9 @@ impl Caps {
             let alpha = self.cur_pv_data().alpha;
             let beta = self.cur_pv_data().beta;
             let mut window_radius = self.cur_pv_data().radius;
-            let mut soft_limit = unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension);
+            // limit.fixed time is the min of the fixed time and the remaining time
+            let mut soft_limit =
+                unscaled_soft_limit.mul_f64(soft_limit_fail_low_extension).min(self.params.limit.fixed_time);
             soft_limit_fail_low_extension = 1.0;
             if depth > 8 && self.multi_pvs.len() == 1 {
                 let node_frac = self.root_move_nodes.frac_1024(self.cur_pv_data().pv.list[0], self.uci_nodes());

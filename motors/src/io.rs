@@ -624,7 +624,7 @@ impl<B: Board> EngineUGI<B> {
         let opts = &mut self.state.go_state;
         let limit = &mut opts.generic.limit;
         let remaining = &mut limit.tc.remaining;
-        *remaining = remaining.saturating_sub(opts.generic.move_overhead).max(Duration::from_millis(1));
+        *remaining = remaining.saturating_sub(opts.generic.move_overhead).max(Duration::from_micros(100));
 
         if cfg!(feature = "fuzzing") {
             limit.fixed_time = limit.fixed_time.max(Duration::from_secs(1));
@@ -737,7 +737,6 @@ impl<B: Board> EngineUGI<B> {
         };
         match opts.search_type {
             // this keeps the current history even if we're searching a different position, but that's probably not a problem
-            // and doing a normal search from a custom position isn't even implemented at the moment -- TODO: implement?
             Normal => {
                 // It doesn't matter if we got a ponderhit or a miss, we simply abort the ponder search and start a new search.
                 if self.state.ponder_limit.is_some() && opts.engine_name.is_none() {
