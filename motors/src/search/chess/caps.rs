@@ -650,7 +650,7 @@ impl Caps {
         let raw_eval;
         let mut eval;
         // the TT entry at the root is useless when doing an actual multipv search
-        let ignore_tt_entry = root && self.multi_pvs.len() > 1;
+        let ignore_tt_entry = (root && self.multi_pvs.len() > 1) || in_singular_search;
         let old_entry = self.tt().load::<Chessboard>(pos.hash_pos(), ply);
         if let Some(tt_entry) = old_entry {
             if ignore_tt_entry {
@@ -668,7 +668,7 @@ impl Caps {
                 // TT cutoffs. If we've already seen this position, and the TT entry has more valuable information (higher depth),
                 // and we're not a PV node, and the saved score is either exact or at least known to be outside (alpha, beta),
                 // simply return it.
-                if !is_pv_node && !in_singular_search && tt_entry.depth as isize >= depth {
+                if !is_pv_node && tt_entry.depth as isize >= depth {
                     if (tt_score >= beta && tt_bound == NodeType::lower_bound())
                         || (tt_score <= alpha && tt_bound == NodeType::upper_bound())
                         || tt_bound == Exact
@@ -708,6 +708,9 @@ impl Caps {
                     eval = tt_score;
                 }
             }
+        } else if in_singular_search {
+            eval = self.search_stack[ply].eval;
+            raw_eval = eval;
         } else {
             self.statistics.tt_miss(MainSearch);
             raw_eval = self.eval(&pos, ply);
@@ -717,7 +720,9 @@ impl Caps {
         if ply >= 2 {
             continued_move = self.search_stack[ply - 2].last_tried_move();
         }
-        eval = self.corr_hist.correct(&pos, continued_move, eval);
+        if !in_singular_search {
+            eval = self.corr_hist.correct(&pos, continued_move, eval);
+        }
 
         self.record_pos(pos, eval, ply);
 
@@ -919,18 +924,18 @@ impl Caps {
             if first_child {
                 // Singular Extensions (SE): If the TT move is far better than all other moves, extend it. To find out whether that is
                 // the case, search all other moves to a low depth.
-                let mut extend_tt_move = false;
+                let mut new_depth = depth - 1;
                 if mov == best_move
                     && tt_bound != Some(FailLow)
-                    && depth >= 10
-                    && old_entry.unwrap().depth as isize >= depth - 2
+                    && depth >= 8
+                    && old_entry.unwrap().depth as isize >= depth - 3
                     && !old_entry.unwrap().score().is_won_or_lost()
                     && !in_singular_search
                     && !root
                 {
                     self.search_stack[ply].tried_moves.clear();
                     self.params.history.pop();
-                    let reduced_depth = depth / 2;
+                    let reduced_depth = depth / 2 - 2;
                     let singular_beta = old_entry.unwrap().score() - Score(4 * depth as ScoreT);
                     let singular_score = self.negamax(
                         pos,
@@ -945,11 +950,10 @@ impl Caps {
                     self.search_stack[ply].tried_moves.push(best_move);
                     self.params.history.push(pos.hash_pos());
 
-                    extend_tt_move = singular_score < singular_beta;
+                    new_depth += (singular_score < singular_beta) as isize;
                 }
 
                 let child_node_type = expected_node_type.inverse();
-                let new_depth = depth - 1 + (extend_tt_move as isize);
                 score = -self.negamax(new_pos, ply + 1, new_depth, child_alpha, child_beta, child_node_type, None)?;
             } else {
                 child_alpha = -(alpha + 1);
