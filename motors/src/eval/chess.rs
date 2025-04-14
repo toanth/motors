@@ -124,6 +124,13 @@ pub const REACHABLE_PAWNS: [ChessBitboard; 64] = {
     res
 };
 
+pub const FLANK: [ChessBitboard; 8] = {
+    let queenside = ChessBitboard::new(0x0707_0707_0707_0707);
+    let kingside = ChessBitboard::new(queenside.0 << 5);
+    let center = ChessBitboard::new((queenside.0 | (queenside.0 << 1)) << 2);
+    [queenside, queenside, queenside, center, center, kingside, kingside, kingside]
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;

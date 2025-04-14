@@ -612,7 +612,7 @@ impl Caps {
 
             if pos.is_50mr_draw()
                 || pos.has_insufficient_material()
-                || n_fold_repetition(2, &self.params.history, pos.hash_pos(), ply_100_ctr)
+                // no need to check for twofold repetitions as that is already handled by the upcoming repetition detection
                 || n_fold_repetition(3, &self.original_board_hist, pos.hash_pos(), ply_100_ctr.saturating_sub(ply))
             {
                 return Some(Score(0));
@@ -815,8 +815,7 @@ impl Caps {
                     *self.nmp_disabled_for(pos.active_player()) = true;
                     // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so technically we
                     // should use `depth - reduction`, but using `depth - 1 - reduction` is less expensive and good enough.
-                    let verification_score =
-                        self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh, None);
+                    let verification_score = self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh, None);
                     self.search_stack[ply].tried_moves.clear();
                     *self.nmp_disabled_for(pos.active_player()) = false;
                     // The verification score is more trustworthy than the nmp score.

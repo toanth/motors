@@ -148,7 +148,7 @@ pub struct AtomicSearchState<B: Board> {
     should_stop: AtomicBool,
     // True if the engine is currently searching. Note that if an infinite search reaches its internal end condition but
     // hasn't yet been stopped, this is set to false; the thread may still spin until it receives a stop.
-    currently_searching: AtomicBool,
+    pub(super) currently_searching: AtomicBool,
     pub suppress_best_move: AtomicBool,
     nodes: AtomicU64,
     depth: AtomicIsize,
