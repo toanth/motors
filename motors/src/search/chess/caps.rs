@@ -815,7 +815,8 @@ impl Caps {
                     *self.nmp_disabled_for(pos.active_player()) = true;
                     // nmp was done with `depth - 1 - reduction`, but we're not doing a null move now, so technically we
                     // should use `depth - reduction`, but using `depth - 1 - reduction` is less expensive and good enough.
-                    let verification_score = self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh, None);
+                    let verification_score =
+                        self.negamax(pos, ply, depth - 1 - reduction, beta - 1, beta, FailHigh, None);
                     self.search_stack[ply].tried_moves.clear();
                     *self.nmp_disabled_for(pos.active_player()) = false;
                     // The verification score is more trustworthy than the nmp score.
@@ -922,7 +923,7 @@ impl Caps {
                 if mov == best_move
                     && tt_bound != Some(FailLow)
                     && depth >= 10
-                    && old_entry.unwrap().depth as isize >= depth - 4
+                    && old_entry.unwrap().depth as isize >= depth - 2
                     && !old_entry.unwrap().score().is_won_or_lost()
                     && !in_singular_search
                     && !root
@@ -930,7 +931,7 @@ impl Caps {
                     self.search_stack[ply].tried_moves.clear();
                     self.params.history.pop();
                     let reduced_depth = depth / 2;
-                    let singular_beta = old_entry.unwrap().score() - Score(3 * depth as ScoreT);
+                    let singular_beta = old_entry.unwrap().score() - Score(4 * depth as ScoreT);
                     let singular_score = self.negamax(
                         pos,
                         ply,
