@@ -9,6 +9,7 @@ use gears::rand::rngs::StdRng;
 use crate::Mode::{Bench, Perft};
 #[cfg(feature = "ataxx")]
 use crate::eval::ataxx::bate::Bate;
+#[cfg(feature = "chess")]
 use crate::eval::chess::lite::KingGambot;
 #[cfg(feature = "chess")]
 use crate::eval::chess::lite::LiTEval;
@@ -30,7 +31,6 @@ use crate::search::chess::caps::Caps;
 use crate::search::generic::gaps::Gaps;
 #[cfg(feature = "proof_number")]
 use crate::search::generic::proof_number::ProofNumberSearcher;
-#[cfg(feature = "random_mover")]
 use crate::search::generic::random_mover::RandomMover;
 use crate::search::multithreading::EngineWrapper;
 use crate::search::tt::TT;
@@ -45,6 +45,7 @@ use gears::games::OutputList;
 use gears::games::ataxx::AtaxxBoard;
 #[cfg(feature = "chess")]
 use gears::games::chess::Chessboard;
+#[cfg(feature = "fairy")]
 use gears::games::fairy::FairyBoard;
 #[cfg(feature = "mnk")]
 use gears::games::mnk::MNKBoard;
@@ -157,7 +158,8 @@ pub fn create_searcher_from_str<B: Board>(
     searchers: &SearcherList<B>,
 ) -> Res<Box<dyn AbstractSearcherBuilder<B>>> {
     if name == "default" {
-        return Ok(clone_box(&**searchers.last().unwrap()));
+        let searcher = searchers.last().expect("No searcher -- check enabled cargo features");
+        return Ok(clone_box(&**searcher));
     }
     Ok(clone_box(select_name_dyn(name, searchers, "searcher", &B::game_name(), WithDescription)?))
 }
@@ -299,7 +301,6 @@ pub fn list_fairy_evals() -> EvalList<FairyBoard> {
 #[must_use]
 pub fn generic_searchers<B: Board>() -> SearcherList<B> {
     vec![
-        #[cfg(feature = "random_mover")]
         Box::new(SearcherBuilder::<B, RandomMover<B, StdRng>>::default()),
         #[cfg(feature = "proof_number")]
         Box::new(SearcherBuilder::<B, ProofNumberSearcher<B>>::default()),

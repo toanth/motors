@@ -22,13 +22,12 @@ pub mod pieces;
 mod rules;
 
 use crate::PlayerResult;
-use crate::games::chess::pieces::NUM_COLORS;
 use crate::games::fairy::moves::FairyMove;
 use crate::games::fairy::pieces::{ColoredPieceId, PieceId};
 use crate::games::fairy::rules::{Draw, GameLoss, NumRoyals, Rules, RulesRef};
 use crate::games::{
     AbstractPieceType, BoardHistory, CharType, Color, ColoredPiece, ColoredPieceType, Coordinates, DimT, GenericPiece,
-    NoHistory, PosHash, Size,
+    NUM_COLORS, NoHistory, PosHash, Size,
 };
 use crate::general::bitboards::{Bitboard, DynamicallySizedBitboard, ExtendedRawBitboard, RawBitboard};
 use crate::general::board::SelfChecks::CheckFen;

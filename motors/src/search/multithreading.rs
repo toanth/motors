@@ -17,12 +17,11 @@ use gears::score::{NO_SCORE_YET, Score};
 use gears::search::{Depth, SearchLimit};
 use gears::ugi::EngineOptionName;
 use gears::ugi::EngineOptionName::{Hash, Threads};
-use portable_atomic::AtomicUsize;
 use std::fmt;
 use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU64, AtomicUsize};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 

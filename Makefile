@@ -9,8 +9,8 @@ export CC
 
 .PHONY: all clean
 
-#the first target is the default target and only builds `motors`, because that's all that is necessary for openbench
-default: motors
+#the first target is the default target and only builds `caps`, because that's all that is necessary for openbench
+default: caps
 
 all: motors monitors pliers
 
@@ -21,6 +21,9 @@ pliers:
 	cargo build --release --package pliers
 
 motors: release
+
+caps:
+	cargo rustc --release --package motors --bin motors --no-default-features --features=caps -- --emit link=${EXE}
 
 bench: release
 	./caps bench
