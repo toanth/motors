@@ -33,7 +33,7 @@ use std::hint::spin_loop;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::Ordering::Acquire;
+use std::sync::atomic::Ordering::{Acquire, SeqCst};
 use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 use std::time::{Duration, Instant};
@@ -627,14 +627,14 @@ impl<B: Board> SearchParams<B> {
             self.atomic.set_searching(false);
             return;
         };
-        if self.atomic.suppress_best_move.load(Acquire) {
-            self.atomic.set_searching(false);
-            return;
-        }
-        if data.search_type == Infinite {
+        if [Infinite, Ponder].contains(&data.search_type) {
             while !self.atomic.stop_flag() {
                 spin_loop();
             }
+        }
+        if self.atomic.suppress_best_move.load(Acquire) {
+            self.atomic.currently_searching.store(false, SeqCst);
+            return;
         }
         let pos = &self.pos;
         let mut output = data.output.lock().unwrap();

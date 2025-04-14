@@ -417,6 +417,11 @@ impl<B: Board> EngineUGI<B> {
             self.failed_cmd = None;
             let res = handle_ugi_input(self, tokens(&input), &game_name);
             match res {
+                Ok(()) => {
+                    if let Quit(quitting) = &self.state.status {
+                        return *quitting;
+                    }
+                }
                 Err(err) => {
                     self.write_message(Error, &format_args!("{err}"));
                     if !self.continue_on_error() {
@@ -433,11 +438,6 @@ impl<B: Board> EngineUGI<B> {
                         continue;
                     }
                     return QuitProgram;
-                }
-                Ok(()) => {
-                    if let Quit(quitting) = &self.state.status {
-                        return *quitting;
-                    }
                 }
             }
         }
@@ -647,7 +647,7 @@ impl<B: Board> EngineUGI<B> {
         }
 
         let opts = &self.state.go_state.generic;
-        let limit = self.state.go_state.generic.limit;
+        let limit = opts.limit;
         let board = self.state.go_state.pos.clone();
         match opts.search_type {
             Auto => {
@@ -740,7 +740,7 @@ impl<B: Board> EngineUGI<B> {
             // and doing a normal search from a custom position isn't even implemented at the moment -- TODO: implement?
             Normal => {
                 // It doesn't matter if we got a ponderhit or a miss, we simply abort the ponder search and start a new search.
-                if opts.engine_name.is_none() && self.state.ponder_limit.is_some() {
+                if self.state.ponder_limit.is_some() && opts.engine_name.is_none() {
                     self.state.ponder_limit = None;
                     engine.send_stop(true); // aborts the pondering without printing a search result
                 }
@@ -1344,11 +1344,13 @@ impl<B: Board> AbstractEngineUgiState for EngineUGI<B> {
     }
 
     fn handle_ponderhit(&mut self) -> Res<()> {
-        self.state.go_state = GoState::new(self, Normal, self.state.go_state.start_time());
+        let start_time = self.state.go_state.start_time();
+        self.state.go_state = GoState::new(self, Normal, start_time);
         self.state.go_state.generic.limit = self
             .state
             .ponder_limit
             .ok_or_else(|| anyhow!("The engine received a '{}' command but wasn't pondering", "ponderhit".bold()))?;
+        self.state.go_state.generic.limit.start_time = start_time;
         self.start_search()
     }
 

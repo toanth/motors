@@ -610,7 +610,7 @@ impl Caps {
 
             if pos.is_50mr_draw()
                 || pos.has_insufficient_material()
-                || n_fold_repetition(2, &self.params.history, pos.hash_pos(), ply_100_ctr)
+                // no need to check for twofold repetitions as that is already handled by the upcoming repetition detection
                 || n_fold_repetition(3, &self.original_board_hist, pos.hash_pos(), ply_100_ctr.saturating_sub(ply))
             {
                 return Some(Score(0));

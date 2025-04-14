@@ -101,7 +101,7 @@ impl LiteValues for KingGambotValues {
         Lite::passer_protection()
     }
 
-    fn candidate_passer(rank: DimT) -> SingleFeatureScore<Self::Score> {
+    fn candidate_passer(rank: DimT) -> PhasedScore {
         Lite::candidate_passer(rank)
     }
 
@@ -150,12 +150,20 @@ impl LiteValues for KingGambotValues {
         if self.us == color { value / 2 } else { value }
     }
 
+    fn pawnless_flank() -> PhasedScore {
+        Lite::pawnless_flank()
+    }
+
     fn pawn_protection(piece: ChessPieceType) -> PhasedScore {
         Lite::pawn_protection(piece)
     }
 
     fn pawn_attack(piece: ChessPieceType) -> PhasedScore {
         Lite::pawn_attack(piece)
+    }
+
+    fn pawn_advance_threat(piece: ChessPieceType) -> PhasedScore {
+        Lite::pawn_advance_threat(piece)
     }
 
     fn mobility(piece: ChessPieceType, mobility: usize) -> PhasedScore {
@@ -186,7 +194,7 @@ impl LiteValues for KingGambotValues {
         Lite::discovered_check(piece)
     }
 
-    fn discovered_check_stm() -> SingleFeatureScore<Self::Score> {
+    fn discovered_check_stm() -> PhasedScore {
         Lite::discovered_check_stm()
     }
 }
