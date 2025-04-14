@@ -16,6 +16,7 @@ use gears::games::chess::see::SEE_SCORES;
 use gears::games::chess::squares::{ChessSquare, NUM_SQUARES};
 use gears::games::chess::{ChessColor, Chessboard};
 use gears::general::common::StaticallyNamedEntity;
+use motors::eval::SingleFeatureScore;
 use motors::eval::chess::FileOpenness::*;
 use motors::eval::chess::lite::GenericLiTEval;
 use motors::eval::chess::lite_values::{LiteValues, MAX_MOBILITY};
@@ -56,8 +57,9 @@ pub enum LiteFeatureSubset {
     PawnAttacks,
     PawnAdvanceThreat,
     Mobility,
-    Threat,
     Defense,
+    Threat,
+    ThreatStm,
     KingZoneAttack,
     CanGiveCheck,
     CheckStm,
@@ -92,8 +94,9 @@ impl FeatureSubSet for LiteFeatureSubset {
             PawnAttacks => NUM_CHESS_PIECES,
             PawnAdvanceThreat => NUM_CHESS_PIECES,
             Mobility => (MAX_MOBILITY + 1) * (NUM_CHESS_PIECES - 1),
-            Threat => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
             Defense => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
+            Threat => (NUM_CHESS_PIECES - 1) * NUM_CHESS_PIECES,
+            ThreatStm => 1,
             KingZoneAttack => NUM_CHESS_PIECES,
             CanGiveCheck => NUM_CHESS_PIECES - 1,
             CheckStm => 1,
@@ -222,6 +225,17 @@ impl FeatureSubSet for LiteFeatureSubset {
                 }
                 return writeln!(f, "];");
             }
+            Defense => {
+                writeln!(f, "const DEFENDED: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = ")?;
+                return write_2d_range_phased(
+                    f,
+                    weights,
+                    self.start_idx(),
+                    NUM_CHESS_PIECES,
+                    NUM_CHESS_PIECES - 1,
+                    special,
+                );
+            }
             Threat => {
                 writeln!(f, "const THREATS: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = ")?;
                 return write_2d_range_phased(
@@ -233,16 +247,8 @@ impl FeatureSubSet for LiteFeatureSubset {
                     special,
                 );
             }
-            Defense => {
-                writeln!(f, "const DEFENDED: [[PhasedScore; NUM_CHESS_PIECES]; NUM_CHESS_PIECES - 1] = ")?;
-                return write_2d_range_phased(
-                    f,
-                    weights,
-                    self.start_idx(),
-                    NUM_CHESS_PIECES,
-                    NUM_CHESS_PIECES - 1,
-                    special,
-                );
+            ThreatStm => {
+                write!(f, "const THREATS_STM: PhasedScore = ")?;
             }
             KingZoneAttack => {
                 write!(f, "const KING_ZONE_ATTACK: [PhasedScore; 6] = ")?;
@@ -438,6 +444,10 @@ impl LiteValues for LiTETrace {
 
     fn check_stm() -> SingleFeature {
         SingleFeature::new(CheckStm, 0)
+    }
+
+    fn threats_stm() -> SingleFeatureScore<Self::Score> {
+        SingleFeature::new(ThreatStm, 0)
     }
 }
 
