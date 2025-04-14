@@ -348,6 +348,7 @@ impl<Tuned: LiteValues> GenericLiTEval<Tuned> {
                 }
                 if piece != King && (attacks_no_pawn_recapture & checking_squares[piece as usize]).has_set_bit() {
                     score += Tuned::can_give_check(piece);
+                    state.stm_bonus[us] += Tuned::check_stm();
                 }
                 if (attacks & passer_close).has_set_bit() {
                     score += Tuned::passer_protection();
