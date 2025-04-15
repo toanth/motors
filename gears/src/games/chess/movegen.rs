@@ -83,7 +83,7 @@ impl Chessboard {
         let piece = flags.piece_type();
         let src = mov.src_square();
         let color = self.active_player;
-        if !self.col_piece_bb(color, piece).is_bit_set_at(src.bb_idx()) {
+        if !self.col_piece_bb(color, piece).is_bit_set(src) {
             return false;
         }
         if mov.is_castle() {
@@ -96,16 +96,14 @@ impl Chessboard {
                 return Some(mov.dest_square()) == self.ep_square;
             }
             let capturable = self.player_bb(color.other());
-            !incorrect
-                && Self::single_pawn_moves(color, src, capturable, self.empty_bb())
-                    .is_bit_set_at(mov.dest_square().bb_idx())
+            !incorrect && Self::single_pawn_moves(color, src, capturable, self.empty_bb()).is_bit_set(mov.dest_square())
         } else {
             if self.simple_illegal(piece, mov.dest_square()) {
                 return false;
             }
             let generator = self.slider_generator();
             (Self::threatening_attacks(src, mov.piece_type(), color, &generator) & !self.active_player_bb())
-                .is_bit_set_at(mov.dest_square().bb_idx())
+                .is_bit_set(mov.dest_square())
         }
     }
 
@@ -115,7 +113,7 @@ impl Chessboard {
         let us = self.active_player;
         let src = mov.src_square();
         let piece = mov.flags().piece_type();
-        if !self.col_piece_bb(us, piece).is_bit_set_at(src.bb_idx()) {
+        if !self.col_piece_bb(us, piece).is_bit_set(src) {
             // this check is still necessary because otherwise we could e.g. accept a move with piece 'bishop' from a queen.
             return false;
         }
@@ -128,14 +126,14 @@ impl Chessboard {
             }
             let capturable = self.player_bb(!us);
             // we still need to check this because this could have been a pawn move from the other player
-            Self::single_pawn_moves(us, src, capturable, self.empty_bb()).is_bit_set_at(mov.dest_square().bb_idx())
+            Self::single_pawn_moves(us, src, capturable, self.empty_bb()).is_bit_set(mov.dest_square())
         } else {
             if self.simple_illegal(piece, mov.dest_square()) {
                 return false;
             }
             let ray = ChessBitboard::ray_exclusive(src, mov.dest_square(), ChessboardSize {});
             let on_ray = ray & self.occupied_bb();
-            on_ray.is_zero() && !self.player_bb(us).is_bit_set_at(mov.dest_square().bb_idx())
+            on_ray.is_zero() && !self.player_bb(us).is_bit_set(mov.dest_square())
         }
     }
 

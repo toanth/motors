@@ -373,8 +373,8 @@ impl Board for Chessboard {
         ChessboardSize::default()
     }
 
-    fn is_empty(&self, coords: Self::Coordinates) -> bool {
-        self.empty_bb().is_bit_set_at(coords.bb_idx())
+    fn is_empty(&self, square: ChessSquare) -> bool {
+        self.mailbox[square] == Empty
     }
 
     fn is_piece_on(&self, coords: ChessSquare, piece: ColoredChessPieceType) -> bool {

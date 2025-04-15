@@ -65,9 +65,12 @@ impl UnverifiedBoard<Chessboard> for UnverifiedChessboard {
             }
             for (i, &piece) in this.mailbox.iter().enumerate() {
                 if piece == Empty {
-                    assert!(this.empty_bb().is_bit_set_at(i));
+                    ensure!(this.empty_bb().is_bit_set_at(i), "Mismatch between mailbox and bitboards at square {i}");
                 } else {
-                    assert!(this.piece_bb(piece).is_bit_set_at(i));
+                    ensure!(
+                        this.piece_bb(piece).is_bit_set_at(i),
+                        "Mismatch between mailbox and bitboards at square {i}"
+                    );
                 }
             }
         }

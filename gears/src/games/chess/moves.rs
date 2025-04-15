@@ -128,7 +128,7 @@ impl ChessMove {
     pub fn piece(self, board: &Chessboard) -> ChessPiece {
         let source = self.src_square();
         debug_assert!(board.is_occupied(source), "{}", self.compact_formatter(board));
-        debug_assert!(board.active_player_bb().is_bit_set_at(source.bb_idx()), "{}", self.compact_formatter(board));
+        debug_assert!(board.active_player_bb().is_bit_set(source), "{}", self.compact_formatter(board));
         ChessPiece::new(ColoredChessPieceType::new(board.active_player, self.flags().piece_type()), source)
     }
 
@@ -162,7 +162,7 @@ impl ChessMove {
     }
 
     pub fn is_non_ep_capture(self, board: &Chessboard) -> bool {
-        board.inactive_player_bb().is_bit_set_at(self.dest_square().bb_idx())
+        board.inactive_player_bb().is_bit_set(self.dest_square())
     }
 
     pub fn captured(self, board: &Chessboard) -> ChessPieceType {
