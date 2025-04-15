@@ -28,7 +28,8 @@ use gears::score::{PhasedScore, p};
 use std::fmt::{Debug, Display};
 
 #[rustfmt::skip]
-const TEMPO: PhasedScore = p(24, 14);
+const TEMPO: PhasedScore = p(10, 10);
+// const TEMPO: PhasedScore = p(24, 14);
 const PSQTS: [[PhasedScore; NUM_SQUARES]; NUM_CHESS_PIECES] = [
     // pawn
     [
