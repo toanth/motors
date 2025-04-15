@@ -13,6 +13,7 @@ use crate::general::bitboards::{Bitboard, KnownSizeBitboard, RawBitboard};
 use crate::general::board::{BitboardBoard, BoardHelpers};
 use crate::general::hq::ChessSliderGenerator;
 use crate::general::move_list::MoveList;
+use crate::general::moves::Move;
 use crate::general::squares::RectangularCoordinates;
 
 impl Chessboard {
@@ -77,6 +78,9 @@ impl Chessboard {
     }
 
     pub fn is_move_pseudolegal_impl(&self, mov: ChessMove) -> bool {
+        if mov.is_null() {
+            return false;
+        }
         let Ok(flags) = mov.untrusted_flags() else {
             return false;
         };
@@ -112,6 +116,9 @@ impl Chessboard {
     /// Unlike [`Self::is_move_pseudolegal`], this assumes that `mov` used to be pseudolegal in *some* arbitrary position.
     /// This means that checking pseudolegality is less expensive
     pub fn is_generated_move_pseudolegal_impl(&self, mov: ChessMove) -> bool {
+        if mov.is_null() {
+            return false;
+        }
         let us = self.active_player;
         let src = mov.src_square();
         let piece = mov.flags().piece_type();

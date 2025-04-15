@@ -1350,18 +1350,20 @@ impl MoveScorer<Chessboard, Caps> for CapsMoveScorer {
             // `else` ensures that tactical moves can't be killers
             KILLER_SCORE
         } else {
-            let countermove_score = if self.ply > 0 {
+            let mut countermove_score = 0;
+            if self.ply > 0 {
                 let prev_move = state.search_stack[self.ply - 1].last_tried_move();
-                state.countermove_hist.score(mov, prev_move, self.board.active_player())
-            } else {
-                0
-            };
-            let follow_up_score = if self.ply > 1 {
+                if !prev_move.is_null() {
+                    countermove_score = state.countermove_hist.score(mov, prev_move, self.board.active_player())
+                }
+            }
+            let mut follow_up_score = 0;
+            if self.ply > 1 {
                 let prev_move = state.search_stack[self.ply - 2].last_tried_move();
-                state.follow_up_move_hist.score(mov, prev_move, self.board.active_player())
-            } else {
-                0
-            };
+                if prev_move.is_null() {
+                    follow_up_score = state.follow_up_move_hist.score(mov, prev_move, self.board.active_player())
+                }
+            }
             MoveScore(state.history.get(mov, self.board.threats()) + countermove_score + follow_up_score / 2)
         }
     }

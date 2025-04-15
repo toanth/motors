@@ -103,12 +103,14 @@ impl ChessMove {
 
     #[inline]
     pub fn src_square(self) -> ChessSquare {
+        debug_assert!(!self.is_null());
         ChessSquare::from_bb_idx((self.0 & 0x3f) as usize)
     }
 
     #[inline]
     /// For a castle move, this always returns the rook square, which allows disambiguating Chess960 castling moves.
     pub fn dest_square(self) -> ChessSquare {
+        debug_assert!(!self.is_null());
         ChessSquare::from_bb_idx(((self.0 >> 6) & 0x3f) as usize)
     }
 
@@ -126,6 +128,7 @@ impl ChessMove {
     }
 
     pub fn piece(self, board: &Chessboard) -> ChessPiece {
+        debug_assert!(!self.is_null());
         let source = self.src_square();
         debug_assert!(board.is_occupied(source), "{}", self.compact_formatter(board));
         debug_assert!(board.active_player_bb().is_bit_set_at(source.bb_idx()), "{}", self.compact_formatter(board));
@@ -145,11 +148,8 @@ impl ChessMove {
     }
 
     pub fn piece_type(self) -> ChessPieceType {
+        debug_assert!(!self.is_null());
         self.flags().piece_type()
-    }
-
-    pub fn piece_type_on_target(self, board: &Chessboard) -> ChessPieceType {
-        board.piece_type_on(self.dest_square())
     }
 
     #[inline]
@@ -162,10 +162,12 @@ impl ChessMove {
     }
 
     pub fn is_non_ep_capture(self, board: &Chessboard) -> bool {
+        debug_assert!(!self.is_null());
         board.inactive_player_bb().is_bit_set_at(self.dest_square().bb_idx())
     }
 
     pub fn captured(self, board: &Chessboard) -> ChessPieceType {
+        debug_assert!(!self.is_null());
         if self.is_ep() {
             Pawn
         } else if self.is_castle() {
